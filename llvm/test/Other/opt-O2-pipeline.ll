@@ -27,6 +27,7 @@
 ; CHECK-NEXT:   ModulePass Manager
 ; CHECK-NEXT:     Force set function attributes
 ; CHECK-NEXT:     Infer set function attributes
+; CHECK-NEXT:     OpenMP specific optimizations
 ; CHECK-NEXT:     Interprocedural Sparse Conditional Constant Propagation
 ; CHECK-NEXT:       Unnamed pass: implement Pass::getPassName()
 ; CHECK-NEXT:     Called Value Propagation

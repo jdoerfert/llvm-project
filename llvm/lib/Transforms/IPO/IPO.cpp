@@ -35,6 +35,7 @@ void llvm::initializeIPO(PassRegistry &Registry) {
   initializeGlobalSplitPass(Registry);
   initializeHotColdSplittingLegacyPassPass(Registry);
   initializeIPCPPass(Registry);
+  initializeOpenMPOptLegacyPass(Registry);
   initializeAlwaysInlinerLegacyPassPass(Registry);
   initializeSimpleInlinerPass(Registry);
   initializeInferFunctionAttrsLegacyPassPass(Registry);

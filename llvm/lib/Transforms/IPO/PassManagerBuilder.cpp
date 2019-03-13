@@ -522,6 +522,10 @@ void PassManagerBuilder::populateModulePassManager(
   if (OptLevel > 2)
     MPM.add(createCallSiteSplittingPass());
 
+  // Try to perform OpenMP specific optimizations. This is a no-op if OpenMP
+  // runtime calls are not present in the module.
+  MPM.add(createOpenMPOptLegacyPass());
+
   MPM.add(createIPSCCPPass());          // IP SCCP
   MPM.add(createCalledValuePropagationPass());
   MPM.add(createGlobalOptimizerPass()); // Optimize out global vars

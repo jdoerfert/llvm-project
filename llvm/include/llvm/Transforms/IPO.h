@@ -157,6 +157,11 @@ Pass *createArgumentPromotionPass(unsigned maxElements = 3);
 ModulePass *createIPConstantPropagationPass();
 
 //===----------------------------------------------------------------------===//
+/// createOpenMPOpt - This pass performs OpenMP specific optimizations.
+///
+Pass *createOpenMPOptLegacyPass();
+
+//===----------------------------------------------------------------------===//
 /// createIPSCCPPass - This pass propagates constants from call sites into the
 /// bodies of functions, and keeps track of whether basic blocks are executable
 /// in the process.
