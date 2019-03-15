@@ -20,6 +20,7 @@
 #include "CGOpenCLRuntime.h"
 #include "CGOpenMPRuntime.h"
 #include "CGOpenMPRuntimeNVPTX.h"
+#include "CGOpenMPRuntimeTRegion.h"
 #include "CodeGenFunction.h"
 #include "CodeGenPGO.h"
 #include "ConstantEmitter.h"
@@ -66,6 +67,11 @@ using namespace CodeGen;
 static llvm::cl::opt<bool> LimitedCoverage(
     "limited-coverage-experimental", llvm::cl::ZeroOrMore, llvm::cl::Hidden,
     llvm::cl::desc("Emit limited coverage mapping information (experimental)"),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<bool> UseGenericTRegionInterface(
+    "openmp-tregion-runtime", llvm::cl::ZeroOrMore, llvm::cl::Hidden,
+    llvm::cl::desc("Use the generic target region OpenMP runtime interface"),
     llvm::cl::init(false));
 
 static const char AnnotationSection[] = "llvm.metadata";
@@ -207,7 +213,10 @@ void CodeGenModule::createOpenMPRuntime() {
   case llvm::Triple::nvptx64:
     assert(getLangOpts().OpenMPIsDevice &&
            "OpenMP NVPTX is only prepared to deal with device code.");
-    OpenMPRuntime.reset(new CGOpenMPRuntimeNVPTX(*this));
+    if (UseGenericTRegionInterface)
+      OpenMPRuntime.reset(new CGOpenMPRuntimeTRegion(*this));
+    else
+      OpenMPRuntime.reset(new CGOpenMPRuntimeNVPTX(*this));
     break;
   default:
     if (LangOpts.OpenMPSimd)

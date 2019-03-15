@@ -70,6 +70,7 @@ add_clang_library(clangCodeGen
   CGOpenMPRuntime.cpp
   CGOpenMPRuntimeNVPTX.cpp
   CGOpenMPRuntimeTarget.cpp
+  CGOpenMPRuntimeTRegion.cpp
   CGRecordLayoutBuilder.cpp
   CGStmt.cpp
   CGStmtOpenMP.cpp

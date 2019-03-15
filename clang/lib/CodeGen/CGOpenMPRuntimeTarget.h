@@ -25,11 +25,11 @@ struct CGOpenMPRuntimeTarget : public CGOpenMPRuntime {
   /// Defines the execution mode.
   enum ExecutionMode {
     /// SPMD execution mode (all threads are worker threads).
-    EM_SPMD,
+    EM_SPMD = 1,
     /// Non-SPMD execution mode (1 master thread, others are workers).
-    EM_NonSPMD,
+    EM_NonSPMD = 0,
     /// Unknown execution mode (orphaned directive).
-    EM_Unknown,
+    EM_Unknown = -1,
   };
 
   /// Return the execution mode, if not overloaded this is always Unknown.
