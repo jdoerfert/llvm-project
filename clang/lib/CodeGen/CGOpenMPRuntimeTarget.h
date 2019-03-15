@@ -38,6 +38,95 @@ struct CGOpenMPRuntimeTarget : public CGOpenMPRuntime {
   /// Return the value decleration encapsulated in the expression \p E.
   static const ValueDecl *getUnderlyingVar(const Expr *E);
 
+  enum OpenMPRTLTargetFunctions {
+    /// Call to void __kmpc_kernel_init(kmp_int32 thread_limit,
+    /// int16_t RequiresOMPRuntime);
+    OMPRTL_NVPTX__kmpc_kernel_init,
+    /// Call to void __kmpc_kernel_deinit(int16_t IsOMPRuntimeInitialized);
+    OMPRTL_NVPTX__kmpc_kernel_deinit,
+    /// Call to void __kmpc_spmd_kernel_init(kmp_int32 thread_limit,
+    /// int16_t RequiresOMPRuntime, int16_t RequiresDataSharing);
+    OMPRTL_NVPTX__kmpc_spmd_kernel_init,
+    /// Call to void __kmpc_spmd_kernel_deinit_v2(int16_t RequiresOMPRuntime);
+    OMPRTL_NVPTX__kmpc_spmd_kernel_deinit_v2,
+    /// Call to void __kmpc_kernel_prepare_parallel(void
+    /// *outlined_function, int16_t
+    /// IsOMPRuntimeInitialized);
+    OMPRTL_NVPTX__kmpc_kernel_prepare_parallel,
+    /// Call to bool __kmpc_kernel_parallel(void **outlined_function,
+    /// int16_t IsOMPRuntimeInitialized);
+    OMPRTL_NVPTX__kmpc_kernel_parallel,
+    /// Call to void __kmpc_kernel_end_parallel();
+    OMPRTL_NVPTX__kmpc_kernel_end_parallel,
+    /// Call to void __kmpc_serialized_parallel(ident_t *loc, kmp_int32
+    /// global_tid);
+    OMPRTL_NVPTX__kmpc_serialized_parallel,
+    /// Call to void __kmpc_end_serialized_parallel(ident_t *loc, kmp_int32
+    /// global_tid);
+    OMPRTL_NVPTX__kmpc_end_serialized_parallel,
+    /// Call to int32_t __kmpc_shuffle_int32(int32_t element,
+    /// int16_t lane_offset, int16_t warp_size);
+    OMPRTL_NVPTX__kmpc_shuffle_int32,
+    /// Call to int64_t __kmpc_shuffle_int64(int64_t element,
+    /// int16_t lane_offset, int16_t warp_size);
+    OMPRTL_NVPTX__kmpc_shuffle_int64,
+    /// Call to __kmpc_nvptx_parallel_reduce_nowait_v2(ident_t *loc, kmp_int32
+    /// global_tid, kmp_int32 num_vars, size_t reduce_size, void* reduce_data,
+    /// void (*kmp_ShuffleReductFctPtr)(void *rhsData, int16_t lane_id, int16_t
+    /// lane_offset, int16_t shortCircuit),
+    /// void (*kmp_InterWarpCopyFctPtr)(void* src, int32_t warp_num));
+    OMPRTL_NVPTX__kmpc_nvptx_parallel_reduce_nowait_v2,
+    /// Call to __kmpc_nvptx_teams_reduce_nowait_v2(ident_t *loc, kmp_int32
+    /// global_tid, void *global_buffer, int32_t num_of_records, void*
+    /// reduce_data,
+    /// void (*kmp_ShuffleReductFctPtr)(void *rhsData, int16_t lane_id, int16_t
+    /// lane_offset, int16_t shortCircuit),
+    /// void (*kmp_InterWarpCopyFctPtr)(void* src, int32_t warp_num), void
+    /// (*kmp_ListToGlobalCpyFctPtr)(void *buffer, int idx, void *reduce_data),
+    /// void (*kmp_GlobalToListCpyFctPtr)(void *buffer, int idx,
+    /// void *reduce_data), void (*kmp_GlobalToListCpyPtrsFctPtr)(void *buffer,
+    /// int idx, void *reduce_data), void (*kmp_GlobalToListRedFctPtr)(void
+    /// *buffer, int idx, void *reduce_data));
+    OMPRTL_NVPTX__kmpc_nvptx_teams_reduce_nowait_v2,
+    /// Call to __kmpc_nvptx_end_reduce_nowait(int32_t global_tid);
+    OMPRTL_NVPTX__kmpc_end_reduce_nowait,
+    /// Call to void __kmpc_data_sharing_init_stack();
+    OMPRTL_NVPTX__kmpc_data_sharing_init_stack,
+    /// Call to void __kmpc_data_sharing_init_stack_spmd();
+    OMPRTL_NVPTX__kmpc_data_sharing_init_stack_spmd,
+    /// Call to void* __kmpc_data_sharing_coalesced_push_stack(size_t size,
+    /// int16_t UseSharedMemory);
+    OMPRTL_NVPTX__kmpc_data_sharing_coalesced_push_stack,
+    /// Call to void __kmpc_data_sharing_pop_stack(void *a);
+    OMPRTL_NVPTX__kmpc_data_sharing_pop_stack,
+    /// Call to void __kmpc_begin_sharing_variables(void ***args,
+    /// size_t n_args);
+    OMPRTL_NVPTX__kmpc_begin_sharing_variables,
+    /// Call to void __kmpc_end_sharing_variables();
+    OMPRTL_NVPTX__kmpc_end_sharing_variables,
+    /// Call to void __kmpc_get_shared_variables(void ***GlobalArgs)
+    OMPRTL_NVPTX__kmpc_get_shared_variables,
+    /// Call to uint16_t __kmpc_parallel_level(ident_t *loc, kmp_int32
+    /// global_tid);
+    OMPRTL_NVPTX__kmpc_parallel_level,
+    /// Call to int8_t __kmpc_is_spmd_exec_mode();
+    OMPRTL_NVPTX__kmpc_is_spmd_exec_mode,
+    /// Call to void __kmpc_get_team_static_memory(int16_t isSPMDExecutionMode,
+    /// const void *buf, size_t size, int16_t is_shared, const void **res);
+    OMPRTL_NVPTX__kmpc_get_team_static_memory,
+    /// Call to void __kmpc_restore_team_static_memory(int16_t
+    /// isSPMDExecutionMode, int16_t is_shared);
+    OMPRTL_NVPTX__kmpc_restore_team_static_memory,
+    /// Call to void __kmpc_barrier(ident_t *loc, kmp_int32 global_tid);
+    OMPRTL__kmpc_barrier,
+    /// Call to void __kmpc_barrier_simple_spmd(ident_t *loc, kmp_int32
+    /// global_tid);
+    OMPRTL__kmpc_barrier_simple_spmd,
+  };
+
+  /// Returns the OpenMP runtime function identified by \p ID.
+  llvm::FunctionCallee createTargetRuntimeFunction(OpenMPRTLTargetFunctions ID);
+
   //
   // Base class overrides.
   //
