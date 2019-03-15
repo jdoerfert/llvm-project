@@ -14,24 +14,18 @@
 #ifndef LLVM_CLANG_LIB_CODEGEN_CGOPENMPRUNTIMENVPTX_H
 #define LLVM_CLANG_LIB_CODEGEN_CGOPENMPRUNTIMENVPTX_H
 
-#include "CGOpenMPRuntime.h"
+#include "CGOpenMPRuntimeTarget.h"
 #include "CodeGenFunction.h"
 #include "clang/AST/StmtOpenMP.h"
 
 namespace clang {
 namespace CodeGen {
 
-class CGOpenMPRuntimeNVPTX : public CGOpenMPRuntime {
+class CGOpenMPRuntimeNVPTX : public CGOpenMPRuntimeTarget {
 public:
   /// Defines the execution mode.
-  enum ExecutionMode {
-    /// SPMD execution mode (all threads are worker threads).
-    EM_SPMD,
-    /// Non-SPMD execution mode (1 master thread, others are workers).
-    EM_NonSPMD,
-    /// Unknown execution mode (orphaned directive).
-    EM_Unknown,
-  };
+  using ExecutionMode = CGOpenMPRuntimeTarget::ExecutionMode;
+
 private:
   /// Parallel outlined function work for workers to execute.
   llvm::SmallVector<llvm::Function *, 16> Work;
@@ -52,7 +46,7 @@ private:
     void createWorkerFunction(CodeGenModule &CGM);
   };
 
-  ExecutionMode getExecutionMode() const;
+  ExecutionMode getExecutionMode() const override;
 
   bool requiresFullRuntime() const { return RequiresFullRuntime; }
 
@@ -91,12 +85,6 @@ private:
   //
   // Base class overrides.
   //
-
-  /// Creates offloading entry for the provided entry ID \a ID,
-  /// address \a Addr, size \a Size, and flags \a Flags.
-  void createOffloadEntry(llvm::Constant *ID, llvm::Constant *Addr,
-                          uint64_t Size, int32_t Flags,
-                          llvm::GlobalValue::LinkageTypes Linkage) override;
 
   /// Emit outlined function specialized for the Fork-Join
   /// programming model for applicable target directives on the NVPTX device.
@@ -197,28 +185,6 @@ public:
   explicit CGOpenMPRuntimeNVPTX(CodeGenModule &CGM);
   void clear() override;
 
-  /// Emit call to void __kmpc_push_proc_bind(ident_t *loc, kmp_int32
-  /// global_tid, int proc_bind) to generate code for 'proc_bind' clause.
-  virtual void emitProcBindClause(CodeGenFunction &CGF,
-                                  OpenMPProcBindClauseKind ProcBind,
-                                  SourceLocation Loc) override;
-
-  /// Emits call to void __kmpc_push_num_threads(ident_t *loc, kmp_int32
-  /// global_tid, kmp_int32 num_threads) to generate code for 'num_threads'
-  /// clause.
-  /// \param NumThreads An integer value of threads.
-  virtual void emitNumThreadsClause(CodeGenFunction &CGF,
-                                    llvm::Value *NumThreads,
-                                    SourceLocation Loc) override;
-
-  /// This function ought to emit, in the general case, a call to
-  // the openmp runtime kmpc_push_num_teams. In NVPTX backend it is not needed
-  // as these numbers are obtained through the PTX grid and block configuration.
-  /// \param NumTeams An integer expression of teams.
-  /// \param ThreadLimit An integer expression of threads.
-  void emitNumTeamsClause(CodeGenFunction &CGF, const Expr *NumTeams,
-                          const Expr *ThreadLimit, SourceLocation Loc) override;
-
   /// Emits inlined function for the specified OpenMP parallel
   //  directive.
   /// \a D. This outlined function has type void(*)(kmp_int32 *ThreadID,
@@ -248,18 +214,6 @@ public:
                             const VarDecl *ThreadIDVar,
                             OpenMPDirectiveKind InnermostKind,
                             const RegionCodeGenTy &CodeGen) override;
-
-  /// Emits code for teams call of the \a OutlinedFn with
-  /// variables captured in a record which address is stored in \a
-  /// CapturedStruct.
-  /// \param OutlinedFn Outlined function to be run by team masters. Type of
-  /// this function is void(*)(kmp_int32 *, kmp_int32, struct context_vars*).
-  /// \param CapturedVars A pointer to the record with the references to
-  /// variables used in \a OutlinedFn function.
-  ///
-  void emitTeamsCall(CodeGenFunction &CGF, const OMPExecutableDirective &D,
-                     SourceLocation Loc, llvm::Function *OutlinedFn,
-                     ArrayRef<llvm::Value *> CapturedVars) override;
 
   /// Emits code for parallel or serial call of the \a OutlinedFn with
   /// variables captured in a record which address is stored in \a
@@ -371,23 +325,10 @@ public:
       const OMPLoopDirective &S, OpenMPDistScheduleClauseKind &ScheduleKind,
       llvm::Value *&Chunk) const override;
 
-  /// Choose a default value for the schedule clause.
-  void getDefaultScheduleAndChunk(CodeGenFunction &CGF,
-      const OMPLoopDirective &S, OpenMPScheduleClauseKind &ScheduleKind,
-      const Expr *&ChunkExpr) const override;
-
   /// Adjust some parameters for the target-based directives, like addresses of
   /// the variables captured by reference in lambdas.
   void adjustTargetSpecificDataForLambdas(
       CodeGenFunction &CGF, const OMPExecutableDirective &D) const override;
-
-  /// Perform check on requires decl to ensure that target architecture
-  /// supports unified addressing
-  void checkArchForUnifiedAddressing(const OMPRequiresDecl *D) const override;
-
-  /// Returns default address space for the constant firstprivates, __constant__
-  /// address space by default.
-  unsigned getDefaultFirstprivateAddressSpace() const override;
 
   /// Checks if the variable has associated OMPAllocateDeclAttr attribute with
   /// the predefined allocator and translates it into the corresponding address

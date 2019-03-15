@@ -199,28 +199,6 @@ enum MachineConfiguration : unsigned {
   SharedMemorySize = 128,
 };
 
-static const ValueDecl *getPrivateItem(const Expr *RefExpr) {
-  RefExpr = RefExpr->IgnoreParens();
-  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(RefExpr)) {
-    const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
-    while (const auto *TempASE = dyn_cast<ArraySubscriptExpr>(Base))
-      Base = TempASE->getBase()->IgnoreParenImpCasts();
-    RefExpr = Base;
-  } else if (auto *OASE = dyn_cast<OMPArraySectionExpr>(RefExpr)) {
-    const Expr *Base = OASE->getBase()->IgnoreParenImpCasts();
-    while (const auto *TempOASE = dyn_cast<OMPArraySectionExpr>(Base))
-      Base = TempOASE->getBase()->IgnoreParenImpCasts();
-    while (const auto *TempASE = dyn_cast<ArraySubscriptExpr>(Base))
-      Base = TempASE->getBase()->IgnoreParenImpCasts();
-    RefExpr = Base;
-  }
-  RefExpr = RefExpr->IgnoreParenImpCasts();
-  if (const auto *DE = dyn_cast<DeclRefExpr>(RefExpr))
-    return cast<ValueDecl>(DE->getDecl()->getCanonicalDecl());
-  const auto *ME = cast<MemberExpr>(RefExpr);
-  return cast<ValueDecl>(ME->getMemberDecl()->getCanonicalDecl());
-}
-
 typedef std::pair<CharUnits /*Align*/, const ValueDecl *> VarsDataTy;
 static bool stable_sort_comparator(const VarsDataTy P1, const VarsDataTy P2) {
   return P1.first > P2.first;
@@ -1859,28 +1837,6 @@ CGOpenMPRuntimeNVPTX::createNVPTXRuntimeFunction(unsigned Function) {
   return RTLFn;
 }
 
-void CGOpenMPRuntimeNVPTX::createOffloadEntry(llvm::Constant *ID,
-                                              llvm::Constant *Addr,
-                                              uint64_t Size, int32_t,
-                                              llvm::GlobalValue::LinkageTypes) {
-  // TODO: Add support for global variables on the device after declare target
-  // support.
-  if (!isa<llvm::Function>(Addr))
-    return;
-  llvm::Module &M = CGM.getModule();
-  llvm::LLVMContext &Ctx = CGM.getLLVMContext();
-
-  // Get "nvvm.annotations" metadata node
-  llvm::NamedMDNode *MD = M.getOrInsertNamedMetadata("nvvm.annotations");
-
-  llvm::Metadata *MDVals[] = {
-      llvm::ConstantAsMetadata::get(Addr), llvm::MDString::get(Ctx, "kernel"),
-      llvm::ConstantAsMetadata::get(
-          llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), 1))};
-  // Append metadata to nvvm.annotations
-  MD->addOperand(llvm::MDNode::get(Ctx, MDVals));
-}
-
 void CGOpenMPRuntimeNVPTX::emitTargetOutlinedFunction(
     const OMPExecutableDirective &D, StringRef ParentName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
@@ -1933,35 +1889,10 @@ unsigned CGOpenMPRuntimeNVPTX::getDefaultLocationReserved2Flags() const {
 }
 
 CGOpenMPRuntimeNVPTX::CGOpenMPRuntimeNVPTX(CodeGenModule &CGM)
-    : CGOpenMPRuntime(CGM, "_", "$") {
+    : CGOpenMPRuntimeTarget(CGM) {
   if (!CGM.getLangOpts().OpenMPIsDevice)
     llvm_unreachable("OpenMP NVPTX can only handle device code.");
 }
-
-void CGOpenMPRuntimeNVPTX::emitProcBindClause(CodeGenFunction &CGF,
-                                              OpenMPProcBindClauseKind ProcBind,
-                                              SourceLocation Loc) {
-  // Do nothing in case of SPMD mode and L0 parallel.
-  if (getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_SPMD)
-    return;
-
-  CGOpenMPRuntime::emitProcBindClause(CGF, ProcBind, Loc);
-}
-
-void CGOpenMPRuntimeNVPTX::emitNumThreadsClause(CodeGenFunction &CGF,
-                                                llvm::Value *NumThreads,
-                                                SourceLocation Loc) {
-  // Do nothing in case of SPMD mode and L0 parallel.
-  if (getExecutionMode() == CGOpenMPRuntimeNVPTX::EM_SPMD)
-    return;
-
-  CGOpenMPRuntime::emitNumThreadsClause(CGF, NumThreads, Loc);
-}
-
-void CGOpenMPRuntimeNVPTX::emitNumTeamsClause(CodeGenFunction &CGF,
-                                              const Expr *NumTeams,
-                                              const Expr *ThreadLimit,
-                                              SourceLocation Loc) {}
 
 llvm::Function *CGOpenMPRuntimeNVPTX::emitParallelOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
@@ -2024,7 +1955,7 @@ getDistributeLastprivateVars(ASTContext &Ctx, const OMPExecutableDirective &D,
     return;
   for (const auto *C : Dir->getClausesOfKind<OMPLastprivateClause>()) {
     for (const Expr *E : C->getVarRefs())
-      Vars.push_back(getPrivateItem(E));
+      Vars.push_back(CGOpenMPRuntimeTarget::getUnderlyingVar(E));
   }
 }
 
@@ -2036,7 +1967,7 @@ getTeamsReductionVars(ASTContext &Ctx, const OMPExecutableDirective &D,
          "expected teams directive.");
   for (const auto *C : D.getClausesOfKind<OMPReductionClause>()) {
     for (const Expr *E : C->privates())
-      Vars.push_back(getPrivateItem(E));
+      Vars.push_back(CGOpenMPRuntimeTarget::getUnderlyingVar(E));
   }
 }
 
@@ -2458,25 +2389,6 @@ void CGOpenMPRuntimeNVPTX::emitGenericVarsEpilog(CodeGenFunction &CGF,
       }
     }
   }
-}
-
-void CGOpenMPRuntimeNVPTX::emitTeamsCall(CodeGenFunction &CGF,
-                                         const OMPExecutableDirective &D,
-                                         SourceLocation Loc,
-                                         llvm::Function *OutlinedFn,
-                                         ArrayRef<llvm::Value *> CapturedVars) {
-  if (!CGF.HaveInsertPoint())
-    return;
-
-  Address ZeroAddr = CGF.CreateMemTemp(
-      CGF.getContext().getIntTypeForBitwidth(/*DestWidth=*/32, /*Signed=*/1),
-      /*Name*/ ".zero.addr");
-  CGF.InitTempAlloca(ZeroAddr, CGF.Builder.getInt32(/*C*/ 0));
-  llvm::SmallVector<llvm::Value *, 16> OutlinedFnArgs;
-  OutlinedFnArgs.push_back(emitThreadIDAddress(CGF, Loc).getPointer());
-  OutlinedFnArgs.push_back(ZeroAddr.getPointer());
-  OutlinedFnArgs.append(CapturedVars.begin(), CapturedVars.end());
-  emitOutlinedFunctionCall(CGF, Loc, OutlinedFn, OutlinedFnArgs);
 }
 
 void CGOpenMPRuntimeNVPTX::emitParallelCall(
@@ -4797,18 +4709,6 @@ void CGOpenMPRuntimeNVPTX::getDefaultDistScheduleAndChunk(
       CGF, S, ScheduleKind, Chunk);
 }
 
-void CGOpenMPRuntimeNVPTX::getDefaultScheduleAndChunk(
-    CodeGenFunction &CGF, const OMPLoopDirective &S,
-    OpenMPScheduleClauseKind &ScheduleKind,
-    const Expr *&ChunkExpr) const {
-  ScheduleKind = OMPC_SCHEDULE_static;
-  // Chunk size is 1 in this case.
-  llvm::APInt ChunkSize(32, 1);
-  ChunkExpr = IntegerLiteral::Create(CGF.getContext(), ChunkSize,
-      CGF.getContext().getIntTypeForBitwidth(32, /*Signed=*/0),
-      SourceLocation());
-}
-
 void CGOpenMPRuntimeNVPTX::adjustTargetSpecificDataForLambdas(
     CodeGenFunction &CGF, const OMPExecutableDirective &D) const {
   assert(isOpenMPTargetExecutionDirective(D.getDirectiveKind()) &&
@@ -4861,10 +4761,6 @@ void CGOpenMPRuntimeNVPTX::adjustTargetSpecificDataForLambdas(
   }
 }
 
-unsigned CGOpenMPRuntimeNVPTX::getDefaultFirstprivateAddressSpace() const {
-  return CGM.getContext().getTargetAddressSpace(LangAS::cuda_constant);
-}
-
 bool CGOpenMPRuntimeNVPTX::hasAllocateAttributeForGlobalVar(const VarDecl *VD,
                                                             LangAS &AS) {
   if (!VD || !VD->hasAttr<OMPAllocateDeclAttr>())
@@ -4909,56 +4805,6 @@ static CudaArch getCudaArch(CodeGenModule &CGM) {
     }
   }
   return CudaArch::UNKNOWN;
-}
-
-/// Check to see if target architecture supports unified addressing which is
-/// a restriction for OpenMP requires clause "unified_shared_memory".
-void CGOpenMPRuntimeNVPTX::checkArchForUnifiedAddressing(
-    const OMPRequiresDecl *D) const {
-  for (const OMPClause *Clause : D->clauselists()) {
-    if (Clause->getClauseKind() == OMPC_unified_shared_memory) {
-      switch (getCudaArch(CGM)) {
-      case CudaArch::SM_20:
-      case CudaArch::SM_21:
-      case CudaArch::SM_30:
-      case CudaArch::SM_32:
-      case CudaArch::SM_35:
-      case CudaArch::SM_37:
-      case CudaArch::SM_50:
-      case CudaArch::SM_52:
-      case CudaArch::SM_53:
-      case CudaArch::SM_60:
-      case CudaArch::SM_61:
-      case CudaArch::SM_62:
-        CGM.Error(Clause->getBeginLoc(),
-                  "Target architecture does not support unified addressing");
-        return;
-      case CudaArch::SM_70:
-      case CudaArch::SM_72:
-      case CudaArch::SM_75:
-      case CudaArch::GFX600:
-      case CudaArch::GFX601:
-      case CudaArch::GFX700:
-      case CudaArch::GFX701:
-      case CudaArch::GFX702:
-      case CudaArch::GFX703:
-      case CudaArch::GFX704:
-      case CudaArch::GFX801:
-      case CudaArch::GFX802:
-      case CudaArch::GFX803:
-      case CudaArch::GFX810:
-      case CudaArch::GFX900:
-      case CudaArch::GFX902:
-      case CudaArch::GFX904:
-      case CudaArch::GFX906:
-      case CudaArch::GFX909:
-      case CudaArch::UNKNOWN:
-        break;
-      case CudaArch::LAST:
-        llvm_unreachable("Unexpected Cuda arch.");
-      }
-    }
-  }
 }
 
 /// Get number of SMs and number of blocks per SM.
