@@ -27,9 +27,9 @@
 // region to synchronize with each other.
 #define L1_BARRIER (1)
 
-// Maximum number of preallocated arguments to an outlined parallel/simd function.
-// Anything more requires dynamic memory allocation.
-#define MAX_SHARED_ARGS 20
+// Maximum number of preallocated bytes that can be passed to an outlined
+// parallel/simd function before dynamic memory allocation is required.
+#define PRE_SHARED_BYTES 128
 
 // Maximum number of omp state objects per SM allocated statically in global
 // memory.

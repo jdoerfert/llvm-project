@@ -63,42 +63,87 @@
 #define __SYNCTHREADS_N(n) asm volatile("bar.sync %0;" : : "r"(n) : "memory");
 #define __SYNCTHREADS() __SYNCTHREADS_N(0)
 
+/// Helper structure to manage the memory shared by the threads in a team.
+///
+/// This buffer can manage two adjacent byte-wise objects by tracking the
+/// beginning of the second, as an offset, in addition to the beginning of the
+/// first, as a pointer.
+///
+/// Note: Only the team master is allowed to call non-const functions!
+struct shared_bytes_buffer {
+
+  INLINE void init() {
+    _ptr = &_data[0];
+    _size = PRE_SHARED_BYTES;
+    _offset = 0;
+  }
+
+  /// Release any dynamic allocated memory.
+  INLINE void release() {
+    if (_size != PRE_SHARED_BYTES)
+      SafeFree(_ptr, (char *)"free shared dynamic buffer");
+    // Always perform an init, it is cheap and required after a set call was
+    // performed during the last use of the buffer.
+    init();
+  }
+
+  INLINE void set(void *ptr, size_t offset) {
+    // Note that release will set _size to PRE_SHARED_BYTES, thereby avoiding
+    // the next release call from freeing the associated memory.
+    release();
+    _ptr = (char *)ptr;
+    _offset = offset;
+  }
+
+  INLINE void resize(size_t size, size_t offset) {
+    _offset = offset;
+
+    if (size <= _size)
+      return;
+
+    if (_size != PRE_SHARED_BYTES)
+      SafeFree(_ptr, (char *)"free shared dynamic buffer");
+
+    _size = size;
+    _ptr = (char *)SafeMalloc(_size, (char *)"new shared buffer");
+  }
+
+  // Called by all threads.
+  INLINE void *begin() const { return _ptr; };
+  INLINE size_t size() const { return _size; };
+  INLINE size_t get_offset() const { return _offset; };
+
+private:
+  // Pre-allocated space that holds PRE_SHARED_BYTES many bytes.
+  char _data[PRE_SHARED_BYTES];
+
+  // Pointer to the currently used buffer.
+  char *_ptr;
+
+  // Size of the currently used buffer.
+  uint32_t _size;
+
+  // Offset into the currently used buffer.
+  uint32_t _offset;
+};
+
+extern __device__ __shared__ shared_bytes_buffer _shared_bytes_buffer_memory;
+
 // arguments needed for L0 parallelism only.
+//
+// NOTE: Deprecated, use shared_byte_buffer instead.
 class omptarget_nvptx_SharedArgs {
 public:
   // All these methods must be called by the master thread only.
-  INLINE void Init() {
-    args  = buffer;
-    nArgs = MAX_SHARED_ARGS;
-  }
-  INLINE void DeInit() {
-    // Free any memory allocated for outlined parallel function with a large
-    // number of arguments.
-    if (nArgs > MAX_SHARED_ARGS) {
-      SafeFree(args, (char *)"new extended args");
-      Init();
-    }
-  }
+  INLINE void Init() { _shared_bytes_buffer_memory.init(); }
+  INLINE void DeInit() { _shared_bytes_buffer_memory.release(); }
   INLINE void EnsureSize(size_t size) {
-    if (size > nArgs) {
-      if (nArgs > MAX_SHARED_ARGS) {
-        SafeFree(args, (char *)"new extended args");
-      }
-      args = (void **) SafeMalloc(size * sizeof(void *),
-                                  (char *)"new extended args");
-      nArgs = size;
-    }
+    _shared_bytes_buffer_memory.resize(size * sizeof(void *), 0);
   }
   // Called by all threads.
-  INLINE void **GetArgs() const { return args; };
-private:
-  // buffer of pre-allocated arguments.
-  void *buffer[MAX_SHARED_ARGS];
-  // pointer to arguments buffer.
-  // starts off as a pointer to 'buffer' but can be dynamically allocated.
-  void **args;
-  // starts off as MAX_SHARED_ARGS but can increase in size.
-  uint32_t nArgs;
+  INLINE void **GetArgs() const {
+    return (void **)_shared_bytes_buffer_memory.begin();
+  };
 };
 
 extern __device__ __shared__ omptarget_nvptx_SharedArgs
