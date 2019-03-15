@@ -122,6 +122,35 @@ struct CGOpenMPRuntimeTarget : public CGOpenMPRuntime {
     /// Call to void __kmpc_barrier_simple_spmd(ident_t *loc, kmp_int32
     /// global_tid);
     OMPRTL__kmpc_barrier_simple_spmd,
+
+    /// Target Region (TREgion) Kernel interface
+    ///
+    ///{
+
+    /// char __kmpc_target_region_kernel_init(ident_t *Ident,
+    ///                                       bool UseSPMDMode,
+    ///                                       bool UseStateMachine,
+    ///                                       bool RequiresOMPRuntime,
+    ///                                       bool RequiresDataSharing);
+    OMPRTL__kmpc_target_region_kernel_init,
+
+    /// void __kmpc_target_region_kernel_deinit(ident_t *Ident,
+    ///                                         bool UseSPMDMode,
+    ///                                         bool RequiredOMPRuntime);
+    OMPRTL__kmpc_target_region_kernel_deinit,
+
+    /// void __kmpc_target_region_kernel_parallel(ident_t *Ident,
+    ///                                           uint16_t UseSPMDMode,
+    ///                                           bool RequiredOMPRuntime,
+    ///                                           ParallelWorkFnTy WorkFn,
+    ///                                           void *SharedVars,
+    ///                                           uint16_t SharedVarsBytes,
+    ///                                           void *PrivateVars,
+    ///                                           uint16_t PrivateVarsBytes,
+    ///                                           bool SharedPointers);
+    OMPRTL__kmpc_target_region_kernel_parallel,
+
+    ///}
   };
 
   /// Returns the OpenMP runtime function identified by \p ID.
