@@ -1,5 +1,5 @@
-; RUN: opt -basicaa -functionattrs -S < %s | FileCheck %s
-; RUN: opt -aa-pipeline=basic-aa -passes=function-attrs -S < %s | FileCheck %s
+; RUN: opt -basicaa -attributor -attributor-disable=false -functionattrs -S < %s | FileCheck %s
+; RUN: opt -aa-pipeline=basic-aa -passes='attributor,cgscc(function-attrs)' -attributor-disable=false -S < %s | FileCheck %s
 
 ; Atomic load/store to local doesn't affect whether a function is
 ; readnone/readonly.

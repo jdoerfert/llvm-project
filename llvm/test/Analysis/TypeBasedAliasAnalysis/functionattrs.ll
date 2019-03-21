@@ -1,4 +1,4 @@
-; RUN: opt < %s -tbaa -basicaa -functionattrs -S | FileCheck %s
+; RUN: opt < %s -tbaa -basicaa -attributor -attributor-disable=false -functionattrs -S | FileCheck %s
 
 ; FunctionAttrs should make use of TBAA.
 
@@ -43,13 +43,13 @@ define void @test1_no(i32* %p) nounwind {
 ; This is unusual, since the function is memcpy, but as above, this
 ; isn't necessarily invalid.
 
-; CHECK: define void @test2_yes(i8* nocapture %p, i8* nocapture %q, i64 %n) #4 {
+; CHECK: define void @test2_yes(i8* nocapture %p, i8* nocapture %q, i64 %n) #0 {
 define void @test2_yes(i8* %p, i8* %q, i64 %n) nounwind {
   call void @llvm.memcpy.p0i8.p0i8.i64(i8* %p, i8* %q, i64 %n, i1 false), !tbaa !1
   ret void
 }
 
-; CHECK: define void @test2_no(i8* nocapture %p, i8* nocapture readonly %q, i64 %n) #3 {
+; CHECK: define void @test2_no(i8* nocapture %p, i8* nocapture readonly %q, i64 %n) #4 {
 define void @test2_no(i8* %p, i8* %q, i64 %n) nounwind {
   call void @llvm.memcpy.p0i8.p0i8.i64(i8* %p, i8* %q, i64 %n, i1 false), !tbaa !2
   ret void
@@ -63,7 +63,7 @@ define i32 @test3_yes(i8* %p) nounwind {
   ret i32 %t
 }
 
-; CHECK: define i32 @test3_no(i8* nocapture %p) #5 {
+; CHECK: define i32 @test3_no(i8* nocapture %p) #4 {
 define i32 @test3_no(i8* %p) nounwind {
   %t = va_arg i8* %p, i32, !tbaa !2
   ret i32 %t

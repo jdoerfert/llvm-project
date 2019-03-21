@@ -1,5 +1,5 @@
-; RUN: opt < %s -functionattrs -S | FileCheck %s
-; RUN: opt < %s -passes=function-attrs -S | FileCheck %s
+; RUN: opt < %s -attributor -attributor-disable=false -functionattrs -S | FileCheck %s
+; RUN: opt < %s -passes='attributor,cgscc(function-attrs)' -attributor-disable=false -S | FileCheck %s
 ; PR8279
 
 @g = constant i32 1

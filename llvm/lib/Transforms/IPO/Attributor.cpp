@@ -63,6 +63,8 @@ STATISTIC(NumFnArgumentNonNull, "Number of function arguments marked nonnull");
 STATISTIC(NumCSArgumentNonNull, "Number of call site arguments marked nonnull");
 STATISTIC(NumFnWillReturn, "Number of functions marked willreturn");
 
+STATISTIC(NumFnNoRecurse, "Number of functions marked norecurse");
+
 // TODO: Determine a good default value.
 //
 // In the LLVM-TS and SPEC2006, 32 seems to not induce compile time overheads
@@ -143,6 +145,9 @@ static void bookkeeping(AbstractAttribute::ManifestPosition MP,
   case Attribute::WillReturn:
     NumFnWillReturn++;
     break;
+  case Attribute::NoRecurse:
+    NumFnNoRecurse++;
+    return;
   default:
     return;
   }
@@ -1321,6 +1326,69 @@ ChangeStatus AAWillReturnFunction::updateImpl(Attributor &A) {
   return ChangeStatus::UNCHANGED;
 }
 
+/// ------------------------ No-Recurse Attributes ----------------------------
+
+struct AANoRecurseFunction : public AbstractAttribute, BooleanState {
+
+  /// See AbstractAttribute::AbstractAttribute(...).
+  AANoRecurseFunction(Function &F, InformationCache &InfoCache)
+      : AbstractAttribute(F, InfoCache) {}
+
+  /// See AbstractAttribute::getState()
+  ///{
+  AbstractState &getState() override { return *this; }
+  const AbstractState &getState() const override { return *this; }
+  ///}
+
+  /// See AbstractAttribute::getManifestPosition().
+  virtual ManifestPosition getManifestPosition() const override {
+    return MP_FUNCTION;
+  }
+
+  /// See AbstractAttribute::updateImpl(...).
+  virtual ChangeStatus updateImpl(Attributor &A) override;
+
+  /// See AbstractState::getAsStr().
+  const std::string getAsStr() const override {
+    return getAssumed() ? "norecurse" : "may-recurse";
+  }
+
+  /// See AbstractAttribute::getAttrKind()
+  virtual Attribute::AttrKind getAttrKind() const override { return ID; }
+
+  /// The identifier used by the Attributor for this class of attributes.
+  static constexpr Attribute::AttrKind ID = Attribute::NoRecurse;
+};
+
+ChangeStatus AANoRecurseFunction::updateImpl(Attributor &A) {
+  Function &Fn = getAnchorScope();
+
+  // The map from instruction opcodes to those instructions in the function.
+  auto &OpcodeInstMap = InfoCache.getOpcodeInstMapForFunction(Fn);
+
+  // Check all "call-like" opcodes. If any call site was found without the
+  // no-recurse attribute, assume recursion through that call site.
+  for (unsigned Opcode :
+       {(unsigned)Instruction::Invoke, (unsigned)Instruction::CallBr,
+        (unsigned)Instruction::Call}) {
+      ImmutableCallSite ICS(I);
+      assert(ICS && "Found an instruction with call base opcode that did not "
+                    "result in a call site");
+
+      if (ICS.hasFnAttr(getAttrKind()))
+        continue;
+
+      indicatePessimisticFixpoint();
+      return ChangeStatus::CHANGED;
+    }
+  }
+
+  // This attribute does not rely on other attributes as of now. Consequently,
+  // there is no need to update the state again.
+  indicateOptimisticFixpoint();
+  return ChangeStatus::UNCHANGED;
+}
+
 /// ----------------------------------------------------------------------------
 ///                               Attributor
 /// ----------------------------------------------------------------------------
@@ -1637,6 +1705,9 @@ void Attributor::identifyDefaultAbstractAttributes(
   // Every function might be "will-return".
   registerAA(*new AAWillReturnFunction(F, InfoCache));
 
+  // Every function might be "no-recurse".
+  registerAA(*new AANoRecurseFunction(F, InfoCache));
+
   // Walk all instructions to find more attribute opportunities and also
   // interesting instructions that might be queried by abstract attributes
   // during their initialization or update.
@@ -1653,9 +1724,15 @@ void Attributor::identifyDefaultAbstractAttributes(
     // Note: There are no concrete attributes now so this is initially empty.
     switch (I.getOpcode()) {
     default:
+      // The below list of "call-like" opcodes has to be kept in sync with
+      // CallBase/CallSite and with the abstract attributes using the
+      // "Attributor::getOpcodeInstMapForFunction(...)" functionality. To verify
+      // at least the former property we provide an assertion here that should
+      // immediatly fire once the below list of switch cases is out of sync with
+      // the call site/base implementation.
       assert((!ImmutableCallSite(&I)) && (!isa<CallBase>(&I)) &&
-             "New call site/base instruction type needs to be known int the "
-             "attributor.");
+             "New call site/base instruction type needs to be known in the "
+             "Attributor!");
       break;
     case Instruction::Call:
     case Instruction::CallBr:

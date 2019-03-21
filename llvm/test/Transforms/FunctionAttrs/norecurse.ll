@@ -1,5 +1,5 @@
-; RUN: opt < %s -basicaa -functionattrs -rpo-functionattrs -S | FileCheck %s
-; RUN: opt < %s -aa-pipeline=basic-aa -passes='cgscc(function-attrs),rpo-functionattrs' -S | FileCheck %s
+; RUN: opt < %s -basicaa -attributor -attributor-disable=false -functionattrs -rpo-functionattrs -S | FileCheck %s
+; RUN: opt < %s -aa-pipeline=basic-aa -passes='attributor,cgscc(function-attrs),rpo-functionattrs' -attributor-disable=false -S | FileCheck %s
 
 ; CHECK: Function Attrs
 ; CHECK-SAME: norecurse nounwind readnone
@@ -81,11 +81,50 @@ define internal i32 @called_by_norecurse_indirectly() {
   %a = call i32 @k()
   ret i32 %a
 }
+; CHECK: Function Attrs:
+; CHECK-NEXT: define internal void @o
 define internal void @o() {
   %a = call i32 @called_by_norecurse_indirectly()
   ret void
 }
+; CHECK: Function Attrs:
+; CHECK-NEXT: define void @p
 define void @p() norecurse {
   call void @o()
+  ret void
+}
+
+; PR41336
+; CHECK: Function Attrs:
+; CHECK-NOT: norecurse
+; CHECK-NEXT: define linkonce_odr i32 @leaf_redefinable()
+define linkonce_odr i32 @leaf_redefinable() readnone {
+  ret i32 1
+}
+
+; CHECK: Function Attrs:
+; CHECK-NOT: norecurse
+; CHECK-NEXT: define void @f(i32 %x)
+define void @f(i32 %x)  {
+entry:
+  %x.addr = alloca i32, align 4
+  store i32 %x, i32* %x.addr, align 4
+  %0 = load i32, i32* %x.addr, align 4
+  %tobool = icmp ne i32 %0, 0
+  br i1 %tobool, label %if.then, label %if.end
+
+if.then:
+  call void @g() norecurse
+  br label %if.end
+
+if.end:
+  ret void
+}
+
+; CHECK: Function Attrs:
+; CHECK-NEXT: define void @g
+define void @g() norecurse {
+entry:
+  call void @f(i32 0)
   ret void
 }
