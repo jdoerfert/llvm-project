@@ -1,5 +1,5 @@
-; RUN: opt -functionattrs -enable-nonnull-arg-prop -attributor -attributor-disable=false -S < %s | FileCheck %s
-; RUN: opt -functionattrs -enable-nonnull-arg-prop -attributor -attributor-disable=false -attributor-verify=true -S < %s | FileCheck %s
+; RUN: opt -attributor -functionattrs -enable-nonnull-arg-prop -attributor-disable=false -S < %s | FileCheck %s
+; RUN: opt -attributor -functionattrs -enable-nonnull-arg-prop -attributor-disable=false -attributor-verify=true -S < %s | FileCheck %s
 ;
 ; This is an evolved example to stress test SCC parameter attribute propagation.
 ; The SCC in this test is made up of the following six function, three of which
@@ -18,20 +18,23 @@
 ; as well as how the parameters are (transitively) used (n = readnone,
 ; r = readonly, w = writeonly).
 ;
-; What we should see is something along the lines of:
-;   1 - Number of functions marked as norecurse
-;   6 - Number of functions marked argmemonly
-;   6 - Number of functions marked as nounwind
-;  16 - Number of arguments marked nocapture
-;   4 - Number of arguments marked readnone
-;   6 - Number of arguments marked writeonly
-;   6 - Number of arguments marked readonly
-;   6 - Number of arguments marked returned
+; What we should get is something along the lines of:
+;   1 functionattrs - Number of functions marked as norecurse
+;   6 functionattrs - Number of functions marked argmemonly
+;   6 functionattrs - Number of functions marked as nounwind
+;  10 functionattrs - Number of arguments marked nocapture
+;   6 functionattrs - Number of arguments marked nocapture-maybe-returned
+;   4 functionattrs - Number of arguments marked readnone
+;   6 functionattrs - Number of arguments marked writeonly
+;   6 functionattrs - Number of arguments marked readonly
+;   6 functionattrs - Number of arguments marked returned
+;  --
+;  51
 ;
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 
-; CHECK: Function Attrs: nofree nosync nounwind
-; CHECK-NEXT: define i32* @external_ret2_nrw(i32* %n0, i32* %r0, i32* returned %w0)
+; CHECK: Function Attrs: nofree nounwind
+; CHECK-NEXT: define i32* @external_ret2_nrw(i32* nocapture nonnull %n0, i32* nocapture %r0, i32* returned "no-capture-maybe-returned" %w0)
 define i32* @external_ret2_nrw(i32* %n0, i32* %r0, i32* %w0) {
 entry:
   %call = call i32* @internal_ret0_nw(i32* %n0, i32* %w0)
@@ -41,9 +44,9 @@ entry:
   ret i32* %call3
 }
 
-; CHECK: Function Attrs: nofree nosync nounwind
-; CHECK-NEXT: define internal i32* @internal_ret0_nw(i32* returned %n0, i32* %w0)
-define internal i32* @internal_ret0_nw(i32* %n0, i32* %w0) {
+; CHECK: Function Attrs: nofree nounwind
+; CHECK-NEXT: define internal nonnull i32* @internal_ret0_nw(i32* returned dereferenceable(1) "no-capture-maybe-returned" %n0, i32* nocapture %w0)
+define internal i32* @internal_ret0_nw(i32* dereferenceable(1) %n0, i32* %w0) {
 entry:
   %r0 = alloca i32, align 4
   %r1 = alloca i32, align 4
@@ -70,8 +73,8 @@ return:                                           ; preds = %if.end, %if.then
   ret i32* %retval.0
 }
 
-; CHECK: Function Attrs: nofree nosync nounwind
-; CHECK-NEXT: define internal i32* @internal_ret1_rrw(i32* %r0, i32* returned %r1, i32* %w0)
+; CHECK: Function Attrs: nofree nounwind
+; CHECK-NEXT: define internal i32* @internal_ret1_rrw(i32* nocapture %r0, i32* returned "no-capture-maybe-returned" %r1, i32* nocapture %w0)
 define internal i32* @internal_ret1_rrw(i32* %r0, i32* %r1, i32* %w0) {
 entry:
   %0 = load i32, i32* %r0, align 4
@@ -102,9 +105,9 @@ return:                                           ; preds = %if.end, %if.then
   ret i32* %retval.0
 }
 
-; CHECK: Function Attrs: nofree norecurse nosync nounwind
-; CHECK-NEXT: define i32* @external_sink_ret2_nrw(i32* readnone %n0, i32* nocapture readonly %r0, i32* returned %w0)
-define i32* @external_sink_ret2_nrw(i32* %n0, i32* %r0, i32* %w0) {
+; CHECK: Function Attrs: nofree norecurse nounwind
+; CHECK-NEXT: define i32* @external_sink_ret2_nrw(i32* nocapture readnone dereferenceable(1) %n0, i32* nocapture readonly %r0, i32* returned "no-capture-maybe-returned" %w0)
+define i32* @external_sink_ret2_nrw(i32* dereferenceable(1) %n0, i32* %r0, i32* %w0) {
 entry:
   %tobool = icmp ne i32* %n0, null
   br i1 %tobool, label %if.end, label %if.then
@@ -121,9 +124,9 @@ return:                                           ; preds = %if.end, %if.then
   ret i32* %w0
 }
 
-; CHECK: Function Attrs: nofree nosync nounwind
-; CHECK-NEXT: define internal i32* @internal_ret1_rw(i32* %r0, i32* returned %w0)
-define internal i32* @internal_ret1_rw(i32* %r0, i32* %w0) {
+; CHECK: Function Attrs: nofree nounwind
+; CHECK-NEXT: define internal i32* @internal_ret1_rw(i32* nocapture dereferenceable(1) %r0, i32* returned "no-capture-maybe-returned" %w0)
+define internal i32* @internal_ret1_rw(i32* dereferenceable(1) %r0, i32* %w0) {
 entry:
   %0 = load i32, i32* %r0, align 4
   %tobool = icmp ne i32 %0, 0
@@ -147,8 +150,8 @@ return:                                           ; preds = %if.end, %if.then
   ret i32* %retval.0
 }
 
-; CHECK: Function Attrs: nofree nosync nounwind
-; CHECK-NEXT: define i32* @external_source_ret2_nrw(i32* %n0, i32* %r0, i32* returned %w0)
+; CHECK: Function Attrs: nofree nounwind
+; CHECK-NEXT: define i32* @external_source_ret2_nrw(i32* nocapture nonnull %n0, i32* nocapture %r0, i32* returned "no-capture-maybe-returned" %w0)
 define i32* @external_source_ret2_nrw(i32* %n0, i32* %r0, i32* %w0) {
 entry:
   %call = call i32* @external_sink_ret2_nrw(i32* %n0, i32* %r0, i32* %w0)

@@ -76,6 +76,9 @@ STATISTIC(NumFnReturnedAlign, "Number of function return values marked align");
 STATISTIC(NumFnArgumentAlign, "Number of function arguments marked align");
 STATISTIC(NumCSArgumentAlign, "Number of call site arguments marked align");
 
+STATISTIC(NumFnArgumentNoCapture,
+          "Number of function arguments marked no-capture");
+
 // TODO: Determine a good default value.
 //
 // In the LLVM-TS and SPEC2006, 32 seems to not induce compile time overheads
@@ -180,6 +183,9 @@ static void bookkeeping(AbstractAttribute::ManifestPosition MP,
     break;
   case Attribute::NoAlias:
     NumFnArgumentNoAlias++;
+    return;
+  case Attribute::NoCapture:
+    NumFnArgumentNoCapture++;
     return;
   default:
     return;
@@ -849,8 +855,6 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
 
   return Changed;
 }
-
-/// ------------------------ NoSync Function Attribute -------------------------
 
 struct AANoSyncFunction : AANoSync, BooleanState {
 
@@ -2303,6 +2307,342 @@ ChangeStatus AAAlignCallSiteArgument::updateImpl(Attributor &A) {
 
   return BeforeState == getAssumed() ? ChangeStatus::UNCHANGED
                                      : ChangeStatus::CHANGED;
+}
+
+/// ----------------------- Variable Capturing ---------------------------------
+
+/// A class to hold the state of for no-capture attributes.
+struct AANoCaptureImpl : public AANoCapture, IntegerState {
+
+  /// State encoding bits. A set bit in the state means the property holds.
+  /// NO_CAPTURE is the best possible state, 0 the worst possible state.
+  enum {
+    NOT_CAPTURED_IN_MEM = 1 << 0,
+    NOT_CAPTURED_IN_INT = 1 << 1,
+    NOT_CAPTURED_IN_RET = 1 << 2,
+
+    /// If we do not capture the value in memory or through integers we can only
+    /// communicate it back as a derived pointer.
+    NO_CAPTURE_MAYBE_RETURNED = NOT_CAPTURED_IN_MEM | NOT_CAPTURED_IN_INT,
+
+    /// If we do not capture the value in memory, through integers, or as a
+    /// derived pointer we know it is not captured.
+    NO_CAPTURE =
+        NOT_CAPTURED_IN_MEM | NOT_CAPTURED_IN_INT | NOT_CAPTURED_IN_RET,
+  };
+
+  /// Constructor that takes the value this attribute is associated with (\p V)
+  /// as well as the function this attribute is related to.
+  AANoCaptureImpl(Value &V, InformationCache &InfoCache)
+      : AANoCapture(V, InfoCache), IntegerState(NO_CAPTURE) {
+    assert(getAssumed() == NO_CAPTURE);
+  }
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    Value &V = *getAssociatedValue();
+
+    // If the value in questions is unused it is not captured.
+    if (V.getNumUses() == 0) {
+      indicateOptimisticFixpoint();
+      return;
+    }
+
+    // Check what state the enclosing function can actually capture state.
+    Function &F = getAnchorScope();
+    determineFunctionCaptureCapabilities(F, *this);
+  }
+
+  /// See AANoCapture::isKnownNoCapture().
+  bool isKnownNoCapture() const override { return getKnown() == NO_CAPTURE; }
+
+  /// See AANoCapture::isAssumedNoCapture(...).
+  bool isAssumedNoCapture() const override { return isAssumed(NO_CAPTURE); }
+
+  /// See AANoCapture::isKnownNoCaptureMaybeReturned(...).
+  bool isKnownNoCaptureMaybeReturned() const override {
+    return isKnown(NO_CAPTURE_MAYBE_RETURNED);
+  }
+
+  /// See AANoCapture::isAssumedNoCaptureMaybeReturned(...).
+  bool isAssumedNoCaptureMaybeReturned() const override {
+    return isAssumed(NO_CAPTURE_MAYBE_RETURNED);
+  }
+
+  /// see AbstractAttribute::isAssumedNoCaptureMaybeReturned(...).
+  virtual void
+  getDeducedAttributes(SmallVectorImpl<Attribute> &Attrs) const override {
+    if (!isAssumedNoCaptureMaybeReturned())
+      return;
+
+    LLVMContext &Ctx = AnchoredVal.getContext();
+    if (isAssumedNoCapture())
+      Attrs.emplace_back(Attribute::get(Ctx, Attribute::NoCapture));
+    else
+      Attrs.emplace_back(Attribute::get(Ctx, "no-capture-maybe-returned"));
+  }
+
+  /// Set the NOT_CAPTURED_IN_MEM and NOT_CAPTURED_IN_RET bits in \p Known
+  /// depending on the ability of the function \p F to capture state in memory
+  /// and through "returning/throwing", respectively.
+  static void determineFunctionCaptureCapabilities(Function &F,
+                                                   IntegerState &State) {
+    // TODO: Once we have memory behavior attributes we should use them here.
+
+    // If we know we cannot communicate or write to memory, we do not care about
+    // ptr2int anymore.
+    if (F.onlyReadsMemory() && F.doesNotThrow() &&
+        F.getReturnType()->isVoidTy()) {
+      State.addKnownBits(NO_CAPTURE);
+      return;
+    }
+
+    // A function cannot capture state in memory if it only reads memory.
+    if (F.onlyReadsMemory())
+      State.addKnownBits(NOT_CAPTURED_IN_MEM);
+
+    // A function cannot communicate state back if it does not through
+    // exceptions and doesn not return values.
+    if (F.doesNotThrow() && F.getReturnType()->isVoidTy())
+      State.addKnownBits(NOT_CAPTURED_IN_RET);
+  }
+
+  /// See AbstractAttribute::getState()
+  ///{
+  AbstractState &getState() override { return *this; }
+  const AbstractState &getState() const override { return *this; }
+  ///}
+
+  /// See AbstractState::getAsStr().
+  const std::string getAsStr() const override {
+    if (isKnownNoCapture())
+      return "known not-captured";
+    if (isAssumedNoCapture())
+      return "assumed not-captured";
+    if (isKnownNoCaptureMaybeReturned())
+      return "known not-captured-maybe-returned";
+    if (isAssumedNoCaptureMaybeReturned())
+      return "assumed not-captured-maybe-returned";
+    return "assumed-captured";
+  }
+};
+
+/// Attributor-aware capture tracker.
+struct AACaptureUseTracker final : public CaptureTracker {
+
+  /// Create a capture tracker that can lookup in-flight abstract attributes
+  /// through the attributor \p A.
+  ///
+  /// If a use leads to a potential capture, \p CapturedInMemory is set and the
+  /// search is stopped. If a use leads to a return instruction,
+  /// \p CommunicatedBack is set to true and \p CapturedInMemory is not changed.
+  /// If a use leads to a ptr2int which may capute the value,
+  /// \p CapturedInInteger is set. If a use is found that is currently assumed
+  /// "no-capture-maybe-returned", the user is added to the \p PotentialCopies
+  /// set. All values in \p PotentialCopies are later tracked aswell. For every
+  /// explored use we decrement \p RemainingUsesToExplore. Once it reaches 0,
+  /// the search is stopped with \p CapturedInMemory and \p CapturedInInteger
+  /// conservatively set to true.
+  AACaptureUseTracker(Attributor &A, AANoCapture &NoCaptureAA,
+                      IntegerState &State,
+                      SmallVectorImpl<Value *> &PotentialCopies,
+                      unsigned &RemainingUsesToExplore)
+      : A(A), NoCaptureAA(NoCaptureAA), State(State),
+        PotentialCopies(PotentialCopies),
+        RemainingUsesToExplore(RemainingUsesToExplore) {}
+
+  /// Determine if \p V maybe captured. *Also updates the state!*
+  bool valueMayBeCaptured(const Value *V) {
+    if (V->getType()->isPointerTy()) {
+      PointerMayBeCaptured(V, this);
+    } else if (isa<InvokeInst>(V) || V->getNumUses() > 0)
+      State.removeAssumedBits(AANoCaptureImpl::NOT_CAPTURED_IN_INT);
+    return State.isAssumed(AANoCaptureImpl::NO_CAPTURE_MAYBE_RETURNED);
+  }
+
+  /// See CaptureTracker::tooManyUses().
+  void tooManyUses() override {
+    State.removeAssumedBits(AANoCaptureImpl::NO_CAPTURE);
+  }
+
+  /// See CaptureTracker::captured(...).
+  bool captured(const Use *U) override {
+    LLVM_DEBUG(errs() << "Check use: " << *U->get() << " in " << *U->getUser()
+                      << "\n");
+
+    // Because we may reuse the tracker multiple times we keep track of the
+    // number of explored uses ourselves as well.
+    if (RemainingUsesToExplore-- == 0) {
+      LLVM_DEBUG(errs() << " - too many uses to explore\n");
+      return isCapturedIn(/* Memory */ true, /* Integer */ true,
+                          /* Return */ true);
+    }
+
+    // Deal with ptr2int by following uses.
+    if (isa<PtrToIntInst>(U->getUser())) {
+      LLVM_DEBUG(errs() << " - delegate to ptr2int users!\n");
+      return valueMayBeCaptured(U->getUser());
+    }
+
+    // Explicitly catch return instructions.
+    if (isa<ReturnInst>(U->getUser()))
+      return isCapturedIn(/* Memory */ false, /* Integer */ false,
+                          /* Return */ true);
+
+    // For now we only use special logic for call sites. However, the tracker
+    // itself knows about a lot of other non-capturing cases already.
+    CallSite CS(U->getUser());
+    if (!CS || !CS.isArgOperand(U))
+      return isCapturedIn(/* Memory */ true, /* Integer */ true,
+                          /* Return */ true);
+
+    // If we do not know the called function we have to assume the use captures.
+    if (!CS.getCalledFunction())
+      return isCapturedIn(/* Memory */ true, /* Integer */ true,
+                          /* Return */ true);
+
+    // If the called function cannot capture state, nothing is captured.
+    Function &F = *CS.getCalledFunction();
+
+    // Check what we know about the callee already from the IR. If that suffices
+    // to justify no-caputre(-in-memory) we take it. Note that a similar
+    // reasoning is applied for assumed capture capabilities but implicitly
+    // through the recursive use of a AANoCapture attribute below.
+    IntegerState KnownCaptureInfo;
+    AANoCaptureImpl::determineFunctionCaptureCapabilities(F, KnownCaptureInfo);
+    if (KnownCaptureInfo.isKnown(AANoCaptureImpl::NO_CAPTURE))
+      return isCapturedIn(/* Memory */ false, /* Integer */ false,
+                          /* Return */ false);
+    if (KnownCaptureInfo.isKnown(AANoCaptureImpl::NO_CAPTURE_MAYBE_RETURNED)) {
+      addPotentialCopyIfNecessary(CS);
+      return isCapturedIn(/* Memory */ false, /* Integer */ false,
+                          /* Return */ false);
+    }
+
+    unsigned ArgNo = CS.getArgumentNo(U);
+    // Exclude var-arg arguments.
+    if (F.arg_size() > ArgNo) {
+      // If we have a abstract no-capture attribute for the argument we can use
+      // it to justify a non-capture attribute here. This allows recursion!
+      auto *ArgNoCaptureAA = A.getAAFor<AANoCapture>(NoCaptureAA, F, ArgNo);
+      if (ArgNoCaptureAA && ArgNoCaptureAA->getState().isValidState()) {
+        if (ArgNoCaptureAA->isAssumedNoCapture())
+          return isCapturedIn(/* Memory */ false, /* Integer */ false,
+                              /* Return */ false);
+        if (ArgNoCaptureAA->isAssumedNoCaptureMaybeReturned()) {
+          addPotentialCopyIfNecessary(CS);
+          return isCapturedIn(/* Memory */ false, /* Integer */ false,
+                              /* Return */ false);
+        }
+      }
+
+      // Check for an existing attribute to justify no-capture for this use.
+      if (F.getAttributes().hasParamAttr(ArgNo, "no-capture-maybe-returned")) {
+        addPotentialCopyIfNecessary(CS);
+        return isCapturedIn(/* Memory */ false, /* Integer */ false,
+                            /* Return */ false);
+      }
+    }
+
+    // Lastly, we could not find a reason no-capture can be assumed so we don't.
+    return isCapturedIn(/* Memory */ true, /* Integer */ true,
+                        /* Return */ true);
+  }
+
+  /// Register \p CS as potential copy of the value we are checking.
+  void addPotentialCopyIfNecessary(CallSite CS) {
+    PotentialCopies.push_back(CS.getInstruction());
+  }
+
+  /// See CaptureTracker::shouldExplore(...).
+  bool shouldExplore(const Use *U) override { return true; }
+
+  /// Update the state according to \p CapturedInMem, \p CapturedInInt, and
+  /// \p CapturedInRet, then return the appropriate value for use in the
+  /// CaptureTracker::captured() interface.
+  bool isCapturedIn(bool CapturedInMem, bool CapturedInInt,
+                    bool CapturedInRet) {
+    LLVM_DEBUG(dbgs() << " - captures [Mem " << CapturedInMem << "|Int "
+                      << CapturedInInt << "|Ret " << CapturedInRet << "]\n");
+    if (CapturedInMem)
+      State.removeAssumedBits(AANoCaptureImpl::NOT_CAPTURED_IN_MEM);
+    if (CapturedInInt)
+      State.removeAssumedBits(AANoCaptureImpl::NOT_CAPTURED_IN_INT);
+    if (CapturedInRet)
+      State.removeAssumedBits(AANoCaptureImpl::NOT_CAPTURED_IN_RET);
+    return !State.isAssumed(AANoCaptureImpl::NO_CAPTURE_MAYBE_RETURNED);
+  }
+
+private:
+  /// The attributor providing in-flight abstract attributes.
+  Attributor &A;
+
+  /// The abstract attribute currently updated.
+  AANoCapture &NoCaptureAA;
+
+  /// The state currently updated.
+  IntegerState &State;
+
+  /// Set of potential copies of the tracked value.
+  SmallVectorImpl<Value *> &PotentialCopies;
+
+  /// Global counter to limit the number of explored uses.
+  unsigned &RemainingUsesToExplore;
+};
+
+/// An AA to represent the no-capture argument attribute.
+struct AANoCaptureArgument final : public AANoCaptureImpl {
+
+  /// See AANoCaptureImpl::AANoCaptureImpl(...).
+  AANoCaptureArgument(Argument &Arg, InformationCache &InfoCache)
+      : AANoCaptureImpl(Arg, InfoCache) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    Argument &Arg = cast<Argument>(*getAssociatedValue());
+    if (Arg.hasAttribute(Attribute::NoCapture))
+      indicateOptimisticFixpoint();
+  }
+
+  /// See AbstractAttribute::updateImpl(Attributor &A).
+  virtual ChangeStatus updateImpl(Attributor &A) override;
+
+  /// See AbstractAttribute::getManifestPosition().
+  virtual ManifestPosition getManifestPosition() const override {
+    return MP_ARGUMENT;
+  }
+};
+
+ChangeStatus AANoCaptureArgument::updateImpl(Attributor &A) {
+  Argument &Arg = cast<Argument>(*getAssociatedValue());
+
+  // The current assumed state used to determine a change.
+  auto AssumedState = getAssumed();
+
+  // TODO: Once we have memory behavior attributes we should use them here
+  // similar to the reasoning in
+  // AANoCaptureImpl::determineFunctionCaptureCapabilities(...).
+
+  // TODO: Use the AAReturnedValues to learn if the argument can return or not.
+
+  SmallVector<Value *, 4> PotentialCopies;
+  unsigned RemainingUsesToExplore = DefaultMaxUsesToExplore;
+
+  // Use the CaptureTracker interface and logic with the specialized tracker,
+  // defined in AACaptureUseTracker, that can look at in-flight abstract
+  // attributes and directly updates the assumed state.
+  AACaptureUseTracker Tracker(A, *this, *this, PotentialCopies,
+                              RemainingUsesToExplore);
+
+  // Check all potential copies of the associated value until we can assume none
+  // will be captured or we have to assume at least one might be.
+  unsigned Idx = 0;
+  PotentialCopies.push_back(&Arg);
+  while (isAssumedNoCaptureMaybeReturned() && Idx < PotentialCopies.size())
+    Tracker.valueMayBeCaptured(PotentialCopies[Idx++]);
+
+  return (AssumedState == getAssumed()) ? ChangeStatus::UNCHANGED
+                                        : ChangeStatus::CHANGED;
 }
 
 /// ----------------------------------------------------------------------------

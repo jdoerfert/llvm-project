@@ -952,6 +952,36 @@ struct AAAlign : public AbstractAttribute {
   static constexpr Attribute::AttrKind ID = Attribute::Alignment;
 };
 
+/// An abstract interface for all nocapture attributes.
+struct AANoCapture : public AbstractAttribute {
+
+  /// See AbstractAttribute::AbstractAttribute(...).
+  AANoCapture(Value &V, InformationCache &InfoCache)
+      : AbstractAttribute(V, InfoCache) {}
+
+  /// Return true if we know that the underlying value is not captured in its
+  /// respective scope.
+  virtual bool isKnownNoCapture() const = 0;
+
+  /// Return true if we assume that the underlying value is not captured in its
+  /// respective scope.
+  virtual bool isAssumedNoCapture() const = 0;
+
+  /// Return true if we know that the underlying value is not captured in its
+  /// respective scope but we allow it to escape through a "return".
+  virtual bool isKnownNoCaptureMaybeReturned() const = 0;
+
+  /// Return true if we assume that the underlying value is not captured in its
+  /// respective scope but we allow it to escape through a "return".
+  virtual bool isAssumedNoCaptureMaybeReturned() const = 0;
+
+  /// See AbstractState::getAttrKind().
+  Attribute::AttrKind getAttrKind() const override { return ID; }
+
+  /// The identifier used by the Attributor for this class of attributes.
+  static constexpr Attribute::AttrKind ID = Attribute::NoCapture;
+};
+
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_IPO_FUNCTIONATTRS_H

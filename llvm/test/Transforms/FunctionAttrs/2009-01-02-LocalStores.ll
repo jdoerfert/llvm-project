@@ -1,5 +1,5 @@
-; RUN: opt < %s -functionattrs -S | FileCheck %s
-; RUN: opt < %s -passes=function-attrs -S | FileCheck %s
+; RUN: opt < %s -attributor-disable=false -attributor -functionattrs -S | FileCheck %s
+; RUN: opt < %s -attributor-disable=false -passes="attributor,cgscc(function-attrs)" -S | FileCheck %s
 
 ; CHECK: define i32* @a(i32** nocapture readonly %p)
 define i32* @a(i32** %p) {

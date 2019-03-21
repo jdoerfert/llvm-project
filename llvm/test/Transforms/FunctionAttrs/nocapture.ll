@@ -1,9 +1,11 @@
-; RUN: opt < %s -functionattrs -S | FileCheck %s
-; RUN: opt < %s -passes=function-attrs -S | FileCheck %s
+; RUN: opt < %s -attributor-disable=false -attributor -S | FileCheck %s --check-prefix=ATTRIBUTOR
+; RUN: opt < %s -attributor-disable=false -attributor -functionattrs -S | FileCheck %s
+; RUN: opt < %s -attributor-disable=false -passes='attributor,cgscc(function-attrs)' -S | FileCheck %s --check-prefix=NPM
 
 @g = global i32* null		; <i32**> [#uses=1]
 
-; CHECK: define i32* @c1(i32* readnone returned %q)
+; CHECK: define i32* @c1(i32* readnone returned "no-capture-maybe-returned" %q)
+; ATTRIBUTOR: define i32* @c1(i32* returned "no-capture-maybe-returned" %q)
 define i32* @c1(i32* %q) {
 	ret i32* %q
 }
@@ -94,6 +96,7 @@ l:
 }
 
 ; CHECK: define i32 @nc1_addrspace(i32* %q, i32 addrspace(1)* nocapture %p, i1 %b)
+; ATTRIBUTOR: define i32 @nc1_addrspace(i32* %q, i32 addrspace(1)* nocapture %p, i1 %b)
 define i32 @nc1_addrspace(i32* %q, i32 addrspace(1)* %p, i1 %b) {
 e:
 	br label %l
@@ -109,32 +112,42 @@ l:
 }
 
 ; CHECK: define void @nc2(i32* nocapture %p, i32* %q)
+; ATTRIBUTOR: define void @nc2(i32* nocapture %p, i32* %q)
 define void @nc2(i32* %p, i32* %q) {
 	%1 = call i32 @nc1(i32* %q, i32* %p, i1 0)		; <i32> [#uses=0]
 	ret void
 }
 
 ; CHECK: define void @nc3(void ()* nocapture %p)
+; ATTRIBUTOR: define void @nc3(void ()* nocapture %p)
 define void @nc3(void ()* %p) {
 	call void %p()
 	ret void
 }
 
 declare void @external(i8*) readonly nounwind
-; CHECK: define void @nc4(i8* nocapture readonly %p)
+
+; FIXME: Because nocapture and readonly deduction in the functionattrs pass are interleaved, it doesn't
+;        trigger when nocapture is already present. Once the Attributor derives memory behavior,
+;        this should be fixed.
+; CHECK: define void @nc4(i8* nocapture %p)
+; ATTRIBUTOR: define void @nc4(i8* nocapture %p)
+; NPM: define void @nc4(i8* nocapture readonly %p)
 define void @nc4(i8* %p) {
 	call void @external(i8* %p)
 	ret void
 }
 
 ; CHECK: define void @nc5(void (i8*)* nocapture %f, i8* nocapture %p)
+; ATTRIBUTOR: define void @nc5(void (i8*)* nocapture %f, i8* nocapture %p)
 define void @nc5(void (i8*)* %f, i8* %p) {
 	call void %f(i8* %p) readonly nounwind
 	call void %f(i8* nocapture %p)
 	ret void
 }
 
-; CHECK: define void @test1_1(i8* nocapture readnone %x1_1, i8* %y1_1)
+; CHECK: define void @test1_1(i8* nocapture %x1_1, i8* nocapture %y1_1)
+; ATTRIBUTOR: define void @test1_1(i8* nocapture %x1_1, i8* nocapture %y1_1)
 ; It would be acceptable to add readnone to %y1_1 and %y1_2.
 define void @test1_1(i8* %x1_1, i8* %y1_1) {
   call i8* @test1_2(i8* %x1_1, i8* %y1_1)
@@ -142,7 +155,8 @@ define void @test1_1(i8* %x1_1, i8* %y1_1) {
   ret void
 }
 
-; CHECK: define i8* @test1_2(i8* nocapture readnone %x1_2, i8* returned %y1_2)
+; CHECK: define i8* @test1_2(i8* nocapture %x1_2, i8* returned "no-capture-maybe-returned" %y1_2)
+; ATTRIBUTOR: define i8* @test1_2(i8* nocapture %x1_2, i8* returned "no-capture-maybe-returned" %y1_2)
 define i8* @test1_2(i8* %x1_2, i8* %y1_2) {
   call void @test1_1(i8* %x1_2, i8* %y1_2)
   store i32* null, i32** @g
@@ -150,27 +164,31 @@ define i8* @test1_2(i8* %x1_2, i8* %y1_2) {
 }
 
 ; CHECK: define void @test2(i8* nocapture readnone %x2)
+; ATTRIBUTOR: define void @test2(i8* nocapture %x2)
 define void @test2(i8* %x2) {
   call void @test2(i8* %x2)
   store i32* null, i32** @g
   ret void
 }
 
-; CHECK: define void @test3(i8* nocapture readnone %x3, i8* nocapture readnone %y3, i8* nocapture readnone %z3)
+; CHECK: define void @test3(i8* nocapture %x3, i8* nocapture readnone %y3, i8* nocapture %z3)
+; ATTRIBUTOR: define void @test3(i8* nocapture %x3, i8* nocapture %y3, i8* nocapture %z3)
 define void @test3(i8* %x3, i8* %y3, i8* %z3) {
   call void @test3(i8* %z3, i8* %y3, i8* %x3)
   store i32* null, i32** @g
   ret void
 }
 
-; CHECK: define void @test4_1(i8* %x4_1)
+; CHECK: define void @test4_1(i8* nocapture readnone %x4_1)
+; ATTRIBUTOR: define void @test4_1(i8* nocapture %x4_1)
 define void @test4_1(i8* %x4_1) {
   call i8* @test4_2(i8* %x4_1, i8* %x4_1, i8* %x4_1)
   store i32* null, i32** @g
   ret void
 }
 
-; CHECK: define i8* @test4_2(i8* nocapture readnone %x4_2, i8* readnone returned %y4_2, i8* nocapture readnone %z4_2)
+; CHECK: define i8* @test4_2(i8* nocapture readnone %x4_2, i8* readnone returned "no-capture-maybe-returned" %y4_2, i8* nocapture readnone %z4_2)
+; ATTRIBUTOR: define i8* @test4_2(i8* nocapture %x4_2, i8* returned "no-capture-maybe-returned" %y4_2, i8* nocapture %z4_2)
 define i8* @test4_2(i8* %x4_2, i8* %y4_2, i8* %z4_2) {
   call void @test4_1(i8* null)
   store i32* null, i32** @g
@@ -189,6 +207,7 @@ define void @test5_2(i8* %x5_2) {
 declare void @test6_1(i8* %x6_1, i8* nocapture %y6_1, ...)
 
 ; CHECK: define void @test6_2(i8* %x6_2, i8* nocapture %y6_2, i8* %z6_2)
+; ATTRIBUTOR: define void @test6_2(i8* %x6_2, i8* nocapture %y6_2, i8* %z6_2)
 define void @test6_2(i8* %x6_2, i8* %y6_2, i8* %z6_2) {
   call void (i8*, i8*, ...) @test6_1(i8* %x6_2, i8* %y6_2, i8* %z6_2)
   store i32* null, i32** @g
@@ -196,18 +215,21 @@ define void @test6_2(i8* %x6_2, i8* %y6_2, i8* %z6_2) {
 }
 
 ; CHECK: define void @test_cmpxchg(i32* nocapture %p)
+; ATTRIBUTOR: define void @test_cmpxchg(i32* nocapture %p)
 define void @test_cmpxchg(i32* %p) {
   cmpxchg i32* %p, i32 0, i32 1 acquire monotonic
   ret void
 }
 
 ; CHECK: define void @test_cmpxchg_ptr(i32** nocapture %p, i32* %q)
+; ATTRIBUTOR: define void @test_cmpxchg_ptr(i32** nocapture %p, i32* %q)
 define void @test_cmpxchg_ptr(i32** %p, i32* %q) {
   cmpxchg i32** %p, i32* null, i32* %q acquire monotonic
   ret void
 }
 
 ; CHECK: define void @test_atomicrmw(i32* nocapture %p)
+; ATTRIBUTOR: define void @test_atomicrmw(i32* nocapture %p)
 define void @test_atomicrmw(i32* %p) {
   atomicrmw add i32* %p, i32 1 seq_cst
   ret void
@@ -222,6 +244,7 @@ entry:
 }
 
 ; CHECK: nocaptureLaunder(i8* nocapture %p)
+; ATTRIBUTOR: nocaptureLaunder(i8* nocapture %p)
 define void @nocaptureLaunder(i8* %p) {
 entry:
   %b = call i8* @llvm.launder.invariant.group.p0i8(i8* %p)
@@ -238,6 +261,7 @@ define void @captureLaunder(i8* %p) {
 }
 
 ; CHECK: @nocaptureStrip(i8* nocapture %p)
+; ATTRIBUTOR: @nocaptureStrip(i8* nocapture %p)
 define void @nocaptureStrip(i8* %p) {
 entry:
   %b = call i8* @llvm.strip.invariant.group.p0i8(i8* %p)
@@ -260,6 +284,7 @@ define i1 @captureICmp(i32* %x) {
 }
 
 ; CHECK: define i1 @nocaptureInboundsGEPICmp(i32* nocapture readnone %x)
+; ATTRIBUTOR: define i1 @nocaptureInboundsGEPICmp(i32* nocapture %x)
 define i1 @nocaptureInboundsGEPICmp(i32* %x) {
   %1 = getelementptr inbounds i32, i32* %x, i32 5
   %2 = bitcast i32* %1 to i8*
@@ -268,6 +293,7 @@ define i1 @nocaptureInboundsGEPICmp(i32* %x) {
 }
 
 ; CHECK: define i1 @nocaptureDereferenceableOrNullICmp(i32* nocapture readnone dereferenceable_or_null(4) %x)
+; ATTRIBUTOR: define i1 @nocaptureDereferenceableOrNullICmp(i32* nocapture dereferenceable_or_null(4) %x)
 define i1 @nocaptureDereferenceableOrNullICmp(i32* dereferenceable_or_null(4) %x) {
   %1 = bitcast i32* %x to i8*
   %2 = icmp eq i8* %1, null
