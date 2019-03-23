@@ -436,6 +436,34 @@ void CGOpenMPRuntimeTRegion::emitReduction(
     CodeGenFunction &CGF, SourceLocation Loc, ArrayRef<const Expr *> Privates,
     ArrayRef<const Expr *> LHSExprs, ArrayRef<const Expr *> RHSExprs,
     ArrayRef<const Expr *> ReductionOps, ReductionOptionsTy Options) {
-  llvm_unreachable(
-      "TODO: TRegion code generation does not support reductions yet!");
+
+  llvm::errs() << "#P: " << Privates.size() << " #L: " << LHSExprs.size()
+         << " #R: " << RHSExprs.size() << " #R: " << ReductionOps.size()
+         << "\n";
+
+  const auto *PrivatesIt = Privates.begin();
+  const auto *LHSExprsIt = LHSExprs.begin();
+  const auto *RHSExprsIt = RHSExprs.begin();
+  const auto *ReductionOpsIt = ReductionOps.begin();
+  unsigned printed = 1;
+  while (printed) {
+    printed = 0;
+    if (PrivatesIt != Privates.end()) {
+      printed++;
+      llvm::errs() << "P " << *PrivatesIt++ << "\n";
+    }
+    if (LHSExprsIt != LHSExprs.end()) {
+      printed++;
+      llvm::errs() << "L " << *LHSExprsIt++ << "\n";
+    }
+    if (RHSExprsIt != RHSExprs.end()) {
+      printed++;
+      llvm::errs() << "R " << *RHSExprsIt++ << "\n";
+    }
+    if (ReductionOpsIt != ReductionOps.end()) {
+      printed++;
+      llvm::errs() << "R " << *ReductionOpsIt++ << "\n";
+    }
+  }
+
 }
