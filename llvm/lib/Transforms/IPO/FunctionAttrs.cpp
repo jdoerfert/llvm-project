@@ -1343,35 +1343,6 @@ static bool setDoesNotRecurse(Function &F) {
   return true;
 }
 
-static bool addNoRecurseAttrs(const SCCNodeSet &SCCNodes) {
-  // Try and identify functions that do not recurse.
-
-  // If the SCC contains multiple nodes we know for sure there is recursion.
-  if (SCCNodes.size() != 1)
-    return false;
-
-  Function *F = *SCCNodes.begin();
-  if (!F || !F->hasExactDefinition() || F->doesNotRecurse())
-    return false;
-
-  // If all of the calls in F are identifiable and are to norecurse functions, F
-  // is norecurse. This check also detects self-recursion as F is not currently
-  // marked norecurse, so any called from F to F will not be marked norecurse.
-  for (auto &BB : *F)
-    for (auto &I : BB.instructionsWithoutDebug())
-      if (auto CS = CallSite(&I)) {
-        Function *Callee = CS.getCalledFunction();
-        if (!Callee || Callee == F || !Callee->doesNotRecurse())
-          // Function calls a potentially recursive function.
-          return false;
-      }
-
-  // Every call was to a non-recursive function other than this function, and
-  // we have no indirect recursion as the SCC size is one. This function cannot
-  // recurse.
-  return setDoesNotRecurse(*F);
-}
-
 template <typename AARGetterT>
 static bool deriveAttrsInPostOrder(SCCNodeSet &SCCNodes,
                                    AARGetterT &&AARGetter,
@@ -1392,7 +1363,6 @@ static bool deriveAttrsInPostOrder(SCCNodeSet &SCCNodes,
     Changed |= addNoAliasAttrs(SCCNodes);
     Changed |= addNonNullAttrs(SCCNodes);
     Changed |= inferAttrsFromFunctionBodies(SCCNodes);
-    Changed |= addNoRecurseAttrs(SCCNodes);
   }
 
   return Changed;
