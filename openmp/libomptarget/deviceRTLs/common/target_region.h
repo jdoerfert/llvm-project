@@ -175,6 +175,18 @@ EXTERN void __kmpc_target_region_kernel_parallel(
     uint16_t SharedValuesBytes, void *PrivateValues,
     uint16_t PrivateValuesBytes, bool SharedMemPointers);
 
+template<typename data_t>
+EXTERN void __kmpc_target_region_kernel_reduction_init(
+    ident_t *Ident, uint16_t UseSPMDMode, bool NoWait, bool IsParallelReduction,
+    bool IsTeamReduction, void *ReductionLocation,
+    uint16_t ReductionLocationSize);
+
+template <typename data_t>
+EXTERN void __kmpc_target_region_kernel_reduction_finalize(
+    ident_t *Ident, uint16_t UseSPMDMode, bool NoWait, bool IsParallelReduction,
+    bool IsTeamReduction, void *ReductionLocation,
+    uint16_t ReductionLocationSize);
+
 ///}
 
 #endif

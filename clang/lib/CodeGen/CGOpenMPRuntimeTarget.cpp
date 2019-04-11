@@ -539,7 +539,7 @@ static CudaArch getCudaArch(CodeGenModule &CGM) {
 /// Check to see if target architecture supports unified addressing which is
 /// a restriction for OpenMP requires clause "unified_shared_memory".
 void CGOpenMPRuntimeTarget::checkArchForUnifiedAddressing(
-    CodeGenModule &CGM, const OMPRequiresDecl *D) const {
+    const OMPRequiresDecl *D) const {
   for (const OMPClause *Clause : D->clauselists()) {
     if (Clause->getClauseKind() == OMPC_unified_shared_memory) {
       switch (getCudaArch(CGM)) {

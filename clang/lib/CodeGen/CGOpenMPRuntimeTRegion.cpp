@@ -466,4 +466,21 @@ void CGOpenMPRuntimeTRegion::emitReduction(
     }
   }
 
+  bool ParallelReduction = isOpenMPParallelDirective(Options.ReductionKind);
+#ifndef NDEBUG
+  bool TeamsReduction = isOpenMPTeamsDirective(Options.ReductionKind);
+#endif
+
+  if (Options.SimpleReduction) {
+    assert(!TeamsReduction && !ParallelReduction &&
+           "Invalid reduction selection in emitReduction.");
+    CGOpenMPRuntime::emitReduction(CGF, Loc, Privates, LHSExprs, RHSExprs,
+                                   ReductionOps, Options);
+    return;
+  }
+
+  assert((TeamsReduction || ParallelReduction) &&
+         "Invalid reduction selection in emitReduction.");
+
+
 }

@@ -208,3 +208,87 @@ EXTERN void __kmpc_target_region_kernel_parallel(
   // the old value) if we used user provided memory. This is not necessary as
   // long as the buffer knows not to free the explicitly "set" pointer.
 }
+
+// template<typename data_t>
+// __device__ inline
+// data_t __shfl_down(data_t var, unsigned int srcLane, int width=32) {
+//   int2 a = *reinterpret_cast<int2*>(&var);
+//   a.x = __shfl_down(a.x, srcLane, width);
+//   a.y = __shfl_down(a.y, srcLane, width);
+//   return *reinterpret_cast<data_t*>(&a);
+// }
+
+template<typename data_t>
+__inline__ __device__
+data_t warpReduceSum(data_t val) {
+  for (int offset = warpSize/2; offset > 0; offset /= 2) 
+    val += __shfl_down(val, offset);
+  return val;
+}
+
+template<typename data_t>
+__inline__ __device__
+int blockReduceSum(int val) {
+
+  static __shared__ int shared[32]; // Shared mem for 32 partial sums
+  int lane = threadIdx.x % warpSize;
+  int wid = threadIdx.x / warpSize;
+
+  val = warpReduceSum(val);     // Each warp performs partial reduction
+
+  if (lane==0) shared[wid]=val; // Write reduced value to shared memory
+
+  __syncthreads();              // Wait for all partial reductions
+
+  //read from shared memory only if that warp existed
+  val = (threadIdx.x < blockDim.x / warpSize) ? shared[lane] : 0;
+
+  if (wid==0) val = warpReduceSum(val); //Final reduce within first warp
+
+  return val;
+}
+
+template<typename data_t>
+__global__ void deviceReduceWarpAtomicKernel(int *in, int* out, int N) {
+  int sum = int(0);
+  for(int i = blockIdx.x * blockDim.x + threadIdx.x;
+      i < N;
+      i += blockDim.x * gridDim.x) {
+    sum += in[i];
+  }
+  sum = warpReduceSum(sum);
+  if ((threadIdx.x & (warpSize - 1)) == 0)
+    atomicAdd(out, sum);
+}
+
+template<typename data_t>
+__global__ void deviceReduceBlockAtomicKernel(int *in, int* out, int N) {
+  int sum = int(0);
+  for(int i = blockIdx.x * blockDim.x + threadIdx.x;
+      i < N;
+      i += blockDim.x * gridDim.x) {
+    sum += in[i];
+  }
+  sum = blockReduceSum(sum);
+  if (threadIdx.x == 0)
+    atomicAdd(out, sum);
+}
+
+template<typename data_t>
+EXTERN void __kmpc_target_region_kernel_reduction_init(
+    ident_t *Ident, uint16_t UseSPMDMode, bool NoWait, bool IsParallelReduction,
+    bool IsTeamReduction, void *ReductionLocation,
+    uint16_t ReductionLocationSize) {
+
+  
+
+}
+
+template<typename data_t>
+EXTERN void __kmpc_target_region_kernel_reduction_finalize(
+    ident_t *Ident, uint16_t UseSPMDMode, bool NoWait, bool IsParallelReduction,
+    bool IsTeamReduction, void *ReductionLocation,
+    uint16_t ReductionLocationSize
+
+    deviceReduceWarpAtomicKernel(
+);
