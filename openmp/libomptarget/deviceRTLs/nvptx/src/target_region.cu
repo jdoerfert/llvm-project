@@ -17,6 +17,8 @@
 
 #include "../../common/target_region.h"
 
+#include "cuda_fp16.h"
+
 EXTERN void *__kmpc_target_region_kernel_get_shared_memory() {
   return _shared_bytes_buffer_memory.begin();
 }
@@ -133,7 +135,7 @@ EXTERN void __kmpc_target_region_kernel_deinit(ident_t *Ident, bool UseSPMDMode,
 }
 
 EXTERN void __kmpc_target_region_kernel_parallel(
-    ident_t *Ident, uint16_t UseSPMDMode, bool RequiredOMPRuntime,
+    ident_t *Ident, int16_t UseSPMDMode, bool RequiredOMPRuntime,
     ParallelWorkFnTy ParallelWorkFn, void *SharedVars, uint16_t SharedVarsBytes,
     void *PrivateVars, uint16_t PrivateVarsBytes, bool SharedMemPointers) {
 
@@ -209,86 +211,213 @@ EXTERN void __kmpc_target_region_kernel_parallel(
   // long as the buffer knows not to free the explicitly "set" pointer.
 }
 
-// template<typename data_t>
-// __device__ inline
-// data_t __shfl_down(data_t var, unsigned int srcLane, int width=32) {
-//   int2 a = *reinterpret_cast<int2*>(&var);
-//   a.x = __shfl_down(a.x, srcLane, width);
-//   a.y = __shfl_down(a.y, srcLane, width);
-//   return *reinterpret_cast<data_t*>(&a);
-// }
+// Introduce the cuda spellings for types:
+#define BOOL_TY bool
+#define CHAR_TY char
+#define SHORT_TY short
+#define INT_TY int
+#define LONG_TY long
+#define LONG_LONG_TY long long
+// volatile in combination with __half is broken.
+#define HALF_FLOAT_TY float
+#define FLOAT_TY float
+#define DOUBLE_FLOAT_TY double
 
-template<typename data_t>
-__inline__ __device__
-data_t warpReduceSum(data_t val) {
-  for (int offset = warpSize/2; offset > 0; offset /= 2) 
-    val += __shfl_down(val, offset);
-  return val;
+#define NOP(l, r) (r)
+#define ADD(l, r) ((l) + (r))
+#define MUL(l, r) ((l) * (r))
+#define MIN(l, r) ((l) < (r) ? (l) : (r))
+#define MAX(l, r) ((l) < (r) ? (r) : (l))
+#define XOR(l, r) (((long long)(l)) ^ (((long long)r)))
+#define BOR(l, r) (((long long)(l)) | (((long long)r)))
+#define BAND(l, r) (((long long)(l)) & (((long long)r)))
+
+typedef void (*ReduceFnTy)(void *, void *, enum ReductionOperator);
+
+template <typename data_t>
+INLINE static void reduce(void *SrcPtr, void *DestPtr,
+                          enum ReductionOperator RedOp) {
+  switch (RedOp) {
+#define RO(NAME, BIN)                                                \
+  case NAME:                                                                   \
+    *((data_t *)DestPtr) = BIN(*((data_t *)DestPtr), *((volatile gata_t *)SrcPtr));     \
+    break;
+
+    REDUCTION_OPERATORS()
+#undef RO
+  };
 }
 
 template<typename data_t>
-__inline__ __device__
-int blockReduceSum(int val) {
-
-  static __shared__ int shared[32]; // Shared mem for 32 partial sums
-  int lane = threadIdx.x % warpSize;
-  int wid = threadIdx.x / warpSize;
-
-  val = warpReduceSum(val);     // Each warp performs partial reduction
-
-  if (lane==0) shared[wid]=val; // Write reduced value to shared memory
-
-  __syncthreads();              // Wait for all partial reductions
-
-  //read from shared memory only if that warp existed
-  val = (threadIdx.x < blockDim.x / warpSize) ? shared[lane] : 0;
-
-  if (wid==0) val = warpReduceSum(val); //Final reduce within first warp
-
-  return val;
-}
-
-template<typename data_t>
-__global__ void deviceReduceWarpAtomicKernel(int *in, int* out, int N) {
-  int sum = int(0);
-  for(int i = blockIdx.x * blockDim.x + threadIdx.x;
-      i < N;
-      i += blockDim.x * gridDim.x) {
-    sum += in[i];
+INLINE static void shuffleAndStore(void *SrcPtr, void *DestPtr, int16_t DestOffset) {
+  size_t LeftoverSize = sizeof(data_t);
+  for (size_t ShuffleSize = 8; ShuffleSize >= 1; ShuffleSize /= 2) {
+    while (ShuffleSize <= LeftoverSize) {
+      if (ShuffleSize <= 4) {
+        int32_t *SrcPtr32 = (int32_t *)SrcPtr;
+        int32_t *DestPtr32 = (int32_t *)DestPtr;
+        int32_t Res =
+            __kmpc_shuffle_int32(*SrcPtr32, (int32_t)DestOffset, WARPSIZE);
+        *DestPtr32 = Res;
+        SrcPtr = (SrcPtr32 + 1);
+        DestPtr = (DestPtr32 + 1);
+      } else {
+        int64_t *SrcPtr64 = (int64_t *)SrcPtr;
+        int64_t *DestPtr64 = (int64_t *)DestPtr;
+        int64_t Res =
+            __kmpc_shuffle_int64(*SrcPtr64, (int64_t)DestOffset, WARPSIZE);
+        *DestPtr64 = Res;
+        SrcPtr = (SrcPtr64 + 1);
+        DestPtr = (DestPtr64 + 1);
+      }
+      LeftoverSize -= ShuffleSize;
+    }
   }
-  sum = warpReduceSum(sum);
-  if ((threadIdx.x & (warpSize - 1)) == 0)
-    atomicAdd(out, sum);
+}
+
+template <typename data_t, enum ReductionOperator RedOp>
+INLINE static void shuffleAndReduce(void *LocalItem, int16_t LaneId,
+                                    int16_t Offset, int16_t AlgoVer) {
+  __align__(64) data_t RemoteItem = 42;
+
+  shuffleAndStore<data_t>(LocalItem, (void*)&RemoteItem, Offset);
+
+  if ((AlgoVer == 0) |
+      ((AlgoVer == 1) & ((uint16_t)LaneId < (uint16_t)Offset)) |
+      ((AlgoVer == 2) & (LaneId & (int16_t)1) & (Offset > (int16_t)0)))
+    reduce<data_t>((void*)&RemoteItem, LocalItem, RedOp);
+  else
+    reduce<data_t>((void*)&RemoteItem, LocalItem, RO_NOP);
 }
 
 template<typename data_t>
-__global__ void deviceReduceBlockAtomicKernel(int *in, int* out, int N) {
-  int sum = int(0);
-  for(int i = blockIdx.x * blockDim.x + threadIdx.x;
-      i < N;
-      i += blockDim.x * gridDim.x) {
-    sum += in[i];
+INLINE static void interWarpCopy(void *Ptr, int32_t WarpNum) {
+  __shared__ __align__(256) data_t Buffer[WARPSIZE];
+  uint32_t GlobalTId = __kmpc_global_thread_num(0);
+  uint32_t TId =  GetThreadIdInBlock();
+  uint32_t LaneId = TId % WARPSIZE;
+
+  __kmpc_barrier(0, GlobalTId);
+
+  bool IsMasterThread = (LaneId == 0);
+  if (IsMasterThread) {
+    uint32_t WarpId = TId / WARPSIZE;
+    Buffer[WarpId] = *((data_t*)Ptr);
   }
-  sum = blockReduceSum(sum);
-  if (threadIdx.x == 0)
-    atomicAdd(out, sum);
-}
 
-template<typename data_t>
-EXTERN void __kmpc_target_region_kernel_reduction_init(
-    ident_t *Ident, uint16_t UseSPMDMode, bool NoWait, bool IsParallelReduction,
-    bool IsTeamReduction, void *ReductionLocation,
-    uint16_t ReductionLocationSize) {
+  __kmpc_barrier(0, GlobalTId);
 
-  
+  bool IsActiveThread = (TId < (uint32_t)WarpNum);
+  if (IsActiveThread)
+    *((data_t*)Ptr) = Buffer[TId];
 
 }
 
+INLINE static
+void globalToBufferCopy(void *buffer, int idx, void *reduce_data) {
+}
+
+INLINE static
+void globalToBufferReduce(void *buffer, int idx, void *reduce_data) {
+}
+
+INLINE static
+void bufferToGlobalCopy(void *buffer, int idx, void *reduce_data) {
+}
+
+INLINE static
+void bufferToGlobalReduce(void *buffer, int idx, void *reduce_data) {
+}
+
 template<typename data_t>
+INLINE static
+void initialize(void *LocPtr, void *DataPtr) {
+  *((data_t *)LocPtr) = *((data_t *)DataPtr);
+}
+
+EXTERN void *__kmpc_target_region_kernel_reduction_init(
+    ident_t *Ident, int16_t UseSPMDMode, bool RequiredOMPRuntime,
+    int32_t GlobalTId, bool IsParallelReduction, bool IsTeamReduction,
+    void *OriginalLocation, void *PrivateLocation,
+    uint32_t ReductionLocationSize, void *RHSPtr,
+    enum ReductionBaseType BaseType) {
+
+  switch (BaseType) {
+#define RBT(NAME, TYPE)                                                        \
+  case NAME:                                                                   \
+    initialize<TYPE>(PrivateLocation, RHSPtr);                                 \
+    break;
+
+    REDUCTION_BASE_TYPES()
+#undef RBT
+  }
+
+  return PrivateLocation;
+}
+
+template <typename data_t>
+INLINE static kmp_ShuffleReductFctPtr
+getShuffleAndReduceFn(enum ReductionOperator RedOp) {
+
+  switch (RedOp) {
+#define RO(NAME, BIN)                                                \
+  case NAME:                                                                   \
+    return &shuffleAndReduce<data_t, NAME>;
+
+    REDUCTION_OPERATORS()
+#undef RO
+  }
+
+  // Unreachable
+  return 0;
+}
+
 EXTERN void __kmpc_target_region_kernel_reduction_finalize(
-    ident_t *Ident, uint16_t UseSPMDMode, bool NoWait, bool IsParallelReduction,
-    bool IsTeamReduction, void *ReductionLocation,
-    uint16_t ReductionLocationSize
+    ident_t *Ident, int16_t UseSPMDMode, bool RequiredOMPRuntime,
+    int32_t GlobalTId, bool IsParallelReduction, bool IsTeamReduction,
+    void *OriginalLocation, void *ReductionLocation,
+    uint32_t NumReductionLocations, enum ReductionOperator RedOp,
+    enum ReductionBaseType BaseType) {
 
-    deviceReduceWarpAtomicKernel(
-);
+  // If the mode is unknown we check it at runtime
+  if (UseSPMDMode == -1)
+    UseSPMDMode = __kmpc_is_spmd_exec_mode();
+
+  ReduceFnTy Reduce;
+  size_t ReduceSize = 0;
+  kmp_ShuffleReductFctPtr ShuffleAndReduce;
+  kmp_InterWarpCopyFctPtr InterWarpCopy;
+  switch (BaseType) {
+#define RBT(NAME, TYPE)                                                        \
+  case NAME:                                                                   \
+    ShuffleAndReduce = getShuffleAndReduceFn<TYPE>(RedOp);                     \
+    InterWarpCopy = &interWarpCopy<TYPE>;                                      \
+    ReduceSize = sizeof(TYPE);                                                 \
+    Reduce = &reduce<TYPE>;                                                    \
+    break;
+
+    REDUCTION_BASE_TYPES()
+#undef RBT
+  }
+
+  int32_t res = 0;
+  if (IsParallelReduction) {
+    res = __kmpc_nvptx_parallel_reduce_nowait_v3(
+        Ident, GlobalTId, /* NumVars */ 1, ReduceSize, ReductionLocation,
+        ShuffleAndReduce, InterWarpCopy, UseSPMDMode, RequiredOMPRuntime);
+  } else if (IsTeamReduction) {
+//    res = __kmpc_nvptx_teams_reduce_nowait_v3(
+//        Ident, GlobalTId, /* NumVars */ 1, NumReductionLocations,
+//        ReductionLocation, ShuffleAndReduce, InterWarpCopy,
+//        &globalToBufferCopy, &globalToBufferReduce, &bufferToGlobalCopy,
+//        &bufferToGlobalReduce, UseSPMDMode, RequiredOMPRuntime);
+  } else {
+    // This should probably cause an abort, e.g., assert, as this should be
+    // either parallel or team reduction.
+  }
+
+  if (res == 1) {
+    __kmpc_nvptx_end_reduce_nowait(GlobalTId);
+    Reduce(ReductionLocation, OriginalLocation, RedOp);
+  }
+};

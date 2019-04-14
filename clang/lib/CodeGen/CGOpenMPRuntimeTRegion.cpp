@@ -450,19 +450,27 @@ void CGOpenMPRuntimeTRegion::emitReduction(
     printed = 0;
     if (PrivatesIt != Privates.end()) {
       printed++;
-      llvm::errs() << "P " << *PrivatesIt++ << "\n";
+      llvm::errs() << "P ";
+      (*PrivatesIt++)->dump();
+      llvm::errs() << "\n";
     }
     if (LHSExprsIt != LHSExprs.end()) {
       printed++;
-      llvm::errs() << "L " << *LHSExprsIt++ << "\n";
+      llvm::errs() << "P ";
+      (*LHSExprsIt++)->dump();
+      llvm::errs() << "\n";
     }
     if (RHSExprsIt != RHSExprs.end()) {
       printed++;
-      llvm::errs() << "R " << *RHSExprsIt++ << "\n";
+      llvm::errs() << "P ";
+      (*RHSExprsIt++)->dump();
+      llvm::errs() << "\n";
     }
     if (ReductionOpsIt != ReductionOps.end()) {
       printed++;
-      llvm::errs() << "R " << *ReductionOpsIt++ << "\n";
+      llvm::errs() << "P ";
+      (*ReductionOpsIt++)->dump();
+      llvm::errs() << "\n";
     }
   }
 
@@ -482,5 +490,132 @@ void CGOpenMPRuntimeTRegion::emitReduction(
   assert((TeamsReduction || ParallelReduction) &&
          "Invalid reduction selection in emitReduction.");
 
+  for (unsigned I = 0, E = LHSExprs.size(); I < E; ++I) {
 
+    llvm::Value *ThreadId = getThreadID(CGF, Loc);
+    CGBuilderTy &Bld = CGF.Builder;
+
+    llvm::Value *LHSExprPtrVal =
+        CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
+            CGF.EmitLValue(LHSExprs[I]).getPointer(), CGF.VoidPtrTy);
+    llvm::Value *PrivateExprPtrVal =
+        CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
+            CGF.EmitLValue(Privates[I]).getPointer(), CGF.VoidPtrTy);
+    PrivateExprPtrVal->dump();
+    //assert(isa<llvm::AllocaInst>(PrivateExprPtrVal));
+    //auto *AI = cast<llvm::AllocaInst>(PrivateExprPtrVal);
+    //AI->setAlignment(64);
+
+  // TODO: This should reallly be based on the spelling in the source!
+  //       The mapping is as follows
+  //  0 = RBT_BOOL
+  //  1 = RBT_CHAR
+  //  2 = RBT_SHORT
+  //  3 = RBT_INT
+  //  4 = RBT_LONG
+  //  5 = RBT_LONG_LONG
+  //  6 = RBT_HALF
+  //  7 = RBT_FLOAT
+  //  8 = RBT_DOUBLE
+    const clang::Type *ReductionBaseTy = Privates[I]->getType().getTypePtr();
+    // TODO: find a better way to do this.
+    uint32_t BaseTypeEnumVal;
+    if (ReductionBaseTy->isBooleanType()) {
+      BaseTypeEnumVal = 0;
+    } else if (ReductionBaseTy->isSpecificBuiltinType(BuiltinType::Char_S) ||
+               ReductionBaseTy->isSpecificBuiltinType(BuiltinType::Char_U)) {
+      BaseTypeEnumVal = 1;
+    } else if (ReductionBaseTy->isSpecificBuiltinType(BuiltinType::Short) ||
+               ReductionBaseTy->isSpecificBuiltinType(BuiltinType::UShort)) {
+      BaseTypeEnumVal = 2;
+    } else if (ReductionBaseTy->isSpecificBuiltinType(BuiltinType::Int) ||
+               ReductionBaseTy->isSpecificBuiltinType(BuiltinType::UInt)) {
+      BaseTypeEnumVal = 3;
+    } else if (ReductionBaseTy->isSpecificBuiltinType(BuiltinType::Long) ||
+               ReductionBaseTy->isSpecificBuiltinType(BuiltinType::ULong)) {
+      BaseTypeEnumVal = 4;
+    } else if (ReductionBaseTy->isSpecificBuiltinType(BuiltinType::LongLong) ||
+               ReductionBaseTy->isSpecificBuiltinType(BuiltinType::ULongLong)) {
+      BaseTypeEnumVal = 4;
+    } else if (ReductionBaseTy->isHalfType()) {
+      BaseTypeEnumVal = 6;
+    } else if (ReductionBaseTy->isSpecificBuiltinType(BuiltinType::Float)) {
+      BaseTypeEnumVal = 7;
+    } else if (ReductionBaseTy->isSpecificBuiltinType(BuiltinType::Double)) {
+      BaseTypeEnumVal = 8;
+    } else {
+      llvm::errs() << "Unable to handle type: ";
+      ReductionBaseTy->dump();
+      llvm_unreachable("TODO: Handle type in reduction!");
+    }
+    //switch (ReductionBaseTy->getPrimitiveSizeInBits()) {
+      //case 1: BaseTypeEnumVal = 0; break;
+      //case 8: BaseTypeEnumVal = 1; break;
+      //case 16: BaseTypeEnumVal = ReductionBaseTy->isFloatTy() ? 6:2; break;
+      //case 32: BaseTypeEnumVal = ReductionBaseTy->isFloatTy() ? 7:3; break;
+      //case 64: BaseTypeEnumVal = ReductionBaseTy->isFloatTy() ? 8:4; break;
+    //}
+
+    // TODO: find a better way to do this.
+    uint32_t ReductionOperatorEnumVal;
+    const Expr *RedOpExpr = ReductionOps[I];
+    const BinaryOperator *OuterBinOpExpr = cast<BinaryOperator>(RedOpExpr);
+    const Expr *OuterRHSExpr = OuterBinOpExpr->getRHS();
+    if (auto *ICExpr = dyn_cast<ImplicitCastExpr>(OuterRHSExpr)) {
+      auto *CondOpExpr = cast<ConditionalOperator>(ICExpr->getSubExpr());
+      OuterRHSExpr = CondOpExpr->getCond();
+    }
+
+    const BinaryOperator *InnerBinOpExpr = cast<BinaryOperator>(OuterRHSExpr);
+    switch (InnerBinOpExpr->getOpcode()) {
+    case BO_Add:
+      ReductionOperatorEnumVal = 1;
+      break;
+    case BO_Mul:
+      ReductionOperatorEnumVal = 2;
+      break;
+    case BO_LT:
+      ReductionOperatorEnumVal = 3;
+      break;
+    case BO_GT:
+      ReductionOperatorEnumVal = 4;
+      break;
+    case BO_Xor:
+      ReductionOperatorEnumVal = 5;
+      break;
+    case BO_Or:
+      ReductionOperatorEnumVal = 6;
+      break;
+    case BO_And:
+      ReductionOperatorEnumVal = 7;
+      break;
+    default:
+      llvm::errs() << "Unable to handle reduction operator:\n";
+      RedOpExpr->dump();
+      llvm_unreachable("TODO: Handle operator!");
+  }
+
+    llvm::Value *NumReductionLocationsVal =  Bld.getInt32(1);
+
+    // DeInitialize the OMP state in the runtime; called by all active threads.
+    llvm::Value *Args[] = {
+        /* Ident */ llvm::Constant::getNullValue(getIdentTyPointerTy()),
+        /* UseSPMDMode */ Bld.getInt16(getExecutionMode()),
+        /* RequiredOMPRuntime */
+        Bld.getInt1(mayNeedRuntimeSupport()),
+        /* GlobalTId */ ThreadId,
+        /* IsParallelReduction */ Bld.getInt1(ParallelReduction),
+        /* IsTreamsReduction */ Bld.getInt1(TeamsReduction),
+        /* OriginalLocation */ CGF.EmitCastToVoidPtr(LHSExprPtrVal),
+        /* ReductionLocation */ CGF.EmitCastToVoidPtr(PrivateExprPtrVal),
+        /* NumReductionLocations */ NumReductionLocationsVal,
+        /* RedOp */ Bld.getInt32(ReductionOperatorEnumVal),
+        /* BaseType */ Bld.getInt32(BaseTypeEnumVal),
+    };
+
+    CGF.EmitRuntimeCall(
+        createTargetRuntimeFunction(
+            OMPRTL__kmpc_target_region_kernel_reduction_finalize),
+        Args);
+  }
 }

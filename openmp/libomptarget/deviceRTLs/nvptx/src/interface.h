@@ -402,6 +402,11 @@ EXTERN int32_t __kmpc_nvptx_parallel_reduce_nowait_v2(
     kmp_Ident *loc, int32_t global_tid, int32_t num_vars, size_t reduce_size,
     void *reduce_data, kmp_ShuffleReductFctPtr shflFct,
     kmp_InterWarpCopyFctPtr cpyFct);
+EXTERN int32_t __kmpc_nvptx_parallel_reduce_nowait_v3(
+    kmp_Ident *loc, int32_t global_tid, int32_t num_vars, size_t reduce_size,
+    void *reduce_data, kmp_ShuffleReductFctPtr shflFct,
+    kmp_InterWarpCopyFctPtr cpyFct, bool isSPMDExecutionMode,
+    bool isRuntimeInitialized);
 EXTERN int32_t __kmpc_nvptx_parallel_reduce_nowait_simple_spmd(
     int32_t global_tid, int32_t num_vars, size_t reduce_size, void *reduce_data,
     kmp_ShuffleReductFctPtr shflFct, kmp_InterWarpCopyFctPtr cpyFct);
@@ -417,6 +422,13 @@ EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
     kmp_InterWarpCopyFctPtr cpyFct, kmp_ListGlobalFctPtr lgcpyFct,
     kmp_ListGlobalFctPtr lgredFct, kmp_ListGlobalFctPtr glcpyFct,
     kmp_ListGlobalFctPtr glredFct);
+EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v3(
+    kmp_Ident *loc, int32_t global_tid, void *global_buffer,
+    int32_t num_of_records, void *reduce_data, kmp_ShuffleReductFctPtr shflFct,
+    kmp_InterWarpCopyFctPtr cpyFct, kmp_ListGlobalFctPtr lgcpyFct,
+    kmp_ListGlobalFctPtr lgredFct, kmp_ListGlobalFctPtr glcpyFct,
+    kmp_ListGlobalFctPtr glredFct, bool isSPMDExecutionMode,
+    bool isRuntimeInitialized);
 EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait(
     int32_t global_tid, int32_t num_vars, size_t reduce_size, void *reduce_data,
     kmp_ShuffleReductFctPtr shflFct, kmp_InterWarpCopyFctPtr cpyFct,

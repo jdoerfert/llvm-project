@@ -150,6 +150,34 @@ struct CGOpenMPRuntimeTarget : public CGOpenMPRuntime {
     ///                                           bool SharedPointers);
     OMPRTL__kmpc_target_region_kernel_parallel,
 
+    /// void *__kmpc_target_region_kernel_reduction_init(ident_t *Ident,
+    ///                                        uint16_t UseSPMDMode,
+    ///                                        bool RequiredOMPRuntime,
+    ///                                        int32_t GlobalTId,
+    ///                                        bool IsParallelReduction,
+    ///                                        bool IsTeamReduction,
+    ///                                        void *OriginalLocation,
+    ///                                        void *PrivateLocation,
+    ///                                        uint32_t ReductionLocationSize,
+    ///                                        void *RHSPtr,
+    ///                                        enum ReductionItemTypeKind RITK,
+    ///                                        enum ReductionImplKind RIK);
+    OMPRTL__kmpc_target_region_kernel_reduction_init,
+
+    /// void __kmpc_target_region_kernel_reduction_finalize(ident_t *Ident,
+    ///                                        uint16_t UseSPMDMode,
+    ///                                        bool RequiredOMPRuntime,
+    ///                                        int32_t GlobalTId,
+    ///                                        bool IsParallelReduction,
+    ///                                        bool IsTeamReduction,
+    ///                                        void *OriginalLocation,
+    ///                                        void *ReductionLocation,
+    ///                                        uint32_t ReductionLocationSize,
+    ///                                        enum ReductionOperandKind RedOp,
+    ///                                        enum ReductionItemTypeKind RITK,
+    ///                                        enum ReductionImplKind RIK);
+    OMPRTL__kmpc_target_region_kernel_reduction_finalize,
+
     ///}
   };
 

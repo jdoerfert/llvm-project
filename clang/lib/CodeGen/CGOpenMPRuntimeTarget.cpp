@@ -102,8 +102,7 @@ llvm::FunctionCallee CGOpenMPRuntimeTarget::createTargetRuntimeFunction(
     /// int16_t IsOMPRuntimeInitialized);
     llvm::Type *TypeParams[] = {CGM.Int8PtrPtrTy, CGM.Int16Ty};
     llvm::Type *RetTy = CGM.getTypes().ConvertType(CGM.getContext().BoolTy);
-    auto *FnTy =
-        llvm::FunctionType::get(RetTy, TypeParams, /*isVarArg*/ false);
+    auto *FnTy = llvm::FunctionType::get(RetTy, TypeParams, /*isVarArg*/ false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "__kmpc_kernel_parallel");
     break;
   }
@@ -353,11 +352,11 @@ llvm::FunctionCallee CGOpenMPRuntimeTarget::createTargetRuntimeFunction(
     llvm::Type *TypeParams[] = {getIdentTyPointerTy(), I1Ty, I1Ty, I1Ty, I1Ty};
     auto *FnTy =
         llvm::FunctionType::get(CGM.Int8Ty, TypeParams, /* isVarArg */ false);
-    RTLFn =
-        CGM.CreateRuntimeFunction(FnTy, "__kmpc_target_region_kernel_init");
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "__kmpc_target_region_kernel_init");
 
     llvm::Function *RTFn = cast<llvm::Function>(RTLFn.getCallee());
     RTFn->addParamAttr(0, llvm::Attribute::NoCapture);
+    RTFn->addParamAttr(0, llvm::Attribute::ReadNone);
     break;
   }
   case OMPRTL__kmpc_target_region_kernel_deinit: {
@@ -372,6 +371,7 @@ llvm::FunctionCallee CGOpenMPRuntimeTarget::createTargetRuntimeFunction(
 
     llvm::Function *RTFn = cast<llvm::Function>(RTLFn.getCallee());
     RTFn->addParamAttr(0, llvm::Attribute::NoCapture);
+    RTFn->addParamAttr(0, llvm::Attribute::ReadNone);
     break;
   }
   case OMPRTL__kmpc_target_region_kernel_parallel: {
@@ -406,6 +406,7 @@ llvm::FunctionCallee CGOpenMPRuntimeTarget::createTargetRuntimeFunction(
 
     llvm::Function *RTFn = cast<llvm::Function>(RTLFn.getCallee());
     RTFn->addParamAttr(0, llvm::Attribute::NoCapture);
+    RTFn->addParamAttr(0, llvm::Attribute::ReadNone);
     RTFn->addParamAttr(3, llvm::Attribute::NoCapture);
     RTFn->addParamAttr(4, llvm::Attribute::NoCapture);
     RTFn->addParamAttr(6, llvm::Attribute::NoCapture);
@@ -425,6 +426,66 @@ llvm::FunctionCallee CGOpenMPRuntimeTarget::createTargetRuntimeFunction(
               Ctx, {MDB.createCallbackEncoding(3, {4, 6},
                                                /* VarArgsArePassed */ false)}));
     }
+    break;
+  }
+  case OMPRTL__kmpc_target_region_kernel_reduction_init: {
+    // void *__kmpc_target_region_kernel_reduction_init(ident_t *Ident,
+    //                                        uint16_t UseSPMDMode,
+    //                                        bool RequiredOMPRuntime,
+    //                                        int32_t GlobalTId,
+    //                                        bool IsParallelReduction,
+    //                                        bool IsTeamReduction,
+    //                                        void *OriginalLocation,
+    //                                        void *PrivateLocation,
+    //                                        uint32_t ReductionLocationSize,
+    //                                        void *RHSPtr,
+    //                                        enum ReductionBaseType RBT);
+    llvm::Type *TypeParams[] = {
+        getIdentTyPointerTy(), CGM.Int16Ty,   I1Ty,
+        CGM.Int32Ty,           I1Ty,          I1Ty,
+        CGM.VoidPtrTy,         CGM.VoidPtrTy, CGM.Int32Ty,
+        CGM.VoidPtrTy,         CGM.Int32Ty};
+    auto *FnTy =
+        llvm::FunctionType::get(CGM.VoidTy, TypeParams, /* isVarArg */ false);
+
+    RTLFn = CGM.CreateRuntimeFunction(
+        FnTy, "__kmpc_target_region_kernel_reduction_init");
+
+    llvm::Function *RTFn = cast<llvm::Function>(RTLFn.getCallee());
+    RTFn->addParamAttr(0, llvm::Attribute::NoCapture);
+    RTFn->addParamAttr(0, llvm::Attribute::ReadNone);
+    RTFn->addParamAttr(8, llvm::Attribute::NoCapture);
+    RTFn->addParamAttr(8, llvm::Attribute::ReadOnly);
+    break;
+  }
+
+  case OMPRTL__kmpc_target_region_kernel_reduction_finalize: {
+    // void __kmpc_target_region_kernel_reduction_finalize(ident_t *Ident,
+    //                                        uint16_t UseSPMDMode,
+    //                                        bool RequiredOMPRuntime,
+    //                                        int32_t GlobalTId,
+    //                                        bool IsParallelReduction,
+    //                                        bool IsTeamReduction,
+    //                                        void *OriginalLocation,
+    //                                        void *ReductionLocation,
+    //                                        uint32_t ReductionLocationSize,
+    //                                        enum ReductionOperatorKind ROK,
+    //                                        enum ReductionBaseType RBT);
+    llvm::Type *TypeParams[] = {
+        getIdentTyPointerTy(), CGM.Int16Ty,   I1Ty,
+        CGM.Int32Ty,           I1Ty,          I1Ty,
+        CGM.VoidPtrTy,         CGM.VoidPtrTy, CGM.Int32Ty,
+        CGM.Int32Ty,           CGM.Int32Ty};
+    auto *FnTy =
+        llvm::FunctionType::get(CGM.VoidTy, TypeParams, /* isVarArg */ false);
+
+    RTLFn = CGM.CreateRuntimeFunction(
+        FnTy, "__kmpc_target_region_kernel_reduction_finalize");
+
+    llvm::Function *RTFn = cast<llvm::Function>(RTLFn.getCallee());
+    RTFn->addParamAttr(0, llvm::Attribute::NoCapture);
+    RTFn->addParamAttr(0, llvm::Attribute::ReadNone);
+    RTFn->addParamAttr(6, llvm::Attribute::NoCapture);
     break;
   }
   }

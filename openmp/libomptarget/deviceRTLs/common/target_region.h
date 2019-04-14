@@ -170,22 +170,62 @@ typedef void (*ParallelWorkFnTy)(void * /* SharedValues */,
 ///
 CALLBACK(ParallelWorkFnTy, SharedValues, PrivateValues)
 EXTERN void __kmpc_target_region_kernel_parallel(
-    ident_t *Ident, uint16_t UseSPMDMode, bool RequiredOMPRuntime,
+    ident_t *Ident, int16_t UseSPMDMode, bool RequiredOMPRuntime,
     ParallelWorkFnTy ParallelWorkFn, void *SharedValues,
     uint16_t SharedValuesBytes, void *PrivateValues,
     uint16_t PrivateValuesBytes, bool SharedMemPointers);
 
-template<typename data_t>
-EXTERN void __kmpc_target_region_kernel_reduction_init(
-    ident_t *Ident, uint16_t UseSPMDMode, bool NoWait, bool IsParallelReduction,
-    bool IsTeamReduction, void *ReductionLocation,
-    uint16_t ReductionLocationSize);
 
-template <typename data_t>
+/// REDUCTION INTERFACE --- TODO
+///
+///{
+
+#define REDUCTION_OPERATORS()                                                  \
+  RO(RO_NOP, NOP)                                                             \
+  RO(RO_ADD, ADD)                                                             \
+  RO(RO_MUL, MUL)                                                             \
+  RO(RO_MIN, MIN)                                                             \
+  RO(RO_MAX, MAX)                                                             \
+  RO(RO_XOR, XOR)                                                             \
+  RO(RO_BOR, BOR)                                                             \
+  RO(RO_BAND, BAND)
+
+enum ReductionOperator {
+#define RO(NAME, BIN) NAME,
+  REDUCTION_OPERATORS()
+#undef RO
+};
+
+#define REDUCTION_BASE_TYPES()                                                 \
+  RBT(RBT_BOOL, BOOL_TY)                                                       \
+  RBT(RBT_CHAR, CHAR_TY)                                                       \
+  RBT(RBT_SHORT, SHORT_TY)                                                     \
+  RBT(RBT_INT, INT_TY)                                                         \
+  RBT(RBT_LONG, LONG_TY)                                                       \
+  RBT(RBT_LONG_LONG, LONG_LONG_TY)                                             \
+  RBT(RBT_HALF, HALF_FLOAT_TY)                                                 \
+  RBT(RBT_FLOAT, FLOAT_TY)                                                     \
+  RBT(RBT_DOUBLE, DOUBLE_FLOAT_TY)
+
+enum ReductionBaseType {
+#define RBT(NAME, TYPE) NAME,
+  REDUCTION_BASE_TYPES()
+#undef RBT
+};
+
+EXTERN void *__kmpc_target_region_kernel_reduction_init(
+    ident_t *Ident, int16_t UseSPMDMode, bool RequiredOMPRuntime,
+    int32_t GlobalTId, bool IsParallelReduction, bool IsTeamReduction,
+    void *OriginalLocation, void *PrivateLocation,
+    uint32_t NumReductionLocations, void *RHSPtr,
+    enum ReductionBaseType BaseType);
+
 EXTERN void __kmpc_target_region_kernel_reduction_finalize(
-    ident_t *Ident, uint16_t UseSPMDMode, bool NoWait, bool IsParallelReduction,
-    bool IsTeamReduction, void *ReductionLocation,
-    uint16_t ReductionLocationSize);
+    ident_t *Ident, int16_t UseSPMDMode, bool RequiredOMPRuntime,
+    int32_t GlobalTId, bool IsParallelReduction, bool IsTeamReduction,
+    void *OriginalLocation, void *ReductionLocation, uint32_t NumReductionLocations,
+    enum ReductionOperator RedOp, enum ReductionBaseType BaseType);
+///}
 
 ///}
 

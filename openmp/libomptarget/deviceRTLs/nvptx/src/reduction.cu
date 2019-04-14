@@ -253,6 +253,17 @@ int32_t __kmpc_nvptx_parallel_reduce_nowait_v2(
 }
 
 EXTERN
+int32_t __kmpc_nvptx_parallel_reduce_nowait_v3(
+    kmp_Ident *loc, int32_t global_tid, int32_t num_vars, size_t reduce_size,
+    void *reduce_data, kmp_ShuffleReductFctPtr shflFct,
+    kmp_InterWarpCopyFctPtr cpyFct, bool isSPMDExecutionMode,
+    bool isRuntimeInitialized) {
+  return nvptx_parallel_reduce_nowait(
+      global_tid, num_vars, reduce_size, reduce_data, shflFct, cpyFct,
+      isSPMDExecutionMode, !isRuntimeInitialized);
+}
+
+EXTERN
 int32_t __kmpc_nvptx_parallel_reduce_nowait_simple_spmd(
     int32_t global_tid, int32_t num_vars, size_t reduce_size, void *reduce_data,
     kmp_ShuffleReductFctPtr shflFct, kmp_InterWarpCopyFctPtr cpyFct) {
@@ -466,26 +477,27 @@ INLINE static uint32_t roundToWarpsize(uint32_t s) {
 
 __device__ static volatile uint32_t IterCnt = 0;
 __device__ static volatile uint32_t Cnt = 0;
-EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
+__device__ static int32_t nvptx_teams_reduce_nowait_helper(
     kmp_Ident *loc, int32_t global_tid, void *global_buffer,
     int32_t num_of_records, void *reduce_data, kmp_ShuffleReductFctPtr shflFct,
     kmp_InterWarpCopyFctPtr cpyFct, kmp_ListGlobalFctPtr lgcpyFct,
     kmp_ListGlobalFctPtr lgredFct, kmp_ListGlobalFctPtr glcpyFct,
-    kmp_ListGlobalFctPtr glredFct) {
+    kmp_ListGlobalFctPtr glredFct, bool isSPMDExecutionMode,
+    bool isRuntimeUninitialized) {
 
   // Terminate all threads in non-SPMD mode except for the master thread.
-  if (checkGenericMode(loc) && GetThreadIdInBlock() != GetMasterThreadID())
+  if (!isSPMDExecutionMode && GetThreadIdInBlock() != GetMasterThreadID())
     return 0;
 
-  uint32_t ThreadId = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
+  uint32_t ThreadId = GetLogicalThreadIdInBlock(isSPMDExecutionMode);
 
   // In non-generic mode all workers participate in the teams reduction.
   // In generic mode only the team master participates in the teams
   // reduction because the workers are waiting for parallel work.
   uint32_t NumThreads =
-      checkSPMDMode(loc)
+      isSPMDExecutionMode
           ? GetNumberOfOmpThreads(ThreadId, /*isSPMDExecutionMode=*/true,
-                                  checkRuntimeUninitialized(loc))
+                                  isRuntimeUninitialized)
           : /*Master thread only*/ 1;
   uint32_t TeamId = GetBlockIdInKernel();
   uint32_t NumTeams = GetNumberOfBlocksInKernel();
@@ -495,7 +507,7 @@ EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
   // Block progress for teams greater than the current upper
   // limit. We always only allow a number of teams less or equal
   // to the number of slots in the buffer.
-  bool IsMaster = isMaster(loc, ThreadId);
+  bool IsMaster = !isSPMDExecutionMode || IsTeamMaster(ThreadId);
   while (IsMaster) {
     // Atomic read
     Bound = atomicAdd((uint32_t *)&IterCnt, 0);
@@ -517,7 +529,7 @@ EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
     ChunkTeamCount = atomicInc((uint32_t *)&Cnt, num_of_records - 1);
   }
   // Synchronize
-  if (checkSPMDMode(loc))
+  if (isSPMDExecutionMode)
     __kmpc_barrier(loc, global_tid);
 
   // reduce_data is global or shared so before being reduced within the
@@ -595,3 +607,26 @@ EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
   return 0;
 }
 
+EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
+    kmp_Ident *loc, int32_t global_tid, void *global_buffer,
+    int32_t num_of_records, void *reduce_data, kmp_ShuffleReductFctPtr shflFct,
+    kmp_InterWarpCopyFctPtr cpyFct, kmp_ListGlobalFctPtr lgcpyFct,
+    kmp_ListGlobalFctPtr lgredFct, kmp_ListGlobalFctPtr glcpyFct,
+    kmp_ListGlobalFctPtr glredFct) {
+  return nvptx_teams_reduce_nowait_helper(
+      loc, global_tid, global_buffer, num_of_records, reduce_data, shflFct,
+      cpyFct, lgcpyFct, lgredFct, glcpyFct, glredFct, checkSPMDMode(loc),
+      checkRuntimeUninitialized(loc));
+}
+
+EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v3(
+    kmp_Ident *loc, int32_t global_tid, void *global_buffer,
+    int32_t num_of_records, void *reduce_data, kmp_ShuffleReductFctPtr shflFct,
+    kmp_InterWarpCopyFctPtr cpyFct, kmp_ListGlobalFctPtr lgcpyFct,
+    kmp_ListGlobalFctPtr lgredFct, kmp_ListGlobalFctPtr glcpyFct,
+    kmp_ListGlobalFctPtr glredFct, bool isSPMDExecutionMode, bool isRuntimeInitialized) {
+  return nvptx_teams_reduce_nowait_helper(
+      loc, global_tid, global_buffer, num_of_records, reduce_data, shflFct,
+      cpyFct, lgcpyFct, lgredFct, glcpyFct, glredFct, isSPMDExecutionMode,
+      !isRuntimeInitialized);
+}

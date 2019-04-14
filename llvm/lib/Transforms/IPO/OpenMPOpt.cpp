@@ -76,6 +76,10 @@ enum {
   ARG_INIT_USE_STATE_MACHINE = 3,
   ARG_INIT_REQUIRES_DATA_SHARING = 4,
 
+  RET_INIT_IS_WORKER = -1,
+  RET_INIT_IS_SURPLUS = 0,
+  RET_INIT_IS_MASTER = 1,
+
   ARG_DEINIT_IDENT = 0,
   ARG_DEINIT_USE_SPMD_MODE = 1,
   ARG_DEINIT_REQUIRES_OMP_RUNTIME = 2,
@@ -90,9 +94,17 @@ enum {
   ARG_PARALLEL_PRIVATE_VARS_BYTES = 7,
   ARG_PARALLEL_SHARED_MEM_POINTERS = 8,
 
-  RET_INIT_IS_WORKER = -1,
-  RET_INIT_IS_SURPLUS = 0,
-  RET_INIT_IS_MASTER = 1,
+  ARG_REDUCTION_FINALIZE_IDENT = 0,
+  ARG_REDUCTION_FINALIZE_USE_SPMD_MODE = 1,
+  ARG_REDUCTION_FINALIZE_REQUIRES_OMP_RUNTIME = 2,
+  ARG_REDUCTION_FINALIZE_GLOBAL_TID = 3,
+  ARG_REDUCTION_FINALIZE_IS_PARALLEL_REDUCTION = 4,
+  ARG_REDUCTION_FINALIZE_IS_TEAM_REDUCTION = 5,
+  ARG_REDUCTION_FINALIZE_ORIGINAL_LOCATION = 6,
+  ARG_REDUCTION_FINALIZE_REDUCTION_LOCATION = 7,
+  ARG_REDUCTION_FINALIZE_NUM_REDUCTION_LOCATIONS = 8,
+  ARG_REDUCTION_FINALIZE_REDUCTION_OPERATOR_KIND = 9,
+  ARG_REDUCTION_FINALIZE_REDUCTION_BASE_TYPE = 10,
 };
 
 /// A macro list to represent known functions from the omp, __kmpc, and target
@@ -109,6 +121,8 @@ enum {
   KF(FID_KMPC_TREGION_KERNEL_DEINIT, "__kmpc_target_region_kernel_deinit", 3)  \
   KF(FID_KMPC_TREGION_KERNEL_PARALLEL, "__kmpc_target_region_kernel_parallel", \
      9)                                                                        \
+  KF(FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE,                               \
+     "__kmpc_target_region_kernel_reduction_finalize", 11)                      \
   KF(FID_KMPC_FOR_STATIC_INIT_4, "__kmpc_for_static_init_4", 9)                \
   KF(FID_KMPC_FOR_STATIC_FINI, "__kmpc_for_static_fini", 2)                    \
   KF(FID_KMPC_GLOBAL_THREAD_NUM, "__kmpc_global_thread_num", 1)                \
@@ -486,10 +500,10 @@ bool KernelTy::convertToSPMD() {
   GG.introduceGuards();
 
   // Create an "is-SPMD" flag.
-  Type *FlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]
-                     ->getArgOperand(ARG_INIT_USE_SPMD_MODE)
-                     ->getType();
-  Constant *SPMDFlag = ConstantInt::getTrue(FlagTy);
+  Type *InitFlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]
+                         ->getArgOperand(ARG_INIT_USE_SPMD_MODE)
+                         ->getType();
+  Constant *InitSPMDFlag = ConstantInt::getTrue(InitFlagTy);
 
   // Update the init and deinit calls with the "is-SPMD" flag to indicate
   // SPMD mode.
@@ -498,9 +512,9 @@ bool KernelTy::convertToSPMD() {
   assert(KernelCalls[FID_KMPC_TREGION_KERNEL_DEINIT].size() == 1 &&
          "Non-canonical kernel form!");
   KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]->setArgOperand(
-      ARG_INIT_USE_SPMD_MODE, SPMDFlag);
+      ARG_INIT_USE_SPMD_MODE, InitSPMDFlag);
   KernelCalls[FID_KMPC_TREGION_KERNEL_DEINIT][0]->setArgOperand(
-      ARG_DEINIT_USE_SPMD_MODE, SPMDFlag);
+      ARG_DEINIT_USE_SPMD_MODE, InitSPMDFlag);
 
   // Use the simple barrier to synchronize all threads in SPMD mode after each
   // parallel region.
@@ -510,8 +524,12 @@ bool KernelTy::convertToSPMD() {
   // For each parallel region, identified by the
   // __kmpc_target_region_kernel_parallel call, we set the "is-SPMD" flag and
   // introduce a succeeding barrier call.
+  Type *ParallelFlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL][0]
+                     ->getArgOperand(ARG_PARALLEL_USE_SPMD_MODE)
+                     ->getType();
+  Constant *ParallelSPMDFlag = ConstantInt::getSigned(ParallelFlagTy, 1);
   for (CallInst *ParCI : KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL]) {
-    ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, SPMDFlag);
+    ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, ParallelSPMDFlag);
     auto AI = SimpleBarrierFn->arg_begin();
     CallInst::Create(SimpleBarrierFn,
                      {Constant::getNullValue((AI++)->getType()),
@@ -762,14 +780,31 @@ bool KernelTy::specializeParallelRegionsModeFlag() {
   bool IsSPMDMode = isExecutedInSPMDMode();
 
   // Create an "is-SPMD" flag.
-  Type *FlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]
-                     ->getArgOperand(ARG_INIT_USE_SPMD_MODE)
-                     ->getType();
+  Type *FlagTy = nullptr;
+
+  if (!KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL].empty()) {
+    FlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL][0]
+                 ->getArgOperand(ARG_PARALLEL_USE_SPMD_MODE)
+                 ->getType();
+  } else if (!KernelCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE].empty()) {
+    FlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE][0]
+                 ->getArgOperand(ARG_REDUCTION_FINALIZE_USE_SPMD_MODE)
+                 ->getType();
+  } else {
+    // No calls found for which we could specialize the UseSPMD flag.
+    return false;
+  }
+
   Constant *SPMDFlag = ConstantInt::getSigned(FlagTy, IsSPMDMode);
   for (CallInst *ParCI : KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL])
     ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, SPMDFlag);
   for (CallInst *ParCI : ParallelRegionCalls[FID_KMPC_TREGION_KERNEL_PARALLEL])
     ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, SPMDFlag);
+
+  for (CallInst *RedCI : KernelCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE])
+    RedCI->setArgOperand(ARG_REDUCTION_FINALIZE_USE_SPMD_MODE, SPMDFlag);
+  for (CallInst *RedCI : ParallelRegionCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE])
+    RedCI->setArgOperand(ARG_REDUCTION_FINALIZE_USE_SPMD_MODE, SPMDFlag);
 
   unsigned NumChangedCalls =
       KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL].size() +
