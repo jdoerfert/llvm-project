@@ -238,9 +238,9 @@ template <typename data_t>
 INLINE static void reduce(void *SrcPtr, void *DestPtr,
                           enum ReductionOperator RedOp) {
   switch (RedOp) {
-#define RO(NAME, BIN)                                                \
+#define RO(NAME, BIN)                                                          \
   case NAME:                                                                   \
-    *((data_t *)DestPtr) = BIN(*((data_t *)DestPtr), *((volatile gata_t *)SrcPtr));     \
+    *((data_t *)DestPtr) = BIN(*((data_t *)DestPtr), *((data_t *)SrcPtr));     \
     break;
 
     REDUCTION_OPERATORS()
@@ -248,24 +248,23 @@ INLINE static void reduce(void *SrcPtr, void *DestPtr,
   };
 }
 
-template<typename data_t>
-INLINE static void shuffleAndStore(void *SrcPtr, void *DestPtr, int16_t DestOffset) {
+template <typename data_t>
+INLINE static void shuffleAndStore(void *SrcPtr, void *DestPtr,
+                                   int16_t DestOffset) {
   size_t LeftoverSize = sizeof(data_t);
   for (size_t ShuffleSize = 8; ShuffleSize >= 1; ShuffleSize /= 2) {
     while (ShuffleSize <= LeftoverSize) {
       if (ShuffleSize <= 4) {
         int32_t *SrcPtr32 = (int32_t *)SrcPtr;
         int32_t *DestPtr32 = (int32_t *)DestPtr;
-        int32_t Res =
-            __kmpc_shuffle_int32(*SrcPtr32, (int32_t)DestOffset, WARPSIZE);
+        int32_t Res = __kmpc_shuffle_int32(*SrcPtr32, DestOffset, WARPSIZE);
         *DestPtr32 = Res;
         SrcPtr = (SrcPtr32 + 1);
         DestPtr = (DestPtr32 + 1);
       } else {
         int64_t *SrcPtr64 = (int64_t *)SrcPtr;
         int64_t *DestPtr64 = (int64_t *)DestPtr;
-        int64_t Res =
-            __kmpc_shuffle_int64(*SrcPtr64, (int64_t)DestOffset, WARPSIZE);
+        int64_t Res = __kmpc_shuffle_int64(*SrcPtr64, DestOffset, WARPSIZE);
         *DestPtr64 = Res;
         SrcPtr = (SrcPtr64 + 1);
         DestPtr = (DestPtr64 + 1);
@@ -278,23 +277,23 @@ INLINE static void shuffleAndStore(void *SrcPtr, void *DestPtr, int16_t DestOffs
 template <typename data_t, enum ReductionOperator RedOp>
 INLINE static void shuffleAndReduce(void *LocalItem, int16_t LaneId,
                                     int16_t Offset, int16_t AlgoVer) {
-  __align__(64) data_t RemoteItem = 42;
+  __align__(64) data_t RemoteItem;
 
-  shuffleAndStore<data_t>(LocalItem, (void*)&RemoteItem, Offset);
+  shuffleAndStore<data_t>(LocalItem, (void *)&RemoteItem, Offset);
 
   if ((AlgoVer == 0) |
       ((AlgoVer == 1) & ((uint16_t)LaneId < (uint16_t)Offset)) |
       ((AlgoVer == 2) & (LaneId & (int16_t)1) & (Offset > (int16_t)0)))
-    reduce<data_t>((void*)&RemoteItem, LocalItem, RedOp);
+    reduce<data_t>((void *)&RemoteItem, LocalItem, RedOp);
   else
-    reduce<data_t>((void*)&RemoteItem, LocalItem, RO_NOP);
+    reduce<data_t>((void *)&RemoteItem, LocalItem, RO_NOP);
 }
 
-template<typename data_t>
+template <typename data_t>
 INLINE static void interWarpCopy(void *Ptr, int32_t WarpNum) {
   __shared__ __align__(256) data_t Buffer[WARPSIZE];
   uint32_t GlobalTId = __kmpc_global_thread_num(0);
-  uint32_t TId =  GetThreadIdInBlock();
+  uint32_t TId = GetThreadIdInBlock();
   uint32_t LaneId = TId % WARPSIZE;
 
   __kmpc_barrier(0, GlobalTId);
@@ -302,36 +301,30 @@ INLINE static void interWarpCopy(void *Ptr, int32_t WarpNum) {
   bool IsMasterThread = (LaneId == 0);
   if (IsMasterThread) {
     uint32_t WarpId = TId / WARPSIZE;
-    Buffer[WarpId] = *((data_t*)Ptr);
+    Buffer[WarpId] = *((data_t *)Ptr);
   }
 
   __kmpc_barrier(0, GlobalTId);
 
   bool IsActiveThread = (TId < (uint32_t)WarpNum);
   if (IsActiveThread)
-    *((data_t*)Ptr) = Buffer[TId];
-
+    *((data_t *)Ptr) = Buffer[TId];
 }
 
-INLINE static
-void globalToBufferCopy(void *buffer, int idx, void *reduce_data) {
-}
+INLINE static void globalToBufferCopy(void *buffer, int idx,
+                                      void *reduce_data) {}
 
-INLINE static
-void globalToBufferReduce(void *buffer, int idx, void *reduce_data) {
-}
+INLINE static void globalToBufferReduce(void *buffer, int idx,
+                                        void *reduce_data) {}
 
-INLINE static
-void bufferToGlobalCopy(void *buffer, int idx, void *reduce_data) {
-}
+INLINE static void bufferToGlobalCopy(void *buffer, int idx,
+                                      void *reduce_data) {}
 
-INLINE static
-void bufferToGlobalReduce(void *buffer, int idx, void *reduce_data) {
-}
+INLINE static void bufferToGlobalReduce(void *buffer, int idx,
+                                        void *reduce_data) {}
 
-template<typename data_t>
-INLINE static
-void initialize(void *LocPtr, void *DataPtr) {
+template <typename data_t>
+INLINE static void initialize(void *LocPtr, void *DataPtr) {
   *((data_t *)LocPtr) = *((data_t *)DataPtr);
 }
 
@@ -360,7 +353,7 @@ INLINE static kmp_ShuffleReductFctPtr
 getShuffleAndReduceFn(enum ReductionOperator RedOp) {
 
   switch (RedOp) {
-#define RO(NAME, BIN)                                                \
+#define RO(NAME, BIN)                                                          \
   case NAME:                                                                   \
     return &shuffleAndReduce<data_t, NAME>;
 
@@ -406,11 +399,11 @@ EXTERN void __kmpc_target_region_kernel_reduction_finalize(
         Ident, GlobalTId, /* NumVars */ 1, ReduceSize, ReductionLocation,
         ShuffleAndReduce, InterWarpCopy, UseSPMDMode, RequiredOMPRuntime);
   } else if (IsTeamReduction) {
-//    res = __kmpc_nvptx_teams_reduce_nowait_v3(
-//        Ident, GlobalTId, /* NumVars */ 1, NumReductionLocations,
-//        ReductionLocation, ShuffleAndReduce, InterWarpCopy,
-//        &globalToBufferCopy, &globalToBufferReduce, &bufferToGlobalCopy,
-//        &bufferToGlobalReduce, UseSPMDMode, RequiredOMPRuntime);
+    //    res = __kmpc_nvptx_teams_reduce_nowait_v3(
+    //        Ident, GlobalTId, /* NumVars */ 1, NumReductionLocations,
+    //        ReductionLocation, ShuffleAndReduce, InterWarpCopy,
+    //        &hlobalToBufferCopy, &globalToBufferReduce, &bufferToGlobalCopy,
+    //        &bufferToGlobalReduce, UseSPMDMode, RequiredOMPRuntime);
   } else {
     // This should probably cause an abort, e.g., assert, as this should be
     // either parallel or team reduction.

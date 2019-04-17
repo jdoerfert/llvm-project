@@ -101,8 +101,7 @@ typedef struct ident ident_t;
 ///             - has not performed work and should be put in a user provied
 ///               state machine (as defined above).
 ///
-EXTERN int8_t __kmpc_target_region_kernel_init(ident_t *Ident,
-                                               bool UseSPMDMode,
+EXTERN int8_t __kmpc_target_region_kernel_init(ident_t *Ident, bool UseSPMDMode,
                                                bool RequiresOMPRuntime,
                                                bool UseStateMachine,
                                                bool RequiresDataSharing);
@@ -119,8 +118,7 @@ EXTERN int8_t __kmpc_target_region_kernel_init(ident_t *Ident,
 /// \param RequiredOMPRuntime Flag to indicate if the runtime was required and
 ///                           is therefore initialized.
 ///
-EXTERN void __kmpc_target_region_kernel_deinit(ident_t *Ident,
-                                               bool UseSPMDMode,
+EXTERN void __kmpc_target_region_kernel_deinit(ident_t *Ident, bool UseSPMDMode,
                                                bool RequiredOMPRuntime);
 
 /// Generic type of a work function in the target region kernel interface. The
@@ -175,19 +173,18 @@ EXTERN void __kmpc_target_region_kernel_parallel(
     uint16_t SharedValuesBytes, void *PrivateValues,
     uint16_t PrivateValuesBytes, bool SharedMemPointers);
 
-
 /// REDUCTION INTERFACE --- TODO
 ///
 ///{
 
 #define REDUCTION_OPERATORS()                                                  \
-  RO(RO_NOP, NOP)                                                             \
-  RO(RO_ADD, ADD)                                                             \
-  RO(RO_MUL, MUL)                                                             \
-  RO(RO_MIN, MIN)                                                             \
-  RO(RO_MAX, MAX)                                                             \
-  RO(RO_XOR, XOR)                                                             \
-  RO(RO_BOR, BOR)                                                             \
+  RO(RO_NOP, NOP)                                                              \
+  RO(RO_ADD, ADD)                                                              \
+  RO(RO_MUL, MUL)                                                              \
+  RO(RO_MIN, MIN)                                                              \
+  RO(RO_MAX, MAX)                                                              \
+  RO(RO_XOR, XOR)                                                              \
+  RO(RO_BOR, BOR)                                                              \
   RO(RO_BAND, BAND)
 
 enum ReductionOperator {
@@ -223,8 +220,9 @@ EXTERN void *__kmpc_target_region_kernel_reduction_init(
 EXTERN void __kmpc_target_region_kernel_reduction_finalize(
     ident_t *Ident, int16_t UseSPMDMode, bool RequiredOMPRuntime,
     int32_t GlobalTId, bool IsParallelReduction, bool IsTeamReduction,
-    void *OriginalLocation, void *ReductionLocation, uint32_t NumReductionLocations,
-    enum ReductionOperator RedOp, enum ReductionBaseType BaseType);
+    void *OriginalLocation, void *ReductionLocation,
+    uint32_t NumReductionLocations, enum ReductionOperator RedOp,
+    enum ReductionBaseType BaseType);
 ///}
 
 ///}
