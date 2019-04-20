@@ -166,7 +166,7 @@ typedef void (*ParallelWorkFnTy)(void * /* SharedValues */,
 ///                           private values, if any, are stored directly after
 ///                           the shared values.
 ///
-CALLBACK(ParallelWorkFnTy, SharedValues, PrivateValues)
+CALLBACK(ParallelWorkFn, SharedValues, PrivateValues)
 EXTERN void __kmpc_target_region_kernel_parallel(
     ident_t *Ident, int16_t UseSPMDMode, bool RequiredOMPRuntime,
     ParallelWorkFnTy ParallelWorkFn, void *SharedValues,

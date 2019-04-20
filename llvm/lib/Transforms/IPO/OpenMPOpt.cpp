@@ -48,6 +48,12 @@ static cl::opt<bool> ForceOpenMPSIMDIZATION(
     cl::desc("Force execution of non-SPMD kernels in SPMD mode."), cl::Hidden,
     cl::init(false));
 
+static cl::opt<bool> EnableOpenMPSIMDIZATIONGuards(
+    "openmp-opt-kernel-force-simdization-guards", cl::ZeroOrMore,
+    cl::desc("Enable guard generation for execution of non-SPMD kernels in "
+             "SPMD mode."),
+    cl::Hidden, cl::init(true));
+
 STATISTIC(NumKernelsConvertedToSPMD,
           "Number of GPU kernels converted to SPMD mode");
 STATISTIC(NumParallelCallsConvertedToSPMD,
@@ -122,7 +128,7 @@ enum {
   KF(FID_KMPC_TREGION_KERNEL_PARALLEL, "__kmpc_target_region_kernel_parallel", \
      9)                                                                        \
   KF(FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE,                               \
-     "__kmpc_target_region_kernel_reduction_finalize", 11)                      \
+     "__kmpc_target_region_kernel_reduction_finalize", 11)                     \
   KF(FID_KMPC_FOR_STATIC_INIT_4, "__kmpc_for_static_init_4", 9)                \
   KF(FID_KMPC_FOR_STATIC_FINI, "__kmpc_for_static_fini", 2)                    \
   KF(FID_KMPC_GLOBAL_THREAD_NUM, "__kmpc_global_thread_num", 1)                \
@@ -200,54 +206,155 @@ static Function *getOrCreateSimpleSPMDBarrierFn(Module &M) {
 
 /// A helper class to introduce smart guarding code.
 struct GuardGenerator {
+  GuardGenerator(Function &KernelFn) : KernelFn(KernelFn) {}
 
-  /// Inform the guard generator about the side-effect instructions collected in
-  /// @p SideEffectInst.
-  ///
-  /// \Returns True if all registered side-effects can be (efficiently) guarded.
-  bool registerSideEffects(SmallVectorImpl<Instruction *> &SideEffectInst) {
-    bool Guarded = true;
-    if (SideEffectInst.empty())
-      return Guarded;
-
-    const Module &M = *SideEffectInst.front()->getModule();
-    const DataLayout &DL = M.getDataLayout();
-
-    SmallVector<Instruction *, 16> UnguardedSideEffectInst;
-    for (Instruction *I : SideEffectInst) {
-      if (CallInst *CI = dyn_cast<CallInst>(I)) {
-        if (getFunctionID(CI->getCalledFunction()) != FID_UNKNOWN)
-          continue;
-      } else if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
-        if (isa<AllocaInst>(
-                SI->getPointerOperand()->stripInBoundsConstantOffsets()))
-          continue;
-      } else if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
-        if (isSafeToLoadUnconditionally(LI->getPointerOperand(),
-                                        LI->getAlignment(), DL))
-          continue;
-      }
-      LLVM_DEBUG(dbgs() << "Non-SPMD side effect found: " << *I << "\n");
-      UnguardedSideEffectInst.push_back(I);
-    }
-
-    return UnguardedSideEffectInst.empty();
+  bool canGenerateGuards() const {
+    return CanGenerateGuards;
   }
 
-  bool registerReadEffects(SmallVectorImpl<Instruction *> &ReadEffectInst) {
-    return registerSideEffects(ReadEffectInst);
+  bool registerSideEffect(Instruction &SideEffectInst, bool &NeedsGuard) {
+    if (!isGuardableInst(SideEffectInst, NeedsGuard,
+                         *SideEffectInst.getFunction()))
+      CanGenerateGuards = false;
+    if (!NeedsGuard)
+      return CanGenerateGuards;
+    // TODO:
+    if (SideEffectInst.getNumUses())
+      CanGenerateGuards = false;
+    if (!EnableOpenMPSIMDIZATIONGuards)
+      CanGenerateGuards = false;
+
+    LLVM_DEBUG(dbgs() << "Non-SPMD side effect found: " << SideEffectInst << "\n");
+    UnguardedSideEffectInst.push_back(&SideEffectInst);
+
+    // TODO: Some logic to determine if guards are efficient.
+    return CanGenerateGuards;
   }
 
   void introduceGuards() {
+    assert(CanGenerateGuards);
+    if (UnguardedSideEffectInst.empty())
+      return;
+
+    Module &M = *UnguardedSideEffectInst.front()->getModule();
+    Function *TIdFn =
+        Intrinsic::getDeclaration(&M, Intrinsic::nvvm_read_ptx_sreg_tid_x);
+    Function *SyncFn = getOrCreateSimpleSPMDBarrierFn(M);
+    Value *Zero = ConstantInt::get(Type::getInt32Ty(M.getContext()), 0);
+
+    DenseMap<Function *, Value *> IsMasterMap;
+    auto GetOrCreateIsMasterBoolForFunc = [&](Function *F) {
+      Value *&IsMasterBool = IsMasterMap[F];
+      if (!IsMasterBool) {
+        Instruction *IP = &*F->getEntryBlock().getFirstInsertionPt();
+        Instruction *TId = CallInst::Create(TIdFn, "nvptx_tid", IP);
+        IsMasterBool = new ICmpInst(IP, ICmpInst::ICMP_EQ, TId, Zero);
+      }
+      return IsMasterBool;
+    };
+
     // TODO: The guard generator cannot introduce guards yet but the registerXXX
     //       functions above are aware of that!
+    for (Instruction *I : UnguardedSideEffectInst) {
+      Value *IsMasterBool = GetOrCreateIsMasterBoolForFunc(I->getFunction());
+      Instruction *ThenTI = SplitBlockAndInsertIfThen(IsMasterBool, I, false);
+      auto AI = SyncFn->arg_begin();
+      CallInst::Create(SyncFn,
+                       {Constant::getNullValue((AI++)->getType()),
+                        Constant::getNullValue((AI)->getType())},
+                       "", I);
+      I->moveBefore(ThenTI);
+    }
+    KernelFn.dump();
   }
+
+private:
+
+  bool isGuardableCall(CallInst &CI, bool &NeedsGuard, Function &Fn) {
+    NeedsGuard = true;
+
+    switch (getFunctionID(CI.getCalledFunction())) {
+      case FID_OMP_GET_TEAM_NUM:
+      case FID_OMP_GET_NUM_TEAMS:
+      case FID_LLVM_UNKNOWN:
+      case FID_KMPC_TREGION_KERNEL_INIT:
+      case FID_KMPC_TREGION_KERNEL_DEINIT:
+      case FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE:
+        // Known call known not to be influenced by SIMDIZATION.
+        NeedsGuard = false;
+        return true;
+      case FID_KMPC_TREGION_KERNEL_PARALLEL:
+        NeedsGuard = false;
+        return (&Fn == CI.getFunction());
+      case FID_OMP_GET_THREAD_NUM:
+      case FID_KMPC_GLOBAL_THREAD_NUM:
+      case FID_KMPC_FOR_STATIC_INIT_4:
+      case FID_KMPC_FOR_STATIC_FINI:
+      case FID_KMPC_DISPATCH_INIT_4:
+      case FID_KMPC_DISPATCH_NEXT_4:
+        return true;
+      case FID_UNKNOWN:
+        // Unknown call potentially influenced by SIMDIZATION, checked.
+        break;
+      case FID_OMP_SET_NUM_THREADS:
+      case FID_OMP_GET_NUM_THREADS:
+      default:
+        // KMPC/NVVM/LLVM/OpenMP calls not in the list above are assumed to
+        // be influenced in unknown ways by SIMDIZATION and can consequently
+        // not be guarded.
+        return false;
+    }
+
+    // Check unknown calls recursively for potential embedded
+    // KMPC/NVVM/LLVM/OpenMP calls.
+    Function *Callee = CI.getCalledFunction();
+    if (!Callee || !Callee->hasExactDefinition())
+      return false;
+    assert(!Callee->isDeclaration());
+
+    bool InstsNeedsGuard = false;
+    for (Instruction &I : instructions(Callee)) {
+      bool InstNeedsGuard = false;
+      if (!isGuardableInst(I, InstNeedsGuard, Fn))
+        return false;
+      InstsNeedsGuard |= InstNeedsGuard;
+    }
+
+    return true;
+  }
+
+  bool isGuardableInst(Instruction &I, bool &NeedsGuard, Function &Fn) {
+    if (CallInst *CI = dyn_cast<CallInst>(&I))
+      return isGuardableCall(*CI, NeedsGuard, Fn);
+
+    NeedsGuard = true;
+    if (StoreInst *SI = dyn_cast<StoreInst>(&I)) {
+      if (isa<AllocaInst>(
+              SI->getPointerOperand()->stripInBoundsConstantOffsets()))
+        NeedsGuard = false;
+    } else if (LoadInst *LI = dyn_cast<LoadInst>(&I)) {
+      const Module &M = *I.getModule();
+      const DataLayout &DL = M.getDataLayout();
+
+      if (isSafeToLoadUnconditionally(LI->getPointerOperand(),
+                                      LI->getAlignment(), DL))
+        NeedsGuard = false;
+    }
+
+    return true;
+  }
+
+  Function &KernelFn;
+
+  SmallVector<Instruction *, 16> UnguardedSideEffectInst;
+
+  bool CanGenerateGuards = true;
 };
 
 /// Helper structure to represent and work with a target region kernel.
 struct KernelTy {
 
-  KernelTy(Function *KernelFn) : KernelFn(*KernelFn) {}
+  KernelTy(Function *KernelFn) : GG(*KernelFn), KernelFn(*KernelFn) {}
 
   /// Optimize this kernel, return true if something was done.
   bool optimize();
@@ -279,11 +386,9 @@ private:
   /// Create a custom state machine in the module, return true if successful.
   bool createCustomStateMachine();
 
-  /// All side-effect instructions potentially executed in this kernel.
-  SmallVector<Instruction *, 16> SideEffectInst;
-
-  /// All read-only instructions potentially executed in this kernel.
-  SmallVector<Instruction *, 16> ReadOnlyInst;
+  /// Use a generic guard generator to determine if suitable guards for all
+  /// side effect instructions can be placed.
+  GuardGenerator GG;
 
   /// All non-analyzed calls contained in this kernel. They are separated by
   /// their function ID which describes identifies known calls.
@@ -323,24 +428,17 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
 
   for (Instruction &I : instructions(&F)) {
 
-    // In parallel regions we only look for calls, outside, we look for all
-    // side-effect and read-only instructions.
+    // We look for all side-effect and read-only instructions outside of
+    // parallel regions.
     if (FnKind != FK_PARALLEL) {
       // Handle non-side-effect instructions first. These will not write or
       // throw which makes reading the only interesting potential property.
-      if (!I.mayHaveSideEffects()) {
-        if (I.mayReadFromMemory()) {
-          LLVM_DEBUG(dbgs() << "- read-only: " << I << "\n");
-          ReadOnlyInst.push_back(&I);
-        }
-        continue;
-      }
-
-      // Now we handle all non-call instructions.
-      if (!isa<CallInst>(I)) {
+      if (I.mayHaveSideEffects() || I.mayReadFromMemory()) {
         LLVM_DEBUG(dbgs() << "- side-effect: " << I << "\n");
-        SideEffectInst.push_back(&I);
-        continue;
+        bool NeedsGuard = false;
+        if (!GG.registerSideEffect(I, NeedsGuard))
+          if (!isa<CallInst>(I))
+            return false;
       }
     }
 
@@ -356,13 +454,18 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
         ID == FID_UNKNOWN) {
       // If the callee has external linkage we cannot keep the current function
       // kind but have to assume it is called from any possible context.
+      bool AllUsersInThisFunction = std::all_of(
+          Callee->user_begin(), Callee->user_end(), [&](const User *U) {
+            return cast<Instruction>(U)->getFunction() == &F;
+          });
+
       FunctionKind CalleeFnKind =
-          Callee->hasInternalLinkage() ? FnKind : FK_UNKNOWN;
+          (Callee->hasInternalLinkage() && AllUsersInThisFunction) ? FnKind
+                                                                   : FK_UNKNOWN;
       // If recursive analysis failed we bail, otherwise the
       // information was collected in the internal state.
       if (!analyze(*Callee, Visited, CalleeFnKind))
         return false;
-      continue;
     }
 
     switch (ID) {
@@ -471,21 +574,10 @@ bool KernelTy::convertToSPMD() {
 
   bool Changed = false;
 
-  // Use a generic guard generator to determine if suitable guards for all
-  // side effect instructions can be placed.
-  GuardGenerator GG;
-
   // Check if SIMDIZATION is possible, in case it is not forced.
   if (!ForceOpenMPSIMDIZATION) {
-    // Unknown calls are not handled yet and will cause us to bail.
-    if (!KernelCalls[FID_UNKNOWN].empty())
-      return Changed;
 
-    // If we cannot guard all side effect instructions bail out.
-    if (!GG.registerSideEffects(SideEffectInst))
-      return Changed;
-
-    if (!GG.registerReadEffects(ReadOnlyInst))
+    if (!GG.canGenerateGuards())
       return Changed;
 
     // TODO: Emit a remark.
@@ -494,10 +586,15 @@ bool KernelTy::convertToSPMD() {
     // If we disabled SIMDIZATION we only emit the debug message and bail.
     if (!PerformOpenMPSIMDIZATION)
       return Changed;
+
+    // Actually emit the guard code after we decided to perform SIMDIZATION.
+    GG.introduceGuards();
   }
 
-  // Actually emit the guard code after we decided to perform SIMDIZATION.
-  GG.introduceGuards();
+  assert(KernelCalls[FID_KMPC_TREGION_KERNEL_INIT].size() == 1 &&
+         "Non-canonical kernel form!");
+  assert(KernelCalls[FID_KMPC_TREGION_KERNEL_DEINIT].size() == 1 &&
+         "Non-canonical kernel form!");
 
   // Create an "is-SPMD" flag.
   Type *InitFlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]
@@ -507,10 +604,6 @@ bool KernelTy::convertToSPMD() {
 
   // Update the init and deinit calls with the "is-SPMD" flag to indicate
   // SPMD mode.
-  assert(KernelCalls[FID_KMPC_TREGION_KERNEL_INIT].size() == 1 &&
-         "Non-canonical kernel form!");
-  assert(KernelCalls[FID_KMPC_TREGION_KERNEL_DEINIT].size() == 1 &&
-         "Non-canonical kernel form!");
   KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]->setArgOperand(
       ARG_INIT_USE_SPMD_MODE, InitSPMDFlag);
   KernelCalls[FID_KMPC_TREGION_KERNEL_DEINIT][0]->setArgOperand(
@@ -524,17 +617,19 @@ bool KernelTy::convertToSPMD() {
   // For each parallel region, identified by the
   // __kmpc_target_region_kernel_parallel call, we set the "is-SPMD" flag and
   // introduce a succeeding barrier call.
-  Type *ParallelFlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL][0]
-                     ->getArgOperand(ARG_PARALLEL_USE_SPMD_MODE)
-                     ->getType();
-  Constant *ParallelSPMDFlag = ConstantInt::getSigned(ParallelFlagTy, 1);
-  for (CallInst *ParCI : KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL]) {
-    ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, ParallelSPMDFlag);
-    auto AI = SimpleBarrierFn->arg_begin();
-    CallInst::Create(SimpleBarrierFn,
-                     {Constant::getNullValue((AI++)->getType()),
-                      Constant::getNullValue((AI)->getType())},
-                     "", ParCI->getNextNode());
+  if (!KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL].empty()) {
+    Type *ParallelFlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL][0]
+                               ->getArgOperand(ARG_PARALLEL_USE_SPMD_MODE)
+                               ->getType();
+    Constant *ParallelSPMDFlag = ConstantInt::getSigned(ParallelFlagTy, 1);
+    for (CallInst *ParCI : KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL]) {
+      ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, ParallelSPMDFlag);
+      auto AI = SimpleBarrierFn->arg_begin();
+      CallInst::Create(SimpleBarrierFn,
+                       {Constant::getNullValue((AI++)->getType()),
+                        Constant::getNullValue((AI)->getType())},
+                       "", ParCI->getNextNode());
+    }
   }
 
   // TODO: serialize nested parallel regions
