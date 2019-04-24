@@ -116,7 +116,6 @@ void CGOpenMPRuntimeTRegion::emitTargetOutlinedFunction(
   assert(!ParentName.empty() && "Invalid target region parent name!");
 
   emitKernel(D, ParentName, OutlinedFn, OutlinedFnID, CodeGen);
-  OutlinedFn->addDereferenceableAttr(0, 4);
 
   // Create a unique global variable to indicate the execution mode of this
   // target region. The execution mode is either 'non-SPMD' or 'SPMD'. Initially

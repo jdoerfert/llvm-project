@@ -208,27 +208,37 @@ static Function *getOrCreateSimpleSPMDBarrierFn(Module &M) {
 struct GuardGenerator {
   GuardGenerator(Function &KernelFn) : KernelFn(KernelFn) {}
 
-  bool canGenerateGuards() const {
-    return CanGenerateGuards;
-  }
+  bool canGenerateGuards() const { return CanGenerateGuards; }
 
-  bool registerSideEffect(Instruction &SideEffectInst, bool &NeedsGuard) {
+  bool registerSideEffect(Instruction &SideEffectInst, bool &NeedsGuard,
+                          bool CanAnalyzeCallee) {
+    LLVM_DEBUG(dbgs() << "Register Non-SPMD side effect: " << SideEffectInst
+                      << "\n");
+
+    bool IsGuardableInst = true;
     if (!isGuardableInst(SideEffectInst, NeedsGuard,
-                         *SideEffectInst.getFunction()))
-      CanGenerateGuards = false;
+                         *SideEffectInst.getFunction())) {
+      IsGuardableInst = false;
+      if (!CanAnalyzeCallee)
+        CanGenerateGuards = false;
+    }
     if (!NeedsGuard)
-      return CanGenerateGuards;
+      return IsGuardableInst;
     // TODO:
-    if (SideEffectInst.getNumUses())
-      CanGenerateGuards = false;
     if (!EnableOpenMPSIMDIZATIONGuards)
       CanGenerateGuards = false;
 
-    LLVM_DEBUG(dbgs() << "Non-SPMD side effect found: " << SideEffectInst << "\n");
-    UnguardedSideEffectInst.push_back(&SideEffectInst);
+    if (IsGuardableInst) {
+      LLVM_DEBUG(dbgs() << "    Guardable side-effect: " << SideEffectInst
+                        << "\n");
+      UnguardedSideEffectInst.push_back(&SideEffectInst);
+    } else {
+      LLVM_DEBUG(dbgs() << "Non-guardable side-effect: " << SideEffectInst
+                        << " [CanAnalyzeCallee: " << CanAnalyzeCallee << "]\n");
+    }
 
     // TODO: Some logic to determine if guards are efficient.
-    return CanGenerateGuards;
+    return IsGuardableInst;
   }
 
   void introduceGuards() {
@@ -253,8 +263,8 @@ struct GuardGenerator {
       return IsMasterBool;
     };
 
-    // TODO: The guard generator cannot introduce guards yet but the registerXXX
-    //       functions above are aware of that!
+    DenseMap<Type *, GlobalVariable *> GlobalVariableMap;
+
     for (Instruction *I : UnguardedSideEffectInst) {
       Value *IsMasterBool = GetOrCreateIsMasterBoolForFunc(I->getFunction());
       Instruction *ThenTI = SplitBlockAndInsertIfThen(IsMasterBool, I, false);
@@ -263,54 +273,82 @@ struct GuardGenerator {
                        {Constant::getNullValue((AI++)->getType()),
                         Constant::getNullValue((AI)->getType())},
                        "", I);
+      Instruction *NextI = I->getNextNode();
       I->moveBefore(ThenTI);
+
+      // TODO: Check the arguments as they can be used to return values.
+      if (I->getNumUses()) {
+        Type *T = I->getType();
+        GlobalVariable *&GV = GlobalVariableMap[T];
+        if (!GV) {
+          GV = new GlobalVariable(*I->getModule(), T, /* isConstant */ false,
+                                  GlobalValue::ExternalLinkage,
+                                  Constant::getNullValue(T),
+                                  "openmp_spmd_guard_share_space", nullptr,
+                                  GlobalValue::NotThreadLocal, 3);
+          GV->setDSOLocal(true);
+        }
+        LoadInst *LI = new LoadInst(T, GV, I->getName() + ".broadcast", NextI);
+        I->replaceAllUsesWith(LI);
+        new StoreInst(I, GV, ThenTI);
+      }
     }
-    KernelFn.dump();
   }
 
 private:
-
   bool isGuardableCall(CallInst &CI, bool &NeedsGuard, Function &Fn) {
     NeedsGuard = true;
 
     switch (getFunctionID(CI.getCalledFunction())) {
-      case FID_OMP_GET_TEAM_NUM:
-      case FID_OMP_GET_NUM_TEAMS:
-      case FID_LLVM_UNKNOWN:
-      case FID_KMPC_TREGION_KERNEL_INIT:
-      case FID_KMPC_TREGION_KERNEL_DEINIT:
-      case FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE:
-        // Known call known not to be influenced by SIMDIZATION.
-        NeedsGuard = false;
-        return true;
-      case FID_KMPC_TREGION_KERNEL_PARALLEL:
-        NeedsGuard = false;
-        return (&Fn == CI.getFunction());
-      case FID_OMP_GET_THREAD_NUM:
-      case FID_KMPC_GLOBAL_THREAD_NUM:
-      case FID_KMPC_FOR_STATIC_INIT_4:
-      case FID_KMPC_FOR_STATIC_FINI:
-      case FID_KMPC_DISPATCH_INIT_4:
-      case FID_KMPC_DISPATCH_NEXT_4:
-        return true;
-      case FID_UNKNOWN:
-        // Unknown call potentially influenced by SIMDIZATION, checked.
-        break;
-      case FID_OMP_SET_NUM_THREADS:
-      case FID_OMP_GET_NUM_THREADS:
-      default:
-        // KMPC/NVVM/LLVM/OpenMP calls not in the list above are assumed to
-        // be influenced in unknown ways by SIMDIZATION and can consequently
-        // not be guarded.
-        return false;
+    case FID_KMPC_FOR_STATIC_INIT_4:
+#if 0
+        {
+        CI.setArgOperand(2, ConstantInt::get(CI.getArgOperand(2)->getType(), 91));
+        Function *NTFn =
+            Intrinsic::getDeclaration(CI.getModule(), Intrinsic::nvvm_read_ptx_sreg_ntid_x);
+        Instruction *NT = CallInst::Create(NTFn, "nvptx_ntid", &CI);
+        CI.setArgOperand(8, NT);
+        }
+#endif
+    case FID_OMP_GET_TEAM_NUM:
+    case FID_OMP_GET_NUM_TEAMS:
+    case FID_LLVM_UNKNOWN:
+    case FID_KMPC_TREGION_KERNEL_INIT:
+    case FID_KMPC_TREGION_KERNEL_DEINIT:
+    case FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE:
+    case FID_KMPC_FOR_STATIC_FINI:
+      // Known call known not to be influenced by SIMDIZATION.
+      NeedsGuard = false;
+      return true;
+    case FID_KMPC_TREGION_KERNEL_PARALLEL:
+      NeedsGuard = false;
+      return (&Fn == CI.getFunction());
+    case FID_OMP_GET_THREAD_NUM:
+    case FID_KMPC_GLOBAL_THREAD_NUM:
+    case FID_KMPC_DISPATCH_INIT_4:
+    case FID_KMPC_DISPATCH_NEXT_4:
+      return true;
+    case FID_UNKNOWN:
+      // Unknown call potentially influenced by SIMDIZATION, checked.
+      break;
+    case FID_OMP_SET_NUM_THREADS:
+    case FID_OMP_GET_NUM_THREADS:
+    default:
+      // KMPC/NVVM/LLVM/OpenMP calls not in the list above are assumed to
+      // be influenced in unknown ways by SIMDIZATION and can consequently
+      // not be guarded.
+      return false;
     }
 
     // Check unknown calls recursively for potential embedded
     // KMPC/NVVM/LLVM/OpenMP calls.
     Function *Callee = CI.getCalledFunction();
-    if (!Callee || !Callee->hasExactDefinition())
+    if (!Callee || !Callee->hasExactDefinition()) {
       return false;
+    }
     assert(!Callee->isDeclaration());
+
+    // TODO: Check the arguments as they can be used to return values.
 
     bool InstsNeedsGuard = false;
     for (Instruction &I : instructions(Callee)) {
@@ -370,9 +408,8 @@ private:
   };
 
   /// Analyze this kernel, return true if successful.
-  bool
-  analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
-          FunctionKind FnKind);
+  bool analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
+               FunctionKind FnKind);
 
   /// Return true if the kernel is executed in SPMD mode.
   bool isExecutedInSPMDMode();
@@ -413,6 +450,10 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
   if (!Visited.insert(&F).second)
     return true;
 
+  // TODO: This should be derived, keep it for now.
+  if (F.arg_size() && F.arg_begin()->getName() == ".global_tid.")
+    F.addDereferenceableParamAttr(0, 4);
+
   LLVM_DEBUG(dbgs() << "Analyze " << F.getName() << " as "
                     << (FnKind == FK_KERNEL
                             ? "internal kernel"
@@ -428,6 +469,26 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
 
   for (Instruction &I : instructions(&F)) {
 
+    CallInst *CI = dyn_cast<CallInst>(&I);
+    Function *Callee = CI ? CI->getCalledFunction() : nullptr;
+    FunctionID ID = getFunctionID(Callee);
+    bool CanAnalyzeCallee = Callee && !Callee->isDeclaration() &&
+                            Callee->isDefinitionExact() && ID == FID_UNKNOWN;
+
+    switch (ID) {
+    case FID_KMPC_FOR_STATIC_INIT_4:
+    case FID_KMPC_FOR_STATIC_FINI:
+    case FID_KMPC_GLOBAL_THREAD_NUM:
+    case FID_KMPC_DISPATCH_INIT_4:
+    case FID_KMPC_DISPATCH_NEXT_4:
+      // Clear the ident arguments because we never update their payload!
+      CI->setArgOperand(
+          0, Constant::getNullValue(CI->getArgOperand(0)->getType()));
+      ;
+    default:
+      break;
+    }
+
     // We look for all side-effect and read-only instructions outside of
     // parallel regions.
     if (FnKind != FK_PARALLEL) {
@@ -436,22 +497,11 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
       if (I.mayHaveSideEffects() || I.mayReadFromMemory()) {
         LLVM_DEBUG(dbgs() << "- side-effect: " << I << "\n");
         bool NeedsGuard = false;
-        if (!GG.registerSideEffect(I, NeedsGuard))
-          if (!isa<CallInst>(I))
-            return false;
+        GG.registerSideEffect(I, NeedsGuard, CanAnalyzeCallee);
       }
     }
-
-    if (!isa<CallInst>(I))
-      continue;
-
-    CallInst &CI = cast<CallInst>(I);
-    Function *Callee = CI.getCalledFunction();
-    FunctionID ID = getFunctionID(Callee);
-
     // For exact definitions of unknown functions we recurs.
-    if (Callee && !Callee->isDeclaration() && Callee->isDefinitionExact() &&
-        ID == FID_UNKNOWN) {
+    if (CanAnalyzeCallee) {
       // If the callee has external linkage we cannot keep the current function
       // kind but have to assume it is called from any possible context.
       bool AllUsersInThisFunction = std::all_of(
@@ -469,15 +519,16 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
     }
 
     switch (ID) {
-    // Check that know functions have the right number of arguments early on.
-    // Additionally provide debug output based on the function ID.
+      // Check that know functions have the right number of arguments early on.
+      // Additionally provide debug output based on the function ID.
 #define KF(NAME, STR, NARGS)                                                   \
   case NAME:                                                                   \
-    LLVM_DEBUG(                                                                \
-        dbgs() << "- known call "                                              \
-               << (CI.getNumArgOperands() != NARGS ? "[#arg missmatch!]" : "") \
-               << ": " << I << "\n");                                          \
-    if (CI.getNumArgOperands() != NARGS)                                       \
+    LLVM_DEBUG(dbgs() << "- known call "                                       \
+                      << (CI->getNumArgOperands() != NARGS                     \
+                              ? "[#arg missmatch!]"                            \
+                              : "")                                            \
+                      << ": " << I << "\n");                                   \
+    if (CI->getNumArgOperands() != NARGS)                                      \
       ID = FID_UNKNOWN;                                                        \
     break;
       KNOWN_FUNCTIONS()
@@ -499,7 +550,7 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
       break;
     }
 
-    CallsArray[ID].push_back(&CI);
+    CallsArray[ID].push_back(CI);
   }
 
   // If we did not analyze the kernel function but some other one down the call
@@ -556,8 +607,7 @@ bool KernelTy::optimize() {
     // used here but have to assume it is called from any possible context.
     FunctionKind FnKind =
         ParallelFn->hasInternalLinkage() ? FK_PARALLEL : FK_UNKNOWN;
-    if (!ParallelFn ||
-        !analyze(*ParallelFn, Visited, /* FnKind */ FnKind))
+    if (!ParallelFn || !analyze(*ParallelFn, Visited, /* FnKind */ FnKind))
       return Changed;
   }
 
@@ -896,9 +946,11 @@ bool KernelTy::specializeParallelRegionsModeFlag() {
   for (CallInst *ParCI : ParallelRegionCalls[FID_KMPC_TREGION_KERNEL_PARALLEL])
     ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, SPMDFlag);
 
-  for (CallInst *RedCI : KernelCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE])
+  for (CallInst *RedCI :
+       KernelCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE])
     RedCI->setArgOperand(ARG_REDUCTION_FINALIZE_USE_SPMD_MODE, SPMDFlag);
-  for (CallInst *RedCI : ParallelRegionCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE])
+  for (CallInst *RedCI :
+       ParallelRegionCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE])
     RedCI->setArgOperand(ARG_REDUCTION_FINALIZE_USE_SPMD_MODE, SPMDFlag);
 
   unsigned NumChangedCalls =
