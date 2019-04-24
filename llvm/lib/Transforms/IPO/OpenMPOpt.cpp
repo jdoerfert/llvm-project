@@ -302,13 +302,6 @@ private:
     switch (getFunctionID(CI.getCalledFunction())) {
     case FID_KMPC_FOR_STATIC_INIT_4:
 #if 0
-        {
-        CI.setArgOperand(2, ConstantInt::get(CI.getArgOperand(2)->getType(), 91));
-        Function *NTFn =
-            Intrinsic::getDeclaration(CI.getModule(), Intrinsic::nvvm_read_ptx_sreg_ntid_x);
-        Instruction *NT = CallInst::Create(NTFn, "nvptx_ntid", &CI);
-        CI.setArgOperand(8, NT);
-        }
 #endif
     case FID_OMP_GET_TEAM_NUM:
     case FID_OMP_GET_NUM_TEAMS:
@@ -474,20 +467,6 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
     FunctionID ID = getFunctionID(Callee);
     bool CanAnalyzeCallee = Callee && !Callee->isDeclaration() &&
                             Callee->isDefinitionExact() && ID == FID_UNKNOWN;
-
-    switch (ID) {
-    case FID_KMPC_FOR_STATIC_INIT_4:
-    case FID_KMPC_FOR_STATIC_FINI:
-    case FID_KMPC_GLOBAL_THREAD_NUM:
-    case FID_KMPC_DISPATCH_INIT_4:
-    case FID_KMPC_DISPATCH_NEXT_4:
-      // Clear the ident arguments because we never update their payload!
-      CI->setArgOperand(
-          0, Constant::getNullValue(CI->getArgOperand(0)->getType()));
-      ;
-    default:
-      break;
-    }
 
     // We look for all side-effect and read-only instructions outside of
     // parallel regions.
@@ -659,6 +638,23 @@ bool KernelTy::convertToSPMD() {
   KernelCalls[FID_KMPC_TREGION_KERNEL_DEINIT][0]->setArgOperand(
       ARG_DEINIT_USE_SPMD_MODE, InitSPMDFlag);
 
+  // TODO
+  KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]->setArgOperand(
+      ARG_INIT_REQUIRES_DATA_SHARING,
+      ConstantInt::getFalse(KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]
+                                ->getArgOperand(ARG_INIT_REQUIRES_DATA_SHARING)
+                                ->getType()));
+  KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]->setArgOperand(
+      ARG_INIT_REQUIRES_OMP_RUNTIME,
+      ConstantInt::getFalse(KernelCalls[FID_KMPC_TREGION_KERNEL_INIT][0]
+                                ->getArgOperand(ARG_INIT_REQUIRES_OMP_RUNTIME)
+                                ->getType()));
+  KernelCalls[FID_KMPC_TREGION_KERNEL_DEINIT][0]->setArgOperand(
+      ARG_DEINIT_REQUIRES_OMP_RUNTIME,
+      ConstantInt::getFalse(KernelCalls[FID_KMPC_TREGION_KERNEL_DEINIT][0]
+                                ->getArgOperand(ARG_DEINIT_REQUIRES_OMP_RUNTIME)
+                                ->getType()));
+
   // Use the simple barrier to synchronize all threads in SPMD mode after each
   // parallel region.
   Function *SimpleBarrierFn =
@@ -685,6 +681,45 @@ bool KernelTy::convertToSPMD() {
   // TODO: serialize nested parallel regions
 
   // TODO: Adjust the schedule parameters
+
+  auto AdjustIdent = [&](CallInst &CI ) {
+    GlobalVariable *GV = dyn_cast<GlobalVariable>(CI.getArgOperand(0));
+    if (!GV)
+      return;
+    ConstantStruct *CS = cast<ConstantStruct>(GV->getInitializer());
+    SmallVector<Constant *, 8> Vals;
+    for (Value *C : CS->operand_values())
+      Vals.push_back(cast<Constant>(C));
+    Vals[2] = ConstantInt::get(CS->getOperand(2)->getType(), 3);
+    auto NewCS = ConstantStruct::get(CS->getType(), Vals);
+    GV->setInitializer(NewCS);
+  };
+
+  for (auto E : {FID_KMPC_GLOBAL_THREAD_NUM, FID_KMPC_FOR_STATIC_INIT_4,
+                 FID_KMPC_FOR_STATIC_FINI}) {
+    for (CallInst *CI : KernelCalls[E])
+      AdjustIdent(*CI);
+    for (CallInst *CI : ParallelRegionCalls[E])
+      AdjustIdent(*CI);
+    for (CallInst *CI : UnknownRegionCalls[E])
+      AdjustIdent(*CI);
+  }
+
+  auto AdjustSched = [&](CallInst &CI) {
+    ConstantInt *ScheduleCI = cast<ConstantInt>(CI.getArgOperand(2));
+    if (ScheduleCI->getZExtValue() != 92)
+      return;
+    CI.setArgOperand(2, ConstantInt::get(ScheduleCI->getType(), 91));
+    Function *NTFn = Intrinsic::getDeclaration(
+        CI.getModule(), Intrinsic::nvvm_read_ptx_sreg_ntid_x);
+    Instruction *NT = CallInst::Create(NTFn, "nvptx_ntid", &CI);
+    CI.setArgOperand(8, NT);
+  };
+
+  //for (CallInst *CI : KernelCalls[FID_KMPC_FOR_STATIC_INIT_4])
+    //AdjustSched(*CI);
+  //for (CallInst *CI : ParallelRegionCalls[FID_KMPC_FOR_STATIC_INIT_4])
+    //AdjustSched(*CI);
 
   // Finally, we change the global exec_mode variable to indicate SPMD mode.
   GlobalVariable *ExecMode = KernelFn.getParent()->getGlobalVariable(
