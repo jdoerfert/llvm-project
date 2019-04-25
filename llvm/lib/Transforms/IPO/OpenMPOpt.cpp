@@ -301,20 +301,20 @@ private:
 
     switch (getFunctionID(CI.getCalledFunction())) {
     case FID_KMPC_FOR_STATIC_INIT_4:
-#if 0
-#endif
+    case FID_KMPC_FOR_STATIC_FINI:
     case FID_OMP_GET_TEAM_NUM:
     case FID_OMP_GET_NUM_TEAMS:
     case FID_LLVM_UNKNOWN:
     case FID_KMPC_TREGION_KERNEL_INIT:
     case FID_KMPC_TREGION_KERNEL_DEINIT:
     case FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE:
-    case FID_KMPC_FOR_STATIC_FINI:
       // Known call known not to be influenced by SIMDIZATION.
       NeedsGuard = false;
       return true;
     case FID_KMPC_TREGION_KERNEL_PARALLEL:
       NeedsGuard = false;
+      LLVM_DEBUG(errs() << "Parallel region: " << (&Fn == CI.getFunction())
+                        << "\n");
       return (&Fn == CI.getFunction());
     case FID_OMP_GET_THREAD_NUM:
     case FID_KMPC_GLOBAL_THREAD_NUM:
@@ -330,16 +330,19 @@ private:
       // KMPC/NVVM/LLVM/OpenMP calls not in the list above are assumed to
       // be influenced in unknown ways by SIMDIZATION and can consequently
       // not be guarded.
+      LLVM_DEBUG(errs() << "thread num related call!\n");
       return false;
     }
 
     // Check unknown calls recursively for potential embedded
     // KMPC/NVVM/LLVM/OpenMP calls.
     Function *Callee = CI.getCalledFunction();
-    if (!Callee || !Callee->hasExactDefinition()) {
+    if (!Callee || Callee->isDeclaration()) {
+      LLVM_DEBUG(errs() << "Unknown callee!\n");
       return false;
     }
-    assert(!Callee->isDeclaration());
+    // TODO: if (!Callee->hasExactDefinition())
+    //        inline_or_internalize(Callee);
 
     // TODO: Check the arguments as they can be used to return values.
 
@@ -401,8 +404,7 @@ private:
   };
 
   /// Analyze this kernel, return true if successful.
-  bool analyze(Function &F,
-               std::set<std::pair<Function *, bool>> &Visited,
+  bool analyze(Function &F, std::set<std::pair<Function *, bool>> &Visited,
                FunctionKind FnKind, bool IsGuardedCall = false);
 
   /// Return true if the kernel is executed in SPMD mode.
@@ -454,7 +456,8 @@ bool KernelTy::analyze(Function &F,
                             ? "internal kernel"
                             : (FnKind == FK_PARALLEL ? "internal parallel only"
                                                      : "general"))
-                    << " function [Is guarded call: " << IsGuardedCall << "]\n");
+                    << " function [Is guarded call: " << IsGuardedCall
+                    << "]\n");
 
   // Determine the container to remember the call based on the function kind.
   auto &CallsArray =
@@ -467,8 +470,9 @@ bool KernelTy::analyze(Function &F,
     CallInst *CI = dyn_cast<CallInst>(&I);
     Function *Callee = CI ? CI->getCalledFunction() : nullptr;
     FunctionID ID = getFunctionID(Callee);
-    bool CanAnalyzeCallee = Callee && !Callee->isDeclaration() &&
-                            Callee->isDefinitionExact() && ID == FID_UNKNOWN;
+    // TODO: Callee->isDefinitionExact()
+    bool CanAnalyzeCallee =
+        Callee && !Callee->isDeclaration() && ID == FID_UNKNOWN;
     bool NeedsGuard = false;
 
     // We look for all side-effect and read-only instructions outside of
@@ -478,9 +482,15 @@ bool KernelTy::analyze(Function &F,
       // throw which makes reading the only interesting potential property.
       if (I.mayHaveSideEffects() || I.mayReadFromMemory()) {
         LLVM_DEBUG(dbgs() << "- side-effect: " << I << "\n");
-        GG.registerSideEffect(I, NeedsGuard, CanAnalyzeCallee);
+        bool Guardable = GG.registerSideEffect(I, NeedsGuard, CanAnalyzeCallee);
+        NeedsGuard &= Guardable;
+        if (!Guardable && !CanAnalyzeCallee) {
+          LLVM_DEBUG(dbgs() << "non-guardable non-refinable inst!\n");
+          return false;
+        }
         if (NeedsGuard && FnKind == FK_UNKNOWN) {
-          LLVM_DEBUG(dbgs() << "guard needed but function cannot be altered!");
+          LLVM_DEBUG(dbgs()
+                     << "guard needed but function cannot be altered!\n");
           return false;
         }
       }
@@ -585,23 +595,30 @@ bool KernelTy::optimize() {
     return Changed;
 
   Visited.clear();
-  for (CallInst *ParCI : KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL]) {
-    Value *ParCIParallelFnArg =
-        ParCI->getArgOperand(ARG_PARALLEL_WORK_FUNCTION);
-    Function *ParallelFn =
-        dyn_cast<Function>(ParCIParallelFnArg->stripPointerCasts());
+  for (const auto *Calls :
+       {KernelCalls, UnknownRegionCalls, ParallelRegionCalls}) {
+    for (CallInst *ParCI : Calls[FID_KMPC_TREGION_KERNEL_PARALLEL]) {
+      Value *ParCIParallelFnArg =
+          ParCI->getArgOperand(ARG_PARALLEL_WORK_FUNCTION);
+      Function *ParallelFn =
+          dyn_cast<Function>(ParCIParallelFnArg->stripPointerCasts());
 
-    // If the work function has external linkage we cannot assume it is only
-    // used here but have to assume it is called from any possible context.
-    FunctionKind FnKind =
-        ParallelFn->hasInternalLinkage() ? FK_PARALLEL : FK_UNKNOWN;
-    if (!ParallelFn || !analyze(*ParallelFn, Visited, /* FnKind */ FnKind))
-      return Changed;
+      // If the work function has external linkage we cannot assume it is only
+      // used here but have to assume it is called from any possible context.
+      FunctionKind FnKind =
+          ParallelFn->hasInternalLinkage() ? FK_PARALLEL : FK_UNKNOWN;
+      if (!ParallelFn ||
+          !analyze(*ParallelFn, Visited, /* FnKind */ FnKind, true))
+        return Changed;
+    }
   }
 
   Changed |= convertToSPMD();
   Changed |= createCustomStateMachine();
   Changed |= specializeParallelRegionsModeFlag();
+
+  if (Changed)
+    LLVM_DEBUG(KernelFn.getParent()->dump());
 
   return Changed;
 }
@@ -664,34 +681,11 @@ bool KernelTy::convertToSPMD() {
                                 ->getArgOperand(ARG_DEINIT_REQUIRES_OMP_RUNTIME)
                                 ->getType()));
 
-  // Use the simple barrier to synchronize all threads in SPMD mode after each
-  // parallel region.
-  Function *SimpleBarrierFn =
-      getOrCreateSimpleSPMDBarrierFn(*KernelFn.getParent());
-
-  // For each parallel region, identified by the
-  // __kmpc_target_region_kernel_parallel call, we set the "is-SPMD" flag and
-  // introduce a succeeding barrier call.
-  if (!KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL].empty()) {
-    Type *ParallelFlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL][0]
-                               ->getArgOperand(ARG_PARALLEL_USE_SPMD_MODE)
-                               ->getType();
-    Constant *ParallelSPMDFlag = ConstantInt::getSigned(ParallelFlagTy, 1);
-    for (CallInst *ParCI : KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL]) {
-      ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, ParallelSPMDFlag);
-      auto AI = SimpleBarrierFn->arg_begin();
-      CallInst::Create(SimpleBarrierFn,
-                       {Constant::getNullValue((AI++)->getType()),
-                        Constant::getNullValue((AI)->getType())},
-                       "", ParCI->getNextNode());
-    }
-  }
-
   // TODO: serialize nested parallel regions
 
   // TODO: Adjust the schedule parameters
 
-  auto AdjustIdent = [&](CallInst &CI ) {
+  auto AdjustIdent = [&](CallInst &CI) {
     GlobalVariable *GV = dyn_cast<GlobalVariable>(CI.getArgOperand(0));
     if (!GV)
       return;
@@ -725,10 +719,10 @@ bool KernelTy::convertToSPMD() {
     CI.setArgOperand(8, NT);
   };
 
-  //for (CallInst *CI : KernelCalls[FID_KMPC_FOR_STATIC_INIT_4])
-    //AdjustSched(*CI);
-  //for (CallInst *CI : ParallelRegionCalls[FID_KMPC_FOR_STATIC_INIT_4])
-    //AdjustSched(*CI);
+  // for (CallInst *CI : KernelCalls[FID_KMPC_FOR_STATIC_INIT_4])
+  // AdjustSched(*CI);
+  // for (CallInst *CI : ParallelRegionCalls[FID_KMPC_FOR_STATIC_INIT_4])
+  // AdjustSched(*CI);
 
   // Finally, we change the global exec_mode variable to indicate SPMD mode.
   GlobalVariable *ExecMode = KernelFn.getParent()->getGlobalVariable(
@@ -975,8 +969,17 @@ bool KernelTy::specializeParallelRegionsModeFlag() {
     FlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL][0]
                  ->getArgOperand(ARG_PARALLEL_USE_SPMD_MODE)
                  ->getType();
+  } else if (!UnknownRegionCalls[FID_KMPC_TREGION_KERNEL_PARALLEL].empty()) {
+    FlagTy = UnknownRegionCalls[FID_KMPC_TREGION_KERNEL_PARALLEL][0]
+                 ->getArgOperand(ARG_PARALLEL_USE_SPMD_MODE)
+                 ->getType();
   } else if (!KernelCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE].empty()) {
     FlagTy = KernelCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE][0]
+                 ->getArgOperand(ARG_REDUCTION_FINALIZE_USE_SPMD_MODE)
+                 ->getType();
+  } else if (!UnknownRegionCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE]
+                  .empty()) {
+    FlagTy = UnknownRegionCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE][0]
                  ->getArgOperand(ARG_REDUCTION_FINALIZE_USE_SPMD_MODE)
                  ->getType();
   } else {
@@ -984,11 +987,29 @@ bool KernelTy::specializeParallelRegionsModeFlag() {
     return false;
   }
 
+  unsigned NumChangedCalls = 0;
+
+  // Use the simple barrier to synchronize all threads in SPMD mode after each
+  // parallel region.
+  Function *SimpleBarrierFn =
+      getOrCreateSimpleSPMDBarrierFn(*KernelFn.getParent());
+
+  // For each parallel region, identified by the
+  // __kmpc_target_region_kernel_parallel call, we set the "is-SPMD" flag and
+  // introduce a succeeding barrier call.
   Constant *SPMDFlag = ConstantInt::getSigned(FlagTy, IsSPMDMode);
-  for (CallInst *ParCI : KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL])
-    ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, SPMDFlag);
-  for (CallInst *ParCI : ParallelRegionCalls[FID_KMPC_TREGION_KERNEL_PARALLEL])
-    ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, SPMDFlag);
+  for (const auto *Calls :
+       {KernelCalls, ParallelRegionCalls, UnknownRegionCalls}) {
+    for (CallInst *ParCI : Calls[FID_KMPC_TREGION_KERNEL_PARALLEL]) {
+      ParCI->setArgOperand(ARG_PARALLEL_USE_SPMD_MODE, SPMDFlag);
+      auto AI = SimpleBarrierFn->arg_begin();
+      CallInst::Create(SimpleBarrierFn,
+                       {Constant::getNullValue((AI++)->getType()),
+                        Constant::getNullValue((AI)->getType())},
+                       "", ParCI->getNextNode());
+      NumChangedCalls++;
+    }
+  }
 
   for (CallInst *RedCI :
        KernelCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE])
@@ -996,10 +1017,6 @@ bool KernelTy::specializeParallelRegionsModeFlag() {
   for (CallInst *RedCI :
        ParallelRegionCalls[FID_KMPC_TREGION_KERNEL_REDUCTION_FINALIZE])
     RedCI->setArgOperand(ARG_REDUCTION_FINALIZE_USE_SPMD_MODE, SPMDFlag);
-
-  unsigned NumChangedCalls =
-      KernelCalls[FID_KMPC_TREGION_KERNEL_PARALLEL].size() +
-      ParallelRegionCalls[FID_KMPC_TREGION_KERNEL_PARALLEL].size();
 
   NumParallelCallsModeSpecialized += NumChangedCalls;
   return NumChangedCalls;

@@ -395,7 +395,7 @@ public:
     unsigned lane_mask_lt;
     asm("mov.u32 %0, %%lanemask_lt;" : "=r"(lane_mask_lt));
     unsigned int rank = __popc(active & lane_mask_lt);
-    uint64_t warp_res;
+    uint64_t warp_res = 0;
     if (rank == 0) {
       warp_res = atomicAdd(
           (unsigned long long *)&omptarget_nvptx_threadPrivateContext->Cnt(),
