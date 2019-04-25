@@ -50,7 +50,6 @@ void CGOpenMPRuntimeTRegion::emitKernel(const OMPExecutableDirective &D,
   } Action(*this);
   CodeGen.setAction(Action);
 
-  OutlinedFn->addDereferenceableAttr(0, 4);
   emitTargetOutlinedFunctionHelper(D, ParentName, OutlinedFn, OutlinedFnID,
                                    /* IsOffloadEntry */ true, CodeGen);
 }

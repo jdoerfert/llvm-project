@@ -248,38 +248,11 @@ INLINE static void reduce(void *SrcPtr, void *DestPtr,
   };
 }
 
-template <typename data_t>
-INLINE static void shuffleAndStore(void *SrcPtr, void *DestPtr,
-                                   int16_t DestOffset) {
-  size_t LeftoverSize = sizeof(data_t);
-  for (size_t ShuffleSize = 8; ShuffleSize >= 1; ShuffleSize /= 2) {
-    while (ShuffleSize <= LeftoverSize) {
-      if (ShuffleSize <= 4) {
-        int32_t *SrcPtr32 = (int32_t *)SrcPtr;
-        int32_t *DestPtr32 = (int32_t *)DestPtr;
-        int32_t Res = __kmpc_shuffle_int32(*SrcPtr32, DestOffset, WARPSIZE);
-        *DestPtr32 = Res;
-        SrcPtr = (SrcPtr32 + 1);
-        DestPtr = (DestPtr32 + 1);
-      } else {
-        int64_t *SrcPtr64 = (int64_t *)SrcPtr;
-        int64_t *DestPtr64 = (int64_t *)DestPtr;
-        int64_t Res = __kmpc_shuffle_int64(*SrcPtr64, DestOffset, WARPSIZE);
-        *DestPtr64 = Res;
-        SrcPtr = (SrcPtr64 + 1);
-        DestPtr = (DestPtr64 + 1);
-      }
-      LeftoverSize -= ShuffleSize;
-    }
-  }
-}
-
 template <typename data_t, enum ReductionOperator RedOp>
 INLINE static void shuffleAndReduce(void *LocalItem, int16_t LaneId,
                                     int16_t Offset, int16_t AlgoVer) {
-  __align__(64) data_t RemoteItem;
-
-  shuffleAndStore<data_t>(LocalItem, (void *)&RemoteItem, Offset);
+  __align__(64) data_t RemoteItem =
+      __shfl_down_sync(0xffffffff, *((data_t *)LocalItem), Offset);
 
   if ((AlgoVer == 0) |
       ((AlgoVer == 1) & ((uint16_t)LaneId < (uint16_t)Offset)) |

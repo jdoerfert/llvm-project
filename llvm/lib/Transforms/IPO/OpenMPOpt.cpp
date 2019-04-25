@@ -401,8 +401,9 @@ private:
   };
 
   /// Analyze this kernel, return true if successful.
-  bool analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
-               FunctionKind FnKind);
+  bool analyze(Function &F,
+               std::set<std::pair<Function *, bool>> &Visited,
+               FunctionKind FnKind, bool IsGuardedCall = false);
 
   /// Return true if the kernel is executed in SPMD mode.
   bool isExecutedInSPMDMode();
@@ -438,9 +439,10 @@ private:
   Function &KernelFn;
 };
 
-bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
-                       FunctionKind FnKind) {
-  if (!Visited.insert(&F).second)
+bool KernelTy::analyze(Function &F,
+                       std::set<std::pair<Function *, bool>> &Visited,
+                       FunctionKind FnKind, bool IsGuardedCall) {
+  if (!Visited.insert({&F, IsGuardedCall}).second)
     return true;
 
   // TODO: This should be derived, keep it for now.
@@ -452,7 +454,7 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
                             ? "internal kernel"
                             : (FnKind == FK_PARALLEL ? "internal parallel only"
                                                      : "general"))
-                    << " function\n");
+                    << " function [Is guarded call: " << IsGuardedCall << "]\n");
 
   // Determine the container to remember the call based on the function kind.
   auto &CallsArray =
@@ -467,16 +469,20 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
     FunctionID ID = getFunctionID(Callee);
     bool CanAnalyzeCallee = Callee && !Callee->isDeclaration() &&
                             Callee->isDefinitionExact() && ID == FID_UNKNOWN;
+    bool NeedsGuard = false;
 
     // We look for all side-effect and read-only instructions outside of
     // parallel regions.
-    if (FnKind != FK_PARALLEL) {
+    if (!IsGuardedCall && GnKind != FK_PARALLEL) {
       // Handle non-side-effect instructions first. These will not write or
       // throw which makes reading the only interesting potential property.
       if (I.mayHaveSideEffects() || I.mayReadFromMemory()) {
         LLVM_DEBUG(dbgs() << "- side-effect: " << I << "\n");
-        bool NeedsGuard = false;
         GG.registerSideEffect(I, NeedsGuard, CanAnalyzeCallee);
+        if (NeedsGuard && FnKind == FK_UNKNOWN) {
+          LLVM_DEBUG(dbgs() << "guard needed but function cannot be altered!");
+          return false;
+        }
       }
     }
     // For exact definitions of unknown functions we recurs.
@@ -493,9 +499,12 @@ bool KernelTy::analyze(Function &F, SmallPtrSetImpl<Function *> &Visited,
                                                                    : FK_UNKNOWN;
       // If recursive analysis failed we bail, otherwise the
       // information was collected in the internal state.
-      if (!analyze(*Callee, Visited, CalleeFnKind))
+      if (!analyze(*Callee, Visited, CalleeFnKind, IsGuardedCall | NeedsGuard))
         return false;
     }
+
+    if (!CI)
+      continue;
 
     switch (ID) {
       // Check that know functions have the right number of arguments early on.
@@ -571,7 +580,7 @@ bool KernelTy::optimize() {
   bool Changed = false;
 
   // First analyze the code. If that fails for some reason we bail out early.
-  SmallPtrSet<Function *, 8> Visited;
+  std::set<std::pair<Function *, bool>> Visited;
   if (!analyze(KernelFn, Visited, /* FnKind */ FK_KERNEL))
     return Changed;
 
