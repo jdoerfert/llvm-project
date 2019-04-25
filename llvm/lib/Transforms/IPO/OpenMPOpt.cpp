@@ -473,7 +473,7 @@ bool KernelTy::analyze(Function &F,
 
     // We look for all side-effect and read-only instructions outside of
     // parallel regions.
-    if (!IsGuardedCall && GnKind != FK_PARALLEL) {
+    if (!IsGuardedCall && FnKind != FK_PARALLEL) {
       // Handle non-side-effect instructions first. These will not write or
       // throw which makes reading the only interesting potential property.
       if (I.mayHaveSideEffects() || I.mayReadFromMemory()) {
