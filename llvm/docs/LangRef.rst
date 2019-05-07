@@ -1135,15 +1135,22 @@ Currently, only the following parameter attributes are defined:
     the behavior is undefined.
 
 ``dereferenceable(<n>)``
-    This indicates that the parameter or return pointer is dereferenceable. This
-    attribute may only be applied to pointer typed parameters. A pointer that
-    is dereferenceable can be loaded from speculatively without a risk of
-    trapping. The number of bytes known to be dereferenceable must be provided
-    in parentheses. It is legal for the number of bytes to be less than the
-    size of the pointee type. The ``nonnull`` attribute does not imply
-    dereferenceability (consider a pointer to one element past the end of an
-    array), however ``dereferenceable(<n>)`` does imply ``nonnull`` in
-    ``addrspace(0)`` (which is the default address space).
+    This indicates that the annotated value, e.g., a parameter or return
+    value, is dereferenceable *at its definition*, which would be the beginning
+    of the function entry or the call site for annotated parameters and return
+    values respectively. This attribute may only be applied to values with
+    pointer type. A pointer that is known to be dereferenceable can be loaded
+    from speculatively without a risk of trapping. The number of bytes known to
+    be dereferenceable must be provided in parentheses. It is legal for the
+    number of bytes to be less than the size of the pointee type. If, at
+    runtime, the annotated pointer is not dereferenceable, the behavior is
+    undefined. The ``nonnull`` attribute does not imply dereferenceability
+    (consider a pointer to one element past the end of an array), however
+    ``dereferenceable(<n>)`` does imply ``nonnull`` in ``addrspace(0)`` (which
+    is the default address space). The dereferenceability property provided
+    through this argument is tied to the definition because it can be lost,
+    e.g., via a call to ``free``. Use ``dereferenceable_globally(<n>)`` for
+    pointer values that cannot be deallocated.
 
 ``dereferenceable_or_null(<n>)``
     This indicates that the parameter or return value isn't both
@@ -1154,9 +1161,24 @@ Currently, only the following parameter attributes are defined:
     a pointer is exactly one of ``dereferenceable(<n>)`` or ``null``,
     and in other address spaces ``dereferenceable_or_null(<n>)``
     implies that a pointer is at least one of ``dereferenceable(<n>)``
-    or ``null`` (i.e. it may be both ``null`` and
-    ``dereferenceable(<n>)``). This attribute may only be applied to
-    pointer typed parameters.
+    or ``null`` (i.e. it may be both ``null`` and ``dereferenceable(<n>)``).
+    This attribute may only be applied to pointer typed parameters.
+
+``dereferenceable_globally(<n>)``
+    This indicates that the annotated pointer value has the
+    ``dereferenceable(<n>)`` property *at any program point*, starting from the
+    definition of the value to the termination of the program. Thus, unlike
+    pointer values annotated with ``dereferenceable(<n>)``,
+    ``dereferenceable_globally(<n>)`` pointer values can never lose the
+    ``dereferenceable(<n>)`` property.
+
+``dereferenceable_or_null_globally(<n>)``
+    This indicates that the annotated pointer value has the
+    ``dereferenceable_or_null(<n>)`` property *at any program point*, starting
+    from the definition of the value to the termination of the program. Thus,
+    unlike pointer values annotated with ``dereferenceable_or_null(<n>)``,
+    ``dereferenceable_or_null_globally(<n>)`` pointer values can never lose the
+    ``dereferenceable_or_null(<n>)`` property.
 
 ``swiftself``
     This indicates that the parameter is the self/context parameter. This is not
@@ -8492,7 +8514,7 @@ Syntax:
 
 ::
 
-      <result> = load [volatile] <ty>, <ty>* <pointer>[, align <alignment>][, !nontemporal !<index>][, !invariant.load !<index>][, !invariant.group !<index>][, !nonnull !<index>][, !dereferenceable !<deref_bytes_node>][, !dereferenceable_or_null !<deref_bytes_node>][, !align !<align_node>]
+      <result> = load [volatile] <ty>, <ty>* <pointer>[, align <alignment>][, !nontemporal !<index>][, !invariant.load !<index>][, !invariant.group !<index>][, !nonnull !<index>][, !dereferenceable !<deref_bytes_node>][, !dereferenceable_or_null !<deref_bytes_node>][, !dereferenceable_globally !<deref_bytes_node>][, !dereferenceable_or_null_globally !<deref_bytes_node>][, !align !<align_node>]
       <result> = load atomic [volatile] <ty>, <ty>* <pointer> [syncscope("<target-scope>")] <ordering>, align <alignment> [, !invariant.group !<index>]
       !<index> = !{ i32 1 }
       !<deref_bytes_node> = !{i64 <dereferenceable_bytes>}
@@ -8566,24 +8588,30 @@ never be null. If the value is null at runtime, the behavior is undefined.
 This is analogous to the ``nonnull`` attribute on parameters and return
 values. This metadata can only be applied to loads of a pointer type.
 
-The optional ``!dereferenceable`` metadata must reference a single metadata
-name ``<deref_bytes_node>`` corresponding to a metadata node with one ``i64``
-entry. The existence of the ``!dereferenceable`` metadata on the instruction
-tells the optimizer that the value loaded is known to be dereferenceable.
-The number of bytes known to be dereferenceable is specified by the integer
-value in the metadata node. This is analogous to the ''dereferenceable''
-attribute on parameters and return values. This metadata can only be applied
-to loads of a pointer type.
+The optional ``!dereferenceable`` and ``!dereferenceable_globally`` metadata
+must reference a single metadata name ``<deref_bytes_node>`` corresponding to a
+metadata node with one ``i64`` entry. The existence of the ``!dereferenceable``
+or ``!dereferenceable_globally`` metadata on the instruction tells the
+optimizer that the value loaded is known to be dereferenceable at its
+definition, in the case of ``!dereferenceable``, or globally, in the case of
+``!dereferenceable_globally``. The number of bytes known to be dereferenceable
+is specified by the integer value in the metadata node. This is analogous to
+the ''dereferenceable'' and ''dereferenceable_globally'' attribute on
+parameters and return values. This metadata can only be applied to loads of a
+pointer type.
 
-The optional ``!dereferenceable_or_null`` metadata must reference a single
-metadata name ``<deref_bytes_node>`` corresponding to a metadata node with one
-``i64`` entry. The existence of the ``!dereferenceable_or_null`` metadata on the
-instruction tells the optimizer that the value loaded is known to be either
-dereferenceable or null.
-The number of bytes known to be dereferenceable is specified by the integer
-value in the metadata node. This is analogous to the ''dereferenceable_or_null''
-attribute on parameters and return values. This metadata can only be applied
-to loads of a pointer type.
+The optional ``!dereferenceable_or_null`` and
+``!dereferenceable_or_null_globally`` metadata must reference a single metadata
+name ``<deref_bytes_node>`` corresponding to a metadata node with one ``i64``
+entry. The existence of the ``!dereferenceable_or_null`` or
+``!dereferenceable_or_null_globally`` metadata on the instruction tells the
+optimizer that the value loaded is known to be either dereferenceable or null
+at its definition, in the case of ``!dereferenceable``, or globally, in the
+case of ``!dereferenceable_globally``. The number of bytes known to be
+dereferenceable is specified by the integer value in the metadata node. This is
+analogous to the ''dereferenceable_or_null'' and
+''dereferenceable_or_null_globally'' attribute on parameters and return values.
+This metadata can only be applied to loads of a pointer type.
 
 The optional ``!align`` metadata must reference a single metadata name
 ``<align_node>`` corresponding to a metadata node with one ``i64`` entry.

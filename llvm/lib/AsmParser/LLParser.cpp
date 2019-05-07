@@ -1332,6 +1332,8 @@ bool LLParser::ParseFnAttributeValuePairs(AttrBuilder &B,
     case lltok::kw_byval:
     case lltok::kw_dereferenceable:
     case lltok::kw_dereferenceable_or_null:
+    case lltok::kw_dereferenceable_globally:
+    case lltok::kw_dereferenceable_or_null_globally:
     case lltok::kw_inalloca:
     case lltok::kw_nest:
     case lltok::kw_noalias:
@@ -1626,6 +1628,22 @@ bool LLParser::ParseOptionalParamAttrs(AttrBuilder &B) {
       B.addDereferenceableOrNullAttr(Bytes);
       continue;
     }
+    case lltok::kw_dereferenceable_globally: {
+      uint64_t Bytes;
+      if (ParseOptionalDerefAttrBytes(lltok::kw_dereferenceable_globally,
+                                      Bytes))
+        return true;
+      B.addDereferenceableGloballyAttr(Bytes);
+      continue;
+    }
+    case lltok::kw_dereferenceable_or_null_globally: {
+      uint64_t Bytes;
+      if (ParseOptionalDerefAttrBytes(
+              lltok::kw_dereferenceable_or_null_globally, Bytes))
+        return true;
+      B.addDereferenceableOrNullGloballyAttr(Bytes);
+      continue;
+    }
     case lltok::kw_inalloca:        B.addAttribute(Attribute::InAlloca); break;
     case lltok::kw_inreg:           B.addAttribute(Attribute::InReg); break;
     case lltok::kw_nest:            B.addAttribute(Attribute::Nest); break;
@@ -1712,6 +1730,20 @@ bool LLParser::ParseOptionalReturnAttrs(AttrBuilder &B) {
       if (ParseOptionalDerefAttrBytes(lltok::kw_dereferenceable_or_null, Bytes))
         return true;
       B.addDereferenceableOrNullAttr(Bytes);
+      continue;
+    }
+    case lltok::kw_dereferenceable_globally: {
+      uint64_t Bytes;
+      if (ParseOptionalDerefAttrBytes(lltok::kw_dereferenceable_globally, Bytes))
+        return true;
+      B.addDereferenceableGloballyAttr(Bytes);
+      continue;
+    }
+    case lltok::kw_dereferenceable_or_null_globally: {
+      uint64_t Bytes;
+      if (ParseOptionalDerefAttrBytes(lltok::kw_dereferenceable_or_null_globally, Bytes))
+        return true;
+      B.addDereferenceableOrNullGloballyAttr(Bytes);
       continue;
     }
     case lltok::kw_align: {
@@ -2078,11 +2110,14 @@ bool LLParser::ParseOptionalAlignment(unsigned &Alignment) {
 ///   ::= /* empty */
 ///   ::= AttrKind '(' 4 ')'
 ///
-/// where AttrKind is either 'dereferenceable' or 'dereferenceable_or_null'.
+/// where AttrKind is either 'dereferenceable', 'dereferenceable_or_null',
+/// 'dereferenceable_globally', or 'dereferenceable_or_null_globally'.
 bool LLParser::ParseOptionalDerefAttrBytes(lltok::Kind AttrKind,
                                            uint64_t &Bytes) {
   assert((AttrKind == lltok::kw_dereferenceable ||
-          AttrKind == lltok::kw_dereferenceable_or_null) &&
+          AttrKind == lltok::kw_dereferenceable_or_null ||
+          AttrKind == lltok::kw_dereferenceable_globally ||
+          AttrKind == lltok::kw_dereferenceable_or_null_globally) &&
          "contract!");
 
   Bytes = 0;
@@ -3372,7 +3407,7 @@ bool LLParser::ParseValID(ValID &ID, PerFunctionState *PFS) {
     ID.Kind = ValID::t_Constant;
     return false;
   }
- 
+
   // Unary Operators.
   case lltok::kw_fneg: {
     unsigned Opc = Lex.getUIntVal();
@@ -3382,7 +3417,7 @@ bool LLParser::ParseValID(ValID &ID, PerFunctionState *PFS) {
         ParseGlobalTypeAndValue(Val) ||
         ParseToken(lltok::rparen, "expected ')' in unary constantexpr"))
       return true;
-    
+
     // Check that the type is valid for the operator.
     switch (Opc) {
     case Instruction::FNeg:
@@ -4718,7 +4753,7 @@ bool LLParser::ParseDICommonBlock(MDNode *&Result, bool IsDistinct) {
   OPTIONAL(declaration, MDField, );                                            \
   OPTIONAL(name, MDStringField, );                                             \
   OPTIONAL(file, MDField, );                                                   \
-  OPTIONAL(line, LineField, );						       
+  OPTIONAL(line, LineField, );
   PARSE_MD_FIELDS();
 #undef VISIT_MD_FIELDS
 

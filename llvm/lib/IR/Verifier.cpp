@@ -3100,7 +3100,7 @@ void Verifier::visitInvokeInst(InvokeInst &II) {
 /// visitUnaryOperator - Check the argument to the unary operator.
 ///
 void Verifier::visitUnaryOperator(UnaryOperator &U) {
-  Assert(U.getType() == U.getOperand(0)->getType(), 
+  Assert(U.getType() == U.getOperand(0)->getType(),
          "Unary operators must have same type for"
          "operands and result!",
          &U);
@@ -3971,16 +3971,25 @@ void Verifier::verifyDominatesUse(Instruction &I, unsigned i) {
 }
 
 void Verifier::visitDereferenceableMetadata(Instruction& I, MDNode* MD) {
-  Assert(I.getType()->isPointerTy(), "dereferenceable, dereferenceable_or_null "
-         "apply only to pointer types", &I);
+  Assert(I.getType()->isPointerTy(),
+         "dereferenceable, dereferenceable_or_null, dereferenceable_globally, "
+         "and dereferenceable_or_null_globally apply only to pointer types",
+         &I);
   Assert(isa<LoadInst>(I),
-         "dereferenceable, dereferenceable_or_null apply only to load"
-         " instructions, use attributes for calls or invokes", &I);
-  Assert(MD->getNumOperands() == 1, "dereferenceable, dereferenceable_or_null "
-         "take one operand!", &I);
+         "dereferenceable, dereferenceable_or_null, dereferenceable_globally, "
+         "and dereferenceable_or_null_globally apply only to load "
+         "instructions, use attributes for calls or invokes",
+         &I);
+  Assert(MD->getNumOperands() == 1,
+         "dereferenceable, dereferenceable_or_null, dereferenceable_globally, "
+         "and dereferenceable_or_null_globally take one operand!",
+         &I);
   ConstantInt *CI = mdconst::dyn_extract<ConstantInt>(MD->getOperand(0));
-  Assert(CI && CI->getType()->isIntegerTy(64), "dereferenceable, "
-         "dereferenceable_or_null metadata value must be an i64!", &I);
+  Assert(CI && CI->getType()->isIntegerTy(64),
+         "dereferenceable, "
+         "dereferenceable_or_null, dereferenceable_globally, and "
+         "dereferenceable_or_null_globally metadata value must be an i64!",
+         &I);
 }
 
 /// verifyInstruction - Verify that an instruction is well formed.
@@ -4115,11 +4124,12 @@ void Verifier::visitInstruction(Instruction &I) {
            &I);
   }
 
-  if (MDNode *MD = I.getMetadata(LLVMContext::MD_dereferenceable))
-    visitDereferenceableMetadata(I, MD);
-
-  if (MDNode *MD = I.getMetadata(LLVMContext::MD_dereferenceable_or_null))
-    visitDereferenceableMetadata(I, MD);
+  for (auto ID : {LLVMContext::MD_dereferenceable,
+                  LLVMContext::MD_dereferenceable_or_null,
+                  LLVMContext::MD_dereferenceable_globally,
+                  LLVMContext::MD_dereferenceable_or_null_globally})
+    if (MDNode *MD = I.getMetadata(ID))
+      visitDereferenceableMetadata(I, MD);
 
   if (MDNode *TBAA = I.getMetadata(LLVMContext::MD_tbaa))
     TBAAVerifyHelper.visitTBAAMetadata(I, TBAA);
@@ -4755,7 +4765,7 @@ void Verifier::visitConstrainedFPIntrinsic(ConstrainedFPIntrinsic &FPI) {
              "Intrinsic first argument's type must be smaller than result type",
              &FPI);
     }
-  } 
+  }
     break;
 
   default:
@@ -5018,7 +5028,7 @@ struct VerifierLegacyPass : public FunctionPass {
 
   bool runOnFunction(Function &F) override {
     if (!V->verify(F) && FatalErrors) {
-      errs() << "in function " << F.getName() << '\n'; 
+      errs() << "in function " << F.getName() << '\n';
       report_fatal_error("Broken function found, compilation aborted!");
     }
     return false;

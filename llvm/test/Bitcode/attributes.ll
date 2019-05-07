@@ -357,6 +357,21 @@ define void @f60() willreturn
   ret void
 }
 
+; CHECK: define dereferenceable_globally(2) i8* @f61(i8* dereferenceable_globally(1) %a) {
+define dereferenceable_globally(2) i8* @f61(i8* dereferenceable_globally(1) %a) {
+  ret i8* %a
+}
+
+; CHECK: define dereferenceable_globally(18446744073709551606) i8* @f62(i8* dereferenceable_globally(18446744073709551615) %a) {
+define dereferenceable_globally(18446744073709551606) i8* @f62(i8* dereferenceable_globally(18446744073709551615) %a) {
+  ret i8* %a
+}
+
+; CHECK: define dereferenceable_or_null_globally(8) i8* @f63(i8* dereferenceable_or_null_globally(8) %foo)
+define dereferenceable_or_null_globally(8) i8* @f63(i8* dereferenceable_or_null_globally(8) %foo) {
+  ret i8* %foo
+}
+
 ; CHECK: attributes #0 = { noreturn }
 ; CHECK: attributes #1 = { nounwind }
 ; CHECK: attributes #2 = { readnone }

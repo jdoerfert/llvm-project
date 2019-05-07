@@ -431,6 +431,22 @@ public:
   /// attributes for the given arg.
   void addDereferenceableOrNullParamAttr(unsigned ArgNo, uint64_t Bytes);
 
+  /// adds the dereferenceable_globally attribute to the list of attributes.
+  void addDereferenceableGloballyAttr(unsigned i, uint64_t Bytes);
+
+  /// adds the dereferenceable_globally attribute to the list of attributes for
+  /// the given arg.
+  void addDereferenceableGloballyParamAttr(unsigned ArgNo, uint64_t Bytes);
+
+  /// adds the dereferenceable_or_null_globally attribute to the list of
+  /// attributes.
+  void addDereferenceableOrNullGloballyAttr(unsigned i, uint64_t Bytes);
+
+  /// adds the dereferenceable_or_null_globally attribute to the list of
+  /// attributes for the given arg.
+  void addDereferenceableOrNullGloballyParamAttr(unsigned ArgNo,
+                                                 uint64_t Bytes);
+
   /// Extract the alignment for a call or parameter (0=unknown).
   unsigned getParamAlignment(unsigned ArgNo) const {
     return AttributeSets.getParamAlignment(ArgNo);
@@ -467,6 +483,33 @@ public:
   /// @param ArgNo AttributeList ArgNo, referring to an argument.
   uint64_t getParamDereferenceableOrNullBytes(unsigned ArgNo) const {
     return AttributeSets.getParamDereferenceableOrNullBytes(ArgNo);
+  }
+
+  /// Extract the number of globally dereferenceable bytes for a call or
+  /// parameter (0=unknown).
+  /// @param i AttributeList index, referring to a return value or argument.
+  uint64_t getDereferenceableGloballyBytes(unsigned i) const {
+    return AttributeSets.getDereferenceableGloballyBytes(i);
+  }
+
+  /// Extract the number of globally dereferenceable bytes for a parameter.
+  /// @param ArgNo Index of an argument, with 0 being the first function arg.
+  uint64_t getParamDereferenceableGloballyBytes(unsigned ArgNo) const {
+    return AttributeSets.getParamDereferenceableGloballyBytes(ArgNo);
+  }
+
+  /// Extract the number of globally dereferenceable_or_null bytes for a call or
+  /// parameter (0=unknown).
+  /// @param i AttributeList index, referring to a return value or argument.
+  uint64_t getDereferenceableOrNullGloballyBytes(unsigned i) const {
+    return AttributeSets.getDereferenceableOrNullGloballyBytes(i);
+  }
+
+  /// Extract the number of globally dereferenceable_or_null bytes for a
+  /// parameter.
+  /// @param ArgNo AttributeList ArgNo, referring to an argument.
+  uint64_t getParamDereferenceableOrNullGloballyBytes(unsigned ArgNo) const {
+    return AttributeSets.getParamDereferenceableOrNullGloballyBytes(ArgNo);
   }
 
   /// Determine if the function does not access memory.

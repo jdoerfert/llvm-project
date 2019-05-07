@@ -62,6 +62,15 @@ public:
   /// number of bytes known to be dereferenceable. Otherwise, zero is returned.
   uint64_t getDereferenceableOrNullBytes() const;
 
+  /// If this argument has the dereferenceable_globally attribute, return the
+  /// number of bytes known to be dereferenceable. Otherwise, zero is returned.
+  uint64_t getDereferenceableGloballyBytes() const;
+
+  /// If this argument has the dereferenceable_or_null_globally attribute,
+  /// return the number of bytes known to be dereferenceable. Otherwise, zero is
+  /// returned.
+  uint64_t getDereferenceableOrNullGloballyBytes() const;
+
   /// Return true if this argument has the byval attribute.
   bool hasByValAttr() const;
 

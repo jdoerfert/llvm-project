@@ -100,6 +100,11 @@ public:
                                               uint64_t Bytes);
   static Attribute getWithDereferenceableOrNullBytes(LLVMContext &Context,
                                                      uint64_t Bytes);
+  static Attribute getWithDereferenceableGloballyBytes(LLVMContext &Context,
+                                                       uint64_t Bytes);
+  static Attribute
+  getWithDereferenceableOrNullGloballyBytes(LLVMContext &Context,
+                                            uint64_t Bytes);
   static Attribute getWithAllocSizeArgs(LLVMContext &Context,
                                         unsigned ElemSizeArg,
                                         const Optional<unsigned> &NumElemsArg);
@@ -163,6 +168,14 @@ public:
   /// Returns the number of dereferenceable_or_null bytes from the
   /// dereferenceable_or_null attribute.
   uint64_t getDereferenceableOrNullBytes() const;
+
+  /// Returns the number of globally dereferenceable bytes from the
+  /// dereferenceable_globally attribute.
+  uint64_t getDereferenceableGloballyBytes() const;
+
+  /// Returns the number of globally dereferenceable_or_null bytes from the
+  /// dereferenceable_or_null_globally attribute.
+  uint64_t getDereferenceableOrNullGloballyBytes() const;
 
   /// Returns the argument numbers for the allocsize attribute (or pair(0, 0)
   /// if not known).
@@ -288,6 +301,8 @@ public:
   unsigned getStackAlignment() const;
   uint64_t getDereferenceableBytes() const;
   uint64_t getDereferenceableOrNullBytes() const;
+  uint64_t getDereferenceableGloballyBytes() const;
+  uint64_t getDereferenceableOrNullGloballyBytes() const;
   Type *getByValType() const;
   std::pair<unsigned, Optional<unsigned>> getAllocSizeArgs() const;
   std::string getAsString(bool InAttrGrp = false) const;
@@ -511,6 +526,32 @@ public:
     return addDereferenceableOrNullAttr(C, ArgNo + FirstArgIndex, Bytes);
   }
 
+  /// Add the dereferenceable_globally attribute to the attribute set at the
+  /// given index. Returns a new list because attribute lists are immutable.
+  LLVM_NODISCARD AttributeList addDereferenceableGloballyAttr(
+      LLVMContext &C, unsigned Index, uint64_t Bytes) const;
+
+  /// Add the dereferenceable_globally attribute to the attribute set at the
+  /// given arg index. Returns a new list because attribute lists are immutable.
+  LLVM_NODISCARD AttributeList addDereferenceableGloballyParamAttr(
+      LLVMContext &C, unsigned ArgNo, uint64_t Bytes) const {
+    return addDereferenceableGloballyAttr(C, ArgNo + FirstArgIndex, Bytes);
+  }
+
+  /// Add the dereferenceable_or_null_globally attribute to the attribute set at
+  /// the given index. Returns a new list because attribute lists are immutable.
+  LLVM_NODISCARD AttributeList addDereferenceableOrNullGloballyAttr(
+      LLVMContext &C, unsigned Index, uint64_t Bytes) const;
+
+  /// Add the dereferenceable_or_null_globally attribute to the attribute set at
+  /// the given arg index. Returns a new list because attribute lists are
+  /// immutable.
+  LLVM_NODISCARD AttributeList addDereferenceableOrNullGloballyParamAttr(
+      LLVMContext &C, unsigned ArgNo, uint64_t Bytes) const {
+    return addDereferenceableOrNullGloballyAttr(C, ArgNo + FirstArgIndex,
+                                                Bytes);
+  }
+
   /// Add the allocsize attribute to the attribute set at the given index.
   /// Returns a new list because attribute lists are immutable.
   LLVM_NODISCARD AttributeList
@@ -633,6 +674,25 @@ public:
     return getDereferenceableOrNullBytes(ArgNo + FirstArgIndex);
   }
 
+  /// Get the number of globally dereferenceable bytes (or zero if unknown).
+  uint64_t getDereferenceableGloballyBytes(unsigned Index) const;
+
+  /// Get the number of globally dereferenceable bytes (or zero if unknown) of
+  /// an arg.
+  uint64_t getParamDereferenceableGloballyBytes(unsigned ArgNo) const {
+    return getDereferenceableGloballyBytes(ArgNo + FirstArgIndex);
+  }
+
+  /// Get the number of globally dereferenceable_or_null bytes (or zero if
+  /// unknown).
+  uint64_t getDereferenceableOrNullGloballyBytes(unsigned Index) const;
+
+  /// Get the number of globally dereferenceable_or_null bytes (or zero if
+  /// unknown) of an arg.
+  uint64_t getParamDereferenceableOrNullGloballyBytes(unsigned ArgNo) const {
+    return getDereferenceableOrNullGloballyBytes(ArgNo + FirstArgIndex);
+  }
+
   /// Get the allocsize argument numbers (or pair(0, 0) if unknown).
   std::pair<unsigned, Optional<unsigned>>
   getAllocSizeArgs(unsigned Index) const;
@@ -709,6 +769,8 @@ class AttrBuilder {
   uint64_t StackAlignment = 0;
   uint64_t DerefBytes = 0;
   uint64_t DerefOrNullBytes = 0;
+  uint64_t DerefGloballyBytes = 0;
+  uint64_t DerefOrNullGloballyBytes = 0;
   uint64_t AllocSizeArgs = 0;
   Type *ByValType = nullptr;
 
@@ -786,6 +848,19 @@ public:
   /// dereferenceable_or_null attribute exists (zero is returned otherwise).
   uint64_t getDereferenceableOrNullBytes() const { return DerefOrNullBytes; }
 
+  /// Retrieve the number of globally dereferenceable bytes, if the
+  /// dereferenceable_globally attribute exists (zero is returned otherwise).
+  uint64_t getDereferenceableGloballyBytes() const {
+    return DerefGloballyBytes;
+  }
+
+  /// Retrieve the number of globally dereferenceable_or_null bytes, if the
+  /// dereferenceable_or_null_globally attribute exists (zero is returned
+  /// otherwise).
+  uint64_t getDereferenceableOrNullGloballyBytes() const {
+    return DerefOrNullGloballyBytes;
+  }
+
   /// Retrieve the byval type.
   Type *getByValType() const { return ByValType; }
 
@@ -808,6 +883,14 @@ public:
   /// This turns the number of dereferenceable_or_null bytes into the
   /// form used internally in Attribute.
   AttrBuilder &addDereferenceableOrNullAttr(uint64_t Bytes);
+
+  /// This turns the number of globally dereferenceable_globally bytes into the
+  /// form used internally in Attribute.
+  AttrBuilder &addDereferenceableGloballyAttr(uint64_t Bytes);
+
+  /// This turns the number of dereferenceable_or_null_globally bytes into the
+  /// form used internally in Attribute.
+  AttrBuilder &addDereferenceableOrNullGloballyAttr(uint64_t Bytes);
 
   /// This turns one (or two) ints into the form used internally in Attribute.
   AttrBuilder &addAllocSizeAttr(unsigned ElemSizeArg,

@@ -130,6 +130,18 @@ uint64_t Argument::getDereferenceableOrNullBytes() const {
   return getParent()->getParamDereferenceableOrNullBytes(getArgNo());
 }
 
+uint64_t Argument::getDereferenceableGloballyBytes() const {
+  assert(getType()->isPointerTy() &&
+         "Only pointers have dereferenceable bytes");
+  return getParent()->getParamDereferenceableGloballyBytes(getArgNo());
+}
+
+uint64_t Argument::getDereferenceableOrNullGloballyBytes() const {
+  assert(getType()->isPointerTy() &&
+         "Only pointers have dereferenceable bytes");
+  return getParent()->getParamDereferenceableOrNullGloballyBytes(getArgNo());
+}
+
 bool Argument::hasNestAttr() const {
   if (!getType()->isPointerTy()) return false;
   return hasAttribute(Attribute::Nest);
@@ -471,6 +483,32 @@ void Function::addDereferenceableOrNullParamAttr(unsigned ArgNo,
                                                  uint64_t Bytes) {
   AttributeList PAL = getAttributes();
   PAL = PAL.addDereferenceableOrNullParamAttr(getContext(), ArgNo, Bytes);
+  setAttributes(PAL);
+}
+
+void Function::addDereferenceableGloballyAttr(unsigned i, uint64_t Bytes) {
+  AttributeList PAL = getAttributes();
+  PAL = PAL.addDereferenceableGloballyAttr(getContext(), i, Bytes);
+  setAttributes(PAL);
+}
+
+void Function::addDereferenceableGloballyParamAttr(unsigned ArgNo, uint64_t Bytes) {
+  AttributeList PAL = getAttributes();
+  PAL = PAL.addDereferenceableGloballyParamAttr(getContext(), ArgNo, Bytes);
+  setAttributes(PAL);
+}
+
+void Function::addDereferenceableOrNullGloballyAttr(unsigned i, uint64_t Bytes) {
+  AttributeList PAL = getAttributes();
+  PAL = PAL.addDereferenceableOrNullGloballyAttr(getContext(), i, Bytes);
+  setAttributes(PAL);
+}
+
+void Function::addDereferenceableOrNullGloballyParamAttr(unsigned ArgNo,
+                                                 uint64_t Bytes) {
+  AttributeList PAL = getAttributes();
+  PAL =
+      PAL.addDereferenceableOrNullGloballyParamAttr(getContext(), ArgNo, Bytes);
   setAttributes(PAL);
 }
 

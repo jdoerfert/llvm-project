@@ -1285,6 +1285,14 @@ static uint64_t getRawAttributeMask(Attribute::AttrKind Val) {
     llvm_unreachable("dereferenceable_or_null attribute not supported in raw "
                      "format");
     break;
+  case Attribute::DereferenceableGlobally:
+    llvm_unreachable(
+        "dereferenceable_globally attribute not supported in raw format");
+    break;
+  case Attribute::DereferenceableOrNullGlobally:
+    llvm_unreachable("dereferenceable_or_null_globally attribute not supported "
+                     "in raw format");
+    break;
   case Attribute::ArgMemOnly:
     llvm_unreachable("argmemonly attribute not supported in raw format");
     break;
@@ -1302,6 +1310,8 @@ static void addRawAttributeValue(AttrBuilder &B, uint64_t Val) {
        I = Attribute::AttrKind(I + 1)) {
     if (I == Attribute::Dereferenceable ||
         I == Attribute::DereferenceableOrNull ||
+        I == Attribute::DereferenceableGlobally ||
+        I == Attribute::DereferenceableOrNullGlobally ||
         I == Attribute::ArgMemOnly ||
         I == Attribute::AllocSize)
       continue;
@@ -1456,6 +1466,10 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::Dereferenceable;
   case bitc::ATTR_KIND_DEREFERENCEABLE_OR_NULL:
     return Attribute::DereferenceableOrNull;
+  case bitc::ATTR_KIND_DEREFERENCEABLE_GLOBALLY:
+    return Attribute::DereferenceableGlobally;
+  case bitc::ATTR_KIND_DEREFERENCEABLE_OR_NULL_GLOBALLY:
+    return Attribute::DereferenceableOrNullGlobally;
   case bitc::ATTR_KIND_ALLOC_SIZE:
     return Attribute::AllocSize;
   case bitc::ATTR_KIND_NO_RED_ZONE:
@@ -1612,6 +1626,10 @@ Error BitcodeReader::parseAttributeGroupBlock() {
             B.addDereferenceableAttr(Record[++i]);
           else if (Kind == Attribute::DereferenceableOrNull)
             B.addDereferenceableOrNullAttr(Record[++i]);
+          else if (Kind == Attribute::DereferenceableGlobally)
+            B.addDereferenceableGloballyAttr(Record[++i]);
+          else if (Kind == Attribute::DereferenceableOrNullGlobally)
+            B.addDereferenceableOrNullGloballyAttr(Record[++i]);
           else if (Kind == Attribute::AllocSize)
             B.addAllocSizeAttrFromRawRepr(Record[++i]);
         } else if (Record[i] == 3 || Record[i] == 4) { // String attribute

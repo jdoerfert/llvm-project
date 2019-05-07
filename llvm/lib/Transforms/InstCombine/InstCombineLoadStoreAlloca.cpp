@@ -500,6 +500,8 @@ static LoadInst *combineLoadToNewType(InstCombiner &IC, LoadInst &LI, Type *NewT
     case LLVMContext::MD_align:
     case LLVMContext::MD_dereferenceable:
     case LLVMContext::MD_dereferenceable_or_null:
+    case LLVMContext::MD_dereferenceable_globally:
+    case LLVMContext::MD_dereferenceable_or_null_globally:
       // These only directly apply if the new type is also a pointer.
       if (NewTy->isPointerTy())
         NewLoad->setMetadata(ID, N);
@@ -559,6 +561,8 @@ static StoreInst *combineStoreToNewValue(InstCombiner &IC, StoreInst &SI, Value 
     case LLVMContext::MD_align:
     case LLVMContext::MD_dereferenceable:
     case LLVMContext::MD_dereferenceable_or_null:
+    case LLVMContext::MD_dereferenceable_globally:
+    case LLVMContext::MD_dereferenceable_or_null_globally:
       // These don't apply for stores.
       break;
     }

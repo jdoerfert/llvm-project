@@ -137,6 +137,8 @@ public:
     assert((Kind == Attribute::Alignment || Kind == Attribute::StackAlignment ||
             Kind == Attribute::Dereferenceable ||
             Kind == Attribute::DereferenceableOrNull ||
+            Kind == Attribute::DereferenceableGlobally ||
+            Kind == Attribute::DereferenceableOrNullGlobally ||
             Kind == Attribute::AllocSize) &&
            "Wrong kind for int attribute!");
   }
@@ -212,6 +214,8 @@ public:
   unsigned getStackAlignment() const;
   uint64_t getDereferenceableBytes() const;
   uint64_t getDereferenceableOrNullBytes() const;
+  uint64_t getDereferenceableGloballyBytes() const;
+  uint64_t getDereferenceableOrNullGloballyBytes() const;
   std::pair<unsigned, Optional<unsigned>> getAllocSizeArgs() const;
   std::string getAsString(bool InAttrGrp) const;
   Type *getByValType() const;

@@ -432,6 +432,18 @@ public:
     CALLSITE_DELEGATE_GETTER(getDereferenceableOrNullBytes(i));
   }
 
+  /// Extract the number of globally dereferenceable bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableGloballyBytes(unsigned i) const {
+    CALLSITE_DELEGATE_GETTER(getDereferenceableGloballyBytes(i));
+  }
+
+  /// Extract the number of globally dereferenceable_or_null bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableOrNullGloballyBytes(unsigned i) const {
+    CALLSITE_DELEGATE_GETTER(getDereferenceableOrNullGloballyBytes(i));
+  }
+
   /// Determine if the return value is marked with NoAlias attribute.
   bool returnDoesNotAlias() const {
     CALLSITE_DELEGATE_GETTER(returnDoesNotAlias());

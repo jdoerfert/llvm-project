@@ -63,6 +63,8 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
     {MD_irr_loop, "irr_loop"},
     {MD_access_group, "llvm.access.group"},
     {MD_callback, "callback"},
+    {MD_dereferenceable_globally, "dereferenceable_globally"},
+    {MD_dereferenceable_or_null_globally, "dereferenceable_or_null_globally"},
   };
 
   for (auto &MDKind : MDKinds) {
