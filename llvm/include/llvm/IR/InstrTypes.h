@@ -1454,6 +1454,21 @@ public:
     setAttributes(PAL);
   }
 
+  /// adds the dereferenceable_globally attribute to the list of attributes.
+  void addDereferenceableGloballyAttr(unsigned i, uint64_t Bytes) {
+    AttributeList PAL = getAttributes();
+    PAL = PAL.addDereferenceableGloballyAttr(getContext(), i, Bytes);
+    setAttributes(PAL);
+  }
+
+  /// adds the dereferenceable_or_null_globally attribute to the list of
+  /// attributes.
+  void addDereferenceableOrNullGloballyAttr(unsigned i, uint64_t Bytes) {
+    AttributeList PAL = getAttributes();
+    PAL = PAL.addDereferenceableOrNullGloballyAttr(getContext(), i, Bytes);
+    setAttributes(PAL);
+  }
+
   /// Determine whether the return value has the given attribute.
   bool hasRetAttr(Attribute::AttrKind Kind) const;
 
@@ -1590,6 +1605,18 @@ public:
   /// parameter (0=unknown).
   uint64_t getDereferenceableOrNullBytes(unsigned i) const {
     return Attrs.getDereferenceableOrNullBytes(i);
+  }
+
+  /// Extract the number of globally dereferenceable bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableGloballyBytes(unsigned i) const {
+    return Attrs.getDereferenceableGloballyBytes(i);
+  }
+
+  /// Extract the number of globally dereferenceable_or_null bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableOrNullGloballyBytes(unsigned i) const {
+    return Attrs.getDereferenceableOrNullGloballyBytes(i);
   }
 
   /// Return true if the return value is known to be not null.

@@ -167,6 +167,19 @@ Attribute Attribute::getWithDereferenceableOrNullBytes(LLVMContext &Context,
   return get(Context, DereferenceableOrNull, Bytes);
 }
 
+Attribute Attribute::getWithDereferenceableGloballyBytes(LLVMContext &Context,
+                                                         uint64_t Bytes) {
+  assert(Bytes && "Bytes must be non-zero.");
+  return get(Context, DereferenceableGlobally, Bytes);
+}
+
+Attribute
+Attribute::getWithDereferenceableOrNullGloballyBytes(LLVMContext &Context,
+                                                     uint64_t Bytes) {
+  assert(Bytes && "Bytes must be non-zero.");
+  return get(Context, DereferenceableOrNullGlobally, Bytes);
+}
+
 Attribute Attribute::getWithByValType(LLVMContext &Context, Type *Ty) {
   return get(Context, ByVal, Ty);
 }
@@ -265,6 +278,20 @@ uint64_t Attribute::getDereferenceableBytes() const {
 
 uint64_t Attribute::getDereferenceableOrNullBytes() const {
   assert(hasAttribute(Attribute::DereferenceableOrNull) &&
+         "Trying to get dereferenceable bytes from "
+         "non-dereferenceable attribute!");
+  return pImpl->getValueAsInt();
+}
+
+uint64_t Attribute::getDereferenceableGloballyBytes() const {
+  assert(hasAttribute(Attribute::DereferenceableGlobally) &&
+         "Trying to get dereferenceable bytes from "
+         "non-dereferenceable attribute!");
+  return pImpl->getValueAsInt();
+}
+
+uint64_t Attribute::getDereferenceableOrNullGloballyBytes() const {
+  assert(hasAttribute(Attribute::DereferenceableOrNullGlobally) &&
          "Trying to get dereferenceable bytes from "
          "non-dereferenceable attribute!");
   return pImpl->getValueAsInt();
@@ -444,6 +471,12 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
 
   if (hasAttribute(Attribute::DereferenceableOrNull))
     return AttrWithBytesToString("dereferenceable_or_null");
+
+  if (hasAttribute(Attribute::DereferenceableGlobally))
+    return AttrWithBytesToString("dereferenceable_globally");
+
+  if (hasAttribute(Attribute::DereferenceableOrNullGlobally))
+    return AttrWithBytesToString("dereferenceable_or_null_globally");
 
   if (hasAttribute(Attribute::AllocSize)) {
     unsigned ElemSize;
@@ -686,6 +719,14 @@ uint64_t AttributeSet::getDereferenceableOrNullBytes() const {
   return SetNode ? SetNode->getDereferenceableOrNullBytes() : 0;
 }
 
+uint64_t AttributeSet::getDereferenceableGloballyBytes() const {
+  return SetNode ? SetNode->getDereferenceableGloballyBytes() : 0;
+}
+
+uint64_t AttributeSet::getDereferenceableOrNullGloballyBytes() const {
+  return SetNode ? SetNode->getDereferenceableOrNullGloballyBytes() : 0;
+}
+
 Type *AttributeSet::getByValType() const {
   return SetNode ? SetNode->getByValType() : nullptr;
 }
@@ -795,6 +836,14 @@ AttributeSetNode *AttributeSetNode::get(LLVMContext &C, const AttrBuilder &B) {
       Attr = Attribute::getWithDereferenceableOrNullBytes(
           C, B.getDereferenceableOrNullBytes());
       break;
+    case Attribute::DereferenceableGlobally:
+      Attr = Attribute::getWithDereferenceableGloballyBytes(
+          C, B.getDereferenceableGloballyBytes());
+      break;
+    case Attribute::DereferenceableOrNullGlobally:
+      Attr = Attribute::getWithDereferenceableOrNullGloballyBytes(
+          C, B.getDereferenceableOrNullGloballyBytes());
+      break;
     case Attribute::AllocSize: {
       auto A = B.getAllocSizeArgs();
       Attr = Attribute::getWithAllocSizeArgs(C, A.first, A.second);
@@ -868,6 +917,20 @@ uint64_t AttributeSetNode::getDereferenceableOrNullBytes() const {
   for (const auto I : *this)
     if (I.hasAttribute(Attribute::DereferenceableOrNull))
       return I.getDereferenceableOrNullBytes();
+  return 0;
+}
+
+uint64_t AttributeSetNode::getDereferenceableGloballyBytes() const {
+  for (const auto I : *this)
+    if (I.hasAttribute(Attribute::DereferenceableGlobally))
+      return I.getDereferenceableGloballyBytes();
+  return 0;
+}
+
+uint64_t AttributeSetNode::getDereferenceableOrNullGloballyBytes() const {
+  for (const auto I : *this)
+    if (I.hasAttribute(Attribute::DereferenceableOrNullGlobally))
+      return I.getDereferenceableOrNullGloballyBytes();
   return 0;
 }
 
@@ -1273,6 +1336,21 @@ AttributeList::addDereferenceableOrNullAttr(LLVMContext &C, unsigned Index,
 }
 
 AttributeList
+AttributeList::addDereferenceableGloballyAttr(LLVMContext &C, unsigned Index,
+                                              uint64_t Bytes) const {
+  AttrBuilder B;
+  B.addDereferenceableGloballyAttr(Bytes);
+  return addAttributes(C, Index, B);
+}
+
+AttributeList AttributeList::addDereferenceableOrNullGloballyAttr(
+    LLVMContext &C, unsigned Index, uint64_t Bytes) const {
+  AttrBuilder B;
+  B.addDereferenceableOrNullGloballyAttr(Bytes);
+  return addAttributes(C, Index, B);
+}
+
+AttributeList
 AttributeList::addAllocSizeAttr(LLVMContext &C, unsigned Index,
                                 unsigned ElemSizeArg,
                                 const Optional<unsigned> &NumElemsArg) {
@@ -1374,6 +1452,14 @@ uint64_t AttributeList::getDereferenceableOrNullBytes(unsigned Index) const {
   return getAttributes(Index).getDereferenceableOrNullBytes();
 }
 
+uint64_t AttributeList::getDereferenceableGloballyBytes(unsigned Index) const {
+  return getAttributes(Index).getDereferenceableGloballyBytes();
+}
+
+uint64_t AttributeList::getDereferenceableOrNullGloballyBytes(unsigned Index) const {
+  return getAttributes(Index).getDereferenceableOrNullGloballyBytes();
+}
+
 std::pair<unsigned, Optional<unsigned>>
 AttributeList::getAllocSizeArgs(unsigned Index) const {
   return getAttributes(Index).getAllocSizeArgs();
@@ -1446,7 +1532,10 @@ void AttrBuilder::clear() {
 AttrBuilder &AttrBuilder::addAttribute(Attribute::AttrKind Val) {
   assert((unsigned)Val < Attribute::EndAttrKinds && "Attribute out of range!");
   assert(Val != Attribute::Alignment && Val != Attribute::StackAlignment &&
-         Val != Attribute::Dereferenceable && Val != Attribute::AllocSize &&
+         Val != Attribute::AllocSize && Val != Attribute::Dereferenceable &&
+         Val != Attribute::DereferenceableOrNull &&
+         Val != Attribute::DereferenceableGlobally &&
+         Val != Attribute::DereferenceableOrNullGlobally &&
          "Adding integer attribute without adding a value!");
   Attrs[Val] = true;
   return *this;
@@ -1471,6 +1560,10 @@ AttrBuilder &AttrBuilder::addAttribute(Attribute Attr) {
     DerefBytes = Attr.getDereferenceableBytes();
   else if (Kind == Attribute::DereferenceableOrNull)
     DerefOrNullBytes = Attr.getDereferenceableOrNullBytes();
+  else if (Kind == Attribute::DereferenceableGlobally)
+    DerefBytesGlobally = Attr.getDereferenceableGloballyBytes();
+  else if (Kind == Attribute::DereferenceableOrNullGlobally)
+    DerefOrNullBytesGlobally = Attr.getDereferenceableOrNullGloballyBytes();
   else if (Kind == Attribute::AllocSize)
     AllocSizeArgs = Attr.getValueAsInt();
   return *this;
@@ -1495,6 +1588,10 @@ AttrBuilder &AttrBuilder::removeAttribute(Attribute::AttrKind Val) {
     DerefBytes = 0;
   else if (Val == Attribute::DereferenceableOrNull)
     DerefOrNullBytes = 0;
+  else if (Val == Attribute::DereferenceableGlobally)
+    DerefBytesGlobally = 0;
+  else if (Val == Attribute::DereferenceableOrNullGlobally)
+    DerefOrNullBytesGlobally = 0;
   else if (Val == Attribute::AllocSize)
     AllocSizeArgs = 0;
 
@@ -1554,6 +1651,23 @@ AttrBuilder &AttrBuilder::addDereferenceableOrNullAttr(uint64_t Bytes) {
 
   Attrs[Attribute::DereferenceableOrNull] = true;
   DerefOrNullBytes = Bytes;
+  return *this;
+}
+
+AttrBuilder &AttrBuilder::addDereferenceableGloballyAttr(uint64_t Bytes) {
+  if (Bytes == 0) return *this;
+
+  Attrs[Attribute::DereferenceableGlobally] = true;
+  DerefBytesGlobally = Bytes;
+  return *this;
+}
+
+AttrBuilder &AttrBuilder::addDereferenceableOrNullGloballyAttr(uint64_t Bytes) {
+  if (Bytes == 0)
+    return *this;
+
+  Attrs[Attribute::DereferenceableOrNullGlobally] = true;
+  DerefOrNullBytesGlobally = Bytes;
   return *this;
 }
 
@@ -1711,6 +1825,8 @@ AttrBuilder AttributeFuncs::typeIncompatible(Type *Ty) {
       .addAttribute(Attribute::NonNull)
       .addDereferenceableAttr(1) // the int here is ignored
       .addDereferenceableOrNullAttr(1) // the int here is ignored
+      .addDereferenceableGloballyAttr(1) // the int here is ignored
+      .addDereferenceableOrNullGloballyAttr(1) // the int here is ignored
       .addAttribute(Attribute::ReadNone)
       .addAttribute(Attribute::ReadOnly)
       .addAttribute(Attribute::StructRet)

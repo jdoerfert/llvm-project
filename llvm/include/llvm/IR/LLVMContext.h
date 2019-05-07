@@ -100,6 +100,9 @@ public:
     MD_access_group = 25,             // "llvm.access.group"
     MD_callback = 26,                 // "callback"
     MD_preserve_access_index = 27,    // "llvm.preserve.*.access.index"
+    MD_dereferenceable_globally = 28, // "dereferenceable_globally"
+    MD_dereferenceable_or_null_globally =
+        29, // "dereferenceable_or_null_globally"
   };
 
   /// Known operand bundle tag IDs, which always have the same value.  All

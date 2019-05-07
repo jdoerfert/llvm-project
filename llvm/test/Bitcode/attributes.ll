@@ -374,6 +374,22 @@ define void @f63() sanitize_memtag
   ret void;
 }
 
+define dereferenceable_globally(2) i8* @f64(i8* dereferenceable_globally(1) %a) {
+; CHECK: define dereferenceable_globally(2) i8* @f64(i8* dereferenceable_globally(1) %a) {
+  ret i8* %a
+}
+
+define dereferenceable_globally(18446744073709551606) i8* @f65(i8* dereferenceable_globally(18446744073709551615) %a) {
+; CHECK: define dereferenceable_globally(18446744073709551606) i8* @f40(i8* dereferenceable_globally(18446744073709551615) %a) {
+  ret i8* %a
+}
+
+; CHECK: define dereferenceable_or_null_globally(8) i8* @f42(i8* dereferenceable_or_null_globally(8) %foo)
+define dereferenceable_or_null_globally(8) i8* @f64(i8* dereferenceable_or_null_globally(8) %foo) {
+  ret i8* %foo
+}
+
+
 ; CHECK: attributes #0 = { noreturn }
 ; CHECK: attributes #1 = { nounwind }
 ; CHECK: attributes #2 = { readnone }

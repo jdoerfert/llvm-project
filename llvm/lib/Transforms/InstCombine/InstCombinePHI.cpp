@@ -608,6 +608,8 @@ Instruction *InstCombiner::FoldPHIArgLoadIntoPHI(PHINode &PN) {
     LLVMContext::MD_align,
     LLVMContext::MD_dereferenceable,
     LLVMContext::MD_dereferenceable_or_null,
+    LLVMContext::MD_dereferenceable_globally,
+    LLVMContext::MD_dereferenceable_or_null_globally,
     LLVMContext::MD_access_group,
   };
 

@@ -45,6 +45,12 @@ def Dereferenceable : EnumAttr<"dereferenceable">;
 /// Pointer is either null or dereferenceable.
 def DereferenceableOrNull : EnumAttr<"dereferenceable_or_null">;
 
+/// Pointer is known to be dereferenceable_globally.
+def DereferenceableGlobally : EnumAttr<"dereferenceable_globally">;
+
+/// Pointer is either null or dereferenceable_globally.
+def DereferenceableOrNullGlobally : EnumAttr<"dereferenceable_or_null_globally">;
+
 /// Function may only access memory that is inaccessible from IR.
 def InaccessibleMemOnly : EnumAttr<"inaccessiblememonly">;
 

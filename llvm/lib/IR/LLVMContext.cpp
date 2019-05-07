@@ -64,6 +64,8 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
     {MD_access_group, "llvm.access.group"},
     {MD_callback, "callback"},
     {MD_preserve_access_index, "llvm.preserve.access.index"},
+    {MD_dereferenceable_globally, "dereferenceable_globally"},
+    {MD_dereferenceable_or_null_globally, "dereferenceable_or_null_globally"},
   };
 
   for (auto &MDKind : MDKinds) {

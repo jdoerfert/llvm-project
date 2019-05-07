@@ -2360,6 +2360,8 @@ void llvm::combineMetadata(Instruction *K, const Instruction *J,
         break;
       case LLVMContext::MD_dereferenceable:
       case LLVMContext::MD_dereferenceable_or_null:
+      case LLVMContext::MD_dereferenceable_globally:
+      case LLVMContext::MD_dereferenceable_or_null_globally:
         K->setMetadata(Kind,
           MDNode::getMostGenericAlignmentOrDereferenceable(JMD, KMD));
         break;
@@ -2385,6 +2387,8 @@ void llvm::combineMetadataForCSE(Instruction *K, const Instruction *J,
       LLVMContext::MD_invariant_group, LLVMContext::MD_align,
       LLVMContext::MD_dereferenceable,
       LLVMContext::MD_dereferenceable_or_null,
+      LLVMContext::MD_dereferenceable_globally,
+      LLVMContext::MD_dereferenceable_or_null_globally,
       LLVMContext::MD_access_group};
   combineMetadata(K, J, KnownIDs, KDominatesJ);
 }
