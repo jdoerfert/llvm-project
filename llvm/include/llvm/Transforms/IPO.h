@@ -55,6 +55,13 @@ ModulePass *createStripDebugDeclarePass();
 ModulePass *createStripDeadDebugInfoPass();
 
 //===----------------------------------------------------------------------===//
+//
+// CallbackEncapsulate - This pass encapsulates callbacks into their own
+// function to enable argument promotion even if the interface is fixed.
+//
+ModulePass *createCallbackEncapsulatePass();
+
+//===----------------------------------------------------------------------===//
 /// createConstantMergePass - This function returns a new pass that merges
 /// duplicate global constants together into a single constant that is shared.
 /// This is useful because some passes (ie TraceValues) insert a lot of string

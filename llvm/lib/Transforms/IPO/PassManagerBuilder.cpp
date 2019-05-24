@@ -487,6 +487,10 @@ void PassManagerBuilder::populateModulePassManager(
 
   addInitialAliasAnalysisPasses(MPM);
 
+  // Encapsulates callbacks into their own function to enable argument promotion
+  // even if the interface is fixed.
+  MPM.add(createCallbackEncapsulatePass());
+
   // For ThinLTO there are two passes of indirect call promotion. The
   // first is during the compile phase when PerformThinLTO=false and
   // intra-module indirect call targets are promoted. The second is during
