@@ -10,10 +10,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/IPO/CallbackEncapsulate.h"
-#include "llvm/Transforms/Scalar.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/ADT/Statistic.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/MDBuilder.h"
+#include "llvm/Transforms/IPO.h"
 
 using namespace llvm;
 
@@ -21,93 +24,46 @@ using namespace llvm;
 
 STATISTIC(NumCallbacksEncapsulated, "Number of callbacks encapsulated");
 
-bool llvm::isDirectCallSiteReplacedByAbstractCallSite(ImmutableCallSite CS) {
-  const Instruction *I = CS.getInstruction();
+/// Helper to extract the "rpl_cs" and "rpl_acs" metadata from a call site.
+static std::pair<MDNode *, MDNode *> getMDNodeOperand(ImmutableCallSite ICS,
+                                                      StringRef MDString) {
+  std::pair<MDNode *, MDNode *> Ret;
+  const Instruction *I = ICS.getInstruction();
   if (!I)
-    return false;
-  MDNode *RplACSMD = I->getMetadata("rpl_acs");
-  if (!RplACSMD || RplACSMD->getNumOperands() != 1)
-    return false;
-  MDNode *RplACSOpMD = dyn_cast_or_null<MDNode>(RplACSMD->getOperand(0).get());
-  if (!RplACSOpMD || RplACSOpMD->getNumOperands() != 1 || RplACSOpMD->)
+    return Ret;
+
+  MDNode *MD = I->getMetadata(MDString);
+  if (!MD || MD->getNumOperands() != 1)
+    return Ret;
+
+  MDNode *OpMD = dyn_cast_or_null<MDNode>(MD->getOperand(0).get());
+  return {MD, OpMD};
 }
 
-/// This method encapsulates the \p Called and the \p Callee function (which can
-/// be the same) with new functions that are connected through a callback
-/// annotation. The callback annotation uses copies of the arguments and the
-/// original ones are still passed. We do this to allow later passes, e.g.,
-/// argument promotion, to modify the passed arguments without changing the
-/// interface of \p Called and \p Callee. This can be good for two reasons:
-///
-/// (1) If \p Called is a declaration that has callback behavior and \p Callee
-/// is the callback callee we could otherwise not modify the way arguments are
-/// passed between them.
-///
-/// (2) If \p Callee is passed very large structure we want to unpack it to
-/// facilitate later analysis but we lack the ability to pack them again to
-/// guarantee the same call performance.
-///
-/// The new abstract call site and the direct one that with the same callee are
-/// tied together through metadata as shown in the example below.
-///
-/// Note that the encapsulation does not change the semantic of the code. While
-/// there are more functions and calls involved, there is no semantic change.
-/// However, passes aware of abstract call sites and the encoding metadata can
-/// use this mechanism to reuse existing logic.
-///
-/// ------------------------------- Before ------------------------------------
-///
-///     call Called(p0, p1);
-///
-///
-///   // The definition of Called might not be available. Called can be Callee
-///   // or contain call to Callee.
-///   Called(arg0, arg1);
-///
-///   Callee(arg2, arg3) {
-///     // Callee code
-///   }
-///
-///
-/// ------------------------------- After -------------------------------------
-///
-///     // call metadata !{!"rpl_cs", !0}
-///(A)  call Called_wrapper(p0, p1, Callee_wrapper, p0, p1);
-///
-///
-///   __attribute__((callback(callee_w, arg2_w, arg3_w)))
-///   Called_wrapper(arg0, arg1, callee_w, arg2_w, arg3_w) {
-///(B)  call Called(arg0, arg1);
-///   }
-///
-///   // The definition of Called might not be available. Called can be Callee
-///   // or contain call to Callee.
-///   Called(arg0, arg1);
-///
-///   Callee(arg2, arg3) {
-///     // call metadata !{!"rpl_acs", !1}
-///(C)  call Callee_wrapper(arg2, arg3);
-///   }
-///
-///   Callee_wrapper(arg2, arg3) {
-///(D)  // Callee code
-///   }
-///
-/// !0 = {!1}
-/// !1 = {!0}
-///
-/// In this encoding, the following call edges exist:
-///   (1)  (A) -> Called_wrapper  [direct]
-///   (2)  (A) -> Callee_wrapper  [transitive]
-///   (3)  (B) -> Called          [direct]
-///   (4)  (C) -> Callee_wrapper  [direct]
-///
-/// The shown metadata is used to tie (2) and (4) together such that aware users
-/// can ignore (4) in favor of (2). If the metadata is corrupted or dropped, the
-/// connection cannot be made and (4) has to be taken into account. This for
-/// example the case if (B) was inlined.
-static bool encapsulateCallSites(Function &Called, Function *Callee = nullptr,
-                                 int64_t CalleeIdx = -1) {
+bool llvm::isDirectCallSiteReplacedByAbstractCallSite(ImmutableCallSite CS) {
+  std::pair<MDNode *, MDNode *> RplCSOpMD = getMDNodeOperand(CS, "rpl_cs");
+  if (!RplCSOpMD.first || !RplCSOpMD.second)
+    return false;
+
+  const Function *Callee = CS.getCalledFunction();
+  for (const Use &U : Callee->uses()) {
+    AbstractCallSite ACS(&U);
+    if (!ACS)
+      continue;
+
+    std::pair<MDNode *, MDNode *> RplACSOpMD =
+        getMDNodeOperand(ACS.getCallSite(), "rpl_acs");
+    if (RplACSOpMD.first == RplCSOpMD.second &&
+        RplACSOpMD.second == RplCSOpMD.first)
+      return true;
+  }
+
+  return false;
+}
+
+bool llvm::encapsulateCallSites(Function &Called, Function *Callee,
+                                int64_t CalleeIdx) {
+  Called.dump();
   assert((Callee || CalleeIdx >= 0) && "Callee or callee index is required!");
 
   SmallVector<Value *, 16> Args;
@@ -120,8 +76,8 @@ static bool encapsulateCallSites(Function &Called, Function *Callee = nullptr,
 
   // Iterate over the call sites of the called function and rewrite calls to
   // target the new wrapper.
-  for (User *U : Called.users()) {
-    auto *CI = dyn_cast<CallInst>(U);
+  for (const Use &U : Called.uses()) {
+    auto *CI = dyn_cast<CallInst>(U.getUser());
     if (!CI)
       continue;
 
@@ -144,6 +100,7 @@ static bool encapsulateCallSites(Function &Called, Function *Callee = nullptr,
     if (CalleeFn->isVarArg())
       continue;
 
+    CalleeFn->dump();
     // Check if we need to create a new wrapper for the callee function. This is
     // true if we have none and we bridge a direct call site or always if we
     // bridge an abstract call site.
@@ -152,7 +109,15 @@ static bool encapsulateCallSites(Function &Called, Function *Callee = nullptr,
       FunctionType *WrapperTy = CalleeFn->getFunctionType();
       CalleeWrapper = Function::Create(WrapperTy, GlobalValue::InternalLinkage,
                                        CalleeFn->getName() + ".clew", M);
+      CalleeWrapper->setAttributes(CalleeFn->getAttributes());
+      CalleeWrapper->dump();
       auto &CalleeWrapperBlockList = CalleeWrapper->getBasicBlockList();
+      auto WrapperAI = CalleeWrapper->arg_begin();
+      for (Argument &Arg : CalleeFn->args()) {
+        Argument *WrapperArg = &*(WrapperAI++);
+        Arg.replaceAllUsesWith(WrapperArg);
+        WrapperArg->setName(Arg.getName());
+      }
       CalleeWrapperBlockList.splice(CalleeWrapperBlockList.begin(),
                                     CalleeFn->getBasicBlockList());
       BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", CalleeFn);
@@ -165,9 +130,13 @@ static bool encapsulateCallSites(Function &Called, Function *Callee = nullptr,
                                          CalleeFn->getName() + ".acs", EntryBB);
 
       ReturnInst *RI = ReturnInst::Create(
-          Ctx, CalleeFn->getReturnType()->isVoidTy() ? nullptr : CalleeWrapperCI,
+          Ctx,
+          CalleeFn->getReturnType()->isVoidTy() ? nullptr : CalleeWrapperCI,
           EntryBB);
+      CalleeWrapper->dump();
     }
+    M.dump();
+    errs() << "Callee side done\n";
 
     // Prepare the arguments for the call that is also an abstract call site.
     // Every argument is passed twice and the callee of the abstract call site
@@ -175,8 +144,23 @@ static bool encapsulateCallSites(Function &Called, Function *Callee = nullptr,
     Args.clear();
     Args.reserve(CI->getNumArgOperands() * 2 + 1);
     Args.append(CI->arg_begin(), CI->arg_end());
+
+    int CBCalleeIdx = Args.size();
     Args.push_back(CalleeWrapper);
-    Args.append(CI->arg_begin(), CI->arg_end());
+
+    SmallVector<int, 8> PayloadIndices;
+
+    const Use *ACSUse = CalleeIdx >= 0 ? CI->op_begin() + CalleeIdx : &U;
+    AbstractCallSite ACS(ACSUse);
+    assert(ACS && "Expected valid abstract call site!");
+    for (unsigned u = 0, e = CalleeFn->arg_size(); u < e; u++) {
+      int OpIdx = ACS.getCallArgOperandNo(u);
+      if (OpIdx < 0)
+        continue;
+      errs() << "u: " << u << " ==> " << OpIdx << "\n";
+      PayloadIndices.push_back(Args.size());
+      Args.push_back(CI->getOperand(OpIdx));
+    }
 
     // Check if we need to create a new wrapper for the called function. This is
     // true if we have none and we bridge a direct call site or always if we
@@ -188,29 +172,45 @@ static bool encapsulateCallSites(Function &Called, Function *Callee = nullptr,
         ArgTypes.push_back(V->getType());
       FunctionType *WrapperTy =
           FunctionType::get(Called.getReturnType(), ArgTypes, false);
+      WrapperTy->dump();
       CalledWrapper = Function::Create(WrapperTy, GlobalValue::InternalLinkage,
                                        Called.getName() + ".cldw", M);
+      CalledWrapper->setAttributes(Called.getAttributes());
+      MDBuilder MDB(Ctx);
+      CalledWrapper->addMetadata(
+          LLVMContext::MD_callback,
+          *MDNode::get(
+              Ctx, {MDB.createCallbackEncoding(CBCalleeIdx, PayloadIndices,
+                                               /* VarArgsArePassed */ false)}));
+      CalledWrapper->dump();
       NewCalledWrapper = true;
-      // TODO callack encoding
     }
 
+    errs() << "NewCalledWrapper: " << NewCalledWrapper << "\n";
+    errs() << "Args:\n";
+      for (auto *A : Args)
+        A->dump();
+    errs() << "# " << Args.size() << " :: " << CalledWrapper->getFunctionType()->getNumParams() << "\n";
     auto *CalledWrapperCI =
-        CallInst::Create(CI->getFunctionType(), CalledWrapper, Args,
+        CallInst::Create(CalledWrapper->getFunctionType(), CalledWrapper, Args,
                          CalleeFn->getName() + ".cs", CI);
+    CI->replaceAllUsesWith(CalledWrapperCI);
+    CalleeWrapperCI->dump();
 
     // Create and attach the encoding metadata to the two call site (one
     // abstract, one direct) of the called wrapper function.
-    DistinctMDOperandPlaceholder Placeholder(0);
     MDNode *CalledWrapperCIMD =
         MDNode::get(Ctx, {CalleeWrapperCIMD ? cast<Metadata>(CalleeWrapperCIMD)
-                                            : &Placeholder});
+                                            : nullptr});
     CalledWrapperCI->setMetadata("rpl_acs", CalledWrapperCIMD);
 
     if (!CalleeWrapperCIMD) {
       CalleeWrapperCIMD = MDNode::get(Ctx, {CalledWrapperCIMD});
       CalleeWrapperCI->setMetadata("rpl_cs", CalleeWrapperCIMD);
+      M.dump();
       CalledWrapperCIMD->replaceOperandWith(0, CalleeWrapperCIMD);
     }
+    M.dump();
 
     if (!NewCalledWrapper) {
       CI->eraseFromParent();
@@ -220,46 +220,51 @@ static bool encapsulateCallSites(Function &Called, Function *Callee = nullptr,
           Ctx, Called.getReturnType()->isVoidTy() ? nullptr : CI, EntryBB);
       CI->moveBefore(RI);
 
-      auto AI = CalledWrapper->arg_begin();
-      for (unsigned u = 0, e = CI->getNumArgOperands(); u < e; u++)
-        CI->setArgOperand(u, &*(AI++));
+      auto CldAI = Called.arg_begin();
+      auto CldWrapperAI = CalledWrapper->arg_begin(),
+           CldWrapperAE = CalledWrapper->arg_end();
+      for (unsigned u = 0, e = CI->getNumArgOperands(); u < e; u++) {
+        CldWrapperAI->setName((CldAI++)->getName());
+        CI->setArgOperand(u, &*(CldWrapperAI++));
+      }
+
+      #if 0
+      IRBuilder<> Builder(
+          &*CalledWrapper->getEntryBlock().getFirstInsertionPt());
+      Function *VarAnnotate = Intrinsic::getDeclaration(&M, Intrinsic::var_annotation);
+      Type *I8PtrTy = Type::getInt8PtrTy(Ctx);
+      Value *NullPtr = Constant::getNullValue(I8PtrTy);
+      Value *NullLine = Constant::getNullValue(Type::getInt32Ty(Ctx));
+      do {
+        CldWrapperAI->setName(
+            CalledWrapperCI->getOperand(CldWrapperAI->getArgNo())->getName());
+        Value *ArgPtr = Builder.CreatePointerCast(&*CldWrapperAI, I8PtrTy);
+        Builder.CreateCall(VarAnnotate, {ArgPtr, NullPtr, NullPtr, NullLine});
+      } while (++CldWrapperAI != CldWrapperAE);
+      #endif
     }
+      CalledWrapper->dump();
   }
+
+  M.dump();
   return Changed;
 }
 
 static bool encapsulateCallbackCallSites(Function &Called, MDNode &CallbackMD) {
   assert(CallbackMD.getNumOperands() >= 2 && "Incomplete !callback metadata");
 
-  Metadata *OpAsM = CallbackMD.getOperand(/* callback callee idx */0).get();
+  Metadata *OpAsM = CallbackMD.getOperand(/* callback callee idx */ 0).get();
   auto *OpAsCM = cast<ConstantAsMetadata>(OpAsM);
-  assert(OpAsCM->getType()->isIntegerTy(64) &&
-          "Malformed !callback metadata");
+  assert(OpAsCM->getType()->isIntegerTy(64) && "Malformed !callback metadata");
 
   int64_t Idx = cast<ConstantInt>(OpAsCM->getValue())->getSExtValue();
   assert(-1 <= Idx && "Out-of-bounds !callback metadata index");
-  assert((Idx <= Called.arg_size() || Called.isVarArg()) && "Out-of-bounds !callback metadata index");
-
+  assert(((unsigned)Idx <= Called.arg_size() || Called.isVarArg()) &&
+         "Out-of-bounds !callback metadata index");
+  if (Idx == -1)
+    return false;
   return encapsulateCallSites(Called, nullptr, Idx);
 }
-
-
-///   __attribute__((callback(cb_fn, cb_arg0, cb_arg1)))
-///   int F(arg0, cb_fn, cb_arg0, arg1, cb_arg1);
-///
-///
-///
-/// The
-/// For each call site with non-callback args and callback args (cb_args)
-///
-///   val = F(arg0, arg1, cb_arg0, arg2, cb_arg1, cb_arg2)
-///
-/// we
-///
-///   val = F_wrapper(arg0, arg1, arg2, cb_arg0, cb_arg1, cb_arg2, cb_arg0,
-///                  cb_arg1, cb_arg2)
-///
-///
 
 static bool encapsulateFunctions(Module &M) {
   bool Changed = false;
@@ -271,20 +276,26 @@ static bool encapsulateFunctions(Module &M) {
   for (Function *F : Fns) {
     // We always encapsulate functions with callback behavior.
     if (MDNode *CallbackMD = F->getMetadata(LLVMContext::MD_callback)) {
-      Changed |= encapsulateCallbackCallSites(*F, *CallbackMD);
+      for (const MDOperand &Op : CallbackMD->operands())
+        Changed |= encapsulateCallbackCallSites(*F, *cast<MDNode>(Op.get()));
       continue;
     }
 
+    // TODO: We do not internalize functions yet so we limit encapsulation to
+    //       local functions for now.
+    if (!F->hasLocalLinkage())
+      continue;
+
     // Encapsulate function definitions without callback behavior if one of the
     // arguments is a dereferenceable pointer to a "large" struct type.
-    // TODO: Make large variable
     // TODO: Allow opaque pointers that are used as struct pointers
     for (Argument &Arg : F->args()) {
       Type *ArgTy = Arg.getType();
       if (!ArgTy->isPointerTy())
         continue;
       auto *ArgStructTy = dyn_cast<StructType>(ArgTy->getPointerElementType());
-      if (!ArgStructTy || ArgStructTy->getNumElements() <= 3)
+      if (!ArgStructTy ||
+          ArgStructTy->getNumElements() <= /* Same as in ArgumentPromotion */ 3)
         continue;
       Changed |= encapsulateCallSites(*F, F);
       continue;
@@ -320,12 +331,9 @@ ModulePass *llvm::createCallbackEncapsulatePass() {
   return new CallbackEncapsulateLegacyPass();
 }
 
-PreservedAnalyses CallbackEncapsulate::run(Module &M,
-                                           ModuleAnalysisManager &MAM) {
+PreservedAnalyses CallbackEncapsulatePass::run(Module &M,
+                                               ModuleAnalysisManager &MAM) {
   if (!encapsulateFunctions(M))
     return PreservedAnalyses::all();
-  //PreservedAnalyses PA;
-  //PA.preserve<DominatorTreeAnalysis>();
-  //return PA;
   return PreservedAnalyses::none();
 }

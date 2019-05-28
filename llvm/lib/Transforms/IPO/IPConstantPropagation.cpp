@@ -17,6 +17,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Transforms/IPO/CallbackEncapsulate.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
@@ -63,8 +64,16 @@ static bool PropagateConstantsIntoArguments(Function &F) {
 
     // If no abstract call site was created we did not understand the use, bail.
     AbstractCallSite ACS(&U);
+    UR->dump();
     if (!ACS)
       return false;
+
+    ACS.getInstruction()->dump();
+    errs() << "iDCSR: "
+           << (isDirectCallSiteReplacedByAbstractCallSite(ACS.getCallSite()))
+           << "\n";
+    if (isDirectCallSiteReplacedByAbstractCallSite(ACS.getCallSite()))
+      continue;
 
     // Mismatched argument count is undefined behavior. Simply bail out to avoid
     // handling of such situations below (avoiding asserts/crashes).
@@ -84,6 +93,8 @@ static bool PropagateConstantsIntoArguments(Function &F) {
 
       Value *V = ACS.getCallArgOperand(i);
       Constant *C = dyn_cast_or_null<Constant>(V);
+      if (V)
+        V->dump();
 
       // Mismatched argument type is undefined behavior. Simply bail out to avoid
       // handling of such situations below (avoiding asserts/crashes).

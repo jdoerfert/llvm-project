@@ -487,10 +487,6 @@ void PassManagerBuilder::populateModulePassManager(
 
   addInitialAliasAnalysisPasses(MPM);
 
-  // Encapsulates callbacks into their own function to enable argument promotion
-  // even if the interface is fixed.
-  MPM.add(createCallbackEncapsulatePass());
-
   // For ThinLTO there are two passes of indirect call promotion. The
   // first is during the compile phase when PerformThinLTO=false and
   // intra-module indirect call targets are promoted. The second is during
@@ -517,6 +513,12 @@ void PassManagerBuilder::populateModulePassManager(
 
   if (OptLevel > 2)
     MPM.add(createCallSiteSplittingPass());
+
+  // Encapsulates callbacks into their own function to enable argument promotion
+  // even if the interface is fixed.
+  MPM.add(createCallbackEncapsulatePass());
+  MPM.add(createArgumentPromotionPass());
+  MPM.add(createGVNPass());
 
   MPM.add(createIPSCCPPass());          // IP SCCP
   MPM.add(createCalledValuePropagationPass());
@@ -562,8 +564,6 @@ void PassManagerBuilder::populateModulePassManager(
   }
 
   MPM.add(createPostOrderFunctionAttrsLegacyPass());
-  if (OptLevel > 2)
-    MPM.add(createArgumentPromotionPass()); // Scalarize uninlined fn args
 
   addExtensionsToPM(EP_CGSCCOptimizerLate, MPM);
   addFunctionSimplificationPasses(MPM);
@@ -820,6 +820,10 @@ void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {
     PM.add(
         createPGOIndirectCallPromotionLegacyPass(true, !PGOSampleUse.empty()));
 
+    PM.add(createCallbackEncapsulatePass());
+
+    PM.add(createArgumentPromotionPass());
+
     // Propagate constants at call sites into the functions they call.  This
     // opens opportunities for globalopt (and inlining) by substituting function
     // pointers passed as arguments to direct uses of functions.
@@ -890,7 +894,7 @@ void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {
 
   // If we didn't decide to inline a function, check to see if we can
   // transform it to pass arguments by value instead of by reference.
-  PM.add(createArgumentPromotionPass());
+  //PM.add(createArgumentPromotionPass());
 
   // The IPO passes may leave cruft around.  Clean up after them.
   addInstructionCombiningPass(PM);

@@ -645,6 +645,11 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   // libraries and other oracles.
   MPM.addPass(InferFunctionAttrsPass());
 
+  // When at O3 add argument promotion to the pass pipeline.
+  // FIXME: It isn't at all clear why this should be limited to O3.
+  if (Level == O3)
+    MPM.addPass(ArgumentPromotionPass());
+
   // Create an early function pass manager to cleanup the output of the
   // frontend.
   FunctionPassManager EarlyFPM(DebugLogging);
@@ -768,11 +773,6 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
 
   // Now deduce any function attributes based in the current code.
   MainCGPipeline.addPass(PostOrderFunctionAttrsPass());
-
-  // When at O3 add argument promotion to the pass pipeline.
-  // FIXME: It isn't at all clear why this should be limited to O3.
-  if (Level == O3)
-    MainCGPipeline.addPass(ArgumentPromotionPass());
 
   // Lastly, add the core function simplification pipeline nested inside the
   // CGSCC walk.

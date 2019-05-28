@@ -9,8 +9,6 @@
 #ifndef LLVM_TRANSFORMS_IPO_ARGUMENTPROMOTION_H
 #define LLVM_TRANSFORMS_IPO_ARGUMENTPROMOTION_H
 
-#include "llvm/Analysis/CGSCCPassManager.h"
-#include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
@@ -26,8 +24,7 @@ class ArgumentPromotionPass : public PassInfoMixin<ArgumentPromotionPass> {
 public:
   ArgumentPromotionPass(unsigned MaxElements = 3u) : MaxElements(MaxElements) {}
 
-  PreservedAnalyses run(LazyCallGraph::SCC &C, CGSCCAnalysisManager &AM,
-                        LazyCallGraph &CG, CGSCCUpdateResult &UR);
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
 };
 
 } // end namespace llvm
