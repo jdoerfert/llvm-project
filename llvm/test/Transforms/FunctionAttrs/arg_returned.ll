@@ -1,5 +1,6 @@
 ; RUN: opt -functionattrs -S < %s | FileCheck %s --check-prefix=FNATTR
 ; RUN: opt -attributor -attributor-disable=false -S < %s | FileCheck %s --check-prefix=ATTRIBUTOR
+; RUN: opt -attributor -attributor-disable=false -attributor-allow-shallow-wrappers -S < %s | FileCheck %s --check-prefixes=ATTRIBUTOR,ATTRIBUTOR_WRAPPER
 ; RUN: opt -attributor -attributor-disable=false -functionattrs -S < %s | FileCheck %s --check-prefix=BOTH
 ;
 ; Test cases specifically designed for the "returned" argument attribute.
@@ -379,11 +380,21 @@ define i32* @calls_unknown_fn(i32* %r) #0 {
 ;
 ; Verify the maybe-redefined function is not annotated:
 ;
-; CHECK: Function Attrs: noinline nounwind uwtable
-; CHECK: define linkonce_odr i32* @maybe_redefined_fn(i32* %r)
+; ATTRIBUTOR: Function Attrs: noinline nounwind uwtable
+; ATTRIBUTOR: define linkonce_odr i32* @maybe_redefined_fn(i32* %r)
+; ATTRIBUTOR_WRAPPER-NEXT: entry:
+; ATTRIBUTOR_WRAPPER-NEXT: %0 = tail call i32* @__internal_maybe_redefined_fn(i32* %r)
+; ATTRIBUTOR_WRAPPER-NEXT: ret i32* %0
+; ATTRIBUTOR_WRAPPER-NEXT: }
+
+; ATTRIBUTOR_WRAPPER: Function Attrs: noinline nounwind uwtable
+; ATTRIBUTOR_WRAPPER: define internal i32* @__internal_maybe_redefined_fn(i32* returned "no-capture-maybe-returned" %r)
+; ATTRIBUTOR_WRAPPER-NEXT: entry:
+; ATTRIBUTOR_WRAPPER-NEXT: ret i32* %r
+; ATTRIBUTOR_WRAPPER-NEXT: }
 ;
-; CHECK: Function Attrs: noinline nounwind uwtable
-; CHECK: define i32* @calls_maybe_redefined_fn(i32* returned %r)
+; ATTRIBUTOR: Function Attrs: noinline nounwind uwtable
+; ATTRIBUTOR: define i32* @calls_maybe_redefined_fn(i32* returned %r)
 ;
 ; BOTH: Function Attrs: noinline nounwind uwtable
 ; BOTH-NEXT: define linkonce_odr i32* @maybe_redefined_fn(i32* %r)
@@ -418,6 +429,8 @@ entry:
 ; BOTH: Function Attrs: noinline nounwind uwtable
 ; BOTH-NEXT: define i32* @calls_maybe_redefined_fn2(i32* %r)
 ;
+; ATTRIBUTOR: define linkonce_odr i32* @maybe_redefined_fn2(i32* %r)
+; ATTRIBUTOR_WRAPPER: define internal i32* @__internal_maybe_redefined_fn2(i32* returned "no-capture-maybe-returned" %r)
 ; FNATTR:     define i32* @calls_maybe_redefined_fn2(i32* %r)
 ; ATTRIBUTOR: define i32* @calls_maybe_redefined_fn2(i32* %r)
 define linkonce_odr i32* @maybe_redefined_fn2(i32* %r) #0 {

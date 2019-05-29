@@ -40,6 +40,9 @@ STATISTIC(NumFnWithExactDefinition,
           "Number of function with exact definitions");
 STATISTIC(NumFnWithoutExactDefinition,
           "Number of function without exact definitions");
+STATISTIC(NumFnShallowWrapperCreated, "Number of shallow wrappers created");
+STATISTIC(NumAttrsRequiredDeepWrapper,
+          "Number of non-trivial attributes requiring a deep wrapper");
 STATISTIC(NumAttributesTimedOut,
           "Number of abstract attributes timed out before fixpoint");
 STATISTIC(NumAttributesValidFixpoint,
@@ -83,6 +86,12 @@ static cl::opt<bool> VerifyAttributor(
     cl::desc("Verify the Attributor deduction and "
              "manifestation of attributes -- may issue false-positive errors"),
     cl::init(false));
+
+static cl::opt<bool>
+    AllowShallowWrappers("attributor-allow-shallow-wrappers", cl::Hidden,
+                         cl::desc("Allow the Attributor to create shallow "
+                                  "wrappers for non-exact definitions."),
+                         cl::init(false));
 
 /// Logic operators for the change status enum class.
 ///
@@ -730,6 +739,7 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
   // Keep track of any change to trigger updates on dependent attributes.
   ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
+  // Update the return values set after we stopped iterating over it.
   for (auto &It : AddRVs) {
     assert(!It.second.empty() && "Entry does not add anything.");
     auto &ReturnInsts = ReturnedValues[It.first];
@@ -1431,6 +1441,13 @@ ChangeStatus Attributor::run() {
              << " abstract attributes.\n";
   });
 
+  SmallPtrSet<Function *, 32> WrappedFunctions;
+  DenseMap<AbstractAttribute *, Optional<bool>> NonExactDefinitionCache;
+  QueryMapTy DepMap;
+  for (auto &It : QueryMap)
+    for (AbstractAttribute *QuerriedAA : It.second)
+      DepMap[QuerriedAA].insert(It.first);
+
   unsigned NumManifested = 0;
   unsigned NumAtFixpoint = 0;
   ChangeStatus ManifestChange = ChangeStatus::UNCHANGED;
@@ -1446,6 +1463,12 @@ ChangeStatus Attributor::run() {
 
     // If the state is invalid, we do not try to manifest it.
     if (!State.isValidState())
+      continue;
+
+    // We cannot manifest the state if it maybe dependent on non-exact
+    // definitions that could be replaced at link-time.
+    if (mayDependOnNonExactDefinition(*AA, WrappedFunctions, DepMap,
+                                      NonExactDefinitionCache))
       continue;
 
     // Manifest the state and record if we changed the IR.
@@ -1486,6 +1509,146 @@ ChangeStatus Attributor::run() {
   return ManifestChange;
 }
 
+/// Create a shallow wrapper for \p F such that \p F has internal linkage
+/// afterwards. The wrapper will assume the name of \p F and \p F will get a
+/// prefix.
+///
+/// A shallow wrapper is a function with the same type (and attributes) as \p F
+/// that will only call \p F and return the result, if any.
+///
+/// Assuming the declaration of looks like:
+///   rty F(aty0 arg0, ..., atyN argN);
+///
+/// The wrapper will then look as follows:
+///   rty wrapper(aty0 arg0, ..., atyN argN) {
+///     return F(arg0, ..., argN);
+///   }
+///
+static void createShallowWrapper(Function &F) {
+  assert(AllowShallowWrappers &&
+         "Cannot create a wrapper if it is not allowed!");
+  assert(!F.isDeclaration() && "Cannot create a wrapper around a declaration!");
+
+  Module &M = *F.getParent();
+  LLVMContext &Ctx = M.getContext();
+  FunctionType *FnTy = F.getFunctionType();
+
+  StringRef Prefix = "__internal_";
+  F.setName(Prefix + F.getName());
+  Function *Wrapper =
+      Function::Create(FnTy, F.getLinkage(), F.getAddressSpace(),
+                       F.getName().substr(Prefix.size()));
+  M.getFunctionList().insert(F.getIterator(), Wrapper);
+
+  F.setLinkage(GlobalValue::InternalLinkage);
+
+  F.replaceAllUsesWith(Wrapper);
+  assert(F.getNumUses() == 0 && "Uses remained after wrapper was created!");
+
+  // Move the COMDAT section to the wrapper.
+  // TODO: Check if we need to keep it for F as well.
+  Wrapper->setComdat(F.getComdat());
+  F.setComdat(nullptr);
+
+  // Copy all metadata and attributes but keep them on F as well.
+  SmallVector<std::pair<unsigned, MDNode *>, 1> MDs;
+  F.getAllMetadata(MDs);
+  for (auto MDIt : MDs)
+    Wrapper->addMetadata(MDIt.first, *MDIt.second);
+  Wrapper->setAttributes(F.getAttributes());
+
+  // Create the call in the wrapper.
+  BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", Wrapper);
+
+  SmallVector<Value *, 8> Args;
+  auto FArgIt = F.arg_begin();
+  for (Argument &Arg : Wrapper->args()) {
+    Args.push_back(&Arg);
+    Arg.setName((FArgIt++)->getName());
+  }
+
+  CallInst *CI = CallInst::Create(&F, Args, "", EntryBB);
+  CI->setTailCall(true);
+  ReturnInst::Create(Ctx, CI->getType()->isVoidTy() ? nullptr : CI, EntryBB);
+
+  NumFnShallowWrapperCreated++;
+}
+
+bool Attributor::mayDependOnNonExactDefinition(
+    AbstractAttribute &AA, SmallPtrSetImpl<Function *> &WrappedFunctions,
+    QueryMapTy &DepMap, DenseMap<AbstractAttribute *, Optional<bool>> &Cache) {
+  Function &AnchorScope = AA.getAnchorScope();
+  bool MayDepend = false;
+  bool NeedShallowWrapper = false;
+
+  // Even if this attribute does not depend on another one, we require a shallow
+  // wrapper if manifesting it will modify the interface of a non-exact
+  // definition.
+  if (!AnchorScope.hasExactDefinition() &&
+      AA.getManifestPosition() != AbstractAttribute::MP_CALL_SITE_ARGUMENT)
+    NeedShallowWrapper = true;
+
+  // Pre-initialize the cache for recursive dependences.
+  Cache[&AA] = false;
+
+  auto &SourceAAs = DepMap[&AA];
+  for (AbstractAttribute *SourceAA : SourceAAs) {
+    // Self dependences and dependences on an invalid abstract attribute are OK.
+    if (SourceAA == &AA || !SourceAA->getState().isValidState())
+      continue;
+
+    // If the anchor scope (=surrounding function) is different and the queried
+    // abstract attribute is in an non-exact definition the current abstract
+    // attribute may depend on that non-exact definition.
+    Function &QuerriedAnchorScope = SourceAA->getAnchorScope();
+    if (&QuerriedAnchorScope != &AnchorScope &&
+        (WrappedFunctions.count(&QuerriedAnchorScope) ||
+         !QuerriedAnchorScope.hasExactDefinition())) {
+      MayDepend = true;
+      break;
+    }
+
+    // Check the cache or recurs if necessary to determine if the queried
+    // abstract attribute might be dependent on non-exact definitions.
+    Optional<bool> QuerriedAARes = Cache[SourceAA];
+    if (!QuerriedAARes.hasValue())
+      QuerriedAARes = mayDependOnNonExactDefinition(*SourceAA, WrappedFunctions,
+                                                    DepMap, Cache);
+
+    assert(QuerriedAARes.hasValue());
+    if (QuerriedAARes.getValue()) {
+      MayDepend = true;
+      break;
+    }
+
+    // We can depend on call site attributes. Note that we set
+    // NeedShallowWrapper already in the beginning if this is a function level
+    // attribute in a non-exact definition.
+    if (SourceAA->getManifestPosition() ==
+        AbstractAttribute::MP_CALL_SITE_ARGUMENT)
+      continue;
+
+    // A dependence to an abstract attribute in this function was found. This
+    // means we need to create a shallow wrapper if the function does not have
+    // an exact definition.
+    NeedShallowWrapper = !AnchorScope.hasExactDefinition();
+  }
+
+  if (NeedShallowWrapper && !AllowShallowWrappers)
+    MayDepend = true;
+
+  if (!MayDepend && NeedShallowWrapper) {
+    WrappedFunctions.insert(&AnchorScope);
+    createShallowWrapper(AnchorScope);
+  }
+
+  if (MayDepend)
+    NumAttrsRequiredDeepWrapper++;
+
+  Cache[&AA] = MayDepend;
+  return MayDepend;
+}
+
 void Attributor::identifyDefaultAbstractAttributes(
     Function &F, InformationCache &InfoCache,
     DenseSet</* Attribute::AttrKind */ unsigned> *Whitelist) {
@@ -1499,12 +1662,16 @@ void Attributor::identifyDefaultAbstractAttributes(
   // Every function might be "no-free".
   registerAA(*new AANoFreeFunction(F, InfoCache));
 
+  auto OnWhiteList = [Whitelist](unsigned ID) -> bool {
+    return Whitelist ? Whitelist->count(ID) : true;
+  };
+
   // Return attributes are only appropriate if the return type is non void.
   Type *ReturnType = F.getReturnType();
   if (!ReturnType->isVoidTy()) {
     // Argument attribute "returned" --- Create only one per function even
     // though it is an argument attribute.
-    if (!Whitelist || Whitelist->count(AAReturnedValues::ID))
+    if (OnWhiteList(AAReturnedValues::ID))
       registerAA(*new AAReturnedValuesImpl(F, InfoCache));
 
     // Every function with pointer return type might be marked nonnull.
@@ -1623,24 +1790,15 @@ static bool runAttributorOnModule(Module &M) {
   InformationCache InfoCache;
 
   for (Function &F : M) {
-    // TODO: Not all attributes require an exact definition. Find a way to
-    //       enable deduction for some but not all attributes in case the
-    //       definition might be changed at runtime, see also
-    //       http://lists.llvm.org/pipermail/llvm-dev/2018-February/121275.html.
-    // TODO: We could always determine abstract attributes and if sufficient
-    //       information was found we could duplicate the functions that do not
-    //       have an exact definition.
-    if (!F.hasExactDefinition()) {
-      NumFnWithoutExactDefinition++;
-      continue;
-    }
-
-    // For now we ignore naked and optnone functions.
+    // For now we ignore naked and optnone functions as well as declarations.
     if (F.hasFnAttribute(Attribute::Naked) ||
-        F.hasFnAttribute(Attribute::OptimizeNone))
+        F.hasFnAttribute(Attribute::OptimizeNone) || F.isDeclaration())
       continue;
 
-    NumFnWithExactDefinition++;
+    if (!F.hasExactDefinition())
+      NumFnWithoutExactDefinition++;
+    else
+      NumFnWithExactDefinition++;
 
     // Populate the Attributor with abstract attribute opportunities in the
     // function and the information cache with IR information.

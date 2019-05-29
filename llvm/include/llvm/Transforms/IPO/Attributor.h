@@ -293,6 +293,24 @@ private:
       DenseMap<AbstractAttribute *, SetVector<AbstractAttribute *>>;
   QueryMapTy QueryMap;
   ///}
+
+  /// Check if the state of the abstract attribute \p AA may depend on
+  /// information derived from a non-exact definition.
+  ///
+  /// We cannot use information from non-exact definitions to improve other
+  /// definitions as the non-exact ones might be redefined at link-time which
+  /// could invalidate the result.
+  ///
+  /// We can, however, use information from non-exact definitions to improve
+  /// themselves as they are either replaced as a whole or not at all.
+  ///
+  /// \param AA The abstract attribute checked.
+  /// \param WrappedFunctions Functions now enclosed in a shallow wrapper.
+  /// \param DepMap A map from abstract attributes to others they depend on.
+  /// \param Cache A cache with known results.
+  bool mayDependOnNonExactDefinition(
+      AbstractAttribute &AA, SmallPtrSetImpl<Function *> &WrappedFunctions,
+      QueryMapTy &DepMap, DenseMap<AbstractAttribute *, Optional<bool>> &Cache);
 };
 
 /// Data structure to hold cached (LLVM-IR) information.
