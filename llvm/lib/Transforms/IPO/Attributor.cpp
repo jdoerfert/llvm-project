@@ -40,7 +40,7 @@ STATISTIC(NumFnWithExactDefinition,
           "Number of function with exact definitions");
 STATISTIC(NumFnWithoutExactDefinition,
           "Number of function without exact definitions");
-STATISTIC(NumFnShallowWrapperCreated, "Number of shallow wrappers created");
+STATISTIC(NumFnWrapperCreated, "Number of wrappers created");
 STATISTIC(NumAttrsRequiredDeepWrapper,
           "Number of non-trivial attributes requiring a deep wrapper");
 STATISTIC(NumAttributesTimedOut,
@@ -1441,8 +1441,6 @@ ChangeStatus Attributor::run() {
              << " abstract attributes.\n";
   });
 
-  SmallPtrSet<Function *, 32> WrappedFunctions;
-  DenseMap<AbstractAttribute *, Optional<bool>> NonExactDefinitionCache;
   QueryMapTy DepMap;
   for (auto &It : QueryMap)
     for (AbstractAttribute *QuerriedAA : It.second)
@@ -1467,8 +1465,7 @@ ChangeStatus Attributor::run() {
 
     // We cannot manifest the state if it maybe dependent on non-exact
     // definitions that could be replaced at link-time.
-    if (mayDependOnNonExactDefinition(*AA, WrappedFunctions, DepMap,
-                                      NonExactDefinitionCache))
+    if (mayDependOnNonExactDefinition(*AA, DepMap))
       continue;
 
     // Manifest the state and record if we changed the IR.
@@ -1524,9 +1521,7 @@ ChangeStatus Attributor::run() {
 ///     return F(arg0, ..., argN);
 ///   }
 ///
-static void createShallowWrapper(Function &F) {
-  assert(AllowShallowWrappers &&
-         "Cannot create a wrapper if it is not allowed!");
+static void createWrapper(Function &F) {
   assert(!F.isDeclaration() && "Cannot create a wrapper around a declaration!");
 
   Module &M = *F.getParent();
@@ -1542,8 +1537,8 @@ static void createShallowWrapper(Function &F) {
 
   F.setLinkage(GlobalValue::InternalLinkage);
 
-  F.replaceAllUsesWith(Wrapper);
-  assert(F.getNumUses() == 0 && "Uses remained after wrapper was created!");
+  // F.replaceAllUsesWith(Wrapper);
+  // assert(F.getNumUses() == 0 && "Uses remained after wrapper was created!");
 
   // Move the COMDAT section to the wrapper.
   // TODO: Check if we need to keep it for F as well.
@@ -1571,25 +1566,19 @@ static void createShallowWrapper(Function &F) {
   CI->setTailCall(true);
   ReturnInst::Create(Ctx, CI->getType()->isVoidTy() ? nullptr : CI, EntryBB);
 
-  NumFnShallowWrapperCreated++;
+  NumFnWrapperCreated++;
 }
 
-bool Attributor::mayDependOnNonExactDefinition(
-    AbstractAttribute &AA, SmallPtrSetImpl<Function *> &WrappedFunctions,
-    QueryMapTy &DepMap, DenseMap<AbstractAttribute *, Optional<bool>> &Cache) {
+bool Attributor::mayDependOnNonExactDefinition(AbstractAttribute &AA,
+                                               QueryMapTy &DepMap) {
   Function &AnchorScope = AA.getAnchorScope();
-  bool MayDepend = false;
-  bool NeedShallowWrapper = false;
 
-  // Even if this attribute does not depend on another one, we require a shallow
+  // Even if this attribute does not depend on another one, we require a
   // wrapper if manifesting it will modify the interface of a non-exact
   // definition.
   if (!AnchorScope.hasExactDefinition() &&
       AA.getManifestPosition() != AbstractAttribute::MP_CALL_SITE_ARGUMENT)
-    NeedShallowWrapper = true;
-
-  // Pre-initialize the cache for recursive dependences.
-  Cache[&AA] = false;
+    createWrapper(AnchorScope);
 
   auto &SourceAAs = DepMap[&AA];
   for (AbstractAttribute *SourceAA : SourceAAs) {
@@ -1601,52 +1590,11 @@ bool Attributor::mayDependOnNonExactDefinition(
     // abstract attribute is in an non-exact definition the current abstract
     // attribute may depend on that non-exact definition.
     Function &QuerriedAnchorScope = SourceAA->getAnchorScope();
-    if (&QuerriedAnchorScope != &AnchorScope &&
-        (WrappedFunctions.count(&QuerriedAnchorScope) ||
-         !QuerriedAnchorScope.hasExactDefinition())) {
-      MayDepend = true;
-      break;
-    }
-
-    // Check the cache or recurs if necessary to determine if the queried
-    // abstract attribute might be dependent on non-exact definitions.
-    Optional<bool> QuerriedAARes = Cache[SourceAA];
-    if (!QuerriedAARes.hasValue())
-      QuerriedAARes = mayDependOnNonExactDefinition(*SourceAA, WrappedFunctions,
-                                                    DepMap, Cache);
-
-    assert(QuerriedAARes.hasValue());
-    if (QuerriedAARes.getValue()) {
-      MayDepend = true;
-      break;
-    }
-
-    // We can depend on call site attributes. Note that we set
-    // NeedShallowWrapper already in the beginning if this is a function level
-    // attribute in a non-exact definition.
-    if (SourceAA->getManifestPosition() ==
-        AbstractAttribute::MP_CALL_SITE_ARGUMENT)
-      continue;
-
-    // A dependence to an abstract attribute in this function was found. This
-    // means we need to create a shallow wrapper if the function does not have
-    // an exact definition.
-    NeedShallowWrapper = !AnchorScope.hasExactDefinition();
+    if (!QuerriedAnchorScope.hasExactDefinition())
+      createWrapper(AnchorScope);
   }
 
-  if (NeedShallowWrapper && !AllowShallowWrappers)
-    MayDepend = true;
-
-  if (!MayDepend && NeedShallowWrapper) {
-    WrappedFunctions.insert(&AnchorScope);
-    createShallowWrapper(AnchorScope);
-  }
-
-  if (MayDepend)
-    NumAttrsRequiredDeepWrapper++;
-
-  Cache[&AA] = MayDepend;
-  return MayDepend;
+  return false;
 }
 
 void Attributor::identifyDefaultAbstractAttributes(

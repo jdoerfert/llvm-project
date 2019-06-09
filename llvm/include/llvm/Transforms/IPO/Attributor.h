@@ -305,12 +305,8 @@ private:
   /// themselves as they are either replaced as a whole or not at all.
   ///
   /// \param AA The abstract attribute checked.
-  /// \param WrappedFunctions Functions now enclosed in a shallow wrapper.
   /// \param DepMap A map from abstract attributes to others they depend on.
-  /// \param Cache A cache with known results.
-  bool mayDependOnNonExactDefinition(
-      AbstractAttribute &AA, SmallPtrSetImpl<Function *> &WrappedFunctions,
-      QueryMapTy &DepMap, DenseMap<AbstractAttribute *, Optional<bool>> &Cache);
+  bool mayDependOnNonExactDefinition(AbstractAttribute &AA, QueryMapTy &DepMap);
 };
 
 /// Data structure to hold cached (LLVM-IR) information.
