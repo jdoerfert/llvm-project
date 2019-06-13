@@ -574,10 +574,14 @@ public:
   /// Returns the number of bytes known to be dereferenceable for the
   /// pointer value.
   ///
-  /// If CanBeNull is set by this function the pointer can either be null or be
-  /// dereferenceable up to the returned number of bytes.
-  uint64_t getPointerDereferenceableBytes(const DataLayout &DL,
-                                          bool &CanBeNull) const;
+  /// If \p CanBeNull is set by this function the pointer can either be null or
+  /// be dereferenceable up to the returned number of bytes.
+  ///
+  /// If \p IsDerefGlobally is set by this function, the dereferenceability
+  /// information is valid globally, thus at every program point. Otherwise, the
+  /// dereferenceability information is only valid at the pointer declaration.
+  uint64_t getPointerDereferenceableBytes(const DataLayout &DL, bool &CanBeNull,
+                                          bool &IsDerefGlobally) const;
 
   /// Returns an alignment of the pointer value.
   ///

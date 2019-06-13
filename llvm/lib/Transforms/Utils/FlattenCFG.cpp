@@ -436,7 +436,7 @@ bool FlattenCFGOpt::MergeIfRegion(BasicBlock *BB, IRBuilder<> &Builder) {
   for (BasicBlock::iterator BI(PBI2), BE(PTI2); BI != BE; ++BI) {
     Instruction *CI = &*BI;
     if (isa<PHINode>(CI) || CI->mayHaveSideEffects() ||
-        !isSafeToSpeculativelyExecute(CI))
+        !isSafeToSpeculativelyExecute(CI, CI))
       return false;
   }
 

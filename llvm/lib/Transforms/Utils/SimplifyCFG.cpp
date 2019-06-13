@@ -1981,7 +1981,7 @@ static bool SpeculativelyExecuteBB(BranchInst *BI, BasicBlock *ThenBB,
       return false;
 
     // Don't hoist the instruction if it's unsafe or expensive.
-    if (!isSafeToSpeculativelyExecute(I) &&
+    if (!isSafeToSpeculativelyExecute(I, BI) &&
         !(HoistCondStores && (SpeculatedStoreValue = isSafeToSpeculateStore(
                                   I, BB, ThenBB, EndBB))))
       return false;
@@ -2596,12 +2596,15 @@ bool llvm::FoldBranchToCommonDest(BranchInst *BI, MemorySSAUpdater *MSSAU,
   // as "bonus instructions", and only allow this transformation when the
   // number of the bonus instructions we'll need to create when cloning into
   // each predecessor does not exceed a certain threshold.
+  const BasicBlock *SinglePredBB = BB->getUniquePredecessor();
   unsigned NumBonusInsts = 0;
   for (auto I = BB->begin(); Cond != &*I; ++I) {
     // Ignore dbg intrinsics.
     if (isa<DbgInfoIntrinsic>(I))
       continue;
-    if (!I->hasOneUse() || !isSafeToSpeculativelyExecute(&*I))
+    if (!I->hasOneUse() ||
+        !isSafeToSpeculativelyExecute(
+            &*I, SinglePredBB ? SinglePredBB->getTerminator() : nullptr))
       return false;
     // I has only one use and can be executed unconditionally.
     Instruction *User = dyn_cast<Instruction>(I->user_back());

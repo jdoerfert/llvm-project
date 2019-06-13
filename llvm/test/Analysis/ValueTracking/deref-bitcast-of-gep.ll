@@ -6,7 +6,8 @@
 ; that LICM cannot hoist out the load simply because it is guaranteed
 ; to execute.
 
-declare void @use(i32)
+declare void @use(i32) nofree nosync
+declare void @mayfree_maysync(i32)
 
 define void @f_0(i8* align 4 dereferenceable(1024) %ptr) {
 ; CHECK-LABEL: @f_0(
@@ -55,7 +56,7 @@ leave:
   ret void
 }
 
-define void @f_2(i8* align 4 dereferenceable_or_null(1024) %ptr) {
+define void @f_2(i8* align 4 dereferenceable_or_null(1024) %ptr) nofree nosync {
 ; CHECK-LABEL: @f_2(
 ; CHECK-NOT: load
 ; CHECK:  call void @use(i32 0)
@@ -72,9 +73,9 @@ entry:
   br i1 %ptr_is_null, label %leave, label %loop
 
 loop:
-  call void @use(i32 0)
+  call void @mayfree_maysync(i32 0)
   %val = load i32, i32* %ptr.i32, !invariant.load !{}
-  call void @use(i32 %val)
+  call void @mayfree_maysync(i32 %val)
   br label %loop
 
 leave:
@@ -102,6 +103,6 @@ loop:
   br label %loop
 }
 
-declare i8* @llvm.launder.invariant.group.p0i8(i8*)
+declare i8* @llvm.launder.invariant.group.p0i8(i8*) nofree nosync
 
-declare void @use8(i8)
+declare void @use8(i8) nofree nosync

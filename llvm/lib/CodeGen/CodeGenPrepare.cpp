@@ -1856,7 +1856,7 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool &ModifiedDT) {
     case Intrinsic::experimental_widenable_condition: {
       // Give up on future widening oppurtunties so that we can fold away dead
       // paths and merge blocks before going into block-local instruction
-      // selection.   
+      // selection.
       if (II->use_empty()) {
         II->eraseFromParent();
         return true;
@@ -5849,7 +5849,7 @@ static bool sinkSelectOperand(const TargetTransformInfo *TTI, Value *V) {
   auto *I = dyn_cast<Instruction>(V);
   // If it's safe to speculatively execute, then it should not have side
   // effects; therefore, it's safe to sink and possibly *not* execute.
-  return I && I->hasOneUse() && isSafeToSpeculativelyExecute(I) &&
+  return I && I->hasOneUse() && isSafeToSpeculativelyExecute(I, I) &&
          TTI->getUserCost(I) >= TargetTransformInfo::TCC_Expensive;
 }
 

@@ -516,7 +516,8 @@ bool LoopRotate::rotateLoop(Loop *L, bool SimplifiedLatch) {
 /// heuristics. We handle a single arithmetic instruction along with any type
 /// conversions.
 static bool shouldSpeculateInstrs(BasicBlock::iterator Begin,
-                                  BasicBlock::iterator End, Loop *L) {
+                                  BasicBlock::iterator End,
+                                  const Instruction *CtxI, Loop *L) {
   bool seenIncrement = false;
   bool MultiExitLoop = false;
 
@@ -525,7 +526,7 @@ static bool shouldSpeculateInstrs(BasicBlock::iterator Begin,
 
   for (BasicBlock::iterator I = Begin; I != End; ++I) {
 
-    if (!isSafeToSpeculativelyExecute(&*I))
+    if (!isSafeToSpeculativelyExecute(&*I, CtxI))
       return false;
 
     if (isa<DbgInfoIntrinsic>(I))
@@ -605,7 +606,7 @@ bool LoopRotate::simplifyLoopLatch(Loop *L) {
   if (!BI)
     return false;
 
-  if (!shouldSpeculateInstrs(Latch->begin(), Jmp->getIterator(), L))
+  if (!shouldSpeculateInstrs(Latch->begin(), Jmp->getIterator(), BI, L))
     return false;
 
   LLVM_DEBUG(dbgs() << "Folding loop latch " << Latch->getName() << " into "

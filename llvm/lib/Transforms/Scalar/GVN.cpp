@@ -2223,7 +2223,7 @@ bool GVN::performScalarPRE(Instruction *CurInst) {
   Instruction *PREInstr = nullptr;
 
   if (NumWithout != 0) {
-    if (!isSafeToSpeculativelyExecute(CurInst)) {
+    if (!isSafeToSpeculativelyExecute(CurInst, PREPred->getTerminator())) {
       // It is only valid to insert a new instruction if the current instruction
       // is always executed. An instruction with implicit control flow could
       // prevent us from doing it. If we cannot speculate the execution, then

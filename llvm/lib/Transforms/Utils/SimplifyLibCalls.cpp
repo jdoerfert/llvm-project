@@ -177,7 +177,7 @@ static bool canTransformToMemCmp(CallInst *CI, Value *Str, uint64_t Len,
   if (!isOnlyUsedInComparisonWithZero(CI))
     return false;
 
-  if (!isDereferenceableAndAlignedPointer(Str, 1, APInt(64, Len), DL))
+  if (!isDereferenceableAndAlignedPointer(Str, 1, APInt(64, Len), DL), CI)
     return false;
 
   if (CI->getFunction()->hasFnAttribute(Attribute::SanitizeMemory))

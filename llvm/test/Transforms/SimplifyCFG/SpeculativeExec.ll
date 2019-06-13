@@ -102,7 +102,7 @@ define i32* @test5(i32 %a, i32 %b, i32 %c, i32* dereferenceable(10) %ptr1,
 ; CHECK:       bb3:
 ; CHECK-NEXT:    ret i32* [[PTR1:%.*]]
 ;
-  i32* dereferenceable(10) %ptr2, i32** dereferenceable(10) %ptr3) nounwind {
+  i32* dereferenceable(10) %ptr2, i32** dereferenceable(10) %ptr3) nounwind nosync nofree {
 entry:
   %tmp1 = icmp eq i32 %b, 0
   br i1 %tmp1, label %bb1, label %bb3

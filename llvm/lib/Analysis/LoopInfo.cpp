@@ -81,13 +81,6 @@ bool Loop::makeLoopInvariant(Instruction *I, bool &Changed,
   // Test if the value is already loop-invariant.
   if (isLoopInvariant(I))
     return true;
-  if (!isSafeToSpeculativelyExecute(I))
-    return false;
-  if (I->mayReadFromMemory())
-    return false;
-  // EH block instructions are immobile.
-  if (I->isEHPad())
-    return false;
   // Determine the insertion point, unless one was given.
   if (!InsertPt) {
     BasicBlock *Preheader = getLoopPreheader();
@@ -96,6 +89,13 @@ bool Loop::makeLoopInvariant(Instruction *I, bool &Changed,
       return false;
     InsertPt = Preheader->getTerminator();
   }
+  if (!isSafeToSpeculativelyExecute(I, InsertPt))
+    return false;
+  if (I->mayReadFromMemory())
+    return false;
+  // EH block instructions are immobile.
+  if (I->isEHPad())
+    return false;
   // Don't hoist instructions with loop-variant operands.
   for (Value *Operand : I->operands())
     if (!makeLoopInvariant(Operand, Changed, InsertPt, MSSAU))

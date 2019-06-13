@@ -529,7 +529,7 @@ bool llvm::isInTailCallPosition(ImmutableCallSite CS, const TargetMachine &TM) {
   // If I will have a chain, make sure no other instruction that will have a
   // chain interposes between I and the return.
   if (I->mayHaveSideEffects() || I->mayReadFromMemory() ||
-      !isSafeToSpeculativelyExecute(I))
+      !isSafeToSpeculativelyExecute(I, I))
     for (BasicBlock::const_iterator BBI = std::prev(ExitBB->end(), 2);; --BBI) {
       if (&*BBI == I)
         break;
@@ -541,7 +541,7 @@ bool llvm::isInTailCallPosition(ImmutableCallSite CS, const TargetMachine &TM) {
         if (II->getIntrinsicID() == Intrinsic::lifetime_end)
           continue;
       if (BBI->mayHaveSideEffects() || BBI->mayReadFromMemory() ||
-          !isSafeToSpeculativelyExecute(&*BBI))
+          !isSafeToSpeculativelyExecute(&*BBI, &*BBI))
         return false;
     }
 

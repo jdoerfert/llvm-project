@@ -602,39 +602,91 @@ const Value *Value::stripInBoundsOffsets() const {
 }
 
 uint64_t Value::getPointerDereferenceableBytes(const DataLayout &DL,
-                                               bool &CanBeNull) const {
+                                               bool &CanBeNull,
+                                               bool &IsDerefGlobally) const {
   assert(getType()->isPointerTy() && "must be pointer");
 
   uint64_t DerefBytes = 0;
   CanBeNull = false;
+  IsDerefGlobally = true;
   if (const Argument *A = dyn_cast<Argument>(this)) {
-    DerefBytes = A->getDereferenceableBytes();
+    DerefBytes = A->getDereferenceableGloballyBytes();
     if (DerefBytes == 0 && (A->hasByValAttr() || A->hasStructRetAttr())) {
       Type *PT = cast<PointerType>(A->getType())->getElementType();
       if (PT->isSized())
         DerefBytes = DL.getTypeStoreSize(PT);
     }
     if (DerefBytes == 0) {
-      DerefBytes = A->getDereferenceableOrNullBytes();
+      uint64_t DerefBytesAtDef = A->getDereferenceableBytes();
+      if (DerefBytesAtDef) {
+        DerefBytes = DerefBytesAtDef;
+        IsDerefGlobally = false;
+      }
+    }
+    if (DerefBytes == 0) {
+      DerefBytes = A->getDereferenceableOrNullGloballyBytes();
       CanBeNull = true;
+    }
+    if (DerefBytes == 0) {
+      uint64_t DerefBytesAtDef = A->getDereferenceableOrNullBytes();
+      if (DerefBytesAtDef) {
+        DerefBytes = DerefBytesAtDef;
+        IsDerefGlobally = false;
+        CanBeNull = true;
+      }
     }
   } else if (const auto *Call = dyn_cast<CallBase>(this)) {
-    DerefBytes = Call->getDereferenceableBytes(AttributeList::ReturnIndex);
+    DerefBytes =
+        Call->getDereferenceableGloballyBytes(AttributeList::ReturnIndex);
     if (DerefBytes == 0) {
-      DerefBytes =
-          Call->getDereferenceableOrNullBytes(AttributeList::ReturnIndex);
+      uint64_t DerefBytesAtDef =
+          Call->getDereferenceableBytes(AttributeList::ReturnIndex);
+      if (DerefBytesAtDef) {
+        DerefBytes = DerefBytesAtDef;
+        IsDerefGlobally = false;
+      }
+    }
+    if (DerefBytes == 0) {
+      DerefBytes = Call->getDereferenceableOrNullGloballyBytes(
+          AttributeList::ReturnIndex);
       CanBeNull = true;
     }
+    if (DerefBytes == 0) {
+      uint64_t DerefBytesAtDef =
+          Call->getDereferenceableOrNullBytes(AttributeList::ReturnIndex);
+      if (DerefBytesAtDef) {
+        DerefBytes = DerefBytesAtDef;
+        IsDerefGlobally = false;
+        CanBeNull = true;
+      }
+    }
   } else if (const LoadInst *LI = dyn_cast<LoadInst>(this)) {
-    if (MDNode *MD = LI->getMetadata(LLVMContext::MD_dereferenceable)) {
+    if (MDNode *MD =
+            LI->getMetadata(LLVMContext::MD_dereferenceable_globally)) {
       ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
       DerefBytes = CI->getLimitedValue();
+    }
+    if (DerefBytes == 0) {
+      if (MDNode *MD = LI->getMetadata(LLVMContext::MD_dereferenceable)) {
+        ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+        DerefBytes = CI->getLimitedValue();
+        IsDerefGlobally = false;
+      }
+    }
+    if (DerefBytes == 0) {
+      if (MDNode *MD = LI->getMetadata(
+              LLVMContext::MD_dereferenceable_or_null_globally)) {
+        ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+        DerefBytes = CI->getLimitedValue();
+      }
+      CanBeNull = true;
     }
     if (DerefBytes == 0) {
       if (MDNode *MD =
               LI->getMetadata(LLVMContext::MD_dereferenceable_or_null)) {
         ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
         DerefBytes = CI->getLimitedValue();
+        IsDerefGlobally = false;
       }
       CanBeNull = true;
     }

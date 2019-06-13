@@ -48,6 +48,14 @@ static bool isAligned(const Value *Base, unsigned Align, const DataLayout &DL) {
   return isAligned(Base, Offset, Align, DL);
 }
 
+static const Instruction *getDefinitionPoint(const Value *V) {
+  if (auto *Arg = dyn_cast<Argument>(V))
+    return &Arg->getParent()->getEntryBlock().front();
+  assert(isa<Instruction>(V) &&
+         "Only arguments and instructions have a definition point");
+  return &*cast<Instruction>(V)->getNextNode();
+}
+
 /// Test if V is always a pointer to allocated and suitably aligned memory for
 /// a simple load or store.
 static bool isDereferenceableAndAlignedPointer(
@@ -66,13 +74,22 @@ static bool isDereferenceableAndAlignedPointer(
     return isDereferenceableAndAlignedPointer(BC->getOperand(0), Align, Size,
                                               DL, CtxI, DT, Visited);
 
+  // TODO: Determine IsGloballyKnown for the maybeFreedInBetween call.
+  // TODO: Determine a good value for MaxCheckedInstructions in the
+  //       maybeFreedInBetween call.
+  bool IsDerefGlobally = false;
   bool CheckForNonNull = false;
-  APInt KnownDerefBytes(Size.getBitWidth(),
-                        V->getPointerDereferenceableBytes(DL, CheckForNonNull));
+  APInt KnownDerefBytes(
+      Size.getBitWidth(),
+      V->getPointerDereferenceableBytes(DL, CheckForNonNull, IsDerefGlobally));
   if (KnownDerefBytes.getBoolValue()) {
     if (KnownDerefBytes.uge(Size))
       if (!CheckForNonNull || isKnownNonZero(V, DL, 0, nullptr, CtxI, DT))
-        return isAligned(V, Align, DL);
+        if (IsDerefGlobally ||
+            (CtxI && !maybeFreedInBetween(getDefinitionPoint(V), CtxI,
+                                          /* MaxCheckedInstructions */ 12,
+                                          /* IsGloballyKnown */ true)))
+          return isAligned(V, Align, DL);
   }
 
   // For GEPs, determine if the indexing lands within the allocated object.

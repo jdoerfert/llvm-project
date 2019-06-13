@@ -266,7 +266,8 @@ bool SpeculativeExecutionPass::considerHoistingFromTo(
   unsigned TotalSpeculationCost = 0;
   for (auto& I : FromBlock) {
     const unsigned Cost = ComputeSpeculationCost(&I, *TTI);
-    if (Cost != UINT_MAX && isSafeToSpeculativelyExecute(&I) &&
+    if (Cost != UINT_MAX &&
+        isSafeToSpeculativelyExecute(&I, ToBlock.getTerminator()) &&
         AllPrecedingUsesFromBlockHoisted(&I)) {
       TotalSpeculationCost += Cost;
       if (TotalSpeculationCost > SpecExecMaxSpeculationCost)

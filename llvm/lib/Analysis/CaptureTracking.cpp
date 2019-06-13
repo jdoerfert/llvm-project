@@ -20,6 +20,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CFG.h"
+#include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/OrderedBasicBlock.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Constants.h"
@@ -350,9 +351,10 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
               break;
           // Comparing a dereferenceable_or_null argument against null
           // cannot lead to pointer escapes, because if it is not null it
-          // must be a valid (in-bounds) pointer.
-          bool CanBeNull;
-          if (O->getPointerDereferenceableBytes(I->getModule()->getDataLayout(), CanBeNull))
+          // must be a valid (in-bounds) pointer. Note that we do care if
+          // the pointer was freed.
+          if (isDereferenceablePointer(O, I->getModule()->getDataLayout(), I,
+                                       /* DT */ nullptr))
             break;
         }
       }

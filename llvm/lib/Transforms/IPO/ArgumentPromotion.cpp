@@ -493,7 +493,8 @@ static bool allCallersPassInValidPointerForArgument(Argument *Arg) {
     CallSite CS(U);
     assert(CS && "Should only have direct calls!");
 
-    if (!isDereferenceablePointer(CS.getArgument(ArgNo), DL))
+    if (!isDereferenceablePointer(CS.getArgument(ArgNo), DL,
+                                  CS.getInstruction()))
       return false;
   }
   return true;

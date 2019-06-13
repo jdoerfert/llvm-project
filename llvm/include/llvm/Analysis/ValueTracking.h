@@ -644,6 +644,18 @@ class Value;
   Optional<bool> isImpliedByDomCondition(const Value *Cond,
                                          const Instruction *ContextI,
                                          const DataLayout &DL);
+
+  /// Return true if there cannot be a memory deallocation (aka. free)
+  /// in-between \p SrcI and \p DstI. Thus, check if there is no direct or
+  /// transitive "free" call in-between. If \p IsGloballyKnown is true, this
+  /// method will additionally check if there is the potential for
+  /// synchronization in-between \p SrcI and \p DstI as a globally known pointer
+  /// could be passed to a memory deallocation function by another thread.
+  /// The \p MaxCheckedInstructions limits the number of instructions that are
+  /// inspected to prove the absence of a memory deallocation.
+  bool maybeFreedInBetween(const Instruction *SrcI, const Instruction *DstI,
+                           unsigned MaxCheckedInstructions,
+                           bool IsGloballyKnown);
 } // end namespace llvm
 
 #endif // LLVM_ANALYSIS_VALUETRACKING_H

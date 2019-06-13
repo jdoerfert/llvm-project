@@ -462,7 +462,8 @@ void llvm::computeKnownBitsFromRangeMetadata(const MDNode &Ranges,
   }
 }
 
-static bool isEphemeralValueOf(const Instruction *I, const Value *E) {
+static bool isEphemeralValueOf(const Instruction *I, const Value *E,
+                               const Instruction *CxtI) {
   SmallVector<const Value *, 16> WorkSet(1, I);
   SmallPtrSet<const Value *, 32> Visited;
   SmallPtrSet<const Value *, 16> EphValues;
@@ -485,7 +486,7 @@ static bool isEphemeralValueOf(const Instruction *I, const Value *E) {
       if (V == E)
         return true;
 
-      if (V == I || isSafeToSpeculativelyExecute(V)) {
+      if (V == I || isSafeToSpeculativelyExecute(V, CxtI)) {
        EphValues.insert(V);
        if (const User *U = dyn_cast<User>(V))
          for (User::const_op_iterator J = U->op_begin(), JE = U->op_end();
@@ -564,10 +565,11 @@ bool llvm::isValidAssumeForContext(const Instruction *Inv,
   for (BasicBlock::const_iterator I =
          std::next(BasicBlock::const_iterator(CxtI)), IE(Inv);
        I != IE; ++I)
-    if (!isSafeToSpeculativelyExecute(&*I) && !isAssumeLikeIntrinsic(&*I))
+    if (!isSafeToSpeculativelyExecute(&*I, &*I, DT) &&
+        !isAssumeLikeIntrinsic(&*I))
       return false;
 
-  return !isEphemeralValueOf(Inv, CxtI);
+  return !isEphemeralValueOf(Inv, CxtI, CxtI);
 }
 
 static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
@@ -3985,7 +3987,7 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V,
 }
 
 bool llvm::mayBeMemoryDependent(const Instruction &I) {
-  return I.mayReadOrWriteMemory() || !isSafeToSpeculativelyExecute(&I);
+  return I.mayReadOrWriteMemory() || !isSafeToSpeculativelyExecute(&I, &I);
 }
 
 /// Convert ConstantRange OverflowResult into ValueTracking OverflowResult.
@@ -4399,7 +4401,7 @@ const Value *llvm::getGuaranteedNonFullPoisonOp(const Instruction *I) {
       // Note: It's really tempting to think that a conditional branch or
       // switch should be listed here, but that's incorrect.  It's not
       // branching off of poison which is UB, it is executing a side effecting
-      // instruction which follows the branch.  
+      // instruction which follows the branch.
       return nullptr;
   }
 }
@@ -5733,4 +5735,60 @@ ConstantRange llvm::computeConstantRange(const Value *V, bool UseInstrInfo) {
       CR = CR.intersectWith(getConstantRangeFromMetadata(*Range));
 
   return CR;
+}
+
+bool llvm::maybeFreedInBetween(const Instruction *SrcI, const Instruction *DstI,
+                               unsigned MaxCheckedInstructions,
+                               bool IsGloballyKnown) {
+  const Function *F = SrcI->getFunction();
+  // If the function is no-free, and no-sync if necessary, there cannot be a
+  // deallocation.
+  //if (F->hasFnAttribute(Attribute::NoFree) &&
+      //(!IsGloballyKnown || F->hasFnAttribute(Attribute::NoSync)))
+    //return false;
+
+  // If we do not want to check any instructions we give up now.
+  if (MaxCheckedInstructions == 0)
+    return true;
+
+  SmallVector<const Instruction *, 32> Worklist;
+  SmallPtrSet<const Instruction *, 32> Visited;
+  Worklist.push_back(DstI);
+
+  // Lookup all instructions on all paths from SrcI to DstI and
+  // determine if there is a conflicting call in-between or not.
+  // We do so by exploring the paths in reverse order from DstI.
+  do {
+    const Instruction *CurI = Worklist.pop_back_val();
+
+    // Never visit an instruction twice.
+    if (!Visited.insert(CurI).second)
+      continue;
+
+    // Make sure we do not waste too much time trying to prove this.
+    if (Visited.size() > MaxCheckedInstructions)
+      return true;
+
+    // Only calls can deallocate, aka. free, memory or synchronize.
+    if (ImmutableCallSite ICS = ImmutableCallSite(CurI)) {
+      //if (!ICS.hasFnAttr(Attribute::NoFree) ||
+          //(IsGloballyKnown && !ICS.hasFnAttr(Attribute::NoSync)))
+        return true;
+    }
+
+    // Once SrcI is reached we are done traversing for this instruction.
+    if (CurI == SrcI)
+      continue;
+
+    // If we reached the beginning of a block, look at the predecessors.
+    if (!CurI->getPrevNode()) {
+      const BasicBlock *CurBB = CurI->getParent();
+      for (const BasicBlock *PredBB : predecessors(CurBB))
+        Worklist.push_back(&PredBB->back());
+    }
+
+  } while (!Worklist.empty());
+
+  // No possible free found.
+  return false;
 }
