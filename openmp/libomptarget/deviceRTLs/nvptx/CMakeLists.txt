@@ -51,7 +51,7 @@ if(LIBOMPTARGET_DEP_CUDA_FOUND)
       src/omptarget-nvptx.cu
       src/parallel.cu
       src/reduction.cu
-      src/sync.cu
+      src/sync.cpp
       src/task.cu
   )
 
