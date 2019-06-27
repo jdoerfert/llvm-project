@@ -47,7 +47,7 @@ if(LIBOMPTARGET_DEP_CUDA_FOUND)
       src/critical.cu
       src/data_sharing.cu
       src/libcall.cu
-      src/loop.cu
+      src/worksharing.cu
       src/omptarget-nvptx.cu
       src/parallel.cu
       src/reduction.cu
