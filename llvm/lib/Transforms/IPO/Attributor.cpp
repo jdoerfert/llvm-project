@@ -84,6 +84,116 @@ ChangeStatus llvm::operator&(ChangeStatus l, ChangeStatus r) {
 }
 ///}
 
+/// Helper to simplify the handling of arguments by providing convenient getter
+/// functions as well as a comon transfer method from call site information.
+template <typename AAImplType>
+struct AbstractFunction : public AAImplType {
+
+  AbstractFunction(Function &F, InformationCache &InfoCache)
+      : AAImplType(ArgOp, InfoCache) {}
+
+  /// See AbstractAttribute::initialize(...).
+  virtual void initialize(Attributor &A) override {
+    // Check for the presence of the attribute on the associated function.
+    if (getAnchorScope()->hasAttribute(this->getAttrKind()))
+      this->indicateOptimisticFixpoint();
+  }
+
+  /// See AbstractAttribute::getManifestPosition().
+  virtual AbstractAttribute::ManifestPosition
+  getManifestPosition() const override {
+    return AbstractAttribute::MP_FUNCTION;
+  }
+
+  /// See AbstractAttribute::updateImpl(...).
+  virtual ChangeStatus updateImpl(Attributor &A) override {
+    // TODO: checkForAllCallSites
+    indicatePessimisticFixpoint();
+    return ChangeStatus::CHANGED;
+  }
+};
+
+/// Helper to simplify the handling of arguments by providing convenient getter
+/// functions as well as a comon transfer method from call site information.
+template <typename AAImplType, bool InheritsFromFunction = true>
+struct AbstractArgument : public AAImplType {
+
+  AbstractArgument(Argument &Arg, InformationCache &InfoCache)
+      : AAImplType(ArgOp, InfoCache) {}
+
+  /// See AbstractAttribute::initialize(...).
+  virtual void initialize(Attributor &A) override {
+    // Check for the presence of the attribute on the associated argument.
+    if (cast<Argument>(getAssociatedValue())->hasAttribute(this->getAttrKind()))
+      this->indicateOptimisticFixpoint();
+    if (InheritsFromFunction && getAnchorScope()->hasAttribute(this->getAttrKind()))
+      this->indicateOptimisticFixpoint();
+  }
+
+  /// Return the argument number of the underlying associated value.
+  unsigned getArgumentNo() const {
+    return cast<Argument>(this->getAssociatedValue())->getArgNo();
+  }
+
+  /// See AbstractAttribute::getManifestPosition().
+  virtual AbstractAttribute::ManifestPosition
+  getManifestPosition() const override {
+    return AbstractAttribute::MP_ARGUMENT;
+  }
+
+  /// See AbstractAttribute::updateImpl(...).
+  virtual ChangeStatus updateImpl(Attributor &A) override {
+    // TODO: checkForAllCallSites
+    indicatePessimisticFixpoint();
+    return ChangeStatus::CHANGED;
+  }
+};
+
+/// Helper to simplify the handling of call site arguments by providing
+/// convenient getter functions as well as a comon transfer method from
+/// arguments to call site parameters.
+template <typename AAImplType, bool InheritsFromFunction = true>
+struct AbstractCallSiteArgument : public AAImplType {
+
+  /// Use the AAImplType constructor that takes both an associated and an anchor
+  /// value. See the AbstractAttribute constructors for information.
+  AbstractCallSiteArgument(CallSite CS, Value &ArgOp, unsigned ArgNo, InformationCache &InfoCache)
+      : AAImplType(ArgOp, *CS.getInstruction(), InfoCache), ArgNo(ArgNo) {}
+
+  /// See AbstractAttribute::initialize(...).
+  virtual void initialize(Attributor &A) override {
+    // Check for the presence of the attribute at the call site or argument.
+    ImmutableCallSite ICS(&this->getAnchoredValue());
+    if (ICS.paramHasAttr(ArgNo, this->getAttrKind()))
+      this->indicateOptimisticFixpoint();
+    if (InheritsFromFunction && getAnchorScope()->hasAttribute(this->getAttrKind()))
+      this->indicateOptimisticFixpoint();
+  }
+
+  /// Return the argument corresponding to the associated call site argument.
+  /// Can return nullptr if the corresponding argument is not known/available.
+  const Argument *getArgument() const {
+    ImmutableCallSite ICS(&this->getAnchoredValue());
+    const Function *Callee = ICS.getCalledFunction();
+    // Filter indirect calls and variadic callees.
+    if (Callee && Callee->arg_size() > ArgNo)
+      return Callee->arg_begin() + ArgNo;
+    return nullptr;
+  }
+
+  /// Return the argument number of the underlying associated value.
+  unsigned getArgumentNo() const { return ArgNo; }
+
+  /// See AbstractAttribute::getManifestPosition().
+  virtual AbstractAttribute::ManifestPosition
+  getManifestPosition() const override {
+    return AbstractAttribute::MP_CALL_SITE_ARGUMENT;
+  }
+
+  /// The argument operand number associated with this call site argument.
+  unsigned ArgNo;
+};
+
 /// Helper to adjust the statistics.
 static void bookkeeping(AbstractAttribute::ManifestPosition MP,
                         const Attribute &Attr) {
