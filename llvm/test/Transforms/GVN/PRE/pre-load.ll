@@ -543,6 +543,47 @@ if.end:
 
 }
 
+; Same as test13 and test15, but %x here is globally dereferenceable. A pointer that is
+; dereferenceable can be loaded from speculatively without a risk of trapping.
+; Since it is OK to speculate, PRE is allowed.
+
+define i32 @test15b(i32* noalias nocapture readonly dereferenceable_globally(8) %x, i32* noalias nocapture %r, i32 %a) {
+
+; CHECK-LABEL: @test15b
+; CHECK: entry:
+; CHECK-NEXT: icmp eq
+; CHECK-NEXT: br i1
+
+entry:
+  %tobool = icmp eq i32 %a, 0
+  br i1 %tobool, label %if.end, label %if.then
+
+; CHECK: entry.if.end_crit_edge:
+; CHECK-NEXT: %vv.pre = load i32, i32* %x, align 4
+; CHECK-NEXT: br label %if.end
+
+if.then:
+  %uu = load i32, i32* %x, align 4
+  store i32 %uu, i32* %r, align 4
+  br label %if.end
+
+; CHECK: if.then:
+; CHECK-NEXT: %uu = load i32, i32* %x, align 4
+; CHECK-NEXT: store i32 %uu, i32* %r, align 4
+; CHECK-NEXT: br label %if.end
+
+if.end:
+  call void @f()
+  %vv = load i32, i32* %x, align 4
+  ret i32 %vv
+
+; CHECK: if.end:
+; CHECK-NEXT: %vv = phi i32 [ %vv.pre, %entry.if.end_crit_edge ], [ %uu, %if.then ]
+; CHECK-NEXT: call void @f()
+; CHECK-NEXT: ret i32 %vv
+
+}
+
 ; Same as test14, but %x here is dereferenceable. A pointer that is
 ; dereferenceable can be loaded from speculatively without a risk of trapping.
 ; Since it is OK to speculate, PRE is allowed.

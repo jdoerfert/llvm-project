@@ -1035,7 +1035,8 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
   // backwards through predecessors if needed.
   BasicBlock *LoadBB = LI->getParent();
   BasicBlock *TmpBB = LoadBB;
-  bool IsSafeToSpeculativelyExecute = isSafeToSpeculativelyExecute(LI);
+  bool IsSafeToSpeculativelyExecute =
+      isSafeToSpeculativelyExecute(LI, TmpBB->getTerminator(), DT);
 
   // Check that there is no implicit control flow instructions above our load in
   // its block. If there is an instruction that doesn't always pass the
@@ -1070,7 +1071,8 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
       return false;
 
     // Check that there is no implicit control flow in a block above.
-    if (!IsSafeToSpeculativelyExecute && ICF->hasICF(TmpBB))
+    if (!isSafeToSpeculativelyExecute(LI, TmpBB->getTerminator(), DT) &&
+        ICF->hasICF(TmpBB))
       return false;
   }
 
@@ -2223,7 +2225,7 @@ bool GVN::performScalarPRE(Instruction *CurInst) {
   Instruction *PREInstr = nullptr;
 
   if (NumWithout != 0) {
-    if (!isSafeToSpeculativelyExecute(CurInst, PREPred->getTerminator())) {
+    if (!isSafeToSpeculativelyExecute(CurInst, PREPred->getTerminator(), DT)) {
       // It is only valid to insert a new instruction if the current instruction
       // is always executed. An instruction with implicit control flow could
       // prevent us from doing it. If we cannot speculate the execution, then

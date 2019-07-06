@@ -176,7 +176,7 @@ merge:
 
 declare void @llvm.experimental.guard(i1 %cnd, ...)
 
-; These two tests highlight speculation safety when we can not establish
+; These four tests highlight speculation safety when we can not establish
 ; anticipation (since the original load might actually not execcute)
 define i32 @test6a(i1 %cnd, i32* %p) {
 entry: 
@@ -192,7 +192,7 @@ header:
   br label %header
 }
 
-define i32 @test6b(i1 %cnd, i32* dereferenceable(8) %p) {
+define i32 @test6b(i1 %cnd, i32* dereferenceable_globally(8) %p) {
 entry: 
 ; CHECK-LABEL: @test6b
 ; CHECK: load i32, i32* %p
@@ -201,6 +201,35 @@ entry:
 header:
 ; CHECK-LABEL: header
   call void (i1, ...) @llvm.experimental.guard(i1 %cnd) ["deopt"()]
+  %v1 = load i32, i32* %p
+  call void @hold(i32 %v1)
+  br label %header
+}
+
+define i32 @test6c(i1 %cnd, i32* dereferenceable(8) %p) {
+entry: 
+; CHECK-LABEL: @test6c
+; CHECK: load i32, i32* %p
+  br label %header
+
+header:
+; CHECK-LABEL: header
+  call void (i1, ...) @llvm.experimental.guard(i1 %cnd) ["deopt"()] nofree nosync
+  %v1 = load i32, i32* %p
+  call void @hold(i32 %v1)
+  br label %header
+}
+
+define i32 @test6d(i1 %cnd, i32* noalias dereferenceable(8) %p) {
+entry: 
+; NEGATIVE TEST, this should work as the ones above.
+; CHECK-LABEL: @test6d
+; CHECK-NOT: load i32, i32* %p
+  br label %header
+
+header:
+; CHECK-LABEL: header
+  call void (i1, ...) @llvm.experimental.guard(i1 %cnd) ["deopt"()] willreturn
   %v1 = load i32, i32* %p
   call void @hold(i32 %v1)
   br label %header

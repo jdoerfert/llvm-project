@@ -66,12 +66,30 @@ define void @negative_load(i32 %V1, i32* %P) {
   ret void
 }
 
-define void @deref_load(i32 %V1, i32* dereferenceable(4) %P) {
-; CHECK-LABEL: @deref_load
+define void @deref_globally_load(i32 %V1, i32* dereferenceable_globally(4) %P) {
+; CHECK-LABEL: @deref_globally_load
 ; CHECK-NEXT:  %V2 = load i32, i32* %P, align 4
 ; CHECK-NEXT:  %1 = and i32 %V2, %V1
 ; CHECK-NEXT:  %2 = icmp slt i32 %1, 0
 ; CHECK-NEXT:  call void (i1, ...) @llvm.experimental.guard(i1 %2, i32 123) [ "deopt"() ]
+  %A = icmp slt i32 %V1, 0
+  call void(i1, ...) @llvm.experimental.guard( i1 %A, i32 123 )[ "deopt"() ]
+  %V2 = load i32, i32* %P
+  %B = icmp slt i32 %V2, 0
+  call void(i1, ...) @llvm.experimental.guard( i1 %B, i32 456 )[ "deopt"() ]
+  ret void
+}
+
+define void @deref_load(i32 %V1, i32* noalias dereferenceable(4) %P) {
+; TODO: This should produce the same code as the deref_globally_load version because 
+; the noalias is present. Without it, the guard call would need to be no-free and no-sync.
+;
+; CHECK-LABEL: @deref_load
+; CHECK-NEXT:  %A = icmp slt i32 %V1, 0
+; CHECK-NEXT:  call void (i1, ...) @llvm.experimental.guard(i1 %A, i32 123) [ "deopt"() ]
+; CHECK-NEXT:  %V2 = load i32, i32* %P
+; CHECK-NEXT:  %B = icmp slt i32 %V2, 0
+; CHECK-NEXT:  call void (i1, ...) @llvm.experimental.guard(i1 %B, i32 456) [ "deopt"() ]
   %A = icmp slt i32 %V1, 0
   call void(i1, ...) @llvm.experimental.guard( i1 %A, i32 123 )[ "deopt"() ]
   %V2 = load i32, i32* %P

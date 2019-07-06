@@ -205,8 +205,8 @@ static bool AreEquivalentAddressValues(const Value *A, const Value *B) {
 
 /// Check if executing a load of this pointer value cannot trap.
 ///
-/// If DT and ScanFrom are specified this method performs context-sensitive
-/// analysis and returns true if it is safe to load immediately before ScanFrom.
+/// If ScanFrom is specified this method performs context-sensitive analysis and
+/// returns true if it is safe to load immediately before ScanFrom.
 ///
 /// If it is not obviously safe to load from the specified pointer, we do
 /// a quick local scan of the basic block containing \c ScanFrom, to determine
@@ -223,9 +223,7 @@ bool llvm::isSafeToLoadUnconditionally(Value *V, unsigned Align,
     Align = DL.getABITypeAlignment(V->getType()->getPointerElementType());
   assert(isPowerOf2_32(Align));
 
-  // If DT is not specified we can't make context-sensitive query
-  const Instruction* CtxI = DT ? ScanFrom : nullptr;
-  if (isDereferenceableAndAlignedPointer(V, Align, DL, CtxI, DT))
+  if (isDereferenceableAndAlignedPointer(V, Align, DL, ScanFrom, DT))
     return true;
 
   int64_t ByteOffset = 0;

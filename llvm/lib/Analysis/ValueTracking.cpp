@@ -5740,20 +5740,23 @@ ConstantRange llvm::computeConstantRange(const Value *V, bool UseInstrInfo) {
 bool llvm::maybeFreedInBetween(const Instruction *SrcI, const Instruction *DstI,
                                unsigned MaxCheckedInstructions,
                                bool IsGloballyKnown) {
+  // If there are no instructions to check we are done.
+  if (SrcI == DstI)
+    return false;
+
   const Function *F = SrcI->getFunction();
   // If the function is no-free, and no-sync if necessary, there cannot be a
   // deallocation.
-  //if (F->hasFnAttribute(Attribute::NoFree) &&
-      //(!IsGloballyKnown || F->hasFnAttribute(Attribute::NoSync)))
-    //return false;
+  if (F->hasFnAttribute(Attribute::NoFree) &&
+      (!IsGloballyKnown || F->hasFnAttribute(Attribute::NoSync)))
+    return false;
 
   // If we do not want to check any instructions we give up now.
   if (MaxCheckedInstructions == 0)
     return true;
-
   SmallVector<const Instruction *, 32> Worklist;
   SmallPtrSet<const Instruction *, 32> Visited;
-  Worklist.push_back(DstI);
+  Worklist.push_back(DstI->getPrevNode());
 
   // Lookup all instructions on all paths from SrcI to DstI and
   // determine if there is a conflicting call in-between or not.
@@ -5771,8 +5774,8 @@ bool llvm::maybeFreedInBetween(const Instruction *SrcI, const Instruction *DstI,
 
     // Only calls can deallocate, aka. free, memory or synchronize.
     if (ImmutableCallSite ICS = ImmutableCallSite(CurI)) {
-      //if (!ICS.hasFnAttr(Attribute::NoFree) ||
-          //(IsGloballyKnown && !ICS.hasFnAttr(Attribute::NoSync)))
+      if (!ICS.hasFnAttr(Attribute::NoFree) ||
+          (IsGloballyKnown && !ICS.hasFnAttr(Attribute::NoSync)))
         return true;
     }
 
