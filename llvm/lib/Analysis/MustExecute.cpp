@@ -7,18 +7,20 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/MustExecute.h"
+#include "llvm/Analysis/CFG.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/Passes.h"
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/AssemblyAnnotationWriter.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 
 const DenseMap<BasicBlock *, ColorVector> &
@@ -306,6 +308,20 @@ namespace {
     }
     bool runOnFunction(Function &F) override;
   };
+  struct MustBeExecutedContextPrinter : public ModulePass {
+    static char ID;
+
+    MustBeExecutedContextPrinter() : ModulePass(ID) {
+      initializeMustBeExecutedContextPrinterPass(*PassRegistry::getPassRegistry());
+    }
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
+      AU.setPreservesAll();
+      AU.addRequired<PostDominatorTreeWrapperPass>();
+      AU.addRequired<DominatorTreeWrapperPass>();
+      AU.addRequired<LoopInfoWrapperPass>();
+    }
+    bool runOnModule(Module &M) override;
+  };
 }
 
 char MustExecutePrinter::ID = 0;
@@ -318,6 +334,22 @@ INITIALIZE_PASS_END(MustExecutePrinter, "print-mustexecute",
 
 FunctionPass *llvm::createMustExecutePrinter() {
   return new MustExecutePrinter();
+}
+
+char MustBeExecutedContextPrinter::ID = 0;
+INITIALIZE_PASS_BEGIN(
+    MustBeExecutedContextPrinter, "print-must-be-executed-contexts",
+    "print the must-be-executed-contexed for all instructions", false, true)
+INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_END(MustBeExecutedContextPrinter,
+                    "print-must-be-executed-contexts",
+                    "print the must-be-executed-contexed for all instructions",
+                    false, true)
+
+ModulePass *llvm::createMustBeExecutedContextPrinter() {
+  return new MustBeExecutedContextPrinter();
 }
 
 static bool isMustExecuteIn(const Instruction &I, Loop *L, DominatorTree *DT) {
@@ -349,20 +381,6 @@ public:
       };
     }
   }
-  MustExecuteAnnotatedWriter(const Module &M,
-                             DominatorTree &DT, LoopInfo &LI) {
-    for (auto &F : M)
-    for (auto &I: instructions(F)) {
-      Loop *L = LI.getLoopFor(I.getParent());
-      while (L) {
-        if (isMustExecuteIn(I, L, &DT)) {
-          MustExec[&I].push_back(L);
-        }
-        L = L->getParentLoop();
-      };
-    }
-  }
-
 
   void printInfoComment(const Value &V, formatted_raw_ostream &OS) override {
     if (!MustExec.count(&V))
@@ -385,7 +403,6 @@ public:
     OS << ")";
   }
 };
-} // namespace
 
 bool MustExecutePrinter::runOnFunction(Function &F) {
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
@@ -395,4 +412,566 @@ bool MustExecutePrinter::runOnFunction(Function &F) {
   F.print(dbgs(), &Writer);
 
   return false;
+}
+
+bool MustBeExecutedContextPrinter::runOnModule(Module &M) {
+  GetterTy<const LoopInfo> LIGetter =
+      [&](const Function &F) -> const LoopInfo * {
+    return &getAnalysis<LoopInfoWrapperPass>(const_cast<Function &>(F))
+        .getLoopInfo();
+  };
+  GetterTy<const DominatorTree> DTGetter = [&](const Function &F) ->const  DominatorTree * {
+    return &getAnalysis<DominatorTreeWrapperPass>(const_cast<Function &>(F))
+        .getDomTree();
+  };
+  GetterTy<const PostDominatorTree> PDTGetter =
+      [&](const Function &F) ->const  PostDominatorTree * {
+    return &getAnalysis<PostDominatorTreeWrapperPass>(const_cast<Function &>(F))
+        .getPostDomTree();
+  };
+
+  MustBeExecutedContextExplorer Explorer(true, true, true, true,
+                                         LIGetter, DTGetter, PDTGetter);
+  for (Function &F : M) {
+    for (Instruction &I : instructions(F)) {
+      dbgs() << "-- Explore context of: " << I << "\n";
+      for (const Instruction *CI : Explorer.range(&I))
+        dbgs() << "  [F: " << CI->getFunction()->getName() << "] " << *CI
+               << "\n";
+    }
+  }
+
+  return false;
+}
+} // namespace
+
+/// Return true if \p L might be an endless loop.
+static bool maybeEndlessLoop(const Loop &L) {
+  // TODO: Actually try to prove it is not.
+  return true;
+}
+
+/// Return an instruction that is always executed before the function \p F is
+/// left, assuming it is left through a return.
+static const Instruction *findFunctionExitJoinPoint(const Function *F,
+                                                    const DominatorTree *DT) {
+  const BasicBlock *JoinBB = nullptr;
+  for (const BasicBlock &BB : *F) {
+    // Skip all but return instructions.
+    if (!isa<ReturnInst>(BB.getTerminator()))
+      continue;
+
+    // The first return instruction found is the initial join point.
+    if (!JoinBB) {
+      JoinBB = &BB;
+      continue;
+    }
+
+    // When we find more return instructions the nearest common dominator of all
+    // of them is known to be executed prior to all of them.
+    if (DT) {
+      JoinBB = DT->findNearestCommonDominator(JoinBB, &BB);
+      assert(JoinBB && "Assumed a common dominator!");
+      continue;
+    }
+
+    // If we do no have a dominator tree we still know that *at least* the entry
+    // block is executed as we assume the function is left through a return.
+    // TODO: Improve this by using getMustBeExecutedNextInstruction() from this
+    //       point.
+    return F->getEntryBlock().getTerminator();
+  }
+
+  // If we traversed all the blocks and found the nearest common dominator we
+  // return it. If we did not find a return instruction we return a nullptr but
+  // we should indicate a problem instead because the function is never left
+  // through a return.
+  return JoinBB ? JoinBB->getTerminator() : nullptr;
+}
+
+template <typename K, typename V, typename FnTy, typename... ArgsTy>
+static V getOrCreateCachedOptional(K Key, DenseMap<K, Optional<V>> &Map,
+                                   FnTy &&Fn, ArgsTy... args) {
+  Optional<V> &OptVal = Map[Key];
+  if (!OptVal.hasValue())
+    OptVal = Fn(args...);
+  return OptVal.getValue();
+}
+
+template <typename DomTreeType, typename AdjRangeTy>
+static const BasicBlock *
+findJoinPoint(ExplorationDirection Direction, const BasicBlock *InitBB,
+              DenseMap<const BasicBlock *, Optional<bool>> &BlockTransferMap,
+              const LoopInfo *LI, const DomTreeType *GDT, AdjRangeTy &AdjRange) {
+  SmallVector<const BasicBlock *, 8> Worklist;
+  for (const BasicBlock *AdjacentBB : AdjRange(InitBB))
+    Worklist.push_back(AdjacentBB);
+  if (Worklist.empty())
+    return nullptr;
+  if (Worklist.size() == 1)
+    return Worklist[0];
+
+  auto GetSingleAdjBB = [&](const BasicBlock *BB) -> const BasicBlock * {
+    const BasicBlock *SingleAdjBB = nullptr;
+    for (const BasicBlock *AdjacentBB : AdjRange(BB)) {
+      if (SingleAdjBB)
+        return nullptr;
+      SingleAdjBB = AdjacentBB;
+    }
+    return SingleAdjBB;
+  };
+
+  const BasicBlock *JoinBB = nullptr;
+  if (GDT) {
+    const auto *InitNode = GDT->getNode(InitBB);
+    assert(InitNode && "No (post)dominator tree node found, dead block?");
+    const auto *IDomNode = InitNode->getIDom();
+    if (IDomNode)
+      JoinBB = IDomNode->getBlock();
+  } else {
+    if (Worklist.size() != 2)
+      return nullptr;
+
+    const BasicBlock *Adj0 = Worklist[0];
+    const BasicBlock *Adj1 = Worklist[1];
+    const BasicBlock *Adj0SingleAdj = GetSingleAdjBB(Adj0);
+    const BasicBlock *Adj1SingleAdj = GetSingleAdjBB(Adj1);
+    if (Adj0 == Adj1SingleAdj) {
+      // cnd true -> joinBB
+      // cnd false -> thenBB -> joinBB
+      JoinBB = Adj0;
+    } else if (Adj1 == Adj0SingleAdj) {
+      // cnd true -> thenBB -> joinBB
+      // cnd false -> joinBB
+      JoinBB = Adj1;
+    } else if (Adj0SingleAdj == Adj1SingleAdj) {
+      // cnd true -> thenBB -> joinBB
+      // cnd false -> elseBB -> joinBB
+      JoinBB = Adj0SingleAdj;
+    }
+  }
+
+  if (!JoinBB || Direction == ED_BACKWARD)
+    return JoinBB;
+
+  SmallPtrSet<const BasicBlock *, 16> Visited;
+  while (!Worklist.empty()) {
+    const BasicBlock *ToBB = Worklist.pop_back_val();
+    if (ToBB == JoinBB)
+      continue;
+    if (!Visited.insert(ToBB).second) {
+      const Loop *L = LI->getLoopFor(ToBB);
+      if (!L || maybeEndlessLoop(*L))
+        return nullptr;
+      continue;
+    }
+
+    bool TransfersExecution = getOrCreateCachedOptional(
+        ToBB, BlockTransferMap,
+        [](const BasicBlock *BB) {
+          return isGuaranteedToTransferExecutionToSuccessor(BB);
+        },
+        ToBB);
+    if (!TransfersExecution)
+      return nullptr;
+
+    for (const BasicBlock *AdjacentBB : AdjRange(ToBB))
+      Worklist.push_back(AdjacentBB);
+  }
+
+  return JoinBB;
+}
+
+
+const Instruction *
+MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
+    MustBeExecutedIterator</* CachedOnly */ false> &It, const Instruction *PP) {
+
+  // If we explore only inside a given basic block we stop at terminators.
+  if (!ExploreCFGForward && PP->isTerminator())
+    return nullptr;
+
+  // If we explore the call graph (CG) forward and we see a call site we can
+  // continue with the callee instructions if the callee has an exact
+  // definition. If this is the case, we add the call site in the forward call
+  // stack such that we can return to the position after the call and also
+  // translate values for the user.
+  if (ExploreCGForward) {
+    if (ImmutableCallSite ICS = ImmutableCallSite(PP))
+      if (const Function *F = ICS.getCalledFunction())
+        if (F->hasExactDefinition()) {
+          It.ForwardCallStack.push_back({PP});
+          return &F->getEntryBlock().front();
+        }
+  }
+
+  // Helper function to look at the forward call stack, pop the last call site,
+  // and return the next instruction after it, assuming the call stack was not
+  // empty.
+  auto PopAndReturnForwardCallSiteNextInst = [&]() -> const Instruction * {
+    // Check for a known call site on the forward call stack of the iterator.
+    if (It.ForwardCallStack.empty())
+      return nullptr;
+
+    const Instruction *CS = It.ForwardCallStack.pop_back_val();
+    return CS->getNextNode();
+  };
+
+  // The function that contains the current position.
+  const Function *PPFunc = PP->getFunction();
+
+  // At a return instruction we have two options that allow us to continue:
+  // 1) We are in a function that we entered earlier, in this case we can
+  //    simply pop the last call site from the forward call stack and return the
+  //    instruction after the call site.
+  // 2) We explore the call graph (CG) backwards trying to find a point that
+  //    is know to be executed every time when the current function is.
+  if (isa<ReturnInst>(PP)) {
+    // Check for a known call site on the forward call stack of the iterator.
+    if (!It.ForwardCallStack.empty())
+      return PopAndReturnForwardCallSiteNextInst();
+
+    // Check if backwards call graph exploration is allowed.
+    if (!ExploreCGBackward)
+      return nullptr;
+
+    // We do not know all the callers for non-internal functions.
+    if (!PPFunc->hasInternalLinkage())
+      return nullptr;
+
+    // TODO: We restrict it to a single call site for now but we could allow
+    //       more and find a join point interprocedurally.
+    if (PPFunc->getNumUses() != 1)
+      return nullptr;
+
+    // Make sure the user is a direct call.
+    // TODO: Indirect calls can be fine too.
+    ImmutableCallSite ICS(PPFunc->user_back());
+    if (!ICS || ICS.getCalledFunction() != PPFunc)
+      return nullptr;
+
+    // We know we reached the return instruction of the callee so we will
+    // continue at the next instruction after the call.
+    return ICS.getInstruction()->getNextNode();
+  }
+
+  // If we do not traverse the call graph we check if we can make progress in
+  // the current function. First, check if the instruction is guaranteed to
+  // transfer execution to the successor.
+  bool TransfersExecution = isGuaranteedToTransferExecutionToSuccessor(PP);
+
+  // If this is not a terminator we know that there is a single instruction
+  // after this one that is executed next if control is transfered. If not,
+  // we can try to go back to a call site we entered earlier. If none exists, we
+  // do not know any instruction that has to be executd next.
+  if (!PP->isTerminator()) {
+    if (TransfersExecution)
+      return PP->getNextNode();
+
+    // Try to continue at a known call site on the forward call stack of the
+    // iterator.
+    return PopAndReturnForwardCallSiteNextInst();
+  }
+
+  // Finally, we have to handle terminators, trivial ones first.
+  assert(PP->isTerminator() && "Expected a terminator!");
+
+  // A terminator without a successor which is not a return is not handled yet.
+  // We can still try to continue at a known call site on the forward call stack
+  // of the iterator.
+  if (PP->getNumSuccessors() == 0)
+    return PopAndReturnForwardCallSiteNextInst();
+
+  // A terminator with a single successor, we will continue at the beginning of
+  // that one.
+  if (PP->getNumSuccessors() == 1)
+    return &PP->getSuccessor(0)->front();
+
+  // Multiple successors mean we need to find the join point where control flow
+  // converges again. We use the findJoinPoint helper function with information
+  // about the function and helper analyses, if available.
+  const LoopInfo *LI = LIGetter(*PPFunc);
+  const PostDominatorTree *PDT = PDTGetter(*PPFunc);
+
+  auto AdjRange = [](const BasicBlock *BB) { return successors(BB); };
+  if (const BasicBlock *JoinBB = findJoinPoint(
+          ED_FORWARD, PP->getParent(), BlockTransferMap, LI, PDT, AdjRange))
+    return &JoinBB->front();
+
+  // No join point was found but we can still try to continue at a known call
+  // site on the forward call stack of the iterator.
+  return PopAndReturnForwardCallSiteNextInst();
+}
+
+const Instruction *
+MustBeExecutedContextExplorer::getMustBeExecutedPrevInstruction(
+    MustBeExecutedIterator</* CachedOnly */ false> &It, const Instruction *PP) {
+  bool IsFirst = !(PP->getPrevNode());
+  //errs() << "PREV: of " << PP << " : " << IsFirst << "\n";
+  //errs() << "PREV: of " << *PP << "\n";
+
+  // If we explore only inside a given basic block we stop at the first
+  // instruction.
+  if (!ExploreCFGBackward && IsFirst)
+    return nullptr;
+
+  // Helper function to look at the backward call stack, pop the last call site,
+  // and return the call site instruction, assuming a non-empty call stack.
+  auto PopAndReturnBackwardCallSiteInst = [&]() -> const Instruction * {
+    // Check for a known call site on the caller stack of the iterator.
+    if (It.BackwardCallStack.empty())
+      return nullptr;
+
+    const Instruction *CS = It.BackwardCallStack.pop_back_val();
+    return CS;
+  };
+
+  // The block and function that contains the current position.
+  const BasicBlock *PPBlock = PP->getParent();
+  const Function *PPFunc = PPBlock->getParent();
+
+  // At a first instruction in a function we have two options that allow us to
+  // continue:
+  // 1) We are in a function that we entered earlier, in this case we can
+  //    simply pop the last call site from the backward call stack and
+  //    return the instruction before the call site.
+  // 2) We explore the call graph (CG) backwards trying to find a point that
+  //    is know to be executed every time when the current function is.
+  if (IsFirst && PPBlock == &PPFunc->getEntryBlock()) {
+    // Check for a known call site on the backward call stack of the
+    // iterator.
+    if (!It.BackwardCallStack.empty())
+      return PopAndReturnBackwardCallSiteInst();
+
+    // Check if backwards call graph exploration is allowed.
+    if (!ExploreCGBackward)
+      return nullptr;
+
+    // We do not know all the callers for non-internal functions.
+    if (!PPFunc->hasInternalLinkage())
+      return nullptr;
+
+    // TODO: We restrict it to a single call site for now but we could allow
+    //       more and find a join point interprocedurally.
+    if (PPFunc->getNumUses() != 1)
+      return nullptr;
+
+    // Make sure the user is a direct call.
+    // TODO: Indirect calls can be fine too.
+    ImmutableCallSite ICS(PPFunc->user_back());
+    if (!ICS || ICS.getCalledFunction() != PPFunc)
+      return nullptr;
+
+    // We know we reached the first instruction of the callee so we must have
+    // executed the instruction before the call.
+    return ICS.getInstruction();
+  }
+
+  // Ready the dominator tree if available.
+  const DominatorTree *DT = DTGetter(*PPFunc);
+
+  // If we are inside a block we know what instruction was executed before, the
+  // previous one. However, if the previous one is a call site, we can enter the
+  // callee and visit its instructions as well.
+  if (!IsFirst) {
+    //errs() << "not first\n";
+    const Instruction *PrevPP = PP->getPrevNode();
+    // If we explore the call graph (CG) forward and the instruction before the
+    // current one is a call site we can continue with the callee instructions
+    // if the callee has an exact definition. If this is the case, we add the
+    // call site in the backward call stack such that we can return to
+    // the position of the call and also translate values for the user.
+    if (ExploreCGForward) {
+      if (ImmutableCallSite ICS = ImmutableCallSite(PrevPP))
+        if (const Function *F = ICS.getCalledFunction())
+          if (F->hasExactDefinition())
+            if (const Instruction *JoinPP = getOrCreateCachedOptional(
+                    F, FunctionExitJoinPointMap, findFunctionExitJoinPoint, F,
+                    DT)) {
+              //errs() << "FJPP: " << JoinPP << "\n";
+              //errs() << "FJPP: " << *JoinPP << "\n";
+              It.BackwardCallStack.push_back({PrevPP});
+              return JoinPP;
+            }
+    }
+
+    // We did not enter a callee so we simply return the previous instruction.
+    return PrevPP;
+  }
+  //errs() << "first\n";
+
+  // Finally, we have to handle the case where the program point is the first in
+  // a block but not in the function. We use the findJoinPoint helper function
+  // with information about the function and helper analyses, if available.
+  const LoopInfo *LI = LIGetter(*PPFunc);
+  auto AdjRange = [](const BasicBlock *BB) { return predecessors(BB); };
+  if (const BasicBlock *JoinBB = findJoinPoint(
+          ED_BACKWARD, PPBlock, BlockTransferMap, LI, DT, AdjRange))
+    return &JoinBB->back();
+
+  // No join point was found but we can still try to continue at a known call
+  // site on the backward call stack of the iterator.
+  return PopAndReturnBackwardCallSiteInst();
+}
+
+void MustBeExecutedContextExplorer::explore(
+    MustBeExecutedIterator</* CachedOnly */ false> &It,
+    MustBeExecutedInterval::Position &Pos, ExplorationDirection Direction) {
+  assert(Pos && Pos.Interval->isInbounds(Pos.Offset) &&
+         "Explore called for an invalid position!");
+  assert(!Pos.Interval->isInbounds(Pos.Offset +
+                                   (Direction == ED_FORWARD ? 1 : -1)) &&
+         "Explore called for a position that can be advanced!");
+  assert(!(Pos + Direction) &&
+         "Explore called for a position that can be advanced!");
+
+  // Check the call stack before we compute the advanced program point because
+  // doing so changes the call stacks.
+  unsigned CallStackSizeBefore =
+      (Direction == ED_FORWARD ? It.ForwardCallStack.size()
+                               : It.BackwardCallStack.size());
+
+  const Instruction *PP = Pos.getInstruction();
+  //errs() << "Direction: " << (Direction == ED_FORWARD ? "FORWARD" : "BACKWARD") << " :: ";
+  //Pos.print(errs());
+  //errs() << " :: PP " << *PP << " [CSSB: " << CallStackSizeBefore << "]\n";
+  const Instruction *AdvancedPP =
+      Direction == ED_FORWARD ? getMustBeExecutedNextInstruction(It, PP)
+                              : getMustBeExecutedPrevInstruction(It, PP);
+  //errs() << "APP : "<< AdvancedPP << "\n";
+
+  // If we failed to get an advanced program point in the requested direction
+  // there is nothing we can do.
+  if (!AdvancedPP) {
+    Pos = MustBeExecutedInterval::Position();
+    return;
+  }
+  //errs() << "APP : "<< *AdvancedPP << "\n";
+
+  // To avoid chasing around when we encounter an endless loop or recusion we
+  // keep track of entered blocks.
+
+  unsigned CallStackSizeAfter =
+      (Direction == ED_FORWARD ? It.ForwardCallStack.size()
+                               : It.BackwardCallStack.size());
+  bool CallStackChanged = CallStackSizeBefore != CallStackSizeAfter;
+  if (!It.Visited.insert({AdvancedPP, Direction}).second) {
+    Pos = MustBeExecutedInterval::Position();
+    return;
+  }
+
+  // If we do not have an interval position for the advanced program point we
+  // either add it to the interval of the current position or create a new one
+  // to hold the advanced program point, depending on the backward check above.
+  MustBeExecutedInterval::Position AdvancedPPPos =
+      lookupIntervalPosition(AdvancedPP);
+  //errs()  << "APPPP: ";
+  //AdvancedPPPos.print(errs());
+  //errs()  << "\n";
+
+  // TODO
+  bool AdvancedIntervalConnectsToCurrent =
+      AdvancedPPPos.Interval &&
+      (Direction == ED_FORWARD ? AdvancedPPPos.Interval->Prev == Pos.Interval
+                               : AdvancedPPPos.Interval->Next == Pos.Interval);
+
+  bool CanExtendPPPos = !CallStackChanged;
+  if (CanExtendPPPos && !AdvancedIntervalConnectsToCurrent) {
+    // Go back from the advanced program point in the opposite direction in
+    // order to see if we can extend the interval of the current position or if
+    // we need a new interval.
+    const Instruction *BackadvancedAdvancedPP =
+        Direction == ED_FORWARD
+            ? getMustBeExecutedPrevInstruction(It, AdvancedPP)
+            : getMustBeExecutedNextInstruction(It, AdvancedPP);
+    //errs() << "BAPP: " << BackadvancedAdvancedPP << "\n";
+    CanExtendPPPos = (BackadvancedAdvancedPP == PP);
+}
+
+  if (!AdvancedPPPos && CanExtendPPPos) {
+    //errs() << "Append!\n";
+    Pos.Interval->append(AdvancedPP, Direction);
+    Pos += Direction;
+    MustBeExecutedMap[AdvancedPP] = Pos;
+    return;
+  }
+
+  if (!AdvancedPPPos) {
+    AdvancedPPPos = getOrCreateIntervalPosition(AdvancedPP);
+    assert(AdvancedPPPos && AdvancedPPPos.getInstruction() == AdvancedPP &&
+           "Position did not match the instruction!");
+  }
+  //errs()  << "APPPP: ";
+  //AdvancedPPPos.print(errs(), true);
+  //AdvancedPPPos.getInstruction()->dump();
+  //errs() << " @@@ " << AdvancedPPPos.Interval->NextInsts.size();
+  //errs()  << " ::: " << AdvancedIntervalConnectsToCurrent << "\n";
+
+  if (CallStackChanged) {
+    Pos = AdvancedPPPos;
+    return;
+  }
+
+  // If we could not extend the interval associated with position we have to
+  // create a link to the interval of the advanced position now. We know that
+  // there is no link in the requested direction as we otherwise would not have
+  // explored.
+  if (Direction == ED_FORWARD) {
+    assert(!Pos.Interval->Next &&
+           "Explore called for a position with an existing link!");
+    //errs() << "Next 1!\n";
+    Pos.Interval->Next = AdvancedPPPos.Interval;
+  } else {
+    assert(!Pos.Interval->Prev &&
+           "Explore called for a position with an existing link!");
+    //errs() << "Prev 1!\n";
+    Pos.Interval->Prev = AdvancedPPPos.Interval;
+  }
+
+  // If the advanced position had an associated interval, e.g., due to a call to
+  // MustBeExecutedContextExplorer::begin(AdvancedPPP), but we know we can
+  // extend the interval of the current position, we can add backwards links to
+  // the advanced position interval now.
+  if (CanExtendPPPos) {
+    if (Direction == ED_FORWARD) {
+      assert((AdvancedIntervalConnectsToCurrent ||
+              !AdvancedPPPos.Interval->Prev) &&
+             "Explore called for a position not properly linked before!");
+      //errs() << "FCS: " << It.ForwardCallStack.size() << "\n";
+      //errs() << "BCS: " << It.BackwardCallStack.size() << "\n";
+      assert((*AdvancedPPPos.Interval)[0]->getFunction() ==
+             (*Pos.Interval)[0]->getFunction());
+      AdvancedPPPos.Interval->Prev = Pos.Interval;
+    } else {
+      assert((AdvancedIntervalConnectsToCurrent ||
+              !AdvancedPPPos.Interval->Next) &&
+             "Explore called for a position not properly linked before!");
+      //errs() << "FCS: " << It.ForwardCallStack.size() << "\n";
+      //errs() << "BCS: " << It.BackwardCallStack.size() << "\n";
+      assert((*AdvancedPPPos.Interval)[0]->getFunction() ==
+             (*Pos.Interval)[0]->getFunction());
+      AdvancedPPPos.Interval->Next = Pos.Interval;
+    }
+  }
+
+  Pos += Direction;
+  return;
+}
+
+template <>
+void MustBeExecutedIterator</* CachedOnly */ true>::explore(
+    MustBeExecutedInterval::Position &Pos, ExplorationDirection Direction) {
+  // No exploration in cached-only mode.
+  Pos += Direction;
+}
+
+template <>
+void MustBeExecutedIterator</* CachedOnly */ false>::explore(
+    MustBeExecutedInterval::Position &Pos, ExplorationDirection Direction) {
+  // Exploration is done by the explorer.
+  MustBeExecutedInterval::Position NewPos = Pos + Direction;
+  if (NewPos)
+    Pos = NewPos;
+  else
+    Explorer.explore(*this, Pos, Direction);
 }

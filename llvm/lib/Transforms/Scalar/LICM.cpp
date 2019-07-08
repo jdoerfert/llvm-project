@@ -863,13 +863,13 @@ bool llvm::hoistRegion(DomTreeNode *N, AliasAnalysis *AA, LoopInfo *LI,
         auto One = llvm::ConstantFP::get(Divisor->getType(), 1.0);
         auto ReciprocalDivisor = BinaryOperator::CreateFDiv(One, Divisor);
         ReciprocalDivisor->setFastMathFlags(I.getFastMathFlags());
-        SafetyInfo->insertInstructionTo(ReciprocalDivisor, I.getParent());
+        SafetyInfo->insertInstructionBefore(ReciprocalDivisor, &I);
         ReciprocalDivisor->insertBefore(&I);
 
         auto Product =
             BinaryOperator::CreateFMul(I.getOperand(0), ReciprocalDivisor);
         Product->setFastMathFlags(I.getFastMathFlags());
-        SafetyInfo->insertInstructionTo(Product, I.getParent());
+        SafetyInfo->insertInstructionAfter(Product, &I);
         Product->insertAfter(&I);
         I.replaceAllUsesWith(Product);
         eraseInstruction(I, *SafetyInfo, CurAST, MSSAU);
@@ -1426,7 +1426,7 @@ static void moveInstructionBefore(Instruction &I, Instruction &Dest,
                                   ICFLoopSafetyInfo &SafetyInfo,
                                   MemorySSAUpdater *MSSAU) {
   SafetyInfo.removeInstruction(&I);
-  SafetyInfo.insertInstructionTo(&I, Dest.getParent());
+  SafetyInfo.insertInstructionBefore(&I, &Dest);
   I.moveBefore(&Dest);
   if (MSSAU)
     if (MemoryUseOrDef *OldMemAcc = cast_or_null<MemoryUseOrDef>(
@@ -1963,7 +1963,7 @@ bool llvm::promoteLoopAccessesToScalars(
         // Note that proving a load safe to speculate requires proving
         // sufficient alignment at the target location.  Proving it guaranteed
         // to execute does as well.  Thus we can increase our guaranteed
-        // alignment as well. 
+        // alignment as well.
         if (!DereferenceableInPH || (InstAlignment > Alignment))
           if (isSafeToExecuteUnconditionally(*Load, DT, CurLoop, SafetyInfo,
                                              ORE, Preheader->getTerminator())) {
