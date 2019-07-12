@@ -29,6 +29,13 @@ define internal void @test_byval_2(%struct.pair* byval %P) {
   ret void
 }
 
+; Make sure unused byval arguments are not promoted but removed (or kept)
+;
+; CHECK: define internal void @test_byval_2()
+define internal void @test_byval_2(%struct.pair* byval %P) {
+  ret void
+}
+
 ; CHECK-LABEL: define {{.*}} @caller(
 define i32 @caller(i32** %Y, %struct.pair* %P) {
 ; CHECK:  load i32*, {{.*}} !dbg [[LOC_1:![0-9]+]]
@@ -42,8 +49,7 @@ define i32 @caller(i32** %Y, %struct.pair* %P) {
 ; CHECK-NEXT: load i32, i32* {{.*}} !dbg [[LOC_2]]
 ; CHECK-NEXT: call i32 @test_byval(i32 %{{.*}}, i32 %{{.*}}), !dbg [[LOC_2]]
   %v = call i32 @test_byval(%struct.pair* %P), !dbg !6
-; FIXME: This should be: call void @test_byval_2(), !dbg [[LOC_2:![0-9]+]]
-; CHECK: call void @test_byval_2(i32 %{{.*}}, i32 %{{.*}}), !dbg [[LOC_2:![0-9]+]]
+; CHECK: call void @test_byval_2(), !dbg [[LOC_2:![0-9]+]]
   call void @test_byval_2(%struct.pair* %P), !dbg !6
   ret i32 %v
 }

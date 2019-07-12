@@ -28,4 +28,3 @@ define i32 @foo() {
 ; CHECK: call i32 @callee(i1 false, i32* %A)
         ret i32 %X
 }
-

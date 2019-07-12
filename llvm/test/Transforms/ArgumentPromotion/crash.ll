@@ -95,14 +95,36 @@ bb:
   %tmp2 = load %S*, %S** %tmp
   %tmp3 = getelementptr %S, %S* %arg, i32 0, i32 0
   %tmp4 = load %S*, %S** %tmp3
-; FIXME: If we replace the %tmp5 call with the line below, the test will loop
-;        indefinitily or crash as argument promotion will continue to promote
-;        the arguments. Only direct recursion is currently detected.
 ; PR42683
-; %tmp5 = call i32 @test_inf2_promote_passthrough(%S* %tmp4, %S* %tmp2)
-  %tmp5 = call i32 @test_inf2_promote_callee(%S* %tmp4, %S* %tmp2)
-; CHECK: call i32 @test_inf2_promote_callee(%S* %{{.*}}, %S* %{{.*}})
+  %tmp5 = call i32 @test_inf2_promote_passthrough(%S* %tmp4, %S* %tmp2)
+; CHECK: call i32 @test_inf2_promote_passthrough(%S* %{{.*}}, %S* %{{.*}})
   ret i32 0
 }
 
 declare i32 @wibble(...)
+
+%type_opaque = type opaque
+
+; CHECK: define internal fastcc i32 @f0(i32)
+; CHECK: ret i32 %0
+define internal fastcc i32 @f0(%type_opaque* nocapture readonly %a0) noinline {
+entry:
+  %0 = bitcast %type_opaque* %a0 to i8*
+  %add.ptr = getelementptr i8, i8* %0, i32 24
+  %1 = bitcast i8* %add.ptr to i32*
+  %2 = load i32, i32* %1, align 16
+  ret i32 %2
+}
+
+; CHECK:      define fastcc i32 @f1(%type_opaque* nocapture readonly %a0)
+; CHECK-NEXT:   %[[ptr:[^ ]*]] = bitcast %type_opaque* %a0 to i8*
+; CHECK-NEXT:   %[[gep:[^ ]*]] = getelementptr i8, i8* %[[ptr]], i32 24
+; CHECK-NEXT:   %[[cst:[^ ]*]] = bitcast i8* %[[gep]] to i32*
+; CHECK-NEXT:   %[[val:[^ ]*]] = load i32, i32* %[[cst]], align 16
+; CHECK-NEXT:   %t = call fastcc i32 @f0(i32 %[[val]])
+; CHECK-NEXT:   ret i32 %t
+
+define fastcc i32 @f1(%type_opaque* nocapture readonly %a0) {
+  %t = call fastcc i32 @f0(%type_opaque* %a0)
+  ret i32 %t
+}

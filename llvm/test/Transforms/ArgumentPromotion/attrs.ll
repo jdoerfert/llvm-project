@@ -3,17 +3,17 @@
 
 %struct.ss = type { i32, i64 }
 
-; FIXME: We should promote 'byval %X' here if we promote it.
-; PR42852
-define internal void @f(%struct.ss* byval %b, i32* byval %X, i32 %i) nounwind {
-; CHECK-LABEL: define internal void @f(
-; CHECK: i32 %[[B0:.*]], i64 %[[B1:.*]], i32* byval %X, i32 %i)
+define internal i32 @f(%struct.ss* byval %b, i32* byval %X, i32 %i) nounwind {
+; CHECK-LABEL: define internal i32 @f(
+; CHECK: i32 %[[B0:.*]], i64 %[[B1:.*]], i32 %[[XV:.*]], i32 %i)
 entry:
 ; CHECK: %[[B:.*]] = alloca %struct.ss
-; CHECK: %[[B_GEP0:.*]] = getelementptr %struct.ss, %struct.ss* %[[B]], i32 0, i32 0
+; CHECK: %[[B_GEP0:.*]] = bitcast %struct.ss* %[[B]] to i32*
 ; CHECK: store i32 %[[B0]], i32* %[[B_GEP0]]
 ; CHECK: %[[B_GEP1:.*]] = getelementptr %struct.ss, %struct.ss* %[[B]], i32 0, i32 1
 ; CHECK: store i64 %[[B1]], i64* %[[B_GEP1]]
+; CHECK: %[[X:.*]] = alloca i32
+; CHECK: store i32 %[[XV]], i32* %[[X]]
 
   %tmp = getelementptr %struct.ss, %struct.ss* %b, i32 0, i32 0
 ; CHECK: %[[TMP:.*]] = getelementptr %struct.ss, %struct.ss* %[[B]], i32 0, i32 0
@@ -26,7 +26,7 @@ entry:
 
   store i32 0, i32* %X
 ; CHECK: store i32 0, i32* %X
-  ret void
+  ret i32 %i
 }
 
 ; Make sure we don't drop the call zeroext attribute.
@@ -42,12 +42,13 @@ entry:
   store i64 2, i64* %tmp4, align 4
 ; CHECK: store i64 2
 
-  call void @f( %struct.ss* byval %S, i32* byval %X, i32 zeroext 0)
+  call i32 @f( %struct.ss* byval %S, i32* byval %X, i32 zeroext 0)
 ; CHECK: %[[S_GEP0:.*]] = getelementptr %struct.ss, %struct.ss* %[[S]], i32 0, i32 0
 ; CHECK: %[[S0:.*]] = load i32, i32* %[[S_GEP0]]
 ; CHECK: %[[S_GEP1:.*]] = getelementptr %struct.ss, %struct.ss* %[[S]], i32 0, i32 1
 ; CHECK: %[[S1:.*]] = load i64, i64* %[[S_GEP1]]
-; CHECK: call void @f(i32 %[[S0]], i64 %[[S1]], i32* byval %X, i32 zeroext 0)
+; CHECK: %[[XVal:.*]] = load i32, i32* %X
+; CHECK: call i32 @f(i32 %[[S0]], i64 %[[S1]], i32 %[[XVal]], i32 zeroext 0)
 
   ret i32 0
 }

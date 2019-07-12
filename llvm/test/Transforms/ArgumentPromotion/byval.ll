@@ -58,8 +58,7 @@ entry:
 ; CHECK: call void @g(i32 %{{.*}}, i64 %{{.*}})
 
 ; Verify we unpack the byval array.
-; FIXME: this sould be: call void @h(i32 %{{[a-zA-Z._0-9]*}}, i32 %{{[a-zA-Z._0-9]*}})
-; CHECK: call void @h([2 x i32]* byval %A)
+; CHECK: call void @h(i32 %{{[a-zA-Z._0-9]*}}, i32 %{{[a-zA-Z._0-9]*}})
   call void @h([2 x i32]* byval %A) nounwind
   ret i32 0
 }

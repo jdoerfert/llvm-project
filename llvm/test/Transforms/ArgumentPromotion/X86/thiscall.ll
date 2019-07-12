@@ -3,9 +3,10 @@
 ; we don't do that anymore. It also verifies that the combination of
 ; globalopt and argpromotion is able to optimize the call safely.
 ;
-; RUN: opt -S -argpromotion %s | FileCheck --check-prefix=THIS %s
+; RUN: opt -S -argpromotion %s | FileCheck --check-prefix=DUMMY %s
 ; RUN: opt -S -globalopt -argpromotion %s | FileCheck --check-prefix=OPT %s
-; THIS: define internal x86_thiscallcc void @internalfun(%struct.a* %this, <{ %struct.a
+; DUMMY: define internal x86_thiscallcc void @internalfun(i8, <{ %struct.a
+; DUMMY: void @internalfun(i8 undef, <{ %struct.a
 ; OPT: define internal fastcc void @internalfun(<{ %struct.a }>*)
 
 target datalayout = "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32"

@@ -12,8 +12,75 @@
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/CallSite.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace llvm {
+class AAResults;
+class TargetTransformInfo;
+
+struct ArgumentPromoter {
+
+  template <typename T> using GetterTy = std::function<T &(Function &F)>;
+  using AARGetterTy = GetterTy<AAResults>;
+  using TTIGetterTy = GetterTy<const TargetTransformInfo>;
+
+  using CallSiteReplacerTy = std::function<void(CallSite, CallSite)>;
+  using FunctionReplacerTy = std::function<void(Function&, Function&)>;
+
+  // TODO: Eliminate the function and call site replacer once the old PM is gone
+  //       and there is only one way of updating the call graph.
+  ArgumentPromoter(unsigned MaxElements, AARGetterTy &AARGetter,
+                   TTIGetterTy &TTIGetter, FunctionReplacerTy &FunctionReplacer,
+                   CallSiteReplacerTy *CallSiteReplacer)
+      : MaxElements(MaxElements), AARGetter(AARGetter), TTIGetter(TTIGetter),
+        FunctionReplacer(FunctionReplacer), CallSiteReplacer(CallSiteReplacer) {}
+
+  void analyze(Function &F);
+  void analyze(Module &M) {
+    for (Function &F : M)
+      analyze(F);
+  }
+
+  bool promoteArguments();
+
+  struct LoadAtOffset {
+    LoadInst *L;
+    int64_t Offset;
+  };
+  struct OffsetAndLength {
+    int64_t Offset;
+    uint64_t Length;
+  };
+  struct ArgumentPromotionInfo {
+    SmallVector<OffsetAndLength, 2> LoadableRange;
+    SmallVector<LoadAtOffset, 2> Loads;
+    bool KeepArgument;
+  };
+  struct FunctionPromotionInfo {
+    SmallVector<ArgumentPromotionInfo, 8> ArgInfos;
+    SmallPtrSet<FunctionType *, 8> SeenTypes;
+  };
+
+private:
+
+  bool allowsArgumentPromotion(Function &F);
+
+  bool canPromoteArgument(Argument &Arg);
+
+  Function *promoteArguments(SmallPtrSetImpl<Argument *> &ArgsToPromote);
+
+  DenseMap<Function *, FunctionPromotionInfo> FunctionPromotionInfoMap;
+
+  void collectDereferenceableOffsets(Function &F, FunctionPromotionInfo &FPI);
+
+  const unsigned MaxElements;
+  AARGetterTy &AARGetter;
+  TTIGetterTy &TTIGetter;
+  FunctionReplacerTy &FunctionReplacer;
+  CallSiteReplacerTy *CallSiteReplacer;
+};
 
 /// Argument promotion pass.
 ///

@@ -24,8 +24,7 @@ define internal void @baz(%pair* byval %Data) {
 ; CHECK: define internal void @baz(i32 %{{.*}}, i32 %{{.*}})
 ; CHECK: %Data = alloca %pair
 ; CHECK: %Data2 = getelementptr %pair, %pair* %Data
-; FIXME: This is broken right now, it should be CHECK-NOT!
-; CHECK: tail
+; CHECK-NOT: tail
 ; CHECK: call i8* @foo(%pair* %Data2)
   %Data2 = getelementptr %pair, %pair* %Data
   tail call i8* @foo(%pair* %Data2)
@@ -39,8 +38,7 @@ define internal void @biz(%pair* byval %Data) {
 ; CHECK: define internal void @biz(i32 %{{.*}}, i32 %{{.*}})
 ; CHECK: %Data = alloca %pair
 ; CHECK: %Data2 = load %pair*, %pair** @a
-; FIXME: This is broken right now, it should be CHECK-NOT!
-; CHECK: tail
+; CHECK-NOT: tail
 ; CHECK: call i8* @foo(%pair* %Data2)
   call void @unknown(%pair* %Data)
   %Data2 = load %pair*, %pair** @a
@@ -52,8 +50,7 @@ define internal void @buz(%pair* byval %Data) {
 ; CHECK: define internal void @buz(i32 %{{.*}}, i32 %{{.*}})
 ; CHECK: %Data = alloca %pair
 ; CHECK: call i8* @foo(%pair* %Data)
-; FIXME: This is broken right now, it should be CHECK-NOT!
-; CHECK: tail
+; CHECK-NOT: tail
 ; CHECK: call i8* @foo(%pair* %Data2)
   %fr = call i8* @foo(%pair* %Data)
   %Data2 = bitcast i8* %fr to %pair*
