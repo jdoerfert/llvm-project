@@ -511,8 +511,6 @@ class Value;
 
   /// Return true if this function can prove that the instruction I
   /// is executed for every iteration of the loop L.
-  ///
-  /// Note that this currently only considers the loop header.
   bool isGuaranteedToExecuteForEveryIteration(const Instruction *I,
                                               const Loop *L);
 

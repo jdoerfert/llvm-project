@@ -25,20 +25,15 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerIntPair.h"
-#include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/InstructionPrecedenceTracking.h"
 #include "llvm/Analysis/LoopInfo.h"
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Analysis/PostDominators.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instruction.h"
-
-STATISTIC(NumMustBeExecutedIteratorAdvancesCached,
-          "Number of must-be-executed iterator advances already cached");
-STATISTIC(NumMustBeExecutedIteratorAdvancesExplored,
-          "Number of must-be-executed iterator advances explored");
 
 namespace llvm {
 
@@ -224,23 +219,24 @@ public:
 };
 
 /// Forward declaration.
+struct MustBeExecutedIterator;
 struct MustBeExecutedContextExplorer;
 
 /// Enum that allows us to spell out the direction.
-enum ExplorationDirection {
-  ED_BACKWARD = 0,
-  ED_FORWARD = 1,
+enum class ExplorationDirection {
+  BACKWARD = 0,
+  FORWARD = 1,
 };
 
-/// Must be executed intervals are stretches of instructions that are guaranteed
-/// to be executed together without any other instruction executed in-between.
-/// In addition, intervals are linked. Each knows the interval always executed
-/// before and the on always executed afterward, if they exit.
+/// Must be executed iterators visit stretches of instructions that are
+/// guaranteed to be executed together, potentially with other instruction
+/// executed in-between.
 ///
 /// Given the following code, and assuming all statements are single
 /// instructions which transfer execution to the successor (see
-/// isGuaranteedToTransferExecutionToSuccessor), there are three intervals as
-/// shown in the table below.
+/// isGuaranteedToTransferExecutionToSuccessor), there are two possible
+/// outcomes. If we start the iterator at A, B, or E, we will visit only A, B,
+/// and E. If we start at C or D, we will visit all instructions A-E.
 ///
 /// \code
 ///   A;
@@ -252,19 +248,20 @@ enum ExplorationDirection {
 ///   E;
 /// \endcode
 ///
-/// No  | Instructions | Previous | Next
-/// (1) |        A ; B |     None |  (3)
-/// (2) |        C ; D |      (1) |  (3)
-/// (3) |            E |      (1) | None
 ///
-/// From the above table one can derive that C and D are always executed with
-/// A, B, and E. However, A, B, and E, are not necessarily executed with C and
-/// D but always together.
+/// Below is the example extneded with instructions F and G. Now we assume F
+/// might not transfer execution to it's successor G. As a result we get the
+/// following visit sets:
 ///
+/// Start Instruction   | Visit Set
+/// A                   | A, B,       E, F
+///    B,               | A, B,       E, F
+///       C             | A, B, C, D, E, F
+///          D          | A, B, C, D, E, F
+///             E       | A, B,       E, F
+///                F    | A, B,       E, F
+///                   G | A, B,       E, F, G
 ///
-/// Below is an extended example with instructions F and G and we assume F might
-/// not transfer execution to it's successor G. The resulting intervals are
-/// shown in the table below.
 ///
 /// \code
 ///   A;
@@ -278,22 +275,13 @@ enum ExplorationDirection {
 ///   G;
 /// \endcode
 ///
-/// No  | Instructions | Previous | Next
-/// (1) |        A ; B |     None |  (3)
-/// (2) |        C ; D |      (1) |  (3)
-/// (3) |        E ; F |      (1) | None
-/// (4) |            G |      (3) | None
-///
-/// As indicated by the table, E and F are executed always together with A and B
-/// but not C, D, or G. However, G is always executed with A, B, E, and F.
-///
 ///
 /// A more complex example involving conditionals, loops, break, and continue
 /// is shown below. We again assume all instructions will transmit control to
-/// the successor and we assume we can prove the loops to be finite. We omit
-/// non-trivial branch conditions as the exploration is oblivious to them.
+/// the successor and we assume we can prove the inner loop to be finite. We
+/// omit non-trivial branch conditions as the exploration is oblivious to them.
 /// Constant branches are assumed to be unconditional in the CFG. The resulting
-/// intervals are shown in the table below.
+/// visist sets are shown in the table below.
 ///
 /// \code
 ///   A;
@@ -310,197 +298,27 @@ enum ExplorationDirection {
 ///       if (...)
 ///         continue;
 ///       E;
-///     } while (...)
+///     } while (...);
 ///     F;
 ///   }
 ///   G;
 /// \endcode
 ///
-/// No  | Instructions | Previous | Next
-/// (1) |            A |     None |  (7)
-/// (2) |            B |      (1) |  (4)
-/// (3) |            C |      (2) |  (4)
-/// (4) |            D |      (2) |  (7)
-/// (5) |            E |      (4) |  (6)
-/// (6) |            F |      (4) |  (2)
-/// (7) |            G |      (1) | None
+/// Start Instruction   | Visit Set
+/// A                   | A, B
+///    B                | A, B
+///       C             | A, B, C
+///          D          | A, B,    D
+///             E       | A, B,    D, E, F
+///                F    | A, B,    D,    F
+///                  G  | A, B,    D,       G
 ///
 ///
-/// Note that the examples show optimal intervals but not necessarily the ones
-/// derived by the explorer (see MustBeExecutedContextExplorer). Also note that
-/// intervals will only contain instructions from a single function but they can
-/// be linked to intervals containing instructions from other functions, e.g.,
-/// if you would outline instructions C and D in the first example such that
-/// there is a call to a function containing them instead.
-///
-///
-/// Implementation:
-/// Intervals are centered around an instruction at position 0. From there, they
-/// grow in both directions using the NextInsts and PrevInst vector,
-/// respectively. The links to the next and previous interval are stored in the
-/// Next and Prev pointers. Note that we avoid exposing any of the underlying
-/// structures because the order in which instructions are queried can change
-/// the actual layout of intervals.
-///
-/// Positions:
-/// In order to explore an intervals one needs to have a position which can be
-/// incremented/decremented. Positions combine a current interval with an
-/// offset. That is, they represent the instruction offset "steps" before/after
-/// the center of the interval which is at offset 0. Offset can therefore be
-/// negative. If a position runs out of instructions in the interval it will
-/// try to move to the next interval in the requested direction, if one exists.
-/// In case there was no interval, the position becomes invalid.
-struct MustBeExecutedInterval {
-
-  /// Constructor for a new interval centered around \p I.
-  MustBeExecutedInterval(const Instruction *I) : Prev(nullptr), Next(nullptr) {
-    assert(I && "Cannot construct an interval for a null pointer!");
-    // Put the instruction I in both vectors to make the offset and in-bounds
-    // calculation easier.
-    NextInsts.push_back(I);
-    PrevInsts.push_back(I);
-  }
-
-  /// Return true if \p Offset is part of this interval, false otherwise.
-  ///
-  /// This function deals with both positive and negative offsets as measured
-  /// from the center instruction at offset 0.
-  bool isInbounds(int Offset) {
-    return Offset >= 0 ? (int)NextInsts.size() > Offset
-                       : (int)PrevInsts.size() > -Offset;
-  }
-
-  /// Subscript operator to allow easy access to the instructions based on their
-  /// offset.
-  const Instruction *&operator[](int Offset) {
-    assert(isInbounds(Offset) && "Trying to access an interval out-of-bounds!");
-    return Offset >= 0 ? NextInsts[Offset] : PrevInsts[-Offset];
-  }
-
-  /// Print method for debugging purposes.
-  void print(raw_ostream &OS, bool Detailed = false) const {
-    OS << "[" << Prev << ":" << this << ":" << Next << "]";
-    if (Detailed) {
-      OS << "\n";
-      for (auto *I : PrevInsts)
-        OS << "- " << *I << "\n";
-      for (auto *I : NextInsts)
-        OS << "- " << *I << "\n";
-    }
-  }
-
-  /// Return the number of instructions contained in this interval.
-  size_t size() const {
-    return NextInsts.size() + PrevInsts.size() /* the center is duplicated */ - 1;
-  }
-
-  /// A position on the interval chain.
-  ///
-  /// See MustBeExecutedInterval for more information.
-  struct Position {
-
-    Position(MustBeExecutedInterval *Interval = nullptr)
-        : Interval(Interval), Offset(0) {}
-
-    /// Return the instruction at this position.
-    const Instruction *getInstruction() const {
-      assert(bool(*this) &&
-             "Invalid positions do not have an associated instruction!");
-      return (*Interval)[Offset];
-    }
-
-    /// Allow valid positions to evaluate to 'true' and invalid ones to 'false'
-    /// when a position is converted to a boolean.
-    operator bool() const { return Interval; }
-
-    /// Equality operator.
-    bool operator==(const Position &Other) const {
-      return Interval == Other.Interval && Offset == Other.Offset;
-    }
-
-    /// Advance the position in the direction \p Direction.
-    ///
-    /// If there is no next instruction in the direction, this will result in
-    /// an invalid position, hence the interval will be a nullptr.
-    ///{
-    friend Position operator+(Position Pos, ExplorationDirection Direction) {
-      return Pos += Direction;
-    }
-
-    Position &operator+=(ExplorationDirection Direction) {
-      assert(Interval && "Cannot advance in invalid position!");
-      int DirectionOffset = Direction == ED_FORWARD ? 1 : -1;
-
-      // If the offset adjusted wrt. direction is still in the associated
-      // interval, we adjust the offset and are done. Otherwise, we try to go to
-      // the linked interval in the direction and set the offset accordingly,
-      // hence to the very beginning or end depending on the direction. If there
-      // is no linked interval, all members will be set to NULL and the position
-      // becomes invalid.
-      if (Interval->isInbounds(Offset + DirectionOffset)) {
-        Offset += DirectionOffset;
-      } else if ((Interval = (Direction == ED_FORWARD ? Interval->Next
-                                                      : Interval->Prev))) {
-        Offset = Direction == ED_FORWARD ? 1 - Interval->PrevInsts.size()
-                                         : Interval->NextInsts.size() - 1;
-      } else {
-        Offset = 0;
-      }
-      return *this;
-    }
-    ///}
-
-    /// Print method for debugging purposes.
-    void print(raw_ostream &OS, bool Detailed = false) const {
-      OS << "{";
-      if (Interval)
-        Interval->print(OS, Detailed);
-      else
-        OS << "[NONE:NONE:NONE]";
-      OS << "@" << Offset << "}";
-    }
-
-  private:
-    /// The interval this position is currently associated with.
-    MustBeExecutedInterval *Interval;
-
-    /// The current offset from the center of the associated interval.
-    int Offset;
-
-    friend class MustBeExecutedContextExplorer;
-  };
-
-private:
-  /// The vectors that represent the instructions in the interval.
-  ///{
-  using InstructionVector = SmallVector<const Instruction *, 8>;
-  InstructionVector PrevInsts, NextInsts;
-  ///}
-
-  /// The links to the previous and next interval.
-  struct MustBeExecutedInterval *Prev, *Next;
-
-  /// Append the interval by \p I in the front or back, depending on \p Front.
-  void append(const Instruction *I, bool Front) {
-    if (Front) {
-      NextInsts.push_back(I);
-      assert(!Next &&
-             "Cannot advance the front if a next interval is already set!");
-    } else {
-      PrevInsts.push_back(I);
-      assert(!Prev &&
-             "Cannot advance the back if a previous interval is already set!");
-    }
-  }
-
-  friend struct MustBeExecutedContextExplorer;
-};
-
-/// An input iterator for must be executed intervals. Depending on the template
-/// parameter \p CachedOnly, the iterator will either only visit existing
-/// instructions in the interval (CachedOnly == true) or also use the
-/// MustBeExecutedContextExplorer to extend the intervals if needed.
-template <bool CachedOnly> struct MustBeExecutedIterator {
+/// Note that the examples show optimal visist sets but not necessarily the ones
+/// derived by the explorer depending on the available CFG analyses (see
+/// MustBeExecutedContextExplorer). Also note that we, depending on the options,
+/// the visit set can contain instructions from other functions.
+struct MustBeExecutedIterator {
   /// Type declarations that make his class an input iterator.
   ///{
   typedef const Instruction *value_type;
@@ -510,35 +328,20 @@ template <bool CachedOnly> struct MustBeExecutedIterator {
   typedef std::input_iterator_tag iterator_category;
   ///}
 
-  /// Type definition to choose the const version of the
-  /// MustBeExecutedContextExplorer in cached-only mode.
-  using ExplorerTy =
-      typename std::conditional<CachedOnly, const MustBeExecutedContextExplorer,
-                                MustBeExecutedContextExplorer>::type;
-
-  /// Constructor replacements to create a begin and end iterator respectively.
-  ///{
-  static MustBeExecutedIterator
-  begin(ExplorerTy &Explorer, const MustBeExecutedInterval::Position &Pos) {
-    if (!Pos)
-      return end(Explorer);
-    return MustBeExecutedIterator(Explorer, Pos);
-  }
-
-  static MustBeExecutedIterator end(ExplorerTy &Explorer) {
-    return MustBeExecutedIterator(Explorer);
-  }
-  ///}
+  using ExplorerTy = MustBeExecutedContextExplorer;
 
   MustBeExecutedIterator(const MustBeExecutedIterator &Other)
       : Visited(Other.Visited), ForwardCallStack(Other.ForwardCallStack),
-        BackwardCallStack(Other.BackwardCallStack), Explorer(Other.Explorer),
+        BackwardCallStack(Other.BackwardCallStack),
+        DelayStack(Other.DelayStack),
+         Explorer(Other.Explorer),
         CurInst(Other.CurInst), Head(Other.Head), Tail(Other.Tail) {}
 
   MustBeExecutedIterator(MustBeExecutedIterator &&Other)
       : Visited(std::move(Other.Visited)),
         ForwardCallStack(std::move(Other.ForwardCallStack)),
         BackwardCallStack(std::move(Other.BackwardCallStack)),
+        DelayStack(std::move(Other.DelayStack)),
         Explorer(Other.Explorer), CurInst(Other.CurInst), Head(Other.Head),
         Tail(Other.Tail) {}
 
@@ -547,7 +350,7 @@ template <bool CachedOnly> struct MustBeExecutedIterator {
       std::swap(Visited, Other.Visited);
       std::swap(ForwardCallStack, Other.ForwardCallStack);
       std::swap(BackwardCallStack, Other.BackwardCallStack);
-      std::swap(Explorer, Other.Explorer);
+      std::swap(DelayStack, Other.DelayStack);
       std::swap(CurInst, Other.CurInst);
       std::swap(Head, Other.Head);
       std::swap(Tail, Other.Tail);
@@ -555,8 +358,10 @@ template <bool CachedOnly> struct MustBeExecutedIterator {
     return *this;
   }
 
-  /// Pre- and post-increment operators. Both can cause the underlying intervals
-  /// to be extended if this is not a cached-only iterator.
+  ~MustBeExecutedIterator() {
+  }
+
+  /// Pre- and post-increment operators.
   ///{
   MustBeExecutedIterator &operator++() {
     CurInst = advance();
@@ -583,11 +388,19 @@ template <bool CachedOnly> struct MustBeExecutedIterator {
 
   /// Return the underlying instruction.
   const Instruction *&operator*() { return CurInst; }
+  const Instruction *getCurrentInst() const { return CurInst; }
 
   /// Return true if \p I was encountered by this iterator already.
   bool count(const Instruction *I) const {
-    return Visited.count({I, ED_FORWARD}) || Visited.count({I, ED_BACKWARD});
+    return Visited->count({I, ExplorationDirection::FORWARD}) ||
+           Visited->count({I, ExplorationDirection::BACKWARD});
   }
+
+  /// Call stack value map interface
+  ///{
+  // TODO: allow the user to map values encountered in other functions back to
+  //       the function the iterator was exploring initially.
+  ///}
 
   /// Configurable print method for debugging purposes.
   ///
@@ -599,88 +412,40 @@ template <bool CachedOnly> struct MustBeExecutedIterator {
     if (PrintInst)
       OS << "[" << *CurInst << "]";
 
-    if (!PrintInterval)
-      return;
-
-    if (Head.getInstruction() == CurInst) {
-      Head.print(OS, false);
-    } else {
-      assert(Tail.getInstruction() == CurInst &&
-             "Neither head nor tail pointed at the current instruction!");
-      Tail.print(OS, false);
-    }
+    if (PrintInterval)
+      OS << "[H: " << *Head << "|T: " << *Tail << "]";
   }
 
 private:
-  /// Private constructors to disallow direct construction. Use
-  /// MustBeExecutedIterator::begin and MustBeExecutedIterator::end instead.
-  ///{
-  MustBeExecutedIterator(ExplorerTy &Explorer)
-      : Explorer(Explorer), CurInst(nullptr) {}
+  using VisitedSetTy =
+      DenseSet<PointerIntPair<const Instruction *, 1, ExplorationDirection>>;
 
-  MustBeExecutedIterator(ExplorerTy &Explorer,
-                         const MustBeExecutedInterval::Position &Pos)
-      : Explorer(Explorer), CurInst(Pos.getInstruction()) {
-    if (Explorer.ExploreCFGForward)
-      Head = Pos;
-    if (Explorer.ExploreCFGBackward)
-      Tail = Pos;
-  }
-  ///}
+  /// Private constructors.
+  MustBeExecutedIterator(ExplorerTy &Explorer, const Instruction *I);
+
+  MustBeExecutedIterator(MustBeExecutedContextExplorer &Explorer,
+                         const Instruction *I,
+                         std::shared_ptr<VisitedSetTy> Visited);
+
+  /// Reset the iterator to its initial state pointing at \p I.
+  void reset(const Instruction *I);
+
+  /// Reset the iterator to point at \p I, keep cached state.
+  void resetInstruction(const Instruction *I);
 
   /// Try to advance one of the underlying positions (Head or Tail).
   ///
-  /// \return The next instruction in the must be executed context, or nullptr
-  ///         if none was found.
-  const Instruction *advance() {
-    assert(CurInst && "Cannot advance an end iterator!");
-
-    // Use the opcode to determine if we advance forward or backward first. This
-    // allows to explore the context in both directions in a deterministic way.
-    // We will advance in the other direction if the first try did not yield a
-    // new instruction.
-    //
-    // TODO: Allow the user to choose different exploration styles.
-    const auto &OpC = CurInst->getOpcode();
-    MustBeExecutedInterval::Position *FirstPos = &Head, *SecondPos = &Tail;
-    ExplorationDirection Direction = OpC % 2 ? ED_FORWARD : ED_BACKWARD;
-    if (Direction == ED_BACKWARD)
-      std::swap(FirstPos, SecondPos);
-
-    if (const Instruction *I = advance(*FirstPos, Direction))
-      return I;
-    return advance(*SecondPos,
-                   Direction == ED_FORWARD ? ED_BACKWARD : ED_FORWARD);
-  }
-
-  /// Try to advance the given position \p Pos in the direction \p Direction.
+  /// \param PoppedCallStack Flag to indicate if we just popped an instruction
+  ///                        from the call stack such that we do not enter the
+  ///                        same call site again.
   ///
   /// \return The next instruction in the must be executed context, or nullptr
   ///         if none was found.
-  const Instruction *advance(MustBeExecutedInterval::Position &Pos,
-                             ExplorationDirection Direction) {
-    // Check if the position is valid, if not, there is nothing to advance to.
-    if (!Pos)
-      return nullptr;
-
-    // Check if we explored the new position already, if not, try to do it now.
-    // Exploration can fail, e.g., there is no known "next" instruction or if
-    // this a cached-only iterator. In such a case we return a nullptr.
-    // Otherwise, we advance the position and indicate success by returning the
-    // new instruction the position points to.
-    explore(Pos, Direction);
-    return Pos ? Pos.getInstruction() : nullptr;
-  }
-
-  /// Helper that delegates to Explorer.explore in non-cached-only mode and
-  /// returns false otherwise.
-  void explore(MustBeExecutedInterval::Position &Pos,
-               ExplorationDirection Direction);
+  const Instruction *advance(bool PoppedCallStack = false);
 
   /// A set to track the visited instructions in order to deal with endless
   /// loops and recursion.
-  SmallPtrSet<PointerIntPair<const Instruction *, 1, ExplorationDirection>, 16>
-      Visited;
+  std::shared_ptr<VisitedSetTy> Visited;
 
   /// Call stack used in forward exploration of the call graph.
   SmallVector<const Instruction *, 0> ForwardCallStack;
@@ -688,8 +453,11 @@ private:
   /// Call stack used in backward exploration of the call graph.
   SmallVector<const Instruction *, 0> BackwardCallStack;
 
-  /// A reference to the explorer that created this iterator. The explorer is in
-  /// charge of advancing the intervals the iterator works on.
+  /// Stack used in forward exploration when multiple successors are known to be
+  /// executed.
+  SetVector<const Instruction *> DelayStack;
+
+  /// A reference to the explorer that created this iterator.
   ExplorerTy &Explorer;
 
   /// The instruction we are currently exposing to the user. There is always an
@@ -697,10 +465,10 @@ private:
   /// initially the program point itself.
   const Instruction *CurInst;
 
-  /// Two interval positions that mark the program points where this iterator
-  /// will look for the next instruction. Note that the current instruction is
-  /// either the one pointed to by Head, Tail, or both.
-  MustBeExecutedInterval::Position Head, Tail;
+  /// Two positions that mark the program points where this iterator will look
+  /// for the next instruction. Note that the current instruction is either the
+  /// one pointed to by Head, Tail, or both.
+  const Instruction *Head, *Tail;
 
   friend struct MustBeExecutedContextExplorer;
 };
@@ -710,33 +478,59 @@ private:
 /// reached. The MustBeExecutedContextExplorer is a lazy and caching interface
 /// to explore "must be executed contexts" in a module.
 ///
-/// The explorer exposes parametrized "must be executed iterators" that traverse
-/// the must be executed context according to the specified parameters.
+/// The explorer exposes "must be executed iterators" that traverse the must be
+/// executed context. There is little information sharing between iterators as
+/// the expected use case involves few iterators for "far apart" instructions.
+/// If that changes, we should consider caching more intermediate results.
 struct MustBeExecutedContextExplorer {
 
   /// Create a CFG only explorer with the given analyses as support.
-  MustBeExecutedContextExplorer(const DominatorTree *DT = nullptr,
+  ///
+  /// \param ExploreInterBlock    Flag to indicate if instructions in blocks
+  ///                             other than the parent of PP should be
+  ///                             explored.
+  /// \param ExploreCFGForward    Flag to indicate if instructions located after
+  ///                             PP in the CFG, e.g., post-dominating PP,
+  ///                             should be explored.
+  /// \param ExploreCFGBackward   Flag to indicate if instructions located
+  ///                             before PP in the CFG, e.g., dominating PP,
+  ///                             should be explored.
+  /// \param ExploreFlowSensitive Flag to indicate if flow-sensitive reasoning
+  ///                             should be performed during exploration.
+  MustBeExecutedContextExplorer(bool ExploreInterBlock, bool ExploreCFGForward,
+                                bool ExploreCFGBackward,
+                                bool ExploreFlowSensitive,
+                                const DominatorTree *DT = nullptr,
                                 const PostDominatorTree *PDT = nullptr,
                                 const LoopInfo *LI = nullptr)
       : MustBeExecutedContextExplorer(
-            true, true, false, false, [=](const Function &) { return LI; },
+            ExploreInterBlock, ExploreCFGForward, ExploreCFGBackward, false,
+            false, ExploreFlowSensitive, [=](const Function &) { return LI; },
             [=](const Function &) { return DT; },
             [=](const Function &) { return PDT; }) {}
 
-  /// \param ExploreCFGForward  Flag to indicate if instructions located after
-  ///                           PP in the CFG, e.g., post-dominating PP, should
-  ///                           be explored.
-  /// \param ExploreCFGBackward Flag to indicate if instructions located before
-  ///                           PP in the CFG, e.g., dominating PP, should be
-  ///                           explored.
-  /// \param ExploreCGForward   Flag to indicate if instructions located in a
-  ///                           callee that is reached from PP should be
-  ///                           explored. Hence if the call graph (CG) is
-  ///                           traverse in forward direction.
-  /// \param ExploreCGBackward  Flag to indicate if instructions located in a
-  ///                           caller that leads to PP should be explored.
-  ///                           Hence if the call graph (CG) is traverse in
-  ///                           backwards direction.
+  /// In the description of the parameters we use PP to denote a program point
+  /// for which the must be executed context is explored.
+  ///
+  /// \param ExploreInterBlock    Flag to indicate if instructions in blocks
+  ///                             other than the parent of PP should be
+  ///                             explored.
+  /// \param ExploreCFGForward    Flag to indicate if instructions located after
+  ///                             PP in the CFG, e.g., post-dominating PP,
+  ///                             should be explored.
+  /// \param ExploreCFGBackward   Flag to indicate if instructions located
+  ///                             before PP in the CFG, e.g., dominating PP,
+  ///                             should be explored.
+  /// \param ExploreCGForward     Flag to indicate if instructions located in a
+  ///                             callee that is reached from PP should be
+  ///                             explored. Hence if the call graph (CG) is
+  ///                             traverse in forward direction.
+  /// \param ExploreCGBackward    Flag to indicate if instructions located in a
+  ///                             caller that leads to PP should be explored.
+  ///                             Hence if the call graph (CG) is traverse in
+  ///                             backwards direction.
+  /// \param ExploreFlowSensitive Flag to indicate if flow-sensitive reasoning
+  ///                             should be performed during exploration.
   /// \param LIGetter  Return the LoopInfo analysis for a given function or a
   ///                  nullptr if it is not available.
   /// \param DTGetter  Return the DominatorTree analysis for a given function or
@@ -744,49 +538,58 @@ struct MustBeExecutedContextExplorer {
   /// \param PDTGetter Return the PostDominatorTree analysis for a given
   ///                  function or a nullptr if it is not available.
   MustBeExecutedContextExplorer(
-      bool ExploreCFGForward, bool ExploreCFGBackward, bool ExploreCGForward,
-      bool ExploreCGBackward,
+      bool ExploreInterBlock, bool ExploreCFGForward, bool ExploreCFGBackward,
+      bool ExploreCGForward, bool ExploreCGBackward, bool ExploreFlowSensitive,
       GetterTy<const LoopInfo> LIGetter =
           [](const Function &) { return nullptr; },
       GetterTy<const DominatorTree> DTGetter =
           [](const Function &) { return nullptr; },
       GetterTy<const PostDominatorTree> PDTGetter =
           [](const Function &) { return nullptr; })
-      : ExploreCFGForward(ExploreCFGForward),
+      : ExploreInterBlock(ExploreInterBlock),
+        ExploreCFGForward(ExploreCFGForward),
         ExploreCFGBackward(ExploreCFGBackward),
         ExploreCGForward(ExploreCGForward),
-        ExploreCGBackward(ExploreCGBackward), LIGetter(LIGetter),
-        DTGetter(DTGetter), PDTGetter(PDTGetter) {}
+        ExploreCGBackward(ExploreCGBackward),
+        ExploreFlowSensitive(ExploreFlowSensitive), LIGetter(LIGetter),
+        DTGetter(DTGetter), PDTGetter(PDTGetter), EndIterator(*this, nullptr) {
+    assert((ExploreInterBlock || (!ExploreCGForward && !ExploreCGBackward)) &&
+           "Cannot explore the call graph if inter-block exploration is not "
+           "allowed.");
+  }
 
-  /// Clean up the dynamically allocated intervals.
+  /// Clean up the dynamically allocated iterators.
   ~MustBeExecutedContextExplorer() {
-    DeleteContainerPointers(Intervals);
+    DeleteContainerPointers(Iterators);
   }
 
   /// Iterator-based interface. \see MustBeExecutedIterator.
   ///{
-  using iterator = MustBeExecutedIterator</* CachedOnly */ false>;
-  using const_iterator = MustBeExecutedIterator</* CachedOnly */ true>;
+  using iterator = MustBeExecutedIterator;
+  using const_iterator = const MustBeExecutedIterator;
 
   /// Return an iterator to explore the context around \p PP.
-  iterator begin(const Instruction *PP) {
-    return iterator::begin(*this, getOrCreateIntervalPosition(PP));
+  iterator& begin(const Instruction *PP) {
+    auto *&It = InstructionIteratorMap[PP];
+    if (!It) {
+      It = new iterator(*this, PP);
+      Iterators.push_back(It);
+    }
+    return *It;
   }
 
   /// Return an iterator to explore the cached context around \p PP.
-  const_iterator begin(const Instruction *PP) const {
-    return const_iterator::begin(*this, lookupIntervalPosition(PP));
+  const_iterator& begin(const Instruction *PP) const {
+    return *InstructionIteratorMap.lookup(PP);
   }
 
   /// Return an universal end iterator.
   ///{
-  iterator end() { return iterator::end(*this); }
-  iterator end(const Instruction *) { return iterator::end(*this); }
+  iterator& end() { return EndIterator; }
+  iterator& end(const Instruction *) { return EndIterator; }
 
-  const_iterator end() const { return const_iterator::end(*this); }
-  const_iterator end(const Instruction *) const {
-    return const_iterator::end(*this);
-  }
+  const_iterator& end() const { return EndIterator; }
+  const_iterator& end(const Instruction *) const { return EndIterator; }
   ///}
 
   /// Return an iterator range to explore the context around \p PP.
@@ -803,123 +606,122 @@ struct MustBeExecutedContextExplorer {
   /// Update interface
   ///{
 
-  /// Replace the instruction \p OldI with the instruction \p NewI in the cached
-  /// information.
-  void replaceInstructionWith(const Instruction *OldI,
-                              const Instruction *NewI) {
-    // Check first if we even know anyting about the instruction, if not there
-    // is nothing to do.
-    MustBeExecutedInterval::Position Pos = lookupIntervalPosition(OldI);
-    if (!Pos)
-      return;
-
-    assert(Pos.getInstruction() == OldI &&
-           "Expected a position for the given instruction!");
-
-    // Replace the instruction in the interval and the mapping to positions.
-    (*Pos.Interval)[Pos.Offset] = NewI;
-    MustBeExecutedMap.erase(OldI);
-    MustBeExecutedMap[NewI] = Pos;
-  }
-
   /// Insert the instruction \p NewI before the instruction \p PosI in the
   /// cached information.
   void insertInstructionBefore(const Instruction *NewI,
-                               const Instruction *PosI)  {
-    // Check first if we even know anyting about the position instruction, if
-    // not there is nothing to do.
-    MustBeExecutedInterval::Position Pos = lookupIntervalPosition(PosI);
-    if (!Pos)
-      return;
-
-    assert(Pos.getInstruction() == PosI &&
-           "Expected a position for the given instruction!");
-
-    // First we handle the case where the position is the very last in the
-    // interval.
-    if (!Pos.Interval->isInbounds(Pos.Offset - 1) && !Pos.Interval->Prev) {
-      // Check if we can prepend the new instruction.
-      if (isGuaranteedToTransferExecutionToSuccessor(NewI)) {
-        Pos.Interval->append(NewI, /* Front */ false);
-        assert(Pos.Interval->isInbounds(Pos.Offset - 1) &&
-               "Expected position to be valid after prepending instr.!");
-      } else {
-        MustBeExecutedInterval *NewInterval = new MustBeExecutedInterval(NewI);
-        Intervals.push_back(NewInterval);
-        Pos.Interval->Prev = NewInterval;
+                               const Instruction *PosI) {
+    bool NewTransfersEx = isGuaranteedToTransferExecutionToSuccessor(NewI);
+    const Instruction *PosIPrev = PosI->getPrevNode();
+    for (auto &MapIt : InstructionIteratorMap) {
+      iterator &It = *MapIt.getSecond();
+      if (It.Visited->count({PosIPrev, ExplorationDirection::FORWARD}) &&
+          It.Visited->count({PosI, ExplorationDirection::FORWARD})) {
+        if (!NewTransfersEx) {
+          It.reset(MapIt.getFirst());
+          continue;
+        }
+        It.Visited->insert({NewI, ExplorationDirection::FORWARD});
       }
-    } else {
-      // If the position is not the very last in the interval, we need insert
-      // the new instruction at the right place. This will move the old ones.
-      if (Pos.Offset > 0)
-        Pos.Interval->NextInsts.insert(
-            Pos.Interval->NextInsts.begin() + Pos.Offset, NewI);
-      else
-        Pos.Interval->PrevInsts.insert(
-            Pos.Interval->PrevInsts.begin() - Pos.Offset + 1, NewI);
+      if (It.Tail != PosI &&
+          It.Visited->count({PosI, ExplorationDirection::BACKWARD})) {
+        It.Visited->insert({NewI, ExplorationDirection::BACKWARD});
+        if (!It.Tail)
+          It.Tail = NewI;
+      }
     }
-
-    MustBeExecutedInterval::Position NewPos = Pos + ED_BACKWARD;
-    assert(NewPos && NewPos.getInstruction() == NewI &&
-            "Expected position to be valid and pointing to the new instr.!");
-    MustBeExecutedMap[NewI] = NewPos;
   }
 
   /// Insert the instruction \p NewI after the instruction \p PosI in the
   /// cached information. This is not allowed for the last instruction in a
   /// basic block.
   void insertInstructionAfter(const Instruction *NewI,
-                               const Instruction *PosI)  {
-    assert(!PosI->isTerminator() &&
-           "Cannot insert after terminator instructions!");
-    assert(PosI->getNextNode() &&
-           "Cannot insert after last instruction in a block!");
-    return insertInstructionBefore(NewI, PosI->getNextNode());
+                              const Instruction *PosI) {
+    bool NewTransfersEx = isGuaranteedToTransferExecutionToSuccessor(NewI);
+    bool PosTransfersEx = isGuaranteedToTransferExecutionToSuccessor(PosI);
+    const Instruction *PosINext = PosI->getNextNode();
+    for (auto &MapIt : InstructionIteratorMap) {
+      iterator &It = *MapIt.getSecond();
+      if (PosTransfersEx) {
+        if (It.Head != PosI &&
+            It.Visited->count({PosI, ExplorationDirection::FORWARD})) {
+          if (!NewTransfersEx) {
+            It.reset(MapIt.getFirst());
+            continue;
+          }
+          It.Visited->insert({NewI, ExplorationDirection::FORWARD});
+        }
+      }
+      if (It.Visited->count({PosI, ExplorationDirection::BACKWARD})) {
+        if (!PosINext) {
+          It.reset(MapIt.getFirst());
+          continue;
+        }
+        if (It.Visited->count({PosINext, ExplorationDirection::BACKWARD}))
+          It.Visited->insert({NewI, ExplorationDirection::BACKWARD});
+      }
+    }
   }
 
   /// Remove instruction \p I from the cached information.
   void removeInstruction(const Instruction *I) {
-    // Check first if we even know anyting about the instruction, if not there
-    // is nothing to do.
-    MustBeExecutedInterval::Position Pos = lookupIntervalPosition(I);
-    if (!Pos)
-      return;
-
-    assert(Pos.getInstruction() == I &&
-           "Expected a position for the given instruction!");
-
-    // Handle singleton intervals first.
-    if (Pos.Interval->size() == 1) {
-      assert(Pos.Offset == 0 && "Expect zero offset into singleton interval!");
-      delete Pos.Interval;
-    } else {
-      // We avoid copying the buffer around by duplicating an existing
-      // instruction instead. This requires a non-singleton interval.
-      if (Pos.Interval->isInbounds(Pos.Offset + 1)) {
-        (*Pos.Interval)[Pos.Offset] = (*Pos.Interval)[Pos.Offset + 1];
-      } else {
-        assert(
-            Pos.Interval->isInbounds(Pos.Offset - 1) &&
-            "Expected non-singleton interval to contain the previous or next "
-            "instruction!");
-        (*Pos.Interval)[Pos.Offset] = (*Pos.Interval)[Pos.Offset - 1];
-      }
+    InstructionIteratorMap.erase(I);
+    BlockTransferMap.erase(I->getParent());
+    FunctionExitJoinPointMap.erase(I->getFunction());
+    for (auto &It : InstructionIteratorMap) {
+      It.getSecond()->Visited->erase({I, ExplorationDirection::FORWARD});
+      It.getSecond()->Visited->erase({I, ExplorationDirection::BACKWARD});
     }
-
-    MustBeExecutedMap.erase(I);
   }
   ///}
 
-private:
+  /// Return the next instruction that is guaranteed to be executed after \p PP.
+  ///
+  /// \param It              The iterator that is used to traverse the must be
+  ///                        executed context.
+  /// \param PP              The program point for which the next instruction
+  ///                        that is guaranteed to execute is determined.
+  /// \param PoppedCallStack Flag to indicate if we just popped an instruction
+  ///                        from the call stack such that we do not enter the
+  ///                        same call site again.
+  const Instruction *
+  getMustBeExecutedNextInstruction(MustBeExecutedIterator &It,
+                                   const Instruction *PP, bool PoppedCallStack);
+
+  /// Return the previous instr. that is guaranteed to be executed before \p PP.
+  ///
+  /// \param It              The iterator that is used to traverse the must be
+  ///                        executed context.
+  /// \param PP              The program point for which the previous instr.
+  ///                        that is guaranteed to execute is determined.
+  /// \param PoppedCallStack Flag to indicate if we just popped an instruction
+  ///                        from the call stack such that we do not enter the
+  ///                        same call site again.
+  const Instruction *
+  getMustBeExecutedPrevInstruction(MustBeExecutedIterator &It,
+                                   const Instruction *PP, bool PoppedCallStack);
+
+  /// Find the next join point from \p InitBB in forward direction.
+  const BasicBlock *findForwardJoinPoint(const BasicBlock *InitBB,
+                                         const LoopInfo *LI,
+                                         const PostDominatorTree *PDT);
+
+  /// Find the next join point from \p InitBB in backward direction.
+  const BasicBlock *findBackwardJoinPoint(const BasicBlock *InitBB,
+                                          const LoopInfo *LI,
+                                          const DominatorTree *DT);
+
   /// Parameter that limit the performed exploration. See the constructor for
   /// their meaning.
   ///{
-  bool ExploreCFGForward;
-  bool ExploreCFGBackward;
-  bool ExploreCGForward;
-  bool ExploreCGBackward;
+  const bool ExploreInterBlock;
+  const bool ExploreCFGForward;
+  const bool ExploreCFGBackward;
+  const bool ExploreCGForward;
+  const bool ExploreCGBackward;
+  const bool ExploreFlowSensitive;
   ///}
 
+private:
   /// Getters for common CFG analyses: LoopInfo, DominatorTree, and
   /// PostDominatorTree.
   ///{
@@ -928,155 +730,87 @@ private:
   GetterTy<const PostDominatorTree> PDTGetter;
   ///}
 
-  /// Explore the context at position \p Pos in the direction \p Direction,
-  /// update \p Pos in place.
-  void explore(MustBeExecutedIterator</* CachedOnly */ false> &It,
-               MustBeExecutedInterval::Position &Pos,
-               ExplorationDirection Direction);
-
-  /// Lookup the interval position for the instruction \p PP.
-  MustBeExecutedInterval::Position
-  lookupIntervalPosition(const Instruction *PP) const {
-    return MustBeExecutedMap.lookup(PP);
-  }
-
-  /// Lookup or create a new interval position for the instruction \p PP.
-  ///
-  /// If \p PP was explored before, its interval position already exists and it
-  /// is returned. If \p PP was not explored before, we create a new interval
-  /// for it and make \p PP the center of the interval, thus the position at
-  /// offset 0. The new position is cached.
-  ///
-  /// \returns A position for which the current instruction is \p PP.
-  MustBeExecutedInterval::Position
-  getOrCreateIntervalPosition(const Instruction *PP) {
-    MustBeExecutedInterval::Position &Pos = MustBeExecutedMap[PP];
-
-    if (!Pos) {
-      MustBeExecutedInterval *Interval = new MustBeExecutedInterval(PP);
-      Intervals.push_back(Interval);
-      Pos = MustBeExecutedInterval::Position(Interval);
-    }
-
-    assert(Pos.getInstruction() == PP && "Unexpected instruction at position!");
-    return Pos;
-  }
-
-  // TODO:
-  const Instruction *getMustBeExecutedNextInstruction(
-      MustBeExecutedIterator</* CachedOnly */ false> &It,
-      const Instruction *PP);
-  // TODO:
-  const Instruction *getMustBeExecutedPrevInstruction(
-      MustBeExecutedIterator</* CachedOnly */ false> &It,
-      const Instruction *PP);
-
+  /// Map to cache isGuaranteedToTransferExecutionToSuccessor results.
   DenseMap<const BasicBlock *, Optional<bool>> BlockTransferMap;
+
+  /// Map to cache containsIrreducibleCFG results.
+  DenseMap<const Function*, Optional<bool>> IrreducibleControlMap;
+
+  /// Map to cache function exit join points.
   DenseMap<const Function *, Optional<const Instruction *>>
       FunctionExitJoinPointMap;
-  DenseMap<const Instruction *, MustBeExecutedInterval::Position>
-      MustBeExecutedMap;
 
-  SmallVector<MustBeExecutedInterval *, 16> Intervals;
+  /// Map from instructions to associated must be executed iterators.
+  DenseMap<const Instruction *, MustBeExecutedIterator *>
+      InstructionIteratorMap;
 
-  // TODO:
-  friend class MustBeExecutedIterator<true>;
-  friend class MustBeExecutedIterator<false>;
+  /// Collection of all iterators in flight.
+  SmallVector<MustBeExecutedIterator *, 16> Iterators;
+
+  /// A unique end iterator.
+  MustBeExecutedIterator EndIterator;
 };
 
-///
+/// An implementation of the LoopSafetyInfoInterface using the
+/// MustBeExecutedContextExplorer to determine all reached instructions.
 template<bool TrackThrowingBBs = true, uint64_t MaxInstToExplore = 0>
 struct MustBeExecutedLoopSafetyInfo final : public LoopSafetyInfoInterface {
 
-  MustBeExecutedLoopSafetyInfo(MustBeExecutedContextExplorer &Explorer)
-      : Explorer(Explorer), It(Explorer.end()) {}
+  MustBeExecutedLoopSafetyInfo(const DominatorTree *DT = nullptr,
+                               const PostDominatorTree *PDT = nullptr,
+                               const LoopInfo *LI = nullptr)
+      : Explorer(true, true, false, true, DT, PDT, LI), It(nullptr) {}
 
-  /// See LoopSafetyInfoInterface::bockMayThrow(...).
+  /// See LoopSafetyInfo::bockMayThrow(...).
   bool blockMayThrow(const BasicBlock *BB) const override {
     assert(TrackThrowingBBs && "Object was created without throw tracking.");
     return ThrowingBlocksMap.lookup(BB);
   }
 
-  /// See LoopSafetyInfoInterface::bockMayThrow(...).
+  /// See LoopSafetyInfo::bockMayThrow(...).
   bool anyBlockMayThrow() const override {
     assert(TrackThrowingBBs && "Object was created without throw tracking.");
     return ThrowingBlocksMap.lookup(nullptr);
   };
 
-  /// See LoopSafetyInfoInterface::computeLoopSafetyInfo(...).
-  void computeLoopSafetyInfo(const Loop *CurLoop) override {
-    assert(CurLoop && "Expected a loop!");
-    const Instruction &LoopFirstInst = CurLoop->getHeader()->front();
-    It = Explorer.begin(&LoopFirstInst);
+  /// See LoopSafetyInfo::computeLoopSafetyInfo(...).
+  void computeLoopSafetyInfo(const Loop *CurLoop) override;
 
-    // Explore the context to the fullest.
-    // TODO: This might be a case where we want to guide the exploraiton.
-    uint64_t InstExplorer = 0;
-    while (const Instruction *I = *(++It))
-      if (MaxInstToExplore && ++InstExplorer >= MaxInstToExplore)
-        break;
-
-    if (TrackThrowingBBs) {
-      // Fill the ThrowingBlocksMap with basic block -> may throw information.
-      bool AnyMayThrow = false;
-      for (const BasicBlock *BB : CurLoop->blocks()) {
-        bool BBMayThrow = false;
-        for (const Instruction &I : *BB)
-          if ((BBMayThrow = I.mayThrow()))
-            break;
-        AnyMayThrow |= BBMayThrow;
-        ThrowingBlocksMap[BB] = BBMayThrow;
-      }
-
-      // Use nullptr as key for "any" block.
-      ThrowingBlocksMap[nullptr] = AnyMayThrow;
-    }
-  }
-
-  /// See LoopSafetyInfoInterface::isGuaranteedToExecute(...).
+  /// See LoopSafetyInfo::isGuaranteedToExecute(...).
   bool isGuaranteedToExecute(const Instruction &Inst, const DominatorTree *,
                              const Loop *CurLoop) const override {
-    const BasicBlock *BB = Inst.getParent();
-    if (allLoopPathsLeadToBlock(CurLoop, BB, /* DT */ nullptr)) {
-      for (const Instruction &I : *BB) {
-        if (&I == &Inst)
-          return true;
-        if (!isGuaranteedToTransferExecutionToSuccessor(&I))
-          return false;
-      }
-    }
-    return false;
+    return It && It->count(&Inst);
   }
 
-  /// See LoopSafetyInfoInterface::allLoopPathsLeadToBlock(...).
+  /// See LoopSafetyInfo::allLoopPathsLeadToBlock(...).
   bool allLoopPathsLeadToBlock(const Loop *, const BasicBlock *BB,
                                const DominatorTree *) const override {
     assert(BB && "Expected a loop and a block!");
     // We want to reach the first instruction in the block.
     const Instruction &BBFirstInst = BB->front();
-    return It.count(&BBFirstInst);
+    return It && It->count(&BBFirstInst);
   }
 
-  /// See LoopSafetyInfoInterface::insertInstructionBefore(...).
+  /// See LoopSafetyInfo::insertInstructionBefore(...).
   void insertInstructionBefore(const Instruction *NewI,
                                const Instruction *PosI) override {
     Explorer.insertInstructionBefore(NewI, PosI);
   }
 
-  /// See LoopSafetyInfoInterface::insertInstructionAfter(...).
+  /// See LoopSafetyInfo::insertInstructionAfter(...).
   void insertInstructionAfter(const Instruction *NewI,
                               const Instruction *PosI) override {
     Explorer.insertInstructionAfter(NewI, PosI);
   }
 
-  /// See LoopSafetyInfoInterface::removeInstruction(...).
+  /// See LoopSafetyInfo::removeInstruction(...).
   void removeInstruction(const Instruction *Inst) override {
-  Explorer.removeInstruction(Inst);
+    Explorer.removeInstruction(Inst);
   }
 
 private:
   MustBeExecutedContextExplorer Explorer;
-  MustBeExecutedContextExplorer::iterator It;
+  MustBeExecutedContextExplorer::iterator *It;
   DenseMap<const BasicBlock *, bool> ThrowingBlocksMap;
 };
 

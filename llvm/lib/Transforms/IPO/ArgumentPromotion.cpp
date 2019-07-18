@@ -47,6 +47,7 @@
 #include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/MemoryLocation.h"
+#include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Argument.h"
@@ -566,8 +567,9 @@ static void markIndicesSafe(const IndicesVector &ToMark,
 /// This method limits promotion of aggregates to only promote up to three
 /// elements of the aggregate in order to avoid exploding the number of
 /// arguments passed in.
-static bool isSafeToPromoteArgument(Argument *Arg, Type *ByValTy, AAResults &AAR,
-                                    unsigned MaxElements) {
+static bool isSafeToPromoteArgument(Argument *Arg, Type *ByValTy,
+                                    AAResults &AAR, unsigned MaxElements,
+                                    MustBeExecutedContextExplorer &Explorer) {
   using GEPIndicesSet = std::set<IndicesVector>;
 
   // Quick exit for unused arguments
@@ -618,21 +620,21 @@ static bool isSafeToPromoteArgument(Argument *Arg, Type *ByValTy, AAResults &AAR
     return true;
   };
 
-  // First, iterate the entry block and mark loads of (geps of) arguments as
-  // safe.
-  BasicBlock &EntryBlock = Arg->getParent()->front();
+
   // Declare this here so we can reuse it
   IndicesVector Indices;
-  for (Instruction &I : EntryBlock)
-    if (LoadInst *LI = dyn_cast<LoadInst>(&I)) {
-      Value *V = LI->getPointerOperand();
-      if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(V)) {
+  // First, iterate over all instructions executed whenever the function is
+  // reached and mark loads of (geps of) arguments as safe.
+  BasicBlock &EntryBlock = Arg->getParent()->front();
+  for (const Instruction *I : Explorer.range(&EntryBlock.front()))
+    if (auto *LI = dyn_cast<LoadInst>(I)) {
+      const Value *V = LI->getPointerOperand();
+      if (auto *GEP = dyn_cast<GetElementPtrInst>(V)) {
         V = GEP->getPointerOperand();
         if (V == Arg) {
           // This load actually loads (part of) Arg? Check the indices then.
           Indices.reserve(GEP->getNumIndices());
-          for (User::op_iterator II = GEP->idx_begin(), IE = GEP->idx_end();
-               II != IE; ++II)
+          for (auto II = GEP->idx_begin(), IE = GEP->idx_end(); II != IE; ++II)
             if (ConstantInt *CI = dyn_cast<ConstantInt>(*II))
               Indices.push_back(CI->getSExtValue());
             else
@@ -683,7 +685,8 @@ static bool isSafeToPromoteArgument(Argument *Arg, Type *ByValTy, AAResults &AAR
         // TODO: This runs the above loop over and over again for dead GEPs
         // Couldn't we just do increment the UI iterator earlier and erase the
         // use?
-        return isSafeToPromoteArgument(Arg, ByValTy, AAR, MaxElements);
+        return isSafeToPromoteArgument(Arg, ByValTy, AAR, MaxElements,
+                                       Explorer);
       }
 
       if (!UpdateBaseTy(GEP->getSourceElementType()))
@@ -926,6 +929,12 @@ promoteArguments(Function *F, function_ref<AAResults &(Function &F)> AARGetter,
 
   AAResults &AAR = AARGetter(*F);
 
+  // TODO: This should be removed once we deduce "dereferenceable" properly.
+  MustBeExecutedContextExplorer Explorer(/* ExploreInterBlock */ true,
+                                         /* ExploreCFGForward */ true,
+                                         /* ExploreCFGBackward */ false,
+                                         /* ExploreFlowSensitive */ true);
+
   // Check to see which arguments are promotable.  If an argument is promotable,
   // add it to ArgsToPromote.
   SmallPtrSet<Argument *, 8> ArgsToPromote;
@@ -1001,7 +1010,7 @@ promoteArguments(Function *F, function_ref<AAResults &(Function &F)> AARGetter,
     // Otherwise, see if we can promote the pointer to its value.
     Type *ByValTy =
         PtrArg->hasByValAttr() ? PtrArg->getParamByValType() : nullptr;
-    if (isSafeToPromoteArgument(PtrArg, ByValTy, AAR, MaxElements))
+    if (isSafeToPromoteArgument(PtrArg, ByValTy, AAR, MaxElements, Explorer))
       ArgsToPromote.insert(PtrArg);
   }
 
