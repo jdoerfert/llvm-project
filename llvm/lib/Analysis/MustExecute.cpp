@@ -103,6 +103,64 @@ void LoopSafetyInfo::computeBlockColors(const Loop *CurLoop) {
         BlockColors = colorEHFunclets(*Fn);
 }
 
+static Optional<uint64_t>
+getConstantIntegerValueInFirstIteration(const Value &V, const Loop *L,
+                                        const DominatorTree *DT,
+                                        const LoopInfo *LI) {
+  if (auto *Cond = dyn_cast<ConstantInt>(&V))
+    return Optional<uint64_t>(Cond->getZExtValue());
+
+  if (auto *Cond = dyn_cast<CmpInst>(&V)) {
+    // TODO: this would be a lot more powerful if we used scev, but all the
+    //       plumbing is currently missing to pass a pointer in from the pass
+    // Check for `cmp (phi [x, predecessor] ...), y` where `pred x, y` is known
+    auto SimplifyPHI = [&](Value *V) -> Value * {
+      auto *PHI = dyn_cast<PHINode>(V);
+      if (!PHI)
+        return V;
+      // TODO: Remove the handling of a special loop in favor of the loop info
+      //       solution once the user is gone.
+      if (L && PHI->getParent() == L->getHeader() && L->getLoopPredecessor())
+        return PHI->getIncomingValueForBlock(L->getLoopPredecessor());
+      const Loop *PL = LI ? LI->getLoopFor(PHI->getParent()) : nullptr;
+      if (PL && PL->getHeader() == PHI->getParent() && PL->getLoopPredecessor())
+        return PHI->getIncomingValueForBlock(PL->getLoopPredecessor());
+      return V;
+    };
+    auto *LHS = SimplifyPHI(Cond->getOperand(0));
+    auto *RHS = SimplifyPHI(Cond->getOperand(1));
+
+    const DataLayout &DL = Cond->getModule()->getDataLayout();
+    auto *SimpleValOrNull =
+        SimplifyCmpInst(Cond->getPredicate(), LHS, RHS,
+                        {DL, /*TLI*/ nullptr, DT, /*AC*/ nullptr, Cond});
+    if (auto *Cst = dyn_cast_or_null<ConstantInt>(SimpleValOrNull))
+      return Optional<uint64_t>(Cst->getZExtValue());
+  }
+
+  return None;
+}
+
+static const BasicBlock *
+getSuccessorInFirstIteration(const Instruction &TI, const Loop *L,
+                             const DominatorTree *DT, const LoopInfo *LI) {
+  assert(TI.isTerminator() && "Expected a terminator");
+  if (auto *BI = dyn_cast<BranchInst>(&TI)) {
+    if (BI->isUnconditional())
+      return BI->getSuccessor(0);
+
+    if (L || LI) {
+      Optional<uint64_t> CV = getConstantIntegerValueInFirstIteration(
+          *BI->getCondition(), L, DT, LI);
+      if (CV.hasValue()) {
+        assert(CV.getValue() < 2 && "Expected boolean value!");
+        return BI->getSuccessor(1 - CV.getValue());
+      }
+    }
+  }
+  return nullptr;
+}
+
 /// Return true if we can prove that the given ExitBlock is not reached on the
 /// first iteration of the given loop.  That is, the backedge of the loop must
 /// be executed before the ExitBlock is executed in any dynamic execution trace.
@@ -114,36 +172,12 @@ static bool CanProveNotTakenFirstIteration(const BasicBlock *ExitBlock,
     // expect unique exits
     return false;
   assert(CurLoop->contains(CondExitBlock) && "meaning of exit block");
-  auto *BI = dyn_cast<BranchInst>(CondExitBlock->getTerminator());
-  if (!BI || !BI->isConditional())
-    return false;
-  // If condition is constant and false leads to ExitBlock then we always
-  // execute the true branch.
-  if (auto *Cond = dyn_cast<ConstantInt>(BI->getCondition()))
-    return BI->getSuccessor(Cond->getZExtValue() ? 1 : 0) == ExitBlock;
-  auto *Cond = dyn_cast<CmpInst>(BI->getCondition());
-  if (!Cond)
-    return false;
-  // todo: this would be a lot more powerful if we used scev, but all the
-  // plumbing is currently missing to pass a pointer in from the pass
-  // Check for cmp (phi [x, preheader] ...), y where (pred x, y is known
-  auto *LHS = dyn_cast<PHINode>(Cond->getOperand(0));
-  auto *RHS = Cond->getOperand(1);
-  if (!LHS || LHS->getParent() != CurLoop->getHeader())
-    return false;
-  auto DL = ExitBlock->getModule()->getDataLayout();
-  auto *IVStart = LHS->getIncomingValueForBlock(CurLoop->getLoopPreheader());
-  auto *SimpleValOrNull = SimplifyCmpInst(Cond->getPredicate(),
-                                          IVStart, RHS,
-                                          {DL, /*TLI*/ nullptr,
-                                              DT, /*AC*/ nullptr, BI});
-  auto *SimpleCst = dyn_cast_or_null<Constant>(SimpleValOrNull);
-  if (!SimpleCst)
-    return false;
-  if (ExitBlock == BI->getSuccessor(0))
-    return SimpleCst->isZeroValue();
-  assert(ExitBlock == BI->getSuccessor(1) && "implied by above");
-  return SimpleCst->isAllOnesValue();
+  const BasicBlock * SuccInFirstIteration =
+      getSuccessorInFirstIteration(*CondExitBlock->getTerminator(), CurLoop, DT,
+                                   /* LoopInfo */ nullptr);
+  if (SuccInFirstIteration)
+    return SuccInFirstIteration != ExitBlock;
+  return false;
 }
 
 /// Collect all blocks from \p CurLoop which lie on all possible paths from

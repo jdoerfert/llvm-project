@@ -256,12 +256,47 @@ dummy_block1:
   br label %dummy_block2
 
 dummy_block2:
-  %wrongphi = phi i32 [11, %for.body], [12, %dummy_block1]
+  %wrongphi = phi i32 [11, %for.body], [2001, %dummy_block1]
   %r.chk = icmp ugt i32 %wrongphi, 2000
   br i1 %r.chk, label %fail, label %continue
 continue:
 ; CHECK-LABEL: continue
 ; CHECK: %i1 = load i32, i32* %a, align 4
+  %i1 = load i32, i32* %a, align 4
+  %add = add nsw i32 %i1, %acc
+  %inc = add nuw nsw i32 %iv, 1
+  %exitcond = icmp eq i32 %inc, 1000
+  br i1 %exitcond, label %for.cond.cleanup, label %for.body
+
+for.cond.cleanup:
+  ret i32 %add
+
+fail:
+  call void @f()
+  ret i32 -1
+}
+
+define i32 @test-wrongphi2(i32* noalias nocapture readonly %a) nounwind uwtable {
+; CHECK-LABEL: @test-wrongphi2(
+; CHECK-LABEL: entry
+; CHECK: %i1 = load i32, i32* %a, align 4
+entry:
+  br label %for.body
+
+for.body:
+  %iv = phi i32 [ 0, %entry ], [ %inc, %continue ]
+  %acc = phi i32 [ 0, %entry ], [ %add, %continue ]
+  %cond = icmp ult i32 %iv, 500
+  br i1 %cond, label %dummy_block1, label %dummy_block2
+
+dummy_block1:
+  br label %dummy_block2
+
+dummy_block2:
+  %wrongphi = phi i32 [11, %for.body], [12, %dummy_block1]
+  %r.chk = icmp ugt i32 %wrongphi, 2000
+  br i1 %r.chk, label %fail, label %continue
+continue:
   %i1 = load i32, i32* %a, align 4
   %add = add nsw i32 %i1, %acc
   %inc = add nuw nsw i32 %iv, 1
