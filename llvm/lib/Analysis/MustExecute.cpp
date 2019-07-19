@@ -25,6 +25,11 @@ using namespace llvm;
 
 #define DEBUG_TYPE "must-execute"
 
+static cl::opt<bool> MustExecutePrinterUseExplorer(
+    "print-mustexecute-use-explorer", cl::Hidden, cl::init(false),
+    cl::desc(
+        "Use 'must-be-executed-context' explorer for the mustexecute printer"));
+
 const DenseMap<BasicBlock *, ColorVector> &
 LoopSafetyInfo::getBlockColors() const {
   return BlockColors;
@@ -405,16 +410,35 @@ class MustExecuteAnnotatedWriter : public AssemblyAnnotationWriter {
   DenseMap<const Value*, SmallVector<Loop*, 4> > MustExec;
 
 public:
-  MustExecuteAnnotatedWriter(const Function &F,
-                             DominatorTree &DT, LoopInfo &LI) {
-    for (auto &I: instructions(F)) {
-      Loop *L = LI.getLoopFor(I.getParent());
-      while (L) {
-        if (isMustExecuteIn(I, L, &DT)) {
-          MustExec[&I].push_back(L);
-        }
-        L = L->getParentLoop();
-      };
+  MustExecuteAnnotatedWriter(const Function &F, DominatorTree &DT,
+                             LoopInfo &LI) {
+    if (MustExecutePrinterUseExplorer) {
+      MustBeExecutedLoopSafetyInfo<false> MBELSI(&DT, nullptr, &LI);
+
+      SmallVector<Loop *, 16> Loops;
+      Loops.append(LI.begin(), LI.end());
+      // Perform the isGuaranteedToExecute check loop by loop to reuse cached
+      // results computed by computeLoopSafetyInfo.
+      while (!Loops.empty()) {
+        Loop *L = Loops.pop_back_val();
+        MBELSI.computeLoopSafetyInfo(L);
+        for (BasicBlock *BB : L->blocks())
+          for (Instruction &I : *BB)
+            if (MBELSI.isGuaranteedToExecute(I, &DT, L))
+              MustExec[&I].push_back(L);
+        Loops.append(L->begin(), L->end());
+      }
+    } else {
+
+      for (auto &I : instructions(F)) {
+        Loop *L = LI.getLoopFor(I.getParent());
+        while (L) {
+          if (isMustExecuteIn(I, L, &DT)) {
+            MustExec[&I].push_back(L);
+          }
+          L = L->getParentLoop();
+        };
+      }
     }
   }
   MustExecuteAnnotatedWriter(const Module &M,
@@ -433,8 +457,10 @@ public:
 
 
   void printInfoComment(const Value &V, formatted_raw_ostream &OS) override {
-    if (!MustExec.count(&V))
+    if (!MustExec.count(&V)) {
+      OS << " ; no mustexec loop";
       return;
+    }
 
     const auto &Loops = MustExec.lookup(&V);
     const auto NumLoops = Loops.size();
@@ -768,3 +794,45 @@ const Instruction *MustBeExecutedIterator::advance() {
     Next = nullptr;
   return Next;
 }
+
+template <bool TrackThrowingBBs, uint64_t MaxInstToExplore>
+void MustBeExecutedLoopSafetyInfo<
+    TrackThrowingBBs, MaxInstToExplore>::computeLoopSafetyInfo(const Loop *L) {
+  assert(L && "Expected a loop!");
+  LLVM_DEBUG(dbgs() << "Compute loop safety info for " << L->getName()
+                    << "\n";);
+
+  const Instruction &LoopFirstInst = L->getHeader()->front();
+  It = &Explorer.begin(&LoopFirstInst);
+
+  // Explore the context until we run out of the loop.
+  // TODO: This might be a case where we want to guide the exploraiton.
+  uint64_t InstExplorer = 0;
+  while (const Instruction *I = **It) {
+    // This assumes we explore the CFG "forward" first and the explorer is not
+    // interprocedural.
+    if (!L->contains(I))
+      break;
+    ++(*It);
+    if (MaxInstToExplore && ++InstExplorer >= MaxInstToExplore)
+      break;
+  }
+  LLVM_DEBUG(dbgs() << "done exploring the loop\n");
+
+  if (TrackThrowingBBs) {
+    // Fill the ThrowingBlocksMap with basic block -> may throw information.
+    bool AnyMayThrow = false;
+    for (const BasicBlock *BB : L->blocks()) {
+      bool BBMayThrow = false;
+      for (const Instruction &I : *BB)
+        if ((BBMayThrow = I.mayThrow()))
+          break;
+      AnyMayThrow |= BBMayThrow;
+      ThrowingBlocksMap[BB] = BBMayThrow;
+    }
+
+    // Use nullptr as key for "any" block.
+    ThrowingBlocksMap[nullptr] = AnyMayThrow;
+  }
+}
+

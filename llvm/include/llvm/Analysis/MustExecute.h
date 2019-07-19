@@ -455,6 +455,69 @@ private:
   MustBeExecutedIterator EndIterator;
 };
 
+/// An implementation of the LoopSafetyInfoInterface using the
+/// MustBeExecutedContextExplorer to determine all reached instructions.
+template<bool TrackThrowingBBs = true, uint64_t MaxInstToExplore = 0>
+struct MustBeExecutedLoopSafetyInfo final : public LoopSafetyInfoInterface {
+
+  MustBeExecutedLoopSafetyInfo(const DominatorTree *DT = nullptr,
+                               const PostDominatorTree *PDT = nullptr,
+                               const LoopInfo *LI = nullptr)
+      : Explorer(true, true, false, true, DT, PDT, LI), It(nullptr) {}
+
+  /// See LoopSafetyInfo::bockMayThrow(...).
+  bool blockMayThrow(const BasicBlock *BB) const override {
+    assert(TrackThrowingBBs && "Object was created without throw tracking.");
+    return ThrowingBlocksMap.lookup(BB);
+  }
+
+  /// See LoopSafetyInfo::bockMayThrow(...).
+  bool anyBlockMayThrow() const override {
+    assert(TrackThrowingBBs && "Object was created without throw tracking.");
+    return ThrowingBlocksMap.lookup(nullptr);
+  };
+
+  /// See LoopSafetyInfo::computeLoopSafetyInfo(...).
+  void computeLoopSafetyInfo(const Loop *CurLoop) override;
+
+  /// See LoopSafetyInfo::isGuaranteedToExecute(...).
+  bool isGuaranteedToExecute(const Instruction &Inst, const DominatorTree *,
+                             const Loop *CurLoop) const override {
+    return It && It->count(&Inst);
+  }
+
+  /// See LoopSafetyInfo::allLoopPathsLeadToBlock(...).
+  bool allLoopPathsLeadToBlock(const Loop *, const BasicBlock *BB,
+                               const DominatorTree *) const override {
+    assert(BB && "Expected a loop and a block!");
+    // We want to reach the first instruction in the block.
+    const Instruction &BBFirstInst = BB->front();
+    return It && It->count(&BBFirstInst);
+  }
+
+  /// See LoopSafetyInfo::insertInstructionBefore(...).
+  void insertInstructionBefore(const Instruction *NewI,
+                               const Instruction *PosI) override {
+    Explorer.insertInstructionBefore(NewI, PosI);
+  }
+
+  /// See LoopSafetyInfo::insertInstructionAfter(...).
+  void insertInstructionAfter(const Instruction *NewI,
+                              const Instruction *PosI) override {
+    Explorer.insertInstructionAfter(NewI, PosI);
+  }
+
+  /// See LoopSafetyInfo::removeInstruction(...).
+  void removeInstruction(const Instruction *Inst) override {
+    Explorer.removeInstruction(Inst);
+  }
+
+private:
+  MustBeExecutedContextExplorer Explorer;
+  MustBeExecutedContextExplorer::iterator *It;
+  DenseMap<const BasicBlock *, bool> ThrowingBlocksMap;
+};
+
 } // namespace llvm
 
 #endif
