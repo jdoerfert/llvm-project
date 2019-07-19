@@ -30,34 +30,8 @@ class Instruction;
 class DominatorTree;
 class Loop;
 
-/// Captures loop safety information.
-/// It keep information for loop blocks may throw exception or otherwise
-/// exit abnormaly on any iteration of the loop which might actually execute
-/// at runtime.  The primary way to consume this infromation is via
-/// isGuaranteedToExecute below, but some callers bailout or fallback to
-/// alternate reasoning if a loop contains any implicit control flow.
-/// NOTE: LoopSafetyInfo contains cached information regarding loops and their
-/// particular blocks. This information is only dropped on invocation of
-/// computeLoopSafetyInfo. If the loop or any of its block is deleted, or if
-/// any thrower instructions have been added or removed from them, or if the
-/// control flow has changed, or in case of other meaningful modifications, the
-/// LoopSafetyInfo needs to be recomputed. If a meaningful modifications to the
-/// loop were made and the info wasn't recomputed properly, the behavior of all
-/// methods except for computeLoopSafetyInfo is undefined.
-class LoopSafetyInfo {
-  // Used to update funclet bundle operands.
-  DenseMap<BasicBlock *, ColorVector> BlockColors;
-
-protected:
-  /// Computes block colors.
-  void computeBlockColors(const Loop *CurLoop);
-
-public:
-  /// Returns block colors map that is used to update funclet operand bundles.
-  const DenseMap<BasicBlock *, ColorVector> &getBlockColors() const;
-
-  /// Copy colors of block \p Old into the block \p New.
-  void copyColors(BasicBlock *New, BasicBlock *Old);
+/// The common interface for the loop safety information.
+struct LoopSafetyInfoInterface {
 
   /// Returns true iff the block \p BB potentially may throw exception. It can
   /// be false-positive in cases when we want to avoid complex analysis.
@@ -66,11 +40,6 @@ public:
   /// Returns true iff any block of the loop for which this info is contains an
   /// instruction that may throw or otherwise exit abnormally.
   virtual bool anyBlockMayThrow() const = 0;
-
-  /// Return true if we must reach the block \p BB under assumption that the
-  /// loop \p CurLoop is entered.
-  bool allLoopPathsLeadToBlock(const Loop *CurLoop, const BasicBlock *BB,
-                               const DominatorTree *DT) const;
 
   /// Computes safety information for a loop checks loop body & header for
   /// the possibility of may throw exception, it takes LoopSafetyInfo and loop
@@ -85,6 +54,64 @@ public:
                                      const DominatorTree *DT,
                                      const Loop *CurLoop) const = 0;
 
+  /// Return true if we must reach the block \p BB under assumption that the
+  /// loop \p CurLoop is entered.
+  virtual bool allLoopPathsLeadToBlock(const Loop *CurLoop,
+                                       const BasicBlock *BB,
+                                       const DominatorTree *DT) const = 0;
+
+  /// Inform the safety info that we are planning to insert a new instruction
+  /// \p Inst before \p PosI. It will make all cache updates to keep it correct
+  /// after this insertion.
+  virtual void insertInstructionBefore(const Instruction *NewI,
+                                       const Instruction *PosI) = 0;
+
+  /// Inform the safety info that we are planning to insert a new instruction
+  /// \p Inst after \p PosI. It will make all cache updates to keep it correct
+  /// after this insertion.
+  virtual void insertInstructionAfter(const Instruction *NewI,
+                                      const Instruction *PosI) = 0;
+
+  /// Inform safety info that we are planning to remove the instruction \p Inst
+  /// from its block. It will make all cache updates to keep it correct after
+  /// this removal.
+  virtual void removeInstruction(const Instruction *Inst) = 0;
+};
+
+/// Captures loop safety information.
+/// It keep information for loop blocks may throw exception or otherwise
+/// exit abnormaly on any iteration of the loop which might actually execute
+/// at runtime.  The primary way to consume this infromation is via
+/// isGuaranteedToExecute below, but some callers bailout or fallback to
+/// alternate reasoning if a loop contains any implicit control flow.
+/// NOTE: LoopSafetyInfo contains cached information regarding loops and their
+/// particular blocks. This information is only dropped on invocation of
+/// computeLoopSafetyInfo. If the loop or any of its block is deleted, or if
+/// any thrower instructions have been added or removed from them, or if the
+/// control flow has changed, or in case of other meaningful modifications, the
+/// LoopSafetyInfo needs to be recomputed. If a meaningful modifications to the
+/// loop were made and the info wasn't recomputed properly, the behavior of all
+/// methods except for computeLoopSafetyInfo is undefined.
+class LoopSafetyInfo : public LoopSafetyInfoInterface {
+  // Used to update funclet bundle operands.
+  DenseMap<BasicBlock *, ColorVector> BlockColors;
+
+protected:
+  /// Computes block colors.
+  void computeBlockColors(const Loop *CurLoop);
+
+public:
+  /// Returns block colors map that is used to update funclet operand bundles.
+  const DenseMap<BasicBlock *, ColorVector> &getBlockColors() const;
+
+  /// Copy colors of block \p Old into the block \p New.
+  void copyColors(BasicBlock *New, BasicBlock *Old);
+
+  /// Return true if we must reach the block \p BB under assumption that the
+  /// loop \p CurLoop is entered.
+  bool allLoopPathsLeadToBlock(const Loop *CurLoop, const BasicBlock *BB,
+                               const DominatorTree *DT) const override;
+
   LoopSafetyInfo() = default;
 
   virtual ~LoopSafetyInfo() = default;
@@ -94,7 +121,7 @@ public:
 /// Simple and conservative implementation of LoopSafetyInfo that can give
 /// false-positive answers to its queries in order to avoid complicated
 /// analysis.
-class SimpleLoopSafetyInfo: public LoopSafetyInfo {
+class SimpleLoopSafetyInfo : public LoopSafetyInfo {
   bool MayThrow = false;       // The current loop contains an instruction which
                                // may throw.
   bool HeaderMayThrow = false; // Same as previous, but specific to loop header
@@ -109,6 +136,14 @@ public:
   virtual bool isGuaranteedToExecute(const Instruction &Inst,
                                      const DominatorTree *DT,
                                      const Loop *CurLoop) const;
+
+  void insertInstructionBefore(const Instruction *NewI,
+                               const Instruction *PosI) {}
+
+  void insertInstructionAfter(const Instruction *NewI,
+                              const Instruction *PosI) {}
+
+  void removeInstruction(const Instruction *Inst) {}
 
   SimpleLoopSafetyInfo() : LoopSafetyInfo() {};
 
@@ -153,6 +188,18 @@ public:
   /// \p Inst into the basic block \p BB. It will make all cache updates to keep
   /// it correct after this insertion.
   void insertInstructionTo(const Instruction *Inst, const BasicBlock *BB);
+
+  /// See LoopSafetyInfoInterface::insertInstructionBefore(...).
+  void insertInstructionBefore(const Instruction *NewI,
+                               const Instruction *PosI) {
+    insertInstructionTo(NewI, PosI->getParent());
+  }
+
+  /// See LoopSafetyInfoInterface::insertInstructionAfter(...).
+  void insertInstructionAfter(const Instruction *NewI,
+                              const Instruction *PosI) {
+    insertInstructionTo(NewI, PosI->getParent());
+  };
 
   /// Inform safety info that we are planning to remove the instruction \p Inst
   /// from its block. It will make all cache updates to keep it correct after
