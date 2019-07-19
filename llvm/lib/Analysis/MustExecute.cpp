@@ -344,6 +344,20 @@ namespace {
     }
     bool runOnFunction(Function &F) override;
   };
+  struct MustBeExecutedContextPrinter : public ModulePass {
+    static char ID;
+
+    MustBeExecutedContextPrinter() : ModulePass(ID) {
+      initializeMustBeExecutedContextPrinterPass(*PassRegistry::getPassRegistry());
+    }
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
+      AU.setPreservesAll();
+      AU.addRequired<PostDominatorTreeWrapperPass>();
+      AU.addRequired<DominatorTreeWrapperPass>();
+      AU.addRequired<LoopInfoWrapperPass>();
+    }
+    bool runOnModule(Module &M) override;
+  };
 }
 
 char MustExecutePrinter::ID = 0;
@@ -356,6 +370,22 @@ INITIALIZE_PASS_END(MustExecutePrinter, "print-mustexecute",
 
 FunctionPass *llvm::createMustExecutePrinter() {
   return new MustExecutePrinter();
+}
+
+char MustBeExecutedContextPrinter::ID = 0;
+INITIALIZE_PASS_BEGIN(
+    MustBeExecutedContextPrinter, "print-must-be-executed-contexts",
+    "print the must-be-executed-contexed for all instructions", false, true)
+INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_END(MustBeExecutedContextPrinter,
+                    "print-must-be-executed-contexts",
+                    "print the must-be-executed-contexed for all instructions",
+                    false, true)
+
+ModulePass *llvm::createMustBeExecutedContextPrinter() {
+  return new MustBeExecutedContextPrinter();
 }
 
 static bool isMustExecuteIn(const Instruction &I, Loop *L, DominatorTree *DT) {
@@ -423,7 +453,6 @@ public:
     OS << ")";
   }
 };
-} // namespace
 
 bool MustExecutePrinter::runOnFunction(Function &F) {
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
@@ -433,6 +462,239 @@ bool MustExecutePrinter::runOnFunction(Function &F) {
   F.print(dbgs(), &Writer);
 
   return false;
+}
+
+/// Return true if \p L might be an endless loop.
+static bool maybeEndlessLoop(const Loop &L) {
+  if (L.getHeader()->getParent()->hasFnAttribute(Attribute::WillReturn))
+    return false;
+  // TODO: Actually try to prove it is not.
+  // TODO: If maybeEndlessLoop is going to be expensive, cache it.
+  return true;
+}
+
+static bool mayContainIrreducibleControl(const Function &F,
+                                         const LoopInfo *LI) {
+  if (!LI)
+    return true;
+
+  using RPOTraversal = ReversePostOrderTraversal<const Function *>;
+  RPOTraversal FuncRPOT(&F);
+  return containsIrreducibleCFG<const BasicBlock *, const RPOTraversal,
+                                const LoopInfo>(FuncRPOT, *LI);
+}
+
+static void getGuaranteedExecutedBlocks(
+    const Instruction &TI,
+    SmallVectorImpl<const BasicBlock *> &GuaranteedExecutedBlocks,
+    const DominatorTree *DT, const LoopInfo *LI) {
+  const BasicBlock *TIBlock = TI.getParent();
+  bool NoThrow = TIBlock->getParent()->doesNotThrow();
+  const Loop *L = LI ? LI->getLoopFor(TIBlock) : nullptr;
+
+  if (const BasicBlock *SuccBB = getSuccessorInFirstIteration(TI, L, DT, LI))
+    GuaranteedExecutedBlocks.push_back(SuccBB);
+
+  // TODO: This might be better off in findForwardJoinPoint.
+  // TODO: Check no-throw to this block in the loop not for the whole function
+  if (DT && !maybeEndlessLoop(*L) && NoThrow && TI.getNumSuccessors() == 2 &&
+      L->isLoopLatch(TIBlock)) {
+    // TI is a latch of a finite loop. If it dominates all exiting blocks,
+    // the non backedge has to be taken eventually.
+    SmallVector<BasicBlock *, 4> ExitingBlocks;
+    L->getExitingBlocks(ExitingBlocks);
+    bool DominatesAllExitingBlocks =
+        llvm::all_of(ExitingBlocks, [DT, TIBlock](BasicBlock *ExitingBB) {
+          return DT->dominates(TIBlock, ExitingBB);
+        });
+    if (DominatesAllExitingBlocks) {
+      if (TI.getSuccessor(1) == L->getHeader())
+        GuaranteedExecutedBlocks.push_back(TI.getSuccessor(0));
+      else
+        GuaranteedExecutedBlocks.push_back(TI.getSuccessor(1));
+    }
+  }
+}
+
+/// Return an instruction that is always executed before the function \p F is
+/// left, assuming it is left through a return.
+static const Instruction *findFunctionExitJoinPoint(const Function *F,
+                                                    const DominatorTree *DT) {
+  const BasicBlock *JoinBB = nullptr;
+  for (const BasicBlock &BB : *F) {
+    // Skip all but return instructions.
+    if (!isa<ReturnInst>(BB.getTerminator()))
+      continue;
+
+    // The first return instruction found is the initial join point.
+    if (!JoinBB) {
+      JoinBB = &BB;
+      continue;
+    }
+
+    // When we find more return instructions the nearest common dominator of all
+    // of them is known to be executed prior to all of them.
+    if (DT) {
+      JoinBB = DT->findNearestCommonDominator(JoinBB, &BB);
+      assert(JoinBB && "Assumed a common dominator!");
+      continue;
+    }
+
+    // If we do no have a dominator tree we still know that *at least* the entry
+    // block is executed as we assume the function is left through a return.
+    // TODO: Improve this by using getMustBeExecutedNextInstruction() from this
+    //       point.
+    return F->getEntryBlock().getTerminator();
+  }
+
+  // If we traversed all the blocks and found the nearest common dominator we
+  // return it. If we did not find a return instruction we return a nullptr but
+  // we should indicate a problem instead because the function is never left
+  // through a return.
+  return JoinBB ? JoinBB->getTerminator() : nullptr;
+}
+
+/// Lookup \p Key in \p Map and return the result, potentially after
+/// initializing the optional through \p Fn(\p args).
+template <typename K, typename V, typename FnTy, typename... ArgsTy>
+static V getOrCreateCachedOptional(K Key, DenseMap<K, Optional<V>> &Map,
+                                   FnTy &&Fn, ArgsTy &&... args) {
+  Optional<V> &OptVal = Map[Key];
+  if (!OptVal.hasValue())
+    OptVal = Fn(std::forward<ArgsTy>(args)...);
+  return OptVal.getValue();
+}
+
+bool MustBeExecutedContextPrinter::runOnModule(Module &M) {
+  GetterTy<const LoopInfo> LIGetter =
+      [&](const Function &F) -> const LoopInfo * {
+    return &getAnalysis<LoopInfoWrapperPass>(const_cast<Function &>(F))
+        .getLoopInfo();
+  };
+  GetterTy<const DominatorTree> DTGetter = [&](const Function &F) ->const  DominatorTree * {
+    return &getAnalysis<DominatorTreeWrapperPass>(const_cast<Function &>(F))
+        .getDomTree();
+  };
+  GetterTy<const PostDominatorTree> PDTGetter =
+      [&](const Function &F) ->const  PostDominatorTree * {
+    return &getAnalysis<PostDominatorTreeWrapperPass>(const_cast<Function &>(F))
+        .getPostDomTree();
+  };
+
+  MustBeExecutedContextExplorer Explorer(true, true, true, true, true, true,
+                                         LIGetter, DTGetter, PDTGetter);
+  for (Function &F : M) {
+    for (Instruction &I : instructions(F)) {
+      dbgs() << "-- Explore context of: " << I << "\n";
+      for (const Instruction *CI : Explorer.range(&I))
+        dbgs() << "  [F: " << CI->getFunction()->getName() << "] " << *CI
+               << "\n";
+    }
+  }
+
+  return false;
+}
+} // namespace
+
+/// Return true if \p L might be an endless loop.
+static bool maybeEndlessLoop(const Loop &L) {
+  if (L.getHeader()->getParent()->hasFnAttribute(Attribute::WillReturn))
+    return false;
+  // TODO: Actually try to prove it is not.
+  // TODO: If maybeEndlessLoop is going to be expensive, cache it.
+  return true;
+}
+
+static bool mayContainIrreducibleControl(const Function &F,
+                                         const LoopInfo *LI) {
+  if (!LI)
+    return true;
+
+  using RPOTraversal = ReversePostOrderTraversal<const Function *>;
+  RPOTraversal FuncRPOT(&F);
+  return containsIrreducibleCFG<const BasicBlock *, const RPOTraversal,
+                                const LoopInfo>(FuncRPOT, *LI);
+}
+
+static void getGuaranteedExecutedBlocks(
+    const Instruction &TI,
+    SmallVectorImpl<const BasicBlock *> &GuaranteedExecutedBlocks,
+    const DominatorTree *DT, const LoopInfo *LI) {
+  const BasicBlock *TIBlock = TI.getParent();
+  bool NoThrow = TIBlock->getParent()->doesNotThrow();
+  const Loop *L = LI ? LI->getLoopFor(TIBlock) : nullptr;
+
+  if (const BasicBlock *SuccBB = getSuccessorInFirstIteration(TI, L, DT, LI))
+    GuaranteedExecutedBlocks.push_back(SuccBB);
+
+  // TODO: This might be better off in findForwardJoinPoint.
+  // TODO: Check no-throw to this block in the loop not for the whole function
+  if (DT && !maybeEndlessLoop(*L) && NoThrow && TI.getNumSuccessors() == 2 &&
+      L->isLoopLatch(TIBlock)) {
+    // TI is a latch of a finite loop. If it dominates all exiting blocks,
+    // the non backedge has to be taken eventually.
+    SmallVector<BasicBlock *, 4> ExitingBlocks;
+    L->getExitingBlocks(ExitingBlocks);
+    bool DominatesAllExitingBlocks =
+        llvm::all_of(ExitingBlocks, [DT, TIBlock](BasicBlock *ExitingBB) {
+          return DT->dominates(TIBlock, ExitingBB);
+        });
+    if (DominatesAllExitingBlocks) {
+      if (TI.getSuccessor(1) == L->getHeader())
+        GuaranteedExecutedBlocks.push_back(TI.getSuccessor(0));
+      else
+        GuaranteedExecutedBlocks.push_back(TI.getSuccessor(1));
+    }
+  }
+}
+
+/// Return an instruction that is always executed before the function \p F is
+/// left, assuming it is left through a return.
+static const Instruction *findFunctionExitJoinPoint(const Function *F,
+                                                    const DominatorTree *DT) {
+  const BasicBlock *JoinBB = nullptr;
+  for (const BasicBlock &BB : *F) {
+    // Skip all but return instructions.
+    if (!isa<ReturnInst>(BB.getTerminator()))
+      continue;
+
+    // The first return instruction found is the initial join point.
+    if (!JoinBB) {
+      JoinBB = &BB;
+      continue;
+    }
+
+    // When we find more return instructions the nearest common dominator of all
+    // of them is known to be executed prior to all of them.
+    if (DT) {
+      JoinBB = DT->findNearestCommonDominator(JoinBB, &BB);
+      assert(JoinBB && "Assumed a common dominator!");
+      continue;
+    }
+
+    // If we do no have a dominator tree we still know that *at least* the entry
+    // block is executed as we assume the function is left through a return.
+    // TODO: Improve this by using getMustBeExecutedNextInstruction() from this
+    //       point.
+    return F->getEntryBlock().getTerminator();
+  }
+
+  // If we traversed all the blocks and found the nearest common dominator we
+  // return it. If we did not find a return instruction we return a nullptr but
+  // we should indicate a problem instead because the function is never left
+  // through a return.
+  return JoinBB ? JoinBB->getTerminator() : nullptr;
+}
+
+/// Lookup \p Key in \p Map and return the result, potentially after
+/// initializing the optional through \p Fn(\p args).
+template <typename K, typename V, typename FnTy, typename... ArgsTy>
+static V getOrCreateCachedOptional(K Key, DenseMap<K, Optional<V>> &Map,
+                                   FnTy &&Fn, ArgsTy &&... args) {
+  Optional<V> &OptVal = Map[Key];
+  if (!OptVal.hasValue())
+    OptVal = Fn(std::forward<ArgsTy>(args)...);
+  return OptVal.getValue();
 }
 
 const Instruction *
