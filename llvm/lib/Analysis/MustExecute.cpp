@@ -441,20 +441,6 @@ public:
       }
     }
   }
-  MustExecuteAnnotatedWriter(const Module &M,
-                             DominatorTree &DT, LoopInfo &LI) {
-    for (auto &F : M)
-    for (auto &I: instructions(F)) {
-      Loop *L = LI.getLoopFor(I.getParent());
-      while (L) {
-        if (isMustExecuteIn(I, L, &DT)) {
-          MustExec[&I].push_back(L);
-        }
-        L = L->getParentLoop();
-      };
-    }
-  }
-
 
   void printInfoComment(const Value &V, formatted_raw_ostream &OS) override {
     if (!MustExec.count(&V)) {
