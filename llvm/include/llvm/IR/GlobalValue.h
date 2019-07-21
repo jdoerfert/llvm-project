@@ -80,14 +80,14 @@ protected:
         UnnamedAddrVal(unsigned(UnnamedAddr::None)),
         DllStorageClass(DefaultStorageClass), ThreadLocal(NotThreadLocal),
         HasLLVMReservedName(false), IsDSOLocal(false), HasPartition(false),
-        IntID((Intrinsic::ID)0U), Parent(nullptr) {
+        DeviceNo(0), IntID((Intrinsic::ID)0U), Parent(nullptr) {
     setLinkage(Linkage);
     setName(Name);
   }
 
   Type *ValueType;
 
-  static const unsigned GlobalValueSubClassDataBits = 16;
+  static const unsigned GlobalValueSubClassDataBits = 11;
 
   // All bitfields use unsigned as the underlying type so that MSVC will pack
   // them.
@@ -112,9 +112,14 @@ protected:
   /// https://lld.llvm.org/Partitions.html).
   unsigned HasPartition : 1;
 
+  /// The device # this global is associated with, 0 for host/default device,
+  /// 1-31 for other devices. A device is in this context a reference to a
+  /// different target (triple).
+  unsigned DeviceNo : 5;
+
 private:
   // Give subclasses access to what otherwise would be wasted padding.
-  // (16 + 4 + 2 + 2 + 2 + 3 + 1 + 1 + 1) == 32.
+  // (11 + 4 + 2 + 2 + 2 + 3 + 1 + 1 + 1 + 5) == 32.
   unsigned SubClassData : GlobalValueSubClassDataBits;
 
   friend class Constant;
@@ -224,6 +229,16 @@ public:
   Comdat *getComdat() {
     return const_cast<Comdat *>(
                            static_cast<const GlobalValue *>(this)->getComdat());
+  }
+
+  /// Return the device number this global is associated with, 0 for
+  /// host/default device.
+  unsigned char getDeviceNo() const { return DeviceNo; }
+
+  /// Set the device number this global is associated with.
+  void setDeviceNo(unsigned DeviceNo) {
+    assert(DeviceNo < 32 && "device numbers have to be between 0 and 31");
+    this->DeviceNo = DeviceNo;
   }
 
   VisibilityTypes getVisibility() const { return VisibilityTypes(Visibility); }

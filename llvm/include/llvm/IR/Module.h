@@ -183,7 +183,8 @@ private:
   IFuncListType IFuncList;        ///< The IFuncs in the module
   NamedMDListType NamedMDList;    ///< The named metadata in the module
   std::string GlobalScopeAsm;     ///< Inline Asm at global scope.
-  std::unique_ptr<ValueSymbolTable> ValSymTab; ///< Symbol table for values
+  SmallVector<std::unique_ptr<ValueSymbolTable>, 2>
+      ValSymTab;                  ///< Symbol table(s) for values
   ComdatSymTabType ComdatSymTab;  ///< Symbol table for COMDATs
   std::unique_ptr<MemoryBuffer>
   OwnedMemoryBuffer;              ///< Memory buffer directly owned by this
@@ -193,7 +194,8 @@ private:
   std::string ModuleID;           ///< Human readable identifier for the module
   std::string SourceFileName;     ///< Original source file name for module,
                                   ///< recorded in bitcode.
-  std::string TargetTriple;       ///< Platform target triple Module compiled on
+  SmallVector<std::string, 1>
+  TargetTriples;                  ///< Platform target triple Module compiled on
                                   ///< Format: (arch)(sub)-(vendor)-(sys0-(abi)
   NamedMDSymTabType NamedMDSymTab;  ///< NamedMDNode names.
   DataLayout DL;                  ///< DataLayout associated with the module
@@ -244,9 +246,14 @@ public:
   /// Get the data layout for the module's target platform.
   const DataLayout &getDataLayout() const;
 
-  /// Get the target triple which is a string describing the target host.
+  /// Get the target triple which is a string describing the target device with
+  /// number \p DeviceNo. If more than a single device is present in the module the
+  /// device number is required, otherwise it can be ommited.
+  ///
   /// @returns a string containing the target triple.
-  const std::string &getTargetTriple() const { return TargetTriple; }
+  const std::string &getTargetTriple(int DeviceNo = 0) const {
+    return TargetTriples[DeviceNo];
+  }
 
   /// Get the global data context.
   /// @returns LLVMContext - a container for LLVM's global information
@@ -289,7 +296,10 @@ public:
   void setDataLayout(const DataLayout &Other);
 
   /// Set the target triple.
-  void setTargetTriple(StringRef T) { TargetTriple = std::string(T); }
+  void setTargetTriple(StringRef T, int DeviceNo = 0);
+
+  /// TODO
+  size_t getNumTargetTriples() const { return TargetTriples.size(); }
 
   /// Set the module-scope inline assembly blocks.
   /// A trailing newline is added if the input doesn't have one.
@@ -314,7 +324,7 @@ public:
   /// Return the global value in the module with the specified name, of
   /// arbitrary type. This method returns null if a global with the specified
   /// name is not found.
-  GlobalValue *getNamedValue(StringRef Name) const;
+  GlobalValue *getNamedValue(StringRef Name, unsigned DeviceNo = 0) const;
 
   /// Return a unique non-zero ID for the specified metadata kind. This ID is
   /// uniqued across modules in the current LLVMContext.
@@ -396,27 +406,27 @@ public:
   /// does not exist, return null. If AllowInternal is set to true, this
   /// function will return types that have InternalLinkage. By default, these
   /// types are not returned.
-  GlobalVariable *getGlobalVariable(StringRef Name) const {
-    return getGlobalVariable(Name, false);
+  GlobalVariable *getGlobalVariable(StringRef Name, unsigned DeviceNo = 0) const {
+    return getGlobalVariable(Name, false, DeviceNo);
   }
 
-  GlobalVariable *getGlobalVariable(StringRef Name, bool AllowInternal) const;
+  GlobalVariable *getGlobalVariable(StringRef Name, bool AllowInternal, unsigned DeviceNo = 0) const;
 
   GlobalVariable *getGlobalVariable(StringRef Name,
-                                    bool AllowInternal = false) {
+                                    bool AllowInternal = false, unsigned DeviceNo = 0) {
     return static_cast<const Module *>(this)->getGlobalVariable(Name,
-                                                                AllowInternal);
+                                                                AllowInternal, DeviceNo);
   }
 
   /// Return the global variable in the module with the specified name, of
   /// arbitrary type. This method returns null if a global with the specified
   /// name is not found.
-  const GlobalVariable *getNamedGlobal(StringRef Name) const {
-    return getGlobalVariable(Name, true);
+  const GlobalVariable *getNamedGlobal(StringRef Name, unsigned DeviceNo = 0) const {
+    return getGlobalVariable(Name, true, DeviceNo);
   }
-  GlobalVariable *getNamedGlobal(StringRef Name) {
+  GlobalVariable *getNamedGlobal(StringRef Name, unsigned DeviceNo = 0) {
     return const_cast<GlobalVariable *>(
-                       static_cast<const Module *>(this)->getNamedGlobal(Name));
+                       static_cast<const Module *>(this)->getNamedGlobal(Name, DeviceNo));
   }
 
   /// Look up the specified global in the module symbol table.
@@ -576,9 +586,9 @@ public:
   }
 
   /// Get the symbol table of global variable and function identifiers
-  const ValueSymbolTable &getValueSymbolTable() const { return *ValSymTab; }
+  const ValueSymbolTable &getValueSymbolTable(unsigned DeviceNo = 0) const { return *(ValSymTab[DeviceNo]); }
   /// Get the Module's symbol table of global variable and function identifiers.
-  ValueSymbolTable       &getValueSymbolTable()       { return *ValSymTab; }
+  ValueSymbolTable       &getValueSymbolTable(unsigned DeviceNo = 0)       { return *(ValSymTab[DeviceNo]); }
 
   /// Get the Module's symbol table for COMDATs (constant).
   const ComdatSymTabType &getComdatSymbolTable() const { return ComdatSymTab; }

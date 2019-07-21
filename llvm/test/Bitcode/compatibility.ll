@@ -14,6 +14,13 @@ target datalayout = "E"
 target triple = "x86_64-apple-macosx10.10.0"
 ; CHECK: target triple = "x86_64-apple-macosx10.10.0"
 
+device 1 triple = "mips-unknown-linux-gnu"
+; CHECK: device 1 triple = "mips-unknown-linux-gnu"
+device 2 triple = "mips-unknown-linux-gnu"
+; CHECK: device 2 triple = "mips-unknown-linux-gnu"
+device 31 triple = "nvptx64-unknown-cuda"
+; CHECK: device 31 triple = "nvptx64-unknown-cuda"
+
 ;; Module-level assembly
 module asm "beep boop"
 ; CHECK: module asm "beep boop"
@@ -79,7 +86,7 @@ $comdat.samesize = comdat samesize
 @constant.vector.f64 = constant <3 x double> <double -0.0, double 1.0, double 0.0>
 
 ;; Global Variables
-; Format: [@<GlobalVarName> =] [Linkage] [Visibility] [DLLStorageClass]
+; Format: [@<GlobalVarName> =] [Device] [Linkage] [Visibility] [DLLStorageClass]
 ;         [ThreadLocal] [(unnamed_addr|local_unnamed_addr)] [AddrSpace] [ExternallyInitialized]
 ;         <global | constant> <Type> [<InitializerConstant>]
 ;         [, section "name"] [, comdat [($name)]] [, align <Alignment>]
@@ -89,6 +96,34 @@ $comdat.samesize = comdat samesize
 ; CHECK: @g1 = global i32 0
 @g2 = constant i32 0
 ; CHECK: @g2 = constant i32 0
+
+; Global Variables -- Device
+@g1_d31 = device 31 global i32 0
+; CHECK: @g1_d31 = device 31 global i32 0
+@g2_d1 = device 1 constant i32 0
+; CHECK: @g2_d1 =  device 1 constant i32 0
+@g.private_d2 = device 2 private global i32 0
+; CHECK: @g.private_d2 = device 2 private global i32 0
+@g.internal_d31 = device 31 internal global i32 0
+; CHECK: @g.internal_d31 = device 31 internal global i32 0
+@g.available_externally_d1 = device 1 available_externally global i32 0
+; CHECK: @g.available_externally_d1 = device 1 available_externally global i32 0
+@g.linkonce_d2 = device 2 linkonce global i32 0
+; CHECK: @g.linkonce_d2 = device 2 linkonce global i32 0
+@g.weak_d31 = device 31 weak global i32 0
+; CHECK: @g.weak_d31 = device 31 weak global i32 0
+@g.common_d1 = device 1 common global i32 0
+; CHECK: @g.common_d1 = device 1 common global i32 0
+@g.appending_d2 = device 2 appending global [4 x i8] c"test"
+; CHECK: @g.appending_d2 = device 2 appending global [4 x i8] c"test"
+@g.extern_weak_d31 = device 31 extern_weak global i32
+; CHECK: @g.extern_weak_d31 = device 31 extern_weak global i32
+@g.linkonce_odr_d1 = device 1 linkonce_odr global i32 0
+; CHECK: @g.linkonce_odr_d1 = device 1 linkonce_odr global i32 0
+@g.weak_odr_d2 = device 2 weak_odr global i32 0
+; CHECK: @g.weak_odr_d2 = device 2 weak_odr global i32 0
+@g.external_d31 = device 31 external global i32
+; CHECK: @g.external_d31 = device 31 external global i32
 
 ; Global Variables -- Linkage
 @g.private = private global i32 0
@@ -204,8 +239,24 @@ declare void @g.f1()
 ; CHECK: @llvm.global_dtors = appending global [1 x %pri.func.data] [%pri.func.data { i32 0, void ()* @g.f1, i8* @g.used3 }], section "llvm.metadata"
 
 ;; Aliases
-; Format: @<Name> = [Linkage] [Visibility] [DLLStorageClass] [ThreadLocal]
+; Format: @<Name> = [Device] [Linkage] [Visibility] [DLLStorageClass] [ThreadLocal]
 ;                   [unnamed_addr] alias <AliaseeTy> @<Aliasee>
+
+; Aliases -- Device
+@a.private1 = device 1 private alias i32, i32* @g.private
+; CHECK: @a.private = device 1 private alias i32, i32* @g.private
+@a.internal_d2 = device 2 internal alias i32, i32* @g.internal
+; CHECK: @a.internal_d2 = device 2 internal alias i32, i32* @g.internal
+@a.linkonce_d31 = device 31 linkonce alias i32, i32* @g.linkonce
+; CHECK: @a.linkonce_d31 = device 31 linkonce alias i32, i32* @g.linkonce
+@a.weak_d1 = device 1 weak alias i32, i32* @g.weak
+; CHECK: @a.weak_d1 = device 1 weak alias i32, i32* @g.weak
+@a.linkonce_odr_d2 = device 2 linkonce_odr alias i32, i32* @g.linkonce_odr
+; CHECK: @a.linkonce_odr_d2 = device 2 linkonce_odr alias i32, i32* @g.linkonce_odr
+@a.weak_odr_d31 = device 31 weak_odr alias i32, i32* @g.weak_odr
+; CHECK: @a.weak_odr_d31 = device 31 weak_odr alias i32, i32* @g.weak_odr
+@a.external_d1 = device 1 external alias i32, i32* @g1
+; CHECK: @a.external_d1 = device 1 alias i32, i32* @g1
 
 ; Aliases -- Linkage
 @a.private = private alias i32, i32* @g.private
@@ -260,8 +311,16 @@ declare void @g.f1()
 @alias.partition = alias i32, i32* @g.partition, partition "part"
 
 ;; IFunc
-; Format @<Name> = [Linkage] [Visibility] ifunc <IFuncTy>,
+; Format @<Name> = [Device] [Linkage] [Visibility] ifunc <IFuncTy>,
 ;                  <ResolverTy>* @<Resolver>
+
+; IFunc -- Device
+@ifunc.external_d1 = device 1 external ifunc void (), i8* ()* @ifunc_resolver
+; CHECK: @ifunc.external_d1 = device 1 ifunc void (), i8* ()* @ifunc_resolver
+@ifunc.private_d2 = device 2 private ifunc void (), i8* ()* @ifunc_resolver
+; CHECK: @ifunc.private_d2 = device 2 private ifunc void (), i8* ()* @ifunc_resolver
+@ifunc.internal_d31 = device 31 internal ifunc void (), i8* ()* @ifunc_resolver
+; CHECK: @ifunc.internal_d31 = device 31 internal ifunc void (), i8* ()* @ifunc_resolver
 
 ; IFunc -- Linkage
 @ifunc.external = external ifunc void (), i8* ()* @ifunc_resolver
@@ -289,7 +348,7 @@ entry:
 }
 
 ;; Functions
-; Format: define [linkage] [visibility] [DLLStorageClass]
+; Format: define [device] [linkage] [visibility] [DLLStorageClass]
 ;         [cconv] [ret attrs]
 ;         <ResultType> @<FunctionName> ([argument list])
 ;         [(unnamed_addr|local_unnamed_addr)] [fn Attrs] [section "name"] [comdat [($name)]]
@@ -305,6 +364,56 @@ define void @f2 () {
 entry:
   ret void
 }
+
+; Functions -- Device
+declare device 1 void @f1_d1 ()
+; CHECK: declare device 1 void @f1_d1()
+
+define device 2 void @f2_d2 () {
+; CHECK: define device 2 void @f2_d2()
+entry:
+  ret void
+}
+
+define device 31 private void @f.private_d31() {
+; CHECK: define device 31 private void @f.private_d31()
+entry:
+  ret void
+}
+define device 1 internal void @f.internal_d1() {
+; CHECK: define device 1 internal void @f.internal_d1()
+entry:
+  ret void
+}
+define device 2 available_externally void @f.available_externally_d2() {
+; CHECK: define device 2 available_externally void @f.available_externally_d2()
+entry:
+  ret void
+}
+define device 31 linkonce void @f.linkonce_d31() {
+; CHECK: define device 31 linkonce void @f.linkonce_d31()
+entry:
+  ret void
+}
+define device 1 weak void @f.weak_d1() {
+; CHECK: define device 1 weak void @f.weak_d1()
+entry:
+  ret void
+}
+define device 2 linkonce_odr void @f.linkonce_odr_d2() {
+; CHECK: define device 2 linkonce_odr void @f.linkonce_odr_d2()
+entry:
+  ret void
+}
+define device 31 weak_odr void @f.weak_odr_d31() {
+; CHECK: define device 31 weak_odr void @f.weak_odr_d31()
+entry:
+  ret void
+}
+declare device 1 external void @f.external_d1()
+; CHECK: declare device 1 void @f.external_d1()
+declare device 2 extern_weak void @f.extern_weak_d2()
+; CHECK: declare device 2 extern_weak void @f.extern_weak_d2()
 
 ; Functions -- linkage
 define private void @f.private() {

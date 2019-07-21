@@ -265,6 +265,7 @@ namespace llvm {
     };
     bool ParseOptionalParamAttrs(AttrBuilder &B);
     bool ParseOptionalReturnAttrs(AttrBuilder &B);
+    bool ParseOptionalDevice(unsigned &DeviceNo);
     bool ParseOptionalLinkage(unsigned &Res, bool &HasLinkage,
                               unsigned &Visibility, unsigned &DLLStorageClass,
                               bool &DSOLocal);
@@ -302,6 +303,7 @@ namespace llvm {
     bool ValidateEndOfIndex();
     bool ParseTargetDefinitions();
     bool ParseTargetDefinition();
+    bool ParseDeviceDefinition();
     bool ParseModuleAsm();
     bool ParseSourceFileName();
     bool ParseDepLibs();        // FIXME: Remove in 4.0.
@@ -313,13 +315,13 @@ namespace llvm {
     bool ParseGlobalType(bool &IsConstant);
     bool ParseUnnamedGlobal();
     bool ParseNamedGlobal();
-    bool ParseGlobal(const std::string &Name, LocTy NameLoc, unsigned Linkage,
-                     bool HasLinkage, unsigned Visibility,
+    bool ParseGlobal(const std::string &Name, LocTy NameLoc, unsigned DeviceNo,
+                     unsigned Linkage, bool HasLinkage, unsigned Visibility,
                      unsigned DLLStorageClass, bool DSOLocal,
                      GlobalVariable::ThreadLocalMode TLM,
                      GlobalVariable::UnnamedAddr UnnamedAddr);
     bool parseIndirectSymbol(const std::string &Name, LocTy NameLoc,
-                             unsigned L, unsigned Visibility,
+                             unsigned DeviceNo, unsigned L, unsigned Visibility,
                              unsigned DLLStorageClass, bool DSOLocal,
                              GlobalVariable::ThreadLocalMode TLM,
                              GlobalVariable::UnnamedAddr UnnamedAddr);

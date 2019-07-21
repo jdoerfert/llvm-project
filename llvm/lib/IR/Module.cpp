@@ -72,9 +72,10 @@ template class llvm::SymbolTableListTraits<GlobalIFunc>;
 //
 
 Module::Module(StringRef MID, LLVMContext &C)
-    : Context(C), ValSymTab(std::make_unique<ValueSymbolTable>()),
+    : Context(C),
       Materializer(), ModuleID(std::string(MID)),
       SourceFileName(std::string(MID)), DL("") {
+  ValSymTab.push_back(std::make_unique<ValueSymbolTable>());
   Context.addModule(this);
 }
 
@@ -85,6 +86,13 @@ Module::~Module() {
   FunctionList.clear();
   AliasList.clear();
   IFuncList.clear();
+}
+
+void Module::setTargetTriple(StringRef T, int DeviceNo) {
+  ValSymTab.resize(std::max(ValSymTab.size(), size_t(DeviceNo + 1)));
+  ValSymTab[DeviceNo] = std::make_unique<ValueSymbolTable>();
+  TargetTriples.resize(std::max(TargetTriples.size(), size_t(DeviceNo + 1)));
+  TargetTriples[DeviceNo] = std::string(T);
 }
 
 std::unique_ptr<RandomNumberGenerator>
@@ -110,8 +118,8 @@ Module::createRNG(const StringRef Name) const {
 /// getNamedValue - Return the first global value in the module with
 /// the specified name, of arbitrary type.  This method returns null
 /// if a global with the specified name is not found.
-GlobalValue *Module::getNamedValue(StringRef Name) const {
-  return cast_or_null<GlobalValue>(getValueSymbolTable().lookup(Name));
+GlobalValue *Module::getNamedValue(StringRef Name, unsigned DeviceNo) const {
+  return cast_or_null<GlobalValue>(getValueSymbolTable(DeviceNo).lookup(Name));
 }
 
 /// getMDKindID - Return a unique non-zero ID for the specified metadata kind.
@@ -186,10 +194,10 @@ Function *Module::getFunction(StringRef Name) const {
 /// If AllowLocal is set to true, this function will return types that
 /// have an local. By default, these types are not returned.
 ///
-GlobalVariable *Module::getGlobalVariable(StringRef Name,
-                                          bool AllowLocal) const {
+GlobalVariable *Module::getGlobalVariable(StringRef Name, bool AllowLocal,
+                                          unsigned DeviceNo) const {
   if (GlobalVariable *Result =
-      dyn_cast_or_null<GlobalVariable>(getNamedValue(Name)))
+      dyn_cast_or_null<GlobalVariable>(getNamedValue(Name, DeviceNo)))
     if (AllowLocal || !Result->hasLocalLinkage())
       return Result;
   return nullptr;

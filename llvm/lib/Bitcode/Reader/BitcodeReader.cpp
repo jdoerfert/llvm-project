@@ -3139,7 +3139,7 @@ Error BitcodeReader::parseGlobalVarRecord(ArrayRef<uint64_t> Record) {
   // v1: [pointer type, isconst, initid, linkage, alignment, section,
   // visibility, threadlocal, unnamed_addr, externally_initialized,
   // dllstorageclass, comdat, attributes, preemption specifier,
-  // partition strtab offset, partition strtab size] (name in VST)
+  // partition strtab offset, partition strtab size, device #] (name in VST)
   // v2: [strtab_offset, strtab_size, v1]
   StringRef Name;
   std::tie(Name, Record) = readNameFromStrtab(Record);
@@ -3238,13 +3238,20 @@ Error BitcodeReader::parseGlobalVarRecord(ArrayRef<uint64_t> Record) {
   if (Record.size() > 15)
     NewGV->setPartition(StringRef(Strtab.data() + Record[14], Record[15]));
 
+  if (Record.size() > 16) {
+    if (Record[16] <= 0 || Record[16] > 31)
+      return error("Invalid ID");
+    NewGV->setDeviceNo(Record[16]);
+  }
+
   return Error::success();
 }
 
 Error BitcodeReader::parseFunctionRecord(ArrayRef<uint64_t> Record) {
   // v1: [type, callingconv, isproto, linkage, paramattr, alignment, section,
   // visibility, gc, unnamed_addr, prologuedata, dllstorageclass, comdat,
-  // prefixdata,  personalityfn, preemption specifier, addrspace] (name in VST)
+  // prefixdata,  personalityfn, preemption specifier, addrspace,
+  // device #] (name in VST)
   // v2: [strtab_offset, strtab_size, v1]
   StringRef Name;
   std::tie(Name, Record) = readNameFromStrtab(Record);
@@ -3364,6 +3371,13 @@ Error BitcodeReader::parseFunctionRecord(ArrayRef<uint64_t> Record) {
     FunctionsWithBodies.push_back(Func);
     DeferredFunctionInfo[Func] = 0;
   }
+
+  if (Record.size() > 19) {
+    if (Record[19] <= 0 || Record[19] > 31)
+      return error("Invalid ID");
+    Func->setDeviceNo(Record[19]);
+  }
+
   return Error::success();
 }
 
@@ -3372,10 +3386,10 @@ Error BitcodeReader::parseGlobalIndirectSymbolRecord(
   // v1 ALIAS_OLD: [alias type, aliasee val#, linkage] (name in VST)
   // v1 ALIAS: [alias type, addrspace, aliasee val#, linkage, visibility,
   // dllstorageclass, threadlocal, unnamed_addr,
-  // preemption specifier] (name in VST)
+  // preemption specifier, device #] (name in VST)
   // v1 IFUNC: [alias type, addrspace, aliasee val#, linkage,
   // visibility, dllstorageclass, threadlocal, unnamed_addr,
-  // preemption specifier] (name in VST)
+  // preemption specifier, device #] (name in VST)
   // v2: [strtab_offset, strtab_size, v1]
   StringRef Name;
   std::tie(Name, Record) = readNameFromStrtab(Record);
@@ -3440,6 +3454,12 @@ Error BitcodeReader::parseGlobalIndirectSymbolRecord(
     NewGA->setPartition(
         StringRef(Strtab.data() + Record[OpNum], Record[OpNum + 1]));
     OpNum += 2;
+  }
+
+  if (Record.size() > OpNum) {
+    if (Record[OpNum] <= 0 || Record[OpNum] > 31)
+      return error("Invalid ID");
+    NewGA->setDeviceNo(Record[OpNum]);
   }
 
   FullTy = PointerType::get(FullTy, AddrSpace);
@@ -3651,6 +3671,18 @@ Error BitcodeReader::parseModule(uint64_t ResumeBit,
       if (convertToString(Record, 0, S))
         return error("Invalid record");
       TheModule->setTargetTriple(S);
+      break;
+    }
+    case bitc::MODULE_CODE_DEVICE_TRIPLE: {  // DEVICE TRIPLE:      [no, strchr x N]
+      if (Record.size() < 1)
+        return error("Invalid record");
+      uint64_t DeviceNo = Record.back();
+      if (DeviceNo == 0)
+        return error("device numbers shall be positive");
+      std::string S;
+      if (convertToString(ArrayRef<uint64_t>(&Record[0], Record.size() - 1), 0, S))
+        return error("Invalid record");
+      TheModule->setTargetTriple(S, DeviceNo);
       break;
     }
     case bitc::MODULE_CODE_DATALAYOUT: {  // DATALAYOUT: [strchr x N]

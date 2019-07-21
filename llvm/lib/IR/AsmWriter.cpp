@@ -2684,6 +2684,10 @@ void AssemblyWriter::printModule(const Module *M) {
     Out << "target datalayout = \"" << DL << "\"\n";
   if (!M->getTargetTriple().empty())
     Out << "target triple = \"" << M->getTargetTriple() << "\"\n";
+  for (unsigned u = 1, e = M->getNumTargetTriples(); u < e; u++)
+    if (!M->getTargetTriple(u).empty())
+      Out << "device " << u << " triple = \"" << M->getTargetTriple(u)
+          << "\"\n";
 
   if (!M->getModuleInlineAsm().empty()) {
     Out << '\n';
@@ -3402,6 +3406,9 @@ void AssemblyWriter::printGlobal(const GlobalVariable *GV) {
   WriteAsOperandInternal(Out, GV, &TypePrinter, &Machine, GV->getParent());
   Out << " = ";
 
+  if (unsigned DeviceNo = GV->getDeviceNo())
+    Out << "device " << DeviceNo << " ";
+
   if (!GV->hasInitializer() && GV->hasExternalLinkage())
     Out << "external ";
 
@@ -3457,6 +3464,9 @@ void AssemblyWriter::printIndirectSymbol(const GlobalIndirectSymbol *GIS) {
 
   WriteAsOperandInternal(Out, GIS, &TypePrinter, &Machine, GIS->getParent());
   Out << " = ";
+
+  if (unsigned DeviceNo = GIS->getDeviceNo())
+    Out << "device " << DeviceNo << " ";
 
   Out << getLinkageNameWithSpace(GIS->getLinkage());
   PrintDSOLocation(*GIS, Out);
@@ -3563,6 +3573,9 @@ void AssemblyWriter::printFunction(const Function *F) {
     Out << ' ';
   } else
     Out << "define ";
+
+  if (unsigned DeviceNo = F->getDeviceNo())
+    Out << "device " << DeviceNo << " ";
 
   Out << getLinkageNameWithSpace(F->getLinkage());
   PrintDSOLocation(*F, Out);

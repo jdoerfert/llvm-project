@@ -308,6 +308,10 @@ bool LLParser::ParseTargetDefinitions() {
       if (ParseTargetDefinition())
         return true;
       break;
+    case lltok::kw_device:
+      if (ParseDeviceDefinition())
+        return true;
+      break;
     case lltok::kw_source_filename:
       if (ParseSourceFileName())
         return true;
@@ -403,6 +407,26 @@ bool LLParser::ParseTargetDefinition() {
         ParseStringConstant(Str))
       return true;
     M->setDataLayout(Str);
+    return false;
+  }
+}
+
+/// toplevelentity
+///   ::= ['device' uint32] 'triple' '=' STRINGCONSTANT
+bool LLParser::ParseDeviceDefinition() {
+  assert(Lex.getKind() == lltok::kw_device);
+  unsigned DeviceNo = 0;
+  if (ParseOptionalDevice(DeviceNo))
+    return true;
+  std::string Str;
+  switch (Lex.getKind()) {
+  default: return TokError("unknown target property");
+  case lltok::kw_triple:
+    Lex.Lex();
+    if (ParseToken(lltok::equal, "expected '=' after target triple") ||
+        ParseStringConstant(Str))
+      return true;
+    M->setTargetTriple(Str, DeviceNo);
     return false;
   }
 }
@@ -561,9 +585,9 @@ bool LLParser::ParseOptionalUnnamedAddr(
 ///   OptionalLinkage OptionalPreemptionSpecifier OptionalVisibility
 ///   OptionalDLLStorageClass
 ///                                                     ...   -> global variable
-///   GlobalID '=' OptionalVisibility (ALIAS | IFUNC) ...
-///   GlobalID '=' OptionalLinkage OptionalPreemptionSpecifier OptionalVisibility
-///                OptionalDLLStorageClass
+///   GlobalID '=' OptionalDevice OptionalVisibility (ALIAS | IFUNC) ...
+///   GlobalID '=' OptionalDevice OptionalLinkage OptionalPreemptionSpecifier
+///                OptionalVisibility OptionalDLLStorageClass
 ///                                                     ...   -> global variable
 bool LLParser::ParseUnnamedGlobal() {
   unsigned VarID = NumberedVals.size();
@@ -581,27 +605,29 @@ bool LLParser::ParseUnnamedGlobal() {
       return true;
   }
 
+  unsigned DeviceNo;
   bool HasLinkage;
   unsigned Linkage, Visibility, DLLStorageClass;
   bool DSOLocal;
   GlobalVariable::ThreadLocalMode TLM;
   GlobalVariable::UnnamedAddr UnnamedAddr;
-  if (ParseOptionalLinkage(Linkage, HasLinkage, Visibility, DLLStorageClass,
+  if (ParseOptionalDevice(DeviceNo) ||
+      ParseOptionalLinkage(Linkage, HasLinkage, Visibility, DLLStorageClass,
                            DSOLocal) ||
       ParseOptionalThreadLocal(TLM) || ParseOptionalUnnamedAddr(UnnamedAddr))
     return true;
 
   if (Lex.getKind() != lltok::kw_alias && Lex.getKind() != lltok::kw_ifunc)
-    return ParseGlobal(Name, NameLoc, Linkage, HasLinkage, Visibility,
+    return ParseGlobal(Name, NameLoc, DeviceNo, Linkage, HasLinkage, Visibility,
                        DLLStorageClass, DSOLocal, TLM, UnnamedAddr);
 
-  return parseIndirectSymbol(Name, NameLoc, Linkage, Visibility,
+  return parseIndirectSymbol(Name, NameLoc, DeviceNo, Linkage, Visibility,
                              DLLStorageClass, DSOLocal, TLM, UnnamedAddr);
 }
 
 /// ParseNamedGlobal:
-///   GlobalVar '=' OptionalVisibility (ALIAS | IFUNC) ...
-///   GlobalVar '=' OptionalLinkage OptionalPreemptionSpecifier
+///   GlobalVar '=' OptionalDevice OptionalVisibility (ALIAS | IFUNC) ...
+///   GlobalVar '=' OptionalDevice OptionalLinkage OptionalPreemptionSpecifier
 ///                 OptionalVisibility OptionalDLLStorageClass
 ///                                                     ...   -> global variable
 bool LLParser::ParseNamedGlobal() {
@@ -610,22 +636,24 @@ bool LLParser::ParseNamedGlobal() {
   std::string Name = Lex.getStrVal();
   Lex.Lex();
 
+  unsigned DeviceNo;
   bool HasLinkage;
   unsigned Linkage, Visibility, DLLStorageClass;
   bool DSOLocal;
   GlobalVariable::ThreadLocalMode TLM;
   GlobalVariable::UnnamedAddr UnnamedAddr;
   if (ParseToken(lltok::equal, "expected '=' in global variable") ||
+      ParseOptionalDevice(DeviceNo) ||
       ParseOptionalLinkage(Linkage, HasLinkage, Visibility, DLLStorageClass,
                            DSOLocal) ||
       ParseOptionalThreadLocal(TLM) || ParseOptionalUnnamedAddr(UnnamedAddr))
     return true;
 
   if (Lex.getKind() != lltok::kw_alias && Lex.getKind() != lltok::kw_ifunc)
-    return ParseGlobal(Name, NameLoc, Linkage, HasLinkage, Visibility,
+    return ParseGlobal(Name, NameLoc, DeviceNo, Linkage, HasLinkage, Visibility,
                        DLLStorageClass, DSOLocal, TLM, UnnamedAddr);
 
-  return parseIndirectSymbol(Name, NameLoc, Linkage, Visibility,
+  return parseIndirectSymbol(Name, NameLoc, DeviceNo, Linkage, Visibility,
                              DLLStorageClass, DSOLocal, TLM, UnnamedAddr);
 }
 
@@ -901,7 +929,8 @@ static void maybeSetDSOLocal(bool DSOLocal, GlobalValue &GV) {
 /// Everything through OptionalUnnamedAddr has already been parsed.
 ///
 bool LLParser::parseIndirectSymbol(const std::string &Name, LocTy NameLoc,
-                                   unsigned L, unsigned Visibility,
+                                   unsigned DeviceNo, unsigned L,
+                                   unsigned Visibility,
                                    unsigned DLLStorageClass, bool DSOLocal,
                                    GlobalVariable::ThreadLocalMode TLM,
                                    GlobalVariable::UnnamedAddr UnnamedAddr) {
@@ -991,6 +1020,7 @@ bool LLParser::parseIndirectSymbol(const std::string &Name, LocTy NameLoc,
     GA.reset(GlobalIFunc::create(Ty, AddrSpace,
                                  (GlobalValue::LinkageTypes)Linkage, Name,
                                  Aliasee, /*Parent*/ nullptr));
+  GA->setDeviceNo(DeviceNo);
   GA->setThreadLocalMode(TLM);
   GA->setVisibility((GlobalValue::VisibilityTypes)Visibility);
   GA->setDLLStorageClass((GlobalValue::DLLStorageClassTypes)DLLStorageClass);
@@ -1055,7 +1085,7 @@ bool LLParser::parseIndirectSymbol(const std::string &Name, LocTy NameLoc,
 /// already.
 ///
 bool LLParser::ParseGlobal(const std::string &Name, LocTy NameLoc,
-                           unsigned Linkage, bool HasLinkage,
+                           unsigned DeviceNo, unsigned Linkage, bool HasLinkage,
                            unsigned Visibility, unsigned DLLStorageClass,
                            bool DSOLocal, GlobalVariable::ThreadLocalMode TLM,
                            GlobalVariable::UnnamedAddr UnnamedAddr) {
@@ -1130,6 +1160,7 @@ bool LLParser::ParseGlobal(const std::string &Name, LocTy NameLoc,
   if (Init)
     GV->setInitializer(Init);
   GV->setConstant(IsConstant);
+  GV->setDeviceNo(DeviceNo);
   GV->setLinkage((GlobalValue::LinkageTypes)Linkage);
   maybeSetDSOLocal(DSOLocal, *GV);
   GV->setVisibility((GlobalValue::VisibilityTypes)Visibility);
@@ -1896,6 +1927,21 @@ static unsigned parseOptionalLinkageAux(lltok::Kind Kind, bool &HasLinkage) {
   case lltok::kw_external:
     return GlobalValue::ExternalLinkage;
   }
+}
+
+/// ParseOptionalDevice
+///   ::= /*empty*/
+///   ::= 'device uint32 '
+bool LLParser::ParseOptionalDevice(unsigned &DeviceNo) {
+  DeviceNo = 0;
+  if (!EatIfPresent(lltok::kw_device))
+    return false;
+  const auto &DeviceNoLoc = Lex.getLoc();
+  if (ParseUInt32(DeviceNo))
+    return true;
+  if (DeviceNo == 0 || DeviceNo > 31)
+    return Error(DeviceNoLoc, "device numbers have to be between 1 and 31");
+  return false;
 }
 
 /// ParseOptionalLinkage
@@ -5452,13 +5498,14 @@ bool LLParser::ParseTypeAndBasicBlock(BasicBlock *&BB, LocTy &Loc,
 }
 
 /// FunctionHeader
-///   ::= OptionalLinkage OptionalPreemptionSpecifier OptionalVisibility
-///       OptionalCallingConv OptRetAttrs OptUnnamedAddr Type GlobalName
-///       '(' ArgList ')' OptAddrSpace OptFuncAttrs OptSection OptionalAlign
-///       OptGC OptionalPrefix OptionalPrologue OptPersonalityFn
+///   ::= OptionalDevice OptionalLinkage OptionalPreemptionSpecifier
+///       OptionalVisibility OptionalCallingConv OptRetAttrs OptUnnamedAddr Type
+///       GlobalName '(' ArgList ')' OptAddrSpace OptFuncAttrs OptSection
+///       OptionalAlign OptGC OptionalPrefix OptionalPrologue OptPersonalityFn
 bool LLParser::ParseFunctionHeader(Function *&Fn, bool isDefine) {
   // Parse the linkage.
   LocTy LinkageLoc = Lex.getLoc();
+  unsigned DeviceNo;
   unsigned Linkage;
   unsigned Visibility;
   unsigned DLLStorageClass;
@@ -5468,7 +5515,8 @@ bool LLParser::ParseFunctionHeader(Function *&Fn, bool isDefine) {
   bool HasLinkage;
   Type *RetType = nullptr;
   LocTy RetTypeLoc = Lex.getLoc();
-  if (ParseOptionalLinkage(Linkage, HasLinkage, Visibility, DLLStorageClass,
+  if (ParseOptionalDevice(DeviceNo) ||
+      ParseOptionalLinkage(Linkage, HasLinkage, Visibility, DLLStorageClass,
                            DSOLocal) ||
       ParseOptionalCallingConv(CC) || ParseOptionalReturnAttrs(RetAttrs) ||
       ParseType(RetType, RetTypeLoc, true /*void allowed*/))
@@ -5641,6 +5689,7 @@ bool LLParser::ParseFunctionHeader(Function *&Fn, bool isDefine) {
   if (FunctionName.empty())
     NumberedVals.push_back(Fn);
 
+  Fn->setDeviceNo(DeviceNo);
   Fn->setLinkage((GlobalValue::LinkageTypes)Linkage);
   maybeSetDSOLocal(DSOLocal, *Fn);
   Fn->setVisibility((GlobalValue::VisibilityTypes)Visibility);

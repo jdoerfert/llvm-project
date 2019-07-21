@@ -539,6 +539,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(musttail);
   KEYWORD(notail);
   KEYWORD(target);
+  KEYWORD(device);
   KEYWORD(triple);
   KEYWORD(source_filename);
   KEYWORD(unwind);

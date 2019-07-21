@@ -595,6 +595,24 @@ static void writeStringRecord(BitstreamWriter &Stream, unsigned Code,
   Stream.EmitRecord(Code, Vals, AbbrevToUse);
 }
 
+static void writeNumberedStringRecord(BitstreamWriter &Stream, unsigned Code,
+                                      StringRef Str, unsigned No,
+                                      unsigned AbbrevToUse) {
+  SmallVector<unsigned, 64> Vals;
+
+  // Code: [No, strchar x N]
+  for (unsigned i = 0, e = Str.size(); i != e; ++i) {
+    if (AbbrevToUse && !BitCodeAbbrevOp::isChar6(Str[i]))
+      AbbrevToUse = 0;
+    Vals.push_back(Str[i]);
+  }
+
+  Vals.push_back(No);
+
+  // Emit the finished record.
+  Stream.EmitRecord(Code, Vals, AbbrevToUse);
+}
+
 static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
   switch (Kind) {
   case Attribute::Alignment:
@@ -1170,6 +1188,10 @@ void ModuleBitcodeWriter::writeModuleInfo() {
   if (!M.getTargetTriple().empty())
     writeStringRecord(Stream, bitc::MODULE_CODE_TRIPLE, M.getTargetTriple(),
                       0 /*TODO*/);
+  for (unsigned u = 1, e = M.getNumTargetTriples(); u < e; u++)
+    if (!M.getTargetTriple(u).empty())
+      writeNumberedStringRecord(Stream, bitc::MODULE_CODE_DEVICE_TRIPLE,
+                                M.getTargetTriple(u), u, 0 /*TODO*/);
   const std::string &DL = M.getDataLayoutStr();
   if (!DL.empty())
     writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
@@ -1300,7 +1322,8 @@ void ModuleBitcodeWriter::writeModuleInfo() {
         GV.hasComdat() ||
         GV.hasAttributes() ||
         GV.isDSOLocal() ||
-        GV.hasPartition()) {
+        GV.hasPartition() ||
+        GV.getDeviceNo()) {
       Vals.push_back(getEncodedVisibility(GV));
       Vals.push_back(getEncodedThreadLocalMode(GV));
       Vals.push_back(getEncodedUnnamedAddr(GV));
@@ -1314,6 +1337,7 @@ void ModuleBitcodeWriter::writeModuleInfo() {
       Vals.push_back(GV.isDSOLocal());
       Vals.push_back(addToStrtab(GV.getPartition()));
       Vals.push_back(GV.getPartition().size());
+      Vals.push_back(GV.getDeviceNo());
     } else {
       AbbrevToUse = SimpleGVarAbbrev;
     }
@@ -1354,6 +1378,7 @@ void ModuleBitcodeWriter::writeModuleInfo() {
     Vals.push_back(F.getAddressSpace());
     Vals.push_back(addToStrtab(F.getPartition()));
     Vals.push_back(F.getPartition().size());
+    Vals.push_back(F.getDeviceNo());
 
     unsigned AbbrevToUse = 0;
     Stream.EmitRecord(bitc::MODULE_CODE_FUNCTION, Vals, AbbrevToUse);
@@ -1378,6 +1403,7 @@ void ModuleBitcodeWriter::writeModuleInfo() {
     Vals.push_back(A.isDSOLocal());
     Vals.push_back(addToStrtab(A.getPartition()));
     Vals.push_back(A.getPartition().size());
+    Vals.push_back(A.getDeviceNo());
 
     unsigned AbbrevToUse = 0;
     Stream.EmitRecord(bitc::MODULE_CODE_ALIAS, Vals, AbbrevToUse);
@@ -1398,6 +1424,7 @@ void ModuleBitcodeWriter::writeModuleInfo() {
     Vals.push_back(I.isDSOLocal());
     Vals.push_back(addToStrtab(I.getPartition()));
     Vals.push_back(I.getPartition().size());
+    Vals.push_back(I.getDeviceNo());
     Stream.EmitRecord(bitc::MODULE_CODE_IFUNC, Vals);
     Vals.clear();
   }

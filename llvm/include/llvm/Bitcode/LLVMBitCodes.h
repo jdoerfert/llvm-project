@@ -117,6 +117,8 @@ enum ModuleCodes {
 
   // IFUNC: [ifunc value type, addrspace, resolver val#, linkage, visibility]
   MODULE_CODE_IFUNC = 18,
+
+  MODULE_CODE_DEVICE_TRIPLE = 19,      // TRIPLE:      [no, strchr x N]
 };
 
 /// PARAMATTR blocks have code for defining a parameter attribute set.
