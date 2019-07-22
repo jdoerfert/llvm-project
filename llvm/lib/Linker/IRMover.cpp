@@ -420,6 +420,9 @@ class IRLinker {
   /// debug info metadata and module inline asm.
   bool IsPerformingImport;
 
+  /// TODO
+  bool MergeAsDevice;
+
   /// Set to true when all global value body linking is complete (including
   /// lazy linking). Used to prevent metadata linking from creating new
   /// references.
@@ -524,10 +527,11 @@ public:
            IRMover::IdentifiedStructTypeSet &Set, std::unique_ptr<Module> SrcM,
            ArrayRef<GlobalValue *> ValuesToLink,
            std::function<void(GlobalValue &, IRMover::ValueAdder)> AddLazyFor,
-           bool IsPerformingImport)
+           bool IsPerformingImport, bool MergeAsDevice)
       : DstM(DstM), SrcM(std::move(SrcM)), AddLazyFor(std::move(AddLazyFor)),
         TypeMap(Set), GValMaterializer(*this), LValMaterializer(*this),
         SharedMDs(SharedMDs), IsPerformingImport(IsPerformingImport),
+        MergeAsDevice(MergeAsDevice),
         Mapper(ValueMap, RF_MoveDistinctMDs | RF_IgnoreMissingLocals, &TypeMap,
                &GValMaterializer),
         IndirectSymbolMCID(Mapper.registerAlternateMappingContext(
@@ -1425,31 +1429,41 @@ Error IRLinker::run() {
                 DstM.getDataLayoutStr() + "'\n");
   }
 
-  // Copy the target triple from the source to dest if the dest's is empty.
-  if (DstM.getTargetTriple().empty() && !SrcM->getTargetTriple().empty())
-    DstM.setTargetTriple(SrcM->getTargetTriple());
+  if (!MergeAsDevice) {
+    // Copy the target triple from the source to dest if the dest's is empty.
+    if (DstM.getTargetTriple().empty() && !SrcM->getTargetTriple().empty())
+      DstM.setTargetTriple(SrcM->getTargetTriple());
 
-  Triple SrcTriple(SrcM->getTargetTriple()), DstTriple(DstM.getTargetTriple());
+    Triple SrcTriple(SrcM->getTargetTriple()),
+        DstTriple(DstM.getTargetTriple());
 
-  if (!SrcM->getTargetTriple().empty()&&
-      !SrcTriple.isCompatibleWith(DstTriple))
-    emitWarning("Linking two modules of different target triples: " +
-                SrcM->getModuleIdentifier() + "' is '" +
-                SrcM->getTargetTriple() + "' whereas '" +
-                DstM.getModuleIdentifier() + "' is '" + DstM.getTargetTriple() +
-                "'\n");
+    if (!SrcM->getTargetTriple().empty() &&
+        !SrcTriple.isCompatibleWith(DstTriple))
+      emitWarning("Linking two modules of different target triples: " +
+                      SrcM->getModuleIdentifier() + "' is '" +
+                      SrcM->getTargetTriple() + "' whereas '" +
+                      DstM.getModuleIdentifier() + "' is '" +
+                      DstM.getTargetTriple() + "'\nConsider merging '"
+                  << SrcM->getModuleIdentifier() << "' as device code into '"
+                  << DstM.getModuleIdentifier() << "' instead.");
 
-  DstM.setTargetTriple(SrcTriple.merge(DstTriple));
+    DstM.setTargetTriple(SrcTriple.merge(DstTriple));
 
-  // Append the module inline asm string.
-  if (!IsPerformingImport && !SrcM->getModuleInlineAsm().empty()) {
-    std::string SrcModuleInlineAsm = adjustInlineAsm(SrcM->getModuleInlineAsm(),
-                                                     SrcTriple);
-    if (DstM.getModuleInlineAsm().empty())
-      DstM.setModuleInlineAsm(SrcModuleInlineAsm);
-    else
-      DstM.setModuleInlineAsm(DstM.getModuleInlineAsm() + "\n" +
-                              SrcModuleInlineAsm);
+    // Append the module inline asm string.
+    if (!IsPerformingImport && !SrcM->getModuleInlineAsm().empty()) {
+      std::string SrcModuleInlineAsm =
+          adjustInlineAsm(SrcM->getModuleInlineAsm(), SrcTriple);
+      if (DstM.getModuleInlineAsm().empty())
+        DstM.setModuleInlineAsm(SrcModuleInlineAsm);
+      else
+        DstM.setModuleInlineAsm(DstM.getModuleInlineAsm() + "\n" +
+                                SrcModuleInlineAsm);
+    }
+  } else {
+    for (unsigned SrcIdx = 0, SrcEnd = SrcM->getNumTargetTriples(); SrcIdx < SrcEnd; ++SrcIdx)
+      for (unsigned DstIdx = 0, DstEnd = SrcM->getNumTargetTriples();
+           DstIdx < DstEnd; ++DstIdx)
+        ;
   }
 
   // Loop over all of the linked values to compute type mappings.
@@ -1584,10 +1598,10 @@ IRMover::IRMover(Module &M) : Composite(M) {
 Error IRMover::move(
     std::unique_ptr<Module> Src, ArrayRef<GlobalValue *> ValuesToLink,
     std::function<void(GlobalValue &, ValueAdder Add)> AddLazyFor,
-    bool IsPerformingImport) {
+    bool IsPerformingImport, bool MergeAsDevice) {
   IRLinker TheIRLinker(Composite, SharedMDs, IdentifiedStructTypes,
                        std::move(Src), ValuesToLink, std::move(AddLazyFor),
-                       IsPerformingImport);
+                       IsPerformingImport, bool MergeAsDevice);
   Error E = TheIRLinker.run();
   Composite.dropTriviallyDeadConstantArrays();
   return E;

@@ -43,6 +43,9 @@ class ModuleLinker {
   /// creating a circular dependency between IPO and the linker.
   std::function<void(Module &, const StringSet<> &)> InternalizeCallback;
 
+  /// TODO
+  bool MergeAsDevice;
+
   /// Used as the callback for lazy linking.
   /// The mover has just hit GV and we have to decide if it, and other members
   /// of the same comdat, should be linked. Every member to be linked is passed
@@ -105,12 +108,16 @@ class ModuleLinker {
 
   bool linkIfNeeded(GlobalValue &GV);
 
+  bool resolveGlobals();
+
 public:
   ModuleLinker(IRMover &Mover, std::unique_ptr<Module> SrcM, unsigned Flags,
                std::function<void(Module &, const StringSet<> &)>
-                   InternalizeCallback = {})
+                   InternalizeCallback = {},
+               bool MergeAsDevice = false)
       : Mover(Mover), SrcM(std::move(SrcM)), Flags(Flags),
-        InternalizeCallback(std::move(InternalizeCallback)) {}
+        InternalizeCallback(std::move(InternalizeCallback)),
+        MergeAsDevice(MergeAsDevice) {}
 
   bool run();
 };
@@ -454,7 +461,7 @@ void ModuleLinker::dropReplacedComdat(
   }
 }
 
-bool ModuleLinker::run() {
+bool ModuleLinker::resolveGlobals() {
   Module &DstM = Mover.getModule();
   DenseSet<const Comdat *> ReplacedDstComdats;
 
@@ -541,6 +548,13 @@ bool ModuleLinker::run() {
         ValuesToLink.insert(GV2);
     }
   }
+}
+
+bool ModuleLinker::run() {
+  Module &DstM = Mover.getModule();
+
+  if (!MergeAsDevice)
+    resolveGlobals();
 
   if (InternalizeCallback) {
     for (GlobalValue *GV : ValuesToLink)
@@ -550,11 +564,12 @@ bool ModuleLinker::run() {
   // FIXME: Propagate Errors through to the caller instead of emitting
   // diagnostics.
   bool HasErrors = false;
-  if (Error E = Mover.move(std::move(SrcM), ValuesToLink.getArrayRef(),
-                           [this](GlobalValue &GV, IRMover::ValueAdder Add) {
-                             addLazyFor(GV, Add);
-                           },
-                           /* IsPerformingImport */ false)) {
+  if (Error E = Mover.move(
+          std::move(SrcM), ValuesToLink.getArrayRef(),
+          [this](GlobalValue &GV, IRMover::ValueAdder Add) {
+            addLazyFor(GV, Add);
+          },
+          /* IsPerformingImport */ false, /* MergeAsDevice */ MergeAsDevice)) {
     handleAllErrors(std::move(E), [&](ErrorInfoBase &EIB) {
       DstM.getContext().diagnose(LinkDiagnosticInfo(DS_Error, EIB.message()));
       HasErrors = true;
