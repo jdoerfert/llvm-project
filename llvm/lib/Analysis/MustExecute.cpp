@@ -12,7 +12,6 @@
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/Passes.h"
-#include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/AssemblyAnnotationWriter.h"
 #include "llvm/IR/DataLayout.h"
@@ -22,7 +21,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/raw_ostream.h"
-
 using namespace llvm;
 
 #define DEBUG_TYPE "must-execute"
@@ -437,310 +435,12 @@ bool MustExecutePrinter::runOnFunction(Function &F) {
   return false;
 }
 
-/// Return true if \p L might be an endless loop.
-static bool maybeEndlessLoop(const Loop &L) {
-  if (L.getHeader()->getParent()->hasFnAttribute(Attribute::WillReturn))
-    return false;
-  // TODO: Actually try to prove it is not.
-  // TODO: If maybeEndlessLoop is going to be expensive, cache it.
-  return true;
-}
-
-static bool mayContainIrreducibleControl(const Function &F,
-                                         const LoopInfo *LI) {
-  if (!LI)
-    return true;
-
-  using RPOTraversal = ReversePostOrderTraversal<const Function *>;
-  RPOTraversal FuncRPOT(&F);
-  return containsIrreducibleCFG<const BasicBlock *, const RPOTraversal,
-                                 const LoopInfo>(FuncRPOT, *LI);
-}
-
-static void getGuaranteedExecutedBlocks(
-    const Instruction &TI,
-    SmallVectorImpl<const BasicBlock *> &GuaranteedExecutedBlocks,
-    const DominatorTree *DT, const LoopInfo *LI) {
-  const BasicBlock *TIBlock = TI.getParent();
-  bool NoThrow = TIBlock->getParent()->doesNotThrow();
-  const Loop *L = LI ? LI->getLoopFor(TIBlock) : nullptr;
-
-  if (const BasicBlock *SuccBB = getSuccessorInFirstIteration(TI, L, DT, LI))
-    GuaranteedExecutedBlocks.push_back(SuccBB);
-
-  // TODO: This might be better off in findForwardJoinPoint.
-  // TODO: Check no-throw to this block in the loop not for the whole function
-  if (DT && !maybeEndlessLoop(*L) && NoThrow && TI.getNumSuccessors() == 2 &&
-      L->isLoopLatch(TIBlock)) {
-    // TI is a latch of a finite loop. If it dominates all exiting blocks,
-    // the non backedge has to be taken eventually.
-    SmallVector<BasicBlock *, 4> ExitingBlocks;
-    L->getExitingBlocks(ExitingBlocks);
-    bool DominatesAllExitingBlocks =
-        llvm::all_of(ExitingBlocks, [DT, TIBlock](BasicBlock *ExitingBB) {
-          return DT->dominates(TIBlock, ExitingBB);
-        });
-    if (DominatesAllExitingBlocks) {
-      if (TI.getSuccessor(1) == L->getHeader())
-        GuaranteedExecutedBlocks.push_back(TI.getSuccessor(0));
-      else
-        GuaranteedExecutedBlocks.push_back(TI.getSuccessor(1));
-    }
-  }
-}
-
-/// Return an instruction that is always executed before the function \p F is
-/// left, assuming it is left through a return.
-static const Instruction *findFunctionExitJoinPoint(const Function *F,
-                                                    const DominatorTree *DT) {
-  const BasicBlock *JoinBB = nullptr;
-  for (const BasicBlock &BB : *F) {
-    // Skip all but return instructions.
-    if (!isa<ReturnInst>(BB.getTerminator()))
-      continue;
-
-    // The first return instruction found is the initial join point.
-    if (!JoinBB) {
-      JoinBB = &BB;
-      continue;
-    }
-
-    // When we find more return instructions the nearest common dominator of all
-    // of them is known to be executed prior to all of them.
-    if (DT) {
-      JoinBB = DT->findNearestCommonDominator(JoinBB, &BB);
-      assert(JoinBB && "Assumed a common dominator!");
-      continue;
-    }
-
-    // If we do no have a dominator tree we still know that *at least* the entry
-    // block is executed as we assume the function is left through a return.
-    // TODO: Improve this by using getMustBeExecutedNextInstruction() from this
-    //       point.
-    return F->getEntryBlock().getTerminator();
-  }
-
-  // If we traversed all the blocks and found the nearest common dominator we
-  // return it. If we did not find a return instruction we return a nullptr but
-  // we should indicate a problem instead because the function is never left
-  // through a return.
-  return JoinBB ? JoinBB->getTerminator() : nullptr;
-}
-
-/// Lookup \p Key in \p Map and return the result, potentially after
-/// initializing the optional through \p Fn(\p args).
-template <typename K, typename V, typename FnTy, typename... ArgsTy>
-static V getOrCreateCachedOptional(K Key, DenseMap<K, Optional<V>> &Map,
-                                   FnTy &&Fn, ArgsTy &&... args) {
-  Optional<V> &OptVal = Map[Key];
-  if (!OptVal.hasValue())
-    OptVal = Fn(std::forward<ArgsTy>(args)...);
-  return OptVal.getValue();
-}
-
-const BasicBlock *MustBeExecutedContextExplorer::findForwardJoinPoint(
-    const BasicBlock *InitBB, const LoopInfo *LI,
-    const PostDominatorTree *PDT) {
-  LLVM_DEBUG(dbgs() << "\tFind forward join point for " << InitBB->getName()
-                    << (LI ? " [LI]" : "") << (PDT ? " [PDT]" : ""));
-
-  const Function &F = *InitBB->getParent();
-  const Loop *L = LI ? LI->getLoopFor(InitBB) : nullptr;
-  const BasicBlock *HeaderBB = L ? L->getHeader() : InitBB;
-  bool WillReturnAndNoThrow = (F.hasFnAttribute(Attribute::WillReturn) ||
-                               (L && !maybeEndlessLoop(*L))) &&
-                              F.doesNotThrow();
-  LLVM_DEBUG(dbgs() << (L ? " [in loop]" : "")
-                    << (WillReturnAndNoThrow ? " [WillReturn] [NoUnwind]" : "")
-                    << "\n");
-
-  // Determine the adjacent blocks in the given direction but exclude (self)
-  // loops under certain circumstances.
-  SmallVector<const BasicBlock *, 8> Worklist;
-  for (const BasicBlock *SuccBB : successors(InitBB)) {
-    bool IsLatch = SuccBB == HeaderBB;
-    // Loop latches are ignored in forward propagation if the loops cannot be
-    // endless and may not throw: control has to go somewhere.
-    if (!WillReturnAndNoThrow || !IsLatch)
-      Worklist.push_back(SuccBB);
-  }
-  LLVM_DEBUG(dbgs() << "\t\t#Worklist: " << Worklist.size() << "\n");
-
-  // If there are no other adjacent blocks, there is no join point.
-  if (Worklist.empty())
-    return nullptr;
-
-  // If there is one adjacent block, it is the join point.
-  if (Worklist.size() == 1)
-    return Worklist[0];
-
-  // Try to determine a join block through the help of the post-dominance
-  // tree. If no tree was provided, we perform simple pattern matching for one
-  // block conditionals only.
-  const BasicBlock *JoinBB = nullptr;
-  if (PDT)
-    if (const auto *InitNode = PDT->getNode(InitBB))
-      if (const auto *IDomNode = InitNode->getIDom())
-        JoinBB = IDomNode->getBlock();
-
-  if (!JoinBB && Worklist.size() == 2) {
-    const BasicBlock *Succ0 = Worklist[0];
-    const BasicBlock *Succ1 = Worklist[1];
-    const BasicBlock *Succ0UniqueSucc = Succ0->getUniqueSuccessor();
-    const BasicBlock *Succ1UniqueSucc = Succ1->getUniqueSuccessor();
-    if (Succ0 == Succ1UniqueSucc) {
-      // InitBB ->          Succ0 = JoinBB
-      // InitBB -> Succ1 -> Succ0 = JoinBB
-      JoinBB = Succ0;
-    } else if (Succ1 == Succ0UniqueSucc) {
-      // InitBB -> Succ0 -> Succ1 = JoinBB
-      // InitBB ->          Succ1 = JoinBB
-      JoinBB = Succ1;
-    } else if (Succ0UniqueSucc == Succ1UniqueSucc) {
-      // InitBB -> Succ0 -> JoinBB
-      // InitBB -> Succ1 -> JoinBB
-      JoinBB = Succ0UniqueSucc;
-    }
-  }
-
-  if (!JoinBB && L)
-    JoinBB = L->getUniqueExitBlock();
-
-  if (!JoinBB)
-    return nullptr;
-
-  LLVM_DEBUG(dbgs() << "\t\tJoin block candidate: " << JoinBB->getName()
-                    << "\n");
-
-  // In forward direction we check if control will for sure reach InitBB from
-  // JoinBB, thus it can not be "stopped" along the way. Ways to "stop" control
-  // are: infinite loops and instructions that do not necessarily transfer
-  // execution to their successor. To check for them we traverse the CFG from
-  // the adjacent blocks to the JoinBB, looking at all intermediate blocks.
-
-  if (!F.hasFnAttribute(Attribute::WillReturn) || !F.doesNotThrow()) {
-
-    auto BlockTransfersExecutionToSuccessor = [](const BasicBlock *BB) {
-      return isGuaranteedToTransferExecutionToSuccessor(BB);
-    };
-
-    SmallPtrSet<const BasicBlock *, 16> Visited;
-    while (!Worklist.empty()) {
-      const BasicBlock *ToBB = Worklist.pop_back_val();
-      if (ToBB == JoinBB)
-        continue;
-
-      // Make sure all loops in-between are finite.
-      if (!Visited.insert(ToBB).second) {
-        if (!F.hasFnAttribute(Attribute::WillReturn)) {
-          bool MayContainIrreducibleControl = getOrCreateCachedOptional(
-              &F, IrreducibleControlMap, mayContainIrreducibleControl, F, LI);
-          if (MayContainIrreducibleControl)
-            return nullptr;
-
-          const Loop *L = LI->getLoopFor(ToBB);
-          if (L && maybeEndlessLoop(*L))
-            return nullptr;
-        }
-
-        continue;
-      }
-
-      // Make sure the block has no instructions that could stop control
-      // transfer.
-      bool TransfersExecution = getOrCreateCachedOptional(
-          ToBB, BlockTransferMap, BlockTransfersExecutionToSuccessor, ToBB);
-      if (!TransfersExecution)
-        return nullptr;
-
-      for (const BasicBlock *AdjacentBB : successors(ToBB))
-        Worklist.push_back(AdjacentBB);
-    }
-  }
-
-  LLVM_DEBUG(dbgs() << "\tJoin block: " << JoinBB->getName() << "\n");
-  return JoinBB;
-}
-
-const BasicBlock *MustBeExecutedContextExplorer::findBackwardJoinPoint(
-    const BasicBlock *InitBB, const LoopInfo *LI, const DominatorTree *DT) {
-  LLVM_DEBUG(dbgs() << "\tFind backward join point for " << InitBB->getName()
-                    << (LI ? " [LI]" : "") << (DT ? " [DT]" : ""));
-
-  // Try to determine a join block through the help of the dominance tree. If no
-  // tree was provided, we perform simple pattern matching for one block
-  // conditionals only.
-  if (DT) {
-    const auto *InitNode = DT->getNode(InitBB);
-    assert(InitNode && "Expected dominator tree node!");
-    const auto *IDomNode = InitNode->getIDom();
-    assert(IDomNode &&
-           "Expected dominator tree node to have a dominator node!");
-    assert(IDomNode->getBlock() &&
-           "Expected dominator tree node to have a block!");
-    return IDomNode->getBlock();
-  }
-
-  const Function &F = *InitBB->getParent();
-  const Loop *L = LI ? LI->getLoopFor(InitBB) : nullptr;
-  const BasicBlock *HeaderBB = L ? L->getHeader() : nullptr;
-
-  // Determine the predecessor blocks but ignore backedges.
-  SmallVector<const BasicBlock *, 8> Worklist;
-  for (const BasicBlock *PredBB : predecessors(InitBB)) {
-    bool IsBackedge =
-        (PredBB == InitBB) || (HeaderBB == InitBB && L->contains(PredBB));
-    // Loop backedges are ignored in backwards propagation: control has to come
-    // from somewhere.
-    if (!IsBackedge)
-      Worklist.push_back(PredBB);
-  }
-
-  // If there are no other predecessor blocks, there is no join point.
-  if (Worklist.empty())
-    return nullptr;
-
-  // If there is one predecessor block, it is the join point.
-  if (Worklist.size() == 1)
-    return Worklist[0];
-
-  const BasicBlock *JoinBB = nullptr;
-  if (Worklist.size() == 2) {
-    const BasicBlock *Pred0 = Worklist[0];
-    const BasicBlock *Pred1 = Worklist[1];
-    const BasicBlock *Pred0UniquePred = Pred0->getUniquePredecessor();
-    const BasicBlock *Pred1UniquePred = Pred1->getUniquePredecessor();
-    if (Pred0 == Pred1UniquePred) {
-      // InitBB <-          Pred0 = JoinBB
-      // InitBB <- Pred1 <- Pred0 = JoinBB
-      JoinBB = Pred0;
-    } else if (Pred1 == Pred0UniquePred) {
-      // InitBB <- Pred0 <- Pred1 = JoinBB
-      // InitBB <-          Pred1 = JoinBB
-      JoinBB = Pred1;
-    } else if (Pred0UniquePred == Pred1UniquePred) {
-      // InitBB <- Pred0 <- JoinBB
-      // InitBB <- Pred1 <- JoinBB
-      JoinBB = Pred0UniquePred;
-    }
-  }
-
-  if (!JoinBB && L)
-    JoinBB = L->getHeader();
-
-  // In backwards direction there is no need to show termination of previous
-  // instructions. If they do not terminate, the code afterward is dead, making
-  // any information/transformation correct anyway.
-  return JoinBB;
-}
-
 const Instruction *
 MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
-    MustBeExecutedIterator &It, const Instruction *PP, bool PoppedCallStack) {
+    MustBeExecutedIterator &It, const Instruction *PP) {
   if (!PP)
     return PP;
-  LLVM_DEBUG(dbgs() << "Find next instruction for " << *PP
-                    << (PoppedCallStack ? " [PoppedCallStack]" : "") << "\n");
+  LLVM_DEBUG(dbgs() << "Find next instruction for " << *PP << "\n");
 
   // If we explore only inside a given basic block we stop at terminators.
   if (!ExploreInterBlock && PP->isTerminator()) {
@@ -748,100 +448,27 @@ MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
     return nullptr;
   }
 
-  // The function that contains the current position.
-  const Function *PPFunc = PP->getFunction();
-
-  // If we explore the call graph (CG) forward and we see a call site we can
-  // continue with the callee instructions if the callee has an exact
-  // definition. If this is the case, we add the call site in the forward call
-  // stack such that we can return to the position after the call and also
-  // translate values for the user.
-  if (ExploreCGForward && !PoppedCallStack) {
-    if (ImmutableCallSite ICS = ImmutableCallSite(PP))
-      if (const Function *F = ICS.getCalledFunction())
-        if (F->hasExactDefinition()) {
-          It.ForwardCallStack.push_back({PP});
-          return &F->getEntryBlock().front();
-        }
-  }
-
-  // At a return instruction we have two options that allow us to continue:
-  // 1) We are in a function that we entered earlier, in this case we can
-  //    simply pop the last call site from the forward call stack and return the
-  //    instruction after the call site. (this happens in the advance method!)
-  // 2) We explore the call graph (CG) backwards trying to find a point that
-  //    is know to be executed every time when the current function is.
-  if (isa<ReturnInst>(PP)) {
-    // The advance method will pop the stack.
-    if (!It.ForwardCallStack.empty()) {
-      LLVM_DEBUG(dbgs() << "\tReached return, will pop call stack\n");
-      return nullptr;
-    }
-
-    // Check if backwards call graph exploration is allowed.
-    if (!ExploreCGBackward) {
-      LLVM_DEBUG(
-          dbgs()
-          << "\tReached return, no backward CG exploration allowed, done\n");
-      return nullptr;
-    }
-
-    // We do not know all the callers for non-internal functions.
-    if (!PPFunc->hasInternalLinkage()) {
-      LLVM_DEBUG(dbgs() << "\tReached return, no unique call site (external "
-                           "linkage), done\n");
-      return nullptr;
-    }
-
-    // TODO: We restrict it to a single call site for now but we could allow
-    //       more and find a join point interprocedurally.
-    if (PPFunc->getNumUses() != 1) {
-      LLVM_DEBUG(
-          dbgs()
-          << "\tReached return, no unique call site (multiple uses), done\n");
-      return nullptr;
-    }
-
-    // Make sure the user is a direct call.
-    // TODO: Indirect calls can be fine too.
-    ImmutableCallSite ICS(PPFunc->user_back());
-    if (!ICS || ICS.getCalledFunction() != PPFunc) {
-      LLVM_DEBUG(
-          dbgs()
-          << "\tReached return, no unique call site (indirect call), done\n");
-      return nullptr;
-    }
-
-    // We know we reached the return instruction of the callee so we will
-    // continue at the next instruction after the call.
-    LLVM_DEBUG(dbgs() << "\tReached return, continue after unique call site\n");
-    return ICS.getInstruction()->getNextNode();
-  }
-
   // If we do not traverse the call graph we check if we can make progress in
   // the current function. First, check if the instruction is guaranteed to
   // transfer execution to the successor.
   bool TransfersExecution = isGuaranteedToTransferExecutionToSuccessor(PP);
+  if (!TransfersExecution)
+    return nullptr;
 
   // If this is not a terminator we know that there is a single instruction
   // after this one that is executed next if control is transfered. If not,
   // we can try to go back to a call site we entered earlier. If none exists, we
   // do not know any instruction that has to be executd next.
   if (!PP->isTerminator()) {
-    const Instruction *NextPP =
-        TransfersExecution ? PP->getNextNode() : nullptr;
-    LLVM_DEBUG(dbgs() << "\tIntermediate instruction "
-                      << (!TransfersExecution ? "does not" : "")
-                      << "transfer control\n");
+    const Instruction *NextPP = PP->getNextNode();
+    LLVM_DEBUG(dbgs() << "\tIntermediate instruction does transfer control\n");
     return NextPP;
   }
 
   // Finally, we have to handle terminators, trivial ones first.
   assert(PP->isTerminator() && "Expected a terminator!");
 
-  // A terminator without a successor which is not a return is not handled yet.
-  // We can still try to continue at a known call site on the forward call stack
-  // of the iterator.
+  // A terminator without a successor is not handled yet.
   if (PP->getNumSuccessors() == 0) {
     LLVM_DEBUG(dbgs() << "\tUnhandled terminator\n");
     return nullptr;
@@ -855,274 +482,27 @@ MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
     return &PP->getSuccessor(0)->front();
   }
 
-  // Use flow-sensitive reasoning if allowed, e.g., to fold branches in the
-  // first loop iteration.
-  const LoopInfo *LI = LIGetter(*PPFunc);
-  const DominatorTree *DT = DTGetter(*PPFunc);
-  if (ExploreFlowSensitive) {
-    SmallVector<const BasicBlock *, 2> GuaranteedExecutedBlocks;
-    getGuaranteedExecutedBlocks(*PP, GuaranteedExecutedBlocks, DT, LI);
-    LLVM_DEBUG(dbgs() << "\tFound " << GuaranteedExecutedBlocks.size()
-                      << " blocks that are guaranteed executed as well\n");
-    for (const BasicBlock *GEBB : GuaranteedExecutedBlocks) {
-      LLVM_DEBUG(dbgs() << "\t\t- " << GEBB->getName() << "\n");
-      It.DelayStack.insert(&GEBB->front());
-    }
-  }
-
-  // Multiple successors mean we need to find the join point where control flow
-  // converges again. We use the findForwardJoinPoint helper function with
-  // information about the function and helper analyses, if available.
-  const PostDominatorTree *PDT = PDTGetter(*PPFunc);
-  if (const BasicBlock *JoinBB = findForwardJoinPoint(PP->getParent(), LI, PDT))
-    return &JoinBB->front();
-
-  LLVM_DEBUG(dbgs() << "\tNo join point found\n");
-  return nullptr;
-}
-
-const Instruction *
-MustBeExecutedContextExplorer::getMustBeExecutedPrevInstruction(
-    MustBeExecutedIterator &It, const Instruction *PP, bool PoppedCallStack) {
-  if (!PP)
-    return PP;
-
-  bool IsFirst = !(PP->getPrevNode());
-  LLVM_DEBUG(dbgs() << "Find next instruction for " << *PP
-                    << (PoppedCallStack ? " [PoppedCallStack]" : "")
-                    << (IsFirst ? " [IsFirst]" : "") << "\n");
-
-  // If we explore only inside a given basic block we stop at the first
-  // instruction.
-  if (!ExploreInterBlock && IsFirst) {
-    LLVM_DEBUG(dbgs() << "\tReached block front in intra-block mode, done\n");
-    return nullptr;
-  }
-
-  // The block and function that contains the current position.
-  const BasicBlock *PPBlock = PP->getParent();
-  const Function *PPFunc = PPBlock->getParent();
-
-  // Ready the dominator tree if available.
-  const DominatorTree *DT = DTGetter(*PPFunc);
-
-  // If we explore the call graph (CG) forward and the current instruction
-  // is a call site we can continue with the callee instructions if the callee
-  // has an exact definition. If this is the case, we add the call site in the
-  // backward call stack such that we can return to the position of the call and
-  // also translate values for the user.
-  if (ExploreCGForward && !PoppedCallStack) {
-    if (ImmutableCallSite ICS = ImmutableCallSite(PP))
-      if (const Function *F = ICS.getCalledFunction())
-        if (F->hasExactDefinition())
-          if (const Instruction *JoinPP =
-                  getOrCreateCachedOptional(F, FunctionExitJoinPointMap,
-                                            findFunctionExitJoinPoint, F, DT)) {
-            It.BackwardCallStack.push_back({PP});
-            return JoinPP;
-          }
-  }
-
-  // At a first instruction in a function we have two options that allow us to
-  // continue:
-  // 1) We are in a function that we entered earlier, in this case we can
-  //    simply pop the last call site from the backward call stack and
-  //    return the instruction before the call site. (this happens in the
-  //    advance method!)
-  // 2) We explore the call graph (CG) backwards trying to find a point that
-  //    is know to be executed every time when the current function is.
-  if (IsFirst && PPBlock == &PPFunc->getEntryBlock()) {
-    // The advance method will pop the stack.
-    if (!It.BackwardCallStack.empty()) {
-      LLVM_DEBUG(
-          dbgs() << "\tReached function beginning, will pop call stack\n");
-      return nullptr;
-    }
-
-    // Check if backwards call graph exploration is allowed.
-    if (!ExploreCGBackward) {
-      LLVM_DEBUG(dbgs() << "\tReached function beginning, no backward CG "
-                           "exploration allowed, done\n");
-      return nullptr;
-    }
-
-    // We do not know all the callers for non-internal functions.
-    if (!PPFunc->hasInternalLinkage()) {
-      LLVM_DEBUG(
-          dbgs()
-          << "\tReached function beginning, no unique call site (external "
-             "linkage), done\n");
-      return nullptr;
-    }
-
-    // TODO: We restrict it to a single call site for now but we could allow
-    //       more and find a join point interprocedurally.
-    if (PPFunc->getNumUses() != 1) {
-      LLVM_DEBUG(dbgs() << "\tReached function beginning, no unique call site "
-                           "(multiple uses), done\n");
-      return nullptr;
-    }
-
-    // Make sure the user is a direct call.
-    // TODO: Indirect calls can be fine too.
-    ImmutableCallSite ICS(PPFunc->user_back());
-    if (!ICS || ICS.getCalledFunction() != PPFunc) {
-      LLVM_DEBUG(dbgs() << "\tReached function beginning, no unique call site "
-                           "(indirect call), done\n");
-      return nullptr;
-    }
-
-    // We know we reached the first instruction of the callee so we must have
-    // executed the instruction before the call.
-    LLVM_DEBUG(
-        dbgs()
-        << "\tReached function beginning, continue with unique call site\n");
-    return ICS.getInstruction();
-  }
-
-  // If we are inside a block we know what instruction was executed before, the
-  // previous one. However, if the previous one is a call site, we can enter the
-  // callee and visit its instructions as well.
-  if (!IsFirst) {
-    const Instruction *PrevPP = PP->getPrevNode();
-    LLVM_DEBUG(
-        dbgs() << "\tIntermediate instruction, continue with previous\n");
-    // We did not enter a callee so we simply return the previous instruction.
-    return PrevPP;
-  }
-
-  // Finally, we have to handle the case where the program point is the first in
-  // a block but not in the function. We use the findBackwardJoinPoint helper
-  // function with information about the function and helper analyses, if
-  // available.
-  const LoopInfo *LI = LIGetter(*PPFunc);
-  if (const BasicBlock *JoinBB = findBackwardJoinPoint(PPBlock, LI, DT))
-    return &JoinBB->back();
-
   LLVM_DEBUG(dbgs() << "\tNo join point found\n");
   return nullptr;
 }
 
 MustBeExecutedIterator::MustBeExecutedIterator(
     MustBeExecutedContextExplorer &Explorer, const Instruction *I)
-    : Visited(new VisitedSetTy()), Explorer(Explorer), CurInst(I),
-      Head(nullptr), Tail(nullptr) {
+    : Explorer(Explorer), CurInst(I) {
   reset(I);
 }
 
 void MustBeExecutedIterator::reset(const Instruction *I) {
-  Visited->clear();
-  DelayStack.clear();
-  ForwardCallStack.clear();
-  BackwardCallStack.clear();
-  resetInstruction(I);
-}
-
-void MustBeExecutedIterator::resetInstruction(const Instruction *I) {
   CurInst = I;
-  Head = Tail = nullptr;
-  Visited->insert({I, ExplorationDirection::FORWARD});
-  Visited->insert({I, ExplorationDirection::BACKWARD});
-  if (Explorer.ExploreCFGForward)
-    Head = I;
-  if (Explorer.ExploreCFGBackward)
-    Tail = I;
+  Visited.clear();
+  Visited.insert(I);
 }
 
-const Instruction *MustBeExecutedIterator::advance(bool PoppedCallStack) {
+const Instruction *MustBeExecutedIterator::advance() {
   assert(CurInst && "Cannot advance an end iterator!");
-  Head =
-      Explorer.getMustBeExecutedNextInstruction(*this, Head, PoppedCallStack);
-  if (Head && Visited->insert({Head, ExplorationDirection::FORWARD}).second)
-    return Head;
-
-  if (!ForwardCallStack.empty()) {
-    Head = ForwardCallStack.pop_back_val();
-    return advance(true);
-  }
-  Head = nullptr;
-
-  Tail =
-      Explorer.getMustBeExecutedPrevInstruction(*this, Tail, PoppedCallStack);
-  if (Tail && Visited->insert({Tail, ExplorationDirection::BACKWARD}).second)
-    return Tail;
-
-  if (!BackwardCallStack.empty()) {
-    Tail = BackwardCallStack.pop_back_val();
-    return advance(true);
-  }
-
-  Tail = nullptr;
-
-  if (!DelayStack.empty()) {
-    const Instruction *DelayedI = DelayStack.pop_back_val();
-    LLVM_DEBUG(dbgs() << "Poped new program point from delay stack: "
-                      << *DelayedI << "\n");
-    resetInstruction(DelayedI);
-    assert(CurInst && "Expected valid instruction after reset!");
-    return CurInst;
-  }
-
-  return nullptr;
-}
-
-void MustBeExecutedContextExplorer::insertInstructionBefore(
-    const Instruction *NewI, const Instruction *PosI) {
-  bool NewTransfersEx = isGuaranteedToTransferExecutionToSuccessor(NewI);
-  const Instruction *PosIPrev = PosI->getPrevNode();
-  for (auto &MapIt : InstructionIteratorMap) {
-    iterator &It = *MapIt.getSecond();
-    if (It.Visited->count({PosIPrev, ExplorationDirection::FORWARD}) &&
-        It.Visited->count({PosI, ExplorationDirection::FORWARD})) {
-      if (!NewTransfersEx) {
-        It.reset(MapIt.getFirst());
-        continue;
-      }
-      It.Visited->insert({NewI, ExplorationDirection::FORWARD});
-    }
-    if (It.Tail != PosI &&
-        It.Visited->count({PosI, ExplorationDirection::BACKWARD})) {
-      It.Visited->insert({NewI, ExplorationDirection::BACKWARD});
-      if (!It.Tail)
-        It.Tail = NewI;
-    }
-  }
-}
-
-void MustBeExecutedContextExplorer::insertInstructionAfter(
-    const Instruction *NewI, const Instruction *PosI) {
-  bool NewTransfersEx = isGuaranteedToTransferExecutionToSuccessor(NewI);
-  bool PosTransfersEx = isGuaranteedToTransferExecutionToSuccessor(PosI);
-  const Instruction *PosINext = PosI->getNextNode();
-  for (auto &MapIt : InstructionIteratorMap) {
-    iterator &It = *MapIt.getSecond();
-    if (PosTransfersEx) {
-      if (It.Head != PosI &&
-          It.Visited->count({PosI, ExplorationDirection::FORWARD})) {
-        if (!NewTransfersEx) {
-          It.reset(MapIt.getFirst());
-          continue;
-        }
-        It.Visited->insert({NewI, ExplorationDirection::FORWARD});
-      }
-    }
-    if (It.Visited->count({PosI, ExplorationDirection::BACKWARD})) {
-      if (!PosINext) {
-        It.reset(MapIt.getFirst());
-        continue;
-      }
-      if (It.Visited->count({PosINext, ExplorationDirection::BACKWARD}))
-        It.Visited->insert({NewI, ExplorationDirection::BACKWARD});
-    }
-  }
-}
-
-void MustBeExecutedContextExplorer::removeInstruction(const Instruction *I) {
-  InstructionIteratorMap.erase(I);
-  BlockTransferMap.erase(I->getParent());
-  FunctionExitJoinPointMap.erase(I->getFunction());
-  for (auto &It : InstructionIteratorMap) {
-    It.getSecond()->Visited->erase({I, ExplorationDirection::FORWARD});
-    It.getSecond()->Visited->erase({I, ExplorationDirection::BACKWARD});
-  }
+  const Instruction *Next =
+      Explorer.getMustBeExecutedNextInstruction(*this, CurInst);
+  if (Next && !Visited.insert(Next).second)
+    Next = nullptr;
+  return Next;
 }
