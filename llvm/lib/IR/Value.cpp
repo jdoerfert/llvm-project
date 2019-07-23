@@ -500,7 +500,7 @@ static const Value *stripPointerCastsAndOffsets(const Value *V) {
       //       representation we could look through it here as well.
       V = cast<Operator>(V)->getOperand(0);
     } else if (auto *GA = dyn_cast<GlobalAlias>(V)) {
-      if (StripKind == PSK_ZeroIndices || GA->isInterposable())
+      if (StripKind == PSK_ZeroIndices || !GA->isDefinitionExact())
         return V;
       V = GA->getAliasee();
     } else {
@@ -593,7 +593,7 @@ Value::stripAndAccumulateConstantOffsets(const DataLayout &DL, APInt &Offset,
                Operator::getOpcode(V) == Instruction::AddrSpaceCast) {
       V = cast<Operator>(V)->getOperand(0);
     } else if (auto *GA = dyn_cast<GlobalAlias>(V)) {
-      if (!GA->isInterposable())
+      if (GA->isDefinitionExact())
         V = GA->getAliasee();
     } else if (const auto *Call = dyn_cast<CallBase>(V)) {
         if (const Value *RV = Call->getReturnedArgOperand())
