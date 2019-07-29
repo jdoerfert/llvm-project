@@ -9862,7 +9862,8 @@ OMPClause *Sema::ActOnOpenMPFinalClause(Expr *Condition,
   return new (Context) OMPFinalClause(ValExpr, StartLoc, LParenLoc, EndLoc);
 }
 ExprResult Sema::PerformOpenMPImplicitIntegerConversion(SourceLocation Loc,
-                                                        Expr *Op) {
+                                                        Expr *Op,
+                                                        bool RequireVoidPtrTy) {
   if (!Op)
     return ExprError();
 
@@ -9902,6 +9903,55 @@ ExprResult Sema::PerformOpenMPImplicitIntegerConversion(SourceLocation Loc,
       llvm_unreachable("conversion functions are permitted");
     }
   } ConvertDiagnoser;
+
+  struct PtrConvertDiagnoser : public ContextualImplicitConverter {
+    PtrConvertDiagnoser() : ContextualImplicitConverter(false, true) {}
+
+    bool match(QualType T) override {
+      llvm::errs() << "T: " << T.getAsString() << " :: " << T->isPointerType()
+                   << "\n";
+      T = T.getNonReferenceType().getUnqualifiedType();
+      llvm::errs() << "T: " << T.getAsString() << " :: " << T->isPointerType()
+                   << "\n";
+      return T->isPointerType();
+    }
+
+    SemaDiagnosticBuilder diagnoseNoMatch(Sema &S, SourceLocation Loc,
+                                          QualType T) override {
+      return S.Diag(Loc, diag::note_omp_pointer_expected) << T;
+    }
+    SemaDiagnosticBuilder diagnoseIncomplete(Sema &S, SourceLocation Loc,
+                                             QualType T) override {
+      return S.Diag(Loc, diag::err_omp_incomplete_type) << T;
+    }
+    SemaDiagnosticBuilder diagnoseExplicitConv(Sema &S, SourceLocation Loc,
+                                               QualType T,
+                                               QualType ConvTy) override {
+      return S.Diag(Loc, diag::err_omp_explicit_conversion) << T << ConvTy;
+    }
+    SemaDiagnosticBuilder noteExplicitConv(Sema &S, CXXConversionDecl *Conv,
+                                           QualType ConvTy) override {
+      return S.Diag(Conv->getLocation(), diag::note_omp_conversion_here)
+             << ConvTy->isEnumeralType() << ConvTy;
+    }
+    SemaDiagnosticBuilder diagnoseAmbiguous(Sema &S, SourceLocation Loc,
+                                            QualType T) override {
+      return S.Diag(Loc, diag::err_omp_ambiguous_conversion) << T;
+    }
+    SemaDiagnosticBuilder noteAmbiguous(Sema &S, CXXConversionDecl *Conv,
+                                        QualType ConvTy) override {
+      return S.Diag(Conv->getLocation(), diag::note_omp_conversion_here)
+             << ConvTy->isEnumeralType() << ConvTy;
+    }
+    SemaDiagnosticBuilder diagnoseConversion(Sema &, SourceLocation, QualType,
+                                             QualType) override {
+      llvm_unreachable("conversion functions are permitted");
+    }
+  } PtrConvertDiagnoser;
+
+  llvm::errs() << "RequireVoidPtrTy : " << RequireVoidPtrTy <<"\n";
+  if (RequireVoidPtrTy)
+    return PerformContextualImplicitConversion(Loc, Op, PtrConvertDiagnoser);
   return PerformContextualImplicitConversion(Loc, Op, ConvertDiagnoser);
 }
 
@@ -10289,7 +10339,7 @@ OMPClause *Sema::ActOnOpenMPSingleExprWithArgClause(
     OpenMPClauseKind Kind, ArrayRef<unsigned> Argument, Expr *Expr,
     SourceLocation StartLoc, SourceLocation LParenLoc,
     ArrayRef<SourceLocation> ArgumentLoc, SourceLocation DelimLoc,
-    SourceLocation EndLoc) {
+    SourceLocation EndLoc, StringRef UserScheduleName) {
   OMPClause *Res = nullptr;
   switch (Kind) {
   case OMPC_schedule:
@@ -10301,7 +10351,7 @@ OMPClause *Sema::ActOnOpenMPSingleExprWithArgClause(
         static_cast<OpenMPScheduleClauseModifier>(Argument[Modifier2]),
         static_cast<OpenMPScheduleClauseKind>(Argument[ScheduleKind]), Expr,
         StartLoc, LParenLoc, ArgumentLoc[Modifier1], ArgumentLoc[Modifier2],
-        ArgumentLoc[ScheduleKind], DelimLoc, EndLoc);
+        ArgumentLoc[ScheduleKind], DelimLoc, EndLoc, UserScheduleName);
     break;
   case OMPC_if:
     assert(Argument.size() == 1 && ArgumentLoc.size() == 1);
@@ -10407,7 +10457,11 @@ OMPClause *Sema::ActOnOpenMPScheduleClause(
     OpenMPScheduleClauseModifier M1, OpenMPScheduleClauseModifier M2,
     OpenMPScheduleClauseKind Kind, Expr *ChunkSize, SourceLocation StartLoc,
     SourceLocation LParenLoc, SourceLocation M1Loc, SourceLocation M2Loc,
-    SourceLocation KindLoc, SourceLocation CommaLoc, SourceLocation EndLoc) {
+    SourceLocation KindLoc, SourceLocation CommaLoc, SourceLocation EndLoc,
+    StringRef UserScheduleName) {
+  llvm::errs() << "OMPScheduleClause create\n";
+  const bool IsUserSchedule = M1 == OMPC_SCHEDULE_MODIFIER_user;
+
   if (checkScheduleModifiers(*this, M1, M2, M1Loc, M2Loc) ||
       checkScheduleModifiers(*this, M2, M1, M2Loc, M1Loc))
     return nullptr;
@@ -10424,7 +10478,7 @@ OMPClause *Sema::ActOnOpenMPScheduleClause(
         << getOpenMPSimpleClauseTypeName(OMPC_schedule, M1);
     return nullptr;
   }
-  if (Kind == OMPC_SCHEDULE_unknown) {
+  if (Kind == OMPC_SCHEDULE_unknown && !IsUserSchedule) {
     std::string Values;
     if (M1Loc.isInvalid() && M2Loc.isInvalid()) {
       unsigned Exclude[] = {OMPC_SCHEDULE_unknown};
@@ -10451,13 +10505,14 @@ OMPClause *Sema::ActOnOpenMPScheduleClause(
   }
   Expr *ValExpr = ChunkSize;
   Stmt *HelperValStmt = nullptr;
+  llvm::errs() << "OMPScheduleClause create\n";
   if (ChunkSize) {
     if (!ChunkSize->isValueDependent() && !ChunkSize->isTypeDependent() &&
         !ChunkSize->isInstantiationDependent() &&
         !ChunkSize->containsUnexpandedParameterPack()) {
       SourceLocation ChunkSizeLoc = ChunkSize->getBeginLoc();
-      ExprResult Val =
-          PerformOpenMPImplicitIntegerConversion(ChunkSizeLoc, ChunkSize);
+      ExprResult Val = PerformOpenMPImplicitIntegerConversion(
+          ChunkSizeLoc, ChunkSize, IsUserSchedule);
       if (Val.isInvalid())
         return nullptr;
 
@@ -10485,9 +10540,10 @@ OMPClause *Sema::ActOnOpenMPScheduleClause(
     }
   }
 
-  return new (Context)
-      OMPScheduleClause(StartLoc, LParenLoc, KindLoc, CommaLoc, EndLoc, Kind,
-                        ValExpr, HelperValStmt, M1, M1Loc, M2, M2Loc);
+  llvm::errs() << "OMPScheduleClause create\n";
+  return new (Context) OMPScheduleClause(
+      StartLoc, LParenLoc, KindLoc, CommaLoc, EndLoc, Kind, ValExpr,
+      HelperValStmt, M1, M1Loc, M2, M2Loc, UserScheduleName);
 }
 
 OMPClause *Sema::ActOnOpenMPClause(OpenMPClauseKind Kind,
@@ -14564,6 +14620,84 @@ Sema::DeclGroupPtrTy Sema::ActOnOpenMPDeclareReductionDirectiveEnd(
     }
   }
   return DeclReductions;
+}
+
+Decl *Sema::ActOnOpenMPDeclareScheduleFn(
+    Scope *CurScope, const IdentifierInfo &ScheduleIdentInfo,
+    StringRef ScheduleFnKindStr, const DeclarationNameInfo &FnName,
+    CXXScopeSpec &ScopeSpec) {
+  //llvm::errs() << "Sched: " << ScheduleIdentInfo.getName() << "\n";
+  //llvm::errs() << " Kind: " << ScheduleFnKindStr << "\n";
+  //llvm::errs() << " Name: " << FnName.getAsString() << "\n";
+
+  LookupResult Lookup(*this, FnName, LookupOrdinaryName);
+  LookupParsedName(Lookup, CurScope, &ScopeSpec, true);
+
+  if (Lookup.isAmbiguous())
+    return nullptr;
+  Lookup.suppressDiagnostics();
+
+  if (!Lookup.isSingleResult()) {
+    VarOrFuncDeclFilterCCC CCC(*this);
+    if (TypoCorrection Corrected =
+            CorrectTypo(FnName, LookupOrdinaryName, CurScope, nullptr, CCC,
+                        CTK_ErrorRecovery)) {
+      diagnoseTypo(Corrected, PDiag(diag::err_undeclared_var_use_suggest)
+                                  << FnName.getName());
+      return nullptr;
+    }
+
+    Diag(FnName.getLoc(), diag::err_undeclared_var_use) << FnName.getName();
+    return nullptr;
+  }
+
+  NamedDecl *ND = Lookup.getAsSingle<NamedDecl>();
+  //ND->dump();
+  if (!isa<FunctionDecl>(ND)) {
+    llvm::errs() << "Not a function decl! TODO: allow more here\n";
+    return nullptr;
+  }
+
+  ND = cast<NamedDecl>(ND->getCanonicalDecl());
+  assert(ND);
+  //ND->dump();
+
+  FunctionDecl *FnDecl = ND->getAsFunction();
+  QualType FnType = FnDecl->getType();
+  QualType FnPtrType = Context.getPointerType(FnType);
+
+  VarDecl *FnVarDecl =
+      buildVarDecl(*this, FnDecl->getLocation(), FnType, FnDecl->getName());
+  //FnVarDecl->dump();
+  //CurScope->AddDecl(FnVarDecl);
+
+  //llvm::errs() << "VD? " << isa<VarDecl>(ND) << " :: " << isa<VarDecl>(FnDecl) << "\n";
+  VarDecl *VD = buildVarDecl(
+      *this, FnName.getLoc(), FnPtrType,
+      ("__" + ScheduleIdentInfo.getName() + "_" + ScheduleFnKindStr).str());
+  //llvm::errs() << "VD: " << VD << "\n";
+  DeclRefExpr *DRE = buildDeclRefExpr(*this, FnVarDecl, FnType, FnName.getLoc());
+  ExprResult ICE = ImpCastExprToType(DRE, FnPtrType, CK_FunctionToPointerDecay, VK_RValue);
+  assert(ICE.isUsable() && !ICE.isInvalid());
+  VD->setInit(ICE.get());
+
+  // TODO: Figure out what is actually necessariy here
+  CurContext->addDecl(VD);
+  VD->setImplicit(false);
+  VD->setReferenced(true);
+  VD->setIsUsed();
+  VD->dump();
+  VD->setStorageClass(StorageClass::SC_Static);
+  VD->dump();
+  return VD;
+}
+
+Sema::DeclGroupPtrTy
+Sema::ActOnOpenMPDeclareScheduleDirective(Scope *S, DeclContext *DC,
+                                          AccessSpecifier AS,
+                                          SmallVectorImpl<Decl *> &Decls) {
+  return DeclGroupPtrTy::make(
+      DeclGroupRef::Create(Context, Decls.begin(), Decls.size()));
 }
 
 TypeResult Sema::ActOnOpenMPDeclareMapperVarDecl(Scope *S, Declarator &D) {

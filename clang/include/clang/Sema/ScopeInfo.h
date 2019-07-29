@@ -160,6 +160,9 @@ public:
   /// in the function. One of co_return, co_await, or co_yield.
   unsigned char FirstCoroutineStmtKind : 2;
 
+  /// True if current scope is for OpenMP declare schedule.
+  bool HasOMPDeclareSchedule : 1;
+
   /// First coroutine statement in the current function.
   /// (ex co_return, co_await, co_yield)
   SourceLocation FirstCoroutineStmtLoc;

@@ -42,6 +42,7 @@ enum OpenMPDirectiveKindEx {
   OMPD_teams_distribute_parallel,
   OMPD_target_teams_distribute_parallel,
   OMPD_mapper,
+  OMPD_schedule,
 };
 
 class DeclDirectiveListParserHelper final {
@@ -80,6 +81,7 @@ static unsigned getOpenMPDirectiveKindEx(StringRef S) {
       .Case("reduction", OMPD_reduction)
       .Case("update", OMPD_update)
       .Case("mapper", OMPD_mapper)
+      .Case("schedule", OMPD_schedule)
       .Default(OMPD_unknown);
 }
 
@@ -91,6 +93,7 @@ static OpenMPDirectiveKind parseOpenMPDirectiveKind(Parser &P) {
       {OMPD_cancellation, OMPD_point, OMPD_cancellation_point},
       {OMPD_declare, OMPD_reduction, OMPD_declare_reduction},
       {OMPD_declare, OMPD_mapper, OMPD_declare_mapper},
+      {OMPD_declare, OMPD_schedule, OMPD_declare_schedule},
       {OMPD_declare, OMPD_simd, OMPD_declare_simd},
       {OMPD_declare, OMPD_target, OMPD_declare_target},
       {OMPD_distribute, OMPD_parallel, OMPD_distribute_parallel},
@@ -160,6 +163,91 @@ static OpenMPDirectiveKind parseOpenMPDirectiveKind(Parser &P) {
   }
   return DKind < OMPD_unknown ? static_cast<OpenMPDirectiveKind>(DKind)
                               : OMPD_unknown;
+}
+
+/// Parse 'omp declare schedule' construct.
+///
+///   declare-schedule-directive:
+///        annot_pragma_openmp 'declare' 'schedule'
+///        '(' <name_id> ','
+///            'init' '=' <init_id> ','
+///            'next' '=' <next_id> ','
+///            'fini' '=' <fini_id> ')'
+///        annot_pragma_openmp_end
+///
+/// <name_id> is a base language identifier
+/// <init_id> is a base language identifier
+/// <next_id> is a base language identifier
+/// <fini_id> is a base language identifier
+///
+Parser::DeclGroupPtrTy
+Parser::ParseOpenMPDeclareScheduleDirective(AccessSpecifier AS) {
+  // Parse '('.
+  BalancedDelimiterTracker T(*this, tok::l_paren, tok::annot_pragma_openmp_end);
+  if (T.expectAndConsume(diag::err_expected_lparen_after,
+                         getOpenMPDirectiveName(OMPD_declare_schedule))) {
+    SkipUntil(tok::annot_pragma_openmp_end, StopBeforeMatch);
+    return DeclGroupPtrTy();
+  }
+
+  SmallVector<Decl *, 3> Decls;
+
+  IdentifierInfo *ScheduleIdentInfo = nullptr;
+  if (Tok.is(tok::identifier)) {
+    ScheduleIdentInfo = Tok.getIdentifierInfo();
+    ConsumeToken();
+  } else {
+    llvm::errs() << "Expected identifier for the schedule name, got '"
+                 << Tok.getName() << "' instead\n";
+    expectIdentifier();
+    return DeclGroupPtrTy();
+  }
+
+  bool SeenComma = false;
+  // TODO: Allow them out of order
+  for (auto &ScheduleFnKindStr : {"init", "next", "fini"}) {
+
+    // Consume ','.
+    if (SeenComma || ExpectAndConsume(tok::comma))
+      return DeclGroupPtrTy();
+
+    // INIT
+    if (Tok.is(tok::identifier) &&
+        Tok.getIdentifierInfo()->isStr(ScheduleFnKindStr)) {
+      ConsumeToken();
+    } else {
+      SeenComma = true;
+      continue;
+    }
+    SeenComma = false;
+
+    // Consume '='.
+    if (ExpectAndConsume(tok::equal))
+      return DeclGroupPtrTy();
+
+    auto &&Callback = [&](CXXScopeSpec &ScopeSpec,
+                          DeclarationNameInfo Id) -> bool {
+      Decl *ScheduleFnDecl = Actions.ActOnOpenMPDeclareScheduleFn(
+          getCurScope(), *ScheduleIdentInfo, ScheduleFnKindStr, Id, ScopeSpec);
+      if (!ScheduleFnDecl)
+        return false;
+      Decls.push_back(ScheduleFnDecl);
+      return true;
+    };
+
+    if (ParseOpenMPSimpleVar(OMPD_declare_schedule, Callback,
+                             /* AllowScopeSpecifier */ true)) {
+      llvm::errs() << "Expected function identifier (TODO: proper error)\n";
+      return DeclGroupPtrTy();
+    }
+  }
+
+  // Consume ')'.
+  if (ExpectAndConsume(tok::r_paren))
+    return DeclGroupPtrTy();
+
+  return Actions.ActOnOpenMPDeclareScheduleDirective(
+      getCurScope(), Actions.getCurLexicalContext(), AS, Decls);
 }
 
 static DeclarationName parseOpenMPReductionId(Parser &P) {
@@ -980,6 +1068,22 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
     ConsumeAnnotationToken();
     return Actions.ActOnOpenMPRequiresDirective(StartLoc, Clauses);
   }
+  case OMPD_declare_schedule:
+    ConsumeToken();
+    if (DeclGroupPtrTy Res = ParseOpenMPDeclareScheduleDirective(AS)) {
+      // The last seen token is annot_pragma_openmp_end - need to check for
+      // extra tokens.
+      if (Tok.isNot(tok::annot_pragma_openmp_end)) {
+        Diag(Tok, diag::warn_omp_extra_tokens_at_eol)
+            << getOpenMPDirectiveName(OMPD_declare_schedule);
+        while (Tok.isNot(tok::annot_pragma_openmp_end))
+          ConsumeAnyToken();
+      }
+      // Skip the last annot_pragma_openmp_end.
+      ConsumeAnnotationToken();
+      return Res;
+    }
+    break;
   case OMPD_declare_reduction:
     ConsumeToken();
     if (DeclGroupPtrTy Res = ParseOpenMPDeclareReductionDirective(AS)) {
@@ -1285,6 +1389,9 @@ Parser::ParseOpenMPDeclarativeOrExecutableDirective(ParsedStmtContext StmtCtx) {
     SkipUntil(tok::annot_pragma_openmp_end);
     break;
   }
+  case OMPD_declare_schedule:
+                      assert(0);
+    break;
   case OMPD_declare_reduction:
     ConsumeToken();
     if (DeclGroupPtrTy Res =
@@ -1486,6 +1593,43 @@ Parser::ParseOpenMPDeclarativeOrExecutableDirective(ParsedStmtContext StmtCtx) {
   return Directive;
 }
 
+bool Parser::ParseOpenMPSimpleVar(
+    OpenMPDirectiveKind Kind,
+    const llvm::function_ref<bool(CXXScopeSpec &, DeclarationNameInfo)>
+        &Callback,
+    bool AllowScopeSpecifier) {
+
+  CXXScopeSpec SS;
+  UnqualifiedId Name;
+  // Read var name.
+  Token PrevTok = Tok;
+  bool IsCorrect = true;
+
+  if (AllowScopeSpecifier && getLangOpts().CPlusPlus &&
+      ParseOptionalCXXScopeSpecifier(SS, nullptr, false)) {
+    IsCorrect = false;
+    SkipUntil(tok::comma, tok::r_paren, tok::annot_pragma_openmp_end,
+              StopBeforeMatch);
+  } else if (ParseUnqualifiedId(SS, false, false, false, false, nullptr,
+                                nullptr, Name)) {
+    IsCorrect = false;
+    SkipUntil(tok::comma, tok::r_paren, tok::annot_pragma_openmp_end,
+              StopBeforeMatch);
+  } else if (Tok.isNot(tok::comma) && Tok.isNot(tok::r_paren) &&
+             Tok.isNot(tok::equal) && Tok.isNot(tok::annot_pragma_openmp_end)) {
+    IsCorrect = false;
+    SkipUntil(tok::comma, tok::r_paren,
+              tok::annot_pragma_openmp_end, StopBeforeMatch);
+    Diag(PrevTok.getLocation(), diag::err_expected)
+        << tok::identifier
+        << SourceRange(PrevTok.getLocation(), PrevTokLocation);
+  } else {
+    IsCorrect &= Callback(SS, Actions.GetNameFromUnqualifiedId(Name));
+  }
+
+  return !IsCorrect;
+}
+
 // Parses simple list:
 //   simple-variable-list:
 //         '(' id-expression {, id-expression} ')'
@@ -1505,8 +1649,7 @@ bool Parser::ParseOpenMPSimpleVarList(
 
   // Read tokens while ')' or annot_pragma_openmp_end is not found.
   while (Tok.isNot(tok::r_paren) && Tok.isNot(tok::annot_pragma_openmp_end)) {
-    CXXScopeSpec SS;
-    UnqualifiedId Name;
+    CXXScopeSpec SS; UnqualifiedId Name;
     // Read var name.
     Token PrevTok = Tok;
     NoIdentIsFound = false;
@@ -1896,6 +2039,7 @@ OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPClauseKind Kind,
     return nullptr;
 
   ExprResult Val;
+  StringRef UserScheduleName;
   SmallVector<unsigned, 4> Arg;
   SmallVector<SourceLocation, 4> KLoc;
   if (Kind == OMPC_schedule) {
@@ -1932,8 +2076,17 @@ OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPClauseKind Kind,
         ConsumeAnyToken();
       else
         Diag(Tok, diag::warn_pragma_expected_colon) << "schedule modifier";
-      KindModifier = getOpenMPSimpleClauseType(
-          Kind, Tok.isAnnotation() ? "" : PP.getSpelling(Tok));
+      if (KindModifier == OMPC_SCHEDULE_MODIFIER_user) {
+        KindModifier = OMPC_SCHEDULE_unknown;
+        if (Tok.is(tok::identifier)) {
+          UserScheduleName = Tok.getIdentifierInfo()->getName();
+        } else {
+          Diag(Tok, diag::err_omp_mapper_illegal_identifier);
+        }
+      } else {
+        KindModifier = getOpenMPSimpleClauseType(
+            Kind, Tok.isAnnotation() ? "" : PP.getSpelling(Tok));
+      }
     }
     Arg[ScheduleKind] = KindModifier;
     KLoc[ScheduleKind] = Tok.getLocation();
@@ -1942,7 +2095,8 @@ OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPClauseKind Kind,
       ConsumeAnyToken();
     if ((Arg[ScheduleKind] == OMPC_SCHEDULE_static ||
          Arg[ScheduleKind] == OMPC_SCHEDULE_dynamic ||
-         Arg[ScheduleKind] == OMPC_SCHEDULE_guided) &&
+         Arg[ScheduleKind] == OMPC_SCHEDULE_guided ||
+         Arg[Modifier1] == OMPC_SCHEDULE_MODIFIER_user) &&
         Tok.is(tok::comma))
       DelimLoc = ConsumeAnyToken();
   } else if (Kind == OMPC_dist_schedule) {
@@ -2015,7 +2169,8 @@ OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPClauseKind Kind,
   if (ParseOnly)
     return nullptr;
   return Actions.ActOnOpenMPSingleExprWithArgClause(
-      Kind, Arg, Val.get(), Loc, T.getOpenLocation(), KLoc, DelimLoc, RLoc);
+      Kind, Arg, Val.get(), Loc, T.getOpenLocation(), KLoc, DelimLoc, RLoc,
+      UserScheduleName);
 }
 
 static bool ParseReductionId(Parser &P, CXXScopeSpec &ReductionIdScopeSpec,

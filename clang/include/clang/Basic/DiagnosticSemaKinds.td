@@ -8944,6 +8944,8 @@ def err_omp_explicit_conversion : Error<
   "expression requires explicit conversion from %0 to %1">;
 def note_omp_conversion_here : Note<
   "conversion to %select{integral|enumeration}0 type %1 declared here">;
+def note_omp_pointer_expected : Note<
+  "expression must have pointer type, not %0">;
 def err_omp_ambiguous_conversion : Error<
   "ambiguous conversion from type %0 to an integral or unscoped "
   "enumeration type">;

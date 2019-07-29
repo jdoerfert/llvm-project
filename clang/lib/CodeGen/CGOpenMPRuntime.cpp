@@ -3426,7 +3426,7 @@ static OpenMPSchedType getRuntimeSchedule(OpenMPScheduleClauseKind ScheduleKind,
   case OMPC_SCHEDULE_auto:
     return Ordered ? OMP_ord_auto : OMP_sch_auto;
   case OMPC_SCHEDULE_unknown:
-    assert(!Chunked && "chunk was specified but schedule kind not known");
+    //assert(!Chunked && "chunk was specified but schedule kind not known");
     return Ordered ? OMP_ord_static : OMP_sch_static;
   }
   llvm_unreachable("Unexpected runtime schedule");
@@ -3624,6 +3624,54 @@ void CGOpenMPRuntime::emitDistributeStaticInit(
   emitForStaticInitCall(CGF, UpdatedLocation, ThreadId, StaticInitFunction,
                         ScheduleNum, OMPC_SCHEDULE_MODIFIER_unknown,
                         OMPC_SCHEDULE_MODIFIER_unknown, Values);
+}
+
+llvm::Value *CGOpenMPRuntime::emitForUserScheduleFnCall(
+    CodeGenFunction &CGF, SourceLocation Loc, StringRef ScheduleName,
+    StringRef FnName, const StaticRTInput &Values) {
+  assert(!Values.Ordered);
+
+  llvm::Value *UpdateLocation =
+      emitUpdateLocation(CGF, Loc, OMP_IDENT_WORK_LOOP);
+
+  llvm::Value *ThreadId = getThreadID(CGF, Loc);
+  std::string ScheduleFnName = ("__" + ScheduleName + "_" + FnName).str();
+  GlobalDecl Result;
+  bool Success = CGF.CGM.lookupRepresentativeDecl(ScheduleFnName, Result);
+  assert(Success);
+  assert(isa<VarDecl>(Result.getDecl()));
+  const VarDecl *VD = cast<VarDecl>(Result.getDecl());
+  llvm::Constant *CalleeAddrLoc =
+      CGF.CGM.GetAddrOfGlobalVar(VD, nullptr, ForDefinition);
+  assert(CalleeAddrLoc);
+
+  // %load = load FnTy, %CalleeAddrLoc
+  // call %load(
+  //          void *loc, kmp_int32 tid,
+  //          kmp_int32 *p_lastiter, kmp_int[32|64] *p_lower,
+  //          kmp_int[32|64] *p_upper, kmp_int[32|64] *p_stride,
+  //          void * Payload);
+  llvm::Value *Payload = Values.Chunk;
+  llvm::Type *I8PtrTy = llvm::Type::getInt8PtrTy(Payload->getContext());
+  assert(Payload);
+  llvm::Value *Args[] = {
+      CGF.Builder.CreateBitOrPointerCast(UpdateLocation, I8PtrTy), // Loc
+      ThreadId,                                                    // ThreadId
+      Values.IL.getPointer(),                               // &isLastIter
+      Values.LB.getPointer(),                               // &LB
+      Values.UB.getPointer(),                               // &UB
+      Values.ST.getPointer(),                               // &Stride
+      CGF.Builder.CreateBitOrPointerCast(Payload, I8PtrTy), // Payload
+  };
+  llvm::Value *UserFunctionPtr =
+      CGF.Builder.CreateAlignedLoad(CalleeAddrLoc, 0, "omp.user.fn." + FnName);
+  llvm::FunctionType *FnTy = cast<llvm::FunctionType>(
+      UserFunctionPtr->getType()->getPointerElementType());
+  llvm::FunctionCallee UserFunctionCallee(FnTy, UserFunctionPtr);
+  auto *Call = CGF.EmitRuntimeCall(UserFunctionCallee, Args);
+  return CGF.EmitScalarConversion(
+      Call, CGF.getContext().getIntTypeForBitwidth(32, /*Signed=*/1),
+      CGF.getContext().BoolTy, Loc);
 }
 
 void CGOpenMPRuntime::emitForStaticFinish(CodeGenFunction &CGF,

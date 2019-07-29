@@ -3309,7 +3309,8 @@ private:
           NextUB(NextUB) {}
   };
   void EmitOMPOuterLoop(bool DynamicOrOrdered, bool IsMonotonic,
-                        const OMPLoopDirective &S, OMPPrivateScope &LoopScope,
+                        StringRef UserScheduleName, const OMPLoopDirective &S,
+                        OMPPrivateScope &LoopScope,
                         const OMPLoopArguments &LoopArgs,
                         const CodeGenLoopTy &CodeGenLoop,
                         const CodeGenOrderedTy &CodeGenOrdered);

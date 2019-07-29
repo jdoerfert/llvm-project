@@ -1043,6 +1043,12 @@ public:
                                  const OpenMPScheduleTy &ScheduleKind,
                                  const StaticRTInput &Values);
 
+  virtual llvm::Value *emitForUserScheduleFnCall(CodeGenFunction &CGF,
+                                                 SourceLocation Loc,
+                                                 StringRef ScheduleName,
+                                                 StringRef FnName,
+                                                 const StaticRTInput &Values);
+
   ///
   /// \param CGF Reference to current CodeGenFunction.
   /// \param Loc Clang source location.

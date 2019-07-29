@@ -1294,6 +1294,8 @@ class OMPScheduleClause : public OMPClause, public OMPClauseWithPreInit {
   /// Chunk size.
   Expr *ChunkSize = nullptr;
 
+  StringRef UserScheduleName;
+
   /// Set schedule kind.
   ///
   /// \param K Schedule kind.
@@ -1376,10 +1378,11 @@ public:
                     SourceLocation EndLoc, OpenMPScheduleClauseKind Kind,
                     Expr *ChunkSize, Stmt *HelperChunkSize,
                     OpenMPScheduleClauseModifier M1, SourceLocation M1Loc,
-                    OpenMPScheduleClauseModifier M2, SourceLocation M2Loc)
+                    OpenMPScheduleClauseModifier M2, SourceLocation M2Loc,
+                    StringRef UserScheduleName)
       : OMPClause(OMPC_schedule, StartLoc, EndLoc), OMPClauseWithPreInit(this),
         LParenLoc(LParenLoc), Kind(Kind), KindLoc(KLoc), CommaLoc(CommaLoc),
-        ChunkSize(ChunkSize) {
+        ChunkSize(ChunkSize), UserScheduleName(UserScheduleName) {
     setPreInitStmt(HelperChunkSize);
     Modifiers[FIRST] = M1;
     Modifiers[SECOND] = M2;
@@ -1407,6 +1410,8 @@ public:
   OpenMPScheduleClauseModifier getSecondScheduleModifier() const {
     return Modifiers[SECOND];
   }
+
+  StringRef getUserScheduleName() const { return UserScheduleName; }
 
   /// Get location of '('.
   SourceLocation getLParenLoc() { return LParenLoc; }

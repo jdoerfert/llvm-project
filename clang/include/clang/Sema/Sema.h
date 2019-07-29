@@ -9068,8 +9068,10 @@ public:
   /// is performed.
   bool isOpenMPTargetCapturedDecl(const ValueDecl *D, unsigned Level) const;
 
-  ExprResult PerformOpenMPImplicitIntegerConversion(SourceLocation OpLoc,
-                                                    Expr *Op);
+  ExprResult
+  PerformOpenMPImplicitIntegerConversion(SourceLocation OpLoc, Expr *Op,
+                                         bool RequireVoidPtrTy = false);
+
   /// Called on start of new data sharing attribute block.
   void StartOpenMPDSABlock(OpenMPDirectiveKind K,
                            const DeclarationNameInfo &DirName, Scope *CurScope,
@@ -9133,6 +9135,18 @@ public:
   /// Called at the end of '#pragma omp declare reduction'.
   DeclGroupPtrTy ActOnOpenMPDeclareReductionDirectiveEnd(
       Scope *S, DeclGroupPtrTy DeclReductions, bool IsValid);
+
+  Decl *ActOnOpenMPDeclareScheduleFn(Scope *CurScope,
+                                     const IdentifierInfo &ScheduleIdentInfo,
+                                     StringRef ScheduleFnKindStr,
+                                     const DeclarationNameInfo &FnName,
+                                     CXXScopeSpec &ScopeSpec);
+
+  /// Called at the end of '#pragma omp declare schedule'.
+  DeclGroupPtrTy
+  ActOnOpenMPDeclareScheduleDirective(Scope *S, DeclContext *DC,
+                                      AccessSpecifier AS,
+                                      SmallVectorImpl<Decl *> &Decls);
 
   /// Check variable declaration in 'omp declare mapper' construct.
   TypeResult ActOnOpenMPDeclareMapperVarDecl(Scope *S, Declarator &D);
@@ -9529,13 +9543,14 @@ public:
       OpenMPClauseKind Kind, ArrayRef<unsigned> Arguments, Expr *Expr,
       SourceLocation StartLoc, SourceLocation LParenLoc,
       ArrayRef<SourceLocation> ArgumentsLoc, SourceLocation DelimLoc,
-      SourceLocation EndLoc);
+      SourceLocation EndLoc, StringRef UserScheduleName);
   /// Called on well-formed 'schedule' clause.
   OMPClause *ActOnOpenMPScheduleClause(
       OpenMPScheduleClauseModifier M1, OpenMPScheduleClauseModifier M2,
       OpenMPScheduleClauseKind Kind, Expr *ChunkSize, SourceLocation StartLoc,
       SourceLocation LParenLoc, SourceLocation M1Loc, SourceLocation M2Loc,
-      SourceLocation KindLoc, SourceLocation CommaLoc, SourceLocation EndLoc);
+      SourceLocation KindLoc, SourceLocation CommaLoc, SourceLocation EndLoc,
+      StringRef UserScheduleName);
 
   OMPClause *ActOnOpenMPClause(OpenMPClauseKind Kind, SourceLocation StartLoc,
                                SourceLocation EndLoc);

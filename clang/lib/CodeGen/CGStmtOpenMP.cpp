@@ -1783,8 +1783,8 @@ void CodeGenFunction::EmitOMPSimdDirective(const OMPSimdDirective &S) {
 }
 
 void CodeGenFunction::EmitOMPOuterLoop(
-    bool DynamicOrOrdered, bool IsMonotonic, const OMPLoopDirective &S,
-    CodeGenFunction::OMPPrivateScope &LoopScope,
+    bool DynamicOrOrdered, bool IsMonotonic, StringRef UserScheduleName,
+    const OMPLoopDirective &S, CodeGenFunction::OMPPrivateScope &LoopScope,
     const CodeGenFunction::OMPLoopArguments &LoopArgs,
     const CodeGenFunction::CodeGenLoopTy &CodeGenLoop,
     const CodeGenFunction::CodeGenOrderedTy &CodeGenOrdered) {
@@ -1804,7 +1804,13 @@ void CodeGenFunction::EmitOMPOuterLoop(
                  SourceLocToDebugLoc(R.getEnd()));
 
   llvm::Value *BoolCondVal = nullptr;
-  if (!DynamicOrOrdered) {
+  if (!UserScheduleName.empty()) {
+    CGOpenMPRuntime::StaticRTInput StaticInit(
+        IVSize, IVSigned, /* Ordered unused? */ false,
+        LoopArgs.IL, LoopArgs.LB, LoopArgs.UB, LoopArgs.ST, LoopArgs.Chunk);
+    BoolCondVal = RT.emitForUserScheduleFnCall(
+        *this, S.getBeginLoc(), UserScheduleName, "next", StaticInit);
+  } else if (!DynamicOrOrdered) {
     // UB = min(UB, GlobalUB) or
     // UB = min(UB, PrevUB) for combined loop sharing constructs (e.g.
     // 'distribute parallel for')
@@ -1879,8 +1885,14 @@ void CodeGenFunction::EmitOMPOuterLoop(
   EmitBlock(LoopExit.getBlock());
 
   // Tell the runtime we are done.
-  auto &&CodeGen = [DynamicOrOrdered, &S](CodeGenFunction &CGF) {
-    if (!DynamicOrOrdered)
+  auto &&CodeGen = [&](CodeGenFunction &CGF) {
+    if (!UserScheduleName.empty()) {
+      CGOpenMPRuntime::StaticRTInput StaticInit(
+          IVSize, IVSigned, /* Ordered unused? */ false,
+          LoopArgs.IL, LoopArgs.LB, LoopArgs.UB, LoopArgs.ST, LoopArgs.Chunk);
+      RT.emitForUserScheduleFnCall(*this, S.getBeginLoc(), UserScheduleName,
+                                   "fini", StaticInit);
+    } else if (!DynamicOrOrdered)
       CGF.CGM.getOpenMPRuntime().emitForStaticFinish(CGF, S.getEndLoc(),
                                                      S.getDirectiveKind());
   };
@@ -1894,11 +1906,16 @@ void CodeGenFunction::EmitOMPForOuterLoop(
     const CodeGenDispatchBoundsTy &CGDispatchBounds) {
   CGOpenMPRuntime &RT = CGM.getOpenMPRuntime();
 
-  // Dynamic scheduling of the outer loop (dynamic, guided, auto, runtime).
-  const bool DynamicOrOrdered =
+  const bool IsUserSchedule =
+      ScheduleKind.M1 == OMPC_SCHEDULE_MODIFIER_user;
+  //llvm::errs() << "IUS: " << IsUserSchedule << "\n";
+
+  // Dynamic scheduling of the outer loop (dynamic, guided, auto, runtime, or
+  // user).
+  const bool DynamicOrOrdered = IsUserSchedule ||
       Ordered || RT.isDynamic(ScheduleKind.Schedule);
 
-  assert((Ordered ||
+  assert((Ordered || IsUserSchedule ||
           !RT.isStaticNonchunked(ScheduleKind.Schedule,
                                  LoopArgs.Chunk != nullptr)) &&
          "static non-chunked schedule does not need outer loop");
@@ -1957,7 +1974,14 @@ void CodeGenFunction::EmitOMPForOuterLoop(
   const unsigned IVSize = getContext().getTypeSize(IVExpr->getType());
   const bool IVSigned = IVExpr->getType()->hasSignedIntegerRepresentation();
 
-  if (DynamicOrOrdered) {
+  if (IsUserSchedule) {
+    CGOpenMPRuntime::StaticRTInput StaticInit(
+        IVSize, IVSigned, Ordered, LoopArgs.IL, LoopArgs.LB, LoopArgs.UB,
+        LoopArgs.ST, LoopArgs.Chunk);
+    RT.emitForUserScheduleFnCall(*this, S.getBeginLoc(),
+                                 ScheduleKind.UserScheduleName, "init",
+                                 StaticInit);
+  } else if (DynamicOrOrdered) {
     const std::pair<llvm::Value *, llvm::Value *> DispatchBounds =
         CGDispatchBounds(*this, S, LoopArgs.LB, LoopArgs.UB);
     llvm::Value *LBVal = DispatchBounds.first;
@@ -1990,8 +2014,9 @@ void CodeGenFunction::EmitOMPForOuterLoop(
   OuterLoopArgs.Cond = S.getCond();
   OuterLoopArgs.NextLB = S.getNextLowerBound();
   OuterLoopArgs.NextUB = S.getNextUpperBound();
-  EmitOMPOuterLoop(DynamicOrOrdered, IsMonotonic, S, LoopScope, OuterLoopArgs,
-                   emitOMPLoopBodyWithStopPoint, CodeGenOrdered);
+  EmitOMPOuterLoop(DynamicOrOrdered, IsMonotonic, ScheduleKind.UserScheduleName,
+                   S, LoopScope, OuterLoopArgs, emitOMPLoopBodyWithStopPoint,
+                   CodeGenOrdered);
 }
 
 static void emitEmptyOrdered(CodeGenFunction &, SourceLocation Loc,
@@ -2052,9 +2077,9 @@ void CodeGenFunction::EmitOMPDistributeOuterLoop(
                              ? S.getCombinedNextUpperBound()
                              : S.getNextUpperBound();
 
-  EmitOMPOuterLoop(/* DynamicOrOrdered = */ false, /* IsMonotonic = */ false, S,
-                   LoopScope, OuterLoopArgs, CodeGenLoopContent,
-                   emitEmptyOrdered);
+  EmitOMPOuterLoop(/* DynamicOrOrdered = */ false, /* IsMonotonic = */ false,
+                   /* UserScheduleName */ "", S, LoopScope, OuterLoopArgs,
+                   CodeGenLoopContent, emitEmptyOrdered);
 }
 
 static std::pair<LValue, LValue>
@@ -2319,23 +2344,30 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(
         ScheduleKind.Schedule = C->getScheduleKind();
         ScheduleKind.M1 = C->getFirstScheduleModifier();
         ScheduleKind.M2 = C->getSecondScheduleModifier();
+        ScheduleKind.UserScheduleName = C->getUserScheduleName();
         ChunkExpr = C->getChunkSize();
       } else {
         // Default behaviour for schedule clause.
         CGM.getOpenMPRuntime().getDefaultScheduleAndChunk(
             *this, S, ScheduleKind.Schedule, ChunkExpr);
       }
+      const bool IsUserSchedule =
+          ScheduleKind.M1 == OMPC_SCHEDULE_MODIFIER_user;
       bool HasChunkSizeOne = false;
       llvm::Value *Chunk = nullptr;
+      //llvm::errs() << "CE: " << ChunkExpr << "\n";
+      //llvm::errs() << "IUS: " << IsUserSchedule << "\n";
       if (ChunkExpr) {
         Chunk = EmitScalarExpr(ChunkExpr);
-        Chunk = EmitScalarConversion(Chunk, ChunkExpr->getType(),
-                                     S.getIterationVariable()->getType(),
-                                     S.getBeginLoc());
-        Expr::EvalResult Result;
-        if (ChunkExpr->EvaluateAsInt(Result, getContext())) {
-          llvm::APSInt EvaluatedChunk = Result.Val.getInt();
-          HasChunkSizeOne = (EvaluatedChunk.getLimitedValue() == 1);
+        if (!IsUserSchedule) {
+          Chunk = EmitScalarConversion(Chunk, ChunkExpr->getType(),
+                                       S.getIterationVariable()->getType(),
+                                       S.getBeginLoc());
+          Expr::EvalResult Result;
+          if (ChunkExpr->EvaluateAsInt(Result, getContext())) {
+            llvm::APSInt EvaluatedChunk = Result.Val.getInt();
+            HasChunkSizeOne = (EvaluatedChunk.getLimitedValue() == 1);
+          }
         }
       }
       const unsigned IVSize = getContext().getTypeSize(IVExpr->getType());
@@ -2347,10 +2379,11 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(
       bool StaticChunkedOne = RT.isStaticChunked(ScheduleKind.Schedule,
           /* Chunked */ Chunk != nullptr) && HasChunkSizeOne &&
           isOpenMPLoopBoundSharingDirective(S.getDirectiveKind());
-      if ((RT.isStaticNonchunked(ScheduleKind.Schedule,
-                                 /* Chunked */ Chunk != nullptr) ||
-           StaticChunkedOne) &&
-          !Ordered) {
+      if (!IsUserSchedule &&
+          ((RT.isStaticNonchunked(ScheduleKind.Schedule,
+                                  /* Chunked */ Chunk != nullptr) ||
+            StaticChunkedOne) &&
+           !Ordered)) {
         if (isOpenMPSimdDirective(S.getDirectiveKind()))
           EmitOMPSimdInit(S, /*IsMonotonic=*/true);
         // OpenMP [2.7.1, Loop Construct, Description, table 2-1]
@@ -2401,10 +2434,11 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(
         OMPCancelStack.emitExit(*this, S.getDirectiveKind(), CodeGen);
       } else {
         const bool IsMonotonic =
-            Ordered || ScheduleKind.Schedule == OMPC_SCHEDULE_static ||
-            ScheduleKind.Schedule == OMPC_SCHEDULE_unknown ||
-            ScheduleKind.M1 == OMPC_SCHEDULE_MODIFIER_monotonic ||
-            ScheduleKind.M2 == OMPC_SCHEDULE_MODIFIER_monotonic;
+            !IsUserSchedule &&
+            (Ordered || ScheduleKind.Schedule == OMPC_SCHEDULE_static ||
+             ScheduleKind.Schedule == OMPC_SCHEDULE_unknown ||
+             ScheduleKind.M1 == OMPC_SCHEDULE_MODIFIER_monotonic ||
+             ScheduleKind.M2 == OMPC_SCHEDULE_MODIFIER_monotonic);
         // Emit the outer loop, which requests its work chunk [LB..UB] from
         // runtime and runs the inner loop to process it.
         const OMPLoopArguments LoopArguments(LB.getAddress(), UB.getAddress(),

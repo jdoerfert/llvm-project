@@ -2849,12 +2849,21 @@ private:
   /// initializer.
   void ParseOpenMPReductionInitializerForDecl(VarDecl *OmpPrivParm);
 
+  DeclGroupPtrTy
+  ParseOpenMPDeclareScheduleDirective(AccessSpecifier AS);
+
   /// Parses 'omp declare mapper' directive.
   DeclGroupPtrTy ParseOpenMPDeclareMapperDirective(AccessSpecifier AS);
   /// Parses variable declaration in 'omp declare mapper' directive.
   TypeResult parseOpenMPDeclareMapperVarDecl(SourceRange &Range,
                                              DeclarationName &Name,
                                              AccessSpecifier AS = AS_none);
+
+  bool ParseOpenMPSimpleVar(
+      OpenMPDirectiveKind Kind,
+      const llvm::function_ref<bool(CXXScopeSpec &, DeclarationNameInfo)>
+          &Callback,
+      bool AllowScopeSpecifier);
 
   /// Parses simple list of variables.
   ///
