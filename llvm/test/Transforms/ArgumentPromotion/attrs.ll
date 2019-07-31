@@ -3,7 +3,8 @@
 
 %struct.ss = type { i32, i64 }
 
-; Don't drop 'byval' on %X here.
+; FIXME: We should promote 'byval %X' here if we promote it.
+; PR42852
 define internal void @f(%struct.ss* byval %b, i32* byval %X, i32 %i) nounwind {
 ; CHECK-LABEL: define internal void @f(
 ; CHECK: i32 %[[B0:.*]], i64 %[[B1:.*]], i32* byval %X, i32 %i)
@@ -28,7 +29,7 @@ entry:
   ret void
 }
 
-; Also make sure we don't drop the call zeroext attribute.
+; Make sure we don't drop the call zeroext attribute.
 define i32 @test(i32* %X) {
 ; CHECK-LABEL: define i32 @test(
 entry:

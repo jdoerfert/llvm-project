@@ -70,4 +70,39 @@ bb:
   ret i32 0
 }
 
+define i32 @test_inf2_promote_caller(i32 %arg) {
+; CHECK-LABEL: define i32 @test_inf2_promote_caller(
+bb:
+  %tmp = alloca %S
+  %tmp1 = alloca %S
+  %tmp2 = call i32 @test_inf2_promote_callee(%S* %tmp, %S* %tmp1)
+; CHECK: call i32 @test_inf2_promote_callee(%S* %{{.*}}, %S* %{{.*}})
+
+  ret i32 0
+}
+
+; Recursion but not self-recursion
+define internal i32 @test_inf2_promote_passthrough(%S* %arg, %S* %arg1) noinline {
+  %tmp0 = call i32 @test_inf2_promote_callee(%S* %arg, %S* %arg1)
+  ret i32 0
+}
+
+define internal i32 @test_inf2_promote_callee(%S* %arg, %S* %arg1) noinline {
+; CHECK-LABEL: define internal i32 @test_inf2_promote_callee(
+; CHECK: %S* %{{.*}}, %S* %{{.*}})
+bb:
+  %tmp = getelementptr %S, %S* %arg1, i32 0, i32 0
+  %tmp2 = load %S*, %S** %tmp
+  %tmp3 = getelementptr %S, %S* %arg, i32 0, i32 0
+  %tmp4 = load %S*, %S** %tmp3
+; FIXME: If we replace the %tmp5 call with the line below, the test will loop
+;        indefinitily or crash as argument promotion will continue to promote
+;        the arguments. Only direct recursion is currently detected.
+; PR42683
+; %tmp5 = call i32 @test_inf2_promote_passthrough(%S* %tmp4, %S* %tmp2)
+  %tmp5 = call i32 @test_inf2_promote_callee(%S* %tmp4, %S* %tmp2)
+; CHECK: call i32 @test_inf2_promote_callee(%S* %{{.*}}, %S* %{{.*}})
+  ret i32 0
+}
+
 declare i32 @wibble(...)

@@ -22,9 +22,10 @@ F:
 }
 
 define i32 @foo() {
+        %A = alloca i32, i32 3
 ; CHECK-LABEL: define i32 @foo
-        %X = call i32 @callee(i1 false, i32* null)             ; <i32> [#uses=1]
-; CHECK: call i32 @callee(i1 false, i32* null)
+        %X = call i32 @callee(i1 false, i32* %A)             ; <i32> [#uses=1]
+; CHECK: call i32 @callee(i1 false, i32* %A)
         ret i32 %X
 }
 

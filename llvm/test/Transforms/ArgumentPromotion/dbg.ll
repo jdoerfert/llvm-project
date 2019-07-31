@@ -13,13 +13,24 @@ define internal void @test(i32** %X) !dbg !2 {
 
 %struct.pair = type { i32, i32 }
 
-; CHECK: define internal void @test_byval(i32 %{{.*}}, i32 %{{.*}})
-define internal void @test_byval(%struct.pair* byval %P) {
+; CHECK: define internal i32 @test_byval(i32 %{{.*}}, i32 %{{.*}})
+define internal i32 @test_byval(%struct.pair* byval %P) {
+  %g = getelementptr %struct.pair, %struct.pair* %P, i32 0, i32 0
+  %v = load i32, i32* %g, align 8
+  ret i32 %v
+}
+
+; Make sure unused byval arguments are not promoted but removed
+;
+; FIXME: This should be: define internal void @test_byval_2()
+; Related to PR42852
+; CHECK: define internal void @test_byval_2(i32 %{{.*}}, i32 %{{.*}})
+define internal void @test_byval_2(%struct.pair* byval %P) {
   ret void
 }
 
 ; CHECK-LABEL: define {{.*}} @caller(
-define void @caller(i32** %Y, %struct.pair* %P) {
+define i32 @caller(i32** %Y, %struct.pair* %P) {
 ; CHECK:  load i32*, {{.*}} !dbg [[LOC_1:![0-9]+]]
 ; CHECK-NEXT:  load i32, {{.*}} !dbg [[LOC_1]]
 ; CHECK-NEXT: call void @test(i32 %{{.*}}), !dbg [[LOC_1]]
@@ -29,9 +40,12 @@ define void @caller(i32** %Y, %struct.pair* %P) {
 ; CHECK-NEXT: load i32, i32* {{.*}} !dbg [[LOC_2]]
 ; CHECK-NEXT: getelementptr %struct.pair, {{.*}} !dbg [[LOC_2]]
 ; CHECK-NEXT: load i32, i32* {{.*}} !dbg [[LOC_2]]
-; CHECK-NEXT: call void @test_byval(i32 %{{.*}}, i32 %{{.*}}), !dbg [[LOC_2]]
-  call void @test_byval(%struct.pair* %P), !dbg !6
-  ret void
+; CHECK-NEXT: call i32 @test_byval(i32 %{{.*}}, i32 %{{.*}}), !dbg [[LOC_2]]
+  %v = call i32 @test_byval(%struct.pair* %P), !dbg !6
+; FIXME: This should be: call void @test_byval_2(), !dbg [[LOC_2:![0-9]+]]
+; CHECK: call void @test_byval_2(i32 %{{.*}}, i32 %{{.*}}), !dbg [[LOC_2:![0-9]+]]
+  call void @test_byval_2(%struct.pair* %P), !dbg !6
+  ret i32 %v
 }
 
 ; CHECK: [[SP]] = distinct !DISubprogram(name: "test",

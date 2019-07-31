@@ -2,7 +2,8 @@
 ; RUN: opt < %s -passes=argpromotion -S | FileCheck %s
 
 ; Arg promotion eliminates the struct argument.
-; FIXME: Should it eliminate the i32* argument?
+; FIXME: We should eliminate the i32* byval argument.
+; PR42852
 
 %struct.ss = type { i32, i64 }
 
