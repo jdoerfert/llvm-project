@@ -103,6 +103,7 @@
 
 namespace llvm {
 
+struct Attributor;
 struct AbstractAttribute;
 struct InformationCache;
 
@@ -119,6 +120,25 @@ enum class ChangeStatus {
 ChangeStatus operator|(ChangeStatus l, ChangeStatus r);
 ChangeStatus operator&(ChangeStatus l, ChangeStatus r);
 ///}
+
+namespace {
+
+using ReturnValuePredicateFuncTy = std::function<bool(
+    Attributor &, const Value &, const SmallPtrSetImpl<ReturnInst *> &)>;
+}
+
+/// Recursively visit all values that might become \p InitV at some point. This
+/// will be done by looking through cast instructions, selects, phis, and calls
+/// with the "returned" attribute. The callback \p FollowValueCB is asked before
+/// a potential origin value is looked at. If no \p FollowValueCB is passed, a
+/// default one is used that will make sure we visit every value only once. Once
+/// we cannot look through the value any further, the callback \p VisitValueCB
+/// is invoked and passed the current value and the \p State. To limit how much
+/// effort is invested, we will never visit more than \p MaxValues values.
+template <typename StateTy, typename VisitValueCBTy>
+static bool genericValueTraversal(
+    const Value *InitV, StateTy &State, VisitValueCBTy &&VisitValueCB,
+     int MaxValues = 8);
 
 /// The fixpoint analysis framework that orchestrates the attribute deduction.
 ///
@@ -164,12 +184,18 @@ struct Attributor {
   /// returned abstract attribute might be anchored at the callee of \p V.
   ///
   /// This method is the only (supported) way an abstract attribute can retrieve
-  /// information from another abstract attribute. As an example, take an
-  /// abstract attribute that determines the memory access behavior for a
-  /// argument (readnone, readonly, ...). It should use `getAAFor` to get the
-  /// most optimistic information for other abstract attributes in-flight, e.g.
-  /// the one reasoning about the "captured" state for the argument or the one
-  /// reasoning on the memory access behavior of the function as a whole.
+  /// information from another abstract attribute. However, high-level
+  /// abstractions, e.g., `AbstractAttribute::getAssumedOrKnown` or
+  /// `AbstractAttribute::getAssumedOrKnownFromAA` will query this method
+  /// transparently for the user. It is recommended to use these methods
+  /// instead.
+  ///
+  /// As an example, take an abstract attribute that determines the memory
+  /// access behavior for a argument (readnone, readonly, ...). It can use
+  /// `getAAFor` to get the most optimistic information for other abstract
+  /// attributes in-flight, e.g. the one reasoning about the "captured" state
+  /// for the argument or the one reasoning on the memory access behavior of the
+  /// function as a whole.
   template <typename AAType>
   const AAType *getAAFor(AbstractAttribute &QueryingAA, const Value &V,
                          int ArgNo = -1) {
@@ -268,8 +294,13 @@ struct Attributor {
   /// This method will evaluate \p Pred on call sites and return
   /// true if \p Pred holds in every call sites. However, this is only possible
   /// all call sites are known, hence the function has internal linkage.
-  bool checkForAllCallSites(Function &F, std::function<bool(CallSite)> &Pred,
-                            bool RequireAllCallSites);
+  template <typename AAType>
+  bool checkForAllCallSites(AbstractAttribute &QueryingAA, const Function &F,
+                            bool &Assumed, int ArgNo, bool RequireAllCallSites);
+
+  template <typename AAType>
+  Attribute checkForallReturnedValues(AbstractAttribute &QueryingAA,
+                                      const Function &F, bool &Assumed);
 
 private:
   /// The set of all abstract attributes.
@@ -375,13 +406,33 @@ struct AbstractState {
   ///
   /// This will usually make the optimistically assumed state the known to be
   /// true state.
-  virtual void indicateOptimisticFixpoint() = 0;
+  ///
+  /// \returns ChangeStatus::UNCHANGED as the assumed value should not change.
+  virtual ChangeStatus indicateOptimisticFixpoint() = 0;
 
   /// Indicate that the abstract state should converge to the pessimistic state.
   ///
   /// This will usually revert the optimistically assumed state to the known to
   /// be true state.
-  virtual void indicatePessimisticFixpoint() = 0;
+  ///
+  /// \returns ChangeStatus::CHANGED as the assumed value may change.
+  virtual ChangeStatus indicatePessimisticFixpoint() = 0;
+};
+
+template <typename OtherTy> struct AbstractStateCompatibleWith {
+  virtual ChangeStatus addKnownFrom(const OtherTy &Other) = 0;
+
+  static bool isBestState(const OtherTy &State);
+};
+
+/// Helper state that provides generic methods to deal with LLVM-IR Attributes.
+struct AttributeCompatibleAbstractState
+    : public AbstractStateCompatibleWith<Attribute> {
+  /// See AbstractStateCompatibleWith::isBestState(...).
+  static bool isBestState(const Attribute &Attr);
+
+  template <typename AAType, typename StateType = typename AAType::StateType>
+  static StateType getFromIR(const Function &Scope, const Value &V, int ArgNo);
 };
 
 /// Simple state with integers encoding.
@@ -394,28 +445,66 @@ struct AbstractState {
 /// force/inidicate a fixpoint. If an optimistic one is indicated, the known
 /// state will catch up with the assumed one, for a pessimistic fixpoint it is
 /// the other way around.
-struct IntegerState : public AbstractState {
+template <uint32_t BestState = std::numeric_limits<uint32_t>::max(),
+          bool Bitwise = false>
+struct IntegerState : public AbstractState,
+                      AttributeCompatibleAbstractState,
+                      AbstractStateCompatibleWith<IntegerState<BestState>> {
   /// Underlying integer type, we assume 32 bits to be enough.
   using base_t = uint32_t;
 
-  /// Initialize the (best) state.
-  IntegerState(base_t BestState = ~0) : Assumed(BestState) {}
+  IntegerState(base_t Known, base_t Assumed) : Known(Known), Assumed(Assumed) {}
+  IntegerState() : IntegerState(0, BestState) {}
 
   /// Return the worst possible representable state.
-  static constexpr base_t getWorstState() { return 0; }
+  static IntegerState<BestState> getWorstState() {
+    return IntegerState<BestState>(0, 0);
+  }
+
+  /// See AbstractStateCompatibleWith::isBestState(...).
+  static bool isBestState(const IntegerState &IS) {
+    return IS.getAssumed() == BestState;
+  }
 
   /// See AbstractState::isValidState()
   /// NOTE: For now we simply pretend that the worst possible state is invalid.
-  bool isValidState() const override { return Assumed != getWorstState(); }
+  bool isValidState() const override { return Assumed != 0; }
 
   /// See AbstractState::isAtFixpoint()
   bool isAtFixpoint() const override { return Assumed == Known; }
 
+  /// Provided via AbstractStateCompatibleWith<..., Attribute>.
+  virtual ChangeStatus addKnownFrom(const Attribute &Attr) override {
+    if (!Attr.isIntAttribute())
+      return ChangeStatus::UNCHANGED;
+    auto StateBefore = *this;
+    takeKnownMaximum(Attr.getValueAsInt());
+    return StateBefore == *this ? ChangeStatus::UNCHANGED
+                                : ChangeStatus::CHANGED;
+  }
+
+  /// Provided via AbstractStateCompatibleWith<..., IntegerState<BestState>>.
+  virtual ChangeStatus addKnownFrom(const IntegerState<BestState> &IS) override {
+    auto StateBefore = *this;
+    if (Bitwise)
+      addKnownBits(IS.getKnown());
+    else
+      takeKnownMaximum(IS.getKnown());
+    return StateBefore == *this ? ChangeStatus::UNCHANGED
+                                : ChangeStatus::CHANGED;
+  }
+
   /// See AbstractState::indicateOptimisticFixpoint(...)
-  void indicateOptimisticFixpoint() override { Known = Assumed; }
+  ChangeStatus indicateOptimisticFixpoint() override {
+    Known = Assumed;
+    return ChangeStatus::UNCHANGED;
+  }
 
   /// See AbstractState::indicatePessimisticFixpoint(...)
-  void indicatePessimisticFixpoint() override { Assumed = Known; }
+  ChangeStatus indicatePessimisticFixpoint() override {
+    Assumed = Known;
+    return ChangeStatus::CHANGED;
+  }
 
   /// Return the known state encoding
   base_t getKnown() const { return Known; }
@@ -478,15 +567,28 @@ struct IntegerState : public AbstractState {
 
 private:
   /// The known state encoding in an integer of type base_t.
-  base_t Known = getWorstState();
+  base_t Known;
 
   /// The assumed state encoding in an integer of type base_t.
   base_t Assumed;
 };
 
 /// Simple wrapper for a single bit (boolean) state.
-struct BooleanState : public IntegerState {
-  BooleanState() : IntegerState(1){};
+struct BooleanState : public IntegerState<1> {
+  BooleanState(base_t Known, base_t Assumed)
+      : IntegerState<1>(Known, Assumed) {}
+  BooleanState() : IntegerState<1>() {}
+
+  /// See AttributeCompatibleAbstractState::addKnownFrom()
+  ChangeStatus addKnownFrom(const Attribute &Attr) override {
+    if (!Attr.isEnumAttribute() || Attr.getKindAsEnum() == Attribute::None)
+      return ChangeStatus::UNCHANGED;
+    return indicateOptimisticFixpoint();
+  }
+  ChangeStatus addKnownFrom(const IntegerState<1> &IS) override {
+    return IntegerState<1>::addKnownFrom(IS);
+  }
+  static BooleanState getWorstState() { return BooleanState(0, 0); }
 };
 
 /// Base struct for all "concrete attribute" deductions.
@@ -510,7 +612,7 @@ struct BooleanState : public IntegerState {
 /// exposed. In the most common case, the `updateImpl` will go through a list of
 /// reasons why its optimistic state is valid given the current information. If
 /// any combination of them holds and is sufficient to justify the current
-/// optimistic state, the method shall return UNCHAGED. If not, the optimistic
+/// optimistic state, the method shall return UNCHANGED. If not, the optimistic
 /// state is adjusted to the situation and the method shall return CHANGED.
 ///
 /// If the manifestation of the "concrete attribute" deduced by the subclass
@@ -536,10 +638,10 @@ struct AbstractAttribute {
 
   /// The positions attributes can be manifested in.
   enum ManifestPosition {
+    MP_FUNCTION = -2,      ///< An attribute for a function as a whole.
+    MP_RETURNED,           ///< An attribute for the function return value.
     MP_ARGUMENT,           ///< An attribute for a function argument.
     MP_CALL_SITE_ARGUMENT, ///< An attribute for a call site argument.
-    MP_FUNCTION,           ///< An attribute for a function as a whole.
-    MP_RETURNED,           ///< An attribute for the function return value.
   };
 
   /// An abstract attribute associated with \p AssociatedVal and anchored at
@@ -547,15 +649,12 @@ struct AbstractAttribute {
   ///
   /// \param AssociatedVal The value this abstract attribute is associated with.
   /// \param AnchoredVal The value this abstract attributes is anchored at.
+  /// \param AttrIdx TODO
   /// \param InfoCache Cached information accessible to the abstract attribute.
-  AbstractAttribute(Value *AssociatedVal, Value &AnchoredVal,
+  AbstractAttribute(Value *AssociatedVal, Value &AnchoredVal, int AttrIdx,
                     InformationCache &InfoCache)
       : AssociatedVal(AssociatedVal), AnchoredVal(AnchoredVal),
-        InfoCache(InfoCache) {}
-
-  /// An abstract attribute associated with and anchored at \p V.
-  AbstractAttribute(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(&V, V, InfoCache) {}
+        AttrIdx(AttrIdx), InfoCache(InfoCache) {}
 
   /// Virtual destructor.
   virtual ~AbstractAttribute() {}
@@ -572,6 +671,33 @@ struct AbstractAttribute {
 
   /// Return the internal abstract state for inspection.
   virtual const AbstractState &getState() const = 0;
+
+  static unsigned getAttrIndex(ManifestPosition MP, int ArgNo = -1);
+  static void getAttrIndices(SmallVectorImpl<unsigned> &AttrIndices,
+                             const Value &V, int ArgNo = -1);
+
+#if 0
+  template <typename AAType>
+  Attribute getAssumedOrKnownFromAA(Attributor &A, AbstractAttribute &QueryingAA,
+                                   bool &IsAssumed, const Value &V, int ArgNo,
+                                   bool CallSiteTraversal = false) {
+    if (std::is_base_of<
+            IntegerState,
+            typename std::remove_reference<decltype(
+                std::declval<AAType>().getState())>::type>::value)
+      return getAssumedOrKnownFromAAImpl<AAType>(A, QueryingAA, IsAssumed, V,
+                                                 ArgNo, CallSiteTraversal);
+    return 0;
+  }
+
+  /// Helper function that can use attributes in-flight as well as attributes in
+  /// the IR to determine assumed and known information.
+  template <typename AAType>
+  uint32_t getAssumedOrKnown(Attributor &A, AbstractAttribute &QueryingAA,
+                             bool &IsAssumed, const Value &V, int ArgNo,
+                             bool CallSiteTraversal = false,
+                             bool InTraversal = false);
+  #endif
 
   /// Return the value this abstract attribute is anchored with.
   ///
@@ -601,8 +727,16 @@ struct AbstractAttribute {
   virtual const Value *getAssociatedValue() const { return AssociatedVal; }
   ///}
 
+  /// Return argument index of associated value.
+  int getArgNo() const { return AttrIdx; }
+
   /// Return the position this abstract state is manifested in.
-  virtual ManifestPosition getManifestPosition() const = 0;
+  ManifestPosition getManifestPosition() const {
+    if (AttrIdx >= 0)
+      return isa<Argument>(getAnchoredValue()) ? MP_ARGUMENT
+                                               : MP_CALL_SITE_ARGUMENT;
+    return (ManifestPosition)AttrIdx;
+  }
 
   /// Return the kind that identifies the abstract attribute implementation.
   virtual Attribute::AttrKind getAttrKind() const = 0;
@@ -624,6 +758,12 @@ struct AbstractAttribute {
 
   /// Allow the Attributor access to the protected methods.
   friend struct Attributor;
+
+private:
+  template <typename AAType>
+  uint32_t getAssumedOrKnownFromAAImpl(
+      Attributor &A, AbstractAttribute &QueryingAA, bool &IsAssumed,
+      const Value &V, int ArgNo, bool CallSiteTraversal);
 
 protected:
   /// Hook for the Attributor to trigger an update of the internal state.
@@ -658,9 +798,172 @@ protected:
   /// The value this abstract attribute is anchored at.
   Value &AnchoredVal;
 
+  /// TODO
+  int AttrIdx;
+
   /// The information cache accessible to this abstract attribute.
   InformationCache &InfoCache;
 };
+
+#if 0
+template <typename AAType>
+uint32_t AbstractAttribute::getAssumedOrKnownFromAAImpl(
+    Attributor &A, AbstractAttribute &QueryingAA, bool &IsAssumed,
+    const Value &V, int ArgNo, bool CallSiteTraversal) {
+
+  auto *AA = A.getAAFor<AAType>(QueryingAA, V, ArgNo, CallSiteTraversal);
+  if (!AA)
+    return 0;
+
+  // TODO: If (IS.isAtFixpoint()) we do not need to record a dependence.
+  const IntegerState &IS = AA->getState();
+  IsAssumed |= IS.getKnown() < IS.getAssumed();
+  return uint32_t(IS.getAssumed());
+}
+#endif
+
+#if 1
+template <typename AAType, typename StateType>
+StateType AttributeCompatibleAbstractState::getFromIR(const Function &Scope,
+                                                         const Value &V,
+                                                         int ArgNo) {
+  StateType State = StateType::getWorstState();
+
+  // Check if we have an attribute that is actually manifested in the IR, if not
+  // we cannot determine it with this generic method.
+  Attribute::AttrKind Kind = AAType::ID;
+  if (Kind >= Attribute::EndAttrKinds)
+    return State;
+
+  // Recover the argument number if necessary.
+  if (ArgNo == -1 && isa<Argument>(&V))
+    ArgNo = cast<Argument>(&V)->getArgNo();
+
+  // Determine the attribute list in which we lookup the attribute.
+  AttributeList Attrs;
+  if (ImmutableCallSite(&V) && ArgNo)
+    Attrs = ImmutableCallSite(&V).getAttributes();
+  else
+    Attrs = Scope.getAttributes();
+
+  SmallVector<unsigned, 2> AttrIndices;
+  AbstractAttribute::getAttrIndices(AttrIndices, V, ArgNo);
+  assert(AttrIndices.size() >= 1 && AttrIndices.size() <= 2 &&
+         "Expected one or two attribute indices!");
+
+  unsigned AttributesFonud = 0;
+  for (unsigned AttrIdx : AttrIndices) {
+    if (!Attrs.hasAttribute(AttrIdx, Kind))
+      continue;
+    assert(++AttributesFonud == 1 &&
+           "Attribute kind found at different indices!");
+    State.StateType::addKnownFrom(Attrs.getAttribute(AttrIdx, Kind));
+  }
+
+  if (ImmutableCallSite ICS = ImmutableCallSite(&V)) {
+    if (const Function *Callee = ICS.getCalledFunction())
+      State.StateType::addKnownFrom(
+          AAType::template getFromIR<AAType>(Scope, *Callee, ArgNo));
+    if (ArgNo >= 0)
+      State.StateType::addKnownFrom(AAType::template getFromIR<AAType>(
+          Scope, *ICS.getArgOperand(ArgNo), -1));
+  }
+
+  return State;
+}
+#endif
+
+#if 0
+template <typename AAType>
+uint32_t AbstractAttribute::getAssumedOrKnown(Attributor &A,
+                                              AbstractAttribute &QueryingAA,
+                                              bool &IsAssumed, const Value &V,
+                                              int ArgNo, bool CallSiteTraversal,
+                                              bool InTraversal) {
+  if (!InTraversal) {
+    uint32_t S = ~0;
+    if (!genericValueTraversal(&V, S, [&](const Value *Val, uint32_t &S) {
+      S = std::min(S, getAssumedOrKnown<AAType>(A, QueryingAA, IsAssumed, *Val,
+                                                ArgNo, CallSiteTraversal,
+                                                /* InTraversal */ true));
+      return S != 0;
+    }))
+      S = 0;
+    return S;
+  }
+
+  if (uint32_t Assumed = getAssumedOrKnownFromAA<AAType>(
+          A, QueryingAA, IsAssumed, V, ArgNo, CallSiteTraversal))
+    return Assumed;
+
+  return AAType::template getFromIR<AAType>(QueryingAA.getAnchorScope(), V,
+                                                 ArgNo);
+}
+  #endif
+
+template <typename StateTy, typename VisitValueCBTy>
+static bool genericValueTraversal(
+    const Value *InitV, StateTy &State, VisitValueCBTy &&VisitValueCB,
+     int MaxValues ){
+
+  SmallPtrSet<const Value *, 16> Visited;
+  SmallVector<const Value *, 16> Worklist;
+  Worklist.push_back(InitV);
+
+  int Iteration = 0;
+  do {
+    const Value *V = Worklist.pop_back_val();
+
+    // Check if we should process the current value. To prevent endless
+    // recursion keep a record of the values we followed!
+    if (!Visited.insert(V).second)
+      continue;
+
+    // Make sure we limit the compile time for complex expressions.
+    if (Iteration++ >= MaxValues)
+      return false;
+
+    // Explicitly look through calls with a "returned" attribute if we do
+    // not have a pointer as stripPointerCasts only works on them.
+    if (V->getType()->isPointerTy()) {
+      V = V->stripPointerCasts();
+    } else {
+      ImmutableCallSite CS(V);
+      if (CS && CS.getCalledFunction()) {
+        const Value *NewV = nullptr;
+        for (const Argument &Arg : CS.getCalledFunction()->args())
+          if (Arg.hasReturnedAttr()) {
+            NewV = CS.getArgOperand(Arg.getArgNo());
+            break;
+          }
+        if (NewV) {
+          Worklist.push_back(NewV);
+          continue;
+        }
+      }
+    }
+
+    // Look through select instructions, visit both potential values.
+    if (auto *SI = dyn_cast<SelectInst>(V)) {
+      Worklist.push_back(SI->getTrueValue());
+      Worklist.push_back(SI->getFalseValue());
+      continue;
+    }
+
+    // Look through phi nodes, visit all operands.
+    if (auto *PHI = dyn_cast<PHINode>(V)) {
+      Worklist.append(PHI->op_begin(), PHI->op_end());
+      continue;
+    }
+
+    // Once a leaf is reached we inform the user through the callback.
+    if (!VisitValueCB(V, State))
+      return false;
+  } while (!Worklist.empty());
+
+  // All values have been visited.
+  return true;
+}
 
 /// Forward declarations of output streams for debug purposes.
 ///
@@ -669,6 +972,7 @@ raw_ostream &operator<<(raw_ostream &OS, const AbstractAttribute &AA);
 raw_ostream &operator<<(raw_ostream &OS, ChangeStatus S);
 raw_ostream &operator<<(raw_ostream &OS, AbstractAttribute::ManifestPosition);
 raw_ostream &operator<<(raw_ostream &OS, const AbstractState &State);
+raw_ostream &operator<<(raw_ostream &OS, const IntegerState<> &IS);
 ///}
 
 struct AttributorPass : public PassInfoMixin<AttributorPass> {
@@ -681,11 +985,15 @@ Pass *createAttributorLegacyPass();
 ///                       Abstract Attribute Classes
 /// ----------------------------------------------------------------------------
 
+#define AA_CONSTRUCTOR(AA_NAME)                                                \
+  AA_NAME(Value *AssociatedVal, Value &AnchoredVal, int ArgumentNo,            \
+          InformationCache &InfoCache)                                         \
+      : AbstractAttribute(AssociatedVal, AnchoredVal, ArgumentNo, InfoCache) { \
+  }
+
 /// An abstract attribute for the returned values of a function.
 struct AAReturnedValues : public AbstractAttribute {
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AAReturnedValues(Function &F, InformationCache &InfoCache)
-      : AbstractAttribute(F, InfoCache) {}
+  AA_CONSTRUCTOR(AAReturnedValues)
 
   /// Check \p Pred on all returned values.
   ///
@@ -693,7 +1001,11 @@ struct AAReturnedValues : public AbstractAttribute {
   /// true if (1) all returned values are known, and (2) \p Pred returned true
   /// for all returned values.
   virtual bool
-  checkForallReturnedValues(std::function<bool(Value &)> &Pred) const = 0;
+  checkForallReturnedValues(std::function<bool(const Value &)> &Pred) const = 0;
+  #if 0
+  checkForallReturnedValues(Attributor &A,
+                            ReturnValuePredicateFuncTy &Pred) const = 0;
+  #endif
 
   /// See AbstractAttribute::getAttrKind()
   Attribute::AttrKind getAttrKind() const override { return ID; }
@@ -703,9 +1015,7 @@ struct AAReturnedValues : public AbstractAttribute {
 };
 
 struct AANoUnwind : public AbstractAttribute {
-  /// An abstract interface for all nosync attributes.
-  AANoUnwind(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
+  AA_CONSTRUCTOR(AANoUnwind)
 
   /// See AbstractAttribute::getAttrKind()/
   Attribute::AttrKind getAttrKind() const override { return ID; }
@@ -720,9 +1030,7 @@ struct AANoUnwind : public AbstractAttribute {
 };
 
 struct AANoSync : public AbstractAttribute {
-  /// An abstract interface for all nosync attributes.
-  AANoSync(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
+  AA_CONSTRUCTOR(AANoSync)
 
   /// See AbstractAttribute::getAttrKind().
   Attribute::AttrKind getAttrKind() const override { return ID; }
@@ -739,15 +1047,7 @@ struct AANoSync : public AbstractAttribute {
 
 /// An abstract interface for all nonnull attributes.
 struct AANonNull : public AbstractAttribute {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AANonNull(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AANonNull(Value *AssociatedVal, Value &AnchoredValue,
-            InformationCache &InfoCache)
-      : AbstractAttribute(AssociatedVal, AnchoredValue, InfoCache) {}
+  AA_CONSTRUCTOR(AANonNull)
 
   /// Return true if we assume that the underlying value is nonnull.
   virtual bool isAssumedNonNull() const = 0;
@@ -760,14 +1060,14 @@ struct AANonNull : public AbstractAttribute {
 
   /// The identifier used by the Attributor for this class of attributes.
   static constexpr Attribute::AttrKind ID = Attribute::NonNull;
+
+  //template <typename AAType>
+  //static Attribute getFromIR(const Function &F, const Value &V, int ArgNo);
 };
 
 /// An abstract attribute for norecurse.
 struct AANoRecurse : public AbstractAttribute {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AANoRecurse(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
+  AA_CONSTRUCTOR(AANoRecurse)
 
   /// See AbstractAttribute::getAttrKind()
   virtual Attribute::AttrKind getAttrKind() const override {
@@ -786,10 +1086,7 @@ struct AANoRecurse : public AbstractAttribute {
 
 /// An abstract attribute for willreturn.
 struct AAWillReturn : public AbstractAttribute {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AAWillReturn(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
+  AA_CONSTRUCTOR(AAWillReturn)
 
   /// See AbstractAttribute::getAttrKind()
   virtual Attribute::AttrKind getAttrKind() const override {
@@ -808,10 +1105,7 @@ struct AAWillReturn : public AbstractAttribute {
 
 /// An abstract interface for all noalias attributes.
 struct AANoAlias : public AbstractAttribute {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AANoAlias(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
+  AA_CONSTRUCTOR(AANoAlias)
 
   /// Return true if we assume that the underlying value is alias.
   virtual bool isAssumedNoAlias() const = 0;
@@ -828,10 +1122,7 @@ struct AANoAlias : public AbstractAttribute {
 
 /// An AbstractAttribute for noreturn.
 struct AANoReturn : public AbstractAttribute {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AANoReturn(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
+  AA_CONSTRUCTOR(AANoReturn)
 
   /// Return true if the underlying object is known to never return.
   virtual bool isKnownNoReturn() const = 0;
@@ -848,10 +1139,7 @@ struct AANoReturn : public AbstractAttribute {
 
 /// An abstract interface for liveness abstract attribute.
 struct AAIsDead : public AbstractAttribute {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AAIsDead(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
+  AA_CONSTRUCTOR(AAIsDead)
 
   /// See AbstractAttribute::getAttrKind()
   Attribute::AttrKind getAttrKind() const override { return ID; }
@@ -868,15 +1156,7 @@ struct AAIsDead : public AbstractAttribute {
 
 /// An abstract interface for all dereferenceable attribute.
 struct AADereferenceable : public AbstractAttribute {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AADereferenceable(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AADereferenceable(Value *AssociatedVal, Value &AnchoredValue,
-                    InformationCache &InfoCache)
-      : AbstractAttribute(AssociatedVal, AnchoredValue, InfoCache) {}
+  AA_CONSTRUCTOR(AADereferenceable)
 
   /// Return true if we assume that the underlying value is nonnull.
   virtual bool isAssumedNonNull() const = 0;
@@ -907,15 +1187,7 @@ struct AADereferenceable : public AbstractAttribute {
 
 /// An abstract interface for all align attributes.
 struct AAAlign : public AbstractAttribute {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AAAlign(Value &V, InformationCache &InfoCache)
-      : AbstractAttribute(V, InfoCache) {}
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AAAlign(Value *AssociatedVal, Value &AnchoredValue,
-          InformationCache &InfoCache)
-      : AbstractAttribute(AssociatedVal, AnchoredValue, InfoCache) {}
+  AA_CONSTRUCTOR(AAAlign)
 
   /// See AbastractState::getAttrKind().
   Attribute::AttrKind getAttrKind() const override { return ID; }
@@ -928,6 +1200,30 @@ struct AAAlign : public AbstractAttribute {
 
   /// The identifier used by the Attributor for this class of attributes.
   static constexpr Attribute::AttrKind ID = Attribute::Alignment;
+
+  /// Max alignemnt value allowed in IR
+  static const unsigned MAX_ALIGN = 1U << 29;
+};
+
+#undef AA_CONSTRUCTOR
+
+/// Helper to tie a abstract state implementation to an abstract attribute.
+template <typename ParentAA, typename StateTy>
+struct StatefulAbstractAttribute : public ParentAA, StateTy {
+  static_assert(std::is_base_of<AbstractAttribute, ParentAA>::value,
+                "Expected and AbstractAttribute'!");
+
+  StatefulAbstractAttribute(Value *AssociatedVal, Value &AnchoredVal,
+                            int AttrIdx, InformationCache &InfoCache)
+      : ParentAA(AssociatedVal, AnchoredVal, AttrIdx, InfoCache), StateType() {}
+
+  /// See AbstractAttribute::getState(...).
+  AbstractState &getState() override { return *this; }
+
+  /// See AbstractAttribute::getState(...).
+  const AbstractState &getState() const override { return *this; }
+
+  using StateType = StateTy;
 };
 
 } // end namespace llvm

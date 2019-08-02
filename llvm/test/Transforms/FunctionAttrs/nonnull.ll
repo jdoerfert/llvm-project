@@ -82,21 +82,62 @@ exit:
 }
 
 ; BOTH: define i8* @test7
+; BOTH-NOT: nonnull
 define i8* @test7(i8* %a) {
   %b = getelementptr inbounds i8, i8* %a, i64 0
   ret i8* %b
 }
 
+; FNATTR: define i8* @test7b
+; FNATTR-NOT: nonnull
+; ATTRIBUTOR: define i8* @test7b
+; ATTRIBUTOR-NOT: nonnull
+define i8* @test7b(i8* %a) {
+  %b = getelementptr inbounds i8, i8* %a, i64 0
+; FNATTR: %c = call i8* @test7(i8* %b)
+; ATTRIBUTOR: %c = call i8* @test7(i8* nonnull %b)
+  %c = call i8* @test7(i8* %b)
+  ret i8* %c
+}
+
+
 ; BOTH: define nonnull i8* @test8
+; BOTH-NOT: nonnull
 define i8* @test8(i8* %a) {
   %b = getelementptr inbounds i8, i8* %a, i64 1
   ret i8* %b
+}
+
+; BOTH: define nonnull i8* @test8b
+; BOTH-NOT: nonnull
+define i8* @test8b(i8* %a) {
+  %b = getelementptr inbounds i8, i8* %a, i64 1
+; FNATTR: %c = call i8* @test8(i8* %b)
+; ATTRIBUTOR: %c = call i8* @test8(i8* nonnull %b)
+  %c = call i8* @test8(i8* %b)
+  ret i8* %c
 }
 
 ; BOTH: define i8* @test9
 define i8* @test9(i8* %a, i64 %n) {
   %b = getelementptr inbounds i8, i8* %a, i64 %n
   ret i8* %b
+}
+
+; BOTH: define nonnull i8* @test9b
+define i8* @test9b(i8* nonnull %a, i64 %n) {
+  %b = getelementptr inbounds i8, i8* %a, i64 %n
+  ret i8* %b
+}
+
+; BOTH: define nonnull i8* @test9c(
+; FNATTR-SAME: nonnull
+; FIXME:
+; ATTRIBUTOR-NOT: nonnull
+define i8* @test9c(i8* %a) {
+; BOTH: %c = call i8* @test9b(i8* %a, i64 0)
+  %c = call i8* @test9b(i8* %a, i64 0)
+  ret i8* %c
 }
 
 declare void @llvm.assume(i1)
@@ -448,6 +489,46 @@ define internal i32* @g2() {
 define  i32* @g1() {
  %c = call i32* @g2()
   ret i32* %c
+}
+
+define dso_local i32* @optimistic_select1(i32* %arg1, i32* %arg2) {
+entry:
+  %t6 = getelementptr inbounds i32, i32* %arg1, i64 1
+  %t7 = load i32, i32* %t6, align 4
+  %t9 = getelementptr inbounds i32, i32* %arg2, i64 1
+  %t10 = load i32, i32* %t9, align 4
+  %t11 = icmp slt i32 %t7, %t10
+  br i1 %t11, label %t, label %e
+
+t:
+  br label %m
+
+e:
+  br label %m
+
+m:
+  %t17 = phi i32* [ %arg1, %t ], [ %arg2, %e ]
+  ret i32* %t17
+}
+
+define dso_local i32* @optimistic_select2(i32* %arg1, i32* %arg2) {
+entry:
+  %t6 = getelementptr inbounds i32, i32* %arg1, i64 1
+  %t7 = load i32, i32* %t6, align 4
+  %t9 = getelementptr inbounds i32, i32* %arg2, i64 1
+  %t10 = load i32, i32* %t9, align 4
+  %t11 = icmp slt i32 %t7, %t10
+  br i1 %t11, label %t, label %e
+
+t:
+  br label %m
+
+e:
+  br label %m
+
+m:
+  %t17 = phi i32* [ %t6, %t ], [ %t9, %e ]
+  ret i32* %t17
 }
 
 attributes #0 = { "null-pointer-is-valid"="true" }

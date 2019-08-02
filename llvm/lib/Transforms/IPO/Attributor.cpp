@@ -52,8 +52,10 @@ STATISTIC(NumAttributesValidFixpoint,
           "Number of abstract attributes in a valid fixpoint state");
 STATISTIC(NumAttributesManifested,
           "Number of abstract attributes manifested in IR");
-STATISTIC(NumFnNoUnwind, "Number of functions marked nounwind");
+STATISTIC(NumAttributesSkippedDueToIR,
+          "Number of abstract attributes skipped due to presence in IR");
 
+STATISTIC(NumFnNoUnwind, "Number of functions marked nounwind");
 STATISTIC(NumFnUniqueReturned, "Number of function with unique return");
 STATISTIC(NumFnKnownReturns, "Number of function with known return values");
 STATISTIC(NumFnArgumentReturned,
@@ -269,21 +271,6 @@ static bool genericValueTraversal(
   return true;
 }
 
-/// Helper to identify the correct offset into an attribute list.
-static unsigned getAttrIndex(AbstractAttribute::ManifestPosition MP,
-                             unsigned ArgNo = 0) {
-  switch (MP) {
-  case AbstractAttribute::MP_ARGUMENT:
-  case AbstractAttribute::MP_CALL_SITE_ARGUMENT:
-    return ArgNo + AttributeList::FirstArgIndex;
-  case AbstractAttribute::MP_FUNCTION:
-    return AttributeList::FunctionIndex;
-  case AbstractAttribute::MP_RETURNED:
-    return AttributeList::ReturnIndex;
-  }
-  llvm_unreachable("Unknown manifest position!");
-}
-
 /// Return true if \p New is equal or worse than \p Old.
 static bool isEqualOrWorse(const Attribute &New, const Attribute &Old) {
   if (!Old.isIntAttribute())
@@ -298,8 +285,8 @@ static bool isEqualOrWorse(const Attribute &New, const Attribute &Old) {
 static bool addIfNotExistent(LLVMContext &Ctx, const Attribute &Attr,
                              AttributeList &Attrs,
                              AbstractAttribute::ManifestPosition MP,
-                             unsigned ArgNo = 0) {
-  unsigned AttrIdx = getAttrIndex(MP, ArgNo);
+                             unsigned ArgNo) {
+  unsigned AttrIdx = AbstractAttribute::getAttrIndex(MP, ArgNo);
 
   if (Attr.isEnumAttribute()) {
     Attribute::AttrKind Kind = Attr.getKindAsEnum();
@@ -427,29 +414,42 @@ const Function &AbstractAttribute::getAnchorScope() const {
   return const_cast<AbstractAttribute *>(this)->getAnchorScope();
 }
 
-// Helper function that returns argument index of value.
-// If the value is not an argument, this returns -1.
-static int getArgNo(Value &V) {
-  if (auto *Arg = dyn_cast<Argument>(&V))
-    return Arg->getArgNo();
-  return -1;
+/// Helper to identify the correct offset into an attribute list.
+unsigned AbstractAttribute::getAttrIndex(ManifestPosition MP, int ArgNo) {
+  switch (MP) {
+  case AbstractAttribute::MP_ARGUMENT:
+  case AbstractAttribute::MP_CALL_SITE_ARGUMENT:
+    assert(ArgNo >= 0 && "Expected non-negative argument number");
+    return ArgNo + AttributeList::FirstArgIndex;
+  case AbstractAttribute::MP_FUNCTION:
+    return AttributeList::FunctionIndex;
+  case AbstractAttribute::MP_RETURNED:
+    return AttributeList::ReturnIndex;
+  }
+  llvm_unreachable("Unknown manifest position!");
+}
+
+void AbstractAttribute::getAttrIndices(SmallVectorImpl<unsigned> &AttrIndices,
+                                       const Value &V, int ArgNo) {
+  if (ArgNo >= 0) {
+    AttrIndices.push_back(getAttrIndex(MP_ARGUMENT, ArgNo));
+  } else {
+    AttrIndices.push_back(getAttrIndex(MP_FUNCTION));
+    AttrIndices.push_back(getAttrIndex(MP_RETURNED));
+  }
 }
 
 /// -----------------------NoUnwind Function Attribute--------------------------
 
-struct AANoUnwindFunction : AANoUnwind, BooleanState {
+struct AANoUnwindFunction : StatefulAbstractAttribute<AANoUnwind, BooleanState> {
 
   AANoUnwindFunction(Function &F, InformationCache &InfoCache)
-      : AANoUnwind(F, InfoCache) {}
+      : StatefulAbstractAttribute(&F, F, -2, InfoCache) {}
 
-  /// See AbstractAttribute::getState()
-  /// {
-  AbstractState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
-  /// }
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_FUNCTION; }
+  void initialize(Attributor &A) override {
+    StateType::addKnownFrom(StateType::template getFromIR<AANoUnwindFunction>(
+        getAnchorScope(), getAnchoredValue(), getArgNo()));
+  }
 
   const std::string getAsStr() const override {
     return getAssumed() ? "nounwind" : "may-unwind";
@@ -475,34 +475,31 @@ ChangeStatus AANoUnwindFunction::updateImpl(Attributor &A) {
       (unsigned)Instruction::Call,        (unsigned)Instruction::CleanupRet,
       (unsigned)Instruction::CatchSwitch, (unsigned)Instruction::Resume};
 
+  bool AnyAssumed = false;
   for (unsigned Opcode : Opcodes) {
     for (Instruction *I : OpcodeInstMap[Opcode]) {
       if (!I->mayThrow())
         continue;
 
-      auto *NoUnwindAA = A.getAAFor<AANoUnwind>(*this, *I);
-
-      if (!NoUnwindAA || !NoUnwindAA->isAssumedNoUnwind()) {
-        indicatePessimisticFixpoint();
-        return ChangeStatus::CHANGED;
-      }
+      if (!getAssumedOrKnown<AANoUnwind>(A, *this, AnyAssumed, *I, -2))
+        return indicatePessimisticFixpoint();
     }
   }
+
+  if (!AnyAssumed)
+    indicateOptimisticFixpoint();
+
   return ChangeStatus::UNCHANGED;
 }
 
 /// --------------------- Function Return Values -------------------------------
 
-/// "Attribute" that collects all potential returned values and the return
-/// instructions that they arise from.
-///
-/// If there is a unique returned value R, the manifest method will:
-///   - mark R with the "returned" attribute, if R is an argument.
-class AAReturnedValuesImpl final : public AAReturnedValues, AbstractState {
+struct ReturnedValuesStates : public AbstractState,
+                              AttributeCompatibleAbstractState {
 
   /// Mapping of values potentially returned by the associated function to the
   /// return instructions that might return them.
-  DenseMap<Value *, SmallPtrSet<ReturnInst *, 2>> ReturnedValues;
+  DenseMap<const Value *, SmallPtrSet<ReturnInst *, 2>> ReturnedValues;
 
   /// State flags
   ///
@@ -512,16 +509,64 @@ class AAReturnedValuesImpl final : public AAReturnedValues, AbstractState {
   bool HasOverdefinedReturnedCalls;
   ///}
 
+  /// See AbstractState::isAtFixpoint().
+  bool isAtFixpoint() const override { return IsFixed; }
+
+  /// See AbstractState::isValidState().
+  bool isValidState() const override { return IsValidState; }
+
+  /// See AbstractState::indicateOptimisticFixpoint(...).
+  ChangeStatus indicateOptimisticFixpoint() override {
+    IsFixed = true;
+    IsValidState &= true;
+    return ChangeStatus::UNCHANGED;
+  }
+  ChangeStatus indicatePessimisticFixpoint() override {
+    IsFixed = true;
+    IsValidState = false;
+    return ChangeStatus::CHANGED;
+  }
+
+  static const Argument *getKnownReturnedArg(const Function &F) {
+    for (const Argument &Arg : F.args())
+      if (Arg.hasReturnedAttr())
+        return &Arg;
+    return nullptr;
+  }
+
+  template <typename AAType>
+  static Attribute getFromIR(const Function &Scope, const Value &V, int ArgNo) {
+    assert(&Scope == &V);
+    if (const Argument *Arg = getKnownReturnedArg(Scope))
+      return Scope.getAttribute(Arg->getArgNo(), Attribute::Returned);
+    return Attribute();
+  }
+
+  /// The best state is any "returned" argument.
+  static bool isBestState(const Attribute &Attr) {
+    return Attr.getKindAsEnum() == Attribute::Returned;
+  }
+};
+
+/// "Attribute" that collects all potential returned values and the return
+/// instructions that they arise from.
+///
+/// If there is a unique returned value R, the manifest method will:
+///   - mark R with the "returned" attribute, if R is an argument.
+class AAReturnedValuesImpl final
+    : public StatefulAbstractAttribute<AAReturnedValues, ReturnedValuesStates> {
+
   /// Collect values that could become \p V in the set \p Values, each mapped to
   /// \p ReturnInsts.
   void collectValuesRecursively(
-      Attributor &A, Value *V, SmallPtrSetImpl<ReturnInst *> &ReturnInsts,
-      DenseMap<Value *, SmallPtrSet<ReturnInst *, 2>> &Values) {
+      Attributor &A, const Value *V, SmallPtrSetImpl<ReturnInst *> &ReturnInsts,
+      DenseMap<const Value *, SmallPtrSet<ReturnInst *, 2>> &Values) {
 
-    visitValueCB_t<bool> VisitValueCB = [&](Value *Val, bool &) {
+    auto VisitValueCB = [&](const Value *Val, bool &) {
       assert(!isa<Instruction>(Val) ||
              &getAnchorScope() == cast<Instruction>(Val)->getFunction());
       Values[Val].insert(ReturnInsts.begin(), ReturnInsts.end());
+      return true;
     };
 
     bool UnusedBool;
@@ -537,10 +582,8 @@ class AAReturnedValuesImpl final : public AAReturnedValues, AbstractState {
 public:
   /// See AbstractAttribute::AbstractAttribute(...).
   AAReturnedValuesImpl(Function &F, InformationCache &InfoCache)
-      : AAReturnedValues(F, InfoCache) {
-    // We do not have an associated argument yet.
-    AssociatedVal = nullptr;
-  }
+      : StatefulAbstractAttribute(/* AssociatedVal */ nullptr, F, MP_FUNCTION,
+                                  InfoCache) {}
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
@@ -553,21 +596,16 @@ public:
 
     Function &F = cast<Function>(getAnchoredValue());
 
-    // The map from instruction opcodes to those instructions in the function.
-    auto &OpcodeInstMap = InfoCache.getOpcodeInstMapForFunction(F);
-
     // Look through all arguments, if one is marked as returned we are done.
     for (Argument &Arg : F.args()) {
       if (Arg.hasReturnedAttr()) {
-
-        auto &ReturnInstSet = ReturnedValues[&Arg];
-        for (Instruction *RI : OpcodeInstMap[Instruction::Ret])
-          ReturnInstSet.insert(cast<ReturnInst>(RI));
-
-        indicateOptimisticFixpoint();
+        addKnownFrom(Arg);
         return;
       }
     }
+
+    // The map from instruction opcodes to those instructions in the function.
+    auto &OpcodeInstMap = InfoCache.getOpcodeInstMapForFunction(F);
 
     // If no argument was marked as returned we look at all return instructions
     // and collect potentially returned values.
@@ -581,15 +619,6 @@ public:
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override;
 
-  /// See AbstractAttribute::getState(...).
-  AbstractState &getState() override { return *this; }
-
-  /// See AbstractAttribute::getState(...).
-  const AbstractState &getState() const override { return *this; }
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_ARGUMENT; }
-
   /// See AbstractAttribute::updateImpl(Attributor &A).
   ChangeStatus updateImpl(Attributor &A) override;
 
@@ -598,33 +627,46 @@ public:
     return isValidState() ? ReturnedValues.size() : -1;
   }
 
+  /// Provided via AbstractStateCompatibleWith<..., Attribute>.
+  ChangeStatus addKnownFrom(const Attribute &Attr) override {
+    if (isAtFixpoint())
+      return ChangeStatus::UNCHANGED;
+    assert(Attr.getKindAsEnum() == Attribute::Returned);
+    const Argument *Arg = getKnownReturnedArg(getAnchorScope());
+    assert(Arg);
+    addKnownFrom(*Arg);
+    return ChangeStatus::CHANGED;
+  }
+
+  void addKnownFrom(const Argument &Arg) {
+    Function &F = getAnchorScope();
+    // The map from instruction opcodes to those instructions in the function.
+    auto &OpcodeInstMap = InfoCache.getOpcodeInstMapForFunction(F);
+
+    auto &ReturnInstSet = ReturnedValues[&Arg];
+    for (Instruction *RI : OpcodeInstMap[Instruction::Ret])
+      ReturnInstSet.insert(cast<ReturnInst>(RI));
+
+    indicateOptimisticFixpoint();
+  }
+
   /// Return an assumed unique return value if a single candidate is found. If
   /// there cannot be one, return a nullptr. If it is not clear yet, return the
   /// Optional::NoneType.
-  Optional<Value *> getAssumedUniqueReturnValue() const;
+  Optional<const Value *> getAssumedUniqueReturnValue(Attributor &A) const;
 
+  #if 0
   /// See AbstractState::checkForallReturnedValues(...).
   bool
-  checkForallReturnedValues(std::function<bool(Value &)> &Pred) const override;
+  checkForallReturnedValues(Attributor &A,
+                            ReturnValuePredicateFuncTy &Pred) const override;
+  #endif
+  /// See AbstractState::checkForallReturnedValues(...).
+  bool
+  checkForallReturnedValues(std::function<bool(const Value &)> &Pred) const override;
 
   /// Pretty print the attribute similar to the IR representation.
   const std::string getAsStr() const override;
-
-  /// See AbstractState::isAtFixpoint().
-  bool isAtFixpoint() const override { return IsFixed; }
-
-  /// See AbstractState::isValidState().
-  bool isValidState() const override { return IsValidState; }
-
-  /// See AbstractState::indicateOptimisticFixpoint(...).
-  void indicateOptimisticFixpoint() override {
-    IsFixed = true;
-    IsValidState &= true;
-  }
-  void indicatePessimisticFixpoint() override {
-    IsFixed = true;
-    IsValidState = false;
-  }
 };
 
 ChangeStatus AAReturnedValuesImpl::manifest(Attributor &A) {
@@ -635,7 +677,7 @@ ChangeStatus AAReturnedValuesImpl::manifest(Attributor &A) {
   NumFnKnownReturns++;
 
   // Check if we have an assumed unique return value that we could manifest.
-  Optional<Value *> UniqueRV = getAssumedUniqueReturnValue();
+  Optional<const Value *> UniqueRV = getAssumedUniqueReturnValue(A);
 
   if (!UniqueRV.hasValue() || !UniqueRV.getValue())
     return Changed;
@@ -645,7 +687,8 @@ ChangeStatus AAReturnedValuesImpl::manifest(Attributor &A) {
 
   // If the assumed unique return value is an argument, annotate it.
   if (auto *UniqueRVArg = dyn_cast<Argument>(UniqueRV.getValue())) {
-    AssociatedVal = UniqueRVArg;
+    AttrIdx = UniqueRVArg->getArgNo();
+    AssociatedVal = const_cast<Value *>(cast<Value>(UniqueRVArg));
     Changed = AbstractAttribute::manifest(A) | Changed;
   }
 
@@ -657,15 +700,19 @@ const std::string AAReturnedValuesImpl::getAsStr() const {
          (isValidState() ? std::to_string(getNumReturnValues()) : "?") + ")";
 }
 
-Optional<Value *> AAReturnedValuesImpl::getAssumedUniqueReturnValue() const {
+Optional<const Value *>
+AAReturnedValuesImpl::getAssumedUniqueReturnValue(Attributor &A) const {
   // If checkForallReturnedValues provides a unique value, ignoring potential
   // undef values that can also be present, it is assumed to be the actual
   // return value and forwarded to the caller of this method. If there are
   // multiple, a nullptr is returned indicating there cannot be a unique
   // returned value.
-  Optional<Value *> UniqueRV;
+  Optional<const Value *> UniqueRV;
 
-  std::function<bool(Value &)> Pred = [&](Value &RV) -> bool {
+  //ReturnValuePredicateFuncTy Pred =
+      //[&](Attributor &, const Value &RV,
+          //const SmallPtrSetImpl<ReturnInst *> &) -> bool {
+  std::function<bool(const Value &)> Pred = [&](const Value &RV) -> bool {
     // If we found a second returned value and neither the current nor the saved
     // one is an undef, there is no unique returned value. Undefs are special
     // since we can pretend they have any value.
@@ -682,26 +729,30 @@ Optional<Value *> AAReturnedValuesImpl::getAssumedUniqueReturnValue() const {
     return true;
   };
 
+  //if (!checkForallReturnedValues(A, Pred))
   if (!checkForallReturnedValues(Pred))
     UniqueRV = nullptr;
 
   return UniqueRV;
 }
 
+//bool AAReturnedValuesImpl::checkForallReturnedValues(
+    //Attributor &A, ReturnValuePredicateFuncTy &Pred) const {
 bool AAReturnedValuesImpl::checkForallReturnedValues(
-    std::function<bool(Value &)> &Pred) const {
+    std::function<bool(const Value &)> &Pred) const {
   if (!isValidState())
     return false;
 
   // Check all returned values but ignore call sites as long as we have not
   // encountered an overdefined one during an update.
   for (auto &It : ReturnedValues) {
-    Value *RV = It.first;
+    const Value *RV = It.first;
 
     ImmutableCallSite ICS(RV);
     if (ICS && !HasOverdefinedReturnedCalls)
       continue;
 
+    //if (!Pred(A, *RV, It.second))
     if (!Pred(*RV))
       return false;
   }
@@ -725,12 +776,12 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
   // Look at all returned call sites.
   for (auto &It : ReturnedValues) {
     SmallPtrSet<ReturnInst *, 2> &ReturnInsts = It.second;
-    Value *RV = It.first;
+    const Value *RV = It.first;
     LLVM_DEBUG(dbgs() << "[AAReturnedValues] Potentially returned value " << *RV
                       << "\n");
 
     // Only call sites can change during an update, ignore the rest.
-    CallSite RetCS(RV);
+    ImmutableCallSite RetCS(RV);
     if (!RetCS)
       continue;
 
@@ -739,8 +790,16 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
     // sites will be removed and we will fix the information for this state.
     HasCallSite = true;
 
+    if (!RetCS.getCalledFunction()) {
+      HasOverdefinedReturnedCalls = true;
+      LLVM_DEBUG(dbgs() << "[AAReturnedValues] Returned call site (" << *RV
+                        << ") without called function\n");
+      continue;
+    }
+
     // Try to find a assumed unique return value for the called function.
-    auto *RetCSAA = A.getAAFor<AAReturnedValuesImpl>(*this, *RV);
+    auto *RetCSAA =
+        A.getAAFor<AAReturnedValuesImpl>(*this, *RetCS.getCalledFunction());
     if (!RetCSAA) {
       HasOverdefinedReturnedCalls = true;
       LLVM_DEBUG(dbgs() << "[AAReturnedValues] Returned call site (" << *RV
@@ -750,7 +809,7 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
     }
 
     // Try to find a assumed unique return value for the called function.
-    Optional<Value *> AssumedUniqueRV = RetCSAA->getAssumedUniqueReturnValue();
+    Optional<const Value *> AssumedUniqueRV = RetCSAA->getAssumedUniqueReturnValue(A);
 
     // If no assumed unique return value was found due to the lack of
     // candidates, we may need to resolve more calls (through more update
@@ -777,13 +836,13 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
     });
 
     // The assumed unique return value.
-    Value *AssumedRetVal = AssumedUniqueRV.getValue();
+    const Value *AssumedRetVal = AssumedUniqueRV.getValue();
 
     // If the assumed unique return value is an argument, lookup the matching
     // call site operand and recursively collect new returned values.
     // If it is not an argument, it is just put into the set of returned values
     // as we would have already looked through casts, phis, and similar values.
-    if (Argument *AssumedRetArg = dyn_cast<Argument>(AssumedRetVal))
+    if (const Argument *AssumedRetArg = dyn_cast<Argument>(AssumedRetVal))
       collectValuesRecursively(A,
                                RetCS.getArgOperand(AssumedRetArg->getArgNo()),
                                ReturnInsts, AddRVs);
@@ -816,19 +875,16 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
 
 /// ------------------------ NoSync Function Attribute -------------------------
 
-struct AANoSyncFunction : AANoSync, BooleanState {
+struct AANoSyncFunction
+    : public StatefulAbstractAttribute<AANoSync, BooleanState> {
 
   AANoSyncFunction(Function &F, InformationCache &InfoCache)
-      : AANoSync(F, InfoCache) {}
+      : StatefulAbstractAttribute(&F, F, MP_FUNCTION, InfoCache) {}
 
-  /// See AbstractAttribute::getState()
-  /// {
-  AbstractState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
-  /// }
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_FUNCTION; }
+  void initialize(Attributor &A) override {
+    StateType::addKnownFrom(StateType::template getFromIR<AANoSyncFunction>(
+        getAnchorScope(), getAnchoredValue(), getArgNo()));
+  }
 
   const std::string getAsStr() const override {
     return getAssumed() ? "nosync" : "may-sync";
@@ -846,17 +902,37 @@ struct AANoSyncFunction : AANoSync, BooleanState {
   /// Helper function used to determine whether an instruction is non-relaxed
   /// atomic. In other words, if an atomic instruction does not have unordered
   /// or monotonic ordering
-  static bool isNonRelaxedAtomic(Instruction *I);
+  static bool isNonRelaxedAtomic(const Instruction *I);
 
   /// Helper function used to determine whether an instruction is volatile.
-  static bool isVolatile(Instruction *I);
+  static bool isVolatile(const Instruction *I);
 
   /// Helper function uset to check if intrinsic is volatile (memcpy, memmove,
   /// memset).
-  static bool isNoSyncIntrinsic(Instruction *I);
+  static bool isNoSyncIntrinsic(const Instruction *I);
 };
 
-bool AANoSyncFunction::isNonRelaxedAtomic(Instruction *I) {
+#if 0
+/// TODO
+template<typename AAType>
+uint32_t AANoSync::getFromIR(const Function &F, const Value &V, int ArgNo) {
+  if (ArgNo == -2) {
+    if (const Instruction *I = dyn_cast<Instruction>(&V)) {
+      if (ImmutableCallSite(I)) {
+        if (isa<IntrinsicInst>(I) && AANoSyncFunction::isNoSyncIntrinsic(I))
+          return /* nosync */ true;
+      } else {
+        if (!AANoSyncFunction::isVolatile(I) &&
+            !AANoSyncFunction::isNonRelaxedAtomic(I))
+          return /* nosync */ true;
+      }
+    }
+  }
+  return AbstractAttribute::getFromIR<AAType>(F, V, ArgNo);
+}
+#endif
+
+bool AANoSyncFunction::isNonRelaxedAtomic(const Instruction *I) {
   if (!I->isAtomic())
     return false;
 
@@ -905,7 +981,7 @@ bool AANoSyncFunction::isNonRelaxedAtomic(Instruction *I) {
 
 /// Checks if an intrinsic is nosync. Currently only checks mem* intrinsics.
 /// FIXME: We should ipmrove the handling of intrinsics.
-bool AANoSyncFunction::isNoSyncIntrinsic(Instruction *I) {
+bool AANoSyncFunction::isNoSyncIntrinsic(const Instruction *I) {
   if (auto *II = dyn_cast<IntrinsicInst>(I)) {
     switch (II->getIntrinsicID()) {
     /// Element wise atomic memory intrinsics are can only be unordered,
@@ -927,7 +1003,7 @@ bool AANoSyncFunction::isNoSyncIntrinsic(Instruction *I) {
   return false;
 }
 
-bool AANoSyncFunction::isVolatile(Instruction *I) {
+bool AANoSyncFunction::isVolatile(const Instruction *I) {
   assert(!ImmutableCallSite(I) && !isa<CallBase>(I) &&
          "Calls should not be checked here");
 
@@ -948,30 +1024,14 @@ bool AANoSyncFunction::isVolatile(Instruction *I) {
 ChangeStatus AANoSyncFunction::updateImpl(Attributor &A) {
   Function &F = getAnchorScope();
 
+  bool AnyAssumed = false;
+
   /// We are looking for volatile instructions or Non-Relaxed atomics.
   /// FIXME: We should ipmrove the handling of intrinsics.
-  for (Instruction *I : InfoCache.getReadOrWriteInstsForFunction(F)) {
-    ImmutableCallSite ICS(I);
-    auto *NoSyncAA = A.getAAFor<AANoSyncFunction>(*this, *I);
-
-    if (isa<IntrinsicInst>(I) && isNoSyncIntrinsic(I))
-      continue;
-
-    if (ICS && (!NoSyncAA || !NoSyncAA->isAssumedNoSync()) &&
-        !ICS.hasFnAttr(Attribute::NoSync)) {
-      indicatePessimisticFixpoint();
-      return ChangeStatus::CHANGED;
-    }
-
-    if (ICS)
-      continue;
-
-    if (!isVolatile(I) && !isNonRelaxedAtomic(I))
-      continue;
-
-    indicatePessimisticFixpoint();
-    return ChangeStatus::CHANGED;
-  }
+  for (Instruction *I : InfoCache.getReadOrWriteInstsForFunction(F))
+    ;
+    //if (!getAssumedOrKnown<AANoSyncFunction>(A, *this, AnyAssumed, *I, -2))
+      //return indicatePessimisticFixpoint();
 
   auto &OpcodeInstMap = InfoCache.getOpcodeInstMapForFunction(F);
   auto Opcodes = {(unsigned)Instruction::Invoke, (unsigned)Instruction::CallBr,
@@ -990,30 +1050,28 @@ ChangeStatus AANoSyncFunction::updateImpl(Attributor &A) {
       if (!ICS.isConvergent())
         continue;
 
-      indicatePessimisticFixpoint();
-      return ChangeStatus::CHANGED;
+      return indicatePessimisticFixpoint();
     }
   }
+
+  if (!AnyAssumed)
+    indicateOptimisticFixpoint();
 
   return ChangeStatus::UNCHANGED;
 }
 
 /// ------------------------ No-Free Attributes ----------------------------
 
-struct AANoFreeFunction : AbstractAttribute, BooleanState {
+struct AANoFreeFunction : StatefulAbstractAttribute<AbstractAttribute, BooleanState> {
 
   /// See AbstractAttribute::AbstractAttribute(...).
   AANoFreeFunction(Function &F, InformationCache &InfoCache)
-      : AbstractAttribute(F, InfoCache) {}
+      : StatefulAbstractAttribute(&F, F, MP_FUNCTION, InfoCache) {}
 
-  /// See AbstractAttribute::getState()
-  ///{
-  AbstractState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
-  ///}
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_FUNCTION; }
+  void initialize(Attributor &A) override {
+    StateType::addKnownFrom(StateType::template getFromIR<AANoFreeFunction>(
+        getAnchorScope(), getAnchoredValue(), getArgNo()));
+  }
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
@@ -1042,39 +1100,34 @@ ChangeStatus AANoFreeFunction::updateImpl(Attributor &A) {
   // The map from instruction opcodes to those instructions in the function.
   auto &OpcodeInstMap = InfoCache.getOpcodeInstMapForFunction(F);
 
+  bool AnyAssumed = false;
   for (unsigned Opcode :
        {(unsigned)Instruction::Invoke, (unsigned)Instruction::CallBr,
         (unsigned)Instruction::Call}) {
-    for (Instruction *I : OpcodeInstMap[Opcode]) {
-
-      auto ICS = ImmutableCallSite(I);
-      auto *NoFreeAA = A.getAAFor<AANoFreeFunction>(*this, *I);
-
-      if ((!NoFreeAA || !NoFreeAA->isAssumedNoFree()) &&
-          !ICS.hasFnAttr(Attribute::NoFree)) {
-        indicatePessimisticFixpoint();
-        return ChangeStatus::CHANGED;
-      }
-    }
+    for (Instruction *I : OpcodeInstMap[Opcode])
+      ;
+      //if (!getAssumedOrKnown<AANoFreeFunction>(A, *this, AnyAssumed, *I, -2))
+        //return indicatePessimisticFixpoint();
   }
+
+  if (!AnyAssumed)
+    indicateOptimisticFixpoint();
+
   return ChangeStatus::UNCHANGED;
 }
 
 /// ------------------------ NonNull Argument Attribute ------------------------
-struct AANonNullImpl : AANonNull, BooleanState {
+struct AANonNullImpl : StatefulAbstractAttribute<AANonNull, BooleanState> {
 
-  AANonNullImpl(Value &V, InformationCache &InfoCache)
-      : AANonNull(V, InfoCache) {}
-
-  AANonNullImpl(Value *AssociatedVal, Value &AnchoredValue,
+  AANonNullImpl(Value *AssociatedVal, Value &AnchoredValue, int AttrIdx,
                 InformationCache &InfoCache)
-      : AANonNull(AssociatedVal, AnchoredValue, InfoCache) {}
+      : StatefulAbstractAttribute(AssociatedVal, AnchoredValue, AttrIdx,
+                                  InfoCache) {}
 
-  /// See AbstractAttribute::getState()
-  /// {
-  AbstractState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
-  /// }
+  void initialize(Attributor &A) override {
+    StateType::addKnownFrom(StateType::template getFromIR<AANonNullImpl>(
+        getAnchorScope(), getAnchoredValue(), getArgNo()));
+  }
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
@@ -1086,60 +1139,31 @@ struct AANonNullImpl : AANonNull, BooleanState {
 
   /// See AANonNull::isKnownNonNull().
   bool isKnownNonNull() const override { return getKnown(); }
-
-  /// Generate a predicate that checks if a given value is assumed nonnull.
-  /// The generated function returns true if a value satisfies any of
-  /// following conditions.
-  /// (i) A value is known nonZero(=nonnull).
-  /// (ii) A value is associated with AANonNull and its isAssumedNonNull() is
-  /// true.
-  std::function<bool(Value &)> generatePredicate(Attributor &);
 };
 
-std::function<bool(Value &)> AANonNullImpl::generatePredicate(Attributor &A) {
-  // FIXME: The `AAReturnedValues` should provide the predicate with the
-  // `ReturnInst` vector as well such that we can use the control flow sensitive
-  // version of `isKnownNonZero`. This should fix `test11` in
-  // `test/Transforms/FunctionAttrs/nonnull.ll`
-
-  std::function<bool(Value &)> Pred = [&](Value &RV) -> bool {
-    if (isKnownNonZero(&RV, getAnchorScope().getParent()->getDataLayout()))
-      return true;
-
-    auto *NonNullAA = A.getAAFor<AANonNull>(*this, RV);
-
-    ImmutableCallSite ICS(&RV);
-
-    if ((!NonNullAA || !NonNullAA->isAssumedNonNull()) &&
-        (!ICS || !ICS.hasRetAttr(Attribute::NonNull)))
-      return false;
-
-    return true;
-  };
-
-  return Pred;
+  #if 0
+/// TODO
+template<typename AAType>
+Attribute AANonNull::getFromIR(const Function &F, ManifestPosition MP, const Value &V,
+                                   int ArgNo) {
+  assert(0);
+  ImmutableCallSite ICS = ImmutableCallSite(&V);
+  if (ArgNo >= 0 && ICS) {
+    if (isKnownNonZero(ICS.getArgOperand(ArgNo),
+                       F.getParent()->getDataLayout()))
+      return 1;
+  } else if (isKnownNonZero(&V, F.getParent()->getDataLayout())) {
+      return 1;
+  }
+  return AbstractAttribute::getFromIR<AAType>(F, V, ArgNo);
 }
+#endif
 
 /// NonNull attribute for function return value.
 struct AANonNullReturned : AANonNullImpl {
 
   AANonNullReturned(Function &F, InformationCache &InfoCache)
-      : AANonNullImpl(F, InfoCache) {}
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_RETURNED; }
-
-  /// See AbstractAttriubute::initialize(...).
-  void initialize(Attributor &A) override {
-    Function &F = getAnchorScope();
-
-    // Already nonnull.
-    if (F.getAttributes().hasAttribute(AttributeList::ReturnIndex,
-                                       Attribute::NonNull) ||
-        F.getAttributes().hasAttribute(AttributeList::ReturnIndex,
-                                       Attribute::Dereferenceable))
-      indicateOptimisticFixpoint();
-  }
+      : AANonNullImpl(&F, F, MP_RETURNED, InfoCache) {}
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
@@ -1148,17 +1172,13 @@ struct AANonNullReturned : AANonNullImpl {
 ChangeStatus AANonNullReturned::updateImpl(Attributor &A) {
   Function &F = getAnchorScope();
 
-  auto *AARetVal = A.getAAFor<AAReturnedValues>(*this, F);
-  if (!AARetVal) {
-    indicatePessimisticFixpoint();
-    return ChangeStatus::CHANGED;
-  }
+  bool AnyAssumed = false;
+  //if (!A.checkForallReturnedValues<AANonNull>(*this, F, AnyAssumed))
+    //return indicatePessimisticFixpoint();
 
-  std::function<bool(Value &)> Pred = this->generatePredicate(A);
-  if (!AARetVal->checkForallReturnedValues(Pred)) {
-    indicatePessimisticFixpoint();
-    return ChangeStatus::CHANGED;
-  }
+  if (!AnyAssumed)
+    indicateOptimisticFixpoint();
+
   return ChangeStatus::UNCHANGED;
 }
 
@@ -1166,17 +1186,7 @@ ChangeStatus AANonNullReturned::updateImpl(Attributor &A) {
 struct AANonNullArgument : AANonNullImpl {
 
   AANonNullArgument(Argument &A, InformationCache &InfoCache)
-      : AANonNullImpl(A, InfoCache) {}
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_ARGUMENT; }
-
-  /// See AbstractAttriubute::initialize(...).
-  void initialize(Attributor &A) override {
-    Argument *Arg = cast<Argument>(getAssociatedValue());
-    if (Arg->hasNonNullAttr())
-      indicateOptimisticFixpoint();
-  }
+      : AANonNullImpl(&A, A, A.getArgNo(), InfoCache) {}
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
@@ -1186,94 +1196,49 @@ struct AANonNullArgument : AANonNullImpl {
 struct AANonNullCallSiteArgument : AANonNullImpl {
 
   /// See AANonNullImpl::AANonNullImpl(...).
-  AANonNullCallSiteArgument(CallSite CS, unsigned ArgNo,
-                            InformationCache &InfoCache)
-      : AANonNullImpl(CS.getArgOperand(ArgNo), *CS.getInstruction(), InfoCache),
-        ArgNo(ArgNo) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    CallSite CS(&getAnchoredValue());
-    if (CS.paramHasAttr(ArgNo, getAttrKind()) ||
-        CS.paramHasAttr(ArgNo, Attribute::Dereferenceable) ||
-        isKnownNonZero(getAssociatedValue(),
-                       getAnchorScope().getParent()->getDataLayout()))
-      indicateOptimisticFixpoint();
-  }
+  AANonNullCallSiteArgument(Instruction &I, InformationCache &InfoCache,
+                            unsigned ArgNo)
+      : AANonNullImpl(CallSite(&I).getArgOperand(ArgNo), I, ArgNo, InfoCache) {}
 
   /// See AbstractAttribute::updateImpl(Attributor &A).
   ChangeStatus updateImpl(Attributor &A) override;
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override {
-    return MP_CALL_SITE_ARGUMENT;
-  };
-
-  // Return argument index of associated value.
-  int getArgNo() const { return ArgNo; }
-
-private:
-  unsigned ArgNo;
 };
+
 ChangeStatus AANonNullArgument::updateImpl(Attributor &A) {
   Function &F = getAnchorScope();
   Argument &Arg = cast<Argument>(getAnchoredValue());
 
+  bool AnyAssumed = false;
   unsigned ArgNo = Arg.getArgNo();
 
-  // Callback function
-  std::function<bool(CallSite)> CallSiteCheck = [&](CallSite CS) {
-    assert(CS && "Sanity check: Call site was not initialized properly!");
+  if (!A.checkForAllCallSites<AANonNull>(*this, F, AnyAssumed, ArgNo, true))
+    return indicatePessimisticFixpoint();
 
-    auto *NonNullAA = A.getAAFor<AANonNull>(*this, *CS.getInstruction(), ArgNo);
+  if (!AnyAssumed)
+    indicateOptimisticFixpoint();
 
-    // Check that NonNullAA is AANonNullCallSiteArgument.
-    if (NonNullAA) {
-      ImmutableCallSite ICS(&NonNullAA->getAnchoredValue());
-      if (ICS && CS.getInstruction() == ICS.getInstruction())
-        return NonNullAA->isAssumedNonNull();
-      return false;
-    }
-
-    if (CS.paramHasAttr(ArgNo, Attribute::NonNull))
-      return true;
-
-    Value *V = CS.getArgOperand(ArgNo);
-    if (isKnownNonZero(V, getAnchorScope().getParent()->getDataLayout()))
-      return true;
-
-    return false;
-  };
-  if (!A.checkForAllCallSites(F, CallSiteCheck, true)) {
-    indicatePessimisticFixpoint();
-    return ChangeStatus::CHANGED;
-  }
   return ChangeStatus::UNCHANGED;
 }
 
 ChangeStatus AANonNullCallSiteArgument::updateImpl(Attributor &A) {
-  // NOTE: Never look at the argument of the callee in this method.
-  //       If we do this, "nonnull" is always deduced because of the assumption.
+  bool Assumed = false;
+  //if (!getAssumedOrKnown<AANonNullImpl>(A, *this, Assumed,
+                                          //*getAssociatedValue(), -1))
+    //return indicatePessimisticFixpoint();
 
-  Value &V = *getAssociatedValue();
-
-  auto *NonNullAA = A.getAAFor<AANonNull>(*this, V);
-
-  if (!NonNullAA || !NonNullAA->isAssumedNonNull()) {
-    indicatePessimisticFixpoint();
-    return ChangeStatus::CHANGED;
-  }
+  if (!Assumed)
+    indicateOptimisticFixpoint();
 
   return ChangeStatus::UNCHANGED;
 }
 
 /// ------------------------ Will-Return Attributes ----------------------------
 
-struct AAWillReturnImpl : public AAWillReturn, BooleanState {
+struct AAWillReturnFunction : public StatefulAbstractAttribute<AAWillReturn, BooleanState> {
 
   /// See AbstractAttribute::AbstractAttribute(...).
-  AAWillReturnImpl(Function &F, InformationCache &InfoCache)
-      : AAWillReturn(F, InfoCache) {}
+  AAWillReturnFunction(Function &F, InformationCache &InfoCache)
+      : StatefulAbstractAttribute(&F, F, MP_FUNCTION, InfoCache) {}
 
   /// See AAWillReturn::isKnownWillReturn().
   bool isKnownWillReturn() const override { return getKnown(); }
@@ -1281,26 +1246,10 @@ struct AAWillReturnImpl : public AAWillReturn, BooleanState {
   /// See AAWillReturn::isAssumedWillReturn().
   bool isAssumedWillReturn() const override { return getAssumed(); }
 
-  /// See AbstractAttribute::getState(...).
-  AbstractState &getState() override { return *this; }
-
-  /// See AbstractAttribute::getState(...).
-  const AbstractState &getState() const override { return *this; }
-
   /// See AbstractAttribute::getAsStr()
   const std::string getAsStr() const override {
     return getAssumed() ? "willreturn" : "may-noreturn";
   }
-};
-
-struct AAWillReturnFunction final : AAWillReturnImpl {
-
-  /// See AbstractAttribute::AbstractAttribute(...).
-  AAWillReturnFunction(Function &F, InformationCache &InfoCache)
-      : AAWillReturnImpl(F, InfoCache) {}
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_FUNCTION; }
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override;
@@ -1332,6 +1281,9 @@ bool containsCycle(Function &F) {
 bool containsPossiblyEndlessLoop(Function &F) { return containsCycle(F); }
 
 void AAWillReturnFunction::initialize(Attributor &A) {
+  StateType::addKnownFrom(StateType::template getFromIR<AAWillReturnFunction>(
+      getAnchorScope(), getAnchoredValue(), getArgNo()));
+
   Function &F = getAnchorScope();
 
   if (containsPossiblyEndlessLoop(F))
@@ -1344,50 +1296,45 @@ ChangeStatus AAWillReturnFunction::updateImpl(Attributor &A) {
   // The map from instruction opcodes to those instructions in the function.
   auto &OpcodeInstMap = InfoCache.getOpcodeInstMapForFunction(F);
 
+  bool AnyAssumed = false;
   for (unsigned Opcode :
        {(unsigned)Instruction::Invoke, (unsigned)Instruction::CallBr,
         (unsigned)Instruction::Call}) {
     for (Instruction *I : OpcodeInstMap[Opcode]) {
-      auto ICS = ImmutableCallSite(I);
 
-      if (ICS.hasFnAttr(Attribute::WillReturn))
-        continue;
+      bool Assumed = false;
+      //if (getAssumedOrKnown<AAWillReturnFunction>(A, *this, Assumed, *I, -2)) {
+        //if (!Assumed)
+          //continue;
 
-      auto *WillReturnAA = A.getAAFor<AAWillReturn>(*this, *I);
-      if (!WillReturnAA || !WillReturnAA->isAssumedWillReturn()) {
-        indicatePessimisticFixpoint();
-        return ChangeStatus::CHANGED;
-      }
+        //AnyAssumed = true;
+        //if (getAssumedOrKnown<AANoRecurse>(A, *this, AnyAssumed, *I, -2))
+          //continue;
+      //}
 
-      auto *NoRecurseAA = A.getAAFor<AANoRecurse>(*this, *I);
-
-      // FIXME: (i) Prohibit any recursion for now.
-      //        (ii) AANoRecurse isn't implemented yet so currently any call is
-      //        regarded as having recursion.
-      //       Code below should be
-      //       if ((!NoRecurseAA || !NoRecurseAA->isAssumedNoRecurse()) &&
-      if (!NoRecurseAA && !ICS.hasFnAttr(Attribute::NoRecurse)) {
-        indicatePessimisticFixpoint();
-        return ChangeStatus::CHANGED;
-      }
+      return indicatePessimisticFixpoint();
     }
   }
+
+  if (!AnyAssumed)
+    indicateOptimisticFixpoint();
 
   return ChangeStatus::UNCHANGED;
 }
 
 /// ------------------------ NoAlias Argument Attribute ------------------------
 
-struct AANoAliasImpl : AANoAlias, BooleanState {
+struct AANoAliasImpl : StatefulAbstractAttribute<AANoAlias, BooleanState> {
 
-  AANoAliasImpl(Value &V, InformationCache &InfoCache)
-      : AANoAlias(V, InfoCache) {}
+  AANoAliasImpl(Value *AssociatedVal, Value &AnchoredValue, int AttrIdx,
+                InformationCache &InfoCache)
+      : StatefulAbstractAttribute(AssociatedVal, AnchoredValue, AttrIdx,
+                                  InfoCache) {}
 
-  /// See AbstractAttribute::getState()
-  /// {
-  AbstractState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
-  /// }
+  void initialize(Attributor &A) override {
+    StateType::addKnownFrom(StateType::template getFromIR<AANoAliasImpl>(
+        getAnchorScope(), getAnchoredValue(), getArgNo()));
+  }
 
   const std::string getAsStr() const override {
     return getAssumed() ? "noalias" : "may-alias";
@@ -1404,23 +1351,7 @@ struct AANoAliasImpl : AANoAlias, BooleanState {
 struct AANoAliasReturned : AANoAliasImpl {
 
   AANoAliasReturned(Function &F, InformationCache &InfoCache)
-      : AANoAliasImpl(F, InfoCache) {}
-
-  /// See AbstractAttribute::getManifestPosition().
-  virtual ManifestPosition getManifestPosition() const override {
-    return MP_RETURNED;
-  }
-
-  /// See AbstractAttriubute::initialize(...).
-  void initialize(Attributor &A) override {
-    Function &F = getAnchorScope();
-
-    // Already noalias.
-    if (F.returnDoesNotAlias()) {
-      indicateOptimisticFixpoint();
-      return;
-    }
-  }
+      : AANoAliasImpl(&F, F, MP_RETURNED, InfoCache) {}
 
   /// See AbstractAttribute::updateImpl(...).
   virtual ChangeStatus updateImpl(Attributor &A) override;
@@ -1462,29 +1393,20 @@ ChangeStatus AANoAliasReturned::updateImpl(Attributor &A) {
     return true;
   };
 
-  if (!AARetValImpl->checkForallReturnedValues(Pred)) {
-    indicatePessimisticFixpoint();
-    return ChangeStatus::CHANGED;
-  }
+  //if (!AARetValImpl->checkForallReturnedValues(Pred)) {
+    //indicatePessimisticFixpoint();
+    //return ChangeStatus::CHANGED;
+  //}
 
   return ChangeStatus::UNCHANGED;
 }
 
 /// -------------------AAIsDead Function Attribute-----------------------
 
-struct AAIsDeadFunction : AAIsDead, BooleanState {
+struct AAIsDeadFunction : StatefulAbstractAttribute<AAIsDead, BooleanState> {
 
   AAIsDeadFunction(Function &F, InformationCache &InfoCache)
-      : AAIsDead(F, InfoCache) {}
-
-  /// See AbstractAttribute::getState()
-  /// {
-  AbstractState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
-  /// }
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_FUNCTION; }
+      : StatefulAbstractAttribute(&F, F, MP_FUNCTION, InfoCache) {}
 
   void initialize(Attributor &A) override {
     Function &F = getAnchorScope();
@@ -1637,13 +1559,15 @@ ChangeStatus AAIsDeadFunction::updateImpl(Attributor &A) {
 
 /// -------------------- Dereferenceable Argument Attribute --------------------
 
-struct DerefState : AbstractState {
+struct DerefState : public AbstractState,
+                    AttributeCompatibleAbstractState,
+                    AbstractStateCompatibleWith<DerefState> {
 
   /// State representing for dereferenceable bytes.
-  IntegerState DerefBytesState;
+  IntegerState<> DerefBytesState;
 
   /// State representing that whether the value is nonnull or global.
-  IntegerState NonNullGlobalState;
+  IntegerState<> NonNullGlobalState;
 
   /// Bits encoding for NonNullGlobalState.
   enum {
@@ -1659,16 +1583,52 @@ struct DerefState : AbstractState {
     return DerefBytesState.isAtFixpoint() && NonNullGlobalState.isAtFixpoint();
   }
 
+  /// Provided via AbstractStateCompatibleWith<..., Attribute>.
+  virtual ChangeStatus addKnownFrom(const Attribute &Attr) override {
+    if (Attr.getKindAsEnum() != Attribute::Dereferenceable &&
+        Attr.getKindAsEnum() != Attribute::DereferenceableOrNull)
+      return ChangeStatus::UNCHANGED;
+    auto StateBefore = *this;
+    if (Attr.getKindAsEnum() == Attribute::Dereferenceable)
+      NonNullGlobalState.addKnownBits(DEREF_NONNULL);
+    takeKnownDerefBytesMaximum(Attr.getValueAsInt());
+    return StateBefore == *this ? ChangeStatus::UNCHANGED
+                                : ChangeStatus::CHANGED;
+  }
+
+  /// Provided via AbstractStateCompatibleWith<..., DerefState>.
+  virtual ChangeStatus addKnownFrom(const DerefState &DS) override {
+    auto StateBefore = *this;
+    DerefBytesState.addKnownFrom(DS.DerefBytesState);
+    NonNullGlobalState.addKnownFrom(DS.NonNullGlobalState);
+    return StateBefore == *this ? ChangeStatus::UNCHANGED
+                                : ChangeStatus::CHANGED;
+  }
+
+  static bool isBestState(const Attribute &Attr) {
+    // The attribute \p Attr is in the best possible state if it is a
+    // dereferenceable attribute (not _or_null) and has the maximal value
+    // allowed by the IR (checked by
+    // AttributeCompatibleAbstractState::isBestState(Attr)).
+    return Attr.getKindAsEnum() == Attribute::Dereferenceable &&
+           AttributeCompatibleAbstractState::isBestState(Attr);
+  }
+
+  static bool isBestState(const DerefState &DS) {
+    return decltype(DS.DerefBytesState)::isBestState(DS.DerefBytesState) &&
+           decltype(DS.NonNullGlobalState)::isBestState(DS.NonNullGlobalState);
+  }
+
   /// See AbstractState::indicateOptimisticFixpoint(...)
-  void indicateOptimisticFixpoint() override {
-    DerefBytesState.indicateOptimisticFixpoint();
-    NonNullGlobalState.indicateOptimisticFixpoint();
+  ChangeStatus indicateOptimisticFixpoint() override {
+    return DerefBytesState.indicateOptimisticFixpoint() |
+           NonNullGlobalState.indicateOptimisticFixpoint();
   }
 
   /// See AbstractState::indicatePessimisticFixpoint(...)
-  void indicatePessimisticFixpoint() override {
-    DerefBytesState.indicatePessimisticFixpoint();
-    NonNullGlobalState.indicatePessimisticFixpoint();
+  ChangeStatus indicatePessimisticFixpoint() override {
+    return DerefBytesState.indicatePessimisticFixpoint() |
+           NonNullGlobalState.indicatePessimisticFixpoint();
   }
 
   /// Update known dereferenceable bytes.
@@ -1694,21 +1654,25 @@ struct DerefState : AbstractState {
     return this->DerefBytesState == R.DerefBytesState &&
            this->NonNullGlobalState == R.NonNullGlobalState;
   }
+
+  static DerefState getWorstState() {
+    DerefState DS;
+    DS.indicatePessimisticFixpoint();
+    return DS;
+  }
 };
-struct AADereferenceableImpl : AADereferenceable, DerefState {
 
-  AADereferenceableImpl(Value &V, InformationCache &InfoCache)
-      : AADereferenceable(V, InfoCache) {}
+struct AADereferenceableImpl : StatefulAbstractAttribute<AADereferenceable, DerefState> {
 
-  AADereferenceableImpl(Value *AssociatedVal, Value &AnchoredValue,
+  AADereferenceableImpl(Value *AssociatedVal, Value &AnchoredValue, int AttrIdx,
                         InformationCache &InfoCache)
-      : AADereferenceable(AssociatedVal, AnchoredValue, InfoCache) {}
+      : StatefulAbstractAttribute(AssociatedVal, AnchoredValue, AttrIdx,
+                                  InfoCache) {}
 
-  /// See AbstractAttribute::getState()
-  /// {
-  AbstractState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
-  /// }
+  void initialize(Attributor &A) override {
+    StateType::addKnownFrom(StateType::template getFromIR<AADereferenceableImpl>(
+        getAnchorScope(), getAnchoredValue(), getArgNo()));
+  }
 
   /// See AADereferenceable::getAssumedDereferenceableBytes().
   uint32_t getAssumedDereferenceableBytes() const override {
@@ -1765,19 +1729,21 @@ struct AADereferenceableImpl : AADereferenceable, DerefState {
       Attrs.emplace_back(Attribute::getWithDereferenceableOrNullBytes(
           Ctx, getAssumedDereferenceableBytes()));
   }
-  uint64_t computeAssumedDerefenceableBytes(Attributor &A, Value &V,
+  uint64_t computeAssumedDerefenceableBytes(Attributor &A, const Value &V,
                                             bool &IsNonNull, bool &IsGlobal);
 
+  #if 0
   void initialize(Attributor &A) override {
     Function &F = getAnchorScope();
     unsigned AttrIdx =
-        getAttrIndex(getManifestPosition(), getArgNo(getAnchoredValue()));
+        getAttrIndex(getManifestPosition(), getArgNo());
 
     for (Attribute::AttrKind AK :
          {Attribute::Dereferenceable, Attribute::DereferenceableOrNull})
       if (F.getAttributes().hasAttribute(AttrIdx, AK))
         takeKnownDerefBytesMaximum(F.getAttribute(AttrIdx, AK).getValueAsInt());
   }
+  #endif
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
@@ -1793,10 +1759,7 @@ struct AADereferenceableImpl : AADereferenceable, DerefState {
 
 struct AADereferenceableReturned : AADereferenceableImpl {
   AADereferenceableReturned(Function &F, InformationCache &InfoCache)
-      : AADereferenceableImpl(F, InfoCache) {}
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_RETURNED; }
+      : AADereferenceableImpl(&F, F, MP_RETURNED, InfoCache) {}
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
@@ -1811,7 +1774,7 @@ static uint64_t calcDifferenceIfBaseIsNonNull(int64_t DerefBytes,
 }
 
 uint64_t AADereferenceableImpl::computeAssumedDerefenceableBytes(
-    Attributor &A, Value &V, bool &IsNonNull, bool &IsGlobal) {
+    Attributor &A, const Value &V, bool &IsNonNull, bool &IsGlobal) {
   // TODO: Tracking the globally flag.
   IsGlobal = false;
 
@@ -1826,7 +1789,7 @@ uint64_t AADereferenceableImpl::computeAssumedDerefenceableBytes(
   unsigned IdxWidth =
       DL.getIndexSizeInBits(V.getType()->getPointerAddressSpace());
   APInt Offset(IdxWidth, 0);
-  Value *Base = V.stripAndAccumulateInBoundsConstantOffsets(DL, Offset);
+  const Value *Base = V.stripAndAccumulateInBoundsConstantOffsets(DL, Offset);
 
   if (auto *BaseDerefAA = A.getAAFor<AADereferenceable>(*this, *Base)) {
     IsNonNull &= Offset != 0;
@@ -1854,36 +1817,30 @@ ChangeStatus AADereferenceableReturned::updateImpl(Attributor &A) {
   syncNonNull(A.getAAFor<AANonNull>(*this, F));
 
   auto *AARetVal = A.getAAFor<AAReturnedValues>(*this, F);
-  if (!AARetVal) {
-    indicatePessimisticFixpoint();
-    return ChangeStatus::CHANGED;
-  }
+  if (!AARetVal)
+    return indicatePessimisticFixpoint();
 
   bool IsNonNull = isAssumedNonNull();
   bool IsGlobal = isAssumedGlobal();
 
-  std::function<bool(Value &)> Pred = [&](Value &RV) -> bool {
+  std::function<bool(const Value &)> Pred = [&](const Value &RV) -> bool {
     takeAssumedDerefBytesMinimum(
         computeAssumedDerefenceableBytes(A, RV, IsNonNull, IsGlobal));
     return isValidState();
   };
 
-  if (AARetVal->checkForallReturnedValues(Pred)) {
-    updateAssumedNonNullGlobalState(IsNonNull, IsGlobal);
-    return BeforeState == static_cast<DerefState>(*this)
-               ? ChangeStatus::UNCHANGED
-               : ChangeStatus::CHANGED;
-  }
-  indicatePessimisticFixpoint();
-  return ChangeStatus::CHANGED;
+  //if (AARetVal->checkForallReturnedValues(Pred)) {
+    //updateAssumedNonNullGlobalState(IsNonNull, IsGlobal);
+    //return BeforeState == static_cast<DerefState>(*this)
+               //? ChangeStatus::UNCHANGED
+               //: ChangeStatus::CHANGED;
+  //}
+  return indicatePessimisticFixpoint();
 }
 
 struct AADereferenceableArgument : AADereferenceableImpl {
   AADereferenceableArgument(Argument &A, InformationCache &InfoCache)
-      : AADereferenceableImpl(A, InfoCache) {}
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override { return MP_ARGUMENT; }
+      : AADereferenceableImpl(&A, A, A.getArgNo(), InfoCache) {}
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
@@ -1925,10 +1882,10 @@ ChangeStatus AADereferenceableArgument::updateImpl(Attributor &A) {
     return isValidState();
   };
 
-  if (!A.checkForAllCallSites(F, CallSiteCheck, true)) {
-    indicatePessimisticFixpoint();
-    return ChangeStatus::CHANGED;
-  }
+  //if (!A.checkForAllCallSites(F, CallSiteCheck, true)) {
+    //indicatePessimisticFixpoint();
+    //return ChangeStatus::CHANGED;
+  //}
 
   updateAssumedNonNullGlobalState(IsNonNull, IsGlobal);
 
@@ -1940,35 +1897,23 @@ ChangeStatus AADereferenceableArgument::updateImpl(Attributor &A) {
 struct AADereferenceableCallSiteArgument : AADereferenceableImpl {
 
   /// See AADereferenceableImpl::AADereferenceableImpl(...).
-  AADereferenceableCallSiteArgument(CallSite CS, unsigned ArgNo,
-                                    InformationCache &InfoCache)
-      : AADereferenceableImpl(CS.getArgOperand(ArgNo), *CS.getInstruction(),
-                              InfoCache),
-        ArgNo(ArgNo) {}
+  AADereferenceableCallSiteArgument(Instruction &CBInst,
+                                    InformationCache &InfoCache, unsigned ArgNo)
+      : AADereferenceableImpl(CallSite(&CBInst).getArgOperand(ArgNo), CBInst,
+                              ArgNo, InfoCache) {}
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     CallSite CS(&getAnchoredValue());
-    if (CS.paramHasAttr(ArgNo, Attribute::Dereferenceable))
-      takeKnownDerefBytesMaximum(CS.getDereferenceableBytes(ArgNo));
+    if (CS.paramHasAttr(getArgNo(), Attribute::Dereferenceable))
+      takeKnownDerefBytesMaximum(CS.getDereferenceableBytes(getArgNo()));
 
-    if (CS.paramHasAttr(ArgNo, Attribute::DereferenceableOrNull))
-      takeKnownDerefBytesMaximum(CS.getDereferenceableOrNullBytes(ArgNo));
+    if (CS.paramHasAttr(getArgNo(), Attribute::DereferenceableOrNull))
+      takeKnownDerefBytesMaximum(CS.getDereferenceableOrNullBytes(getArgNo()));
   }
 
   /// See AbstractAttribute::updateImpl(Attributor &A).
   ChangeStatus updateImpl(Attributor &A) override;
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override {
-    return MP_CALL_SITE_ARGUMENT;
-  };
-
-  // Return argument index of associated value.
-  int getArgNo() const { return ArgNo; }
-
-private:
-  unsigned ArgNo;
 };
 
 ChangeStatus AADereferenceableCallSiteArgument::updateImpl(Attributor &A) {
@@ -1980,7 +1925,7 @@ ChangeStatus AADereferenceableCallSiteArgument::updateImpl(Attributor &A) {
 
   auto BeforeState = static_cast<DerefState>(*this);
 
-  syncNonNull(A.getAAFor<AANonNull>(*this, getAnchoredValue(), ArgNo));
+  syncNonNull(A.getAAFor<AANonNull>(*this, getAnchoredValue(), getArgNo()));
   bool IsNonNull = isAssumedNonNull();
   bool IsGlobal = isKnownGlobal();
 
@@ -1994,24 +1939,18 @@ ChangeStatus AADereferenceableCallSiteArgument::updateImpl(Attributor &A) {
 
 // ------------------------ Align Argument Attribute ------------------------
 
-struct AAAlignImpl : AAAlign, IntegerState {
+struct AAAlignImpl
+    : StatefulAbstractAttribute<AAAlign, IntegerState<AAAlign::MAX_ALIGN>> {
 
-  // Max alignemnt value allowed in IR
-  static const unsigned MAX_ALIGN = 1U << 29;
-
-  AAAlignImpl(Value *AssociatedVal, Value &AnchoredValue,
+  AAAlignImpl(Value *AssociatedVal, Value &AnchoredValue, int AttrIdx,
               InformationCache &InfoCache)
-      : AAAlign(AssociatedVal, AnchoredValue, InfoCache),
-        IntegerState(MAX_ALIGN) {}
+      : StatefulAbstractAttribute(AssociatedVal, AnchoredValue, AttrIdx,
+                                  InfoCache) {}
 
-  AAAlignImpl(Value &V, InformationCache &InfoCache)
-      : AAAlignImpl(&V, V, InfoCache) {}
-
-  /// See AbstractAttribute::getState()
-  /// {
-  AbstractState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
-  /// }
+  void initialize(Attributor &A) override {
+    StateType::addKnownFrom(StateType::template getFromIR<AAAlignImpl>(
+        getAnchorScope(), getAnchoredValue(), getArgNo()));
+  }
 
   virtual const std::string getAsStr() const override {
     return getAssumedAlign() ? ("align<" + std::to_string(getKnownAlign()) +
@@ -2024,18 +1963,6 @@ struct AAAlignImpl : AAAlign, IntegerState {
 
   /// See AAAlign::getKnownAlign().
   unsigned getKnownAlign() const override { return getKnown(); }
-
-  /// See AbstractAttriubute::initialize(...).
-  void initialize(Attributor &A) override {
-    Function &F = getAnchorScope();
-
-    unsigned AttrIdx =
-        getAttrIndex(getManifestPosition(), getArgNo(getAnchoredValue()));
-
-    // Already the function has align attribute on return value or argument.
-    if (F.getAttributes().hasAttribute(AttrIdx, ID))
-      addKnownBits(F.getAttribute(AttrIdx, ID).getAlignment());
-  }
 
   /// See AbstractAttribute::getDeducedAttributes
   virtual void
@@ -2050,12 +1977,7 @@ struct AAAlignImpl : AAAlign, IntegerState {
 struct AAAlignReturned : AAAlignImpl {
 
   AAAlignReturned(Function &F, InformationCache &InfoCache)
-      : AAAlignImpl(F, InfoCache) {}
-
-  /// See AbstractAttribute::getManifestPosition().
-  virtual ManifestPosition getManifestPosition() const override {
-    return MP_RETURNED;
-  }
+      : AAAlignImpl(&F, F, MP_RETURNED, InfoCache) {}
 
   /// See AbstractAttribute::updateImpl(...).
   virtual ChangeStatus updateImpl(Attributor &A) override;
@@ -2075,7 +1997,7 @@ ChangeStatus AAAlignReturned::updateImpl(Attributor &A) {
   // optimistic fixpoint is reached earlier.
 
   base_t BeforeState = getAssumed();
-  std::function<bool(Value &)> Pred = [&](Value &RV) -> bool {
+  std::function<bool(const Value &)> Pred = [&](const Value &RV) -> bool {
     auto *AlignAA = A.getAAFor<AAAlign>(*this, RV);
 
     if (AlignAA)
@@ -2101,12 +2023,7 @@ ChangeStatus AAAlignReturned::updateImpl(Attributor &A) {
 struct AAAlignArgument : AAAlignImpl {
 
   AAAlignArgument(Argument &A, InformationCache &InfoCache)
-      : AAAlignImpl(A, InfoCache) {}
-
-  /// See AbstractAttribute::getManifestPosition().
-  virtual ManifestPosition getManifestPosition() const override {
-    return MP_ARGUMENT;
-  }
+      : AAAlignImpl(&A, A, A.getArgNo(), InfoCache) {}
 
   /// See AbstractAttribute::updateImpl(...).
   virtual ChangeStatus updateImpl(Attributor &A) override;
@@ -2142,8 +2059,8 @@ ChangeStatus AAAlignArgument::updateImpl(Attributor &A) {
     return isValidState();
   };
 
-  if (!A.checkForAllCallSites(F, CallSiteCheck, true))
-    indicatePessimisticFixpoint();
+  //if (!A.checkForAllCallSites(F, CallSiteCheck, true))
+    //indicatePessimisticFixpoint();
 
   return BeforeState == getAssumed() ? ChangeStatus::UNCHANGED
                                      : ChangeStatus ::CHANGED;
@@ -2152,10 +2069,10 @@ ChangeStatus AAAlignArgument::updateImpl(Attributor &A) {
 struct AAAlignCallSiteArgument : AAAlignImpl {
 
   /// See AANonNullImpl::AANonNullImpl(...).
-  AAAlignCallSiteArgument(CallSite CS, unsigned ArgNo,
-                          InformationCache &InfoCache)
-      : AAAlignImpl(CS.getArgOperand(ArgNo), *CS.getInstruction(), InfoCache),
-        ArgNo(ArgNo) {}
+  AAAlignCallSiteArgument(Instruction &CBInst, InformationCache &InfoCache,
+                          unsigned ArgNo)
+      : AAAlignImpl(CallSite(&CBInst).getArgOperand(ArgNo), CBInst, ArgNo,
+                    InfoCache) {}
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
@@ -2166,17 +2083,6 @@ struct AAAlignCallSiteArgument : AAAlignImpl {
 
   /// See AbstractAttribute::updateImpl(Attributor &A).
   ChangeStatus updateImpl(Attributor &A) override;
-
-  /// See AbstractAttribute::getManifestPosition().
-  ManifestPosition getManifestPosition() const override {
-    return MP_CALL_SITE_ARGUMENT;
-  };
-
-  // Return argument index of associated value.
-  int getArgNo() const { return ArgNo; }
-
-private:
-  unsigned ArgNo;
 };
 
 ChangeStatus AAAlignCallSiteArgument::updateImpl(Attributor &A) {
@@ -2202,9 +2108,10 @@ ChangeStatus AAAlignCallSiteArgument::updateImpl(Attributor &A) {
 ///                               Attributor
 /// ----------------------------------------------------------------------------
 
-bool Attributor::checkForAllCallSites(Function &F,
-                                      std::function<bool(CallSite)> &Pred,
-                                      bool RequireAllCallSites) {
+template<typename AAType>
+bool Attributor::checkForAllCallSites(AbstractAttribute &QueryingAA,
+                                      const Function &F, bool &Assumed,
+                                      int ArgNo, bool RequireAllCallSites) {
   // We can try to determine information from
   // the call sites. However, this is only possible all call sites are known,
   // hence the function has internal linkage.
@@ -2215,6 +2122,14 @@ bool Attributor::checkForAllCallSites(Function &F,
         << " has no internal linkage, hence not all call sites are known\n");
     return false;
   }
+
+  // Callback function
+  auto CallSiteCheck = [&](CallSite CS) {
+//    return QueryingAA.getAssumedOrKnown<AAType>(
+//        *this, QueryingAA, Assumed, *CS.getInstruction(), ArgNo,
+//        /* CallSiteTraversal */ true, false);
+    return true;
+  };
 
   for (const Use &U : F.uses()) {
 
@@ -2228,7 +2143,7 @@ bool Attributor::checkForAllCallSites(Function &F,
       return false;
     }
 
-    if (Pred(CS))
+    if (CallSiteCheck(CS))
       continue;
 
     LLVM_DEBUG(dbgs() << "Attributor: Call site callback failed for "
@@ -2238,6 +2153,36 @@ bool Attributor::checkForAllCallSites(Function &F,
 
   return true;
 }
+
+#if 1
+template <typename AAType>
+Attribute Attributor::checkForallReturnedValues(AbstractAttribute &QueryingAA,
+                                                const Function &F,
+                                                bool &Assumed) {
+  Attribute Attr;
+  if (const Argument *Arg = ReturnedValuesStates::getKnownReturnedArg(F)) {
+    if (AAType *AA = getAAFor<AAType>(QueryingAA, *Arg)) {
+      assert(isa<Argument>(AA->getAssociatedValue()));
+      //Attr = QueryingAA.getAssumedOrKnown<AAType>(*this, QueryingAA, Assumed,
+          //*AA->getAssociatedValue());
+    }
+    // Assumed,
+  }
+
+  auto *AARetVal = getAAFor<AAReturnedValues>(QueryingAA, F);
+  //if (!AARetVal)
+    //return false;
+
+  ReturnValuePredicateFuncTy Pred =
+      [&](Attributor &A, const Value &RV,
+          const SmallPtrSetImpl<ReturnInst *> &ReturnInsts) -> bool {
+    //return QueryingAA.getAssumedOrKnown<AAType>(*this, QueryingAA, Assumed, RV, -1);
+        return false;
+  };
+
+  //return AARetVal->checkForallReturnedValues(*this, Pred);
+}
+#endif
 
 ChangeStatus Attributor::run() {
   // Initialize all abstract attributes.
@@ -2373,69 +2318,114 @@ ChangeStatus Attributor::run() {
   return ManifestChange;
 }
 
+/// Helper function that checks if an abstract attribute of type \p AAType
+/// should be created for \p V (with argument number \p ArgNo) and if so creates
+/// and registers it with the Attributor \p A.
+///
+/// This method will look at the provided whitelist. If one is given and the
+/// kind \p AAType::ID is not contained, no abstract attribute is created.
+///
+/// This method will look at the IR and if the information there is sufficient
+/// to determine the property, no abstract attribute is created.
+///
+/// \returns The created abstract argument, or nullptr if none was created.
+template <typename AAType, typename ValueType, typename... ArgsTy>
+static AAType *
+registerAAIfNeeded(const Function &F, Attributor &A,
+                   DenseSet</* Attribute::AttrKind */ unsigned> *Whitelist,
+                   InformationCache &InfoCache, ValueType &V, int ArgNo,
+                   ArgsTy... Args) {
+  if (Whitelist && !Whitelist->count(AAType::ID))
+    return nullptr;
+
+  // If the IR contains already the best possible information derivable by this
+  // AAType we do not create an object.
+  if (AAType::StateType::isBestState(
+          AAType::StateType::template getFromIR<AAType>(F, V, ArgNo))) {
+    ++NumAttributesSkippedDueToIR;
+    return nullptr;
+  }
+
+  return &A.registerAA<AAType>(*new AAType(V, InfoCache, Args...), ArgNo);
+}
+
 void Attributor::identifyDefaultAbstractAttributes(
     Function &F, InformationCache &InfoCache,
     DenseSet</* Attribute::AttrKind */ unsigned> *Whitelist) {
 
-  // Every function can be nounwind.
-  registerAA(*new AANoUnwindFunction(F, InfoCache));
+  {
+    // Attributes at the "function" (scope) position.
 
-  // Every function might be marked "nosync"
-  registerAA(*new AANoSyncFunction(F, InfoCache));
+    // Every function can be nounwind.
+    registerAAIfNeeded<AANoUnwindFunction>(F, *this, Whitelist, InfoCache, F,
+                                           -1);
 
-  // Every function might be "no-free".
-  registerAA(*new AANoFreeFunction(F, InfoCache));
+    // Every function might be marked "nosync"
+    registerAAIfNeeded<AANoSyncFunction>(F, *this, Whitelist, InfoCache, F, -1);
 
-  // Return attributes are only appropriate if the return type is non void.
-  Type *ReturnType = F.getReturnType();
-  if (!ReturnType->isVoidTy()) {
-    // Argument attribute "returned" --- Create only one per function even
-    // though it is an argument attribute.
-    if (!Whitelist || Whitelist->count(AAReturnedValues::ID))
-      registerAA(*new AAReturnedValuesImpl(F, InfoCache));
+    // Every function might be "no-free".
+    registerAAIfNeeded<AANoFreeFunction>(F, *this, Whitelist, InfoCache, F, -1);
 
-    if (ReturnType->isPointerTy()) {
-      // Every function with pointer return type might be marked align.
-      if (!Whitelist || Whitelist->count(AAAlignReturned::ID))
-        registerAA(*new AAAlignReturned(F, InfoCache));
+    // Every function might be "will-return".
+    registerAAIfNeeded<AAWillReturnFunction>(F, *this, Whitelist, InfoCache, F,
+                                             -1);
 
-      // Every function with pointer return type might be marked nonnull.
-      if (!Whitelist || Whitelist->count(AANonNullReturned::ID))
-        registerAA(*new AANonNullReturned(F, InfoCache));
+    // Check for dead BasicBlocks in every function.
+    registerAAIfNeeded<AAIsDeadFunction>(F, *this, Whitelist, InfoCache, F, -1);
+  }
 
-      // Every function with pointer return type might be marked noalias.
-      if (!Whitelist || Whitelist->count(AANoAliasReturned::ID))
-        registerAA(*new AANoAliasReturned(F, InfoCache));
+  {
+    // Attributes at the "returned" position.
 
-      // Every function with pointer return type might be marked
-      // dereferenceable.
-      if (ReturnType->isPointerTy() &&
-          (!Whitelist || Whitelist->count(AADereferenceableReturned::ID)))
-        registerAA(*new AADereferenceableReturned(F, InfoCache));
+    // Return attributes are only appropriate if the return type is non void.
+    Type *ReturnType = F.getReturnType();
+    if (!ReturnType->isVoidTy()) {
+
+      // Argument attribute "returned" --- Create only one per function even
+      // though it is an argument attribute.
+      //registerAAIfNeeded<AAReturnedValuesImpl>(F, *this,
+                                               //Whitelist, InfoCache, F, -1);
+
+      if (ReturnType->isPointerTy()) {
+        // Every function with pointer return type might be marked align.
+        registerAAIfNeeded<AAAlignReturned>(F, *this, Whitelist, InfoCache, F,
+                                            -1);
+
+        // Every function with pointer return type might be marked nonnull.
+        registerAAIfNeeded<AANonNullReturned>(F, *this, Whitelist, InfoCache, F,
+                                              -1);
+
+        // Every function with pointer return type might be marked noalias.
+        registerAAIfNeeded<AANoAliasReturned>(F, *this, Whitelist, InfoCache, F,
+                                              -1);
+
+        // Every function with pointer return type might be marked
+        // dereferenceable.
+        registerAAIfNeeded<AADereferenceableReturned>(F, *this, Whitelist,
+                                                      InfoCache, F, -1);
+      }
     }
   }
 
-  for (Argument &Arg : F.args()) {
-    if (Arg.getType()->isPointerTy()) {
-      // Every argument with pointer type might be marked nonnull.
-      if (!Whitelist || Whitelist->count(AANonNullArgument::ID))
-        registerAA(*new AANonNullArgument(Arg, InfoCache));
+  {
+    // Attributes at the "argument" position.
 
-      // Every argument with pointer type might be marked dereferenceable.
-      if (!Whitelist || Whitelist->count(AADereferenceableArgument::ID))
-        registerAA(*new AADereferenceableArgument(Arg, InfoCache));
+    for (Argument &Arg : F.args()) {
+      if (Arg.getType()->isPointerTy()) {
+        // Every argument with pointer type might be marked nonnull.
+        registerAAIfNeeded<AANonNullArgument>(F, *this, Whitelist, InfoCache,
+                                              Arg, Arg.getArgNo());
 
-      // Every argument with pointer type might be marked align.
-      if (!Whitelist || Whitelist->count(AAAlignArgument::ID))
-        registerAA(*new AAAlignArgument(Arg, InfoCache));
+        // Every argument with pointer type might be marked dereferenceable.
+        registerAAIfNeeded<AADereferenceableArgument>(
+            F, *this, Whitelist, InfoCache, Arg, Arg.getArgNo());
+
+        // Every argument with pointer type might be marked align.
+        registerAAIfNeeded<AAAlignArgument>(F, *this, Whitelist, InfoCache, Arg,
+                                            Arg.getArgNo());
+      }
     }
   }
-
-  // Every function might be "will-return".
-  registerAA(*new AAWillReturnFunction(F, InfoCache));
-
-  // Check for dead BasicBlocks in every function.
-  registerAA(*new AAIsDeadFunction(F, InfoCache));
 
   // Walk all instructions to find more attribute opportunities and also
   // interesting instructions that might be queried by abstract attributes
@@ -2471,25 +2461,27 @@ void Attributor::identifyDefaultAbstractAttributes(
     if (I.mayReadOrWriteMemory())
       ReadOrWriteInsts.push_back(&I);
 
-    CallSite CS(&I);
-    if (CS && CS.getCalledFunction()) {
-      for (int i = 0, e = CS.getCalledFunction()->arg_size(); i < e; i++) {
-        if (!CS.getArgument(i)->getType()->isPointerTy())
-          continue;
+    {
+      // Attributes at the "call site argument" position.
 
-        // Call site argument attribute "non-null".
-        if (!Whitelist || Whitelist->count(AANonNullCallSiteArgument::ID))
-          registerAA(*new AANonNullCallSiteArgument(CS, i, InfoCache), i);
+      CallSite CS(&I);
+      if (CS && CS.getCalledFunction()) {
+        for (int i = 0, e = CS.getCalledFunction()->arg_size(); i < e; i++) {
+          if (!CS.getArgument(i)->getType()->isPointerTy())
+            continue;
 
-        // Call site argument attribute "dereferenceable".
-        if (!Whitelist ||
-            Whitelist->count(AADereferenceableCallSiteArgument::ID))
-          registerAA(*new AADereferenceableCallSiteArgument(CS, i, InfoCache),
-                     i);
+          // Call site argument attribute "non-null".
+          registerAAIfNeeded<AANonNullCallSiteArgument>(F, *this, Whitelist,
+                                                        InfoCache, I, i, i);
 
-        // Call site argument attribute "align".
-        if (!Whitelist || Whitelist->count(AAAlignCallSiteArgument::ID))
-          registerAA(*new AAAlignCallSiteArgument(CS, i, InfoCache), i);
+          // Call site argument attribute "dereferenceable".
+          registerAAIfNeeded<AADereferenceableCallSiteArgument>(
+              F, *this, Whitelist, InfoCache, I, i, i);
+
+          // Call site argument attribute "align".
+          registerAAIfNeeded<AAAlignCallSiteArgument>(F, *this, Whitelist,
+                                                      InfoCache, I, i, i);
+        }
       }
     }
   }
@@ -2505,6 +2497,8 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, ChangeStatus S) {
 raw_ostream &llvm::operator<<(raw_ostream &OS,
                               AbstractAttribute::ManifestPosition AP) {
   switch (AP) {
+  default:
+    llvm_unreachable("Unhandled manifest position!");
   case AbstractAttribute::MP_ARGUMENT:
     return OS << "arg";
   case AbstractAttribute::MP_CALL_SITE_ARGUMENT:
@@ -2514,11 +2508,14 @@ raw_ostream &llvm::operator<<(raw_ostream &OS,
   case AbstractAttribute::MP_RETURNED:
     return OS << "fn_ret";
   }
-  llvm_unreachable("Unknown attribute position!");
 }
 
 raw_ostream &llvm::operator<<(raw_ostream &OS, const AbstractState &S) {
   return OS << (!S.isValidState() ? "top" : (S.isAtFixpoint() ? "fix" : ""));
+}
+
+raw_ostream &llvm::operator<<(raw_ostream &OS, const IntegerState<> &IS) {
+  return OS << "IS<" << IS.getAssumed() << "-" << IS.getKnown() << ">";
 }
 
 raw_ostream &llvm::operator<<(raw_ostream &OS, const AbstractAttribute &AA) {
@@ -2531,6 +2528,31 @@ void AbstractAttribute::print(raw_ostream &OS) const {
      << AnchoredVal.getName() << "]";
 }
 ///}
+
+bool AttributeCompatibleAbstractState::isBestState(const Attribute &Attr) {
+  // All but "None" enum attributes are in their best state (they are on/off).
+  if (Attr.isEnumAttribute())
+    return Attr.getKindAsEnum() != Attribute::None;
+
+  // For integer attributes we look at the value and check it agains known
+  // maximal values.
+  if (Attr.isIntAttribute()) {
+    uint64_t IntVal = Attr.getValueAsInt();
+    switch (Attr.getKindAsEnum()) {
+    case Attribute::Alignment:
+      return IntVal == AAAlign::MAX_ALIGN;
+    case Attribute::Dereferenceable:
+    case Attribute::DereferenceableOrNull:
+      // TODO: What is the maximal value here?
+      break;
+    default:
+      break;
+    }
+    return IntVal == std::numeric_limits<decltype(IntVal)>::max();
+  }
+  // TODO: Categorize string attributes here as well.
+  return false;
+}
 
 /// ----------------------------------------------------------------------------
 ///                       Pass (Manager) Boilerplate
