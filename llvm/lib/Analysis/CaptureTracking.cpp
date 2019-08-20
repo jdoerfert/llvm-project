@@ -34,20 +34,19 @@ CaptureTracker::~CaptureTracker() {}
 
 bool CaptureTracker::shouldExplore(const Use *U) { return true; }
 
-bool CaptureTracker::isDereferenceableOrNull(Value *O, const DataLayout &DL) {
-  // An inbounds GEP can either be a valid pointer (pointing into
-  // or to the end of an allocation), or be null in the default
-  // address space. So for an inbounds GEP there is no way to let
-  // the pointer escape using clever GEP hacking because doing so
-  // would make the pointer point outside of the allocated object
-  // and thus make the GEP result a poison value. Similarly, other
-  // dereferenceable pointers cannot be manipulated without producing
-  // poison.
-  if (auto *GEP = dyn_cast<GetElementPtrInst>(O))
-    if (GEP->isInBounds())
-      return true;
+bool CaptureTracker::isDereferenceableOrNull(const Value *O,
+                                             const DataLayout &DL,
+                                             bool AllowNull) {
+  if (AllowNull && isa<ConstantPointerNull>(O))
+    return true;
+
   bool CanBeNull, IsKnownDeref;
-  return getPointerDereferenceableBytes(O, DL, CanBeNull, IsKnownDeref);
+  if (!getPointerDereferenceableBytes(O, DL, CanBeNull, IsKnownDeref))
+    return false;
+
+  // If we have dereferenceable bytes we have to exclude the "_or_null" part if
+  // it is not allowed.
+  return IsKnownDeref || (AllowNull || !CanBeNull);
 }
 
 namespace {
@@ -348,28 +347,44 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
       AddUses(I);
       break;
     case Instruction::ICmp: {
-      unsigned Idx = (I->getOperand(0) == V) ? 0 : 1;
-      unsigned OtherIdx = 1 - Idx;
-      if (auto *CPN = dyn_cast<ConstantPointerNull>(I->getOperand(OtherIdx))) {
-        // Don't count comparisons of a no-alias return value against null as
-        // captures. This allows us to ignore comparisons of malloc results
-        // with null, for example.
-        if (CPN->getType()->getAddressSpace() == 0)
-          if (isNoAliasCall(V->stripPointerCasts()))
-            break;
-        if (!I->getFunction()->nullPointerIsDefined()) {
-          auto *O = I->getOperand(Idx)->stripPointerCastsSameRepresentation();
-          // Comparing a dereferenceable_or_null pointer against null cannot
-          // lead to pointer escapes, because if it is not null it must be a
-          // valid (in-bounds) pointer.
-          if (Tracker->isDereferenceableOrNull(O, I->getModule()->getDataLayout()))
-            break;
-        }
-      }
+      unsigned OtherIdx = (I->getOperand(0) == V) ? 1 : 0;
+      const Value *Op0 = V->stripPointerCastsSameRepresentation();
+      const Value *Op1 = I->getOperand(OtherIdx)->stripPointerCastsSameRepresentation();
+      const DataLayout &DL = I->getModule()->getDataLayout();
+      bool NullIsDefinedOp0 = NullPointerIsDefined(
+          I->getFunction(), V->getType()->getPointerAddressSpace());
+
+      // If the two pointers compared are both the result of an allocation or
+      // pointing into/to the end of an allocation, hence:
+      //  - dereferenceable pointers,
+      //  - noalias return pointers, (including the unique value potentiall
+      //                              resulting from a malloc(0) call)
+      //  - null, (if null is not a valid pointer)
+      // then there are no "bit-tricks" possible to learn about the pointer
+      // bits. Put differently, one cannot learn about a pointer in these
+      // category because one cannot manipulate the other pointer freely while
+      // keeping it in these categories. So the "other pointer" is either
+      // "fixed" (null or something and special returned by malloc(0)) or for
+      // the most part not controllable, e.g., the "random" allocation location
+      // (alloc, malloc, etc.) which only allows manipulation of a few bits up
+      // to the (log of the) allocation size.
+      //
+      // TODO: We should think about moving the isNoAliasCall check into
+      //       Value::getPointerDereferenceableBytes as it implies
+      //       dereferenceable_or_null(1) assuming malloc(0) does return NULL.
+      bool IsDerefOrNoAlias0 =
+          isNoAliasCall(Op0) ||
+          Tracker->isDereferenceableOrNull(Op0, DL, !NullIsDefinedOp0);
+      bool IsDerefOrNoAlias1 =
+          isNoAliasCall(Op1) ||
+          Tracker->isDereferenceableOrNull(Op1, DL, !NullIsDefinedOp0);
+      if (IsDerefOrNoAlias0 && IsDerefOrNoAlias1)
+        break;
+
       // Comparison against value stored in global variable. Given the pointer
       // does not escape, its value cannot be guessed and stored separately in a
       // global variable.
-      auto *LI = dyn_cast<LoadInst>(I->getOperand(OtherIdx));
+      auto *LI = dyn_cast<LoadInst>(Op1);
       if (LI && isa<GlobalVariable>(LI->getPointerOperand()))
         break;
       // Otherwise, be conservative. There are crazy ways to capture pointers

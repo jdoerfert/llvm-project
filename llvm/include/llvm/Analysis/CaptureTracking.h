@@ -87,8 +87,11 @@ namespace llvm {
 
     /// isDereferenceableOrNull - Overload to allow clients with additional
     /// knowledge about pointer dereferenceability to provide it and thereby
-    /// avoid conservative responses when a pointer is compared to null.
-    virtual bool isDereferenceableOrNull(Value *O, const DataLayout &DL);
+    /// avoid conservative responses when pointers are compared. The flag
+    /// \p AllowNull indicates if the pointer has to be dereferenceable or
+    /// if "null" is OK as well.
+    virtual bool isDereferenceableOrNull(const Value *O, const DataLayout &DL,
+                                         bool AllowNull);
   };
 
   /// PointerMayBeCaptured - Visit the value and the values derived from it and

@@ -325,5 +325,24 @@ entry:
   ret void
 }
 
+declare noalias i8* @malloc(i32)
+declare noalias i32* @malloclike()
+; CHECK: define i1 @nocaptureICmp(i32* nocapture readnone dereferenceable(4) %deref)
+define i1 @nocaptureICmp(i32* dereferenceable(4) %deref) {
+  %na1 = call i8* @malloc(i32 2)
+  %na2 = call i32* @malloclike()
+  %bc = bitcast i32* %deref to i8*
+  %cmp1 = icmp sle i8* %bc, %na1
+  %cmp2 = icmp ugt i8* %bc, null
+  %cmp3 = icmp ugt i32* %deref, null
+  %cmp4 = icmp eq i32* %deref, %na2
+  %cmp5 = icmp ne i32* %deref, %deref
+  %and1 = and i1 %cmp1, %cmp2
+  %and2 = and i1 %cmp3, %cmp4
+  %and3 = and i1 %and1, %and2
+  %and4 = and i1 %and3, %cmp5
+  ret i1 %and4
+}
+
 declare i8* @llvm.launder.invariant.group.p0i8(i8*)
 declare i8* @llvm.strip.invariant.group.p0i8(i8*)

@@ -94,7 +94,7 @@ entry:
     %within_allocation = getelementptr inbounds %struct.A, %struct.A* @globalstruct, i64 0, i32 0, i64 10
     %load11 = load i8, i8* %within_allocation
 
-    ; GEP is outside the underlying object size
+    ; GEP is outside the underlying object size, this is definitively UB (inbounds GEP! and load past an allocation)
 ; CHECK-NOT: %outside_allocation
     %outside_allocation = getelementptr inbounds %struct.A, %struct.A* @globalstruct, i64 0, i32 1, i64 10
     %load12 = load i8, i8* %outside_allocation
