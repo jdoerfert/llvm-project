@@ -2131,14 +2131,36 @@ struct AAMemoryBehavior
   AAMemoryBehavior(const IRPosition &IRP) : IRAttribute(IRP) {}
 
   /// State encoding bits. A set bit in the state means the property holds.
-  /// BEST_STATE is the best possible state, 0 the worst possible state.
+  /// NO_ACCESSES is the best possible state, 0 the worst possible state.
   enum {
     NO_READS = 1 << 0,
     NO_WRITES = 1 << 1,
     NO_ACCESSES = NO_READS | NO_WRITES,
-
-    BEST_STATE = NO_ACCESSES,
   };
+
+  /// Encoding of different locations that could be accessed by a memory access.
+  enum {
+    NO_LOCAL_MEM = NO_ACCESSES + 1,
+    NO_CONST_MEM = NO_LOCAL_MEM * 2,
+    NO_GLOBAL_INTERNAL_MEM = NO_CONST_MEM * 2,
+    NO_GLOBAL_EXTERNAL_MEM = NO_GLOBAL_INTERNAL_MEM * 2,
+    NO_ARGUMENT_MEM = NO_GLOBAL_EXTERNAL_MEM * 2,
+    NO_INACCESSIBLE_MEM = NO_ARGUMENT_MEM * 2,
+    NO_LOCATIONS = NO_LOCAL_MEM | NO_CONST_MEM | NO_GLOBAL_INTERNAL_MEM |
+                   NO_GLOBAL_EXTERNAL_MEM | NO_ARGUMENT_MEM |
+                   NO_INACCESSIBLE_MEM,
+  };
+  static_assert(NO_LOCAL_MEM == 1 << 2, "Unexpected NO_LOCAL_MEM value");
+
+  ///// Return the encoding for "only \p MLK" is accssed.
+  //static uint32_t getOnlyMemoryKindEncoding(MemoryLocationKind MLK) {
+    //return NONE ^ MLK;
+  //}
+  ///// Return the encoding for "only \p MLK0 or \p MLK1" is accssed.
+  //static uint32_t getOnlyMemoryKindEncoding(MemoryLocationKind MLK0,
+                                            //MemoryLocationKind MLK1) {
+    //return NONE ^ (MLK0 | MLK1);
+  //}
 
   /// Return true if we know that the underlying value is not read or accessed
   /// in its respective scope.
@@ -2163,6 +2185,44 @@ struct AAMemoryBehavior
   /// Return true if we assume that the underlying value is not read in its
   /// respective scope.
   bool isAssumedWriteOnly() const { return isAssumed(NO_READS); }
+
+  /// Return true if we know that the underlying value will only access
+  /// inaccesible memory only (see Attribute::InaccessibleMemOnly).
+  bool isKnownInaccessibleMemOnly() const {
+    return isKnown(NO_INACCESSIBLE_MEM);
+  }
+
+  /// Return true if we assume that the underlying value will only access
+  /// inaccesible memory only (see Attribute::InaccessibleMemOnly).
+  bool isAssumedInaccessibleMemOnly() const {
+    return isAssumed(NO_INACCESSIBLE_MEM);
+  }
+
+  /// Return true if we know that the underlying value will only access
+  /// argument pointees (see Attribute::ArgMemOnly).
+  bool isKnownArgMemOnly() const {
+    return isKnown(NO_ARGUMENT_MEM);
+  }
+
+  /// Return true if we assume that the underlying value will only access
+  /// argument pointees (see Attribute::ArgMemOnly).
+  bool isAssumedArgMemOnly() const {
+    return isAssumed(NO_ARGUMENT_MEM);
+  }
+
+  /// Return true if we know that the underlying value will only access
+  /// inaccesible memory or argument pointees (see
+  /// Attribute::InaccessibleOrArgMemOnly).
+  bool isKnownInaccessibleOrArgMemOnly() const {
+    return isKnownInaccessibleMemOnly() | isKnownArgMemOnly();
+  }
+
+  /// Return true if we assume that the underlying value will only access
+  /// inaccesible memory or argument pointees (see
+  /// Attribute::InaccessibleOrArgMemOnly).
+  bool isAssumedInaccessibleOrArgMemOnly() const {
+    return isAssumedInaccessibleMemOnly() | isAssumedArgMemOnly();
+  }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAMemoryBehavior &createForPosition(const IRPosition &IRP,

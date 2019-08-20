@@ -4841,14 +4841,22 @@ struct AAPrivatizablePtrReturned final : public AAPrivatizablePtrFloating {
 /// Includes read-none, read-only, and write-only.
 /// ----------------------------------------------------------------------------
 struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
+  using MemoryLocationKind = uint32_t;
+
   AAMemoryBehaviorImpl(const IRPosition &IRP) : AAMemoryBehavior(IRP) {}
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    intersectAssumedBits(BEST_STATE);
+    intersectAssumedBits(NO_ACCESSES | NO_LOCATIONS);
     getKnownStateFromValue(getIRPosition(), getState());
     IRAttribute::initialize(A);
   }
+
+  /// Return the inverse of location \p Loc, thus for NO_XXX the return
+  /// describes ONLY_XXX.
+  static MemoryLocationKind inverseLocation(MemoryLocationKind Loc) {
+    return NO_LOCATIONS & ~Loc;
+  };
 
   /// Return the memory behavior information encoded in the IR for \p IRP.
   static void getKnownStateFromValue(const IRPosition &IRP,
@@ -4865,6 +4873,16 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
         break;
       case Attribute::WriteOnly:
         State.addKnownBits(NO_READS);
+        break;
+      case Attribute::InaccessibleMemOnly:
+        State.addKnownBits(inverseLocation(NO_INACCESSIBLE_MEM));
+        break;
+      case Attribute::ArgMemOnly:
+        State.addKnownBits(inverseLocation(NO_ARGUMENT_MEM));
+        break;
+      case Attribute::InaccessibleMemOrArgMemOnly:
+        State.addKnownBits(
+            inverseLocation(NO_INACCESSIBLE_MEM | NO_ARGUMENT_MEM));
         break;
       default:
         llvm_unreachable("Unexpcted attribute!");
@@ -4883,13 +4901,28 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
   void getDeducedAttributes(LLVMContext &Ctx,
                             SmallVectorImpl<Attribute> &Attrs) const override {
     assert(Attrs.size() == 0);
-    if (isAssumedReadNone())
+    if (isAssumedReadNone()) {
       Attrs.push_back(Attribute::get(Ctx, Attribute::ReadNone));
-    else if (isAssumedReadOnly())
+      return;
+    }
+
+    if (isAssumedReadOnly())
       Attrs.push_back(Attribute::get(Ctx, Attribute::ReadOnly));
     else if (isAssumedWriteOnly())
       Attrs.push_back(Attribute::get(Ctx, Attribute::WriteOnly));
     assert(Attrs.size() <= 1);
+
+    if (getIRPosition().getPositionKind() == IRPosition::IRP_FUNCTION) {
+      if (isAssumedInaccessibleMemOnly())
+        Attrs.push_back(Attribute::get(Ctx, Attribute::InaccessibleMemOnly));
+      else if (isAssumedArgMemOnly())
+        Attrs.push_back(Attribute::get(Ctx, Attribute::ArgMemOnly));
+      else if (isAssumedInaccessibleOrArgMemOnly())
+        Attrs.push_back(
+            Attribute::get(Ctx, Attribute::InaccessibleMemOrArgMemOnly));
+    }
+
+    assert(Attrs.size() <= 2);
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -4899,11 +4932,11 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
     // Check if we would improve the existing attributes first.
     SmallVector<Attribute, 4> DeducedAttrs;
     getDeducedAttributes(IRP.getAnchorValue().getContext(), DeducedAttrs);
-    if (llvm::all_of(DeducedAttrs, [&](const Attribute &Attr) {
-          return IRP.hasAttr(Attr.getKindAsEnum(),
-                             /* IgnoreSubsumingPositions */ true);
-        }))
-      return ChangeStatus::UNCHANGED;
+    //if (llvm::all_of(DeducedAttrs, [&](const Attribute &Attr) {
+          //return IRP.hasAttr(Attr.getKindAsEnum(),
+                             //[> IgnoreSubsumingPositions <] true);
+        //}))
+      //return ChangeStatus::UNCHANGED;
 
     // Clear existing attributes.
     IRP.removeAttrs(AttrKinds);
@@ -4914,33 +4947,139 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
 
   /// See AbstractState::getAsStr().
   const std::string getAsStr() const override {
+    std::string S = "";
     if (isAssumedReadNone())
-      return "readnone";
-    if (isAssumedReadOnly())
-      return "readonly";
-    if (isAssumedWriteOnly())
-      return "writeonly";
-    return "may-read/write";
+      S = "readnone";
+    else if (isAssumedReadOnly())
+      S = "readonly";
+    else if (isAssumedWriteOnly())
+      S = "writeonly";
+    else
+      S = "may-read/write";
+
+    if (isAssumedInaccessibleMemOnly())
+      S += " inaccessible memory";
+    else if (isAssumedArgMemOnly())
+      S += " argument pointee memory";
+    else if (isAssumedInaccessibleOrArgMemOnly())
+      S += " inaccessible or argument pointee memory";
+
+    return S;
   }
 
-  /// The set of IR attributes AAMemoryBehavior deals with.
-  static const Attribute::AttrKind AttrKinds[3];
+  protected:
+
+    /// Return the kind(s) of location that may be accessed by \p V.
+    MemoryLocationKind categorizeAccessedLocations(Attributor &A,
+                                                   const Instruction &I);
+
+    /// Return the kind(s) of location that may be represented by \p V.
+    MemoryLocationKind
+    categorizeRepresentedLocations(Attributor &A, const Value &V);
+
+    /// The set of IR attributes AAMemoryBehavior deals with.
+    static const Attribute::AttrKind AttrKinds[6];
 };
 
 const Attribute::AttrKind AAMemoryBehaviorImpl::AttrKinds[] = {
-    Attribute::ReadNone, Attribute::ReadOnly, Attribute::WriteOnly};
+    Attribute::ReadNone,   Attribute::ReadOnly,
+    Attribute::WriteOnly,  Attribute::InaccessibleMemOnly,
+    Attribute::ArgMemOnly, Attribute::InaccessibleMemOrArgMemOnly};
+
+AAMemoryBehaviorImpl::MemoryLocationKind
+AAMemoryBehaviorImpl::categorizeRepresentedLocations(
+    Attributor &A, const Value &V) {
+  //if (!Visited.insert(&V).second)
+    //return MLK_NONE;
+
+  #if 0
+  const Value *Ptr, *PtrOrigin = V.stripInBoundsConstantOffsets();
+  do {
+    Ptr = PtrOrigin;
+    if (const BitCastInst *BCI = dyn_cast<BitCastInst>(Ptr))
+      PtrOrigin = BCI->getOperand(0);
+    else if (const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Ptr))
+      PtrOrigin = GEP->getPointerOperand();
+    else if (const SelectInst *SI = dyn_cast<SelectInst>(Ptr)) {
+      return (MemoryLocationKind)(
+          categorizeRepresentedLocations(A, *SI->getTrueValue(), Visited) |
+          categorizeRepresentedLocations(A, *SI->getFalseValue(), Visited));
+    } else if (const PHINode *PHI = dyn_cast<PHINode>(Ptr)) {
+      MemoryLocationKind MLK = MLK_NONE;
+      for (const Value *PHIOp : PHI->operands())
+        MLK = (MemoryLocationKind)(
+            MLK | categorizeRepresentedLocations(A, *PHIOp, Visited));
+      return MLK;
+    }
+  } while (PtrOrigin != Ptr);
+
+  if (isa<UndefValue>(Ptr))
+    return MLK_NONE;
+  if (isa<Argument>(Ptr))
+    return MLK_ARGUMENT;
+  if (isa<GlobalValue>(Ptr))
+    return MLK_GLOBAL;
+  #endif
+
+  return 0;
+}
+
+AAMemoryBehaviorImpl::MemoryLocationKind
+AAMemoryBehaviorImpl::categorizeAccessedLocations(
+    Attributor &A, const Instruction &I) {
+  SmallPtrSet<const Value *, 16> VisitedValues;
+
+  auto CollectArgumentLocations = [&](const ImmutableCallSite &ICS) {
+    MemoryLocationKind MLK = MLK_NONE;
+    unsigned ArgNo = 0;
+    for (Value *ArgOp : ICS.args()) {
+      // If the argument is readnone we ignore it.
+      auto *MemBehaviorAA =
+          A.getAAFor<AAMemoryBehavior>(*this, *ICS.getCalledValue(), ArgNo++);
+      if (MemBehaviorAA && MemBehaviorAA->getState().isValidState() &&
+          MemBehaviorAA->isAssumedReadNone())
+        continue;
+
+      MLK = (MemoryLocationKind)(
+          MLK | categorizeRepresentedLocations(A, *ArgOp, VisitedValues));
+    }
+    return MLK;
+  };
+
+  // We can try to lookup another in-flight abstract attribute for the
+  // instruction in question.
+  if (MemBehaviorAA && MemBehaviorAA->getState().isValidState()) {
+    if (MemBehaviorAA->isAssumedReadNone())
+      return MLK_NONE;
+    if (MemBehaviorAA->isAssumedInaccessibleMemOnly())
+      return MLK_INACCESSIBLE;
+
+    ImmutableCallSite ICS(&I);
+    if (ICS && MemBehaviorAA->isAssumedArgMemOnly())
+      return CollectArgumentLocations(ICS);
+    if (ICS && MemBehaviorAA->isAssumedInaccessibleOrArgMemOnly())
+      return (MemoryLocationKind)(MLK_INACCESSIBLE |
+                                  CollectArgumentLocations(ICS));
+  }
+
+  // TODO: Memory intrinsics
+  //if (isa<AnyMemTransferInst>(I)) {
+  //return categorizeRepresentedLocations(A, *Loc->Ptr, VisitedValues);
+  //}
+
+  Optional<MemoryLocation> Loc = MemoryLocation::getOrNone(&I);
+  if (!Loc.hasValue())
+    return MLK_UNKNOWN;
+
+  // TODO: pointsToConstantMemory
+
+  return categorizeRepresentedLocations(A, *Loc->Ptr, VisitedValues);
+}
+
 
 /// Memory behavior attribute for a floating value.
 struct AAMemoryBehaviorFloating : AAMemoryBehaviorImpl {
   AAMemoryBehaviorFloating(const IRPosition &IRP) : AAMemoryBehaviorImpl(IRP) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AAMemoryBehaviorImpl::initialize(A);
-    // Initialize the use vector with all direct uses of the associated value.
-    for (const Use &U : getAssociatedValue().uses())
-      Uses.insert(&U);
-  }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
@@ -4953,6 +5092,103 @@ struct AAMemoryBehaviorFloating : AAMemoryBehaviorImpl {
       STATS_DECLTRACK_FLOATING_ATTR(readonly)
     else if (isAssumedWriteOnly())
       STATS_DECLTRACK_FLOATING_ATTR(writeonly)
+  }
+};
+
+/// Memory behavior attribute for function argument.
+struct AAMemoryBehaviorArgument : AAMemoryBehaviorImpl {
+  AAMemoryBehaviorArgument(const IRPosition &IRP)
+      : AAMemoryBehaviorImpl(IRP) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    AAMemoryBehaviorImpl::initialize(A);
+    // Initialize the use vector with all direct uses of the associated value.
+    for (const Use &U : getAssociatedValue().uses())
+      Uses.insert(&U);
+
+    // Initialize the use vector with all direct uses of the associated value.
+    Argument *Arg = getAssociatedArgument();
+    if (!Arg || !Arg->getParent()->hasExactDefinition())
+      indicatePessimisticFixpoint();
+  }
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) {
+
+    const IRPosition &IRP = getIRPosition();
+    const IRPosition &FnPos = IRPosition::function_scope(IRP);
+    AAMemoryBehavior::StateType &S = getState();
+
+    // First, check the function scope. We take the known information and we avoid
+    // work if the assumed information implies the current assumed information for
+    // this attribute.
+    const auto &FnMemAA = A.getAAFor<AAMemoryBehavior>(*this, FnPos);
+    S.addKnownBits(FnMemAA.getKnown());
+    if ((S.getAssumed() & FnMemAA.getAssumed()) == S.getAssumed())
+      return ChangeStatus::UNCHANGED;
+
+    // Make sure the value is not captured (except through "return"), if
+    // it is, any information derived would be irrelevant anyway as we cannot
+    // check the potential aliases introduced by the capture. However, no need
+    // to fall back to anythign less optimistic than the function state.
+    const auto &ArgNoCaptureAA = A.getAAFor<AANoCapture>(*this, IRP);
+    if (!ArgNoCaptureAA.isAssumedNoCaptureMaybeReturned()) {
+      S.intersectAssumedBits(FnMemAA.getAssumed());
+      return ChangeStatus::CHANGED;
+    }
+
+    // The current assumed state used to determine a change.
+    auto AssumedState = S.getAssumed();
+
+    // Liveness information to exclude dead users.
+    // TODO: Take the FnPos once we have call site specific liveness information.
+    const auto &LivenessAA = A.getAAFor<AAIsDead>(
+        *this, IRPosition::function(*IRP.getAssociatedFunction()));
+
+    // Visit and expand uses until all are analyzed or a fixpoint is reached.
+    for (unsigned i = 0; i < Uses.size() && !isAtFixpoint(); i++) {
+      const Use *U = Uses[i];
+      Instruction *UserI = cast<Instruction>(U->getUser());
+      LLVM_DEBUG(dbgs() << "[AAMemoryBehavior] Use: " << **U << " in " << *UserI
+                        << " [Dead: " << (LivenessAA.isAssumedDead(UserI))
+                        << "]\n");
+      if (LivenessAA.isAssumedDead(UserI))
+        continue;
+
+      // Check if the users of UserI should also be visited.
+      if (followUsersOfUseIn(A, U, UserI))
+        for (const Use &UserIUse : UserI->uses())
+          Uses.insert(&UserIUse);
+
+      // If UserI might touch memory we analyze the use in detail.
+      if (UserI->mayReadOrWriteMemory())
+        analyzeUseIn(A, U, UserI);
+    }
+
+    return (AssumedState != getAssumed()) ? ChangeStatus::CHANGED
+                                          : ChangeStatus::UNCHANGED;
+  }
+
+  ChangeStatus manifest(Attributor &A) override {
+    // TODO: From readattrs.ll: "inalloca parameters are always
+    //                           considered written"
+    if (hasAttr({Attribute::InAlloca})) {
+      removeKnownBits(NO_WRITES);
+      removeAssumedBits(NO_WRITES);
+    }
+    return AAMemoryBehaviorImpl::manifest(A);
+  }
+
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    if (isAssumedReadNone())
+      STATS_DECLTRACK_ARG_ATTR(readnone)
+    else if (isAssumedReadOnly())
+      STATS_DECLTRACK_ARG_ATTR(readonly)
+    else if (isAssumedWriteOnly())
+      STATS_DECLTRACK_ARG_ATTR(writeonly)
   }
 
 private:
@@ -4967,43 +5203,6 @@ private:
 protected:
   /// Container for (transitive) uses of the associated argument.
   SetVector<const Use *> Uses;
-};
-
-/// Memory behavior attribute for function argument.
-struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
-  AAMemoryBehaviorArgument(const IRPosition &IRP)
-      : AAMemoryBehaviorFloating(IRP) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AAMemoryBehaviorFloating::initialize(A);
-
-    // Initialize the use vector with all direct uses of the associated value.
-    Argument *Arg = getAssociatedArgument();
-    if (!Arg || !Arg->getParent()->hasExactDefinition())
-      indicatePessimisticFixpoint();
-  }
-
-  ChangeStatus manifest(Attributor &A) override {
-    // TODO: From readattrs.ll: "inalloca parameters are always
-    //                           considered written"
-    if (hasAttr({Attribute::InAlloca})) {
-      removeKnownBits(NO_WRITES);
-      removeAssumedBits(NO_WRITES);
-    }
-    return AAMemoryBehaviorFloating::manifest(A);
-  }
-
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    if (isAssumedReadNone())
-      STATS_DECLTRACK_ARG_ATTR(readnone)
-    else if (isAssumedReadOnly())
-      STATS_DECLTRACK_ARG_ATTR(readonly)
-    else if (isAssumedWriteOnly())
-      STATS_DECLTRACK_ARG_ATTR(writeonly)
-  }
 };
 
 struct AAMemoryBehaviorCallSiteArgument final : AAMemoryBehaviorArgument {
@@ -5036,9 +5235,14 @@ struct AAMemoryBehaviorCallSiteArgument final : AAMemoryBehaviorArgument {
 };
 
 /// Memory behavior attribute for a call site return position.
-struct AAMemoryBehaviorCallSiteReturned final : AAMemoryBehaviorFloating {
+struct AAMemoryBehaviorCallSiteReturned final : AAMemoryBehaviorImpl {
   AAMemoryBehaviorCallSiteReturned(const IRPosition &IRP)
-      : AAMemoryBehaviorFloating(IRP) {}
+      : AAMemoryBehaviorImpl(IRP) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    indicatePessimisticFixpoint();
+  }
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
@@ -5056,17 +5260,6 @@ struct AAMemoryBehaviorFunction final : public AAMemoryBehaviorImpl {
 
   /// See AbstractAttribute::updateImpl(Attributor &A).
   virtual ChangeStatus updateImpl(Attributor &A) override;
-
-  /// See AbstractAttribute::manifest(...).
-  ChangeStatus manifest(Attributor &A) override {
-    Function &F = cast<Function>(getAnchorValue());
-    if (isAssumedReadNone()) {
-      F.removeFnAttr(Attribute::ArgMemOnly);
-      F.removeFnAttr(Attribute::InaccessibleMemOnly);
-      F.removeFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
-    }
-    return AAMemoryBehaviorImpl::manifest(A);
-  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -5123,21 +5316,9 @@ ChangeStatus AAMemoryBehaviorFunction::updateImpl(Attributor &A) {
   auto AssumedState = getAssumed();
 
   auto CheckRWInst = [&](Instruction &I) {
-    // If the instruction has an own memory behavior state, use it to restrict
-    // the local state. No further analysis is required as the other memory
-    // state is as optimistic as it gets.
-    if (ImmutableCallSite ICS = ImmutableCallSite(&I)) {
-      const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
-          *this, IRPosition::callsite_function(ICS));
-      intersectAssumedBits(MemBehaviorAA.getAssumed());
-      return !isAtFixpoint();
-    }
-
-    // Remove access kind modifiers if necessary.
-    if (I.mayReadFromMemory())
-      removeAssumedBits(NO_READS);
-    if (I.mayWriteToMemory())
-      removeAssumedBits(NO_WRITES);
+    const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
+        *this, IRPosition::value(I));
+    intersectAssumedBits(MemBehaviorAA.getAssumed());
     return !isAtFixpoint();
   };
 
@@ -5153,6 +5334,34 @@ ChangeStatus AAMemoryBehaviorFloating::updateImpl(Attributor &A) {
   const IRPosition &IRP = getIRPosition();
   const IRPosition &FnPos = IRPosition::function_scope(IRP);
   AAMemoryBehavior::StateType &S = getState();
+
+
+    // Remove access kind modifiers if necessary.
+    if (I.mayReadFromMemory())
+      removeAssumedBits(NO_READS);
+    if (I.mayWriteToMemory())
+      removeAssumedBits(NO_WRITES);
+    return !isAtFixpoint();
+
+  if (!isAssumedReadNone() && isAssumedInaccessibleOrArgMemOnly()) {
+    // If the instruction does not have an own memory behavior state, we
+    // categorize all potentially accessed locations and the potential
+    // side-effects explicitly.
+    MemoryLocationKind MLK =
+        categorizeAccessedLocations(A, *getAssociatedValue());
+
+    // Remove location modifiers if necessary.
+    if (MLK == MLK_NONE || MLK == MLK_CONST_OR_LOCAL) {
+
+    } else if (MLK & MLK_GLOBAL) {
+      S.removeAssumedBits(ONLY_ARGUMENT_MEM | ONLY_INACCESSIBLE_MEM |
+                          ONLY_INACCESSIBLE_OR_ARGUMENT_MEM);
+    } else if (MLK & MLK_ARGUMENT) {
+      S.removeAssumedBits(ONLY_INACCESSIBLE_MEM);
+    } else if (MLK & MLK_INACCESSIBLE) {
+      S.removeAssumedBits(ONLY_ARGUMENT_MEM);
+    }
+  }
 
   // First, check the function scope. We take the known information and we avoid
   // work if the assumed information implies the current assumed information for
