@@ -34,10 +34,8 @@ F:              ; preds = %0
 define void @test1_ptr(i32* %V) {
 ; CHECK-LABEL: @test1_ptr(
 ; CHECK-NEXT:    [[MAGICPTR:%.*]] = ptrtoint i32* [[V:%.*]] to i32
-; CHECK-NEXT:    switch i32 [[MAGICPTR]], label [[F:%.*]] [
-; CHECK-NEXT:    i32 17, label [[T:%.*]]
-; CHECK-NEXT:    i32 4, label [[T]]
-; CHECK-NEXT:    ]
+; CHECK-NEXT:    [[COND:%.*]] = icmp eq i32 [[MAGICPTR]], 4
+; CHECK-NEXT:    br i1 [[COND]], label [[T:%.*]], label [[F:%.*]]
 ; CHECK:       T:
 ; CHECK-NEXT:    call void @foo1()
 ; CHECK-NEXT:    ret void
@@ -60,10 +58,8 @@ F:              ; preds = %0
 define void @test1_ptr_as1(i32 addrspace(1)* %V) {
 ; CHECK-LABEL: @test1_ptr_as1(
 ; CHECK-NEXT:    [[MAGICPTR:%.*]] = ptrtoint i32 addrspace(1)* [[V:%.*]] to i32
-; CHECK-NEXT:    switch i32 [[MAGICPTR]], label [[F:%.*]] [
-; CHECK-NEXT:    i32 17, label [[T:%.*]]
-; CHECK-NEXT:    i32 4, label [[T]]
-; CHECK-NEXT:    ]
+; CHECK-NEXT:    [[COND:%.*]] = icmp eq i32 [[MAGICPTR]], 4
+; CHECK-NEXT:    br i1 [[COND]], label [[T:%.*]], label [[F:%.*]]
 ; CHECK:       T:
 ; CHECK-NEXT:    call void @foo1()
 ; CHECK-NEXT:    ret void

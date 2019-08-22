@@ -19,6 +19,7 @@
 #include "ConstantFold.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/Loads.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -1125,10 +1126,38 @@ Constant *llvm::ConstantFoldBinaryInstruction(unsigned Opcode, Constant *C1,
             isa<GlobalValue>(CE1->getOperand(0))) {
           GlobalValue *GV = cast<GlobalValue>(CE1->getOperand(0));
 
-          unsigned GVAlign;
+          unsigned GVAlign = 0;
 
           if (Module *TheModule = GV->getParent()) {
-            GVAlign = GV->getPointerAlignment(TheModule->getDataLayout());
+            const DataLayout &DL = TheModule->getDataLayout();
+            // Deduction of alignment is done via getPointerAlignment but that
+            // function is not accessible from the IR library so we copied the
+            // logic here.
+            if (isa<Function>(GV)) {
+              MaybeAlign FunctionPtrAlign = DL.getFunctionPtrAlign();
+              GVAlign = FunctionPtrAlign ? FunctionPtrAlign->value() : 0;
+              switch (DL.getFunctionPtrAlignType()) {
+              case DataLayout::FunctionPtrAlignType::Independent:
+                break;
+              case DataLayout::FunctionPtrAlignType::MultipleOfFunctionAlign:
+                GVAlign = std::max(GVAlign, GV->getAlignment());
+              }
+            }
+            if (GVAlign == 0) {
+              GVAlign = GV->getAlignment();
+              if (auto *GVar = dyn_cast<GlobalVariable>(GV)) {
+                Type *ObjectType = GVar->getValueType();
+                if (ObjectType->isSized()) {
+                  // If the object is defined in the current Module, we'll be
+                  // giving it the preferred alignment. Otherwise, we have to
+                  // assume that it may only have the minimum ABI alignment.
+                  if (GVar->isStrongDefinitionForLinker())
+                    GVAlign = DL.getPreferredAlignment(GVar);
+                  else
+                    GVAlign = DL.getABITypeAlignment(ObjectType);
+                }
+              }
+            }
 
             // If the function alignment is not specified then assume that it
             // is 4.

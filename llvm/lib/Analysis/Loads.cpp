@@ -25,23 +25,33 @@
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/Statepoint.h"
 
+#include <limits.h>
+
 using namespace llvm;
 
 static bool isAligned(const Value *Base, const APInt &Offset, unsigned Align,
                       const DataLayout &DL) {
-  APInt BaseAlign(Offset.getBitWidth(), Base->getPointerAlignment(DL));
-
-  if (!BaseAlign) {
-    Type *Ty = Base->getType()->getPointerElementType();
-    if (!Ty->isSized())
-      return false;
-    BaseAlign = DL.getABITypeAlignment(Ty);
-  }
-
+  APInt BaseAlign(Offset.getBitWidth(),
+                  std::max(1U, getPointerAlignment(Base, DL)));
   APInt Alignment(Offset.getBitWidth(), Align);
-
   assert(Alignment.isPowerOf2() && "must be a power of 2!");
   return BaseAlign.uge(Alignment) && !(Offset & (Alignment-1));
+}
+
+<<<<<<< HEAD
+/// Test if V is always a pointer to allocated and suitably aligned memory for
+/// a simple load or store.
+static bool isDereferenceableAndAlignedPointer(
+    const Value *V, unsigned Align, const APInt &Size, const DataLayout &DL,
+    const Instruction *CtxI, const DominatorTree *DT,
+    SmallPtrSetImpl<const Value *> &Visited) {
+  // Already visited?  Bail out, we've likely hit unreachable code.
+||||||| merged common ancestors
+static bool isAligned(const Value *Base, unsigned Align, const DataLayout &DL) {
+  Type *Ty = Base->getType();
+  assert(Ty->isSized() && "must be sized");
+  APInt Offset(DL.getTypeStoreSizeInBits(Ty), 0);
+  return isAligned(Base, Offset, Align, DL);
 }
 
 /// Test if V is always a pointer to allocated and suitably aligned memory for
@@ -51,17 +61,117 @@ static bool isDereferenceableAndAlignedPointer(
     const Instruction *CtxI, const DominatorTree *DT,
     SmallPtrSetImpl<const Value *> &Visited) {
   // Already visited?  Bail out, we've likely hit unreachable code.
+=======
+static bool isAligned(const Value *Base, unsigned Align, const DataLayout &DL) {
+  Type *Ty = Base->getType();
+  assert(Ty->isSized() && "must be sized");
+  APInt Offset(DL.getTypeStoreSizeInBits(Ty), 0);
+  return isAligned(Base, Offset, Align, DL);
+}
+
+static unsigned getPointerAlignment(const Value *V, const DataLayout &DL,
+                                    SmallPtrSetImpl<const Value *> &Visited) {
+  assert(V->getType()->isPointerTy() && "must be pointer");
+
+  static const unsigned MAX_ALIGN = 1U << 29;
+  // The visited set catches recursion for "invalid" SSA instructions and allows
+  // recursion on PHI nodes (not yet done).
+>>>>>>> [WIP] Expose functions to determine pointer properties (Align & Deref)
   if (!Visited.insert(V).second)
-    return false;
+    return MAX_ALIGN;
 
-  // Note that it is not safe to speculate into a malloc'd region because
-  // malloc may return null.
+  const Value *Stripped = V->stripPointerCastsSameRepresentation();
+  if (Stripped != V)
+    return getPointerAlignment(Stripped, DL, Visited);
 
-  // bitcast instructions are no-ops as far as dereferenceability is concerned.
-  if (const BitCastOperator *BC = dyn_cast<BitCastOperator>(V))
-    return isDereferenceableAndAlignedPointer(BC->getOperand(0), Align, Size,
-                                              DL, CtxI, DT, Visited);
+  unsigned Align = 0;
+  if (auto *GO = dyn_cast<GlobalObject>(V)) {
+    if (isa<Function>(GO)) {
+      MaybeAlign FunctionPtrAlign = DL.getFunctionPtrAlign();
+      unsigned Align = FunctionPtrAlign ? FunctionPtrAlign->value() : 0;
+      switch (DL.getFunctionPtrAlignType()) {
+      case DataLayout::FunctionPtrAlignType::Independent:
+        return Align;
+      case DataLayout::FunctionPtrAlignType::MultipleOfFunctionAlign:
+        return std::max(Align, GO->getAlignment());
+      }
+    }
+    Align = GO->getAlignment();
+    if (Align == 0) {
+      if (auto *GVar = dyn_cast<GlobalVariable>(GO)) {
+        Type *ObjectType = GVar->getValueType();
+        if (ObjectType->isSized()) {
+          // If the object is defined in the current Module, we'll be giving
+          // it the preferred alignment. Otherwise, we have to assume that it
+          // may only have the minimum ABI alignment.
+          if (GVar->isStrongDefinitionForLinker())
+            Align = DL.getPreferredAlignment(GVar);
+          else
+            Align = DL.getABITypeAlignment(ObjectType);
+        }
+      }
+    }
+  } else if (auto *A = dyn_cast<Argument>(V)) {
+    Align = A->getParamAlignment();
+  } else if (auto *AI = dyn_cast<AllocaInst>(V)) {
+    Align = AI->getAlignment();
+    if (Align == 0) {
+      Type *AllocatedType = AI->getAllocatedType();
+      if (AllocatedType->isSized())
+        Align = DL.getPrefTypeAlignment(AllocatedType);
+    }
+  } else if (auto *RI = dyn_cast<GCRelocateInst>(V)) {
+    // For gc.relocate, look through relocations
+    Align = getPointerAlignment(RI->getDerivedPtr(), DL, Visited);
+  } else if (auto *Call = dyn_cast<CallBase>(V)) {
+    Align = Call->getRetAlignment();
+    if (Align == 0 && Call->getCalledFunction())
+      Align = Call->getCalledFunction()->getAttributes().getRetAlignment();
+    if (Align == 0)
+      if (auto *RP = getArgumentAliasingToReturnedPointer(Call, true))
+        Align = getPointerAlignment(RP, DL, Visited);
+  } else if (auto *LI = dyn_cast<LoadInst>(V)) {
+    if (MDNode *MD = LI->getMetadata(LLVMContext::MD_align)) {
+      ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+      Align = CI->getLimitedValue();
+    }
+  } else if (auto *ASC = dyn_cast<AddrSpaceCastInst>(V)) {
+    Align = getPointerAlignment(ASC->getPointerOperand(), DL, Visited);
+  } else if (auto *GEP = dyn_cast<GEPOperator>(V)) {
+    const Value *Base = GEP->getPointerOperand();
 
+    APInt Offset(DL.getIndexTypeSizeInBits(GEP->getType()), 0);
+    if (GEP->accumulateConstantOffset(DL, Offset) && Offset != 0) {
+      auto BaseAlign = getPointerAlignment(Base, DL, Visited);
+      if (BaseAlign <= 1) {
+        // Propagate a base alignment of 1 and give up on a zero alignment.
+        Align = BaseAlign;
+      } else {
+        // For the purpose of alignment computation we treat negative offsets as
+        // if they were positive, so we only discuss positive offsets below.
+        // We assume k_x values are existentially quantified.
+        //
+        // Base has alignment BA, thus:
+        //   Base = k_0 * BA
+        // GEP equals Base + Offset, thus:
+        //   GEP = k_0 * BA + Offset
+        // With GCD = gcd(BA, Offset), BA = k_1 * GCD, and Offset = k_2 * GCD we
+        // can express GEP as follows:
+        //   GEP = k_0 * (k_1 * GCD) + k_2 * GCD
+        // The common factor in both terms is GCD, so we can express it as:
+        //   GEP = GCD * (k_0 * k_1 + k_2)
+        // Which implies that the GEP has GCD alignment.
+        APInt GCD = APIntOps::GreatestCommonDivisor(
+            Offset.abs(), APInt(Offset.getBitWidth(), BaseAlign));
+        Align = GCD.getZExtValue();
+
+      }
+    }
+    // Do not use type information below to improve the alignment.
+    return Align;
+  }
+
+<<<<<<< HEAD
   bool CheckForNonNull = false;
   APInt KnownDerefBytes(Size.getBitWidth(),
                         V->getPointerDereferenceableBytes(DL, CheckForNonNull));
@@ -69,51 +179,184 @@ static bool isDereferenceableAndAlignedPointer(
     if (!CheckForNonNull || isKnownNonZero(V, DL, 0, nullptr, CtxI, DT)) {
       // As we recursed through GEPs to get here, we've incrementally checked
       // that each step advanced by a multiple of the alignment. If our base is
-      // properly aligned, then the original offset accessed must also be.  
+      // properly aligned, then the original offset accessed must also be.
       Type *Ty = V->getType();
       assert(Ty->isSized() && "must be sized");
       APInt Offset(DL.getTypeStoreSizeInBits(Ty), 0);
       return isAligned(V, Offset, Align, DL);
     }
+||||||| merged common ancestors
+  bool CheckForNonNull = false;
+  APInt KnownDerefBytes(Size.getBitWidth(),
+                        V->getPointerDereferenceableBytes(DL, CheckForNonNull));
+  if (KnownDerefBytes.getBoolValue()) {
+    if (KnownDerefBytes.uge(Size))
+      if (!CheckForNonNull || isKnownNonZero(V, DL, 0, nullptr, CtxI, DT))
+        return isAligned(V, Align, DL);
+  }
+=======
+  if (!Align) {
+    Type *Ty = V->getType()->getPointerElementType();
+    if (Ty->isSized())
+      Align = DL.getABITypeAlignment(Ty);
+  }
+>>>>>>> [WIP] Expose functions to determine pointer properties (Align & Deref)
 
-  // For GEPs, determine if the indexing lands within the allocated object.
-  if (const GEPOperator *GEP = dyn_cast<GEPOperator>(V)) {
-    const Value *Base = GEP->getPointerOperand();
+  return Align;
+}
 
+unsigned llvm::getPointerAlignment(const Value *V, const DataLayout &DL) {
+  SmallPtrSet<const Value *, 4> Visited;
+  return ::getPointerAlignment(V, DL, Visited);
+}
+
+static uint64_t
+getPointerDereferenceableBytes(const Value *V, const DataLayout &DL,
+                               bool &CanBeNull, bool &IsKnownDeref,
+                               SmallPtrSetImpl<const Value *> &Visited) {
+  assert(V->getType()->isPointerTy() && "must be pointer");
+  CanBeNull = false;
+  IsKnownDeref = true;
+
+  // The visited set catches recursion for "invalid" SSA instructions and allows
+  // recursion on PHI nodes (not yet done).
+  if (!Visited.insert(V).second)
+    return std::numeric_limits<uint64_t>::max();
+
+  const Value *Stripped = V->stripPointerCastsSameRepresentation();
+  if (Stripped != V)
+    return getPointerDereferenceableBytes(Stripped, DL, CanBeNull, IsKnownDeref,
+                                          Visited);
+
+  const Function *F = nullptr;
+  uint64_t DerefBytes = 0;
+  CanBeNull = false;
+  if (auto *A = dyn_cast<Argument>(V)) {
+    F = A->getParent();
+    DerefBytes = A->getDereferenceableBytes();
+    if (DerefBytes == 0 && (A->hasByValAttr() || A->hasStructRetAttr())) {
+      Type *PT = cast<PointerType>(A->getType())->getElementType();
+      if (PT->isSized())
+        DerefBytes = DL.getTypeStoreSize(PT);
+    }
+    if (DerefBytes == 0) {
+      DerefBytes = A->getDereferenceableOrNullBytes();
+      CanBeNull = true;
+    }
+  } else if (auto *LI = dyn_cast<LoadInst>(V)) {
+    if (MDNode *MD = LI->getMetadata(LLVMContext::MD_dereferenceable)) {
+      ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+      DerefBytes = CI->getLimitedValue();
+    }
+    if (DerefBytes == 0) {
+      if (MDNode *MD =
+              LI->getMetadata(LLVMContext::MD_dereferenceable_or_null)) {
+        ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+        DerefBytes = CI->getLimitedValue();
+      }
+      CanBeNull = true;
+    }
+  } else if (auto *IP = dyn_cast<IntToPtrInst>(V)) {
+    if (MDNode *MD = IP->getMetadata(LLVMContext::MD_dereferenceable)) {
+      ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+      DerefBytes = CI->getLimitedValue();
+    }
+    if (DerefBytes == 0) {
+      if (MDNode *MD =
+              IP->getMetadata(LLVMContext::MD_dereferenceable_or_null)) {
+        ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+        DerefBytes = CI->getLimitedValue();
+      }
+      CanBeNull = true;
+    }
+  } else if (auto *AI = dyn_cast<AllocaInst>(V)) {
+    if (!AI->isArrayAllocation()) {
+      DerefBytes = DL.getTypeStoreSize(AI->getAllocatedType());
+      CanBeNull = false;
+    }
+  } else if (auto *GV = dyn_cast<GlobalVariable>(V)) {
+    if (GV->getValueType()->isSized() && !GV->hasExternalWeakLinkage()) {
+      // TODO: Don't outright reject hasExternalWeakLinkage but set the
+      // CanBeNull flag.
+      DerefBytes = DL.getTypeStoreSize(GV->getValueType());
+      CanBeNull = false;
+    }
+  } else if (auto *RI = dyn_cast<GCRelocateInst>(V)) {
+    // For gc.relocate, look through relocations, must be checkd before CallBase.
+    return getPointerDereferenceableBytes(RI->getDerivedPtr(), DL, CanBeNull,
+                                          IsKnownDeref, Visited);
+  } else if (auto *ASC = dyn_cast<AddrSpaceCastInst>(V)) {
+    DerefBytes = getPointerDereferenceableBytes(
+        ASC->getPointerOperand(), DL, CanBeNull, IsKnownDeref, Visited);
+  } else if (auto *GEP = dyn_cast<GEPOperator>(V)) {
     APInt Offset(DL.getIndexTypeSizeInBits(GEP->getType()), 0);
-    if (!GEP->accumulateConstantOffset(DL, Offset) || Offset.isNegative() ||
-        !Offset.urem(APInt(Offset.getBitWidth(), Align)).isMinValue())
-      return false;
+    // Give up on non-constant GEPs.
+    if (!GEP->accumulateConstantOffset(DL, Offset))
+      return 0;
 
-    // If the base pointer is dereferenceable for Offset+Size bytes, then the
-    // GEP (== Base + Offset) is dereferenceable for Size bytes.  If the base
-    // pointer is aligned to Align bytes, and the Offset is divisible by Align
-    // then the GEP (== Base + Offset == k_0 * Align + k_1 * Align) is also
-    // aligned to Align bytes.
-
-    // Offset and Size may have different bit widths if we have visited an
-    // addrspacecast, so we can't do arithmetic directly on the APInt values.
-    return isDereferenceableAndAlignedPointer(
-        Base, Align, Offset + Size.sextOrTrunc(Offset.getBitWidth()),
-        DL, CtxI, DT, Visited);
+    // If Base has N dereferenceable bytes and is O (=Offset) away from the
+    // GEP, then:
+    //  - if 0 is null, we take the base result.
+    //  - if O is positive, the GEP has max(0, N - O) dereferenceable bytes
+    //                      because it is O bytes advanced from the base.
+    //  - if O is negative and inbounds, the GEP has N + abs(O) dereferenceable
+    //                                   bytes because inbounds need to stay in
+    //                                   the same allocation.
+    //  - if O is negative and not inbounds, the GEP has 0 dereferenceable bytes
+    //                                       because we do not know if we are
+    //                                       still in the allocation or not.
+    //
+    // The "can be null" is set to false if we have an offset that is not null
+    // and an inbounds GEP or dereferenceable bytes. Note that this is later
+    // overwritten if null pointers are defined.
+    const Value *Base = GEP->getPointerOperand();
+    uint64_t BaseDerefBytes = getPointerDereferenceableBytes(
+        Base, DL, CanBeNull, IsKnownDeref, Visited);
+    if (Offset == 0) {
+      DerefBytes = BaseDerefBytes;
+    } else if (Offset.getSExtValue() > 0) {
+      DerefBytes =
+          std::max(int64_t(BaseDerefBytes - Offset.getZExtValue()), int64_t(0));
+      CanBeNull = !GEP->isInBounds();
+    } else {
+      assert(Offset.getSExtValue() < 0 && "Did not expect zero offset!");
+      if (GEP->isInBounds())
+        DerefBytes = BaseDerefBytes + Offset.abs().getZExtValue();
+      else
+        DerefBytes = 0;
+      CanBeNull = !GEP->isInBounds();
+    }
+    // Assume dereferenceable implies nonnull here but note that we later revert
+    // the decision if it does not based on the pointer address space.
+    CanBeNull &= (DerefBytes == 0);
+  } else if (const auto *Call = dyn_cast<CallBase>(V)) {
+    DerefBytes = Call->getDereferenceableBytes(AttributeList::ReturnIndex);
+    if (DerefBytes == 0) {
+      DerefBytes =
+          Call->getDereferenceableOrNullBytes(AttributeList::ReturnIndex);
+      CanBeNull = true;
+    }
+    if (DerefBytes == 0)
+      if (auto *RP = getArgumentAliasingToReturnedPointer(Call, true))
+        DerefBytes = getPointerDereferenceableBytes(RP, DL, CanBeNull,
+                                                    IsKnownDeref, Visited);
   }
 
-  // For gc.relocate, look through relocations
-  if (const GCRelocateInst *RelocateInst = dyn_cast<GCRelocateInst>(V))
-    return isDereferenceableAndAlignedPointer(
-        RelocateInst->getDerivedPtr(), Align, Size, DL, CtxI, DT, Visited);
+  if (auto *I = dyn_cast<Instruction>(V))
+    F = I->getFunction();
 
-  if (const AddrSpaceCastInst *ASC = dyn_cast<AddrSpaceCastInst>(V))
-    return isDereferenceableAndAlignedPointer(ASC->getOperand(0), Align, Size,
-                                              DL, CtxI, DT, Visited);
+  IsKnownDeref = !CanBeNull;
+  CanBeNull |= NullPointerIsDefined(F, V->getType()->getPointerAddressSpace());
+  return DerefBytes;
+}
 
-  if (const auto *Call = dyn_cast<CallBase>(V))
-    if (auto *RP = getArgumentAliasingToReturnedPointer(Call, true))
-      return isDereferenceableAndAlignedPointer(RP, Align, Size, DL, CtxI, DT,
-                                                Visited);
-
-  // If we don't know, assume the worst.
-  return false;
+uint64_t llvm::getPointerDereferenceableBytes(const Value *V,
+                                              const DataLayout &DL,
+                                              bool &CanBeNull,
+                                              bool &IsKnownDeref) {
+  SmallPtrSet<const Value *, 4> Visited;
+  return ::getPointerDereferenceableBytes(V, DL, CanBeNull, IsKnownDeref,
+                                          Visited);
 }
 
 bool llvm::isDereferenceableAndAlignedPointer(const Value *V, unsigned Align,
@@ -125,11 +368,19 @@ bool llvm::isDereferenceableAndAlignedPointer(const Value *V, unsigned Align,
   // Note: At the moment, Size can be zero.  This ends up being interpreted as
   // a query of whether [Base, V] is dereferenceable and V is aligned (since
   // that's what the implementation happened to do).  It's unclear if this is
-  // the desired semantic, but at least SelectionDAG does exercise this case.  
-  
-  SmallPtrSet<const Value *, 32> Visited;
-  return ::isDereferenceableAndAlignedPointer(V, Align, Size, DL, CtxI, DT,
-                                              Visited);
+  // the desired semantic, but at least SelectionDAG does exercise this case.
+
+  bool IsKnownDeref = false, CanBeNull = false;
+  APInt KnownDerefBytes(
+      Size.getBitWidth(),
+      getPointerDereferenceableBytes(V, DL, CanBeNull, IsKnownDeref));
+  if (KnownDerefBytes.getBoolValue())
+    if (KnownDerefBytes.uge(Size))
+      if (IsKnownDeref || isKnownNonZero(V, DL, 0, nullptr, CtxI, DT))
+        return ::isAligned(V, Align, DL);
+
+  // If we don't know, assume the worst.
+  return false;
 }
 
 bool llvm::isDereferenceableAndAlignedPointer(const Value *V, Type *Ty,
@@ -148,11 +399,26 @@ bool llvm::isDereferenceableAndAlignedPointer(const Value *V, Type *Ty,
 
   if (!Ty->isSized())
     return false;
-  
+<<<<<<< HEAD
+
   APInt AccessSize(DL.getIndexTypeSizeInBits(V->getType()),
                    DL.getTypeStoreSize(Ty));
   return isDereferenceableAndAlignedPointer(V, Align, AccessSize,
                                             DL, CtxI, DT);
+||||||| merged common ancestors
+
+  SmallPtrSet<const Value *, 32> Visited;
+  return ::isDereferenceableAndAlignedPointer(
+      V, Align,
+      APInt(DL.getIndexTypeSizeInBits(V->getType()), DL.getTypeStoreSize(Ty)),
+      DL, CtxI, DT, Visited);
+=======
+
+  return ::isDereferenceableAndAlignedPointer(
+      V, Align,
+      APInt(DL.getIndexTypeSizeInBits(V->getType()), DL.getTypeStoreSize(Ty)),
+      DL, CtxI, DT);
+>>>>>>> [WIP] Expose functions to determine pointer properties (Align & Deref)
 }
 
 bool llvm::isDereferenceablePointer(const Value *V, Type *Ty,

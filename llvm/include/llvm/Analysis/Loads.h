@@ -87,6 +87,27 @@ bool isSafeToLoadUnconditionally(Value *V, Type *Ty, unsigned Align,
                                  Instruction *ScanFrom = nullptr,
                                  const DominatorTree *DT = nullptr);
 
+/// Returns the number of bytes known to be dereferenceable for the
+/// pointer value \p V and set \p CanBeNull as well as \p IsKnownDeref.
+///
+/// If \p CanBeNull is set by this function if \p V can be null. That is \p V
+/// can have the value "NULL".
+/// If \p IsKnownDeref is set by this function if \p V is known to be
+/// dereferenceable up to the returned number of bytes. That is even if the
+/// pointer can be null, it is known to be dereferenceable.
+///
+/// If NULL is not a valid pointer (in the context of \p V), either \p CanBeNull
+/// or \p IsKnownDeref is set but never both. If NULL is a valid pointer,
+/// \p CanBeNull can be set even if \p IsKnownDeref is set.
+uint64_t getPointerDereferenceableBytes(const Value *V, const DataLayout &DL,
+                                        bool &CanBeNull, bool &IsKnownDeref);
+
+/// Returns an alignment of the pointer value \p V.
+///
+/// Returns an alignment which is either specified explicitly, e.g. via
+/// align attribute of a function argument, or guaranteed by DataLayout.
+unsigned getPointerAlignment(const Value *V, const DataLayout &DL);
+
 /// The default number of maximum instructions to scan in the block, used by
 /// FindAvailableLoadedValue().
 extern cl::opt<unsigned> DefMaxInstsToScan;

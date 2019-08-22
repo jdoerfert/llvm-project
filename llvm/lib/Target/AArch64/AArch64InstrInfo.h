@@ -17,6 +17,7 @@
 #include "AArch64RegisterInfo.h"
 #include "AArch64StackOffset.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/Analysis/Loads.h"
 #include "llvm/CodeGen/MachineCombinerPattern.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 

@@ -17,7 +17,7 @@ define <2 x double> @load_zeromask(<2 x double>* %ptr, <2 x double> %passthru)  
 
 define <2 x double> @load_onemask(<2 x double>* %ptr, <2 x double> %passthru)  {
 ; CHECK-LABEL: @load_onemask(
-; CHECK-NEXT:    [[UNMASKEDLOAD:%.*]] = load <2 x double>, <2 x double>* [[PTR:%.*]], align 2
+; CHECK-NEXT:    [[UNMASKEDLOAD:%.*]] = load <2 x double>, <2 x double>* [[PTR:%.*]], align 16
 ; CHECK-NEXT:    ret <2 x double> [[UNMASKEDLOAD]]
 ;
   %res = call <2 x double> @llvm.masked.load.v2f64.p0v2f64(<2 x double>* %ptr, i32 2, <2 x i1> <i1 1, i1 1>, <2 x double> %passthru)
@@ -26,7 +26,7 @@ define <2 x double> @load_onemask(<2 x double>* %ptr, <2 x double> %passthru)  {
 
 define <2 x double> @load_undefmask(<2 x double>* %ptr, <2 x double> %passthru)  {
 ; CHECK-LABEL: @load_undefmask(
-; CHECK-NEXT:    [[UNMASKEDLOAD:%.*]] = load <2 x double>, <2 x double>* [[PTR:%.*]], align 2
+; CHECK-NEXT:    [[UNMASKEDLOAD:%.*]] = load <2 x double>, <2 x double>* [[PTR:%.*]], align 16
 ; CHECK-NEXT:    ret <2 x double> [[UNMASKEDLOAD]]
 ;
   %res = call <2 x double> @llvm.masked.load.v2f64.p0v2f64(<2 x double>* %ptr, i32 2, <2 x i1> <i1 1, i1 undef>, <2 x double> %passthru)
@@ -87,7 +87,7 @@ define <2 x double> @load_speculative(<2 x double>* dereferenceable(16) %ptr,
 ; CHECK-LABEL: @load_speculative(
 ; CHECK-NEXT:    [[PTV1:%.*]] = insertelement <2 x double> undef, double [[PT:%.*]], i64 0
 ; CHECK-NEXT:    [[PTV2:%.*]] = shufflevector <2 x double> [[PTV1]], <2 x double> undef, <2 x i32> zeroinitializer
-; CHECK-NEXT:    [[UNMASKEDLOAD:%.*]] = load <2 x double>, <2 x double>* [[PTR:%.*]], align 4
+; CHECK-NEXT:    [[UNMASKEDLOAD:%.*]] = load <2 x double>, <2 x double>* [[PTR:%.*]], align 16
 ; CHECK-NEXT:    [[TMP1:%.*]] = select <2 x i1> [[MASK:%.*]], <2 x double> [[UNMASKEDLOAD]], <2 x double> [[PTV2]]
 ; CHECK-NEXT:    ret <2 x double> [[TMP1]]
 ;
@@ -154,7 +154,7 @@ define void @store_zeromask(<2 x double>* %ptr, <2 x double> %val)  {
 
 define void @store_onemask(<2 x double>* %ptr, <2 x double> %val)  {
 ; CHECK-LABEL: @store_onemask(
-; CHECK-NEXT:    store <2 x double> [[VAL:%.*]], <2 x double>* [[PTR:%.*]], align 4
+; CHECK-NEXT:    store <2 x double> [[VAL:%.*]], <2 x double>* [[PTR:%.*]], align 16
 ; CHECK-NEXT:    ret void
 ;
   call void @llvm.masked.store.v2f64.p0v2f64(<2 x double> %val, <2 x double>* %ptr, i32 4, <2 x i1> <i1 1, i1 1>)

@@ -20,7 +20,7 @@ target triple = "aarch64--linux-gnu"
 ; CHECK-NEXT:    [[VEC_PHI:%.*]] = phi <2 x i64> [ zeroinitializer, %entry ], [ [[TMP17:%.*]], %[[PRED_UDIV_CONTINUE2]] ]
 ; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr inbounds i64, i64* %a, i64 [[INDEX]]
 ; CHECK-NEXT:    [[TMP1:%.*]] = bitcast i64* [[TMP0]] to <2 x i64>*
-; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <2 x i64>, <2 x i64>* [[TMP1]], align 4
+; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <2 x i64>, <2 x i64>* [[TMP1]], align 8
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp sgt <2 x i64> [[WIDE_LOAD]], zeroinitializer
 ; CHECK-NEXT:    [[TMP3:%.*]] = extractelement <2 x i1> [[TMP2]], i32 0
 ; CHECK-NEXT:    br i1 [[TMP3]], label %[[PRED_UDIV_IF:.*]], label %[[PRED_UDIV_CONTINUE:.*]]

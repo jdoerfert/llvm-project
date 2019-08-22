@@ -29,8 +29,8 @@ define void @keep_necessary_addrspacecast(i64 %i, float** %out0, float** %out1) 
 ; CHECK-NEXT:    [[T0:%.*]] = addrspacecast float addrspace(3)* [[T01]] to float*
 ; CHECK-NEXT:    [[TMP1:%.*]] = getelementptr float, float addrspace(3)* @scalar, i64 [[I]]
 ; CHECK-NEXT:    [[T1:%.*]] = addrspacecast float addrspace(3)* [[TMP1]] to float*
-; CHECK-NEXT:    store float* [[T0]], float** [[OUT0:%.*]], align 4
-; CHECK-NEXT:    store float* [[T1]], float** [[OUT1:%.*]], align 4
+; CHECK-NEXT:    store float* [[T0]], float** [[OUT0:%.*]], align 8
+; CHECK-NEXT:    store float* [[T1]], float** [[OUT1:%.*]], align 8
 ; CHECK-NEXT:    ret void
 ;
   %t0 = getelementptr [256 x float], [256 x float]* addrspacecast ([256 x float] addrspace(3)* @array to [256 x float]*), i64 0, i64 %i

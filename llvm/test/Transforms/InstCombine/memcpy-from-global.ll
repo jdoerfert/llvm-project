@@ -125,7 +125,7 @@ define void @test2_addrspacecast() {
 ; CHECK-NEXT:    [[B1:%.*]] = alloca [124 x i8], align 8
 ; CHECK-NEXT:    [[B1_SUB:%.*]] = getelementptr inbounds [124 x i8], [124 x i8]* [[B1]], i64 0, i64 0
 ; CHECK-NEXT:    [[B:%.*]] = addrspacecast i8* [[B1_SUB]] to i8 addrspace(1)*
-; CHECK-NEXT:    call void @llvm.memcpy.p1i8.p1i8.i64(i8 addrspace(1)* align 4 dereferenceable(124) [[B]], i8 addrspace(1)* align 4 dereferenceable(124) addrspacecast (i8* getelementptr inbounds (%T, %T* @G, i64 0, i32 0) to i8 addrspace(1)*), i64 124, i1 false)
+; CHECK-NEXT:    call void @llvm.memcpy.p1i8.p1i8.i64(i8 addrspace(1)* align 8 dereferenceable(124) [[B]], i8 addrspace(1)* align 4 dereferenceable(124) addrspacecast (i8* getelementptr inbounds (%T, %T* @G, i64 0, i32 0) to i8 addrspace(1)*), i64 124, i1 false)
 ; CHECK-NEXT:    call void @bar_as1(i8 addrspace(1)* [[B]])
 ; CHECK-NEXT:    ret void
 ;

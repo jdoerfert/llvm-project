@@ -48,7 +48,7 @@ define i8 @smaller_scalar(<4 x float>* dereferenceable(16) %p) {
 define i8 @smaller_scalar_less_aligned(<4 x float>* dereferenceable(16) %p) {
 ; CHECK-LABEL: @smaller_scalar_less_aligned(
 ; CHECK-NEXT:    [[BC:%.*]] = bitcast <4 x float>* [[P:%.*]] to i8*
-; CHECK-NEXT:    [[R:%.*]] = load i8, i8* [[BC]], align 4
+; CHECK-NEXT:    [[R:%.*]] = load i8, i8* [[BC]], align 16
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %bc = bitcast <4 x float>* %p to i8*

@@ -4,7 +4,7 @@ target datalayout = "E-p:64:64:64-a0:0:8-f32:32:32-f64:64:64-i1:8:8-i8:8:8-i16:1
 define i1 @test1(i32 *%x) nounwind {
 entry:
 ; CHECK: test1
-; CHECK: ptrtoint i32* %x to i64
+; CHECK: ret i1 false
 	%0 = ptrtoint i32* %x to i1
 	ret i1 %0
 }

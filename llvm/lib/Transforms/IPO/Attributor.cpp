@@ -2483,8 +2483,9 @@ struct AADereferenceableFloating : AADereferenceableImpl {
       if (!Stripped && this == &AA) {
         // Use IR information if we did not strip anything.
         // TODO: track globally.
-        bool CanBeNull;
-        DerefBytes = Base->getPointerDereferenceableBytes(DL, CanBeNull);
+        bool CanBeNull, IsKnownDeref;
+        DerefBytes =
+            getPointerDereferenceableBytes(Base, DL, CanBeNull, IsKnownDeref);
         T.GlobalState.indicatePessimisticFixpoint();
       } else {
         const DerefState &DS = static_cast<const DerefState &>(AA.getState());
@@ -2656,12 +2657,16 @@ struct AAAlignImpl : AAAlign {
       }
     }
 
+    const Value &AssociatedVal = getAssociatedValue();
+    Type *Ty = isa<Function>(AssociatedVal)
+                   ? cast<Function>(AssociatedVal).getReturnType()
+                   : AssociatedVal.getType()->getPointerElementType();
+    if (Ty->isSized() &&
+        getAssumed() <= A.getDataLayout().getABITypeAlignment(Ty))
+      return Changed;
+
     return AAAlign::manifest(A) | Changed;
   }
-
-  // TODO: Provide a helper to determine the implied ABI alignment and check in
-  //       the existing manifest method and a new one for AAAlignImpl that value
-  //       to avoid making the alignment explicit if it did not improve.
 
   /// See AbstractAttribute::getDeducedAttributes
   virtual void
@@ -2692,7 +2697,7 @@ struct AAAlignFloating : AAAlignImpl {
       const auto &AA = A.getAAFor<AAAlign>(*this, IRPosition::value(V));
       if (!Stripped && this == &AA) {
         // Use only IR information if we did not strip anything.
-        T.takeKnownMaximum(V.getPointerAlignment(DL));
+        T.takeKnownMaximum(getPointerAlignment(&V, DL));
         T.indicatePessimisticFixpoint();
       } else {
         // Use abstract attribute information.

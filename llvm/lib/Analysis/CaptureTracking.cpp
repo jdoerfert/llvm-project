@@ -20,6 +20,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CFG.h"
+#include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/OrderedBasicBlock.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Constants.h"
@@ -45,8 +46,8 @@ bool CaptureTracker::isDereferenceableOrNull(Value *O, const DataLayout &DL) {
   if (auto *GEP = dyn_cast<GetElementPtrInst>(O))
     if (GEP->isInBounds())
       return true;
-  bool CanBeNull;
-  return O->getPointerDereferenceableBytes(DL, CanBeNull);
+  bool CanBeNull, IsKnownDeref;
+  return getPointerDereferenceableBytes(O, DL, CanBeNull, IsKnownDeref);
 }
 
 namespace {

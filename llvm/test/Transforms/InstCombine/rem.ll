@@ -718,7 +718,7 @@ define i1 @test26(i32 %A, i32 %B) {
 define i1 @test27(i32 %A, i32* %remdst) {
 ; CHECK-LABEL: @test27(
 ; CHECK-NEXT:    [[B:%.*]] = srem i32 [[A:%.*]], -2147483648
-; CHECK-NEXT:    store i32 [[B]], i32* [[REMDST:%.*]], align 1
+; CHECK-NEXT:    store i32 [[B]], i32* [[REMDST:%.*]], align 4
 ; CHECK-NEXT:    [[C:%.*]] = icmp ne i32 [[B]], 0
 ; CHECK-NEXT:    ret i1 [[C]]
 ;

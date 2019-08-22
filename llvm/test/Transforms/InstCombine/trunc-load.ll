@@ -58,7 +58,7 @@ declare void @use(i64)
 
 define i32 @truncload_extra_use(i64* dereferenceable(100) %ptr) {
 ; CHECK-LABEL: @truncload_extra_use(
-; CHECK-NEXT:    [[X:%.*]] = load i64, i64* [[PTR:%.*]], align 2
+; CHECK-NEXT:    [[X:%.*]] = load i64, i64* [[PTR:%.*]], align 4
 ; CHECK-NEXT:    call void @use(i64 [[X]])
 ; CHECK-NEXT:    [[R:%.*]] = trunc i64 [[X]] to i32
 ; CHECK-NEXT:    ret i32 [[R]]
@@ -73,7 +73,7 @@ define i32 @truncload_extra_use(i64* dereferenceable(100) %ptr) {
 
 define i8 @truncload_type(i64* dereferenceable(9) %ptr) {
 ; CHECK-LABEL: @truncload_type(
-; CHECK-NEXT:    [[X:%.*]] = load i64, i64* [[PTR:%.*]], align 2
+; CHECK-NEXT:    [[X:%.*]] = load i64, i64* [[PTR:%.*]], align 4
 ; CHECK-NEXT:    [[R:%.*]] = trunc i64 [[X]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;

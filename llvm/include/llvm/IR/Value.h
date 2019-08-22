@@ -619,20 +619,6 @@ public:
                       static_cast<const Value *>(this)->stripInBoundsOffsets());
   }
 
-  /// Returns the number of bytes known to be dereferenceable for the
-  /// pointer value.
-  ///
-  /// If CanBeNull is set by this function the pointer can either be null or be
-  /// dereferenceable up to the returned number of bytes.
-  uint64_t getPointerDereferenceableBytes(const DataLayout &DL,
-                                          bool &CanBeNull) const;
-
-  /// Returns an alignment of the pointer value.
-  ///
-  /// Returns an alignment which is either specified explicitly, e.g. via
-  /// align attribute of a function argument, or guaranteed by DataLayout.
-  unsigned getPointerAlignment(const DataLayout &DL) const;
-
   /// Translate PHI node to its predecessor from the given basic block.
   ///
   /// If this value is a PHI node with CurBB as its parent, return the value in

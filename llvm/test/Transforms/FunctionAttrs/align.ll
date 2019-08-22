@@ -34,18 +34,18 @@ define i32* @test4(i32* align 32 %0, i32* align 32 %1, i1 %2) #0 {
 
 ; TEST 5
 declare i32* @unknown()
-declare align 8 i32* @align8()
+declare align 32 i32* @align32()
 
 
-; ATTRIBUTOR: define align 8 i32* @test5_1()
+; ATTRIBUTOR: define align 32 i32* @test5_1()
 define i32* @test5_1() {
-  %ret = tail call align 8 i32* @unknown()
+  %ret = tail call align 32 i32* @unknown()
   ret i32* %ret
 }
 
-; ATTRIBUTOR: define align 8 i32* @test5_2()
+; ATTRIBUTOR: define align 32 i32* @test5_2()
 define i32* @test5_2() {
-  %ret = tail call i32* @align8()
+  %ret = tail call i32* @align32()
   ret i32* %ret
 }
 
@@ -78,8 +78,8 @@ define i32* @test6_2() #0 {
 ;     return a?&a1: f1(&a2);
 ; }
 
-@a1 = common global i8 0, align 8
-@a2 = common global i8 0, align 16
+@a1 = common global i8 0, align 16
+@a2 = common global i8 0, align 32
 
 ; Function Attrs: nounwind readnone ssp uwtable
 define internal i8* @f1(i8* readnone %0) local_unnamed_addr #0 {
@@ -151,15 +151,15 @@ define align 4 i32* @test7(i32* align 32 %p) #0 {
 ; TEST 8
 define void @test8_helper() {
   %ptr0 = tail call i32* @unknown()
-  %ptr1 = tail call align 4 i32* @unknown()
-  %ptr2 = tail call align 8 i32* @unknown()
+  %ptr1 = tail call align 8 i32* @unknown()
+  %ptr2 = tail call align 16 i32* @unknown()
 
   tail call void @test8(i32* %ptr1, i32* %ptr1, i32* %ptr0)
-; ATTRIBUTOR: tail call void @test8(i32* align 4 %ptr1, i32* align 4 %ptr1, i32* %ptr0)
+; ATTRIBUTOR: tail call void @test8(i32* align 8 %ptr1, i32* align 8 %ptr1, i32* %ptr0)
   tail call void @test8(i32* %ptr2, i32* %ptr1, i32* %ptr1)
-; ATTRIBUTOR: tail call void @test8(i32* align 8 %ptr2, i32* align 4 %ptr1, i32* align 4 %ptr1)
+; ATTRIBUTOR: tail call void @test8(i32* align 16 %ptr2, i32* align 8 %ptr1, i32* align 8 %ptr1)
   tail call void @test8(i32* %ptr2, i32* %ptr1, i32* %ptr1)
-; ATTRIBUTOR: tail call void @test8(i32* align 8 %ptr2, i32* align 4 %ptr1, i32* align 4 %ptr1)
+; ATTRIBUTOR: tail call void @test8(i32* align 16 %ptr2, i32* align 8 %ptr1, i32* align 8 %ptr1)
   ret void
 }
 

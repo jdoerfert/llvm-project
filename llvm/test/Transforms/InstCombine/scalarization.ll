@@ -3,7 +3,7 @@
 
 define i32 @extract_load(<4 x i32>* %p) {
 ; CHECK-LABEL: @extract_load(
-; CHECK-NEXT:    [[X:%.*]] = load <4 x i32>, <4 x i32>* [[P:%.*]], align 4
+; CHECK-NEXT:    [[X:%.*]] = load <4 x i32>, <4 x i32>* [[P:%.*]], align 16
 ; CHECK-NEXT:    [[EXT:%.*]] = extractelement <4 x i32> [[X]], i32 1
 ; CHECK-NEXT:    ret i32 [[EXT]]
 ;
@@ -36,7 +36,7 @@ define double @extract_load_volatile(<4 x double>* %p) {
 
 define double @extract_load_extra_use(<4 x double>* %p, <4 x double>* %p2) {
 ; CHECK-LABEL: @extract_load_extra_use(
-; CHECK-NEXT:    [[X:%.*]] = load <4 x double>, <4 x double>* [[P:%.*]], align 8
+; CHECK-NEXT:    [[X:%.*]] = load <4 x double>, <4 x double>* [[P:%.*]], align 32
 ; CHECK-NEXT:    [[EXT:%.*]] = extractelement <4 x double> [[X]], i32 0
 ; CHECK-NEXT:    store <4 x double> [[X]], <4 x double>* [[P2:%.*]], align 32
 ; CHECK-NEXT:    ret double [[EXT]]

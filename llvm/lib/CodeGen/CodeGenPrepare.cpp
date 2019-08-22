@@ -25,6 +25,7 @@
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
@@ -1819,7 +1820,7 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool &ModifiedDT) {
       // forbidden.
       GlobalVariable *GV;
       if ((GV = dyn_cast<GlobalVariable>(Val)) && GV->canIncreaseAlignment() &&
-          GV->getPointerAlignment(*DL) < PrefAlign &&
+          getPointerAlignment(GV, *DL) < PrefAlign &&
           DL->getTypeAllocSize(GV->getValueType()) >=
               MinSize + Offset2)
         GV->setAlignment(PrefAlign);
@@ -1857,7 +1858,7 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool &ModifiedDT) {
     case Intrinsic::experimental_widenable_condition: {
       // Give up on future widening oppurtunties so that we can fold away dead
       // paths and merge blocks before going into block-local instruction
-      // selection.   
+      // selection.
       if (II->use_empty()) {
         II->eraseFromParent();
         return true;

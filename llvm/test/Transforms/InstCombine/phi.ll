@@ -162,7 +162,7 @@ bb2:
 ; CHECK-LABEL: @test9(
 ; CHECK:       bb2:
 ; CHECK-NEXT:        phi i32* [ %B, %bb ], [ %A, %bb1 ]
-; CHECK-NEXT:   %E = load i32, i32* %{{[^,]*}}, align 1
+; CHECK-NEXT:   %E = load i32, i32* %{{[^,]*}}, align 4
 ; CHECK-NEXT:   ret i32 %E
 
 }

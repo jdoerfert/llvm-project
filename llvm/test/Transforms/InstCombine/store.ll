@@ -108,7 +108,7 @@ define void @test5(i1 %C, i32* %P) {
 ; CHECK-NEXT:    br label [[CONT]]
 ; CHECK:       Cont:
 ; CHECK-NEXT:    [[STOREMERGE:%.*]] = phi i32 [ -987654321, [[COND]] ], [ 47, [[TMP0:%.*]] ]
-; CHECK-NEXT:    store i32 [[STOREMERGE]], i32* [[P:%.*]], align 1
+; CHECK-NEXT:    store i32 [[STOREMERGE]], i32* [[P:%.*]], align 4
 ; CHECK-NEXT:    ret void
 ;
   store i32 47, i32* %P, align 1

@@ -17,7 +17,7 @@ define void @frob() {
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 2), align 4
 ; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 1, i64 0), align 4
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 3), align 4
-; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 1, i64 1), align 4
+; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 1, i64 1), align 16
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 4), align 4
 ; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 1, i64 2), align 4
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 5), align 4
@@ -25,11 +25,11 @@ define void @frob() {
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 6), align 4
 ; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 1, i32 0, i64 1), align 4
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 7), align 4
-; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 1, i32 0, i64 2), align 8
+; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 1, i32 0, i64 2), align 16
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 8), align 4
 ; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 1, i32 1, i64 0), align 4
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 9), align 4
-; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 1, i32 1, i64 1), align 4
+; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 1, i32 1, i64 1), align 8
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 10), align 4
 ; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 1, i32 1, i64 2), align 4
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 11), align 4
@@ -41,7 +41,7 @@ define void @frob() {
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 14), align 8
 ; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 2, i32 1, i64 0), align 8
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 15), align 8
-; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 2, i32 1, i64 1), align 8
+; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 2, i32 1, i64 1), align 16
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 16), align 8
 ; CHECK: store i32 1, i32* getelementptr inbounds ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 2, i32 1, i64 2), align 8
   store i32 1, i32* getelementptr ([3 x %struct.X], [3 x %struct.X]* @Y, i64 0, i64 0, i32 0, i64 17), align 8

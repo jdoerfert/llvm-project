@@ -15,6 +15,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -603,133 +604,6 @@ Value::stripAndAccumulateConstantOffsets(const DataLayout &DL, APInt &Offset,
 
 const Value *Value::stripInBoundsOffsets() const {
   return stripPointerCastsAndOffsets<PSK_InBounds>(this);
-}
-
-uint64_t Value::getPointerDereferenceableBytes(const DataLayout &DL,
-                                               bool &CanBeNull) const {
-  assert(getType()->isPointerTy() && "must be pointer");
-
-  uint64_t DerefBytes = 0;
-  CanBeNull = false;
-  if (const Argument *A = dyn_cast<Argument>(this)) {
-    DerefBytes = A->getDereferenceableBytes();
-    if (DerefBytes == 0 && (A->hasByValAttr() || A->hasStructRetAttr())) {
-      Type *PT = cast<PointerType>(A->getType())->getElementType();
-      if (PT->isSized())
-        DerefBytes = DL.getTypeStoreSize(PT);
-    }
-    if (DerefBytes == 0) {
-      DerefBytes = A->getDereferenceableOrNullBytes();
-      CanBeNull = true;
-    }
-  } else if (const auto *Call = dyn_cast<CallBase>(this)) {
-    DerefBytes = Call->getDereferenceableBytes(AttributeList::ReturnIndex);
-    if (DerefBytes == 0) {
-      DerefBytes =
-          Call->getDereferenceableOrNullBytes(AttributeList::ReturnIndex);
-      CanBeNull = true;
-    }
-  } else if (const LoadInst *LI = dyn_cast<LoadInst>(this)) {
-    if (MDNode *MD = LI->getMetadata(LLVMContext::MD_dereferenceable)) {
-      ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
-      DerefBytes = CI->getLimitedValue();
-    }
-    if (DerefBytes == 0) {
-      if (MDNode *MD =
-              LI->getMetadata(LLVMContext::MD_dereferenceable_or_null)) {
-        ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
-        DerefBytes = CI->getLimitedValue();
-      }
-      CanBeNull = true;
-    }
-  } else if (auto *IP = dyn_cast<IntToPtrInst>(this)) {
-    if (MDNode *MD = IP->getMetadata(LLVMContext::MD_dereferenceable)) {
-      ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
-      DerefBytes = CI->getLimitedValue();
-    }
-    if (DerefBytes == 0) {
-      if (MDNode *MD =
-              IP->getMetadata(LLVMContext::MD_dereferenceable_or_null)) {
-        ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
-        DerefBytes = CI->getLimitedValue();
-      }
-      CanBeNull = true;
-    }
-  } else if (auto *AI = dyn_cast<AllocaInst>(this)) {
-    if (!AI->isArrayAllocation()) {
-      DerefBytes = DL.getTypeStoreSize(AI->getAllocatedType());
-      CanBeNull = false;
-    }
-  } else if (auto *GV = dyn_cast<GlobalVariable>(this)) {
-    if (GV->getValueType()->isSized() && !GV->hasExternalWeakLinkage()) {
-      // TODO: Don't outright reject hasExternalWeakLinkage but set the
-      // CanBeNull flag.
-      DerefBytes = DL.getTypeStoreSize(GV->getValueType());
-      CanBeNull = false;
-    }
-  }
-  return DerefBytes;
-}
-
-unsigned Value::getPointerAlignment(const DataLayout &DL) const {
-  assert(getType()->isPointerTy() && "must be pointer");
-  if (auto *GO = dyn_cast<GlobalObject>(this)) {
-    if (isa<Function>(GO)) {
-      const MaybeAlign FunctionPtrAlign = DL.getFunctionPtrAlign();
-      const unsigned Align = FunctionPtrAlign ? FunctionPtrAlign->value() : 0;
-      switch (DL.getFunctionPtrAlignType()) {
-      case DataLayout::FunctionPtrAlignType::Independent:
-        return Align;
-      case DataLayout::FunctionPtrAlignType::MultipleOfFunctionAlign:
-        return std::max(Align, GO->getAlignment());
-      }
-      llvm_unreachable("Unhandled FunctionPtrAlignType");
-    }
-    const unsigned Align = GO->getAlignment();
-    if (!Align) {
-      if (auto *GVar = dyn_cast<GlobalVariable>(GO)) {
-        Type *ObjectType = GVar->getValueType();
-        if (ObjectType->isSized()) {
-          // If the object is defined in the current Module, we'll be giving
-          // it the preferred alignment. Otherwise, we have to assume that it
-          // may only have the minimum ABI alignment.
-          if (GVar->isStrongDefinitionForLinker())
-            return DL.getPreferredAlignment(GVar);
-          else
-            return DL.getABITypeAlignment(ObjectType);
-        }
-      }
-    }
-    return Align;
-  } else if (const Argument *A = dyn_cast<Argument>(this)) {
-    const unsigned Align = A->getParamAlignment();
-    if (!Align && A->hasStructRetAttr()) {
-      // An sret parameter has at least the ABI alignment of the return type.
-      Type *EltTy = cast<PointerType>(A->getType())->getElementType();
-      if (EltTy->isSized())
-        return DL.getABITypeAlignment(EltTy);
-    }
-    return Align;
-  } else if (const AllocaInst *AI = dyn_cast<AllocaInst>(this)) {
-    const unsigned Align = AI->getAlignment();
-    if (!Align) {
-      Type *AllocatedType = AI->getAllocatedType();
-      if (AllocatedType->isSized())
-        return DL.getPrefTypeAlignment(AllocatedType);
-    }
-    return Align;
-  } else if (const auto *Call = dyn_cast<CallBase>(this)) {
-    const unsigned Align = Call->getRetAlignment();
-    if (!Align && Call->getCalledFunction())
-      return Call->getCalledFunction()->getAttributes().getRetAlignment();
-    return Align;
-  } else if (const LoadInst *LI = dyn_cast<LoadInst>(this)) {
-    if (MDNode *MD = LI->getMetadata(LLVMContext::MD_align)) {
-      ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
-      return CI->getLimitedValue();
-    }
-  }
-  return 0;
 }
 
 const Value *Value::DoPHITranslation(const BasicBlock *CurBB,

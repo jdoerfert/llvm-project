@@ -44,7 +44,7 @@ define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i32(i32 add
 ; ELT4-UNALIGNED: store i32
 ; ELT4-UNALIGNED: store i32
 ; ELT4-UNALIGNED: store i32
-define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i32_align1(i32 addrspace(5)* %out) #0 {
+define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i32_align1(i32 addrspace(5)* align 1 %out) #0 {
   %out.gep.1 = getelementptr i32, i32 addrspace(5)* %out, i32 1
   %out.gep.2 = getelementptr i32, i32 addrspace(5)* %out, i32 2
   %out.gep.3 = getelementptr i32, i32 addrspace(5)* %out, i32 3
@@ -71,7 +71,7 @@ define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i32_align1(
 ; ELT4-UNALIGNED: store i32
 ; ELT4-UNALIGNED: store i32
 ; ELT4-UNALIGNED: store i32
-define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i32_align2(i32 addrspace(5)* %out) #0 {
+define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i32_align2(i32 addrspace(5)* align 2 %out) #0 {
   %out.gep.1 = getelementptr i32, i32 addrspace(5)* %out, i32 1
   %out.gep.2 = getelementptr i32, i32 addrspace(5)* %out, i32 2
   %out.gep.3 = getelementptr i32, i32 addrspace(5)* %out, i32 3
@@ -104,7 +104,7 @@ define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i8(i8 addrs
 ; ALIGNED: store i8
 
 ; UNALIGNED: store <4 x i8> <i8 9, i8 1, i8 23, i8 19>, <4 x i8> addrspace(5)* %1, align 1
-define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i8_align1(i8 addrspace(5)* %out) #0 {
+define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v4i8_align1(i8 addrspace(5)* align 1 %out) #0 {
   %out.gep.1 = getelementptr i8, i8 addrspace(5)* %out, i32 1
   %out.gep.2 = getelementptr i8, i8 addrspace(5)* %out, i32 2
   %out.gep.3 = getelementptr i8, i8 addrspace(5)* %out, i32 3
@@ -131,7 +131,7 @@ define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v2i16(i16 add
 ; ALIGNED: store i16
 
 ; UNALIGNED: store <2 x i16> <i16 9, i16 12>, <2 x i16> addrspace(5)* %1, align 2
-define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v2i16_align2(i16 addrspace(5)* %out) #0 {
+define amdgpu_kernel void @merge_private_store_4_vector_elts_loads_v2i16_align2(i16 addrspace(5)* align 2 %out) #0 {
   %out.gep.1 = getelementptr i16, i16 addrspace(5)* %out, i32 1
 
   store i16 9, i16 addrspace(5)* %out, align 2
@@ -194,7 +194,7 @@ define amdgpu_kernel void @merge_private_store_3_vector_elts_loads_v4i32(i32 add
 ; ELT8-UNALIGNED: store i32
 
 ; ELT16-UNALIGNED: store <3 x i32>
-define amdgpu_kernel void @merge_private_store_3_vector_elts_loads_v4i32_align1(i32 addrspace(5)* %out) #0 {
+define amdgpu_kernel void @merge_private_store_3_vector_elts_loads_v4i32_align1(i32 addrspace(5)* align 1 %out) #0 {
   %out.gep.1 = getelementptr i32, i32 addrspace(5)* %out, i32 1
   %out.gep.2 = getelementptr i32, i32 addrspace(5)* %out, i32 2
 
@@ -210,7 +210,7 @@ define amdgpu_kernel void @merge_private_store_3_vector_elts_loads_v4i32_align1(
 ; ALIGNED: store i8
 
 ; UNALIGNED: store <3 x i8>
-define amdgpu_kernel void @merge_private_store_3_vector_elts_loads_v4i8_align1(i8 addrspace(5)* %out) #0 {
+define amdgpu_kernel void @merge_private_store_3_vector_elts_loads_v4i8_align1(i8 addrspace(5)* align 1 %out) #0 {
   %out.gep.1 = getelementptr i8, i8 addrspace(5)* %out, i8 1
   %out.gep.2 = getelementptr i8, i8 addrspace(5)* %out, i8 2
 

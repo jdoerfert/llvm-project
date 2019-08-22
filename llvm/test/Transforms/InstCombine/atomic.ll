@@ -274,7 +274,7 @@ define i32 @test19(float* %p) {
 
 define i32 @test20(i32** %p, i8* %v) {
 ; CHECK-LABEL: define i32 @test20(
-; CHECK: store atomic i8* %v, i8** [[D:%.*]] unordered, align 4
+; CHECK: store atomic i8* %v, i8** [[D:%.*]] unordered, align 8
   %cast = bitcast i8* %v to i32*
   store atomic i32* %cast, i32** %p unordered, align 4
   ret i32 0
@@ -282,7 +282,7 @@ define i32 @test20(i32** %p, i8* %v) {
 
 define i32 @test21(i32** %p, i8* %v) {
 ; CHECK-LABEL: define i32 @test21(
-; CHECK: store atomic i32* %cast, i32** %p monotonic, align 4
+; CHECK: store atomic i32* %cast, i32** %p monotonic, align 8
   %cast = bitcast i8* %v to i32*
   store atomic i32* %cast, i32** %p monotonic, align 4
   ret i32 0

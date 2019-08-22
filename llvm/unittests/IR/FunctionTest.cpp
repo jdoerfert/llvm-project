@@ -8,6 +8,7 @@
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Analysis/Loads.h"
 #include "gtest/gtest.h"
 using namespace llvm;
 
@@ -143,23 +144,23 @@ TEST(FunctionTest, GetPointerAlignment) {
   FunctionType *FuncType(FunctionType::get(VoidType, false));
   std::unique_ptr<Function> Func(Function::Create(
       FuncType, GlobalValue::ExternalLinkage));
-  EXPECT_EQ(0U, Func->getPointerAlignment(DataLayout("")));
-  EXPECT_EQ(1U, Func->getPointerAlignment(DataLayout("Fi8")));
-  EXPECT_EQ(1U, Func->getPointerAlignment(DataLayout("Fn8")));
-  EXPECT_EQ(2U, Func->getPointerAlignment(DataLayout("Fi16")));
-  EXPECT_EQ(2U, Func->getPointerAlignment(DataLayout("Fn16")));
-  EXPECT_EQ(4U, Func->getPointerAlignment(DataLayout("Fi32")));
-  EXPECT_EQ(4U, Func->getPointerAlignment(DataLayout("Fn32")));
+  EXPECT_EQ(0U, getPointerAlignment(Func.get(), DataLayout("")));
+  EXPECT_EQ(1U, getPointerAlignment(Func.get(), DataLayout("Fi8")));
+  EXPECT_EQ(1U, getPointerAlignment(Func.get(), DataLayout("Fn8")));
+  EXPECT_EQ(2U, getPointerAlignment(Func.get(), DataLayout("Fi16")));
+  EXPECT_EQ(2U, getPointerAlignment(Func.get(), DataLayout("Fn16")));
+  EXPECT_EQ(4U, getPointerAlignment(Func.get(), DataLayout("Fi32")));
+  EXPECT_EQ(4U, getPointerAlignment(Func.get(), DataLayout("Fn32")));
 
   Func->setAlignment(4U);
 
-  EXPECT_EQ(0U, Func->getPointerAlignment(DataLayout("")));
-  EXPECT_EQ(1U, Func->getPointerAlignment(DataLayout("Fi8")));
-  EXPECT_EQ(4U, Func->getPointerAlignment(DataLayout("Fn8")));
-  EXPECT_EQ(2U, Func->getPointerAlignment(DataLayout("Fi16")));
-  EXPECT_EQ(4U, Func->getPointerAlignment(DataLayout("Fn16")));
-  EXPECT_EQ(4U, Func->getPointerAlignment(DataLayout("Fi32")));
-  EXPECT_EQ(4U, Func->getPointerAlignment(DataLayout("Fn32")));
+  EXPECT_EQ(0U, getPointerAlignment(Func.get(), DataLayout("")));
+  EXPECT_EQ(1U, getPointerAlignment(Func.get(), DataLayout("Fi8")));
+  EXPECT_EQ(4U, getPointerAlignment(Func.get(), DataLayout("Fn8")));
+  EXPECT_EQ(2U, getPointerAlignment(Func.get(), DataLayout("Fi16")));
+  EXPECT_EQ(4U, getPointerAlignment(Func.get(), DataLayout("Fn16")));
+  EXPECT_EQ(4U, getPointerAlignment(Func.get(), DataLayout("Fi32")));
+  EXPECT_EQ(4U, getPointerAlignment(Func.get(), DataLayout("Fn32")));
 }
 
 } // end namespace
