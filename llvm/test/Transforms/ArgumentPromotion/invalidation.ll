@@ -7,7 +7,8 @@
 ; invalidation this will crash in the second printer as it tries to reuse
 ; now-invalid demanded bits.
 ;
-; RUN: opt < %s -passes='function(print<demanded-bits>),cgscc(argpromotion,function(print<demanded-bits>))' -S | FileCheck %s --check-prefix=ARGPROMOTION
+; RUN: opt < %s -passes='function(print<demanded-bits>),cgscc(argpromotion,function(print<demanded-bits>))' -S | FileCheck %s --check-prefixes=ALL,ARGPROMOTION
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s --check-prefixes=ALL,ATTRIBUTOR
 
 @G = constant i32 0
 
@@ -15,7 +16,12 @@ define internal i32 @a(i32* %x) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@a
 ; ARGPROMOTION-SAME: (i32 [[X_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    ret i32 [[X_VAL]]
+; ARGPROMOTION-NEXT:    ret i32 [[X_VAL:%.*]]
+;
+; ATTRIBUTOR-LABEL: define {{[^@]+}}@a()
+; ATTRIBUTOR-NEXT:  entry:
+; ATTRIBUTOR-NEXT:    [[V:%.*]] = load i32, i32* @G, align 4
+; ATTRIBUTOR-NEXT:    ret i32 [[V]]
 ;
 entry:
   %v = load i32, i32* %x
@@ -28,6 +34,11 @@ define i32 @b() {
 ; ARGPROMOTION-NEXT:    [[G_VAL:%.*]] = load i32, i32* @G
 ; ARGPROMOTION-NEXT:    [[V:%.*]] = call i32 @a(i32 [[G_VAL]])
 ; ARGPROMOTION-NEXT:    ret i32 [[V]]
+;
+; ATTRIBUTOR-LABEL: define {{[^@]+}}@b()
+; ATTRIBUTOR-NEXT:  entry:
+; ATTRIBUTOR-NEXT:    [[V:%.*]] = call i32 @a()
+; ATTRIBUTOR-NEXT:    ret i32 [[V]]
 ;
 entry:
   %v = call i32 @a(i32* @G)
@@ -42,6 +53,13 @@ define i32 @c() {
 ; ARGPROMOTION-NEXT:    [[V2:%.*]] = call i32 @b()
 ; ARGPROMOTION-NEXT:    [[RESULT:%.*]] = add i32 [[V1]], [[V2]]
 ; ARGPROMOTION-NEXT:    ret i32 [[RESULT]]
+;
+; ATTRIBUTOR-LABEL: define {{[^@]+}}@c()
+; ATTRIBUTOR-NEXT:  entry:
+; ATTRIBUTOR-NEXT:    [[V1:%.*]] = call i32 @a()
+; ATTRIBUTOR-NEXT:    [[V2:%.*]] = call i32 @b()
+; ATTRIBUTOR-NEXT:    [[RESULT:%.*]] = add i32 [[V1]], [[V2]]
+; ATTRIBUTOR-NEXT:    ret i32 [[RESULT]]
 ;
 entry:
   %v1 = call i32 @a(i32* @G)
