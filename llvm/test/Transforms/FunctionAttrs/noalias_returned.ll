@@ -152,13 +152,27 @@ define i8* @test8(i32* %0) nounwind uwtable {
 
 ; TEST 9
 ; Simple Argument Test
-define internal void @test9(i8* %a, i8* %b) {
-; CHECK: define internal void @test9(i8* noalias nocapture readnone %a, i8* nocapture readnone %b)
+declare void @use_i8(i8* nocapture) readnone
+define internal void @test9a(i8* %a, i8* %b) {
+; CHECK: define internal void @test9a(i8* noalias nocapture readnone %a, i8* nocapture readnone %b)
+  ret void
+}
+define internal void @test9b(i8* %a, i8* %b) {
+; CHECK: define internal void @test9b(i8* noalias nocapture readnone %a, i8* nocapture readnone %b)
+  call void @use_i8(i8* %a)
+  call void @use_i8(i8* %b)
   ret void
 }
 define void @test9_helper(i8* %a, i8* %b) {
-  tail call void @test9(i8* noalias %a, i8* %b)
-  tail call void @test9(i8* noalias %b, i8* noalias %a)
+; CHECK: define void @test9_helper(i8* nocapture readnone %a, i8* nocapture readnone %b)
+; CHECK:  tail call void @test9a(i8* noalias nocapture undef, i8* nocapture undef)
+; CHECK:  tail call void @test9a(i8* noalias nocapture undef, i8* noalias nocapture undef)
+; CHECK:  tail call void @test9b(i8* noalias nocapture %a, i8* nocapture %b)
+; CHECK:  tail call void @test9b(i8* noalias nocapture %b, i8* noalias nocapture %a)
+  tail call void @test9a(i8* noalias %a, i8* %b)
+  tail call void @test9a(i8* noalias %b, i8* noalias %a)
+  tail call void @test9b(i8* noalias %a, i8* %b)
+  tail call void @test9b(i8* noalias %b, i8* noalias %a)
   ret void
 }
 
@@ -176,7 +190,7 @@ define void @test10(i8* noalias %a) {
 ; CHECK-NEXT:   tail call void @test10_helper_1(i8* %a)
   tail call void @test10_helper_1(i8* %a)
 
-; CHECK-NEXT:   tail call void @test10_helper_2(i8* noalias %a)
+; CHECK-NEXT:   tail call void @test10_helper_2(i8* noalias undef)
   tail call void @test10_helper_2(i8* %a)
   ret void
 }

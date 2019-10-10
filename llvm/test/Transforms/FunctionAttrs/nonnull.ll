@@ -158,8 +158,12 @@ define void @test13_helper() {
   tail call void @test13(i8* %nonnullptr, i8* %maybenullptr, i8* %nonnullptr)
   ret void
 }
+declare void @use_i8_ptr(i8* readnone nocapture)
 define internal void @test13(i8* %a, i8* %b, i8* %c) {
 ; ATTRIBUTOR: define internal void @test13(i8* nocapture nonnull readnone %a, i8* nocapture readnone %b, i8* nocapture readnone %c) 
+  call void @use_i8_ptr(i8* %a)
+  call void @use_i8_ptr(i8* %b)
+  call void @use_i8_ptr(i8* %c)
   ret void
 }
 
@@ -458,8 +462,10 @@ define  i32* @g1() {
   ret i32* %c
 }
 
+declare void @use_i32_ptr(i32*) readnone nounwind
 ; ATTRIBUTOR: define internal void @called_by_weak(i32* nocapture nonnull readnone %a)
 define internal void @called_by_weak(i32* %a) {
+  call void @use_i32_ptr(i32* %a)
   ret void
 }
 

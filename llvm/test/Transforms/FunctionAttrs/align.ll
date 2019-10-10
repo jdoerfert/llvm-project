@@ -88,7 +88,7 @@ define internal i8* @f1(i8* readnone %0) local_unnamed_addr #0 {
   br i1 %2, label %3, label %5
 
 ; <label>:3:                                      ; preds = %1
-; ATTRIBUTOR: %4 = tail call align 8 i8* @f2(i8* nonnull align 8 dereferenceable(1) @a1)
+; ATTRIBUTOR: %4 = tail call align 8 i8* @f2(i8* nonnull align 8 dereferenceable(1) undef)
   %4 = tail call i8* @f2(i8* nonnull @a1)
 ; ATTRIBUTOR: %l = load i8, i8* %4, align 8
   %l = load i8, i8* %4
@@ -102,6 +102,7 @@ define internal i8* @f1(i8* readnone %0) local_unnamed_addr #0 {
 ; Function Attrs: nounwind readnone ssp uwtable
 define internal i8* @f2(i8* readnone %0) local_unnamed_addr #0 {
 ; ATTRIBUTOR: define internal nonnull align 8 dereferenceable(1) i8* @f2(i8* nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" %0)
+; ATTRIBUTOR: icmp eq i8* @a1, null
   %2 = icmp eq i8* %0, null
   br i1 %2, label %5, label %3
 
@@ -112,7 +113,7 @@ define internal i8* @f2(i8* readnone %0) local_unnamed_addr #0 {
   br label %7
 
 ; <label>:5:                                      ; preds = %1
-; ATTRIBUTOR: %6 = tail call i8* @f3(i8* nonnull align 16 dereferenceable(1) @a2)
+; ATTRIBUTOR: %6 = tail call i8* @f3(i8* nonnull align 16 dereferenceable(1) undef)
   %6 = tail call i8* @f3(i8* nonnull @a2)
   br label %7
 
@@ -124,6 +125,7 @@ define internal i8* @f2(i8* readnone %0) local_unnamed_addr #0 {
 ; Function Attrs: nounwind readnone ssp uwtable
 define internal i8* @f3(i8* readnone %0) local_unnamed_addr #0 {
 ; ATTRIBUTOR: define internal nonnull align 8 dereferenceable(1) i8* @f3(i8* nocapture nonnull readnone align 16 dereferenceable(1) %0)
+; ATTRIBUTOR: icmp eq i8* @a2, null
   %2 = icmp eq i8* %0, null
   br i1 %2, label %3, label %5
 
@@ -161,8 +163,12 @@ define void @test8_helper() {
   ret void
 }
 
+declare void @user_i32_ptr(i32*) readnone nounwind
 define internal void @test8(i32* %a, i32* %b, i32* %c) {
 ; ATTRIBUTOR: define internal void @test8(i32* nocapture readnone align 4 %a, i32* nocapture readnone align 4 %b, i32* nocapture readnone %c)
+  call void @user_i32_ptr(i32* %a)
+  call void @user_i32_ptr(i32* %b)
+  call void @user_i32_ptr(i32* %c)
   ret void
 }
 

@@ -3127,7 +3127,14 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       return const_cast<Value *>(&getAssociatedValue());
     return SimplifiedAssociatedValue;
   }
-  void initialize(Attributor &A) override {}
+
+  void initialize(Attributor &A) override {
+    // TODO: This should live in a separata AA, probably AAIsDead.
+    if (!getAssociatedFunction() || getAssociatedFunction()->isDeclaration())
+      indicatePessimisticFixpoint();
+    if (getAssociatedValue().getNumUses() == 0)
+      indicateOptimisticFixpoint();
+  }
 
   /// Helper function for querying AAValueSimplify and updating candicate.
   /// \param QueryingValue Value trying to unify with SimplifiedValue
@@ -3177,7 +3184,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     if (auto *C = dyn_cast<Constant>(SimplifiedAssociatedValue.getValue())) {
       // We can replace the AssociatedValue with the constant.
       Value &V = getAssociatedValue();
-      if (!V.user_empty() && &V != C && V.getType() == C->getType()) {
+      if (!isa<UndefValue>(V) && !V.user_empty() && &V != C &&
+          V.getType() == C->getType()) {
         LLVM_DEBUG(dbgs() << "[Attributor][ValueSimplify] " << V << " -> " << *C
                           << "\n");
         V.replaceAllUsesWith(C);
@@ -3218,6 +3226,41 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     return HasValueBefore == SimplifiedAssociatedValue.hasValue()
                ? ChangeStatus::UNCHANGED
                : ChangeStatus ::CHANGED;
+  }
+
+  /// See AbstractAttribute::manifest(...).
+  ChangeStatus manifest(Attributor &A) override {
+    Argument &Arg = *getAssociatedArgument();
+    ChangeStatus Changed = AAValueSimplifyImpl::manifest(A);
+
+    // TODO: This should live in a separata AA, probably AAIsDead. However, to
+    //       keep the patch small we prototype it here and move it in a separate
+    //       step. The AAIsDead impl. will also depend on the simplified value
+    //       result as a simplified value means we replace the uses.
+    if (Changed == ChangeStatus::CHANGED || Arg.getNumUses() == 0) {
+      // We can replace the call site arguments with undef because the value is
+      // not used.
+      SmallVector<std::pair<CallSite, unsigned>, 4> CallSiteOpReplacements;
+      auto RplArgOpWithUndef = [&](AbstractCallSite ACS) {
+        // Check if we have an associated argument or not (which can happen
+        // for callback calls).
+        int CSArgNo = ACS.getCallArgOperandNo(getArgNo());
+        if (CSArgNo >= 0)
+          CallSiteOpReplacements.push_back({ACS.getCallSite(), CSArgNo});
+        return true;
+      };
+      A.checkForAllCallSites(RplArgOpWithUndef, *this, false);
+
+      // Replace the values after we are done iterating uses.
+      Value *UndefV = UndefValue::get(getAssociatedValue().getType());
+      for (auto &It : CallSiteOpReplacements)
+        It.first->setOperand(It.second, UndefV);
+
+      Changed =
+          CallSiteOpReplacements.empty() ? Changed : ChangeStatus::CHANGED;
+    }
+
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
