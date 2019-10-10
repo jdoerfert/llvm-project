@@ -287,17 +287,7 @@ struct IRPosition {
   /// Return the associated argument, if any.
   ///
   ///{
-  Argument *getAssociatedArgument() {
-    if (auto *Arg = dyn_cast<Argument>(&getAnchorValue()))
-      return Arg;
-    int ArgNo = getArgNo();
-    if (ArgNo < 0)
-      return nullptr;
-    Function *AssociatedFn = getAssociatedFunction();
-    if (!AssociatedFn || AssociatedFn->arg_size() <= unsigned(ArgNo))
-      return nullptr;
-    return AssociatedFn->arg_begin() + ArgNo;
-  }
+  Argument *getAssociatedArgument();
   const Argument *getAssociatedArgument() const {
     return const_cast<IRPosition *>(this)->getAssociatedArgument();
   }
