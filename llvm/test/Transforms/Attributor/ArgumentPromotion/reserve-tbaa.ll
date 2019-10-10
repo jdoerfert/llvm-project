@@ -11,7 +11,8 @@
 @e = global i32** @a, align 8
 @g = global i32 0, align 4
 @c = global i64 0, align 8
-@d = global i8 0, align 1
+@d0 = global i32 0, align 1
+@d1 = global i8 0, align 1
 
 define internal fastcc void @fn(i32* nocapture readonly %p1, i64* nocapture readonly %p2) {
 ; CHECK-LABEL: define {{[^@]+}}@fn
@@ -19,17 +20,19 @@ define internal fastcc void @fn(i32* nocapture readonly %p1, i64* nocapture read
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i64, i64* undef, align 8, !tbaa !0
 ; CHECK-NEXT:    [[CONV:%.*]] = trunc i64 [[TMP0]] to i32
+; CHECK-NEXT:    store i32 [[CONV]], i32* @d0, align 1
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i32, i32* @g, align 4, !tbaa !4
 ; CHECK-NEXT:    [[CONV1:%.*]] = trunc i32 [[TMP1]] to i8
-; CHECK-NEXT:    store i8 [[CONV1]], i8* @d, align 1, !tbaa !6
+; CHECK-NEXT:    store i8 [[CONV1]], i8* @d1, align 1, !tbaa !6
 ; CHECK-NEXT:    ret void
 ;
 entry:
   %0 = load i64, i64* %p2, align 8, !tbaa !1
   %conv = trunc i64 %0 to i32
+  store i32 %conv, i32* @d0, align 1
   %1 = load i32, i32* %p1, align 4, !tbaa !5
   %conv1 = trunc i32 %1 to i8
-  store i8 %conv1, i8* @d, align 1, !tbaa !7
+  store i8 %conv1, i8* @d1, align 1, !tbaa !7
   ret void
 }
 
@@ -40,7 +43,7 @@ define i32 @main() {
 ; CHECK-NEXT:    store i32* @g, i32** [[TMP0]], align 8, !tbaa !7
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i32*, i32** @a, align 8, !tbaa !7
 ; CHECK-NEXT:    store i32 1, i32* [[TMP1]], align 4, !tbaa !4
-; CHECK-NEXT:    call fastcc void @fn(i32* nofree nonnull align 4 dereferenceable(4) @g, i64* nofree nonnull align 8 dereferenceable(8) undef)
+; CHECK-NEXT:    call fastcc void @fn(i32* nofree nonnull align 4 dereferenceable(4) @g, i64* nofree nonnull align 8 dereferenceable(8) @c)
 ; CHECK-NEXT:    ret i32 0
 ;
 entry:

@@ -20,24 +20,37 @@ define internal void @test(i32** %X) !dbg !2 {
 %struct.pair = type { i32, i32 }
 
 define internal void @test_byval(%struct.pair* byval %P) {
-; CHECK-LABEL: define {{[^@]+}}@test_byval
-; CHECK-SAME: (%struct.pair* nocapture nofree readnone byval [[P:%.*]])
+; CHECK-LABEL: define {{[^@]+}}@test_byval()
 ; CHECK-NEXT:    ret void
 ;
   ret void
 }
 
-define void @caller(i32** %Y, %struct.pair* %P) {
+define internal i32 @test_byval_used(%struct.pair* byval %P) {
+; CHECK-LABEL: define {{[^@]+}}@test_byval_used
+; CHECK-SAME: (%struct.pair* nocapture nofree nonnull readonly byval align 8 dereferenceable(4) [[P:%.*]])
+; CHECK-NEXT:    [[C:%.*]] = bitcast %struct.pair* [[P]] to i32*
+; CHECK-NEXT:    [[V:%.*]] = load i32, i32* [[C]], align 8
+; CHECK-NEXT:    ret i32 [[V]]
+;
+  %c = bitcast %struct.pair* %P to i32*
+  %v = load i32, i32* %c, align 8
+  ret i32 %v
+}
+
+define i32 @caller(i32** %Y, %struct.pair* %P) {
 ; CHECK-LABEL: define {{[^@]+}}@caller
 ; CHECK-SAME: (i32** nocapture readonly [[Y:%.*]], %struct.pair* nocapture nofree readonly [[P:%.*]])
 ; CHECK-NEXT:    call void @test(i32** nocapture readonly [[Y]]), !dbg !4
-; CHECK-NEXT:    call void @test_byval(%struct.pair* nocapture nofree readonly undef), !dbg !5
-; CHECK-NEXT:    ret void
+; CHECK-NEXT:    call void @test_byval(), !dbg !5
+; CHECK-NEXT:    [[V:%.*]] = call i32 @test_byval_used(%struct.pair* nocapture nofree readonly [[P]]), !dbg !5
+; CHECK-NEXT:    ret i32 [[V]]
 ;
   call void @test(i32** %Y), !dbg !1
 
   call void @test_byval(%struct.pair* %P), !dbg !6
-  ret void
+  %v = call i32 @test_byval_used(%struct.pair* %P), !dbg !6
+  ret i32 %v
 }
 
 
