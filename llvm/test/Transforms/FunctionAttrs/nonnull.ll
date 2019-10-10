@@ -160,8 +160,12 @@ define void @test13_helper() {
   tail call void @test13(i8* %nonnullptr, i8* %maybenullptr, i8* %nonnullptr)
   ret void
 }
+declare void @user_i8_ptr(i8*) readnone nounwind
 define internal void @test13(i8* %a, i8* %b, i8* %c) {
 ; ATTRIBUTOR: define internal void @test13(i8* nocapture nonnull readnone %a, i8* nocapture readnone %b, i8* nocapture readnone %c)
+  call void @user_i8_ptr(i8* %a)
+  call void @user_i8_ptr(i8* %b)
+  call void @user_i8_ptr(i8* %c)
   ret void
 }
 

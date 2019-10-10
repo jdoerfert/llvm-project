@@ -718,14 +718,14 @@ live_with_dead_entry:
   ret void
 }
 
-; CHECK: define internal void @useless_arg_sink(i32* nocapture readnone %a)
+; CHECK: define internal void @useless_arg_sink()
 define internal void @useless_arg_sink(i32* %a) {
   ret void
 }
 
-; CHECK: define internal void @useless_arg_almost_sink(i32* nocapture readnone %a)
+; CHECK: define internal void @useless_arg_almost_sink()
 define internal void @useless_arg_almost_sink(i32* %a) {
-; CHECK: call void @useless_arg_sink(i32* nocapture undef)
+; CHECK: call void @useless_arg_sink()
   call void @useless_arg_sink(i32* %a)
   ret void
 }
@@ -733,7 +733,7 @@ define internal void @useless_arg_almost_sink(i32* %a) {
 ; Check we do not annotate the function interface of this weak function.
 ; CHECK: define weak_odr void @useless_arg_ext(i32* %a)
 define weak_odr void @useless_arg_ext(i32* %a) {
-; CHECK: call void @useless_arg_almost_sink(i32* undef)
+; CHECK: call void @useless_arg_almost_sink()
   call void @useless_arg_almost_sink(i32* %a)
   ret void
 }
