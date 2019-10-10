@@ -1,4 +1,4 @@
-; RUN: opt -attributor --attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=2 -S < %s | FileCheck %s
+; RUN: opt -attributor --attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=4 -S < %s | FileCheck %s
 
 declare void @no_return_call() nofree noreturn nounwind readnone
 
@@ -716,16 +716,25 @@ live_with_dead_entry:
   ret void
 }
 
-; CHECK: define internal void @useless_arg_sink(i32* nocapture readnone %a)
+; CHECK: define internal void @useless_arg_sink()
 define internal void @useless_arg_sink(i32* %a) {
+  ret void
+}
+
+; FIXME: We should remove this argument as well. (This is due to the placement
+; of the argument removal, or pass undef, code.)
+; CHECK: define internal void @useless_arg_almost_sink(i32* nocapture readnone %a)
+define internal void @useless_arg_almost_sink(i32* %a) {
+; CHECK: call void @useless_arg_sink()
+  call void @useless_arg_sink(i32* %a)
   ret void
 }
 
 ; Check we do not annotate the function interface of this weak function.
 ; CHECK: define weak_odr void @useless_arg_ext(i32* %a)
 define weak_odr void @useless_arg_ext(i32* %a) {
-; CHECK: call void @useless_arg_sink(i32* undef)
-  call void @useless_arg_sink(i32* %a)
+; CHECK: call void @useless_arg_almost_sink(i32* %a)
+  call void @useless_arg_almost_sink(i32* %a)
   ret void
 }
 

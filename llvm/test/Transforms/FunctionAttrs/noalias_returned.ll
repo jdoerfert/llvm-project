@@ -154,7 +154,7 @@ define i8* @test8(i32* %0) nounwind uwtable {
 ; Simple Argument Test
 declare void @use_i8(i8* nocapture) readnone
 define internal void @test9a(i8* %a, i8* %b) {
-; CHECK: define internal void @test9a(i8* noalias nocapture readnone %a, i8* nocapture readnone %b)
+; CHECK: define internal void @test9a()
   ret void
 }
 define internal void @test9b(i8* %a, i8* %b) {
@@ -165,8 +165,8 @@ define internal void @test9b(i8* %a, i8* %b) {
 }
 define void @test9_helper(i8* %a, i8* %b) {
 ; CHECK: define void @test9_helper(i8* nocapture readnone %a, i8* nocapture readnone %b)
-; CHECK:  tail call void @test9a(i8* noalias nocapture undef, i8* nocapture undef)
-; CHECK:  tail call void @test9a(i8* noalias nocapture undef, i8* noalias nocapture undef)
+; CHECK:  tail call void @test9a()
+; CHECK:  tail call void @test9a()
 ; CHECK:  tail call void @test9b(i8* noalias nocapture %a, i8* nocapture %b)
 ; CHECK:  tail call void @test9b(i8* noalias nocapture %b, i8* noalias nocapture %a)
   tail call void @test9a(i8* noalias %a, i8* %b)
