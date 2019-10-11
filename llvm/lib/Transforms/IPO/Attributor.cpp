@@ -4773,7 +4773,32 @@ bool Attributor::checkForAllReadWriteInstructions(
   return true;
 }
 
-ChangeStatus Attributor::run(Module &M) {
+ChangeStatus Attributor::run(Module &M, unsigned &RemainingIterations) {
+
+  for (Function &F : M)
+    initializeInformationCache(F);
+
+  for (Function &F : M) {
+    if (F.hasExactDefinition())
+      NumFnWithExactDefinition++;
+    else
+      NumFnWithoutExactDefinition++;
+
+    // We look at internal functions only on-demand but if any use is not a
+    // direct call, we have to do it eagerly.
+    if (F.hasLocalLinkage()) {
+      if (llvm::all_of(F.uses(), [](const Use &U) {
+            return ImmutableCallSite(U.getUser()) &&
+                   ImmutableCallSite(U.getUser()).isCallee(&U);
+          }))
+        continue;
+    }
+
+    // Populate the Attributor with abstract attribute opportunities in the
+    // function and the information cache with IR information.
+    identifyDefaultAbstractAttributes(F);
+  }
+
   LLVM_DEBUG(dbgs() << "[Attributor] Identified and initialized "
                     << AllAbstractAttributes.size()
                     << " abstract attributes.\n");
@@ -4841,12 +4866,15 @@ ChangeStatus Attributor::run(Module &M) {
     Worklist.clear();
     Worklist.insert(ChangedAAs.begin(), ChangedAAs.end());
 
-  } while (!Worklist.empty() && (IterationCounter++ < MaxFixpointIterations ||
+  } while (!Worklist.empty() && (IterationCounter++ < RemainingIterations ||
                                  VerifyMaxFixpointIterations));
 
   LLVM_DEBUG(dbgs() << "\n[Attributor] Fixpoint iteration done after: "
-                    << IterationCounter << "/" << MaxFixpointIterations
+                    << IterationCounter << "/" << RemainingIterations
                     << " iterations\n");
+
+  // Update the remaining iterations counter.
+  RemainingIterations = std::min(0u, RemainingIterations - IterationCounter);
 
   size_t NumFinalAAs = AllAbstractAttributes.size();
 
@@ -5007,15 +5035,6 @@ ChangeStatus Attributor::run(Module &M) {
 
   // Rewrite the functions as requested during manifest.
   ManifestChange = ManifestChange | rewriteFunctionSignatures();
-
-  if (VerifyMaxFixpointIterations &&
-      IterationCounter != MaxFixpointIterations) {
-    errs() << "\n[Attributor] Fixpoint iteration done after: "
-           << IterationCounter << "/" << MaxFixpointIterations
-           << " iterations\n";
-    llvm_unreachable("The fixpoint was not reached with exactly the number of "
-                     "specified iterations!");
-  }
 
   return ManifestChange;
 }
@@ -5526,36 +5545,32 @@ static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
   LLVM_DEBUG(dbgs() << "[Attributor] Run on module with " << M.size()
                     << " functions.\n");
 
-  // Create an Attributor and initially empty information cache that is filled
-  // while we identify default attribute opportunities.
-  InformationCache InfoCache(M, AG);
-  Attributor A(InfoCache, DepRecInterval);
+  unsigned RemainingIterations = MaxFixpointIterations;
 
-  for (Function &F : M)
-    A.initializeInformationCache(F);
+  bool GlobalChange = false;
+  do {
+    // Create an Attributor and initially empty information cache that is filled
+    // while we identify default attribute opportunities.
+    InformationCache InfoCache(M, AG);
+    Attributor A(InfoCache, DepRecInterval);
 
-  for (Function &F : M) {
-    if (F.hasExactDefinition())
-      NumFnWithExactDefinition++;
-    else
-      NumFnWithoutExactDefinition++;
+    if (A.run(M, RemainingIterations) == ChangeStatus::UNCHANGED)
+      break;
 
-    // We look at internal functions only on-demand but if any use is not a
-    // direct call, we have to do it eagerly.
-    if (F.hasLocalLinkage()) {
-      if (llvm::all_of(F.uses(), [](const Use &U) {
-            return ImmutableCallSite(U.getUser()) &&
-                   ImmutableCallSite(U.getUser()).isCallee(&U);
-          }))
-        continue;
-    }
+    GlobalChange = true;
 
-    // Populate the Attributor with abstract attribute opportunities in the
-    // function and the information cache with IR information.
-    A.identifyDefaultAbstractAttributes(F);
+  } while (RemainingIterations);
+
+  if (VerifyMaxFixpointIterations && RemainingIterations != 0) {
+    unsigned IterationCounter = MaxFixpointIterations - RemainingIterations;
+    errs() << "\n[Attributor] Fixpoint iteration done after: "
+           << IterationCounter << "/" << MaxFixpointIterations
+           << " iterations\n";
+    llvm_unreachable("The fixpoint was not reached with exactly the number of "
+                     "specified iterations!");
   }
 
-  return A.run(M) == ChangeStatus::CHANGED;
+  return GlobalChange;
 }
 
 PreservedAnalyses AttributorPass::run(Module &M, ModuleAnalysisManager &AM) {
