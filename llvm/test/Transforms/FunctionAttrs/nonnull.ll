@@ -198,7 +198,7 @@ bb1:                                              ; preds = %bb
 
 bb4:                                              ; preds = %bb1
   %tmp5 = getelementptr inbounds i32, i32* %arg, i64 1
-; ATTRIBUTOR: %tmp5b = tail call i32* @f3(i32* nonnull %tmp5)
+; ATTRIBUTOR-NOT: call i32* @f3
   %tmp5b = tail call i32* @f3(i32* %tmp5)
   br label %bb9
 
@@ -534,11 +534,14 @@ define i32 addrspace(3)* @as(i32 addrspace(3)* dereferenceable(4) %p) {
   ret i32 addrspace(3)* %p
 }
 
+; FNATTR: define internal nonnull i32* @g2()
 define internal i32* @g2() {
   ret i32* inttoptr (i64 4 to i32*)
 }
 
 define  i32* @g1() {
+; ATTRIBUTOR: define nonnull i32* @g1()
+; ATTRIBUTOR:   ret i32* inttoptr (i64 4 to i32*)
  %c = call i32* @g2()
   ret i32* %c
 }
@@ -671,6 +674,24 @@ define void @PR43833_simple(i32* %0, i32 %1) {
   %10 = add nuw nsw i32 %9, 1
   %11 = icmp eq i32 %10, %1
   br i1 %11, label %7, label %8
+}
+
+declare void @unknown_willreturn() willreturn nounwind
+define void @step_willreturn() {
+  call void @unknown_willreturn()
+  ret void
+}
+; ATTRIBUTOR: define internal i32 @deref_arg_delayed(i32* nocapture nonnull readonly dereferenceable(4) %D)
+define internal i32 @deref_arg_delayed(i32* %D) {
+  call void @step_willreturn()
+  %v = load i32, i32* %D
+  ret i32 %v
+}
+; FIXME: We should do arg -> call site arg deduction *for known information*
+; ATTRIBUTOR: define i32 @extern_deref_arg_use(i32* nocapture nonnull readonly dereferenceable(4) %P)
+define i32 @extern_deref_arg_use(i32* %P) {
+  %v = call i32 @deref_arg_delayed(i32* %P)
+  ret i32 %v
 }
 
 attributes #0 = { "null-pointer-is-valid"="true" }

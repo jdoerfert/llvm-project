@@ -101,7 +101,7 @@ define internal void @t1_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, 
 ; CHECK-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; CHECK-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[C]], align 64
-; CHECK-NEXT:    tail call void @t1_check(i32* nocapture align 256 [[A]], i64 99, i32* [[TMP0]])
+; CHECK-NEXT:    tail call void @t1_check(i32* noalias nocapture align 256 [[A]], i64 99, i32* [[TMP0]])
 ; CHECK-NEXT:    ret void
 ;
 entry:

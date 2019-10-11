@@ -6,8 +6,7 @@ declare void @f(i32)
 
 ; Test1: Replace argument with constant
 define internal void @test1(i32 %a) {
-; CHECK-LABEL: define {{[^@]+}}@test1
-; CHECK-SAME: (i32 [[A:%.*]])
+; CHECK-LABEL: define {{[^@]+}}@test1()
 ; CHECK-NEXT:    tail call void @f(i32 1)
 ; CHECK-NEXT:    ret void
 ;
@@ -17,7 +16,7 @@ define internal void @test1(i32 %a) {
 
 define void @test1_helper() {
 ; CHECK-LABEL: define {{[^@]+}}@test1_helper()
-; CHECK-NEXT:    tail call void @test1(i32 1)
+; CHECK-NEXT:    tail call void @test1()
 ; CHECK-NEXT:    ret void
 ;
   tail call void @test1(i32 1)
@@ -44,6 +43,13 @@ define i32 @test2_1(i1 %c) {
 ; CHECK-SAME: (i1 [[C:%.*]])
 ; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
 ; CHECK:       if.true:
+<<<<<<< HEAD
+||||||| parent of 6602174c960... [Attributor] Iterate until a global fixpoint or a timeout is reached
+; CHECK-NEXT:    [[CALL:%.*]] = tail call i32 @return0()
+; CHECK-NEXT:    [[RET0:%.*]] = add i32 0, 1
+=======
+; CHECK-NEXT:    [[RET0:%.*]] = add i32 0, 1
+>>>>>>> 6602174c960... [Attributor] Iterate until a global fixpoint or a timeout is reached
 ; CHECK-NEXT:    br label [[END:%.*]]
 ; CHECK:       if.false:
 ; CHECK-NEXT:    br label [[END]]
@@ -167,27 +173,10 @@ end:
 }
 
 define internal i32 @rec0(i32 %a0) {
-; CHECK-LABEL: define {{[^@]+}}@rec0
-; CHECK-SAME: (i32 returned [[A0:%.*]])
-; CHECK-NEXT:    ret i32 [[A0]]
-;
   ret i32 %a0
 }
 
 define internal i32 @rec1(i1 %c, i32 %a1) {
-; CHECK-LABEL: define {{[^@]+}}@rec1
-; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A1:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
-; CHECK:       if-true:
-; CHECK-NEXT:    [[REC0:%.*]] = call i32 @rec0(i32 [[A1]])
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       if-false:
-; CHECK-NEXT:    [[REC1:%.*]] = call i32 @rec1(i1 true, i32 [[A1]])
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC0]], [[IF_TRUE]] ], [ [[REC1]], [[IF_FALSE]] ]
-; CHECK-NEXT:    ret i32 [[PHI_SAME]]
-;
   br i1 %c, label %if-true, label %if-false
 if-true:
   %rec0 = call i32 @rec0(i32 %a1)
@@ -201,19 +190,6 @@ end:
 }
 
 define internal i32 @rec2(i1 %c, i32 %a2) {
-; CHECK-LABEL: define {{[^@]+}}@rec2
-; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A2:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
-; CHECK:       if-true:
-; CHECK-NEXT:    [[REC1:%.*]] = call i32 @rec1(i1 [[C]], i32 [[A2]])
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       if-false:
-; CHECK-NEXT:    [[REC2:%.*]] = call i32 @rec2(i1 true, i32 [[A2]])
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC1]], [[IF_TRUE]] ], [ [[REC2]], [[IF_FALSE]] ]
-; CHECK-NEXT:    ret i32 [[PHI_SAME]]
-;
   br i1 %c, label %if-true, label %if-false
 if-true:
   %rec1 = call i32 @rec1(i1 %c, i32 %a2)
@@ -227,19 +203,6 @@ end:
 }
 
 define internal i32 @rec3(i1 %c, i32 %a3) {
-; CHECK-LABEL: define {{[^@]+}}@rec3
-; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A3:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
-; CHECK:       if-true:
-; CHECK-NEXT:    [[REC2:%.*]] = call i32 @rec2(i1 [[C]], i32 [[A3]])
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       if-false:
-; CHECK-NEXT:    [[REC3:%.*]] = call i32 @rec3(i1 true, i32 [[A3]])
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC2]], [[IF_TRUE]] ], [ [[REC3]], [[IF_FALSE]] ]
-; CHECK-NEXT:    ret i32 [[PHI_SAME]]
-;
   br i1 %c, label %if-true, label %if-false
 if-true:
   %rec2 = call i32 @rec2(i1 %c, i32 %a3)
@@ -253,19 +216,6 @@ end:
 }
 
 define internal i32 @rec4(i1 %c, i32 %a4) {
-; CHECK-LABEL: define {{[^@]+}}@rec4
-; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A4:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
-; CHECK:       if-true:
-; CHECK-NEXT:    [[REC3:%.*]] = call i32 @rec3(i1 [[C]], i32 [[A4]])
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       if-false:
-; CHECK-NEXT:    [[REC4:%.*]] = call i32 @rec4(i1 true, i32 [[A4]])
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC3]], [[IF_TRUE]] ], [ [[REC4]], [[IF_FALSE]] ]
-; CHECK-NEXT:    ret i32 [[PHI_SAME]]
-;
   br i1 %c, label %if-true, label %if-false
 if-true:
   %rec3 = call i32 @rec3(i1 %c, i32 %a4)
@@ -279,19 +229,6 @@ end:
 }
 
 define internal i32 @rec5(i1 %c, i32 %a5) {
-; CHECK-LABEL: define {{[^@]+}}@rec5
-; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A5:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
-; CHECK:       if-true:
-; CHECK-NEXT:    [[REC4:%.*]] = call i32 @rec4(i1 [[C]], i32 [[A5]])
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       if-false:
-; CHECK-NEXT:    [[REC5:%.*]] = call i32 @rec5(i1 true, i32 [[A5]])
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC4]], [[IF_TRUE]] ], [ [[REC5]], [[IF_FALSE]] ]
-; CHECK-NEXT:    ret i32 [[PHI_SAME]]
-;
   br i1 %c, label %if-true, label %if-false
 if-true:
   %rec4 = call i32 @rec4(i1 %c, i32 %a5)

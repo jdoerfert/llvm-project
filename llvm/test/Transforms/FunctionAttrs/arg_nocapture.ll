@@ -1,4 +1,4 @@
-; RUN: opt -functionattrs -attributor -attributor-manifest-internal -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=11 -S < %s | FileCheck %s
+; RUN: opt -functionattrs -attributor -attributor-manifest-internal -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=23 -S < %s | FileCheck %s
 ;
 ; Test cases specifically designed for the "no-capture" argument attribute.
 ; We use FIXME's to indicate problems and missing attributes.
@@ -275,7 +275,7 @@ entry:
 ;   not_captured_but_returned_1(a);
 ; }
 ;
-; CHECK: define void @test_not_captured_but_returned_calls(i64* nocapture writeonly %a)
+; CHECK: define void @test_not_captured_but_returned_calls(i64* nocapture nonnull writeonly dereferenceable(8) %a)
 define void @test_not_captured_but_returned_calls(i64* %a) #0 {
 entry:
   %call = call i64* @not_captured_but_returned_0(i64* %a)
@@ -290,7 +290,7 @@ entry:
 ; }
 ;
 ; There should *not* be a no-capture attribute on %a
-; CHECK: define i64* @negative_test_not_captured_but_returned_call_0a(i64* returned writeonly "no-capture-maybe-returned" %a)
+; CHECK: define nonnull dereferenceable(8) i64* @negative_test_not_captured_but_returned_call_0a(i64* nonnull returned writeonly dereferenceable(8) "no-capture-maybe-returned" %a)
 define i64* @negative_test_not_captured_but_returned_call_0a(i64* %a) #0 {
 entry:
   %call = call i64* @not_captured_but_returned_0(i64* %a)
@@ -405,7 +405,7 @@ entry:
 ;
 ; Make sure the returned flag on %r is strong enough to justify nocapture on %b but **not** on %r.
 ;
-; CHECK: define i32* @not_captured_by_readonly_call_not_returned_either1(i32* nocapture readonly %b, i32* readonly returned %r)
+; CHECK: define i32* @not_captured_by_readonly_call_not_returned_either1(i32* nocapture readonly %b, i32* readonly returned "no-capture-maybe-returned" %r)
 ;
 ; CHECK: define i32* @not_captured_by_readonly_call_not_returned_either2(i32* nocapture readonly %b, i32* readonly returned %r)
 ; CHECK: define i32* @not_captured_by_readonly_call_not_returned_either3(i32* nocapture readonly %b, i32* readonly returned %r)
