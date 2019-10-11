@@ -723,6 +723,7 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
       MPM.addPass(PGOIndirectCallPromotion(Phase == ThinLTOPhase::PostLink,
                                            true /* SamplePGO */));
   }
+  MPM.addPass(AttributorPass());
 
   // Interprocedural constant propagation now that basic cleanup has occurred
   // and prior to optimizing globals.
