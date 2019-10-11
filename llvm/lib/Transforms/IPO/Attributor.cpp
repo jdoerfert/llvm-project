@@ -4104,8 +4104,7 @@ bool Attributor::checkForAllCallSites(
   for (const Use &U : Fn.uses()) {
     AbstractCallSite ACS(&U);
     if (!ACS) {
-      LLVM_DEBUG(dbgs() << "[Attributor] Function "
-                        << Fn.getName()
+      LLVM_DEBUG(dbgs() << "[Attributor] Function " << Fn.getName()
                         << " has non call site use " << *U.get() << " in "
                         << *U.getUser() << "\n");
       return false;
@@ -4116,7 +4115,7 @@ bool Attributor::checkForAllCallSites(
 
     const auto *LivenessAA =
         lookupAAFor<AAIsDead>(IRPosition::function(*Caller), QueryingAA,
-                           /* TrackDependence */ false);
+                              /* TrackDependence */ false);
 
     // Skip dead calls.
     if (LivenessAA && LivenessAA->isAssumedDead(I)) {
@@ -4133,8 +4132,7 @@ bool Attributor::checkForAllCallSites(
       if (!RequireAllCallSites)
         continue;
       LLVM_DEBUG(dbgs() << "[Attributor] User " << EffectiveUse->getUser()
-                        << " is an invalid use of "
-                        << Fn.getName() << "\n");
+                        << " is an invalid use of " << Fn.getName() << "\n");
       return false;
     }
 
@@ -5039,11 +5037,6 @@ static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
       NumFnWithExactDefinition++;
     else
       NumFnWithoutExactDefinition++;
-
-    // For now we ignore naked and optnone functions.
-    if (F.hasFnAttribute(Attribute::Naked) ||
-        F.hasFnAttribute(Attribute::OptimizeNone))
-      continue;
 
     // We look at internal functions only on-demand but if any use is not a
     // direct call, we have to do it eagerly.
