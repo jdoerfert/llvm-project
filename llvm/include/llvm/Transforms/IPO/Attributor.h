@@ -559,6 +559,8 @@ struct AnalysisGetter {
     return &FAM.getResult<Analysis>(const_cast<Function &>(F));
   }
 
+  ModuleAnalysisManager *getMAM() { return MAM; }
+
   template <typename Analysis>
   typename Analysis::Result *getAnalysis(const Module &M) {
     if (!MAM)
@@ -717,7 +719,7 @@ struct Attributor {
   /// as the Attributor is not destroyed (it owns the attributes now).
   ///
   /// \Returns CHANGED if the IR was changed, otherwise UNCHANGED.
-  ChangeStatus run(Module &M, unsigned &RemainingIterations);
+  ChangeStatus run(Module &M, int &RemainingIterations);
 
   /// Lookup an abstract attribute of type \p AAType at position \p IRP. While
   /// no abstract attribute is found equivalent positions are checked, see
@@ -1211,6 +1213,12 @@ struct IntegerState : public AbstractState {
   IntegerState &removeAssumedBits(base_t BitsEncoding) {
     // Make sure we never loose any "known bits".
     Assumed = (Assumed & ~BitsEncoding) | Known;
+    return *this;
+  }
+
+  /// Remove the bits in \p BitsEncoding from the "known bits".
+  IntegerState &removeKnownBits(base_t BitsEncoding) {
+    Known = (Known & ~BitsEncoding);
     return *this;
   }
 

@@ -1,5 +1,5 @@
 ; RUN: opt -functionattrs -S < %s | FileCheck %s --check-prefix=FNATTR
-; RUN: opt -attributor -attributor-manifest-internal -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=6 -S < %s | FileCheck %s --check-prefix=ATTRIBUTOR
+; RUN: opt -attributor -attributor-manifest-internal -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=18 -S < %s | FileCheck %s --check-prefix=ATTRIBUTOR
 ; RUN: opt -attributor -attributor-manifest-internal -attributor-disable=false -functionattrs -S < %s | FileCheck %s --check-prefix=BOTH
 ;
 ; Test cases specifically designed for the "returned" argument attribute.
@@ -839,13 +839,12 @@ define i32* @dont_use_const() #0 {
 attributes #0 = { noinline nounwind uwtable }
 
 ; BOTH-NOT: attributes #
-; BOTH-DAG: attributes #{{[0-9]*}} = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
-; BOTH-DAG: attributes #{{[0-9]*}} = { nofree noinline nosync nounwind readnone uwtable }
-; BOTH-DAG: attributes #{{[0-9]*}} = { nofree noinline noreturn nosync nounwind readonly uwtable }
-; BOTH-DAG: attributes #{{[0-9]*}} = { noinline nounwind uwtable }
-; BOTH-DAG: attributes #{{[0-9]*}} = { noreturn }
-; BOTH-DAG: attributes #{{[0-9]*}} = { nofree noinline norecurse nosync nounwind readnone uwtable }
-; BOTH-DAG: attributes #{{[0-9]*}} = { nofree nosync readnone willreturn }
-; BOTH-DAG: attributes #{{[0-9]*}} = { nofree nosync readnone }
-; BOTH-DAG: attributes #{{[0-9]*}} = { nofree noreturn nosync readonly }
+; BOTH-DAG: attributes #0 = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
+; BOTH-DAG: attributes #1 = { nofree noinline nosync nounwind readnone uwtable }
+; BOTH-DAG: attributes #2 = { nofree noinline noreturn nosync nounwind readonly uwtable }
+; BOTH-DAG: attributes #3 = { noinline nounwind uwtable }
+; BOTH-DAG: attributes #4 = { noreturn }
+; BOTH-DAG: attributes #5 = { nofree nosync readnone willreturn }
+; BOTH-DAG: attributes #6 = { nofree nosync readnone }
+; BOTH-DAG: attributes #7 = { nofree noreturn nosync readonly }
 ; BOTH-NOT: attributes #

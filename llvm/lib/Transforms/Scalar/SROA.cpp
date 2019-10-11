@@ -2774,7 +2774,7 @@ private:
 
     Type *AllocaTy = NewAI.getAllocatedType();
     Type *ScalarTy = AllocaTy->getScalarType();
-    
+
     const bool CanContinue = [&]() {
       if (VecTy || IntTy)
         return true;

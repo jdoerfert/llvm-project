@@ -36,6 +36,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Scalar/SROA.h"
 #include "llvm/Transforms/IPO/ArgumentPromotion.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -151,8 +152,8 @@ ChangeStatus llvm::operator&(ChangeStatus l, ChangeStatus r) {
 ///}
 
 Argument *IRPosition::getAssociatedArgument() {
-  if (auto *Arg = dyn_cast<Argument>(&getAnchorValue()))
-    return Arg;
+  if (getPositionKind() == IRP_ARGUMENT)
+    return cast<Argument>(&getAnchorValue());
 
   // Not an Argument and no argument number means this is not a call site
   // argument, thus we cannot find a callback argument to return.
@@ -2111,8 +2112,6 @@ struct AAIsDeadImpl : public AAIsDead {
       BasicBlock *BB = I->getParent();
       Instruction *SplitPos = I->getNextNode();
       // TODO: mark stuff before unreachable instructions as dead.
-      if (isa_and_nonnull<UnreachableInst>(SplitPos))
-        continue;
 
       if (auto *II = dyn_cast<InvokeInst>(I)) {
         // If we keep the invoke the split position is at the beginning of the
@@ -2155,14 +2154,22 @@ struct AAIsDeadImpl : public AAIsDead {
           //       also manifest.
           assert(!NormalDestBB->isLandingPad() &&
                  "Expected the normal destination not to be a landingpad!");
-          BasicBlock *SplitBB =
-              SplitBlockPredecessors(NormalDestBB, {BB}, ".dead");
-          // The split block is live even if it contains only an unreachable
-          // instruction at the end.
-          assumeLive(A, *SplitBB);
-          SplitPos = SplitBB->getTerminator();
+          if (NormalDestBB->getUniquePredecessor() == BB) {
+            assumeLive(A, *NormalDestBB);
+          } else {
+            BasicBlock *SplitBB =
+                SplitBlockPredecessors(NormalDestBB, {BB}, ".dead");
+            // The split block is live even if it contains only an unreachable
+            // instruction at the end.
+            assumeLive(A, *SplitBB);
+            SplitPos = SplitBB->getTerminator();
+            HasChanged = ChangeStatus::CHANGED;
+          }
         }
       }
+
+      if (isa_and_nonnull<UnreachableInst>(SplitPos))
+        continue;
 
       BB = SplitPos->getParent();
       SplitBlock(BB, SplitPos);
@@ -2173,7 +2180,6 @@ struct AAIsDeadImpl : public AAIsDead {
     for (BasicBlock &BB : F)
       if (!AssumedLiveBlocks.count(&BB))
         A.deleteAfterManifest(BB);
-
     return HasChanged;
   }
 
@@ -2836,7 +2842,16 @@ struct AANoCaptureImpl : public AANoCapture {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AANoCapture::initialize(A);
+    if (hasAttr(getAttrKind(), /* IgnoreSubsumingPositions */ true)) {
+      indicateOptimisticFixpoint();
+      return;
+    }
+    Function *AnchorScope = getAnchorScope();
+    if (isFnInterfaceKind() &&
+        (!AnchorScope || !AnchorScope->hasExactDefinition())) {
+      indicatePessimisticFixpoint();
+      return;
+    }
 
     // You cannot "capture" null in the default address space.
     if (isa<ConstantPointerNull>(getAssociatedValue()) &&
@@ -2845,9 +2860,7 @@ struct AANoCaptureImpl : public AANoCapture {
       return;
     }
 
-    const IRPosition &IRP = getIRPosition();
-    const Function *F =
-        getArgNo() >= 0 ? IRP.getAssociatedFunction() : IRP.getAnchorScope();
+    const Function *F = getArgNo() >= 0 ? getAssociatedFunction() : AnchorScope;
 
     // Check what state the associated function can actually capture.
     if (F)
@@ -3310,8 +3323,9 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
         if (A.registerFunctionSignatureRewrite(
                 Arg, /* ReplacementTypes */ {},
                 Attributor::ArgumentReplacementInfo::CalleeRepairCBTy{},
-                Attributor::ArgumentReplacementInfo::ACSRepairCBTy{}))
+                Attributor::ArgumentReplacementInfo::ACSRepairCBTy{})) {
           return ChangeStatus::CHANGED;
+        }
 
       // Argument cannot be deleted but we can replace the call site arguments
       // with undef because the value is not used.
@@ -3320,7 +3334,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
         // Check if we have an associated argument or not (which can happen
         // for callback calls).
         int CSArgNo = ACS.getCallArgOperandNo(getArgNo());
-        if (CSArgNo >= 0)
+        if (CSArgNo >= 0 && !isa<UndefValue>(ACS.getCallArgOperand(getArgNo())))
           CallSiteOpReplacements.push_back({ACS.getCallSite(), CSArgNo});
         return true;
       };
@@ -3959,10 +3973,10 @@ struct AAPrivatizablePtrArgument final : public AAPrivatizablePtrImpl {
     identifyReplacementTypes(PrivatizableType.getValue(), ReplacementTypes);
 
     // Register a rewrite of the argument.
-    A.registerFunctionSignatureRewrite(
-        *Arg, ReplacementTypes, std::move(FnRepairCB), std::move(ACSRepairCB));
-
-    return ChangeStatus::CHANGED;
+    if (A.registerFunctionSignatureRewrite(
+        *Arg, ReplacementTypes, std::move(FnRepairCB), std::move(ACSRepairCB)))
+      return ChangeStatus::CHANGED;
+    return ChangeStatus::UNCHANGED;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -4236,16 +4250,22 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
   void initialize(Attributor &A) override {
     AAMemoryBehaviorFloating::initialize(A);
 
-    // TODO: From readattrs.ll: "inalloca parameters are always
-    //                           considered written"
-    if (hasAttr({Attribute::InAlloca}))
-      removeAssumedBits(NO_WRITES);
-
     // Initialize the use vector with all direct uses of the associated value.
     Argument *Arg = getAssociatedArgument();
     if (!Arg || !Arg->getParent()->hasExactDefinition())
       indicatePessimisticFixpoint();
   }
+
+  ChangeStatus manifest(Attributor &A) override {
+    // TODO: From readattrs.ll: "inalloca parameters are always
+    //                           considered written"
+    if (hasAttr({Attribute::InAlloca})) {
+      removeKnownBits(NO_WRITES);
+      removeAssumedBits(NO_WRITES);
+    }
+    return AAMemoryBehaviorFloating::manifest(A);
+  }
+
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4414,10 +4434,13 @@ ChangeStatus AAMemoryBehaviorFloating::updateImpl(Attributor &A) {
 
   // Make sure the value is not captured (except through "return"), if
   // it is, any information derived would be irrelevant anyway as we cannot
-  // check the potential aliases introduced by the capture.
+  // check the potential aliases introduced by the capture. However, no need
+  // to fall back to anythign less optimistic than the function state.
   const auto &ArgNoCaptureAA = A.getAAFor<AANoCapture>(*this, IRP);
-  if (!ArgNoCaptureAA.isAssumedNoCaptureMaybeReturned())
-    return indicatePessimisticFixpoint();
+  if (!ArgNoCaptureAA.isAssumedNoCaptureMaybeReturned()) {
+    S.intersectAssumedBits(FnMemAA.getAssumed());
+    return ChangeStatus::CHANGED;
+  }
 
   // The current assumed state used to determine a change.
   auto AssumedState = S.getAssumed();
@@ -4767,7 +4790,7 @@ bool Attributor::checkForAllReadWriteInstructions(
   return true;
 }
 
-ChangeStatus Attributor::run(Module &M, unsigned &RemainingIterations) {
+ChangeStatus Attributor::run(Module &M, int &RemainingIterations) {
 
   for (Function &F : M)
     initializeInformationCache(F);
@@ -4800,7 +4823,7 @@ ChangeStatus Attributor::run(Module &M, unsigned &RemainingIterations) {
   // Now that all abstract attributes are collected and initialized we start
   // the abstract analysis.
 
-  unsigned IterationCounter = 1;
+  int IterationCounter = 1;
 
   SmallVector<AbstractAttribute *, 64> ChangedAAs;
   SetVector<AbstractAttribute *> Worklist;
@@ -4868,11 +4891,9 @@ ChangeStatus Attributor::run(Module &M, unsigned &RemainingIterations) {
                     << " iterations\n");
 
   // Update the remaining iterations counter.
-  RemainingIterations = std::min(0u, RemainingIterations - IterationCounter);
+  RemainingIterations = RemainingIterations - IterationCounter;
 
   size_t NumFinalAAs = AllAbstractAttributes.size();
-
-  bool FinishedAtFixpoint = Worklist.empty();
 
   // Reset abstract arguments not settled in a sound fixpoint by now. This
   // happens when we stopped the fixpoint iteration early. Note that only the
@@ -4926,6 +4947,8 @@ ChangeStatus Attributor::run(Module &M, unsigned &RemainingIterations) {
     ChangeStatus LocalChange = AA->manifest(*this);
     if (LocalChange == ChangeStatus::CHANGED && AreStatisticsEnabled())
       AA->trackStatistics();
+    //if (LocalChange == ChangeStatus::CHANGED)
+      //errs() << "MANIFEST: " << *AA<<"\n";
 
     ManifestChange = ManifestChange | LocalChange;
 
@@ -4964,8 +4987,8 @@ ChangeStatus Attributor::run(Module &M, unsigned &RemainingIterations) {
       ToBeDeletedBBs.reserve(NumDeadBlocks);
       ToBeDeletedBBs.append(ToBeDeletedBlocks.begin(), ToBeDeletedBlocks.end());
       DeleteDeadBlocks(ToBeDeletedBBs);
-      STATS_DECLTRACK(AAIsDead, BasicBlock,
-                      "Number of dead basic blocks deleted.");
+      STATS_DECL(AAIsDead, BasicBlock, "Number of dead basic blocks deleted.");
+      BUILD_STAT_NAME(AAIsDead, BasicBlock) += ToBeDeletedBlocks.size();
     }
 
     STATS_DECL(AAIsDead, Function, "Number of dead functions deleted.");
@@ -5521,10 +5544,13 @@ static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
   LLVM_DEBUG(dbgs() << "[Attributor] Run on module with " << M.size()
                     << " functions.\n");
 
-  unsigned RemainingIterations = MaxFixpointIterations;
+  int RemainingIterations = MaxFixpointIterations;
+
+  auto *MAM = AG.getMAM();
 
   bool GlobalChange = false;
   do {
+
     // Create an Attributor and initially empty information cache that is filled
     // while we identify default attribute opportunities.
     InformationCache InfoCache(M, AG);
@@ -5535,6 +5561,17 @@ static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
 
     GlobalChange = true;
 
+    if (MAM) {
+      MAM->clear();
+      auto &FAM =
+          MAM->getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+      SROA sroa;
+      for (Function &F : M) {
+        if (F.isDeclaration())
+          continue;
+        sroa.run(F, FAM);
+      }
+    }
   } while (RemainingIterations || VerifyMaxFixpointIterations);
 
   if (VerifyMaxFixpointIterations && RemainingIterations != 0) {
