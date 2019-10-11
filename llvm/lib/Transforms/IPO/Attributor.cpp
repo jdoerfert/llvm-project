@@ -5535,7 +5535,7 @@ static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
 
     GlobalChange = true;
 
-  } while (RemainingIterations);
+  } while (RemainingIterations || VerifyMaxFixpointIterations);
 
   if (VerifyMaxFixpointIterations && RemainingIterations != 0) {
     unsigned IterationCounter = MaxFixpointIterations - RemainingIterations;
