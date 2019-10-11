@@ -24,7 +24,6 @@ entry:
 ; FIXME: Should be something like this.
 ; define internal i32 @noalias_args_argmem(i32* noalias nocapture readonly %A, i32* noalias nocapture readonly %B)
 ; CHECK: define internal i32 @noalias_args_argmem(i32* nocapture nonnull readonly dereferenceable(4) %A, i32* nocapture nonnull readonly dereferenceable(4) %B)
-
 ;
 define internal i32 @noalias_args_argmem(i32* %A, i32* %B) #1 {
 entry:

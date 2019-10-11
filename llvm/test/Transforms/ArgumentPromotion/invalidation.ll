@@ -8,7 +8,7 @@
 ; now-invalid demanded bits.
 ;
 ; RUN: opt < %s -passes='function(print<demanded-bits>),cgscc(argpromotion,function(print<demanded-bits>))' -S | FileCheck %s --check-prefixes=ALL,ARGPROMOTION
-; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s --check-prefixes=ALL,ATTRIBUTOR
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=2 < %s | FileCheck %s --check-prefixes=ALL,ATTRIBUTOR
 
 @G = constant i32 0
 

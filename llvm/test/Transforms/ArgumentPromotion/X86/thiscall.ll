@@ -6,7 +6,7 @@
 ;
 ; RUN: opt -S -argpromotion %s | FileCheck %s --check-prefixes=ALL,ARGPROMOTION
 ; RUN: opt -S -globalopt -argpromotion %s | FileCheck %s --check-prefixes=ALL,GLOBALOPT_ARGPROMOTION
-; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s --check-prefixes=ALL,ATTRIBUTOR
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=2 < %s | FileCheck %s --check-prefixes=ALL,ATTRIBUTOR
 
 target datalayout = "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32"
 target triple = "i386-pc-windows-msvc19.11.0"
@@ -37,6 +37,12 @@ define internal x86_thiscallcc void @internalfun(%struct.a* %this, <{ %struct.a 
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@internalfun
 ; ATTRIBUTOR-SAME: (%struct.a* nocapture readnone [[THIS:%.*]], <{ [[STRUCT_A:%.*]] }>* inalloca nonnull align 4 dereferenceable(1) [[TMP0:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
+<<<<<<< HEAD
+||||||| parent of 2bf5733254a... FIXES FIXES FIXES
+; ATTRIBUTOR-NEXT:    [[A:%.*]] = getelementptr inbounds <{ [[STRUCT_A:%.*]] }>, <{ [[STRUCT_A]] }>* [[TMP0:%.*]], i32 0, i32 0
+=======
+; ATTRIBUTOR-NEXT:    [[A:%.*]] = getelementptr inbounds <{ [[STRUCT_A]] }>, <{ [[STRUCT_A]] }>* [[TMP0]], i32 0, i32 0
+>>>>>>> 2bf5733254a... FIXES FIXES FIXES
 ; ATTRIBUTOR-NEXT:    [[ARGMEM:%.*]] = alloca inalloca <{ [[STRUCT_A]] }>, align 4
 ; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = getelementptr inbounds <{ [[STRUCT_A]] }>, <{ [[STRUCT_A]] }>* [[ARGMEM]], i32 0, i32 0
 ; ATTRIBUTOR-NEXT:    [[DOTCAST:%.*]] = bitcast <{ [[STRUCT_A]] }>* [[TMP0]] to %struct.a*

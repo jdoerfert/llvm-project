@@ -37,6 +37,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Scalar/SROA.h"
 #include "llvm/Transforms/IPO/ArgumentPromotion.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -2552,7 +2553,6 @@ struct AAIsDeadFunction : public AAIsDead {
     for (BasicBlock &BB : F)
       if (!AssumedLiveBlocks.count(&BB))
         A.deleteAfterManifest(BB);
-
     return HasChanged;
   }
 
@@ -6397,6 +6397,8 @@ static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
 
   int RemainingIterations = MaxFixpointIterations;
 
+  auto *MAM = AG.getMAM();
+
   bool GlobalChange = false;
   do {
     // Create an Attributor and initially empty information cache that is filled
@@ -6412,6 +6414,17 @@ static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
 
     GlobalChange = true;
 
+    if (MAM) {
+      MAM->clear();
+      auto &FAM =
+          MAM->getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+      SROA sroa;
+      for (Function &F : M) {
+        if (F.isDeclaration())
+          continue;
+        sroa.run(F, FAM);
+      }
+    }
   } while (RemainingIterations > 0 || VerifyMaxFixpointIterations);
 
   if (VerifyMaxFixpointIterations && RemainingIterations != 0) {

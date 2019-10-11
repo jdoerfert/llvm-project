@@ -526,6 +526,8 @@ struct AnalysisGetter {
     return &FAM.getResult<Analysis>(const_cast<Function &>(F));
   }
 
+  ModuleAnalysisManager *getMAM() { return MAM; }
+
   template <typename Analysis>
   typename Analysis::Result *getAnalysis(const Module &M) {
     if (!MAM)
