@@ -2157,10 +2157,21 @@ struct AAValueSimplify : public StateWrapper<BooleanState, AbstractAttribute>,
   /// Return an IR position, see struct IRPosition.
   const IRPosition &getIRPosition() const { return *this; }
 
+  /// Return the values assumed to be potentially becomming this one.
+  virtual const SmallPtrSetImpl<Value *> &
+  getAssumedPotentialValues() const = 0;
+
   /// Return an assumed simplified value if a single candidate is found. If
   /// there cannot be one, return original value. If it is not clear yet, return
   /// the Optional::NoneType.
-  virtual Optional<Value *> getAssumedSimplifiedValue(Attributor &A) const = 0;
+  Optional<Value *> getAssumedSimplifiedValue() const {
+    const auto &APV = getAssumedPotentialValues();
+    if (APV.empty())
+      return None;
+    if (APV.size() == 1)
+      return *APV.begin();
+    return nullptr;
+  }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAValueSimplify &createForPosition(const IRPosition &IRP,
@@ -2168,6 +2179,11 @@ struct AAValueSimplify : public StateWrapper<BooleanState, AbstractAttribute>,
 
   /// Unique ID (due to the unique address)
   static const char ID;
+
+  /// Return a value (which is potentially created!) that can replace
+  /// \p OldValue at the location \p IP, or nullptr if no such value is known.
+  virtual Value *getReplacementForAt(Value &OldValue,
+                                     Instruction *IP) const = 0;
 };
 
 struct AAHeapToStack : public StateWrapper<BooleanState, AbstractAttribute>,

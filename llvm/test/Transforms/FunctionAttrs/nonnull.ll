@@ -78,7 +78,7 @@ entry:
   br label %loop
 loop:
   %phi = phi i8* [%ret, %entry], [%phi, %loop]
-  br i1 undef, label %loop, label %exit
+  br i1 false, label %loop, label %exit
 exit:
   ret i8* %phi
 }

@@ -475,8 +475,7 @@ define i1 @parent8(i8* %a, i8* %bogus1, i8* %b) personality i8* bitcast (i32 (..
 ; ATTRIBUTOR-NEXT:    invoke void @use2nonnull(i8* nonnull %a, i8* nonnull %b)
 ; ATTRIBUTOR-NEXT:    to label %cont unwind label %exc
 ; ATTRIBUTOR:       cont:
-; ATTRIBUTOR-NEXT:    [[NULL_CHECK:%.*]] = icmp eq i8* %b, null
-; ATTRIBUTOR-NEXT:    ret i1 [[NULL_CHECK]]
+; ATTRIBUTOR-NEXT:    ret i1 false
 ; ATTRIBUTOR:       exc:
 ; ATTRIBUTOR-NEXT:    [[LP:%.*]] = landingpad { i8*, i32 }
 ; ATTRIBUTOR-NEXT:    filter [0 x i8*] zeroinitializer
@@ -811,6 +810,78 @@ define void @PR43833_simple(i32* %0, i32 %1) {
   %10 = add nuw nsw i32 %9, 1
   %11 = icmp eq i32 %10, %1
   br i1 %11, label %7, label %8
+}
+
+; Make sure that if load/store happened, the pointer is nonnull. Taken from D71177.
+
+define i32 @test_null_after_store(i32* %0) {
+; CHECK-LABEL: @test_null_after_store(
+; CHECK-NEXT:    store i32 123, i32* %0, align 4
+; CHECK-NEXT:    ret i32 2
+  store i32 123, i32* %0, align 4
+  %2 = icmp eq i32* %0, null
+  %3 = select i1 %2, i32 1, i32 2
+  ret i32 %3
+}
+
+define i32 @test_null_after_load(i32* %0) {
+; CHECK-LABEL: @test_null_after_load(
+; CHECK-NEXT:    ret i32 1
+  %2 = load i32, i32* %0, align 4
+  %3 = icmp eq i32* %0, null
+  %4 = select i1 %3, i32 %2, i32 1
+  ret i32 %4
+}
+
+; Make sure that different address space does not affect null pointer check.
+
+define i32 @test_null_after_store_addrspace(i32 addrspace(1)* %0) {
+; CHECK-LABEL: @test_null_after_store_addrspace(
+; CHECK-NEXT:    store i32 123, i32 addrspace(1)* %0, align 4
+; CHECK-NEXT:    %2 = icmp eq i32 addrspace(1)* %0, null
+; CHECK-NEXT:    %3 = select i1 %2, i32 1, i32 2
+; CHECK-NEXT:    ret i32 %3
+  store i32 123, i32 addrspace(1)* %0, align 4
+  %2 = icmp eq i32 addrspace(1)* %0, null
+  %3 = select i1 %2, i32 1, i32 2
+  ret i32 %3
+}
+
+define i32 @test_null_after_load_addrspace(i32 addrspace(1)* %0) {
+; CHECK-LABEL: @test_null_after_load_addrspace(
+; CHECK-NEXT:    %2 = load i32, i32 addrspace(1)* %0, align 4
+; CHECK-NEXT:    %3 = icmp eq i32 addrspace(1)* %0, null
+; CHECK-NEXT:    %4 = select i1 %3, i32 %2, i32 1
+; CHECK-NEXT     ret i32 %4
+  %2 = load i32, i32 addrspace(1)* %0, align 4
+  %3 = icmp eq i32 addrspace(1)* %0, null
+  %4 = select i1 %3, i32 %2, i32 1
+  ret i32 %4
+}
+
+; Make sure if store happened after the check, nullptr check is not removed.
+
+declare i8* @func(i64)
+
+define i8* @test_load_store_after_check(i8* %0) {
+; CHECK-LABEL: @test_load_store_after_check(
+entry:
+; CHECK: @func
+  %1 = call i8* @func(i64 0)
+; CHECK: icmp eq
+  %null_check = icmp eq i8* %1, null
+; CHECK: br i1
+  br i1 %null_check, label %return, label %if.end
+
+if.end:
+; CHECK: store
+  store i8 7, i8* %1
+  br label %return
+
+return:
+; CHECK: phi
+  %retval.0 = phi i8* [ %1, %if.end ], [ null, %entry ]
+  ret i8* %retval.0
 }
 
 attributes #0 = { "null-pointer-is-valid"="true" }

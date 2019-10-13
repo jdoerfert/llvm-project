@@ -6,7 +6,6 @@
 
 ; TEST SCC test returning an integer value argument
 ;
-;
 ; FNATTR: define i32 @sink_r0(i32 returned %r)
 ; FNATTR: define i32 @scc_r1(i32 %a, i32 %r, i32 %b)
 ; FNATTR: define i32 @scc_r2(i32 %a, i32 %b, i32 %r)

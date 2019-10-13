@@ -8,37 +8,60 @@
 ; ModuleID = 'value-simplify.ll'
 source_filename = "value-simplify.ll"
 target datalayout = "e-m:o-i64:64-f80:128-n8:16:32:64-S128"
+
 declare void @f(i32)
 
 ; Test1: Replace argument with constant
 define internal void @test1(i32 %a) {
-; CHECK: tail call void @f(i32 1)
+; CHECK-LABEL: define {{[^@]+}}@test1
+; CHECK-SAME: (i32 [[A:%.*]])
+; CHECK-NEXT:    tail call void @f(i32 1)
+; CHECK-NEXT:    ret void
+;
   tail call void @f(i32 %a)
   ret void
 }
 
 define void @test1_helper() {
+; CHECK-LABEL: define {{[^@]+}}@test1_helper()
+; CHECK-NEXT:    tail call void @test1(i32 1)
+; CHECK-NEXT:    ret void
+;
   tail call void @test1(i32 1)
   ret void
 }
 
 ; TEST 2 : Simplify return value
 define i32 @return0() {
+; CHECK-LABEL: define {{[^@]+}}@return0()
+; CHECK-NEXT:    ret i32 0
+;
   ret i32 0
 }
 
 define i32 @return1() {
+; CHECK-LABEL: define {{[^@]+}}@return1()
+; CHECK-NEXT:    ret i32 1
+;
   ret i32 1
 }
 
-; CHECK: define i32 @test2_1(i1 %c)
 define i32 @test2_1(i1 %c) {
+; CHECK-LABEL: define {{[^@]+}}@test2_1
+; CHECK-SAME: (i1 [[C:%.*]])
+; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
+; CHECK:       if.true:
+; CHECK-NEXT:    br label [[END:%.*]]
+; CHECK:       if.false:
+; CHECK-NEXT:    br label [[END]]
+; CHECK:       end:
+; CHECK-NEXT:    [[RET:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
+; CHECK-NEXT:    ret i32 1
+;
   br i1 %c, label %if.true, label %if.false
 if.true:
   %call = tail call i32 @return0()
 
-; FIXME: %ret0 should be replaced with i32 1.
-; CHECK: %ret0 = add i32 0, 1
   %ret0 = add i32 %call, 1
   br label %end
 if.false:
@@ -47,28 +70,39 @@ if.false:
 end:
 
 ; FIXME: %ret should be replaced with i32 1.
-; CHECK: %ret = phi i32 [ %ret0, %if.true ], [ 1, %if.false ]
   %ret = phi i32 [ %ret0, %if.true ], [ %ret1, %if.false ]
 
 ; FIXME: ret i32 1
-; CHECK: ret i32 %ret
   ret i32 %ret
 }
 
 
 
-; CHECK: define i32 @test2_2(i1 %c)
 define i32 @test2_2(i1 %c) {
 ; FIXME: %ret should be replaced with i32 1.
+; CHECK-LABEL: define {{[^@]+}}@test2_2
+; CHECK-SAME: (i1 [[C:%.*]])
+; CHECK-NEXT:    ret i32 1
+;
   %ret = tail call i32 @test2_1(i1 %c)
 ; FIXME: ret i32 1
-; CHECK: ret i32 %ret
   ret i32 %ret
 }
 
 declare void @use(i32)
-; CHECK: define void @test3(i1 %c)
 define void @test3(i1 %c) {
+; CHECK-LABEL: define {{[^@]+}}@test3
+; CHECK-SAME: (i1 [[C:%.*]])
+; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
+; CHECK:       if.true:
+; CHECK-NEXT:    br label [[END:%.*]]
+; CHECK:       if.false:
+; CHECK-NEXT:    br label [[END]]
+; CHECK:       end:
+; CHECK-NEXT:    [[R:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
+; CHECK-NEXT:    tail call void @use(i32 1)
+; CHECK-NEXT:    ret void
+;
   br i1 %c, label %if.true, label %if.false
 if.true:
   br label %end
@@ -77,21 +111,40 @@ if.false:
   br label %end
 end:
 
-; CHECK: %r = phi i32 [ 1, %if.true ], [ 1, %if.false ]
   %r = phi i32 [ 1, %if.true ], [ %ret1, %if.false ]
 
-; CHECK: tail call void @use(i32 1)
   tail call void @use(i32 %r)
   ret void
 }
 
 define void @test-select-phi(i1 %c) {
+; CHECK-LABEL: define {{[^@]+}}@test-select-phi
+; CHECK-SAME: (i1 [[C:%.*]])
+; CHECK-NEXT:    tail call void @use(i32 1)
+; CHECK-NEXT:    [[SELECT_NOT_SAME:%.*]] = select i1 [[C]], i32 1, i32 0
+; CHECK-NEXT:    tail call void @use(i32 [[SELECT_NOT_SAME]])
+; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
+; CHECK:       if-true:
+; CHECK-NEXT:    br label [[END:%.*]]
+; CHECK:       if-false:
+; CHECK-NEXT:    br label [[END]]
+; CHECK:       end:
+; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
+; CHECK-NEXT:    [[PHI_NOT_SAME:%.*]] = phi i32 [ 0, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
+; CHECK-NEXT:    [[PHI_SAME_PROP:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
+; CHECK-NEXT:    [[PHI_SAME_UNDEF:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ undef, [[IF_FALSE]] ]
+; CHECK-NEXT:    [[SELECT_NOT_SAME_UNDEF:%.*]] = select i1 [[C]], i32 [[PHI_NOT_SAME]], i32 undef
+; CHECK-NEXT:    tail call void @use(i32 1)
+; CHECK-NEXT:    tail call void @use(i32 [[PHI_NOT_SAME]])
+; CHECK-NEXT:    tail call void @use(i32 1)
+; CHECK-NEXT:    tail call void @use(i32 1)
+; CHECK-NEXT:    tail call void @use(i32 [[SELECT_NOT_SAME_UNDEF]])
+; CHECK-NEXT:    ret void
+;
   %select-same = select i1 %c, i32 1, i32 1
-  ; CHECK: tail call void @use(i32 1)
   tail call void @use(i32 %select-same)
 
   %select-not-same = select i1 %c, i32 1, i32 0
-  ; CHECK: tail call void @use(i32 %select-not-same)
   tail call void @use(i32 %select-not-same)
   br i1 %c, label %if-true, label %if-false
 if-true:
@@ -106,19 +159,14 @@ end:
   %select-not-same-undef = select i1 %c, i32 %phi-not-same, i32 undef
 
 
-  ; CHECK: tail call void @use(i32 1)
   tail call void @use(i32 %phi-same)
 
-  ; CHECK: tail call void @use(i32 %phi-not-same)
   tail call void @use(i32 %phi-not-same)
 
-  ; CHECK: tail call void @use(i32 1)
   tail call void @use(i32 %phi-same-prop)
 
-  ; CHECK: tail call void @use(i32 1)
   tail call void @use(i32 %phi-same-undef)
 
-  ; CHECK: tail call void @use(i32 %select-not-same-undef)
   tail call void @use(i32 %select-not-same-undef)
 
   ret void
@@ -196,6 +244,7 @@ define i32 @ipccp3() {
   %r = call i32 @ipccp3i(i32 7)
   ret i32 %r
 }
+<<<<<<< HEAD
 
 ; UTC_ARGS: --turn on
 
@@ -274,3 +323,317 @@ define void @complicated_args_byval() {
 }
 
 ; UTC_ARGS: --turn off
+||||||| parent of d2d3c463f81... [Attributor] Make value simplify stronger
+=======
+
+define internal i32 @rec0(i32 %a0) {
+; CHECK-LABEL: define {{[^@]+}}@rec0
+; CHECK-SAME: (i32 returned [[A0:%.*]])
+; CHECK-NEXT:    ret i32 [[A0]]
+;
+  ret i32 %a0
+}
+
+define internal i32 @rec1(i1 %c, i32 %a1) {
+; CHECK-LABEL: define {{[^@]+}}@rec1
+; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A1:%.*]])
+; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
+; CHECK:       if-true:
+; CHECK-NEXT:    [[REC0:%.*]] = call i32 @rec0(i32 [[A1]])
+; CHECK-NEXT:    br label [[END:%.*]]
+; CHECK:       if-false:
+; CHECK-NEXT:    [[REC1:%.*]] = call i32 @rec1(i1 true, i32 [[A1]])
+; CHECK-NEXT:    br label [[END]]
+; CHECK:       end:
+; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC0]], [[IF_TRUE]] ], [ [[REC1]], [[IF_FALSE]] ]
+; CHECK-NEXT:    ret i32 [[PHI_SAME]]
+;
+  br i1 %c, label %if-true, label %if-false
+if-true:
+  %rec0 = call i32 @rec0(i32 %a1)
+  br label %end
+if-false:
+  %rec1 = call i32 @rec1(i1 true, i32 %a1)
+  br label %end
+end:
+  %phi-same = phi i32 [ %rec0, %if-true ], [ %rec1, %if-false ]
+  ret i32 %phi-same
+}
+
+define internal i32 @rec2(i1 %c, i32 %a2) {
+; CHECK-LABEL: define {{[^@]+}}@rec2
+; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A2:%.*]])
+; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
+; CHECK:       if-true:
+; CHECK-NEXT:    [[REC1:%.*]] = call i32 @rec1(i1 [[C]], i32 [[A2]])
+; CHECK-NEXT:    br label [[END:%.*]]
+; CHECK:       if-false:
+; CHECK-NEXT:    [[REC2:%.*]] = call i32 @rec2(i1 true, i32 [[A2]])
+; CHECK-NEXT:    br label [[END]]
+; CHECK:       end:
+; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC1]], [[IF_TRUE]] ], [ [[REC2]], [[IF_FALSE]] ]
+; CHECK-NEXT:    ret i32 [[PHI_SAME]]
+;
+  br i1 %c, label %if-true, label %if-false
+if-true:
+  %rec1 = call i32 @rec1(i1 %c, i32 %a2)
+  br label %end
+if-false:
+  %rec2 = call i32 @rec2(i1 true, i32 %a2)
+  br label %end
+end:
+  %phi-same = phi i32 [ %rec1, %if-true ], [ %rec2, %if-false ]
+  ret i32 %phi-same
+}
+
+define internal i32 @rec3(i1 %c, i32 %a3) {
+; CHECK-LABEL: define {{[^@]+}}@rec3
+; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A3:%.*]])
+; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
+; CHECK:       if-true:
+; CHECK-NEXT:    [[REC2:%.*]] = call i32 @rec2(i1 [[C]], i32 [[A3]])
+; CHECK-NEXT:    br label [[END:%.*]]
+; CHECK:       if-false:
+; CHECK-NEXT:    [[REC3:%.*]] = call i32 @rec3(i1 true, i32 [[A3]])
+; CHECK-NEXT:    br label [[END]]
+; CHECK:       end:
+; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC2]], [[IF_TRUE]] ], [ [[REC3]], [[IF_FALSE]] ]
+; CHECK-NEXT:    ret i32 [[PHI_SAME]]
+;
+  br i1 %c, label %if-true, label %if-false
+if-true:
+  %rec2 = call i32 @rec2(i1 %c, i32 %a3)
+  br label %end
+if-false:
+  %rec3 = call i32 @rec3(i1 true, i32 %a3)
+  br label %end
+end:
+  %phi-same = phi i32 [ %rec2, %if-true ], [ %rec3, %if-false ]
+  ret i32 %phi-same
+}
+
+define internal i32 @rec4(i1 %c, i32 %a4) {
+; CHECK-LABEL: define {{[^@]+}}@rec4
+; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A4:%.*]])
+; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
+; CHECK:       if-true:
+; CHECK-NEXT:    [[REC3:%.*]] = call i32 @rec3(i1 [[C]], i32 [[A4]])
+; CHECK-NEXT:    br label [[END:%.*]]
+; CHECK:       if-false:
+; CHECK-NEXT:    [[REC4:%.*]] = call i32 @rec4(i1 true, i32 [[A4]])
+; CHECK-NEXT:    br label [[END]]
+; CHECK:       end:
+; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC3]], [[IF_TRUE]] ], [ [[REC4]], [[IF_FALSE]] ]
+; CHECK-NEXT:    ret i32 [[PHI_SAME]]
+;
+  br i1 %c, label %if-true, label %if-false
+if-true:
+  %rec3 = call i32 @rec3(i1 %c, i32 %a4)
+  br label %end
+if-false:
+  %rec4 = call i32 @rec4(i1 true, i32 %a4)
+  br label %end
+end:
+  %phi-same = phi i32 [ %rec3, %if-true ], [ %rec4, %if-false ]
+  ret i32 %phi-same
+}
+
+define internal i32 @rec5(i1 %c, i32 %a5) {
+; CHECK-LABEL: define {{[^@]+}}@rec5
+; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A5:%.*]])
+; CHECK-NEXT:    br i1 [[C]], label [[IF_TRUE:%.*]], label [[IF_FALSE:%.*]]
+; CHECK:       if-true:
+; CHECK-NEXT:    [[REC4:%.*]] = call i32 @rec4(i1 [[C]], i32 [[A5]])
+; CHECK-NEXT:    br label [[END:%.*]]
+; CHECK:       if-false:
+; CHECK-NEXT:    [[REC5:%.*]] = call i32 @rec5(i1 true, i32 [[A5]])
+; CHECK-NEXT:    br label [[END]]
+; CHECK:       end:
+; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ [[REC4]], [[IF_TRUE]] ], [ [[REC5]], [[IF_FALSE]] ]
+; CHECK-NEXT:    ret i32 [[PHI_SAME]]
+;
+  br i1 %c, label %if-true, label %if-false
+if-true:
+  %rec4 = call i32 @rec4(i1 %c, i32 %a5)
+  br label %end
+if-false:
+  %rec5 = call i32 @rec5(i1 true, i32 %a5)
+  br label %end
+end:
+  %phi-same = phi i32 [ %rec4, %if-true ], [ %rec5, %if-false ]
+  ret i32 %phi-same
+}
+
+define i32 @rec_caller(i1 %c, i32 %a_init) {
+; CHECK-LABEL: define {{[^@]+}}@rec_caller
+; CHECK-SAME: (i1 [[C:%.*]], i32 returned [[A_INIT:%.*]])
+; CHECK-NEXT:    ret i32 [[A_INIT]]
+;
+  %call = call i32 @rec5(i1 %c, i32 %a_init)
+  ret i32 %call
+}
+
+define i32 @loop_no_const(i32 %N) {
+; CHECK-LABEL: define {{[^@]+}}@loop_no_const
+; CHECK-SAME: (i32 [[N:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br label [[FOR_COND:%.*]]
+; CHECK:       for.cond:
+; CHECK-NEXT:    [[A_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[ADD:%.*]], [[FOR_INC:%.*]] ]
+; CHECK-NEXT:    [[I_0:%.*]] = phi i32 [ 0, [[ENTRY]] ], [ [[INC:%.*]], [[FOR_INC]] ]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[I_0]], [[N]]
+; CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END:%.*]]
+; CHECK:       for.body:
+; CHECK-NEXT:    [[ADD]] = add nsw i32 [[A_0]], [[I_0]]
+; CHECK-NEXT:    br label [[FOR_INC]]
+; CHECK:       for.inc:
+; CHECK-NEXT:    [[INC]] = add nsw i32 [[I_0]], 1
+; CHECK-NEXT:    br label [[FOR_COND]]
+; CHECK:       for.end:
+; CHECK-NEXT:    ret i32 [[A_0]]
+;
+entry:
+  br label %for.cond
+
+for.cond:                                         ; preds = %for.inc, %entry
+  %a.0 = phi i32 [ 0, %entry ], [ %add, %for.inc ]
+  %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
+  %cmp = icmp slt i32 %i.0, %N
+  br i1 %cmp, label %for.body, label %for.end
+
+for.body:                                         ; preds = %for.cond
+  %add = add nsw i32 %a.0, %i.0
+  br label %for.inc
+
+for.inc:                                          ; preds = %for.body
+  %inc = add nsw i32 %i.0, 1
+  br label %for.cond
+
+for.end:                                          ; preds = %for.cond
+  ret i32 %a.0
+}
+
+define i32 @alternating_in_loop(i32 %N) {
+; CHECK-LABEL: define {{[^@]+}}@alternating_in_loop
+; CHECK-SAME: (i32 [[N:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br label [[FOR_COND:%.*]]
+; CHECK:       for.cond:
+; CHECK-NEXT:    [[A_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[SUB:%.*]], [[FOR_INC:%.*]] ]
+; CHECK-NEXT:    [[I_0:%.*]] = phi i32 [ 0, [[ENTRY]] ], [ [[INC:%.*]], [[FOR_INC]] ]
+; CHECK-NEXT:    [[A_0A:%.*]] = mul nsw i32 1, [[A_0]]
+; CHECK-NEXT:    [[A_0B:%.*]] = sub nsw i32 0, [[A_0A]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[I_0]], [[N]]
+; CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END:%.*]]
+; CHECK:       for.body:
+; CHECK-NEXT:    [[SUB]] = sub nsw i32 1, [[A_0]]
+; CHECK-NEXT:    br label [[FOR_INC]]
+; CHECK:       for.inc:
+; CHECK-NEXT:    [[INC]] = add nsw i32 [[I_0]], 1
+; CHECK-NEXT:    br label [[FOR_COND]]
+; CHECK:       for.end:
+; CHECK-NEXT:    [[ADD:%.*]] = add i32 [[A_0]], [[A_0B]]
+; CHECK-NEXT:    ret i32 [[ADD]]
+;
+entry:
+  br label %for.cond
+
+for.cond:                                         ; preds = %for.inc, %entry
+  %a.0 = phi i32 [ 0, %entry ], [ %sub, %for.inc ]
+  %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
+  %a.0a = mul nsw i32 1, %a.0
+  %a.0b = sub nsw i32 0, %a.0a
+  %cmp = icmp slt i32 %i.0, %N
+  br i1 %cmp, label %for.body, label %for.end
+
+for.body:                                         ; preds = %for.cond
+  %sub = sub nsw i32 1, %a.0
+  br label %for.inc
+
+for.inc:                                          ; preds = %for.body
+  %inc = add nsw i32 %i.0, 1
+  br label %for.cond
+
+for.end:                                          ; preds = %for.cond
+  %add = add i32 %a.0, %a.0b
+  ret i32 %add
+}
+
+define i32 @const_in_loop1(i32 %N) {
+; CHECK-LABEL: define {{[^@]+}}@const_in_loop1
+; CHECK-SAME: (i32 [[N:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br label [[FOR_COND:%.*]]
+; CHECK:       for.cond:
+; CHECK-NEXT:    [[A_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ 0, [[FOR_INC:%.*]] ]
+; CHECK-NEXT:    [[I_0:%.*]] = phi i32 [ 0, [[ENTRY]] ], [ [[INC:%.*]], [[FOR_INC]] ]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[I_0]], [[N]]
+; CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END:%.*]]
+; CHECK:       for.body:
+; CHECK-NEXT:    br label [[FOR_INC]]
+; CHECK:       for.inc:
+; CHECK-NEXT:    [[INC]] = add nsw i32 [[I_0]], 1
+; CHECK-NEXT:    br label [[FOR_COND]]
+; CHECK:       for.end:
+; CHECK-NEXT:    ret i32 0
+;
+entry:
+  br label %for.cond
+
+for.cond:                                         ; preds = %for.inc, %entry
+  %a.0 = phi i32 [ 0, %entry ], [ %mul, %for.inc ]
+  %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
+  %cmp = icmp slt i32 %i.0, %N
+  br i1 %cmp, label %for.body, label %for.end
+
+for.body:                                         ; preds = %for.cond
+  %mul = mul nsw i32 %a.0, %a.0
+  br label %for.inc
+
+for.inc:                                          ; preds = %for.body
+  %inc = add nsw i32 %i.0, 1
+  br label %for.cond
+
+for.end:                                          ; preds = %for.cond
+  ret i32 %a.0
+}
+
+define i32 @const_in_loop2(i32 %N) {
+; CHECK-LABEL: define {{[^@]+}}@const_in_loop2
+; CHECK-SAME: (i32 [[N:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br label [[FOR_COND:%.*]]
+; CHECK:       for.cond:
+; CHECK-NEXT:    [[A_0:%.*]] = phi i32 [ 1, [[ENTRY:%.*]] ], [ 1, [[FOR_INC:%.*]] ]
+; CHECK-NEXT:    [[I_0:%.*]] = phi i32 [ 0, [[ENTRY]] ], [ [[INC:%.*]], [[FOR_INC]] ]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[I_0]], [[N]]
+; CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END:%.*]]
+; CHECK:       for.body:
+; CHECK-NEXT:    br label [[FOR_INC]]
+; CHECK:       for.inc:
+; CHECK-NEXT:    [[INC]] = add nsw i32 [[I_0]], 1
+; CHECK-NEXT:    br label [[FOR_COND]]
+; CHECK:       for.end:
+; CHECK-NEXT:    ret i32 1
+;
+entry:
+  br label %for.cond
+
+for.cond:                                         ; preds = %for.inc, %entry
+  %a.0 = phi i32 [ 1, %entry ], [ %mul, %for.inc ]
+  %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
+  %cmp = icmp slt i32 %i.0, %N
+  br i1 %cmp, label %for.body, label %for.end
+
+for.body:                                         ; preds = %for.cond
+  %mul = mul nsw i32 %a.0, %a.0
+  br label %for.inc
+
+for.inc:                                          ; preds = %for.body
+  %inc = add nsw i32 %i.0, 1
+  br label %for.cond
+
+for.end:                                          ; preds = %for.cond
+  ret i32 %a.0
+}
+>>>>>>> d2d3c463f81... [Attributor] Make value simplify stronger
