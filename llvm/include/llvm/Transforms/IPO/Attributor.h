@@ -2042,10 +2042,12 @@ struct AAValueSimplify : public StateWrapper<BooleanState, AbstractAttribute>,
   /// Return an IR position, see struct IRPosition.
   const IRPosition &getIRPosition() const { return *this; }
 
-  /// Return an assumed simplified value if a single candidate is found. If
-  /// there cannot be one, return original value. If it is not clear yet, return
-  /// the Optional::NoneType.
-  virtual Optional<Value *> getAssumedSimplifiedValue(Attributor &A) const = 0;
+  /// Return the values assumed to be equivalent.
+  virtual const SmallSetVector<Value *, 4> &
+  getAssumedEquivalentValues() const = 0;
+
+  /// Return the constant assumed to be equivalent, if any.
+  virtual Constant *getAssumedEquivalentConstant() const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAValueSimplify &createForPosition(const IRPosition &IRP,
