@@ -57,6 +57,11 @@ STATISTIC(NumAttributesValidFixpoint,
           "Number of abstract attributes in a valid fixpoint state");
 STATISTIC(NumAttributesManifested,
           "Number of abstract attributes manifested in IR");
+STATISTIC(
+    NumAttributorUpdates,
+    "Number of times the Attributor invoked update on an abstract attribute.");
+STATISTIC(NumAttributorIterations, "Number of times the Attributor iterated.");
+STATISTIC(NumAttributorRuns, "Number of times Attributor::run was invoked.");
 
 // Some helper macros to deal with statistics tracking.
 //
@@ -5597,6 +5602,8 @@ ChangeStatus Attributor::run(Module &M, int &RemainingIterations) {
   bool RecomputeDependences = false;
 
   do {
+    ++NumAttributorIterations;
+
     // Remember the size to determine new attributes.
     size_t NumAAs = AllAbstractAttributes.size();
     LLVM_DEBUG(dbgs() << "\n\n[Attributor] #Iteration: " << IterationCounter
@@ -5630,8 +5637,8 @@ ChangeStatus Attributor::run(Module &M, int &RemainingIterations) {
     // Update all abstract attribute in the work list and record the ones that
     // changed.
     for (AbstractAttribute *AA : Worklist)
-      if (!AA->getState().isAtFixpoint() && !isAssumedDead(*AA, nullptr)) {
-        QueriedNonFixAA = false;
+      if (!isAssumedDead(*AA, nullptr)) {
+        ++NumAttributorUpdates;
         if (AA->update(*this) == ChangeStatus::CHANGED) {
           ChangedAAs.push_back(AA);
         } else if (!QueriedNonFixAA) {
@@ -6396,6 +6403,9 @@ static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
     // while we identify default attribute opportunities.
     InformationCache InfoCache(M, AG);
     Attributor A(InfoCache, DepRecInterval);
+
+    ++AttributorRuns;
+    ++NumAttributorRuns;
 
     if (A.run(M, RemainingIterations) == ChangeStatus::UNCHANGED)
       break;
