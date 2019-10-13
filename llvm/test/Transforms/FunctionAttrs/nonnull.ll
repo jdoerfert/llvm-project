@@ -268,8 +268,7 @@ if.else:
 ; fun1(nonnull %a)
 ; We can say that %a is nonnull
 define void @f17(i8* %a, i8 %c) {
-; FIXME: missing nonnull on %a
-; ATTRIBUTOR: define void @f17(i8* %a, i8 %c)
+; ATTRIBUTOR: define void @f17(i8* nonnull %a, i8 %c)
   %cmp = icmp eq i8 %c, 0
   br i1 %cmp, label %if.then, label %if.else
 if.then:
@@ -294,8 +293,7 @@ cont:
 ; fun1(nonnull %a)
 
 define void @f18(i8* %a, i8* %b, i8 %c) {
-; FIXME: missing nonnull on %a
-; ATTRIBUTOR: define void @f18(i8* %a, i8* %b, i8 %c)
+; ATTRIBUTOR: define void @f18(i8* nonnull %a, i8* %b, i8 %c)
   %cmp1 = icmp eq i8 %c, 0
   br i1 %cmp1, label %if.then, label %if.else
 if.then:

@@ -36,6 +36,8 @@ bb:
 ; MBEC-NEXT:   [F: simple_conditional]   call void @B()
 ; MBEC-NEXT:   [F: simple_conditional]   %tmp = icmp eq i32 %arg, 0
 ; MBEC-NEXT:   [F: simple_conditional]   br i1 %tmp, label %bb2, label %bb1
+; MBEC-NEXT:   [F: simple_conditional]   call void @E()
+; MBEC-NEXT:   [F: simple_conditional]   call void @F()
 ; MBEC-NOT:    call
 
   call void @B()
@@ -43,6 +45,8 @@ bb:
 ; MBEC-NEXT:   [F: simple_conditional]   call void @B()
 ; MBEC-NEXT:   [F: simple_conditional]   %tmp = icmp eq i32 %arg, 0
 ; MBEC-NEXT:   [F: simple_conditional]   br i1 %tmp, label %bb2, label %bb1
+; MBEC-NEXT:   [F: simple_conditional]   call void @E()
+; MBEC-NEXT:   [F: simple_conditional]   call void @F()
 ; MBEC-NOT:    call
 ; MBEC:      -- Explore context of: %tmp
 

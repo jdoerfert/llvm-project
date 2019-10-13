@@ -35,6 +35,7 @@ namespace llvm {
 
 class Instruction;
 class DominatorTree;
+class PostDominatorTree;
 class Loop;
 
 /// Captures loop safety information.
@@ -374,8 +375,11 @@ struct MustBeExecutedContextExplorer {
   /// \param ExploreInterBlock    Flag to indicate if instructions in blocks
   ///                             other than the parent of PP should be
   ///                             explored.
-  MustBeExecutedContextExplorer(bool ExploreInterBlock)
-      : ExploreInterBlock(ExploreInterBlock), EndIterator(*this, nullptr) {}
+  MustBeExecutedContextExplorer(bool ExploreInterBlock,
+                                const LoopInfo *LI = nullptr,
+                                const PostDominatorTree *PDT = nullptr)
+      : ExploreInterBlock(ExploreInterBlock), LI(LI), PDT(PDT),
+        EndIterator(*this, nullptr) {}
 
   /// Clean up the dynamically allocated iterators.
   ~MustBeExecutedContextExplorer() {
@@ -458,6 +462,9 @@ struct MustBeExecutedContextExplorer {
   getMustBeExecutedNextInstruction(MustBeExecutedIterator &It,
                                    const Instruction *PP);
 
+  /// Find the next join point from \p InitBB in forward direction.
+  const BasicBlock *findForwardJoinPoint(const BasicBlock *InitBB);
+
   /// Parameter that limit the performed exploration. See the constructor for
   /// their meaning.
   ///{
@@ -465,6 +472,19 @@ struct MustBeExecutedContextExplorer {
   ///}
 
 private:
+  /// CFG analyses
+  ///
+  ///{
+  const LoopInfo* LI;
+  const PostDominatorTree* PDT;
+  ///}
+
+  /// Map to cache isGuaranteedToTransferExecutionToSuccessor results.
+  DenseMap<const BasicBlock *, Optional<bool>> BlockTransferMap;
+
+  /// Map to cache containsIrreducibleCFG results.
+  DenseMap<const Function*, Optional<bool>> IrreducibleControlMap;
+
   /// Map from instructions to associated must be executed iterators.
   DenseMap<const Instruction *, MustBeExecutedIterator *>
       InstructionIteratorMap;
