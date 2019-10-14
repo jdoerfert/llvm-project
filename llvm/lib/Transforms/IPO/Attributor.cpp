@@ -616,19 +616,32 @@ static void clampReturnedValueStates(Attributor &A, const AAType &QueryingAA,
 }
 
 /// Helper class to compose two generic deduction
+/// For now, it is not as generic and assumes the second deduction works on
+/// known values and can go on even if the first one gave up.
 template <typename AAType, typename Base, typename StateType,
           template <typename...> class F, template <typename...> class G>
 struct AAComposeTwoGenericDeduction
     : public F<AAType, G<AAType, Base, StateType>, StateType> {
+  using UpdateFnTy = std::function<ChangeStatus(Attributor &)>;
+
   AAComposeTwoGenericDeduction(const IRPosition &IRP)
       : F<AAType, G<AAType, Base, StateType>, StateType>(IRP) {}
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    ChangeStatus ChangedF = F<AAType, G<AAType, Base, StateType>, StateType>::updateImpl(A);
     ChangeStatus ChangedG = G<AAType, Base, StateType>::updateImpl(A);
+
+    if (Base::isAtFixpoint())
+      return ChangedG;
+
+    ChangeStatus ChangedF = F<AAType, G<AAType, Base, StateType>, StateType>::updateImpl(A);
     return ChangedF | ChangedG;
   }
+
+  /// See AbstractState::isAtFixpoint().
+  /// TODO: This doesn't work as a general solution but should work with the AAs
+  /// we use this now.
+  bool isAtFixpoint() const override { return false; }
 };
 
 /// Helper class for generic deduction: return value -> returned position.
@@ -797,15 +810,15 @@ template <typename AAType, typename Base,
           typename StateType = typename AAType::StateType>
 using AAArgumentFromCallSiteArgumentsAndMustBeExecutedContext =
     AAComposeTwoGenericDeduction<AAType, Base, StateType,
-                                 AAFromMustBeExecutedContext,
-                                 AAArgumentFromCallSiteArguments>;
+                                 AAArgumentFromCallSiteArguments,
+                                 AAFromMustBeExecutedContext>;
 
 template <typename AAType, typename Base,
           typename StateType = typename AAType::StateType>
 using AACallSiteReturnedFromReturnedAndMustBeExecutedContext =
     AAComposeTwoGenericDeduction<AAType, Base, StateType,
-                                 AAFromMustBeExecutedContext,
-                                 AACallSiteReturnedFromReturned>;
+                                 AACallSiteReturnedFromReturned,
+                                 AAFromMustBeExecutedContext>;
 
 /// -----------------------NoUnwind Function Attribute--------------------------
 
