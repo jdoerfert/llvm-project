@@ -304,7 +304,7 @@ entry:
 ; }
 ;
 ; There should *not* be a no-capture attribute on %a
-; CHECK: define void @negative_test_not_captured_but_returned_call_0b(i64* writeonly %a)
+; CHECK: define void @negative_test_not_captured_but_returned_call_0b(i64* nonnull writeonly dereferenceable(8) %a)
 define void @negative_test_not_captured_but_returned_call_0b(i64* %a) #0 {
 entry:
   %call = call i64* @not_captured_but_returned_0(i64* %a)

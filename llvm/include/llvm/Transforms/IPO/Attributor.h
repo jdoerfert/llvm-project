@@ -1143,7 +1143,7 @@ struct AbstractState {
   /// This will usually make the optimistically assumed state the known to be
   /// true state.
   ///
-  /// \returns ChangeStatus::UNCHANGED as the assumed value should not change.
+  /// \returns ChangeStatus::CHANGED as the known value should have changed.
   virtual ChangeStatus indicateOptimisticFixpoint() = 0;
 
   /// Indicate that the abstract state should converge to the pessimistic state.
@@ -1151,7 +1151,7 @@ struct AbstractState {
   /// This will usually revert the optimistically assumed state to the known to
   /// be true state.
   ///
-  /// \returns ChangeStatus::CHANGED as the assumed value may change.
+  /// \returns ChangeStatus::CHANGED as the assumed value should have change.
   virtual ChangeStatus indicatePessimisticFixpoint() = 0;
 };
 
@@ -1185,7 +1185,7 @@ struct IntegerStateBase : public AbstractState {
   /// See AbstractState::indicateOptimisticFixpoint(...)
   ChangeStatus indicateOptimisticFixpoint() override {
     Known = Assumed;
-    return ChangeStatus::UNCHANGED;
+    return ChangeStatus::CHANGED;
   }
 
   /// See AbstractState::indicatePessimisticFixpoint(...)
@@ -1871,7 +1871,7 @@ struct DerefState : AbstractState {
   ChangeStatus indicateOptimisticFixpoint() override {
     DerefBytesState.indicateOptimisticFixpoint();
     GlobalState.indicateOptimisticFixpoint();
-    return ChangeStatus::UNCHANGED;
+    return ChangeStatus::CHANGED;
   }
 
   /// See AbstractState::indicatePessimisticFixpoint(...)

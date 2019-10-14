@@ -868,6 +868,25 @@ struct AAFromMustBeExecutedContext : public Base {
     MustBeExecutedContextExplorer &Explorer =
         A.getInfoCache().getMustBeExecutedContextExplorer();
 
+    Explorer.setIsGuaranteedToTransferFn([&](const Instruction *I) {
+      if (isGuaranteedToTransferExecutionToSuccessor(I))
+        return true;
+      ImmutableCallSite ICS(I);
+      if (!ICS)
+        return false;
+      // We do look at known information not yet in the IR but we also establish
+      // a dependence which will trigger this update again if the information
+      // changed.
+      const IRPosition &CSPos = IRPosition::callsite_function(ICS);
+      bool WillReturn = ICS.hasFnAttr(Attribute::WillReturn);
+      if (!WillReturn)
+        WillReturn = A.getAAFor<AAWillReturn>(*this, CSPos).isKnownWillReturn();
+      bool NoUnwind = ICS.hasFnAttr(Attribute::NoUnwind);
+      if (!NoUnwind)
+        NoUnwind = A.getAAFor<AANoUnwind>(*this, CSPos).isKnownNoUnwind();
+      return WillReturn && NoUnwind;
+    });
+
     SetVector<const Use *> NextUses;
 
     auto EIt = Explorer.begin(CtxI), EEnd = Explorer.end(CtxI);
@@ -1089,7 +1108,7 @@ public:
   /// See AbstractState::indicateOptimisticFixpoint(...).
   ChangeStatus indicateOptimisticFixpoint() override {
     IsFixed = true;
-    return ChangeStatus::UNCHANGED;
+    return ChangeStatus::CHANGED;
   }
 
   ChangeStatus indicatePessimisticFixpoint() override {

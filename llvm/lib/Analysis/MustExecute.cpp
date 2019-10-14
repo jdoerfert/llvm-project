@@ -12,7 +12,6 @@
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/Passes.h"
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/IR/AssemblyAnnotationWriter.h"
 #include "llvm/IR/DataLayout.h"
@@ -624,7 +623,7 @@ MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
   // If we do not traverse the call graph we check if we can make progress in
   // the current function. First, check if the instruction is guaranteed to
   // transfer execution to the successor.
-  bool TransfersExecution = isGuaranteedToTransferExecutionToSuccessor(PP);
+  bool TransfersExecution = IsGuaranteedToTransferFn(PP);
   if (!TransfersExecution)
     return nullptr;
 

@@ -27,6 +27,7 @@
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/InstructionPrecedenceTracking.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instruction.h"
@@ -367,6 +368,7 @@ private:
 /// the expected use case involves few iterators for "far apart" instructions.
 /// If that changes, we should consider caching more intermediate results.
 struct MustBeExecutedContextExplorer {
+  using IsGuaranteedToTransferFnTy = std::function<bool(const Instruction *)>;
 
   /// In the description of the parameters we use PP to denote a program point
   /// for which the must be executed context is explored, or put differently,
@@ -375,11 +377,11 @@ struct MustBeExecutedContextExplorer {
   /// \param ExploreInterBlock    Flag to indicate if instructions in blocks
   ///                             other than the parent of PP should be
   ///                             explored.
-  MustBeExecutedContextExplorer(bool ExploreInterBlock,
-                                const LoopInfo *LI = nullptr,
-                                const PostDominatorTree *PDT = nullptr)
-      : ExploreInterBlock(ExploreInterBlock), LI(LI), PDT(PDT),
-        EndIterator(*this, nullptr) {}
+  MustBeExecutedContextExplorer(bool ExploreInterBlock)
+      : ExploreInterBlock(ExploreInterBlock), EndIterator(*this, nullptr),
+        LI(LI), PDT(PDT), IsGuaranteedToTransferFn([](const Instruction *I) {
+          return isGuaranteedToTransferExecutionToSuccessor(I);
+        }) {}
 
   /// Clean up the dynamically allocated iterators.
   ~MustBeExecutedContextExplorer() {
@@ -471,6 +473,13 @@ struct MustBeExecutedContextExplorer {
   const bool ExploreInterBlock;
   ///}
 
+  /// Replace the function that determines if an instruction "terminates" with
+  /// \p IsGuaranteedToTransferFn.
+  void setIsGuaranteedToTransferFn(
+      IsGuaranteedToTransferFnTy IsGuaranteedToTransferFn) {
+    this->IsGuaranteedToTransferFn = IsGuaranteedToTransferFn;
+  }
+
 private:
   /// CFG analyses
   ///
@@ -491,6 +500,11 @@ private:
 
   /// A unique end iterator.
   MustBeExecutedIterator EndIterator;
+
+  /// The callback to determines if a function *will* tranfer execution to its
+  /// successor. By default isGuaranteedToTransferExecutionToSuccessor(const
+  /// Instruction *) in ValueTracking.h.
+  IsGuaranteedToTransferFnTy IsGuaranteedToTransferFn;
 };
 
 } // namespace llvm
