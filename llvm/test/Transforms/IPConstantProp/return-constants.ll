@@ -1,8 +1,10 @@
-; RUN: opt < %s -ipconstprop -S > %t
+; RUN: opt < %s -ipconstprop -S | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s
+
 ;; Check that the 21 constants got propagated properly
-; RUN: cat %t | grep "%M = add i32 21, 21"
+; CHECK: %M = add i32 21, 21
 ;; Check that the second return values didn't get propagated
-; RUN: cat %t | grep "%N = add i32 %B, %D"
+; CHECK: %N = add i32 %B, %D
 
 %0 = type { i32, i32 }
 

@@ -1,4 +1,6 @@
 ; RUN: opt < %s -internalize -ipsccp -S | FileCheck %s
+; RUN: opt -S -internalize -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s
 ; PR5569
 
 ; IPSCCP should prove that the blocks are dead and delete them, and

@@ -1,4 +1,8 @@
-; RUN: opt < %s -ipconstprop -deadargelim -S | not grep %X
+; RUN: opt < %s -ipconstprop -deadargelim -S | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=4 < %s | FileCheck %s
+
+; CHECK-NOT: %X
+
 define internal i32 @foo(i32 %X) {
         %Y = call i32 @foo( i32 %X )            ; <i32> [#uses=1]
         %Z = add i32 %Y, 1              ; <i32> [#uses=1]
