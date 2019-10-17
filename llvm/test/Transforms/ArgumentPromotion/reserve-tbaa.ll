@@ -21,14 +21,15 @@ define internal fastcc void @fn(i32* nocapture readonly %p1, i64* nocapture read
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@fn
 ; ARGPROMOTION-SAME: (i32 [[P1_VAL:%.*]], i64 [[P2_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    [[CONV:%.*]] = trunc i64 [[P2_VAL:%.*]] to i32
-; ARGPROMOTION-NEXT:    [[CONV1:%.*]] = trunc i32 [[P1_VAL:%.*]] to i8
+; ARGPROMOTION-NEXT:    [[CONV:%.*]] = trunc i64 [[P2_VAL]] to i32
+; ARGPROMOTION-NEXT:    [[CONV1:%.*]] = trunc i32 [[P1_VAL]] to i8
 ; ARGPROMOTION-NEXT:    store i8 [[CONV1]], i8* @d, align 1, !tbaa !0
 ; ARGPROMOTION-NEXT:    ret void
 ;
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@fn()
+; ATTRIBUTOR-LABEL: define {{[^@]+}}@fn
+; ATTRIBUTOR-SAME: (i32* nocapture nonnull readonly align 4 dereferenceable(4) [[P1:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load i64, i64* @c, align 8, !tbaa !0
+; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load i64, i64* undef, align 8, !tbaa !0
 ; ATTRIBUTOR-NEXT:    [[CONV:%.*]] = trunc i64 [[TMP0]] to i32
 ; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = load i32, i32* @g, align 4, !tbaa !4
 ; ATTRIBUTOR-NEXT:    [[CONV1:%.*]] = trunc i32 [[TMP1]] to i8
@@ -62,7 +63,7 @@ define i32 @main() {
 ; ATTRIBUTOR-NEXT:    store i32* @g, i32** [[TMP0]], align 8, !tbaa !7
 ; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = load i32*, i32** @a, align 8, !tbaa !7
 ; ATTRIBUTOR-NEXT:    store i32 1, i32* [[TMP1]], align 4, !tbaa !4
-; ATTRIBUTOR-NEXT:    call fastcc void @fn()
+; ATTRIBUTOR-NEXT:    call fastcc void @fn(i32* nonnull align 4 dereferenceable(4) @g)
 ; ATTRIBUTOR-NEXT:    ret i32 0
 ;
 entry:

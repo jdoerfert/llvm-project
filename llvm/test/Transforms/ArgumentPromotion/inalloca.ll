@@ -12,14 +12,8 @@ define internal i1 @g(%struct.ss* %a, %struct.ss* inalloca %b) nounwind  {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@g
 ; ARGPROMOTION-SAME: (%struct.ss* [[A:%.*]], %struct.ss* [[B:%.*]]) unnamed_addr
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    [[C:%.*]] = icmp eq %struct.ss* [[A:%.*]], [[B:%.*]]
+; ARGPROMOTION-NEXT:    [[C:%.*]] = icmp eq %struct.ss* [[A]], [[B]]
 ; ARGPROMOTION-NEXT:    ret i1 [[C]]
-;
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@g
-; ATTRIBUTOR-SAME: (%struct.ss* nonnull readnone align 4 dereferenceable(8) [[A:%.*]], %struct.ss* inalloca nonnull writeonly align 4 dereferenceable(8) [[B:%.*]])
-; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[C:%.*]] = icmp eq %struct.ss* [[A:%.*]], [[B:%.*]]
-; ATTRIBUTOR-NEXT:    ret i1 [[C]]
 ;
 entry:
   %c = icmp eq %struct.ss* %a, %b
@@ -35,8 +29,6 @@ define i32 @test() {
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@test()
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[S:%.*]] = alloca inalloca [[STRUCT_SS:%.*]]
-; ATTRIBUTOR-NEXT:    [[C:%.*]] = call i1 @g(%struct.ss* nonnull align 4 dereferenceable(8) [[S]], %struct.ss* inalloca nonnull align 4 dereferenceable(8) [[S]])
 ; ATTRIBUTOR-NEXT:    ret i32 0
 ;
 entry:

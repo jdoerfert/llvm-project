@@ -6,7 +6,7 @@ target datalayout = "E-p:64:64:64-a0:0:8-f32:32:32-f64:64:64-i1:8:8-i8:8:8-i16:1
 define internal i32 @test(i32* %X, i32* %Y) {
 ; ALL-LABEL: define {{[^@]+}}@test
 ; ALL-SAME: (i32 [[TMP0:%.*]], i32 [[TMP1:%.*]])
-; ALL-NEXT:    [[C:%.*]] = add i32 [[TMP0:%.*]], [[TMP1:%.*]]
+; ALL-NEXT:    [[C:%.*]] = add i32 [[TMP0]], [[TMP1]]
 ; ALL-NEXT:    ret i32 [[C]]
 ;
   %A = load i32, i32* %X
@@ -18,7 +18,7 @@ define internal i32 @test(i32* %X, i32* %Y) {
 define internal i32 @caller(i32* %B) {
 ; ALL-LABEL: define {{[^@]+}}@caller
 ; ALL-SAME: (i32 [[TMP0:%.*]])
-; ALL-NEXT:    [[C:%.*]] = call i32 @test(i32 1, i32 [[TMP0:%.*]])
+; ALL-NEXT:    [[C:%.*]] = call i32 @test(i32 1, i32 [[TMP0]])
 ; ALL-NEXT:    ret i32 [[C]]
 ;
   %A = alloca i32

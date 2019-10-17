@@ -14,27 +14,28 @@ define x86_fp80 @run(%struct.Foo* %a, %struct.s* %b, i8* %i8, i64* %i64a, i64* %
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@run
 ; ARGPROMOTION-SAME: (%struct.Foo* [[A:%.*]], %struct.s* [[B:%.*]], i8* [[I8:%.*]], i64* [[I64A:%.*]], i64* [[I64B:%.*]])
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    [[BC:%.*]] = bitcast %struct.s* [[B:%.*]] to %union.u*
+; ARGPROMOTION-NEXT:    [[BC:%.*]] = bitcast %struct.s* [[B]] to %union.u*
 ; ARGPROMOTION-NEXT:    [[V0:%.*]] = tail call i8 @UseLongDoubleUnsafely(%union.u* byval align 16 [[BC]])
-; ARGPROMOTION-NEXT:    store i8 [[V0]], i8* [[I8:%.*]]
+; ARGPROMOTION-NEXT:    store i8 [[V0]], i8* [[I8]]
 ; ARGPROMOTION-NEXT:    [[BC_0:%.*]] = getelementptr [[UNION_U:%.*]], %union.u* [[BC]], i32 0, i32 0
 ; ARGPROMOTION-NEXT:    [[BC_0_VAL:%.*]] = load x86_fp80, x86_fp80* [[BC_0]]
 ; ARGPROMOTION-NEXT:    [[V1:%.*]] = tail call x86_fp80 @UseLongDoubleSafely(x86_fp80 [[BC_0_VAL]])
-; ARGPROMOTION-NEXT:    [[V2:%.*]] = call i64 @AccessPaddingOfStruct(%struct.Foo* [[A:%.*]])
-; ARGPROMOTION-NEXT:    store i64 [[V2]], i64* [[I64A:%.*]]
+; ARGPROMOTION-NEXT:    [[V2:%.*]] = call i64 @AccessPaddingOfStruct(%struct.Foo* [[A]])
+; ARGPROMOTION-NEXT:    store i64 [[V2]], i64* [[I64A]]
 ; ARGPROMOTION-NEXT:    [[V3:%.*]] = call i64 @CaptureAStruct(%struct.Foo* [[A]])
-; ARGPROMOTION-NEXT:    store i64 [[V3]], i64* [[I64B:%.*]]
+; ARGPROMOTION-NEXT:    store i64 [[V3]], i64* [[I64B]]
 ; ARGPROMOTION-NEXT:    ret x86_fp80 [[V1]]
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@run
 ; ATTRIBUTOR-SAME: (%struct.Foo* [[A:%.*]], %struct.s* nocapture readonly [[B:%.*]], i8* nocapture writeonly [[I8:%.*]], i64* nocapture writeonly [[I64A:%.*]], i64* nocapture readnone [[I64B:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[BC:%.*]] = bitcast %struct.s* [[B:%.*]] to %union.u*
-; ATTRIBUTOR-NEXT:    [[V0:%.*]] = tail call i8 @UseLongDoubleUnsafely(%union.u* nocapture readonly byval align 16 [[BC]])
-; ATTRIBUTOR-NEXT:    store i8 [[V0]], i8* [[I8:%.*]]
-; ATTRIBUTOR-NEXT:    [[V1:%.*]] = tail call x86_fp80 @UseLongDoubleSafely(%union.u* nocapture readonly byval align 16 [[BC]])
-; ATTRIBUTOR-NEXT:    [[V2:%.*]] = call i64 @AccessPaddingOfStruct(%struct.Foo* nocapture [[A:%.*]])
-; ATTRIBUTOR-NEXT:    store i64 [[V2]], i64* [[I64A:%.*]]
+; ATTRIBUTOR-NEXT:    [[DOTCAST:%.*]] = bitcast %struct.s* [[B]] to %union.u*
+; ATTRIBUTOR-NEXT:    [[DOTCAST1:%.*]] = bitcast %struct.s* [[B]] to %union.u*
+; ATTRIBUTOR-NEXT:    [[V0:%.*]] = tail call i8 @UseLongDoubleUnsafely(%union.u* nocapture readonly byval align 16 [[DOTCAST]])
+; ATTRIBUTOR-NEXT:    store i8 [[V0]], i8* [[I8]]
+; ATTRIBUTOR-NEXT:    [[DOTCAST2:%.*]] = bitcast %struct.s* [[B]] to %union.u*
+; ATTRIBUTOR-NEXT:    [[V2:%.*]] = call i64 @AccessPaddingOfStruct(%struct.Foo* nocapture [[A]])
+; ATTRIBUTOR-NEXT:    store i64 [[V2]], i64* [[I64A]]
 ; ATTRIBUTOR-NEXT:    [[V3:%.*]] = call i64 @CaptureAStruct(%struct.Foo* [[A]])
 ; ATTRIBUTOR-NEXT:    unreachable
 ;
@@ -54,7 +55,7 @@ define internal i8 @UseLongDoubleUnsafely(%union.u* byval align 16 %arg) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@UseLongDoubleUnsafely
 ; ARGPROMOTION-SAME: (%union.u* byval align 16 [[ARG:%.*]])
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    [[BITCAST:%.*]] = bitcast %union.u* [[ARG:%.*]] to %struct.s*
+; ARGPROMOTION-NEXT:    [[BITCAST:%.*]] = bitcast %union.u* [[ARG]] to %struct.s*
 ; ARGPROMOTION-NEXT:    [[GEP:%.*]] = getelementptr inbounds [[STRUCT_S:%.*]], %struct.s* [[BITCAST]], i64 0, i32 2
 ; ARGPROMOTION-NEXT:    [[RESULT:%.*]] = load i8, i8* [[GEP]]
 ; ARGPROMOTION-NEXT:    ret i8 [[RESULT]]
@@ -62,7 +63,7 @@ define internal i8 @UseLongDoubleUnsafely(%union.u* byval align 16 %arg) {
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@UseLongDoubleUnsafely
 ; ATTRIBUTOR-SAME: (%union.u* nocapture readonly byval align 16 [[ARG:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[BITCAST:%.*]] = bitcast %union.u* [[ARG:%.*]] to %struct.s*
+; ATTRIBUTOR-NEXT:    [[BITCAST:%.*]] = bitcast %union.u* [[ARG]] to %struct.s*
 ; ATTRIBUTOR-NEXT:    [[GEP:%.*]] = getelementptr inbounds [[STRUCT_S:%.*]], %struct.s* [[BITCAST]], i64 0, i32 2
 ; ATTRIBUTOR-NEXT:    [[RESULT:%.*]] = load i8, i8* [[GEP]]
 ; ATTRIBUTOR-NEXT:    ret i8 [[RESULT]]
@@ -79,16 +80,10 @@ define internal x86_fp80 @UseLongDoubleSafely(%union.u* byval align 16 %arg) {
 ; ARGPROMOTION-SAME: (x86_fp80 [[ARG_0:%.*]])
 ; ARGPROMOTION-NEXT:    [[ARG:%.*]] = alloca [[UNION_U:%.*]], align 16
 ; ARGPROMOTION-NEXT:    [[DOT0:%.*]] = getelementptr [[UNION_U]], %union.u* [[ARG]], i32 0, i32 0
-; ARGPROMOTION-NEXT:    store x86_fp80 [[ARG_0:%.*]], x86_fp80* [[DOT0]]
+; ARGPROMOTION-NEXT:    store x86_fp80 [[ARG_0]], x86_fp80* [[DOT0]]
 ; ARGPROMOTION-NEXT:    [[GEP:%.*]] = getelementptr inbounds [[UNION_U]], %union.u* [[ARG]], i64 0, i32 0
 ; ARGPROMOTION-NEXT:    [[FP80:%.*]] = load x86_fp80, x86_fp80* [[GEP]]
 ; ARGPROMOTION-NEXT:    ret x86_fp80 [[FP80]]
-;
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@UseLongDoubleSafely
-; ATTRIBUTOR-SAME: (%union.u* nocapture readonly byval align 16 [[ARG:%.*]])
-; ATTRIBUTOR-NEXT:    [[GEP:%.*]] = getelementptr inbounds [[UNION_U:%.*]], %union.u* [[ARG:%.*]], i64 0, i32 0
-; ATTRIBUTOR-NEXT:    [[FP80:%.*]] = load x86_fp80, x86_fp80* [[GEP]], align 16
-; ATTRIBUTOR-NEXT:    ret x86_fp80 [[FP80]]
 ;
   %gep = getelementptr inbounds %union.u, %union.u* %arg, i64 0, i32 0
   %fp80 = load x86_fp80, x86_fp80* %gep
@@ -98,13 +93,13 @@ define internal x86_fp80 @UseLongDoubleSafely(%union.u* byval align 16 %arg) {
 define internal i64 @AccessPaddingOfStruct(%struct.Foo* byval %a) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@AccessPaddingOfStruct
 ; ARGPROMOTION-SAME: (%struct.Foo* byval [[A:%.*]])
-; ARGPROMOTION-NEXT:    [[P:%.*]] = bitcast %struct.Foo* [[A:%.*]] to i64*
+; ARGPROMOTION-NEXT:    [[P:%.*]] = bitcast %struct.Foo* [[A]] to i64*
 ; ARGPROMOTION-NEXT:    [[V:%.*]] = load i64, i64* [[P]]
 ; ARGPROMOTION-NEXT:    ret i64 [[V]]
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@AccessPaddingOfStruct
 ; ATTRIBUTOR-SAME: (%struct.Foo* nocapture readonly byval [[A:%.*]])
-; ATTRIBUTOR-NEXT:    [[P:%.*]] = bitcast %struct.Foo* [[A:%.*]] to i64*
+; ATTRIBUTOR-NEXT:    [[P:%.*]] = bitcast %struct.Foo* [[A]] to i64*
 ; ATTRIBUTOR-NEXT:    [[V:%.*]] = load i64, i64* [[P]]
 ; ATTRIBUTOR-NEXT:    ret i64 [[V]]
 ;
@@ -121,19 +116,19 @@ define internal i64 @CaptureAStruct(%struct.Foo* byval %a) {
 ; ARGPROMOTION-NEXT:    br label [[LOOP:%.*]]
 ; ARGPROMOTION:       loop:
 ; ARGPROMOTION-NEXT:    [[PHI:%.*]] = phi %struct.Foo* [ null, [[ENTRY:%.*]] ], [ [[GEP:%.*]], [[LOOP]] ]
-; ARGPROMOTION-NEXT:    [[TMP0:%.*]] = phi %struct.Foo* [ [[A:%.*]], [[ENTRY]] ], [ [[TMP0]], [[LOOP]] ]
+; ARGPROMOTION-NEXT:    [[TMP0:%.*]] = phi %struct.Foo* [ [[A]], [[ENTRY]] ], [ [[TMP0]], [[LOOP]] ]
 ; ARGPROMOTION-NEXT:    store %struct.Foo* [[PHI]], %struct.Foo** [[A_PTR]]
 ; ARGPROMOTION-NEXT:    [[GEP]] = getelementptr [[STRUCT_FOO:%.*]], %struct.Foo* [[A]], i64 0
 ; ARGPROMOTION-NEXT:    br label [[LOOP]]
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@CaptureAStruct
-; ATTRIBUTOR-SAME: (%struct.Foo* byval [[A:%.*]])
+; ATTRIBUTOR-SAME: (%struct.Foo* writeonly byval [[A:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
 ; ATTRIBUTOR-NEXT:    [[A_PTR:%.*]] = alloca %struct.Foo*
 ; ATTRIBUTOR-NEXT:    br label [[LOOP:%.*]]
 ; ATTRIBUTOR:       loop:
 ; ATTRIBUTOR-NEXT:    [[PHI:%.*]] = phi %struct.Foo* [ null, [[ENTRY:%.*]] ], [ [[GEP:%.*]], [[LOOP]] ]
-; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = phi %struct.Foo* [ [[A:%.*]], [[ENTRY]] ], [ [[TMP0]], [[LOOP]] ]
+; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = phi %struct.Foo* [ [[A]], [[ENTRY]] ], [ [[TMP0]], [[LOOP]] ]
 ; ATTRIBUTOR-NEXT:    store %struct.Foo* [[PHI]], %struct.Foo** [[A_PTR]], align 8
 ; ATTRIBUTOR-NEXT:    [[GEP]] = getelementptr [[STRUCT_FOO:%.*]], %struct.Foo* [[A]], i64 0
 ; ATTRIBUTOR-NEXT:    br label [[LOOP]]

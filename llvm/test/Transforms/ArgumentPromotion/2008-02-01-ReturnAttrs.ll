@@ -6,7 +6,7 @@ define internal i32 @deref(i32* %x) nounwind {
 ; ALL-LABEL: define {{[^@]+}}@deref
 ; ALL-SAME: (i32 [[TMP0:%.*]])
 ; ALL-NEXT:  entry:
-; ALL-NEXT:    ret i32 [[TMP0:%.*]]
+; ALL-NEXT:    ret i32 [[TMP0]]
 ;
 entry:
   %tmp2 = load i32, i32* %x, align 4
@@ -17,7 +17,7 @@ define i32 @f(i32 %x) {
 ; ALL-LABEL: define {{[^@]+}}@f
 ; ALL-SAME: (i32 [[X:%.*]])
 ; ALL-NEXT:  entry:
-; ALL-NEXT:    [[TMP1:%.*]] = call i32 @deref(i32 [[X:%.*]])
+; ALL-NEXT:    [[TMP1:%.*]] = call i32 @deref(i32 [[X]])
 ; ALL-NEXT:    ret i32 [[TMP1]]
 ;
 entry:

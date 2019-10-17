@@ -15,9 +15,9 @@ define internal void @bar(%pair* byval %Data) {
 ; ARGPROMOTION-SAME: (i32 [[DATA_0:%.*]], i32 [[DATA_1:%.*]])
 ; ARGPROMOTION-NEXT:    [[DATA:%.*]] = alloca [[PAIR:%.*]]
 ; ARGPROMOTION-NEXT:    [[DOT0:%.*]] = getelementptr [[PAIR]], %pair* [[DATA]], i32 0, i32 0
-; ARGPROMOTION-NEXT:    store i32 [[DATA_0:%.*]], i32* [[DOT0]]
+; ARGPROMOTION-NEXT:    store i32 [[DATA_0]], i32* [[DOT0]]
 ; ARGPROMOTION-NEXT:    [[DOT1:%.*]] = getelementptr [[PAIR]], %pair* [[DATA]], i32 0, i32 1
-; ARGPROMOTION-NEXT:    store i32 [[DATA_1:%.*]], i32* [[DOT1]]
+; ARGPROMOTION-NEXT:    store i32 [[DATA_1]], i32* [[DOT1]]
 ; ARGPROMOTION-NEXT:    [[TMP1:%.*]] = call i8* @foo(%pair* [[DATA]])
 ; ARGPROMOTION-NEXT:    ret void
 ;
@@ -25,9 +25,9 @@ define internal void @bar(%pair* byval %Data) {
 ; ATTRIBUTOR-SAME: (i32 [[TMP0:%.*]], i32 [[TMP1:%.*]])
 ; ATTRIBUTOR-NEXT:    [[DATA_PRIV:%.*]] = alloca [[PAIR:%.*]]
 ; ATTRIBUTOR-NEXT:    [[DATA_PRIV_CAST:%.*]] = bitcast %pair* [[DATA_PRIV]] to i32*
-; ATTRIBUTOR-NEXT:    store i32 [[TMP0:%.*]], i32* [[DATA_PRIV_CAST]]
+; ATTRIBUTOR-NEXT:    store i32 [[TMP0]], i32* [[DATA_PRIV_CAST]]
 ; ATTRIBUTOR-NEXT:    [[DATA_PRIV_0_1:%.*]] = getelementptr [[PAIR]], %pair* [[DATA_PRIV]], i32 0, i32 1
-; ATTRIBUTOR-NEXT:    store i32 [[TMP1:%.*]], i32* [[DATA_PRIV_0_1]]
+; ATTRIBUTOR-NEXT:    store i32 [[TMP1]], i32* [[DATA_PRIV_0_1]]
 ; ATTRIBUTOR-NEXT:    [[TMP3:%.*]] = call i8* @foo(%pair* nonnull [[DATA_PRIV]])
 ; ATTRIBUTOR-NEXT:    ret void
 ;
@@ -38,7 +38,7 @@ define internal void @bar(%pair* byval %Data) {
 define void @zed(%pair* byval %Data) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@zed
 ; ARGPROMOTION-SAME: (%pair* byval [[DATA:%.*]])
-; ARGPROMOTION-NEXT:    [[DATA_0:%.*]] = getelementptr [[PAIR:%.*]], %pair* [[DATA:%.*]], i32 0, i32 0
+; ARGPROMOTION-NEXT:    [[DATA_0:%.*]] = getelementptr [[PAIR:%.*]], %pair* [[DATA]], i32 0, i32 0
 ; ARGPROMOTION-NEXT:    [[DATA_0_VAL:%.*]] = load i32, i32* [[DATA_0]]
 ; ARGPROMOTION-NEXT:    [[DATA_1:%.*]] = getelementptr [[PAIR]], %pair* [[DATA]], i32 0, i32 1
 ; ARGPROMOTION-NEXT:    [[DATA_1_VAL:%.*]] = load i32, i32* [[DATA_1]]
@@ -46,8 +46,8 @@ define void @zed(%pair* byval %Data) {
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@zed
-; ATTRIBUTOR-SAME: (%pair* byval [[DATA:%.*]])
-; ATTRIBUTOR-NEXT:    [[DATA_CAST:%.*]] = bitcast %pair* [[DATA:%.*]] to i32*
+; ATTRIBUTOR-SAME: (%pair* nonnull byval [[DATA:%.*]])
+; ATTRIBUTOR-NEXT:    [[DATA_CAST:%.*]] = bitcast %pair* [[DATA]] to i32*
 ; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = load i32, i32* [[DATA_CAST]]
 ; ATTRIBUTOR-NEXT:    [[DATA_0_1:%.*]] = getelementptr [[PAIR:%.*]], %pair* [[DATA]], i32 0, i32 1
 ; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = load i32, i32* [[DATA_0_1]]

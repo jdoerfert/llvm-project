@@ -8,11 +8,11 @@ define internal i32 @callee(i1 %C, i32* nocapture readonly %P) {
 ; ALL-LABEL: define {{[^@]+}}@callee
 ; ALL-SAME: (i1 [[C:%.*]], i32* nocapture readonly [[P:%.*]])
 ; ALL-NEXT:  entry:
-; ALL-NEXT:    br i1 [[C:%.*]], label [[T:%.*]], label [[F:%.*]]
+; ALL-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; ALL:       T:
 ; ALL-NEXT:    ret i32 17
 ; ALL:       F:
-; ALL-NEXT:    [[X:%.*]] = load i32, i32* [[P:%.*]]
+; ALL-NEXT:    [[X:%.*]] = load i32, i32* [[P]]
 ; ALL-NEXT:    ret i32 [[X]]
 ;
 entry:
@@ -30,7 +30,7 @@ define i32 @foo(i1 %C, i32* nocapture readonly %P) {
 ; ALL-LABEL: define {{[^@]+}}@foo
 ; ALL-SAME: (i1 [[C:%.*]], i32* nocapture readonly [[P:%.*]])
 ; ALL-NEXT:  entry:
-; ALL-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C:%.*]], i32* nocapture readonly [[P:%.*]])
+; ALL-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C]], i32* nocapture readonly [[P]])
 ; ALL-NEXT:    ret i32 [[X]]
 ;
 entry:

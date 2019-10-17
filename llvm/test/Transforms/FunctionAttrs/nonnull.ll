@@ -86,7 +86,7 @@ entry:
   br label %loop
 loop:
   %phi = phi i8* [%ret, %entry], [%phi, %loop]
-  br i1 undef, label %loop, label %exit
+  br i1 false, label %loop, label %exit
 exit:
   ret i8* %phi
 }
@@ -534,7 +534,6 @@ define i32 addrspace(3)* @as(i32 addrspace(3)* dereferenceable(4) %p) {
   ret i32 addrspace(3)* %p
 }
 
-; BOTH: define internal nonnull i32* @g2()
 define internal i32* @g2() {
   ret i32* inttoptr (i64 4 to i32*)
 }

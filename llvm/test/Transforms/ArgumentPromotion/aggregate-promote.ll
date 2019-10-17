@@ -10,15 +10,14 @@ define internal i32 @test(%T* %p) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@test
 ; ARGPROMOTION-SAME: (i32 [[P_0_2_VAL:%.*]], i32 [[P_0_3_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    [[V:%.*]] = add i32 [[P_0_3_VAL:%.*]], [[P_0_2_VAL:%.*]]
+; ARGPROMOTION-NEXT:    [[V:%.*]] = add i32 [[P_0_3_VAL]], [[P_0_2_VAL]]
 ; ARGPROMOTION-NEXT:    ret i32 [[V]]
 ;
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@test()
+; ATTRIBUTOR-LABEL: define {{[^@]+}}@test
+; ATTRIBUTOR-SAME: (%T* nocapture nonnull readonly align 8 dereferenceable(16) [[P:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* @G, i64 0, i32 3
-; ATTRIBUTOR-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* @G, i64 0, i32 2
-; ATTRIBUTOR-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]]
-; ATTRIBUTOR-NEXT:    [[B:%.*]] = load i32, i32* [[B_GEP]]
+; ATTRIBUTOR-NEXT:    [[A:%.*]] = load i32, i32* getelementptr inbounds (%T, %T* @G, i64 0, i32 3)
+; ATTRIBUTOR-NEXT:    [[B:%.*]] = load i32, i32* getelementptr inbounds (%T, %T* @G, i64 0, i32 2)
 ; ATTRIBUTOR-NEXT:    [[V:%.*]] = add i32 [[A]], [[B]]
 ; ATTRIBUTOR-NEXT:    ret i32 [[V]]
 ;
@@ -43,7 +42,7 @@ define i32 @caller() {
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@caller()
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[V:%.*]] = call i32 @test()
+; ATTRIBUTOR-NEXT:    [[V:%.*]] = call i32 @test(%T* nonnull align 8 dereferenceable(16) @G)
 ; ATTRIBUTOR-NEXT:    ret i32 [[V]]
 ;
 entry:

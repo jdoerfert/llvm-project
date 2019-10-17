@@ -33,12 +33,12 @@ define i32 @fn2() local_unnamed_addr {
 define internal fastcc void @fn1(i32* nocapture readonly) unnamed_addr {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@fn1
 ; ARGPROMOTION-SAME: (i32 [[DOT18446744073709551615_VAL:%.*]]) unnamed_addr
-; ARGPROMOTION-NEXT:    store i32 [[DOT18446744073709551615_VAL:%.*]], i32* @a, align 4
+; ARGPROMOTION-NEXT:    store i32 [[DOT18446744073709551615_VAL]], i32* @a, align 4
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@fn1
 ; ATTRIBUTOR-SAME: (i32* nocapture readonly [[TMP0:%.*]]) unnamed_addr
-; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = getelementptr inbounds i32, i32* [[TMP0:%.*]], i64 -1
+; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = getelementptr inbounds i32, i32* [[TMP0]], i64 -1
 ; ATTRIBUTOR-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
 ; ATTRIBUTOR-NEXT:    store i32 [[TMP3]], i32* @a, align 4
 ; ATTRIBUTOR-NEXT:    ret void

@@ -8,11 +8,11 @@ target datalayout = "E-p:64:64:64-a0:0:8-f32:32:32-f64:64:64-i1:8:8-i8:8:8-i16:1
 define internal i32 @callee(i1 %C, i32* %P) {
 ; ALL-LABEL: define {{[^@]+}}@callee
 ; ALL-SAME: (i1 [[C:%.*]], i32 [[TMP0:%.*]])
-; ALL-NEXT:    br i1 [[C:%.*]], label [[T:%.*]], label [[F:%.*]]
+; ALL-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; ALL:       T:
 ; ALL-NEXT:    ret i32 17
 ; ALL:       F:
-; ALL-NEXT:    ret i32 [[TMP0:%.*]]
+; ALL-NEXT:    ret i32 [[TMP0]]
 ;
   br i1 %C, label %T, label %F
 
@@ -27,7 +27,7 @@ F:              ; preds = %0
 define i32 @foo(i1 %C) {
 ; ALL-LABEL: define {{[^@]+}}@foo
 ; ALL-SAME: (i1 [[C:%.*]])
-; ALL-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C:%.*]], i32 17)
+; ALL-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C]], i32 17)
 ; ALL-NEXT:    ret i32 [[X]]
 ;
   %A = alloca i32         ; <i32*> [#uses=2]

@@ -10,7 +10,7 @@
 define internal i32 @test(%T* nocapture readonly %p) {
 ; ALL-LABEL: define {{[^@]+}}@test
 ; ALL-SAME: (%T* nocapture readonly [[P:%.*]])
-; ALL-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[P:%.*]], i64 0, i32 3
+; ALL-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[P]], i64 0, i32 3
 ; ALL-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* [[P]], i64 0, i32 2
 ; ALL-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]]
 ; ALL-NEXT:    [[B:%.*]] = load i32, i32* [[B_GEP]]
@@ -28,12 +28,12 @@ define internal i32 @test(%T* nocapture readonly %p) {
 define i32 @caller(%T* %p) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@caller
 ; ARGPROMOTION-SAME: (%T* [[P:%.*]])
-; ARGPROMOTION-NEXT:    [[V:%.*]] = musttail call i32 @test(%T* [[P:%.*]])
+; ARGPROMOTION-NEXT:    [[V:%.*]] = musttail call i32 @test(%T* [[P]])
 ; ARGPROMOTION-NEXT:    ret i32 [[V]]
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@caller
 ; ATTRIBUTOR-SAME: (%T* nocapture readonly [[P:%.*]])
-; ATTRIBUTOR-NEXT:    [[V:%.*]] = musttail call i32 @test(%T* nocapture readonly [[P:%.*]])
+; ATTRIBUTOR-NEXT:    [[V:%.*]] = musttail call i32 @test(%T* nocapture readonly [[P]])
 ; ATTRIBUTOR-NEXT:    ret i32 [[V]]
 ;
   %v = musttail call i32 @test(%T* %p)
@@ -57,23 +57,13 @@ define i32 @foo(%T* %p, i32 %v) {
 define internal i32 @test2(%T* %QQQQ, i32 %p2) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@test2
 ; ARGPROMOTION-SAME: (%T* [[QQQQ:%.*]], i32 [[P2:%.*]])
-; ARGPROMOTION-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[QQQQ:%.*]], i64 0, i32 3
+; ARGPROMOTION-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[QQQQ]], i64 0, i32 3
 ; ARGPROMOTION-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* [[QQQQ]], i64 0, i32 2
 ; ARGPROMOTION-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]]
 ; ARGPROMOTION-NEXT:    [[B:%.*]] = load i32, i32* [[B_GEP]]
 ; ARGPROMOTION-NEXT:    [[V:%.*]] = add i32 [[A]], [[B]]
 ; ARGPROMOTION-NEXT:    [[CA:%.*]] = musttail call i32 @foo(%T* undef, i32 [[V]])
 ; ARGPROMOTION-NEXT:    ret i32 [[CA]]
-;
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@test2
-; ATTRIBUTOR-SAME: (%T* nocapture readonly [[QQQQ:%.*]], i32 [[P2:%.*]])
-; ATTRIBUTOR-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[QQQQ:%.*]], i64 0, i32 3
-; ATTRIBUTOR-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* [[QQQQ]], i64 0, i32 2
-; ATTRIBUTOR-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]]
-; ATTRIBUTOR-NEXT:    [[B:%.*]] = load i32, i32* [[B_GEP]]
-; ATTRIBUTOR-NEXT:    [[V:%.*]] = add i32 [[A]], [[B]]
-; ATTRIBUTOR-NEXT:    [[CA:%.*]] = musttail call i32 @foo(%T* undef, i32 undef)
-; ATTRIBUTOR-NEXT:    ret i32 [[CA]]
 ;
   %a.gep = getelementptr %T, %T* %QQQQ, i64 0, i32 3
   %b.gep = getelementptr %T, %T* %QQQQ, i64 0, i32 2
@@ -87,12 +77,11 @@ define internal i32 @test2(%T* %QQQQ, i32 %p2) {
 define i32 @caller2(%T* %g) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@caller2
 ; ARGPROMOTION-SAME: (%T* [[G:%.*]])
-; ARGPROMOTION-NEXT:    [[V:%.*]] = call i32 @test2(%T* [[G:%.*]], i32 0)
+; ARGPROMOTION-NEXT:    [[V:%.*]] = call i32 @test2(%T* [[G]], i32 0)
 ; ARGPROMOTION-NEXT:    ret i32 [[V]]
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@caller2
 ; ATTRIBUTOR-SAME: (%T* nocapture readonly [[G:%.*]])
-; ATTRIBUTOR-NEXT:    [[V:%.*]] = call i32 @test2(%T* nocapture readonly [[G:%.*]], i32 undef)
 ; ATTRIBUTOR-NEXT:    ret i32 0
 ;
   %v = call i32 @test2(%T* %g, i32 0)

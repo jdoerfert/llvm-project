@@ -9,18 +9,18 @@ target triple = "x86_64-pc-windows-msvc"
 define internal void @add({i32, i32}* %this, i32* sret %r) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@add
 ; ARGPROMOTION-SAME: (i32 [[THIS_0_0_VAL:%.*]], i32 [[THIS_0_1_VAL:%.*]], i32* noalias [[R:%.*]])
-; ARGPROMOTION-NEXT:    [[AB:%.*]] = add i32 [[THIS_0_0_VAL:%.*]], [[THIS_0_1_VAL:%.*]]
-; ARGPROMOTION-NEXT:    store i32 [[AB]], i32* [[R:%.*]]
+; ARGPROMOTION-NEXT:    [[AB:%.*]] = add i32 [[THIS_0_0_VAL]], [[THIS_0_1_VAL]]
+; ARGPROMOTION-NEXT:    store i32 [[AB]], i32* [[R]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@add
 ; ATTRIBUTOR-SAME: ({ i32, i32 }* noalias nocapture nonnull readonly align 8 dereferenceable(8) [[THIS:%.*]], i32* noalias nocapture nonnull sret writeonly align 4 dereferenceable(4) [[R:%.*]])
-; ATTRIBUTOR-NEXT:    [[AP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS:%.*]], i32 0, i32 0
+; ATTRIBUTOR-NEXT:    [[AP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 0
 ; ATTRIBUTOR-NEXT:    [[BP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 1
 ; ATTRIBUTOR-NEXT:    [[A:%.*]] = load i32, i32* [[AP]], align 8
 ; ATTRIBUTOR-NEXT:    [[B:%.*]] = load i32, i32* [[BP]]
 ; ATTRIBUTOR-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
-; ATTRIBUTOR-NEXT:    store i32 [[AB]], i32* [[R:%.*]], align 4
+; ATTRIBUTOR-NEXT:    store i32 [[AB]], i32* [[R]], align 4
 ; ATTRIBUTOR-NEXT:    ret void
 ;
   %ap = getelementptr {i32, i32}, {i32, i32}* %this, i32 0, i32 0

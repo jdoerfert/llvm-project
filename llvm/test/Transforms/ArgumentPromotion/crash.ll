@@ -53,7 +53,6 @@ bb2:
 define internal void @hoge() {
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@hoge()
 ; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = call fastcc i8* @spam()
 ; ATTRIBUTOR-NEXT:    unreachable
 ;
 bb:
@@ -63,10 +62,6 @@ bb:
 }
 
 define internal fastcc i8* @spam(i1 (i8*)* %arg) {
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@spam()
-; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    unreachable
-;
 bb:
   unreachable
 }
@@ -76,23 +71,12 @@ define internal i1 @eggs(i8* %arg) {
 ; ARGPROMOTION_NEWPM-NEXT:  bb:
 ; ARGPROMOTION_NEWPM-NEXT:    unreachable
 ;
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@eggs
-; ATTRIBUTOR-SAME: (i8* nocapture readnone [[ARG:%.*]])
-; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = call zeroext i1 @barney(i8* nocapture undef)
-; ATTRIBUTOR-NEXT:    unreachable
-;
 bb:
   %tmp = call zeroext i1 @barney(i8* %arg)
   unreachable
 }
 
 define internal i1 @barney(i8* %arg) {
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@barney
-; ATTRIBUTOR-SAME: (i8* nocapture readnone [[ARG:%.*]])
-; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    ret i1 undef
-;
 bb:
   ret i1 undef
 }
@@ -117,9 +101,6 @@ define i32 @test_inf_promote_caller(i32 %arg) {
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@test_inf_promote_caller
 ; ATTRIBUTOR-SAME: (i32 [[ARG:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = alloca [[S:%.*]]
-; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = alloca [[S]]
-; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = call i32 @test_inf_promote_callee(%S* noalias nonnull align 8 dereferenceable(8) [[TMP]], %S* noalias nonnull align 8 dereferenceable(8) [[TMP1]])
 ; ATTRIBUTOR-NEXT:    unreachable
 ;
 bb:
@@ -131,15 +112,25 @@ bb:
 }
 
 define internal i32 @test_inf_promote_callee(%S* nocapture readonly %arg, %S* nocapture readonly %arg1) {
-; ALL-LABEL: define {{[^@]+}}@test_inf_promote_callee
-; ALL-SAME: (%S* nocapture readonly [[ARG:%.*]], %S* nocapture readonly [[ARG1:%.*]])
-; ALL-NEXT:  bb:
-; ALL-NEXT:    [[TMP:%.*]] = getelementptr [[S:%.*]], %S* [[ARG1:%.*]], i32 0, i32 0
-; ALL-NEXT:    [[TMP2:%.*]] = load %S*, %S** [[TMP]]
-; ALL-NEXT:    [[TMP3:%.*]] = getelementptr [[S]], %S* [[ARG:%.*]], i32 0, i32 0
-; ALL-NEXT:    [[TMP4:%.*]] = load %S*, %S** [[TMP3]]
-; ALL-NEXT:    [[TMP5:%.*]] = call i32 @test_inf_promote_callee(%S* [[TMP4]], %S* [[TMP2]])
-; ALL-NEXT:    unreachable
+; ARGPROMOTION_OLDPM-LABEL: define {{[^@]+}}@test_inf_promote_callee
+; ARGPROMOTION_OLDPM-SAME: (%S* nocapture readonly [[ARG:%.*]], %S* nocapture readonly [[ARG1:%.*]])
+; ARGPROMOTION_OLDPM-NEXT:  bb:
+; ARGPROMOTION_OLDPM-NEXT:    [[TMP:%.*]] = getelementptr [[S:%.*]], %S* [[ARG1]], i32 0, i32 0
+; ARGPROMOTION_OLDPM-NEXT:    [[TMP2:%.*]] = load %S*, %S** [[TMP]]
+; ARGPROMOTION_OLDPM-NEXT:    [[TMP3:%.*]] = getelementptr [[S]], %S* [[ARG]], i32 0, i32 0
+; ARGPROMOTION_OLDPM-NEXT:    [[TMP4:%.*]] = load %S*, %S** [[TMP3]]
+; ARGPROMOTION_OLDPM-NEXT:    [[TMP5:%.*]] = call i32 @test_inf_promote_callee(%S* [[TMP4]], %S* [[TMP2]])
+; ARGPROMOTION_OLDPM-NEXT:    unreachable
+;
+; ARGPROMOTION_NEWPM-LABEL: define {{[^@]+}}@test_inf_promote_callee
+; ARGPROMOTION_NEWPM-SAME: (%S* nocapture readonly [[ARG:%.*]], %S* nocapture readonly [[ARG1:%.*]])
+; ARGPROMOTION_NEWPM-NEXT:  bb:
+; ARGPROMOTION_NEWPM-NEXT:    [[TMP:%.*]] = getelementptr [[S:%.*]], %S* [[ARG1]], i32 0, i32 0
+; ARGPROMOTION_NEWPM-NEXT:    [[TMP2:%.*]] = load %S*, %S** [[TMP]]
+; ARGPROMOTION_NEWPM-NEXT:    [[TMP3:%.*]] = getelementptr [[S]], %S* [[ARG]], i32 0, i32 0
+; ARGPROMOTION_NEWPM-NEXT:    [[TMP4:%.*]] = load %S*, %S** [[TMP3]]
+; ARGPROMOTION_NEWPM-NEXT:    [[TMP5:%.*]] = call i32 @test_inf_promote_callee(%S* [[TMP4]], %S* [[TMP2]])
+; ARGPROMOTION_NEWPM-NEXT:    unreachable
 ;
 bb:
   %tmp = getelementptr %S, %S* %arg1, i32 0, i32 0

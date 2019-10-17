@@ -10,11 +10,11 @@
 ;
 ; BOTH: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable
 ; BOTH-NEXT: define i32 @sink_r0(i32 returned %r)
-; BOTH: Function Attrs: nofree noinline nosync nounwind readnone uwtable
+; BOTH: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable
 ; BOTH-NEXT: define i32 @scc_r1(i32 %a, i32 returned %r, i32 %b)
-; BOTH: Function Attrs: nofree noinline nosync nounwind readnone uwtable
+; BOTH: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable
 ; BOTH-NEXT: define i32 @scc_r2(i32 %a, i32 %b, i32 returned %r)
-; BOTH: Function Attrs: nofree noinline nosync nounwind readnone uwtable
+; BOTH: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable
 ; BOTH-NEXT: define i32 @scc_rX(i32 %a, i32 %b, i32 %r)
 ;
 ; FNATTR: define i32 @sink_r0(i32 returned %r)
@@ -312,7 +312,7 @@ if.end:
 ;
 ; FNATTR:  define i32* @rt3_helper(i32* %a, i32* %b)
 ; FNATTR:  define i32* @rt3(i32* readnone %a, i32* readnone %b)
-; BOTH:    define i32* @rt3_helper(i32* readnone %a, i32* readnone returned "no-capture-maybe-returned" %b)
+; BOTH:    define i32* @rt3_helper(i32* nocapture readnone %a, i32* readnone returned "no-capture-maybe-returned" %b)
 ; BOTH:    define i32* @rt3(i32* readnone %a, i32* readnone returned "no-capture-maybe-returned" %b)
 define i32* @rt3_helper(i32* %a, i32* %b) #0 {
 entry:
@@ -463,7 +463,7 @@ if.end:                                           ; preds = %if.then, %entry
 ;   return b == 0? b : x;
 ; }
 ;
-; BOTH: Function Attrs: nofree noinline nosync nounwind readnone uwtable
+; BOTH: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable
 ; BOTH-NEXT: define double @recursion_select_and_phi(i32 %a, double returned %b)
 ;
 ; FNATTR:     define double @recursion_select_and_phi(i32 %a, double %b)

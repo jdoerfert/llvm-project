@@ -16,9 +16,10 @@ define internal i32 @a(i32* %x) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@a
 ; ARGPROMOTION-SAME: (i32 [[X_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    ret i32 [[X_VAL:%.*]]
+; ARGPROMOTION-NEXT:    ret i32 [[X_VAL]]
 ;
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@a()
+; ATTRIBUTOR-LABEL: define {{[^@]+}}@a
+; ATTRIBUTOR-SAME: (i32* nocapture nonnull readonly align 4 dereferenceable(4) [[X:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
 ; ATTRIBUTOR-NEXT:    [[V:%.*]] = load i32, i32* @G, align 4
 ; ATTRIBUTOR-NEXT:    ret i32 [[V]]
@@ -37,7 +38,7 @@ define i32 @b() {
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@b()
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[V:%.*]] = call i32 @a()
+; ATTRIBUTOR-NEXT:    [[V:%.*]] = call i32 @a(i32* nonnull align 4 dereferenceable(4) @G)
 ; ATTRIBUTOR-NEXT:    ret i32 [[V]]
 ;
 entry:
@@ -56,7 +57,7 @@ define i32 @c() {
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@c()
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[V1:%.*]] = call i32 @a()
+; ATTRIBUTOR-NEXT:    [[V1:%.*]] = call i32 @a(i32* nonnull align 4 dereferenceable(4) @G)
 ; ATTRIBUTOR-NEXT:    [[V2:%.*]] = call i32 @b()
 ; ATTRIBUTOR-NEXT:    [[RESULT:%.*]] = add i32 [[V1]], [[V2]]
 ; ATTRIBUTOR-NEXT:    ret i32 [[RESULT]]

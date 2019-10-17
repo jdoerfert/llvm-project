@@ -3663,11 +3663,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
 
   void initialize(Attributor &A) override {
     Value &V = getAssociatedValue();
-    EquivalentValues.insert(&V);
-    if (isa<Constant>(V))
-      indicateOptimisticFixpoint();
-    if (V.use_empty())
-      indicateOptimisticFixpoint();
+    if (isa<Constant>(V) || V.use_empty())
+      indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::getAsStr().
@@ -3730,12 +3727,10 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   }
 
   ChangeStatus indicatePessimisticFixpoint() override {
-    // We only know "optimistic" fixpoints for most AAValueSimplify
-    // instanciations. However, we revert to a known state if a pessimistic one
-    // is requested.
     EquivalentValues.clear();
     EquivalentValues.insert(&getAssociatedValue());
-    indicateOptimisticFixpoint();
+    //indicateOptimisticFixpoint();
+    AAValueSimplify::indicatePessimisticFixpoint();
     return ChangeStatus::CHANGED;
   }
 
@@ -3763,7 +3758,7 @@ protected:
       }
 
     // If we only have undefs, we can use them.
-    if (HasUndef && EquivalentValues.size() == 1)
+    if (EquivalentValues.empty() || (HasUndef && EquivalentValues.size() == 1))
       return UndefValue::get(OldValue->getType());
     return nullptr;
   }
@@ -4044,11 +4039,6 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
 struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   AAValueSimplifyFloating(const IRPosition &IRP) : AAValueSimplifyImpl(IRP) {}
 
-  void initialize(Attributor &A) override {
-    if (isa<Constant>(getAssociatedValue()))
-      indicateOptimisticFixpoint();
-  }
-
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     decltype(EquivalentValues) OldEquivalentValues = EquivalentValues;
@@ -4072,11 +4062,12 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
       if (Stripped || this != &VAA)
         return recurseAndCombined(A, V, &VAA);
 
-      EquivalentValues.insert(&V);
 
       Instruction *I = dyn_cast<Instruction>(&V);
-      if (!I)
+      if (!I) {
+        EquivalentValues.insert(&V);
         return true;
+      }
 
       DEBUG_WITH_TYPE("attributor-value-simplify",
                       dbgs() << "[AAValueSimplify] Leaf reached (" << V
@@ -4088,20 +4079,26 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
         COps.push_back(GetConstantForValue(Op, AllConst));
 
       Value *Repl = nullptr;
-      if (AllConst)
-        Repl = ConstantFoldInstOperands(I, COps, A.getDataLayout());
-      else {
-        switch (I->getOpcode()) {
-        case Instruction::Select:
-          if (COps[0])
-            Repl = COps[0]->isNullValue() ? I->getOperand(1) : I->getOperand(0);
-          break;
-        default:
-          // TODO: Check if we can reuse some logic or have to write our own
-          // for partially constant values.
-          break;
-        };
-      }
+      switch (I->getOpcode()) {
+      case Instruction::Select:
+        if (COps[0])
+          Repl = COps[0]->isNullValue() ? I->getOperand(1) : I->getOperand(0);
+        break;
+      case Instruction::ICmp:
+      case Instruction::FCmp:
+        if (AllConst) {
+          CmpInst *CmpI = cast<CmpInst>(I);
+          Repl = ConstantFoldCompareInstOperands(CmpI->getPredicate(), COps[0],
+                                                 COps[1], A.getDataLayout());
+        }
+        break;
+      default:
+        if (AllConst)
+          Repl = ConstantFoldInstOperands(I, COps, A.getDataLayout());
+        // TODO: Check if we can reuse some logic or have to write our own
+        // for partially constant values.
+        break;
+      };
       DEBUG_WITH_TYPE("attributor-value-simplify", {
         if (Repl)
           dbgs() << "[AAValueSimplify] Folding successful: " << *Repl << "\n";
@@ -4109,6 +4106,8 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
       if (Repl)
         EquivalentValues.insert(Repl);
+      else
+        EquivalentValues.insert(&V);
       return true;
     };
 
@@ -4125,7 +4124,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (!checkConsistency(A, /* IgnoreFixpoint */ false))
       return indicatePessimisticFixpoint();
 
-    return ChangeStatus ::CHANGED;
+    return ChangeStatus::CHANGED;
   }
 
   /// See AbstractAttribute::trackStatistics().
@@ -4136,8 +4135,6 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
 struct AAValueSimplifyFunction : AAValueSimplifyImpl {
   AAValueSimplifyFunction(const IRPosition &IRP) : AAValueSimplifyImpl(IRP) {}
-
-  void initialize(Attributor &A) override { indicateOptimisticFixpoint(); }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -5898,8 +5895,8 @@ ChangeStatus Attributor::run(Module &M) {
     errs() << "\n[Attributor] Fixpoint iteration done after: "
            << IterationCounter << "/" << MaxFixpointIterations
            << " iterations\n";
-    llvm_unreachable("The fixpoint was not reached with exactly the number of "
-                     "specified iterations!");
+    //llvm_unreachable("The fixpoint was not reached with exactly the number of "
+                     //"specified iterations!");
   }
 
   return ManifestChange;

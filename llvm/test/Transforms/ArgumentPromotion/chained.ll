@@ -10,9 +10,10 @@ define internal i32 @test(i32** %x) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@test
 ; ARGPROMOTION-SAME: (i32 [[X_VAL_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    ret i32 [[X_VAL_VAL:%.*]]
+; ARGPROMOTION-NEXT:    ret i32 [[X_VAL_VAL]]
 ;
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@test()
+; ATTRIBUTOR-LABEL: define {{[^@]+}}@test
+; ATTRIBUTOR-SAME: (i32** nocapture nonnull readonly align 8 dereferenceable(8) [[X:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
 ; ATTRIBUTOR-NEXT:    [[Y:%.*]] = load i32*, i32** @G2, align 8
 ; ATTRIBUTOR-NEXT:    [[Z:%.*]] = load i32, i32* [[Y]]
@@ -34,7 +35,7 @@ define i32 @caller() {
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@caller()
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[X:%.*]] = call i32 @test()
+; ATTRIBUTOR-NEXT:    [[X:%.*]] = call i32 @test(i32** nonnull align 8 dereferenceable(8) @G2)
 ; ATTRIBUTOR-NEXT:    ret i32 [[X]]
 ;
 entry:

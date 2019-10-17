@@ -12,16 +12,16 @@ define internal fastcc void @callee_avx512_legal512_prefer512_call_avx512_legal5
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer512_call_avx512_legal512_prefer512
 ; ARGPROMOTION-SAME: (<8 x i64>* [[ARG:%.*]], <8 x i64> [[ARG1_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL:%.*]], <8 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL]], <8 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer512_call_avx512_legal512_prefer512
 ; ATTRIBUTOR-SAME: (<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[ARG:%.*]], <8 x i64> [[TMP0:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
 ; ATTRIBUTOR-NEXT:    [[ARG1_PRIV:%.*]] = alloca <8 x i64>
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0:%.*]], <8 x i64>* [[ARG1_PRIV]]
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG1_PRIV]]
 ; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1_PRIV]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -41,7 +41,7 @@ define void @avx512_legal512_prefer512_call_avx512_legal512_prefer512(<8 x i64>*
 ; ARGPROMOTION-NEXT:    [[TMP_VAL:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ARGPROMOTION-NEXT:    call fastcc void @callee_avx512_legal512_prefer512_call_avx512_legal512_prefer512(<8 x i64>* [[TMP2]], <8 x i64> [[TMP_VAL]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@avx512_legal512_prefer512_call_avx512_legal512_prefer512
@@ -54,7 +54,7 @@ define void @avx512_legal512_prefer512_call_avx512_legal512_prefer512(<8 x i64>*
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ATTRIBUTOR-NEXT:    call fastcc void @callee_avx512_legal512_prefer512_call_avx512_legal512_prefer512(<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[TMP2]], <8 x i64> [[TMP0]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -73,16 +73,16 @@ define internal fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal5
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer256_call_avx512_legal512_prefer256
 ; ARGPROMOTION-SAME: (<8 x i64>* [[ARG:%.*]], <8 x i64> [[ARG1_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL:%.*]], <8 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL]], <8 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer256_call_avx512_legal512_prefer256
 ; ATTRIBUTOR-SAME: (<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[ARG:%.*]], <8 x i64> [[TMP0:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
 ; ATTRIBUTOR-NEXT:    [[ARG1_PRIV:%.*]] = alloca <8 x i64>
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0:%.*]], <8 x i64>* [[ARG1_PRIV]]
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG1_PRIV]]
 ; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1_PRIV]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -102,7 +102,7 @@ define void @avx512_legal512_prefer256_call_avx512_legal512_prefer256(<8 x i64>*
 ; ARGPROMOTION-NEXT:    [[TMP_VAL:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ARGPROMOTION-NEXT:    call fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal512_prefer256(<8 x i64>* [[TMP2]], <8 x i64> [[TMP_VAL]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal512_prefer256
@@ -115,7 +115,7 @@ define void @avx512_legal512_prefer256_call_avx512_legal512_prefer256(<8 x i64>*
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ATTRIBUTOR-NEXT:    call fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal512_prefer256(<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[TMP2]], <8 x i64> [[TMP0]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -134,16 +134,16 @@ define internal fastcc void @callee_avx512_legal512_prefer512_call_avx512_legal5
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer512_call_avx512_legal512_prefer256
 ; ARGPROMOTION-SAME: (<8 x i64>* [[ARG:%.*]], <8 x i64> [[ARG1_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL:%.*]], <8 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL]], <8 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer512_call_avx512_legal512_prefer256
 ; ATTRIBUTOR-SAME: (<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[ARG:%.*]], <8 x i64> [[TMP0:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
 ; ATTRIBUTOR-NEXT:    [[ARG1_PRIV:%.*]] = alloca <8 x i64>
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0:%.*]], <8 x i64>* [[ARG1_PRIV]]
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG1_PRIV]]
 ; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1_PRIV]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -163,7 +163,7 @@ define void @avx512_legal512_prefer512_call_avx512_legal512_prefer256(<8 x i64>*
 ; ARGPROMOTION-NEXT:    [[TMP_VAL:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ARGPROMOTION-NEXT:    call fastcc void @callee_avx512_legal512_prefer512_call_avx512_legal512_prefer256(<8 x i64>* [[TMP2]], <8 x i64> [[TMP_VAL]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@avx512_legal512_prefer512_call_avx512_legal512_prefer256
@@ -176,7 +176,7 @@ define void @avx512_legal512_prefer512_call_avx512_legal512_prefer256(<8 x i64>*
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ATTRIBUTOR-NEXT:    call fastcc void @callee_avx512_legal512_prefer512_call_avx512_legal512_prefer256(<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[TMP2]], <8 x i64> [[TMP0]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -195,16 +195,16 @@ define internal fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal5
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer256_call_avx512_legal512_prefer512
 ; ARGPROMOTION-SAME: (<8 x i64>* [[ARG:%.*]], <8 x i64> [[ARG1_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL:%.*]], <8 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL]], <8 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer256_call_avx512_legal512_prefer512
 ; ATTRIBUTOR-SAME: (<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[ARG:%.*]], <8 x i64> [[TMP0:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
 ; ATTRIBUTOR-NEXT:    [[ARG1_PRIV:%.*]] = alloca <8 x i64>
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0:%.*]], <8 x i64>* [[ARG1_PRIV]]
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG1_PRIV]]
 ; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1_PRIV]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -224,7 +224,7 @@ define void @avx512_legal512_prefer256_call_avx512_legal512_prefer512(<8 x i64>*
 ; ARGPROMOTION-NEXT:    [[TMP_VAL:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ARGPROMOTION-NEXT:    call fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal512_prefer512(<8 x i64>* [[TMP2]], <8 x i64> [[TMP_VAL]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal512_prefer512
@@ -237,7 +237,7 @@ define void @avx512_legal512_prefer256_call_avx512_legal512_prefer512(<8 x i64>*
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ATTRIBUTOR-NEXT:    call fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal512_prefer512(<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[TMP2]], <8 x i64> [[TMP0]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -256,15 +256,15 @@ define internal fastcc void @callee_avx512_legal256_prefer256_call_avx512_legal5
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee_avx512_legal256_prefer256_call_avx512_legal512_prefer256
 ; ARGPROMOTION-SAME: (<8 x i64>* [[ARG:%.*]], <8 x i64>* readonly [[ARG1:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1:%.*]]
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1]]
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee_avx512_legal256_prefer256_call_avx512_legal512_prefer256
 ; ATTRIBUTOR-SAME: (<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[ARG:%.*]], <8 x i64>* noalias nocapture nonnull readonly align 32 dereferenceable(64) [[ARG1:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1:%.*]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1]], align 32
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -283,7 +283,7 @@ define void @avx512_legal256_prefer256_call_avx512_legal512_prefer256(<8 x i64>*
 ; ARGPROMOTION-NEXT:    call void @llvm.memset.p0i8.i64(i8* align 32 [[TMP3]], i8 0, i64 32, i1 false)
 ; ARGPROMOTION-NEXT:    call fastcc void @callee_avx512_legal256_prefer256_call_avx512_legal512_prefer256(<8 x i64>* [[TMP2]], <8 x i64>* [[TMP]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@avx512_legal256_prefer256_call_avx512_legal512_prefer256
@@ -295,7 +295,7 @@ define void @avx512_legal256_prefer256_call_avx512_legal512_prefer256(<8 x i64>*
 ; ATTRIBUTOR-NEXT:    call void @llvm.memset.p0i8.i64(i8* nonnull align 32 dereferenceable(64) [[TMP3]], i8 0, i64 32, i1 false)
 ; ATTRIBUTOR-NEXT:    call fastcc void @callee_avx512_legal256_prefer256_call_avx512_legal512_prefer256(<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[TMP2]], <8 x i64>* noalias nocapture nonnull readonly align 32 dereferenceable(64) [[TMP]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -314,15 +314,15 @@ define internal fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal2
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer256_call_avx512_legal256_prefer256
 ; ARGPROMOTION-SAME: (<8 x i64>* [[ARG:%.*]], <8 x i64>* readonly [[ARG1:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1:%.*]]
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1]]
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee_avx512_legal512_prefer256_call_avx512_legal256_prefer256
 ; ATTRIBUTOR-SAME: (<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[ARG:%.*]], <8 x i64>* noalias nocapture nonnull readonly align 32 dereferenceable(64) [[ARG1:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1:%.*]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1]], align 32
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -341,7 +341,7 @@ define void @avx512_legal512_prefer256_call_avx512_legal256_prefer256(<8 x i64>*
 ; ARGPROMOTION-NEXT:    call void @llvm.memset.p0i8.i64(i8* align 32 [[TMP3]], i8 0, i64 32, i1 false)
 ; ARGPROMOTION-NEXT:    call fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal256_prefer256(<8 x i64>* [[TMP2]], <8 x i64>* [[TMP]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal256_prefer256
@@ -353,7 +353,7 @@ define void @avx512_legal512_prefer256_call_avx512_legal256_prefer256(<8 x i64>*
 ; ATTRIBUTOR-NEXT:    call void @llvm.memset.p0i8.i64(i8* nonnull align 32 dereferenceable(64) [[TMP3]], i8 0, i64 32, i1 false)
 ; ATTRIBUTOR-NEXT:    call fastcc void @callee_avx512_legal512_prefer256_call_avx512_legal256_prefer256(<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[TMP2]], <8 x i64>* noalias nocapture nonnull readonly align 32 dereferenceable(64) [[TMP]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -372,16 +372,16 @@ define internal fastcc void @callee_avx2_legal256_prefer256_call_avx2_legal512_p
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee_avx2_legal256_prefer256_call_avx2_legal512_prefer256
 ; ARGPROMOTION-SAME: (<8 x i64>* [[ARG:%.*]], <8 x i64> [[ARG1_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL:%.*]], <8 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL]], <8 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee_avx2_legal256_prefer256_call_avx2_legal512_prefer256
 ; ATTRIBUTOR-SAME: (<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[ARG:%.*]], <8 x i64> [[TMP0:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
 ; ATTRIBUTOR-NEXT:    [[ARG1_PRIV:%.*]] = alloca <8 x i64>
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0:%.*]], <8 x i64>* [[ARG1_PRIV]]
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG1_PRIV]]
 ; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1_PRIV]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -401,7 +401,7 @@ define void @avx2_legal256_prefer256_call_avx2_legal512_prefer256(<8 x i64>* %ar
 ; ARGPROMOTION-NEXT:    [[TMP_VAL:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ARGPROMOTION-NEXT:    call fastcc void @callee_avx2_legal256_prefer256_call_avx2_legal512_prefer256(<8 x i64>* [[TMP2]], <8 x i64> [[TMP_VAL]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@avx2_legal256_prefer256_call_avx2_legal512_prefer256
@@ -414,7 +414,7 @@ define void @avx2_legal256_prefer256_call_avx2_legal512_prefer256(<8 x i64>* %ar
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ATTRIBUTOR-NEXT:    call fastcc void @callee_avx2_legal256_prefer256_call_avx2_legal512_prefer256(<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[TMP2]], <8 x i64> [[TMP0]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -433,16 +433,16 @@ define internal fastcc void @callee_avx2_legal512_prefer256_call_avx2_legal256_p
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee_avx2_legal512_prefer256_call_avx2_legal256_prefer256
 ; ARGPROMOTION-SAME: (<8 x i64>* [[ARG:%.*]], <8 x i64> [[ARG1_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL:%.*]], <8 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    store <8 x i64> [[ARG1_VAL]], <8 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee_avx2_legal512_prefer256_call_avx2_legal256_prefer256
 ; ATTRIBUTOR-SAME: (<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[ARG:%.*]], <8 x i64> [[TMP0:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
 ; ATTRIBUTOR-NEXT:    [[ARG1_PRIV:%.*]] = alloca <8 x i64>
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0:%.*]], <8 x i64>* [[ARG1_PRIV]]
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG1_PRIV]]
 ; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <8 x i64>, <8 x i64>* [[ARG1_PRIV]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP]], <8 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -462,7 +462,7 @@ define void @avx2_legal512_prefer256_call_avx2_legal256_prefer256(<8 x i64>* %ar
 ; ARGPROMOTION-NEXT:    [[TMP_VAL:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ARGPROMOTION-NEXT:    call fastcc void @callee_avx2_legal512_prefer256_call_avx2_legal256_prefer256(<8 x i64>* [[TMP2]], <8 x i64> [[TMP_VAL]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@avx2_legal512_prefer256_call_avx2_legal256_prefer256
@@ -475,7 +475,7 @@ define void @avx2_legal512_prefer256_call_avx2_legal256_prefer256(<8 x i64>* %ar
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]]
 ; ATTRIBUTOR-NEXT:    call fastcc void @callee_avx2_legal512_prefer256_call_avx2_legal256_prefer256(<8 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(64) [[TMP2]], <8 x i64> [[TMP0]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:

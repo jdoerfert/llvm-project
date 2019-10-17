@@ -8,12 +8,12 @@ declare void @sink(i32)
 define internal void @test(i32** %X) !dbg !2 {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@test
 ; ARGPROMOTION-SAME: (i32 [[X_VAL_VAL:%.*]]) !dbg !3
-; ARGPROMOTION-NEXT:    call void @sink(i32 [[X_VAL_VAL:%.*]])
+; ARGPROMOTION-NEXT:    call void @sink(i32 [[X_VAL_VAL]])
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@test
-; ATTRIBUTOR-SAME: (i32** nocapture readonly [[X:%.*]]) !dbg !3
-; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = load i32*, i32** [[X:%.*]], align 8
+; ATTRIBUTOR-SAME: (i32** nocapture nonnull readonly dereferenceable(8) [[X:%.*]]) !dbg !3
+; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = load i32*, i32** [[X]], align 8
 ; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = load i32, i32* [[TMP1]], align 8
 ; ATTRIBUTOR-NEXT:    call void @sink(i32 [[TMP2]])
 ; ATTRIBUTOR-NEXT:    ret void
@@ -33,9 +33,9 @@ define internal void @test_byval(%struct.pair* byval %P) {
 ; ARGPROMOTION-SAME: (i32 [[P_0:%.*]], i32 [[P_1:%.*]])
 ; ARGPROMOTION-NEXT:    [[P:%.*]] = alloca [[STRUCT_PAIR:%.*]]
 ; ARGPROMOTION-NEXT:    [[DOT0:%.*]] = getelementptr [[STRUCT_PAIR]], %struct.pair* [[P]], i32 0, i32 0
-; ARGPROMOTION-NEXT:    store i32 [[P_0:%.*]], i32* [[DOT0]]
+; ARGPROMOTION-NEXT:    store i32 [[P_0]], i32* [[DOT0]]
 ; ARGPROMOTION-NEXT:    [[DOT1:%.*]] = getelementptr [[STRUCT_PAIR]], %struct.pair* [[P]], i32 0, i32 1
-; ARGPROMOTION-NEXT:    store i32 [[P_1:%.*]], i32* [[DOT1]]
+; ARGPROMOTION-NEXT:    store i32 [[P_1]], i32* [[DOT1]]
 ; ARGPROMOTION-NEXT:    call void @use(%struct.pair* [[P]])
 ; ARGPROMOTION-NEXT:    ret void
 ;
@@ -43,9 +43,9 @@ define internal void @test_byval(%struct.pair* byval %P) {
 ; ATTRIBUTOR-SAME: (i32 [[TMP0:%.*]], i32 [[TMP1:%.*]])
 ; ATTRIBUTOR-NEXT:    [[P_PRIV:%.*]] = alloca [[STRUCT_PAIR:%.*]]
 ; ATTRIBUTOR-NEXT:    [[P_PRIV_CAST:%.*]] = bitcast %struct.pair* [[P_PRIV]] to i32*
-; ATTRIBUTOR-NEXT:    store i32 [[TMP0:%.*]], i32* [[P_PRIV_CAST]]
+; ATTRIBUTOR-NEXT:    store i32 [[TMP0]], i32* [[P_PRIV_CAST]]
 ; ATTRIBUTOR-NEXT:    [[P_PRIV_0_1:%.*]] = getelementptr [[STRUCT_PAIR]], %struct.pair* [[P_PRIV]], i32 0, i32 1
-; ATTRIBUTOR-NEXT:    store i32 [[TMP1:%.*]], i32* [[P_PRIV_0_1]]
+; ATTRIBUTOR-NEXT:    store i32 [[TMP1]], i32* [[P_PRIV_0_1]]
 ; ATTRIBUTOR-NEXT:    call void @use(%struct.pair* nonnull [[P_PRIV]])
 ; ATTRIBUTOR-NEXT:    ret void
 ;
@@ -56,10 +56,10 @@ define internal void @test_byval(%struct.pair* byval %P) {
 define void @caller(i32** %Y, %struct.pair* %P) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@caller
 ; ARGPROMOTION-SAME: (i32** [[Y:%.*]], %struct.pair* [[P:%.*]])
-; ARGPROMOTION-NEXT:    [[Y_VAL:%.*]] = load i32*, i32** [[Y:%.*]], align 8, !dbg !4
+; ARGPROMOTION-NEXT:    [[Y_VAL:%.*]] = load i32*, i32** [[Y]], align 8, !dbg !4
 ; ARGPROMOTION-NEXT:    [[Y_VAL_VAL:%.*]] = load i32, i32* [[Y_VAL]], align 8, !dbg !4
 ; ARGPROMOTION-NEXT:    call void @test(i32 [[Y_VAL_VAL]]), !dbg !4
-; ARGPROMOTION-NEXT:    [[P_0:%.*]] = getelementptr [[STRUCT_PAIR:%.*]], %struct.pair* [[P:%.*]], i32 0, i32 0, !dbg !5
+; ARGPROMOTION-NEXT:    [[P_0:%.*]] = getelementptr [[STRUCT_PAIR:%.*]], %struct.pair* [[P]], i32 0, i32 0, !dbg !5
 ; ARGPROMOTION-NEXT:    [[P_0_VAL:%.*]] = load i32, i32* [[P_0]], !dbg !5
 ; ARGPROMOTION-NEXT:    [[P_1:%.*]] = getelementptr [[STRUCT_PAIR]], %struct.pair* [[P]], i32 0, i32 1, !dbg !5
 ; ARGPROMOTION-NEXT:    [[P_1_VAL:%.*]] = load i32, i32* [[P_1]], !dbg !5
@@ -68,8 +68,8 @@ define void @caller(i32** %Y, %struct.pair* %P) {
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@caller
 ; ATTRIBUTOR-SAME: (i32** nocapture readonly [[Y:%.*]], %struct.pair* [[P:%.*]])
-; ATTRIBUTOR-NEXT:    call void @test(i32** nocapture readonly [[Y:%.*]]), !dbg !4
-; ATTRIBUTOR-NEXT:    [[P_CAST:%.*]] = bitcast %struct.pair* [[P:%.*]] to i32*, !dbg !5
+; ATTRIBUTOR-NEXT:    call void @test(i32** nocapture readonly [[Y]]), !dbg !4
+; ATTRIBUTOR-NEXT:    [[P_CAST:%.*]] = bitcast %struct.pair* [[P]] to i32*, !dbg !5
 ; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = load i32, i32* [[P_CAST]]
 ; ATTRIBUTOR-NEXT:    [[P_0_1:%.*]] = getelementptr [[STRUCT_PAIR:%.*]], %struct.pair* [[P]], i32 0, i32 1, !dbg !5
 ; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = load i32, i32* [[P_0_1]]

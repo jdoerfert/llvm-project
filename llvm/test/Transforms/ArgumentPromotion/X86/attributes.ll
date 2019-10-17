@@ -11,15 +11,15 @@ define internal fastcc void @no_promote_avx2(<4 x i64>* %arg, <4 x i64>* readonl
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@no_promote_avx2
 ; ARGPROMOTION-SAME: (<4 x i64>* [[ARG:%.*]], <4 x i64>* readonly [[ARG1:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    [[TMP:%.*]] = load <4 x i64>, <4 x i64>* [[ARG1:%.*]]
-; ARGPROMOTION-NEXT:    store <4 x i64> [[TMP]], <4 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    [[TMP:%.*]] = load <4 x i64>, <4 x i64>* [[ARG1]]
+; ARGPROMOTION-NEXT:    store <4 x i64> [[TMP]], <4 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@no_promote_avx2
 ; ATTRIBUTOR-SAME: (<4 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(32) [[ARG:%.*]], <4 x i64>* noalias nocapture nonnull readonly align 32 dereferenceable(32) [[ARG1:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <4 x i64>, <4 x i64>* [[ARG1:%.*]], align 32
-; ATTRIBUTOR-NEXT:    store <4 x i64> [[TMP]], <4 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = load <4 x i64>, <4 x i64>* [[ARG1]], align 32
+; ATTRIBUTOR-NEXT:    store <4 x i64> [[TMP]], <4 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -38,7 +38,7 @@ define void @no_promote(<4 x i64>* %arg) #1 {
 ; ARGPROMOTION-NEXT:    call void @llvm.memset.p0i8.i64(i8* align 32 [[TMP3]], i8 0, i64 32, i1 false)
 ; ARGPROMOTION-NEXT:    call fastcc void @no_promote_avx2(<4 x i64>* [[TMP2]], <4 x i64>* [[TMP]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <4 x i64>, <4 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@no_promote
@@ -50,7 +50,7 @@ define void @no_promote(<4 x i64>* %arg) #1 {
 ; ATTRIBUTOR-NEXT:    call void @llvm.memset.p0i8.i64(i8* nonnull align 32 dereferenceable(32) [[TMP3]], i8 0, i64 32, i1 false)
 ; ATTRIBUTOR-NEXT:    call fastcc void @no_promote_avx2(<4 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(32) [[TMP2]], <4 x i64>* noalias nocapture nonnull readonly align 32 dereferenceable(32) [[TMP]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <4 x i64>, <4 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -68,13 +68,13 @@ define internal fastcc void @promote_avx2(<4 x i64>* %arg, <4 x i64>* readonly %
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@promote_avx2
 ; ARGPROMOTION-SAME: (<4 x i64>* [[ARG:%.*]], <4 x i64> [[ARG1_VAL:%.*]])
 ; ARGPROMOTION-NEXT:  bb:
-; ARGPROMOTION-NEXT:    store <4 x i64> [[ARG1_VAL:%.*]], <4 x i64>* [[ARG:%.*]]
+; ARGPROMOTION-NEXT:    store <4 x i64> [[ARG1_VAL]], <4 x i64>* [[ARG]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@promote_avx2
 ; ATTRIBUTOR-SAME: (<4 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(32) [[ARG:%.*]], <4 x i64> [[TMP0:%.*]])
 ; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    store <4 x i64> [[TMP0:%.*]], <4 x i64>* [[ARG:%.*]], align 32
+; ATTRIBUTOR-NEXT:    store <4 x i64> [[TMP0]], <4 x i64>* [[ARG]], align 32
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:
@@ -94,7 +94,7 @@ define void @promote(<4 x i64>* %arg) #0 {
 ; ARGPROMOTION-NEXT:    [[TMP_VAL:%.*]] = load <4 x i64>, <4 x i64>* [[TMP]]
 ; ARGPROMOTION-NEXT:    call fastcc void @promote_avx2(<4 x i64>* [[TMP2]], <4 x i64> [[TMP_VAL]])
 ; ARGPROMOTION-NEXT:    [[TMP4:%.*]] = load <4 x i64>, <4 x i64>* [[TMP2]], align 32
-; ARGPROMOTION-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG:%.*]], align 2
+; ARGPROMOTION-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG]], align 2
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@promote
@@ -107,7 +107,7 @@ define void @promote(<4 x i64>* %arg) #0 {
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load <4 x i64>, <4 x i64>* [[TMP]]
 ; ATTRIBUTOR-NEXT:    call fastcc void @promote_avx2(<4 x i64>* noalias nocapture nonnull writeonly align 32 dereferenceable(32) [[TMP2]], <4 x i64> [[TMP0]])
 ; ATTRIBUTOR-NEXT:    [[TMP4:%.*]] = load <4 x i64>, <4 x i64>* [[TMP2]], align 32
-; ATTRIBUTOR-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG:%.*]], align 2
+; ATTRIBUTOR-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG]], align 2
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 bb:

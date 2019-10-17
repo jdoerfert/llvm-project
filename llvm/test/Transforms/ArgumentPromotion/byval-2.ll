@@ -15,26 +15,26 @@ define internal void @f(%struct.ss* byval  %b, i32* byval %X) nounwind  {
 ; ARGPROMOTION-NEXT:  entry:
 ; ARGPROMOTION-NEXT:    [[B:%.*]] = alloca [[STRUCT_SS:%.*]]
 ; ARGPROMOTION-NEXT:    [[DOT0:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[B]], i32 0, i32 0
-; ARGPROMOTION-NEXT:    store i32 [[B_0:%.*]], i32* [[DOT0]]
+; ARGPROMOTION-NEXT:    store i32 [[B_0]], i32* [[DOT0]]
 ; ARGPROMOTION-NEXT:    [[DOT1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[B]], i32 0, i32 1
-; ARGPROMOTION-NEXT:    store i64 [[B_1:%.*]], i64* [[DOT1]]
+; ARGPROMOTION-NEXT:    store i64 [[B_1]], i64* [[DOT1]]
 ; ARGPROMOTION-NEXT:    [[TMP:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[B]], i32 0, i32 0
 ; ARGPROMOTION-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP]], align 4
 ; ARGPROMOTION-NEXT:    [[TMP2:%.*]] = add i32 [[TMP1]], 1
 ; ARGPROMOTION-NEXT:    store i32 [[TMP2]], i32* [[TMP]], align 4
-; ARGPROMOTION-NEXT:    store i32 0, i32* [[X:%.*]]
+; ARGPROMOTION-NEXT:    store i32 0, i32* [[X]]
 ; ARGPROMOTION-NEXT:    ret void
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@f
 ; ATTRIBUTOR-SAME: (i32 [[TMP0:%.*]], i64 [[TMP1:%.*]], i32 [[TMP2:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
 ; ATTRIBUTOR-NEXT:    [[X_PRIV:%.*]] = alloca i32
-; ATTRIBUTOR-NEXT:    store i32 [[TMP2:%.*]], i32* [[X_PRIV]]
+; ATTRIBUTOR-NEXT:    store i32 [[TMP2]], i32* [[X_PRIV]]
 ; ATTRIBUTOR-NEXT:    [[B_PRIV:%.*]] = alloca [[STRUCT_SS:%.*]]
 ; ATTRIBUTOR-NEXT:    [[B_PRIV_CAST:%.*]] = bitcast %struct.ss* [[B_PRIV]] to i32*
-; ATTRIBUTOR-NEXT:    store i32 [[TMP0:%.*]], i32* [[B_PRIV_CAST]]
+; ATTRIBUTOR-NEXT:    store i32 [[TMP0]], i32* [[B_PRIV_CAST]]
 ; ATTRIBUTOR-NEXT:    [[B_PRIV_0_1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[B_PRIV]], i32 0, i32 1
-; ATTRIBUTOR-NEXT:    store i64 [[TMP1:%.*]], i64* [[B_PRIV_0_1]]
+; ATTRIBUTOR-NEXT:    store i64 [[TMP1]], i64* [[B_PRIV_0_1]]
 ; ATTRIBUTOR-NEXT:    [[TMP:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[B_PRIV]], i32 0, i32 0
 ; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP]], align 8
 ; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = add i32 [[TMP1]], 1
@@ -65,7 +65,7 @@ define i32 @test(i32* %X) {
 ; ARGPROMOTION-NEXT:    [[S_0_VAL:%.*]] = load i32, i32* [[S_0]]
 ; ARGPROMOTION-NEXT:    [[S_1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 1
 ; ARGPROMOTION-NEXT:    [[S_1_VAL:%.*]] = load i64, i64* [[S_1]]
-; ARGPROMOTION-NEXT:    call void @f(i32 [[S_0_VAL]], i64 [[S_1_VAL]], i32* byval [[X:%.*]])
+; ARGPROMOTION-NEXT:    call void @f(i32 [[S_0_VAL]], i64 [[S_1_VAL]], i32* byval [[X]])
 ; ARGPROMOTION-NEXT:    ret i32 0
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@test
@@ -80,7 +80,7 @@ define i32 @test(i32* %X) {
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load i32, i32* [[S_CAST]]
 ; ATTRIBUTOR-NEXT:    [[S_0_1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 1
 ; ATTRIBUTOR-NEXT:    [[TMP1:%.*]] = load i64, i64* [[S_0_1]]
-; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = load i32, i32* [[X:%.*]]
+; ATTRIBUTOR-NEXT:    [[TMP2:%.*]] = load i32, i32* [[X]]
 ; ATTRIBUTOR-NEXT:    call void @f(i32 [[TMP0]], i64 [[TMP1]], i32 [[TMP2]])
 ; ATTRIBUTOR-NEXT:    ret i32 0
 ;

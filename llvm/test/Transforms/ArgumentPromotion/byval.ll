@@ -11,7 +11,7 @@ define internal void @f(%struct.ss* byval  %b) nounwind  {
 ; ALL-LABEL: define {{[^@]+}}@f
 ; ALL-SAME: (i32 [[TMP0:%.*]], i64 [[TMP1:%.*]])
 ; ALL-NEXT:  entry:
-; ALL-NEXT:    [[TMP2:%.*]] = add i32 [[TMP0:%.*]], 1
+; ALL-NEXT:    [[TMP2:%.*]] = add i32 [[TMP0]], 1
 ; ALL-NEXT:    ret void
 ;
 entry:
@@ -27,7 +27,7 @@ define internal void @g(%struct.ss* byval align 32 %b) nounwind {
 ; ALL-LABEL: define {{[^@]+}}@g
 ; ALL-SAME: (i32 [[TMP0:%.*]], i64 [[TMP1:%.*]])
 ; ALL-NEXT:  entry:
-; ALL-NEXT:    [[TMP2:%.*]] = add i32 [[TMP0:%.*]], 1
+; ALL-NEXT:    [[TMP2:%.*]] = add i32 [[TMP0]], 1
 ; ALL-NEXT:    ret void
 ;
 entry:

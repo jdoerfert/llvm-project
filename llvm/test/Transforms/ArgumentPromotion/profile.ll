@@ -19,7 +19,7 @@ define void @caller() #0 {
 define internal void @promote_i32_ptr(i32* %xp) {
 ; ALL-LABEL: define {{[^@]+}}@promote_i32_ptr
 ; ALL-SAME: (i32 [[TMP0:%.*]])
-; ALL-NEXT:    call void @use_i32(i32 [[TMP0:%.*]])
+; ALL-NEXT:    call void @use_i32(i32 [[TMP0]])
 ; ALL-NEXT:    ret void
 ;
   %x = load i32, i32* %xp

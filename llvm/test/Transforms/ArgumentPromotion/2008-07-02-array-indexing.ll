@@ -9,8 +9,8 @@ define internal i32 @callee(i1 %C, i32* %A) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@callee
 ; ARGPROMOTION-SAME: (i1 [[C:%.*]], i32* [[A:%.*]])
 ; ARGPROMOTION-NEXT:  entry:
-; ARGPROMOTION-NEXT:    [[A_0:%.*]] = load i32, i32* [[A:%.*]]
-; ARGPROMOTION-NEXT:    br i1 [[C:%.*]], label [[T:%.*]], label [[F:%.*]]
+; ARGPROMOTION-NEXT:    [[A_0:%.*]] = load i32, i32* [[A]]
+; ARGPROMOTION-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; ARGPROMOTION:       T:
 ; ARGPROMOTION-NEXT:    ret i32 [[A_0]]
 ; ARGPROMOTION:       F:
@@ -19,10 +19,10 @@ define internal i32 @callee(i1 %C, i32* %A) {
 ; ARGPROMOTION-NEXT:    ret i32 [[R]]
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@callee
-; ATTRIBUTOR-SAME: (i1 [[C:%.*]], i32* nocapture readonly [[A:%.*]])
+; ATTRIBUTOR-SAME: (i1 [[C:%.*]], i32* nocapture nonnull readonly dereferenceable(4) [[A:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
-; ATTRIBUTOR-NEXT:    [[A_0:%.*]] = load i32, i32* [[A:%.*]]
-; ATTRIBUTOR-NEXT:    br i1 [[C:%.*]], label [[T:%.*]], label [[F:%.*]]
+; ATTRIBUTOR-NEXT:    [[A_0:%.*]] = load i32, i32* [[A]]
+; ATTRIBUTOR-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; ATTRIBUTOR:       T:
 ; ATTRIBUTOR-NEXT:    ret i32 [[A_0]]
 ; ATTRIBUTOR:       F:
@@ -48,12 +48,12 @@ F:
 define i32 @foo(i1 %c, i32* %A) {
 ; ARGPROMOTION-LABEL: define {{[^@]+}}@foo
 ; ARGPROMOTION-SAME: (i1 [[C:%.*]], i32* [[A:%.*]])
-; ARGPROMOTION-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C:%.*]], i32* [[A:%.*]])
+; ARGPROMOTION-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C]], i32* [[A]])
 ; ARGPROMOTION-NEXT:    ret i32 [[X]]
 ;
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@foo
 ; ATTRIBUTOR-SAME: (i1 [[C:%.*]], i32* nocapture readonly [[A:%.*]])
-; ATTRIBUTOR-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C:%.*]], i32* nocapture readonly [[A:%.*]])
+; ATTRIBUTOR-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C]], i32* nocapture readonly [[A]])
 ; ATTRIBUTOR-NEXT:    ret i32 [[X]]
 ;
   %X = call i32 @callee(i1 %c, i32* %A)             ; <i32> [#uses=1]
