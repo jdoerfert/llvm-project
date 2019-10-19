@@ -439,12 +439,13 @@ ChangeStatus AbstractAttribute::update(Attributor &A) {
   if (getState().isAtFixpoint())
     return HasChanged;
 
-  LLVM_DEBUG(dbgs() << "[Attributor] Update: " << *this << "\n");
+  LLVM_DEBUG(dbgs() << "[Attributor] Update: " << *this
+                    << " :: " << (void *)(this) << "\n");
 
   HasChanged = updateImpl(A);
 
   LLVM_DEBUG(dbgs() << "[Attributor] Update " << HasChanged << " " << *this
-                    << "\n");
+                    << " :: " << (void *)(this) << "\n");
 
   return HasChanged;
 }
@@ -3212,6 +3213,7 @@ struct AANoReturnImpl : public AANoReturn {
     const auto &WillReturnAA = A.getAAFor<AAWillReturn>(*this, getIRPosition());
     if (WillReturnAA.isKnownWillReturn())
       return indicatePessimisticFixpoint();
+
     auto CheckForNoReturn = [](Instruction &) { return false; };
     if (!A.checkForAllInstructions(CheckForNoReturn, *this,
                                    {(unsigned)Instruction::Ret}))
@@ -3670,51 +3672,46 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
     return getAssumed()
-               ? "simplify(" + std::to_string(EquivalentValues.size()) + ")"
+               ? "simplify(" + std::to_string(PotentialValues.size()) + ")"
                : "not-simplifiable";
   }
 
-  /// See AAValueSimplify::getAssumedEquivalentValues()
-  const SmallSetVector<Value *, 4> &
-  getAssumedEquivalentValues() const override {
-    return EquivalentValues;
-  }
-
-  /// See AAValueSimplify::getAssumedEquivalentConstant()
-  Constant *getAssumedEquivalentConstant() const override {
-    return getAssumedEquivalentConstant(&getAssociatedValue());
+  /// See AAValueSimplify::getAssumedPotentialValues()
+  const SmallPtrSetImpl<Value *> &
+  getAssumedPotentialValues() const override {
+    return PotentialValues;
   }
 
   /// Combine the equivalent value set with the equivalent values for \p V.
   bool recurseAndCombined(Attributor &A, Value &V,
                           const AAValueSimplify *VAA = nullptr) {
     if (isa<Constant>(V)) {
-      EquivalentValues.insert(&V);
+      if (!isa<UndefValue>(V))
+        PotentialValues.insert(&V);
       return true;
     }
-
     if (!VAA)
         VAA = &A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V));
-    if (!VAA->isValidState())
+    Optional<Value *> ASV = VAA->getAssumedSimplifiedValue();
+    if (!ASV.hasValue())
+      return true;
+    if (!ASV.getValue())
       return false;
-    EquivalentValues.set_union(VAA->getAssumedEquivalentValues());
+    if (!isa<UndefValue>(V))
+      PotentialValues.insert(ASV.getValue());
     return true;
   }
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
-    // Limit the equivalent values to compatible ones.
-    if (!checkConsistency(A, /* IgnoreFixpoint */ true))
-      return ChangeStatus::UNCHANGED;
-
     Value &OldValue = getAssociatedValue();
     if (ImmutableCallSite ICS = ImmutableCallSite(OldValue.stripPointerCasts()))
       if (ICS.isMustTailCall())
         return ChangeStatus::UNCHANGED;
 
-    Value *NewValue = getNewValue(&OldValue, getCtxI());
+    Value *NewValue = getNewValue(OldValue, getCtxI());
     if (!NewValue)
-      return ChangeStatus::UNCHANGED;
+        return ChangeStatus::UNCHANGED;
 
     DEBUG_WITH_TYPE("attributor-value-simplify",
                     dbgs() << "[AAValueSimplify] Replace '" << OldValue
@@ -3727,158 +3724,67 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   }
 
   ChangeStatus indicatePessimisticFixpoint() override {
-    EquivalentValues.clear();
-    EquivalentValues.insert(&getAssociatedValue());
-    //indicateOptimisticFixpoint();
+    PotentialValues.clear();
+    PotentialValues.insert(&getAssociatedValue());
     AAValueSimplify::indicatePessimisticFixpoint();
     return ChangeStatus::CHANGED;
   }
 
 protected:
 
-  Constant *getAssumedEquivalentConstant(const Value *OldValue) const {
-    bool IsPtr = OldValue->getType()->isPointerTy();
-
-    bool HasUndef = false;
-    // Constants are valid everywhere so we can deal with them first.
-    for (Value *EquivV : EquivalentValues)
-      if (auto *C = dyn_cast<Constant>(EquivV)) {
-        if (isa<UndefValue>(C)) {
-          HasUndef = true;
-          continue;
-        }
-        if (C->getType() == OldValue->getType())
-          return C;
-        if (IsPtr)
-          return ConstantExpr::getPointerCast(C, OldValue->getType());
-        // TODO: Deal with other casts
-        DEBUG_WITH_TYPE("attributor-value-simplify",
-                        dbgs() << "[AAValueSimplify] Equivalent constant '"
-                               << *C << "' needs complex cast.\n");
-      }
-
-    // If we only have undefs, we can use them.
-    if (EquivalentValues.empty() || (HasUndef && EquivalentValues.size() == 1))
-      return UndefValue::get(OldValue->getType());
-    return nullptr;
-  }
-
-  Value *getNewValue(Value *OldValue, Instruction *IP) {
-    DEBUG_WITH_TYPE("attributor-value-simplify",
-                    dbgs() << "[AAValueSimplify] Find new value for '"
-                           << *OldValue << "' @ "
-                           << (IP ? IP->getName() : "<none>") << "!\n");
+  Value *getNewValue(Value &OldValue, Instruction *IP) const override {
     // TODO IsDead query
-    if (OldValue->getNumUses() == 0)
+    if (OldValue.use_empty())
       return nullptr;
 
     if (isa<Constant>(OldValue)) {
       DEBUG_WITH_TYPE("attributor-value-simplify",
                       dbgs() << "[AAValueSimplify] No new value necessary, '"
-                             << *OldValue << "' is a constant!\n");
+                             << OldValue << "' is a constant!\n");
       return nullptr;
     }
 
-    if (Constant *C = getAssumedEquivalentConstant(OldValue))
-      return C;
+    Type *Ty = OldValue.getType();
+    Optional<Value *> SimplifiedValue = getAssumedSimplifiedValue();
+    if (!SimplifiedValue.hasValue())
+      return UndefValue::get(Ty);
+    else if (!SimplifiedValue.getValue())
+      return nullptr;
 
-    bool IsPtr = OldValue->getType()->isPointerTy();
-    for (Value *EquivV : EquivalentValues) {
-      // Do not replace a value "with itself".
-      if (OldValue == EquivV)
-        continue;
-      // Or with undef if we have other values.
-      // TODO: This is not necessarily an optimization but we go with it for
-      //       now and see if it helps or causes problems.
-      if (isa<UndefValue>(EquivV))
-        continue;
+    Value *NewValue = SimplifiedValue.getValue();
+    if (!canBeUsedInstead(*NewValue))
+      return nullptr;
 
-      // Check if the simplified value is an instruction or argument in the same
-      // scope as the anchor.
-      if (canBeUsedInstead(*EquivV)) {
-        if (EquivV->getType() == OldValue->getType())
-          return EquivV;
-        if (!IP) {
-          DEBUG_WITH_TYPE("attributor-value-simplify",
-                          dbgs() << "[AAValueSimplify] EquivV '" << *EquivV
-                                 << "' needs cast but no position provided.\n");
-          continue;
-        }
-        if (IsPtr)
-          return new BitCastInst(EquivV, OldValue->getType(), ".cast", IP);
-        // TODO Deal with other casts
-        DEBUG_WITH_TYPE("attributor-value-simplify",
-                        dbgs() << "[AAValueSimplify] EquivV '" << *EquivV
-                               << "' needs complex cast.\n");
-      } else {
-        DEBUG_WITH_TYPE("attributor-value-simplify",
-                        dbgs() << "[AAValueSimplify] EquivV '" << *EquivV
-                               << "' not usable in scope.\n");
-      }
+    // Do not replace a value "with itself".
+    if (NewValue == OldValue.stripPointerCasts())
+      return nullptr;
+
+    if (NewValue->getType() == Ty)
+        return NewValue;
+
+    auto *NewC = dyn_cast<Constant>(NewValue);
+    bool IsPtr = Ty->isPointerTy() && NewValue->getType()->isPointerTy();
+    if (!IP && !NewC) {
+      DEBUG_WITH_TYPE("attributor-value-simplify",
+                      dbgs() << "[AAValueSimplify] New value '" << *NewValue
+                             << "' needs cast but no position provided.\n");
+      return nullptr;
     }
 
-    DEBUG_WITH_TYPE(
-        "attributor-value-simplify",
-        dbgs() << "[AAValueSimplify] No suitable new value found, looked at "
-               << EquivalentValues.size() << " candidates\n");
+    if (IsPtr) {
+      if (NewC)
+        return ConstantExpr::getPointerBitCastOrAddrSpaceCast(NewC, Ty);
+      if (Ty->getPointerAddressSpace() ==
+          NewValue->getType()->getPointerAddressSpace())
+        return new BitCastInst(NewValue, Ty, ".cast", IP);
+    }
+
+    // TODO Deal with other casts
+    DEBUG_WITH_TYPE("attributor-value-simplify",
+                    dbgs() << "[AAValueSimplify] New value '" << *NewValue
+                           << "' needs complex cast to " << *Ty << ".\n");
+
     return nullptr;
-  }
-
-  /// Verify the equivalent values are in a consistent state, that is there
-  /// might be an equivalence relation between all of them.
-  bool checkConsistency(Attributor &A, bool IgnoreFixpoint) {
-    DEBUG_WITH_TYPE("attributor-value-simplify",
-                    dbgs() << "[AAValueSimplify] Check consistency of "
-                           << static_cast<const AbstractAttribute &>(*this)
-                           << "\n");
-
-    if (EquivalentValues.size() < 2)
-      return true;
-
-    SmallPtrSet<Value *, 4> Copy;
-    Copy.insert(EquivalentValues.begin(), EquivalentValues.end());
-
-    for (Value *V : EquivalentValues) {
-      DEBUG_WITH_TYPE("attributor-value-simplify",
-                      dbgs() << "[AAValueSimplify] - " << *V
-                             << " | #EV : " << Copy.size() << "\n");
-      if (V == &getAssociatedValue())
-        continue;
-
-      if (isa<Constant>(V)) {
-        if (isa<UndefValue>(V))
-          continue;
-
-        if (!Copy.count(V)) {
-          DEBUG_WITH_TYPE("attributor-value-simplify",
-                          dbgs() << "[AAValueSimplify] Constant EquivVal " << *V
-                                 << " not present anymore!\n");
-          return false;
-        }
-        Copy.clear();
-        Copy.insert(V);
-        continue;
-      }
-
-      auto &VAA = A.getAAFor<AAValueSimplify>(*this, IRPosition::value(*V));
-      if (!VAA.isValidState())
-        return false;
-      if (!IgnoreFixpoint && !VAA.isAtFixpoint())
-        continue;
-
-      const auto &VEquivVals = VAA.getAssumedEquivalentValues();
-      DEBUG_WITH_TYPE("attributor-value-simplify",
-                      dbgs() << "[AAValueSimplify] - " << *V
-                             << " is equivalent to " << VEquivVals.size()
-                             << " values -> intersection\n");
-      set_intersect(Copy, VEquivVals);
-    }
-
-    DEBUG_WITH_TYPE("attributor-value-simplify",
-                    dbgs() << "[AAValueSimplify] Consistency result: "
-                           << Copy.size() << " of " << EquivalentValues.size()
-                           << "\n";);
-    return !Copy.empty();
   }
 
   /// Returns true if \p NewValue can be used in the scope of this AA.
@@ -3900,7 +3806,7 @@ protected:
   }
 
   /// Values equivalent to the one represented by the AA.
-  SmallSetVector<Value *, 4> EquivalentValues;
+  SmallPtrSet<Value *, 8> PotentialValues;
 };
 
 struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
@@ -3925,8 +3831,8 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
         return indicatePessimisticFixpoint();
     }
 
-    decltype(EquivalentValues) OldEquivalentValues = EquivalentValues;
-    EquivalentValues.clear();
+    Optional<Value *> Before = getAssumedSimplifiedValue();
+    PotentialValues.clear();
 
     auto PredForCallSite = [&](AbstractCallSite ACS) {
       // Check if we have an associated argument or not (which can happen for
@@ -3941,14 +3847,14 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
       return indicatePessimisticFixpoint();
 
     // If no new candicates were found in this update, return UNCHANGED.
-    if (OldEquivalentValues == EquivalentValues)
+    Optional<Value *> After = getAssumedSimplifiedValue();
+    if (Before == After)
       return ChangeStatus::UNCHANGED;
 
-    // Limit the equivalent values to compatible ones.
-    if (!checkConsistency(A, /* IgnoreFixpoint */ false))
+    if (After.hasValue() && !After.getValue())
       return indicatePessimisticFixpoint();
 
-    return ChangeStatus ::CHANGED;
+    return ChangeStatus::CHANGED;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -3960,30 +3866,37 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
 struct AAValueSimplifyReturned : AAValueSimplifyImpl {
   AAValueSimplifyReturned(const IRPosition &IRP) : AAValueSimplifyImpl(IRP) {}
 
-  void initialize(Attributor &A) override {}
+  void initialize(Attributor &A) override {
+    if (!getAssociatedFunction() || getAssociatedFunction()->isDeclaration())
+      indicatePessimisticFixpoint();
+  }
 
   ChangeStatus indicatePessimisticFixpoint() override {
     // Because there is no "return value" we cannot fall back to anything known
     // and need to indicate an invalid state instead.
-    EquivalentValues.clear();
-    return AAValueSimplify::indicatePessimisticFixpoint();
+    PotentialValues.clear();
+    PotentialValues.insert(nullptr);
+    AAValueSimplify::indicatePessimisticFixpoint();
+    return ChangeStatus::CHANGED;
   }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    decltype(EquivalentValues) OldEquivalentValues = EquivalentValues;
-    EquivalentValues.clear();
+    Optional<Value *> Before = getAssumedSimplifiedValue();
+    PotentialValues.clear();
 
-    auto PredForReturned = [&](Value &V) { return recurseAndCombined(A, V); };
-    if (!A.checkForAllReturnedValues(PredForReturned, *this))
+    auto PredForReturned = [&](Instruction &I) {
+      return recurseAndCombined(A, *cast<ReturnInst>(I).getOperand(0));
+    };
+    if (!A.checkForAllInstructions(PredForReturned, *this, {Instruction::Ret}))
       return indicatePessimisticFixpoint();
 
     // If no new candicates were found in this update, return UNCHANGED.
-    if (OldEquivalentValues == EquivalentValues)
+    Optional<Value *> After = getAssumedSimplifiedValue();
+    if (Before == After)
       return ChangeStatus::UNCHANGED;
 
-    // Limit the equivalent values to compatible ones.
-    if (!checkConsistency(A, /* IgnoreFixpoint */ false))
+    if (After.hasValue() && !After.getValue())
       return indicatePessimisticFixpoint();
 
     return ChangeStatus ::CHANGED;
@@ -3991,41 +3904,31 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
-    // Limit the equivalent values to compatible ones.
-    if (!checkConsistency(A, /* IgnoreFixpoint */ true))
-      return ChangeStatus::UNCHANGED;
-
     Function *AssociatedFunction = getAssociatedFunction();
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     // TODO: Rework AAReturnedValues to not emit return instructions from other
     //       functions and also not duplicate them. We should probably use
     //       AAValueSimplify there as well.
-    SmallPtrSet<ReturnInst *, 4> Visited;
-    auto RetValRepl = [&](Value &V,
-                          const SmallSetVector<ReturnInst *, 4> &ReturnInsts) {
-      for (ReturnInst *RI : ReturnInsts) {
-        if (RI->getFunction() != AssociatedFunction)
-          continue;
-        if (!Visited.insert(RI).second)
-          continue;
-        Value *OldValue = RI->getOperand(0);
-        if (ImmutableCallSite ICS = ImmutableCallSite(OldValue->stripPointerCasts()))
-          if (ICS.isMustTailCall())
-            continue;
-        Value *NewValue = getNewValue(OldValue, RI);
-        if (!NewValue)
-          continue;
-        DEBUG_WITH_TYPE("attributor-value-simplify",
-                        dbgs() << "[AAValueSimplify] Replace '" << OldValue
-                               << "' with '" << *NewValue << "' in " << *RI
-                               << "\n");
-        if (A.changeUseAfterManifest(*RI->op_begin(), *NewValue))
-          Changed = ChangeStatus::CHANGED;
-      }
+    auto RetValRepl = [&](Instruction &I) {
+      Value *OldValue = I.getOperand(0);
+      if (ImmutableCallSite ICS =
+              ImmutableCallSite(OldValue->stripPointerCasts()))
+        if (ICS.isMustTailCall())
+          return true;
+      Value *NewValue = getNewValue(*OldValue, &I);
+      if (!NewValue)
+        return true;
+      DEBUG_WITH_TYPE("attributor-value-simplify",
+                      dbgs()
+                          << "[AAValueSimplify] Replace '" << OldValue
+                          << "' with '" << *NewValue << "' in " << I << "\n");
+      if (A.changeUseAfterManifest(*I.op_begin(), *NewValue))
+        Changed = ChangeStatus::CHANGED;
       return true;
     };
 
-    A.checkForAllReturnedValuesAndReturnInsts(RetValRepl, *this);
+    A.checkForAllInstructions(RetValRepl, *this, {Instruction::Ret});
+
 
     return Changed;
   }
@@ -4041,31 +3944,33 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    decltype(EquivalentValues) OldEquivalentValues = EquivalentValues;
-    EquivalentValues.clear();
+    Optional<Value *> Before = getAssumedSimplifiedValue();
+    PotentialValues.clear();
 
     auto GetConstantForValue = [&](Value *V, bool &AllConst) -> Constant *{
       if (Constant *COp = dyn_cast<Constant>(V))
         return COp;
       auto &VAA = A.getAAFor<AAValueSimplify>(*this, IRPosition::value(*V));
-      if (VAA.isValidState())
-        if (Constant *COp = VAA.getAssumedEquivalentConstant())
-          return COp;
+      if (Constant *COp =
+              dyn_cast_or_null<Constant>(VAA.getNewValue(*V, getCtxI())))
+        return COp;
       AllConst = false;
       return nullptr;
     };
 
     auto VisitValueCB = [&](Value &V, BooleanState, bool Stripped) -> bool {
+      DEBUG_WITH_TYPE("attributor-value-simplify",
+                      dbgs()
+                          << "[AAValueSimplify] generic visit " << V << "\n");
+
       auto &VAA = A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V));
-      if (!VAA.isValidState())
-        return false;
       if (Stripped || this != &VAA)
         return recurseAndCombined(A, V, &VAA);
 
-
       Instruction *I = dyn_cast<Instruction>(&V);
       if (!I) {
-        EquivalentValues.insert(&V);
+        if (!isa<UndefValue>(V))
+          PotentialValues.insert(&V);
         return true;
       }
 
@@ -4104,10 +4009,12 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
           dbgs() << "[AAValueSimplify] Folding successful: " << *Repl << "\n";
       });
 
-      if (Repl)
-        EquivalentValues.insert(Repl);
-      else
-        EquivalentValues.insert(&V);
+      if (Repl) {
+        if (!isa<UndefValue>(Repl))
+          PotentialValues.insert(Repl);
+      } else {
+        PotentialValues.insert(I);
+      }
       return true;
     };
 
@@ -4117,11 +4024,11 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
       return indicatePessimisticFixpoint();
 
     // If no new candicates were found in this update, return UNCHANGED.
-    if (OldEquivalentValues == EquivalentValues)
+    Optional<Value *> After = getAssumedSimplifiedValue();
+    if (Before == After)
       return ChangeStatus::UNCHANGED;
 
-    // Limit the equivalent values to compatible ones.
-    if (!checkConsistency(A, /* IgnoreFixpoint */ false))
+    if (After.hasValue() && !After.getValue())
       return indicatePessimisticFixpoint();
 
     return ChangeStatus::CHANGED;
@@ -4167,8 +4074,8 @@ struct AAValueSimplifyCallSiteReturned : AAValueSimplifyImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    decltype(EquivalentValues) OldEquivalentValues = EquivalentValues;
-    EquivalentValues.clear();
+    Optional<Value *> Before = getAssumedSimplifiedValue();
+    PotentialValues.clear();
 
     // TODO: Once we have call site specific value information we can provide
     //       call site specific liveness information and then it makes
@@ -4177,34 +4084,43 @@ struct AAValueSimplifyCallSiteReturned : AAValueSimplifyImpl {
     Function *F = getAssociatedFunction();
     if (!F)
       return indicatePessimisticFixpoint();
+
     const IRPosition &RetPos = IRPosition::returned(*F);
     auto &FnRetAA = A.getAAFor<AAValueSimplify>(*this, RetPos);
-    if (!FnRetAA.isValidState())
-      return indicatePessimisticFixpoint();
+    Optional<Value *> FnRetValOpt = FnRetAA.getAssumedSimplifiedValue();
+    if (FnRetValOpt.hasValue()) {
+      Value *FnRetVal = FnRetValOpt.getValue();
+      if (!FnRetVal)
+        return indicatePessimisticFixpoint();
 
-    // Copy equivalent values over but translate arguments of the callee to call
-    // site operands instead.
-    auto *CB = cast<CallBase>(getCtxI());
-    for (Value *EquivV : FnRetAA.getAssumedEquivalentValues()) {
-      if (auto *Arg = dyn_cast<Argument>(EquivV)) {
+      // Copy equivalent values over but translate arguments of the callee to
+      // call site operands instead.
+      auto *CB = cast<CallBase>(getCtxI());
+      if (isa<Constant>(FnRetVal)) {
+        if (!isa<UndefValue>(FnRetVal))
+          PotentialValues.insert(FnRetVal);
+      } else if (auto *Arg = dyn_cast<Argument>(FnRetVal)) {
         if (Arg->getParent() == CB->getCalledFunction()) {
           if (!recurseAndCombined(A, *CB->getArgOperand(Arg->getArgNo())))
             return indicatePessimisticFixpoint();
-          continue;
+        } else {
+          if (!isa<UndefValue>(FnRetVal))
+            PotentialValues.insert(FnRetVal);
         }
+      } else {
+        return indicatePessimisticFixpoint();
       }
-      EquivalentValues.insert(EquivV);
     }
 
     // If no new candicates were found in this update, return UNCHANGED.
-    if (OldEquivalentValues == EquivalentValues)
+    Optional<Value *> After = getAssumedSimplifiedValue();
+    if (Before == After)
       return ChangeStatus::UNCHANGED;
 
-    // Limit the equivalent values to compatible ones.
-    if (!checkConsistency(A, /* IgnoreFixpoint */ false))
+    if (After.hasValue() && !After.getValue())
       return indicatePessimisticFixpoint();
 
-    return ChangeStatus ::CHANGED;
+    return ChangeStatus::CHANGED;
   }
 
   /// See AbstractAttribute::trackStatistics().
@@ -5637,6 +5553,7 @@ bool Attributor::checkForAllReadWriteInstructions(
 }
 
 ChangeStatus Attributor::run(Module &M) {
+  LLVM_DEBUG(M.dump());
   LLVM_DEBUG(dbgs() << "[Attributor] Identified and initialized "
                     << AllAbstractAttributes.size()
                     << " abstract attributes.\n");
@@ -5772,6 +5689,10 @@ ChangeStatus Attributor::run(Module &M) {
     ChangeStatus LocalChange = AA->manifest(*this);
     if (LocalChange == ChangeStatus::CHANGED && AreStatisticsEnabled())
       AA->trackStatistics();
+    LLVM_DEBUG({
+      if (LocalChange == ChangeStatus::CHANGED)
+        errs() << "MANIFEST: " << *AA << "\n";
+    });
 
     ManifestChange = ManifestChange | LocalChange;
 
@@ -5792,6 +5713,8 @@ ChangeStatus Attributor::run(Module &M) {
   assert(
       NumFinalAAs == AllAbstractAttributes.size() &&
       "Expected the final number of abstract attributes to remain unchanged!");
+
+  AAMap.clear();
 
   // Delete stuff at the end to avoid invalid references and a nice order.
   {
@@ -5844,9 +5767,9 @@ ChangeStatus Attributor::run(Module &M) {
       SmallVector<BasicBlock *, 8> ToBeDeletedBBs;
       ToBeDeletedBBs.reserve(NumDeadBlocks);
       ToBeDeletedBBs.append(ToBeDeletedBlocks.begin(), ToBeDeletedBlocks.end());
-      DeleteDeadBlocks(ToBeDeletedBBs);
-      STATS_DECLTRACK(AAIsDead, BasicBlock,
-                      "Number of dead basic blocks deleted.");
+      //DeleteDeadBlocks(ToBeDeletedBBs);
+      STATS_DECL(AAIsDead, BasicBlock, "Number of dead basic blocks deleted.");
+      BUILD_STAT_NAME(AAIsDead, BasicBlock) += ToBeDeletedBlocks.size();
     }
 
     STATS_DECL(AAIsDead, Function, "Number of dead functions deleted.");
@@ -5899,6 +5822,7 @@ ChangeStatus Attributor::run(Module &M) {
                      //"specified iterations!");
   }
 
+  LLVM_DEBUG(M.dump());
   return ManifestChange;
 }
 

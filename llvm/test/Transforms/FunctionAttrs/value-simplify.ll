@@ -48,6 +48,7 @@ define i32 @test2_1(i1 %c) {
 ; CHECK:       if.false:
 ; CHECK-NEXT:    br label [[END]]
 ; CHECK:       end:
+; CHECK-NEXT:    [[RET:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
 ; CHECK-NEXT:    ret i32 1
 ;
   br i1 %c, label %if.true, label %if.false
@@ -91,6 +92,7 @@ define void @test3(i1 %c) {
 ; CHECK:       if.false:
 ; CHECK-NEXT:    br label [[END]]
 ; CHECK:       end:
+; CHECK-NEXT:    [[R:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
 ; CHECK-NEXT:    tail call void @use(i32 1)
 ; CHECK-NEXT:    ret void
 ;
@@ -120,7 +122,10 @@ define void @test-select-phi(i1 %c) {
 ; CHECK:       if-false:
 ; CHECK-NEXT:    br label [[END]]
 ; CHECK:       end:
+; CHECK-NEXT:    [[PHI_SAME:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
 ; CHECK-NEXT:    [[PHI_NOT_SAME:%.*]] = phi i32 [ 0, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
+; CHECK-NEXT:    [[PHI_SAME_PROP:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ 1, [[IF_FALSE]] ]
+; CHECK-NEXT:    [[PHI_SAME_UNDEF:%.*]] = phi i32 [ 1, [[IF_TRUE]] ], [ undef, [[IF_FALSE]] ]
 ; CHECK-NEXT:    [[SELECT_NOT_SAME_UNDEF:%.*]] = select i1 [[C]], i32 [[PHI_NOT_SAME]], i32 undef
 ; CHECK-NEXT:    tail call void @use(i32 1)
 ; CHECK-NEXT:    tail call void @use(i32 [[PHI_NOT_SAME]])
@@ -400,7 +405,8 @@ define i32 @const_in_loop1(i32 %N) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br label [[FOR_COND:%.*]]
 ; CHECK:       for.cond:
-; CHECK-NEXT:    [[I_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC:%.*]], [[FOR_INC:%.*]] ]
+; CHECK-NEXT:    [[A_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ 0, [[FOR_INC:%.*]] ]
+; CHECK-NEXT:    [[I_0:%.*]] = phi i32 [ 0, [[ENTRY]] ], [ [[INC:%.*]], [[FOR_INC]] ]
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[I_0]], [[N]]
 ; CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END:%.*]]
 ; CHECK:       for.body:
@@ -438,7 +444,8 @@ define i32 @const_in_loop2(i32 %N) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br label [[FOR_COND:%.*]]
 ; CHECK:       for.cond:
-; CHECK-NEXT:    [[I_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC:%.*]], [[FOR_INC:%.*]] ]
+; CHECK-NEXT:    [[A_0:%.*]] = phi i32 [ 1, [[ENTRY:%.*]] ], [ 1, [[FOR_INC:%.*]] ]
+; CHECK-NEXT:    [[I_0:%.*]] = phi i32 [ 0, [[ENTRY]] ], [ [[INC:%.*]], [[FOR_INC]] ]
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[I_0]], [[N]]
 ; CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END:%.*]]
 ; CHECK:       for.body:
