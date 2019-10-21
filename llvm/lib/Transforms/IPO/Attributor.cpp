@@ -245,7 +245,9 @@ static bool isEqualOrWorse(const Attribute &New, const Attribute &Old) {
   if (!Old.isIntAttribute())
     return true;
 
-  return Old.getValueAsInt() >= New.getValueAsInt();
+  if (New.getKindAsEnum() != Attribute::MaxObjSize)
+    return Old.getValueAsInt() >= New.getValueAsInt();
+  return Old.getValueAsInt() <= New.getValueAsInt();
 }
 
 /// Return true if the information provided by \p Attr was added to the
@@ -2672,6 +2674,114 @@ struct AADereferenceableCallSiteReturned final
   }
 };
 
+/// ------------------------ MaxObjSize Attribute ------------------------
+
+struct AAMaxObjSizeImpl : AAMaxObjSize {
+  AAMaxObjSizeImpl(const IRPosition &IRP) : AAMaxObjSize(IRP) {}
+
+  void getDeducedAttributes(LLVMContext &Ctx,
+                            SmallVectorImpl<Attribute> &Attrs) const override {
+    if (getAssumedMaxObjSize() == 0 || getAssumedMaxObjSize() == ~0U)
+      return;
+    Attrs.emplace_back(
+        Attribute::getWithMaxObjSizeBytes(Ctx, getAssumedMaxObjSize()));
+  }
+
+  /// See AbstractAttribute::getAsStr().
+  const std::string getAsStr() const override {
+    return getAssumedMaxObjSize() != ~0U
+               ? ("maxobjsize<" + std::to_string(getKnownMaxObjSize()) + "-" +
+                  std::to_string(getAssumedMaxObjSize()) + ">")
+               : "unknown-maxobjsize";
+  }
+};
+
+/// MaxObjSize attribute for a floating value.
+struct AAMaxObjSizeFloating : AAMaxObjSizeImpl {
+  AAMaxObjSizeFloating(const IRPosition &IRP) : AAMaxObjSizeImpl(IRP) {}
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    const DataLayout &DL = A.getDataLayout();
+    auto &CaptureAA = A.getAAFor<AANoCapture>(*this, getIRPosition());
+    if (!CaptureAA.isAssumedNoCaptureMaybeReturned())
+      return getState().indicatePessimisticFixpoint();
+    Value &V = getAssociatedValue();
+    uint64_t MaxObjSize =
+        V.stripPointerCasts()->getPointerMaxObjSizeBytes(DL);
+    getState().takeKnownMinimum(MaxObjSize);
+    return getState().indicatePessimisticFixpoint();
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FLOATING_ATTR(maxobjsize)
+  }
+};
+
+/// MaxObjSize attribute for function return value.
+struct AAMaxObjSizeReturned final
+    : AAReturnedFromReturnedValues<AAMaxObjSize, AAMaxObjSizeImpl> {
+  AAMaxObjSizeReturned(const IRPosition &IRP)
+      : AAReturnedFromReturnedValues<AAMaxObjSize, AAMaxObjSizeImpl>(IRP) {}
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override { STATS_DECLTRACK_FNRET_ATTR(aligned) }
+};
+
+/// MaxObjSize attribute for function argument.
+struct AAMaxObjSizeArgument final
+    : AAArgumentFromCallSiteArguments<AAMaxObjSize, AAMaxObjSizeImpl> {
+  AAMaxObjSizeArgument(const IRPosition &IRP)
+      : AAArgumentFromCallSiteArguments<AAMaxObjSize, AAMaxObjSizeImpl>(IRP) {}
+
+  /// See AbstractAttribute::initialize(...).
+  virtual void initialize(Attributor &A) override {
+    if (hasAttr(Attribute::ByVal)) {
+      getState().takeKnownMinimum(
+          getAssociatedValue().getPointerMaxObjSizeBytes(A.getDataLayout()));
+      getState().indicatePessimisticFixpoint();
+      return;
+    }
+    AAArgumentFromCallSiteArguments<AAMaxObjSize, AAMaxObjSizeImpl>::initialize(A);
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override { STATS_DECLTRACK_ARG_ATTR(aligned) }
+};
+
+struct AAMaxObjSizeCallSiteArgument final : AAMaxObjSizeFloating {
+  AAMaxObjSizeCallSiteArgument(const IRPosition &IRP)
+      : AAMaxObjSizeFloating(IRP) {}
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override { STATS_DECLTRACK_CSARG_ATTR(aligned) }
+};
+
+/// MaxObjSize attribute deduction for a call site return value.
+struct AAMaxObjSizeCallSiteReturned final : AAMaxObjSizeImpl {
+  AAMaxObjSizeCallSiteReturned(const IRPosition &IRP) : AAMaxObjSizeImpl(IRP) {}
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    // TODO: Once we have call site specific value information we can provide
+    //       call site specific liveness information and then it makes
+    //       sense to specialize attributes for call sites instead of
+    //       redirecting requests to the callee.
+    Function *F = getAssociatedFunction();
+    const IRPosition &FnPos = IRPosition::returned(*F);
+    auto &FnAA = A.getAAFor<AAMaxObjSize>(*this, FnPos);
+    return clampStateAndIndicateChange(
+        getState(),
+        static_cast<const AAMaxObjSize::StateType &>(FnAA.getState()));
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_CSRET_ATTR(maxobjsize);
+  }
+};
+
 // ------------------------ Align Argument Attribute ------------------------
 
 struct AAAlignImpl : AAAlign {
@@ -2871,7 +2981,6 @@ struct AANoReturnImpl : public AANoReturn {
     if (!A.checkForAllInstructions(CheckForNoReturn, *this,
                                    {(unsigned)Instruction::Ret}))
       return indicatePessimisticFixpoint();
-    return ChangeStatus::UNCHANGED;
   }
 };
 
@@ -4773,6 +4882,10 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       // Every function with pointer return type might be marked
       // dereferenceable.
       getOrCreateAAFor<AADereferenceable>(RetPos);
+
+      // Every function with pointer return type might be marked
+      // with maxobjsize.
+      getOrCreateAAFor<AAMaxObjSize>(RetPos);
     }
   }
 
@@ -4801,6 +4914,10 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       // Every argument with pointer type might be marked
       // "readnone/readonly/writeonly/..."
       getOrCreateAAFor<AAMemoryBehavior>(ArgPos);
+
+      // Every argument with pointer type might be marked
+      // with maxobjsize
+      getOrCreateAAFor<AAMaxObjSize>(ArgPos);
     }
   }
 
@@ -5008,6 +5125,7 @@ const char AANoAlias::ID = 0;
 const char AANoReturn::ID = 0;
 const char AAIsDead::ID = 0;
 const char AADereferenceable::ID = 0;
+const char AAMaxObjSize::ID = 0;
 const char AAAlign::ID = 0;
 const char AANoCapture::ID = 0;
 const char AAValueSimplify::ID = 0;
@@ -5118,6 +5236,7 @@ CREATE_FUNCTION_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAReturnedValues)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANonNull)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoAlias)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AADereferenceable)
+CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAMaxObjSize)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAAlign)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoCapture)
 

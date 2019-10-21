@@ -1841,6 +1841,37 @@ struct AADereferenceable
   static const char ID;
 };
 
+/// An abstract interface to determine the maximal size of an object.
+struct AAMaxObjSize
+    : public IRAttribute<Attribute::MaxObjSize, AbstractAttribute> {
+  /// Provide static access to the type of the state.
+  using StateType = DecIntegerState<uint64_t>;
+
+  AAMaxObjSize(const IRPosition &IRP) : IRAttribute(IRP) {}
+
+  /// Return assumed maximal object size.
+  unsigned getAssumedMaxObjSize() const { return State.getAssumed(); }
+
+  /// Return known maximal object size.
+  unsigned getKnownMaxObjSize() const { return State.getKnown(); }
+
+  /// See AbstractAttribute::getState(...).
+  StateType &getState() override { return State; }
+
+  /// See AbstractAttribute::getState(...).
+  const AbstractState &getState() const override { return State; }
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AAMaxObjSize &createForPosition(const IRPosition &IRP, Attributor &A);
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+
+private:
+  /// The current state of this attribute.
+  StateType State;
+};
+
 /// An abstract interface for all align attributes.
 struct AAAlign
     : public IRAttribute<Attribute::Alignment,
