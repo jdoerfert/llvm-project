@@ -1580,6 +1580,12 @@ public:
     return Ty ? Ty : getArgOperand(ArgNo)->getType()->getPointerElementType();
   }
 
+  /// Extract the number of maxobjsize bytes for a call or parameter
+  /// (0=unknown).
+  uint64_t getMaxObjSizeBytes(unsigned i) const {
+    return Attrs.getMaxObjSizeBytes(i);
+  }
+
   /// Extract the number of dereferenceable bytes for a call or
   /// parameter (0=unknown).
   uint64_t getDereferenceableBytes(unsigned i) const {

@@ -449,6 +449,12 @@ public:
     return AttributeSets.getDereferenceableBytes(i);
   }
 
+  /// Extract the number of maxobjsize bytes for a parameter.
+  /// @param ArgNo Index of an argument, with 0 being the first function arg.
+  uint64_t getParamMaxObjSizeBytes(unsigned ArgNo) const {
+    return AttributeSets.getParamMaxObjSizeBytes(ArgNo);
+  }
+
   /// Extract the number of dereferenceable bytes for a parameter.
   /// @param ArgNo Index of an argument, with 0 being the first function arg.
   uint64_t getParamDereferenceableBytes(unsigned ArgNo) const {

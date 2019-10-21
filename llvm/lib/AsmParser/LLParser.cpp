@@ -1334,6 +1334,7 @@ bool LLParser::ParseFnAttributeValuePairs(AttrBuilder &B,
               "invalid use of attribute on a function");
       break;
     case lltok::kw_byval:
+    case lltok::kw_maxobjsize:
     case lltok::kw_dereferenceable:
     case lltok::kw_dereferenceable_or_null:
     case lltok::kw_inalloca:
@@ -1616,6 +1617,13 @@ bool LLParser::ParseOptionalParamAttrs(AttrBuilder &B) {
       B.addByValAttr(Ty);
       continue;
     }
+    case lltok::kw_maxobjsize: {
+      uint64_t Bytes;
+      if (ParseOptionalDerefAttrBytes(lltok::kw_maxobjsize, Bytes))
+        return true;
+      B.addMaxObjSizeAttr(Bytes);
+      continue;
+    }
     case lltok::kw_dereferenceable: {
       uint64_t Bytes;
       if (ParseOptionalDerefAttrBytes(lltok::kw_dereferenceable, Bytes))
@@ -1703,6 +1711,13 @@ bool LLParser::ParseOptionalReturnAttrs(AttrBuilder &B) {
     case lltok::StringConstant: {
       if (ParseStringAttribute(B))
         return true;
+      continue;
+    }
+    case lltok::kw_maxobjsize: {
+      uint64_t Bytes;
+      if (ParseOptionalDerefAttrBytes(lltok::kw_maxobjsize, Bytes))
+        return true;
+      B.addMaxObjSizeAttr(Bytes);
       continue;
     }
     case lltok::kw_dereferenceable: {
@@ -2086,11 +2101,12 @@ bool LLParser::ParseOptionalAlignment(unsigned &Alignment) {
 ///   ::= /* empty */
 ///   ::= AttrKind '(' 4 ')'
 ///
-/// where AttrKind is either 'dereferenceable' or 'dereferenceable_or_null'.
+/// where AttrKind is either 'dereferenceable' or 'dereferenceable_or_null' or 'maxobjsize'.
 bool LLParser::ParseOptionalDerefAttrBytes(lltok::Kind AttrKind,
                                            uint64_t &Bytes) {
   assert((AttrKind == lltok::kw_dereferenceable ||
-          AttrKind == lltok::kw_dereferenceable_or_null) &&
+          AttrKind == lltok::kw_dereferenceable_or_null ||
+          AttrKind == lltok::kw_maxobjsize) &&
          "contract!");
 
   Bytes = 0;
@@ -3405,7 +3421,7 @@ bool LLParser::ParseValID(ValID &ID, PerFunctionState *PFS) {
     ID.Kind = ValID::t_Constant;
     return false;
   }
- 
+
   // Unary Operators.
   case lltok::kw_fneg: {
     unsigned Opc = Lex.getUIntVal();
@@ -3415,7 +3431,7 @@ bool LLParser::ParseValID(ValID &ID, PerFunctionState *PFS) {
         ParseGlobalTypeAndValue(Val) ||
         ParseToken(lltok::rparen, "expected ')' in unary constantexpr"))
       return true;
-    
+
     // Check that the type is valid for the operator.
     switch (Opc) {
     case Instruction::FNeg:
@@ -4751,7 +4767,7 @@ bool LLParser::ParseDICommonBlock(MDNode *&Result, bool IsDistinct) {
   OPTIONAL(declaration, MDField, );                                            \
   OPTIONAL(name, MDStringField, );                                             \
   OPTIONAL(file, MDField, );                                                   \
-  OPTIONAL(line, LineField, );						       
+  OPTIONAL(line, LineField, );
   PARSE_MD_FIELDS();
 #undef VISIT_MD_FIELDS
 

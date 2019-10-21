@@ -54,6 +54,10 @@ public:
   /// addrspace(0).
   bool hasNonNullAttr() const;
 
+  /// If this argument has the maxobjsize attribute, return the number of
+  /// bytes known to be maximal for the pointee. Otherwise, 0 is returned.
+  uint64_t getMaxObjSizeBytes() const;
+
   /// If this argument has the dereferenceable attribute, return the number of
   /// bytes known to be dereferenceable. Otherwise, zero is returned.
   uint64_t getDereferenceableBytes() const;

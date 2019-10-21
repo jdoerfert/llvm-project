@@ -135,6 +135,7 @@ public:
   IntAttributeImpl(Attribute::AttrKind Kind, uint64_t Val)
       : EnumAttributeImpl(IntAttrEntry, Kind), Val(Val) {
     assert((Kind == Attribute::Alignment || Kind == Attribute::StackAlignment ||
+            Kind == Attribute::MaxObjSize ||
             Kind == Attribute::Dereferenceable ||
             Kind == Attribute::DereferenceableOrNull ||
             Kind == Attribute::AllocSize) &&
@@ -210,6 +211,7 @@ public:
 
   unsigned getAlignment() const;
   unsigned getStackAlignment() const;
+  uint64_t getMaxObjSizeBytes() const;
   uint64_t getDereferenceableBytes() const;
   uint64_t getDereferenceableOrNullBytes() const;
   std::pair<unsigned, Optional<unsigned>> getAllocSizeArgs() const;

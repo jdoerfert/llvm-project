@@ -118,6 +118,12 @@ Type *Argument::getParamByValType() const {
   return getParent()->getParamByValType(getArgNo());
 }
 
+uint64_t Argument::getMaxObjSizeBytes() const {
+  assert(getType()->isPointerTy() &&
+         "Only pointers have maxobjsize bytes");
+  return getParent()->getParamMaxObjSizeBytes(getArgNo());
+}
+
 uint64_t Argument::getDereferenceableBytes() const {
   assert(getType()->isPointerTy() &&
          "Only pointers have dereferenceable bytes");

@@ -1145,6 +1145,10 @@ Currently, only the following parameter attributes are defined:
     checked or enforced by LLVM; if the parameter or return pointer is null,
     the behavior is undefined.
 
+``maxobjsize(<n>)``
+    This indicates that the parameter or return pointer is a pointer to an
+    object that has at most ``n`` bytes.
+
 ``dereferenceable(<n>)``
     This indicates that the parameter or return pointer is dereferenceable. This
     attribute may only be applied to pointer typed parameters. A pointer that

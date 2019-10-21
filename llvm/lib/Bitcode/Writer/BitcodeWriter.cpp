@@ -651,6 +651,8 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_NON_LAZY_BIND;
   case Attribute::NonNull:
     return bitc::ATTR_KIND_NON_NULL;
+  case Attribute::MaxObjSize:
+    return bitc::ATTR_KIND_MAX_OBJ_SIZE;
   case Attribute::Dereferenceable:
     return bitc::ATTR_KIND_DEREFERENCEABLE;
   case Attribute::DereferenceableOrNull:

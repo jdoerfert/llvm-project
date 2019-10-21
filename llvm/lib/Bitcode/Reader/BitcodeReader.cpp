@@ -1283,6 +1283,9 @@ static uint64_t getRawAttributeMask(Attribute::AttrKind Val) {
   case Attribute::NoSync:
     llvm_unreachable("nosync attribute not supported in raw format");
     break;
+  case Attribute::MaxObjSize:
+    llvm_unreachable("maxobjsize attribute not supported in raw format");
+    break;
   case Attribute::Dereferenceable:
     llvm_unreachable("dereferenceable attribute not supported in raw format");
     break;
@@ -1309,6 +1312,7 @@ static void addRawAttributeValue(AttrBuilder &B, uint64_t Val) {
   for (Attribute::AttrKind I = Attribute::None; I != Attribute::EndAttrKinds;
        I = Attribute::AttrKind(I + 1)) {
     if (I == Attribute::SanitizeMemTag ||
+        I == Attribute::MaxObjSize ||
         I == Attribute::Dereferenceable ||
         I == Attribute::DereferenceableOrNull ||
         I == Attribute::ArgMemOnly ||
@@ -1464,6 +1468,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::NonLazyBind;
   case bitc::ATTR_KIND_NON_NULL:
     return Attribute::NonNull;
+  case bitc::ATTR_KIND_MAX_OBJ_SIZE:
+    return Attribute::MaxObjSize;
   case bitc::ATTR_KIND_DEREFERENCEABLE:
     return Attribute::Dereferenceable;
   case bitc::ATTR_KIND_DEREFERENCEABLE_OR_NULL:
@@ -1624,6 +1630,8 @@ Error BitcodeReader::parseAttributeGroupBlock() {
             B.addAlignmentAttr(Record[++i]);
           else if (Kind == Attribute::StackAlignment)
             B.addStackAlignmentAttr(Record[++i]);
+          else if (Kind == Attribute::MaxObjSize)
+            B.addMaxObjSizeAttr(Record[++i]);
           else if (Kind == Attribute::Dereferenceable)
             B.addDereferenceableAttr(Record[++i]);
           else if (Kind == Attribute::DereferenceableOrNull)

@@ -97,6 +97,7 @@ public:
   /// alignment set.
   static Attribute getWithAlignment(LLVMContext &Context, Align Alignment);
   static Attribute getWithStackAlignment(LLVMContext &Context, Align Alignment);
+  static Attribute getWithMaxObjSizeBytes(LLVMContext &Context, uint64_t Bytes);
   static Attribute getWithDereferenceableBytes(LLVMContext &Context,
                                               uint64_t Bytes);
   static Attribute getWithDereferenceableOrNullBytes(LLVMContext &Context,
@@ -156,6 +157,9 @@ public:
   /// Returns the stack alignment field of an attribute as a byte
   /// alignment value.
   unsigned getStackAlignment() const;
+
+  /// Returns the maximal number of bytes of the pointee.
+  uint64_t getMaxObjSizeBytes() const;
 
   /// Returns the number of dereferenceable bytes from the
   /// dereferenceable attribute.
@@ -287,6 +291,7 @@ public:
 
   unsigned getAlignment() const;
   unsigned getStackAlignment() const;
+  uint64_t getMaxObjSizeBytes() const;
   uint64_t getDereferenceableBytes() const;
   uint64_t getDereferenceableOrNullBytes() const;
   Type *getByValType() const;
@@ -486,6 +491,11 @@ public:
     return removeAttributes(C, ArgNo + FirstArgIndex);
   }
 
+  /// \brief Add the maxobjsize attribute to the attribute set at the given
+  /// index. Returns a new list because attribute lists are immutable.
+  LLVM_NODISCARD AttributeList addMaxObjSizeAttr(LLVMContext &C, unsigned Index,
+                                                 uint64_t Bytes) const;
+
   /// \brief Add the dereferenceable attribute to the attribute set at the given
   /// index. Returns a new list because attribute lists are immutable.
   LLVM_NODISCARD AttributeList addDereferenceableAttr(LLVMContext &C,
@@ -615,8 +625,17 @@ public:
   /// Get the stack alignment.
   unsigned getStackAlignment(unsigned Index) const;
 
+  /// Get the maximal number of bytes for the underlying object.
+  uint64_t getMaxObjSizeBytes(unsigned Index) const;
+
   /// Get the number of dereferenceable bytes (or zero if unknown).
   uint64_t getDereferenceableBytes(unsigned Index) const;
+
+  /// Get the number of maxobjsize bytes (or 0 if unknown) of an
+  /// arg.
+  uint64_t getParamMaxObjSizeBytes(unsigned ArgNo) const {
+    return getMaxObjSizeBytes(ArgNo + FirstArgIndex);
+  }
 
   /// Get the number of dereferenceable bytes (or zero if unknown) of an
   /// arg.
@@ -710,6 +729,7 @@ class AttrBuilder {
   MaybeAlign StackAlignment;
   uint64_t DerefBytes = 0;
   uint64_t DerefOrNullBytes = 0;
+  uint64_t MaxObjSizeBytes = 0;
   uint64_t AllocSizeArgs = 0;
   Type *ByValType = nullptr;
 
@@ -781,6 +801,9 @@ public:
     return StackAlignment ? StackAlignment->value() : 0;
   }
 
+  /// Retrieve the number of bytes the underlying object can have.
+  uint64_t getMaxObjSizeBytes() const { return MaxObjSizeBytes; }
+
   /// Retrieve the number of dereferenceable bytes, if the
   /// dereferenceable attribute exists (zero is returned otherwise).
   uint64_t getDereferenceableBytes() const { return DerefBytes; }
@@ -803,6 +826,10 @@ public:
   /// This turns an int stack alignment (which must be a power of 2) into
   /// the form used internally in Attribute.
   AttrBuilder &addStackAlignmentAttr(unsigned Align);
+
+  /// This turns the number of max object size bytes into the form used
+  /// internally in Attribute.
+  AttrBuilder &addMaxObjSizeAttr(uint64_t Bytes);
 
   /// This turns the number of dereferenceable bytes into the form used
   /// internally in Attribute.

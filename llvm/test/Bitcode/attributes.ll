@@ -374,6 +374,12 @@ define void @f63() sanitize_memtag
   ret void;
 }
 
+; CHECK: define maxobjsize(8) i32* @f64(i32 * maxobjsize(4))
+define maxobjsize(8) i32* @f64(i32 * maxobjsize(4))
+{
+  ret i32* %0;
+}
+
 ; CHECK: attributes #0 = { noreturn }
 ; CHECK: attributes #1 = { nounwind }
 ; CHECK: attributes #2 = { readnone }

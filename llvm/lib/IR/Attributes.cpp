@@ -152,6 +152,12 @@ Attribute Attribute::getWithStackAlignment(LLVMContext &Context, Align A) {
   return get(Context, StackAlignment, A.value());
 }
 
+Attribute Attribute::getWithMaxObjSizeBytes(LLVMContext &Context,
+                                            uint64_t Bytes) {
+  assert(Bytes != uint64_t(0) && "Bytes must be != 0.");
+  return get(Context, MaxObjSize, Bytes);
+}
+
 Attribute Attribute::getWithDereferenceableBytes(LLVMContext &Context,
                                                 uint64_t Bytes) {
   assert(Bytes && "Bytes must be non-zero.");
@@ -250,6 +256,13 @@ unsigned Attribute::getAlignment() const {
 unsigned Attribute::getStackAlignment() const {
   assert(hasAttribute(Attribute::StackAlignment) &&
          "Trying to get alignment from non-alignment attribute!");
+  return pImpl->getValueAsInt();
+}
+
+uint64_t Attribute::getMaxObjSizeBytes() const {
+  assert(hasAttribute(Attribute::MaxObjSize) &&
+         "Trying to get the maximal object size from "
+         "non-maxobjsize attribute!");
   return pImpl->getValueAsInt();
 }
 
@@ -435,6 +448,9 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
 
   if (hasAttribute(Attribute::StackAlignment))
     return AttrWithBytesToString("alignstack");
+
+  if (hasAttribute(Attribute::MaxObjSize))
+    return AttrWithBytesToString("maxobjsize");
 
   if (hasAttribute(Attribute::Dereferenceable))
     return AttrWithBytesToString("dereferenceable");
@@ -675,6 +691,10 @@ unsigned AttributeSet::getStackAlignment() const {
   return SetNode ? SetNode->getStackAlignment() : 0;
 }
 
+uint64_t AttributeSet::getMaxObjSizeBytes() const {
+  return SetNode ? SetNode->getMaxObjSizeBytes() : 0;
+}
+
 uint64_t AttributeSet::getDereferenceableBytes() const {
   return SetNode ? SetNode->getDereferenceableBytes() : 0;
 }
@@ -784,6 +804,10 @@ AttributeSetNode *AttributeSetNode::get(LLVMContext &C, const AttrBuilder &B) {
     case Attribute::StackAlignment:
       Attr = Attribute::getWithStackAlignment(C, Align(B.getStackAlignment()));
       break;
+    case Attribute::MaxObjSize:
+      Attr = Attribute::getWithMaxObjSizeBytes(
+          C, B.getMaxObjSizeBytes());
+      break;
     case Attribute::Dereferenceable:
       Attr = Attribute::getWithDereferenceableBytes(
           C, B.getDereferenceableBytes());
@@ -851,6 +875,13 @@ Type *AttributeSetNode::getByValType() const {
   for (const auto I : *this)
     if (I.hasAttribute(Attribute::ByVal))
       return I.getValueAsType();
+  return 0;
+}
+
+uint64_t AttributeSetNode::getMaxObjSizeBytes() const {
+  for (const auto I : *this)
+    if (I.hasAttribute(Attribute::MaxObjSize))
+      return I.getMaxObjSizeBytes();
   return 0;
 }
 
@@ -1253,6 +1284,13 @@ AttributeList AttributeList::removeAttributes(LLVMContext &C,
   return getImpl(C, AttrSets);
 }
 
+AttributeList AttributeList::addMaxObjSizeAttr(LLVMContext &C, unsigned Index,
+                                               uint64_t Bytes) const {
+  AttrBuilder B;
+  B.addMaxObjSizeAttr(Bytes);
+  return addAttributes(C, Index, B);
+}
+
 AttributeList AttributeList::addDereferenceableAttr(LLVMContext &C,
                                                     unsigned Index,
                                                     uint64_t Bytes) const {
@@ -1363,6 +1401,10 @@ unsigned AttributeList::getStackAlignment(unsigned Index) const {
   return getAttributes(Index).getStackAlignment();
 }
 
+uint64_t AttributeList::getMaxObjSizeBytes(unsigned Index) const {
+  return getAttributes(Index).getMaxObjSizeBytes();
+}
+
 uint64_t AttributeList::getDereferenceableBytes(unsigned Index) const {
   return getAttributes(Index).getDereferenceableBytes();
 }
@@ -1437,6 +1479,7 @@ void AttrBuilder::clear() {
   TargetDepAttrs.clear();
   Alignment.reset();
   StackAlignment.reset();
+  MaxObjSizeBytes = 0;
   DerefBytes = DerefOrNullBytes = 0;
   AllocSizeArgs = 0;
   ByValType = nullptr;
@@ -1445,7 +1488,8 @@ void AttrBuilder::clear() {
 AttrBuilder &AttrBuilder::addAttribute(Attribute::AttrKind Val) {
   assert((unsigned)Val < Attribute::EndAttrKinds && "Attribute out of range!");
   assert(Val != Attribute::Alignment && Val != Attribute::StackAlignment &&
-         Val != Attribute::Dereferenceable && Val != Attribute::AllocSize &&
+         Val != Attribute::MaxObjSize && Val != Attribute::Dereferenceable &&
+         Val != Attribute::AllocSize &&
          "Adding integer attribute without adding a value!");
   Attrs[Val] = true;
   return *this;
@@ -1466,6 +1510,8 @@ AttrBuilder &AttrBuilder::addAttribute(Attribute Attr) {
     StackAlignment = MaybeAlign(Attr.getStackAlignment());
   else if (Kind == Attribute::ByVal)
     ByValType = Attr.getValueAsType();
+  else if (Kind == Attribute::MaxObjSize)
+    MaxObjSizeBytes = Attr.getMaxObjSizeBytes();
   else if (Kind == Attribute::Dereferenceable)
     DerefBytes = Attr.getDereferenceableBytes();
   else if (Kind == Attribute::DereferenceableOrNull)
@@ -1490,6 +1536,8 @@ AttrBuilder &AttrBuilder::removeAttribute(Attribute::AttrKind Val) {
     StackAlignment.reset();
   else if (Val == Attribute::ByVal)
     ByValType = nullptr;
+  else if (Val == Attribute::MaxObjSize)
+    MaxObjSizeBytes = 0;
   else if (Val == Attribute::Dereferenceable)
     DerefBytes = 0;
   else if (Val == Attribute::DereferenceableOrNull)
@@ -1541,6 +1589,14 @@ AttrBuilder &AttrBuilder::addStackAlignmentAttr(unsigned A) {
   return *this;
 }
 
+AttrBuilder &AttrBuilder::addMaxObjSizeAttr(uint64_t Bytes) {
+  if (Bytes == 0U) return *this;
+
+  Attrs[Attribute::MaxObjSize] = true;
+  MaxObjSizeBytes = Bytes;
+  return *this;
+}
+
 AttrBuilder &AttrBuilder::addDereferenceableAttr(uint64_t Bytes) {
   if (Bytes == 0) return *this;
 
@@ -1588,6 +1644,9 @@ AttrBuilder &AttrBuilder::merge(const AttrBuilder &B) {
   if (!StackAlignment)
     StackAlignment = B.StackAlignment;
 
+  if (MaxObjSizeBytes == 0)
+    MaxObjSizeBytes = B.MaxObjSizeBytes;
+
   if (!DerefBytes)
     DerefBytes = B.DerefBytes;
 
@@ -1615,6 +1674,9 @@ AttrBuilder &AttrBuilder::remove(const AttrBuilder &B) {
 
   if (B.StackAlignment)
     StackAlignment.reset();
+
+  if (B.MaxObjSizeBytes != 0)
+    MaxObjSizeBytes = 0;
 
   if (B.DerefBytes)
     DerefBytes = 0;
@@ -1687,7 +1749,8 @@ bool AttrBuilder::operator==(const AttrBuilder &B) {
       return false;
 
   return Alignment == B.Alignment && StackAlignment == B.StackAlignment &&
-         DerefBytes == B.DerefBytes && ByValType == B.ByValType;
+         MaxObjSizeBytes == B.MaxObjSizeBytes && DerefBytes == B.DerefBytes &&
+         ByValType == B.ByValType;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1710,6 +1773,7 @@ AttrBuilder AttributeFuncs::typeIncompatible(Type *Ty) {
       .addAttribute(Attribute::NoAlias)
       .addAttribute(Attribute::NoCapture)
       .addAttribute(Attribute::NonNull)
+      .addMaxObjSizeAttr(1) // the int here is ignored
       .addDereferenceableAttr(1) // the int here is ignored
       .addDereferenceableOrNullAttr(1) // the int here is ignored
       .addAttribute(Attribute::ReadNone)

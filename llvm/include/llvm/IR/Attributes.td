@@ -39,6 +39,9 @@ def Cold : EnumAttr<"cold">;
 /// Can only be moved to control-equivalent blocks.
 def Convergent : EnumAttr<"convergent">;
 
+/// Pointee is known to have a maximal size.
+def MaxObjSize : EnumAttr<"maxobjsize">;
+
 /// Pointer is known to be dereferenceable.
 def Dereferenceable : EnumAttr<"dereferenceable">;
 
