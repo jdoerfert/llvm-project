@@ -605,6 +605,30 @@ const Value *Value::stripInBoundsOffsets() const {
   return stripPointerCastsAndOffsets<PSK_InBounds>(this);
 }
 
+uint64_t Value::getPointerMaxObjSizeBytes(const DataLayout &DL) const {
+  assert(getType()->isPointerTy() && "must be pointer");
+
+  uint64_t MaxObjSizeBytes = ~0U;
+  if (const Argument *A = dyn_cast<Argument>(this)) {
+    MaxObjSizeBytes = A->getMaxObjSizeBytes();
+    if ((A->hasByValAttr() || A->hasStructRetAttr())) {
+      Type *PT = cast<PointerType>(A->getType())->getElementType();
+      if (PT->isSized())
+        MaxObjSizeBytes =
+            std::min(MaxObjSizeBytes, uint64_t(DL.getTypeStoreSize(PT)));
+    }
+  } else if (const auto *Call = dyn_cast<CallBase>(this)) {
+    MaxObjSizeBytes = Call->getMaxObjSizeBytes(AttributeList::ReturnIndex);
+  } else if (const auto *AI = dyn_cast<AllocaInst>(this)) {
+    if (!AI->isArrayAllocation())
+      MaxObjSizeBytes = DL.getTypeStoreSize(AI->getAllocatedType());
+  } else if (const auto *GV = dyn_cast<GlobalVariable>(this)) {
+    if (GV->getValueType()->isSized())
+      MaxObjSizeBytes = DL.getTypeStoreSize(GV->getValueType());
+  }
+  return MaxObjSizeBytes;
+}
+
 uint64_t Value::getPointerDereferenceableBytes(const DataLayout &DL,
                                                bool &CanBeNull) const {
   assert(getType()->isPointerTy() && "must be pointer");

@@ -628,6 +628,10 @@ public:
   uint64_t getPointerDereferenceableBytes(const DataLayout &DL,
                                           bool &CanBeNull) const;
 
+  /// Returns the number of bytes known to be the maximal extend for the
+  /// pointer value.
+  uint64_t getPointerMaxObjSizeBytes(const DataLayout &DL) const;
+
   /// Returns an alignment of the pointer value.
   ///
   /// Returns an alignment which is either specified explicitly, e.g. via
