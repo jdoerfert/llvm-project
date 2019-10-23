@@ -253,6 +253,22 @@ static uint64_t getMinimalExtentFrom(const Value &V,
   return DerefBytes;
 }
 
+/// Return the maximal extent from \p V to the end of the underlying object,
+/// assuming the result is used in an aliasing query. E.g., we do use the query
+/// location size and the fact that null pointers cannot alias here.
+static uint64_t getMaximalExtentFrom(const Value &V,
+                                     const LocationSize &LocSize,
+                                     const DataLayout &DL) {
+  // If we have maximal object size information we know is an upper bound for
+  // the extend.
+  uint64_t MaxObjSizeBytes = V.getPointerMaxObjSizeBytes(DL);
+  // If queried with a precise location size, we assume that location size to be
+  // accessed, thus valid.
+  if (LocSize.isPrecise())
+    MaxObjSizeBytes = std::min(MaxObjSizeBytes, LocSize.getValue());
+  return MaxObjSizeBytes;
+}
+
 /// Returns true if we can prove that the object specified by V has size Size.
 static bool isObjectSize(const Value *V, uint64_t Size, const DataLayout &DL,
                          const TargetLibraryInfo &TLI, bool NullIsValidLoc) {
@@ -1812,12 +1828,13 @@ AliasResult BasicAAResult::aliasCheck(const Value *V1, LocationSize V1Size,
   // If the size of one access is larger than the entire object on the other
   // side, then we know such behavior is undefined and can assume no alias.
   bool NullIsValidLocation = NullPointerIsDefined(&F);
-  if ((isObjectSmallerThan(
-          O2, getMinimalExtentFrom(*V1, V1Size, DL, NullIsValidLocation), DL,
-          TLI, NullIsValidLocation)) ||
-      (isObjectSmallerThan(
-          O1, getMinimalExtentFrom(*V2, V2Size, DL, NullIsValidLocation), DL,
-          TLI, NullIsValidLocation)))
+  uint64_t V1MinSize = getMinimalExtentFrom(*V1, V1Size, DL, NullIsValidLocation);
+  uint64_t V2MinSize = getMinimalExtentFrom(*V2, V2Size, DL, NullIsValidLocation);
+  uint64_t V1MaxSize = getMaximalExtentFrom(*V1, V1Size, DL);
+  uint64_t V2MaxSize = getMaximalExtentFrom(*V2, V2Size, DL);
+  if (V1MaxSize < V2MinSize || V2MaxSize < V1MinSize ||
+      isObjectSmallerThan(O2, V1MinSize, DL, TLI, NullIsValidLocation) ||
+      isObjectSmallerThan(O1, V1MaxSize, DL, TLI, NullIsValidLocation))
     return NoAlias;
 
   // Check the cache before climbing up use-def chains. This also terminates
