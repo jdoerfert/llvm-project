@@ -206,7 +206,7 @@ def get_fetch_url():
 def get_push_url(user='', ssh=False):
 
     if ssh:
-        return 'ssh://{}'.format(GIT_URL)
+        return 'ssh://git@{}'.format(GIT_URL)
 
     return 'https://{}'.format(GIT_URL)
 
@@ -237,7 +237,7 @@ def git_push_one_rev(rev, dry_run, branch):
         return
 
     # Second push to actually push the commit
-    git('push', get_push_url(), '{}:{}'.format(rev, branch), print_raw_stderr=True)
+    git('push', get_push_url(ssh=True), '{}:{}'.format(rev, branch), print_raw_stderr=True)
 
 
 def cmd_push(args):
