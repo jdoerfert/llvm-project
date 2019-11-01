@@ -37,7 +37,7 @@ define void @scrub() {
 define i32 @signature(i32 %arg) {
 ; CHECK-LABEL: define {{[^@]+}}@signature
 ; CHECK-SAME: (i32 [[ARG:%.*]])
-; CHECK-NEXT:    ret i32 [[ARG:%.*]]
+; CHECK-NEXT:    ret i32 [[ARG]]
 ;
   ret i32 %arg
 }

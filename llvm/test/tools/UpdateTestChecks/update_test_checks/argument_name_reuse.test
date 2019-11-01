@@ -1,0 +1,2 @@
+# RUN: cp -f %S/Inputs/argument_name_reuse.ll %t.ll && %update_test_checks %t.ll --function-signature
+# RUN: diff -u %t.ll %S/Inputs/argument_name_reuse.ll.expected
