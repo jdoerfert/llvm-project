@@ -1,5 +1,5 @@
 ; RUN: opt < %s -S -ipsccp | FileCheck %s
-; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=3 < %s | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=2 < %s | FileCheck %s
 ; PR5596
 
 ; IPSCCP should propagate the 0 argument, eliminate the switch, and propagate

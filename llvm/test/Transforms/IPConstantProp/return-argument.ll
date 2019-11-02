@@ -1,5 +1,5 @@
 ; RUN: opt < %s -ipconstprop -S | FileCheck %s
-; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=10 < %s | FileCheck %s --check-prefix=ATTRIBUTOR
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=9 < %s | FileCheck %s --check-prefix=ATTRIBUTOR
 
 ; CHECK: add i32 1, 3
 ; CHECK: store i32 %Z, i32* %Q
