@@ -1,0 +1,27 @@
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s
+
+@_ZL6test1g = internal global i32 42, align 4
+
+define void @_Z7test1f1v() nounwind {
+entry:
+  %tmp = load i32, i32* @_ZL6test1g, align 4
+  %cmp = icmp eq i32 %tmp, 0
+  br i1 %cmp, label %if.then, label %if.end
+
+if.then:                                          ; preds = %entry
+  store i32 0, i32* @_ZL6test1g, align 4
+  br label %if.end
+
+if.end:                                           ; preds = %if.then, %entry
+  ret void
+}
+
+; CHECK: @_Z7test1f2v()
+; CHECK: entry:
+; CHECK-NEXT: %tmp = load i32, i32* @_ZL6test1g, align 4
+; CHECK-NEXT: ret i32 %tmp
+define i32 @_Z7test1f2v() nounwind {
+entry:
+  %tmp = load i32, i32* @_ZL6test1g, align 4
+  ret i32 %tmp
+}
