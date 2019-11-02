@@ -1,4 +1,5 @@
 ; RUN: opt < %s -ipsccp -S | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=5 < %s | FileCheck %s --check-prefix=ATTRIBUTOR
 ; PR36485
 ; musttail call result can\'t be replaced with a constant, unless the call
 ; can be removed
@@ -11,6 +12,9 @@ define i8* @start(i8 %v) {
 true:
   ; CHECK: %ca = musttail call i8* @side_effects(i8 0)
   ; CHECK: ret i8* %ca
+  ; FIXME: propagate the value information for %v
+  ; ATTRIBUTOR: %ca = musttail call i8* @side_effects(i8 %v)
+  ; ATTRIBUTOR: ret i8* %ca
   %ca = musttail call i8* @side_effects(i8 %v)
   ret i8* %ca
 false:
@@ -19,10 +23,14 @@ false:
 c2_true:
   %ca1 = musttail call i8* @no_side_effects(i8 %v)
   ; CHECK: ret i8* null
+  ; FIXME: zap this call
+  ; ATTRIBUTOR: ret i8* %ca1
   ret i8* %ca1
 c2_false:
   ; CHECK: %ca2 = musttail call i8* @dont_zap_me(i8 %v)
   ; CHECK: ret i8* %ca2
+  ; ATTRIBUTOR: %ca2 = musttail call i8* @dont_zap_me(i8 undef)
+  ; ATTRIBUTOR: ret i8* %ca2
   %ca2 = musttail call i8* @dont_zap_me(i8 %v)
   ret i8* %ca2
 }
@@ -35,16 +43,19 @@ define internal i8* @side_effects(i8 %v) {
   ; The call can't be removed due to `external` call above, though.
 
   ; CHECK: %ca = musttail call i8* @start(i8 0)
+  ; ATTRIBUTOR: %ca = musttail call i8* @start(i8 %v)
   %ca = musttail call i8* @start(i8 %v)
 
   ; Thus the result must be returned anyway
   ; CHECK: ret i8* %ca
+  ; ATTRIBUTOR: ret i8* %ca
   ret i8* %ca
 }
 
 define internal i8* @no_side_effects(i8 %v) readonly nounwind {
   ; The call to this function is removed, so the return value must be zapped
   ; CHECK: ret i8* undef
+  ; ATTRIBUTOR: ret i8* null
   ret i8* null
 }
 
@@ -54,5 +65,6 @@ define internal i8* @dont_zap_me(i8 %v) {
   ; The call to this function cannot be removed due to side effects. Thus the
   ; return value should stay as it is, and should not be zapped.
   ; CHECK: ret i8* null
+  ; ATTRIBUTOR: ret i8* null
   ret i8* null
 }

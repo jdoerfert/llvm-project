@@ -1,9 +1,15 @@
 ; RUN: opt < %s -ipconstprop -S | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=7 < %s | FileCheck %s --check-prefix=ATTRIBUTOR
 
 ;; Check that the 21 constants got propagated properly
 ; CHECK: %M = add i32 21, 21
 ;; Check that the second return values didn't get propagated
 ; CHECK: %N = add i32 %B, %D
+
+;; FIXME: support for extractvalue and insertvalue missing.
+; ATTRIBUTOR: %M = add i32 %A, %C
+;; Check that the second return values didn't get propagated
+; ATTRIBUTOR: %N = add i32 %B, %D
 
 %0 = type { i32, i32 }
 

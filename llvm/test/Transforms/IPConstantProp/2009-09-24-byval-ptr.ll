@@ -1,4 +1,5 @@
 ; RUN: opt < %s -ipsccp -S | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=3 < %s | FileCheck %s
 ; Don't constant-propagate byval pointers, since they are not pointers!
 ; PR5038
 %struct.MYstr = type { i8, i32 }

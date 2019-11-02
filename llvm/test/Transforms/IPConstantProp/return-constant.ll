@@ -1,8 +1,13 @@
 ; RUN: opt < %s -ipconstprop -instcombine -S | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s --check-prefix=ATTRIBUTOR
 
 ; CHECK: ret i1 true
 ; CHECK: ret i1 true
 ; CHECK-NOT: ret i1 true
+
+; FIXME: icmp folding is missing
+; ATTRIBUTOR: ret i1 %Y
+; ATTRIBUTOR: ret i1 %Y
 
 define internal i32 @foo(i1 %C) {
         br i1 %C, label %T, label %F
