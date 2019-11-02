@@ -1,5 +1,6 @@
 ; RUN: opt < %s -S -passes=ipsccp | FileCheck %s
 ; RUN: opt < %s -S -ipsccp | FileCheck %s
+; RUN: opt -S -passes=attributor -aa-pipeline='basic-aa' -attributor-disable=false -attributor-max-iterations-verify -attributor-max-iterations=1 < %s | FileCheck %s --check-prefix=ATTRIBUTOR
 
 @_ZL6test1g = internal global i32 42, align 4
 
@@ -20,6 +21,11 @@ if.end:                                           ; preds = %if.then, %entry
 ; CHECK: @_Z7test1f2v()
 ; CHECK: entry:
 ; CHECK-NEXT: ret i32 42
+
+; ATTRIBUTOR: @_Z7test1f2v()
+; ATTRIBUTOR: entry:
+; ATTRIBUTOR-NEXT: %tmp = load i32, i32* @_ZL6test1g, align 4
+; ATTRIBUTOR-NEXT: ret i32 %tmp
 define i32 @_Z7test1f2v() nounwind {
 entry:
   %tmp = load i32, i32* @_ZL6test1g, align 4
