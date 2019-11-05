@@ -18,31 +18,7 @@
 #include <cassert>
 
 using namespace clang;
-
-OpenMPDirectiveKind clang::getOpenMPDirectiveKind(StringRef Str) {
-  return llvm::StringSwitch<OpenMPDirectiveKind>(Str)
-#define OPENMP_DIRECTIVE(Name) .Case(#Name, OMPD_##Name)
-#define OPENMP_DIRECTIVE_EXT(Name, Str) .Case(Str, OMPD_##Name)
-#include "clang/Basic/OpenMPKinds.def"
-      .Default(OMPD_unknown);
-}
-
-const char *clang::getOpenMPDirectiveName(OpenMPDirectiveKind Kind) {
-  assert(Kind <= OMPD_unknown);
-  switch (Kind) {
-  case OMPD_unknown:
-    return "unknown";
-#define OPENMP_DIRECTIVE(Name)                                                 \
-  case OMPD_##Name:                                                            \
-    return #Name;
-#define OPENMP_DIRECTIVE_EXT(Name, Str)                                        \
-  case OMPD_##Name:                                                            \
-    return Str;
-#include "clang/Basic/OpenMPKinds.def"
-    break;
-  }
-  llvm_unreachable("Invalid OpenMP directive kind");
-}
+using namespace llvm::omp;
 
 OpenMPClauseKind clang::getOpenMPClauseKind(StringRef Str) {
   // 'flush' clause cannot be specified explicitly, because this is an implicit
@@ -405,7 +381,7 @@ const char *clang::getOpenMPSimpleClauseTypeName(OpenMPClauseKind Kind,
 
 bool clang::isAllowedClauseForDirective(OpenMPDirectiveKind DKind,
                                         OpenMPClauseKind CKind) {
-  assert(DKind <= OMPD_unknown);
+  assert(unsigned(DKind) <= unsigned(OMPD_unknown));
   assert(CKind <= OMPC_unknown);
   switch (DKind) {
   case OMPD_parallel:

@@ -39,6 +39,7 @@ add_llvm_library(LLVMCore
   Metadata.cpp
   Module.cpp
   ModuleSummaryIndex.cpp
+  OpenMPConstants.cpp
   Operator.cpp
   OptBisect.cpp
   Pass.cpp
