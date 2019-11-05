@@ -5,6 +5,7 @@ set(LLVM_LINK_COMPONENTS
   Core
   Coroutines
   Coverage
+  Frontend
   IPO
   IRReader
   AggressiveInstCombine

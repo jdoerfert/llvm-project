@@ -26,6 +26,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Frontend/OpenMPIRBuilder.h"
 #include <cassert>
 
 using namespace clang;
@@ -3477,6 +3478,29 @@ void CGOpenMPRuntime::getDefaultScheduleAndChunk(
 void CGOpenMPRuntime::emitBarrierCall(CodeGenFunction &CGF, SourceLocation Loc,
                                       OpenMPDirectiveKind Kind, bool EmitChecks,
                                       bool ForceSimpleCall) {
+  // Check if we should use the OMPBuilder
+  auto *OMPRegionInfo =
+      dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo);
+  llvm::OpenMPIRBuilder *OMPBuilder = CGF.CGM.getOpenMPIRBuilder();
+  if (OMPBuilder) {
+    // TODO: Move cancelation point handling into the IRBuilder.
+    if (EmitChecks && !ForceSimpleCall && OMPRegionInfo &&
+        OMPRegionInfo->hasCancel()) {
+      CGBuilderTy::InsertPointGuard IPG(CGF.Builder);
+      llvm::BasicBlock *ExitBB =
+          CGF.createBasicBlock(".cancel.exit", IP.getBlock()->getParent());
+      OMPBuilder->setCancellationBlock(ExitBB);
+      CGF.Builder.SetInsertPoint(ExitBB);
+      CodeGenFunction::JumpDest CancelDestination =
+          CGF.getOMPCancelDestination(OMPRegionInfo->getDirectiveKind());
+      CGF.EmitBranchThroughCleanup(CancelDestination);
+    }
+    auto IP = OMPBuilder->CreateBarrier(CGF.Builder, Kind, ForceSimpleCall,
+                                        EmitChecks);
+    CGF.Builder.restoreIP(IP);
+    return;
+  }
+
   if (!CGF.HaveInsertPoint())
     return;
   // Build call __kmpc_cancel_barrier(loc, thread_id);
@@ -3486,8 +3510,7 @@ void CGOpenMPRuntime::emitBarrierCall(CodeGenFunction &CGF, SourceLocation Loc,
   // thread_id);
   llvm::Value *Args[] = {emitUpdateLocation(CGF, Loc, Flags),
                          getThreadID(CGF, Loc)};
-  if (auto *OMPRegionInfo =
-          dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo)) {
+  if (OMPRegionInfo) {
     if (!ForceSimpleCall && OMPRegionInfo->hasCancel()) {
       llvm::Value *Result = CGF.EmitRuntimeCall(
           createRuntimeFunction(OMPRTL__kmpc_cancel_barrier), Args);
