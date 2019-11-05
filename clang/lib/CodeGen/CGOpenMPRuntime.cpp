@@ -23,6 +23,7 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/OpenMPIRBuilder.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
@@ -3477,6 +3478,19 @@ void CGOpenMPRuntime::getDefaultScheduleAndChunk(
 void CGOpenMPRuntime::emitBarrierCall(CodeGenFunction &CGF, SourceLocation Loc,
                                       OpenMPDirectiveKind Kind, bool EmitChecks,
                                       bool ForceSimpleCall) {
+  // Check if we can use the OMPBuilder
+  // TODO: Implement missing functionality and remove this check and directly
+  //       invoke the builder without going through the CGOpenMPRuntime.
+  auto *OMPRegionInfo =
+      dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo);
+  llvm::OpenMPIRBuilder *OMPBuilder = CGF.CGM.getOpenMPIRBuilder();
+  if (OMPBuilder && (!EmitChecks || ForceSimpleCall || !OMPRegionInfo ||
+                     !OMPRegionInfo->hasCancel())) {
+    OMPBuilder->CreateBarrier({CGF.Builder.saveIP()}, Kind, ForceSimpleCall,
+                              EmitChecks);
+    return;
+  }
+
   if (!CGF.HaveInsertPoint())
     return;
   // Build call __kmpc_cancel_barrier(loc, thread_id);
@@ -3486,8 +3500,7 @@ void CGOpenMPRuntime::emitBarrierCall(CodeGenFunction &CGF, SourceLocation Loc,
   // thread_id);
   llvm::Value *Args[] = {emitUpdateLocation(CGF, Loc, Flags),
                          getThreadID(CGF, Loc)};
-  if (auto *OMPRegionInfo =
-          dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo)) {
+  if (OMPRegionInfo) {
     if (!ForceSimpleCall && OMPRegionInfo->hasCancel()) {
       llvm::Value *Result = CGF.EmitRuntimeCall(
           createRuntimeFunction(OMPRTL__kmpc_cancel_barrier), Args);
