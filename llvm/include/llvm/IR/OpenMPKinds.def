@@ -99,3 +99,108 @@ __OMP_DIRECTIVE(unknown)
 #undef OMP_DIRECTIVE
 
 ///}
+
+/// Types used in runtime structs or runtime functions
+///
+///{
+
+#ifndef OMP_TYPE
+#define OMP_TYPE(VarName, InitValue)
+#endif
+
+#define __OMP_TYPE(VarName) OMP_TYPE(VarName, Type::get##VarName##Ty(Ctx))
+
+__OMP_TYPE(Void)
+__OMP_TYPE(Int8)
+__OMP_TYPE(Int32)
+__OMP_TYPE(Int8Ptr)
+
+#undef __OMP_TYPE
+#undef OMP_TYPE
+
+///}
+
+/// Struct types
+///
+///{
+
+#ifndef OMP_STRUCT_TYPE
+#define OMP_STRUCT_TYPE(VarName, StructName, ...)
+#endif
+
+#define __OMP_STRUCT_TYPE(VarName, Name, ...)                                  \
+  OMP_STRUCT_TYPE(VarName, "struct." #Name, __VA_ARGS__)
+
+__OMP_STRUCT_TYPE(IdentPtr, ident_t, Int32, Int32, Int32, Int32, Int8Ptr)
+
+#undef __OMP_STRUCT_TYPE
+#undef OMP_STRUCT_TYPE
+
+///}
+
+/// Runtime library function (and their attributes)
+///
+///{
+
+#ifndef OMP_RTL
+#define OMP_RTL(Enum, Str, IsVarArg, ReturnType, ...)
+#endif
+
+#define __OMP_RTL(Name, IsVarArg, ReturnType, ...)                             \
+  OMP_RTL(OMPRTL_##Name, #Name, IsVarArg, ReturnType, __VA_ARGS__)
+
+__OMP_RTL(__kmpc_barrier, false, Void, IdentPtr, Int32)
+__OMP_RTL(__kmpc_cancel_barrier, false, Int32, IdentPtr, Int32)
+__OMP_RTL(__kmpc_global_thread_num, false, Int32, IdentPtr)
+
+#undef __OMP_RTL
+#undef OMP_RTL
+
+#ifndef OMP_RTL_ATTRS
+#define OMP_RTL_ATTRS(Enum, FnAttrSet, RetAttrSet, ArgAttrSets)
+#endif
+
+#define EnumAttr(Kind) Attribute::get(Ctx, Attribute::AttrKind::Kind)
+#define AttributeSet(...)                                                      \
+  AttributeSet::get(Ctx, ArrayRef<Attribute>({__VA_ARGS__}))
+
+#define __OMP_RTL_ATTRS(Name, FnAttrSet, RetAttrSet, ArgAttrSets)              \
+  OMP_RTL_ATTRS(OMPRTL_##Name, FnAttrSet, RetAttrSet, ArgAttrSets)
+
+__OMP_RTL_ATTRS(__kmpc_global_thread_num,
+                AttributeSet(EnumAttr(InaccessibleMemOrArgMemOnly)),
+                AttributeSet(), {})
+
+#undef __OMP_RTL_ATTRS
+#undef OMP_RTL_ATTRS
+#undef AttributeSet
+#undef EnumAttr
+
+///}
+
+/// KMP ident_t bit flags
+///
+/// In accordance with the values in `openmp/runtime/src/kmp.h`.
+///
+///{
+
+#ifndef OMP_IDENT_FLAG
+#define OMP_IDENT_FLAG(Enum, Str, Value)
+#endif
+
+#define __OMP_IDENT_FLAG(Name, Value)                                          \
+  OMP_IDENT_FLAG(OMP_IDENT_FLAG_##Name, #Name, Value)
+
+__OMP_IDENT_FLAG(KMPC, 0x02)
+__OMP_IDENT_FLAG(BARRIER_EXPL, 0x20)
+__OMP_IDENT_FLAG(BARRIER_IMPL, 0x0040)
+__OMP_IDENT_FLAG(BARRIER_IMPL_MASK, 0x01C0)
+__OMP_IDENT_FLAG(BARRIER_IMPL_FOR, 0x0040)
+__OMP_IDENT_FLAG(BARRIER_IMPL_SECTIONS, 0x00C0)
+__OMP_IDENT_FLAG(BARRIER_IMPL_SINGLE, 0x0140)
+__OMP_IDENT_FLAG(BARRIER_IMPL_WORKSHARE, 0x01C0)
+
+#undef __OMP_IDENT_FLAG
+#undef OMP_IDENT_FLAG
+
+///}

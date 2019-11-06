@@ -28,6 +28,7 @@ add_llvm_unittest(IRTests
   ManglerTest.cpp
   MetadataTest.cpp
   ModuleTest.cpp
+  OpenMPIRBuilderTest.cpp
   PassManagerTest.cpp
   PatternMatch.cpp
   TimePassesTest.cpp

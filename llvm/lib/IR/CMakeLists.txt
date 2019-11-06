@@ -40,6 +40,7 @@ add_llvm_library(LLVMCore
   Module.cpp
   ModuleSummaryIndex.cpp
   OpenMPConstants.cpp
+  OpenMPIRBuilder.cpp
   Operator.cpp
   OptBisect.cpp
   Pass.cpp

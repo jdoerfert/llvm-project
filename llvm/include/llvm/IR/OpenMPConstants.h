@@ -14,11 +14,13 @@
 #ifndef LLVM_OPENMP_CONSTANTS_H
 #define LLVM_OPENMP_CONSTANTS_H
 
+#include "llvm/ADT/BitmaskEnum.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace llvm {
 
 namespace omp {
+LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE();
 
 /// IDs for all OpenMP directives.
 enum class Directive {
@@ -31,6 +33,26 @@ enum class Directive {
 /// the same time we do not loose the strong type guarantees of the enum class,
 /// that is we cannot pass an unsigned as Directive without an explicit cast.
 #define OMP_DIRECTIVE(Enum, ...) constexpr auto Enum = omp::Directive::Enum;
+#include "llvm/IR/OpenMPKinds.def"
+
+/// IDs for all omp runtime library (RTL) functions.
+enum class RuntimeFunction {
+#define OMP_RTL(Enum, ...) Enum,
+#include "llvm/IR/OpenMPKinds.def"
+};
+
+#define OMP_RTL(Enum, ...) constexpr auto Enum = omp::RuntimeFunction::Enum;
+#include "llvm/IR/OpenMPKinds.def"
+
+/// IDs for all omp runtime library ident_t flag encodings (see
+/// their defintion in openmp/runtime/src/kmp.h).
+enum class IdentFlag {
+#define OMP_IDENT_FLAG(Enum, Str, Value) Enum = Value,
+#include "llvm/IR/OpenMPKinds.def"
+  LLVM_MARK_AS_BITMASK_ENUM(0x7FFFFFFF)
+};
+
+#define OMP_IDENT_FLAG(Enum, ...) constexpr auto Enum = omp::IdentFlag::Enum;
 #include "llvm/IR/OpenMPKinds.def"
 
 /// Parse \p Str and return the directive it matches or OMPD_unknown if none.
