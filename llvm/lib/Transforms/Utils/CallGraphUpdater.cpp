@@ -44,6 +44,10 @@ bool CallGraphUpdater::finalize() {
              "References should have been handled by now");
       delete CG->removeFunctionFromModule(DeadCGN);
     }
+
+    // Register new functions after the SCC traversal is over.
+    for (Function *NewFn : NewFunctions)
+      CG->addToCallGraph(NewFn);
   } else {
     // This is the code path for the new lazy call graph and for the case were
     // no call graph was provided.
@@ -81,6 +85,7 @@ bool CallGraphUpdater::finalize() {
   bool Changed = !DeadFunctions.empty();
   DeadFunctionsInComdats.clear();
   DeadFunctions.clear();
+  NewFunctions.clear();
   return Changed;
 }
 
@@ -98,7 +103,7 @@ void CallGraphUpdater::reanalyzeFunction(Function &Fn) {
 
 void CallGraphUpdater::registerOutlinedFunction(Function &NewFn) {
   if (CG)
-    CG->addToCallGraph(&NewFn);
+    NewFunctions.push_back(&NewFn);
   else if (LCG)
     LCG->addNewFunctionIntoSCC(NewFn, *SCC);
 }

@@ -29,6 +29,7 @@ public:
   /// Create a new OpenMPIRBuilder operating on the given module \p M. This will
   /// not have an effect on \p M (see initialize).
   OpenMPIRBuilder(Module &M) : M(M), Builder(M.getContext()) {}
+  ~OpenMPIRBuilder() { finalize(); }
 
   /// Initialize the internal state, this will put structures types and
   /// potentially other helpers into the underlying module. Must be called

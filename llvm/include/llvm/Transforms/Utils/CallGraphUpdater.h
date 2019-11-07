@@ -35,8 +35,10 @@ class CallGraphUpdater {
   SmallPtrSet<Function *, 16> ReplacedFunctions;
   SmallVector<Function *, 16> DeadFunctions;
   SmallVector<Function *, 16> DeadFunctionsInComdats;
+  SmallVector<Function *, 16> NewFunctions;
   ///}
 
+public:
   /// Old PM variables
   ///{
   CallGraph *CG = nullptr;
@@ -51,7 +53,6 @@ class CallGraphUpdater {
   CGSCCUpdateResult *UR = nullptr;
   ///}
 
-public:
   CallGraphUpdater() {}
   ~CallGraphUpdater() { finalize(); }
 

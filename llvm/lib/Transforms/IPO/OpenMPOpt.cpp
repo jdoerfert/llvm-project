@@ -18,11 +18,16 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
+#include "llvm/Analysis/Loads.h"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
 
 using namespace llvm;
@@ -48,17 +53,42 @@ static constexpr auto TAG = "[" DEBUG_TYPE "]";
 #endif
 
 namespace {
+struct OpenMPOpt;
+
+template <typename T> using GetterTy = function_ref<T *(Function &)>;
+
+/// A helper class to introduce smart guarding code.
+struct GuardGenerator {
+  GuardGenerator(OpenMPOpt &OMPOpt) : OMPOpt(OMPOpt) {}
+
+  /// Inform the guard generator about the side-effect instructions collected in
+  /// \p SideEffectInsts.
+  ///
+  /// \returns True if all registered side-effects can be (efficiently) guarded.
+  bool registerSideEffects(const ArrayRef<Instruction *> &SideEffectInsts);
+
+  void introduceGuards() {
+    // TODO: The guard generator cannot introduce guards yet but the
+    //       registerSideEffects functions above is aware of that!
+  }
+
+private:
+  OpenMPOpt &OMPOpt;
+};
+
 struct OpenMPOpt {
 
   OpenMPOpt(SmallVectorImpl<Function *> &SCC,
             SmallPtrSetImpl<Function *> &ModuleSlice,
-            CallGraphUpdater &CGUpdater)
+            CallGraphUpdater &CGUpdater,
+            GetterTy<LoopInfo> LIGetter)
       : M(*(*SCC.begin())->getParent()), SCC(SCC), ModuleSlice(ModuleSlice),
-        OMPBuilder(M), CGUpdater(CGUpdater) {
+        OMPBuilder(M), CGUpdater(CGUpdater), LIGetter(LIGetter) {
     initializeTypes(M);
     initializeRuntimeFunctions();
     OMPBuilder.initialize();
   }
+  ~OpenMPOpt() { OMPBuilder.finalize(); }
 
   /// Generic information that describes a runtime function
   struct RuntimeFunctionInfo {
@@ -131,6 +161,12 @@ struct OpenMPOpt {
       }
     }
 
+    void forUsesInFunction(function_ref<bool(UseVector &Uses, Function &)> CB) {
+      for (auto &It : UsesMap)
+        if (It.first && It.second)
+        CB(*It.second, *It.first);
+    }
+
   private:
     /// Map from functions to all uses of this runtime function contained in
     /// them.
@@ -145,6 +181,7 @@ struct OpenMPOpt {
                       << " functions in a slice with " << ModuleSlice.size()
                       << " functions\n");
 
+    Changed |= expandParallelRegions();
     Changed |= deduplicateRuntimeCalls();
     Changed |= deleteParallelRegions();
 
@@ -183,6 +220,171 @@ private:
     };
 
     RFI.foreachUse(DeleteCallCB);
+
+    return Changed;
+  }
+
+  /// Try to expand parallel regions if possible
+  bool expandParallelRegions() {
+    const unsigned CallbackCalleeOperand = 2;
+    const unsigned CallbackFirstArgOperand = 3;
+    using InsertPointTy = OpenMPIRBuilder::InsertPointTy;
+
+    // Check if we have any __kmpc_fork_call calls that can be expanded.
+    RuntimeFunctionInfo &RFI = RFIs[OMPRTL___kmpc_fork_call];
+    if (!RFI.Declaration)
+      return false;
+
+    LoopInfo *LI = nullptr;
+    DominatorTree *DT = nullptr;
+
+    BasicBlock *EndBB, *StartBB;
+    auto BodyGenCB = [&](InsertPointTy AllocaIP, InsertPointTy CodeGenIP,
+                         BasicBlock &ContinuationIP) {
+      BasicBlock *CGStartBB = CodeGenIP.getBlock();
+      BasicBlock *CGEndBB =
+          SplitBlock(CGStartBB, &*CodeGenIP.getPoint(), DT, LI);
+      CGStartBB->getTerminator()->setSuccessor(0, StartBB);
+      EndBB->getTerminator()->setSuccessor(0, CGEndBB);
+    };
+
+    auto PrivCB = [&](InsertPointTy AllocaIP, InsertPointTy CodeGenIP,
+                      Value &VPtr, Value *&ReplacementValue) -> InsertPointTy {
+      ReplacementValue = &VPtr;
+      return CodeGenIP;
+    };
+
+    auto FiniCB = [&](InsertPointTy CodeGenIP) {
+    };
+
+    // Helper to merge the __kmpc_fork_call calls in MergableCIs. They are all
+    // contained in BB and only separated by instruction that can be redundantly
+    // executed or guarded by the GuardGenerator GG. The block BB is split
+    // before the first call (in MergableCIs) and after the last so the entire
+    // region we merge into a single parallel region is contained in a single
+    // basic block without any other instructions. We use the OpenMPIRBuilder to
+    // outline hat block and call the resulting function via __kmpc_fork_call.
+    auto Merge = [&](SmallVectorImpl<CallInst *> &MergableCIs, BasicBlock *BB) {
+      // TODO: Change the interface to allow single CIs expanded, e.g, to
+      // include an outer loop.
+      assert(MergableCIs.size() > 1 && "Assumed multiple mergable CIs");
+
+      Function *OriginalFn = BB->getParent();
+      LLVM_DEBUG(dbgs() << TAG << "Merge " << MergableCIs.size()
+                        << " parallel regions in " << OriginalFn->getName()
+                        << "\n");
+
+      // Isolate the calls we merge in a separate blocks.
+      EndBB = SplitBlock(BB, MergableCIs.back()->getNextNode(), DT, LI);
+      BasicBlock *AfterBB =
+          SplitBlock(EndBB, &*EndBB->getFirstInsertionPt(), DT, LI);
+      StartBB =
+          SplitBlock(BB, MergableCIs.front(), DT, LI, nullptr, "ext_omp_pr");
+
+      (void)StartBB;
+      assert(BB->getUniqueSuccessor() == StartBB && "Expected a different CFG");
+      const DebugLoc DL = BB->getTerminator()->getDebugLoc();
+      BB->getTerminator()->eraseFromParent();
+
+      OpenMPIRBuilder::LocationDescription Loc(InsertPointTy(BB, BB->end()),
+                                               DL);
+      // TODO: Verify proc bind matches and use the value.
+      // TODO: Check is cancellable flag
+      InsertPointTy AfterIP = OMPBuilder.CreateParallel(
+          Loc, BodyGenCB, PrivCB, FiniCB, nullptr, nullptr,
+          OMP_PROC_BIND_default, /* IsCancellable */ false);
+      BranchInst::Create(AfterBB, AfterIP.getBlock());
+
+      // Perform the actual outlining.
+      OMPBuilder.finalize();
+
+      Function *OutlinedFn = MergableCIs.front()->getCaller();
+
+      // Replace the __kmpc_fork_call calls we outlined with direct calls.
+      SmallVector<Value *, 8> Args;
+      for (auto *CI : MergableCIs) {
+        Value *Callee =
+            CI->getArgOperand(CallbackCalleeOperand)->stripPointerCasts();
+        FunctionType *FT=
+            cast<FunctionType>(Callee->getType()->getPointerElementType());
+        Args.clear();
+        Args.push_back(OutlinedFn->getArg(0));
+        Args.push_back(OutlinedFn->getArg(1));
+        for (unsigned u = CallbackFirstArgOperand,
+                      e = CI->getNumArgOperands();
+             u < e; ++u)
+          Args.push_back(CI->getArgOperand(u));
+        // TODO: We need to erase the old call uses from `Uses` vector passed to
+        // Expand and add the uses of the new calls. This will cause crashes!
+        CallInst::Create(FT, Callee, Args, "", CI);
+
+        // Make the implicit barrier explicit.
+        OMPBuilder.CreateBarrier(Loc, OMPD_parallel);
+        CI->eraseFromParent();
+      }
+
+      CGUpdater.registerOutlinedFunction(*OutlinedFn);
+      CGUpdater.reanalyzeFunction(*OriginalFn);
+      assert(OutlinedFn != OriginalFn && "Outlining failed");
+
+      return true;
+    };
+
+    SmallDenseMap<BasicBlock *, SmallPtrSet<Instruction *, 4>> BB2PRMap;
+    bool Changed = false;
+
+    // Helper function that performs the following steps:
+    //  - identify sequences of __kmpc_fork_call uses in a basic block without
+    //    intermediate instructions that cannot be guarded.
+    //  - merge the __kmpc_fork_call calls using the Merge helper.
+    auto Expand = [&](RuntimeFunctionInfo::UseVector &Uses, Function &Fn) {
+      BB2PRMap.clear();
+
+      for (Use *U : Uses) {
+        CallInst *CI = getCallIfRegularCall(*U, &RFI);
+        BB2PRMap[CI->getParent()].insert(CI);
+      }
+      LLVM_DEBUG(dbgs() << TAG << "Found parallel regions in "
+                        << BB2PRMap.size() << " blocks in " << Fn.getName()
+                        << "\n");
+
+      GuardGenerator GG(*this);
+      SmallVector<SmallVector<CallInst *, 4>, 4> MergableCIsStack;
+      SmallVector<CallInst *, 4> MergableCIs;
+
+      for (auto &It : BB2PRMap) {
+        auto &CIs = It.getSecond();
+        if (CIs.size() < 2)
+          continue;
+
+        LLVM_DEBUG(dbgs() << TAG << "Try to expand " << CIs.size()
+                          << " parallel regions in " << Fn.getName() << "\n");
+
+        BasicBlock *BB = It.getFirst();
+        for (Instruction &I : *BB) {
+          if (CIs.count(&I)) {
+            MergableCIs.push_back(cast<CallInst>(&I));
+            continue;
+          }
+          if (isSafeToSpeculativelyExecute(&I, &I, DT))
+            continue;
+          if (GG.registerSideEffects({&I}))
+            continue;
+          if (MergableCIs.size() > 1)
+            MergableCIsStack.push_back(MergableCIs);
+          MergableCIs.clear();
+        }
+        if (MergableCIs.size() > 1)
+          Changed |= Merge(MergableCIs, BB);
+        for (auto &MergableCIs : MergableCIsStack)
+          Changed |= Merge(MergableCIs, BB);
+      }
+      return Changed;
+    };
+
+    // We expand on a per-function bases. Actually, we are currently limited to
+    // a per-block basis but that will eventually change.
+    RFI.forUsesInFunction(Expand);
 
     return Changed;
   }
@@ -522,11 +724,41 @@ private:
   /// the second an optional replacement call.
   CallGraphUpdater &CGUpdater;
 
+  /// Getter to get loop information for a function.
+  GetterTy<LoopInfo> LIGetter;
+
   /// Map from runtime function kind to the runtime function description.
   EnumeratedArray<RuntimeFunctionInfo, RuntimeFunction,
                   RuntimeFunction::OMPRTL___last>
       RFIs;
 };
+
+bool GuardGenerator::registerSideEffects(
+    const ArrayRef<Instruction *> &SideEffectInsts) {
+  if (SideEffectInsts.empty())
+    return true;
+
+  const Module &M = *SideEffectInsts.front()->getModule();
+  const DataLayout &DL = M.getDataLayout();
+
+  SmallVector<Instruction *, 16> UnguardedSideEffectInst;
+  for (Instruction *I : SideEffectInsts) {
+    if (CallInst *CI = dyn_cast<CallInst>(I)) {
+      // TODO: filter callees we can guard.
+    } else if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
+      // TODO: filter stores we can guard.
+    } else if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
+      if (isSafeToLoadUnconditionally(LI->getPointerOperand(), LI->getType(),
+                                      MaybeAlign(LI->getAlignment()), DL))
+        continue;
+    }
+    LLVM_DEBUG(dbgs() << TAG << "Unguarded side-effect: " << *I << "\n");
+    UnguardedSideEffectInst.push_back(I);
+  }
+
+  return UnguardedSideEffectInst.empty();
+}
+
 } // namespace
 
 PreservedAnalyses OpenMPOptPass::run(LazyCallGraph::SCC &C,
@@ -550,8 +782,15 @@ PreservedAnalyses OpenMPOptPass::run(LazyCallGraph::SCC &C,
 
   CallGraphUpdater CGUpdater;
   CGUpdater.initialize(CG, C, AM, UR);
+
+  FunctionAnalysisManager &FAM =
+      AM.getResult<FunctionAnalysisManagerCGSCCProxy>(C, CG).getManager();
+  auto LIGetter = [&](Function &F) -> LoopInfo * {
+    return &FAM.getResult<LoopAnalysis>(F);
+  };
+
   // TODO: Compute the module slice we are allowed to look at.
-  OpenMPOpt OMPOpt(SCC, ModuleSlice, CGUpdater);
+  OpenMPOpt OMPOpt(SCC, ModuleSlice, CGUpdater, LIGetter);
   bool Changed = OMPOpt.run();
   (void)Changed;
   return PreservedAnalyses::all();
@@ -599,8 +838,9 @@ struct OpenMPOptLegacyPass : public CallGraphSCCPass {
     CallGraph &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
     CGUpdater.initialize(CG, CGSCC);
 
-    // TODO: Compute the module slice we are allowed to look at.
-    OpenMPOpt OMPOpt(SCC, ModuleSlice, CGUpdater);
+    auto LIGetter = [&](Function &F) -> LoopInfo * { return nullptr; };
+
+    OpenMPOpt OMPOpt(SCC, ModuleSlice, CGUpdater, LIGetter);
     return OMPOpt.run();
   }
 
