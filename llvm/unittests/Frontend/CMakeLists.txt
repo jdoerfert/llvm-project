@@ -4,6 +4,7 @@ set(LLVM_LINK_COMPONENTS
   Frontend
   Support
   Passes
+  TransformUtils
   )
 
 add_llvm_unittest(LLVMFrontendTests

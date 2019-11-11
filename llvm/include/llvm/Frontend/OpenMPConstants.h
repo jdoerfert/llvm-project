@@ -49,6 +49,16 @@ enum class RuntimeFunction {
 #define OMP_RTL(Enum, ...) constexpr auto Enum = omp::RuntimeFunction::Enum;
 #include "llvm/Frontend/OpenMPKinds.def"
 
+/// IDs for the different proc bind kinds.
+enum class ProcBindKind {
+#define OMP_PROC_BIND_KIND(Enum, Str, Value) Enum = Value,
+#include "llvm/Frontend/OpenMPKinds.def"
+};
+
+#define OMP_PROC_BIND_KIND(Enum, ...)                                          \
+  constexpr auto Enum = omp::ProcBindKind::Enum;
+#include "llvm/Frontend/OpenMPKinds.def"
+
 /// IDs for all omp runtime library ident_t flag encodings (see
 /// their defintion in openmp/runtime/src/kmp.h).
 enum class IdentFlag {
