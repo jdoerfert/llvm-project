@@ -1462,10 +1462,50 @@ static llvm::Function *emitParallelOrTeamsOutlinedFunction(
   else if (const auto *OPFD =
                dyn_cast<OMPTargetTeamsDistributeParallelForDirective>(&D))
     HasCancel = OPFD->hasCancel();
+
+  // TODO: Temporarily inform the OpenMPIRBuilder, if any, about the new
+  //       parallel region to make cancellation barriers work properly.
+  llvm::OpenMPIRBuilder *OMPBuilder = CGM.getOpenMPIRBuilder();
+  if (OMPBuilder) {
+
+    // The following callback is the crucial part of clangs cleanup process.
+    //
+    // NOTE:
+    // Once the OpenMPIRBuilder is used to create parallel regions (and
+    // similar), the cancellation destination (Dest below) is determined via
+    // IP. That means if we have variables to finalize we split the block at IP,
+    // use the new block (=BB) as destination to build a JumpDest (via
+    // getJumpDestInCurrentScope(BB)) which then is fed to
+    // EmitBranchThroughCleanup. Furhtermore, there will not be the need
+    // to push & pop an FinalizationInfo object.
+    // The FiniCB will still be needed otherwise but at the point where the
+    // OpenMPIRBuilder is asked to construct a parallel (or similar) construct.
+    auto FiniCB = [&CGF](llvm::OpenMPIRBuilder::InsertPointTy IP) {
+      assert(IP.getBlock()->end() == IP.getPoint() &&
+             "Clang CG should cause non-terminated block!");
+      CGBuilderTy::InsertPointGuard IPG(CGF.Builder);
+      CodeGenFunction::JumpDest Dest =
+          CGF.getOMPCancelDestination(OMPD_parallel);
+      CGF.EmitBranchThroughCleanup(Dest);
+    };
+
+    // TODO: Remove this once we emit parallel regions through the
+    //       OpenMPIRBuilder as it can do this setup internally.
+    llvm::OpenMPIRBuilder::FinalizationInfo FI(
+        {FiniCB, OMPD_parallel, HasCancel});
+    OMPBuilder->pushFinalizationCB(std::move(FI));
+  }
+
   CGOpenMPOutlinedRegionInfo CGInfo(*CS, ThreadIDVar, CodeGen, InnermostKind,
                                     HasCancel, OutlinedHelperName);
   CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGInfo);
-  return CGF.GenerateOpenMPCapturedStmtFunction(*CS);
+  llvm::Function *Fn = CGF.GenerateOpenMPCapturedStmtFunction(*CS);
+
+  // TODO: See the TODOs above.
+  if (OMPBuilder)
+    OMPBuilder->popFinalizationCB();
+
+  return Fn;
 }
 
 llvm::Function *CGOpenMPRuntime::emitParallelOutlinedFunction(
@@ -3483,21 +3523,8 @@ void CGOpenMPRuntime::emitBarrierCall(CodeGenFunction &CGF, SourceLocation Loc,
       dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo);
   llvm::OpenMPIRBuilder *OMPBuilder = CGF.CGM.getOpenMPIRBuilder();
   if (OMPBuilder) {
-    // TODO: Move cancelation point handling into the IRBuilder.
-    if (EmitChecks && !ForceSimpleCall && OMPRegionInfo &&
-        OMPRegionInfo->hasCancel()) {
-      CGBuilderTy::InsertPointGuard IPG(CGF.Builder);
-      llvm::BasicBlock *ExitBB =
-          CGF.createBasicBlock(".cancel.exit", IP.getBlock()->getParent());
-      OMPBuilder->setCancellationBlock(ExitBB);
-      CGF.Builder.SetInsertPoint(ExitBB);
-      CodeGenFunction::JumpDest CancelDestination =
-          CGF.getOMPCancelDestination(OMPRegionInfo->getDirectiveKind());
-      CGF.EmitBranchThroughCleanup(CancelDestination);
-    }
-    auto IP = OMPBuilder->CreateBarrier(CGF.Builder, Kind, ForceSimpleCall,
-                                        EmitChecks);
-    CGF.Builder.restoreIP(IP);
+    CGF.Builder.restoreIP(OMPBuilder->CreateBarrier(
+        CGF.Builder, Kind, ForceSimpleCall, EmitChecks));
     return;
   }
 
