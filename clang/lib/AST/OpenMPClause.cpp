@@ -1211,7 +1211,8 @@ void OMPClausePrinter::VisitOMPDefaultClause(OMPDefaultClause *Node) {
 
 void OMPClausePrinter::VisitOMPProcBindClause(OMPProcBindClause *Node) {
   OS << "proc_bind("
-     << getOpenMPSimpleClauseTypeName(OMPC_proc_bind, Node->getProcBindKind())
+     << getOpenMPSimpleClauseTypeName(OMPC_proc_bind,
+                                      unsigned(Node->getProcBindKind()))
      << ")";
 }
 

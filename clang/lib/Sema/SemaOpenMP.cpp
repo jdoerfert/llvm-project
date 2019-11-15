@@ -11466,9 +11466,8 @@ OMPClause *Sema::ActOnOpenMPSimpleClause(
                                  ArgumentLoc, StartLoc, LParenLoc, EndLoc);
     break;
   case OMPC_proc_bind:
-    Res = ActOnOpenMPProcBindClause(
-        static_cast<OpenMPProcBindClauseKind>(Argument), ArgumentLoc, StartLoc,
-        LParenLoc, EndLoc);
+    Res = ActOnOpenMPProcBindClause(static_cast<ProcBindKind>(Argument),
+                                    ArgumentLoc, StartLoc, LParenLoc, EndLoc);
     break;
   case OMPC_atomic_default_mem_order:
     Res = ActOnOpenMPAtomicDefaultMemOrderClause(
@@ -11588,15 +11587,16 @@ OMPClause *Sema::ActOnOpenMPDefaultClause(OpenMPDefaultClauseKind Kind,
       OMPDefaultClause(Kind, KindKwLoc, StartLoc, LParenLoc, EndLoc);
 }
 
-OMPClause *Sema::ActOnOpenMPProcBindClause(OpenMPProcBindClauseKind Kind,
+OMPClause *Sema::ActOnOpenMPProcBindClause(ProcBindKind Kind,
                                            SourceLocation KindKwLoc,
                                            SourceLocation StartLoc,
                                            SourceLocation LParenLoc,
                                            SourceLocation EndLoc) {
-  if (Kind == OMPC_PROC_BIND_unknown) {
+  if (Kind == OMP_PB_unknown) {
     Diag(KindKwLoc, diag::err_omp_unexpected_clause_value)
-        << getListOfPossibleValues(OMPC_proc_bind, /*First=*/0,
-                                   /*Last=*/OMPC_PROC_BIND_unknown)
+        << getListOfPossibleValues(OMPC_proc_bind,
+                                   /*First=*/unsigned(OMP_PB_master),
+                                   /*Last=*/unsigned(OMP_PB_spread))
         << getOpenMPClauseName(OMPC_proc_bind);
     return nullptr;
   }
