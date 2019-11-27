@@ -20,6 +20,8 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/CallGraphSCCPass.h"
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/GlobalsModRef.h"
@@ -36,6 +38,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/CallGraphUpdater.h"
 #include "llvm/Transforms/Utils/Local.h"
 
 #include <cassert>
@@ -153,6 +156,17 @@ ChangeStatus llvm::operator&(ChangeStatus l, ChangeStatus r) {
   return l == ChangeStatus::UNCHANGED ? l : r;
 }
 ///}
+
+static void replaceAllUsesWith(Value &Old, Value &New) {
+  if (!isa<CallBase>(Old))
+    return Old.replaceAllUsesWith(&New);
+  SmallVector<Use *, 8> Uses;
+  for (Use &U : Old.uses())
+    if (isa<Instruction>(U.getUser()))
+      Uses.push_back(&U);
+  for (Use *U : Uses)
+    U->set(&New);
+}
 
 /// Recursively visit all values that might become \p IRP at some point. This
 /// will be done by looking through cast instructions, selects, phis, and calls
@@ -985,7 +999,7 @@ ChangeStatus AAReturnedValuesImpl::manifest(Attributor &A) {
   auto ReplaceCallSiteUsersWith = [](CallBase &CB, Constant &C) {
     if (CB.getNumUses() == 0 || CB.isMustTailCall())
       return ChangeStatus::UNCHANGED;
-    CB.replaceAllUsesWith(&C);
+    replaceAllUsesWith(CB, C);
     return ChangeStatus::CHANGED;
   };
 
@@ -2551,7 +2565,7 @@ struct AAIsDeadFunction : public AAIsDead {
               CallInst *CI = createCallMatchingInvoke(II);
               CI->insertBefore(II);
               CI->takeName(II);
-              II->replaceAllUsesWith(CI);
+              replaceAllUsesWith(*II, *CI);
 
               // If this is a nounwind + mayreturn invoke we only remove the unwind edge.
               // This is done by moving the invoke into a new and dead block and connecting
@@ -3927,7 +3941,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       if (!V.user_empty() && &V != C && V.getType() == C->getType()) {
         LLVM_DEBUG(dbgs() << "[Attributor][ValueSimplify] " << V << " -> " << *C
                           << "\n");
-        V.replaceAllUsesWith(C);
+        replaceAllUsesWith(V, *C);
         Changed = ChangeStatus::CHANGED;
       }
     }
@@ -4167,7 +4181,7 @@ struct AAHeapToStackImpl : public AAHeapToStack {
         AI = new BitCastInst(AI, MallocCall->getType(), "malloc_bc",
                              AI->getNextNode());
 
-      MallocCall->replaceAllUsesWith(AI);
+      replaceAllUsesWith(*MallocCall, *AI);
 
       if (auto *II = dyn_cast<InvokeInst>(MallocCall)) {
         auto *NBB = II->getNormalDest();
@@ -4820,7 +4834,7 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
 bool Attributor::isAssumedDead(const AbstractAttribute &AA,
                                const AAIsDead *LivenessAA) {
   const Instruction *CtxI = AA.getIRPosition().getCtxI();
-  if (!CtxI)
+  if (!CtxI || !Functions.count(const_cast<Function *>(CtxI->getFunction())))
     return false;
 
   // TODO: Find a good way to utilize fine and coarse grained liveness
@@ -5100,7 +5114,7 @@ bool Attributor::checkForAllReadWriteInstructions(
   return true;
 }
 
-ChangeStatus Attributor::run(Module &M) {
+ChangeStatus Attributor::run() {
   LLVM_DEBUG(dbgs() << "[Attributor] Identified and initialized "
                     << AllAbstractAttributes.size()
                     << " abstract attributes.\n");
@@ -5285,9 +5299,13 @@ ChangeStatus Attributor::run(Module &M) {
   NumAttributesValidFixpoint += NumAtFixpoint;
 
   (void)NumFinalAAs;
-  assert(
-      NumFinalAAs == AllAbstractAttributes.size() &&
-      "Expected the final number of abstract attributes to remain unchanged!");
+  assert(NumFinalAAs == AllAbstractAttributes.size() &&
+         "Expected the final number of abstract attributes to remain "
+         "unchanged!");
+
+  // Set of functions for which we modified the content such that it might
+  // impact the call graph.
+  SmallPtrSet<Function *, 8> CGModifiedFunctions;
 
   // Delete stuff at the end to avoid invalid references and a nice order.
   {
@@ -5308,11 +5326,12 @@ ChangeStatus Attributor::run(Module &M) {
       LLVM_DEBUG(dbgs() << "Use " << *NewV << " in " << *U->getUser()
                         << " instead of " << *OldV << "\n");
       U->set(NewV);
-      if (Instruction *I = dyn_cast<Instruction>(OldV))
+      if (Instruction *I = dyn_cast<Instruction>(OldV)) {
+        CGModifiedFunctions.insert(I->getFunction());
         if (!isa<PHINode>(I) && !ToBeDeletedInsts.count(I) &&
-            isInstructionTriviallyDead(I)) {
+            isInstructionTriviallyDead(I))
           DeadInsts.push_back(I);
-        }
+      }
       if (isa<Constant>(NewV) && isa<BranchInst>(U->getUser())) {
         Instruction *UserI = cast<Instruction>(U->getUser());
         if (isa<UndefValue>(NewV)) {
@@ -5322,12 +5341,17 @@ ChangeStatus Attributor::run(Module &M) {
         }
       }
     }
-    for (Instruction *I : UnreachablesToInsert)
+    for (Instruction *I : UnreachablesToInsert) {
+      CGModifiedFunctions.insert(I->getFunction());
       changeToUnreachable(I, /* UseLLVMTrap */ false);
-    for (Instruction *I : TerminatorsToFold)
+    }
+    for (Instruction *I : TerminatorsToFold) {
+      CGModifiedFunctions.insert(I->getFunction());
       ConstantFoldTerminator(I->getParent());
+    }
 
     for (Instruction *I : ToBeDeletedInsts) {
+      CGModifiedFunctions.insert(I->getFunction());
       I->replaceAllUsesWith(UndefValue::get(I->getType()));
       if (!isa<PHINode>(I) && isInstructionTriviallyDead(I))
         DeadInsts.push_back(I);
@@ -5340,7 +5364,10 @@ ChangeStatus Attributor::run(Module &M) {
     if (unsigned NumDeadBlocks = ToBeDeletedBlocks.size()) {
       SmallVector<BasicBlock *, 8> ToBeDeletedBBs;
       ToBeDeletedBBs.reserve(NumDeadBlocks);
-      ToBeDeletedBBs.append(ToBeDeletedBlocks.begin(), ToBeDeletedBlocks.end());
+      for (BasicBlock *BB : ToBeDeletedBlocks) {
+        CGModifiedFunctions.insert(BB->getParent());
+        ToBeDeletedBBs.push_back(BB);
+      }
       // Actually we do not delete the blocks but squash them into a single
       // unreachable but untangling branches that jump here is something we need
       // to do in a more generic way.
@@ -5352,6 +5379,7 @@ ChangeStatus Attributor::run(Module &M) {
     STATS_DECL(AAIsDead, Function, "Number of dead functions deleted.");
     for (Function *Fn : ToBeDeletedFunctions) {
       Fn->replaceAllUsesWith(UndefValue::get(Fn->getType()));
+      CGUpdater.removeFunction(*Fn);
       Fn->eraseFromParent();
       STATS_TRACK(AAIsDead, Function);
     }
@@ -5361,9 +5389,9 @@ ChangeStatus Attributor::run(Module &M) {
     // as live to lower the number of iterations. If they happen to be dead, the
     // below fixpoint loop will identify and eliminate them.
     SmallVector<Function *, 8> InternalFns;
-    for (Function &F : M)
-      if (F.hasLocalLinkage())
-        InternalFns.push_back(&F);
+    for (Function *F : Functions)
+      if (F->hasLocalLinkage())
+        InternalFns.push_back(F);
 
     bool FoundDeadFn = true;
     while (FoundDeadFn) {
@@ -5381,6 +5409,7 @@ ChangeStatus Attributor::run(Module &M) {
         ToBeDeletedFunctions.insert(F);
         F->deleteBody();
         F->replaceAllUsesWith(UndefValue::get(F->getType()));
+        CGUpdater.removeFunction(*F);
         F->eraseFromParent();
         InternalFns[u] = nullptr;
         FoundDeadFn = true;
@@ -5396,6 +5425,9 @@ ChangeStatus Attributor::run(Module &M) {
     llvm_unreachable("The fixpoint was not reached with exactly the number of "
                      "specified iterations!");
   }
+
+  for (Function *Fn : CGModifiedFunctions)
+    CGUpdater.reanalyzeFunction(*Fn);
 
   return ManifestChange;
 }
@@ -5692,48 +5724,86 @@ void AbstractAttribute::print(raw_ostream &OS) const {
 ///                       Pass (Manager) Boilerplate
 /// ----------------------------------------------------------------------------
 
-static bool runAttributorOnModule(Module &M, AnalysisGetter &AG) {
-  if (DisableAttributor)
+static bool runAttributorOnFunctions(InformationCache &InfoCache,
+                                     SetVector<Function *> &Functions,
+                                     AnalysisGetter &AG,
+                                     CallGraphUpdater &CGUpdater) {
+  if (DisableAttributor || Functions.empty())
     return false;
 
-  LLVM_DEBUG(dbgs() << "[Attributor] Run on module with " << M.size()
+  LLVM_DEBUG(dbgs() << "[Attributor] Run on module with " << Functions.size()
                     << " functions.\n");
 
   // Create an Attributor and initially empty information cache that is filled
   // while we identify default attribute opportunities.
-  InformationCache InfoCache(M, AG);
-  Attributor A(InfoCache, DepRecInterval);
+  Attributor A(Functions, InfoCache, CGUpdater, DepRecInterval);
 
-  for (Function &F : M)
-    A.initializeInformationCache(F);
+  for (Function *F : Functions)
+    A.initializeInformationCache(*F);
 
-  for (Function &F : M) {
-    if (F.hasExactDefinition())
+  for (Function *F : Functions) {
+    if (F->hasExactDefinition())
       NumFnWithExactDefinition++;
     else
       NumFnWithoutExactDefinition++;
 
     // We look at internal functions only on-demand but if any use is not a
-    // direct call, we have to do it eagerly.
-    if (F.hasLocalLinkage()) {
-      if (llvm::all_of(F.uses(), [](const Use &U) {
-            return ImmutableCallSite(U.getUser()) &&
-                   ImmutableCallSite(U.getUser()).isCallee(&U);
+    // direct call or outside the current set of analyzed functions, we have to
+    // do it eagerly.
+    if (F->hasLocalLinkage()) {
+      if (llvm::all_of(F->uses(), [&Functions](const Use &U) {
+            ImmutableCallSite ICS(U.getUser());
+            return ICS && ICS.isCallee(&U) &&
+                   Functions.count(const_cast<Function *>(ICS.getCaller()));
           }))
         continue;
     }
 
     // Populate the Attributor with abstract attribute opportunities in the
     // function and the information cache with IR information.
-    A.identifyDefaultAbstractAttributes(F);
+    A.identifyDefaultAbstractAttributes(*F);
   }
 
-  return A.run(M) == ChangeStatus::CHANGED;
+  return A.run() == ChangeStatus::CHANGED;
 }
 
 PreservedAnalyses AttributorPass::run(Module &M, ModuleAnalysisManager &AM) {
-  AnalysisGetter AG(AM);
-  if (runAttributorOnModule(M, AG)) {
+  FunctionAnalysisManager &FAM =
+      AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  AnalysisGetter AG(FAM);
+
+  SetVector<Function *> Functions;
+  for (Function &F : M)
+    Functions.insert(&F);
+
+  CallGraphUpdater CGUpdater;
+  InformationCache InfoCache(M, AG, /* CGSCC */ nullptr);
+  if (runAttributorOnFunctions(InfoCache, Functions, AG, CGUpdater)) {
+    // FIXME: Think about passes we will preserve and add them here.
+    return PreservedAnalyses::none();
+  }
+  return PreservedAnalyses::all();
+}
+
+PreservedAnalyses AttributorCGSCCPass::run(LazyCallGraph::SCC &C,
+                                           CGSCCAnalysisManager &AM,
+                                           LazyCallGraph &CG,
+                                           CGSCCUpdateResult &UR) {
+  FunctionAnalysisManager &FAM =
+      AM.getResult<FunctionAnalysisManagerCGSCCProxy>(C, CG).getManager();
+  AnalysisGetter AG(FAM);
+
+  SetVector<Function *> Functions;
+  for (LazyCallGraph::Node &N : C)
+    Functions.insert(&N.getFunction());
+
+  if (Functions.empty())
+    return PreservedAnalyses::all();
+
+  Module &M = *Functions.back()->getParent();
+  CallGraphUpdater CGUpdater(CG, AM, UR);
+  InformationCache InfoCache(M, AG, /* CGSCC */ &Functions);
+  if (runAttributorOnFunctions(InfoCache, Functions, AG, CGUpdater)) {
     // FIXME: Think about passes we will preserve and add them here.
     return PreservedAnalyses::none();
   }
@@ -5754,7 +5824,13 @@ struct AttributorLegacyPass : public ModulePass {
       return false;
 
     AnalysisGetter AG;
-    return runAttributorOnModule(M, AG);
+    SetVector<Function *> Functions;
+    for (Function &F : M)
+      Functions.insert(&F);
+
+    CallGraphUpdater CGUpdater;
+    InformationCache InfoCache(M, AG, /* CGSCC */ nullptr);
+    return runAttributorOnFunctions(InfoCache, Functions, AG, CGUpdater);
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -5763,11 +5839,50 @@ struct AttributorLegacyPass : public ModulePass {
   }
 };
 
+struct AttributorCGSCCLegacyPass : public CallGraphSCCPass {
+  static char ID;
+
+  AttributorCGSCCLegacyPass() : CallGraphSCCPass(ID) {
+    initializeAttributorCGSCCLegacyPassPass(*PassRegistry::getPassRegistry());
+  }
+
+  bool runOnSCC(CallGraphSCC &SCC) override {
+    if (skipSCC(SCC))
+      return false;
+
+    SetVector<Function *> Functions;
+    for (CallGraphNode *CGN : SCC)
+      if (Function *Fn = CGN->getFunction())
+        if (!Fn->isDeclaration())
+          Functions.insert(Fn);
+
+    if (Functions.empty())
+      return false;
+
+    AnalysisGetter AG;
+    CallGraph &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
+    CallGraphUpdater CGUpdater(CG);
+    Module &M = *Functions.back()->getParent();
+    InformationCache InfoCache(M, AG, /* CGSCC */ &Functions);
+    return runAttributorOnFunctions(InfoCache, Functions, AG, CGUpdater);
+  }
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    // FIXME: Think about passes we will preserve and add them here.
+    AU.addRequired<TargetLibraryInfoWrapperPass>();
+    CallGraphSCCPass::getAnalysisUsage(AU);
+  }
+};
+
 } // end anonymous namespace
 
 Pass *llvm::createAttributorLegacyPass() { return new AttributorLegacyPass(); }
+Pass *llvm::createAttributorCGSCCLegacyPass() {
+  return new AttributorCGSCCLegacyPass();
+}
 
 char AttributorLegacyPass::ID = 0;
+char AttributorCGSCCLegacyPass::ID = 0;
 
 const char AAReturnedValues::ID = 0;
 const char AANoUnwind::ID = 0;
@@ -5914,3 +6029,11 @@ INITIALIZE_PASS_BEGIN(AttributorLegacyPass, "attributor",
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
 INITIALIZE_PASS_END(AttributorLegacyPass, "attributor",
                     "Deduce and propagate attributes", false, false)
+INITIALIZE_PASS_BEGIN(AttributorCGSCCLegacyPass, "attributor-cgscc",
+                      "Deduce and propagate attributes (CG-SCC pass)", false,
+                      false)
+INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(CallGraphWrapperPass)
+INITIALIZE_PASS_END(AttributorCGSCCLegacyPass, "attributor-cgscc",
+                    "Deduce and propagate attributes (CG-SCC pass)", false,
+                    false)

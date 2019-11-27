@@ -1,4 +1,5 @@
-; RUN: opt -passes=attributor --attributor-disable=false -attributor-max-iterations-verify -attributor-annotate-decl-cs -attributor-max-iterations=2 -S < %s | FileCheck %s --check-prefixes=ATTRIBUTOR
+; RUN: opt -attributor-cgscc --attributor-disable=false -attributor-annotate-decl-cs -S < %s | FileCheck %s --check-prefixes=ATTRIBUTOR
+; RUN: opt -passes=attributor-cgscc --attributor-disable=false -attributor-annotate-decl-cs -S < %s | FileCheck %s --check-prefixes=ATTRIBUTOR,ATTRIBUTOR_NPM
 ; Copied from Transforms/FunctoinAttrs/norecurse.ll
 
 ; ATTRIBUTOR: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -136,8 +137,8 @@ define i32 @eval_func2(i32 (i32)* , i32) local_unnamed_addr "null-pointer-is-val
 
 declare void @unknown()
 ; Call an unknown function in a dead block.
-; ATTRIBUTOR: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; ATTRIBUTOR: define i32 @call_unknown_in_dead_block()
+; ATTRIBUTOR_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; ATTRIBUTOR_NPM: define i32 @call_unknown_in_dead_block()
 define i32 @call_unknown_in_dead_block() local_unnamed_addr {
   ret i32 0
 Dead:
