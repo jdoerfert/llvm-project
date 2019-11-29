@@ -61,6 +61,7 @@
 
 namespace llvm {
 
+class CallGraphUpdater;
 class CallGraphNode;
 class Module;
 class raw_ostream;
@@ -71,6 +72,8 @@ class raw_ostream;
 ///
 /// The core call graph itself can also be updated to reflect changes to the IR.
 class CallGraph {
+  friend class CallGraphUpdater;
+
   Module &M;
 
   using FunctionMapTy =
