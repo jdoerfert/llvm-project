@@ -61,6 +61,7 @@
 
 namespace llvm {
 
+class CallGraphUpdater;
 class CallGraphNode;
 class Module;
 class raw_ostream;
@@ -71,6 +72,8 @@ class raw_ostream;
 ///
 /// The core call graph itself can also be updated to reflect changes to the IR.
 class CallGraph {
+  friend class CallGraphUpdater;
+
   Module &M;
 
   using FunctionMapTy =
@@ -155,6 +158,9 @@ public:
   /// Similar to operator[], but this will insert a new CallGraphNode for
   /// \c F if one does not already exist.
   CallGraphNode *getOrInsertFunction(const Function *F);
+
+  /// Populate \p F based on the calls inside the associated function
+  void populateCallGraphNode(CallGraphNode *CGN);
 };
 
 /// A node in the call graph for a module.

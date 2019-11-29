@@ -110,6 +110,8 @@ class Value;
 /// it from the existing CallGraph. At some point, it is expected that this
 /// will be the only call graph and it will be renamed accordingly.
 class LazyCallGraph {
+  friend class CallGraphUpdater;
+
 public:
   class Node;
   class EdgeSequence;
@@ -327,6 +329,7 @@ public:
   class Node {
     friend class LazyCallGraph;
     friend class LazyCallGraph::RefSCC;
+    friend class CallGraphUpdater;
 
   public:
     LazyCallGraph &getGraph() const { return *G; }
@@ -431,6 +434,7 @@ public:
   class SCC {
     friend class LazyCallGraph;
     friend class LazyCallGraph::Node;
+    friend class CallGraphUpdater;
 
     RefSCC *OuterRefSCC;
     SmallVector<Node *, 1> Nodes;
