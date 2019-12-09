@@ -37,15 +37,6 @@
 #define __FAST_OR_SLOW(fast, slow) slow
 #endif
 
-// For C++ 17 we need to include noexcept attribute to be compatible
-// with the header-defined version. This may be removed once
-// variant is supported.
-#if defined(_OPENMP) && defined(__cplusplus) && __cplusplus >= 201703L
-#define __NOEXCEPT noexcept
-#else
-#define __NOEXCEPT
-#endif
-
 __DEVICE__ int __all(int __a) { return __nvvm_vote_all(__a); }
 __DEVICE__ int __any(int __a) { return __nvvm_vote_any(__a); }
 __DEVICE__ unsigned int __ballot(int __a) { return __nvvm_vote_ballot(__a); }
@@ -57,7 +48,9 @@ __DEVICE__ unsigned long long __brevll(unsigned long long __a) {
 __DEVICE__ void __brkpt() { asm volatile("brkpt;"); }
 __DEVICE__ void __brkpt(int __a) { __brkpt(); }
 #else
-__DEVICE__ void __attribute__((overloadable)) __brkpt(void) { asm volatile("brkpt;"); }
+__DEVICE__ void __attribute__((overloadable)) __brkpt(void) {
+  asm volatile("brkpt;");
+}
 __DEVICE__ void __attribute__((overloadable)) __brkpt(int __a) { __brkpt(); }
 #endif
 __DEVICE__ unsigned int __byte_perm(unsigned int __a, unsigned int __b,
@@ -1483,8 +1476,8 @@ __DEVICE__ unsigned int __vsubus4(unsigned int __a, unsigned int __b) {
   return r;
 }
 #endif // CUDA_VERSION >= 9020
-__DEVICE__ int abs(int __a) __NOEXCEPT { return __nv_abs(__a); }
-__DEVICE__ double fabs(double __a) __NOEXCEPT { return __nv_fabs(__a); }
+__DEVICE__ int abs(int __a) { return __nv_abs(__a); }
+__DEVICE__ double fabs(double __a) { return __nv_fabs(__a); }
 __DEVICE__ double acos(double __a) { return __nv_acos(__a); }
 __DEVICE__ float acosf(float __a) { return __nv_acosf(__a); }
 __DEVICE__ double acosh(double __a) { return __nv_acosh(__a); }
@@ -1581,15 +1574,15 @@ __DEVICE__ float j1f(float __a) { return __nv_j1f(__a); }
 __DEVICE__ double jn(int __n, double __a) { return __nv_jn(__n, __a); }
 __DEVICE__ float jnf(int __n, float __a) { return __nv_jnf(__n, __a); }
 #if defined(__LP64__) || defined(_WIN64)
-__DEVICE__ long labs(long __a) __NOEXCEPT { return __nv_llabs(__a); };
+__DEVICE__ long labs(long __a) { return __nv_llabs(__a); };
 #else
-__DEVICE__ long labs(long __a) __NOEXCEPT { return __nv_abs(__a); };
+__DEVICE__ long labs(long __a) { return __nv_abs(__a); };
 #endif
 __DEVICE__ double ldexp(double __a, int __b) { return __nv_ldexp(__a, __b); }
 __DEVICE__ float ldexpf(float __a, int __b) { return __nv_ldexpf(__a, __b); }
 __DEVICE__ double lgamma(double __a) { return __nv_lgamma(__a); }
 __DEVICE__ float lgammaf(float __a) { return __nv_lgammaf(__a); }
-__DEVICE__ long long llabs(long long __a) __NOEXCEPT { return __nv_llabs(__a); }
+__DEVICE__ long long llabs(long long __a) { return __nv_llabs(__a); }
 __DEVICE__ long long llmax(long long __a, long long __b) {
   return __nv_llmax(__a, __b);
 }
@@ -1719,8 +1712,6 @@ __DEVICE__ double rsqrt(double __a) { return __nv_rsqrt(__a); }
 __DEVICE__ float rsqrtf(float __a) { return __nv_rsqrtf(__a); }
 __DEVICE__ double scalbn(double __a, int __b) { return __nv_scalbn(__a, __b); }
 __DEVICE__ float scalbnf(float __a, int __b) { return __nv_scalbnf(__a, __b); }
-// TODO: remove once variant is supported
-#ifndef _OPENMP
 __DEVICE__ double scalbln(double __a, long __b) {
   if (__b > INT_MAX)
     return __a > 0 ? HUGE_VAL : -HUGE_VAL;
@@ -1735,7 +1726,6 @@ __DEVICE__ float scalblnf(float __a, long __b) {
     return __a > 0 ? 0.f : -0.f;
   return scalbnf(__a, (int)__b);
 }
-#endif
 __DEVICE__ double sin(double __a) { return __nv_sin(__a); }
 __DEVICE__ void sincos(double __a, double *__s, double *__c) {
   return __nv_sincos(__a, __s, __c);
@@ -1787,7 +1777,7 @@ __DEVICE__ float y1f(float __a) { return __nv_y1f(__a); }
 __DEVICE__ double yn(int __a, double __b) { return __nv_yn(__a, __b); }
 __DEVICE__ float ynf(int __a, float __b) { return __nv_ynf(__a, __b); }
 
-#undef __NOEXCEPT
 #pragma pop_macro("__DEVICE__")
 #pragma pop_macro("__FAST_OR_SLOW")
+
 #endif // __CLANG_CUDA_DEVICE_FUNCTIONS_H__

@@ -19,7 +19,12 @@
 #define __CUDA__
 
 #if defined(__cplusplus)
-  #include <__clang_cuda_math_forward_declares.h>
+#include <__clang_cuda_math_forward_declares.h>
+#include <cmath>
+#include <limits>
+#else
+#include <limits.h>
+#include <math.h>
 #endif
 
 /// Include declarations for libdevice functions.

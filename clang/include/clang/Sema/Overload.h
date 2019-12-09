@@ -831,6 +831,9 @@ class Sema;
     /// to be used while performing partial ordering of function templates.
     unsigned ExplicitCallArguments;
 
+    /// TODO
+    UnresolvedLookupExpr *ULE = nullptr;
+
     union {
       DeductionFailureInfo DeductionFailure;
 
@@ -1086,7 +1089,7 @@ class Sema;
 
     /// Find the best viable function on this overload set, if it exists.
     OverloadingResult BestViableFunction(Sema &S, SourceLocation Loc,
-                                         OverloadCandidateSet::iterator& Best);
+                                         OverloadCandidateSet::iterator &Best);
 
     SmallVector<OverloadCandidate *, 32> CompleteCandidates(
         Sema &S, OverloadCandidateDisplayKind OCD, ArrayRef<Expr *> Args,

@@ -1776,7 +1776,8 @@ enum class MultiVersionKind {
   None,
   Target,
   CPUSpecific,
-  CPUDispatch
+  CPUDispatch,
+  OMPVariant,
 };
 
 /// Represents a function declaration or definition.
@@ -2377,6 +2378,10 @@ public:
   /// True if this function is a multiversioned dispatch function as a part of
   /// the target functionality.
   bool isTargetMultiVersion() const;
+
+  /// True if this function is a multiversioned function as a part of
+  /// the OpenMP begin/end declare variant functionality.
+  bool isOpenMPMultiVersion() const;
 
   void setPreviousDeclaration(FunctionDecl * PrevDecl);
 

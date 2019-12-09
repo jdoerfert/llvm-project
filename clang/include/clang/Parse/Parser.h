@@ -2860,6 +2860,10 @@ private:
   parseOpenMPContextSelectors(SourceLocation Loc,
                               SmallVectorImpl<Sema::OMPCtxSelectorData> &Data);
 
+  /// Parse match clause of '#pragma omp [begin] declare variant'.
+  void ParseOMPDeclareVariantMatchClause(
+      SourceLocation Loc, SmallVectorImpl<Sema::OMPCtxSelectorData> &Data);
+
   /// Parse clauses for '#pragma omp declare variant'.
   void ParseOMPDeclareVariantClauses(DeclGroupPtrTy Ptr, CachedTokens &Toks,
                                      SourceLocation Loc);

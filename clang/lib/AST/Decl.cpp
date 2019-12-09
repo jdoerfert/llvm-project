@@ -3104,6 +3104,9 @@ MultiVersionKind FunctionDecl::getMultiVersionKind() const {
     return MultiVersionKind::CPUDispatch;
   if (hasAttr<CPUSpecificAttr>())
     return MultiVersionKind::CPUSpecific;
+  if (hasAttr<OMPDeclareVariantAttr>() &&
+      !getAttr<OMPDeclareVariantAttr>()->getVariantFuncRef())
+    return MultiVersionKind::OMPVariant;
   return MultiVersionKind::None;
 }
 
@@ -3117,6 +3120,11 @@ bool FunctionDecl::isCPUSpecificMultiVersion() const {
 
 bool FunctionDecl::isTargetMultiVersion() const {
   return isMultiVersion() && hasAttr<TargetAttr>();
+}
+
+bool FunctionDecl::isOpenMPMultiVersion() const {
+  return isMultiVersion() && hasAttr<OMPDeclareVariantAttr>() &&
+         !getAttr<OMPDeclareVariantAttr>()->getVariantFuncRef();
 }
 
 void

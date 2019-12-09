@@ -7,11 +7,10 @@
  *===-----------------------------------------------------------------------===
  */
 
-#include <__clang_openmp_math.h>
-
-#ifndef __CLANG_NO_HOST_MATH__
+#pragma omp begin declare variant match(device = {kind(host)})
 #include_next <math.h>
-#else
-#undef __CLANG_NO_HOST_MATH__
-#endif
+#pragma omp end declare variant
 
+#pragma omp begin declare variant match(device = {kind(gpu)})
+#include <__clang_openmp_math.h>
+#pragma omp end declare variant

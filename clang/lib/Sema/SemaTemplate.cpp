@@ -8596,6 +8596,9 @@ bool Sema::CheckFunctionTemplateSpecialization(
   if (LangOpts.CUDA)
     inheritCUDATargetAttrs(FD, *Specialization->getPrimaryTemplate());
 
+  if (LangOpts.OpenMP)
+    inheritOpenMPVariantAttrs(FD, *Specialization->getPrimaryTemplate());
+
   // The "previous declaration" for this function template specialization is
   // the prior function template specialization.
   Previous.clear();

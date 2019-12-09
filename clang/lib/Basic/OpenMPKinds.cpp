@@ -11,7 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Basic/OpenMPKinds.h"
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/Basic/IdentifierTable.h"
+#include "clang/Sema/Template.h"
+#include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/ErrorHandling.h"

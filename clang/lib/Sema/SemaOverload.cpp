@@ -13,6 +13,7 @@
 #include "clang/Sema/Overload.h"
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/Expr.h"
@@ -32,6 +33,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
 #include <algorithm>
@@ -9266,7 +9268,8 @@ static Comparison compareEnableIfAttrs(const Sema &S, const FunctionDecl *Cand1,
   return Comparison::Equal;
 }
 
-static bool isBetterMultiversionCandidate(const OverloadCandidate &Cand1,
+static bool isBetterMultiversionCandidate(Sema &S,
+                                          const OverloadCandidate &Cand1,
                                           const OverloadCandidate &Cand2) {
   if (!Cand1.Function || !Cand1.Function->isMultiVersion() || !Cand2.Function ||
       !Cand2.Function->isMultiVersion())
@@ -9276,6 +9279,18 @@ static bool isBetterMultiversionCandidate(const OverloadCandidate &Cand1,
   // is obviously better.
   if (Cand1.Function->isInvalidDecl()) return false;
   if (Cand2.Function->isInvalidDecl()) return true;
+
+  // If we have an OpenMP declare variant attribute on either candidate we use
+  // it to order the candidates. The first is only better if it has a attribute
+  // that is considered better or if it has no attribute and the one on the
+  // second candidate is not a match.
+  auto *OMPVariantAttr1 = Cand1.Function->getAttr<OMPDeclareVariantAttr>();
+  auto *OMPVariantAttr2 = Cand2.Function->getAttr<OMPDeclareVariantAttr>();
+  if (OMPVariantAttr1 || OMPVariantAttr2) {
+    auto *OMPVariantAttrBest = S.getBetterOpenMPContextMatch(
+        OMPVariantAttr1, OMPVariantAttr2, Cand1.Function, Cand2.Function);
+    return OMPVariantAttrBest == OMPVariantAttr1;
+  }
 
   // If this is a cpu_dispatch/cpu_specific multiversion situation, prefer
   // cpu_dispatch, else arbitrarily based on the identifiers.
@@ -9545,7 +9560,7 @@ bool clang::isBetterOverloadCandidate(
   if (HasPS1 != HasPS2 && HasPS1)
     return true;
 
-  return isBetterMultiversionCandidate(Cand1, Cand2);
+  return isBetterMultiversionCandidate(S, Cand1, Cand2);
 }
 
 /// Determine whether two declarations are "equivalent" for the purposes of
@@ -9659,6 +9674,18 @@ OverloadCandidateSet::BestViableFunction(Sema &S, SourceLocation Loc,
     }
   }
 
+  // [OpenMP] Similar to the CUDA code above, OpenMP declare variants might not
+  // be eligible at all so we need to filter them out early.
+  if (S.getLangOpts().OpenMP) {
+    // TODO use context information
+    auto IsNonMatchVariant = [&](OverloadCandidate *Cand) {
+      if (!Cand->Viable || !Cand->Function)
+        return false;
+      return S.isNonMatchingDueToVariantContext(*Cand->Function);
+    };
+    llvm::erase_if(Candidates, IsNonMatchVariant);
+  }
+
   // Find the best viable function.
   Best = end();
   for (auto *Cand : Candidates) {
@@ -9717,15 +9744,18 @@ OverloadCandidateSet::BestViableFunction(Sema &S, SourceLocation Loc,
   // Iterate through all DeclareVariant attributes and check context selectors.
   const OMPDeclareVariantAttr *BestVariant = nullptr;
   for (const auto *A : FD->specific_attrs<OMPDeclareVariantAttr>())
-    BestVariant =
-        getBetterOpenMPContextMatch(S.getASTContext(), BestVariant, A);
+    BestVariant = S.getBetterOpenMPContextMatch(BestVariant, A, FD, FD);
   if (!BestVariant || !BestVariant->getVariantFuncRef())
     return OR_Success;
 
-  // TODO: Handle template instantiation
+  if ((Best->ULE =
+           dyn_cast<UnresolvedLookupExpr>(BestVariant->getVariantFuncRef())))
+    return OR_Success;
+
   Best->Function = cast<FunctionDecl>(
       cast<DeclRefExpr>(BestVariant->getVariantFuncRef()->IgnoreParenImpCasts())
           ->getDecl());
+  S.MarkFunctionReferenced(Loc, Best->Function);
   return OR_Success;
 }
 
@@ -12572,6 +12602,13 @@ ExprResult Sema::BuildOverloadedCallExpr(Scope *S, Expr *Fn,
   OverloadCandidateSet::iterator Best;
   OverloadingResult OverloadResult =
       CandidateSet.BestViableFunction(*this, Fn->getBeginLoc(), Best);
+  if (OverloadResult == OR_Success && Best->ULE) {
+    assert(OverloadResult == OR_Success && getLangOpts().OpenMP &&
+           "Expected OpenMP variant redirect");
+    return BuildOverloadedCallExpr(S, Fn, Best->ULE, LParenLoc, Args, RParenLoc,
+                                   ExecConfig, AllowTypoCorrection,
+                                   CalleesAddressIsTaken);
+  }
 
   return FinishOverloadedCallExpr(*this, S, Fn, ULE, LParenLoc, Args, RParenLoc,
                                   ExecConfig, &CandidateSet, &Best,

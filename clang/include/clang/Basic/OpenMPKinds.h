@@ -313,7 +313,7 @@ bool isOpenMPLoopBoundSharingDirective(OpenMPDirectiveKind Kind);
 void getOpenMPCaptureRegions(
     llvm::SmallVectorImpl<OpenMPDirectiveKind> &CaptureRegions,
     OpenMPDirectiveKind DKind);
-}
+} // namespace clang
 
 #endif
 

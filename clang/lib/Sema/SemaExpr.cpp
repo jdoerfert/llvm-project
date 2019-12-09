@@ -15587,7 +15587,6 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
           // of instantiation). This gives better backtraces in diagnostics.
           PointOfInstantiation = Loc;
         }
-
         if (FirstInstantiation || TSK != TSK_ImplicitInstantiation ||
             Func->isConstexpr()) {
           if (isa<CXXRecordDecl>(Func->getDeclContext()) &&

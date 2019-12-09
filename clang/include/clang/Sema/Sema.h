@@ -9345,7 +9345,22 @@ public:
   //===--------------------------------------------------------------------===//
   // OpenMP directives and clauses.
   //
+  /// Helper to determine the best of two potential context matches. Note that
+  /// nullptr are valid inputs but also valid outputs, e.g., if neither
+  /// attribute describes a matching context.
+  const OMPDeclareVariantAttr *
+  getBetterOpenMPContextMatch(const OMPDeclareVariantAttr *LHSAttr,
+                              const OMPDeclareVariantAttr *RHSAttr,
+                              FunctionDecl *LHSFD = nullptr,
+                              FunctionDecl *RHSFD = nullptr);
+
+  // TODO
+  bool isNonMatchingDueToVariantContext(FunctionDecl &FD);
+
 private:
+  /// Copies declare variant attributes from the template TD to the function FD.
+  void inheritOpenMPVariantAttrs(FunctionDecl *FD,
+                                 const FunctionTemplateDecl &TD);
   void *VarDataSharingAttributesStack;
   /// Number of nested '#pragma omp declare target' directives.
   unsigned DeclareTargetNestingLevel = 0;
@@ -9409,6 +9424,9 @@ public:
   using OMPCtxSelectorData =
       OpenMPCtxSelectorData<SmallVector<OMPCtxStringType, 4>, ExprResult>;
 
+  /// A declare variant attribute if we are inside a begin/end declare variant
+  OMPDeclareVariantAttr *DeclareVariantScopeAttr = nullptr;
+
   /// Checks if the variant/multiversion functions are compatible.
   bool areMultiversionVariantFunctionsCompatible(
       const FunctionDecl *OldFD, const FunctionDecl *NewFD,
@@ -9416,7 +9434,9 @@ public:
       const PartialDiagnosticAt &NoteCausedDiagIDAt,
       const PartialDiagnosticAt &NoSupportDiagIDAt,
       const PartialDiagnosticAt &DiffDiagIDAt, bool TemplatesSupported,
-      bool ConstexprSupported, bool CLinkageMayDiffer);
+      bool ConstexprSupported, bool CLinkageMayDiffer,
+      bool StorageClassMayDiffer, bool ConstexprSpecMayDiffer,
+      bool InlineSpecificationMayDiffer);
 
   /// Function tries to capture lambda's captured variables in the OpenMP region
   /// before the original lambda is captured.
@@ -9891,7 +9911,7 @@ public:
   /// must be used instead of the original one, specified in \p DG.
   /// \param Data Set of context-specific data for the specified context
   /// selector.
-  void ActOnOpenMPDeclareVariantDirective(FunctionDecl *FD, Expr *VariantRef,
+  bool ActOnOpenMPDeclareVariantDirective(FunctionDecl *FD, Expr *VariantRef,
                                           SourceRange SR,
                                           ArrayRef<OMPCtxSelectorData> Data);
 

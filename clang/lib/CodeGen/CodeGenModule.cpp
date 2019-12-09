@@ -982,6 +982,18 @@ static void AppendTargetMangling(const CodeGenModule &CGM,
   }
 }
 
+static void AppendOpenMPVariantMangling(const CodeGenModule &CGM,
+                                        const FunctionDecl *FD,
+                                        raw_ostream &Out) {
+  for (const OMPDeclareVariantAttr *Attr :
+       FD->specific_attrs<OMPDeclareVariantAttr>()) {
+    if (Attr->isInherited())
+      continue;
+    // TODO: Mangle the name based on the context
+    Out << ".ompvariant";
+  }
+}
+
 static std::string getMangledNameImpl(const CodeGenModule &CGM, GlobalDecl GD,
                                       const NamedDecl *ND,
                                       bool OmitMultiVersionMangling = false) {
@@ -1012,6 +1024,7 @@ static std::string getMangledNameImpl(const CodeGenModule &CGM, GlobalDecl GD,
 
   if (const auto *FD = dyn_cast<FunctionDecl>(ND))
     if (FD->isMultiVersion() && !OmitMultiVersionMangling) {
+      FD->dump();
       switch (FD->getMultiVersionKind()) {
       case MultiVersionKind::CPUDispatch:
       case MultiVersionKind::CPUSpecific:
@@ -1021,6 +1034,9 @@ static std::string getMangledNameImpl(const CodeGenModule &CGM, GlobalDecl GD,
         break;
       case MultiVersionKind::Target:
         AppendTargetMangling(CGM, FD->getAttr<TargetAttr>(), Out);
+        break;
+      case MultiVersionKind::OMPVariant:
+        AppendOpenMPVariantMangling(CGM, FD, Out);
         break;
       case MultiVersionKind::None:
         llvm_unreachable("None multiversion type isn't valid here");
@@ -2851,6 +2867,10 @@ void CodeGenModule::emitMultiVersionFunctions() {
   for (GlobalDecl GD : MultiVersionFuncs) {
     SmallVector<CodeGenFunction::MultiVersionResolverOption, 10> Options;
     const FunctionDecl *FD = cast<FunctionDecl>(GD.getDecl());
+    // OpenMP multi versioning is (for now) resolved at compile time, no
+    // resolver function necessary (yet).
+    if (FD->isOpenMPMultiVersion())
+      continue;
     getContext().forEachMultiversionedFunctionVersion(
         FD, [this, &GD, &Options](const FunctionDecl *CurFD) {
           GlobalDecl CurGD{
@@ -3098,7 +3118,7 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
       }
     }
 
-    if (FD->isMultiVersion()) {
+    if (FD->isMultiVersion() && !FD->isOpenMPMultiVersion()) {
       const auto *TA = FD->getAttr<TargetAttr>();
       if (TA && TA->isDefaultVersion())
         UpdateMultiVersionNames(GD, FD);

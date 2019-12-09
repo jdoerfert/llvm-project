@@ -14,6 +14,7 @@
 #include "TreeTransform.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTMutationListener.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
@@ -28,8 +29,10 @@
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaInternal.h"
+#include "clang/Sema/Template.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/PointerEmbeddedInt.h"
+#include "llvm/ADT/SetOperations.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 using namespace clang;
 using namespace llvm::omp;
@@ -5224,11 +5227,8 @@ Sema::checkOpenMPDeclareVariantFunction(Sema::DeclGroupPtrTy DG,
     Diag(SR.getBegin(), diag::warn_omp_declare_variant_after_emitted)
         << FD->getLocation();
 
-  // The VariantRef must point to function.
-  if (!VariantRef) {
-    Diag(SR.getBegin(), diag::err_omp_function_expected) << VariantId;
-    return None;
-  }
+  if (!VariantRef)
+    return std::make_pair(FD, VariantRef);
 
   // Do not check templates, wait until instantiation.
   if (VariantRef->isTypeDependent() || VariantRef->isValueDependent() ||
@@ -5324,6 +5324,7 @@ Sema::checkOpenMPDeclareVariantFunction(Sema::DeclGroupPtrTy DG,
     return None;
   }
 
+  // TODO check these for missing VariantRef as well
   enum DoesntSupport {
     VirtFuncs = 1,
     Constructors = 3,
@@ -5384,80 +5385,12 @@ Sema::checkOpenMPDeclareVariantFunction(Sema::DeclGroupPtrTy DG,
                               PDiag(diag::err_omp_declare_variant_diff)
                                   << FD->getLocation()),
           /*TemplatesSupported=*/true, /*ConstexprSupported=*/false,
-          /*CLinkageMayDiffer=*/true))
+          /*CLinkageMayDiffer=*/true,
+          /*StorageClassMayDiffer=*/true,
+          /*ConstexprSpecMayDiffer=*/true,
+          /*InlineSpecificationMayDiffer=*/true))
     return None;
   return std::make_pair(FD, cast<Expr>(DRE));
-}
-
-void Sema::ActOnOpenMPDeclareVariantDirective(
-    FunctionDecl *FD, Expr *VariantRef, SourceRange SR,
-    ArrayRef<OMPCtxSelectorData> Data) {
-  if (Data.empty())
-    return;
-  SmallVector<Expr *, 4> CtxScores;
-  SmallVector<unsigned, 4> CtxSets;
-  SmallVector<unsigned, 4> Ctxs;
-  SmallVector<StringRef, 4> ImplVendors, DeviceKinds;
-  bool IsError = false;
-  for (const OMPCtxSelectorData &D : Data) {
-    OpenMPContextSelectorSetKind CtxSet = D.CtxSet;
-    OpenMPContextSelectorKind Ctx = D.Ctx;
-    if (CtxSet == OMP_CTX_SET_unknown || Ctx == OMP_CTX_unknown)
-      return;
-    Expr *Score = nullptr;
-    if (D.Score.isUsable()) {
-      Score = D.Score.get();
-      if (!Score->isTypeDependent() && !Score->isValueDependent() &&
-          !Score->isInstantiationDependent() &&
-          !Score->containsUnexpandedParameterPack()) {
-        Score =
-            PerformOpenMPImplicitIntegerConversion(Score->getExprLoc(), Score)
-                .get();
-        if (Score)
-          Score = VerifyIntegerConstantExpression(Score).get();
-      }
-    } else {
-      // OpenMP 5.0, 2.3.3 Matching and Scoring Context Selectors.
-      // The kind, arch, and isa selectors are given the values 2^l, 2^(l+1) and
-      // 2^(l+2), respectively, where l is the number of traits in the construct
-      // set.
-      // TODO: implement correct logic for isa and arch traits.
-      // TODO: take the construct context set into account when it is
-      // implemented.
-      int L = 0; // Currently set the number of traits in construct set to 0,
-                 // since the construct trait set in not supported yet.
-      if (CtxSet == OMP_CTX_SET_device && Ctx == OMP_CTX_kind)
-        Score = ActOnIntegerConstant(SourceLocation(), std::pow(2, L)).get();
-      else
-        Score = ActOnIntegerConstant(SourceLocation(), 0).get();
-    }
-    switch (Ctx) {
-    case OMP_CTX_vendor:
-      assert(CtxSet == OMP_CTX_SET_implementation &&
-             "Expected implementation context selector set.");
-      ImplVendors.append(D.Names.begin(), D.Names.end());
-      break;
-    case OMP_CTX_kind:
-      assert(CtxSet == OMP_CTX_SET_device &&
-             "Expected device context selector set.");
-      DeviceKinds.append(D.Names.begin(), D.Names.end());
-      break;
-    case OMP_CTX_unknown:
-      llvm_unreachable("Unknown context selector kind.");
-    }
-    IsError = IsError || !Score;
-    CtxSets.push_back(CtxSet);
-    Ctxs.push_back(Ctx);
-    CtxScores.push_back(Score);
-  }
-  if (!IsError) {
-    auto *NewAttr = OMPDeclareVariantAttr::CreateImplicit(
-        Context, VariantRef, CtxScores.begin(), CtxScores.size(),
-        CtxSets.begin(), CtxSets.size(), Ctxs.begin(), Ctxs.size(),
-        ImplVendors.begin(), ImplVendors.size(), DeviceKinds.begin(),
-        DeviceKinds.size(), SR);
-    FD->addAttr(NewAttr);
-  }
 }
 
 StmtResult Sema::ActOnOpenMPParallelDirective(ArrayRef<OMPClause *> Clauses,
@@ -17021,4 +16954,383 @@ OMPClause *Sema::ActOnOpenMPAllocateClause(
 
   return OMPAllocateClause::Create(Context, StartLoc, LParenLoc, Allocator,
                                    ColonLoc, EndLoc, Vars);
+}
+
+template <typename AttrTy>
+static void copyAttrIfPresent(Sema &S, FunctionDecl *FD,
+                              const FunctionDecl &TemplateFD) {
+  if (!FD->hasAttr<AttrTy>())
+    if (AttrTy *Attribute = TemplateFD.getAttr<AttrTy>()) {
+      AttrTy *Clone = Attribute->clone(S.Context);
+      Clone->setInherited(true);
+      FD->addAttr(Clone);
+    }
+}
+
+void Sema::inheritOpenMPVariantAttrs(FunctionDecl *FD,
+                                     const FunctionTemplateDecl &TD) {
+  const FunctionDecl &TemplateFD = *TD.getTemplatedDecl();
+  copyAttrIfPresent<OMPDeclareVariantAttr>(*this, FD, TemplateFD);
+}
+
+// TODO: We have various representations for the same data, it might help to
+//       reuse some instead of converting them.
+// TODO: It is unclear where this checking code should live. It is used all over
+//       the place and would probably fit bet in OMPDeclareVariantAttr.
+using OMPContextSelectorData =
+    OpenMPCtxSelectorData<ArrayRef<StringRef>, llvm::APSInt>;
+using CompleteOMPContextSelectorData = SmallVector<OMPContextSelectorData, 4>;
+
+/// Checks current context and returns true if it matches the context selector.
+template <OpenMPContextSelectorSetKind CtxSet, OpenMPContextSelectorKind Ctx,
+          typename... Arguments>
+static bool checkContext(const OMPContextSelectorData &Data,
+                         Arguments... Params) {
+  assert(Data.CtxSet != OMP_CTX_SET_unknown && Data.Ctx != OMP_CTX_unknown &&
+         "Unknown context selector or context selector set.");
+  return false;
+}
+
+/// Checks for implementation={vendor(<vendor>)} context selector.
+/// \returns true iff <vendor>="llvm", false otherwise.
+template <>
+bool checkContext<OMP_CTX_SET_implementation, OMP_CTX_vendor>(
+    const OMPContextSelectorData &Data) {
+  return llvm::all_of(Data.Names,
+                      [](StringRef S) { return !S.compare_lower("llvm"); });
+}
+
+/// Checks for device={kind(<kind>)} context selector.
+/// \returns true if <kind>="host" and compilation is for host.
+/// true if <kind>="nohost" and compilation is for device.
+/// true if <kind>="cpu" and compilation is for Arm, X86 or PPC CPU.
+/// true if <kind>="gpu" and compilation is for NVPTX or AMDGCN.
+/// false otherwise.
+template <>
+bool checkContext<OMP_CTX_SET_device, OMP_CTX_kind, const LangOptions &,
+                  const TargetInfo &>(const OMPContextSelectorData &Data,
+                                      const LangOptions &LO,
+                                      const TargetInfo &TI) {
+  for (StringRef Name : Data.Names) {
+    if (!Name.compare_lower("host")) {
+      if (LO.OpenMPIsDevice)
+        return false;
+      continue;
+    }
+    if (!Name.compare_lower("nohost")) {
+      if (!LO.OpenMPIsDevice)
+        return false;
+      continue;
+    }
+    switch (TI.getTriple().getArch()) {
+    case llvm::Triple::arm:
+    case llvm::Triple::armeb:
+    case llvm::Triple::aarch64:
+    case llvm::Triple::aarch64_be:
+    case llvm::Triple::aarch64_32:
+    case llvm::Triple::ppc:
+    case llvm::Triple::ppc64:
+    case llvm::Triple::ppc64le:
+    case llvm::Triple::x86:
+    case llvm::Triple::x86_64:
+      if (Name.compare_lower("cpu"))
+        return false;
+      break;
+    case llvm::Triple::amdgcn:
+    case llvm::Triple::nvptx:
+    case llvm::Triple::nvptx64:
+      if (Name.compare_lower("gpu"))
+        return false;
+      break;
+    case llvm::Triple::UnknownArch:
+    case llvm::Triple::arc:
+    case llvm::Triple::avr:
+    case llvm::Triple::bpfel:
+    case llvm::Triple::bpfeb:
+    case llvm::Triple::hexagon:
+    case llvm::Triple::mips:
+    case llvm::Triple::mipsel:
+    case llvm::Triple::mips64:
+    case llvm::Triple::mips64el:
+    case llvm::Triple::msp430:
+    case llvm::Triple::r600:
+    case llvm::Triple::riscv32:
+    case llvm::Triple::riscv64:
+    case llvm::Triple::sparc:
+    case llvm::Triple::sparcv9:
+    case llvm::Triple::sparcel:
+    case llvm::Triple::systemz:
+    case llvm::Triple::tce:
+    case llvm::Triple::tcele:
+    case llvm::Triple::thumb:
+    case llvm::Triple::thumbeb:
+    case llvm::Triple::xcore:
+    case llvm::Triple::le32:
+    case llvm::Triple::le64:
+    case llvm::Triple::amdil:
+    case llvm::Triple::amdil64:
+    case llvm::Triple::hsail:
+    case llvm::Triple::hsail64:
+    case llvm::Triple::spir:
+    case llvm::Triple::spir64:
+    case llvm::Triple::kalimba:
+    case llvm::Triple::shave:
+    case llvm::Triple::lanai:
+    case llvm::Triple::wasm32:
+    case llvm::Triple::wasm64:
+    case llvm::Triple::renderscript32:
+    case llvm::Triple::renderscript64:
+      return false;
+    }
+  }
+  return true;
+}
+
+static llvm::APSInt evaluateScoreExpr(Expr *Score, Sema &S,
+                                      CompleteOMPContextSelectorData &Data,
+                                      FunctionDecl *FD) {
+  if (FD && FD->getTemplateSpecializationArgs()) {
+    MultiLevelTemplateArgumentList MLTAL(*FD->getTemplateSpecializationArgs());
+    EnterExpressionEvaluationContext Unevaluated(
+        S, Sema::ExpressionEvaluationContext::ConstantEvaluated);
+    ExprResult Result = S.SubstExpr(Score, MLTAL);
+    assert(!Result.isInvalid() && "Expected successful substitution.");
+    Score = Result.getAs<Expr>();
+  }
+  return Score->EvaluateKnownConstInt(S.getASTContext());
+}
+
+static CompleteOMPContextSelectorData
+translateAttrToContextSelectorData(Sema &S, const OMPDeclareVariantAttr *A,
+                                   FunctionDecl *FD) {
+  CompleteOMPContextSelectorData Data;
+  if (!A)
+    return Data;
+  for (unsigned I = 0, E = A->scores_size(); I < E; ++I) {
+    Data.emplace_back();
+    auto CtxSet = static_cast<OpenMPContextSelectorSetKind>(
+        *std::next(A->ctxSelectorSets_begin(), I));
+    auto Ctx = static_cast<OpenMPContextSelectorKind>(
+        *std::next(A->ctxSelectors_begin(), I));
+    Data.back().CtxSet = CtxSet;
+    Data.back().Ctx = Ctx;
+    Expr *Score = *std::next(A->scores_begin(), I);
+    Data.back().Score = evaluateScoreExpr(Score, S, Data, FD);
+    switch (Ctx) {
+    case OMP_CTX_vendor:
+      assert(CtxSet == OMP_CTX_SET_implementation &&
+             "Expected implementation context selector set.");
+      Data.back().Names =
+          llvm::makeArrayRef(A->implVendors_begin(), A->implVendors_end());
+      break;
+    case OMP_CTX_kind:
+      assert(CtxSet == OMP_CTX_SET_device &&
+             "Expected device context selector set.");
+      Data.back().Names =
+          llvm::makeArrayRef(A->deviceKinds_begin(), A->deviceKinds_end());
+      break;
+    case OMP_CTX_unknown:
+      llvm_unreachable("Unknown context selector kind.");
+    }
+  }
+  return Data;
+}
+
+static bool
+matchesOpenMPContextImpl(const CompleteOMPContextSelectorData &ContextData,
+                         const LangOptions &LO, const TargetInfo &TI) {
+  for (const OMPContextSelectorData &Data : ContextData) {
+    switch (Data.Ctx) {
+    case OMP_CTX_vendor:
+      assert(Data.CtxSet == OMP_CTX_SET_implementation &&
+             "Expected implementation context selector set.");
+      if (!checkContext<OMP_CTX_SET_implementation, OMP_CTX_vendor>(Data))
+        return false;
+      break;
+    case OMP_CTX_kind:
+      assert(Data.CtxSet == OMP_CTX_SET_device &&
+             "Expected device context selector set.");
+      if (!checkContext<OMP_CTX_SET_device, OMP_CTX_kind, const LangOptions &,
+                        const TargetInfo &>(Data, LO, TI))
+        return false;
+      break;
+    case OMP_CTX_unknown:
+      llvm_unreachable("Unknown context selector kind.");
+    }
+  }
+  return true;
+}
+
+static bool isStrictSubset(const CompleteOMPContextSelectorData &LHS,
+                           const CompleteOMPContextSelectorData &RHS) {
+  llvm::SmallDenseMap<std::pair<int, int>, llvm::StringSet<>, 4> RHSData;
+  for (const OMPContextSelectorData &D : RHS) {
+    auto &Pair = RHSData.FindAndConstruct(std::make_pair(D.CtxSet, D.Ctx));
+    Pair.getSecond().insert(D.Names.begin(), D.Names.end());
+  }
+  bool AllSetsAreEqual = true;
+  for (const OMPContextSelectorData &D : LHS) {
+    auto It = RHSData.find(std::make_pair(D.CtxSet, D.Ctx));
+    if (It == RHSData.end())
+      return false;
+    if (D.Names.size() > It->getSecond().size())
+      return false;
+    if (llvm::set_union(It->getSecond(), D.Names))
+      return false;
+    AllSetsAreEqual =
+        AllSetsAreEqual && (D.Names.size() == It->getSecond().size());
+  }
+
+  return LHS.size() != RHS.size() || !AllSetsAreEqual;
+}
+
+const OMPDeclareVariantAttr *
+Sema::getBetterOpenMPContextMatch(const OMPDeclareVariantAttr *LHSAttr,
+                                  const OMPDeclareVariantAttr *RHSAttr,
+                                  FunctionDecl *LHSFD, FunctionDecl *RHSFD) {
+  ASTContext &C = getASTContext();
+  const CompleteOMPContextSelectorData LHS =
+      translateAttrToContextSelectorData(*this, LHSAttr, LHSFD);
+  const CompleteOMPContextSelectorData RHS =
+      translateAttrToContextSelectorData(*this, RHSAttr, RHSFD);
+  bool LHSMatch = LHSAttr && matchesOpenMPContextImpl(LHS, C.getLangOpts(),
+                                                      C.getTargetInfo());
+  bool RHSMatch = RHSAttr && matchesOpenMPContextImpl(RHS, C.getLangOpts(),
+                                                      C.getTargetInfo());
+  bool LHSisOK = LHSMatch && !LHSAttr->isInherited();
+  bool RHSisOK = RHSMatch && !RHSAttr->isInherited();
+  if (!LHSisOK && !RHSisOK)
+    return nullptr;
+  if (LHSisOK && !RHSisOK)
+    return LHSAttr;
+  if (!LHSisOK && RHSisOK)
+    return RHSAttr;
+  assert(LHSisOK && RHSisOK && "broken invariant");
+
+  // Score is calculated as sum of all scores + 1.
+  llvm::APSInt LHSScore(llvm::APInt(64, 1), /*isUnsigned=*/false);
+  bool RHSIsSubsetOfLHS = isStrictSubset(RHS, LHS);
+  if (RHSIsSubsetOfLHS) {
+    LHSScore = llvm::APSInt::get(0);
+  } else {
+    for (const OMPContextSelectorData &Data : LHS) {
+      if (Data.Score.getBitWidth() > LHSScore.getBitWidth()) {
+        LHSScore = LHSScore.extend(Data.Score.getBitWidth()) + Data.Score;
+      } else if (Data.Score.getBitWidth() < LHSScore.getBitWidth()) {
+        LHSScore += Data.Score.extend(LHSScore.getBitWidth());
+      } else {
+        LHSScore += Data.Score;
+      }
+    }
+  }
+  llvm::APSInt RHSScore(llvm::APInt(64, 1), /*isUnsigned=*/false);
+  if (!RHSIsSubsetOfLHS && isStrictSubset(LHS, RHS)) {
+    RHSScore = llvm::APSInt::get(0);
+  } else {
+    for (const OMPContextSelectorData &Data : RHS) {
+      if (Data.Score.getBitWidth() > RHSScore.getBitWidth()) {
+        RHSScore = RHSScore.extend(Data.Score.getBitWidth()) + Data.Score;
+      } else if (Data.Score.getBitWidth() < RHSScore.getBitWidth()) {
+        RHSScore += Data.Score.extend(RHSScore.getBitWidth());
+      } else {
+        RHSScore += Data.Score;
+      }
+    }
+  }
+  return llvm::APSInt::compareValues(LHSScore, RHSScore) >= 0 ? LHSAttr
+                                                              : RHSAttr;
+}
+
+static bool isOpenMPContextMatch(Sema &S, const OMPDeclareVariantAttr *A,
+                                 FunctionDecl *FD) {
+  const CompleteOMPContextSelectorData Data =
+      translateAttrToContextSelectorData(S, A, FD);
+  ASTContext &C = S.getASTContext();
+  return matchesOpenMPContextImpl(Data, C.getLangOpts(), C.getTargetInfo());
+}
+
+bool Sema::isNonMatchingDueToVariantContext(FunctionDecl &FD) {
+  auto *CtxAttr = FD.getAttr<OMPDeclareVariantAttr>();
+  if (!CtxAttr || CtxAttr->getVariantFuncRef())
+    return false;
+  return !isOpenMPContextMatch(*this, CtxAttr, &FD);
+}
+
+bool Sema::ActOnOpenMPDeclareVariantDirective(
+    FunctionDecl *FD, Expr *VariantRef, SourceRange SR,
+    ArrayRef<OMPCtxSelectorData> Data) {
+  if (Data.empty())
+    return false;
+  SmallVector<Expr *, 4> CtxScores;
+  SmallVector<unsigned, 4> CtxSets;
+  SmallVector<unsigned, 4> Ctxs;
+  SmallVector<StringRef, 4> ImplVendors, DeviceKinds;
+  bool IsError = false;
+  for (const OMPCtxSelectorData &D : Data) {
+    OpenMPContextSelectorSetKind CtxSet = D.CtxSet;
+    OpenMPContextSelectorKind Ctx = D.Ctx;
+    if (CtxSet == OMP_CTX_SET_unknown || Ctx == OMP_CTX_unknown)
+      return false;
+    Expr *Score = nullptr;
+    if (D.Score.isUsable()) {
+      Score = D.Score.get();
+      if (!Score->isTypeDependent() && !Score->isValueDependent() &&
+          !Score->isInstantiationDependent() &&
+          !Score->containsUnexpandedParameterPack()) {
+        Score =
+            PerformOpenMPImplicitIntegerConversion(Score->getExprLoc(), Score)
+                .get();
+        if (Score)
+          Score = VerifyIntegerConstantExpression(Score).get();
+      }
+    } else {
+      // OpenMP 5.0, 2.3.3 Matching and Scoring Context Selectors.
+      // The kind, arch, and isa selectors are given the values 2^l, 2^(l+1) and
+      // 2^(l+2), respectively, where l is the number of traits in the construct
+      // set.
+      // TODO: implement correct logic for isa and arch traits.
+      // TODO: take the construct context set into account when it is
+      // implemented.
+      int L = 0; // Currently set the number of traits in construct set to 0,
+                 // since the construct trait set in not supported yet.
+      if (CtxSet == OMP_CTX_SET_device && Ctx == OMP_CTX_kind)
+        Score = ActOnIntegerConstant(SourceLocation(), std::pow(2, L)).get();
+      else
+        Score = ActOnIntegerConstant(SourceLocation(), 0).get();
+    }
+    switch (Ctx) {
+    case OMP_CTX_vendor:
+      assert(CtxSet == OMP_CTX_SET_implementation &&
+             "Expected implementation context selector set.");
+      ImplVendors.append(D.Names.begin(), D.Names.end());
+      break;
+    case OMP_CTX_kind:
+      assert(CtxSet == OMP_CTX_SET_device &&
+             "Expected device context selector set.");
+      DeviceKinds.append(D.Names.begin(), D.Names.end());
+      break;
+    case OMP_CTX_unknown:
+      llvm_unreachable("Unknown context selector kind.");
+    }
+    IsError = IsError || !Score;
+    CtxSets.push_back(CtxSet);
+    Ctxs.push_back(Ctx);
+    CtxScores.push_back(Score);
+  }
+  if (!IsError) {
+    auto *NewAttr = OMPDeclareVariantAttr::CreateImplicit(
+        Context, VariantRef, CtxScores.begin(), CtxScores.size(),
+        CtxSets.begin(), CtxSets.size(), Ctxs.begin(), Ctxs.size(),
+        ImplVendors.begin(), ImplVendors.size(), DeviceKinds.begin(),
+        DeviceKinds.size(), SR);
+    if (FD) {
+      FD->addAttr(NewAttr);
+    } else {
+      assert(!DeclareVariantScopeAttr &&
+             "TODO nested begin/end declare varinat");
+      DeclareVariantScopeAttr = NewAttr;
+      return !isOpenMPContextMatch(*this, DeclareVariantScopeAttr, nullptr);
+    }
+  }
+  return false;
 }

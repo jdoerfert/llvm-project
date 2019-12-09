@@ -5570,7 +5570,7 @@ void Sema::PerformPendingInstantiations(bool LocalOnly) {
     if (FunctionDecl *Function = dyn_cast<FunctionDecl>(Inst.first)) {
       bool DefinitionRequired = Function->getTemplateSpecializationKind() ==
                                 TSK_ExplicitInstantiationDefinition;
-      if (Function->isMultiVersion()) {
+      if (Function->isMultiVersion() && !Function->isOpenMPMultiVersion()) {
         getASTContext().forEachMultiversionedFunctionVersion(
             Function, [this, Inst, DefinitionRequired](FunctionDecl *CurFD) {
               InstantiateFunctionDefinition(/*FIXME:*/ Inst.second, CurFD, true,
