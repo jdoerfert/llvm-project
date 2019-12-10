@@ -13,31 +13,20 @@
 // CHECK-DAG: define {{.*}}i32 @_Z3barv()
 // CHECK-DAG: define {{.*}}i32 @_ZN16SpecSpecialFuncs6MethodEv(%struct.SpecSpecialFuncs* %{{.+}})
 // CHECK-DAG: define {{.*}}i32 @_ZN12SpecialFuncs6MethodEv(%struct.SpecialFuncs* %{{.+}})
-// CHECK-DAG: define linkonce_odr {{.*}}i32 @_ZN16SpecSpecialFuncs6methodEv(%struct.SpecSpecialFuncs* %{{.+}})
-// CHECK-DAG: define linkonce_odr {{.*}}i32 @_ZN12SpecialFuncs6methodEv(%struct.SpecialFuncs* %{{.+}})
 // CHECK-DAG: define {{.*}}i32 @_Z5prio_v()
-// CHECK-DAG: define internal i32 @_ZL6prio1_v()
 // CHECK-DAG: define {{.*}}i32 @_Z4callv()
-// CHECK-DAG: define internal i32 @_ZL9stat_usedv()
 // CHECK-DAG: define {{.*}}i32 @fn_linkage()
 // CHECK-DAG: define {{.*}}i32 @_Z11fn_linkage1v()
 
 // CHECK-DAG: ret i32 2
 // CHECK-DAG: ret i32 3
-// CHECK-DAG: ret i32 4
-// CHECK-DAG: ret i32 5
 // CHECK-DAG: ret i32 6
 // CHECK-DAG: ret i32 7
-// CHECK-DAG: ret i32 82
 // CHECK-DAG: ret i32 83
-// CHECK-DAG: ret i32 85
-// CHECK-DAG: ret i32 86
 // CHECK-DAG: ret i32 87
 
 // Outputs for function members
-// CHECK-DAG: ret i32 6
-// CHECK-DAG: ret i32 7
-// CHECK-NOT: ret i32 {{1|81|84}}
+// CHECK-NOT: ret i32 {{81|84}}
 
 #ifndef HEADER
 #define HEADER

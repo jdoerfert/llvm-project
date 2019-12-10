@@ -329,6 +329,8 @@ bool LookupResult::sanity() const {
   assert(ResultKind != Found || Decls.size() == 1);
   assert(ResultKind != FoundOverloaded || Decls.size() > 1 ||
          (Decls.size() == 1 &&
+          (*begin())->getUnderlyingDecl()->getAttr<OMPDeclareVariantAttr>()) ||
+         (Decls.size() == 1 &&
           isa<FunctionTemplateDecl>((*begin())->getUnderlyingDecl())));
   assert(ResultKind != FoundUnresolvedValue || sanityCheckUnresolved());
   assert(ResultKind != Ambiguous || Decls.size() > 1 ||
@@ -490,6 +492,9 @@ void LookupResult::resolveKind() {
       ResultKind = FoundOverloaded;
     else if (isa<UnresolvedUsingValueDecl>(D))
       ResultKind = FoundUnresolvedValue;
+    else if (auto *OMPVariantAttr = D->getAttr<OMPDeclareVariantAttr>())
+      if (OMPVariantAttr->getVariantFuncRef())
+        ResultKind = FoundOverloaded;
     return;
   }
 

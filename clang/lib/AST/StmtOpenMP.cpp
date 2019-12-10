@@ -13,6 +13,8 @@
 #include "clang/AST/StmtOpenMP.h"
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
+#include "llvm/ADT/SetOperations.h"
 
 using namespace clang;
 using namespace llvm::omp;
@@ -2239,4 +2241,265 @@ OMPTargetTeamsDistributeSimdDirective::CreateEmpty(const ASTContext &C,
           numLoopChildren(CollapsedNum, OMPD_target_teams_distribute_simd));
   return new (Mem)
       OMPTargetTeamsDistributeSimdDirective(CollapsedNum, NumClauses);
+}
+
+// TODO: We have various representations for the same data, it might help to
+//       reuse some instead of converting them.
+// TODO: It is unclear where this checking code should live. It is used all over
+//       the place and would probably fit bet in OMPDeclareVariantAttr.
+using OMPContextSelectorData =
+    OpenMPCtxSelectorData<ArrayRef<StringRef>, llvm::APSInt>;
+using CompleteOMPContextSelectorData = SmallVector<OMPContextSelectorData, 4>;
+
+/// Checks current context and returns true if it matches the context selector.
+template <OpenMPContextSelectorSetKind CtxSet, OpenMPContextSelectorKind Ctx,
+          typename... Arguments>
+static bool checkContext(const OMPContextSelectorData &Data,
+                         Arguments... Params) {
+  assert(Data.CtxSet != OMP_CTX_SET_unknown && Data.Ctx != OMP_CTX_unknown &&
+         "Unknown context selector or context selector set.");
+  return false;
+}
+
+/// Checks for implementation={vendor(<vendor>)} context selector.
+/// \returns true iff <vendor>="llvm", false otherwise.
+template <>
+bool checkContext<OMP_CTX_SET_implementation, OMP_CTX_vendor>(
+    const OMPContextSelectorData &Data) {
+  return llvm::all_of(Data.Names,
+                      [](StringRef S) { return !S.compare_lower("llvm"); });
+}
+
+/// Checks for device={kind(<kind>)} context selector.
+/// \returns true if <kind>="host" and compilation is for host.
+/// true if <kind>="nohost" and compilation is for device.
+/// true if <kind>="cpu" and compilation is for Arm, X86 or PPC CPU.
+/// true if <kind>="gpu" and compilation is for NVPTX or AMDGCN.
+/// false otherwise.
+template <>
+bool checkContext<OMP_CTX_SET_device, OMP_CTX_kind, const LangOptions &,
+                  const TargetInfo &>(const OMPContextSelectorData &Data,
+                                      const LangOptions &LO,
+                                      const TargetInfo &TI) {
+  for (StringRef Name : Data.Names) {
+    if (!Name.compare_lower("host")) {
+      if (LO.OpenMPIsDevice)
+        return false;
+      continue;
+    }
+    if (!Name.compare_lower("nohost")) {
+      if (!LO.OpenMPIsDevice)
+        return false;
+      continue;
+    }
+    switch (TI.getTriple().getArch()) {
+    case llvm::Triple::arm:
+    case llvm::Triple::armeb:
+    case llvm::Triple::aarch64:
+    case llvm::Triple::aarch64_be:
+    case llvm::Triple::aarch64_32:
+    case llvm::Triple::ppc:
+    case llvm::Triple::ppc64:
+    case llvm::Triple::ppc64le:
+    case llvm::Triple::x86:
+    case llvm::Triple::x86_64:
+      if (Name.compare_lower("cpu"))
+        return false;
+      break;
+    case llvm::Triple::amdgcn:
+    case llvm::Triple::nvptx:
+    case llvm::Triple::nvptx64:
+      if (Name.compare_lower("gpu"))
+        return false;
+      break;
+    case llvm::Triple::UnknownArch:
+    case llvm::Triple::arc:
+    case llvm::Triple::avr:
+    case llvm::Triple::bpfel:
+    case llvm::Triple::bpfeb:
+    case llvm::Triple::hexagon:
+    case llvm::Triple::mips:
+    case llvm::Triple::mipsel:
+    case llvm::Triple::mips64:
+    case llvm::Triple::mips64el:
+    case llvm::Triple::msp430:
+    case llvm::Triple::r600:
+    case llvm::Triple::riscv32:
+    case llvm::Triple::riscv64:
+    case llvm::Triple::sparc:
+    case llvm::Triple::sparcv9:
+    case llvm::Triple::sparcel:
+    case llvm::Triple::systemz:
+    case llvm::Triple::tce:
+    case llvm::Triple::tcele:
+    case llvm::Triple::thumb:
+    case llvm::Triple::thumbeb:
+    case llvm::Triple::xcore:
+    case llvm::Triple::le32:
+    case llvm::Triple::le64:
+    case llvm::Triple::amdil:
+    case llvm::Triple::amdil64:
+    case llvm::Triple::hsail:
+    case llvm::Triple::hsail64:
+    case llvm::Triple::spir:
+    case llvm::Triple::spir64:
+    case llvm::Triple::kalimba:
+    case llvm::Triple::shave:
+    case llvm::Triple::lanai:
+    case llvm::Triple::wasm32:
+    case llvm::Triple::wasm64:
+    case llvm::Triple::renderscript32:
+    case llvm::Triple::renderscript64:
+      return false;
+    }
+  }
+  return true;
+}
+
+static CompleteOMPContextSelectorData
+translateAttrToContextSelectorData(ASTContext &C,
+                                   const OMPDeclareVariantAttr *A) {
+  CompleteOMPContextSelectorData Data;
+  if (!A)
+    return Data;
+  for (unsigned I = 0, E = A->scores_size(); I < E; ++I) {
+    Data.emplace_back();
+    auto CtxSet = static_cast<OpenMPContextSelectorSetKind>(
+        *std::next(A->ctxSelectorSets_begin(), I));
+    auto Ctx = static_cast<OpenMPContextSelectorKind>(
+        *std::next(A->ctxSelectors_begin(), I));
+    Data.back().CtxSet = CtxSet;
+    Data.back().Ctx = Ctx;
+    const Expr *Score = *std::next(A->scores_begin(), I);
+    Score->dump();
+    Data.back().Score = Score->EvaluateKnownConstInt(C);
+    switch (Ctx) {
+    case OMP_CTX_vendor:
+      assert(CtxSet == OMP_CTX_SET_implementation &&
+             "Expected implementation context selector set.");
+      Data.back().Names =
+          llvm::makeArrayRef(A->implVendors_begin(), A->implVendors_end());
+      break;
+    case OMP_CTX_kind:
+      assert(CtxSet == OMP_CTX_SET_device &&
+             "Expected device context selector set.");
+      Data.back().Names =
+          llvm::makeArrayRef(A->deviceKinds_begin(), A->deviceKinds_end());
+      break;
+    case OMP_CTX_unknown:
+      llvm_unreachable("Unknown context selector kind.");
+    }
+  }
+  return Data;
+}
+
+static bool
+matchesOpenMPContextImpl(const CompleteOMPContextSelectorData &ContextData,
+                         const LangOptions &LO, const TargetInfo &TI) {
+  for (const OMPContextSelectorData &Data : ContextData) {
+    switch (Data.Ctx) {
+    case OMP_CTX_vendor:
+      assert(Data.CtxSet == OMP_CTX_SET_implementation &&
+             "Expected implementation context selector set.");
+      if (!checkContext<OMP_CTX_SET_implementation, OMP_CTX_vendor>(Data))
+        return false;
+      break;
+    case OMP_CTX_kind:
+      assert(Data.CtxSet == OMP_CTX_SET_device &&
+             "Expected device context selector set.");
+      if (!checkContext<OMP_CTX_SET_device, OMP_CTX_kind, const LangOptions &,
+                        const TargetInfo &>(Data, LO, TI))
+        return false;
+      break;
+    case OMP_CTX_unknown:
+      llvm_unreachable("Unknown context selector kind.");
+    }
+  }
+  return true;
+}
+
+static bool isStrictSubset(const CompleteOMPContextSelectorData &LHS,
+                           const CompleteOMPContextSelectorData &RHS) {
+  llvm::SmallDenseMap<std::pair<int, int>, llvm::StringSet<>, 4> RHSData;
+  for (const OMPContextSelectorData &D : RHS) {
+    auto &Pair = RHSData.FindAndConstruct(std::make_pair(D.CtxSet, D.Ctx));
+    Pair.getSecond().insert(D.Names.begin(), D.Names.end());
+  }
+  bool AllSetsAreEqual = true;
+  for (const OMPContextSelectorData &D : LHS) {
+    auto It = RHSData.find(std::make_pair(D.CtxSet, D.Ctx));
+    if (It == RHSData.end())
+      return false;
+    if (D.Names.size() > It->getSecond().size())
+      return false;
+    if (llvm::set_union(It->getSecond(), D.Names))
+      return false;
+    AllSetsAreEqual =
+        AllSetsAreEqual && (D.Names.size() == It->getSecond().size());
+  }
+
+  return LHS.size() != RHS.size() || !AllSetsAreEqual;
+}
+
+const OMPDeclareVariantAttr *
+clang::getBetterOpenMPContextMatch(ASTContext &C,
+                                   const OMPDeclareVariantAttr *LHSAttr,
+                                   const OMPDeclareVariantAttr *RHSAttr) {
+  const CompleteOMPContextSelectorData LHS =
+      translateAttrToContextSelectorData(C, LHSAttr);
+  const CompleteOMPContextSelectorData RHS =
+      translateAttrToContextSelectorData(C, RHSAttr);
+  bool LHSMatch = LHSAttr && matchesOpenMPContextImpl(LHS, C.getLangOpts(),
+                                                      C.getTargetInfo());
+  bool RHSMatch = RHSAttr && matchesOpenMPContextImpl(RHS, C.getLangOpts(),
+                                                      C.getTargetInfo());
+  bool LHSisOK = LHSMatch && !LHSAttr->isInherited();
+  bool RHSisOK = RHSMatch && !RHSAttr->isInherited();
+  if (!LHSisOK && !RHSisOK)
+    return nullptr;
+  if (LHSisOK && !RHSisOK)
+    return LHSAttr;
+  if (!LHSisOK && RHSisOK)
+    return RHSAttr;
+  assert(LHSisOK && RHSisOK && "broken invariant");
+
+  // Score is calculated as sum of all scores + 1.
+  llvm::APSInt LHSScore(llvm::APInt(64, 1), /*isUnsigned=*/false);
+  bool RHSIsSubsetOfLHS = isStrictSubset(RHS, LHS);
+  if (RHSIsSubsetOfLHS) {
+    LHSScore = llvm::APSInt::get(0);
+  } else {
+    for (const OMPContextSelectorData &Data : LHS) {
+      if (Data.Score.getBitWidth() > LHSScore.getBitWidth()) {
+        LHSScore = LHSScore.extend(Data.Score.getBitWidth()) + Data.Score;
+      } else if (Data.Score.getBitWidth() < LHSScore.getBitWidth()) {
+        LHSScore += Data.Score.extend(LHSScore.getBitWidth());
+      } else {
+        LHSScore += Data.Score;
+      }
+    }
+  }
+  llvm::APSInt RHSScore(llvm::APInt(64, 1), /*isUnsigned=*/false);
+  if (!RHSIsSubsetOfLHS && isStrictSubset(LHS, RHS)) {
+    RHSScore = llvm::APSInt::get(0);
+  } else {
+    for (const OMPContextSelectorData &Data : RHS) {
+      if (Data.Score.getBitWidth() > RHSScore.getBitWidth()) {
+        RHSScore = RHSScore.extend(Data.Score.getBitWidth()) + Data.Score;
+      } else if (Data.Score.getBitWidth() < RHSScore.getBitWidth()) {
+        RHSScore += Data.Score.extend(RHSScore.getBitWidth());
+      } else {
+        RHSScore += Data.Score;
+      }
+    }
+  }
+  return llvm::APSInt::compareValues(LHSScore, RHSScore) >= 0 ? LHSAttr
+                                                              : RHSAttr;
+}
+
+bool clang::isOpenMPContextMatch(ASTContext &C,
+                                 const OMPDeclareVariantAttr *A) {
+  const CompleteOMPContextSelectorData Data =
+      translateAttrToContextSelectorData(C, A);
+  return matchesOpenMPContextImpl(Data, C.getLangOpts(), C.getTargetInfo());
 }

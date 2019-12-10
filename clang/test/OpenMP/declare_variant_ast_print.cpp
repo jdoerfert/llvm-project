@@ -40,6 +40,7 @@ int bar();
 #pragma omp declare variant(foofoo <T>) match(user = {condition(<expr>)})
 #pragma omp declare variant(foofoo <T>) match(implementation={vendor(llvm)},device={kind(cpu)})
 #pragma omp declare variant(foofoo <T>) match(implementation={vendor(unknown)})
+// TODO: Handle template instantiation
 #pragma omp declare variant(foofoo <T>) match(implementation={vendor(score(C+5): ibm, xxx, ibm)},device={kind(cpu,host)})
 template <typename T, int C>
 T barbar();
@@ -50,7 +51,7 @@ T barbar();
 // CHECK-NEXT: template<> int barbar<int, 3>();
 
 // CHECK-NEXT: int baz() {
-// CHECK-NEXT: return barbar<int, 3>();
+// CHECK-NEXT: return foofoo<int, 3>();
 // CHECK-NEXT: }
 int baz() {
   return barbar<int, 3>();

@@ -4594,6 +4594,18 @@ public:
   }
 };
 
+class OMPDeclareVariantAttr;
+
+/// Helper to determine the best of two potential context matches. Note that
+/// nullptr are valid inputs but also valid outputs, e.g., if neither attribute
+/// describes a matching context.
+const OMPDeclareVariantAttr *
+getBetterOpenMPContextMatch(ASTContext &C, const OMPDeclareVariantAttr *LHSAttr,
+                            const OMPDeclareVariantAttr *RHSAttr);
+
+/// Return true if the context described by \p A matches.
+bool isOpenMPContextMatch(ASTContext &C, const OMPDeclareVariantAttr *A);
+
 } // end namespace clang
 
 #endif

@@ -11,12 +11,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Sema/Overload.h"
+
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
+#include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/TypeOrdering.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/DiagnosticOptions.h"
@@ -9708,6 +9710,22 @@ OverloadCandidateSet::BestViableFunction(Sema &S, SourceLocation Loc,
     S.diagnoseEquivalentInternalLinkageDeclarations(Loc, Best->Function,
                                                     EquivalentCands);
 
+  FunctionDecl *FD = Best->Function;
+  if (!FD || !FD->hasAttrs() || !FD->hasAttr<OMPDeclareVariantAttr>())
+    return OR_Success;
+
+  // Iterate through all DeclareVariant attributes and check context selectors.
+  const OMPDeclareVariantAttr *BestVariant = nullptr;
+  for (const auto *A : FD->specific_attrs<OMPDeclareVariantAttr>())
+    BestVariant =
+        getBetterOpenMPContextMatch(S.getASTContext(), BestVariant, A);
+  if (!BestVariant || !BestVariant->getVariantFuncRef())
+    return OR_Success;
+
+  // TODO: Handle template instantiation
+  Best->Function = cast<FunctionDecl>(
+      cast<DeclRefExpr>(BestVariant->getVariantFuncRef()->IgnoreParenImpCasts())
+          ->getDecl());
   return OR_Success;
 }
 

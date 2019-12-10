@@ -1649,8 +1649,9 @@ MemberExpr::MemberExpr(Expr *Base, bool IsArrow, SourceLocation OperatorLoc,
            Base->containsUnexpandedParameterPack()),
       Base(Base), MemberDecl(MemberDecl), MemberDNLoc(NameInfo.getInfo()),
       MemberLoc(NameInfo.getLoc()) {
-  assert(!NameInfo.getName() ||
-         MemberDecl->getDeclName() == NameInfo.getName());
+  // TODO: Add an OMP declare variant attribute on the variant declaration.
+  // assert(!NameInfo.getName() || MemberDecl->hasAttr<OMPDeclareVariantAttr>()
+  // || MemberDecl->getDeclName() == NameInfo.getName());
   MemberExprBits.IsArrow = IsArrow;
   MemberExprBits.HasQualifierOrFoundDecl = false;
   MemberExprBits.HasTemplateKWAndArgsInfo = false;

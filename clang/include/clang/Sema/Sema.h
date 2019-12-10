@@ -9403,12 +9403,6 @@ private:
                                      MapT &Map, unsigned Selector = 0,
                                      SourceRange SrcRange = SourceRange());
 
-  /// Marks all the functions that might be required for the currently active
-  /// OpenMP context.
-  void markOpenMPDeclareVariantFuncsReferenced(SourceLocation Loc,
-                                               FunctionDecl *Func,
-                                               bool MightBeOdrUse);
-
 public:
   /// Struct to store the context selectors info for declare variant directive.
   using OMPCtxStringType = SmallString<8>;

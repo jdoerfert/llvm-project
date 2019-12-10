@@ -5460,25 +5460,6 @@ void Sema::ActOnOpenMPDeclareVariantDirective(
   }
 }
 
-void Sema::markOpenMPDeclareVariantFuncsReferenced(SourceLocation Loc,
-                                                   FunctionDecl *Func,
-                                                   bool MightBeOdrUse) {
-  assert(LangOpts.OpenMP && "Expected OpenMP mode.");
-
-  if (!Func->isDependentContext() && Func->hasAttrs()) {
-    for (OMPDeclareVariantAttr *A :
-         Func->specific_attrs<OMPDeclareVariantAttr>()) {
-      // TODO: add checks for active OpenMP context where possible.
-      Expr *VariantRef = A->getVariantFuncRef();
-      auto *DRE = cast<DeclRefExpr>(VariantRef->IgnoreParenImpCasts());
-      auto *F = cast<FunctionDecl>(DRE->getDecl());
-      if (!F->isDefined() && F->isTemplateInstantiation())
-        InstantiateFunctionDefinition(Loc, F->getFirstDecl());
-      MarkFunctionReferenced(Loc, F, MightBeOdrUse);
-    }
-  }
-}
-
 StmtResult Sema::ActOnOpenMPParallelDirective(ArrayRef<OMPClause *> Clauses,
                                               Stmt *AStmt,
                                               SourceLocation StartLoc,

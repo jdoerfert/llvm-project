@@ -348,92 +348,6 @@ static void instantiateOMPDeclareSimdDeclAttr(
       Attr.getRange());
 }
 
-/// Instantiation of 'declare variant' attribute and its arguments.
-static void instantiateOMPDeclareVariantAttr(
-    Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
-    const OMPDeclareVariantAttr &Attr, Decl *New) {
-  // Allow 'this' in clauses with varlists.
-  if (auto *FTD = dyn_cast<FunctionTemplateDecl>(New))
-    New = FTD->getTemplatedDecl();
-  auto *FD = cast<FunctionDecl>(New);
-  auto *ThisContext = dyn_cast_or_null<CXXRecordDecl>(FD->getDeclContext());
-
-  auto &&SubstExpr = [FD, ThisContext, &S, &TemplateArgs](Expr *E) {
-    if (auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts()))
-      if (auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl())) {
-        Sema::ContextRAII SavedContext(S, FD);
-        LocalInstantiationScope Local(S);
-        if (FD->getNumParams() > PVD->getFunctionScopeIndex())
-          Local.InstantiatedLocal(
-              PVD, FD->getParamDecl(PVD->getFunctionScopeIndex()));
-        return S.SubstExpr(E, TemplateArgs);
-      }
-    Sema::CXXThisScopeRAII ThisScope(S, ThisContext, Qualifiers(),
-                                     FD->isCXXInstanceMember());
-    return S.SubstExpr(E, TemplateArgs);
-  };
-
-  // Substitute a single OpenMP clause, which is a potentially-evaluated
-  // full-expression.
-  auto &&Subst = [&SubstExpr, &S](Expr *E) {
-    EnterExpressionEvaluationContext Evaluated(
-        S, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
-    ExprResult Res = SubstExpr(E);
-    if (Res.isInvalid())
-      return Res;
-    return S.ActOnFinishFullExpr(Res.get(), false);
-  };
-
-  ExprResult VariantFuncRef;
-  if (Expr *E = Attr.getVariantFuncRef())
-    VariantFuncRef = Subst(E);
-
-  // Check function/variant ref.
-  Optional<std::pair<FunctionDecl *, Expr *>> DeclVarData =
-      S.checkOpenMPDeclareVariantFunction(
-          S.ConvertDeclToDeclGroup(New), VariantFuncRef.get(), Attr.getRange());
-  if (!DeclVarData)
-    return;
-  SmallVector<Sema::OMPCtxSelectorData, 4> Data;
-  for (unsigned I = 0, E = Attr.scores_size(); I < E; ++I) {
-    ExprResult Score;
-    if (Expr *E = *std::next(Attr.scores_begin(), I))
-      Score = Subst(E);
-    // Instantiate the attribute.
-    auto CtxSet = static_cast<OpenMPContextSelectorSetKind>(
-        *std::next(Attr.ctxSelectorSets_begin(), I));
-    auto Ctx = static_cast<OpenMPContextSelectorKind>(
-        *std::next(Attr.ctxSelectors_begin(), I));
-    switch (CtxSet) {
-    case OMP_CTX_SET_implementation:
-      switch (Ctx) {
-      case OMP_CTX_vendor:
-        Data.emplace_back(CtxSet, Ctx, Score, Attr.implVendors());
-        break;
-      case OMP_CTX_kind:
-      case OMP_CTX_unknown:
-        llvm_unreachable("Unexpected context selector kind.");
-      }
-      break;
-    case OMP_CTX_SET_device:
-      switch (Ctx) {
-      case OMP_CTX_kind:
-        Data.emplace_back(CtxSet, Ctx, Score, Attr.deviceKinds());
-        break;
-      case OMP_CTX_vendor:
-      case OMP_CTX_unknown:
-        llvm_unreachable("Unexpected context selector kind.");
-      }
-      break;
-    case OMP_CTX_SET_unknown:
-      llvm_unreachable("Unexpected context selector set kind.");
-    }
-  }
-  S.ActOnOpenMPDeclareVariantDirective(DeclVarData.getValue().first,
-                                       DeclVarData.getValue().second,
-                                       Attr.getRange(), Data);
-}
-
 static void instantiateDependentAMDGPUFlatWorkGroupSizeAttr(
     Sema &S, const MultiLevelTemplateArgumentList &TemplateArgs,
     const AMDGPUFlatWorkGroupSizeAttr &Attr, Decl *New) {
@@ -588,11 +502,6 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
 
     if (const auto *OMPAttr = dyn_cast<OMPDeclareSimdDeclAttr>(TmplAttr)) {
       instantiateOMPDeclareSimdDeclAttr(*this, TemplateArgs, *OMPAttr, New);
-      continue;
-    }
-
-    if (const auto *OMPAttr = dyn_cast<OMPDeclareVariantAttr>(TmplAttr)) {
-      instantiateOMPDeclareVariantAttr(*this, TemplateArgs, *OMPAttr, New);
       continue;
     }
 
