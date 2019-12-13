@@ -8,6 +8,7 @@ add_llvm_component_library(LLVMTransformUtils
   BuildLibCalls.cpp
   BypassSlowDivision.cpp
   CallPromotionUtils.cpp
+  CallbackEncapsulate.cpp
   CallGraphUpdater.cpp
   CanonicalizeAliases.cpp
   CanonicalizeFreezeInLoops.cpp
