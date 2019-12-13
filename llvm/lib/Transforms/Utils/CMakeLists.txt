@@ -8,6 +8,7 @@ add_llvm_component_library(LLVMTransformUtils
   BypassSlowDivision.cpp
   CallPromotionUtils.cpp
   CallGraphUpdater.cpp
+  CallbackEncapsulate.cpp
   CanonicalizeAliases.cpp
   CloneFunction.cpp
   CloneModule.cpp

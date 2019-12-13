@@ -10,6 +10,7 @@ add_llvm_unittest(UtilsTests
   ASanStackFrameLayoutTest.cpp
   BasicBlockUtilsTest.cpp
   CallPromotionUtilsTest.cpp
+  CallbackEncapsulateTest.cpp
   CloningTest.cpp
   CodeExtractorTest.cpp
   CodeMoverUtilsTest.cpp
