@@ -168,6 +168,17 @@ Value *OpenMPIRBuilder::getOrCreateThreadID(Value *Ident) {
       "omp_global_thread_num");
 }
 
+InsertPointTy OpenMPIRBuilder::CreateTarget(const LocationDescription &Loc,
+                                            omp::Directive DK) {
+  if (!updateToLocation(Loc))
+    return Loc.IP;
+  return emitTargetHostImpl(Loc, DK);
+}
+
+InsertPointTy
+OpenMPIRBuilder::emitTargetHostImpl(const LocationDescription &Loc,
+                                    omp::Directive DK) {}
+
 OpenMPIRBuilder::InsertPointTy
 OpenMPIRBuilder::CreateBarrier(const LocationDescription &Loc, Directive DK,
                                bool ForceSimpleCall, bool CheckCancelFlag) {

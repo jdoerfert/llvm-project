@@ -126,6 +126,14 @@ public:
   ///
   ///{
 
+  /// Generator for '#omp target'
+  ///
+  /// \param Loc The location where the directive was encountered.
+  /// \param DK The kind of directive that was encountered.
+  ///
+  /// \returns The insertion point after the directive code.
+  InsertPointTy CreateTarget(const LocationDescription &Loc, omp::Directive DK);
+
   /// Generator for '#omp barrier'
   ///
   /// \param Loc The location where the barrier directive was encountered.
@@ -195,6 +203,15 @@ private:
   InsertPointTy emitBarrierImpl(const LocationDescription &Loc,
                                 omp::Directive DK, bool ForceSimpleCall,
                                 bool CheckCancelFlag);
+
+  /// Generator for the host code of a target construct.
+  ///
+  /// \param Loc The location where the directive was encountered.
+  /// \param DK The kind of directive that was encountered.
+  ///
+  /// \returns The insertion point after the directive code.
+  InsertPointTy emitTargetHostImpl(const LocationDescription &Loc,
+                                   omp::Directive DK);
 
   /// The finalization stack made up of finalize callbacks currently in-flight,
   /// wrapped into FinalizationInfo objects that reference also the finalization

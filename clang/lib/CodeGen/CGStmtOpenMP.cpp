@@ -4350,6 +4350,12 @@ void CodeGenFunction::EmitOMPTargetDeviceFunction(CodeGenModule &CGM,
 }
 
 void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
+  llvm::OpenMPIRBuilder *OMPBuilder = CGM.getOpenMPIRBuilder();
+  if (OMPBuilder) {
+    Builder.restoreIP(OMPBuilder->CreateTarget());
+    return;
+  }
+
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
     emitTargetRegion(CGF, S, Action);
   };
