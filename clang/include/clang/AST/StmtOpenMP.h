@@ -5569,6 +5569,15 @@ public:
   }
 };
 
+namespace omp {
+/// Obtain information that uniquely identifies a target entry. This
+/// consists of the file and device IDs as well as line number associated with
+/// the relevant entry source location.
+void getTargetEntryUniqueInfo(ASTContext &C, SourceLocation Loc,
+                              unsigned &DeviceID, unsigned &FileID,
+                              unsigned &LineNum);
+} // namespace omp
+
 } // end namespace clang
 
 #endif

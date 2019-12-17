@@ -45,6 +45,7 @@
 using namespace clang;
 using namespace CodeGen;
 using namespace llvm::omp;
+using namespace clang::omp;
 
 namespace {
 /// Base class for handling code generation inside OpenMP regions.
@@ -1647,36 +1648,6 @@ CGOpenMPRuntime::createDispatchNextFunction(unsigned IVSize, bool IVSigned) {
   return CGM.CreateRuntimeFunction(FnTy, Name);
 }
 
-/// Obtain information that uniquely identifies a target entry. This
-/// consists of the file and device IDs as well as line number associated with
-/// the relevant entry source location.
-static void getTargetEntryUniqueInfo(ASTContext &C, SourceLocation Loc,
-                                     unsigned &DeviceID, unsigned &FileID,
-                                     unsigned &LineNum) {
-  SourceManager &SM = C.getSourceManager();
-
-  // The loc should be always valid and have a file ID (the user cannot use
-  // #pragma directives in macros)
-
-  assert(Loc.isValid() && "Source location is expected to be always valid.");
-
-  PresumedLoc PLoc = SM.getPresumedLoc(Loc);
-  assert(PLoc.isValid() && "Source location is expected to be always valid.");
-
-  llvm::sys::fs::UniqueID ID;
-  if (auto EC = llvm::sys::fs::getUniqueID(PLoc.getFilename(), ID)) {
-    PLoc = SM.getPresumedLoc(Loc, /*UseLineDirectives=*/false);
-    assert(PLoc.isValid() && "Source location is expected to be always valid.");
-    if (auto EC = llvm::sys::fs::getUniqueID(PLoc.getFilename(), ID))
-      SM.getDiagnostics().Report(diag::err_cannot_open_file)
-          << PLoc.getFilename() << EC.message();
-  }
-
-  DeviceID = ID.getDevice();
-  FileID = ID.getFile();
-  LineNum = PLoc.getLine();
-}
-
 Address CGOpenMPRuntime::getAddrOfDeclareTargetVar(const VarDecl *VD) {
   if (CGM.getLangOpts().OpenMPSimd)
     return Address::invalid();
@@ -1917,11 +1888,7 @@ bool CGOpenMPRuntime::emitDeclareTargetVarDefinition(const VarDecl *VD,
   unsigned Line;
   getTargetEntryUniqueInfo(CGM.getContext(), Loc, DeviceID, FileID, Line);
   SmallString<128> Buffer, Out;
-  {
-    llvm::raw_svector_ostream OS(Buffer);
-    OS << "__omp_offloading_" << llvm::format("_%x", DeviceID)
-       << llvm::format("_%x_", FileID) << VD->getName() << "_l" << Line;
-  }
+  getTargetRegionEntryFnName(Buffer, VD->getName(), DeviceID, FileID, Line);
 
   const Expr *Init = VD->getAnyInitializer();
   if (CGM.getLangOpts().CPlusPlus && PerformInit) {
@@ -1958,9 +1925,11 @@ bool CGOpenMPRuntime::emitDeclareTargetVarDefinition(const VarDecl *VD,
 
     // Register the information for the entry associated with the constructor.
     Out.clear();
+    SmallString<128> Name;
+    getTargetRegionEntryFnName(Name, Twine(Buffer, "_ctor").toStringRef(Out),
+                               DeviceID, FileID, Line);
     OffloadEntriesInfoManager.registerTargetRegionEntryInfo(
-        DeviceID, FileID, Twine(Buffer, "_ctor").toStringRef(Out), Line, Ctor,
-        ID, OffloadEntriesInfoManagerTy::OMPTargetRegionEntryCtor);
+        Name, Ctor, ID, OffloadEntriesInfoManagerTy::OMPTargetRegionEntryCtor);
   }
   if (VD->getType().isDestructedType() != QualType::DK_none) {
     llvm::Constant *Dtor;
@@ -1997,9 +1966,11 @@ bool CGOpenMPRuntime::emitDeclareTargetVarDefinition(const VarDecl *VD,
     }
     // Register the information for the entry associated with the destructor.
     Out.clear();
+    SmallString<128> Name;
+    getTargetRegionEntryFnName(Name, Twine(Buffer, "_dtor").toStringRef(Out),
+                               DeviceID, FileID, Line);
     OffloadEntriesInfoManager.registerTargetRegionEntryInfo(
-        DeviceID, FileID, Twine(Buffer, "_dtor").toStringRef(Out), Line, Dtor,
-        ID, OffloadEntriesInfoManagerTy::OMPTargetRegionEntryDtor);
+        Name, Dtor, ID, OffloadEntriesInfoManagerTy::OMPTargetRegionEntryDtor);
   }
   return CGM.getLangOpts().OpenMPIsDevice;
 }
@@ -2996,78 +2967,58 @@ bool CGOpenMPRuntime::OffloadEntriesInfoManagerTy::empty() const {
 
 /// Initialize target region entry.
 void CGOpenMPRuntime::OffloadEntriesInfoManagerTy::
-    initializeTargetRegionEntryInfo(unsigned DeviceID, unsigned FileID,
-                                    StringRef ParentName, unsigned LineNum,
-                                    unsigned Order) {
+    initializeTargetRegionEntryInfo(StringRef EntryName, unsigned Order) {
   assert(CGM.getLangOpts().OpenMPIsDevice && "Initialization of entries is "
                                              "only required for the device "
                                              "code generation.");
-  OffloadEntriesTargetRegion[DeviceID][FileID][ParentName][LineNum] =
+  OffloadEntriesTargetRegion[EntryName] =
       OffloadEntryInfoTargetRegion(Order, /*Addr=*/nullptr, /*ID=*/nullptr,
                                    OMPTargetRegionEntryTargetRegion);
   ++OffloadingEntriesNum;
 }
 
 void CGOpenMPRuntime::OffloadEntriesInfoManagerTy::
-    registerTargetRegionEntryInfo(unsigned DeviceID, unsigned FileID,
-                                  StringRef ParentName, unsigned LineNum,
-                                  llvm::Constant *Addr, llvm::Constant *ID,
+    registerTargetRegionEntryInfo(StringRef EntryName, llvm::Constant *Addr,
+                                  llvm::Constant *ID,
                                   OMPTargetRegionEntryKind Flags) {
   // If we are emitting code for a target, the entry is already initialized,
   // only has to be registered.
   if (CGM.getLangOpts().OpenMPIsDevice) {
     // This could happen if the device compilation is invoked standalone.
-    if (!hasTargetRegionEntryInfo(DeviceID, FileID, ParentName, LineNum))
+    if (!hasTargetRegionEntryInfo(EntryName)) {
       return;
-    auto &Entry =
-        OffloadEntriesTargetRegion[DeviceID][FileID][ParentName][LineNum];
+    auto &Entry = OffloadEntriesTargetRegion[EntryName];
     Entry.setAddress(Addr);
     Entry.setID(ID);
     Entry.setFlags(Flags);
   } else {
     if (Flags ==
             OffloadEntriesInfoManagerTy::OMPTargetRegionEntryTargetRegion &&
-        hasTargetRegionEntryInfo(DeviceID, FileID, ParentName, LineNum,
+        hasTargetRegionEntryInfo(EntryName,
                                  /*IgnoreAddressId*/ true))
       return;
-    assert(!hasTargetRegionEntryInfo(DeviceID, FileID, ParentName, LineNum) &&
+    assert(!hasTargetRegionEntryInfo(EntryName) &&
            "Target region entry already registered!");
     OffloadEntryInfoTargetRegion Entry(OffloadingEntriesNum, Addr, ID, Flags);
-    OffloadEntriesTargetRegion[DeviceID][FileID][ParentName][LineNum] = Entry;
+    OffloadEntriesTargetRegion[EntryName] = Entry;
     ++OffloadingEntriesNum;
   }
 }
 
 bool CGOpenMPRuntime::OffloadEntriesInfoManagerTy::hasTargetRegionEntryInfo(
-    unsigned DeviceID, unsigned FileID, StringRef ParentName, unsigned LineNum,
-    bool IgnoreAddressId) const {
-  auto PerDevice = OffloadEntriesTargetRegion.find(DeviceID);
-  if (PerDevice == OffloadEntriesTargetRegion.end())
-    return false;
-  auto PerFile = PerDevice->second.find(FileID);
-  if (PerFile == PerDevice->second.end())
-    return false;
-  auto PerParentName = PerFile->second.find(ParentName);
-  if (PerParentName == PerFile->second.end())
-    return false;
-  auto PerLine = PerParentName->second.find(LineNum);
-  if (PerLine == PerParentName->second.end())
+    StringRef EntryName) const {
+  auto It = OffloadEntriesTargetRegion.find(EntryName);
+  if (It == OffloadEntriesTargetRegion.end())
     return false;
   // Fail if this entry is already registered.
-  if (!IgnoreAddressId &&
-      (PerLine->second.getAddress() || PerLine->second.getID()))
-    return false;
-  return true;
+  return !(It->second.getAddress() || It->second.getID());
 }
 
 void CGOpenMPRuntime::OffloadEntriesInfoManagerTy::actOnTargetRegionEntriesInfo(
     const OffloadTargetRegionEntryInfoActTy &Action) {
   // Scan all target region entries and perform the provided action.
-  for (const auto &D : OffloadEntriesTargetRegion)
-    for (const auto &F : D.second)
-      for (const auto &P : F.second)
-        for (const auto &L : P.second)
-          Action(D.first, F.first, P.first(), L.first, L.second);
+  for (const auto &It : OffloadEntriesTargetRegion)
+    Action(It.first(), It.second);
 }
 
 void CGOpenMPRuntime::OffloadEntriesInfoManagerTy::
@@ -3174,12 +3125,8 @@ void CGOpenMPRuntime::createOffloadEntriesAndInfoMetadata() {
 
   llvm::Module &M = CGM.getModule();
   llvm::LLVMContext &C = M.getContext();
-  SmallVector<std::tuple<const OffloadEntriesInfoManagerTy::OffloadEntryInfo *,
-                         SourceLocation, StringRef>,
-              16>
+  SmallVector<const OffloadEntriesInfoManagerTy::OffloadEntryInfo *, 16>
       OrderedEntries(OffloadEntriesInfoManager.size());
-  llvm::SmallVector<StringRef, 16> ParentFunctions(
-      OffloadEntriesInfoManager.size());
 
   // Auxiliary methods to create metadata values and strings.
   auto &&GetMDInt = [this](unsigned V) {
@@ -3194,39 +3141,20 @@ void CGOpenMPRuntime::createOffloadEntriesAndInfoMetadata() {
 
   // Create function that emits metadata for each target region entry;
   auto &&TargetRegionMetadataEmitter =
-      [this, &C, MD, &OrderedEntries, &ParentFunctions, &GetMDInt,
-       &GetMDString](
-          unsigned DeviceID, unsigned FileID, StringRef ParentName,
-          unsigned Line,
+      [this, &C, MD, &OrderedEntries, &GetMDInt, &GetMDString](
+          StringRef EntryName,
           const OffloadEntriesInfoManagerTy::OffloadEntryInfoTargetRegion &E) {
         // Generate metadata for target regions. Each entry of this metadata
         // contains:
         // - Entry 0 -> Kind of this type of metadata (0).
-        // - Entry 1 -> Device ID of the file where the entry was identified.
-        // - Entry 2 -> File ID of the file where the entry was identified.
-        // - Entry 3 -> Mangled name of the function where the entry was
-        // identified.
-        // - Entry 4 -> Line in the file where the entry was identified.
-        // - Entry 5 -> Order the entry was created.
+        // - Entry 1 -> The name of the entry
+        // - Entry 2 -> Order the entry was created.
         // The first element of the metadata node is the kind.
-        llvm::Metadata *Ops[] = {GetMDInt(E.getKind()), GetMDInt(DeviceID),
-                                 GetMDInt(FileID),      GetMDString(ParentName),
-                                 GetMDInt(Line),        GetMDInt(E.getOrder())};
+        llvm::Metadata *Ops[] = {GetMDInt(E.getKind()), GetMDString(EntryName),
+                                 GetMDInt(E.getOrder())};
 
-        SourceLocation Loc;
-        for (auto I = CGM.getContext().getSourceManager().fileinfo_begin(),
-                  E = CGM.getContext().getSourceManager().fileinfo_end();
-             I != E; ++I) {
-          if (I->getFirst()->getUniqueID().getDevice() == DeviceID &&
-              I->getFirst()->getUniqueID().getFile() == FileID) {
-            Loc = CGM.getContext().getSourceManager().translateFileLineCol(
-                I->getFirst(), Line, 1);
-            break;
-          }
-        }
         // Save this entry in the right position of the ordered entries array.
-        OrderedEntries[E.getOrder()] = std::make_tuple(&E, Loc, ParentName);
-        ParentFunctions[E.getOrder()] = ParentName;
+        OrderedEntries[E.getOrder()] = &E;
 
         // Add metadata to the named metadata node.
         MD->addOperand(llvm::MDNode::get(C, Ops));
@@ -3253,8 +3181,7 @@ void CGOpenMPRuntime::createOffloadEntriesAndInfoMetadata() {
             GetMDInt(E.getFlags()), GetMDInt(E.getOrder())};
 
         // Save this entry in the right position of the ordered entries array.
-        OrderedEntries[E.getOrder()] =
-            std::make_tuple(&E, SourceLocation(), MangledName);
+        OrderedEntries[E.getOrder()] = &E;
 
         // Add metadata to the named metadata node.
         MD->addOperand(llvm::MDNode::get(C, Ops));
@@ -3263,11 +3190,12 @@ void CGOpenMPRuntime::createOffloadEntriesAndInfoMetadata() {
   OffloadEntriesInfoManager.actOnDeviceGlobalVarEntriesInfo(
       DeviceGlobalVarMetadataEmitter);
 
-  for (const auto &E : OrderedEntries) {
-    assert(std::get<0>(E) && "All ordered entries must exist!");
+  for (const OffloadEntriesInfoManagerTy::OffloadEntryInfo *Entry :
+       OrderedEntries) {
+    assert(E && "All ordered entries must exist!");
     if (const auto *CE =
             dyn_cast<OffloadEntriesInfoManagerTy::OffloadEntryInfoTargetRegion>(
-                std::get<0>(E))) {
+                E)) {
       if (!CE->getID() || !CE->getAddress()) {
         // Do not blame the entry if the parent funtion is not emitted.
         StringRef FnName = ParentFunctions[CE->getOrder()];
@@ -3277,14 +3205,14 @@ void CGOpenMPRuntime::createOffloadEntriesAndInfoMetadata() {
             DiagnosticsEngine::Error,
             "Offloading entry for target region in %0 is incorrect: either the "
             "address or the ID is invalid.");
-        CGM.getDiags().Report(std::get<1>(E), DiagID) << FnName;
+        // CGM.getDiags().Report(std::get<1>(E), DiagID) << FnName;
         continue;
       }
       createOffloadEntry(CE->getID(), CE->getAddress(), /*Size=*/0,
                          CE->getFlags(), llvm::GlobalValue::WeakAnyLinkage);
-    } else if (const auto *CE = dyn_cast<OffloadEntriesInfoManagerTy::
-                                             OffloadEntryInfoDeviceGlobalVar>(
-                   std::get<0>(E))) {
+    } else if (const auto *CE =
+                   dyn_cast<OffloadEntriesInfoManagerTy::
+                                OffloadEntryInfoDeviceGlobalVar>(E)) {
       OffloadEntriesInfoManagerTy::OMPTargetGlobalVarEntryKind Flags =
           static_cast<OffloadEntriesInfoManagerTy::OMPTargetGlobalVarEntryKind>(
               CE->getFlags());
@@ -3298,7 +3226,7 @@ void CGOpenMPRuntime::createOffloadEntriesAndInfoMetadata() {
               DiagnosticsEngine::Error, "Offloading entry for declare target "
                                         "variable %0 is incorrect: the "
                                         "address is invalid.");
-          CGM.getDiags().Report(std::get<1>(E), DiagID) << std::get<2>(E);
+          // CGM.getDiags().Report(std::get<1>(E), DiagID) << std::get<2>(E);
           continue;
         }
         // The vaiable has no definition - no need to add the entry.
@@ -6442,10 +6370,10 @@ public:
 } // namespace
 
 void CGOpenMPRuntime::emitTargetOutlinedFunction(
-    const OMPExecutableDirective &D, StringRef ParentName,
+    const OMPExecutableDirective &D, StringRef EntryFnName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
     bool IsOffloadEntry, const RegionCodeGenTy &CodeGen) {
-  assert(!ParentName.empty() && "Invalid target region parent name!");
+  assert(!EntryFnName.empty() && "Invalid target entry parent name!");
   HasEmittedTargetRegion = true;
   SmallVector<std::pair<const Expr *, const Expr *>, 4> Allocators;
   for (const auto *C : D.getClausesOfKind<OMPUsesAllocatorsClause>()) {
@@ -6458,7 +6386,7 @@ void CGOpenMPRuntime::emitTargetOutlinedFunction(
   }
   OMPUsesAllocatorsActionTy UsesAllocatorAction(Allocators);
   CodeGen.setAction(UsesAllocatorAction);
-  emitTargetOutlinedFunctionHelper(D, ParentName, OutlinedFn, OutlinedFnID,
+  emitTargetOutlinedFunctionHelper(D, EntryFnName, OutlinedFn, OutlinedFnID,
                                    IsOffloadEntry, CodeGen);
 }
 
@@ -6514,31 +6442,9 @@ void CGOpenMPRuntime::emitUsesAllocatorsFini(CodeGenFunction &CGF,
 }
 
 void CGOpenMPRuntime::emitTargetOutlinedFunctionHelper(
-    const OMPExecutableDirective &D, StringRef ParentName,
+    const OMPExecutableDirective &D, StringRef EntryFnName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
     bool IsOffloadEntry, const RegionCodeGenTy &CodeGen) {
-  // Create a unique name for the entry function using the source location
-  // information of the current target region. The name will be something like:
-  //
-  // __omp_offloading_DD_FFFF_PP_lBB
-  //
-  // where DD_FFFF is an ID unique to the file (device and file IDs), PP is the
-  // mangled name of the function that encloses the target region and BB is the
-  // line number of the target region.
-
-  const bool BuildOutlinedFn = CGM.getLangOpts().OpenMPIsDevice ||
-                               !CGM.getLangOpts().OpenMPOffloadMandatory;
-  unsigned DeviceID;
-  unsigned FileID;
-  unsigned Line;
-  getTargetEntryUniqueInfo(CGM.getContext(), D.getBeginLoc(), DeviceID, FileID,
-                           Line);
-  SmallString<64> EntryFnName;
-  {
-    llvm::raw_svector_ostream OS(EntryFnName);
-    OS << "__omp_offloading" << llvm::format("_%x", DeviceID)
-       << llvm::format("_%x_", FileID) << ParentName << "_l" << Line;
-  }
 
   const CapturedStmt &CS = *D.getCapturedStmt(OMPD_target);
 
@@ -10690,48 +10596,50 @@ void CGOpenMPRuntime::scanForTargetRegionsFunctions(const Stmt *S,
                                                             ParentName, Line))
       return;
 
+    SmallString<128> Name;
+    getTargetRegionEntryFnName(Name, ParentName, DeviceID, FileID, Line);
+
     switch (E.getDirectiveKind()) {
     case OMPD_target:
-      CodeGenFunction::EmitOMPTargetDeviceFunction(CGM, ParentName,
+      CodeGenFunction::EmitOMPTargetDeviceFunction(CGM, Name,
                                                    cast<OMPTargetDirective>(E));
       break;
     case OMPD_target_parallel:
       CodeGenFunction::EmitOMPTargetParallelDeviceFunction(
-          CGM, ParentName, cast<OMPTargetParallelDirective>(E));
+          CGM, Name, cast<OMPTargetParallelDirective>(E));
       break;
     case OMPD_target_teams:
       CodeGenFunction::EmitOMPTargetTeamsDeviceFunction(
-          CGM, ParentName, cast<OMPTargetTeamsDirective>(E));
+          CGM, Name, cast<OMPTargetTeamsDirective>(E));
       break;
     case OMPD_target_teams_distribute:
       CodeGenFunction::EmitOMPTargetTeamsDistributeDeviceFunction(
-          CGM, ParentName, cast<OMPTargetTeamsDistributeDirective>(E));
+          CGM, Name, cast<OMPTargetTeamsDistributeDirective>(E));
       break;
     case OMPD_target_teams_distribute_simd:
       CodeGenFunction::EmitOMPTargetTeamsDistributeSimdDeviceFunction(
-          CGM, ParentName, cast<OMPTargetTeamsDistributeSimdDirective>(E));
+          CGM, Name, cast<OMPTargetTeamsDistributeSimdDirective>(E));
       break;
     case OMPD_target_parallel_for:
       CodeGenFunction::EmitOMPTargetParallelForDeviceFunction(
-          CGM, ParentName, cast<OMPTargetParallelForDirective>(E));
+          CGM, Name, cast<OMPTargetParallelForDirective>(E));
       break;
     case OMPD_target_parallel_for_simd:
       CodeGenFunction::EmitOMPTargetParallelForSimdDeviceFunction(
-          CGM, ParentName, cast<OMPTargetParallelForSimdDirective>(E));
+          CGM, Name, cast<OMPTargetParallelForSimdDirective>(E));
       break;
     case OMPD_target_simd:
       CodeGenFunction::EmitOMPTargetSimdDeviceFunction(
-          CGM, ParentName, cast<OMPTargetSimdDirective>(E));
+          CGM, Name, cast<OMPTargetSimdDirective>(E));
       break;
     case OMPD_target_teams_distribute_parallel_for:
       CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForDeviceFunction(
-          CGM, ParentName,
-          cast<OMPTargetTeamsDistributeParallelForDirective>(E));
+          CGM, Name, cast<OMPTargetTeamsDistributeParallelForDirective>(E));
       break;
     case OMPD_target_teams_distribute_parallel_for_simd:
       CodeGenFunction::
           EmitOMPTargetTeamsDistributeParallelForSimdDeviceFunction(
-              CGM, ParentName,
+              CGM, Name,
               cast<OMPTargetTeamsDistributeParallelForSimdDirective>(E));
       break;
     case OMPD_parallel:

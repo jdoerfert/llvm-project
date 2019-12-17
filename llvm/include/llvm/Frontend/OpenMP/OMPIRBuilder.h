@@ -23,6 +23,23 @@
 namespace llvm {
 class CanonicalLoopInfo;
 
+namespace omp {
+/// Create a unique name for a target region entry function using the source
+/// location information of the target region. The name will be something like:
+///
+/// __omp_offloading_DD_FFFF_PP_lBB
+///
+/// where DD_FFFF is an ID unique to the file (device and file IDs), PP is the
+/// mangled name of the function that encloses the target region and BB is the
+/// line number of the target region.
+void getTargetRegionEntryFnName(SmallVectorImpl<char> &Name,
+                                StringRef ParentName, unsigned DeviceID,
+                                unsigned FileID, unsigned Line);
+
+/// Extract the line number from a target region entry function name.
+unsigned getLineNoFromTargetRegionEntryFnName(StringRef EntryFnName);
+} // namespace omp
+
 /// An interface to create LLVM-IR for OpenMP directives.
 ///
 /// Each OpenMP directive has a corresponding public generator method.
