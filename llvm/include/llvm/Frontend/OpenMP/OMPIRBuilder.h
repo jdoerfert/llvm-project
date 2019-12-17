@@ -20,6 +20,23 @@
 
 namespace llvm {
 
+namespace omp {
+/// Create a unique name for a target region entry function using the source
+/// location information of the target region. The name will be something like:
+///
+/// __omp_offloading_DD_FFFF_PP_lBB
+///
+/// where DD_FFFF is an ID unique to the file (device and file IDs), PP is the
+/// mangled name of the function that encloses the target region and BB is the
+/// line number of the target region.
+void getTargetRegionEntryFnName(SmallVectorImpl<char> &Name,
+                                StringRef ParentName, unsigned DeviceID,
+                                unsigned FileID, unsigned Line);
+
+/// Extract the line number from a target region entry function name.
+unsigned getLineNoFromTargetRegionEntryFnName(StringRef EntryFnName);
+} // namespace omp
+
 /// An interface to create LLVM-IR for OpenMP directives.
 ///
 /// Each OpenMP directive has a corresponding public generator method.
@@ -130,9 +147,15 @@ public:
   ///
   /// \param Loc The location where the directive was encountered.
   /// \param DK The kind of directive that was encountered.
+  /// \param IfCondition The evaluated 'if' clause expression, if any.
+  /// \param DeviceNo The evaluated 'device' clause expression, if any.
+  /// \param IsOffloadEntry Flag to indicate if we actually offload here.
+  /// \param Name The name determined for the region.
   ///
   /// \returns The insertion point after the directive code.
-  InsertPointTy CreateTarget(const LocationDescription &Loc, omp::Directive DK);
+  InsertPointTy CreateTarget(const LocationDescription &Loc, omp::Directive DK,
+                             Value *IfCondition, Value *DeviceNo,
+                             bool IsOffloadEntry, StringRef Name);
 
   /// Generator for '#omp barrier'
   ///
@@ -208,10 +231,16 @@ private:
   ///
   /// \param Loc The location where the directive was encountered.
   /// \param DK The kind of directive that was encountered.
+  /// \param IfCondition The evaluated 'if' clause expression, if any.
+  /// \param DeviceNo The evaluated 'device' clause expression, if any.
+  /// \param IsOffloadEntry Flag to indicate if we actually offload here.
+  /// \param Name The name determined for the region.
   ///
   /// \returns The insertion point after the directive code.
   InsertPointTy emitTargetHostImpl(const LocationDescription &Loc,
-                                   omp::Directive DK);
+                                   omp::Directive DK, Value *IfCondition,
+                                   Value *DeviceNo, bool IsOffloadEntry,
+                                   StringRef Name);
 
   /// The finalization stack made up of finalize callbacks currently in-flight,
   /// wrapped into FinalizationInfo objects that reference also the finalization

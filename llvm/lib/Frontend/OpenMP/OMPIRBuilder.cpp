@@ -38,6 +38,26 @@ static cl::opt<bool>
                                   "'as-if' properties of runtime calls."),
                          cl::init(false));
 
+void llvm::omp::getTargetRegionEntryFnName(SmallVectorImpl<char> &Name,
+                                           StringRef ParentName,
+                                           unsigned DeviceID, unsigned FileID,
+                                           unsigned Line) {
+  raw_svector_ostream OS(Name);
+  OS << "__omp_offloading" << llvm::format("_%x", DeviceID)
+     << llvm::format("_%x_", FileID) << ParentName << "_l" << Line;
+}
+
+unsigned
+llvm::omp::getLineNoFromTargetRegionEntryFnName(StringRef EntryFnName) {
+  size_t Idx = EntryFnName.find_last_of('_');
+  if (Idx == std::string::npos)
+    return ~0;
+  unsigned LineNo = ~0;
+  if (EntryFnName.substr(Idx).getAsInteger(10, LineNo))
+    return ~0;
+  return LineNo;
+}
+
 void OpenMPIRBuilder::addAttributes(omp::RuntimeFunction FnID, Function &Fn) {
   LLVMContext &Ctx = Fn.getContext();
 
@@ -168,16 +188,21 @@ Value *OpenMPIRBuilder::getOrCreateThreadID(Value *Ident) {
       "omp_global_thread_num");
 }
 
-InsertPointTy OpenMPIRBuilder::CreateTarget(const LocationDescription &Loc,
-                                            omp::Directive DK) {
+OpenMPIRBuilder::InsertPointTy
+OpenMPIRBuilder::CreateTarget(const LocationDescription &Loc, omp::Directive DK,
+                              Value *IfCondition, Value *DeviceNo,
+                              bool IsOffloadEntry, StringRef Name) {
   if (!updateToLocation(Loc))
     return Loc.IP;
-  return emitTargetHostImpl(Loc, DK);
+  return emitTargetHostImpl(Loc, DK, IfCondition, DeviceNo, IsOffloadEntry,
+                            Name);
 }
 
-InsertPointTy
-OpenMPIRBuilder::emitTargetHostImpl(const LocationDescription &Loc,
-                                    omp::Directive DK) {}
+OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::emitTargetHostImpl(
+    const LocationDescription &Loc, omp::Directive DK, Value *IfCondition,
+    Value *DeviceNo, bool IsOffloadEntry, StringRef Name) {
+  return Loc.IP;
+}
 
 OpenMPIRBuilder::InsertPointTy
 OpenMPIRBuilder::CreateBarrier(const LocationDescription &Loc, Directive DK,

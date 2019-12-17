@@ -227,7 +227,7 @@ protected:
 
   /// Helper to emit outlined function for 'target' directive.
   /// \param D Directive to emit.
-  /// \param ParentName Name of the function that encloses the target region.
+  /// \param EntryFnName The name for the outlined function.
   /// \param OutlinedFn Outlined function value to be defined by this call.
   /// \param OutlinedFnID Outlined function ID value to be defined by this call.
   /// \param IsOffloadEntry True if the outlined function is an offload entry.
@@ -235,7 +235,7 @@ protected:
   /// An outlined function may not be an entry if, e.g. the if clause always
   /// evaluates to false.
   virtual void emitTargetOutlinedFunctionHelper(const OMPExecutableDirective &D,
-                                                StringRef ParentName,
+                                                StringRef EntryFnName,
                                                 llvm::Function *&OutlinedFn,
                                                 llvm::Constant *&OutlinedFnID,
                                                 bool IsOffloadEntry,
@@ -529,20 +529,16 @@ private:
     };
 
     /// Initialize target region entry.
-    void initializeTargetRegionEntryInfo(unsigned DeviceID, unsigned FileID,
-                                         StringRef ParentName, unsigned LineNum,
-                                         unsigned Order);
+    void initializeTargetRegionEntryInfo(StringRef EntryName, unsigned Order);
     /// Register target region entry.
-    void registerTargetRegionEntryInfo(unsigned DeviceID, unsigned FileID,
-                                       StringRef ParentName, unsigned LineNum,
+    void registerTargetRegionEntryInfo(StringRef EntryName,
                                        llvm::Constant *Addr, llvm::Constant *ID,
                                        OMPTargetRegionEntryKind Flags);
     /// Return true if a target region entry with the provided information
     /// exists.
-    bool hasTargetRegionEntryInfo(unsigned DeviceID, unsigned FileID,
-                                  StringRef ParentName, unsigned LineNum) const;
+    bool hasTargetRegionEntryInfo(StringRef EntryName) const;
     /// brief Applies action \a Action on all registered entries.
-    typedef llvm::function_ref<void(unsigned, unsigned, StringRef, unsigned,
+    typedef llvm::function_ref<void(StringRef,
                                     const OffloadEntryInfoTargetRegion &)>
         OffloadTargetRegionEntryInfoActTy;
     void actOnTargetRegionEntriesInfo(
@@ -614,16 +610,9 @@ private:
 
   private:
     // Storage for target region entries kind. The storage is to be indexed by
-    // file ID, device ID, parent function name and line number.
-    typedef llvm::DenseMap<unsigned, OffloadEntryInfoTargetRegion>
-        OffloadEntriesTargetRegionPerLine;
-    typedef llvm::StringMap<OffloadEntriesTargetRegionPerLine>
-        OffloadEntriesTargetRegionPerParentName;
-    typedef llvm::DenseMap<unsigned, OffloadEntriesTargetRegionPerParentName>
-        OffloadEntriesTargetRegionPerFile;
-    typedef llvm::DenseMap<unsigned, OffloadEntriesTargetRegionPerFile>
-        OffloadEntriesTargetRegionPerDevice;
-    typedef OffloadEntriesTargetRegionPerDevice OffloadEntriesTargetRegionTy;
+    // the name of the entry, see llvm::omp::getTargetRegionEntryFnName(...).
+    typedef llvm::StringMap<OffloadEntryInfoTargetRegion>
+        OffloadEntriesTargetRegionTy;
     OffloadEntriesTargetRegionTy OffloadEntriesTargetRegion;
     /// Storage for device global variable entries kind. The storage is to be
     /// indexed by mangled name.
@@ -1420,7 +1409,7 @@ public:
 
   /// Emit outilined function for 'target' directive.
   /// \param D Directive to emit.
-  /// \param ParentName Name of the function that encloses the target region.
+  /// \param EntryFnName The name for the outlined function.
   /// \param OutlinedFn Outlined function value to be defined by this call.
   /// \param OutlinedFnID Outlined function ID value to be defined by this call.
   /// \param IsOffloadEntry True if the outlined function is an offload entry.
@@ -1428,7 +1417,7 @@ public:
   /// An outlined function may not be an entry if, e.g. the if clause always
   /// evaluates to false.
   virtual void emitTargetOutlinedFunction(const OMPExecutableDirective &D,
-                                          StringRef ParentName,
+                                          StringRef EntryFnName,
                                           llvm::Function *&OutlinedFn,
                                           llvm::Constant *&OutlinedFnID,
                                           bool IsOffloadEntry,
@@ -2110,7 +2099,7 @@ public:
 
   /// Emit outilined function for 'target' directive.
   /// \param D Directive to emit.
-  /// \param ParentName Name of the function that encloses the target region.
+  /// \param EntryFnName The name for the outlined function.
   /// \param OutlinedFn Outlined function value to be defined by this call.
   /// \param OutlinedFnID Outlined function ID value to be defined by this call.
   /// \param IsOffloadEntry True if the outlined function is an offload entry.
@@ -2118,7 +2107,7 @@ public:
   /// An outlined function may not be an entry if, e.g. the if clause always
   /// evaluates to false.
   void emitTargetOutlinedFunction(const OMPExecutableDirective &D,
-                                  StringRef ParentName,
+                                  StringRef EntryFnName,
                                   llvm::Function *&OutlinedFn,
                                   llvm::Constant *&OutlinedFnID,
                                   bool IsOffloadEntry,
