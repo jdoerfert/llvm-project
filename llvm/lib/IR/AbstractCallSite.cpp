@@ -16,7 +16,9 @@
 
 #include "llvm/IR/AbstractCallSite.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -90,8 +92,11 @@ AbstractCallSite::AbstractCallSite(const Use *U)
     CB = nullptr;
     return;
   }
+  Callee->getParent()->dump();
+  errs() << "Callee: " << Callee->getName() << "\n";
 
   MDNode *CallbackMD = Callee->getMetadata(LLVMContext::MD_callback);
+  errs() << "CallbackMD: " << CallbackMD << "\n";
   if (!CallbackMD) {
     NumInvalidAbstractCallSitesNoCallback++;
     CB = nullptr;
@@ -102,15 +107,18 @@ AbstractCallSite::AbstractCallSite(const Use *U)
   MDNode *CallbackEncMD = nullptr;
   for (const MDOperand &Op : CallbackMD->operands()) {
     MDNode *OpMD = cast<MDNode>(Op.get());
+    OpMD->dump();
     auto *CBCalleeIdxAsCM = cast<ConstantAsMetadata>(OpMD->getOperand(0));
     uint64_t CBCalleeIdx =
         cast<ConstantInt>(CBCalleeIdxAsCM->getValue())->getZExtValue();
+    dbgs() << "CBCalleeIdx " << CBCalleeIdx << "\n";
     if (CBCalleeIdx != UseIdx)
       continue;
     CallbackEncMD = OpMD;
     break;
   }
 
+  dbgs() << "CallbackEncMD " << CallbackEncMD << "\n";
   if (!CallbackEncMD) {
     NumInvalidAbstractCallSitesNoCallback++;
     CB = nullptr;

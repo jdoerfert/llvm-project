@@ -13,7 +13,7 @@
 #ifndef LLVM_TRANSFORMS_UTILS_CALLBACK_ENCAPSULATE_H
 #define LLVM_TRANSFORMS_UTILS_CALLBACK_ENCAPSULATE_H
 
-#include "llvm/IR/CallSite.h"
+#include "llvm/IR/AbstractCallSite.h"
 
 namespace llvm {
 
@@ -40,7 +40,7 @@ namespace llvm {
 /// Passes aware and unaware of the encoding can interpret and modify the code.
 ///
 ///  ------------------------------- Before ------------------------------------
-///    void foo() {
+///    void Caller() {
 /// (A)  call Called(p0, p1);
 ///    }
 ///
@@ -55,12 +55,12 @@ namespace llvm {
 ///
 ///  ------------------------------- After -------------------------------------
 ///
-///    void foo() {
-///      // metadata !rpl_cs !{!1}
+///    void Caller() {
+///      // metadata !replacing_acs !{!0}
 /// (A)  call before_wrapper(p0, p1, after_wrapper, p0, p1);
 ///    }
 ///
-///    __attribute__((callback(callee_w, arg2_w, arg3_w)))
+///    __attribute__((callback(callee_w, arg2_w, arg3_w))) // !2 below
 ///    void before_wrapper(arg0, arg1, callee_w, arg2_w, arg3_w) {
 /// (B)  call Called(arg0, arg1);
 ///    }
@@ -70,7 +70,7 @@ namespace llvm {
 ///    void Called(arg0, arg1);
 ///
 ///    void Callee(arg2, arg3) {
-///      // metadata !rpl_acs !{!0}
+///      // metadata !replaced_cs !{!1}
 /// (C)  call after_wrapper(arg2, arg3);
 ///    }
 ///
@@ -78,12 +78,13 @@ namespace llvm {
 /// (D)  // Callee code
 ///    }
 ///
-///  !0 = {!1}
+///  !0 = {!1, !2}
 ///  !1 = {!0}
+///  !2 = {i32 2, i32 0, i32 3, i32 4} // New callback encoding for before_wrapper
 ///
 /// In this encoding, the following (abstract) call edges exist:
 ///   (1)  (A) -> before_wrapper  [direct]
-///   (2)  (A) -> after_wrapper   [transitive/callback]
+///   (2)  (A) -> after_wrapper   [callback]
 ///   (3)  (B) -> Called          [direct]
 ///   (4)  (C) -> after_wrapper   [direct]
 ///
@@ -94,17 +95,23 @@ namespace llvm {
 ///
 /// \returns The call/invoke that replaced the one described by \p ACS, (A) in
 ///          the above examples.
-CallBase *encapsulateAbstractCallSite(AbstractCallSite ACS);
+CallBase *encapsulateAbstractCallSite(AbstractCallSite ACS,
+                                      Function *AfterWrapper = nullptr);
 
-/// Return true if \p CS is a direct call with a replacing abstract call site
+Function *createEncapsulateAfterWrapper(Function &Callee);
+
+/// Return true if \p CB is a direct call with a replacing abstract call site
 /// that should be used for inter-procedural reasoning instead.
 ///
 /// This function should only be used by abstract call site aware
 /// inter-procedural passes. If the return value is true, and the passes will
 /// eventually look at all direct and transitive call sites to derive
-/// information, they can ignore the direct call site \p CS as there will be an
+/// information, they can ignore the direct call site \p CB as there will be an
 /// abstract call site that encodes the same call.
-bool isDirectCallSiteReplacedByAbstractCallSite(ImmutableCallSite CS);
+///
+/// This function ensures the callback replacing \p CB is properly encoded,
+/// e.g., the callback metadata will result in a valid abstract call site.
+bool isDirectCallSiteReplacedByAbstractCallSite(const CallBase &CB);
 
 } // end namespace llvm
 

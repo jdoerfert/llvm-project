@@ -20,10 +20,10 @@
 #include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/NoFolder.h"
-#include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/IR/NoFolder.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/CallbackEncapsulate.h"
 #include "llvm/Transforms/Utils/Local.h"
 
 #include <cassert>
@@ -738,6 +738,15 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
       return false;
     }
 
+    if (isDirectCallSiteReplacedByAbstractCallSite(
+            *cast<CallBase>(ACS.getInstruction()))) {
+      LLVM_DEBUG(dbgs() << "[Attributor] Function " << Fn.getName()
+                        << " was encapsulated with a callback. Skipping direct "
+                           "call that has a matching abstract one: "
+                        << *U.getUser() << "\n");
+      continue;
+    }
+
     const Use *EffectiveUse =
         ACS.isCallbackCall() ? &ACS.getCalleeUseForCallback() : &U;
     if (!ACS.isCallee(EffectiveUse)) {
@@ -1069,8 +1078,8 @@ ChangeStatus Attributor::run() {
              << " :: "
              << AllAbstractAttributes[u]->getIRPosition().getAssociatedValue()
              << "\n";
-    llvm_unreachable("Expected the final number of abstract attributes to "
-                     "remain unchanged!");
+    //llvm_unreachable("Expected the final number of abstract attributes to "
+                     //"remain unchanged!");
   }
 
   // Delete stuff at the end to avoid invalid references and a nice order.
@@ -1226,6 +1235,17 @@ ChangeStatus Attributor::run() {
 
   NumFnDeleted += ToBeDeletedFunctions.size();
 
+  //assert(!verifyModule(M, &errs()));
+
+  //if (InfoCache.AG.FAM) {
+    //for (Function &F : M) {
+      //if (F.isDeclaration())
+        //continue;
+      //SROA SROAPass;
+      //SROAPass.run(F, FAM);
+    //}
+  //}
+
   if (VerifyMaxFixpointIterations &&
       IterationCounter != MaxFixpointIterations) {
     errs() << "\n[Attributor] Fixpoint iteration done after: "
@@ -1340,16 +1360,38 @@ static void createShallowWrapper(Function &F) {
 bool Attributor::isValidFunctionSignatureRewrite(
     Argument &Arg, ArrayRef<Type *> ReplacementTypes) {
 
-  auto CallSiteCanBeChanged = [](AbstractCallSite ACS) {
+  Function *UniqueDirectCallee = nullptr;
+  SmallVector<AbstractCallSite, 4> CallbackCallSites;
+  auto CallSiteCanBeChanged = [&](AbstractCallSite ACS) {
+    Function *DirectCallee = ACS.getCalledFunction();
     // Forbid the call site to cast the function return type. If we need to
     // rewrite these functions we need to re-create a cast for the new call site
     // (if the old had uses).
-    if (!ACS.getCalledFunction() ||
+    if (!DirectCallee ||
         ACS.getInstruction()->getType() !=
-            ACS.getCalledFunction()->getReturnType())
+            DirectCallee->getReturnType())
       return false;
+
+    // For now we will restrict this to a single direct call site, that is
+    // we cannot have different callback broker functions or a callback and a
+    // non callback call.
+    if (!DirectCallee ||
+        (UniqueDirectCallee && UniqueDirectCallee != DirectCallee))
+      return false;
+    UniqueDirectCallee = DirectCallee;
+
+    if (ACS.isCallbackCall()) {
+      // If the argument is not mapped at the direct call site we cannot change
+      // it. It will come out of the broker function the way it is.
+      if (!ACS.getCallArgOperand(Arg))
+        return false;
+
+      // Record abstract call sites for later processing.
+      CallbackCallSites.push_back(ACS);
+    }
+
     // Forbid must-tail calls for now.
-    return !ACS.isCallbackCall() && !ACS.getInstruction()->isMustTailCall();
+    return !ACS.getInstruction()->isMustTailCall();
   };
 
   Function *Fn = Arg.getParent();
@@ -1370,11 +1412,15 @@ bool Attributor::isValidFunctionSignatureRewrite(
     return false;
   }
 
-  // Avoid callbacks for now.
   bool AllCallSitesKnown;
   if (!checkForAllCallSites(CallSiteCanBeChanged, *Fn, true, nullptr,
                             AllCallSitesKnown)) {
     LLVM_DEBUG(dbgs() << "[Attributor] Cannot rewrite all call sites\n");
+    return false;
+  }
+
+  if (!UniqueDirectCallee) {
+    LLVM_DEBUG(dbgs() << "[Attributor] No call site found to rewrite!\n");
     return false;
   }
 
@@ -1405,16 +1451,35 @@ bool Attributor::registerFunctionSignatureRewrite(
                     << ReplacementTypes.size() << " replacements\n");
   assert(isValidFunctionSignatureRewrite(Arg, ReplacementTypes) &&
          "Cannot register an invalid rewrite");
-
   Function *Fn = Arg.getParent();
-  SmallVectorImpl<std::unique_ptr<ArgumentReplacementInfo>> &ARIs =
-      ArgumentReplacementMap[Fn];
-  if (ARIs.empty())
-    ARIs.resize(Fn->arg_size());
+  Function *UniqueDirectCallee = nullptr;
+  auto CallSiteCanBeChanged = [&](AbstractCallSite ACS) {
+    Function *DirectCallee = ACS.getCalledFunction();
+    // For now we will restrict this to a single direct call site, that is
+    // we cannot have different callback broker functions or a callback and a
+    // non callback call.
+    UniqueDirectCallee = DirectCallee;
+    return false;
+  };
+    bool AllCallSitesKnown;
+  checkForAllCallSites(CallSiteCanBeChanged, *Fn, true, nullptr,
+                       AllCallSitesKnown);
+
+  unsigned ArgNo = Arg.getArgNo();
+  const auto &ARMEntry = ArgumentReplacementMap[Fn];
+  if (ARMEntry->UniqueDirectCallee &&
+      ARMEntry->UniqueDirectCallee != UniqueDirectCallee) {
+    LLVM_DEBUG(dbgs() << "[Attributor] Existing rewrite incompatible\n");
+    return false;
+  }
+  ARMEntry->UniqueDirectCallee = UniqueDirectCallee;
+
+  if (ARMEntry->ARIs.empty())
+    ARMEntry->ARIs.resize(Fn->arg_size());
 
   // If we have a replacement already with less than or equal new arguments,
   // ignore this request.
-  std::unique_ptr<ArgumentReplacementInfo> &ARI = ARIs[Arg.getArgNo()];
+  std::unique_ptr<ArgumentReplacementInfo> &ARI = ARMEntry->ARIs[Arg.getArgNo()];
   if (ARI && ARI->getNumReplacementArgs() <= ReplacementTypes.size()) {
     LLVM_DEBUG(dbgs() << "[Attributor] Existing rewrite is preferred\n");
     return false;
@@ -1428,6 +1493,12 @@ bool Attributor::registerFunctionSignatureRewrite(
                     << Arg.getParent()->getName() << " with "
                     << ReplacementTypes.size() << " replacements\n");
 
+  LLVM_DEBUG({
+  Fn->getParent()->dump();
+  Arg.getParent()->dump();
+  Arg.dump();
+  });
+
   // Remember the replacement.
   ARI.reset(new ArgumentReplacementInfo(*this, Arg, ReplacementTypes,
                                         std::move(CalleeRepairCB),
@@ -1436,20 +1507,145 @@ bool Attributor::registerFunctionSignatureRewrite(
   return true;
 }
 
+static void rewriteCallbackMetadata(
+    Function &F,
+    const SmallVectorImpl<std::unique_ptr<Attributor::ArgumentReplacementInfo>> &ARIs,
+    AbstractCallSite *ACS,
+    DenseMap<unsigned, SmallVector<unsigned, 1>> *BridgedCallbackMapping) {
+  MDNode *CallbacksMD = F.getMetadata(LLVMContext::MD_callback);
+  if (!CallbacksMD)
+    return;
+
+  F.dump();
+  LLVMContext &Ctx = F.getContext();
+  SmallVector<Metadata *, 4> NewCallbacks, NewCallbackEnc;
+  for (const MDOperand &Op : CallbacksMD->operands()) {
+    MDNode *CallbackEncMD = cast<MDNode>(Op.get());
+    CallbackEncMD->dump();
+    // Drop the callback if we replaced the callback callee argument or if
+    // it is a VarArgs callback. The information is stored in the first and
+    // last operand of the callback encoding.
+    auto *CBCalleeIdxAsCM =
+        cast<ConstantAsMetadata>(CallbackEncMD->getOperand(0));
+    uint64_t CBCalleeIdx =
+        cast<ConstantInt>(CBCalleeIdxAsCM->getValue())->getZExtValue();
+    if (ACS && ACS->getCallArgOperandNoForCallee() != CBCalleeIdx) {
+      NewCallbacks.push_back(CallbackEncMD);
+      continue;
+    }
+
+    errs() << "1: " << (!BridgedCallbackMapping && ARIs[CBCalleeIdx]) << "\n";
+    if (!BridgedCallbackMapping && ARIs[CBCalleeIdx])
+      continue;
+    auto *VarArgsAsCM = cast<ConstantAsMetadata>(
+        CallbackEncMD->getOperand(CallbackEncMD->getNumOperands() - 1));
+    bool IsVarArgs = !VarArgsAsCM->getValue()->isNullValue();
+    errs() << "2: " << (IsVarArgs) << "\n";
+    if (IsVarArgs)
+      continue;
+
+    // Check the callback operands and modify them if necessary.
+    Type *I64Ty = Type::getInt64Ty(Ctx);
+    NewCallbackEnc.clear();
+    NewCallbackEnc.push_back(CBCalleeIdxAsCM);
+    for (unsigned u = 1, e = CallbackEncMD->getNumOperands() - 1; u < e; ++u) {
+      Metadata *OpAsM = CallbackEncMD->getOperand(u).get();
+      OpAsM->dump();
+      auto *OpAsCM = cast<ConstantAsMetadata>(OpAsM);
+      int64_t Idx = cast<ConstantInt>(OpAsCM->getValue())->getSExtValue();
+      errs() << "u: " << u << " : " << Idx << "\n";
+      if (BridgedCallbackMapping && BridgedCallbackMapping->count(Idx)) {
+        Idx = BridgedCallbackMapping->lookup(Idx).front() - 1;
+      }
+      errs() << "u: " << u << " : " << Idx << "\n";
+
+      if (Idx < 0) {
+        // We did not touch the argument, keep it as is in the encoding.
+        NewCallbackEnc.push_back(OpAsM);
+      } else {
+        unsigned ReplacementArgsStart = ARIs[Idx]->getReplacementArgIt()->getArgNo();
+        unsigned WrapperOffset =
+            ACS ? ACS->getCallArgOperandNoForCallee() + 1 : 0;
+        for (unsigned l = 0, f = ARIs[Idx]->getNumReplacementArgs(); l < f; ++l)
+          NewCallbackEnc.push_back(ConstantAsMetadata::get(ConstantInt::get(
+              I64Ty, ReplacementArgsStart + WrapperOffset + l)));
+      }
+    }
+
+    NewCallbackEnc.push_back(VarArgsAsCM);
+    NewCallbacks.push_back(MDNode::get(Ctx, NewCallbackEnc));
+    NewCallbacks.back()->dump();
+  }
+
+  F.setMetadata(LLVMContext::MD_callback, MDNode::get(Ctx, NewCallbacks));
+  F.getMetadata(LLVMContext::MD_callback)->dump();
+}
+
+static Function *
+createNewFunctionFromOld(Function *OldFn, AttributeList &OldFnAttributeList,
+                         SmallVectorImpl<Type *> &NewArgumentTypes,
+                         SmallVectorImpl<AttributeSet> &NewArgumentAttributes) {
+  FunctionType *OldFnTy = OldFn->getFunctionType();
+  Type *RetTy = OldFnTy->getReturnType();
+
+  // Construct the new function type using the new arguments types.
+  FunctionType *NewFnTy =
+      FunctionType::get(RetTy, NewArgumentTypes, OldFnTy->isVarArg());
+
+  LLVM_DEBUG(dbgs() << "[Attributor] Function rewrite '" << OldFn->getName()
+                    << "' from " << *OldFn->getFunctionType() << " to "
+                    << *NewFnTy << "\n");
+
+  // Create the new function body and insert it into the module.
+  Function *NewFn = Function::Create(NewFnTy, OldFn->getLinkage(),
+                                     OldFn->getAddressSpace(), "");
+  OldFn->getParent()->getFunctionList().insert(OldFn->getIterator(), NewFn);
+  NewFn->takeName(OldFn);
+  NewFn->copyAttributesFrom(OldFn);
+
+  // Patch the pointer to LLVM function in debug info descriptor.
+  NewFn->setSubprogram(OldFn->getSubprogram());
+  OldFn->setSubprogram(nullptr);
+
+  // Recompute the parameter attributes list based on the new arguments for
+  // the function.
+  LLVMContext &Ctx = OldFn->getContext();
+  NewFn->setAttributes(AttributeList::get(
+      Ctx, OldFnAttributeList.getFnAttributes(),
+      OldFnAttributeList.getRetAttributes(), NewArgumentAttributes));
+
+  if (auto *M = OldFn->getMetadata(LLVMContext::MD_callback))
+    NewFn->setMetadata(LLVMContext::MD_callback, M);
+
+  // Since we have now created the new function, splice the body of the old
+  // function right into the new function, leaving the old rotting hulk of the
+  // function empty.
+  NewFn->getBasicBlockList().splice(NewFn->begin(), OldFn->getBasicBlockList());
+  return NewFn;
+}
+
 ChangeStatus Attributor::rewriteFunctionSignatures(
     SmallPtrSetImpl<Function *> &ModifiedFns) {
   ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
-  for (auto &It : ArgumentReplacementMap) {
+  for (const auto &It : ArgumentReplacementMap) {
     Function *OldFn = It.getFirst();
 
     // Deleted functions do not require rewrites.
     if (ToBeDeletedFunctions.count(OldFn))
       continue;
 
-    const SmallVectorImpl<std::unique_ptr<ArgumentReplacementInfo>> &ARIs =
-        It.getSecond();
-    assert(ARIs.size() == OldFn->arg_size() && "Inconsistent state!");
+    const auto &ARMEntry = It.getSecond();
+    assert(ARMEntry->UniqueDirectCallee && "Inconsistent state!");
+    Function *OriginalCallee = OldFn;
+    if (ARMEntry->UniqueDirectCallee != OldFn)
+      OldFn = createEncapsulateAfterWrapper(*OldFn);
+
+    OldFn->getParent()->dump();
+    errs() << "\n\nOriglCallee : " << OriginalCallee->getName()
+           << " :: " << OriginalCallee->getNumUses() << "\n";
+
+    assert(ARMEntry->ARIs.size() == OldFn->arg_size() && "Inconsistent state!");
 
     SmallVector<Type *, 16> NewArgumentTypes;
     SmallVector<AttributeSet, 16> NewArgumentAttributes;
@@ -1458,7 +1654,7 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
     AttributeList OldFnAttributeList = OldFn->getAttributes();
     for (Argument &Arg : OldFn->args()) {
       if (const std::unique_ptr<ArgumentReplacementInfo> &ARI =
-              ARIs[Arg.getArgNo()]) {
+              ARMEntry->ARIs[Arg.getArgNo()]) {
         NewArgumentTypes.append(ARI->ReplacementTypes.begin(),
                                 ARI->ReplacementTypes.end());
         NewArgumentAttributes.append(ARI->getNumReplacementArgs(),
@@ -1470,40 +1666,31 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
       }
     }
 
-    FunctionType *OldFnTy = OldFn->getFunctionType();
-    Type *RetTy = OldFnTy->getReturnType();
+    Function *NewFn = createNewFunctionFromOld(
+        OldFn, OldFnAttributeList, NewArgumentTypes, NewArgumentAttributes);
 
-    // Construct the new function type using the new arguments types.
-    FunctionType *NewFnTy =
-        FunctionType::get(RetTy, NewArgumentTypes, OldFnTy->isVarArg());
-
-    LLVM_DEBUG(dbgs() << "[Attributor] Function rewrite '" << OldFn->getName()
-                      << "' from " << *OldFn->getFunctionType() << " to "
-                      << *NewFnTy << "\n");
-
-    // Create the new function body and insert it into the module.
-    Function *NewFn = Function::Create(NewFnTy, OldFn->getLinkage(),
-                                       OldFn->getAddressSpace(), "");
-    OldFn->getParent()->getFunctionList().insert(OldFn->getIterator(), NewFn);
-    NewFn->takeName(OldFn);
-    NewFn->copyAttributesFrom(OldFn);
-
-    // Patch the pointer to LLVM function in debug info descriptor.
-    NewFn->setSubprogram(OldFn->getSubprogram());
-    OldFn->setSubprogram(nullptr);
-
-    // Recompute the parameter attributes list based on the new arguments for
-    // the function.
-    LLVMContext &Ctx = OldFn->getContext();
-    NewFn->setAttributes(AttributeList::get(
-        Ctx, OldFnAttributeList.getFnAttributes(),
-        OldFnAttributeList.getRetAttributes(), NewArgumentAttributes));
-
-    // Since we have now created the new function, splice the body of the old
-    // function right into the new function, leaving the old rotting hulk of the
-    // function empty.
-    NewFn->getBasicBlockList().splice(NewFn->begin(),
-                                      OldFn->getBasicBlockList());
+    // Rewire the arguments.
+    auto OldFnArgIt = OldFn->arg_begin();
+    auto NewFnArgIt = NewFn->arg_begin();
+    for (unsigned OldArgNum = 0; OldArgNum < ARMEntry->ARIs.size();
+         ++OldArgNum, ++OldFnArgIt) {
+      errs() << "repair callee OAN: " << OldArgNum << "\n";
+      if (auto &ARI = ARMEntry->ARIs[OldArgNum]) {
+        ARI->ReplacedArg = OldFn->getArg(OldArgNum);
+        ARI->ReplacementArgIt = NewFnArgIt;
+        if (ARI->CalleeRepairCB)
+          ARI->CalleeRepairCB(*ARI);
+        NewFnArgIt += ARI->ReplacementTypes.size();
+      } else {
+        NewFnArgIt->takeName(&*OldFnArgIt);
+        errs() << "Replace arg it: " << *OldFnArgIt << " With " << *NewFnArgIt
+               << "\n";
+        OldFnArgIt->replaceAllUsesWith(&*NewFnArgIt);
+        ++NewFnArgIt;
+      }
+      OldFn->getParent()->dump();
+    }
+    rewriteCallbackMetadata(*NewFn, ARMEntry->ARIs, nullptr, nullptr);
 
     // Fixup block addresses to reference new function.
     SmallVector<BlockAddress *, 8u> BlockAddresses;
@@ -1516,20 +1703,62 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
     // Set of all "call-like" instructions that invoke the old function mapped
     // to their new replacements.
     SmallVector<std::pair<CallBase *, CallBase *>, 8> CallSitePairs;
+    LLVM_DEBUG(NewFn->dump());
 
     // Callback to create a new "call-like" instruction for a given one.
     auto CallSiteReplacementCreator = [&](AbstractCallSite ACS) {
       CallBase *OldCB = cast<CallBase>(ACS.getInstruction());
-      const AttributeList &OldCallAttributeList = OldCB->getAttributes();
+      errs() << "\n\n CallSiteReplacementCreator: " << *OldCB
+             << " === " << ACS.getCalledFunction()->getName() << "\n";
+      OldCB->dump();
+      DenseMap<unsigned, SmallVector<unsigned, 1>> Mapping;
+      bool IsCallbackCall = ACS.isCallbackCall();
+      if (IsCallbackCall) {
+        CallBase *EncCB = encapsulateAbstractCallSite(ACS, NewFn);
+        assert(EncCB->getCalledFunction() &&
+               "Encapsulation introduced unexpected indirection!");
+        EncCB->getModule()->dump();
+        ACS =
+            AbstractCallSite(&EncCB->getOperandUse(OldCB->getNumArgOperands()));
+        ACS.getInverseCallbackParameterEncoding(Mapping);
+        errs() << "MApping:\n";
+        for (auto It : Mapping) {
+          errs() << "- " << It.first << " -> " << It.second.front() << " ["
+                 << It.second.size() << "]\n";
+        }
+        rewriteCallbackMetadata(*EncCB->getCalledFunction(), ARMEntry->ARIs, &ACS,
+                                &Mapping);
+        EncCB->dump();
+        OldCB = EncCB;
+      }
 
+      const AttributeList &OldCallAttributeList = OldCB->getAttributes();
       // Collect the new argument operands for the replacement call site.
+      SmallVector<Type *, 16> NewArgumentTypes;
       SmallVector<Value *, 16> NewArgOperands;
+      SmallVector<AttributeSet, 16> NewArgumentAttributes;
       SmallVector<AttributeSet, 16> NewArgOperandAttributes;
-      for (unsigned OldArgNum = 0; OldArgNum < ARIs.size(); ++OldArgNum) {
+      Function *OldCallee = OldCB->getCalledFunction();
+      AttributeList OldCalleeAttrs = OldCallee->getAttributes();
+      for (unsigned OldArgNum = 0; OldArgNum < OldCB->getNumArgOperands();
+           ++OldArgNum) {
         unsigned NewFirstArgNum = NewArgOperands.size();
         (void)NewFirstArgNum; // only used inside assert.
-        if (const std::unique_ptr<ArgumentReplacementInfo> &ARI =
-                ARIs[OldArgNum]) {
+        LLVM_DEBUG(errs() << "OldArgN: " << OldArgNum << " :: " << NewFirstArgNum << "\n");
+        int ARIArgNum = OldArgNum;
+        if (IsCallbackCall) {
+          const auto &MappedArgNums = Mapping.lookup(OldArgNum);
+          assert(MappedArgNums.size() <= 1);
+          if (!MappedArgNums.empty())
+            ARIArgNum = MappedArgNums.front() - 1;
+          else
+            ARIArgNum = -1;
+        }
+        LLVM_DEBUG(errs() << "ARIArgNum " << ARIArgNum << "\n");
+        if (ARIArgNum >= 0) {
+          std::unique_ptr<ArgumentReplacementInfo> &ARI =
+              ARMEntry->ARIs[ARIArgNum];
+          LLVM_DEBUG(errs() << "ARIArgNum " << ARIArgNum << ": " << ARI.get() << "\n");
           if (ARI->ACSRepairCB)
             ARI->ACSRepairCB(*ARI, ACS, NewArgOperands);
           assert(ARI->getNumReplacementArgs() + NewFirstArgNum ==
@@ -1539,16 +1768,59 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
           // TODO: Exose the attribute set to the ACS repair callback
           NewArgOperandAttributes.append(ARI->ReplacementTypes.size(),
                                          AttributeSet());
+          if (IsCallbackCall) {
+            NewArgumentTypes.append(ARI->ReplacementTypes.begin(),
+                                    ARI->ReplacementTypes.end());
+            NewArgumentAttributes.append(ARI->ReplacementTypes.size(),
+                                         AttributeSet());
+          }
         } else {
-          NewArgOperands.push_back(ACS.getCallArgOperand(OldArgNum));
+          assert(OldCB->getNumArgOperands() > OldArgNum);
+          NewArgOperands.push_back(OldCB->getArgOperand(OldArgNum));
           NewArgOperandAttributes.push_back(
               OldCallAttributeList.getParamAttributes(OldArgNum));
+          if (IsCallbackCall) {
+            NewArgumentTypes.push_back(NewArgOperands.back()->getType());
+            NewArgumentAttributes.push_back(
+                OldCalleeAttrs.getParamAttributes(OldArgNum));
+          }
         }
+      }
+      errs() << "NOs " << NewArgOperands.size() << "\n";
+      for (auto *NO : NewArgOperands)
+        NO->dump();
+      errs() << "---\n";
+      Function *NewDirectCallee = NewFn;
+      if (IsCallbackCall) {
+        unsigned CallbackCalleeArgNo = ACS.getCallArgOperandNoForCallee();
+        NewArgOperands[CallbackCalleeArgNo] = NewFn;
+        NewArgumentTypes[CallbackCalleeArgNo] = NewFn->getType();
+        errs() << "NOs " << NewArgOperands.size() << "\n";
+        for (auto *NO : NewArgOperands)
+          NO->dump();
+        errs() << "---\n";
+        OldCB->getModule()->dump();
+
+        Function *NewCallee = createNewFunctionFromOld(
+            OldCallee, OldCalleeAttrs, NewArgumentTypes, NewArgumentAttributes);
+        auto NewCalleeArgIt = NewCallee->arg_begin();
+        for (Argument &Arg : OldCallee->args())
+          if (!Arg.use_empty()) {
+            errs() << "REplace arg: " << Arg << " With " << *NewCalleeArgIt
+                   << "\n";
+            Arg.replaceAllUsesWith(&*(NewCalleeArgIt++));
+          }
+
+        OldCallee->replaceAllUsesWith(UndefValue::get(OldCallee->getType()));
+        OldCallee->eraseFromParent();
+
+        OldCB->getModule()->dump();
+        NewDirectCallee = NewCallee;
       }
 
       assert(NewArgOperands.size() == NewArgOperandAttributes.size() &&
              "Mismatch # argument operands vs. # argument operand attributes!");
-      assert(NewArgOperands.size() == NewFn->arg_size() &&
+      assert(NewArgOperands.size() == NewDirectCallee->arg_size() &&
              "Mismatch # argument operands vs. # function arguments!");
 
       SmallVector<OperandBundleDef, 4> OperandBundleDefs;
@@ -1557,12 +1829,12 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
       // Create a new call or invoke instruction to replace the old one.
       CallBase *NewCB;
       if (InvokeInst *II = dyn_cast<InvokeInst>(OldCB)) {
-        NewCB =
-            InvokeInst::Create(NewFn, II->getNormalDest(), II->getUnwindDest(),
-                               NewArgOperands, OperandBundleDefs, "", OldCB);
+        NewCB = InvokeInst::Create(NewDirectCallee, II->getNormalDest(),
+                                   II->getUnwindDest(), NewArgOperands,
+                                   OperandBundleDefs, "", OldCB);
       } else {
-        auto *NewCI = CallInst::Create(NewFn, NewArgOperands, OperandBundleDefs,
-                                       "", OldCB);
+        auto *NewCI = CallInst::Create(NewDirectCallee, NewArgOperands,
+                                       OperandBundleDefs, "", OldCB);
         NewCI->setTailCallKind(cast<CallInst>(OldCB)->getTailCallKind());
         NewCB = NewCI;
       }
@@ -1571,40 +1843,42 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
       uint64_t W;
       if (OldCB->extractProfTotalWeight(W))
         NewCB->setProfWeight(W);
+      if (auto *MD = OldCB->getMetadata("rpl_acs"))
+        NewCB->setMetadata("rpl_acs", MD);
+      if (auto *MD = OldCB->getMetadata("rpl_cs"))
+        NewCB->setMetadata("rpl_cs", MD);
       NewCB->setCallingConv(OldCB->getCallingConv());
       NewCB->setDebugLoc(OldCB->getDebugLoc());
       NewCB->takeName(OldCB);
       NewCB->setAttributes(AttributeList::get(
-          Ctx, OldCallAttributeList.getFnAttributes(),
+          NewCB->getContext(), OldCallAttributeList.getFnAttributes(),
           OldCallAttributeList.getRetAttributes(), NewArgOperandAttributes));
 
       CallSitePairs.push_back({OldCB, NewCB});
       return true;
     };
 
+    LLVM_DEBUG({
+    OldFn->getParent()->dump();
+    errs() << "\n\nOriglCallee : " << OriginalCallee->getName()
+           << " :: " << OriginalCallee->getNumUses() << "\n";
+           });
+
     // Use the CallSiteReplacementCreator to create replacement call sites.
     bool AllCallSitesKnown;
     bool Success = checkForAllCallSites(CallSiteReplacementCreator, *OldFn,
                                         true, nullptr, AllCallSitesKnown);
-    (void)Success;
     assert(Success && "Assumed call site replacement to succeed!");
-
-    // Rewire the arguments.
-    auto OldFnArgIt = OldFn->arg_begin();
-    auto NewFnArgIt = NewFn->arg_begin();
-    for (unsigned OldArgNum = 0; OldArgNum < ARIs.size();
-         ++OldArgNum, ++OldFnArgIt) {
-      if (const std::unique_ptr<ArgumentReplacementInfo> &ARI =
-              ARIs[OldArgNum]) {
-        if (ARI->CalleeRepairCB)
-          ARI->CalleeRepairCB(*ARI, *NewFn, NewFnArgIt);
-        NewFnArgIt += ARI->ReplacementTypes.size();
-      } else {
-        NewFnArgIt->takeName(&*OldFnArgIt);
-        OldFnArgIt->replaceAllUsesWith(&*NewFnArgIt);
-        ++NewFnArgIt;
-      }
-    }
+    if (OriginalCallee != OldFn)
+      Success = checkForAllCallSites(CallSiteReplacementCreator,
+                                     *OriginalCallee, true, nullptr, AllCallSitesKnown);
+    assert(Success && "Assumed call site replacement to succeed!");
+    (void)Success;
+    LLVM_DEBUG({
+        errs() << "Done replaceing call sites!\n\n";
+    OldFn->getParent()->dump();
+    NewFn->dump();
+    });
 
     // Eliminate the instructions *after* we visited all of them.
     for (auto &CallSitePair : CallSitePairs) {
@@ -1625,6 +1899,11 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
     // does now.
     if (ModifiedFns.erase(OldFn))
       ModifiedFns.insert(NewFn);
+
+    LLVM_DEBUG({
+    OldFn->getParent()->dump();
+    OldFn->dump();
+    });
 
     Changed = ChangeStatus::CHANGED;
   }

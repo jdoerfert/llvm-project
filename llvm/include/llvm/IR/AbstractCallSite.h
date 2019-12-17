@@ -219,6 +219,20 @@ public:
     Value *V = getCalledOperand();
     return V ? dyn_cast<Function>(V->stripPointerCasts()) : nullptr;
   }
+
+  /// Return the inverse callback parameter encoding in \p Mapping, thus the
+  /// mapping from call base operand numbers to their respective callback callee
+  /// argument numbers.
+  void getInverseCallbackParameterEncoding(
+      DenseMap<unsigned, SmallVector<unsigned, 1>> &Mapping) {
+    assert(isCallbackCall() && "Only available for callbacks!");
+    for (unsigned u = 1, e = CI.ParameterEncoding.size(); u < e; ++u) {
+      int CallBaseOpNo = CI.ParameterEncoding[u];
+      if (CallBaseOpNo < 0)
+        continue;
+      Mapping[CallBaseOpNo].push_back(u);
+    }
+  }
 };
 
 } // end namespace llvm

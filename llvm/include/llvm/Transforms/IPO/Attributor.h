@@ -617,6 +617,8 @@ struct AnalysisGetter {
 
 private:
   FunctionAnalysisManager *FAM = nullptr;
+
+  friend struct Attributor;
 };
 
 /// Data structure to hold cached (LLVM-IR) information.
@@ -1059,11 +1061,10 @@ struct Attributor {
     ///
     /// The function repair callback is invoked once to rewire the replacement
     /// arguments in the body of the new function. The argument replacement info
-    /// is passed, as build from the registerFunctionSignatureRewrite call, as
-    /// well as the replacement function and an iteratore to the first
-    /// replacement argument.
-    using CalleeRepairCBTy = std::function<void(
-        const ArgumentReplacementInfo &, Function &, Function::arg_iterator)>;
+    /// is passed, as build from the registerFunctionSignatureRewrite call with
+    /// additional information attached to it, e.g., an iterator pointing to the
+    /// first replacement argument.
+    using CalleeRepairCBTy = std::function<void(ArgumentReplacementInfo &)>;
 
     /// Abstract call site (ACS) repair callback type
     ///
@@ -1083,8 +1084,14 @@ struct Attributor {
     ///{
 
     Attributor &getAttributor() const { return A; }
+    Function::arg_iterator getReplacementArgIt() const {
+      return ReplacementArgIt;
+    }
+    Function &getReplacementFn() const {
+      return *ReplacementArgIt->getParent();
+    }
     const Function &getReplacedFn() const { return ReplacedFn; }
-    const Argument &getReplacedArg() const { return ReplacedArg; }
+    Argument &getReplacedArg() const { return *ReplacedArg; }
     unsigned getNumReplacementArgs() const { return ReplacementTypes.size(); }
     const SmallVectorImpl<Type *> &getReplacementTypes() const {
       return ReplacementTypes;
@@ -1100,7 +1107,7 @@ struct Attributor {
                             ArrayRef<Type *> ReplacementTypes,
                             CalleeRepairCBTy &&CalleeRepairCB,
                             ACSRepairCBTy &&ACSRepairCB)
-        : A(A), ReplacedFn(*Arg.getParent()), ReplacedArg(Arg),
+        : A(A), ReplacedFn(*Arg.getParent()), ReplacedArg(&Arg),
           ReplacementTypes(ReplacementTypes.begin(), ReplacementTypes.end()),
           CalleeRepairCB(std::move(CalleeRepairCB)),
           ACSRepairCB(std::move(ACSRepairCB)) {}
@@ -1112,7 +1119,13 @@ struct Attributor {
     const Function &ReplacedFn;
 
     /// The "old" argument replaced by new ones defined via ReplacementTypes.
-    const Argument &ReplacedArg;
+    Argument *ReplacedArg;
+
+    /// Iterator pointing to the first replacement argument in the new function.
+    /// The replacement arguments, exactly getNumReplacementArgs() many, are
+    /// starting with the pointed to argument and following in sequence as
+    /// specified in ReplacementTypes.
+    Function::arg_iterator ReplacementArgIt;
 
     /// The types of the arguments replacing ReplacedArg.
     const SmallVector<Type *, 8> ReplacementTypes;
@@ -1332,8 +1345,13 @@ private:
   DenseMap<AAMapKeyTy, AbstractAttribute *> AAMap;
   ///}
 
+  struct ArgumentReplacementMapEntry {
+    Function *UniqueDirectCallee;
+    SmallVector<std::unique_ptr<ArgumentReplacementInfo>, 8> ARIs;
+  };
+
   /// Map to remember all requested signature changes (= argument replacements).
-  DenseMap<Function *, SmallVector<std::unique_ptr<ArgumentReplacementInfo>, 8>>
+  DenseMap<Function *, std::unique_ptr<ArgumentReplacementMapEntry>>
       ArgumentReplacementMap;
 
   /// The set of functions we are deriving attributes for.
@@ -2104,6 +2122,8 @@ struct AAReturnedValues
 
   virtual size_t getNumReturnValues() const = 0;
   virtual const SmallSetVector<CallBase *, 4> &getUnresolvedCalls() const = 0;
+
+  virtual IRPosition &getIRPosition() { return *this; }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAReturnedValues &createForPosition(const IRPosition &IRP,

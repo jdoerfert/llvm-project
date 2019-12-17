@@ -25,27 +25,16 @@ using namespace llvm;
 
 STATISTIC(NumCallbacksEncapsulated, "Number of callbacks encapsulated");
 
-static constexpr char ReplicatedCallSiteString[] = "rpl_cs";
-static constexpr char ReplicatedAbstractCallSiteString[] = "rpl_acs";
+static constexpr char ReplacingACSString[] = "replacing_acs";
+static constexpr char ReplacedCSString[] = "replaced_cs";
 static constexpr char BeforeWrapperSuffix[] = ".before_wrapper";
 static constexpr char AfterWrapperSuffix[] = ".after_wrapper";
 
-static void replaceAlInstUsesWith(Value &Old, Value &New) {
-  if (!isa<CallBase>(Old))
-    return Old.replaceAllUsesWith(&New);
-  SmallVector<Use *, 8> Uses;
-  for (Use &U : Old.uses())
-    if (isa<Instruction>(U.getUser()))
-      Uses.push_back(&U);
-  for (Use *U : Uses)
-    U->set(&New);
-}
-
-/// Helper to extract the "rpl_cs" and "rpl_acs" metadata from a call site.
-static std::pair<MDNode *, MDNode *> getMDNodeOperands(ImmutableCallSite ICS,
+/// Helper to extract the "replacing_acs" and "replaced_cs" metadata from a call
+/// site.
+static std::pair<MDNode *, MDNode *> getMDNodeOperands(const Instruction *I,
                                                        StringRef MDString) {
   std::pair<MDNode *, MDNode *> Ret;
-  const Instruction *I = ICS.getInstruction();
   if (!I)
     return Ret;
 
@@ -57,23 +46,23 @@ static std::pair<MDNode *, MDNode *> getMDNodeOperands(ImmutableCallSite ICS,
   return {MD, OpMD};
 }
 
-bool llvm::isDirectCallSiteReplacedByAbstractCallSite(ImmutableCallSite CS) {
-  // Check if there is "rpl_acs" metadata on the call site and it matches an
-  // abstract call site with "rpl_cs" metadata. This means this call site is
-  // equivalent to the abstract call site it matches.
+bool llvm::isDirectCallSiteReplacedByAbstractCallSite(const CallBase &CB) {
+  // Check if there is "replaced_cs" metadata on the call site and it matches an
+  // abstract call site with "replacing_acs" metadata. This means this call site
+  // is equivalent to the abstract call site it matches.
   std::pair<MDNode *, MDNode *> RplCSOpMD =
-      getMDNodeOperands(CS, ReplicatedCallSiteString);
+      getMDNodeOperands(&CB, ReplacingACSString);
   if (!RplCSOpMD.first || !RplCSOpMD.second)
     return false;
 
-  const Function *Callee = CS.getCalledFunction();
+  const Function *Callee = CB.getCalledFunction();
   for (const Use &U : Callee->uses()) {
     AbstractCallSite ACS(&U);
     if (!ACS || !ACS.isCallbackCall())
       continue;
 
     std::pair<MDNode *, MDNode *> RplACSOpMD =
-        getMDNodeOperands(ACS.getCallSite(), ReplicatedAbstractCallSiteString);
+        getMDNodeOperands(ACS.getInstruction(), ReplacedCSString);
     if (RplACSOpMD.first == RplCSOpMD.second &&
         RplACSOpMD.second == RplCSOpMD.first)
       return true;
@@ -82,7 +71,45 @@ bool llvm::isDirectCallSiteReplacedByAbstractCallSite(ImmutableCallSite CS) {
   return false;
 }
 
-CallBase *llvm::encapsulateAbstractCallSite(AbstractCallSite ACS) {
+Function *llvm::createEncapsulateAfterWrapper(Function &Callee) {
+  Module &M = *Callee.getParent();
+  LLVMContext &Ctx = M.getContext();
+  FunctionType *AfterWrapperTy = Callee.getFunctionType();
+  Function *AfterWrapper =
+      Function::Create(AfterWrapperTy, GlobalValue::InternalLinkage,
+                       Callee.getName() + AfterWrapperSuffix, M);
+
+  AfterWrapper->setAttributes(Callee.getAttributes());
+  auto &AfterWrapperBlockList = AfterWrapper->getBasicBlockList();
+  auto WrapperAI = AfterWrapper->arg_begin();
+  for (Argument &Arg : Callee.args()) {
+    Argument *WrapperArg = &*(WrapperAI++);
+    Arg.replaceAllUsesWith(WrapperArg);
+    WrapperArg->setName(Arg.getName());
+  }
+  AfterWrapperBlockList.splice(AfterWrapperBlockList.begin(),
+                               Callee.getBasicBlockList());
+  BasicBlock *AfterEntryBB = BasicBlock::Create(Ctx, "entry", &Callee);
+
+  // The after wrapper has the same interface as the transitive callee. The
+  // transitive call will just redirect to the after wrapper, thus simply pass
+  // all arguments along.
+  SmallVector<Value *, 16> Args;
+  Args.reserve(Callee.arg_size());
+  for (Argument &Arg : Callee.args())
+    Args.push_back(&Arg);
+
+  CallInst *AfterWrapperCB =
+      CallInst::Create(AfterWrapperTy, AfterWrapper, Args,
+                       Callee.getName() + ".acs", AfterEntryBB);
+  ReturnInst::Create(
+      Ctx, Callee.getReturnType()->isVoidTy() ? nullptr : AfterWrapperCB,
+      AfterEntryBB);
+  return AfterWrapper;
+}
+
+CallBase *llvm::encapsulateAbstractCallSite(AbstractCallSite ACS,
+                                            Function *AfterWrapper) {
   assert(ACS && "Expected valid abstract call site!");
 
   bool IsCallback = ACS.isCallbackCall();
@@ -102,43 +129,22 @@ CallBase *llvm::encapsulateAbstractCallSite(AbstractCallSite ACS) {
   Module &M = *DirectCallee.getParent();
   LLVMContext &Ctx = M.getContext();
 
-  FunctionType *AfterWrapperTy = TransitiveCallee.getFunctionType();
-  Function *AfterWrapper =
-      Function::Create(AfterWrapperTy, GlobalValue::InternalLinkage,
-                       TransitiveCallee.getName() + AfterWrapperSuffix, M);
-  AfterWrapper->setAttributes(TransitiveCallee.getAttributes());
-  auto &AfterWrapperBlockList = AfterWrapper->getBasicBlockList();
-  auto WrapperAI = AfterWrapper->arg_begin();
-  for (Argument &Arg : TransitiveCallee.args()) {
-    Argument *WrapperArg = &*(WrapperAI++);
-    Arg.replaceAllUsesWith(WrapperArg);
-    WrapperArg->setName(Arg.getName());
-  }
-  AfterWrapperBlockList.splice(AfterWrapperBlockList.begin(),
-                               TransitiveCallee.getBasicBlockList());
-  BasicBlock *AfterEntryBB =
-      BasicBlock::Create(Ctx, "entry", &TransitiveCallee);
+  if (!AfterWrapper)
+    AfterWrapper = createEncapsulateAfterWrapper(TransitiveCallee);
 
-  // The after wrapper has the same interface as the transitive callee. The
-  // transitive call will just redirect to the after wrapper, thus simply pass
-  // all arguments along.
-  SmallVector<Value *, 16> Args;
-  Args.reserve(TransitiveCallee.arg_size());
-  for (Argument &Arg : TransitiveCallee.args())
-    Args.push_back(&Arg);
-
-  CallInst *AfterWrapperCB =
-      CallInst::Create(AfterWrapperTy, AfterWrapper, Args,
-                       TransitiveCallee.getName() + ".acs", AfterEntryBB);
-  ReturnInst::Create(
-      Ctx,
-      TransitiveCallee.getReturnType()->isVoidTy() ? nullptr : AfterWrapperCB,
-      AfterEntryBB);
+  // assert(AfterWrapper->getFunctionType() ==
+  // TransitiveCallee.getFunctionType());
+  assert(AfterWrapper->getNumUses() == 1);
+  assert(isa<CallInst>(AfterWrapper->user_back()));
+  CallInst *AfterWrapperCB = cast<CallInst>(AfterWrapper->user_back());
+  // TransitiveCallee.dump();
+  // AfterWrapperCB->dump();
+  // assert(AfterWrapperCB->getCaller() == &TransitiveCallee);
 
   // Prepare the arguments for the call that is also an abstract call site.
   // Every argument is passed at most twice and the callee of the abstract call
   // site is passed in the middle.
-  Args.clear();
+  SmallVector<Value *, 16> Args;
   Args.reserve(CB->getNumArgOperands() * 2 + 1);
   Args.append(CB->arg_begin(), CB->arg_end());
 
@@ -193,16 +199,16 @@ CallBase *llvm::encapsulateAbstractCallSite(AbstractCallSite ACS) {
   auto *BeforeWrapperCB =
       CallInst::Create(BeforeWrapper->getFunctionType(), BeforeWrapper, Args,
                        TransitiveCallee.getName() + ".cs", CB);
-  replaceAlInstUsesWith(*CB, *BeforeWrapperCB);
+  CB->replaceAllUsesWith(BeforeWrapperCB);
 
   // Create and attach the encoding metadata to the two call site (one
   // abstract, one direct) of the called wrapper function.
   MDNode *BeforeWrapperCBMD = MDNode::get(Ctx, {nullptr});
-  BeforeWrapperCB->setMetadata(ReplicatedAbstractCallSiteString,
-                               BeforeWrapperCBMD);
+  BeforeWrapperCB->setMetadata(ReplacedCSString, BeforeWrapperCBMD);
 
-  MDNode *AfterWrapperCBMD = MDNode::get(Ctx, {BeforeWrapperCBMD});
-  AfterWrapperCB->setMetadata(ReplicatedCallSiteString, AfterWrapperCBMD);
+  MDNode *AfterWrapperCBMD =
+      MDNode::get(Ctx, {BeforeWrapperCBMD, CBEncodings[0]});
+  AfterWrapperCB->setMetadata(ReplacingACSString, AfterWrapperCBMD);
   BeforeWrapperCBMD->replaceOperandWith(0, AfterWrapperCBMD);
 
   BasicBlock *BeforeEntryBB = BasicBlock::Create(Ctx, "entry", BeforeWrapper);

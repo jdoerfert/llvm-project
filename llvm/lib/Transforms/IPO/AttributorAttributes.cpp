@@ -5327,14 +5327,14 @@ struct AAPrivatizablePtrArgument final : public AAPrivatizablePtrImpl {
     // beginning and initialized with the values passed through arguments. The
     // new alloca replaces the use of the old pointer argument.
     Attributor::ArgumentReplacementInfo::CalleeRepairCBTy FnRepairCB =
-        [=](const Attributor::ArgumentReplacementInfo &ARI,
-            Function &ReplacementFn, Function::arg_iterator ArgIt) {
-          BasicBlock &EntryBB = ReplacementFn.getEntryBlock();
+        [=](Attributor::ArgumentReplacementInfo &ARI) {
+          BasicBlock &EntryBB = ARI.getReplacementFn().getEntryBlock();
           Instruction *IP = &*EntryBB.getFirstInsertionPt();
           auto *AI = new AllocaInst(PrivatizableType.getValue(), 0,
                                     Arg->getName() + ".priv", IP);
-          createInitialization(PrivatizableType.getValue(), *AI, ReplacementFn,
-                               ArgIt->getArgNo(), *IP);
+          createInitialization(PrivatizableType.getValue(), *AI,
+                               ARI.getReplacementFn(),
+                               ARI.getReplacementArgIt()->getArgNo(), *IP);
           Arg->replaceAllUsesWith(AI);
 
           for (CallInst *CI : TailCalls)
