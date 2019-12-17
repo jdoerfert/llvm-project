@@ -99,6 +99,19 @@ private:
   Value *getOrCreateIdent(Constant *SrcLocStr,
                           omp::IdentFlag Flags = omp::IdentFlag(0));
 
+  /// Generate a reduction.
+  ///
+  /// \param Loc The location at which the request originated and is fulfilled.
+  /// \param DK The directive which caused the reduction.
+  /// \param ReduceOverTeams    TODO
+  /// \param ReduceOverParallel TODO
+  ///
+  /// \returns The insertion point after the reduction.
+  InsertPointTy emitReductionImpl(const LocationDescription &Loc,
+                                  omp::Directive DK,
+                                  TernaryChoice ReduceOverTeams,
+                                  TernaryChoice ReduceOverParallel);
+
   /// Generate a barrier runtime call.
   ///
   /// \param Loc The location at which the request originated and is fulfilled.

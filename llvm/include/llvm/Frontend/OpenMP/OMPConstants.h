@@ -27,6 +27,19 @@ class FunctionType;
 namespace omp {
 LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE();
 
+/// Encoding for a known binary value.
+enum class BinraryChoice {
+  OMP_FALSE,
+  OMP_TRUE,
+};
+
+/// Encoding for a potentially unknown binary value. Used in runtime calls.
+enum class TernaryChoice {
+  OMP_UNKNOWN = -1,
+  OMP_FALSE,
+  OMP_TRUE,
+};
+
 /// IDs for all OpenMP directives.
 enum class Directive {
 #define OMP_DIRECTIVE(Enum, ...) Enum,
@@ -73,6 +86,24 @@ StringRef getOpenMPDirectiveName(Directive D);
 ///
 ///{
 namespace types {
+
+/// Make the binary/ternary choice values available as common integers and
+/// ensure their values are always in-sync.
+///
+///{
+static constexpr int OMP_UNKNOWN = int(TernaryChoice::OMP_UNKNOWN);
+static constexpr int OMP_FALSE = int(TernaryChoice::OMP_FALSE);
+static constexpr int OMP_TRUE = int(TernaryChoice::OMP_TRUE);
+
+static_assert(OMP_UNKNOWN == int(TernaryChoice::OMP_UNKNOWN),
+              "OMP_UNKNOWN initialization mismatch!");
+static_assert(OMP_FALSE == int(BinraryChoice::OMP_FALSE) &&
+                  OMP_FALSE == int(TernaryChoice::OMP_FALSE),
+              "OMP_FALSE initialization mismatch!");
+static_assert(OMP_TRUE == int(BinraryChoice::OMP_TRUE) &&
+                  OMP_TRUE == int(TernaryChoice::OMP_TRUE),
+              "OMP_TRUE initialization mismatch!");
+///}
 
 #define OMP_TYPE(VarName, InitValue) extern Type *VarName;
 #define OMP_FUNCTION_TYPE(VarName, IsVarArg, ReturnType, ...)                  \
