@@ -71,11 +71,12 @@ Value *IRBuilderBase::getCastedInt8PtrValue(Value *Ptr) {
   return BCI;
 }
 
-static CallInst *createCallHelper(Function *Callee, ArrayRef<Value *> Ops,
-                                  IRBuilderBase *Builder,
-                                  const Twine &Name = "",
-                                  Instruction *FMFSource = nullptr) {
-  CallInst *CI = CallInst::Create(Callee, Ops, Name);
+static CallInst *
+createCallHelper(Function *Callee, ArrayRef<Value *> Ops,
+                 IRBuilderBase *Builder, const Twine &Name = "",
+                 Instruction *FMFSource = nullptr,
+                 ArrayRef<OperandBundleDef> OpBundles = llvm::None) {
+  CallInst *CI = CallInst::Create(Callee, Ops, OpBundles, Name);
   if (FMFSource)
     CI->copyFastMathFlags(FMFSource);
   Builder->GetInsertBlock()->getInstList().insert(Builder->GetInsertPoint(),CI);
@@ -457,14 +458,16 @@ CallInst *IRBuilderBase::CreateInvariantStart(Value *Ptr, ConstantInt *Size) {
   return createCallHelper(TheFn, Ops, this);
 }
 
-CallInst *IRBuilderBase::CreateAssumption(Value *Cond) {
+CallInst *
+IRBuilderBase::CreateAssumption(Value *Cond,
+                                ArrayRef<OperandBundleDef> OpBundles) {
   assert(Cond->getType() == getInt1Ty() &&
          "an assumption condition must be of type i1");
 
   Value *Ops[] = { Cond };
   Module *M = BB->getParent()->getParent();
   Function *FnAssume = Intrinsic::getDeclaration(M, Intrinsic::assume);
-  return createCallHelper(FnAssume, Ops, this);
+  return createCallHelper(FnAssume, Ops, this, "", nullptr, OpBundles);
 }
 
 /// Create a call to a Masked Load intrinsic.
