@@ -1,4 +1,5 @@
 ; RUN: opt -S -jump-threading -dce < %s | FileCheck %s
+; RUN: opt -S -assumption-outliner -jump-threading -dce < %s | FileCheck %s
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
 
@@ -11,7 +12,6 @@ entry:
   br i1 %cmp1, label %if.then, label %if.else
 
 ; CHECK-LABEL: @test1
-; CHECK: icmp sgt i32 %a, 5
 ; CHECK: call void @llvm.assume
 ; CHECK-NOT: icmp sgt i32 %a, 3
 ; CHECK: ret i32
@@ -41,8 +41,7 @@ entry:
   br i1 %cmp1, label %if.then, label %return
 
 ; CHECK-LABEL: @test2
-; CHECK: icmp sgt i32 %a, 5
-; CHECK: tail call void @llvm.assume
+; CHECK: call void @llvm.assume
 ; CHECK: tail call void (...) @bar()
 ; CHECK: ret i32 1
 
@@ -62,7 +61,6 @@ return:                                           ; preds = %entry, %if.then
 ; We can fold the assume based on the semantics of assume.
 define void @can_fold_assume(i32* %array) {
 ; CHECK-LABEL: @can_fold_assume
-; CHECK-NOT: call void @llvm.assume
 ; CHECK-NOT: br
 ; CHECK: ret void
   %notnull = icmp ne i32* %array, null
@@ -84,8 +82,9 @@ define void @cannot_fold_use_before_assume(i32* %array) {
 ; CHECK-LABEL:@cannot_fold_use_before_assume
 ; CHECK: @f(i1 %notnull)
 ; CHECK-NEXT: exit()
-; CHECK-NOT: assume
-; CHECK-NEXT: ret void
+; CHECK-NOT: notnull
+; CHECK: ret void
+; CHECK-NOT: notnull
   %notnull = icmp ne i32* %array, null
   call void @f(i1 %notnull)
   call void @exit()
@@ -106,8 +105,9 @@ define void @can_fold_some_use_before_assume(i32* %array) {
 ; CHECK-LABEL:@can_fold_some_use_before_assume
 ; CHECK: @f(i1 %notnull)
 ; CHECK-NEXT: @dummy(i1 true)
-; CHECK-NOT: assume
-; CHECK-NEXT: ret void
+; CHECK-NOT: notnull
+; CHECK: ret void
+; CHECK-NOT: notnull
   %notnull = icmp ne i32* %array, null
   call void @f(i1 %notnull)
   call void @dummy(i1 %notnull)
@@ -128,7 +128,7 @@ error:
 define void @can_fold_assume_and_all_uses(i32* %array) {
 ; CHECK-LABEL:@can_fold_assume_and_all_uses
 ; CHECK: @dummy(i1 %notnull)
-; CHECK-NEXT: assume(i1 %notnull)
+; CHECK-NEXT: assume
 ; CHECK-NEXT: exit()
 ; CHECK-NEXT: %notnull2 = or i1 true, false
 ; CHECK-NEXT: @f(i1 %notnull2)
@@ -156,7 +156,7 @@ define void @can_fold_assume2(i32* %array) {
 
 ; CHECK-LABEL:@can_fold_assume2
 ; CHECK: @f(i1 %notnull)
-; CHECK-NEXT: assume(i1 %notnull)
+; CHECK-NEXT: assume
 ; CHECK-NEXT: znotnull = zext i1 %notnull to i8
 ; CHECK-NEXT: @f(i1 %notnull)
 ; CHECK-NEXT: @f(i1 true)
@@ -186,7 +186,7 @@ define void @can_fold_assume3(i32* %array){
 
 ; CHECK-LABEL:@can_fold_assume3
 ; CHECK: @f(i1 %notnull)
-; CHECK-NEXT: assume(i1 %notnull)
+; CHECK-NEXT: assume
 ; CHECK-NEXT: guard(i1 %notnull)
 ; CHECK-NEXT: znotnull = zext i1 true to i8
 ; CHECK-NEXT: @f(i1 true)
@@ -214,8 +214,11 @@ error:
 define void @can_fold_assume4(i32* %array) {
 ; CHECK-LABEL: can_fold_assume4
 ; CHECK-NOT: notnull
+; CHECK: exit
+; CHECK-NOT: notnull
 ; CHECK: dummy(i1 true)
-; CHECK-NEXT: ret void
+; CHECK-NOT: notnull
+; CHECK: ret void
   %notnull = icmp ne i32* %array, null
   call void @exit()
   call void @dummy(i1 %notnull)

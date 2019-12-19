@@ -1,4 +1,5 @@
 ; RUN: opt < %s -newgvn -S | FileCheck %s
+; RUN: opt < %s -assumption-outliner -newgvn -S | FileCheck %s
 
 ; CHECK-LABEL: @test1
 ; CHECK: ret i32 %arg

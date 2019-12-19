@@ -788,6 +788,9 @@ void LazyValueInfoImpl::intersectAssumeOrGuardBlockValueConstantRange(
     if (!isValidAssumeForContext(I, BBI, DT))
       continue;
 
+    // Replace the assumption with an outlined one if applicable.
+    I = AC->getReplacementAssumption(*I, Val);
+
     BBLV = intersect(BBLV, getValueFromCondition(Val, I->getArgOperand(0)));
   }
 

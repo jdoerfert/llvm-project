@@ -598,6 +598,14 @@ static void computeKnownBitsFromAssume(const Value *V, KnownBits &Known,
     if (Q.isExcluded(I))
       continue;
 
+    // Replace the assumption with an outlined one if applicable.
+    Value *VV = const_cast<Value *>(V);
+    CallInst *ReplI = Q.AC->getReplacementAssumption(*I, VV);
+    if (ReplI != I) {
+      I = ReplI;
+      V = VV;
+    }
+
     // Warning: This loop can end up being somewhat performance sensitive.
     // We're running this loop for once for each value queried resulting in a
     // runtime of ~O(#assumes * #values).

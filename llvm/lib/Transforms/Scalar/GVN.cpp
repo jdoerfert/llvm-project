@@ -1400,7 +1400,9 @@ static bool hasUsersIn(Value *V, BasicBlock *BB) {
 bool GVN::processAssumeIntrinsic(IntrinsicInst *IntrinsicI) {
   assert(IntrinsicI->getIntrinsicID() == Intrinsic::assume &&
          "This function can only be called with llvm.assume intrinsic");
-  Value *V = IntrinsicI->getArgOperand(0);
+  auto *ReplIntrinsicI = cast<IntrinsicInst>(
+      AC->getReplacementAssumption(*IntrinsicI, ReplaceOperandsWithMap));
+  Value *V = ReplIntrinsicI->getArgOperand(0);
 
   if (ConstantInt *Cond = dyn_cast<ConstantInt>(V)) {
     if (Cond->isZero()) {
@@ -1412,7 +1414,8 @@ bool GVN::processAssumeIntrinsic(IntrinsicInst *IntrinsicI) {
                     Constant::getNullValue(Int8Ty->getPointerTo()),
                     IntrinsicI);
     }
-    markInstructionForDeletion(IntrinsicI);
+    if (!IntrinsicI->hasOperandBundles())
+      markInstructionForDeletion(IntrinsicI);
     return false;
   } else if (isa<Constant>(V)) {
     // If it's not false, and constant, it must evaluate to true. This means our
@@ -1489,11 +1492,12 @@ bool GVN::processAssumeIntrinsic(IntrinsicInst *IntrinsicI) {
           (!isa<ConstantFP>(CmpRHS) || cast<ConstantFP>(CmpRHS)->isZero()))
         return Changed;
 
-      LLVM_DEBUG(dbgs() << "Replacing dominated uses of "
-                 << *CmpLHS << " with "
-                 << *CmpRHS << " in block "
-                 << IntrinsicI->getParent()->getName() << "\n");
-      
+      if (ReplIntrinsicI != IntrinsicI && ReplaceOperandsWithMap.lookup(CmpLHS))
+        CmpLHS = ReplaceOperandsWithMap[CmpLHS];
+
+      LLVM_DEBUG(dbgs() << "Replacing dominated uses of " << *CmpLHS << " with "
+                        << *CmpRHS << " in block "
+                        << IntrinsicI->getParent()->getName() << "\n");
 
       // Setup the replacement map - this handles uses within the same block
       if (hasUsersIn(CmpLHS, IntrinsicI->getParent()))
@@ -1787,6 +1791,11 @@ bool GVN::propagateEquality(Value *LHS, Value *RHS, const BasicBlockEdge &Root,
   while (!Worklist.empty()) {
     std::pair<Value*, Value*> Item = Worklist.pop_back_val();
     LHS = Item.first; RHS = Item.second;
+
+    if (Value *ReplLHS = ReplaceOperandsWithMap.lookup(LHS))
+      LHS = ReplLHS;
+    if (Value *ReplRHS = ReplaceOperandsWithMap.lookup(RHS))
+      RHS = ReplRHS;
 
     if (LHS == RHS)
       continue;

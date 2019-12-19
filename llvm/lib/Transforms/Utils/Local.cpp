@@ -413,7 +413,7 @@ bool llvm::wouldInstructionBeTriviallyDead(Instruction *I,
     if (II->getIntrinsicID() == Intrinsic::assume ||
         II->getIntrinsicID() == Intrinsic::experimental_guard) {
       if (ConstantInt *Cond = dyn_cast<ConstantInt>(II->getArgOperand(0)))
-        return !Cond->isZero();
+        return !Cond->isZero() && !II->hasOperandBundles();
 
       return false;
     }

@@ -13,6 +13,7 @@
 
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/BasicBlock.h"
@@ -29,6 +30,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/CodeExtractor.h"
 #include <algorithm>
 #include <cassert>
 #include <utility>
@@ -76,10 +79,13 @@ static void findAffectedValues(CallInst *CI,
     }
   };
 
-  Value *Cond = CI->getArgOperand(0), *A, *B;
-  AddAffected(Cond);
+
+  if (CI->hasOperandBundles())
+    for (auto *V : CI->operand_values())
+      AddAffected(V);
 
   CmpInst::Predicate Pred;
+  Value *Cond = CI->getArgOperand(0), *A, *B;
   if (match(Cond, m_ICmp(Pred, m_Value(A), m_Value(B)))) {
     AddAffected(A);
     AddAffected(B);
@@ -222,6 +228,76 @@ void AssumptionCache::registerAssumption(CallInst *CI) {
 #endif
 
   updateAffectedValues(CI);
+}
+
+template <typename MappingT>
+static CallInst *getReplacementAssumption(CallInst &CI, Value **V,
+                                          MappingT *Mapping) {
+  Optional<OperandBundleUse> OpB = CI.getOperandBundle("assume_fn");
+  if (!OpB.hasValue())
+    return &CI;
+
+  ArrayRef<Use> Inputs = OpB.getValue().Inputs;
+  Function *AssumeFn = cast<Function>(Inputs.front().get());
+
+  CallInst *ReplCI =
+      cast<CallInst>(AssumeFn->getEntryBlock().back().getPrevNode());
+  if (!V && !Mapping)
+    return ReplCI;
+
+  CI.dump();
+  if (V)
+    (*V)->dump();
+  int Idx = -1;
+  for (unsigned i = 1; i < Inputs.size(); ++i) {
+    const Use &U = Inputs[i];
+    errs() << i << " : " << *U.get() << "\n";
+    if (Mapping)
+      Mapping->insert({AssumeFn->getArg(i - 1), U.get()});
+    if (!V || U.get() != *V)
+      continue;
+    assert(Idx == -1);
+    Idx = i - 1;
+  }
+
+  if (V && Idx >= 0)
+    *V = AssumeFn->getArg(Idx);
+
+  return ReplCI;
+}
+
+CallInst *AssumptionCache::getReplacementAssumption(CallInst &CI, Value *&V) {
+  DenseMap<const Value *, Value *> *M = nullptr;
+  return ::getReplacementAssumption(CI, &V, M);
+}
+CallInst *AssumptionCache::getReplacementAssumption(
+    CallInst &CI, DenseMap<const Value *, Value *> &Mapping) {
+  return ::getReplacementAssumption(CI, nullptr, &Mapping);
+}
+CallInst *AssumptionCache::getReplacementAssumption(
+    CallInst &CI, SmallMapVector<Value *, Value *, 4> &Mapping) {
+  return ::getReplacementAssumption(CI, nullptr, &Mapping);
+}
+CallInst *AssumptionCache::getReplacementAssumption(CallInst &CI) {
+  DenseMap<const Value *, Value *> *M = nullptr;
+  return ::getReplacementAssumption(CI, nullptr, M);
+}
+
+Value *AssumptionCache::getOriginalValue(CallInst &CI, Value &V) {
+  Argument *Arg = dyn_cast<Argument>(&V);
+  if (!Arg)
+    return &V;
+
+  Optional<OperandBundleUse> OpB = CI.getOperandBundle("assume_fn");
+  if (!OpB.hasValue())
+    return &V;
+
+  Function *Fn = Arg->getParent();
+  ArrayRef<Use> Inputs = OpB.getValue().Inputs;
+  if (Fn != cast<Function>(Inputs.front().get()))
+    return &V;
+
+  return Inputs[Arg->getArgNo() + 1].get();
 }
 
 AnalysisKey AssumptionAnalysis::Key;

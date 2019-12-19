@@ -1,4 +1,5 @@
 ; RUN: opt -jump-threading -S < %s | FileCheck %s
+; RUN: opt -assumption-outliner -jump-threading -S < %s | FileCheck %s
 @global = external global i8*, align 8
 
 define i32 @foo(i32 %arg) {

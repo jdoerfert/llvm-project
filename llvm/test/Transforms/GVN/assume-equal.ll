@@ -1,4 +1,5 @@
-; RUN: opt < %s -gvn -S | FileCheck %s
+; RUN: opt < %s -gvn -S | FileCheck %s --check-prefixes=CHECK,INLINED
+; RUN: opt < %s -assumption-outliner -gvn -S | FileCheck %s
 
 %struct.A = type { i32 (...)** }
 @_ZTV1A = available_externally unnamed_addr constant [4 x i8*] [i8* null, i8* bitcast (i8** @_ZTI1A to i8*), i8* bitcast (i32 (%struct.A*)* @_ZN1A3fooEv to i8*), i8* bitcast (i32 (%struct.A*)* @_ZN1A3barEv to i8*)], align 8
@@ -134,7 +135,7 @@ entry:
   %cmp = fcmp oeq float %1, %0 ; note const on lhs
   call void @llvm.assume(i1 %cmp)
   
-  ; CHECK: ret float 3.000000e+00
+  ; INLINED: ret float 3.000000e+00
   ret float %0
 }
 
@@ -196,7 +197,7 @@ entry:
 bb2:
    ; CHECK-NOT: %cmp2 = 
   %cmp2 = icmp eq i32 %p, 42
-  ; CHECK-NOT: call void @llvm.assume(
+  ; INLINED-NOT: call void @llvm.assume(
   call void @llvm.assume(i1 %cmp2)
   
   ; CHECK: br i1 true, label %bb2, label %bb2
@@ -217,7 +218,7 @@ entry:
 bb2:
   ; CHECK-NOT: %cmp3 = 
   %cmp3 = icmp eq i32 %p, 43
-  ; CHECK: store i8 undef, i8* null
+  ; INLINED: store i8 undef, i8* null
   call void @llvm.assume(i1 %cmp3)
   ret i32 15
 bb3:

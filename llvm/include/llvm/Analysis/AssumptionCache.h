@@ -18,6 +18,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/ValueHandle.h"
@@ -119,6 +120,16 @@ public:
     AffectedValues.clear();
     Scanned = false;
   }
+
+  /// TOOO
+  Value *getOriginalValue(CallInst &CI, Value &V);
+  CallInst *getReplacementAssumption(CallInst &CI);
+  CallInst *getReplacementAssumption(CallInst &CI, Value *&V);
+  CallInst *getReplacementAssumption(CallInst &CI,
+                                     DenseMap<const Value *, Value *> &Mapping);
+  CallInst *
+  getReplacementAssumption(CallInst &CI,
+                           SmallMapVector<Value *, Value *, 4> &Mapping);
 
   /// Access the list of assumption handles currently tracked for this
   /// function.

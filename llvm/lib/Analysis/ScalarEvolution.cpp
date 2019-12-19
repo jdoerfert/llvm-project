@@ -6622,7 +6622,7 @@ const SCEV *ScalarEvolution::getExitCount(const Loop *L,
                                           BasicBlock *ExitingBlock,
                                           ExitCountKind Kind) {
   switch (Kind) {
-  case Exact: 
+  case Exact:
     return getBackedgeTakenInfo(L).getExact(ExitingBlock, this);
   case ConstantMaximum:
     return getBackedgeTakenInfo(L).getMax(ExitingBlock, this);
@@ -6639,7 +6639,7 @@ ScalarEvolution::getPredicatedBackedgeTakenCount(const Loop *L,
 const SCEV *ScalarEvolution::getBackedgeTakenCount(const Loop *L,
                                                    ExitCountKind Kind) {
   switch (Kind) {
-  case Exact: 
+  case Exact:
     return getBackedgeTakenInfo(L).getExact(L, this);
   case ConstantMaximum:
     return getBackedgeTakenInfo(L).getMax(this);
@@ -9547,7 +9547,16 @@ ScalarEvolution::isLoopBackedgeGuardedByCond(const Loop *L,
     if (!DT.dominates(CI, Latch->getTerminator()))
       continue;
 
-    if (isImpliedCond(Pred, LHS, RHS, CI->getArgOperand(0), false))
+    // Replace the assumption with an outlined one if applicable.
+    const SCEV *ReplLHS = LHS, *ReplRHS = RHS;
+    ValueToValueMap RewriteMap;
+    CallInst *ReplCI = AC.getReplacementAssumption(*CI, RewriteMap);
+    if (ReplCI != CI) {
+      ReplLHS = SCEVParameterRewriter::rewrite(LHS, *this, RewriteMap, false);
+      ReplRHS = SCEVParameterRewriter::rewrite(RHS, *this, RewriteMap, false);
+    }
+
+    if (isImpliedCond(Pred, ReplLHS, ReplRHS, CI->getArgOperand(0), false))
       return true;
   }
 
@@ -9656,7 +9665,8 @@ ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
   };
 
   // Try to prove (Pred, LHS, RHS) using isImpliedCond.
-  auto ProveViaCond = [&](Value *Condition, bool Inverse) {
+  auto ProveViaCond = [&](Value *Condition, bool Inverse, const SCEV *LHS,
+                          const SCEV *RHS) {
     if (isImpliedCond(Pred, LHS, RHS, Condition, Inverse))
       return true;
     if (ProvingStrictComparison) {
@@ -9690,7 +9700,8 @@ ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
       continue;
 
     if (ProveViaCond(LoopEntryPredicate->getCondition(),
-                     LoopEntryPredicate->getSuccessor(0) != Pair.second))
+                     LoopEntryPredicate->getSuccessor(0) != Pair.second, LHS,
+                     RHS))
       return true;
   }
 
@@ -9702,7 +9713,16 @@ ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
     if (!DT.dominates(CI, L->getHeader()))
       continue;
 
-    if (ProveViaCond(CI->getArgOperand(0), false))
+    // Replace the assumption with an outlined one if applicable.
+    const SCEV *ReplLHS = LHS, *ReplRHS = RHS;
+    ValueToValueMap RewriteMap;
+    CallInst *ReplCI = AC.getReplacementAssumption(*CI, RewriteMap);
+    if (ReplCI != CI) {
+      ReplLHS = SCEVParameterRewriter::rewrite(LHS, *this, RewriteMap, false);
+      ReplRHS = SCEVParameterRewriter::rewrite(RHS, *this, RewriteMap, false);
+    }
+
+    if (ProveViaCond(CI->getArgOperand(0), false, ReplLHS, ReplRHS))
       return true;
   }
 

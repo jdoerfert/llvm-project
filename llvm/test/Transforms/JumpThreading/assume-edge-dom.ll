@@ -1,4 +1,5 @@
 ; RUN: opt -S -jump-threading < %s | FileCheck %s
+; RUN: opt -S -assumption-outliner -jump-threading < %s | FileCheck %s
 
 declare i8* @escape()
 declare void @llvm.assume(i1)

@@ -1063,7 +1063,7 @@ CallInst *CodeExtractor::emitCallAndSwitchStatement(Function *newFunction,
                                                     ValueSet &outputs) {
   // Emit a call to the new function, passing in: *pointer to struct (if
   // aggregating parameters), or plan inputs and allocated memory for outputs
-  std::vector<Value *> params, StructValues, ReloadOutputs, Reloads;
+  std::vector<Value *> params, StructValues, ReloadOutputs;
 
   Module *M = newFunction->getParent();
   LLVMContext &Context = M->getContext();
@@ -1163,15 +1163,14 @@ CallInst *CodeExtractor::emitCallAndSwitchStatement(Function *newFunction,
     } else {
       Output = ReloadOutputs[i];
     }
-    LoadInst *load = new LoadInst(outputs[i]->getType(), Output,
-                                  outputs[i]->getName() + ".reload");
-    Reloads.push_back(load);
-    codeReplacer->getInstList().push_back(load);
     std::vector<User *> Users(outputs[i]->user_begin(), outputs[i]->user_end());
     for (unsigned u = 0, e = Users.size(); u != e; ++u) {
       Instruction *inst = cast<Instruction>(Users[u]);
-      if (!Blocks.count(inst->getParent()))
-        inst->replaceUsesOfWith(outputs[i], load);
+      if (Blocks.count(inst->getParent()))
+        continue;
+      LoadInst *load = new LoadInst(outputs[i]->getType(), Output,
+                                    outputs[i]->getName() + ".reload", inst);
+      inst->replaceUsesOfWith(outputs[i], load);
     }
   }
 
