@@ -2920,11 +2920,41 @@ private:
   DeclGroupPtrTy ParseOMPDeclareSimdClauses(DeclGroupPtrTy Ptr,
                                             CachedTokens &Toks,
                                             SourceLocation Loc);
-  /// Parses OpenMP context selectors and calls \p Callback for each
-  /// successfully parsed context selector.
-  bool
-  parseOpenMPContextSelectors(SourceLocation Loc,
-                              SmallVectorImpl<Sema::OMPCtxSelectorData> &Data);
+
+  /// Parse a property kind into \p TIProperty for the selector set \p Set and
+  /// selector \p Selector.
+  void parseOMPTraitPropertyKind(
+      OpenMPTraitInfo::OpenMPTraitProperty &TIProperty, llvm::omp::TraitSet Set,
+      llvm::omp::TraitSelector Selector, llvm::StringMap<SourceLocation> &Seen);
+
+  /// Parse a selector kind into \p TISelector for the selector set \p Set.
+  void
+  parseOMPTraitSelectorKind(OpenMPTraitInfo::OpenMPTraitSelector &TISelector,
+                            llvm::omp::TraitSet Set,
+                            llvm::StringMap<SourceLocation> &Seen);
+
+  /// Parse a selector set kind into \p TISet.
+  void parseOMPTraitSetKind(OpenMPTraitInfo::OpenMPTraitSet &TISet,
+                            llvm::StringMap<SourceLocation> &Seen);
+
+  /// Parses an OpenMP context property.
+  void
+  parseOpenMPContextProperty(OpenMPTraitInfo::OpenMPTraitSelector &TISelector,
+                             llvm::omp::TraitSet Set,
+                             llvm::StringMap<SourceLocation> &Seen);
+
+  /// Parses an OpenMP context selector.
+  void
+  parseOpenMPContextSelector(OpenMPTraitInfo::OpenMPTraitSelector &TISelector,
+                             llvm::omp::TraitSet Set,
+                             llvm::StringMap<SourceLocation> &SeenSelectors);
+
+  /// Parses an OpenMP context selector set.
+  void parseOpenMPContextSelectorSet(OpenMPTraitInfo::OpenMPTraitSet &TISet,
+                                     llvm::StringMap<SourceLocation> &SeenSets);
+
+  /// Parses an OpenMP context.
+  bool parseOpenMPContext(SourceLocation Loc, OpenMPTraitInfo &TI);
 
   /// Parse clauses for '#pragma omp declare variant'.
   void ParseOMPDeclareVariantClauses(DeclGroupPtrTy Ptr, CachedTokens &Toks,

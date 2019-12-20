@@ -31,6 +31,7 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
+#include "llvm/Frontend/OpenMP/OMPContext.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/TrailingObjects.h"
@@ -6419,6 +6420,41 @@ public:
 #define OPENMP_CLAUSE(Name, Class) void Visit##Class(Class *S);
 #include "clang/Basic/OpenMPKinds.def"
 };
+
+/// Helper datastructure representing the traits in a match clause of an
+/// `declare variant` or `metadirective`. The outer level is an ordered
+/// collection of selector sets, each with an associated kind and an ordered
+/// collection of selectors. A selector has a kind, an optional score/condition,
+/// and an ordered collection of properties.
+struct OpenMPTraitInfo {
+  struct OpenMPTraitProperty {
+    llvm::omp::TraitProperty Kind = llvm::omp::TraitProperty::invalid;
+  };
+  struct OpenMPTraitSelector {
+    Expr *ScoreOrCondition = nullptr;
+    llvm::omp::TraitSelector Kind = llvm::omp::TraitSelector::invalid;
+    llvm::SmallVector<OpenMPTraitProperty, 4> Properties;
+  };
+  struct OpenMPTraitSet {
+    llvm::omp::TraitSet Kind = llvm::omp::TraitSet::invalid;
+    llvm::SmallVector<OpenMPTraitSelector, 4> Selectors;
+  };
+
+  /// The outermost level of selector sets.
+  llvm::SmallVector<OpenMPTraitSet, 4> Sets;
+
+  /// Create a variant match infor object from this trait info object. While the
+  /// former is a flat representation the actual main difference is that the
+  /// latter uses clang::Expr to store the score/condition while the former is
+  /// independent of clang. Thus, expressions and conditions are evaluated in
+  /// this method.
+  void getAsVariantMatchInfo(ASTContext &ASTCtx,
+                             llvm::omp::VariantMatchInfo &VMI) const;
+
+  /// Print a humand readable representation into \p OS.
+  void print(llvm::raw_ostream &OS, const PrintingPolicy &Policy) const;
+};
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const OpenMPTraitInfo &TI);
 
 } // namespace clang
 

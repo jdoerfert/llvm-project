@@ -266,7 +266,17 @@ public:
 
   void AddCXXDefinitionData(const CXXRecordDecl *D);
 
+  /// Write prototype for GenericPointerArguments in Attributes. Requires a
+  /// specialization for the used UserType.
+  template <typename T> void writeUserType(T *);
+
   void writeOMPClause(OMPClause *C);
+
+  void writeOpenMPTraitInfo(const OpenMPTraitInfo *TI);
+
+  template <> void writeUserType(OpenMPTraitInfo *TI) {
+    writeOpenMPTraitInfo(TI);
+  }
 
   /// Emit a string.
   void AddString(StringRef Str) {

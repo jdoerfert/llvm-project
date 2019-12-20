@@ -6563,3 +6563,20 @@ void OMPClauseWriter::VisitOMPNontemporalClause(OMPNontemporalClause *C) {
   for (auto *E : C->private_refs())
     Record.AddStmt(E);
 }
+
+void ASTRecordWriter::writeOpenMPTraitInfo(const OpenMPTraitInfo *TI) {
+  writeUInt32(TI->Sets.size());
+  for (auto &Set : TI->Sets) {
+    writeEnum(Set.Kind);
+    writeUInt32(Set.Selectors.size());
+    for (auto &Selector : Set.Selectors) {
+      writeEnum(Selector.Kind);
+      writeBool(Selector.ScoreOrCondition);
+      if (Selector.ScoreOrCondition)
+        writeExprRef(Selector.ScoreOrCondition);
+      writeUInt32(Selector.Properties.size());
+      for (auto &Property : Selector.Properties)
+        writeEnum(Property.Kind);
+    }
+  }
+}

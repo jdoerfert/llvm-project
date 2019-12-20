@@ -2756,6 +2756,8 @@ public:
     return Reader.readVersionTuple();
   }
 
+  template <typename T> T *readUserType() { return Reader.readUserType<T>(); }
+
   template <typename T> T *GetLocalDeclAs(uint32_t LocalID) {
     return Reader.GetLocalDeclAs<T>(LocalID);
   }

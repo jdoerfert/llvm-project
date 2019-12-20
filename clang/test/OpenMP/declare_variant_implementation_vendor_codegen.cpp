@@ -65,10 +65,10 @@ struct SpecialFuncs {
   ~SpecialFuncs();
 
   int method_() { return 6; }
-#pragma omp declare variant(SpecialFuncs::method_)                             \
+#pragma omp declare variant(SpecialFuncs::method_) \
     match(implementation = {vendor(llvm)})
   int method() { return 1; }
-#pragma omp declare variant(SpecialFuncs::method_)                             \
+#pragma omp declare variant(SpecialFuncs::method_) \
     match(implementation = {vendor(llvm)})
   int Method();
 } s;
@@ -81,10 +81,10 @@ struct SpecSpecialFuncs {
   ~SpecSpecialFuncs();
 
   int method_();
-#pragma omp declare variant(SpecSpecialFuncs::method_)                         \
+#pragma omp declare variant(SpecSpecialFuncs::method_) \
     match(implementation = {vendor(llvm)})
   int method() { return 1; }
-#pragma omp declare variant(SpecSpecialFuncs::method_)                         \
+#pragma omp declare variant(SpecSpecialFuncs::method_) \
     match(implementation = {vendor(llvm)})
   int Method();
 } s1;
@@ -101,7 +101,8 @@ int prio() { return 81; }
 int prio1() { return 82; }
 
 #pragma omp declare variant(prio) match(implementation = {vendor(llvm)})
-#pragma omp declare variant(prio1) match(implementation = {vendor(score(1): llvm)})
+#pragma omp declare variant(prio1) match(implementation = {vendor(score(1) \
+                                                                  : llvm)})
 int prio_() { return 1; }
 
 static int prio2() { return 83; }

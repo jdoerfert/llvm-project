@@ -12583,3 +12583,22 @@ void OMPClauseReader::VisitOMPNontemporalClause(OMPNontemporalClause *C) {
     Vars.push_back(Record.readSubExpr());
   C->setPrivateRefs(Vars);
 }
+
+OpenMPTraitInfo *ASTRecordReader::readOpenMPTraitInfo() {
+  OpenMPTraitInfo *TI = new OpenMPTraitInfo();
+  TI->Sets.resize(readUInt32());
+  for (auto &Set : TI->Sets) {
+    Set.Kind = readEnum<llvm::omp::TraitSet>();
+    Set.Selectors.resize(readUInt32());
+    for (auto &Selector : Set.Selectors) {
+      Selector.Kind = readEnum<llvm::omp::TraitSelector>();
+      Selector.ScoreOrCondition = nullptr;
+      if (readBool())
+        Selector.ScoreOrCondition = readExprRef();
+      Selector.Properties.resize(readUInt32());
+      for (auto &Property : Selector.Properties)
+        Property.Kind = readEnum<llvm::omp::TraitProperty>();
+    }
+  }
+  return TI;
+}
