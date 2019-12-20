@@ -22,6 +22,7 @@
 #include "llvm/ADT/APSInt.h"
 
 namespace clang {
+struct OpenMPTraitInfo;
 
 /// An object for streaming information from a record.
 class ASTRecordReader
@@ -258,8 +259,17 @@ public:
     return Reader->ReadCXXTemporary(*F, Record, Idx);
   }
 
+  /// Read prototype for GenericPointerArguments in Attributes. Requires a
+  /// specialization for the used UserType.
+  template <typename T> T *readUserType();
+
   /// Read an OpenMP clause, advancing Idx.
   OMPClause *readOMPClause();
+
+  /// Read an OpenMP trait info object.
+  OpenMPTraitInfo *readOpenMPTraitInfo();
+
+  template <> OpenMPTraitInfo *readUserType() { return readOpenMPTraitInfo(); }
 
   /// Read a source location, advancing Idx.
   SourceLocation readSourceLocation() {

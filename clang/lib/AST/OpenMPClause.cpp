@@ -1648,3 +1648,107 @@ void OMPClausePrinter::VisitOMPIsDevicePtrClause(OMPIsDevicePtrClause *Node) {
   }
 }
 
+void OpenMPTraitInfo::getAsVariantMatchInfo(
+    ASTContext &ASTCtx, llvm::omp::VariantMatchInfo &VMI) const {
+  for (const OpenMPTraitSet &Set : Sets) {
+    for (const OpenMPTraitSelector &Selector : Set.Selectors) {
+
+      // User conditions are special as we evaluate the condition here.
+      if (Selector.Kind == llvm::omp::TraitSelector::user_condition) {
+        assert(Selector.ScoreOrCondition &&
+               "Ill-formed user condition, expected condition expression!");
+        assert(Selector.Properties.size() == 1 &&
+               Selector.Properties.front().Kind ==
+                   llvm::omp::TraitProperty::user_condition_unknown &&
+               "Ill-formed user condition, expected unknown trait property!");
+
+        llvm::APInt CondVal =
+            Selector.ScoreOrCondition->EvaluateKnownConstInt(ASTCtx);
+        if (CondVal.isNullValue())
+          VMI.addTrait(llvm::omp::TraitProperty::user_condition_false);
+        else
+          VMI.addTrait(llvm::omp::TraitProperty::user_condition_true);
+        continue;
+      }
+
+      llvm::APInt Score;
+      llvm::APInt *ScorePtr = nullptr;
+      if (Selector.ScoreOrCondition) {
+        Score = Selector.ScoreOrCondition->EvaluateKnownConstInt(ASTCtx);
+        ScorePtr = &Score;
+      }
+      for (const OpenMPTraitProperty &Property : Selector.Properties)
+        VMI.addTrait(Set.Kind, Property.Kind, ScorePtr);
+
+      if (Set.Kind != llvm::omp::TraitSet::construct)
+        continue;
+
+      // TODO: This might not hold once we implement SIMD properly.
+      assert(Selector.Properties.size() == 1 &&
+             Selector.Properties.front().Kind ==
+                 llvm::omp::getOpenMPContextTraitPropertyForSelector(
+                     Selector.Kind) &&
+             "Ill-formed construct selector!");
+
+      VMI.ConstructTraits.push_back(Selector.Properties.front().Kind);
+    }
+  }
+}
+
+void OpenMPTraitInfo::print(llvm::raw_ostream &OS,
+                            const PrintingPolicy &Policy) const {
+  bool FirstSet = true;
+  for (const OpenMPTraitInfo::OpenMPTraitSet &Set : Sets) {
+    if (!FirstSet)
+      OS << ", ";
+    FirstSet = false;
+    OS << llvm::omp::getOpenMPContextTraitSetName(Set.Kind) << "={";
+
+    bool FirstSelector = true;
+    for (const OpenMPTraitInfo::OpenMPTraitSelector &Selector : Set.Selectors) {
+      if (!FirstSelector)
+        OS << ", ";
+      FirstSelector = false;
+      OS << llvm::omp::getOpenMPContextTraitSelectorName(Selector.Kind);
+
+      bool AllowsTraitScore = false;
+      bool RequiresProperty = false;
+      llvm::omp::isValidTraitSelectorForTraitSet(
+          Selector.Kind, Set.Kind, AllowsTraitScore, RequiresProperty);
+
+      if (!RequiresProperty)
+        continue;
+
+      OS << "(";
+      if (Selector.Kind == llvm::omp::TraitSelector::user_condition) {
+        Selector.ScoreOrCondition->printPretty(OS, nullptr, Policy);
+      } else {
+
+        if (Selector.ScoreOrCondition) {
+          OS << "score(";
+          Selector.ScoreOrCondition->printPretty(OS, nullptr, Policy);
+          OS << "): ";
+        }
+
+        bool FirstProperty = true;
+        for (const OpenMPTraitInfo::OpenMPTraitProperty &Property :
+             Selector.Properties) {
+          if (!FirstProperty)
+            OS << ", ";
+          FirstProperty = false;
+          OS << llvm::omp::getOpenMPContextTraitPropertyName(Property.Kind);
+        }
+      }
+      OS << ")";
+    }
+    OS << "}";
+  }
+}
+
+llvm::raw_ostream &clang::operator<<(llvm::raw_ostream &OS,
+                                     const OpenMPTraitInfo &TI) {
+  LangOptions LO;
+  PrintingPolicy Policy(LO);
+  TI.print(OS, Policy);
+  return OS;
+}

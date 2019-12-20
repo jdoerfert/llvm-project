@@ -399,44 +399,27 @@ static void instantiateOMPDeclareVariantAttr(
           S.ConvertDeclToDeclGroup(New), VariantFuncRef.get(), Attr.getRange());
   if (!DeclVarData)
     return;
-  SmallVector<Sema::OMPCtxSelectorData, 4> Data;
-  for (unsigned I = 0, E = Attr.scores_size(); I < E; ++I) {
-    ExprResult Score;
-    if (Expr *E = *std::next(Attr.scores_begin(), I))
-      Score = Subst(E);
-    // Instantiate the attribute.
-    auto CtxSet = static_cast<OpenMPContextSelectorSetKind>(
-        *std::next(Attr.ctxSelectorSets_begin(), I));
-    auto Ctx = static_cast<OpenMPContextSelectorKind>(
-        *std::next(Attr.ctxSelectors_begin(), I));
-    switch (CtxSet) {
-    case OMP_CTX_SET_implementation:
-      switch (Ctx) {
-      case OMP_CTX_vendor:
-        Data.emplace_back(CtxSet, Ctx, Score, Attr.implVendors());
-        break;
-      case OMP_CTX_kind:
-      case OMP_CTX_unknown:
-        llvm_unreachable("Unexpected context selector kind.");
-      }
-      break;
-    case OMP_CTX_SET_device:
-      switch (Ctx) {
-      case OMP_CTX_kind:
-        Data.emplace_back(CtxSet, Ctx, Score, Attr.deviceKinds());
-        break;
-      case OMP_CTX_vendor:
-      case OMP_CTX_unknown:
-        llvm_unreachable("Unexpected context selector kind.");
-      }
-      break;
-    case OMP_CTX_SET_unknown:
-      llvm_unreachable("Unexpected context selector set kind.");
+
+  // Copy the template version of the OpenMPTraitInfo and run substitute on all
+  // score and condition expressiosn.
+  OpenMPTraitInfo *TI = new OpenMPTraitInfo();
+  *TI = *Attr.getTraitInfos();
+
+  for (OpenMPTraitInfo::OpenMPTraitSet &Set : TI->Sets) {
+    for (OpenMPTraitInfo::OpenMPTraitSelector &Selector : Set.Selectors) {
+      if (!Selector.ScoreOrCondition)
+        continue;
+      ExprResult ScoreOrConditionRes = Subst(Selector.ScoreOrCondition);
+      if (ScoreOrConditionRes.isUsable())
+        Selector.ScoreOrCondition = ScoreOrConditionRes.get();
+      else
+        Selector.ScoreOrCondition = nullptr;
     }
   }
+
   S.ActOnOpenMPDeclareVariantDirective(DeclVarData.getValue().first,
-                                       DeclVarData.getValue().second,
-                                       Attr.getRange(), Data);
+                                       DeclVarData.getValue().second, TI,
+                                       Attr.getRange());
 }
 
 static void instantiateDependentAMDGPUFlatWorkGroupSizeAttr(

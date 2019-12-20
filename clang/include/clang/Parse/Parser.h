@@ -2858,11 +2858,38 @@ private:
   DeclGroupPtrTy ParseOMPDeclareSimdClauses(DeclGroupPtrTy Ptr,
                                             CachedTokens &Toks,
                                             SourceLocation Loc);
-  /// Parses OpenMP context selectors and calls \p Callback for each
-  /// successfully parsed context selector.
-  bool
-  parseOpenMPContextSelectors(SourceLocation Loc,
-                              SmallVectorImpl<Sema::OMPCtxSelectorData> &Data);
+
+  template <typename KindType, typename... ArgsTy>
+  KindType getOpenMPCtxKindForToken(llvm::StringMap<SourceLocation> &Seen,
+                                    unsigned Lvl, ArgsTy... Args);
+  void
+  parseOMPTraitPropertyKind(OpenMPTraitInfo::OpenMPTraitProperty &TIProperty,
+                            llvm::omp::TraitSet Set,
+                            llvm::omp::TraitSelector Selector);
+  void
+  parseOMPTraitSelectorKind(OpenMPTraitInfo::OpenMPTraitSelector &TISelector,
+                            llvm::omp::TraitSet Set,
+                            llvm::StringMap<SourceLocation> &Seen);
+  void parseOMPTraitSetKind(OpenMPTraitInfo::OpenMPTraitSet &TISet,
+                                llvm::StringMap<SourceLocation> &Seen);
+
+  /// Parses an OpenMP context property.
+  void
+  parseOpenMPContextProperty(OpenMPTraitInfo::OpenMPTraitSelector &TISelector,
+                             llvm::omp::TraitSet Set);
+
+  /// Parses an OpenMP context selector.
+  void
+  parseOpenMPContextSelector(OpenMPTraitInfo::OpenMPTraitSelector &TISelector,
+                             llvm::omp::TraitSet Set,
+                             llvm::StringMap<SourceLocation> &SeenSelectors);
+
+  /// Parses an OpenMP context selector set.
+  void parseOpenMPContextSelectorSet(OpenMPTraitInfo::OpenMPTraitSet &TISet,
+                                     llvm::StringMap<SourceLocation> &SeenSets);
+
+  /// Parses an OpenMP context.
+  bool parseOpenMPContext(SourceLocation Loc, OpenMPTraitInfo &TI);
 
   /// Parse clauses for '#pragma omp declare variant'.
   void ParseOMPDeclareVariantClauses(DeclGroupPtrTy Ptr, CachedTokens &Toks,

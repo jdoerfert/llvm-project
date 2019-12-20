@@ -107,6 +107,8 @@ static std::string ReadPCHRecord(StringRef type) {
     .Case("IdentifierInfo *", "Record.readIdentifier()")
     .Case("StringRef", "Record.readString()")
     .Case("ParamIdx", "ParamIdx::deserialize(Record.readInt())")
+    .EndsWith("*", "Record.readUserType<" +
+                    std::string(type, 0, type.size() - 1) + ">()")
     .Default("Record.readInt()");
 }
 
@@ -126,6 +128,7 @@ static std::string WritePCHRecord(StringRef type, StringRef name) {
     .Case("IdentifierInfo *", "AddIdentifierRef(" + std::string(name) + ");\n")
     .Case("StringRef", "AddString(" + std::string(name) + ");\n")
     .Case("ParamIdx", "push_back(" + std::string(name) + ".serialize());\n")
+    .EndsWith("*", "writeUserType(" + std::string(name) + ");\n")
     .Default("push_back(" + std::string(name) + ");\n");
 }
 
@@ -356,7 +359,8 @@ namespace {
         OS << "    OS << \" \" << SA->get" << getUpperName()
            << "().getSourceIndex();\n";
       } else {
-        llvm_unreachable("Unknown SimpleArgument type!");
+        OS << "    if (SA->get" << getUpperName() << "())\n  ";
+        OS << "      OS << \" \" << *SA->get" << getUpperName() << "();\n";
       }
     }
   };
@@ -1303,6 +1307,9 @@ createArgument(const Record &Arg, StringRef Attr,
     Ptr = std::make_unique<VariadicIdentifierArgument>(Arg, Attr);
   else if (ArgName == "VersionArgument")
     Ptr = std::make_unique<VersionArgument>(Arg, Attr);
+  else if (ArgName == "GenericPointerArgument")
+    Ptr = std::make_unique<SimpleArgument>(Arg, Attr,
+                                           Arg.getValueAsString("Type"));
 
   if (!Ptr) {
     // Search in reverse order so that the most-derived type is handled first.
