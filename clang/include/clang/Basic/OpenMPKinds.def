@@ -107,9 +107,6 @@
 #ifndef OPENMP_DEFAULT_KIND
 #  define OPENMP_DEFAULT_KIND(Name)
 #endif
-#ifndef OPENMP_PROC_BIND_KIND
-#  define OPENMP_PROC_BIND_KIND(Name)
-#endif
 #ifndef OPENMP_SCHEDULE_KIND
 #define OPENMP_SCHEDULE_KIND(Name)
 #endif
@@ -347,11 +344,6 @@ OPENMP_CANCEL_CLAUSE(if)
 // Static attributes for 'default' clause.
 OPENMP_DEFAULT_KIND(none)
 OPENMP_DEFAULT_KIND(shared)
-
-// Static attributes for 'proc_bind' clause.
-OPENMP_PROC_BIND_KIND(master)
-OPENMP_PROC_BIND_KIND(close)
-OPENMP_PROC_BIND_KIND(spread)
 
 // Static attributes for 'schedule' clause.
 OPENMP_SCHEDULE_KIND(static)
@@ -1038,7 +1030,6 @@ OPENMP_MATCH_KIND(implementation)
 #undef OPENMP_DEPEND_KIND
 #undef OPENMP_SCHEDULE_MODIFIER
 #undef OPENMP_SCHEDULE_KIND
-#undef OPENMP_PROC_BIND_KIND
 #undef OPENMP_DEFAULT_KIND
 #undef OPENMP_CLAUSE
 #undef OPENMP_CRITICAL_CLAUSE
