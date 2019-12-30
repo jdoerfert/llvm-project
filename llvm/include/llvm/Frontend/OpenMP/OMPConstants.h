@@ -70,6 +70,18 @@ enum class IdentFlag {
 #define OMP_IDENT_FLAG(Enum, ...) constexpr auto Enum = omp::IdentFlag::Enum;
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
 
+/// IDs for all omp runtime library tasking flag encodings (see
+/// their defintion in openmp/runtime/src/kmp.h).
+enum class TaskingFlag {
+#define OMP_TASKING_FLAG(Enum, Str, Value) Enum = Value,
+#include "llvm/Frontend/OpenMP/OMPKinds.def"
+  LLVM_MARK_AS_BITMASK_ENUM(0x7FFFFFFF)
+};
+
+#define OMP_TASKING_FLAG(Enum, ...)                                            \
+  constexpr auto Enum = omp::TaskingFlag::Enum;
+#include "llvm/Frontend/OpenMP/OMPKinds.def"
+
 /// Parse \p Str and return the directive it matches or OMPD_unknown if none.
 Directive getOpenMPDirectiveKind(StringRef Str);
 

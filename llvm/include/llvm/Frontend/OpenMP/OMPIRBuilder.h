@@ -75,6 +75,21 @@ public:
   /// NOTE: Temporary solution until Clang CG is gone.
   void popFinalizationCB() { FinalizationStack.pop_back(); }
 
+  /// Helper that keeps all information of a depend clause.
+  struct DependClauseInfo {
+    Value *BasePtr;
+    Value *Length;
+
+    /// The values are chosen such that we can `or` them with the length to
+    /// create the `flags` member of a kmp_depend_info struct.
+    enum : uint64_t {
+      IN = 1uL << 61,
+      OUT = 1uL << 61,
+      IN_OUT = IN | OUT,
+      MUTEX_IN_OUT_SET = 1uL << 63,
+    } Type;
+  };
+
   /// Callback type for body (=inner region) code generation
   ///
   /// The callback takes code locations as arguments, each describing a
@@ -168,6 +183,32 @@ public:
                  Value *IfCondition, Value *NumThreads,
                  omp::ProcBindKind ProcBind, bool IsCancellable);
 
+  /// Generator for '#omp task'
+  ///
+  /// \param Loc The location where the barrier directive was encountered.
+  /// \param BodyGenCB Callback that will generate the region code.
+  /// \param PrivCB Callback to copy a given variable (think copy constructor).
+  /// \param FiniCB Callback to finalize variable copies.
+  /// \param IfCondition The evaluated 'if' clause expression, if any.
+  /// \param FinalCondition The evaluated 'final' clause expression, if any.
+  /// \param UntiedFlag Flag to indicate if this is an untied task.
+  /// \param MergableFlag Flag to indicate if this is a mergable task.
+  /// \param DependClauseInfos Information containted in the depend clauses.
+  /// \param PriorityValue The priority of the task.
+  /// \param EventHandle The evaluated 'detach' clause expression, if any.
+  /// \param IsCancellable Flag to indicate a cancellable parallel region.
+  ///
+  /// TODO: Affinitiy
+  ///
+  /// \returns The insertion point after the task.
+  InsertPointTy
+  CreateTask(const LocationDescription &Loc, BodyGenCallbackTy BodyGenCB,
+             PrivatizeCallbackTy PrivCB, FinalizeCallbackTy FiniCB,
+             Value *IfCondition, Value *FinalCondition, bool UntiedFlag,
+             bool MergableFlag,
+             SmallVectorImpl<DependClauseInfo> &DependClauseInfos,
+             unsigned PriorityValue, Value *EventHandle, bool IsCancellable);
+
   ///}
 
 private:
@@ -213,6 +254,17 @@ private:
   InsertPointTy emitBarrierImpl(const LocationDescription &Loc,
                                 omp::Directive DK, bool ForceSimpleCall,
                                 bool CheckCancelFlag);
+
+  InsertPointTy
+  emitOutlinedRegion(const LocationDescription &Loc,
+                     function_ref<void(CallInst &)> RTLCallCB, Value *Ident,
+                     Value *ThreadID, BodyGenCallbackTy BodyGenCB,
+                     PrivatizeCallbackTy PrivCB, FinalizeCallbackTy FiniCB,
+                     omp::Directive DK, bool IsCancellable, Value *IfCondition,
+                     function_ref<void(CallInst &)> AlternativeCB);
+
+  Value *emitLocalDependenceInfoArray(
+      SmallVectorImpl<DependClauseInfo> &DependClauseInfos);
 
   /// The finalization stack made up of finalize callbacks currently in-flight,
   /// wrapped into FinalizationInfo objects that reference also the finalization

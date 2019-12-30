@@ -31,6 +31,7 @@ protected:
         FunctionType::get(Type::getVoidTy(Ctx), {Type::getInt32Ty(Ctx)},
                           /*isVarArg=*/false);
     F = Function::Create(FTy, Function::ExternalLinkage, "", M.get());
+    F->arg_begin()->setName("func.arg");
     BB = BasicBlock::Create(Ctx, "", F);
 
     DIBuilder DIB(*M);
@@ -611,6 +612,185 @@ TEST_F(OpenMPIRBuilderTest, ParallelCancelBarrier) {
     ASSERT_EQ(ExitBB->size(), 1U);
     ASSERT_TRUE(isa<ReturnInst>(ExitBB->front()));
   }
+}
+
+TEST_F(OpenMPIRBuilderTest, TaskSimple) {
+  using InsertPointTy = OpenMPIRBuilder::InsertPointTy;
+  OpenMPIRBuilder OMPBuilder(*M);
+  OMPBuilder.initialize();
+  F->setName("func");
+  IRBuilder<> Builder(BB);
+
+  OpenMPIRBuilder::LocationDescription Loc({Builder.saveIP(), DL});
+
+  AllocaInst *PrivAI = nullptr;
+
+  unsigned NumBodiesGenerated = 0;
+  unsigned NumPrivatizedVars = 0;
+  unsigned NumFinalizationPoints = 0;
+
+  auto BodyGenCB = [&](InsertPointTy AllocaIP, InsertPointTy CodeGenIP,
+                       BasicBlock &ContinuationIP) {
+    ++NumBodiesGenerated;
+
+    Builder.restoreIP(AllocaIP);
+    PrivAI = Builder.CreateAlloca(F->arg_begin()->getType());
+    Builder.CreateStore(F->arg_begin(), PrivAI);
+
+    Builder.restoreIP(CodeGenIP);
+    Value *PrivLoad = Builder.CreateLoad(PrivAI, "local.use");
+    Value *Cmp = Builder.CreateICmpNE(F->arg_begin(), PrivLoad);
+    Instruction *ThenTerm, *ElseTerm;
+    SplitBlockAndInsertIfThenElse(Cmp, CodeGenIP.getBlock()->getTerminator(),
+                                  &ThenTerm, &ElseTerm);
+
+    Builder.SetInsertPoint(ThenTerm);
+    Builder.CreateBr(&ContinuationIP);
+    ThenTerm->eraseFromParent();
+  };
+
+  auto PrivCB = [&](InsertPointTy AllocaIP, InsertPointTy CodeGenIP,
+                    Value &VPtr, Value *&ReplacementValue) -> InsertPointTy {
+    ++NumPrivatizedVars;
+
+    if (!isa<AllocaInst>(VPtr)) {
+      EXPECT_EQ(&VPtr, F->arg_begin());
+      ReplacementValue = &VPtr;
+      return CodeGenIP;
+    }
+
+    // Trivial copy (=firstprivate).
+    Builder.restoreIP(AllocaIP);
+    Type *VTy = VPtr.getType()->getPointerElementType();
+    Value *V = Builder.CreateLoad(VTy, &VPtr, VPtr.getName() + ".reload");
+    ReplacementValue = Builder.CreateAlloca(VTy, 0, VPtr.getName() + ".copy");
+    Builder.restoreIP(CodeGenIP);
+    Builder.CreateStore(V, ReplacementValue);
+    return CodeGenIP;
+  };
+
+  auto FiniCB = [&](InsertPointTy CodeGenIP) { ++NumFinalizationPoints; };
+
+  SmallVector<OpenMPIRBuilder::DependClauseInfo, 0> DependClauseInfos;
+  IRBuilder<>::InsertPoint AfterIP =
+      OMPBuilder.CreateTask(Loc, BodyGenCB, PrivCB, FiniCB, nullptr, nullptr,
+                            false, false, DependClauseInfos, 0, nullptr, false);
+
+  EXPECT_EQ(NumBodiesGenerated, 1U);
+  EXPECT_EQ(NumPrivatizedVars, 1U);
+  EXPECT_EQ(NumFinalizationPoints, 1U);
+
+  Builder.restoreIP(AfterIP);
+  Builder.CreateRetVoid();
+
+  EXPECT_NE(PrivAI, nullptr);
+  Function *OutlinedFn = PrivAI->getFunction();
+  EXPECT_NE(F, OutlinedFn);
+  EXPECT_FALSE(verifyModule(*M));
+  EXPECT_TRUE(OutlinedFn->hasFnAttribute(Attribute::NoUnwind));
+  EXPECT_TRUE(OutlinedFn->hasFnAttribute(Attribute::NoRecurse));
+
+  EXPECT_EQ(OutlinedFn->arg_size(), 1U);
+  EXPECT_TRUE(OutlinedFn->hasParamAttribute(0, Attribute::NoAlias));
+
+  EXPECT_TRUE(OutlinedFn->hasInternalLinkage());
+
+  EXPECT_EQ(&OutlinedFn->getEntryBlock(), PrivAI->getParent());
+  EXPECT_EQ(OutlinedFn->getNumUses(), 1U);
+  User *Usr = OutlinedFn->user_back();
+  ASSERT_TRUE(isa<ConstantExpr>(Usr));
+  CallInst *ForkCI = dyn_cast<CallInst>(Usr->user_back());
+  ASSERT_NE(ForkCI, nullptr);
+
+  EXPECT_EQ(ForkCI->getCalledFunction()->getName(), "__kmpc_task");
+  EXPECT_EQ(ForkCI->getNumArgOperands(), 10U);
+  EXPECT_TRUE(isa<GlobalVariable>(ForkCI->getArgOperand(0)));
+  EXPECT_EQ(ForkCI->getArgOperand(2),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 1U));
+  EXPECT_EQ(ForkCI->getArgOperand(3),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 0U));
+  EXPECT_EQ(ForkCI->getArgOperand(4),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 4U));
+  EXPECT_EQ(ForkCI->getArgOperand(7),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 0U));
+  EXPECT_TRUE(isa<ConstantPointerNull>(ForkCI->getArgOperand(8)));
+  EXPECT_EQ(ForkCI->getArgOperand(9),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 1U));
+}
+
+TEST_F(OpenMPIRBuilderTest, TaskSimpleEmpty) {
+  using InsertPointTy = OpenMPIRBuilder::InsertPointTy;
+  OpenMPIRBuilder OMPBuilder(*M);
+  OMPBuilder.initialize();
+  F->setName("func");
+  IRBuilder<> Builder(BB);
+
+  OpenMPIRBuilder::LocationDescription Loc({Builder.saveIP(), DL});
+
+  Instruction *InOutlinedFn = nullptr;
+
+  unsigned NumBodiesGenerated = 0;
+  unsigned NumPrivatizedVars = 0;
+  unsigned NumFinalizationPoints = 0;
+
+  auto BodyGenCB = [&](InsertPointTy AllocaIP, InsertPointTy CodeGenIP,
+                       BasicBlock &ContinuationIP) {
+    ++NumBodiesGenerated;
+    InOutlinedFn = &*CodeGenIP.getPoint();
+  };
+
+  auto PrivCB = [&](InsertPointTy AllocaIP, InsertPointTy CodeGenIP,
+                    Value &VPtr, Value *&ReplacementValue) -> InsertPointTy {
+    ++NumPrivatizedVars;
+    return CodeGenIP;
+  };
+
+  auto FiniCB = [&](InsertPointTy CodeGenIP) { ++NumFinalizationPoints; };
+
+  SmallVector<OpenMPIRBuilder::DependClauseInfo, 0> DependClauseInfos;
+  IRBuilder<>::InsertPoint AfterIP =
+      OMPBuilder.CreateTask(Loc, BodyGenCB, PrivCB, FiniCB, nullptr, nullptr,
+                            false, false, DependClauseInfos, 0, nullptr, false);
+
+  EXPECT_EQ(NumBodiesGenerated, 1U);
+  EXPECT_EQ(NumPrivatizedVars, 0U);
+  EXPECT_EQ(NumFinalizationPoints, 1U);
+
+  Builder.restoreIP(AfterIP);
+  Builder.CreateRetVoid();
+
+  EXPECT_NE(InOutlinedFn, nullptr);
+  Function *OutlinedFn = InOutlinedFn->getFunction();
+  EXPECT_NE(F, OutlinedFn);
+  EXPECT_FALSE(verifyModule(*M));
+  EXPECT_TRUE(OutlinedFn->hasFnAttribute(Attribute::NoUnwind));
+  EXPECT_TRUE(OutlinedFn->hasFnAttribute(Attribute::NoRecurse));
+
+  EXPECT_EQ(OutlinedFn->arg_size(), 0U);
+
+  EXPECT_TRUE(OutlinedFn->hasInternalLinkage());
+
+  EXPECT_EQ(OutlinedFn->getNumUses(), 1U);
+  User *Usr = OutlinedFn->user_back();
+  ASSERT_TRUE(isa<ConstantExpr>(Usr));
+  CallInst *ForkCI = dyn_cast<CallInst>(Usr->user_back());
+  ASSERT_NE(ForkCI, nullptr);
+
+  EXPECT_EQ(ForkCI->getCalledFunction()->getName(), "__kmpc_task");
+  EXPECT_EQ(ForkCI->getNumArgOperands(), 10U);
+  EXPECT_TRUE(isa<GlobalVariable>(ForkCI->getArgOperand(0)));
+  EXPECT_EQ(ForkCI->getArgOperand(2),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 1U));
+  EXPECT_EQ(ForkCI->getArgOperand(3),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 0U));
+  EXPECT_EQ(ForkCI->getArgOperand(4),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 0U));
+  EXPECT_TRUE(isa<ConstantPointerNull>(ForkCI->getArgOperand(5)));
+  EXPECT_EQ(ForkCI->getArgOperand(7),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 0U));
+  EXPECT_TRUE(isa<ConstantPointerNull>(ForkCI->getArgOperand(8)));
+  EXPECT_EQ(ForkCI->getArgOperand(9),
+            ConstantInt::get(Type::getInt32Ty(Ctx), 1U));
 }
 
 } // namespace

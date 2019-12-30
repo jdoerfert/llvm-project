@@ -116,6 +116,8 @@ __OMP_TYPE(Int8)
 __OMP_TYPE(Int32)
 __OMP_TYPE(Int8Ptr)
 __OMP_TYPE(Int32Ptr)
+__OMP_TYPE(Int64)
+OMP_TYPE(VoidPtr, Int8Ptr)
 
 #undef __OMP_TYPE
 #undef OMP_TYPE
@@ -134,6 +136,7 @@ __OMP_TYPE(Int32Ptr)
   OMP_STRUCT_TYPE(VarName, "struct." #Name, __VA_ARGS__)
 
 __OMP_STRUCT_TYPE(Ident, ident_t, Int32, Int32, Int32, Int32, Int8Ptr)
+__OMP_STRUCT_TYPE(DependInfo, kmp_depend_info, Int64, Int64)
 
 #undef __OMP_STRUCT_TYPE
 #undef OMP_STRUCT_TYPE
@@ -146,6 +149,7 @@ __OMP_STRUCT_TYPE(Ident, ident_t, Int32, Int32, Int32, Int32, Int8Ptr)
   OMP_FUNCTION_TYPE(VarName, IsVarArg, ReturnType, __VA_ARGS__)
 
 __OMP_FUNCTION_TYPE(ParallelTask, true, Void, Int32Ptr, Int32Ptr)
+__OMP_FUNCTION_TYPE(TaskFn, false, Void, VoidPtr)
 
 #undef __OMP_FUNCTION_TYPE
 #undef OMP_FUNCTION_TYPE
@@ -168,8 +172,11 @@ __OMP_RTL(__kmpc_cancel, false, Int32, IdentPtr, Int32, Int32)
 __OMP_RTL(__kmpc_cancel_barrier, false, Int32, IdentPtr, Int32)
 __OMP_RTL(__kmpc_global_thread_num, false, Int32, IdentPtr)
 __OMP_RTL(__kmpc_fork_call, true, Void, IdentPtr, Int32, ParallelTaskPtr)
-__OMP_RTL(__kmpc_push_num_threads, false, Void, IdentPtr, Int32, /* Int */Int32)
-__OMP_RTL(__kmpc_push_proc_bind, false, Void, IdentPtr, Int32, /* Int */Int32)
+__OMP_RTL(__kmpc_task, false, Int32, IdentPtr, Int32, Int32, Int32, Int32,
+          VoidPtr, TaskFnPtr, Int32, DependInfoPtr, Int32)
+__OMP_RTL(__kmpc_push_num_threads, false, Void, IdentPtr, Int32,
+          /* Int */ Int32)
+__OMP_RTL(__kmpc_push_proc_bind, false, Void, IdentPtr, Int32, /* Int */ Int32)
 __OMP_RTL(__kmpc_serialized_parallel, false, Void, IdentPtr, Int32)
 __OMP_RTL(__kmpc_end_serialized_parallel, false, Void, IdentPtr, Int32)
 
@@ -244,7 +251,6 @@ __OMP_IDENT_FLAG(BARRIER_IMPL_WORKSHARE, 0x01C0)
 
 ///}
 
-
 /// Proc bind kinds
 ///
 ///{
@@ -264,5 +270,26 @@ __OMP_PROC_BIND_KIND(unknown, 7)
 
 #undef __OMP_PROC_BIND_KIND
 #undef OMP_PROC_BIND_KIND
+
+///}
+
+/// KMP tasking bit flags
+///
+///{
+
+#ifndef OMP_TASKING_FLAG
+#define OMP_TASKING_FLAG(Enum, Str, Value)
+#endif
+
+#define __OMP_TASKING_FLAG(Name, Value)                                          \
+  OMP_TASKING_FLAG(OMP_TASKING_FLAG_##Name, #Name, Value)
+
+__OMP_TASKING_FLAG(TIEDNESS, 1 << 0)
+__OMP_TASKING_FLAG(FINAL, 1 << 1)
+__OMP_TASKING_FLAG(DESTRUCTORS_THUNK, 1 << 4)
+__OMP_TASKING_FLAG(PRIORITY_SPECIFIED, 1 << 6)
+
+#undef __OMP_TASKING_FLAG
+#undef OMP_TASKING_FLAG
 
 ///}

@@ -2270,7 +2270,8 @@ typedef struct kmp_tasking_flags { /* Total struct must be exactly 32 bits */
   unsigned complete : 1; /* 1==complete, 0==not complete   */
   unsigned freed : 1; /* 1==freed, 0==allocateed        */
   unsigned native : 1; /* 1==gcc-compiled task, 0==intel */
-  unsigned reserved31 : 7; /* reserved for library use */
+  unsigned ompirbuilder : 1; /* 1==omp-ir-builder task, 0==classic code gen */
+  unsigned reserved31 : 6; /* reserved for library use */
 
 } kmp_tasking_flags_t;
 
@@ -3699,6 +3700,18 @@ void __kmpc_omp_task_begin(ident_t *loc_ref, kmp_int32 gtid, kmp_task_t *task);
 void __kmpc_omp_task_complete(ident_t *loc_ref, kmp_int32 gtid,
                               kmp_task_t *task);
 #endif // TASK_UNUSED
+
+typedef void (*kmp_task_routine_t)(void *);
+
+/// Create a new task and schedule it.
+///
+/// Note that \p final is passed explicitly to make sure \p flags is a compile
+/// time constant at the call sites.
+KMP_EXPORT kmp_int32 __kmpc_task(
+    ident_t *loc_ref, kmp_int32 gtid, kmp_int32 flags, kmp_int32 final,
+    kmp_uint32 sizeof_shared_and_private_vars, void *shared_and_private_vars,
+    kmp_task_routine_t task_entry, kmp_uint32 num_depend_infos,
+    kmp_depend_info_t *depend_infos, kmp_int32 if_condition);
 
 /* ------------------------------------------------------------------------ */
 

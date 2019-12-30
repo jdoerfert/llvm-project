@@ -1540,12 +1540,9 @@ static void __kmp_invoke_task(kmp_int32 gtid, kmp_task_t *task,
     }
 #endif
 
-#ifdef KMP_GOMP_COMPAT
-    if (taskdata->td_flags.native) {
+    if (taskdata->td_flags.ompirbuilder || taskdata->td_flags.native) {
       ((void (*)(void *))(*(task->routine)))(task->shareds);
-    } else
-#endif /* KMP_GOMP_COMPAT */
-    {
+    } else {
       (*(task->routine))(gtid, task);
     }
     KMP_POP_PARTITIONED_TIMER();
@@ -1732,6 +1729,56 @@ kmp_int32 __kmpc_omp_task(ident_t *loc_ref, kmp_int32 gtid,
   }
 #endif
   return res;
+}
+
+kmp_int32 __kmpc_task(ident_t *loc_ref, kmp_int32 gtid, kmp_int32 flags,
+                      kmp_int32 final,
+                      kmp_uint32 sizeof_shared_and_private_vars,
+                      void *shared_and_private_vars,
+                      kmp_task_routine_t task_entry,
+                      kmp_uint32 num_depend_infos,
+                      kmp_depend_info_t *depend_infos, kmp_int32 if_condition) {
+  // Adjsut the flags to include final and indicate that this is an ompirbuilder
+  // task.
+  kmp_tasking_flags_t *input_flags = (kmp_tasking_flags_t *)&flags;
+  input_flags->final = final;
+  input_flags->ompirbuilder = true;
+
+  // Compute the size of the task object.
+  size_t sizeof_shared_and_private_vars_padded =
+      if_condition *
+      __kmp_round_up_to_val(sizeof_shared_and_private_vars, sizeof(void *));
+  size_t sizeof_kmp_task_t_padded =
+      __kmp_round_up_to_val(sizeof(kmp_task_t), CACHE_LINE);
+
+  // Create the task object.
+  static_assert(sizeof(kmp_tasking_flags_t) <= sizeof(kmp_int32),
+                "Flags cannot be represented by an int32!");
+  kmp_task_t *task = __kmpc_omp_task_alloc(
+      loc_ref, gtid, flags, sizeof_kmp_task_t_padded,
+      sizeof_shared_and_private_vars_padded, kmp_routine_entry_t(task_entry));
+
+  if (if_condition) {
+    // Copy the shared and private values into the task.
+    char *dest = static_cast<char *>(task->shareds);
+    memcpy(dest, shared_and_private_vars, sizeof_shared_and_private_vars);
+
+    // Schedule the task.
+    if (num_depend_infos == 0)
+      return __kmpc_omp_task(loc_ref, gtid, task);
+    else
+      return __kmpc_omp_task_with_deps(loc_ref, gtid, task, num_depend_infos,
+                                       depend_infos, 0, NULL);
+  }
+
+  // if(0) handling
+  __kmpc_omp_wait_deps(loc_ref, gtid, num_depend_infos, depend_infos, 0, NULL);
+  __kmpc_omp_task_begin_if0(loc_ref, gtid, task);
+  task_entry(shared_and_private_vars);
+  __kmpc_omp_task_complete_if0(loc_ref, gtid, task);
+
+  // Indicate the task was *not* queued.
+  return 0;
 }
 
 // __kmp_omp_taskloop_task: Wrapper around __kmp_omp_task to schedule
