@@ -2142,13 +2142,16 @@ typedef struct kmp_dephash_entry kmp_dephash_entry_t;
 // Compiler sends us this info:
 typedef struct kmp_depend_info {
   kmp_intptr_t base_addr;
-  size_t len;
   struct {
+    kmp_uint64 len : 61;
     bool in : 1;
     bool out : 1;
     bool mtx : 1;
   } flags;
 } kmp_depend_info_t;
+
+static_assert(sizeof(kmp_depend_info_t) <= 2 * sizeof(uint64_t),
+              "KMP depend info type is larger than expected");
 
 // Internal structures to work with task dependencies:
 struct kmp_depnode_list {

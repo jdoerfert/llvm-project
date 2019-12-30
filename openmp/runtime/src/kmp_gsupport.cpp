@@ -1182,7 +1182,7 @@ void KMP_EXPAND_NAME(KMP_API_NAME_GOMP_TASK)(void (*func)(void *), void *data,
 
       for (size_t i = 0U; i < ndeps; i++) {
         dep_list[i].base_addr = (kmp_intptr_t)depend[2U + i];
-        dep_list[i].len = 0U;
+        dep_list[i].flags.len = 0U;
         dep_list[i].flags.in = 1;
         dep_list[i].flags.out = (i < nout);
       }
