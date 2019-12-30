@@ -2087,6 +2087,7 @@ extern kmp_uint64 __kmp_taskloop_min_tasks;
  */
 typedef kmp_int32 (*kmp_routine_entry_t)(kmp_int32, void *);
 
+// TODO: This needs to be removed. See the TODO in kmp_task.
 typedef union kmp_cmplrdata {
   kmp_int32 priority; /**< priority specified by user for the task */
   kmp_routine_entry_t
@@ -2103,6 +2104,15 @@ typedef struct kmp_task { /* GEH: Shouldn't this be aligned somehow? */
   kmp_routine_entry_t
       routine; /**< pointer to routine to call for executing task */
   kmp_int32 part_id; /**< part id for the task                          */
+  // TODO: We should *not* have two union members but two explicit members:
+  //       One for the priority, one for the destructors. That would not only
+  //       make a kmp_task fit in a single cache line (which it does not now!)
+  //       it would also make it way easier to deal with than an encoding only
+  //       described in some comments.
+  //       Once the clang codegen is gone, or someone finds the time to fix it,
+  //       the following to fields need to be replaced by:
+  //  kmp_int32 priority;
+  //  kmp_routine_entry_t destructors;
   kmp_cmplrdata_t
       data1; /* Two known optional additions: destructors and priority */
   kmp_cmplrdata_t data2; /* Process destructors first, priority second */
@@ -2230,6 +2240,8 @@ typedef struct kmp_tasking_flags { /* Total struct must be exactly 32 bits */
   /* Compiler flags */ /* Total compiler flags must be 16 bits */
   unsigned tiedness : 1; /* task is either tied (1) or untied (0) */
   unsigned final : 1; /* task is final(1) so execute immediately */
+  // TODO: merged_if0 does not seem to be used in any meaningful way. Is it
+  // needed?
   unsigned merged_if0 : 1; /* no __kmpc_task_{begin/complete}_if0 calls in if0
                               code path */
   unsigned destructors_thunk : 1; /* set if the compiler creates a thunk to
