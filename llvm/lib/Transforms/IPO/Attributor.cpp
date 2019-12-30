@@ -682,7 +682,9 @@ static void clampCallSiteArgumentStates(Attributor &A, const AAType &QueryingAA,
     return T->isValidState();
   };
 
-  if (!A.checkForAllCallSites(CallSiteCheck, QueryingAA, true))
+  bool AllCallSitesKnown;
+  if (!A.checkForAllCallSites(CallSiteCheck, QueryingAA, true,
+                              AllCallSitesKnown))
     S.indicatePessimisticFixpoint();
   else if (T.hasValue())
     S ^= *T;
@@ -2501,6 +2503,9 @@ struct AAIsDeadValueImpl : public AAIsDead {
   /// See AAIsDead::isAssumedDead().
   bool isAssumedDead() const override { return getAssumed(); }
 
+  /// See AAIsDead::isKnownDead().
+  bool isKnownDead() const override { return getKnown(); }
+
   /// See AAIsDead::isAssumedDead(BasicBlock *).
   bool isAssumedDead(const BasicBlock *BB) const override { return false; }
 
@@ -2643,17 +2648,24 @@ struct AAIsDeadReturned : public AAIsDeadValueImpl {
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
 
+    bool AllKnownDead = true;
     auto PredForCallSite = [&](AbstractCallSite ACS) {
       if (ACS.isCallbackCall())
         return false;
       const IRPosition &CSRetPos =
           IRPosition::callsite_returned(ACS.getCallSite());
       const auto &RetIsDeadAA = A.getAAFor<AAIsDead>(*this, CSRetPos);
+      AllKnownDead &= RetIsDeadAA.isKnownDead();
       return RetIsDeadAA.isAssumedDead();
     };
 
-    if (!A.checkForAllCallSites(PredForCallSite, *this, true))
+    bool AllCallSitesKnown;
+    if (!A.checkForAllCallSites(PredForCallSite, *this, true,
+                                AllCallSitesKnown))
       return indicatePessimisticFixpoint();
+
+    if (AllCallSitesKnown && AllKnownDead)
+      indicateOptimisticFixpoint();
 
     return ChangeStatus::UNCHANGED;
   }
@@ -2837,6 +2849,9 @@ struct AAIsDeadFunction : public AAIsDead {
 
   /// Returns true if the function is assumed dead.
   bool isAssumedDead() const override { return false; }
+
+  /// See AAIsDead::isKnownDead().
+  bool isKnownDead() const override { return false; }
 
   /// See AAIsDead::isAssumedDead(BasicBlock *).
   bool isAssumedDead(const BasicBlock *BB) const override {
@@ -4214,7 +4229,9 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
       return checkAndUpdate(A, *this, *ArgOp, SimplifiedAssociatedValue);
     };
 
-    if (!A.checkForAllCallSites(PredForCallSite, *this, true))
+    bool AllCallSitesKnown;
+    if (!A.checkForAllCallSites(PredForCallSite, *this, true,
+                                AllCallSitesKnown))
       return indicatePessimisticFixpoint();
 
     // If a candicate was found in this update, return CHANGED.
@@ -5140,7 +5157,8 @@ bool Attributor::checkForAllUses(
 
 bool Attributor::checkForAllCallSites(
     const function_ref<bool(AbstractCallSite)> &Pred,
-    const AbstractAttribute &QueryingAA, bool RequireAllCallSites) {
+    const AbstractAttribute &QueryingAA, bool RequireAllCallSites,
+    bool &AllCallSitesKnown) {
   // We can try to determine information from
   // the call sites. However, this is only possible all call sites are known,
   // hence the function has internal linkage.
@@ -5149,23 +5167,29 @@ bool Attributor::checkForAllCallSites(
   if (!AssociatedFunction) {
     LLVM_DEBUG(dbgs() << "[Attributor] No function associated with " << IRP
                       << "\n");
+    AllCallSitesKnown = false;
     return false;
   }
 
   return checkForAllCallSites(Pred, *AssociatedFunction, RequireAllCallSites,
-                              &QueryingAA);
+                              &QueryingAA, AllCallSitesKnown);
 }
 
 bool Attributor::checkForAllCallSites(
     const function_ref<bool(AbstractCallSite)> &Pred, const Function &Fn,
-    bool RequireAllCallSites, const AbstractAttribute *QueryingAA) {
+    bool RequireAllCallSites, const AbstractAttribute *QueryingAA,
+    bool &AllCallSitesKnown) {
   if (RequireAllCallSites && !Fn.hasLocalLinkage()) {
     LLVM_DEBUG(
         dbgs()
         << "[Attributor] Function " << Fn.getName()
         << " has no internal linkage, hence not all call sites are known\n");
+    AllCallSitesKnown = false;
     return false;
   }
+
+  // If we do not require all call sites we might not see all.
+  AllCallSitesKnown = RequireAllCallSites;
 
   for (const Use &U : Fn.uses()) {
     AbstractCallSite ACS(&U);
@@ -5192,6 +5216,7 @@ bool Attributor::checkForAllCallSites(
       // dependence.
       if (QueryingAA)
         recordDependence(*LivenessAA, *QueryingAA, DepClassTy::OPTIONAL);
+      AllCallSitesKnown = false;
       continue;
     }
 
@@ -5615,8 +5640,9 @@ ChangeStatus Attributor::run(Module &M) {
         if (!F)
           continue;
 
+        bool AllCallSitesKnown;
         if (!checkForAllCallSites([](AbstractCallSite ACS) { return false; },
-                                  *F, true, nullptr))
+                                  *F, true, nullptr, AllCallSitesKnown))
           continue;
 
         STATS_TRACK(AAIsDead, Function);
