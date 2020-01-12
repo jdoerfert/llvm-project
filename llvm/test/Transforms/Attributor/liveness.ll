@@ -20,6 +20,9 @@ declare i32 @foo_noreturn_nounwind() noreturn nounwind
 
 declare i32 @foo_noreturn() noreturn
 
+declare i32 @foo_nounwind_readnone() nounwind readnone
+declare i32 @foo_nounwind_readnone_noreturn() nounwind readnone noreturn
+
 declare i32 @bar() nosync readnone
 
 ; This internal function has no live call sites, so all its BBs are considered dead,
@@ -367,6 +370,155 @@ continue:
 
 cleanup:
   %res = landingpad { i8*, i32 } catch i8* null
+  ret i32 0
+}
+
+; UTC_ARGS: --disable
+
+; TEST 5.6a An invoke that calls a side-effect free function is a branch if the return value is not used.
+define i32 @invoke_dead(i32 %a) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+; CHECK-LABEL: define {{[^@]+}}@invoke_dead
+; CHECK-SAME: (i32 [[A:%.*]]) #7 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
+; CHECK-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
+; CHECK:       cond.true:
+; CHECK-NEXT:    call void @normal_call()
+; CHECK-NEXT:    br label [[CONTINUE:%.*]]
+; CHECK:       cond.false:
+; CHECK-NEXT:    call void @normal_call()
+; CHECK-NEXT:    [[CALL1:%.*]] = call i32 @bar()
+; CHECK-NEXT:    br label [[COND_END:%.*]]
+; CHECK:       cond.end:
+; CHECK-NEXT:    [[COND:%.*]] = phi i32 [ 0, [[CONTINUE]] ], [ [[CALL1]], [[COND_FALSE]] ]
+; CHECK-NEXT:    ret i32 [[COND]]
+; CHECK:       continue:
+; CHECK-NEXT:    br label [[COND_END]]
+; CHECK:       cleanup:
+; CHECK-NEXT:    unreachable
+;
+entry:
+  %cmp = icmp eq i32 %a, 0
+  br i1 %cmp, label %cond.true, label %cond.false
+
+cond.true:                                        ; preds = %entry
+  call void @normal_call()
+  %call = invoke i32 @foo_nounwind_readnone() to label %continue
+  unwind label %cleanup
+
+cond.false:                                       ; preds = %entry
+  call void @normal_call()
+  %call1 = call i32 @bar()
+  br label %cond.end
+
+cond.end:                                         ; preds = %cond.false, %continue
+  %cond = phi i32 [ 0, %continue ], [ %call1, %cond.false ]
+  ret i32 %cond
+
+continue:
+  br label %cond.end
+
+cleanup:
+  %res = landingpad { i8*, i32 }
+  catch i8* null
+  ret i32 0
+}
+
+; TEST 5.6b An invoke that calls a side-effect free function is a call and a branch if the return value is used.
+define i32 @invoke_live(i32 %a) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+; CHECK-LABEL: define {{[^@]+}}@invoke_live
+; CHECK-SAME: (i32 [[A:%.*]]) #7 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
+; CHECK-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
+; CHECK:       cond.true:
+; CHECK-NEXT:    call void @normal_call()
+; CHECK-NEXT:    [[CALL:%.*]] = call i32 @foo_nounwind_readnone()
+; CHECK-NEXT:    br label [[CONTINUE:%.*]]
+; CHECK:       cond.false:
+; CHECK-NEXT:    call void @normal_call()
+; CHECK-NEXT:    [[CALL1:%.*]] = call i32 @bar()
+; CHECK-NEXT:    br label [[COND_END:%.*]]
+; CHECK:       cond.end:
+; CHECK-NEXT:    [[COND:%.*]] = phi i32 [ [[CALL]], [[CONTINUE]] ], [ [[CALL1]], [[COND_FALSE]] ]
+; CHECK-NEXT:    ret i32 [[COND]]
+; CHECK:       continue:
+; CHECK-NEXT:    br label [[COND_END]]
+; CHECK:       cleanup:
+; CHECK-NEXT:    unreachable
+;
+entry:
+  %cmp = icmp eq i32 %a, 0
+  br i1 %cmp, label %cond.true, label %cond.false
+
+cond.true:                                        ; preds = %entry
+  call void @normal_call()
+  %call = invoke i32 @foo_nounwind_readnone() to label %continue
+  unwind label %cleanup
+
+cond.false:                                       ; preds = %entry
+  call void @normal_call()
+  %call1 = call i32 @bar()
+  br label %cond.end
+
+cond.end:                                         ; preds = %cond.false, %continue
+  %cond = phi i32 [ %call, %continue ], [ %call1, %cond.false ]
+  ret i32 %cond
+
+continue:
+  br label %cond.end
+
+cleanup:
+  %res = landingpad { i8*, i32 }
+  catch i8* null
+  ret i32 0
+}
+
+; TEST 5.7 An invoke that calls a noreturn side-effect free function is an unreachable.
+define i32 @invoke_dead_noreturn(i32 %a) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+; CHECK-LABEL: define {{[^@]+}}@invoke_dead_noreturn
+; CHECK-SAME: (i32 [[A:%.*]]) #7 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
+; CHECK-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
+; CHECK:       cond.true:
+; CHECK-NEXT:    call void @normal_call()
+; CHECK-NEXT:    unreachable
+; CHECK:       cond.false:
+; CHECK-NEXT:    call void @normal_call()
+; CHECK-NEXT:    [[CALL1:%.*]] = call i32 @bar()
+; CHECK-NEXT:    br label [[COND_END:%.*]]
+; CHECK:       cond.end:
+; CHECK-NEXT:    ret i32 [[CALL1]]
+; CHECK:       continue:
+; CHECK-NEXT:    unreachable
+; CHECK:       cleanup:
+; CHECK-NEXT:    unreachable
+;
+entry:
+  %cmp = icmp eq i32 %a, 0
+  br i1 %cmp, label %cond.true, label %cond.false
+
+cond.true:                                        ; preds = %entry
+  call void @normal_call()
+  %call = invoke i32 @foo_nounwind_readnone_noreturn() to label %continue
+  unwind label %cleanup
+
+cond.false:                                       ; preds = %entry
+  call void @normal_call()
+  %call1 = call i32 @bar()
+  br label %cond.end
+
+cond.end:                                         ; preds = %cond.false, %continue
+  %cond = phi i32 [ %call, %continue ], [ %call1, %cond.false ]
+  ret i32 %cond
+
+continue:
+  br label %cond.end
+
+cleanup:
+  %res = landingpad { i8*, i32 }
+  catch i8* null
   ret i32 0
 }
 

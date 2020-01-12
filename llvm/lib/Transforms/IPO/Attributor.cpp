@@ -7110,6 +7110,9 @@ ChangeStatus Attributor::run() {
     }
     for (auto &V : InvokeWithDeadSuccessor)
       if (InvokeInst *II = dyn_cast_or_null<InvokeInst>(V)) {
+        const auto *IsDeadAA =
+            lookupAAFor<AAIsDead>(IRPosition::callsite_returned(*II));
+        bool ReplacementCallRequired = !IsDeadAA || !IsDeadAA->isKnownDead(II);
         bool UnwindBBIsDead = II->hasFnAttr(Attribute::NoUnwind);
         bool NormalBBIsDead = II->hasFnAttr(Attribute::NoReturn);
         bool Invoke2CallAllowed =
@@ -7119,7 +7122,14 @@ ChangeStatus Attributor::run() {
                "Invoke does not have dead successors!");
         BasicBlock *BB = II->getParent();
         BasicBlock *NormalDestBB = II->getNormalDest();
-        if (UnwindBBIsDead) {
+        if (Invoke2CallAllowed && !ReplacementCallRequired) {
+          if (NormalBBIsDead) {
+            ToBeChangedToUnreachableInsts.insert(II);
+          } else {
+            ToBeDeletedInsts.insert(II);
+            BranchInst::Create(NormalDestBB, BB);
+          }
+        } else if (UnwindBBIsDead) {
           Instruction *NormalNextIP = &NormalDestBB->front();
           if (Invoke2CallAllowed) {
             changeToCall(II);
