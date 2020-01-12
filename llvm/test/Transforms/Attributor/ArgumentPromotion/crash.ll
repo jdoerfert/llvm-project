@@ -9,7 +9,6 @@
 define void @zot() personality i32 (...)* @wibble {
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@zot() #0 personality i32 (...)* @wibble
 ; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    call void @hoge()
 ; ATTRIBUTOR-NEXT:    unreachable
 ; ATTRIBUTOR:       bb1:
 ; ATTRIBUTOR-NEXT:    unreachable
@@ -40,10 +39,6 @@ bb2:
 }
 
 define internal void @hoge() {
-; ATTRIBUTOR-LABEL: define {{[^@]+}}@hoge()
-; ATTRIBUTOR-NEXT:  bb:
-; ATTRIBUTOR-NEXT:    unreachable
-;
 bb:
   %tmp = call fastcc i8* @spam(i1 (i8*)* @eggs)
   %tmp1 = call fastcc i8* @spam(i1 (i8*)* @barney)
