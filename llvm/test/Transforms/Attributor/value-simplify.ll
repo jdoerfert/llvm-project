@@ -170,6 +170,19 @@ define i1 @ipccp2b() {
 }
 
 define internal i32 @ipccp3i(i32 %a) {
+; CHECK-LABEL: define {{[^@]+}}@ipccp3i
+; CHECK-SAME: (i32 returned [[A:%.*]])
+; CHECK-NEXT:    br label [[T:%.*]]
+; CHECK:       t:
+; CHECK-NEXT:    ret i32 7
+; CHECK:       f:
+; CHECK-NEXT:    unreachable
+;
+  %r = call i1 @ipccp2ib(i1 true)
+  ret i1 %r
+}
+
+define internal i32 @ipccp3i(i32 %a) {
   %c = icmp eq i32 %a, 7
   br i1 %c, label %t, label %f
 t:
