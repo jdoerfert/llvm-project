@@ -60,13 +60,15 @@ static std::pair<MDNode *, MDNode *> getMDNodeOperands(ImmutableCallSite ICS,
 
 static AbstractCallSite
 getAbstractCallSiteReplacingDirectCallSite(ImmutableCallSite ICS) {
+  if (!ICS)
+    return AbstractCallSite();
   // Check if there is "rpl_acs" metadata on the call site and it matches an
   // abstract call site with "rpl_cs" metadata. This means this call site is
   // equivalent to the abstract call site it matches.
   std::pair<MDNode *, MDNode *> RplCSOpMD =
       getMDNodeOperands(ICS, ReplicatedCallSiteString);
   if (!RplCSOpMD.first || !RplCSOpMD.second)
-    return AbstractCallSite(nullptr);
+    return AbstractCallSite();
 
   const Function *Callee = ICS.getCalledFunction();
   for (const Use &U : Callee->uses()) {
@@ -81,7 +83,7 @@ getAbstractCallSiteReplacingDirectCallSite(ImmutableCallSite ICS) {
       return ACS;
   }
 
-  return AbstractCallSite(nullptr);
+  return AbstractCallSite();
 }
 
 bool llvm::isDirectCallSiteReplacedByAbstractCallSite(ImmutableCallSite ICS) {

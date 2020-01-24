@@ -759,7 +759,7 @@ private:
   CallbackInfo CI;
 
 public:
-  /// Sole constructor for abstract call sites (ACS).
+  /// Cnstructor for abstract call sites (ACS).
   ///
   /// An abstract call site can only be constructed through a llvm::Use because
   /// each operand (=use) of an instruction could potentially be a different
@@ -776,6 +776,8 @@ public:
   /// callback metadata is used to determine the argument <-> parameter mapping
   /// as well as the callee of the abstract call site.
   AbstractCallSite(const Use *U);
+
+  AbstractCallSite() {}
 
   /// Add operand uses of \p ICS that represent callback uses into \p CBUses.
   ///

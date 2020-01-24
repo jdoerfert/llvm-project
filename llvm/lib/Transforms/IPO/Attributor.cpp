@@ -45,6 +45,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/ArgumentPromotion.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/CallbackEncapsulate.h"
 #include "llvm/Transforms/Utils/Local.h"
 
 #include <cassert>
@@ -7356,6 +7357,12 @@ bool Attributor::isAssumedDead(const Use &U,
                          CheckBBLivenessOnly, DepClass);
 
   if (CallSite CS = CallSite(UserI)) {
+    if (isDirectCallSiteReplacedByAbstractCallSite(CS)) {
+      (dbgs() << "[Attributor] Skip direct call replaced by abstract "
+                 "call site: "
+              << *U.getUser() << "\n");
+      return true;
+    }
     // For call site argument uses we can check if the argument is
     // unused/dead.
     if (CS.isArgOperand(&U)) {
@@ -7496,7 +7503,8 @@ bool Attributor::checkForAllUses(
                       << *U->getUser() << "\n");
     if (isAssumedDead(*U, &QueryingAA, LivenessAA,
                       /* CheckBBLivenessOnly */ false, LivenessDepClass)) {
-      LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");
+      LLVM_DEBUG(dbgs() << "[Attributor] Dead user: " << *U->getUser() << ": "
+                        << *LivenessAA << "\n");
       continue;
     }
 
@@ -8477,6 +8485,10 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
           Ctx, OldCallAttributeList.getFnAttributes(),
           OldCallAttributeList.getRetAttributes(), NewArgOperandAttributes));
 
+      for (const auto &S : {"rpl_cs", "rpl_acs", "rpl_cs_use"})
+        if (MDNode *OldCBRplMD = OldCB->getMetadata(S))
+          NewCB->setMetadata(S, OldCBRplMD);
+
       CallSitePairs.push_back({OldCB, NewCB});
       return true;
     };
@@ -8874,6 +8886,35 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
   // Create an Attributor and initially empty information cache that is filled
   // while we identify default attribute opportunities.
   Attributor A(Functions, InfoCache, CGUpdater, DepRecInterval);
+
+  SmallVector<Function *, 8> CallbackBrokerFns;
+  for (Function *F : Functions) {
+    if (!F->isDeclaration())
+      continue;
+    MDNode *CallbackMD = F->getMetadata(LLVMContext::MD_callback);
+    if (!CallbackMD)
+      continue;
+    CallbackBrokerFns.push_back(F);
+  }
+
+  for (const Function *CallbackBrokerFn : CallbackBrokerFns) {
+    for (const Use &U : CallbackBrokerFn->uses()) {
+      ImmutableCallSite ICS(U.getUser());
+      if (!ICS || !ICS.isCallee(&U))
+        continue;
+      if (ICS.getCaller()->hasMetadata(LLVMContext::MD_callback))
+        continue;
+      SmallVector<const Use *, 4> CBUses;
+      AbstractCallSite::getCallbackUses(ICS, CBUses);
+      for (const Use *CBU : CBUses) {
+        AbstractCallSite ACS(CBU);
+        assert(ACS && ACS.isCallbackCall());
+        encapsulateAbstractCallSite(ACS);
+      }
+    }
+  }
+  assert(!verifyModule(*Functions.front()->getParent(), &errs()) &&
+         "Module verification failed!");
 
   for (Function *F : Functions)
     A.initializeInformationCache(*F);
