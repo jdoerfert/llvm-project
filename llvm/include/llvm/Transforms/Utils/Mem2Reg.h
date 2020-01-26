@@ -19,10 +19,18 @@
 namespace llvm {
 
 class Function;
+class DominatorTree;
+class AssumptionCache;
 
 class PromotePass : public PassInfoMixin<PromotePass> {
 public:
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+
+  /// Promote all eligible allocas from the entry block of \p F into scalar
+  /// registers, inserting PHI nodes as appropriate. If \p DT is not given
+  /// but eligible allocas are found it will be computed.
+  static bool promoteMemoryToRegister(Function &F, DominatorTree *DT,
+                                      AssumptionCache *AC = nullptr);
 };
 
 } // end namespace llvm

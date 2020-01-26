@@ -47,6 +47,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/CallbackEncapsulate.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Transforms/Utils/Mem2Reg.h"
 
 #include <cassert>
 
@@ -8256,6 +8257,22 @@ ChangeStatus Attributor::run() {
     llvm_unreachable("The fixpoint was not reached with exactly the number of "
                      "specified iterations!");
   }
+
+  unsigned PromotedMemory = 0;
+  for (Function *Fn : Functions) {
+    if (Fn->isDeclaration())
+      continue;
+    DominatorTree *DT =
+        InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(*Fn);
+    AssumptionCache *AC =
+        InfoCache.getAnalysisResultForFunction<AssumptionAnalysis>(*Fn);
+    if (DT)
+      PromotedMemory += PromotePass::promoteMemoryToRegister(*Fn, DT, AC);
+  }
+
+  if (PromotedMemory)
+    LLVM_DEBUG(dbgs() << "\n[Attributor] Promoted memory in " << PromotedMemory
+                      << " functions");
 
   return ManifestChange;
 }

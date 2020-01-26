@@ -32,12 +32,13 @@ using namespace llvm;
 
 STATISTIC(NumPromoted, "Number of alloca's promoted");
 
-static bool promoteMemoryToRegister(Function &F, DominatorTree &DT,
-                                    AssumptionCache &AC) {
+bool PromotePass::promoteMemoryToRegister(Function &F, DominatorTree *OrigDT,
+                                          AssumptionCache *AC) {
   std::vector<AllocaInst *> Allocas;
   BasicBlock &BB = F.getEntryBlock(); // Get the entry node for the function
   bool Changed = false;
 
+  DominatorTree *DT = OrigDT;
   while (true) {
     Allocas.clear();
 
@@ -51,17 +52,24 @@ static bool promoteMemoryToRegister(Function &F, DominatorTree &DT,
     if (Allocas.empty())
       break;
 
-    PromoteMemToReg(Allocas, DT, &AC);
+    if (!DT)
+      DT = new DominatorTree(F);
+
+    PromoteMemToReg(Allocas, *DT, AC);
     NumPromoted += Allocas.size();
     Changed = true;
   }
+
+  if (!OrigDT && DT)
+    delete DT;
+
   return Changed;
 }
 
 PreservedAnalyses PromotePass::run(Function &F, FunctionAnalysisManager &AM) {
   auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
   auto &AC = AM.getResult<AssumptionAnalysis>(F);
-  if (!promoteMemoryToRegister(F, DT, AC))
+  if (!promoteMemoryToRegister(F, &DT, &AC))
     return PreservedAnalyses::all();
 
   PreservedAnalyses PA;
@@ -88,7 +96,7 @@ struct PromoteLegacyPass : public FunctionPass {
     DominatorTree &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
     AssumptionCache &AC =
         getAnalysis<AssumptionCacheTracker>().getAssumptionCache(F);
-    return promoteMemoryToRegister(F, DT, AC);
+    return PromotePass::promoteMemoryToRegister(F, &DT, &AC);
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
