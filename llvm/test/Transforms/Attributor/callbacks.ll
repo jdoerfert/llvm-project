@@ -226,5 +226,970 @@ declare void @t3_check(i32* nocapture align 256, i64, i32* nocapture)
 
 declare !callback !0 void @t3_callback_broker(i32* nocapture , i32* nocapture , void (i32*, i32*, ...)* nocapture, ...)
 
+
+; Test 4 definitions with callbacks
+
+define void @t4_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t4_caller
+; CHECK-SAME: (i32* noalias nocapture align 256 [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[B:%.*]] = alloca i32, align 32
+; CHECK-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; CHECK-NEXT:    store i32 42, i32* [[B]], align 32
+; CHECK-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; CHECK-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t4_callback_broker(i32* noalias align 536870912 null, i32* noalias nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nofree nonnull bitcast (void (i32*, i32*, i32*, i64, i32**)* @t4_callback_callee to void (i32*, i32*, ...)*), i32* noalias nocapture align 256 [[A]], i64 undef, i32** noalias nocapture nonnull readonly align 64 dereferenceable(8) [[C]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  %b = alloca i32, align 32
+  %c = alloca i32*, align 64
+  %ptr = alloca i32, align 128
+  %0 = bitcast i32* %b to i8*
+  store i32 42, i32* %b, align 4
+  store i32* %b, i32** %c, align 8
+  call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t4_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, ...)* bitcast (void (i32*, i32*, i32*, i64, i32**)* @t4_callback_callee to void (i32*, i32*, ...)*), i32* %a, i64 99, i32** %c)
+  ret void
+}
+
+define internal void @t4_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t4_callback_callee
+; CHECK-SAME: (i32* nocapture nonnull writeonly dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]], i32** noalias nocapture nonnull readonly align 64 dereferenceable(8) [[C:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
+; CHECK-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]]
+; CHECK-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[C]], align 64
+; CHECK-NEXT:    tail call void @t4_check(i32* nocapture align 256 [[A]], i64 99, i32* [[TMP0]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr_val = load i32, i32* %ptr, align 8
+  store i32 %ptr_val, i32* %is_not_null
+  %0 = load i32*, i32** %c, align 8
+  tail call void @t4_check(i32* %a, i64 %b, i32* %0)
+  ret void
+}
+
+declare void @t4_check(i32* nocapture align 256, i64, i32* nocapture)
+
+define void @t4_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, ...)* nocapture %fp, ...) !callback !0 {
+; CHECK-LABEL: define {{[^@]+}}@t4_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture [[B:%.*]], void (i32*, i32*, ...)* nocapture nofree nonnull [[FP:%.*]], ...) !callback !0
+; CHECK-NEXT:    [[C:%.*]] = alloca i32*, align 512
+; CHECK-NEXT:    store i32* [[A]], i32** [[C]], align 512
+; CHECK-NEXT:    [[FPC:%.*]] = bitcast void (i32*, i32*, ...)* [[FP]] to void (i32*, i32*, i32*, i64, i32**)*
+; CHECK-NEXT:    call void [[FPC]](i32* [[A]], i32* [[B]], i32* null, i64 42, i32** align 512 [[C]])
+; CHECK-NEXT:    ret void
+;
+  %c = alloca i32*, align 512
+  store i32* %a, i32** %c
+  %fpc = bitcast void (i32*, i32*, ...)* %fp to void (i32*, i32*, i32*, i64, i32**)*
+  call void %fpc(i32* %a, i32* %b, i32* null, i64 42, i32** %c)
+  ret void
+}
+
+; Test 5 definitions with callbacks
+
+define void @t5_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t5_caller
+; CHECK-SAME: (i32* noalias nocapture align 256 [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[B:%.*]] = alloca i32, align 32
+; CHECK-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; CHECK-NEXT:    store i32 42, i32* [[B]], align 32
+; CHECK-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; CHECK-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t5_callback_broker(i32* noalias align 536870912 null, i32* noalias nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nofree nonnull bitcast (void (i32*, i32*, i32*, i64, i32**)* @t5_callback_callee to void (i32*, i32*, ...)*), i32* noalias nocapture align 256 [[A]], i64 undef, i32** noalias nocapture nofree nonnull readnone align 64 dereferenceable(8) undef)
+; CHECK-NEXT:    ret void
+;
+entry:
+  %b = alloca i32, align 32
+  %c = alloca i32*, align 64
+  %ptr = alloca i32, align 128
+  %0 = bitcast i32* %b to i8*
+  store i32 42, i32* %b, align 4
+  store i32* %b, i32** %c, align 8
+  call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t5_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, ...)* bitcast (void (i32*, i32*, i32*, i64, i32**)* @t5_callback_callee to void (i32*, i32*, ...)*), i32* %a, i64 99, i32** %c)
+  ret void
+}
+
+define internal void @t5_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t5_callback_callee
+; CHECK-SAME: (i32* nocapture nonnull writeonly dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]], i32** noalias nocapture nofree nonnull readnone align 64 dereferenceable(8) [[C:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
+; CHECK-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]]
+; CHECK-NEXT:    tail call void @t5_check(i32* nocapture align 256 [[A]], i64 99, i32* noalias align 536870912 null)
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr_val = load i32, i32* %ptr, align 8
+  store i32 %ptr_val, i32* %is_not_null
+  tail call void @t5_check(i32* %a, i64 %b, i32* null)
+  ret void
+}
+
+declare void @t5_check(i32* nocapture align 256, i64, i32* nocapture)
+
+define void @t5_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, ...)* nocapture %fp, ...) !callback !0 {
+; CHECK-LABEL: define {{[^@]+}}@t5_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture [[B:%.*]], void (i32*, i32*, ...)* nocapture nofree nonnull [[FP:%.*]], ...) !callback !0
+; CHECK-NEXT:    [[C:%.*]] = alloca i32*, align 512
+; CHECK-NEXT:    store i32* [[A]], i32** [[C]], align 512
+; CHECK-NEXT:    [[FPC:%.*]] = bitcast void (i32*, i32*, ...)* [[FP]] to void (i32*, i32*, i32*, i64, i32**)*
+; CHECK-NEXT:    call void [[FPC]](i32* [[A]], i32* [[B]], i32* null, i64 42, i32** align 512 [[C]])
+; CHECK-NEXT:    ret void
+;
+  %c = alloca i32*, align 512
+  store i32* %a, i32** %c
+  %fpc = bitcast void (i32*, i32*, ...)* %fp to void (i32*, i32*, i32*, i64, i32**)*
+  call void %fpc(i32* %a, i32* %b, i32* null, i64 42, i32** %c)
+  ret void
+}
+
+
+; In the following we have the "same" test in various versions, e.g. t6, t6b, t6int, t6int_b.
+; In contrast to thest above, the following versions have a callback `_broker` that is a function definition.
+;
+; The `b` versions are the same as their counterpart without `b` but the argument alignment in the `_check` function is lower.
+; As such, the version w/o `b` will show how alignment is propagated from the callback callee to the callback caller
+; while, the version w/ `b` will show how the alignment is propagated from the callback caller to the callback callee.
+;
+; The `int` versions have an internal `_broker` while the others have an
+; externally visible one. The difference is that (for now) only the signature of
+; the internal broker can be modified.
+;
+; {
+
+; Test 6 definitions with callbacks
+
+define void @t6_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t6_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @t6_callback_broker(i32* noalias nofree align 536870912 undef, i32* noalias nofree nonnull readnone align 128 dereferenceable(4) undef, void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i64)* @t6_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t6_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t6_callback_callee)
+  ret void
+}
+
+define internal void @t6_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t6_callback_callee
+; CHECK-SAME: (i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t6_check(i32* align 536870912 null, i64 [[B]], i32* nocapture align 536870912 null)
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t6_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t6_check(i32* nocapture align 256, i64, i32* nocapture)
+
+define void @t6_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp) !callback !2 {
+; CHECK-LABEL: define {{[^@]+}}@t6_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture nofree readnone [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP:%.*]]) !callback !2
+; CHECK-NEXT:    call void [[FP]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  ret void
+}
+
+define void @t6b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t6b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @t6b_callback_broker(i32* noalias nofree align 536870912 undef, i32* noalias nofree nonnull readnone align 128 dereferenceable(4) undef, void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i64)* @t6b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t6b_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t6b_callback_callee)
+  ret void
+}
+
+define internal void @t6b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t6b_callback_callee
+; CHECK-SAME: (i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t6b_check(i32* align 536870912 null, i64 [[B]], i32* nocapture align 536870912 null)
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t6b_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t6b_check(i32* nocapture align 32, i64, i32* nocapture)
+
+define void @t6b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp) !callback !2 {
+; CHECK-LABEL: define {{[^@]+}}@t6b_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture nofree readnone [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP:%.*]]) !callback !2
+; CHECK-NEXT:    call void [[FP]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  ret void
+}
+
+define void @t6int__caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t6int__caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @t6int__callback_broker(void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i64)* @t6int__callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t6int__callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t6int__callback_callee)
+  ret void
+}
+
+define internal void @t6int__callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t6int__callback_callee
+; CHECK-SAME: (i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t6int__check(i32* align 536870912 null, i64 [[B]], i32* nocapture align 536870912 null)
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t6int__check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t6int__check(i32* nocapture align 256, i64, i32* nocapture)
+
+define internal void @t6int__callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp) !callback !2 {
+; CHECK-LABEL: define {{[^@]+}}@t6int__callback_broker
+; CHECK-SAME: (void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP:%.*]]) !callback !4
+; CHECK-NEXT:    call void @t6int__callback_callee(i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  ret void
+}
+
+define void @t6int_b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t6int_b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @t6int_b_callback_broker(void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i64)* @t6int_b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t6int_b_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t6int_b_callback_callee)
+  ret void
+}
+
+define internal void @t6int_b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t6int_b_callback_callee
+; CHECK-SAME: (i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t6int_b_check(i32* align 536870912 null, i64 [[B]], i32* nocapture align 536870912 null)
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t6int_b_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t6int_b_check(i32* nocapture align 32, i64, i32* nocapture)
+
+define internal void @t6int_b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp) !callback !2 {
+; CHECK-LABEL: define {{[^@]+}}@t6int_b_callback_broker
+; CHECK-SAME: (void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP:%.*]]) !callback !4
+; CHECK-NEXT:    call void @t6int_b_callback_callee(i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  ret void
+}
+
+
+; Test 7 definitions with callbacks
+
+define void @t7_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t7_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t7_callback_broker(i32* noalias align 536870912 null, i32* noalias nocapture nonnull align 256 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t7_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t7_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t7_callback_callee)
+  ret void
+}
+
+define internal void @t7_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t7_callback_callee
+; CHECK-SAME: (i32* nocapture nonnull align 256 dereferenceable(4) [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t7_check(i32* nonnull align 256 dereferenceable(4) [[A]], i64 [[B]], i32* nocapture nonnull align 256 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t7_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t7_check(i32* nocapture align 256, i64, i32* nocapture)
+
+define void @t7_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp) !callback !4 {
+; CHECK-LABEL: define {{[^@]+}}@t7_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture nofree readnone [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP:%.*]]) !callback !6
+; CHECK-NEXT:    call void [[FP]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  ret void
+}
+
+define void @t7b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t7b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t7b_callback_broker(i32* noalias align 536870912 null, i32* noalias nocapture nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t7b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t7b_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t7b_callback_callee)
+  ret void
+}
+
+define internal void @t7b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t7b_callback_callee
+; CHECK-SAME: (i32* nocapture nonnull align 128 dereferenceable(4) [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t7b_check(i32* nonnull align 128 dereferenceable(4) [[A]], i64 [[B]], i32* nocapture nonnull align 128 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t7b_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t7b_check(i32* nocapture align 32, i64, i32* nocapture)
+
+define void @t7b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp) !callback !4 {
+; CHECK-LABEL: define {{[^@]+}}@t7b_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture nofree readnone [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP:%.*]]) !callback !6
+; CHECK-NEXT:    call void [[FP]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  ret void
+}
+
+define void @t7int__caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t7int__caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t7int__callback_broker(void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t7int__callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t7int__callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t7int__callback_callee)
+  ret void
+}
+
+define internal void @t7int__callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t7int__callback_callee
+; CHECK-SAME: (i32* nocapture nonnull align 256 dereferenceable(4) [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t7int__check(i32* nonnull align 256 dereferenceable(4) [[A]], i64 [[B]], i32* nocapture nonnull align 256 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t7int__check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t7int__check(i32* nocapture align 256, i64, i32* nocapture)
+
+define internal void @t7int__callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp) !callback !4 {
+; CHECK-LABEL: define {{[^@]+}}@t7int__callback_broker
+; CHECK-SAME: (void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP:%.*]]) !callback !8
+; CHECK-NEXT:    call void @t7int__callback_callee(i32* align 536870912 null, i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  ret void
+}
+
+define void @t7int_b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t7int_b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t7int_b_callback_broker(void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t7int_b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t7int_b_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t7int_b_callback_callee)
+  ret void
+}
+
+define internal void @t7int_b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t7int_b_callback_callee
+; CHECK-SAME: (i32* nocapture nonnull align 128 dereferenceable(4) [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t7int_b_check(i32* nonnull align 128 dereferenceable(4) [[A]], i64 [[B]], i32* nocapture nonnull align 128 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t7int_b_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t7int_b_check(i32* nocapture align 32, i64, i32* nocapture)
+
+define internal void @t7int_b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp) !callback !4 {
+; CHECK-LABEL: define {{[^@]+}}@t7int_b_callback_broker
+; CHECK-SAME: (void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP:%.*]]) !callback !8
+; CHECK-NEXT:    call void @t7int_b_callback_callee(i32* align 536870912 null, i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  ret void
+}
+
+; Test 8 definitions with callbacks
+
+define void @t8_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t8_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t8_callback_broker(i32* noalias align 536870912 null, i32* noalias nocapture nonnull align 256 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t8_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t8_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t8_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t8_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t8_callback_callee)
+  ret void
+}
+
+define internal void @t8_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t8_callback_callee
+; CHECK-SAME: (i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t8_check(i32* align 256 [[A]], i64 [[B]], i32* nocapture align 256 [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t8_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t8_check(i32* nocapture align 256, i64, i32* nocapture)
+
+define void @t8_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t8_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree [[FP2:%.*]]) !callback !10
+; CHECK-NEXT:    call void [[FP1]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    call void [[FP2]](i32* null, i32* null, i32* [[B]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t8b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t8b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t8b_callback_broker(i32* noalias align 536870912 null, i32* noalias nocapture nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t8b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t8b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t8b_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t8b_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t8b_callback_callee)
+  ret void
+}
+
+define internal void @t8b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t8b_callback_callee
+; CHECK-SAME: (i32* nocapture align 128 [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t8b_check(i32* align 128 [[A]], i64 [[B]], i32* nocapture align 128 [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t8b_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t8b_check(i32* nocapture align 32, i64, i32* nocapture)
+
+define void @t8b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t8b_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree [[FP2:%.*]]) !callback !10
+; CHECK-NEXT:    call void [[FP1]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    call void [[FP2]](i32* null, i32* null, i32* [[B]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t8int__caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t8int__caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t8int__callback_broker(i32* noalias nocapture nonnull align 256 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t8int__callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t8int__callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t8int__callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t8int__callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t8int__callback_callee)
+  ret void
+}
+
+define internal void @t8int__callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t8int__callback_callee
+; CHECK-SAME: (i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t8int__check(i32* align 256 [[A]], i64 [[B]], i32* nocapture align 256 [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t8int__check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t8int__check(i32* nocapture align 256, i64, i32* nocapture)
+
+define internal void @t8int__callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t8int__callback_broker
+; CHECK-SAME: (i32* nocapture nonnull align 256 dereferenceable(4) [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP2:%.*]]) !callback !13
+; CHECK-NEXT:    call void @t8int__callback_callee(i32* align 536870912 null, i64 -1)
+; CHECK-NEXT:    call void @t8int__callback_callee(i32* [[B]], i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t8int_b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t8int_b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t8int_b_callback_broker(i32* noalias nocapture nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t8int_b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t8int_b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %ptr = alloca i32, align 128
+  call void @t8int_b_callback_broker(i32* null, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t8int_b_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t8int_b_callback_callee)
+  ret void
+}
+
+define internal void @t8int_b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t8int_b_callback_callee
+; CHECK-SAME: (i32* nocapture align 128 [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t8int_b_check(i32* align 128 [[A]], i64 [[B]], i32* nocapture align 128 [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t8int_b_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t8int_b_check(i32* nocapture align 32, i64, i32* nocapture)
+
+define internal void @t8int_b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t8int_b_callback_broker
+; CHECK-SAME: (i32* nocapture nonnull align 128 dereferenceable(4) [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP2:%.*]]) !callback !13
+; CHECK-NEXT:    call void @t8int_b_callback_callee(i32* align 536870912 null, i64 -1)
+; CHECK-NEXT:    call void @t8int_b_callback_callee(i32* [[B]], i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+; Test 9 definitions with callbacks
+
+define void @t9_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t9_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[NOA:%.*]] = alloca i32, align 1
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t9_callback_broker(i32* noalias nonnull align 256 dereferenceable(4) [[NOA]], i32* noalias nocapture nonnull align 256 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t9_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t9_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %noa = alloca i32, align 1
+  %ptr = alloca i32, align 128
+  call void @t9_callback_broker(i32* %noa, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t9_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t9_callback_callee)
+  ret void
+}
+
+define internal void @t9_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t9_callback_callee
+; CHECK-SAME: (i32* nocapture nonnull align 256 dereferenceable(4) [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t9_check(i32* nonnull align 256 dereferenceable(4) [[A]], i64 [[B]], i32* nocapture nonnull align 256 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t9_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t9_check(i32* nocapture align 256, i64, i32* nocapture)
+
+define void @t9_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t9_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree [[FP2:%.*]]) !callback !10
+; CHECK-NEXT:    call void [[FP1]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    call void [[FP2]](i32* null, i32* null, i32* [[B]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t9b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t9b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[NOA:%.*]] = alloca i32, align 2
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t9b_callback_broker(i32* noalias nonnull align 2 dereferenceable(4) [[NOA]], i32* noalias nocapture nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t9b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t9b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %noa = alloca i32, align 2
+  %ptr = alloca i32, align 128
+  call void @t9b_callback_broker(i32* %noa, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t9b_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t9b_callback_callee)
+  ret void
+}
+
+define internal void @t9b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t9b_callback_callee
+; CHECK-SAME: (i32* nocapture nonnull align 2 dereferenceable(4) [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t9b_check(i32* nonnull align 2 dereferenceable(4) [[A]], i64 [[B]], i32* nocapture nonnull align 2 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t9b_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t9b_check(i32* nocapture, i64, i32* nocapture)
+
+define void @t9b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t9b_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree [[FP2:%.*]]) !callback !10
+; CHECK-NEXT:    call void [[FP1]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    call void [[FP2]](i32* null, i32* null, i32* [[B]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t9int__caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t9int__caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[NOA:%.*]] = alloca i32, align 1
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t9int__callback_broker(i32* noalias nocapture nonnull align 256 dereferenceable(4) [[NOA]], i32* noalias nocapture nonnull align 256 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t9int__callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t9int__callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %noa = alloca i32, align 1
+  %ptr = alloca i32, align 128
+  call void @t9int__callback_broker(i32* %noa, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t9int__callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t9int__callback_callee)
+  ret void
+}
+
+define internal void @t9int__callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t9int__callback_callee
+; CHECK-SAME: (i32* nocapture nonnull align 256 dereferenceable(4) [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t9int__check(i32* nonnull align 256 dereferenceable(4) [[A]], i64 [[B]], i32* nocapture nonnull align 256 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t9int__check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t9int__check(i32* nocapture align 256, i64, i32* nocapture)
+
+define internal void @t9int__callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t9int__callback_broker
+; CHECK-SAME: (i32* nocapture nonnull align 256 dereferenceable(4) [[A:%.*]], i32* nocapture nonnull align 256 dereferenceable(4) [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP2:%.*]]) !callback !10
+; CHECK-NEXT:    call void @t9int__callback_callee(i32* nonnull align 256 dereferenceable(4) [[A]], i64 -1)
+; CHECK-NEXT:    call void @t9int__callback_callee(i32* [[B]], i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t9int_b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t9int_b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[NOA:%.*]] = alloca i32, align 2
+; CHECK-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; CHECK-NEXT:    call void @t9int_b_callback_broker(i32* noalias nocapture nonnull align 2 dereferenceable(4) [[NOA]], i32* noalias nocapture nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t9int_b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t9int_b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %noa = alloca i32, align 2
+  %ptr = alloca i32, align 128
+  call void @t9int_b_callback_broker(i32* %noa, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t9int_b_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t9int_b_callback_callee)
+  ret void
+}
+
+define internal void @t9int_b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t9int_b_callback_callee
+; CHECK-SAME: (i32* nocapture nonnull align 2 dereferenceable(4) [[A:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t9int_b_check(i32* nonnull align 2 dereferenceable(4) [[A]], i64 [[B]], i32* nocapture nonnull align 2 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t9int_b_check(i32* %a, i64 %b, i32* %a)
+  ret void
+}
+
+declare void @t9int_b_check(i32* nocapture, i64, i32* nocapture)
+
+define internal void @t9int_b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t9int_b_callback_broker
+; CHECK-SAME: (i32* nocapture nonnull align 2 dereferenceable(4) [[A:%.*]], i32* nocapture nonnull align 128 dereferenceable(4) [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP2:%.*]]) !callback !10
+; CHECK-NEXT:    call void @t9int_b_callback_callee(i32* nonnull align 2 dereferenceable(4) [[A]], i64 -1)
+; CHECK-NEXT:    call void @t9int_b_callback_callee(i32* [[B]], i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+; Test 10 definitions with callbacks signature change
+
+define void @t10_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t10_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @t10_callback_broker(i32* noalias nocapture nofree nonnull readnone dereferenceable(4) undef, i32* noalias nocapture nofree nonnull readnone align 128 dereferenceable(4) undef, void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t10_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t10_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %noa = alloca i32, align 1
+  %ptr = alloca i32, align 128
+  call void @t10_callback_broker(i32* %noa, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t10_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t10_callback_callee)
+  ret void
+}
+
+define internal void @t10_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t10_callback_callee
+; CHECK-SAME: (i32* nocapture align 256 [[PTR:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t10_check(i32* align 256 [[PTR]], i64 [[B]], i32* nocapture align 256 [[PTR]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t10_check(i32* %ptr, i64 %b, i32* %ptr)
+  ret void
+}
+
+declare void @t10_check(i32* nocapture align 256, i64, i32* nocapture)
+
+define void @t10_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t10_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree [[FP2:%.*]]) !callback !15
+; CHECK-NEXT:    call void [[FP1]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    call void [[FP2]](i32* null, i32* null, i32* [[B]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t10b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t10b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @t10b_callback_broker(i32* noalias nocapture nofree nonnull readnone align 2 dereferenceable(4) undef, i32* noalias nocapture nofree nonnull readnone align 128 dereferenceable(4) undef, void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t10b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t10b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %noa = alloca i32, align 2
+  %ptr = alloca i32, align 128
+  call void @t10b_callback_broker(i32* %noa, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t10b_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t10b_callback_callee)
+  ret void
+}
+
+define internal void @t10b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t10b_callback_callee
+; CHECK-SAME: (i32* nocapture [[PTR:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t10b_check(i32* [[PTR]], i64 [[B]], i32* nocapture [[PTR]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t10b_check(i32* %ptr, i64 %b, i32* %ptr)
+  ret void
+}
+
+declare void @t10b_check(i32* nocapture, i64, i32* nocapture)
+
+define void @t10b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t10b_callback_broker
+; CHECK-SAME: (i32* nocapture [[A:%.*]], i32* nocapture [[B:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree [[FP2:%.*]]) !callback !15
+; CHECK-NEXT:    call void [[FP1]](i32* null, i32* null, i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    call void [[FP2]](i32* null, i32* null, i32* [[B]], i64 -1, i32** null)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t10int__caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t10int__caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @t10int__callback_broker(void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t10int__callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t10int__callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %noa = alloca i32, align 1
+  %ptr = alloca i32, align 128
+  call void @t10int__callback_broker(i32* %noa, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t10int__callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t10int__callback_callee)
+  ret void
+}
+
+define internal void @t10int__callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t10int__callback_callee
+; CHECK-SAME: (i32* nocapture align 256 [[PTR:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t10int__check(i32* align 256 [[PTR]], i64 [[B]], i32* nocapture align 256 [[PTR]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t10int__check(i32* %ptr, i64 %b, i32* %ptr)
+  ret void
+}
+
+declare void @t10int__check(i32* nocapture align 256, i64, i32* nocapture)
+
+define internal void @t10int__callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t10int__callback_broker
+; CHECK-SAME: (void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP2:%.*]]) !callback !18
+; CHECK-NEXT:    call void @t10int__callback_callee(i32* null, i64 -1)
+; CHECK-NEXT:    call void @t10int__callback_callee(i32* null, i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+define void @t10int_b_caller(i32* noalias %a) {
+; CHECK-LABEL: define {{[^@]+}}@t10int_b_caller
+; CHECK-SAME: (i32* noalias nocapture nofree readnone [[A:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @t10int_b_callback_broker(void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t10int_b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*), void (i32*, i32*, i32*, i64, i32**)* nofree nonnull bitcast (void (i32*, i64)* @t10int_b_callback_callee to void (i32*, i32*, i32*, i64, i32**)*))
+; CHECK-NEXT:    ret void
+;
+entry:
+  %noa = alloca i32, align 2
+  %ptr = alloca i32, align 128
+  call void @t10int_b_callback_broker(i32* %noa, i32* %ptr, void (i32*, i32*, i32*, i64, i32**)* @t10int_b_callback_callee, void (i32*, i32*, i32*, i64, i32**)* @t10int_b_callback_callee)
+  ret void
+}
+
+define internal void @t10int_b_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
+; CHECK-LABEL: define {{[^@]+}}@t10int_b_callback_callee
+; CHECK-SAME: (i32* nocapture [[PTR:%.*]], i64 [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    tail call void @t10int_b_check(i32* [[PTR]], i64 [[B]], i32* nocapture [[PTR]])
+; CHECK-NEXT:    ret void
+;
+entry:
+  tail call void @t10int_b_check(i32* %ptr, i64 %b, i32* %ptr)
+  ret void
+}
+
+declare void @t10int_b_check(i32* nocapture, i64, i32* nocapture)
+
+define internal void @t10int_b_callback_broker(i32* nocapture %a, i32* nocapture %b, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp1, void (i32*, i32*, i32*, i64, i32**)* nocapture %fp2) !callback !6 {
+; CHECK-LABEL: define {{[^@]+}}@t10int_b_callback_broker
+; CHECK-SAME: (void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP1:%.*]], void (i32*, i32*, i32*, i64, i32**)* nocapture nofree nonnull [[FP2:%.*]]) !callback !18
+; CHECK-NEXT:    call void @t10int_b_callback_callee(i32* null, i64 -1)
+; CHECK-NEXT:    call void @t10int_b_callback_callee(i32* null, i64 -1)
+; CHECK-NEXT:    ret void
+;
+  call void %fp1(i32* null, i32* null, i32* %a, i64 -1, i32** null)
+  call void %fp2(i32* null, i32* null, i32* %b, i64 -1, i32** null)
+  ret void
+}
+
+; }
+
 !0 = !{!1}
 !1 = !{i64 2, i64 -1, i64 -1, i1 true}
+!2 = !{!3}
+!3 = !{i64 2, i64 -1, i64 -1, i64 0, i64 -1, i64 -1, i1 false}
+!4 = !{!5}
+!5 = !{i64 2, i64 -1, i64 -1, i64 1, i64 -1, i64 -1, i1 false}
+!6 = !{!3, !7}
+!7 = !{i64 3, i64 -1, i64 -1, i64 1, i64 -1, i64 -1, i1 false}
+
+
+; CHECK: !0 = !{!1}
+; CHECK: !1 = !{i64 2, i64 -1, i64 -1, i1 true}
+; CHECK: !2 = !{!3}
+; CHECK: !3 = !{i64 2, i64 -1, i1 false}
+; CHECK: !4 = !{!5}
+; CHECK: !5 = !{i64 0, i64 -1, i1 false}
+; CHECK: !6 = !{!7}
+; CHECK: !7 = !{i64 2, i64 1, i64 -1, i1 false}
+; CHECK: !8 = !{!9}
+; CHECK: !9 = !{i64 0, i64 -1, i64 -1, i1 false}
+; CHECK: !10 = !{!11, !12}
+; CHECK: !11 = !{i64 2, i64 0, i64 -1, i1 false}
+; CHECK: !12 = !{i64 3, i64 1, i64 -1, i1 false}
+; CHECK: !13 = !{!14, !11}
+; CHECK: !14 = !{i64 1, i64 -1, i64 -1, i1 false}
+; CHECK: !15 = !{!16, !17}
+; CHECK: !16 = !{i64 2, i64 -1, i64 -1, i1 false}
+; CHECK: !17 = !{i64 3, i64 -1, i64 -1, i1 false}
+; CHECK: !18 = !{!9, !14}

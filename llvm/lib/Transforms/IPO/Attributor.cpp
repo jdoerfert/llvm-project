@@ -36,9 +36,10 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/MDBuilder.h"
+#include "llvm/IR/NoFolder.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
-#include "llvm/IR/NoFolder.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -7911,7 +7912,12 @@ bool Attributor::isValidFunctionSignatureRewrite(
 
   auto CallSiteCanBeChanged = [](AbstractCallSite ACS) {
     // Forbid must-tail calls for now.
-    return !ACS.isCallbackCall() && !ACS.getCallSite().isMustTailCall();
+    if (ACS.getCallSite().isMustTailCall())
+      return false;
+    if (Function *Callee = ACS.getCallSite().getCalledFunction())
+      if (!Callee->isDeclaration() && !Callee->isVarArg())
+        return true;
+    return false;
   };
 
   Function *Fn = Arg.getParent();
@@ -7997,6 +8003,150 @@ bool Attributor::registerFunctionSignatureRewrite(
   return true;
 }
 
+/// Repair the callback metadata on \p OldFn, if present, according to the
+/// signature rewrite defined by \p ARIs and attach the new callback metadata to
+/// \p NewFn.
+static void repairCallbackMDAfterBrokerChange(
+    Function &OldFn, Function &NewFn,
+    const SmallVectorImpl<Attributor::ArgumentReplacementInfo *> &ARIs) {
+  MDNode *CallbackMD = OldFn.getMetadata(LLVMContext::MD_callback);
+  if (!CallbackMD)
+    return;
+
+  LLVM_DEBUG({
+    errs() << "repairCallbackMDAfterBrokerChange : " << NewFn.getName() << "("
+           << *OldFn.getFunctionType() << " -> " << *NewFn.getFunctionType()
+           << ")\nARIs :\n ";
+    for (unsigned u = 0; u < ARIs.size(); ++u) {
+      errs() << "u : " << u << " : " << ARIs[u] << "\n";
+      if (ARIs[u])
+        errs() << " - " << ARIs[u]->getNumReplacementArgs() << "\n";
+    }
+  });
+
+  unsigned NumArgs = OldFn.arg_size();
+  SmallVector<int, 8> ArgOffsetMap(NumArgs + 1);
+
+  int Offset = 0;
+  for (unsigned u = 0, e = NumArgs; u < e; ++u) {
+    if (Attributor::ArgumentReplacementInfo *ARI = ARIs[u])
+      Offset += ARI->getNumReplacementArgs() - 1;
+    ArgOffsetMap[u + 1] = Offset;
+  }
+
+  LLVMContext &Ctx = OldFn.getContext();
+  MDBuilder MDB(Ctx);
+  SmallVector<int, 8> CBArgs;
+  SmallVector<Metadata *, 4> CBEncodings;
+  for (const MDOperand &Op : CallbackMD->operands()) {
+    CBArgs.clear();
+    MDNode *OpMD = cast<MDNode>(Op.get());
+    LLVM_DEBUG(dbgs() << "Before: " << *OpMD << "\n");
+    for (unsigned u = 1, e = OpMD->getNumOperands() - 1; u < e; ++u) {
+      auto *CBValueIdxAsCM = cast<ConstantAsMetadata>(OpMD->getOperand(u));
+      int64_t CBValueIdx =
+          cast<ConstantInt>(CBValueIdxAsCM->getValue())->getSExtValue();
+      if (CBValueIdx == -1) {
+        CBArgs.push_back(CBValueIdx);
+        continue;
+      }
+
+      if (Attributor::ArgumentReplacementInfo *ARI = ARIs[CBValueIdx])
+        if (ARI->getNumReplacementArgs() == 0) {
+          CBArgs.push_back(-1);
+          continue;
+        }
+
+      int64_t CBValueIdxEnd = CBValueIdx + 1;
+      for (; CBValueIdx < CBValueIdxEnd; ++CBValueIdx)
+        CBArgs.push_back(CBValueIdx + ArgOffsetMap[CBValueIdx]);
+    }
+
+    Metadata *VarArgFlagAsM =
+        OpMD->getOperand(OpMD->getNumOperands() - 1).get();
+    auto *VarArgFlagAsCM = cast<ConstantAsMetadata>(VarArgFlagAsM);
+    assert(VarArgFlagAsCM->getType()->isIntegerTy(1) &&
+           "Malformed !callback metadata var-arg flag");
+    assert(VarArgFlagAsCM->getValue()->isNullValue() &&
+           "Did not expect var-arg callback!");
+
+    auto *CBCalleeIdxAsCM = cast<ConstantAsMetadata>(OpMD->getOperand(0));
+    uint64_t CBCalleeIdx =
+        cast<ConstantInt>(CBCalleeIdxAsCM->getValue())->getZExtValue();
+    CBCalleeIdx += ArgOffsetMap[CBCalleeIdx];
+    CBEncodings.push_back(
+        MDB.createCallbackEncoding(CBCalleeIdx, CBArgs, false));
+    LLVM_DEBUG(dbgs() << "After: " << *CBEncodings.back() << "\n");
+  }
+  NewFn.setMetadata(LLVMContext::MD_callback, MDNode::get(Ctx, CBEncodings));
+}
+
+/// Repair the callback metadata on \p Fn, if present, according to the
+/// signature rewrite defined by \p ARIs.
+static void repairCallbackMDAfterCalleeChange(
+    Function &Fn, int OnlyCBCalleeIdx,
+    const SmallVectorImpl<Attributor::ArgumentReplacementInfo *> &ARIs) {
+  MDNode *CallbackMD = Fn.getMetadata(LLVMContext::MD_callback);
+  if (!CallbackMD)
+    return;
+
+  LLVM_DEBUG({
+    errs() << "repairCallbackMDAfterCalleeChange : " << Fn.getName() << "("
+           << *Fn.getFunctionType() << ") : " << OnlyCBCalleeIdx << "\nARIs:\n";
+    for (unsigned u = 0; u < ARIs.size(); ++u) {
+      errs() << "u : " << u << " : " << ARIs[u] << "\n";
+      if (ARIs[u])
+        errs() << " - " << ARIs[u]->getNumReplacementArgs() << "\n";
+    }
+  });
+
+  LLVMContext &Ctx = Fn.getContext();
+  MDBuilder MDB(Ctx);
+  SmallVector<int, 8> CBArgs;
+  SmallVector<Metadata *, 4> CBEncodings;
+  for (const MDOperand &Op : CallbackMD->operands()) {
+    MDNode *OpMD = cast<MDNode>(Op.get());
+    auto *CBCalleeIdxAsCM = cast<ConstantAsMetadata>(OpMD->getOperand(0));
+    uint64_t CBCalleeIdx =
+        cast<ConstantInt>(CBCalleeIdxAsCM->getValue())->getZExtValue();
+    // Check if this is the callee that changed, if not, we keep the callback
+    // encoding as is.
+    if (unsigned(OnlyCBCalleeIdx) != CBCalleeIdx) {
+      CBEncodings.push_back(OpMD);
+      continue;
+    }
+
+    LLVM_DEBUG(dbgs() << "Before: " << *OpMD << "\n");
+
+    // Go through the argument mapping in the encoding and adjust it as
+    // determined by the ARIs rewrite rules.
+    unsigned NumArgs = OpMD->getNumOperands() - /* callee + varargs */ 2;
+    assert(NumArgs == ARIs.size() && "Mismatch in the number of arguments!");
+    CBArgs.clear();
+    for (unsigned u = 1, e = NumArgs; u <= e; ++u) {
+      auto *CBValueIdxAsCM = cast<ConstantAsMetadata>(OpMD->getOperand(u));
+      int64_t CBValueIdx =
+          cast<ConstantInt>(CBValueIdxAsCM->getValue())->getSExtValue();
+      int64_t CBValueIdxEnd = CBValueIdx + 1;
+      if (Attributor::ArgumentReplacementInfo *ARI = ARIs[u - 1])
+        CBValueIdxEnd = CBValueIdx + ARI->getNumReplacementArgs();
+      for (; CBValueIdx < CBValueIdxEnd; ++CBValueIdx)
+        CBArgs.push_back(CBValueIdx);
+    }
+
+    Metadata *VarArgFlagAsM = OpMD->getOperand(NumArgs + 1).get();
+    auto *VarArgFlagAsCM = cast<ConstantAsMetadata>(VarArgFlagAsM);
+    assert(VarArgFlagAsCM->getType()->isIntegerTy(1) &&
+           "Malformed !callback metadata var-arg flag");
+    assert(VarArgFlagAsCM->getValue()->isNullValue() &&
+           "Did not expect var-arg callback!");
+    CBEncodings.push_back(
+        MDB.createCallbackEncoding(CBCalleeIdx, CBArgs, false));
+    LLVM_DEBUG(dbgs() << "After: " << *CBEncodings.back() << "\n");
+  }
+  Fn.setMetadata(LLVMContext::MD_callback, MDNode::get(Ctx, CBEncodings));
+}
+
 ChangeStatus Attributor::rewriteFunctionSignatures(
     SmallPtrSetImpl<Function *> &ModifiedFns) {
   ChangeStatus Changed = ChangeStatus::UNCHANGED;
@@ -8064,6 +8214,8 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
     NewFn->getBasicBlockList().splice(NewFn->begin(),
                                       OldFn->getBasicBlockList());
 
+    repairCallbackMDAfterBrokerChange(*OldFn, *NewFn, ARIs);
+
     // Set of all "call-like" instructions that invoke the old function mapped
     // to their new replacements.
     SmallVector<std::pair<CallBase *, CallBase *>, 8> CallSitePairs;
@@ -8071,6 +8223,19 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
     // Callback to create a new "call-like" instruction for a given one.
     auto CallSiteReplacementCreator = [&](AbstractCallSite ACS) {
       CallBase *OldCB = cast<CallBase>(ACS.getInstruction());
+
+      if (ACS.isCallbackCall()) {
+        int CalleeArgNo = ACS.getCallArgOperandNoForCallee();
+        assert(CalleeArgNo >= 0 &&
+               unsigned(CalleeArgNo) < OldCB->getNumArgOperands() &&
+               "Expected callee of callback call to be an operand!");
+        Value *OldArg = OldCB->getArgOperand(CalleeArgNo);
+        OldCB->setOperand(CalleeArgNo, ConstantExpr::getPointerCast(
+                                           NewFn, OldArg->getType()));
+        Function &OldCBCallee = *OldCB->getCalledFunction();
+        repairCallbackMDAfterCalleeChange(OldCBCallee, CalleeArgNo, ARIs);
+        return true;
+      }
       const AttributeList &OldCallAttributeList = OldCB->getAttributes();
 
       // Collect the new argument operands for the replacement call site.
@@ -8137,6 +8302,8 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
     bool Success = checkForAllCallSites(CallSiteReplacementCreator, *OldFn,
                                         true, nullptr, AllCallSitesKnown);
     (void)Success;
+    if (!Success)
+    OldFn->getParent()->dump();
     assert(Success && "Assumed call site replacement to succeed!");
 
     // Rewire the arguments.
