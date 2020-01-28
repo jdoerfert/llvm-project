@@ -2765,6 +2765,174 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     return true;
   }
 
+  /// Perform the alias check at the call site. We can allow all but accesses to
+  /// unknown memory as long as we check accesses to arguments and globals for
+  /// potential aliases to the underlying call site argument. That is, if the
+  /// call site argument does not alias any argument or global which is accessed
+  /// by the callee it can be marked noalias.
+  bool isKnownNoAliasAtCallSiteDueToAccesses(
+      Attributor &A, AAResults *&AAR, const AAMemoryBehavior &MemBehaviorAA,
+      const AANoAlias &NoAliasAA, const AAMemoryLocation &MemLocationAA) {
+
+    AAMemoryLocation::MemoryLocationsKind AllowedAccessLocs =
+        AAMemoryLocation::NO_UNKOWN_MEM;
+
+    bool OnlyKnownLocationsAccessed =
+        MemLocationAA.isAssumedSpecifiedMemOnly(AllowedAccessLocs);
+    LLVM_DEBUG(
+        dbgs() << "[AANoAlias] Only known locations "
+                  "accessed by callee: "
+               << OnlyKnownLocationsAccessed << " ["
+               << AAMemoryLocation::getMemoryLocationsAsStr(AllowedAccessLocs)
+               << " vs "
+               << AAMemoryLocation::getMemoryLocationsAsStr(
+                      MemLocationAA.getAssumedNotAccessedLocation())
+               << "]\n");
+
+    if (!OnlyKnownLocationsAccessed)
+      return false;
+
+    bool IsReadOnly = MemBehaviorAA.isAssumedReadOnly();
+    ImmutableCallSite ICS(&getAnchorValue());
+
+    // Helper to determine if noalias is prevented by the memory access
+    // instruction I which accesses Ptr of memory kind MLK.
+    auto AccessPred = [&](const Instruction *I, const Value *Ptr,
+                          AAMemoryLocation::AccessKind Kind,
+                          AAMemoryLocation::MemoryLocationsKind MLK) {
+      LLVM_DEBUG({
+        dbgs() << "[AANoAlias] Check access by ";
+        if (I)
+          dbgs() << *I << " to ";
+        else
+          dbgs() << "<unknown inst> to ";
+        if (Ptr)
+          dbgs() << *Ptr << " ["
+                 << AAMemoryLocation::getMemoryLocationsAsStr(MLK) << "]\n";
+        else
+          dbgs() << "<unknown ptr> ["
+                 << AAMemoryLocation::getMemoryLocationsAsStr(MLK) << "]\n";
+      });
+
+      // Ignore "read-read" "dependences".
+      if (Kind == AAMemoryLocation::READ && IsReadOnly) {
+        A.recordDependence(MemBehaviorAA, *this, DepClassTy::OPTIONAL);
+        return true;
+      }
+      if (!Ptr)
+        return false;
+      if (auto *PtrArg = dyn_cast<Argument>(Ptr))
+        return !mayAliasWithArgument(A, AAR, MemBehaviorAA, ICS,
+                                     PtrArg->getArgNo());
+
+      if (!AAR)
+        AAR = A.getInfoCache().getAAResultsForFunction(*getAnchorScope());
+
+      assert(isa<GlobalValue>(Ptr) && "Expected global value.");
+      bool IsAliasing = !AAR || !AAR->isNoAlias(&getAssociatedValue(), Ptr);
+      LLVM_DEBUG(dbgs() << "[AANoAlias] Check alias at "
+                           "callsite: "
+                        << getAssociatedValue() << " | " << *Ptr << " => "
+                        << (IsAliasing ? "" : "no-") << "alias \n");
+
+      return !IsAliasing;
+    };
+
+    // We can and want to check arguments and globals for aliasing.
+    AAMemoryLocation::MemoryLocationsKind LocationsNotToCheck =
+        AAMemoryLocation::NO_ARGUMENT_MEM;
+
+    // If the definition is not `noalias` we need to check globals in addition
+    // to arguments. If the definition is `noalias` we cannot alias globals to
+    // begin with.
+    bool AssociatedValueIsNoAliasAtDef = NoAliasAA.isAssumedNoAlias();
+    if (!AssociatedValueIsNoAliasAtDef)
+      LocationsNotToCheck |= AAMemoryLocation::NO_GLOBAL_MEM;
+    else
+      A.recordDependence(NoAliasAA, *this, DepClassTy::OPTIONAL);
+
+    AAMemoryLocation::MemoryLocationsKind LocationsToCheck =
+        AAMemoryLocation::inverseLocation(LocationsNotToCheck, false, false);
+    if (!MemLocationAA.checkForAllAccessesToMemoryKind(AccessPred,
+                                                       LocationsToCheck))
+      return false;
+
+    A.recordDependence(MemLocationAA, *this, DepClassTy::OPTIONAL);
+    return true;
+  }
+
+  /// Perform the alias check in the callee. We basically check if all
+  /// accesses in the callee do not violate the `noalias` property for the
+  /// underlying call site argument. A violation would be an access that may not
+  /// be derived from the argument but which aliases it. Note that this allows
+  /// accesses to unknown memory as long as AliasAnalysis knows it will not
+  /// alias with the associated argument.
+  bool
+  isKnownNoAliasInCalleeDueToAccesses(Attributor &A,
+                                      const AAMemoryBehavior &MemBehaviorAA,
+                                      const AAMemoryLocation &MemLocationAA) {
+    bool IsReadOnly = MemBehaviorAA.isAssumedReadOnly();
+    Argument *AssociatedArg = getAssociatedArgument();
+    AAResults *AAR = nullptr;
+
+    // Helper to determine if noalias is prevented by the memory access
+    // instruction I which accesses Ptr of memory kind MLK.
+    auto AccessPred = [&](const Instruction *I, const Value *Ptr,
+                          AAMemoryLocation::AccessKind Kind,
+                          AAMemoryLocation::MemoryLocationsKind MLK) {
+      LLVM_DEBUG({
+        dbgs() << "[AANoAlias] Check access by ";
+        if (I)
+          dbgs() << *I << " to ";
+        else
+          dbgs() << "<unknown inst> to ";
+        if (Ptr)
+          dbgs() << *Ptr << " ["
+                 << AAMemoryLocation::getMemoryLocationsAsStr(MLK) << "]\n";
+        else
+          dbgs() << "<unknown ptr> ["
+                 << AAMemoryLocation::getMemoryLocationsAsStr(MLK) << "]\n";
+      });
+
+      // Ignore "read-read" "dependences".
+      if (Kind == AAMemoryLocation::READ && IsReadOnly) {
+        A.recordDependence(MemBehaviorAA, *this, DepClassTy::OPTIONAL);
+        return true;
+      }
+      if (!Ptr)
+        return false;
+
+      // Ignore accesses derived from this argument.
+      if (auto *PtrArg = dyn_cast<Argument>(Ptr))
+        if (AssociatedArg == PtrArg)
+          return true;
+
+      if (!AAR)
+        AAR = A.getInfoCache().getAAResultsForFunction(
+            *AssociatedArg->getParent());
+
+      bool IsAliasing = !AAR || !AAR->isNoAlias(AssociatedArg, Ptr);
+      LLVM_DEBUG(dbgs() << "[AANoAlias] Check alias in callee: "
+                        << *AssociatedArg << " : " << *Ptr << " => "
+                        << (IsAliasing ? "" : "no-") << "alias \n");
+
+      return !IsAliasing;
+    };
+
+    // We can and want to check arguments against all but local and inaccesible
+    // memory. Arguments are by definition not aliasing either of those.
+    AAMemoryLocation::MemoryLocationsKind LocationsToCheck =
+        AAMemoryLocation::ALL_LOCATIONS | AAMemoryLocation::NO_LOCAL_MEM |
+        AAMemoryLocation::NO_INACCESSIBLE_MEM;
+
+    if (!MemLocationAA.checkForAllAccessesToMemoryKind(AccessPred,
+                                                       LocationsToCheck))
+      return false;
+
+    A.recordDependence(MemLocationAA, *this, DepClassTy::OPTIONAL);
+    return true;
+  }
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     // If the argument is readnone we are done as there are no accesses via the
@@ -2786,6 +2954,22 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
                                                NoAliasAA)) {
       LLVM_DEBUG(
           dbgs() << "[AANoAlias] No-Alias deduced via no-alias preservation\n");
+      return ChangeStatus::UNCHANGED;
+    }
+
+    auto &MemLocationAA = A.getAAFor<AAMemoryLocation>(
+        *this, IRPosition::function_scope(getIRPosition()),
+        /* TrackDependence */ false);
+    if (isKnownNoAliasAtCallSiteDueToAccesses(A, AAR, MemBehaviorAA, NoAliasAA,
+                                              MemLocationAA)) {
+      LLVM_DEBUG(
+          dbgs() << "[AANoAlias] No-Alias deduced via call site accesses\n");
+      return ChangeStatus::UNCHANGED;
+    }
+
+    if (isKnownNoAliasInCalleeDueToAccesses(A, MemBehaviorAA, MemLocationAA)) {
+      LLVM_DEBUG(
+          dbgs() << "[AANoAlias] No-Alias deduced via callee accesses\n");
       return ChangeStatus::UNCHANGED;
     }
 

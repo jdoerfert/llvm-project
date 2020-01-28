@@ -8,7 +8,7 @@
 
 define internal i32 @test(%T* %p) {
 ; CHECK-LABEL: define {{[^@]+}}@test
-; CHECK-SAME: (%T* nocapture nofree readonly [[P:%.*]])
+; CHECK-SAME: (%T* noalias nocapture nofree readonly [[P:%.*]])
 ; CHECK-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[P]], i64 0, i32 3
 ; CHECK-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* [[P]], i64 0, i32 2
 ; CHECK-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]]
@@ -27,7 +27,7 @@ define internal i32 @test(%T* %p) {
 define i32 @caller(%T* %p) {
 ; CHECK-LABEL: define {{[^@]+}}@caller
 ; CHECK-SAME: (%T* nocapture nofree readonly [[P:%.*]])
-; CHECK-NEXT:    [[V:%.*]] = musttail call i32 @test(%T* nocapture nofree readonly [[P]])
+; CHECK-NEXT:    [[V:%.*]] = musttail call i32 @test(%T* noalias nocapture nofree readonly [[P]])
 ; CHECK-NEXT:    ret i32 [[V]]
 ;
   %v = musttail call i32 @test(%T* %p)
@@ -81,7 +81,7 @@ define i32 @bar(%T* %p, i32 %v) {
 
 define internal i32 @test2b(%T* %p, i32 %p2) {
 ; CHECK-LABEL: define {{[^@]+}}@test2b
-; CHECK-SAME: (%T* nocapture nofree readonly [[P:%.*]], i32 [[P2:%.*]])
+; CHECK-SAME: (%T* noalias nocapture nofree readonly [[P:%.*]], i32 [[P2:%.*]])
 ; CHECK-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[P]], i64 0, i32 3
 ; CHECK-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* [[P]], i64 0, i32 2
 ; CHECK-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]]
@@ -102,7 +102,7 @@ define internal i32 @test2b(%T* %p, i32 %p2) {
 define i32 @caller2b(%T* %g) {
 ; CHECK-LABEL: define {{[^@]+}}@caller2b
 ; CHECK-SAME: (%T* nocapture nofree readonly [[G:%.*]])
-; CHECK-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 undef)
+; CHECK-NEXT:    [[V:%.*]] = call i32 @test2b(%T* noalias nocapture nofree readonly [[G]], i32 undef)
 ; CHECK-NEXT:    ret i32 0
 ;
   %v = call i32 @test2b(%T* %g, i32 0)

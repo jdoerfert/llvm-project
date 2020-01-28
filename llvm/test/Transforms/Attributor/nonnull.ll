@@ -190,7 +190,7 @@ declare nonnull i8* @nonnull()
 
 define internal i32* @f1(i32* %arg) {
 ; FIXME: missing nonnull It should be nonnull @f1(i32* nonnull readonly %arg)
-; ATTRIBUTOR: define internal nonnull i32* @f1(i32* nofree readonly %arg)
+; ATTRIBUTOR: define internal nonnull i32* @f1(i32* noalias nofree readonly %arg)
 
 bb:
   %tmp = icmp eq i32* %arg, null
@@ -203,14 +203,14 @@ bb1:                                              ; preds = %bb
 
 bb4:                                              ; preds = %bb1
   %tmp5 = getelementptr inbounds i32, i32* %arg, i64 1
-; ATTRIBUTOR: %tmp5b = tail call nonnull i32* @f3(i32* nofree nonnull readonly %tmp5)
+; ATTRIBUTOR: %tmp5b = tail call nonnull i32* @f3(i32* noalias nofree nonnull readonly %tmp5)
   %tmp5b = tail call i32* @f3(i32* %tmp5)
   %tmp5c = getelementptr inbounds i32, i32* %tmp5b, i64 -1
   br label %bb9
 
 bb6:                                              ; preds = %bb1
 ; FIXME: missing nonnull. It should be @f2(i32* nonnull %arg)
-; ATTRIBUTOR: %tmp7 = tail call nonnull i32* @f2(i32* nofree readonly %arg)
+; ATTRIBUTOR: %tmp7 = tail call nonnull i32* @f2(i32* noalias nofree readonly %arg)
   %tmp7 = tail call i32* @f2(i32* %arg)
   ret i32* %tmp7
 
@@ -221,21 +221,22 @@ bb9:                                              ; preds = %bb4, %bb
 
 define internal i32* @f2(i32* %arg) {
 ; FIXME: missing nonnull. It should be nonnull @f2(i32* nonnull %arg)
-; ATTRIBUTOR: define internal nonnull i32* @f2(i32* nofree readonly %arg)
+; ATTRIBUTOR: define internal nonnull i32* @f2(i32* noalias nofree readonly %arg)
 bb:
 
 ; FIXME: missing nonnull. It should be @f1(i32* nonnull readonly %arg)
-; ATTRIBUTOR:   %tmp = tail call nonnull i32* @f1(i32* nofree readonly %arg)
+; ATTRIBUTOR:   %tmp = tail call nonnull i32* @f1(i32* noalias nofree readonly %arg)
   %tmp = tail call i32* @f1(i32* %arg)
   ret i32* %tmp
 }
 
 define dso_local noalias i32* @f3(i32* %arg) {
+; FIXME: %arg can be noalias as well
 ; FIXME: missing nonnull. It should be nonnull @f3(i32* nonnull readonly %arg)
 ; ATTRIBUTOR: define dso_local noalias nonnull i32* @f3(i32* nofree readonly %arg)
 bb:
 ; FIXME: missing nonnull. It should be @f1(i32* nonnull readonly %arg)
-; ATTRIBUTOR:   %tmp = call nonnull i32* @f1(i32* nofree readonly %arg)
+; ATTRIBUTOR:   %tmp = call nonnull i32* @f1(i32* noalias nofree readonly %arg)
   %tmp = call i32* @f1(i32* %arg)
   ret i32* %tmp
 }

@@ -8,7 +8,7 @@ entry:
   ret i32 %add
 }
 
-; CHECK: define private i32 @noalias_args(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) %A, i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) %B)
+; CHECK: define private i32 @noalias_args(i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) %A, i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) %B)
 
 define private i32 @noalias_args(i32* %A, i32* %B) #0 {
 entry:
@@ -21,7 +21,7 @@ entry:
 }
 
 
-; CHECK: define internal i32 @noalias_args_argmem(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) %A, i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) %B)
+; CHECK: define internal i32 @noalias_args_argmem(i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) %A, i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) %B)
 define internal i32 @noalias_args_argmem(i32* %A, i32* %B) #1 {
 entry:
   %0 = load i32, i32* %A, align 4

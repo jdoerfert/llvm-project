@@ -226,7 +226,7 @@ define void @deref_or_null_and_nonnull(i32* dereferenceable_or_null(100) %0) {
 define internal void @fill_range_not_inbounds(i32* %p, i64 %start){
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@fill_range_not_inbounds
 ; NOTE: %p should not be dereferenceable
-; ATTRIBUTOR-SAME: (i32* nocapture nofree writeonly [[P:%.*]], i64 [[START:%.*]])
+; ATTRIBUTOR-SAME: (i32* noalias nocapture nofree writeonly [[P:%.*]], i64 [[START:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = add nsw i64 [[START:%.*]], 9
 ; ATTRIBUTOR-NEXT:    br label [[FOR_BODY:%.*]]
@@ -260,7 +260,7 @@ for.body:                                         ; preds = %entry, %for.body
 define internal void @fill_range_inbounds(i32* %p, i64 %start){
 ; ATTRIBUTOR-LABEL: define {{[^@]+}}@fill_range_inbounds
 ; FIXME: %p should be dereferenceable(40)
-; ATTRIBUTOR-SAME: (i32* nocapture nofree writeonly [[P:%.*]], i64 [[START:%.*]])
+; ATTRIBUTOR-SAME: (i32* noalias nocapture nofree writeonly [[P:%.*]], i64 [[START:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = add nsw i64 [[START:%.*]], 9
 ; ATTRIBUTOR-NEXT:    br label [[FOR_BODY:%.*]]
@@ -297,8 +297,8 @@ define void @call_fill_range(i32* nocapture %p, i64* nocapture readonly %range) 
 ; ATTRIBUTOR-SAME: (i32* nocapture nofree writeonly [[P:%.*]], i64* nocapture nofree nonnull readonly align 8 dereferenceable(8) [[RANGE:%.*]])
 ; ATTRIBUTOR-NEXT:  entry:
 ; ATTRIBUTOR-NEXT:    [[TMP0:%.*]] = load i64, i64* [[RANGE:%.*]], align 8, !range !0
-; ATTRIBUTOR-NEXT:    tail call void @fill_range_inbounds(i32* nocapture nofree writeonly [[P:%.*]], i64 [[TMP0]])
-; ATTRIBUTOR-NEXT:    tail call void @fill_range_not_inbounds(i32* nocapture nofree writeonly [[P]], i64 [[TMP0]])
+; ATTRIBUTOR-NEXT:    tail call void @fill_range_inbounds(i32* noalias nocapture nofree writeonly [[P:%.*]], i64 [[TMP0]])
+; ATTRIBUTOR-NEXT:    tail call void @fill_range_not_inbounds(i32* noalias nocapture nofree writeonly [[P]], i64 [[TMP0]])
 ; ATTRIBUTOR-NEXT:    ret void
 ;
 entry:

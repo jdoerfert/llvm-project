@@ -4,7 +4,7 @@
 ; Don't promote around control flow.
 define internal i32 @callee(i1 %C, i32* %P) {
 ; CHECK-LABEL: define {{[^@]+}}@callee
-; CHECK-SAME: (i1 [[C:%.*]], i32* nocapture nofree readonly [[P:%.*]])
+; CHECK-SAME: (i1 [[C:%.*]], i32* noalias nocapture nofree readonly [[P:%.*]])
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; CHECK:       T:
@@ -28,7 +28,7 @@ define i32 @foo(i1 %C, i32* %P) {
 ; CHECK-LABEL: define {{[^@]+}}@foo
 ; CHECK-SAME: (i1 [[C:%.*]], i32* nocapture nofree readonly [[P:%.*]])
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C]], i32* nocapture nofree readonly [[P]])
+; CHECK-NEXT:    [[X:%.*]] = call i32 @callee(i1 [[C]], i32* noalias nocapture nofree readonly [[P]])
 ; CHECK-NEXT:    ret i32 [[X]]
 ;
 entry:
