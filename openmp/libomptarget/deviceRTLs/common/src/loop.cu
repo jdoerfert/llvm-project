@@ -806,3 +806,89 @@ EXTERN void __kmpc_reduce_conditional_lastprivate(kmp_Ident *loc, int32_t gtid,
     syncWorkersInGenericMode(NumThreads);
   }
 }
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+// KMP interface implementation (omp loop)
+////////////////////////////////////////////////////////////////////////////////
+
+template <typename IntTy> struct __kmpc_OmpLoop {
+  static void loop(kmp_Ident *loc, IntTy global_tid, IntTy *plower,
+                   IntTy *pupper, void (*fd)(IntTy, void *), void *Payload) {
+    int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
+    omptarget_nvptx_TaskDescr *currTaskDescr = getMyTopTaskDescriptor(tid);
+
+    LoopBindKind LBK = currTaskDescr->getLoopBindKind();
+    if (LBK == LoopBindKind::THREAD) {
+      if (!currTaskDescr->InParallelRegion()) {
+        #pragma omp parallel num_teams(*pupper - *plower)
+        impl(loc, global_tid, plower, pupper, fd, Payload, LBK);
+      } else {
+        for (IntTy i = *plower, e = *pupper; i <= e; ++i)
+          fd(i, Payload);
+      }
+    } else {
+      impl(loc, global_tid, plower, pupper, fd, Payload, LBK);
+    }
+  }
+
+private:
+  static void init(kmp_Ident *loc, IntTy global_tid, IntTy *plower,
+                   IntTy *pupper, LoopBindKind LBK) {
+    PRINT0(LD_IO, "call kmpc_omp_loop_init_" #SUFFIX "\n");
+    switch (LBK) {
+    case LoopBindKind::TEAMS:
+    return omptarget_nvptx_LoopSupport<IntTy, IntTy>::dispatch_init(
+      loc, global_tid, kmp_sched_distr_static_nochunk, plower, pupper, 1, 0);
+    case LoopBindKind::PARALLEL:
+    return omptarget_nvptx_LoopSupport<IntTy, IntTy>::dispatch_init(
+      loc, global_tid, kmp_sched_runtime, plower, pupper, 1, 0);
+    case LoopBindKind::THREAD:
+      assert(0 && "NOT HAPPENING");
+    }
+  }
+
+  static int next(kmp_Ident *loc, IntTy global_tid, IntTy *plower,
+                   IntTy *pupper, LoopBindKind LBK) {
+    IntTy lastiter, stride = 1;
+    switch (LBK) {
+    case LoopBindKind::TEAMS:
+    case LoopBindKind::PARALLEL:
+    return omptarget_nvptx_LoopSupport<IntTy, IntTy>::dispatch_next(
+        loc, global_tid, &lastiter, plower, puppwer, &stride);
+    case LoopBindKind::THREAD:
+    assert(0);
+    }
+    return 0;
+  }
+
+  static void fini(kmp_Ident *loc, IntTy global_tid, IntTy *plower,
+                   IntTy *pupper, LoopBindKind LBK) {}
+
+  static void impl(kmp_Ident *loc, IntTy global_tid, IntTy *plower,
+                     IntTy *pupper, void (*fd)(IntTy, void *), void *Payload,
+                     LoopBindKind LBK) {
+    IntTy lastiter, stride;
+    init(loc, global_tid, plower, pupper, LBK);
+    while (next(loc, global_tid, plower, pupper, LBK)) {
+#pragma omp simd
+      for (IntTy i = *plower, e = *pupper; i <= e; ++i)
+        fd(i, Payload);
+    }
+    fini(loc, global_tid, plower, pupper, LBK);
+  }
+}
+
+  EXTERN void __kmpc_omp_loop_4(                                         \
+      kmp_Ident *loc, int32_t global_tid, int32_t *plower, int32_t *pupper,       \
+      void (*fd)(int32_t, void *), void *Payload) {                             \
+    PRINT0(LD_IO, "call kmpc_omp_loop_4\n");                          \
+    __kmpc_OmpLoop<int32_t>::loop(loc, global_tid, plower, pupper, fd,          \
+                                 Payload);                                     \
+  }
+
+//KMPC_OMP_LOOP(int32_t, _4)
+//KMPC_OMP_LOOP(uint32_t, _4u);
+//KMPC_OMP_LOOP(int64_t, _8);
+//KMPC_OMP_LOOP(uint64_t, _8u);
