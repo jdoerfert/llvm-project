@@ -781,10 +781,13 @@ SizeOffsetType ObjectSizeOffsetVisitor::visitGlobalAlias(GlobalAlias &GA) {
 }
 
 SizeOffsetType ObjectSizeOffsetVisitor::visitGlobalVariable(GlobalVariable &GV){
-  if (!GV.hasDefinitiveInitializer())
+  // Make sure we have an exact definition that cannot be changed.
+  if (!GV.isDefinitionExact())
     return unknown();
-
+  // Weed out any flexible array types.
   APInt Size(IntTyBits, DL.getTypeAllocSize(GV.getValueType()));
+  if (Size.isNullValue())
+    return unknown();
   return std::make_pair(align(Size, GV.getAlignment()), Zero);
 }
 
