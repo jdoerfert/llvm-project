@@ -44,6 +44,7 @@ __OMP_DIRECTIVE(target)
 __OMP_DIRECTIVE(teams)
 __OMP_DIRECTIVE(cancel)
 __OMP_DIRECTIVE(requires)
+__OMP_DIRECTIVE(loop)
 __OMP_DIRECTIVE_EXT(target_data, "target data")
 __OMP_DIRECTIVE_EXT(target_enter_data, "target enter data")
 __OMP_DIRECTIVE_EXT(target_exit_data, "target exit data")
@@ -98,6 +99,78 @@ __OMP_DIRECTIVE(unknown)
 #undef __OMP_DIRECTIVE_EXT
 #undef __OMP_DIRECTIVE
 #undef OMP_DIRECTIVE
+
+///}
+
+/// OpenMP Clauses
+///
+/// This includes kinds of clauses, e.g., collapse(n) is a INTEGER kind, as well
+/// as clause information and association of directives to their allowed
+/// clauses.
+///
+///{
+
+#ifndef OMP_CLAUSE_KIND
+#define OMP_CLAUSE_KIND(Enum, Str)
+#endif
+
+#define __OMP_CLAUSE_KIND(Name) OMP_CLAUSE_KIND(OMP_CLAUSE_KIND_##Name, #Name)
+
+/// A choice between a set of identifiers, e.g., bind({thread, parallel, ...}
+__OMP_CLAUSE_KIND(IDENTIFIER_CHOICE)
+
+/// A single positive integer clause, e.g., collapse(n)
+__OMP_CLAUSE_KIND(POSITIVE_INTEGER)
+
+/// A list of expressions.
+__OMP_CLAUSE_KIND(EXPR_LIST)
+
+/// A complex clause that needs special handling.
+__OMP_CLAUSE_KIND(COMPLEX)
+
+#undef OMP_CLAUSE_KIND
+
+#ifndef OMP_CLAUSE_SIMPLE
+#define OMP_CLAUSE_SIMPLE(Enum, Str)
+#endif
+
+#ifndef OMP_CLAUSE
+#define OMP_CLAUSE(Enum, Str, Kind, ...)
+#endif
+
+#define __OMP_CLAUSE(Name, Kind, ...)                                          \
+  OMP_CLAUSE(OMPC_##Name, #Name, Kind, __VA_ARGS__)                            \
+  OMP_CLAUSE_SIMPLE(OMPC_##Name, #Name)
+
+__OMP_CLAUSE(bind, IDENTIFIER_CHOICE, "teams", "parallel", "thread")
+__OMP_CLAUSE(collapse, POSITIVE_INTEGER, )
+__OMP_CLAUSE(order, IDENTIFIER_CHOICE, "concurrent")
+__OMP_CLAUSE(private, EXPR_LIST, )
+__OMP_CLAUSE(lastprivate, EXPR_LIST, )
+__OMP_CLAUSE(reduction, COMPLEX, )
+
+#undef __OMP_CLAUSE
+#undef OMP_CLAUSE_SIMPLE
+#undef OMP_CLAUSE
+
+#ifndef OMP_DIRECTIVE_CLAUSE
+#define OMP_DIRECTIVE_CLAUSE(Enum, DirectiveEnum, OnlyOnce, StdVersion)
+#endif
+
+#define __OMP_DIRECTIVE_CLAUSE(DirectiveName, ClauseName, OnlyOnce,            \
+                               StdVersion)                                     \
+  OMP_DIRECTIVE_CLAUSE(OMPD_##DirectiveName, OMPC_##ClauseName, OnlyOnce,      \
+                       StdVersion)
+
+__OMP_DIRECTIVE_CLAUSE(loop, bind, true, 5.0)
+__OMP_DIRECTIVE_CLAUSE(loop, collapse, true, 5.0)
+__OMP_DIRECTIVE_CLAUSE(loop, order, true, 5.0)
+__OMP_DIRECTIVE_CLAUSE(loop, private, false, 5.0)
+__OMP_DIRECTIVE_CLAUSE(loop, lastprivate, false, 5.0)
+__OMP_DIRECTIVE_CLAUSE(loop, reduction, false, 5.0)
+
+#undef __OMP_DIRECTIVE_CLAUSE
+#undef OMP_DIRECTIVE_CLAUSE
 
 ///}
 

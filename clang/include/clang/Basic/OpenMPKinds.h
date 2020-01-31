@@ -175,8 +175,8 @@ bool isAllowedClauseForDirective(OpenMPDirectiveKind DKind,
 /// Checks if the specified directive is a directive with an associated
 /// loop construct.
 /// \param DKind Specified directive.
-/// \return true - the directive is a loop-associated directive like 'omp simd'
-/// or 'omp for' directive, otherwise - false.
+/// \return true - the directive is a loop-associated directive like 'omp simd',
+/// 'omp for', or 'omp loop' directive, otherwise - false.
 bool isOpenMPLoopDirective(OpenMPDirectiveKind DKind);
 
 /// Checks if the specified directive is a worksharing directive.

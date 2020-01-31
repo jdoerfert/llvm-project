@@ -2916,6 +2916,10 @@ private:
 
   //===--------------------------------------------------------------------===//
   // OpenMP: Directives and clauses.
+  /// Parse clauses for '#pragma omp declare variant'.
+  void ParseOMPLoopDirective(DeclGroupPtrTy Ptr, CachedTokens &Toks,
+                             SourceLocation Loc);
+
   /// Parse clauses for '#pragma omp declare simd'.
   DeclGroupPtrTy ParseOMPDeclareSimdClauses(DeclGroupPtrTy Ptr,
                                             CachedTokens &Toks,
