@@ -7662,6 +7662,8 @@ ChangeStatus Attributor::run() {
     ChangeStatus LocalChange = AA->manifest(*this);
     if (LocalChange == ChangeStatus::CHANGED && AreStatisticsEnabled())
       AA->trackStatistics();
+    LLVM_DEBUG(dbgs() << "[Attributor] Manifest " << LocalChange << " : " << *AA
+                      << "\n");
 
     ManifestChange = ManifestChange | LocalChange;
 
