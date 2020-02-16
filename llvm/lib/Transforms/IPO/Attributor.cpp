@@ -8231,6 +8231,9 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     // Every argument might be simplified.
     getOrCreateAAFor<AAValueSimplify>(ArgPos);
 
+    // Every argument might be dead.
+    getOrCreateAAFor<AAIsDead>(ArgPos);
+
     if (Arg.getType()->isPointerTy()) {
       // Every argument with pointer type might be marked nonnull.
       getOrCreateAAFor<AANonNull>(ArgPos);
