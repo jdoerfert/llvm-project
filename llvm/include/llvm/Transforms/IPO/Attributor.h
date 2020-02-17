@@ -114,6 +114,7 @@
 
 namespace llvm {
 
+struct Attributor;
 struct AbstractAttribute;
 struct InformationCache;
 struct AAIsDead;
@@ -288,6 +289,19 @@ struct IRPosition {
 
   /// Return the associated argument, if any.
   Argument *getAssociatedArgument() const;
+
+  /// Return the arguments that are associated with this location in \p Args and
+  /// a flag to indicate if all associated arguments were found. If the
+  /// operation was unsuccessful, meaning the result in \p Args might be
+  /// incomplete, false is returned, true otherwise. It is possible to have more
+  /// than one associated argument if, for example, the underlying call is
+  /// indirect and there are multiple potential callees. For simple, direct and
+  /// callback call mappings use `getAssociatedArgument` instead.
+  /// TODO: Eventually we could remove `getAssociatedArgument` in favor of this
+  /// one.
+  bool getAssociatedArguments(Attributor &A,
+                              const AbstractAttribute &QueryingAA,
+                              SmallVectorImpl<Argument *> &Args) const;
 
   /// Return true if the position refers to a function interface, that is the
   /// function scope, the function return, or an argument.
