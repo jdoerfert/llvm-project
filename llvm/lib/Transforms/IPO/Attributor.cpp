@@ -194,6 +194,42 @@ ChangeStatus llvm::operator&(ChangeStatus l, ChangeStatus r) {
 }
 ///}
 
+static Optional<Constant *> getAssumedConstant(Attributor &A, const Value &V,
+                                               const AbstractAttribute &AA,
+                                               bool &UsedAssumedInformation) {
+  const auto &ValueSimplifyAA = A.getAAFor<AAValueSimplify>(
+      AA, IRPosition::value(V), /* TrackDependence */ false);
+  Optional<Value *> SimplifiedV = ValueSimplifyAA.getAssumedSimplifiedValue(A);
+  bool IsKnown = ValueSimplifyAA.isKnown();
+  UsedAssumedInformation |= !IsKnown;
+  if (!SimplifiedV.hasValue()) {
+    A.recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
+    return llvm::None;
+  }
+  if (isa_and_nonnull<UndefValue>(SimplifiedV.getValue())) {
+    A.recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
+    return llvm::None;
+  }
+  Constant *CI = dyn_cast_or_null<Constant>(SimplifiedV.getValue());
+  if (CI && CI->getType() != V.getType()) {
+    // TODO: Check for a save conversion.
+    return nullptr;
+  }
+  if (CI)
+    A.recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
+  return CI;
+}
+
+static Optional<ConstantInt *>
+getAssumedConstantInt(Attributor &A, const Value &V,
+                      const AbstractAttribute &AA,
+                      bool &UsedAssumedInformation) {
+  Optional<Constant *> C = getAssumedConstant(A, V, AA, UsedAssumedInformation);
+  if (C.hasValue())
+    return dyn_cast_or_null<ConstantInt>(C.getValue());
+  return llvm::None;
+}
+
 Argument *IRPosition::getAssociatedArgument() const {
   if (getPositionKind() == IRP_ARGUMENT)
     return cast<Argument>(&getAnchorValue());
@@ -248,40 +284,39 @@ Argument *IRPosition::getAssociatedArgument() const {
   return nullptr;
 }
 
-static Optional<Constant *> getAssumedConstant(Attributor &A, const Value &V,
-                                               const AbstractAttribute &AA,
-                                               bool &UsedAssumedInformation) {
-  const auto &ValueSimplifyAA = A.getAAFor<AAValueSimplify>(
-      AA, IRPosition::value(V), /* TrackDependence */ false);
-  Optional<Value *> SimplifiedV = ValueSimplifyAA.getAssumedSimplifiedValue(A);
-  bool IsKnown = ValueSimplifyAA.isKnown();
-  UsedAssumedInformation |= !IsKnown;
-  if (!SimplifiedV.hasValue()) {
-    A.recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
-    return llvm::None;
+bool IRPosition::getAssociatedArguments(
+    Attributor &A, const AbstractAttribute &QueryingAA,
+    SmallVectorImpl<Argument *> &Args) const {
+  if (Argument *Arg = getAssociatedArgument()) {
+    Args.push_back(Arg);
+    return true;
   }
-  if (isa_and_nonnull<UndefValue>(SimplifiedV.getValue())) {
-    A.recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
-    return llvm::None;
-  }
-  Constant *CI = dyn_cast_or_null<Constant>(SimplifiedV.getValue());
-  if (CI && CI->getType() != V.getType()) {
-    // TODO: Check for a save conversion.
-    return nullptr;
-  }
-  if (CI)
-    A.recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
-  return CI;
-}
 
-static Optional<ConstantInt *>
-getAssumedConstantInt(Attributor &A, const Value &V,
-                      const AbstractAttribute &AA,
-                      bool &UsedAssumedInformation) {
-  Optional<Constant *> C = getAssumedConstant(A, V, AA, UsedAssumedInformation);
-  if (C.hasValue())
-    return dyn_cast_or_null<ConstantInt>(C.getValue());
-  return llvm::None;
+  int ArgNo = getArgNo();
+  ImmutableCallSite ICS(&getAnchorValue());
+  if (ArgNo < 0 || !ICS)
+    return false;
+
+  const Function *Callee = ICS.getCalledFunction();
+  assert(
+      (!Callee || Callee->isVarArg()) &&
+      "getAssociatedArgument should have resolved direct, non-var-args calls!");
+  if (Callee)
+    return false;
+
+  bool UsedAssumedInformation = false;
+  Optional<Constant *> C = getAssumedConstant(
+      A, *ICS.getCalledValue(), QueryingAA, UsedAssumedInformation);
+  if (!C.hasValue())
+    return true;
+
+  if (Constant *SimplfiedCallee = C.getValue())
+    Callee = dyn_cast<Function>(SimplfiedCallee);
+  if (Callee && Callee->arg_size() > unsigned(ArgNo)) {
+    Args.push_back(Callee->getArg(ArgNo));
+    return true;
+  }
+  return false;
 }
 
 /// Get pointer operand of memory accessing instruction. If \p I is
@@ -2990,13 +3025,21 @@ struct AAIsDeadCallSiteArgument : public AAIsDeadValueImpl {
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
-    Argument *Arg = getAssociatedArgument();
-    if (!Arg)
+    SmallVector<Argument *, 4> Args;
+    if (!getAssociatedArguments(A, *this, Args))
       return indicatePessimisticFixpoint();
-    const IRPosition &ArgPos = IRPosition::argument(*Arg);
-    auto &ArgAA = A.getAAFor<AAIsDead>(*this, ArgPos);
-    return clampStateAndIndicateChange(
-        getState(), static_cast<const AAIsDead::StateType &>(ArgAA.getState()));
+
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    for (Argument *Arg : Args) {
+      const IRPosition &ArgPos = IRPosition::argument(*Arg);
+      auto &ArgAA = A.getAAFor<AAIsDead>(*this, ArgPos);
+      Changed =
+          clampStateAndIndicateChange(
+              getState(),
+              static_cast<const AAIsDead::StateType &>(ArgAA.getState())) |
+          Changed;
+    }
+    return Changed;
   }
 
   /// See AbstractAttribute::manifest(...).
