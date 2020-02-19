@@ -527,6 +527,21 @@ define void @aligned_store(i8* %Value, i8** %Ptr) {
   ret void
 }
 
+; UTC_ARGS: --enable
+declare i8* @some_func(i8*)
+define void @align_call_op_not_store(i8* align 2048 %arg) {
+; ATTRIBUTOR-LABEL: define {{[^@]+}}@align_call_op_not_store
+; ATTRIBUTOR-SAME: (i8* align 2048 [[ARG:%.*]])
+; ATTRIBUTOR-NEXT:    [[UNKNOWN:%.*]] = call i8* @some_func(i8* align 2048 [[ARG]])
+; ATTRIBUTOR-NEXT:    store i8 0, i8* [[UNKNOWN]]
+; ATTRIBUTOR-NEXT:    ret void
+;
+    %unknown = call i8* @some_func(i8* %arg)
+    store i8 0, i8* %unknown
+    ret void
+}
+; UTC_ARGS: --disable
+
 attributes #0 = { nounwind uwtable noinline }
 attributes #1 = { uwtable noinline }
 attributes #2 = { "null-pointer-is-valid"="true" }
