@@ -242,6 +242,39 @@ Argument *IRPosition::getAssociatedArgument() const {
   if (ArgNo < 0)
     return nullptr;
 
+  AbstractCallSite ACS = getAssociatedCallSite();
+  if (!ACS)
+    return nullptr;
+  if (!ACS.getCalledFunction())
+    return nullptr;
+  if (!ACS.isCallbackCall()) {
+    if (ACS.getCalledFunction()->arg_size() > unsigned(ArgNo))
+      return ACS.getCalledFunction()->getArg(ArgNo);
+    return nullptr;
+  }
+
+  Optional<Argument *> CBCandidateArg;
+  for (unsigned u = 0, e = ACS.getNumArgOperands(); u < e; u++) {
+
+    // Test if the underlying call site operand is argument number u of the
+    // callback callee.
+    if (ACS.getCallArgOperandNo(u) != ArgNo)
+      continue;
+    assert(ACS.getCalledFunction()->arg_size() > u &&
+           "ACS mapped into var-args arguments!");
+
+    if (CBCandidateArg.hasValue()) {
+      CBCandidateArg = nullptr;
+      break;
+    }
+    CBCandidateArg = ACS.getCalledFunction()->getArg(u);
+  }
+
+  // If we found a unique callback candidate argument, return it.
+  if (CBCandidateArg.hasValue() && CBCandidateArg.getValue())
+    return CBCandidateArg.getValue();
+
+#if 0
   // Use abstract call sites to make the connection between the call site
   // values and the ones in callbacks. If a callback was found that makes use
   // of the underlying call site operand, we want the corresponding callback
@@ -282,6 +315,7 @@ Argument *IRPosition::getAssociatedArgument() const {
   const Function *Callee = ICS.getCalledFunction();
   if (Callee && Callee->arg_size() > unsigned(ArgNo))
     return Callee->getArg(ArgNo);
+#endif
 
   return nullptr;
 }
@@ -319,6 +353,62 @@ bool IRPosition::getAssociatedArguments(
     return true;
   }
   return false;
+}
+
+AbstractCallSite IRPosition::getAssociatedCallSite() const {
+  switch (getPositionKind()) {
+  case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_FLOAT:
+  case IRPosition::IRP_ARGUMENT:
+  case IRPosition::IRP_FUNCTION:
+  case IRPosition::IRP_RETURNED:
+    return AbstractCallSite();
+  case IRPosition::IRP_CALL_SITE:
+  case IRPosition::IRP_CALL_SITE_RETURNED: {
+    ImmutableCallSite ICS(&getAnchorValue());
+    return AbstractCallSite(ICS.getCallee());
+  }
+  case IRPosition::IRP_CALL_SITE_ARGUMENT:
+    break;
+  };
+
+  int ArgNo = getArgNo();
+
+  // Use abstract call sites to make the connection between the call site
+  // values and the ones in callbacks. If a callback was found that makes use
+  // of the underlying call site operand, we want the corresponding callback
+  // callee argument and not the direct callee argument.
+  Optional<AbstractCallSite> ACSCandidate;
+  SmallVector<const Use *, 4> CBUses;
+  ImmutableCallSite ICS(&getAnchorValue());
+  AbstractCallSite::getCallbackUses(ICS, CBUses);
+  for (const Use *U : CBUses) {
+    AbstractCallSite ACS(U);
+    assert(ACS && ACS.isCallbackCall());
+    if (!ACS.getCalledFunction())
+      continue;
+
+    for (unsigned u = 0, e = ACS.getNumArgOperands(); u < e; u++) {
+      // Test if the underlying call site operand is argument number u of the
+      // callback callee.
+      if (ACS.getCallArgOperandNo(u) != ArgNo)
+        continue;
+
+      assert(ACS.getCalledFunction()->arg_size() > u &&
+             "ACS mapped into var-args arguments!");
+      if (ACSCandidate.hasValue()) {
+        ACSCandidate = AbstractCallSite();
+        break;
+      }
+      ACSCandidate = ACS;
+    }
+  }
+
+  // If we found a unique callback candidate, return it.
+  if (ACSCandidate.hasValue() && ACSCandidate.getValue())
+    return ACSCandidate.getValue();
+
+  return AbstractCallSite(ICS.getCallee());
 }
 
 /// Get pointer operand of memory accessing instruction. If \p I is
@@ -2564,6 +2654,7 @@ struct AANoAliasFloating final : AANoAliasImpl {
   void initialize(Attributor &A) override {
     AANoAliasImpl::initialize(A);
     Value *Val = &getAssociatedValue();
+    errs() << "AANoAliasFloating: " << *Val << "\n";
     do {
       CastInst *CI = dyn_cast<CastInst>(Val);
       if (!CI)
@@ -2573,6 +2664,7 @@ struct AANoAliasFloating final : AANoAliasImpl {
         break;
       Val = Base;
     } while (true);
+    errs() << "AANoAliasFloating: " << *Val << "\n";
 
     if (!Val->getType()->isPointerTy()) {
       indicatePessimisticFixpoint();
@@ -2588,6 +2680,7 @@ struct AANoAliasFloating final : AANoAliasImpl {
     else if (Val != &getAssociatedValue()) {
       const auto &ValNoAliasAA =
           A.getAAFor<AANoAlias>(*this, IRPosition::value(*Val));
+      errs() << "AANoAliasFloating: otheraa " << ValNoAliasAA << "\n";
       if (ValNoAliasAA.isKnownNoAlias())
         indicateOptimisticFixpoint();
     }
@@ -2652,7 +2745,9 @@ struct AANoAliasArgument final
     //     International Workshop on OpenMP 2018,
     //     http://compilers.cs.uni-saarland.de/people/doerfert/par_opt18.pdf
 
-    return indicatePessimisticFixpoint();
+    LLVM_DEBUG(dbgs() << "Alias because of callback + sync!\n");
+    return Base::updateImpl(A);
+    // return indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -2666,6 +2761,8 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
   void initialize(Attributor &A) override {
     // See callsite argument attribute and callee argument attribute.
     ImmutableCallSite ICS(&getAnchorValue());
+    errs() << "INITIALIZE  noalias call site: @" << getArgNo() << "  " << *this
+           << "\n";
     if (ICS.paramHasAttr(getArgNo(), Attribute::NoAlias))
       indicateOptimisticFixpoint();
     Value &Val = getAssociatedValue();
@@ -2673,16 +2770,23 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
         !NullPointerIsDefined(getAnchorScope(),
                               Val.getType()->getPointerAddressSpace()))
       indicateOptimisticFixpoint();
+    errs() << "INITIALIZED noalias call site: @" << getArgNo() << "  " << *this
+           << "\n";
   }
 
   /// Determine if the underlying value may alias with the call site argument
   /// \p OtherArgNo of \p ICS (= the underlying call site).
-  bool mayAliasWithArgument(Attributor &A, AAResults *&AAR,
-                            const AAMemoryBehavior &MemBehaviorAA,
-                            ImmutableCallSite ICS, unsigned OtherArgNo) {
+  static bool mayAliasWithArgument(Attributor &A,
+                                   const AbstractAttribute &QueryingAA,
+                                   AAResults *&AAR,
+                                   const AAMemoryBehavior &MemBehaviorAA,
+                                   ImmutableCallSite ICS, unsigned ThisArgNo,
+                                   unsigned OtherArgNo) {
     // We do not need to worry about aliasing with the underlying IRP.
-    if (this->getArgNo() == (int)OtherArgNo)
+    if (ThisArgNo == OtherArgNo)
       return false;
+    errs() << "Check mayAliasWithArgument " << ThisArgNo << " : " << OtherArgNo
+           << " for " << *ICS.getInstruction() << "\n";
 
     // If it is not a pointer or pointer vector we do not alias.
     const Value *ArgOp = ICS.getArgOperand(OtherArgNo);
@@ -2690,12 +2794,12 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
       return false;
 
     auto &ICSArgMemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
-        *this, IRPosition::callsite_argument(ICS, OtherArgNo),
+        QueryingAA, IRPosition::callsite_argument(ICS, OtherArgNo),
         /* TrackDependence */ false);
 
     // If the argument is readnone, there is no read-write aliasing.
     if (ICSArgMemBehaviorAA.isAssumedReadNone()) {
-      A.recordDependence(ICSArgMemBehaviorAA, *this, DepClassTy::OPTIONAL);
+      A.recordDependence(ICSArgMemBehaviorAA, QueryingAA, DepClassTy::OPTIONAL);
       return false;
     }
 
@@ -2703,20 +2807,22 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     // is no read-write aliasing.
     bool IsReadOnly = MemBehaviorAA.isAssumedReadOnly();
     if (ICSArgMemBehaviorAA.isAssumedReadOnly() && IsReadOnly) {
-      A.recordDependence(MemBehaviorAA, *this, DepClassTy::OPTIONAL);
-      A.recordDependence(ICSArgMemBehaviorAA, *this, DepClassTy::OPTIONAL);
+      A.recordDependence(MemBehaviorAA, QueryingAA, DepClassTy::OPTIONAL);
+      A.recordDependence(ICSArgMemBehaviorAA, QueryingAA, DepClassTy::OPTIONAL);
       return false;
     }
 
     // We have to utilize actual alias analysis queries so we need the object.
     if (!AAR)
-      AAR = A.getInfoCache().getAAResultsForFunction(*getAnchorScope());
+      AAR = A.getInfoCache().getAAResultsForFunction(
+          *QueryingAA.getIRPosition().getAnchorScope());
 
     // Try to rule it out at the call site.
-    bool IsAliasing = !AAR || !AAR->isNoAlias(&getAssociatedValue(), ArgOp);
+    Value &AssociatedValue = QueryingAA.getIRPosition().getAssociatedValue();
+    bool IsAliasing = !AAR || !AAR->isNoAlias(&AssociatedValue, ArgOp);
     LLVM_DEBUG(dbgs() << "[NoAliasCSArg] Check alias between "
                          "callsite arguments: "
-                      << getAssociatedValue() << " " << *ArgOp << " => "
+                      << AssociatedValue << " " << *ArgOp << " => "
                       << (IsAliasing ? "" : "no-") << "alias \n");
 
     return IsAliasing;
@@ -2732,6 +2838,14 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     //       possibly executed before this callsite.
     // (iii) There is no other pointer argument which could alias with the
     //       value.
+    AbstractCallSite ACS = getAssociatedCallSite();
+    assert(ACS && "Expected an associated call site!");
+    Function *Callee = ACS.getCalledFunction();
+    if (!Callee) {
+      LLVM_DEBUG(dbgs() << "[AANoAlias] " << getAssociatedValue()
+                        << " is not no-alias because the callee is unknown\n");
+      return false;
+    }
 
     bool AssociatedValueIsNoAliasAtDef = NoAliasAA.isAssumedNoAlias();
     if (!AssociatedValueIsNoAliasAtDef) {
@@ -2756,12 +2870,22 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
 
     // Check there is no other pointer argument which could alias with the
     // value passed at this call site.
-    // TODO: AbstractCallSite
-    ImmutableCallSite ICS(&getAnchorValue());
-    for (unsigned OtherArgNo = 0; OtherArgNo < ICS.getNumArgOperands();
-         OtherArgNo++)
-      if (mayAliasWithArgument(A, AAR, MemBehaviorAA, ICS, OtherArgNo))
+    unsigned ACSArgOps = ACS.getNumArgOperands();
+    ImmutableCallSite ICS = ACS.getCallSite();
+    for (unsigned CalleeArgNo = 0; CalleeArgNo < ACSArgOps; ++CalleeArgNo) {
+      int OtherArgNo = ACS.getCallArgOperandNo(CalleeArgNo);
+      if (OtherArgNo < 0) {
+        if (Callee->hasParamAttribute(CalleeArgNo, Attribute::NoAlias))
+          continue;
+        LLVM_DEBUG(dbgs() << "[AANoAliasCSArg] Implicit callback argument #"
+                          << CalleeArgNo << " (" << *Callee->getArg(CalleeArgNo)
+                          << ") is not noalias\n");
         return false;
+      }
+      if (mayAliasWithArgument(A, *this, AAR, MemBehaviorAA, ICS, getArgNo(),
+                               OtherArgNo))
+        return false;
+    }
 
     return true;
   }
@@ -2823,8 +2947,8 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
       if (!Ptr)
         return false;
       if (auto *PtrArg = dyn_cast<Argument>(Ptr))
-        return !mayAliasWithArgument(A, AAR, MemBehaviorAA, ICS,
-                                     PtrArg->getArgNo());
+        return !mayAliasWithArgument(A, *this, AAR, MemBehaviorAA, ICS,
+                                     getArgNo(), PtrArg->getArgNo());
 
       if (!AAR)
         AAR = A.getInfoCache().getAAResultsForFunction(*getAnchorScope());
@@ -2974,6 +3098,7 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
       return ChangeStatus::UNCHANGED;
     }
 
+    LLVM_DEBUG(dbgs() << "[AANoAlias] No-Alias deduction failed\n");
     return indicatePessimisticFixpoint();
   }
 
@@ -3177,6 +3302,14 @@ struct AAIsDeadArgument : public AAIsDeadFloating {
   void initialize(Attributor &A) override {
     if (!getAssociatedFunction()->hasExactDefinition())
       indicatePessimisticFixpoint();
+
+    // FIXME: This is a hack to prevent us from propagating function pointers
+    Value &V = getAssociatedValue();
+    if (V.getType()->isPointerTy() &&
+        V.getType()->getPointerElementType()->isFunctionTy())
+      indicatePessimisticFixpoint();
+
+    indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -3202,6 +3335,9 @@ struct AAIsDeadCallSiteArgument : public AAIsDeadValueImpl {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     if (isa<UndefValue>(getAssociatedValue()))
+      indicatePessimisticFixpoint();
+    if (isDirectCallSiteReplacedByAbstractCallSite(
+            ImmutableCallSite(getCtxI())))
       indicatePessimisticFixpoint();
   }
 
@@ -5417,7 +5553,7 @@ struct AAPrivatizablePtrArgument final : public AAPrivatizablePtrImpl {
       LLVM_DEBUG(
           dbgs() << "[AAPrivatizablePtr] ABI incompatibility detected for "
                  << Fn.getName() << "\n");
-      return indicatePessimisticFixpoint();
+      // return indicatePessimisticFixpoint();
     }
 
     // Collect the types that will replace the privatizable type in the function
@@ -5625,6 +5761,12 @@ struct AAPrivatizablePtrArgument final : public AAPrivatizablePtrImpl {
     if (auto *PrivStructType = dyn_cast<StructType>(PrivType)) {
       const StructLayout *PrivStructLayout = DL.getStructLayout(PrivStructType);
       for (unsigned u = 0, e = PrivStructType->getNumElements(); u < e; u++) {
+        if (isa<UndefValue>(Base)) {
+          ReplacementValues.push_back(
+              UndefValue::get(PrivStructType->getElementType(u)));
+          continue;
+        }
+
         Type *PointeeTy = PrivStructType->getElementType(u);
         Value *Ptr =
             constructPointer(PointeeTy->getPointerTo(), Base,
@@ -5638,12 +5780,18 @@ struct AAPrivatizablePtrArgument final : public AAPrivatizablePtrImpl {
       uint64_t PointeeTySize = DL.getTypeStoreSize(PointeeTy);
       Type *PointeePtrTy = PointeeTy->getPointerTo();
       for (unsigned u = 0, e = PrivArrayType->getNumElements(); u < e; u++) {
+        if (isa<UndefValue>(Base)) {
+          ReplacementValues.push_back(UndefValue::get(PointeeTy));
+          continue;
+        }
         Value *Ptr =
             constructPointer(PointeePtrTy, Base, u * PointeeTySize, IRB, DL);
         LoadInst *L = new LoadInst(PointeePtrTy, Ptr, "", IP);
         L->setAlignment(MaybeAlign(1));
         ReplacementValues.push_back(L);
       }
+    } else if (isa<UndefValue>(Base)) {
+      ReplacementValues.push_back(UndefValue::get(PrivType));
     } else {
       LoadInst *L = new LoadInst(PrivType, Base, "", IP);
       L->setAlignment(MaybeAlign(1));
@@ -7357,11 +7505,14 @@ bool Attributor::isAssumedDead(const Use &U,
                          CheckBBLivenessOnly, DepClass);
 
   if (CallSite CS = CallSite(UserI)) {
-    if (isDirectCallSiteReplacedByAbstractCallSite(CS)) {
-      (dbgs() << "[Attributor] Skip direct call replaced by abstract "
-                 "call site: "
-              << *U.getUser() << "\n");
-      return true;
+    if (!QueryingAA || QueryingAA->getIRPosition().getCtxI() != UserI) {
+      if (isDirectCallSiteUseReplacedByAbstractCallSiteUse(CS, U)) {
+        LLVM_DEBUG(
+            dbgs() << "[Attributor] Skip direct call use replaced by abstract "
+                      "call site use: "
+                   << *U.getUser() << "\n");
+        return true;
+      }
     }
     // For call site argument uses we can check if the argument is
     // unused/dead.
@@ -7595,6 +7746,13 @@ bool Attributor::checkForAllCallSites(
       return false;
     }
 
+    if (isDirectCallSiteReplacedByAbstractCallSite(ACS.getCallSite())) {
+      LLVM_DEBUG(dbgs() << "[Attributor] Skip direct call replaced by abstract "
+                           "call site: "
+                        << *U.getUser() << "\n");
+      continue;
+    }
+
     // Make sure the arguments that can be matched between the call site and the
     // callee argee on their type. It is unlikely they do not and it doesn't
     // make sense for all attributes to know/care about this.
@@ -7605,11 +7763,14 @@ bool Attributor::checkForAllCallSites(
       Value *CSArgOp = ACS.getCallArgOperand(u);
       if (CSArgOp && Fn.getArg(u)->getType() != CSArgOp->getType()) {
         LLVM_DEBUG(
-            dbgs()
-            << "[Attributor] Call site / callee argument type mismatch @ pos "
-            << u << ": " << *Fn.getArg(u)->getType() << " vs. "
-            << *ACS.getCallArgOperand(u)->getType() << "\n");
-        return false;
+            dbgs() << "[Attributor] Call site / callee argument type mismatch ["
+                   << u << "@" << Fn.getName() << ": "
+                   << *Fn.getArg(u)->getType() << " vs. "
+                   << *ACS.getCallArgOperand(u)->getType() << "\n");
+        // ACS.getInstruction()->getModule();
+        // ACS.getInstruction()->dump();
+        // assert(0);
+        // return false;
       }
     }
 
@@ -8339,6 +8500,86 @@ static void repairCallbackMDAfterCalleeChange(
   Fn.setMetadata(LLVMContext::MD_callback, MDNode::get(Ctx, CBEncodings));
 }
 
+static void repairEncapsulateMDAfterCallChange(
+    CallBase &OldCB, CallBase &NewCB,
+    const SmallVectorImpl<Attributor::ArgumentReplacementInfo *> &ARIs) {
+  for (const auto &S : {"rpl_cs", "rpl_acs"})
+    if (MDNode *RplMD = OldCB.getMetadata(S))
+      NewCB.setMetadata(S, RplMD);
+
+  MDNode *RplCSUseMD = OldCB.getMetadata("rpl_cs_use");
+  if (!RplCSUseMD)
+    return;
+
+  LLVM_DEBUG({
+    errs() << "repairEncapsulateMDAfterCallChange : " << NewCB.getName() << "("
+           << *OldCB.getCalledFunction()->getFunctionType() << " -> "
+           << *NewCB.getCalledFunction()->getFunctionType() << ")\nARIs :\n ";
+    for (unsigned u = 0; u < ARIs.size(); ++u) {
+      errs() << "u : " << u << " : " << ARIs[u] << "\n";
+      if (ARIs[u])
+        errs() << " - " << ARIs[u]->getNumReplacementArgs() << "\n";
+    }
+  });
+
+  unsigned NumArgs = OldCB.arg_size();
+  SmallVector<int, 8> ArgOffsetMap(NumArgs + 1);
+  errs() << ArgOffsetMap.size() << "\n";
+
+  int Offset = 0;
+  for (unsigned u = 0, e = NumArgs; u < e; ++u) {
+    if (Attributor::ArgumentReplacementInfo *ARI = ARIs[u])
+      Offset += ARI->getNumReplacementArgs() - 1;
+    ArgOffsetMap[u + 1] = Offset;
+  }
+
+  LLVMContext &Ctx = OldCB.getContext();
+  Type *I64Ty = Type::getInt64Ty(Ctx);
+  MDBuilder MDB(Ctx);
+
+  LLVM_DEBUG(dbgs() << "Before: " << *RplCSUseMD << "\n");
+
+  // Go through the argument mapping in the encoding and adjust it as
+  // determined by the ARIs rewrite rules.
+  unsigned NumOps = RplCSUseMD->getNumOperands();
+  assert(NumOps % 2 == 0 && "Expected an equal number of arguments");
+
+  SmallVector<Metadata *, 8> MDArgs;
+  for (unsigned u = 0, e = NumOps; u < e; u += 2) {
+    auto *ValueIdxAsCM1 = cast<ConstantAsMetadata>(RplCSUseMD->getOperand(u));
+    int64_t ValueIdx1 =
+        cast<ConstantInt>(ValueIdxAsCM1->getValue())->getSExtValue();
+
+    auto *ValueIdxAsCM2 =
+        cast<ConstantAsMetadata>(RplCSUseMD->getOperand(u + 1));
+    int64_t ValueIdx2 =
+        cast<ConstantInt>(ValueIdxAsCM2->getValue())->getSExtValue();
+
+    ValueIdx1 = ValueIdx1 + ArgOffsetMap[ValueIdx1];
+    assert(ValueIdx1 >= 0 && "Unexpected negative index!");
+    MDArgs.push_back(
+        ConstantAsMetadata::get(ConstantInt::get(I64Ty, ValueIdx1)));
+
+    if (ValueIdx2 < 0) {
+      MDArgs.push_back(ConstantAsMetadata::get(ConstantInt::get(I64Ty, -1)));
+      continue;
+    }
+    if (Attributor::ArgumentReplacementInfo *ARI = ARIs[ValueIdx2])
+      if (ARI->getNumReplacementArgs() == 0) {
+        MDArgs.push_back(ConstantAsMetadata::get(ConstantInt::get(I64Ty, -1)));
+        continue;
+      }
+
+    ValueIdx2 += ArgOffsetMap[ValueIdx2];
+    MDArgs.push_back(
+        ConstantAsMetadata::get(ConstantInt::get(I64Ty, ValueIdx2)));
+  }
+
+  RplCSUseMD = MDNode::get(Ctx, MDArgs);
+  LLVM_DEBUG(dbgs() << "After: " << *RplCSUseMD << "\n");
+  NewCB.setMetadata("rpl_cs_use", RplCSUseMD);
+}
+
 ChangeStatus Attributor::rewriteFunctionSignatures(
     SmallPtrSetImpl<Function *> &ModifiedFns) {
   ChangeStatus Changed = ChangeStatus::UNCHANGED;
@@ -8485,9 +8726,7 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
           Ctx, OldCallAttributeList.getFnAttributes(),
           OldCallAttributeList.getRetAttributes(), NewArgOperandAttributes));
 
-      for (const auto &S : {"rpl_cs", "rpl_acs", "rpl_cs_use"})
-        if (MDNode *OldCBRplMD = OldCB->getMetadata(S))
-          NewCB->setMetadata(S, OldCBRplMD);
+      repairEncapsulateMDAfterCallChange(*OldCB, *NewCB, ARIs);
 
       CallSitePairs.push_back({OldCB, NewCB});
       return true;
@@ -8873,6 +9112,45 @@ void AbstractAttribute::print(raw_ostream &OS) const {
 ///                       Pass (Manager) Boilerplate
 /// ----------------------------------------------------------------------------
 
+/// Encapsulate all callback call sites in \p Functions that are not already
+/// inside of a callback broker (which is a strong hint they are already
+/// encapsulated). See encapsulateAbstractCallSite for information on the
+/// encapsulation.
+static bool encapsulateCallbackCallSites(SetVector<Function *> &Functions) {
+  LLVM_DEBUG(dbgs() << "Try to encapsulate callback call sites\n");
+  bool Changed = false;
+  SmallVector<Function *, 8> CallbackBrokerFns;
+  for (Function *F : Functions)
+    if (F->isDeclaration())
+      if (F->hasMetadata(LLVMContext::MD_callback))
+        CallbackBrokerFns.push_back(F);
+
+  for (const Function *CallbackBrokerFn : CallbackBrokerFns) {
+    LLVM_DEBUG(dbgs() << "Callback broker: " << CallbackBrokerFn->getName()
+                      << "\n");
+    for (const Use &U : CallbackBrokerFn->uses()) {
+      ImmutableCallSite ICS(U.getUser());
+      if (!ICS || !ICS.isCallee(&U))
+        continue;
+      if (ICS.getCaller()->hasMetadata(LLVMContext::MD_callback))
+        continue;
+      SmallVector<const Use *, 4> CBUses;
+      AbstractCallSite::getCallbackUses(ICS, CBUses);
+      for (const Use *CBU : CBUses) {
+        AbstractCallSite ACS(CBU);
+        assert(ACS && ACS.isCallbackCall());
+        LLVM_DEBUG(dbgs() << "Encapsulate abstract call site for " << **CBU
+                          << " in  " << *ICS.getInstruction() << "\n");
+        Changed |= !!encapsulateAbstractCallSite(ACS);
+      }
+    }
+  }
+  Functions.front()->getParent()->dump();
+  assert(!verifyModule(*Functions.front()->getParent(), &errs()) &&
+         "Module verification failed!");
+  return Changed;
+}
+
 static bool runAttributorOnFunctions(InformationCache &InfoCache,
                                      SetVector<Function *> &Functions,
                                      AnalysisGetter &AG,
@@ -8885,36 +9163,12 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
 
   // Create an Attributor and initially empty information cache that is filled
   // while we identify default attribute opportunities.
+  Module &M = *Functions.front()->getParent();
   Attributor A(Functions, InfoCache, CGUpdater, DepRecInterval);
-
-  SmallVector<Function *, 8> CallbackBrokerFns;
-  for (Function *F : Functions) {
-    if (!F->isDeclaration())
-      continue;
-    MDNode *CallbackMD = F->getMetadata(LLVMContext::MD_callback);
-    if (!CallbackMD)
-      continue;
-    CallbackBrokerFns.push_back(F);
-  }
-
-  for (const Function *CallbackBrokerFn : CallbackBrokerFns) {
-    for (const Use &U : CallbackBrokerFn->uses()) {
-      ImmutableCallSite ICS(U.getUser());
-      if (!ICS || !ICS.isCallee(&U))
-        continue;
-      if (ICS.getCaller()->hasMetadata(LLVMContext::MD_callback))
-        continue;
-      SmallVector<const Use *, 4> CBUses;
-      AbstractCallSite::getCallbackUses(ICS, CBUses);
-      for (const Use *CBU : CBUses) {
-        AbstractCallSite ACS(CBU);
-        assert(ACS && ACS.isCallbackCall());
-        encapsulateAbstractCallSite(ACS);
-      }
-    }
-  }
-  assert(!verifyModule(*Functions.front()->getParent(), &errs()) &&
-         "Module verification failed!");
+  if (A.isModulePass())
+    if (encapsulateCallbackCallSites(Functions))
+      for (Function &F : M)
+        Functions.insert(&F);
 
   for (Function *F : Functions)
     A.initializeInformationCache(*F);
@@ -8947,6 +9201,7 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
          "Module verification failed!");
   LLVM_DEBUG(dbgs() << "[Attributor] Done with " << Functions.size()
                     << " functions, result: " << Changed << ".\n");
+  LLVM_DEBUG(Functions.front()->getParent()->dump());
   return Changed == ChangeStatus::CHANGED;
 }
 

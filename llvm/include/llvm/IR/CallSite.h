@@ -663,7 +663,6 @@ public:
     return false;
   }
 
-private:
   IterTy getCallee() const {
     return cast<CallBase>(getInstruction())->op_end() - 1;
   }

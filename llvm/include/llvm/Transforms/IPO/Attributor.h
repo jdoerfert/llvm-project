@@ -303,6 +303,9 @@ struct IRPosition {
                               const AbstractAttribute &QueryingAA,
                               SmallVectorImpl<Argument *> &Args) const;
 
+  /// Return the associated (abstract) call site, if any.
+  AbstractCallSite getAssociatedCallSite() const;
+
   /// Return true if the position refers to a function interface, that is the
   /// function scope, the function return, or an argument.
   bool isFnInterfaceKind() const {

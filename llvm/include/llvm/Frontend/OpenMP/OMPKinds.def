@@ -231,6 +231,9 @@ __OMP_RTL(__kmpc_critical, false, Void, IdentPtr, Int32, KmpCriticalNamePtrTy)
 __OMP_RTL(__kmpc_critical_with_hint, false, Void, IdentPtr, Int32, KmpCriticalNamePtrTy, Int32)
 __OMP_RTL(__kmpc_end_critical, false, Void, IdentPtr, Int32, KmpCriticalNamePtrTy)
 
+__OMP_RTL(__kmpc_for_static_init_4, false, Void, IdentPtr, Int32, Int32, Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
+__OMP_RTL(__kmpc_for_static_fini, false, Void, IdentPtr, Int32)
+
 __OMP_RTL(__last, false, Void, )
 
 #undef __OMP_RTL

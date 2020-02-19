@@ -557,6 +557,8 @@ void PassManagerBuilder::populateModulePassManager(
 
   // Infer attributes on declarations, call sites, arguments, etc.
   MPM.add(createAttributorLegacyPass());
+  MPM.add(createSROAPass());
+  MPM.add(createAttributorLegacyPass());
 
   addExtensionsToPM(EP_ModuleOptimizerEarly, MPM);
 
@@ -593,6 +595,7 @@ void PassManagerBuilder::populateModulePassManager(
   // analysis infrastructure this "works" in that the analysis stays alive
   // for the entire SCC pass run below.
   MPM.add(createGlobalsAAWrapperPass());
+  // Infer attributes on declarations, call sites, arguments, etc.
 
   // Start of CallGraph SCC passes.
   MPM.add(createPruneEHPass()); // Remove dead EH info

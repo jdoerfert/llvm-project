@@ -240,10 +240,10 @@ bool DeadArgumentEliminationPass::DeleteDeadVarargs(Function &Fn) {
   }
 
   // Clone metadatas from the old function, including debug info descriptor.
-  SmallVector<std::pair<unsigned, MDNode *>, 1> MDs;
-  Fn.getAllMetadata(MDs);
-  for (auto MD : MDs)
-    NF->addMetadata(MD.first, *MD.second);
+  // SmallVector<std::pair<unsigned, MDNode *>, 1> MDs;
+  // Fn.getAllMetadata(MDs);
+  // for (auto MD : MDs)
+  // NF->addMetadata(MD.first, *MD.second);
 
   // Fix up any BlockAddresses that refer to the function.
   Fn.replaceAllUsesWith(ConstantExpr::getBitCast(NF, Fn.getType()));
@@ -1071,10 +1071,10 @@ bool DeadArgumentEliminationPass::RemoveDeadStuffFromFunction(Function *F) {
       }
 
   // Clone metadatas from the old function, including debug info descriptor.
-  SmallVector<std::pair<unsigned, MDNode *>, 1> MDs;
-  F->getAllMetadata(MDs);
-  for (auto MD : MDs)
-    NF->addMetadata(MD.first, *MD.second);
+  // SmallVector<std::pair<unsigned, MDNode *>, 1> MDs;
+  // F->getAllMetadata(MDs);
+  // for (auto MD : MDs)
+  // NF->addMetadata(MD.first, *MD.second);
 
   // Now that the old function is dead, delete it.
   F->eraseFromParent();
@@ -1084,6 +1084,7 @@ bool DeadArgumentEliminationPass::RemoveDeadStuffFromFunction(Function *F) {
 
 PreservedAnalyses DeadArgumentEliminationPass::run(Module &M,
                                                    ModuleAnalysisManager &) {
+  return PreservedAnalyses::all();
   bool Changed = false;
 
   // First pass: Do a simple check to see if any functions can have their "..."

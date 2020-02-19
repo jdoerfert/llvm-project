@@ -757,6 +757,8 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
                                            true /* SamplePGO */));
   }
   MPM.addPass(AttributorPass());
+  MPM.addPass(createModuleToFunctionPassAdaptor(SROA()));
+  MPM.addPass(AttributorPass());
 
   // Lower type metadata and the type.test intrinsic in the ThinLTO
   // post link pipeline after ICP. This is to enable usage of the type
