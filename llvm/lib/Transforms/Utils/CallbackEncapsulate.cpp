@@ -62,7 +62,6 @@ static AbstractCallSite
 getAbstractCallSiteReplacingDirectCallSite(ImmutableCallSite ICS) {
   if (!ICS)
     return AbstractCallSite();
-  errs() << "1 isDirectCallSiteReplacedByAbstractCallSite\n";
   // Check if there is "rpl_acs" metadata on the call site and it matches an
   // abstract call site with "rpl_cs" metadata. This means this call site is
   // equivalent to the abstract call site it matches.
@@ -70,42 +69,20 @@ getAbstractCallSiteReplacingDirectCallSite(ImmutableCallSite ICS) {
       getMDNodeOperands(ICS, ReplicatedCallSiteString);
   if (!RplCSOpMD.first || !RplCSOpMD.second)
     return AbstractCallSite();
-  errs() << "2 isDirectCallSiteReplacedByAbstractCallSite\n";
 
   const Function *Callee = ICS.getCalledFunction();
   SmallVector<const Use *, 8> Uses(make_pointer_range(Callee->uses()));
   for (unsigned u = 0; u < Uses.size(); ++u) {
     const Use &U = *Uses[u];
-    errs() << "X isDirectCallSiteReplacedByAbstractCallSite: " << *U.get()
-           << " : " << *U.getUser() << "\n";
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(U.getUser())) {
-      CE->dump();
-      errs() << "IC: " << CE->isCast()
-             << " iPT: " << CE->getType()->isPointerTy()
-             << " :: " << CE->getNumUses() << "\n";
-      if (CE->getType()->isPointerTy())
-        errs() << "iFT: "
-               << CE->getType()->getPointerElementType()->isFunctionTy()
-               << "\n";
       if (CE->isCast() && CE->getType()->isPointerTy() &&
           CE->getType()->getPointerElementType()->isFunctionTy()) {
-        if (CE->getNumUses() == 0) {
-          ICS.getInstruction()->getModule()->dump();
-        }
         for (const Use &CEU : CE->uses())
           Uses.push_back(&CEU);
         continue;
       }
     }
     AbstractCallSite ACS(&U);
-    errs() << "X isDirectCallSiteReplacedByAbstractCallSite: " << (!!ACS)
-           << "\n";
-    if (ACS) {
-      errs() << "Y isDirectCallSiteReplacedByAbstractCallSite: "
-             << ACS.isCallbackCall() << "\n";
-      errs() << "Y isDirectCallSiteReplacedByAbstractCallSite: "
-             << *ACS.getInstruction() << " @ " << *U.get() << "\n";
-    }
     if (!ACS || !ACS.isCallbackCall())
       continue;
 
@@ -114,28 +91,22 @@ getAbstractCallSiteReplacingDirectCallSite(ImmutableCallSite ICS) {
     if (RplACSOpMD.first == RplCSOpMD.second &&
         RplACSOpMD.second == RplCSOpMD.first)
       return ACS;
-    errs() << "3 isDirectCallSiteReplacedByAbstractCallSite\n";
   }
 
-  errs() << "4 isDirectCallSiteReplacedByAbstractCallSite\n";
   return AbstractCallSite();
 }
 
 bool llvm::isDirectCallSiteReplacedByAbstractCallSite(ImmutableCallSite ICS) {
-  errs() << "0 isDirectCallSiteReplacedByAbstractCallSite\n";
   return !!getAbstractCallSiteReplacingDirectCallSite(ICS);
 }
 
 bool llvm::isDirectCallSiteUseReplacedByAbstractCallSiteUse(
     ImmutableCallSite ICS, const Use &U) {
-  errs() << "0 isDirectCallSiteUseReplacedByAbstractCallSiteUse\n";
   if (!ICS || !ICS.isArgOperand(&U))
     return false;
-  errs() << "1 isDirectCallSiteUseReplacedByAbstractCallSiteUse\n";
   // AbstractCallSite ACS = getAbstractCallSiteReplacingDirectCallSite(ICS);
   // if (!ACS)
   // return false;
-  errs() << "2 isDirectCallSiteUseReplacedByAbstractCallSiteUse\n";
 
   // std::pair<MDNode *, MDNode *> RplACSOpMD =
   // getMDNodeOperands(ACS.getCallSite(), ReplicatedAbstractCallSiteString);
@@ -143,7 +114,6 @@ bool llvm::isDirectCallSiteUseReplacedByAbstractCallSiteUse(
   MDNode *MD = I->getMetadata(ReplicatedCallSiteUseString);
   if (!MD)
     return false;
-  errs() << "3 isDirectCallSiteUseReplacedByAbstractCallSiteUse\n";
 
   unsigned ArgNo = ICS.getArgumentNo(&U);
   assert(MD->getNumOperands() % 2 == 0);
@@ -158,7 +128,6 @@ bool llvm::isDirectCallSiteUseReplacedByAbstractCallSiteUse(
     return true;
   }
 
-  errs() << "4 isDirectCallSiteUseReplacedByAbstractCallSiteUse\n";
   return false;
 }
 

@@ -275,49 +275,6 @@ Argument *IRPosition::getAssociatedArgument() const {
   if (CBCandidateArg.hasValue() && CBCandidateArg.getValue())
     return CBCandidateArg.getValue();
 
-#if 0
-  // Use abstract call sites to make the connection between the call site
-  // values and the ones in callbacks. If a callback was found that makes use
-  // of the underlying call site operand, we want the corresponding callback
-  // callee argument and not the direct callee argument.
-  Optional<Argument *> CBCandidateArg;
-  SmallVector<const Use *, 4> CBUses;
-  ImmutableCallSite ICS(&getAnchorValue());
-  AbstractCallSite::getCallbackUses(ICS, CBUses);
-  for (const Use *U : CBUses) {
-    AbstractCallSite ACS(U);
-    assert(ACS && ACS.isCallbackCall());
-    if (!ACS.getCalledFunction())
-      continue;
-
-    for (unsigned u = 0, e = ACS.getNumArgOperands(); u < e; u++) {
-
-      // Test if the underlying call site operand is argument number u of the
-      // callback callee.
-      if (ACS.getCallArgOperandNo(u) != ArgNo)
-        continue;
-
-      assert(ACS.getCalledFunction()->arg_size() > u &&
-             "ACS mapped into var-args arguments!");
-      if (CBCandidateArg.hasValue()) {
-        CBCandidateArg = nullptr;
-        break;
-      }
-      CBCandidateArg = ACS.getCalledFunction()->getArg(u);
-    }
-  }
-
-  // If we found a unique callback candidate argument, return it.
-  if (CBCandidateArg.hasValue() && CBCandidateArg.getValue())
-    return CBCandidateArg.getValue();
-
-  // If no callbacks were found, or none used the underlying call site operand
-  // exclusively, use the direct callee argument if available.
-  const Function *Callee = ICS.getCalledFunction();
-  if (Callee && Callee->arg_size() > unsigned(ArgNo))
-    return Callee->getArg(ArgNo);
-#endif
-
   return nullptr;
 }
 
@@ -390,6 +347,7 @@ AbstractCallSite IRPosition::getAssociatedCallSite() const {
       continue;
 
     for (unsigned u = 0, e = ACS.getNumArgOperands(); u < e; u++) {
+
       // Test if the underlying call site operand is argument number u of the
       // callback callee.
       if (ACS.getCallArgOperandNo(u) != ArgNo)
@@ -2655,7 +2613,6 @@ struct AANoAliasFloating final : AANoAliasImpl {
   void initialize(Attributor &A) override {
     AANoAliasImpl::initialize(A);
     Value *Val = &getAssociatedValue();
-    errs() << "AANoAliasFloating: " << *Val << "\n";
     do {
       CastInst *CI = dyn_cast<CastInst>(Val);
       if (!CI)
@@ -2665,7 +2622,6 @@ struct AANoAliasFloating final : AANoAliasImpl {
         break;
       Val = Base;
     } while (true);
-    errs() << "AANoAliasFloating: " << *Val << "\n";
 
     if (!Val->getType()->isPointerTy()) {
       indicatePessimisticFixpoint();
@@ -2681,7 +2637,6 @@ struct AANoAliasFloating final : AANoAliasImpl {
     else if (Val != &getAssociatedValue()) {
       const auto &ValNoAliasAA =
           A.getAAFor<AANoAlias>(*this, IRPosition::value(*Val));
-      errs() << "AANoAliasFloating: otheraa " << ValNoAliasAA << "\n";
       if (ValNoAliasAA.isKnownNoAlias())
         indicateOptimisticFixpoint();
     }
@@ -2762,8 +2717,6 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
   void initialize(Attributor &A) override {
     // See callsite argument attribute and callee argument attribute.
     ImmutableCallSite ICS(&getAnchorValue());
-    errs() << "INITIALIZE  noalias call site: @" << getArgNo() << "  " << *this
-           << "\n";
     if (ICS.paramHasAttr(getArgNo(), Attribute::NoAlias))
       indicateOptimisticFixpoint();
     Value &Val = getAssociatedValue();
@@ -2771,8 +2724,6 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
         !NullPointerIsDefined(getAnchorScope(),
                               Val.getType()->getPointerAddressSpace()))
       indicateOptimisticFixpoint();
-    errs() << "INITIALIZED noalias call site: @" << getArgNo() << "  " << *this
-           << "\n";
   }
 
   /// Determine if the underlying value may alias with the call site argument
@@ -2786,8 +2737,6 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     // We do not need to worry about aliasing with the underlying IRP.
     if (ThisArgNo == OtherArgNo)
       return false;
-    errs() << "Check mayAliasWithArgument " << ThisArgNo << " : " << OtherArgNo
-           << " for " << *ICS.getInstruction() << "\n";
 
     // If it is not a pointer or pointer vector we do not alias.
     const Value *ArgOp = ICS.getArgOperand(OtherArgNo);
@@ -7768,9 +7717,6 @@ bool Attributor::checkForAllCallSites(
                    << u << "@" << Fn.getName() << ": "
                    << *Fn.getArg(u)->getType() << " vs. "
                    << *ACS.getCallArgOperand(u)->getType() << "\n");
-        // ACS.getInstruction()->getModule();
-        // ACS.getInstruction()->dump();
-        // assert(0);
         // return false;
       }
     }
@@ -8541,7 +8487,6 @@ static void repairEncapsulateMDAfterCallChange(
 
   unsigned NumArgs = OldCB.arg_size();
   SmallVector<int, 8> ArgOffsetMap(NumArgs + 1);
-  errs() << ArgOffsetMap.size() << "\n";
 
   int Offset = 0;
   for (unsigned u = 0, e = NumArgs; u < e; ++u) {
@@ -8754,8 +8699,6 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
     bool Success = checkForAllCallSites(CallSiteReplacementCreator, *OldFn,
                                         true, nullptr, AllCallSitesKnown);
     (void)Success;
-    if (!Success)
-    OldFn->getParent()->dump();
     assert(Success && "Assumed call site replacement to succeed!");
 
     // Rewire the arguments.
@@ -9162,7 +9105,6 @@ static bool encapsulateCallbackCallSites(SetVector<Function *> &Functions) {
       }
     }
   }
-  Functions.front()->getParent()->dump();
   assert(!verifyModule(*Functions.front()->getParent(), &errs()) &&
          "Module verification failed!");
   return Changed;
