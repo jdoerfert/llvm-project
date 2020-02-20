@@ -201,6 +201,49 @@ private:
     return Changed;
   }
 
+  static Value *combinedIdentStruct(Value *Ident0, Value *Ident1,
+                                    bool GlobalOnly) {
+    // TODO: Figure out how to actually combine multiple debug locations. For
+    //       now we just keep the first we find.
+    if (Ident0)
+      return Ident0;
+    if (!GlobalOnly || isa<GlobalValue>(Ident1))
+      return Ident1;
+    return nullptr;
+  }
+
+  /// Return an `struct ident_t*` value that represents the ones used in the
+  /// calls of \p RFI inside of \p F. If \p GlobalOnly is true, we will not
+  /// return a local `struct ident_t*`. For now, if we cannot find a suitable
+  /// return value we create one from scratch. We also do not yet combine
+  /// information, e.g., the source locations, see combinedIdentStruct.
+  Value *getCombinedIdentFromCallUsesIn(RuntimeFunctionInfo &RFI, Function &F,
+                                        bool GlobalOnly) {
+    Value *Ident = nullptr;
+    auto CombineIdentStruct = [&](Use &U, Function &Caller) {
+      CallInst *CI = getCallIfRegularCall(U, &RFI);
+      if (!CI || &F != &Caller)
+        return false;
+      Ident = combinedIdentStruct(Ident, CI->getArgOperand(0),
+                                  /* GlobalOnly */ true);
+      return false;
+    };
+    RFI.foreachUse(CombineIdentStruct);
+
+    if (!Ident) {
+      // The IRBuilder uses the insertion block to get to the module, this is
+      // unfortunate but we work around it for now.
+      if (!OMPBuilder.getInsertionPoint().getBlock())
+        OMPBuilder.updateToLocation(OpenMPIRBuilder::InsertPointTy(
+            &F.getEntryBlock(), F.getEntryBlock().begin()));
+      // Create a fallback location if non was found.
+      // TODO: Use the debug locations of the calls instead.
+      Constant *Loc = OMPBuilder.getOrCreateDefaultSrcLocStr();
+      Ident = OMPBuilder.getOrCreateIdent(Loc);
+    }
+    return Ident;
+  }
+
   /// Try to eliminiate calls of \p RFI in \p F by reusing an existing one or
   /// \p ReplVal if given.
   bool deduplicateRuntimeCalls(Function &F, RuntimeFunctionInfo &RFI,
@@ -225,6 +268,15 @@ private:
         }
       if (!ReplVal)
         return false;
+    }
+
+    // If we use a call as a replacement value we need to make sure the ident is
+    // valid at the new location. For now we just pick a global one, either
+    // existing and used by one of the calls, or created from scratch.
+    if (CallBase *CI = dyn_cast<CallBase>(ReplVal)) {
+      Value *Ident = getCombinedIdentFromCallUsesIn(RFI, F,
+                                                    /* GlobalOnly */ true);
+      CI->setArgOperand(0, Ident);
     }
 
     bool Changed = false;
