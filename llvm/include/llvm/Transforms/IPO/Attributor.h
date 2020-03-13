@@ -110,6 +110,7 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Support/Allocator.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
 
 namespace llvm {
@@ -684,11 +685,7 @@ struct Attributor {
       : Functions(Functions), InfoCache(InfoCache), CGUpdater(CGUpdater),
         DepRecomputeInterval(DepRecomputeInterval), Whitelist(Whitelist) {}
 
-  ~Attributor() {
-    DeleteContainerPointers(AllAbstractAttributes);
-    for (auto &It : ArgumentReplacementMap)
-      DeleteContainerPointers(It.second);
-  }
+  ~Attributor();
 
   /// Run the analyses until a fixpoint is reached or enforced (timeout).
   ///
@@ -1048,6 +1045,9 @@ struct Attributor {
 
   /// Return the data layout associated with the anchor scope.
   const DataLayout &getDataLayout() const { return InfoCache.DL; }
+
+  /// The allocator used to allocate memory, e.g. for `AbstractAttribute`s.
+  BumpPtrAllocator Allocator;
 
 private:
   /// Check \p Pred on all call sites of \p Fn.
