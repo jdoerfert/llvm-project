@@ -1652,11 +1652,11 @@ const llvm::fltSemantics &ASTContext::getFloatTypeSemantics(QualType T) const {
   case BuiltinType::Float:      return Target->getFloatFormat();
   case BuiltinType::Double:     return Target->getDoubleFormat();
   case BuiltinType::LongDouble:
-    if (getLangOpts().OpenMP && getLangOpts().OpenMPIsDevice)
+    if (getLangOpts().OpenMP && getLangOpts().OpenMPIsDevice && AuxTarget)
       return AuxTarget->getLongDoubleFormat();
     return Target->getLongDoubleFormat();
   case BuiltinType::Float128:
-    if (getLangOpts().OpenMP && getLangOpts().OpenMPIsDevice)
+    if (getLangOpts().OpenMP && getLangOpts().OpenMPIsDevice && AuxTarget)
       return AuxTarget->getFloat128Format();
     return Target->getFloat128Format();
   }
@@ -2032,7 +2032,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
     case BuiltinType::Float16:
     case BuiltinType::Half:
       if (Target->hasFloat16Type() || !getLangOpts().OpenMP ||
-          !getLangOpts().OpenMPIsDevice) {
+          !getLangOpts().OpenMPIsDevice || !AuxTarget) {
         Width = Target->getHalfWidth();
         Align = Target->getHalfAlign();
       } else {
@@ -2051,7 +2051,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
       Align = Target->getDoubleAlign();
       break;
     case BuiltinType::LongDouble:
-      if (getLangOpts().OpenMP && getLangOpts().OpenMPIsDevice &&
+      if (getLangOpts().OpenMP && getLangOpts().OpenMPIsDevice && AuxTarget &&
           (Target->getLongDoubleWidth() != AuxTarget->getLongDoubleWidth() ||
            Target->getLongDoubleAlign() != AuxTarget->getLongDoubleAlign())) {
         Width = AuxTarget->getLongDoubleWidth();
@@ -2063,7 +2063,7 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
       break;
     case BuiltinType::Float128:
       if (Target->hasFloat128Type() || !getLangOpts().OpenMP ||
-          !getLangOpts().OpenMPIsDevice) {
+          !getLangOpts().OpenMPIsDevice || !AuxTarget) {
         Width = Target->getFloat128Width();
         Align = Target->getFloat128Align();
       } else {
