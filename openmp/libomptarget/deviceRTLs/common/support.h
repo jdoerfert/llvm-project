@@ -13,8 +13,8 @@
 #ifndef OMPTARGET_SUPPORT_H
 #define OMPTARGET_SUPPORT_H
 
-#include "interface.h"
 #include "target_impl.h"
+#include "interface.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // Execution Parameters

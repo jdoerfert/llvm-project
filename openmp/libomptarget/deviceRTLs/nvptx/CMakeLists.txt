@@ -50,9 +50,12 @@ if(LIBOMPTARGET_DEP_CUDA_FOUND)
   # propagating host flags.
   set(CUDA_PROPAGATE_HOST_FLAGS OFF)
 
+  set(cxx_src_files
+      ${devicertl_common_directory}/src/cancel.cpp
+      ${devicertl_common_directory}/src/critical.cpp
+  )
+
   set(cuda_src_files
-      ${devicertl_common_directory}/src/cancel.cu
-      ${devicertl_common_directory}/src/critical.cu
       ${devicertl_common_directory}/src/data_sharing.cu
       ${devicertl_common_directory}/src/libcall.cu
       ${devicertl_common_directory}/src/loop.cu
@@ -93,6 +96,8 @@ if(LIBOMPTARGET_DEP_CUDA_FOUND)
   # yet supported by the CUDA toolchain on the device.
   set(BUILD_SHARED_LIBS OFF)
   set(CUDA_SEPARABLE_COMPILATION ON)
+  list(APPEND CXX_FLAGS -I${devicertl_base_directory}
+                        -I${devicertl_nvptx_directory}/src)
   list(APPEND CUDA_NVCC_FLAGS -I${devicertl_base_directory}
                               -I${devicertl_nvptx_directory}/src)
   cuda_add_library(omptarget-nvptx STATIC ${cuda_src_files} ${omp_data_objects}
@@ -152,8 +157,28 @@ if(LIBOMPTARGET_DEP_CUDA_FOUND)
     foreach(sm ${nvptx_sm_list})
       set(cuda_arch --cuda-gpu-arch=sm_${sm})
 
-      # Compile CUDA files to bitcode.
+      # Compile C++ files to bitcode.
       set(bc_files "")
+      foreach(src ${cxx_src_files})
+        get_filename_component(infile ${src} ABSOLUTE)
+        get_filename_component(outfile ${src} NAME)
+
+        add_custom_command(OUTPUT ${outfile}-sm_${sm}.bc
+          COMMAND ${LIBOMPTARGET_NVPTX_SELECTED_CUDA_COMPILER} ${bc_flags} ${cuda_arch}
+            -c ${infile} -o ${outfile}-sm_${sm}.bc -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda
+            -Xclang -fopenmp-is-device
+            -Xclang -aux-triple -Xclang x86_64-unknown-linux
+          DEPENDS ${infile}
+          IMPLICIT_DEPENDS CXX ${infile}
+          COMMENT "Building LLVM bitcode ${outfile}-sm_${sm}.bc"
+          VERBATIM
+        )
+        set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${outfile}-sm_${sm}.bc)
+
+        list(APPEND bc_files ${outfile}-sm_${sm}.bc)
+      endforeach()
+
+      # Compile CUDA files to bitcode.
       foreach(src ${cuda_src_files})
         get_filename_component(infile ${src} ABSOLUTE)
         get_filename_component(outfile ${src} NAME)

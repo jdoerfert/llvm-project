@@ -13,12 +13,12 @@
 #ifndef _OMPTARGET_DEVICE_ENVIRONMENT_H_
 #define _OMPTARGET_DEVICE_ENVIRONMENT_H_
 
-#include "target_impl.h"
+#include "common/target.h"
 
 struct omptarget_device_environmentTy {
   int32_t debug_level;
 };
 
-extern DEVICE omptarget_device_environmentTy omptarget_device_environment;
+__LEAGUE_VAR(extern omptarget_device_environmentTy, omptarget_device_environment)
 
 #endif

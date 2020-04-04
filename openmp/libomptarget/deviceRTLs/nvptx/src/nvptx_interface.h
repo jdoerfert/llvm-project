@@ -11,7 +11,12 @@
 
 #include <stdint.h>
 
+#ifndef _OPENMP
 #define EXTERN extern "C" __device__
+#else
+#define EXTERN extern "C"
+#endif
+
 typedef uint32_t __kmpc_impl_lanemask_t;
 typedef uint32_t omp_lock_t; /* arbitrary type of the right length */
 
