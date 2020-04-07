@@ -29,8 +29,9 @@ Code can be reviewed either before it is committed or after. We expect
 significant patches to be reviewed before being committed. Smaller patches
 (or patches where the developer owns the component) that meet
 likely-community-consensus requirements (as apply to all patch approvals) can
-be committed prior to an explicit review. In situations where there is any
-uncertainty, a patch should be reviewed prior to being committed.
+be committed prior to an explicit review. If there is likely to be uncertainty,
+you should default to getting a patch reviewed prior to commit, particularly if
+someone has asked for extra review of a specific area.
 
 Please note that the developer responsible for a patch is also
 responsible for making all necessary review-related changes, including
