@@ -71,13 +71,15 @@ __DEVICE__ float frexp(float __arg, int *__exp) {
 // an `int`. The system versions of these functions should be fine anyway.
 #if !defined(_MSC_VER) && !defined(_OPENMP)
 __DEVICE__ bool isinf(float __x) { return ::__isinff(__x); }
+__DEVICE__ bool isnan(float __x) { return ::__isnanf(__x); }
+#endif
+#if !defined(_MSC_VER)
 __DEVICE__ bool isinf(double __x) { return ::__isinf(__x); }
 __DEVICE__ bool isfinite(float __x) { return ::__finitef(__x); }
 // For inscrutable reasons, __finite(), the double-precision version of
 // __finitef, does not exist when compiling for MacOS.  __isfinited is available
 // everywhere and is just as good.
 __DEVICE__ bool isfinite(double __x) { return ::__isfinited(__x); }
-__DEVICE__ bool isnan(float __x) { return ::__isnanf(__x); }
 __DEVICE__ bool isnan(double __x) { return ::__isnan(__x); }
 #endif
 
