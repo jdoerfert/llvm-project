@@ -1828,6 +1828,10 @@ Sema::DeviceDiagBuilder Sema::diagIfOpenMPHostCode(SourceLocation Loc,
 void Sema::checkOpenMPDeviceExpr(const Expr *E) {
   assert(getLangOpts().OpenMP && getLangOpts().OpenMPIsDevice &&
          "OpenMP device compilation mode is expected.");
+  // TODO: Do not check outside of functions for now as the targetDiag below
+  //       requires one.
+  if (!getCurFunctionDecl())
+    return;
   QualType Ty = E->getType();
   if ((Ty->isFloat16Type() && !Context.getTargetInfo().hasFloat16Type()) ||
       ((Ty->isFloat128Type() ||

@@ -56,3 +56,8 @@ void baz1() {
   T1 t = bar1();
 }
 #pragma omp end declare target
+
+// Do not crash on these expressions during device compilation.
+long double qa, qb;
+decltype(qa + qb) qc;
+double qd[sizeof(-(-(qc * 2)))];
