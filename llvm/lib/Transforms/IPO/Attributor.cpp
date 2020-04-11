@@ -1171,6 +1171,7 @@ ChangeStatus Attributor::run() {
 
     for (auto &V : ToBeDeletedInsts) {
       if (Instruction *I = dyn_cast_or_null<Instruction>(V)) {
+        I->dropDroppableUses();
         CGModifiedFunctions.insert(I->getFunction());
         if (!I->getType()->isVoidTy())
           I->replaceAllUsesWith(UndefValue::get(I->getType()));
