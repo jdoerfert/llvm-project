@@ -2676,6 +2676,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       return ChangeStatus::UNCHANGED;
 
     UndefValue &UV = *UndefValue::get(V.getType());
+    V.dropDroppableUses();
     bool AnyChange = A.changeValueAfterManifest(V, UV);
     return AnyChange ? ChangeStatus::CHANGED : ChangeStatus::UNCHANGED;
   }
