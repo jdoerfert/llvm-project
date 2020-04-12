@@ -3,6 +3,7 @@
 
 declare i32 @passthru_i32(i32 returned)
 declare i8* @passthru_p8(i8* returned)
+declare i8* @passthru_p8fromi32(i32* returned)
 
 define i32 @returned_const_int_arg() {
 ; CHECK-LABEL: @returned_const_int_arg(
@@ -19,6 +20,25 @@ define i8* @returned_const_ptr_arg() {
 ; CHECK-NEXT:    ret i8* null
 ;
   %x = call i8* @passthru_p8(i8* null)
+  ret i8* %x
+}
+
+define i8* @returned_const_ptr_arg_casted() {
+; CHECK-LABEL: @returned_const_ptr_arg_casted(
+; CHECK-NEXT:    [[X:%.*]] = call i8* @passthru_p8fromi32(i32* null)
+; CHECK-NEXT:    ret i8* null
+;
+  %x = call i8* @passthru_p8fromi32(i32* null)
+  ret i8* %x
+}
+
+define i8* @returned_ptr_arg_casted(i32* %a) {
+; CHECK-LABEL: @returned_ptr_arg_casted(
+; CHECK-NEXT:    [[TMP1:%.*]] = bitcast i32* [[A:%.*]] to i8*
+; CHECK-NEXT:    [[X:%.*]] = call i8* @passthru_p8fromi32(i32* [[A]])
+; CHECK-NEXT:    ret i8* [[TMP1]]
+;
+  %x = call i8* @passthru_p8fromi32(i32* %a)
   ret i8* %x
 }
 
@@ -48,3 +68,4 @@ define i32 @returned_var_arg_musttail(i32 %arg) {
   %x = musttail call i32 @passthru_i32(i32 %arg)
   ret i32 %x
 }
+

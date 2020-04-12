@@ -4654,8 +4654,15 @@ Instruction *InstCombiner::visitCallBase(CallBase &Call) {
   }
 
   if (!Call.use_empty() && !Call.isMustTailCall())
-    if (Value *ReturnedArg = Call.getReturnedArgOperand())
-      return replaceInstUsesWith(Call, ReturnedArg);
+    if (Value *ReturnedArg = Call.getReturnedArgOperand()) {
+      Type *CallTy = Call.getType();
+      Type *RetArgTy = ReturnedArg->getType();
+      if (RetArgTy == CallTy)
+        return replaceInstUsesWith(Call, ReturnedArg);
+      if (CallTy->isPointerTy() && RetArgTy->isPointerTy())
+        return replaceInstUsesWith(
+            Call, Builder.CreatePointerCast(ReturnedArg, CallTy));
+    }
 
   if (isAllocLikeFn(&Call, &TLI))
     return visitAllocSite(Call);
