@@ -449,13 +449,21 @@ namespace llvm {
       AttributeList func_test1_PAL;
       func_test1->setAttributes(func_test1_PAL);
 
-      Function* func_test2 = Function::Create(
+      Function* func_test2a = Function::Create(
         /*Type=*/FuncTy_0,
         /*Linkage=*/GlobalValue::ExternalLinkage,
-        /*Name=*/"test2", mod);
-      func_test2->setCallingConv(CallingConv::C);
-      AttributeList func_test2_PAL;
-      func_test2->setAttributes(func_test2_PAL);
+        /*Name=*/"test2a", mod);
+      func_test2a->setCallingConv(CallingConv::C);
+      AttributeList func_test2a_PAL;
+      func_test2a->setAttributes(func_test2a_PAL);
+
+      Function* func_test2b = Function::Create(
+        /*Type=*/FuncTy_0,
+        /*Linkage=*/GlobalValue::ExternalLinkage,
+        /*Name=*/"test2b", mod);
+      func_test2b->setCallingConv(CallingConv::C);
+      AttributeList func_test2b_PAL;
+      func_test2b->setAttributes(func_test2b_PAL);
 
       Function* func_test3 = Function::Create(
         /*Type=*/FuncTy_0,
@@ -489,7 +497,7 @@ namespace llvm {
             BasicBlock::Create(Context, "entry", func_test1, nullptr);
 
         // Block entry (label_entry)
-        CallInst* int32_3 = CallInst::Create(func_test2, "", label_entry);
+        CallInst* int32_3 = CallInst::Create(func_test2a, "", label_entry);
         int32_3->setCallingConv(CallingConv::C);
         int32_3->setTailCall(false);
         AttributeList int32_3_PAL;
@@ -498,13 +506,30 @@ namespace llvm {
         ReturnInst::Create(Context, int32_3, label_entry);
       }
 
-      // Function: test2 (func_test2)
+      // Function: test2a (func_test2a)
       {
 
         BasicBlock *label_entry_5 =
-            BasicBlock::Create(Context, "entry", func_test2, nullptr);
+            BasicBlock::Create(Context, "entry", func_test2a, nullptr);
 
         // Block entry (label_entry_5)
+        CallInst* int32_6 = CallInst::Create(func_test2b, "", label_entry_5);
+        int32_6->setCallingConv(CallingConv::C);
+        int32_6->setTailCall(false);
+        AttributeList int32_6_PAL;
+        int32_6->setAttributes(int32_6_PAL);
+
+        ReturnInst::Create(Context, int32_6, label_entry_5);
+      }
+
+      // Function: test2b (func_test2b)
+      {
+
+        BasicBlock *label_entry_5 =
+            BasicBlock::Create(Context, "entry", func_test2b, nullptr);
+
+        // Block entry (label_entry_5)
+        CallInst::Create(func_test2a, "", label_entry_5);
         CallInst* int32_6 = CallInst::Create(func_test3, "", label_entry_5);
         int32_6->setCallingConv(CallingConv::C);
         int32_6->setTailCall(false);
@@ -582,7 +607,8 @@ namespace llvm {
         Function *F = N->getFunction();
         Module *M = F->getParent();
         Function *Test1F = M->getFunction("test1");
-        Function *Test2F = M->getFunction("test2");
+        Function *Test2aF = M->getFunction("test2a");
+        Function *Test2bF = M->getFunction("test2b");
         Function *Test3F = M->getFunction("test3");
         auto InSCC = [&](Function *Fn) {
           return llvm::any_of(SCMM, [Fn](CallGraphNode *CGN) {
@@ -590,18 +616,19 @@ namespace llvm {
           });
         };
 
-        if (!Test1F || !Test2F || !Test3F || !InSCC(Test1F) || !InSCC(Test2F) ||
-            !InSCC(Test3F))
+        if (!Test1F || !Test2aF || !Test2bF || !Test3F || !InSCC(Test1F) ||
+            !InSCC(Test2aF) || !InSCC(Test2bF) || !InSCC(Test3F))
           return SetupWorked = false;
 
         CallInst *CI = dyn_cast<CallInst>(&Test1F->getEntryBlock().front());
-        if (!CI || CI->getCalledFunction() != Test2F)
+        if (!CI || CI->getCalledFunction() != Test2aF)
           return SetupWorked = false;
 
         CI->setCalledFunction(Test3F);
 
         CGU.initialize(const_cast<CallGraph &>(SCMM.getCallGraph()), SCMM);
-        CGU.removeFunction(*Test2F);
+        CGU.removeFunction(*Test2aF);
+        CGU.removeFunction(*Test2bF);
         CGU.reanalyzeFunction(*Test1F);
         return true;
       }
@@ -610,20 +637,20 @@ namespace llvm {
     };
 
     TEST(PassManager, CallGraphUpdater0) {
-      // SCC#1: test1->test2->test3->test1
+      // SCC#1: test1->test2a->test2b->test3->test1
       // SCC#2: test4
       // SCC#3: indirect call node
 
       LLVMContext Context;
       std::unique_ptr<Module> M(makeLLVMModule(Context));
-      ASSERT_EQ(M->getFunctionList().size(), 4U);
+      ASSERT_EQ(M->getFunctionList().size(), 5U);
       CGModifierPass *P = new CGModifierPass();
       legacy::PassManager Passes;
       Passes.add(P);
       Passes.run(*M);
       ASSERT_TRUE(P->SetupWorked);
       ASSERT_EQ(P->NumSCCs, 3U);
-      ASSERT_EQ(P->NumFns, 4U);
+      ASSERT_EQ(P->NumFns, 5U);
       ASSERT_EQ(M->getFunctionList().size(), 3U);
     }
   }
