@@ -36,6 +36,9 @@ XPASS       = ResultCode('XPASS', True)
 UNRESOLVED  = ResultCode('UNRESOLVED', True)
 UNSUPPORTED = ResultCode('UNSUPPORTED', False)
 TIMEOUT     = ResultCode('TIMEOUT', True)
+SKIPPED     = ResultCode('SKIPPED', False)
+NOEXE       = ResultCode('NOEXE', True)
+
 
 # Test metric values.
 
