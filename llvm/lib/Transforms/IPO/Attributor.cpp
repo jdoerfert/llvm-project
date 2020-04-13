@@ -1249,6 +1249,14 @@ ChangeStatus Attributor::run() {
                      "specified iterations!");
   }
 
+#ifdef EXPENSIVE_CHECKS
+  for (Function *F : Functions) {
+    if (ToBeDeletedFunctions.count(F))
+      continue;
+    assert(!verifyFunction(*F, &errs()) && "Module verification failed!");
+  }
+#endif
+
   return ManifestChange;
 }
 
@@ -1984,10 +1992,7 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
     A.identifyDefaultAbstractAttributes(*F);
   }
 
-  Module &M = *Functions.front()->getParent();
-  (void)M;
   ChangeStatus Changed = A.run();
-  assert(!verifyModule(M, &errs()) && "Module verification failed!");
   LLVM_DEBUG(dbgs() << "[Attributor] Done with " << Functions.size()
                     << " functions, result: " << Changed << ".\n");
   return Changed == ChangeStatus::CHANGED;
