@@ -257,7 +257,8 @@ failure_codes = [
     (lit.Test.UNRESOLVED,  'Unresolved Tests',    'Unresolved'),
     (lit.Test.TIMEOUT,     'Individual Timeouts', 'Timed Out'),
     (lit.Test.FAIL,        'Unexpected Failures', 'Failing'),
-    (lit.Test.XPASS,       'Unexpected Passes',   'Unexpected Passing')
+    (lit.Test.XPASS,       'Unexpected Passes',   'Unexpected Passing'),
+    (lit.Test.NOEXE,       'No Executable',       'No Executable'),
 ]
 
 all_codes = [
@@ -266,6 +267,7 @@ all_codes = [
     (lit.Test.PASS,        'Expected Passes',   ''),
     (lit.Test.FLAKYPASS,   'Passes With Retry', ''),
     (lit.Test.XFAIL,       'Expected Failures', 'Expected Failing'),
+    (lit.Test.SKIPPED,     'Skipped',           'Skipped'),
 ] + failure_codes
 
 

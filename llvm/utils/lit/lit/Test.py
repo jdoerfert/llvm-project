@@ -37,6 +37,8 @@ UNRESOLVED  = ResultCode('UNRESOLVED', True)
 UNSUPPORTED = ResultCode('UNSUPPORTED', False)
 TIMEOUT     = ResultCode('TIMEOUT', True)
 SKIPPED     = ResultCode('SKIPPED', False)
+NOEXE       = ResultCode('NOEXE', True)
+
 
 # Test metric values.
 
@@ -161,7 +163,7 @@ class Result(object):
         addMicroResult(microResult)
 
         Attach a micro-test result to the test result, with the given name and
-        result.  It is an error to attempt to attach a micro-test with the 
+        result.  It is an error to attempt to attach a micro-test with the
         same name multiple times.
 
         Each micro-test result must be an instance of the Result class.
@@ -376,7 +378,7 @@ class Test:
         safe_name = self.suite.name.replace(".","-")
 
         if safe_test_path:
-            class_name = safe_name + "." + "/".join(safe_test_path) 
+            class_name = safe_name + "." + "/".join(safe_test_path)
         else:
             class_name = safe_name + "." + safe_name
         class_name = quoteattr(class_name)
