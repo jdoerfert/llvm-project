@@ -2958,6 +2958,17 @@ struct AAIsDeadFunction : public AAIsDead {
     if (!AssumedLiveBlocks.count(I->getParent()))
       return true;
 
+    // We do not walk the block if none of the known dead ends or to be explored
+    // from instructions is in this block. This is for compile time saving only.
+    bool CheckBB = false;
+    const BasicBlock *BB = I->getParent();
+    for (auto *KDE : KnownDeadEnds)
+      CheckBB |= KDE->getParent() == BB;
+    for (auto *TBEF : ToBeExploredFrom)
+      CheckBB |= TBEF->getParent() == BB;
+    if (!CheckBB)
+      return false;
+
     // If it is not after a liveness barrier it is live.
     const Instruction *PrevI = I->getPrevNode();
     while (PrevI) {
