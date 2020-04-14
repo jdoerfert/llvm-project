@@ -6114,7 +6114,8 @@ protected:
 
   /// Return the kind(s) of location that may be accessed by \p V.
   AAMemoryLocation::MemoryLocationsKind
-  categorizeAccessedLocations(Attributor &A, Instruction &I, bool &Changed);
+  categorizeAccessedLocations(Attributor &A, Instruction &I, bool &Changed,
+                              bool &UsedAssumed);
 
   /// Update the state \p State and the AccessKindAccessesMap given that \p I is
   /// an access to a \p MLK memory location with the access pointer \p Ptr.
@@ -6229,7 +6230,8 @@ void AAMemoryLocationImpl::categorizePtrValue(
 
 AAMemoryLocation::MemoryLocationsKind
 AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
-                                                  bool &Changed) {
+                                                  bool &Changed,
+                                                  bool &UsedAssumed) {
   LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Categorize accessed locations for "
                     << I << "\n");
 
@@ -6244,10 +6246,13 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
     LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Categorize call site: " << I
                       << " [" << ICSMemLocationAA << "]\n");
 
-    if (ICSMemLocationAA.isAssumedReadNone())
+    if (ICSMemLocationAA.isAssumedReadNone()) {
+      UsedAssumed |= !ICSMemLocationAA.isKnownReadNone();
       return NO_LOCATIONS;
+    }
 
     if (ICSMemLocationAA.isAssumedInaccessibleMemOnly()) {
+      UsedAssumed |= !ICSMemLocationAA.isKnownInaccessibleMemOnly();
       updateStateAndAccessesMap(AccessedLocs, AccessKindAccessesMap,
                                 NO_INACCESSIBLE_MEM, &I, nullptr, Changed);
       return AccessedLocs.getAssumed();
@@ -6261,8 +6266,11 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
         ICSAssumedNotAccessedLocs | NO_ARGUMENT_MEM | NO_GLOBAL_MEM;
 
     for (MemoryLocationsKind CurMLK = 1; CurMLK < NO_LOCATIONS; CurMLK *= 2) {
-      if (ICSAssumedNotAccessedLocsNoArgMem & CurMLK)
+      if (ICSAssumedNotAccessedLocsNoArgMem & CurMLK) {
+        UsedAssumed |= (ICSAssumedNotAccessedLocs & CurMLK) &&
+                       !ICSMemLocationAA.isKnown(CurMLK);
         continue;
+      }
       updateStateAndAccessesMap(AccessedLocs, AccessKindAccessesMap, CurMLK, &I,
                                 nullptr, Changed);
     }
@@ -6270,6 +6278,8 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
     // Now handle global memory if it might be accessed. This is slightly tricky
     // as NO_GLOBAL_MEM has multiple bits set.
     bool HasGlobalAccesses = ((~ICSAssumedNotAccessedLocs) & NO_GLOBAL_MEM);
+    UsedAssumed |=
+        !HasGlobalAccesses && !ICSMemLocationAA.isKnown(NO_GLOBAL_MEM);
     if (HasGlobalAccesses) {
       auto AccessPred = [&](const Instruction *, const Value *Ptr,
                             AccessKind Kind, MemoryLocationsKind MLK) {
@@ -6288,6 +6298,8 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
 
     // Now handle argument memory if it might be accessed.
     bool HasArgAccesses = ((~ICSAssumedNotAccessedLocs) & NO_ARGUMENT_MEM);
+    UsedAssumed |=
+        !HasArgAccesses && !ICSMemLocationAA.isKnown(NO_ARGUMENT_MEM);
     if (HasArgAccesses) {
       for (unsigned ArgNo = 0, e = ICS.getNumArgOperands(); ArgNo < e;
            ++ArgNo) {
@@ -6356,7 +6368,13 @@ struct AAMemoryLocationFunction final : public AAMemoryLocationImpl {
     bool Changed = false;
 
     auto CheckRWInst = [&](Instruction &I) {
-      MemoryLocationsKind MLK = categorizeAccessedLocations(A, I, Changed);
+      if (KnownInsts.count(&I))
+        return true;
+      bool UsedAssumed = false;
+      MemoryLocationsKind MLK =
+          categorizeAccessedLocations(A, I, Changed, UsedAssumed);
+      if (!UsedAssumed || MLK == getWorstState())
+        KnownInsts.insert(&I);
       LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Accessed locations for " << I
                         << ": " << getMemoryLocationsAsStr(MLK) << "\n");
       removeAssumedBits(inverseLocation(MLK, false, false));
@@ -6381,6 +6399,9 @@ struct AAMemoryLocationFunction final : public AAMemoryLocationImpl {
     else if (isAssumedInaccessibleOrArgMemOnly())
       STATS_DECLTRACK_FN_ATTR(inaccessiblememorargmemonly)
   }
+
+private:
+  SmallPtrSet<const Instruction *, 32> KnownInsts;
 };
 
 /// AAMemoryLocation attribute for call sites.
