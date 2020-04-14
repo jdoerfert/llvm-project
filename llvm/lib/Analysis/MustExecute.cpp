@@ -386,7 +386,7 @@ bool MustBeExecutedContextPrinter::runOnModule(Module &M) {
   for (Function &F : M) {
     for (Instruction &I : instructions(F)) {
       dbgs() << "-- Explore context of: " << I << "\n";
-      for (const Instruction *CI : Explorer.range(&I))
+      for (const Instruction *CI : Explorer.range(I))
         dbgs() << "  [F: " << CI->getFunction()->getName() << "] " << *CI
                << "\n";
     }
@@ -710,10 +710,12 @@ MustBeExecutedContextExplorer::findBackwardJoinPoint(const BasicBlock *InitBB) {
 
 const Instruction *
 MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
-    MustBeExecutedIterator &It, const Instruction *PP) {
-  if (!PP)
-    return PP;
-  LLVM_DEBUG(dbgs() << "Find next instruction for " << *PP << "\n");
+    const MustBeExecutedInterval::Position &Pos) {
+  if (!Pos)
+    return nullptr;
+  LLVM_DEBUG(dbgs() << "Find next instruction for " << Pos << "\n");
+
+  const Instruction *PP = Pos.getInstruction();
 
   // If we explore only inside a given basic block we stop at terminators.
   if (!ExploreInterBlock && PP->isTerminator()) {
@@ -735,7 +737,7 @@ MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
   if (!PP->isTerminator()) {
     const Instruction *NextPP = PP->getNextNode();
     LLVM_DEBUG(dbgs() << "\tIntermediate instruction does transfer control\n");
-    return NextPP;
+    return extendInterval(Pos, *NextPP, ExplorationDirection::FORWARD);
   }
 
   // Finally, we have to handle terminators, trivial ones first.
@@ -752,14 +754,17 @@ MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
   if (PP->getNumSuccessors() == 1) {
     LLVM_DEBUG(
         dbgs() << "\tUnconditional terminator, continue with successor\n");
-    return &PP->getSuccessor(0)->front();
+    const Instruction *NextPP = &PP->getSuccessor(0)->front();
+    return extendInterval(Pos, *NextPP, ExplorationDirection::FORWARD);
   }
 
   // Multiple successors mean we need to find the join point where control flow
   // converges again. We use the findForwardJoinPoint helper function with
   // information about the function and helper analyses, if available.
-  if (const BasicBlock *JoinBB = findForwardJoinPoint(PP->getParent()))
-    return &JoinBB->front();
+  if (const BasicBlock *JoinBB = findForwardJoinPoint(PP->getParent())) {
+    const Instruction *NextPP = &JoinBB->front();
+    return extendIntervalViaLink(Pos, *NextPP, ExplorationDirection::FORWARD);
+  }
 
   LLVM_DEBUG(dbgs() << "\tNo join point found\n");
   return nullptr;
@@ -767,12 +772,14 @@ MustBeExecutedContextExplorer::getMustBeExecutedNextInstruction(
 
 const Instruction *
 MustBeExecutedContextExplorer::getMustBeExecutedPrevInstruction(
-    MustBeExecutedIterator &It, const Instruction *PP) {
-  if (!PP)
-    return PP;
+    const MustBeExecutedInterval::Position &Pos) {
+  if (!Pos)
+    return nullptr;
+
+  const Instruction *PP = Pos.getInstruction();
 
   bool IsFirst = !(PP->getPrevNode());
-  LLVM_DEBUG(dbgs() << "Find next instruction for " << *PP
+  LLVM_DEBUG(dbgs() << "Find next instruction for " << Pos
                     << (IsFirst ? " [IsFirst]" : "") << "\n");
 
   // If we explore only inside a given basic block we stop at the first
@@ -792,52 +799,114 @@ MustBeExecutedContextExplorer::getMustBeExecutedPrevInstruction(
     LLVM_DEBUG(
         dbgs() << "\tIntermediate instruction, continue with previous\n");
     // We did not enter a callee so we simply return the previous instruction.
-    return PrevPP;
+    return extendInterval(Pos, *PrevPP, ExplorationDirection::BACKWARD);
   }
 
   // Finally, we have to handle the case where the program point is the first in
   // a block but not in the function. We use the findBackwardJoinPoint helper
   // function with information about the function and helper analyses, if
   // available.
-  if (const BasicBlock *JoinBB = findBackwardJoinPoint(PPBlock))
-    return &JoinBB->back();
+  if (const BasicBlock *JoinBB = findBackwardJoinPoint(PPBlock)) {
+    const Instruction *PrevPP = &JoinBB->back();
+    return extendIntervalViaLink(Pos, *PrevPP, ExplorationDirection::BACKWARD);
+  }
 
   LLVM_DEBUG(dbgs() << "\tNo join point found\n");
   return nullptr;
 }
 
-MustBeExecutedIterator::MustBeExecutedIterator(
-    MustBeExecutedContextExplorer &Explorer, const Instruction *I)
-    : Explorer(Explorer), CurInst(I) {
-  reset(I);
+void MustBeExecutedContextExplorer::dump() {
+  errs() << "\nExplorer\n";
+  for (auto &It : InstPositionMap) {
+    assert(It.getFirst());
+    errs() << *It.getFirst() << " [ ";
+    It.getSecond().print(errs());
+    errs() << " ]\n";
+  }
 }
 
-void MustBeExecutedIterator::reset(const Instruction *I) {
-  Visited.clear();
-  resetInstruction(I);
-}
-
-void MustBeExecutedIterator::resetInstruction(const Instruction *I) {
-  CurInst = I;
-  Head = Tail = nullptr;
-  Visited.insert({I, ExplorationDirection::FORWARD});
-  Visited.insert({I, ExplorationDirection::BACKWARD});
-  if (Explorer.ExploreCFGForward)
-    Head = I;
-  if (Explorer.ExploreCFGBackward)
-    Tail = I;
-}
-
-const Instruction *MustBeExecutedIterator::advance() {
-  assert(CurInst && "Cannot advance an end iterator!");
-  Head = Explorer.getMustBeExecutedNextInstruction(*this, Head);
-  if (Head && Visited.insert({Head, ExplorationDirection ::FORWARD}).second)
-    return Head;
-  Head = nullptr;
-
-  Tail = Explorer.getMustBeExecutedPrevInstruction(*this, Tail);
-  if (Tail && Visited.insert({Tail, ExplorationDirection ::BACKWARD}).second)
-    return Tail;
-  Tail = nullptr;
+const Instruction *MustBeExecutedIterator::tryToAdvance() {
+  //errs() << "advance\n";
+  // TODO: Allow the user to choose different exploration styles.
+  if (const auto &NewHead = Head + ExplorationDirection::FORWARD) {
+    Head = NewHead;
+    return Head.getInstruction();
+  }
+  if (const auto &NewTail = Tail + ExplorationDirection::BACKWARD) {
+    Tail = NewTail;
+    return Tail.getInstruction();
+  }
+  //errs() << "advance failed\n";
   return nullptr;
+}
+
+const Instruction *
+MustBeExecutedIterator::advance() {
+  //errs() << "advance w explorer : " << Explorer << "\n";
+  //if (Head)
+    //errs() << "Head: " << Head << "\n";
+  //if (Tail)
+    //errs() << "Tail: " << Tail << "\n";
+  // First, check if we explored a new position already.
+  if (const Instruction *I = tryToAdvance()) {
+    //errs() << "advanced to: " << *I << "\n";
+    return I;
+  }
+
+  if (!Explorer) {
+    //errs() << "rest 1 to: " << (*this == MustBeExecutedIterator()) << "\n";
+    Head = Tail = MustBeExecutedInterval::Position();
+    CurInst = nullptr;
+    //errs() << "rest 1 to: " << (*this == MustBeExecutedIterator()) << "\n";
+    return nullptr;
+  }
+
+  // We reached the boundaries of the known underlying intervals and need to
+  // explore further. Note that exploration can fail, e.g., there is no known
+  // "next" instruction. If it does succeed, the interval is either extended
+  // or linked to another one by the explorer. In either case we need to advance
+  // the Head/Tail to the new position.
+  if (const Instruction *Next =
+          Explorer->getMustBeExecutedNextInstruction(Head)) {
+    const Instruction *AdvanceNext = tryToAdvance();
+    assert(AdvanceNext && "Inconsistent state!");
+    return AdvanceNext;
+  }
+  if (const Instruction *Prev =
+          Explorer->getMustBeExecutedPrevInstruction(Tail)) {
+    const Instruction *AdvancePrev = tryToAdvance();
+    assert(AdvancePrev && "Inconsistent state!");
+    return AdvancePrev;
+  }
+
+    //errs() << "rest 2 to: " << (*this == MustBeExecutedIterator()) << "\n";
+  Head = Tail = MustBeExecutedInterval::Position();
+  CurInst = nullptr;
+  // errs() << "rest 2 to: " << (*this == MustBeExecutedIterator()) << "\n";
+  return nullptr;
+}
+
+bool MustBeExecutedIterator::isExecutedWith(const Instruction &I) {
+  //this->print(errs(), true, true);
+  //errs() << "\nis " << I << " executed with " << *getCurrentInst() <<"?\n";
+  if (anyInterval(
+          [&I](MustBeExecutedInterval &MBEI) {
+          //MBEI.print(errs(), true);
+          return MBEI.count(I); })) {
+    //errs() << "yes, in interval\n";
+    return true;
+  }
+  while (const Instruction *NewI = advance()) {
+    if (NewI == &I) {
+    //errs() << "yes, in advance\n";
+      return true;
+    }
+  }
+  return false;
+}
+
+bool MustBeExecutedIterator::isExecutedWithCached(const Instruction &I) const {
+  return anyInterval(
+      [&I](MustBeExecutedInterval &MBEI) { return MBEI.count(I); });
+  return false;
 }
