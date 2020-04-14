@@ -397,3 +397,26 @@ define void @callerE(i8* %arg) {
   ret void
 }
 
+@G = external dso_local global i32, align 4
+
+; CHECK: Function Attrs: nofree nosync nounwind willreturn writeonly
+define void @write_global() {
+  store i32 0, i32* @G, align 4
+  ret void
+}
+; CHECK: Function Attrs: argmemonly nofree nosync nounwind willreturn writeonly
+define void @write_global_via_arg(i32* %GPtr) {
+  store i32 0, i32* %GPtr, align 4
+  ret void
+}
+
+; CHECK: Function Attrs: nofree nosync nounwind writeonly
+define void @writeonly_global() {
+  call void @write_global()
+  ret void
+}
+; CHECK: Function Attrs: nofree nosync nounwind writeonly
+define void @writeonly_global_via_arg() {
+  call void @write_global_via_arg(i32* @G)
+  ret void
+}

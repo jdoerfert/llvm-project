@@ -6275,8 +6275,9 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
                                 nullptr, Changed);
     }
 
-    // Now handle global memory if it might be accessed.
-    bool HasGlobalAccesses = !(ICSAssumedNotAccessedLocs & NO_GLOBAL_MEM);
+    // Now handle global memory if it might be accessed. This is slightly tricky
+    // as NO_GLOBAL_MEM has multiple bits set.
+    bool HasGlobalAccesses = ((~ICSAssumedNotAccessedLocs) & NO_GLOBAL_MEM);
     UsedAssumed |=
         !HasGlobalAccesses && !ICSMemLocationAA.isKnown(NO_GLOBAL_MEM);
     if (HasGlobalAccesses) {
@@ -6296,7 +6297,7 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
                << getMemoryLocationsAsStr(AccessedLocs.getAssumed()) << "\n");
 
     // Now handle argument memory if it might be accessed.
-    bool HasArgAccesses = !(ICSAssumedNotAccessedLocs & NO_ARGUMENT_MEM);
+    bool HasArgAccesses = ((~ICSAssumedNotAccessedLocs) & NO_ARGUMENT_MEM);
     UsedAssumed |=
         !HasArgAccesses && !ICSMemLocationAA.isKnown(NO_ARGUMENT_MEM);
     if (HasArgAccesses) {
