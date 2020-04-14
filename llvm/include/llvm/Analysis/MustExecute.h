@@ -288,26 +288,6 @@ struct MustBeExecutedIterator {
 
   using ExplorerTy = MustBeExecutedContextExplorer;
 
-  MustBeExecutedIterator(const MustBeExecutedIterator &Other)
-      : Visited(Other.Visited), Explorer(Other.Explorer),
-        CurInst(Other.CurInst), Head(Other.Head), Tail(Other.Tail) {}
-
-  MustBeExecutedIterator(MustBeExecutedIterator &&Other)
-      : Visited(std::move(Other.Visited)), Explorer(Other.Explorer),
-        CurInst(Other.CurInst), Head(Other.Head), Tail(Other.Tail) {}
-
-  MustBeExecutedIterator &operator=(MustBeExecutedIterator &&Other) {
-    if (this != &Other) {
-      std::swap(Visited, Other.Visited);
-      std::swap(CurInst, Other.CurInst);
-      std::swap(Head, Other.Head);
-      std::swap(Tail, Other.Tail);
-    }
-    return *this;
-  }
-
-  ~MustBeExecutedIterator() {}
-
   /// Pre- and post-increment operators.
   ///{
   MustBeExecutedIterator &operator++() {
@@ -339,13 +319,11 @@ struct MustBeExecutedIterator {
 
   /// Return true if \p I was encountered by this iterator already.
   bool count(const Instruction *I) const {
-    return Visited.count({I, ExplorationDirection::FORWARD}) ||
-           Visited.count({I, ExplorationDirection::BACKWARD});
+    return VisitedFwd.count(I) || VisitedBwd.count(I);
   }
 
 private:
-  using VisitedSetTy =
-      DenseSet<PointerIntPair<const Instruction *, 1, ExplorationDirection>>;
+  using VisitedSetTy = SmallPtrSet<const Instruction *, 4>;
 
   /// Private constructors.
   MustBeExecutedIterator(ExplorerTy &Explorer, const Instruction *I);
@@ -364,7 +342,7 @@ private:
 
   /// A set to track the visited instructions in order to deal with endless
   /// loops and recursion.
-  VisitedSetTy Visited;
+  VisitedSetTy VisitedFwd, VisitedBwd;
 
   /// A reference to the explorer that created this iterator.
   ExplorerTy &Explorer;

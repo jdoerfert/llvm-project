@@ -813,15 +813,16 @@ MustBeExecutedIterator::MustBeExecutedIterator(
 }
 
 void MustBeExecutedIterator::reset(const Instruction *I) {
-  Visited.clear();
+  VisitedFwd.clear();
+  VisitedBwd.clear();
   resetInstruction(I);
 }
 
 void MustBeExecutedIterator::resetInstruction(const Instruction *I) {
   CurInst = I;
   Head = Tail = nullptr;
-  Visited.insert({I, ExplorationDirection::FORWARD});
-  Visited.insert({I, ExplorationDirection::BACKWARD});
+  VisitedFwd.insert(I);
+  VisitedBwd.insert(I);
   if (Explorer.ExploreCFGForward)
     Head = I;
   if (Explorer.ExploreCFGBackward)
@@ -831,12 +832,12 @@ void MustBeExecutedIterator::resetInstruction(const Instruction *I) {
 const Instruction *MustBeExecutedIterator::advance() {
   assert(CurInst && "Cannot advance an end iterator!");
   Head = Explorer.getMustBeExecutedNextInstruction(*this, Head);
-  if (Head && Visited.insert({Head, ExplorationDirection ::FORWARD}).second)
+  if (Head && VisitedFwd.insert(Head).second)
     return Head;
   Head = nullptr;
 
   Tail = Explorer.getMustBeExecutedPrevInstruction(*this, Tail);
-  if (Tail && Visited.insert({Tail, ExplorationDirection ::BACKWARD}).second)
+  if (Tail && VisitedBwd.insert(Tail).second)
     return Tail;
   Tail = nullptr;
   return nullptr;
