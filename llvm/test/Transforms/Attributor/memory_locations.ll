@@ -65,11 +65,17 @@ return:                                           ; preds = %if.end, %if.then
 
 ; CHECK: Function Attrs: inaccessiblememonly
 define dso_local i8* @internal_only_rec_static_helper(i32 %arg) {
-; CHECK-LABEL: define {{[^@]+}}@internal_only_rec_static_helper
-; CHECK-SAME: (i32 [[ARG:%.*]])
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_only_rec_static(i32 [[ARG]])
-; CHECK-NEXT:    ret i8* [[CALL]]
+; IS________OPM-LABEL: define {{[^@]+}}@internal_only_rec_static_helper
+; IS________OPM-SAME: (i32 [[ARG:%.*]])
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_only_rec_static(i32 [[ARG]])
+; IS________OPM-NEXT:    ret i8* [[CALL]]
+;
+; IS________NPM-LABEL: define {{[^@]+}}@internal_only_rec_static_helper
+; IS________NPM-SAME: (i32 [[ARG:%.*]])
+; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    [[CALL:%.*]] = call noalias nonnull i8* @internal_only_rec_static(i32 [[ARG]])
+; IS________NPM-NEXT:    ret i8* [[CALL]]
 ;
 entry:
   %call = call i8* @internal_only_rec_static(i32 %arg)
@@ -118,11 +124,17 @@ return:                                           ; preds = %if.end, %if.then
 
 define dso_local i8* @internal_only_rec_static_helper_malloc_noescape(i32 %arg) {
 ; FIXME: This is actually inaccessiblememonly because the malloced memory does not escape
-; CHECK-LABEL: define {{[^@]+}}@internal_only_rec_static_helper_malloc_noescape
-; CHECK-SAME: (i32 [[ARG:%.*]])
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_only_rec_static_malloc_noescape(i32 [[ARG]])
-; CHECK-NEXT:    ret i8* [[CALL]]
+; IS________OPM-LABEL: define {{[^@]+}}@internal_only_rec_static_helper_malloc_noescape
+; IS________OPM-SAME: (i32 [[ARG:%.*]])
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_only_rec_static_malloc_noescape(i32 [[ARG]])
+; IS________OPM-NEXT:    ret i8* [[CALL]]
+;
+; IS________NPM-LABEL: define {{[^@]+}}@internal_only_rec_static_helper_malloc_noescape
+; IS________NPM-SAME: (i32 [[ARG:%.*]])
+; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    [[CALL:%.*]] = call noalias nonnull i8* @internal_only_rec_static_malloc_noescape(i32 [[ARG]])
+; IS________NPM-NEXT:    ret i8* [[CALL]]
 ;
 entry:
   %call = call i8* @internal_only_rec_static_malloc_noescape(i32 %arg)
@@ -205,17 +217,29 @@ entry:
 
 ; CHECK: Function Attrs: inaccessiblemem_or_argmemonly
 define dso_local i8* @internal_argmem_only_rec(i32* %arg) {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@internal_argmem_only_rec
-; IS__TUNIT____-SAME: (i32* nocapture align 4 [[ARG:%.*]])
-; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture align 4 [[ARG]])
-; IS__TUNIT____-NEXT:    ret i8* [[CALL]]
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@internal_argmem_only_rec
+; IS__TUNIT_OPM-SAME: (i32* nocapture align 4 [[ARG:%.*]])
+; IS__TUNIT_OPM-NEXT:  entry:
+; IS__TUNIT_OPM-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture align 4 [[ARG]])
+; IS__TUNIT_OPM-NEXT:    ret i8* [[CALL]]
 ;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@internal_argmem_only_rec
-; IS__CGSCC____-SAME: (i32* nocapture nonnull align 4 dereferenceable(4) [[ARG:%.*]])
-; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture nonnull align 4 dereferenceable(4) [[ARG]])
-; IS__CGSCC____-NEXT:    ret i8* [[CALL]]
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@internal_argmem_only_rec
+; IS__TUNIT_NPM-SAME: (i32* nocapture align 4 [[ARG:%.*]])
+; IS__TUNIT_NPM-NEXT:  entry:
+; IS__TUNIT_NPM-NEXT:    [[CALL:%.*]] = call noalias nonnull i8* @internal_argmem_only_rec_1(i32* nocapture align 4 [[ARG]])
+; IS__TUNIT_NPM-NEXT:    ret i8* [[CALL]]
+;
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@internal_argmem_only_rec
+; IS__CGSCC_OPM-SAME: (i32* nocapture nonnull align 4 dereferenceable(4) [[ARG:%.*]])
+; IS__CGSCC_OPM-NEXT:  entry:
+; IS__CGSCC_OPM-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture nonnull align 4 dereferenceable(4) [[ARG]])
+; IS__CGSCC_OPM-NEXT:    ret i8* [[CALL]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@internal_argmem_only_rec
+; IS__CGSCC_NPM-SAME: (i32* nocapture nonnull align 4 dereferenceable(4) [[ARG:%.*]])
+; IS__CGSCC_NPM-NEXT:  entry:
+; IS__CGSCC_NPM-NEXT:    [[CALL:%.*]] = call noalias nonnull i8* @internal_argmem_only_rec_1(i32* nocapture nonnull align 4 dereferenceable(4) [[ARG]])
+; IS__CGSCC_NPM-NEXT:    ret i8* [[CALL]]
 ;
 entry:
   %call = call i8* @internal_argmem_only_rec_1(i32* %arg)
@@ -280,13 +304,21 @@ return:                                           ; preds = %if.end3, %if.then2,
 
 ; CHECK: Function Attrs: inaccessiblemem_or_argmemonly
 define internal i8* @internal_argmem_only_rec_2(i32* %arg) {
-; CHECK-LABEL: define {{[^@]+}}@internal_argmem_only_rec_2
-; CHECK-SAME: (i32* nocapture nonnull align 4 dereferenceable(4) [[ARG:%.*]])
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    store i32 0, i32* [[ARG]], align 4
-; CHECK-NEXT:    [[ADD_PTR:%.*]] = getelementptr inbounds i32, i32* [[ARG]], i64 -1
-; CHECK-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture nonnull align 4 dereferenceable(4) [[ADD_PTR]])
-; CHECK-NEXT:    ret i8* [[CALL]]
+; IS________OPM-LABEL: define {{[^@]+}}@internal_argmem_only_rec_2
+; IS________OPM-SAME: (i32* nocapture nonnull align 4 dereferenceable(4) [[ARG:%.*]])
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    store i32 0, i32* [[ARG]], align 4
+; IS________OPM-NEXT:    [[ADD_PTR:%.*]] = getelementptr inbounds i32, i32* [[ARG]], i64 -1
+; IS________OPM-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture nonnull align 4 dereferenceable(4) [[ADD_PTR]])
+; IS________OPM-NEXT:    ret i8* [[CALL]]
+;
+; IS________NPM-LABEL: define {{[^@]+}}@internal_argmem_only_rec_2
+; IS________NPM-SAME: (i32* nocapture nonnull align 4 dereferenceable(4) [[ARG:%.*]])
+; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    store i32 0, i32* [[ARG]], align 4
+; IS________NPM-NEXT:    [[ADD_PTR:%.*]] = getelementptr inbounds i32, i32* [[ARG]], i64 -1
+; IS________NPM-NEXT:    [[CALL:%.*]] = call noalias nonnull i8* @internal_argmem_only_rec_1(i32* nocapture nonnull align 4 dereferenceable(4) [[ADD_PTR]])
+; IS________NPM-NEXT:    ret i8* [[CALL]]
 ;
 entry:
   store i32 0, i32* %arg, align 4

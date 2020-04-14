@@ -355,26 +355,47 @@ declare nonnull i8* @nonnull()
 
 define internal i32* @f1(i32* %arg) {
 ; FIXME: missing nonnull It should be nonnull @f1(i32* nonnull readonly %arg)
-; CHECK-LABEL: define {{[^@]+}}@f1
-; CHECK-SAME: (i32* nofree readonly [[ARG:%.*]])
-; CHECK-NEXT:  bb:
-; CHECK-NEXT:    [[TMP:%.*]] = icmp eq i32* [[ARG]], null
-; CHECK-NEXT:    br i1 [[TMP]], label [[BB9:%.*]], label [[BB1:%.*]]
-; CHECK:       bb1:
-; CHECK-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ARG]], align 4
-; CHECK-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[TMP2]], 0
-; CHECK-NEXT:    br i1 [[TMP3]], label [[BB6:%.*]], label [[BB4:%.*]]
-; CHECK:       bb4:
-; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr inbounds i32, i32* [[ARG]], i64 1
-; CHECK-NEXT:    [[TMP5B:%.*]] = tail call nonnull i32* @f3(i32* nofree nonnull readonly [[TMP5]])
-; CHECK-NEXT:    [[TMP5C:%.*]] = getelementptr inbounds i32, i32* [[TMP5B]], i64 -1
-; CHECK-NEXT:    br label [[BB9]]
-; CHECK:       bb6:
-; CHECK-NEXT:    [[TMP7:%.*]] = tail call nonnull i32* @f2(i32* nofree nonnull readonly align 4 dereferenceable(4) [[ARG]])
-; CHECK-NEXT:    ret i32* [[TMP7]]
-; CHECK:       bb9:
-; CHECK-NEXT:    [[TMP10:%.*]] = phi i32* [ [[TMP5C]], [[BB4]] ], [ inttoptr (i64 4 to i32*), [[BB:%.*]] ]
-; CHECK-NEXT:    ret i32* [[TMP10]]
+; IS________OPM-LABEL: define {{[^@]+}}@f1
+; IS________OPM-SAME: (i32* nofree readonly [[ARG:%.*]])
+; IS________OPM-NEXT:  bb:
+; IS________OPM-NEXT:    [[TMP:%.*]] = icmp eq i32* [[ARG]], null
+; IS________OPM-NEXT:    br i1 [[TMP]], label [[BB9:%.*]], label [[BB1:%.*]]
+; IS________OPM:       bb1:
+; IS________OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ARG]], align 4
+; IS________OPM-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[TMP2]], 0
+; IS________OPM-NEXT:    br i1 [[TMP3]], label [[BB6:%.*]], label [[BB4:%.*]]
+; IS________OPM:       bb4:
+; IS________OPM-NEXT:    [[TMP5:%.*]] = getelementptr inbounds i32, i32* [[ARG]], i64 1
+; IS________OPM-NEXT:    [[TMP5B:%.*]] = tail call nonnull i32* @f3(i32* nofree nonnull readonly [[TMP5]])
+; IS________OPM-NEXT:    [[TMP5C:%.*]] = getelementptr inbounds i32, i32* [[TMP5B]], i64 -1
+; IS________OPM-NEXT:    br label [[BB9]]
+; IS________OPM:       bb6:
+; IS________OPM-NEXT:    [[TMP7:%.*]] = tail call nonnull i32* @f2(i32* nofree nonnull readonly align 4 dereferenceable(4) [[ARG]])
+; IS________OPM-NEXT:    ret i32* [[TMP7]]
+; IS________OPM:       bb9:
+; IS________OPM-NEXT:    [[TMP10:%.*]] = phi i32* [ [[TMP5C]], [[BB4]] ], [ inttoptr (i64 4 to i32*), [[BB:%.*]] ]
+; IS________OPM-NEXT:    ret i32* [[TMP10]]
+;
+; IS________NPM-LABEL: define {{[^@]+}}@f1
+; IS________NPM-SAME: (i32* nofree readonly [[ARG:%.*]])
+; IS________NPM-NEXT:  bb:
+; IS________NPM-NEXT:    [[TMP:%.*]] = icmp eq i32* [[ARG]], null
+; IS________NPM-NEXT:    br i1 [[TMP]], label [[BB9:%.*]], label [[BB1:%.*]]
+; IS________NPM:       bb1:
+; IS________NPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ARG]], align 4
+; IS________NPM-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[TMP2]], 0
+; IS________NPM-NEXT:    br i1 [[TMP3]], label [[BB6:%.*]], label [[BB4:%.*]]
+; IS________NPM:       bb4:
+; IS________NPM-NEXT:    [[TMP5:%.*]] = getelementptr inbounds i32, i32* [[ARG]], i64 1
+; IS________NPM-NEXT:    [[TMP5B:%.*]] = tail call i32* @f3(i32* nofree nonnull readonly [[TMP5]])
+; IS________NPM-NEXT:    [[TMP5C:%.*]] = getelementptr inbounds i32, i32* [[TMP5B]], i64 -1
+; IS________NPM-NEXT:    br label [[BB9]]
+; IS________NPM:       bb6:
+; IS________NPM-NEXT:    [[TMP7:%.*]] = tail call i32* @f2(i32* nofree nonnull readonly align 4 dereferenceable(4) [[ARG]])
+; IS________NPM-NEXT:    ret i32* [[TMP7]]
+; IS________NPM:       bb9:
+; IS________NPM-NEXT:    [[TMP10:%.*]] = phi i32* [ [[TMP5C]], [[BB4]] ], [ inttoptr (i64 4 to i32*), [[BB:%.*]] ]
+; IS________NPM-NEXT:    ret i32* [[TMP10]]
 ;
 
 bb:
@@ -415,11 +436,17 @@ bb:
 
 define dso_local noalias i32* @f3(i32* %arg) {
 ; FIXME: missing nonnull. It should be nonnull @f3(i32* nonnull readonly %arg)
-; CHECK-LABEL: define {{[^@]+}}@f3
-; CHECK-SAME: (i32* nofree readonly [[ARG:%.*]])
-; CHECK-NEXT:  bb:
-; CHECK-NEXT:    [[TMP:%.*]] = call nonnull i32* @f1(i32* nofree readonly [[ARG]])
-; CHECK-NEXT:    ret i32* [[TMP]]
+; IS________OPM-LABEL: define {{[^@]+}}@f3
+; IS________OPM-SAME: (i32* nofree readonly [[ARG:%.*]])
+; IS________OPM-NEXT:  bb:
+; IS________OPM-NEXT:    [[TMP:%.*]] = call nonnull i32* @f1(i32* nofree readonly [[ARG]])
+; IS________OPM-NEXT:    ret i32* [[TMP]]
+;
+; IS________NPM-LABEL: define {{[^@]+}}@f3
+; IS________NPM-SAME: (i32* nofree readonly [[ARG:%.*]])
+; IS________NPM-NEXT:  bb:
+; IS________NPM-NEXT:    [[TMP:%.*]] = call i32* @f1(i32* nofree readonly [[ARG]])
+; IS________NPM-NEXT:    ret i32* [[TMP]]
 ;
 bb:
 ; FIXME: missing nonnull. It should be @f1(i32* nonnull readonly %arg)

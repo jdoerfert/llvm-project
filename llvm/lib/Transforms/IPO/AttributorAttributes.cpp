@@ -516,11 +516,10 @@ static void followUsesInContext(AAType &AA, Attributor &A,
                                 const Instruction *CtxI,
                                 SetVector<const Use *> &Uses,
                                 StateType &State) {
-  auto EIt = Explorer.begin(CtxI), EEnd = Explorer.end(CtxI);
   for (unsigned u = 0; u < Uses.size(); ++u) {
     const Use *U = Uses[u];
     if (const Instruction *UserI = dyn_cast<Instruction>(U->getUser())) {
-      bool Found = Explorer.findInContextOf(UserI, EIt, EEnd);
+      bool Found = Explorer.findInContextOf(*UserI, *CtxI);
       if (Found && AA.followUseInMBEC(A, U, UserI, State))
         for (const Use &Us : UserI->uses())
           Uses.insert(&Us);
@@ -594,7 +593,7 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
   //    }
   // }
 
-  Explorer.checkForAllContext(&CtxI, Pred);
+  Explorer.checkForAllInContext(CtxI, Pred);
   for (const BranchInst *Br : BrInsts) {
     StateType ParentState;
 
@@ -4695,7 +4694,7 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
     if (Frees.size() != 1)
       return false;
     Instruction *UniqueFree = *Frees.begin();
-    return Explorer.findInContextOf(UniqueFree, I.getNextNode());
+    return Explorer.findInContextOf(*UniqueFree, *I.getNextNode());
   };
 
   auto UsesCheck = [&](Instruction &I) {

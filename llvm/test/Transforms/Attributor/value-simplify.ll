@@ -286,15 +286,15 @@ define i32* @complicated_args_inalloca() {
 
 define internal void @test_sret(%struct.X* sret %a, %struct.X** %b) {
 ;
-; IS__TUNIT____-LABEL: define {{[^@]+}}@test_sret
-; IS__TUNIT____-SAME: (%struct.X* noalias nofree sret writeonly align 536870912 [[A:%.*]], %struct.X** nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[B:%.*]])
-; IS__TUNIT____-NEXT:    store %struct.X* [[A]], %struct.X** [[B]], align 8
-; IS__TUNIT____-NEXT:    ret void
+; NOT_CGSCC_OPM-LABEL: define {{[^@]+}}@test_sret
+; NOT_CGSCC_OPM-SAME: (%struct.X* noalias nofree sret writeonly align 536870912 [[A:%.*]], %struct.X** nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[B:%.*]])
+; NOT_CGSCC_OPM-NEXT:    store %struct.X* [[A]], %struct.X** [[B]], align 8
+; NOT_CGSCC_OPM-NEXT:    ret void
 ;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@test_sret
-; IS__CGSCC____-SAME: (%struct.X* noalias nofree sret writeonly [[A:%.*]], %struct.X** nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[B:%.*]])
-; IS__CGSCC____-NEXT:    store %struct.X* [[A]], %struct.X** [[B]], align 8
-; IS__CGSCC____-NEXT:    ret void
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@test_sret
+; IS__CGSCC_OPM-SAME: (%struct.X* noalias nofree sret writeonly [[A:%.*]], %struct.X** nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[B:%.*]])
+; IS__CGSCC_OPM-NEXT:    store %struct.X* [[A]], %struct.X** [[B]], align 8
+; IS__CGSCC_OPM-NEXT:    ret void
 ;
   store %struct.X* %a, %struct.X** %b
   ret void
@@ -376,9 +376,13 @@ define internal i8*@test_byval2(%struct.X* byval %a) {
   ret i8* %l
 }
 define i8* @complicated_args_byval2() {
-; CHECK-LABEL: define {{[^@]+}}@complicated_args_byval2()
-; CHECK-NEXT:    [[C:%.*]] = call i8* @test_byval2()
-; CHECK-NEXT:    ret i8* [[C]]
+; IS________OPM-LABEL: define {{[^@]+}}@complicated_args_byval2()
+; IS________OPM-NEXT:    [[C:%.*]] = call i8* @test_byval2()
+; IS________OPM-NEXT:    ret i8* [[C]]
+;
+; IS________NPM-LABEL: define {{[^@]+}}@complicated_args_byval2()
+; IS________NPM-NEXT:    [[C:%.*]] = call nonnull i8* @test_byval2()
+; IS________NPM-NEXT:    ret i8* [[C]]
 ;
   %c = call i8* @test_byval2(%struct.X* @S)
   ret i8* %c

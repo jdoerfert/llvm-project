@@ -75,15 +75,25 @@ define internal i32 @vfu2(%struct.MYstr* byval align 4 %u) nounwind readonly {
 ; IS__TUNIT_NPM-NEXT:    [[TMP7:%.*]] = add i32 [[TMP6]], [[TMP3]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[TMP7]]
 ;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@vfu2()
-; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[TMP0:%.*]] = getelementptr [[STRUCT_MYSTR:%.*]], %struct.MYstr* @mystr, i32 0, i32 1
-; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
-; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = getelementptr [[STRUCT_MYSTR]], %struct.MYstr* @mystr, i32 0, i32 0
-; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = load i8, i8* [[TMP2]], align 4
-; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = zext i8 [[TMP3]] to i32
-; IS__CGSCC____-NEXT:    [[TMP5:%.*]] = add i32 [[TMP4]], [[TMP1]]
-; IS__CGSCC____-NEXT:    ret i32 [[TMP5]]
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@vfu2()
+; IS__CGSCC_OPM-NEXT:  entry:
+; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = getelementptr [[STRUCT_MYSTR:%.*]], %struct.MYstr* @mystr, i32 0, i32 1
+; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = getelementptr [[STRUCT_MYSTR]], %struct.MYstr* @mystr, i32 0, i32 0
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = load i8, i8* [[TMP2]], align 4
+; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = zext i8 [[TMP3]] to i32
+; IS__CGSCC_OPM-NEXT:    [[TMP5:%.*]] = add i32 [[TMP4]], [[TMP1]]
+; IS__CGSCC_OPM-NEXT:    ret i32 [[TMP5]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@vfu2()
+; IS__CGSCC_NPM-NEXT:  entry:
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = getelementptr [[STRUCT_MYSTR:%.*]], %struct.MYstr* @mystr, i32 0, i32 1
+; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = getelementptr [[STRUCT_MYSTR]], %struct.MYstr* @mystr, i32 0, i32 0
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = load i8, i8* [[TMP2]], align 8
+; IS__CGSCC_NPM-NEXT:    [[TMP4:%.*]] = zext i8 [[TMP3]] to i32
+; IS__CGSCC_NPM-NEXT:    [[TMP5:%.*]] = add i32 [[TMP4]], [[TMP1]]
+; IS__CGSCC_NPM-NEXT:    ret i32 [[TMP5]]
 ;
 entry:
   %0 = getelementptr %struct.MYstr, %struct.MYstr* %u, i32 0, i32 1 ; <i32*> [#uses=1]

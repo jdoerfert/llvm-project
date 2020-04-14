@@ -25,22 +25,39 @@ define i8* @start(i8 %v) {
 ; IS__TUNIT____-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 undef)
 ; IS__TUNIT____-NEXT:    ret i8* [[CA2]]
 ;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@start
-; IS__CGSCC____-SAME: (i8 [[V:%.*]])
-; IS__CGSCC____-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
-; IS__CGSCC____-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
-; IS__CGSCC____:       true:
-; IS__CGSCC____-NEXT:    [[CA:%.*]] = musttail call noalias align 536870912 i8* @side_effects(i8 [[V]])
-; IS__CGSCC____-NEXT:    ret i8* [[CA]]
-; IS__CGSCC____:       false:
-; IS__CGSCC____-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
-; IS__CGSCC____-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
-; IS__CGSCC____:       c2_true:
-; IS__CGSCC____-NEXT:    [[CA1:%.*]] = musttail call noalias align 536870912 i8* @no_side_effects(i8 [[V]])
-; IS__CGSCC____-NEXT:    ret i8* [[CA1]]
-; IS__CGSCC____:       c2_false:
-; IS__CGSCC____-NEXT:    [[CA2:%.*]] = musttail call noalias align 536870912 i8* @dont_zap_me(i8 [[V]])
-; IS__CGSCC____-NEXT:    ret i8* [[CA2]]
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@start
+; IS__CGSCC_OPM-SAME: (i8 [[V:%.*]])
+; IS__CGSCC_OPM-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
+; IS__CGSCC_OPM-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
+; IS__CGSCC_OPM:       true:
+; IS__CGSCC_OPM-NEXT:    [[CA:%.*]] = musttail call noalias align 536870912 i8* @side_effects(i8 [[V]])
+; IS__CGSCC_OPM-NEXT:    ret i8* [[CA]]
+; IS__CGSCC_OPM:       false:
+; IS__CGSCC_OPM-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
+; IS__CGSCC_OPM-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
+; IS__CGSCC_OPM:       c2_true:
+; IS__CGSCC_OPM-NEXT:    [[CA1:%.*]] = musttail call noalias align 536870912 i8* @no_side_effects(i8 [[V]])
+; IS__CGSCC_OPM-NEXT:    ret i8* [[CA1]]
+; IS__CGSCC_OPM:       c2_false:
+; IS__CGSCC_OPM-NEXT:    [[CA2:%.*]] = musttail call noalias align 536870912 i8* @dont_zap_me(i8 [[V]])
+; IS__CGSCC_OPM-NEXT:    ret i8* [[CA2]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@start
+; IS__CGSCC_NPM-SAME: (i8 [[V:%.*]])
+; IS__CGSCC_NPM-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
+; IS__CGSCC_NPM-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
+; IS__CGSCC_NPM:       true:
+; IS__CGSCC_NPM-NEXT:    [[CA:%.*]] = musttail call noalias align 536870912 i8* @side_effects(i8 [[V]])
+; IS__CGSCC_NPM-NEXT:    ret i8* [[CA]]
+; IS__CGSCC_NPM:       false:
+; IS__CGSCC_NPM-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
+; IS__CGSCC_NPM-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
+; IS__CGSCC_NPM:       c2_true:
+; IS__CGSCC_NPM-NEXT:    [[CA1:%.*]] = musttail call noalias nonnull align 536870912 i8* @no_side_effects(i8 [[V]])
+; IS__CGSCC_NPM-NEXT:    ret i8* [[CA1]]
+; IS__CGSCC_NPM:       c2_false:
+; IS__CGSCC_NPM-NEXT:    [[CA2:%.*]] = musttail call noalias align 536870912 i8* @dont_zap_me(i8 [[V]])
+; IS__CGSCC_NPM-NEXT:    ret i8* [[CA2]]
 ;
   %c1 = icmp eq i8 %v, 0
   br i1 %c1, label %true, label %false
@@ -67,11 +84,17 @@ define internal i8* @side_effects(i8 %v) {
 ; IS__TUNIT____-NEXT:    [[CA:%.*]] = musttail call i8* @start(i8 [[V]])
 ; IS__TUNIT____-NEXT:    ret i8* [[CA]]
 ;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@side_effects
-; IS__CGSCC____-SAME: (i8 [[V:%.*]])
-; IS__CGSCC____-NEXT:    [[I1:%.*]] = call i32 @external()
-; IS__CGSCC____-NEXT:    [[CA:%.*]] = musttail call noalias align 536870912 i8* @start(i8 [[V]])
-; IS__CGSCC____-NEXT:    ret i8* [[CA]]
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@side_effects
+; IS__CGSCC_OPM-SAME: (i8 [[V:%.*]])
+; IS__CGSCC_OPM-NEXT:    [[I1:%.*]] = call i32 @external()
+; IS__CGSCC_OPM-NEXT:    [[CA:%.*]] = musttail call noalias align 536870912 i8* @start(i8 [[V]])
+; IS__CGSCC_OPM-NEXT:    ret i8* [[CA]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@side_effects
+; IS__CGSCC_NPM-SAME: (i8 [[V:%.*]])
+; IS__CGSCC_NPM-NEXT:    [[I1:%.*]] = call i32 @external()
+; IS__CGSCC_NPM-NEXT:    [[CA:%.*]] = musttail call noalias nonnull align 536870912 i8* @start(i8 [[V]])
+; IS__CGSCC_NPM-NEXT:    ret i8* [[CA]]
 ;
   %i1 = call i32 @external()
 
