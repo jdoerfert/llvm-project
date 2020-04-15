@@ -71,7 +71,7 @@ static cl::opt<bool> AnnotateDeclarationCallSites(
 static cl::opt<unsigned> DepRecInterval(
     "attributor-dependence-recompute-interval", cl::Hidden,
     cl::desc("Number of iterations until dependences are recomputed."),
-    cl::init(4));
+    cl::init(16));
 
 static cl::opt<bool> EnableHeapToStack("enable-heap-to-stack-conversion",
                                        cl::init(true), cl::Hidden);
