@@ -1232,19 +1232,16 @@ private:
 
   /// A map from abstract attributes to the ones that queried them through calls
   /// to the getAAFor<...>(...) method.
-  ///{
-  struct QueryMapValueTy {
-    /// Set of abstract attributes which were used but not necessarily required
-    /// for a potential optimistic state.
-    SetVector<AbstractAttribute *> OptionalAAs;
+  using QueryMapTy =
+      DenseMap<const AbstractAttribute *, SmallVector<AbstractAttribute *, 4>>;
 
-    /// Set of abstract attributes which were used and which were necessarily
-    /// required for any potential optimistic state.
-    SetVector<AbstractAttribute *> RequiredAAs;
-  };
-  using QueryMapTy = MapVector<const AbstractAttribute *, QueryMapValueTy>;
-  QueryMapTy QueryMap;
-  ///}
+  /// A map from abstract attributes to the ones which were used but not
+  /// necessarily required for a potential optimistic state.
+  QueryMapTy OptionalDeps;
+
+  /// Map from an abstract attribute to the ones which were used and which were
+  /// necessarily required for any potential optimistic state.
+  QueryMapTy RequiredDeps;
 
   /// Map to remember all requested signature changes (= argument replacements).
   DenseMap<Function *, SmallVector<ArgumentReplacementInfo *, 8>>

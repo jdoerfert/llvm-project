@@ -914,12 +914,12 @@ ChangeStatus Attributor::run() {
     // to run updates.
     for (unsigned u = 0; u < InvalidAAs.size(); ++u) {
       AbstractAttribute *InvalidAA = InvalidAAs[u];
-      auto &QuerriedAAs = QueryMap[InvalidAA];
+      auto &OptDeps = OptionalDeps[InvalidAA];
+      auto &ReqDeps = RequiredDeps[InvalidAA];
       LLVM_DEBUG(dbgs() << "[Attributor] InvalidAA: " << *InvalidAA << " has "
-                        << QuerriedAAs.RequiredAAs.size() << "/"
-                        << QuerriedAAs.OptionalAAs.size()
+                        << ReqDeps.size() << "/" << OptDeps.size()
                         << " required/optional dependences\n");
-      for (AbstractAttribute *DepOnInvalidAA : QuerriedAAs.RequiredAAs) {
+      for (AbstractAttribute *DepOnInvalidAA : ReqDeps) {
         AbstractState &DOIAAState = DepOnInvalidAA->getState();
         DOIAAState.indicatePessimisticFixpoint();
         ++NumAttributesFixedDueToRequiredDependences;
@@ -930,16 +930,17 @@ ChangeStatus Attributor::run() {
           ChangedAAs.push_back(DepOnInvalidAA);
       }
       if (!RecomputeDependences)
-        Worklist.insert(QuerriedAAs.OptionalAAs.begin(),
-                        QuerriedAAs.OptionalAAs.end());
+        Worklist.insert(OptDeps.begin(), OptDeps.end());
     }
 
-    // If dependences (=QueryMap) are recomputed we have to look at all abstract
-    // attributes again, regardless of what changed in the last iteration.
+    // If dependences (=OptionalDeps,RequiredDeps) are recomputed we have to
+    // look at all abstract attributes again, regardless of what changed in the
+    // last iteration.
     if (RecomputeDependences) {
       LLVM_DEBUG(
           dbgs() << "[Attributor] Run all AAs to recompute dependences\n");
-      QueryMap.clear();
+      OptionalDeps.clear();
+      RequiredDeps.clear();
       ChangedAAs.clear();
       Worklist.insert(AllAbstractAttributes.begin(),
                       AllAbstractAttributes.end());
@@ -948,11 +949,10 @@ ChangeStatus Attributor::run() {
     // Add all abstract attributes that are potentially dependent on one that
     // changed to the work list.
     for (AbstractAttribute *ChangedAA : ChangedAAs) {
-      auto &QuerriedAAs = QueryMap[ChangedAA];
-      Worklist.insert(QuerriedAAs.OptionalAAs.begin(),
-                      QuerriedAAs.OptionalAAs.end());
-      Worklist.insert(QuerriedAAs.RequiredAAs.begin(),
-                      QuerriedAAs.RequiredAAs.end());
+      auto &OptDeps = OptionalDeps[ChangedAA];
+      auto &ReqDeps = RequiredDeps[ChangedAA];
+      Worklist.insert(OptDeps.begin(), OptDeps.end());
+      Worklist.insert(ReqDeps.begin(), ReqDeps.end());
     }
 
     LLVM_DEBUG(dbgs() << "[Attributor] #Iteration: " << IterationCounter
@@ -1021,11 +1021,10 @@ ChangeStatus Attributor::run() {
       NumAttributesTimedOut++;
     }
 
-    auto &QuerriedAAs = QueryMap[ChangedAA];
-    ChangedAAs.append(QuerriedAAs.OptionalAAs.begin(),
-                      QuerriedAAs.OptionalAAs.end());
-    ChangedAAs.append(QuerriedAAs.RequiredAAs.begin(),
-                      QuerriedAAs.RequiredAAs.end());
+    auto &OptDeps = OptionalDeps[ChangedAA];
+    auto &ReqDeps = RequiredDeps[ChangedAA];
+    ChangedAAs.append(OptDeps.begin(), OptDeps.end());
+    ChangedAAs.append(ReqDeps.begin(), ReqDeps.end());
   }
 
   LLVM_DEBUG({
@@ -1667,10 +1666,10 @@ void Attributor::recordDependence(const AbstractAttribute &FromAA,
     return;
 
   if (DepClass == DepClassTy::REQUIRED)
-    QueryMap[&FromAA].RequiredAAs.insert(
+    RequiredDeps[&FromAA].push_back(
         const_cast<AbstractAttribute *>(&ToAA));
   else
-    QueryMap[&FromAA].OptionalAAs.insert(
+    OptionalDeps[&FromAA].push_back(
         const_cast<AbstractAttribute *>(&ToAA));
   QueriedNonFixAA = true;
 }
