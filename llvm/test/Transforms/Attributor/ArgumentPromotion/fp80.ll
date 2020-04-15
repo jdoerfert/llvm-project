@@ -76,9 +76,9 @@ define internal i64 @CaptureAStruct(%struct.Foo* byval %a) {
 ; IS__CGSCC_NPM-NEXT:  entry:
 ; IS__CGSCC_NPM-NEXT:    [[A_PRIV:%.*]] = alloca [[STRUCT_FOO:%.*]]
 ; IS__CGSCC_NPM-NEXT:    [[A_PRIV_CAST:%.*]] = bitcast %struct.Foo* [[A_PRIV]] to i32*
-; IS__CGSCC_NPM-NEXT:    store i32 [[TMP0]], i32* [[A_PRIV_CAST]]
+; IS__CGSCC_NPM-NEXT:    store i32 [[TMP0]], i32* [[A_PRIV_CAST]], align 4
 ; IS__CGSCC_NPM-NEXT:    [[A_PRIV_0_1:%.*]] = getelementptr [[STRUCT_FOO]], %struct.Foo* [[A_PRIV]], i32 0, i32 1
-; IS__CGSCC_NPM-NEXT:    store i64 [[TMP1]], i64* [[A_PRIV_0_1]]
+; IS__CGSCC_NPM-NEXT:    store i64 [[TMP1]], i64* [[A_PRIV_0_1]], align 8
 ; IS__CGSCC_NPM-NEXT:    [[A_PTR:%.*]] = alloca %struct.Foo*
 ; IS__CGSCC_NPM-NEXT:    br label [[LOOP:%.*]]
 ; IS__CGSCC_NPM:       loop:

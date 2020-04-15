@@ -536,50 +536,28 @@ template <typename AAType, typename Base,
 struct AAFromMustBeExecutedContext : public Base {
   AAFromMustBeExecutedContext(const IRPosition &IRP) : Base(IRP) {}
 
+  /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     Base::initialize(A);
+
     const IRPosition &IRP = this->getIRPosition();
     Instruction *CtxI = IRP.getCtxI();
-
     if (!CtxI)
       return;
 
+    /// Container for (transitive) uses of the associated value.
+    SetVector<const Use *> Uses;
     for (const Use &U : IRP.getAssociatedValue().uses())
       Uses.insert(&U);
-  }
-
-  /// Helper function to accumulate uses.
-  void followUsesInContext(Attributor &A,
-                           MustBeExecutedContextExplorer &Explorer,
-                           const Instruction *CtxI,
-                           SetVector<const Use *> &Uses, StateType &State) {
-    auto EIt = Explorer.begin(CtxI), EEnd = Explorer.end(CtxI);
-    for (unsigned u = 0; u < Uses.size(); ++u) {
-      const Use *U = Uses[u];
-      if (const Instruction *UserI = dyn_cast<Instruction>(U->getUser())) {
-        bool Found = Explorer.findInContextOf(UserI, EIt, EEnd);
-        if (Found && Base::followUse(A, U, UserI, State))
-          for (const Use &Us : UserI->uses())
-            Uses.insert(&Us);
-      }
-    }
-  }
-
-  /// See AbstractAttribute::updateImpl(...).
-  ChangeStatus updateImpl(Attributor &A) override {
-    auto BeforeState = this->getState();
-    auto &S = this->getState();
-    Instruction *CtxI = this->getIRPosition().getCtxI();
-    if (!CtxI)
-      return ChangeStatus::UNCHANGED;
 
     MustBeExecutedContextExplorer &Explorer =
         A.getInfoCache().getMustBeExecutedContextExplorer();
 
+    auto &S = this->getState();
     followUsesInContext(A, Explorer, CtxI, Uses, S);
 
     if (this->isAtFixpoint())
-      return ChangeStatus::CHANGED;
+      return;
 
     SmallVector<const BranchInst *, 4> BrInsts;
     auto Pred = [&](const Instruction *I) {
@@ -645,13 +623,35 @@ struct AAFromMustBeExecutedContext : public Base {
       // Use only known state.
       S += ParentState;
     }
-
-    return BeforeState == S ? ChangeStatus::UNCHANGED : ChangeStatus::CHANGED;
   }
 
-private:
-  /// Container for (transitive) uses of the associated value.
-  SetVector<const Use *> Uses;
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    // If we ever have a use case that requires to walk the
+    // must-be-executed-context during the update state we need to split the
+    // initialize into two parts and allow users to choose when hey want to walk
+    // the context. For now, all users only look at known information, doing
+    // this during the update might improve the result but it is unlikely and
+    // expensive.
+    return ChangeStatus::UNCHANGED;
+  }
+
+  /// Helper function to accumulate uses.
+  void followUsesInContext(Attributor &A,
+                           MustBeExecutedContextExplorer &Explorer,
+                           const Instruction *CtxI,
+                           SetVector<const Use *> &Uses, StateType &State) {
+    auto EIt = Explorer.begin(CtxI), EEnd = Explorer.end(CtxI);
+    for (unsigned u = 0; u < Uses.size(); ++u) {
+      const Use *U = Uses[u];
+      if (const Instruction *UserI = dyn_cast<Instruction>(U->getUser())) {
+        bool Found = Explorer.findInContextOf(UserI, EIt, EEnd);
+        if (Found && Base::followUse(A, U, UserI, State))
+          for (const Use &Us : UserI->uses())
+            Uses.insert(&Us);
+      }
+    }
+  }
 };
 
 template <typename AAType, typename Base,
