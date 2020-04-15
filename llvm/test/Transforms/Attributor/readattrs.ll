@@ -12,11 +12,17 @@ declare void @test1_1(i8* %x1_1, i8* readonly %y1_1, ...)
 ; NOTE: readonly for %y1_2 would be OK here but not for the similar situation in test13.
 ;
 define void @test1_2(i8* %x1_2, i8* %y1_2, i8* %z1_2) {
-; CHECK-LABEL: define {{[^@]+}}@test1_2
-; CHECK-SAME: (i8* [[X1_2:%.*]], i8* [[Y1_2:%.*]], i8* [[Z1_2:%.*]])
-; CHECK-NEXT:    call void (i8*, i8*, ...) @test1_1(i8* [[X1_2]], i8* readonly [[Y1_2]], i8* [[Z1_2]])
-; CHECK-NEXT:    store i32 0, i32* @x, align 4
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test1_2
+; IS__TUNIT____-SAME: (i8* [[X1_2:%.*]], i8* [[Y1_2:%.*]], i8* [[Z1_2:%.*]])
+; IS__TUNIT____-NEXT:    call void (i8*, i8*, ...) @test1_1(i8* [[X1_2]], i8* readonly [[Y1_2]], i8* [[Z1_2]])
+; IS__TUNIT____-NEXT:    store i32 0, i32* @x
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test1_2
+; IS__CGSCC____-SAME: (i8* [[X1_2:%.*]], i8* [[Y1_2:%.*]], i8* [[Z1_2:%.*]])
+; IS__CGSCC____-NEXT:    call void (i8*, i8*, ...) @test1_1(i8* [[X1_2]], i8* readonly [[Y1_2]], i8* [[Z1_2]])
+; IS__CGSCC____-NEXT:    store i32 0, i32* @x, align 4
+; IS__CGSCC____-NEXT:    ret void
 ;
   call void (i8*, i8*, ...) @test1_1(i8* %x1_2, i8* %y1_2, i8* %z1_2)
   store i32 0, i32* @x
@@ -24,10 +30,15 @@ define void @test1_2(i8* %x1_2, i8* %y1_2, i8* %z1_2) {
 }
 
 define i8* @test2(i8* %p) {
-; CHECK-LABEL: define {{[^@]+}}@test2
-; CHECK-SAME: (i8* nofree readnone returned "no-capture-maybe-returned" [[P:%.*]])
-; CHECK-NEXT:    store i32 0, i32* @x, align 4
-; CHECK-NEXT:    ret i8* [[P]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test2
+; IS__TUNIT____-SAME: (i8* nofree readnone returned "no-capture-maybe-returned" [[P:%.*]])
+; IS__TUNIT____-NEXT:    store i32 0, i32* @x
+; IS__TUNIT____-NEXT:    ret i8* [[P]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test2
+; IS__CGSCC____-SAME: (i8* nofree readnone returned "no-capture-maybe-returned" [[P:%.*]])
+; IS__CGSCC____-NEXT:    store i32 0, i32* @x, align 4
+; IS__CGSCC____-NEXT:    ret i8* [[P]]
 ;
   store i32 0, i32* @x
   ret i8* %p

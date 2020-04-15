@@ -116,7 +116,7 @@ define internal i8* @f1(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__TUNIT____-NEXT:    [[TMP2:%.*]] = icmp eq i8* [[TMP0]], null
 ; IS__TUNIT____-NEXT:    br i1 [[TMP2]], label [[TMP3:%.*]], label [[TMP5:%.*]]
 ; IS__TUNIT____:       3:
-; IS__TUNIT____-NEXT:    [[TMP4:%.*]] = tail call align 8 i8* @f2()
+; IS__TUNIT____-NEXT:    [[TMP4:%.*]] = tail call i8* @f2()
 ; IS__TUNIT____-NEXT:    br label [[TMP5]]
 ; IS__TUNIT____:       5:
 ; IS__TUNIT____-NEXT:    [[TMP6:%.*]] = phi i8* [ [[TMP4]], [[TMP3]] ], [ [[TMP0]], [[TMP1:%.*]] ]
@@ -225,8 +225,8 @@ define internal i8* @f1b(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__TUNIT____-NEXT:    [[TMP2:%.*]] = icmp eq i8* [[TMP0]], null
 ; IS__TUNIT____-NEXT:    br i1 [[TMP2]], label [[TMP3:%.*]], label [[TMP5:%.*]]
 ; IS__TUNIT____:       3:
-; IS__TUNIT____-NEXT:    [[TMP4:%.*]] = tail call align 8 i8* @f2b()
-; IS__TUNIT____-NEXT:    [[L:%.*]] = load i8, i8* [[TMP4]], align 8
+; IS__TUNIT____-NEXT:    [[TMP4:%.*]] = tail call i8* @f2b()
+; IS__TUNIT____-NEXT:    [[L:%.*]] = load i8, i8* [[TMP4]]
 ; IS__TUNIT____-NEXT:    store i8 [[L]], i8* @a1, align 8
 ; IS__TUNIT____-NEXT:    br label [[TMP5]]
 ; IS__TUNIT____:       5:
@@ -579,17 +579,29 @@ define void @test12-6(i32* align 4 %p) {
 }
 
 define void @test13(i1 %c, i32* align 32 %dst) #0 {
-; CHECK-LABEL: define {{[^@]+}}@test13
-; CHECK-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
-; CHECK:       truebb:
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       falsebb:
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ null, [[FALSEBB]] ]
-; CHECK-NEXT:    store i32 0, i32* [[PTR]], align 32
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test13
+; IS__TUNIT____-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
+; IS__TUNIT____:       truebb:
+; IS__TUNIT____-NEXT:    br label [[END:%.*]]
+; IS__TUNIT____:       falsebb:
+; IS__TUNIT____-NEXT:    br label [[END]]
+; IS__TUNIT____:       end:
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ null, [[FALSEBB]] ]
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[PTR]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test13
+; IS__CGSCC____-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
+; IS__CGSCC____:       truebb:
+; IS__CGSCC____-NEXT:    br label [[END:%.*]]
+; IS__CGSCC____:       falsebb:
+; IS__CGSCC____-NEXT:    br label [[END]]
+; IS__CGSCC____:       end:
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ null, [[FALSEBB]] ]
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[PTR]], align 32
+; IS__CGSCC____-NEXT:    ret void
 ;
   br i1 %c, label %truebb, label %falsebb
 truebb:
@@ -603,17 +615,29 @@ end:
 }
 
 define void @test13-1(i1 %c, i32* align 32 %dst) {
-; CHECK-LABEL: define {{[^@]+}}@test13-1
-; CHECK-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
-; CHECK:       truebb:
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       falsebb:
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 48 to i32*), [[FALSEBB]] ]
-; CHECK-NEXT:    store i32 0, i32* [[PTR]], align 16
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test13-1
+; IS__TUNIT____-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
+; IS__TUNIT____:       truebb:
+; IS__TUNIT____-NEXT:    br label [[END:%.*]]
+; IS__TUNIT____:       falsebb:
+; IS__TUNIT____-NEXT:    br label [[END]]
+; IS__TUNIT____:       end:
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 48 to i32*), [[FALSEBB]] ]
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[PTR]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test13-1
+; IS__CGSCC____-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
+; IS__CGSCC____:       truebb:
+; IS__CGSCC____-NEXT:    br label [[END:%.*]]
+; IS__CGSCC____:       falsebb:
+; IS__CGSCC____-NEXT:    br label [[END]]
+; IS__CGSCC____:       end:
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 48 to i32*), [[FALSEBB]] ]
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[PTR]], align 16
+; IS__CGSCC____-NEXT:    ret void
 ;
   br i1 %c, label %truebb, label %falsebb
 truebb:
@@ -627,17 +651,29 @@ end:
 }
 
 define void @test13-2(i1 %c, i32* align 32 %dst) {
-; CHECK-LABEL: define {{[^@]+}}@test13-2
-; CHECK-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
-; CHECK:       truebb:
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       falsebb:
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 160 to i32*), [[FALSEBB]] ]
-; CHECK-NEXT:    store i32 0, i32* [[PTR]], align 32
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test13-2
+; IS__TUNIT____-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
+; IS__TUNIT____:       truebb:
+; IS__TUNIT____-NEXT:    br label [[END:%.*]]
+; IS__TUNIT____:       falsebb:
+; IS__TUNIT____-NEXT:    br label [[END]]
+; IS__TUNIT____:       end:
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 160 to i32*), [[FALSEBB]] ]
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[PTR]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test13-2
+; IS__CGSCC____-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
+; IS__CGSCC____:       truebb:
+; IS__CGSCC____-NEXT:    br label [[END:%.*]]
+; IS__CGSCC____:       falsebb:
+; IS__CGSCC____-NEXT:    br label [[END]]
+; IS__CGSCC____:       end:
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 160 to i32*), [[FALSEBB]] ]
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[PTR]], align 32
+; IS__CGSCC____-NEXT:    ret void
 ;
   br i1 %c, label %truebb, label %falsebb
 truebb:
@@ -651,17 +687,29 @@ end:
 }
 
 define void @test13-3(i1 %c, i32* align 32 %dst) {
-; CHECK-LABEL: define {{[^@]+}}@test13-3
-; CHECK-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
-; CHECK:       truebb:
-; CHECK-NEXT:    br label [[END:%.*]]
-; CHECK:       falsebb:
-; CHECK-NEXT:    br label [[END]]
-; CHECK:       end:
-; CHECK-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 128 to i32*), [[FALSEBB]] ]
-; CHECK-NEXT:    store i32 0, i32* [[PTR]], align 32
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test13-3
+; IS__TUNIT____-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
+; IS__TUNIT____:       truebb:
+; IS__TUNIT____-NEXT:    br label [[END:%.*]]
+; IS__TUNIT____:       falsebb:
+; IS__TUNIT____-NEXT:    br label [[END]]
+; IS__TUNIT____:       end:
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 128 to i32*), [[FALSEBB]] ]
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[PTR]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test13-3
+; IS__CGSCC____-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly align 32 [[DST:%.*]])
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[TRUEBB:%.*]], label [[FALSEBB:%.*]]
+; IS__CGSCC____:       truebb:
+; IS__CGSCC____-NEXT:    br label [[END:%.*]]
+; IS__CGSCC____:       falsebb:
+; IS__CGSCC____-NEXT:    br label [[END]]
+; IS__CGSCC____:       end:
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = phi i32* [ [[DST]], [[TRUEBB]] ], [ inttoptr (i64 128 to i32*), [[FALSEBB]] ]
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[PTR]], align 32
+; IS__CGSCC____-NEXT:    ret void
 ;
   br i1 %c, label %truebb, label %falsebb
 truebb:
@@ -719,11 +767,17 @@ define void @align_call_op_not_store(i8* align 2048 %arg) {
 }
 define void @align_store_after_bc(i32* align 2048 %arg) {
 ;
-; CHECK-LABEL: define {{[^@]+}}@align_store_after_bc
-; CHECK-SAME: (i32* nocapture nofree nonnull writeonly align 2048 dereferenceable(1) [[ARG:%.*]])
-; CHECK-NEXT:    [[BC:%.*]] = bitcast i32* [[ARG]] to i8*
-; CHECK-NEXT:    store i8 0, i8* [[BC]], align 2048
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@align_store_after_bc
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull writeonly align 2048 dereferenceable(1) [[ARG:%.*]])
+; IS__TUNIT____-NEXT:    [[BC:%.*]] = bitcast i32* [[ARG]] to i8*
+; IS__TUNIT____-NEXT:    store i8 0, i8* [[BC]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@align_store_after_bc
+; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull writeonly align 2048 dereferenceable(1) [[ARG:%.*]])
+; IS__CGSCC____-NEXT:    [[BC:%.*]] = bitcast i32* [[ARG]] to i8*
+; IS__CGSCC____-NEXT:    store i8 0, i8* [[BC]], align 2048
+; IS__CGSCC____-NEXT:    ret void
 ;
   %bc = bitcast i32* %arg to i8*
   store i8 0, i8* %bc
@@ -745,7 +799,7 @@ define i32 @musttail_callee_1(i32* %p) {
 define i32 @musttail_caller_1(i32* %p) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@musttail_caller_1
 ; IS__TUNIT____-SAME: (i32* nocapture nofree readonly [[P:%.*]])
-; IS__TUNIT____-NEXT:    [[C:%.*]] = load i1, i1* @cnd, align 1
+; IS__TUNIT____-NEXT:    [[C:%.*]] = load i1, i1* @cnd
 ; IS__TUNIT____-NEXT:    br i1 [[C]], label [[MT:%.*]], label [[EXIT:%.*]]
 ; IS__TUNIT____:       mt:
 ; IS__TUNIT____-NEXT:    [[V:%.*]] = musttail call i32 @musttail_callee_1(i32* nocapture nofree readonly [[P]])

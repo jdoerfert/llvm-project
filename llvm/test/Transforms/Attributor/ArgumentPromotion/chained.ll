@@ -9,11 +9,17 @@
 
 define internal i32 @test(i32** %x) {
 ;
-; CHECK-LABEL: define {{[^@]+}}@test()
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[Y:%.*]] = load i32*, i32** @G2, align 8
-; CHECK-NEXT:    [[Z:%.*]] = load i32, i32* [[Y]], align 4
-; CHECK-NEXT:    ret i32 [[Z]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test()
+; IS__TUNIT____-NEXT:  entry:
+; IS__TUNIT____-NEXT:    [[Y:%.*]] = load i32*, i32** @G2, align 8
+; IS__TUNIT____-NEXT:    [[Z:%.*]] = load i32, i32* [[Y]]
+; IS__TUNIT____-NEXT:    ret i32 [[Z]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test()
+; IS__CGSCC____-NEXT:  entry:
+; IS__CGSCC____-NEXT:    [[Y:%.*]] = load i32*, i32** @G2, align 8
+; IS__CGSCC____-NEXT:    [[Z:%.*]] = load i32, i32* [[Y]], align 4
+; IS__CGSCC____-NEXT:    ret i32 [[Z]]
 ;
 entry:
   %y = load i32*, i32** %x

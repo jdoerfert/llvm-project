@@ -1871,6 +1871,12 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   (void)Success;
   assert(Success && "Expected the check call to be successful!");
 
+  // Load & store alignment is used late in the pipeline. Since the module pass
+  // is run early and the CGSCC pass is run late we wait for the latter to
+  // derive them. This mainly avoids redundant duplication in case we fail.
+  if (isModulePass())
+    return;
+
   auto LoadStorePred = [&](Instruction &I) -> bool {
     if (isa<LoadInst>(I))
       getOrCreateAAFor<AAAlign>(

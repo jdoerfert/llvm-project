@@ -385,22 +385,39 @@ define void @test9() {
 ; TEST 10 - 1 malloc, 1 free
 
 define i32 @test10() {
-; IS________OPM-LABEL: define {{[^@]+}}@test10()
-; IS________OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 4)
-; IS________OPM-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
-; IS________OPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; IS________OPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; IS________OPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
-; IS________OPM-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
-; IS________OPM-NEXT:    ret i32 [[TMP3]]
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@test10()
+; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 4)
+; IS__TUNIT_OPM-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__TUNIT_OPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__TUNIT_OPM-NEXT:    store i32 10, i32* [[TMP2]]
+; IS__TUNIT_OPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT_OPM-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__TUNIT_OPM-NEXT:    ret i32 [[TMP3]]
 ;
-; IS________NPM-LABEL: define {{[^@]+}}@test10()
-; IS________NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 4
-; IS________NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
-; IS________NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; IS________NPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; IS________NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
-; IS________NPM-NEXT:    ret i32 [[TMP3]]
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@test10()
+; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 4
+; IS__TUNIT_NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; IS__TUNIT_NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__TUNIT_NPM-NEXT:    store i32 10, i32* [[TMP2]]
+; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT_NPM-NEXT:    ret i32 [[TMP3]]
+;
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@test10()
+; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 4)
+; IS__CGSCC_OPM-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__CGSCC_OPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC_OPM-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__CGSCC_OPM-NEXT:    ret i32 [[TMP3]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test10()
+; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 4
+; IS__CGSCC_NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__CGSCC_NPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC_NPM-NEXT:    ret i32 [[TMP3]]
 ;
   %1 = tail call noalias i8* @malloc(i64 4)
   tail call void @no_sync_func(i8* %1)
@@ -412,24 +429,43 @@ define i32 @test10() {
 }
 
 define i32 @test_lifetime() {
-; IS________OPM-LABEL: define {{[^@]+}}@test_lifetime()
-; IS________OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 4)
-; IS________OPM-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
-; IS________OPM-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
-; IS________OPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; IS________OPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; IS________OPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
-; IS________OPM-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
-; IS________OPM-NEXT:    ret i32 [[TMP3]]
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@test_lifetime()
+; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 4)
+; IS__TUNIT_OPM-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__TUNIT_OPM-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__TUNIT_OPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__TUNIT_OPM-NEXT:    store i32 10, i32* [[TMP2]]
+; IS__TUNIT_OPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT_OPM-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__TUNIT_OPM-NEXT:    ret i32 [[TMP3]]
 ;
-; IS________NPM-LABEL: define {{[^@]+}}@test_lifetime()
-; IS________NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 4
-; IS________NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
-; IS________NPM-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
-; IS________NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; IS________NPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; IS________NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
-; IS________NPM-NEXT:    ret i32 [[TMP3]]
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@test_lifetime()
+; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 4
+; IS__TUNIT_NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; IS__TUNIT_NPM-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__TUNIT_NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__TUNIT_NPM-NEXT:    store i32 10, i32* [[TMP2]]
+; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT_NPM-NEXT:    ret i32 [[TMP3]]
+;
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@test_lifetime()
+; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 4)
+; IS__CGSCC_OPM-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__CGSCC_OPM-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__CGSCC_OPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC_OPM-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__CGSCC_OPM-NEXT:    ret i32 [[TMP3]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test_lifetime()
+; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 4
+; IS__CGSCC_NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; IS__CGSCC_NPM-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__CGSCC_NPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC_NPM-NEXT:    ret i32 [[TMP3]]
 ;
   %1 = tail call noalias i8* @malloc(i64 4)
   tail call void @no_sync_func(i8* %1)
@@ -627,14 +663,23 @@ define i32 @malloc_in_loop(i32 %0) {
 
 ; Malloc/Calloc too large
 define i32 @test13() {
-; CHECK-LABEL: define {{[^@]+}}@test13()
-; CHECK-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 256)
-; CHECK-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
-; CHECK-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; CHECK-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; CHECK-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
-; CHECK-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
-; CHECK-NEXT:    ret i32 [[TMP3]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test13()
+; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 256)
+; IS__TUNIT____-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__TUNIT____-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__TUNIT____-NEXT:    store i32 10, i32* [[TMP2]]
+; IS__TUNIT____-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT____-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__TUNIT____-NEXT:    ret i32 [[TMP3]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test13()
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 256)
+; IS__CGSCC____-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__CGSCC____-NEXT:    store i32 10, i32* [[TMP2]], align 4
+; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC____-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__CGSCC____-NEXT:    ret i32 [[TMP3]]
 ;
   %1 = tail call noalias i8* @malloc(i64 256)
   tail call void @no_sync_func(i8* %1)
@@ -646,14 +691,23 @@ define i32 @test13() {
 }
 
 define i32 @test_sle() {
-; CHECK-LABEL: define {{[^@]+}}@test_sle()
-; CHECK-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 -1)
-; CHECK-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
-; CHECK-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; CHECK-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; CHECK-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
-; CHECK-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
-; CHECK-NEXT:    ret i32 [[TMP3]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test_sle()
+; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 -1)
+; IS__TUNIT____-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__TUNIT____-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__TUNIT____-NEXT:    store i32 10, i32* [[TMP2]]
+; IS__TUNIT____-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT____-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__TUNIT____-NEXT:    ret i32 [[TMP3]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test_sle()
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 -1)
+; IS__CGSCC____-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__CGSCC____-NEXT:    store i32 10, i32* [[TMP2]], align 4
+; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC____-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__CGSCC____-NEXT:    ret i32 [[TMP3]]
 ;
   %1 = tail call noalias i8* @malloc(i64 -1)
   tail call void @no_sync_func(i8* %1)
@@ -665,14 +719,23 @@ define i32 @test_sle() {
 }
 
 define i32 @test_overflow() {
-; CHECK-LABEL: define {{[^@]+}}@test_overflow()
-; CHECK-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @calloc(i64 65537, i64 65537)
-; CHECK-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
-; CHECK-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; CHECK-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; CHECK-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
-; CHECK-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
-; CHECK-NEXT:    ret i32 [[TMP3]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test_overflow()
+; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @calloc(i64 65537, i64 65537)
+; IS__TUNIT____-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__TUNIT____-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__TUNIT____-NEXT:    store i32 10, i32* [[TMP2]]
+; IS__TUNIT____-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT____-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__TUNIT____-NEXT:    ret i32 [[TMP3]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test_overflow()
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @calloc(i64 65537, i64 65537)
+; IS__CGSCC____-NEXT:    tail call void @no_sync_func(i8* noalias nofree [[TMP1]])
+; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; IS__CGSCC____-NEXT:    store i32 10, i32* [[TMP2]], align 4
+; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC____-NEXT:    tail call void @free(i8* noalias nonnull align 4 dereferenceable(4) [[TMP1]])
+; IS__CGSCC____-NEXT:    ret i32 [[TMP3]]
 ;
   %1 = tail call noalias i8* @calloc(i64 65537, i64 65537)
   tail call void @no_sync_func(i8* %1)

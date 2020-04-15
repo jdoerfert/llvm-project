@@ -505,7 +505,7 @@ define void @negative_test_not_captured_but_returned_call_1b(i64* %a) #0 {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@negative_test_not_captured_but_returned_call_1b
 ; IS__TUNIT____-SAME: (i64* nofree writeonly align 8 [[A:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call align 8 i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]])
+; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]])
 ; IS__TUNIT____-NEXT:    [[TMP0:%.*]] = ptrtoint i64* [[CALL]] to i64
 ; IS__TUNIT____-NEXT:    store i64 [[TMP0]], i64* [[CALL]], align 8
 ; IS__TUNIT____-NEXT:    ret void

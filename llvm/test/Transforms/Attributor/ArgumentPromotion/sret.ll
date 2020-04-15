@@ -13,8 +13,8 @@ define internal void @add({i32, i32}* %this, i32* sret %r) {
 ; IS__TUNIT_OPM-SAME: ({ i32, i32 }* nocapture nofree nonnull readonly align 8 dereferenceable(8) [[THIS:%.*]], i32* nocapture nofree nonnull sret writeonly align 4 dereferenceable(4) [[R:%.*]])
 ; IS__TUNIT_OPM-NEXT:    [[AP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 0
 ; IS__TUNIT_OPM-NEXT:    [[BP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 1
-; IS__TUNIT_OPM-NEXT:    [[A:%.*]] = load i32, i32* [[AP]], align 8
-; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = load i32, i32* [[BP]], align 4
+; IS__TUNIT_OPM-NEXT:    [[A:%.*]] = load i32, i32* [[AP]]
+; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = load i32, i32* [[BP]]
 ; IS__TUNIT_OPM-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
 ; IS__TUNIT_OPM-NEXT:    store i32 [[AB]], i32* [[R]], align 4
 ; IS__TUNIT_OPM-NEXT:    ret void
@@ -23,8 +23,8 @@ define internal void @add({i32, i32}* %this, i32* sret %r) {
 ; IS__TUNIT_NPM-SAME: ({ i32, i32 }* noalias nocapture nofree nonnull readonly align 8 dereferenceable(8) [[THIS:%.*]], i32* noalias nocapture nofree nonnull sret writeonly align 4 dereferenceable(4) [[R:%.*]])
 ; IS__TUNIT_NPM-NEXT:    [[AP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 0
 ; IS__TUNIT_NPM-NEXT:    [[BP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 1
-; IS__TUNIT_NPM-NEXT:    [[A:%.*]] = load i32, i32* [[AP]], align 8
-; IS__TUNIT_NPM-NEXT:    [[B:%.*]] = load i32, i32* [[BP]], align 4
+; IS__TUNIT_NPM-NEXT:    [[A:%.*]] = load i32, i32* [[AP]]
+; IS__TUNIT_NPM-NEXT:    [[B:%.*]] = load i32, i32* [[BP]]
 ; IS__TUNIT_NPM-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
 ; IS__TUNIT_NPM-NEXT:    store i32 [[AB]], i32* [[R]], align 4
 ; IS__TUNIT_NPM-NEXT:    ret void

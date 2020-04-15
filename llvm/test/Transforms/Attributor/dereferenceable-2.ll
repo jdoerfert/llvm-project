@@ -208,11 +208,17 @@ exit:
 ; The 2nd and 3rd loads may never execute.
 
 define void @volatile_is_not_dereferenceable(i16* %ptr) {
-; CHECK-LABEL: define {{[^@]+}}@volatile_is_not_dereferenceable
-; CHECK-SAME: (i16* nofree align 2 [[PTR:%.*]])
-; CHECK-NEXT:    [[ARRAYIDX0:%.*]] = getelementptr i16, i16* [[PTR]], i64 0
-; CHECK-NEXT:    [[T0:%.*]] = load volatile i16, i16* [[ARRAYIDX0]], align 2
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@volatile_is_not_dereferenceable
+; IS__TUNIT____-SAME: (i16* nofree align 2 [[PTR:%.*]])
+; IS__TUNIT____-NEXT:    [[ARRAYIDX0:%.*]] = getelementptr i16, i16* [[PTR]], i64 0
+; IS__TUNIT____-NEXT:    [[T0:%.*]] = load volatile i16, i16* [[ARRAYIDX0]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@volatile_is_not_dereferenceable
+; IS__CGSCC____-SAME: (i16* nofree align 2 [[PTR:%.*]])
+; IS__CGSCC____-NEXT:    [[ARRAYIDX0:%.*]] = getelementptr i16, i16* [[PTR]], i64 0
+; IS__CGSCC____-NEXT:    [[T0:%.*]] = load volatile i16, i16* [[ARRAYIDX0]], align 2
+; IS__CGSCC____-NEXT:    ret void
 ;
   %arrayidx0 = getelementptr i16, i16* %ptr, i64 0
   %arrayidx1 = getelementptr i16, i16* %ptr, i64 1
@@ -429,14 +435,23 @@ define void @negative_offset(i32* %arg) {
 }
 
 define void @stores(i32* %arg) {
-; CHECK-LABEL: define {{[^@]+}}@stores
-; CHECK-SAME: (i32* nocapture nofree nonnull writeonly align 4 dereferenceable(8) [[ARG:%.*]])
-; CHECK-NEXT:    [[PTR:%.*]] = bitcast i32* [[ARG]] to float*
-; CHECK-NEXT:    [[ARRAYIDX0:%.*]] = getelementptr float, float* [[PTR]], i64 0
-; CHECK-NEXT:    [[ARRAYIDX1:%.*]] = getelementptr float, float* [[PTR]], i64 1
-; CHECK-NEXT:    store float 1.000000e+00, float* [[ARRAYIDX0]], align 4
-; CHECK-NEXT:    store float 2.000000e+00, float* [[ARRAYIDX1]], align 4
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@stores
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull writeonly align 4 dereferenceable(8) [[ARG:%.*]])
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = bitcast i32* [[ARG]] to float*
+; IS__TUNIT____-NEXT:    [[ARRAYIDX0:%.*]] = getelementptr float, float* [[PTR]], i64 0
+; IS__TUNIT____-NEXT:    [[ARRAYIDX1:%.*]] = getelementptr float, float* [[PTR]], i64 1
+; IS__TUNIT____-NEXT:    store float 1.000000e+00, float* [[ARRAYIDX0]]
+; IS__TUNIT____-NEXT:    store float 2.000000e+00, float* [[ARRAYIDX1]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@stores
+; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull writeonly align 4 dereferenceable(8) [[ARG:%.*]])
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = bitcast i32* [[ARG]] to float*
+; IS__CGSCC____-NEXT:    [[ARRAYIDX0:%.*]] = getelementptr float, float* [[PTR]], i64 0
+; IS__CGSCC____-NEXT:    [[ARRAYIDX1:%.*]] = getelementptr float, float* [[PTR]], i64 1
+; IS__CGSCC____-NEXT:    store float 1.000000e+00, float* [[ARRAYIDX0]], align 4
+; IS__CGSCC____-NEXT:    store float 2.000000e+00, float* [[ARRAYIDX1]], align 4
+; IS__CGSCC____-NEXT:    ret void
 ;
   %ptr = bitcast i32* %arg to float*
   %arrayidx0 = getelementptr float, float* %ptr, i64 0
@@ -447,12 +462,19 @@ define void @stores(i32* %arg) {
 }
 
 define void @load_store(i32* %arg) {
-; CHECK-LABEL: define {{[^@]+}}@load_store
-; CHECK-SAME: (i32* nocapture nofree nonnull writeonly align 4 dereferenceable(8) [[ARG:%.*]])
-; CHECK-NEXT:    [[PTR:%.*]] = bitcast i32* [[ARG]] to float*
-; CHECK-NEXT:    [[ARRAYIDX1:%.*]] = getelementptr float, float* [[PTR]], i64 1
-; CHECK-NEXT:    store float 2.000000e+00, float* [[ARRAYIDX1]], align 4
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@load_store
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull writeonly align 4 dereferenceable(8) [[ARG:%.*]])
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = bitcast i32* [[ARG]] to float*
+; IS__TUNIT____-NEXT:    [[ARRAYIDX1:%.*]] = getelementptr float, float* [[PTR]], i64 1
+; IS__TUNIT____-NEXT:    store float 2.000000e+00, float* [[ARRAYIDX1]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@load_store
+; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull writeonly align 4 dereferenceable(8) [[ARG:%.*]])
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = bitcast i32* [[ARG]] to float*
+; IS__CGSCC____-NEXT:    [[ARRAYIDX1:%.*]] = getelementptr float, float* [[PTR]], i64 1
+; IS__CGSCC____-NEXT:    store float 2.000000e+00, float* [[ARRAYIDX1]], align 4
+; IS__CGSCC____-NEXT:    ret void
 ;
   %ptr = bitcast i32* %arg to float*
   %arrayidx0 = getelementptr float, float* %ptr, i64 0
@@ -463,12 +485,19 @@ define void @load_store(i32* %arg) {
 }
 
 define void @different_size1(i32* %arg) {
-; CHECK-LABEL: define {{[^@]+}}@different_size1
-; CHECK-SAME: (i32* nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[ARG:%.*]])
-; CHECK-NEXT:    [[ARG_CAST:%.*]] = bitcast i32* [[ARG]] to double*
-; CHECK-NEXT:    store double 0.000000e+00, double* [[ARG_CAST]], align 8
-; CHECK-NEXT:    store i32 0, i32* [[ARG]], align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@different_size1
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[ARG:%.*]])
+; IS__TUNIT____-NEXT:    [[ARG_CAST:%.*]] = bitcast i32* [[ARG]] to double*
+; IS__TUNIT____-NEXT:    store double 0.000000e+00, double* [[ARG_CAST]]
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[ARG]], align 8
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@different_size1
+; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[ARG:%.*]])
+; IS__CGSCC____-NEXT:    [[ARG_CAST:%.*]] = bitcast i32* [[ARG]] to double*
+; IS__CGSCC____-NEXT:    store double 0.000000e+00, double* [[ARG_CAST]], align 8
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[ARG]], align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   %arg-cast = bitcast i32* %arg to double*
   store double 0.000000e+00, double* %arg-cast
@@ -477,12 +506,19 @@ define void @different_size1(i32* %arg) {
 }
 
 define void @different_size2(i32* %arg) {
-; CHECK-LABEL: define {{[^@]+}}@different_size2
-; CHECK-SAME: (i32* nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[ARG:%.*]])
-; CHECK-NEXT:    store i32 0, i32* [[ARG]], align 8
-; CHECK-NEXT:    [[ARG_CAST:%.*]] = bitcast i32* [[ARG]] to double*
-; CHECK-NEXT:    store double 0.000000e+00, double* [[ARG_CAST]], align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@different_size2
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[ARG:%.*]])
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[ARG]], align 8
+; IS__TUNIT____-NEXT:    [[ARG_CAST:%.*]] = bitcast i32* [[ARG]] to double*
+; IS__TUNIT____-NEXT:    store double 0.000000e+00, double* [[ARG_CAST]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@different_size2
+; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[ARG:%.*]])
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[ARG]], align 8
+; IS__CGSCC____-NEXT:    [[ARG_CAST:%.*]] = bitcast i32* [[ARG]] to double*
+; IS__CGSCC____-NEXT:    store double 0.000000e+00, double* [[ARG_CAST]], align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   store i32 0, i32* %arg
   %arg-cast = bitcast i32* %arg to double*

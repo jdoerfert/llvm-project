@@ -9,17 +9,29 @@
 ; because there is a load of %A in the entry block
 define internal i32 @callee(i1 %C, i32* %A) {
 ;
-; CHECK-LABEL: define {{[^@]+}}@callee
-; CHECK-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A:%.*]])
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[A_0:%.*]] = load i32, i32* [[A]], align 4
-; CHECK-NEXT:    br label [[F:%.*]]
-; CHECK:       T:
-; CHECK-NEXT:    unreachable
-; CHECK:       F:
-; CHECK-NEXT:    [[A_2:%.*]] = getelementptr i32, i32* [[A]], i32 2
-; CHECK-NEXT:    [[R:%.*]] = load i32, i32* [[A_2]], align 4
-; CHECK-NEXT:    ret i32 [[R]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@callee
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A:%.*]])
+; IS__TUNIT____-NEXT:  entry:
+; IS__TUNIT____-NEXT:    [[A_0:%.*]] = load i32, i32* [[A]], align 4
+; IS__TUNIT____-NEXT:    br label [[F:%.*]]
+; IS__TUNIT____:       T:
+; IS__TUNIT____-NEXT:    unreachable
+; IS__TUNIT____:       F:
+; IS__TUNIT____-NEXT:    [[A_2:%.*]] = getelementptr i32, i32* [[A]], i32 2
+; IS__TUNIT____-NEXT:    [[R:%.*]] = load i32, i32* [[A_2]]
+; IS__TUNIT____-NEXT:    ret i32 [[R]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@callee
+; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A:%.*]])
+; IS__CGSCC____-NEXT:  entry:
+; IS__CGSCC____-NEXT:    [[A_0:%.*]] = load i32, i32* [[A]], align 4
+; IS__CGSCC____-NEXT:    br label [[F:%.*]]
+; IS__CGSCC____:       T:
+; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____:       F:
+; IS__CGSCC____-NEXT:    [[A_2:%.*]] = getelementptr i32, i32* [[A]], i32 2
+; IS__CGSCC____-NEXT:    [[R:%.*]] = load i32, i32* [[A_2]], align 4
+; IS__CGSCC____-NEXT:    ret i32 [[R]]
 ;
 entry:
   ; Unconditonally load the element at %A

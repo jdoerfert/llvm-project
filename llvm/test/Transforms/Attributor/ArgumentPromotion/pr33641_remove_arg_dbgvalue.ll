@@ -14,10 +14,15 @@
 %fun_t = type void (%p_t)*
 
 define void @foo() {
-; CHECK-LABEL: define {{[^@]+}}@foo()
-; CHECK-NEXT:    [[TMP:%.*]] = alloca void (i16*)*
-; CHECK-NEXT:    store void (i16*)* @bar, void (i16*)** [[TMP]], align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@foo()
+; IS__TUNIT____-NEXT:    [[TMP:%.*]] = alloca void (i16*)*
+; IS__TUNIT____-NEXT:    store void (i16*)* @bar, void (i16*)** [[TMP]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@foo()
+; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca void (i16*)*
+; IS__CGSCC____-NEXT:    store void (i16*)* @bar, void (i16*)** [[TMP]], align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   %tmp = alloca %fun_t
   store %fun_t @bar, %fun_t* %tmp

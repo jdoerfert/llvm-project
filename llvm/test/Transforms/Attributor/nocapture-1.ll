@@ -16,10 +16,15 @@ define i32* @c1(i32* %q) {
 
 ; It would also be acceptable to mark %q as readnone. Update @c3 too.
 define void @c2(i32* %q) {
-; CHECK-LABEL: define {{[^@]+}}@c2
-; CHECK-SAME: (i32* nofree writeonly [[Q:%.*]])
-; CHECK-NEXT:    store i32* [[Q]], i32** @g, align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@c2
+; IS__TUNIT____-SAME: (i32* nofree writeonly [[Q:%.*]])
+; IS__TUNIT____-NEXT:    store i32* [[Q]], i32** @g
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@c2
+; IS__CGSCC____-SAME: (i32* nofree writeonly [[Q:%.*]])
+; IS__CGSCC____-NEXT:    store i32* [[Q]], i32** @g, align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   store i32* %q, i32** @g
   ret void
@@ -168,19 +173,33 @@ define i1 @c7(i32* %q, i32 %bitno) {
 
 
 define i32 @nc1(i32* %q, i32* %p, i1 %b) {
-; CHECK-LABEL: define {{[^@]+}}@nc1
-; CHECK-SAME: (i32* nofree [[Q:%.*]], i32* nocapture nofree [[P:%.*]], i1 [[B:%.*]])
-; CHECK-NEXT:  e:
-; CHECK-NEXT:    br label [[L:%.*]]
-; CHECK:       l:
-; CHECK-NEXT:    [[X:%.*]] = phi i32* [ [[P]], [[E:%.*]] ]
-; CHECK-NEXT:    [[Y:%.*]] = phi i32* [ [[Q]], [[E]] ]
-; CHECK-NEXT:    [[TMP:%.*]] = bitcast i32* [[X]] to i32*
-; CHECK-NEXT:    [[TMP2:%.*]] = select i1 [[B]], i32* [[TMP]], i32* [[Y]]
-; CHECK-NEXT:    [[VAL:%.*]] = load i32, i32* [[TMP2]], align 4
-; CHECK-NEXT:    store i32 0, i32* [[TMP]], align 4
-; CHECK-NEXT:    store i32* [[Y]], i32** @g, align 8
-; CHECK-NEXT:    ret i32 [[VAL]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@nc1
+; IS__TUNIT____-SAME: (i32* nofree [[Q:%.*]], i32* nocapture nofree [[P:%.*]], i1 [[B:%.*]])
+; IS__TUNIT____-NEXT:  e:
+; IS__TUNIT____-NEXT:    br label [[L:%.*]]
+; IS__TUNIT____:       l:
+; IS__TUNIT____-NEXT:    [[X:%.*]] = phi i32* [ [[P]], [[E:%.*]] ]
+; IS__TUNIT____-NEXT:    [[Y:%.*]] = phi i32* [ [[Q]], [[E]] ]
+; IS__TUNIT____-NEXT:    [[TMP:%.*]] = bitcast i32* [[X]] to i32*
+; IS__TUNIT____-NEXT:    [[TMP2:%.*]] = select i1 [[B]], i32* [[TMP]], i32* [[Y]]
+; IS__TUNIT____-NEXT:    [[VAL:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[TMP]]
+; IS__TUNIT____-NEXT:    store i32* [[Y]], i32** @g
+; IS__TUNIT____-NEXT:    ret i32 [[VAL]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@nc1
+; IS__CGSCC____-SAME: (i32* nofree [[Q:%.*]], i32* nocapture nofree [[P:%.*]], i1 [[B:%.*]])
+; IS__CGSCC____-NEXT:  e:
+; IS__CGSCC____-NEXT:    br label [[L:%.*]]
+; IS__CGSCC____:       l:
+; IS__CGSCC____-NEXT:    [[X:%.*]] = phi i32* [ [[P]], [[E:%.*]] ]
+; IS__CGSCC____-NEXT:    [[Y:%.*]] = phi i32* [ [[Q]], [[E]] ]
+; IS__CGSCC____-NEXT:    [[TMP:%.*]] = bitcast i32* [[X]] to i32*
+; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = select i1 [[B]], i32* [[TMP]], i32* [[Y]]
+; IS__CGSCC____-NEXT:    [[VAL:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[TMP]], align 4
+; IS__CGSCC____-NEXT:    store i32* [[Y]], i32** @g, align 8
+; IS__CGSCC____-NEXT:    ret i32 [[VAL]]
 ;
 e:
   br label %l
@@ -196,19 +215,33 @@ l:
 }
 
 define i32 @nc1_addrspace(i32* %q, i32 addrspace(1)* %p, i1 %b) {
-; CHECK-LABEL: define {{[^@]+}}@nc1_addrspace
-; CHECK-SAME: (i32* nofree [[Q:%.*]], i32 addrspace(1)* nocapture nofree [[P:%.*]], i1 [[B:%.*]])
-; CHECK-NEXT:  e:
-; CHECK-NEXT:    br label [[L:%.*]]
-; CHECK:       l:
-; CHECK-NEXT:    [[X:%.*]] = phi i32 addrspace(1)* [ [[P]], [[E:%.*]] ]
-; CHECK-NEXT:    [[Y:%.*]] = phi i32* [ [[Q]], [[E]] ]
-; CHECK-NEXT:    [[TMP:%.*]] = addrspacecast i32 addrspace(1)* [[X]] to i32*
-; CHECK-NEXT:    [[TMP2:%.*]] = select i1 [[B]], i32* [[TMP]], i32* [[Y]]
-; CHECK-NEXT:    [[VAL:%.*]] = load i32, i32* [[TMP2]], align 4
-; CHECK-NEXT:    store i32 0, i32* [[TMP]], align 4
-; CHECK-NEXT:    store i32* [[Y]], i32** @g, align 8
-; CHECK-NEXT:    ret i32 [[VAL]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@nc1_addrspace
+; IS__TUNIT____-SAME: (i32* nofree [[Q:%.*]], i32 addrspace(1)* nocapture nofree [[P:%.*]], i1 [[B:%.*]])
+; IS__TUNIT____-NEXT:  e:
+; IS__TUNIT____-NEXT:    br label [[L:%.*]]
+; IS__TUNIT____:       l:
+; IS__TUNIT____-NEXT:    [[X:%.*]] = phi i32 addrspace(1)* [ [[P]], [[E:%.*]] ]
+; IS__TUNIT____-NEXT:    [[Y:%.*]] = phi i32* [ [[Q]], [[E]] ]
+; IS__TUNIT____-NEXT:    [[TMP:%.*]] = addrspacecast i32 addrspace(1)* [[X]] to i32*
+; IS__TUNIT____-NEXT:    [[TMP2:%.*]] = select i1 [[B]], i32* [[TMP]], i32* [[Y]]
+; IS__TUNIT____-NEXT:    [[VAL:%.*]] = load i32, i32* [[TMP2]]
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[TMP]]
+; IS__TUNIT____-NEXT:    store i32* [[Y]], i32** @g
+; IS__TUNIT____-NEXT:    ret i32 [[VAL]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@nc1_addrspace
+; IS__CGSCC____-SAME: (i32* nofree [[Q:%.*]], i32 addrspace(1)* nocapture nofree [[P:%.*]], i1 [[B:%.*]])
+; IS__CGSCC____-NEXT:  e:
+; IS__CGSCC____-NEXT:    br label [[L:%.*]]
+; IS__CGSCC____:       l:
+; IS__CGSCC____-NEXT:    [[X:%.*]] = phi i32 addrspace(1)* [ [[P]], [[E:%.*]] ]
+; IS__CGSCC____-NEXT:    [[Y:%.*]] = phi i32* [ [[Q]], [[E]] ]
+; IS__CGSCC____-NEXT:    [[TMP:%.*]] = addrspacecast i32 addrspace(1)* [[X]] to i32*
+; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = select i1 [[B]], i32* [[TMP]], i32* [[Y]]
+; IS__CGSCC____-NEXT:    [[VAL:%.*]] = load i32, i32* [[TMP2]], align 4
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[TMP]], align 4
+; IS__CGSCC____-NEXT:    store i32* [[Y]], i32** @g, align 8
+; IS__CGSCC____-NEXT:    ret i32 [[VAL]]
 ;
 e:
   br label %l
@@ -270,11 +303,17 @@ define void @nc5(void (i8*)* %f, i8* %p) {
 
 ; It would be acceptable to add readnone to %y1_1 and %y1_2.
 define void @test1_1(i8* %x1_1, i8* %y1_1, i1 %c) {
-; CHECK-LABEL: define {{[^@]+}}@test1_1
-; CHECK-SAME: (i8* nocapture nofree readnone [[X1_1:%.*]], i8* nocapture nofree readnone [[Y1_1:%.*]], i1 [[C:%.*]])
-; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @test1_2(i8* noalias nofree readnone undef, i8* noalias nofree readnone "no-capture-maybe-returned" [[Y1_1]], i1 [[C]])
-; CHECK-NEXT:    store i32* null, i32** @g, align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test1_1
+; IS__TUNIT____-SAME: (i8* nocapture nofree readnone [[X1_1:%.*]], i8* nocapture nofree readnone [[Y1_1:%.*]], i1 [[C:%.*]])
+; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = call i8* @test1_2(i8* noalias nofree readnone undef, i8* noalias nofree readnone "no-capture-maybe-returned" [[Y1_1]], i1 [[C]])
+; IS__TUNIT____-NEXT:    store i32* null, i32** @g
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test1_1
+; IS__CGSCC____-SAME: (i8* nocapture nofree readnone [[X1_1:%.*]], i8* nocapture nofree readnone [[Y1_1:%.*]], i1 [[C:%.*]])
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8* @test1_2(i8* noalias nofree readnone undef, i8* noalias nofree readnone "no-capture-maybe-returned" [[Y1_1]], i1 [[C]])
+; IS__CGSCC____-NEXT:    store i32* null, i32** @g, align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   call i8* @test1_2(i8* %x1_1, i8* %y1_1, i1 %c)
   store i32* null, i32** @g
@@ -282,15 +321,25 @@ define void @test1_1(i8* %x1_1, i8* %y1_1, i1 %c) {
 }
 
 define i8* @test1_2(i8* %x1_2, i8* %y1_2, i1 %c) {
-; CHECK-LABEL: define {{[^@]+}}@test1_2
-; CHECK-SAME: (i8* nocapture nofree readnone [[X1_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y1_2:%.*]], i1 [[C:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
-; CHECK:       t:
-; CHECK-NEXT:    call void @test1_1(i8* noalias nofree readnone undef, i8* noalias nocapture nofree readnone [[Y1_2]], i1 [[C]])
-; CHECK-NEXT:    store i32* null, i32** @g, align 8
-; CHECK-NEXT:    br label [[F]]
-; CHECK:       f:
-; CHECK-NEXT:    ret i8* [[Y1_2]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test1_2
+; IS__TUNIT____-SAME: (i8* nocapture nofree readnone [[X1_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y1_2:%.*]], i1 [[C:%.*]])
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__TUNIT____:       t:
+; IS__TUNIT____-NEXT:    call void @test1_1(i8* noalias nofree readnone undef, i8* noalias nocapture nofree readnone [[Y1_2]], i1 [[C]])
+; IS__TUNIT____-NEXT:    store i32* null, i32** @g
+; IS__TUNIT____-NEXT:    br label [[F]]
+; IS__TUNIT____:       f:
+; IS__TUNIT____-NEXT:    ret i8* [[Y1_2]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test1_2
+; IS__CGSCC____-SAME: (i8* nocapture nofree readnone [[X1_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y1_2:%.*]], i1 [[C:%.*]])
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__CGSCC____:       t:
+; IS__CGSCC____-NEXT:    call void @test1_1(i8* noalias nofree readnone undef, i8* noalias nocapture nofree readnone [[Y1_2]], i1 [[C]])
+; IS__CGSCC____-NEXT:    store i32* null, i32** @g, align 8
+; IS__CGSCC____-NEXT:    br label [[F]]
+; IS__CGSCC____:       f:
+; IS__CGSCC____-NEXT:    ret i8* [[Y1_2]]
 ;
   br i1 %c, label %t, label %f
 t:
@@ -322,11 +371,17 @@ define void @test3(i8* %x3, i8* %y3, i8* %z3) {
 }
 
 define void @test4_1(i8* %x4_1, i1 %c) {
-; CHECK-LABEL: define {{[^@]+}}@test4_1
-; CHECK-SAME: (i8* nocapture nofree readnone [[X4_1:%.*]], i1 [[C:%.*]])
-; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @test4_2(i8* noalias nofree readnone undef, i8* noalias nofree readnone "no-capture-maybe-returned" [[X4_1]], i8* noalias nofree readnone undef, i1 [[C]])
-; CHECK-NEXT:    store i32* null, i32** @g, align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test4_1
+; IS__TUNIT____-SAME: (i8* nocapture nofree readnone [[X4_1:%.*]], i1 [[C:%.*]])
+; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = call i8* @test4_2(i8* noalias nofree readnone undef, i8* noalias nofree readnone "no-capture-maybe-returned" [[X4_1]], i8* noalias nofree readnone undef, i1 [[C]])
+; IS__TUNIT____-NEXT:    store i32* null, i32** @g
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test4_1
+; IS__CGSCC____-SAME: (i8* nocapture nofree readnone [[X4_1:%.*]], i1 [[C:%.*]])
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8* @test4_2(i8* noalias nofree readnone undef, i8* noalias nofree readnone "no-capture-maybe-returned" [[X4_1]], i8* noalias nofree readnone undef, i1 [[C]])
+; IS__CGSCC____-NEXT:    store i32* null, i32** @g, align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   call i8* @test4_2(i8* %x4_1, i8* %x4_1, i8* %x4_1, i1 %c)
   store i32* null, i32** @g
@@ -334,15 +389,25 @@ define void @test4_1(i8* %x4_1, i1 %c) {
 }
 
 define i8* @test4_2(i8* %x4_2, i8* %y4_2, i8* %z4_2, i1 %c) {
-; CHECK-LABEL: define {{[^@]+}}@test4_2
-; CHECK-SAME: (i8* nocapture nofree readnone [[X4_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y4_2:%.*]], i8* nocapture nofree readnone [[Z4_2:%.*]], i1 [[C:%.*]])
-; CHECK-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
-; CHECK:       t:
-; CHECK-NEXT:    call void @test4_1(i8* noalias nofree readnone align 536870912 null, i1 [[C]])
-; CHECK-NEXT:    store i32* null, i32** @g, align 8
-; CHECK-NEXT:    br label [[F]]
-; CHECK:       f:
-; CHECK-NEXT:    ret i8* [[Y4_2]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test4_2
+; IS__TUNIT____-SAME: (i8* nocapture nofree readnone [[X4_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y4_2:%.*]], i8* nocapture nofree readnone [[Z4_2:%.*]], i1 [[C:%.*]])
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__TUNIT____:       t:
+; IS__TUNIT____-NEXT:    call void @test4_1(i8* noalias nofree readnone align 536870912 null, i1 [[C]])
+; IS__TUNIT____-NEXT:    store i32* null, i32** @g
+; IS__TUNIT____-NEXT:    br label [[F]]
+; IS__TUNIT____:       f:
+; IS__TUNIT____-NEXT:    ret i8* [[Y4_2]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test4_2
+; IS__CGSCC____-SAME: (i8* nocapture nofree readnone [[X4_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y4_2:%.*]], i8* nocapture nofree readnone [[Z4_2:%.*]], i1 [[C:%.*]])
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__CGSCC____:       t:
+; IS__CGSCC____-NEXT:    call void @test4_1(i8* noalias nofree readnone align 536870912 null, i1 [[C]])
+; IS__CGSCC____-NEXT:    store i32* null, i32** @g, align 8
+; IS__CGSCC____-NEXT:    br label [[F]]
+; IS__CGSCC____:       f:
+; IS__CGSCC____-NEXT:    ret i8* [[Y4_2]]
 ;
   br i1 %c, label %t, label %f
 t:
@@ -356,11 +421,17 @@ f:
 declare i8* @test5_1(i8* %x5_1)
 
 define void @test5_2(i8* %x5_2) {
-; CHECK-LABEL: define {{[^@]+}}@test5_2
-; CHECK-SAME: (i8* [[X5_2:%.*]])
-; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @test5_1(i8* [[X5_2]])
-; CHECK-NEXT:    store i32* null, i32** @g, align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test5_2
+; IS__TUNIT____-SAME: (i8* [[X5_2:%.*]])
+; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = call i8* @test5_1(i8* [[X5_2]])
+; IS__TUNIT____-NEXT:    store i32* null, i32** @g
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test5_2
+; IS__CGSCC____-SAME: (i8* [[X5_2:%.*]])
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8* @test5_1(i8* [[X5_2]])
+; IS__CGSCC____-NEXT:    store i32* null, i32** @g, align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   call i8* @test5_1(i8* %x5_2)
   store i32* null, i32** @g
@@ -370,11 +441,17 @@ define void @test5_2(i8* %x5_2) {
 declare void @test6_1(i8* %x6_1, i8* nocapture %y6_1, ...)
 
 define void @test6_2(i8* %x6_2, i8* %y6_2, i8* %z6_2) {
-; CHECK-LABEL: define {{[^@]+}}@test6_2
-; CHECK-SAME: (i8* [[X6_2:%.*]], i8* nocapture [[Y6_2:%.*]], i8* [[Z6_2:%.*]])
-; CHECK-NEXT:    call void (i8*, i8*, ...) @test6_1(i8* [[X6_2]], i8* nocapture [[Y6_2]], i8* [[Z6_2]])
-; CHECK-NEXT:    store i32* null, i32** @g, align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test6_2
+; IS__TUNIT____-SAME: (i8* [[X6_2:%.*]], i8* nocapture [[Y6_2:%.*]], i8* [[Z6_2:%.*]])
+; IS__TUNIT____-NEXT:    call void (i8*, i8*, ...) @test6_1(i8* [[X6_2]], i8* nocapture [[Y6_2]], i8* [[Z6_2]])
+; IS__TUNIT____-NEXT:    store i32* null, i32** @g
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test6_2
+; IS__CGSCC____-SAME: (i8* [[X6_2:%.*]], i8* nocapture [[Y6_2:%.*]], i8* [[Z6_2:%.*]])
+; IS__CGSCC____-NEXT:    call void (i8*, i8*, ...) @test6_1(i8* [[X6_2]], i8* nocapture [[Y6_2]], i8* [[Z6_2]])
+; IS__CGSCC____-NEXT:    store i32* null, i32** @g, align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   call void (i8*, i8*, ...) @test6_1(i8* %x6_2, i8* %y6_2, i8* %z6_2)
   store i32* null, i32** @g
@@ -441,11 +518,17 @@ entry:
 
 @g2 = global i8* null
 define void @captureLaunder(i8* %p) {
-; CHECK-LABEL: define {{[^@]+}}@captureLaunder
-; CHECK-SAME: (i8* [[P:%.*]])
-; CHECK-NEXT:    [[B:%.*]] = call i8* @llvm.launder.invariant.group.p0i8(i8* [[P]])
-; CHECK-NEXT:    store i8* [[B]], i8** @g2, align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@captureLaunder
+; IS__TUNIT____-SAME: (i8* [[P:%.*]])
+; IS__TUNIT____-NEXT:    [[B:%.*]] = call i8* @llvm.launder.invariant.group.p0i8(i8* [[P]])
+; IS__TUNIT____-NEXT:    store i8* [[B]], i8** @g2
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@captureLaunder
+; IS__CGSCC____-SAME: (i8* [[P:%.*]])
+; IS__CGSCC____-NEXT:    [[B:%.*]] = call i8* @llvm.launder.invariant.group.p0i8(i8* [[P]])
+; IS__CGSCC____-NEXT:    store i8* [[B]], i8** @g2, align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   %b = call i8* @llvm.launder.invariant.group.p0i8(i8* %p)
   store i8* %b, i8** @g2
@@ -468,11 +551,17 @@ entry:
 
 @g3 = global i8* null
 define void @captureStrip(i8* %p) {
-; CHECK-LABEL: define {{[^@]+}}@captureStrip
-; CHECK-SAME: (i8* writeonly [[P:%.*]])
-; CHECK-NEXT:    [[B:%.*]] = call i8* @llvm.strip.invariant.group.p0i8(i8* noalias readnone [[P]])
-; CHECK-NEXT:    store i8* [[B]], i8** @g3, align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@captureStrip
+; IS__TUNIT____-SAME: (i8* writeonly [[P:%.*]])
+; IS__TUNIT____-NEXT:    [[B:%.*]] = call i8* @llvm.strip.invariant.group.p0i8(i8* noalias readnone [[P]])
+; IS__TUNIT____-NEXT:    store i8* [[B]], i8** @g3
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@captureStrip
+; IS__CGSCC____-SAME: (i8* writeonly [[P:%.*]])
+; IS__CGSCC____-NEXT:    [[B:%.*]] = call i8* @llvm.strip.invariant.group.p0i8(i8* noalias readnone [[P]])
+; IS__CGSCC____-NEXT:    store i8* [[B]], i8** @g3, align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   %b = call i8* @llvm.strip.invariant.group.p0i8(i8* %p)
   store i8* %b, i8** @g3

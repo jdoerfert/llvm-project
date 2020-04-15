@@ -477,13 +477,21 @@ cleanup:
 ; FIXME: Should be able to detect undefined behavior.
 
 define void @ub(i32* %0) {
-; CHECK-LABEL: define {{[^@]+}}@ub
-; CHECK-SAME: (i32* nocapture nofree writeonly [[TMP0:%.*]])
-; CHECK-NEXT:    [[POISON:%.*]] = sub nuw i32 0, 1
-; CHECK-NEXT:    [[STILL_POISON:%.*]] = and i32 [[POISON]], 0
-; CHECK-NEXT:    [[POISON_YET_AGAIN:%.*]] = getelementptr i32, i32* [[TMP0]], i32 [[STILL_POISON]]
-; CHECK-NEXT:    store i32 0, i32* [[POISON_YET_AGAIN]], align 4
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@ub
+; IS__TUNIT____-SAME: (i32* nocapture nofree writeonly [[TMP0:%.*]])
+; IS__TUNIT____-NEXT:    [[POISON:%.*]] = sub nuw i32 0, 1
+; IS__TUNIT____-NEXT:    [[STILL_POISON:%.*]] = and i32 [[POISON]], 0
+; IS__TUNIT____-NEXT:    [[POISON_YET_AGAIN:%.*]] = getelementptr i32, i32* [[TMP0]], i32 [[STILL_POISON]]
+; IS__TUNIT____-NEXT:    store i32 0, i32* [[POISON_YET_AGAIN]]
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@ub
+; IS__CGSCC____-SAME: (i32* nocapture nofree writeonly [[TMP0:%.*]])
+; IS__CGSCC____-NEXT:    [[POISON:%.*]] = sub nuw i32 0, 1
+; IS__CGSCC____-NEXT:    [[STILL_POISON:%.*]] = and i32 [[POISON]], 0
+; IS__CGSCC____-NEXT:    [[POISON_YET_AGAIN:%.*]] = getelementptr i32, i32* [[TMP0]], i32 [[STILL_POISON]]
+; IS__CGSCC____-NEXT:    store i32 0, i32* [[POISON_YET_AGAIN]], align 4
+; IS__CGSCC____-NEXT:    ret void
 ;
   %poison = sub nuw i32 0, 1           ; Results in a poison value.
   %still_poison = and i32 %poison, 0   ; 0, but also poison.

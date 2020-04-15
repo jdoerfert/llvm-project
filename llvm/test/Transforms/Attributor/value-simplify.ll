@@ -366,10 +366,15 @@ define void @complicated_args_byval() {
 }
 
 define internal i8*@test_byval2(%struct.X* byval %a) {
-; CHECK-LABEL: define {{[^@]+}}@test_byval2()
-; CHECK-NEXT:    [[G0:%.*]] = getelementptr [[STRUCT_X:%.*]], %struct.X* @S, i32 0, i32 0
-; CHECK-NEXT:    [[L:%.*]] = load i8*, i8** [[G0]], align 8
-; CHECK-NEXT:    ret i8* [[L]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test_byval2()
+; IS__TUNIT____-NEXT:    [[G0:%.*]] = getelementptr [[STRUCT_X:%.*]], %struct.X* @S, i32 0, i32 0
+; IS__TUNIT____-NEXT:    [[L:%.*]] = load i8*, i8** [[G0]]
+; IS__TUNIT____-NEXT:    ret i8* [[L]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test_byval2()
+; IS__CGSCC____-NEXT:    [[G0:%.*]] = getelementptr [[STRUCT_X:%.*]], %struct.X* @S, i32 0, i32 0
+; IS__CGSCC____-NEXT:    [[L:%.*]] = load i8*, i8** [[G0]], align 8
+; IS__CGSCC____-NEXT:    ret i8* [[L]]
 ;
   %g0 = getelementptr %struct.X, %struct.X* %a, i32 0, i32 0
   %l = load i8*, i8** %g0

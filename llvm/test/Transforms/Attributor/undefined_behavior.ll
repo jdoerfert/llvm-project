@@ -339,14 +339,23 @@ e:
 ; Branch on undef because of uninitialized value.
 ; FIXME: Currently it doesn't propagate the undef.
 define i32 @cond_br_on_undef_uninit() {
-; CHECK-LABEL: define {{[^@]+}}@cond_br_on_undef_uninit()
-; CHECK-NEXT:    [[ALLOC:%.*]] = alloca i1
-; CHECK-NEXT:    [[COND:%.*]] = load i1, i1* [[ALLOC]], align 1
-; CHECK-NEXT:    br i1 [[COND]], label [[T:%.*]], label [[E:%.*]]
-; CHECK:       t:
-; CHECK-NEXT:    ret i32 1
-; CHECK:       e:
-; CHECK-NEXT:    ret i32 2
+; IS__TUNIT____-LABEL: define {{[^@]+}}@cond_br_on_undef_uninit()
+; IS__TUNIT____-NEXT:    [[ALLOC:%.*]] = alloca i1
+; IS__TUNIT____-NEXT:    [[COND:%.*]] = load i1, i1* [[ALLOC]]
+; IS__TUNIT____-NEXT:    br i1 [[COND]], label [[T:%.*]], label [[E:%.*]]
+; IS__TUNIT____:       t:
+; IS__TUNIT____-NEXT:    ret i32 1
+; IS__TUNIT____:       e:
+; IS__TUNIT____-NEXT:    ret i32 2
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@cond_br_on_undef_uninit()
+; IS__CGSCC____-NEXT:    [[ALLOC:%.*]] = alloca i1
+; IS__CGSCC____-NEXT:    [[COND:%.*]] = load i1, i1* [[ALLOC]], align 1
+; IS__CGSCC____-NEXT:    br i1 [[COND]], label [[T:%.*]], label [[E:%.*]]
+; IS__CGSCC____:       t:
+; IS__CGSCC____-NEXT:    ret i32 1
+; IS__CGSCC____:       e:
+; IS__CGSCC____-NEXT:    ret i32 2
 ;
   %alloc = alloca i1
   %cond = load i1, i1* %alloc

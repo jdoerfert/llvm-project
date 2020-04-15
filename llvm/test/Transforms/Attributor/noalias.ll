@@ -644,10 +644,15 @@ declare void @llvm.lifetime.end.p0i8(i64 immarg, i8* nocapture)
 @alias_of_p = external global i32*
 
 define void @make_alias(i32* %p) {
-; CHECK-LABEL: define {{[^@]+}}@make_alias
-; CHECK-SAME: (i32* nofree writeonly [[P:%.*]])
-; CHECK-NEXT:    store i32* [[P]], i32** @alias_of_p, align 8
-; CHECK-NEXT:    ret void
+; IS__TUNIT____-LABEL: define {{[^@]+}}@make_alias
+; IS__TUNIT____-SAME: (i32* nofree writeonly [[P:%.*]])
+; IS__TUNIT____-NEXT:    store i32* [[P]], i32** @alias_of_p
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@make_alias
+; IS__CGSCC____-SAME: (i32* nofree writeonly [[P:%.*]])
+; IS__CGSCC____-NEXT:    store i32* [[P]], i32** @alias_of_p, align 8
+; IS__CGSCC____-NEXT:    ret void
 ;
   store i32* %p, i32** @alias_of_p
   ret void

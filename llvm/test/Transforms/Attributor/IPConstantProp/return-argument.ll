@@ -66,7 +66,7 @@ define void @caller(i1 %C) personality i32 (...)* @__gxx_personality_v0 {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@caller
 ; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #2 personality i32 (...)* @__gxx_personality_v0
 ; IS__TUNIT____-NEXT:    [[Q:%.*]] = alloca i32
-; IS__TUNIT____-NEXT:    [[W:%.*]] = call align 4 i32* @incdec(i1 [[C]], i32* noalias nofree nonnull align 4 dereferenceable(4) "no-capture-maybe-returned" [[Q]])
+; IS__TUNIT____-NEXT:    [[W:%.*]] = call i32* @incdec(i1 [[C]], i32* noalias nofree nonnull align 4 dereferenceable(4) "no-capture-maybe-returned" [[Q]])
 ; IS__TUNIT____-NEXT:    [[S1:%.*]] = call { i32, i32 } @foo(i32 1, i32 2)
 ; IS__TUNIT____-NEXT:    [[X1:%.*]] = extractvalue { i32, i32 } [[S1]], 0
 ; IS__TUNIT____-NEXT:    [[S2:%.*]] = invoke { i32, i32 } @foo(i32 3, i32 4)
@@ -74,7 +74,7 @@ define void @caller(i1 %C) personality i32 (...)* @__gxx_personality_v0 {
 ; IS__TUNIT____:       OK:
 ; IS__TUNIT____-NEXT:    [[X2:%.*]] = extractvalue { i32, i32 } [[S2]], 0
 ; IS__TUNIT____-NEXT:    [[Z:%.*]] = add i32 [[X1]], [[X2]]
-; IS__TUNIT____-NEXT:    store i32 [[Z]], i32* [[W]], align 4
+; IS__TUNIT____-NEXT:    store i32 [[Z]], i32* [[W]]
 ; IS__TUNIT____-NEXT:    br label [[RET:%.*]]
 ; IS__TUNIT____:       LPAD:
 ; IS__TUNIT____-NEXT:    [[EXN:%.*]] = landingpad { i8*, i32 }

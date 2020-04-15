@@ -1167,20 +1167,35 @@ define weak_odr align 16 i32* @non_exact_4(i32* align 32 %a) {
 ; We can use the return information of the weak function non_exact_4.
 ; FIXME: %c2 and %c3 should be replaced but not %c0 or %c1!
 define i32 @exact(i32* align 8 %a, i32* align 8 %b) {
-; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@exact
-; NOT_CGSCC_NPM-SAME: (i32* align 8 [[A:%.*]], i32* align 8 [[B:%.*]])
-; NOT_CGSCC_NPM-NEXT:    [[C0:%.*]] = call i32 @non_exact_0()
-; NOT_CGSCC_NPM-NEXT:    [[C1:%.*]] = call i32 @non_exact_1(i32 1)
-; NOT_CGSCC_NPM-NEXT:    [[C2:%.*]] = call i32 @non_exact_2(i32 2)
-; NOT_CGSCC_NPM-NEXT:    [[C3:%.*]] = call align 32 i32* @non_exact_3(i32* align 32 [[A]])
-; NOT_CGSCC_NPM-NEXT:    [[C4:%.*]] = call align 16 i32* @non_exact_4(i32* align 32 [[B]])
-; NOT_CGSCC_NPM-NEXT:    [[C3L:%.*]] = load i32, i32* [[C3]], align 32
-; NOT_CGSCC_NPM-NEXT:    [[C4L:%.*]] = load i32, i32* [[C4]], align 16
-; NOT_CGSCC_NPM-NEXT:    [[ADD1:%.*]] = add i32 [[C0]], [[C1]]
-; NOT_CGSCC_NPM-NEXT:    [[ADD2:%.*]] = add i32 [[ADD1]], [[C2]]
-; NOT_CGSCC_NPM-NEXT:    [[ADD3:%.*]] = add i32 [[ADD2]], [[C3L]]
-; NOT_CGSCC_NPM-NEXT:    [[ADD4:%.*]] = add i32 [[ADD3]], [[C4L]]
-; NOT_CGSCC_NPM-NEXT:    ret i32 [[ADD4]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@exact
+; IS__TUNIT____-SAME: (i32* align 8 [[A:%.*]], i32* align 8 [[B:%.*]])
+; IS__TUNIT____-NEXT:    [[C0:%.*]] = call i32 @non_exact_0()
+; IS__TUNIT____-NEXT:    [[C1:%.*]] = call i32 @non_exact_1(i32 1)
+; IS__TUNIT____-NEXT:    [[C2:%.*]] = call i32 @non_exact_2(i32 2)
+; IS__TUNIT____-NEXT:    [[C3:%.*]] = call i32* @non_exact_3(i32* align 32 [[A]])
+; IS__TUNIT____-NEXT:    [[C4:%.*]] = call i32* @non_exact_4(i32* align 32 [[B]])
+; IS__TUNIT____-NEXT:    [[C3L:%.*]] = load i32, i32* [[C3]]
+; IS__TUNIT____-NEXT:    [[C4L:%.*]] = load i32, i32* [[C4]]
+; IS__TUNIT____-NEXT:    [[ADD1:%.*]] = add i32 [[C0]], [[C1]]
+; IS__TUNIT____-NEXT:    [[ADD2:%.*]] = add i32 [[ADD1]], [[C2]]
+; IS__TUNIT____-NEXT:    [[ADD3:%.*]] = add i32 [[ADD2]], [[C3L]]
+; IS__TUNIT____-NEXT:    [[ADD4:%.*]] = add i32 [[ADD3]], [[C4L]]
+; IS__TUNIT____-NEXT:    ret i32 [[ADD4]]
+;
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@exact
+; IS__CGSCC_OPM-SAME: (i32* align 8 [[A:%.*]], i32* align 8 [[B:%.*]])
+; IS__CGSCC_OPM-NEXT:    [[C0:%.*]] = call i32 @non_exact_0()
+; IS__CGSCC_OPM-NEXT:    [[C1:%.*]] = call i32 @non_exact_1(i32 1)
+; IS__CGSCC_OPM-NEXT:    [[C2:%.*]] = call i32 @non_exact_2(i32 2)
+; IS__CGSCC_OPM-NEXT:    [[C3:%.*]] = call align 32 i32* @non_exact_3(i32* align 32 [[A]])
+; IS__CGSCC_OPM-NEXT:    [[C4:%.*]] = call align 16 i32* @non_exact_4(i32* align 32 [[B]])
+; IS__CGSCC_OPM-NEXT:    [[C3L:%.*]] = load i32, i32* [[C3]], align 32
+; IS__CGSCC_OPM-NEXT:    [[C4L:%.*]] = load i32, i32* [[C4]], align 16
+; IS__CGSCC_OPM-NEXT:    [[ADD1:%.*]] = add i32 [[C0]], [[C1]]
+; IS__CGSCC_OPM-NEXT:    [[ADD2:%.*]] = add i32 [[ADD1]], [[C2]]
+; IS__CGSCC_OPM-NEXT:    [[ADD3:%.*]] = add i32 [[ADD2]], [[C3L]]
+; IS__CGSCC_OPM-NEXT:    [[ADD4:%.*]] = add i32 [[ADD3]], [[C4L]]
+; IS__CGSCC_OPM-NEXT:    ret i32 [[ADD4]]
 ;
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@exact
 ; IS__CGSCC_NPM-SAME: (i32* align 8 [[A:%.*]], i32* align 8 [[B:%.*]])
