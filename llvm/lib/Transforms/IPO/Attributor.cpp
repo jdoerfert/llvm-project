@@ -491,7 +491,7 @@ Attributor::~Attributor() {
   for (auto &It : ArgumentReplacementMap)
     DeleteContainerPointers(It.second);
 
-  InfoCache.Explorer.dump();
+  //InfoCache.Explorer.dump();
 }
 
 bool Attributor::isAssumedDead(const AbstractAttribute &AA,

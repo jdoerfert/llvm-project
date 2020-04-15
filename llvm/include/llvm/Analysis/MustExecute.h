@@ -24,6 +24,8 @@
 #define LLVM_ANALYSIS_MUSTEXECUTE_H
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/InstructionPrecedenceTracking.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -189,9 +191,9 @@ enum class ExplorationDirection {
 
 /// Must be executed intervals are stretches of instructions that are guaranteed
 /// to be executed together without any other instruction executed in-between.
-/// In addition, intervals are linked to intervals always executed before and
-/// respectively afterward, if they exit. Note that there might be other
-/// instructions executed in-between linked intervals.
+/// In addition, intervals are linked to intervals always executed before or
+/// respectively afterward, depending on their direction. Note that there might
+/// be other instructions executed in-between linked intervals.
 ///
 /// Given the following code, and assuming all statements are single
 /// instructions which transfer execution to the successor (see
@@ -283,85 +285,14 @@ enum class ExplorationDirection {
 ///
 ///
 /// Note that the examples show optimal intervals but not necessarily the ones
-/// derived by the implementation.
+/// derived by the implementation. Also note that an interval has a direction
+/// so there would be an inerval for the forward direction and one for the
+/// backward direction. The former is linked as described by the Next column in
+/// the examples the latter as described by the Previous column.
 ///
-///
-/// Implementation:
-/// Intervals are centered around an instruction at position 0. From there, they
-/// grow in both directions using the NextInsts and PrevInst vector,
-/// respectively. The links to the next and previous interval are stored in the
-/// Next and Prev pointers. Note that we avoid exposing any of the underlying
-/// structures because the order in which instructions are queried can change
-/// the actual layout of intervals.
-///
-/// Positions:
-/// In order to explore an intervals one needs to have a position which can be
-/// incremented/decremented. Positions combine a current interval with an
-/// offset. That is, they represent the instruction offset "steps" before/after
-/// the center of the interval which is at offset 0. Offset can therefore be
-/// negative. If a position runs out of instructions in the interval it will
-/// try to move to the next interval in the requested direction, if one exists.
-/// In case there was no interval, the position becomes invalid.
 struct MustBeExecutedInterval {
 
-  /// Constructor for a new interval centered around \p I.
-  MustBeExecutedInterval(const Instruction *I) {
-    assert(I && "Cannot construct an interval for a null pointer!");
-    // Put the instruction I in both vectors to make the offset and in-bounds
-    // calculation easier.
-    NextInsts.push_back(I);
-    PrevInsts.push_back(I);
-    Instructions.insert(I);
-  }
-
-  /// Return true if \p Offset is part of this interval, false otherwise.
-  ///
-  /// This function deals with both positive and negative offsets as measured
-  /// from the center instruction at offset 0.
-  bool isInbounds(int Offset) {
-    return Offset >= 0 ? (int)NextInsts.size() > Offset
-                       : (int)PrevInsts.size() > -Offset;
-  }
-
-  /// Subscript operator to allow easy access to the instructions based on their
-  /// offset.
-  const Instruction *&operator[](int Offset) {
-    assert(isInbounds(Offset) && "Trying to access an interval out-of-bounds!");
-    return Offset >= 0 ? NextInsts[Offset] : PrevInsts[-Offset];
-  }
-
-  /// Return true if \p I is in this interval
-  bool count(const Instruction &I) const { return Instructions.count(&I); }
-
-  /// Print method for debugging purposes.
-  void print(raw_ostream &OS, bool Detailed = false) const {
-    OS << "[" << Prev << ":" << this << ":" << Next << "]";
-    if (Detailed) {
-      OS << "\n";
-      for (auto *I : PrevInsts)
-        OS << "- " << *I << "\n";
-      for (auto *I : NextInsts)
-        OS << "- " << *I << "\n";
-    }
-  }
-
-  /// Return the number of instructions contained in this interval.
-  int size() const {
-    return NextInsts.size() + PrevInsts.size() /* center is duplicated */ - 1;
-  }
-
-  /// Return the number of instructions in this interval in \p Dir from
-  /// the center.
-  int size(ExplorationDirection Dir) const {
-    if (Dir == ExplorationDirection::FORWARD)
-      return NextInsts.size();
-    return PrevInsts.size();
-  }
-
-  /// A position on the interval chain.
-  ///
-  /// See the position section in the MustBeExecutedInterval description for
-  /// more information.
+  /// A position on an interval.
   struct Position {
 
     Position(MustBeExecutedInterval *Interval = nullptr)
@@ -376,6 +307,7 @@ struct MustBeExecutedInterval {
 
     /// Return the interval at this position.
     MustBeExecutedInterval *getInterval() const { return Interval; }
+    unsigned getOffset() const { return Offset; }
 
     /// Allow valid positions to evaluate to 'true' and invalid ones to 'false'
     /// when a position is converted to a boolean.
@@ -391,15 +323,19 @@ struct MustBeExecutedInterval {
     /// If there is no next instruction in the direction, this will result in
     /// an invalid position, hence the interval will be a nullptr.
     ///{
-    friend Position operator+(Position Pos, ExplorationDirection Dir) {
-      return Pos += Dir;
+    Position &operator++() {
+      return (*this) += 1;
     }
 
-    Position &operator+=(ExplorationDirection Dir) {
+    Position operator++(int) {
+      Position tmp(*this);
+      ++(*this);
+      return tmp;
+    }
+
+    Position &operator+=(unsigned N) {
       if (!bool(*this))
         return *this;
-
-      int DirectionOffset = Dir == ExplorationDirection::FORWARD ? 1 : -1;
 
       // If the offset adjusted wrt. direction is still in the associated
       // interval, we adjust the offset and are done. Otherwise, we try to go to
@@ -407,30 +343,33 @@ struct MustBeExecutedInterval {
       // hence to the very beginning or end depending on the direction. If there
       // is no linked interval, all members will be set to NULL and the position
       // becomes invalid.
-      if (Interval->isInbounds(Offset + DirectionOffset)) {
-        Offset += DirectionOffset;
-      } else if (auto *NextI =
-                     Interval->getNextIntervalInDirection(Dir)) {
-        Interval = NextI;
-        Offset = Dir == ExplorationDirection::FORWARD
-                     ? 1 - Interval->PrevInsts.size()
-                     : Interval->NextInsts.size() - 1;
-      } else {
-        Interval = nullptr;
-        Offset = 0;
+      if (Interval->isInbounds(Offset + N)) {
+        Offset += N;
+        return *this;
       }
+
+      if (Interval->getPosInNextInterval()) {
+        unsigned Advanced = Interval->size() - Offset - 1;
+        assert(Interval->size() >= Offset + 1 && "Unexpected offset!");
+        assert(N >= Advanced + 1 && "Unexpected offset!");
+        *this = Interval->getPosInNextInterval();
+        return (*this) += N - Advanced - 1;
+      }
+
+      Interval = nullptr;
+      Offset = 0;
       return *this;
     }
     ///}
 
     /// Print method for debugging purposes.
     void print(raw_ostream &OS, bool Detailed = false) const {
-      OS << "{";
+      OS << "{" << Offset << "@";
       if (Interval)
-        Interval->print(OS, Detailed);
+        Interval->print(OS, false);
       else
-        OS << "[NONE:NONE:NONE]";
-      OS << "@" << Offset << "}";
+        OS << "[NONE:NONE:N]";
+      OS << "}";
     }
 
   private:
@@ -438,70 +377,92 @@ struct MustBeExecutedInterval {
     /// The interval this position is currently associated with.
     MustBeExecutedInterval *Interval;
 
-    /// The current offset from the center of the associated interval.
-    int Offset;
+    /// The current offset from the beginning of the associated interval.
+    unsigned Offset;
 
     friend class MustBeExecutedContextExplorer;
   };
 
-  /// Return the next interval in direction \p Dir, if any.
-  MustBeExecutedInterval *
-  getNextIntervalInDirection(ExplorationDirection Dir) const {
-    return Dir == ExplorationDirection::FORWARD ? Next : Prev;
+  /// Constructor for a new interval centered around \p I.
+  MustBeExecutedInterval(const Instruction &I, ExplorationDirection Dir)
+      : Dir(Dir) {
+    Insts.insert(&I);
   }
 
+  MustBeExecutedInterval *getNextInterval() const { return PosInNextInterval.getInterval(); }
+  const Position &getPosInNextInterval() const { return PosInNextInterval; }
+  ExplorationDirection getDirection() const { return Dir; }
+
+  /// Return true if \p Offset is part of this interval, false otherwise.
+  bool isInbounds(unsigned Offset) { return Offset < size(); }
+
+  /// Subscript operator to allow easy access to the instructions based on their
+  /// offset.
+  const Instruction *operator[](unsigned Offset) const { return Insts[Offset]; }
+
+  /// Return true if \p I is in this interval
+  bool count(const Instruction &I) const { return Insts.count(&I); }
+
+  /// Print method for debugging purposes.
+  void print(raw_ostream &OS, bool Detailed = false) const {
+    OS << "[" << this << "(" << size() << ") + ";
+    PosInNextInterval.print(OS);
+    OS << " : " << unsigned(getDirection()) << "]";
+    if (Detailed) {
+      OS << "\n";
+      for (auto *I : Insts)
+        OS << "- " << *I << "\n";
+    }
+  }
+
+  /// Return the number of instructions contained in this interval.
+  unsigned size() const { return Insts.size(); }
+
+  bool isFinalized() const { return IsFinalized; }
+
 private:
-  /// Set the next interval in direction \p Dir to \p Other.
-  bool setNextIntervalInDirection(ExplorationDirection Dir,
-                                  MustBeExecutedInterval &Other) {
-    // Do not create endless loops.
-    MustBeExecutedInterval *MBEI = &Other;
+  void finalize() {
+    assert(!IsFinalized && "Interval was marked finalized already!");
+    IsFinalized = true;
+  }
+
+  /// Set the next interval
+  bool setPosInNextInterval(const Position &P) {
+    assert(!PosInNextInterval && "Interval already has a link to another one!");
+    assert(!IsFinalized && "Interval was marked finalized already!");
+
+    // Do not create cyclic lists..
+    MustBeExecutedInterval *MBEI = P.getInterval();
     while (MBEI) {
       if (MBEI == this)
         return false;
-      MBEI = Dir == ExplorationDirection::FORWARD ? MBEI->Next : MBEI->Prev;
+      MBEI = MBEI->getNextInterval();
     }
 
-    MustBeExecutedInterval *&Ptr =
-        Dir == ExplorationDirection::FORWARD ? Next : Prev;
-    assert(!Ptr && "Expected open interval!");
-    Ptr = &Other;
+    PosInNextInterval = P;
     return true;
   }
 
-  /// Extend the interval by \p I in direction \p Dir.
-  ///
-  /// \returns The argument \p I if it was added and nullptr if it was already
-  ///          contained.
-  const Instruction *extend(const Instruction &I, ExplorationDirection Dir) {
-    // If we have seen the instruction we will not add it. This happens when we
-    // encountered an endless loop.
-    if (!Instructions.insert(&I).second)
-      return nullptr;
-
-    if (Dir == ExplorationDirection::FORWARD) {
-    NextInsts.push_back(&I);
-    assert(!Next &&
+  /// Extend the interval by \p I
+  bool extend(const Instruction &I) {
+    assert(!PosInNextInterval &&
            "Cannot advance the front if a next interval is already set!");
-    } else {
-    PrevInsts.push_back(&I);
-    assert(!Prev &&
-           "Cannot advance the back if a previous interval is already set!");
-    }
-    return &I;
+    assert(!IsFinalized && "Interval was marked finalized already!");
+
+    // If we have seen the instruction we will not add it. This happens when we
+    // encountered an endless loop contained entirely in this interval.
+    return Insts.insert(&I);
   }
 
   /// The vectors that represent the instructions in the interval.
-  ///{
-  using InstructionVector = SmallVector<const Instruction *, 8>;
-  InstructionVector PrevInsts, NextInsts;
-  ///}
+  SmallSetVector<const Instruction *, 8> Insts;
 
-  /// The set of all instructions in this interval.
-  SmallPtrSet<const Instruction *, 16> Instructions;
+  /// The
+  Position PosInNextInterval;
 
-  /// The links to the previous and next interval.
-  MustBeExecutedInterval *Prev = nullptr, *Next = nullptr;
+  ExplorationDirection Dir;
+
+  bool IsFinalized = false;
 
   friend struct MustBeExecutedContextExplorer;
 };
@@ -616,10 +577,10 @@ struct MustBeExecutedIterator {
 
   /// Pre- and post-increment operators. Both can cause the underlying intervals
   /// to be extended if this is not a cached-only iterator, that is if an
-  /// explorer was provided at creation time..
+  /// explorer was provided at creation time.
   ///{
   MustBeExecutedIterator &operator++() {
-    CurInst = advance();
+    advance();
     return *this;
   }
 
@@ -633,7 +594,7 @@ struct MustBeExecutedIterator {
   /// Equality and inequality operators. Note that we ignore the history here.
   ///{
   bool operator==(const MustBeExecutedIterator &Other) const {
-    return CurInst == Other.CurInst && Head == Other.Head && Tail == Other.Tail;
+    return Pos[0] == Other.Pos[0] && Pos[1] == Other.Pos[1];
   }
 
   bool operator!=(const MustBeExecutedIterator &Other) const {
@@ -642,25 +603,14 @@ struct MustBeExecutedIterator {
   ///}
 
   /// Return the underlying instruction.
-  const Instruction *&operator*() { return CurInst; }
-  const Instruction *getCurrentInst() const { return CurInst; }
-
-  /// Apply \p Pred on all known reachable intervals and return true if \p Pred
-  /// returned true for any of them, false otherwise.
-  bool
-  anyInterval(llvm::function_ref<bool(MustBeExecutedInterval &)> Pred) const {
-    return anyIntervalImpl(Head.getInterval(), ExplorationDirection::FORWARD,
-                           Pred) ||
-           anyIntervalImpl(Tail.getInterval(), ExplorationDirection::BACKWARD,
-                           Pred);
-  }
+  const Instruction *operator*() const { return getCurrentInst(); }
+  const Instruction *getCurrentInst() const { return Pos[0].getInstruction(); }
 
   /// Return true if \p I is known to be found by this iterator, thus to be
   /// executed with the instruction this iterator was created for. If the known
   /// context does not contain \p I, the non-const version will try to use the
   /// Explorer, if available, to extend it.
-  bool isExecutedWith(const Instruction &I);
-  bool isExecutedWithCached(const Instruction &I) const;
+  bool isExecutedWith(const Instruction &I) const;
 
   /// Configurable print method for debugging purposes.
   ///
@@ -669,68 +619,36 @@ struct MustBeExecutedIterator {
   /// \param PrintInterval If set, the interval containing the current
   ///                      instruction is printed.
   void print(raw_ostream &OS, bool PrintInst, bool PrintInterval) const {
-    if (PrintInst)
-      OS << "[" << *CurInst << "]";
+    if (PrintInst && getCurrentInst())
+      OS << "[" << *getCurrentInst() << "]";
 
-    if (!PrintInterval)
-      return;
-
-    if (Head.getInstruction() == CurInst) {
-      Head.print(OS, false);
-    } else {
-      assert(Tail.getInstruction() == CurInst &&
-             "Neither head nor tail pointed at the current instruction!");
-      Tail.print(OS, false);
-    }
+    if (PrintInterval)
+      Pos[0].print(OS, false);
   }
 
 private:
-  /// Apply \p Pred on all known reachable intervals from \p CurI in direction
-  /// \p Dir and return true if \p Pred returned true for any of them,
-  /// false otherwise.
-  static bool
-  anyIntervalImpl(MustBeExecutedInterval *CurI, ExplorationDirection Dir,
-                  llvm::function_ref<bool(MustBeExecutedInterval &)> Pred) {
-    while (CurI) {
-      if (Pred(*CurI))
-        return true;
-      CurI = CurI->getNextIntervalInDirection(Dir);
-    }
-    return false;
-  }
 
   /// Private constructors.
-  MustBeExecutedIterator() : Explorer(nullptr), CurInst(nullptr) {}
-  MustBeExecutedIterator(const MustBeExecutedInterval::Position &Pos,
+  MustBeExecutedIterator() {}
+  MustBeExecutedIterator(const MustBeExecutedInterval::Position &FwdPos,
+                         const MustBeExecutedInterval::Position &BwdPos,
                          MustBeExecutedContextExplorer *Explorer)
-      : Explorer(Explorer), CurInst(Pos.getInstruction()), Head(Pos),
-        Tail(Pos) {}
+      : Explorer(Explorer) {
+    Pos[0] = FwdPos;
+    Pos[1] = BwdPos;
+  }
 
-  MustBeExecutedContextExplorer *Explorer;
-
-  /// Try to advance one of the underlying positions (Head or Tail).
-  ///
-  /// \return The next instruction in the must be executed context, or nullptr
-  ///         if none was found.
-  const Instruction *tryToAdvance();
+  MustBeExecutedContextExplorer *Explorer = nullptr;
 
   /// Advance one of the underlying positions (Head or Tail) potentially after
   /// exploring the contex further. If this is not possible the positions are
   /// invalidated.
-  ///
-  /// \return The next instruction in the must be executed context, or nullptr
-  ///         if none was found.
-  const Instruction *advance();
-
-  /// The instruction we are currently exposing to the user. There is always an
-  /// instruction that we know is executed with the given program point,
-  /// initially the program point itself.
-  const Instruction *CurInst;
+  bool advance();
 
   /// Two interval positions that mark the program points where this iterator
   /// will look for the next instruction. Note that the current instruction is
-  /// either the one pointed to by Head, Tail, or both.
-  MustBeExecutedInterval::Position Head, Tail;
+  /// the one pointed to by Pos[0].
+  MustBeExecutedInterval::Position Pos[2];
 
   friend struct MustBeExecutedContextExplorer;
 };
@@ -746,16 +664,7 @@ private:
 /// the expected use case involves few iterators for "far apart" instructions.
 /// If that changes, we should consider caching more intermediate results.
 struct MustBeExecutedContextExplorer {
-
-  struct PositionPair {
-    MustBeExecutedInterval::Position Forward;
-    MustBeExecutedInterval::Position Backward;
-
-    operator bool() const { return Forward || Backward; }
-    MustBeExecutedInterval::Position &operator[](ExplorationDirection Dir) {
-      return Dir == ExplorationDirection::FORWARD ? Forward : Backward;
-    }
-  };
+  using IntervalPosition = MustBeExecutedInterval::Position;
 
   /// In the description of the parameters we use PP to denote a program point
   /// for which the must be executed context is explored, or put differently,
@@ -790,12 +699,16 @@ struct MustBeExecutedContextExplorer {
 
   /// Return an iterator to explore the context around \p PP.
   iterator begin(const Instruction &PP) {
-    return iterator(getOrCreateIntervalPosition(PP), this);
+    return iterator(
+        getOrCreateIntervalPosition(PP, ExplorationDirection::FORWARD),
+        getOrCreateIntervalPosition(PP, ExplorationDirection::BACKWARD), this);
   }
 
   /// Return an iterator to explore the cached context around \p PP.
   const_iterator cached_begin(const Instruction &PP) const {
-    return iterator(lookupIntervalPosition(PP), nullptr);
+    return iterator(
+        lookupIntervalPosition(PP, ExplorationDirection::FORWARD),
+        lookupIntervalPosition(PP, ExplorationDirection::BACKWARD), nullptr);
   }
 
   /// Return an universal end iterator.
@@ -843,29 +756,21 @@ struct MustBeExecutedContextExplorer {
   /// is used to circumvent the search.
   ///
   /// \returns True, iff \p I was found.
-  ///
-  ///{
   bool findInContextOf(const Instruction &I, const Instruction &PP) {
     const DominatorTree *DT = DTGetter(*I.getFunction());
     if (DT && DT->dominates(&I, &PP))
       return true;
     return begin(PP).isExecutedWith(I);
   }
-  bool findInCachedContextOf(const Instruction &I,
-                             const Instruction &PP) const {
-    const DominatorTree *DT = DTGetter(*I.getFunction());
-    if (DT && DT->dominates(&I, &PP))
-      return true;
-    return cached_begin(PP).isExecutedWithCached(I);
-  }
-  ///}
 
   /// Return the next instruction that is guaranteed to be executed after \p PP.
   ///
   /// \param PP              The program point for which the next instruction
   ///                        that is guaranteed to execute is determined.
   const Instruction *getMustBeExecutedNextInstruction(const Instruction &PP) {
-    return getMustBeExecutedNextInstruction(getOrCreateIntervalPosition(PP));
+    const IntervalPosition &Pos =
+        getOrCreateIntervalPosition(PP, ExplorationDirection::FORWARD);
+    return (++iterator(Pos, IntervalPosition(), this)).getCurrentInst();
   }
 
   /// Return the previous instr. that is guaranteed to be executed before \p PP.
@@ -873,22 +778,10 @@ struct MustBeExecutedContextExplorer {
   /// \param PP              The program point for which the previous instr.
   ///                        that is guaranteed to execute is determined.
   const Instruction *getMustBeExecutedPrevInstruction(const Instruction &PP) {
-    return getMustBeExecutedPrevInstruction(getOrCreateIntervalPosition(PP));
+    const IntervalPosition &Pos =
+        getOrCreateIntervalPosition(PP, ExplorationDirection::FORWARD);
+    return (++iterator(Pos, IntervalPosition(), this)).getCurrentInst();
   }
-
-  /// Return the next instruction that is guaranteed to be executed after \p P.
-  ///
-  /// \param P               The program point for which the next instruction
-  ///                        that is guaranteed to execute is determined.
-  const Instruction *
-  getMustBeExecutedNextInstruction(const MustBeExecutedInterval::Position &P);
-
-  /// Return the previous instr. that is guaranteed to be executed before \p P.
-  ///
-  /// \param P               The program point for which the previous instr.
-  ///                        that is guaranteed to execute is determined.
-  const Instruction *
-  getMustBeExecutedPrevInstruction(const MustBeExecutedInterval::Position &P);
 
   /// Find the next join point from \p InitBB in forward direction.
   const BasicBlock *findForwardJoinPoint(const BasicBlock *InitBB);
@@ -904,23 +797,34 @@ struct MustBeExecutedContextExplorer {
   const bool ExploreCFGBackward;
   ///}
 
+  /// Return the next instruction that is guaranteed to be executed (at some
+  /// point but for sure) after \p P in the direction of the underlying
+  /// interval.
+  IntervalPosition exploreNextPosition(const IntervalPosition &P);
+
   void dump();
 
 private:
+  using InstPositionMapKeyTy = PointerIntPair<const Instruction *, 1>;
+
+  const Instruction *exploreNextExecutedInstruction(const Instruction &PP);
+  const Instruction *explorePrevExecutedInstruction(const Instruction &PP);
+
+#if 0
   const Instruction *
-  extendIntervalViaLink(const MustBeExecutedInterval::Position &Pos,
+  extendIntervalViaLink(const IntervalPosition &Pos,
                         const Instruction &I, ExplorationDirection Dir) {
     assert(Pos && "Cannot extend an invalid position!");
     MustBeExecutedInterval &Interval = *Pos.Interval;
 
-    const MustBeExecutedInterval::Position &IPos =
+    const IntervalPosition &IPos =
         getOrCreateIntervalPosition(I);
     if (Interval.setNextIntervalInDirection(Dir, *IPos.Interval))
     return &I;
     return nullptr;
   }
 
-  const Instruction *extendInterval(const MustBeExecutedInterval::Position &Pos,
+  const Instruction *extendInterval(const IntervalPosition &Pos,
                                     const Instruction &I,
                                     ExplorationDirection Dir) {
     assert(Pos && "Cannot extend an invalid position!");
@@ -929,7 +833,7 @@ private:
     // Check if we have an interval for I already. If so we do not add I to the
     // interval Pos points into but link that interval against the existing one
     PositionPair &PosPair = InstPositionMap[&I];;
-    MustBeExecutedInterval::Position &IPos = PosPair[Dir];
+    IntervalPosition &IPos = PosPair[Dir];
     if (IPos) {
       if (Interval.setNextIntervalInDirection(Dir, *IPos.Interval))
         return &I;
@@ -945,11 +849,13 @@ private:
     IPos = Pos + Dir;
     return &I;
   }
+  #endif
 
   /// Lookup the interval position for the instruction \p PP.
-  MustBeExecutedInterval::Position
-  lookupIntervalPosition(const Instruction &PP) const {
-    return InstPositionMap.lookup(&PP);
+  IntervalPosition
+  lookupIntervalPosition(const Instruction &PP, ExplorationDirection Dir) const {
+    InstPositionMapKeyTy Key(&PP, unsigned(Dir));
+    return InstPositionMap.lookup(Key);
   }
 
   /// Lookup or create a new interval position for the instruction \p PP.
@@ -960,20 +866,19 @@ private:
   /// offset 0. The new position is cached.
   ///
   /// \returns A position for which the current instruction is \p PP.
-  MustBeExecutedInterval::Position
-  getOrCreateIntervalPosition(const Instruction &PP) {
-    //errs() << "getOrCreateIntervalPosition " << PP << "\n";
-    PositionPair &PosPair = InstPositionMap[&PP];;
-    //errs() << "getOrCreateIntervalPosition " << PP << " : " << (!!Pos) << "\n";
+  IntervalPosition getOrCreateIntervalPosition(const Instruction &PP,
+                                               ExplorationDirection Dir) {
+    InstPositionMapKeyTy Key(&PP, unsigned(Dir));
+    IntervalPosition &Pos = InstPositionMap[Key];
 
-    if (!PosPair) {
+    if (!Pos) {
       MustBeExecutedInterval *Interval =
-          new (Allocator) MustBeExecutedInterval(&PP);
-      Pos = MustBeExecutedInterval::Position(Interval);
-      //errs() << "Newpos: " << Pos << "\n";
+          new (Allocator) MustBeExecutedInterval(PP, Dir);
+      Pos = IntervalPosition(Interval);
     }
 
-    assert(Pos.getInstruction() == &PP && "Unexpected instruction at position!");
+    assert(Pos.getInstruction() == &PP &&
+           "Unexpected instruction at position!");
     return Pos;
   }
 
@@ -992,7 +897,7 @@ private:
   DenseMap<const Function*, Optional<bool>> IrreducibleControlMap;
 
   /// Map from instructions to associated must be executed iterators.
-  DenseMap<const Instruction *, PositionPair> InstPositionMap;
+  DenseMap<InstPositionMapKeyTy, IntervalPosition> InstPositionMap;
 
   /// The allocator used to allocate memory, e.g. for intervals.
   BumpPtrAllocator Allocator;
