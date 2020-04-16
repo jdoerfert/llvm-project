@@ -914,23 +914,30 @@ ChangeStatus Attributor::run() {
     // to run updates.
     for (unsigned u = 0; u < InvalidAAs.size(); ++u) {
       AbstractAttribute *InvalidAA = InvalidAAs[u];
-      auto &OptDeps = OptionalDeps[InvalidAA];
-      auto &ReqDeps = RequiredDeps[InvalidAA];
+      const auto &OptDepIt = OptionalDeps.find(InvalidAA);
+      const auto &ReqDepIt = RequiredDeps.find(InvalidAA);
+      bool HasOptDep = OptDepIt != OptionalDeps.end();
+      bool HasReqDep = ReqDepIt != RequiredDeps.end();
+      unsigned NumReqDeps = HasReqDep ? ReqDepIt->getSecond().size() : 0;
+      unsigned NumOptDeps = HasOptDep ? OptDepIt->getSecond().size() : 0;
+
       LLVM_DEBUG(dbgs() << "[Attributor] InvalidAA: " << *InvalidAA << " has "
-                        << ReqDeps.size() << "/" << OptDeps.size()
+                        << NumReqDeps << "/" << NumOptDeps
                         << " required/optional dependences\n");
-      for (AbstractAttribute *DepOnInvalidAA : ReqDeps) {
-        AbstractState &DOIAAState = DepOnInvalidAA->getState();
-        DOIAAState.indicatePessimisticFixpoint();
-        ++NumAttributesFixedDueToRequiredDependences;
-        assert(DOIAAState.isAtFixpoint() && "Expected fixpoint state!");
-        if (!DOIAAState.isValidState())
-          InvalidAAs.insert(DepOnInvalidAA);
-        else
-          ChangedAAs.push_back(DepOnInvalidAA);
+      if (HasReqDep) {
+        for (AbstractAttribute *DepOnInvalidAA : ReqDepIt->second) {
+          AbstractState &DOIAAState = DepOnInvalidAA->getState();
+          DOIAAState.indicatePessimisticFixpoint();
+          ++NumAttributesFixedDueToRequiredDependences;
+          assert(DOIAAState.isAtFixpoint() && "Expected fixpoint state!");
+          if (!DOIAAState.isValidState())
+            InvalidAAs.insert(DepOnInvalidAA);
+          else
+            ChangedAAs.push_back(DepOnInvalidAA);
+        }
       }
-      if (!RecomputeDependences)
-        Worklist.insert(OptDeps.begin(), OptDeps.end());
+      if (HasOptDep && !RecomputeDependences)
+        Worklist.insert(OptDepIt->second.begin(), OptDepIt->second.end());
     }
 
     // If dependences (=OptionalDeps,RequiredDeps) are recomputed we have to
@@ -949,10 +956,12 @@ ChangeStatus Attributor::run() {
     // Add all abstract attributes that are potentially dependent on one that
     // changed to the work list.
     for (AbstractAttribute *ChangedAA : ChangedAAs) {
-      auto &OptDeps = OptionalDeps[ChangedAA];
-      auto &ReqDeps = RequiredDeps[ChangedAA];
-      Worklist.insert(OptDeps.begin(), OptDeps.end());
-      Worklist.insert(ReqDeps.begin(), ReqDeps.end());
+      const auto &OptDepIt = OptionalDeps.find(ChangedAA);
+      if (OptDepIt != OptionalDeps.end())
+        Worklist.insert(OptDepIt->second.begin(), OptDepIt->second.end());
+      const auto &ReqDepIt = RequiredDeps.find(ChangedAA);
+      if (ReqDepIt != RequiredDeps.end())
+        Worklist.insert(ReqDepIt->second.begin(), ReqDepIt->second.end());
     }
 
     LLVM_DEBUG(dbgs() << "[Attributor] #Iteration: " << IterationCounter
@@ -1021,10 +1030,12 @@ ChangeStatus Attributor::run() {
       NumAttributesTimedOut++;
     }
 
-    auto &OptDeps = OptionalDeps[ChangedAA];
-    auto &ReqDeps = RequiredDeps[ChangedAA];
-    ChangedAAs.append(OptDeps.begin(), OptDeps.end());
-    ChangedAAs.append(ReqDeps.begin(), ReqDeps.end());
+    const auto &OptDepIt = OptionalDeps.find(ChangedAA);
+    if (OptDepIt != OptionalDeps.end())
+      ChangedAAs.append(OptDepIt->second.begin(), OptDepIt->second.end());
+    const auto &ReqDepIt = RequiredDeps.find(ChangedAA);
+    if (ReqDepIt != RequiredDeps.end())
+      ChangedAAs.append(ReqDepIt->second.begin(), ReqDepIt->second.end());
   }
 
   LLVM_DEBUG({
