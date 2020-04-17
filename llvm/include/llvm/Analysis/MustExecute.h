@@ -469,7 +469,7 @@ private:
   }
 
   /// The vectors that represent the instructions in the interval.
-  SmallSetVector<const Instruction *, 8> Insts;
+  SmallSetVector<const Instruction *, 4> Insts;
 
   /// The instruction executed next after the ones in Insts.
   Position PosInNextInterval;
