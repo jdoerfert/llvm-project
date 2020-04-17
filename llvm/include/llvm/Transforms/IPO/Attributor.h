@@ -1122,6 +1122,22 @@ struct Attributor {
   /// The allocator used to allocate memory, e.g. for `AbstractAttribute`s.
   BumpPtrAllocator &Allocator;
 
+  struct QueriedAAsTy {
+    /// Set of abstract attributes which were used but not necessarily required
+    /// for a potential optimistic state.
+    SmallVector<AbstractAttribute *, 2> OptionalAAs;
+
+    /// Set of abstract attributes which were used and which were necessarily
+    /// required for any potential optimistic state.
+    SmallVector<AbstractAttribute *, 2> RequiredAAs;
+
+    /// Clear all information.
+    void clear() {
+      OptionalAAs.clear();
+      RequiredAAs.clear();
+    }
+  };
+
 private:
   /// Check \p Pred on all call sites of \p Fn.
   ///
@@ -1246,28 +1262,6 @@ private:
   ///}
 
   DenseMap<IRPosition, AttrBuilder *> AttrBuilderMap;
-
-  /// A map from abstract attributes to the ones that queried them through calls
-  /// to the getAAFor<...>(...) method.
-  ///{
-  struct QueryMapValueTy {
-    /// Set of abstract attributes which were used but not necessarily required
-    /// for a potential optimistic state.
-    SetVector<AbstractAttribute *> OptionalAAs;
-
-    /// Set of abstract attributes which were used and which were necessarily
-    /// required for any potential optimistic state.
-    SetVector<AbstractAttribute *> RequiredAAs;
-
-    /// Clear the sets but keep the allocated storage as it is likely be resued.
-    void clear() {
-      OptionalAAs.clear();
-      RequiredAAs.clear();
-    }
-  };
-  using QueryMapTy = DenseMap<const AbstractAttribute *, QueryMapValueTy *>;
-  QueryMapTy QueryMap;
-  ///}
 
   /// Map to remember all requested signature changes (= argument replacements).
   DenseMap<Function *, SmallVector<ArgumentReplacementInfo *, 8>>
@@ -1940,6 +1934,9 @@ protected:
   ///
   /// \Return CHANGED if the internal state changed, otherwise UNCHANGED.
   virtual ChangeStatus updateImpl(Attributor &A) = 0;
+
+private:
+  Attributor::QueriedAAsTy QuerriedAAs;
 };
 
 /// Forward declarations of output streams for debug purposes.
