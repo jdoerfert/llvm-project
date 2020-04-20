@@ -854,7 +854,8 @@ ChangeStatus Attributor::run() {
       LLVM_DEBUG(dbgs() << "[Attributor] InvalidAA: " << *InvalidAA << " has "
                         << InvalidAA->Deps.size()
                         << " required & optional dependences\n");
-      for (auto &Dep : InvalidAA->Deps) {
+      while (!InvalidAA->Deps.empty()) {
+        const auto &Dep = InvalidAA->Deps.pop_back_val();
         AbstractAttribute *DepAA = Dep.getPointer();
         if (Dep.getInt() == unsigned(DepClassTy::OPTIONAL)) {
           Worklist.insert(DepAA);
@@ -868,16 +869,13 @@ ChangeStatus Attributor::run() {
         else
           ChangedAAs.push_back(DepAA);
       }
-      InvalidAA->Deps.clear();
     }
 
     // Add all abstract attributes that are potentially dependent on one that
     // changed to the work list.
-    for (AbstractAttribute *ChangedAA : ChangedAAs) {
-      for (auto &Dep : ChangedAA->Deps)
-        Worklist.insert(Dep.getPointer());
-      ChangedAA->Deps.clear();
-    }
+    for (AbstractAttribute *ChangedAA : ChangedAAs)
+      while (!ChangedAA->Deps.empty())
+        Worklist.insert(ChangedAA->Deps.pop_back_val().getPointer());
 
     LLVM_DEBUG(dbgs() << "[Attributor] #Iteration: " << IterationCounter
                       << ", Worklist+Dependent size: " << Worklist.size()
@@ -940,10 +938,8 @@ ChangeStatus Attributor::run() {
       NumAttributesTimedOut++;
     }
 
-    for (auto &Dep : ChangedAA->Deps)
-      ChangedAAs.push_back(Dep.getPointer());
-    // Release the memory early.
-    ChangedAA->Deps.clear();
+    while (!ChangedAA->Deps.empty())
+      ChangedAAs.push_back(ChangedAA->Deps.pop_back_val().getPointer());
   }
 
   LLVM_DEBUG({
