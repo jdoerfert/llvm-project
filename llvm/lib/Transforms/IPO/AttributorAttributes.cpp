@@ -1597,8 +1597,7 @@ struct AANonNullImpl : AANonNull {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     if (!NullIsDefined &&
-        hasAttr({Attribute::NonNull, Attribute::Dereferenceable},
-                /* IgnoreSubsumingPositions */ false, &A))
+        hasAttr({Attribute::NonNull, Attribute::Dereferenceable}, &A))
       indicateOptimisticFixpoint();
     else if (isa<ConstantPointerNull>(getAssociatedValue()))
       indicatePessimisticFixpoint();
@@ -3206,7 +3205,7 @@ struct AADereferenceableImpl : AADereferenceable {
   void initialize(Attributor &A) override {
     SmallVector<Attribute, 4> Attrs;
     getAttrs({Attribute::Dereferenceable, Attribute::DereferenceableOrNull},
-             Attrs, /* IgnoreSubsumingPositions */ false, &A);
+             Attrs, &A);
     for (const Attribute &Attr : Attrs)
       takeKnownDerefBytesMaximum(Attr.getValueAsInt());
 
@@ -3792,7 +3791,7 @@ struct AANoCaptureImpl : public AANoCapture {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    if (hasAttr(getAttrKind(), /* IgnoreSubsumingPositions */ true)) {
+    if (hasAttr(getAttrKind())) {
       indicateOptimisticFixpoint();
       return;
     }
@@ -4349,8 +4348,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     AAValueSimplifyImpl::initialize(A);
     if (!getAnchorScope() || getAnchorScope()->isDeclaration())
       indicatePessimisticFixpoint();
-    if (hasAttr({Attribute::InAlloca, Attribute::StructRet, Attribute::Nest},
-                /* IgnoreSubsumingPositions */ true))
+    if (hasAttr({Attribute::InAlloca, Attribute::StructRet, Attribute::Nest}))
       indicatePessimisticFixpoint();
 
     // FIXME: This is a hack to prevent us from propagating function poiner in
@@ -5415,10 +5413,9 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
 
   /// Return the memory behavior information encoded in the IR for \p IRP.
   static void getKnownStateFromValue(const IRPosition &IRP,
-                                     BitIntegerState &State,
-                                     bool IgnoreSubsumingPositions = false) {
+                                     BitIntegerState &State) {
     SmallVector<Attribute, 2> Attrs;
-    IRP.getAttrs(AttrKinds, Attrs, IgnoreSubsumingPositions);
+    IRP.getAttrs(AttrKinds, Attrs);
     for (const Attribute &Attr : Attrs) {
       switch (Attr.getKindAsEnum()) {
       case Attribute::ReadNone:
@@ -5458,7 +5455,7 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
-    if (hasAttr(Attribute::ReadNone, /* IgnoreSubsumingPositions */ true))
+    if (hasAttr(Attribute::ReadNone))
       return ChangeStatus::UNCHANGED;
 
     const IRPosition &IRP = getIRPosition();
@@ -5467,8 +5464,7 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
     SmallVector<Attribute, 4> DeducedAttrs;
     getDeducedAttributes(IRP.getAnchorValue().getContext(), DeducedAttrs);
     if (llvm::all_of(DeducedAttrs, [&](const Attribute &Attr) {
-          return IRP.hasAttr(Attr.getKindAsEnum(),
-                             /* IgnoreSubsumingPositions */ true);
+          return IRP.hasAttr(Attr.getKindAsEnum());
         }))
       return ChangeStatus::UNCHANGED;
 
@@ -5546,13 +5542,7 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
   void initialize(Attributor &A) override {
     intersectAssumedBits(BEST_STATE);
     const IRPosition &IRP = getIRPosition();
-    // TODO: Make IgnoreSubsumingPositions a property of an IRAttribute so we
-    // can query it when we use has/getAttr. That would allow us to reuse the
-    // initialize of the base class here.
-    bool HasByVal =
-        IRP.hasAttr({Attribute::ByVal}, /* IgnoreSubsumingPositions */ true);
-    getKnownStateFromValue(IRP, getState(),
-                           /* IgnoreSubsumingPositions */ HasByVal);
+    getKnownStateFromValue(IRP, getState());
 
     // Initialize the use vector with all direct uses of the associated value.
     Argument *Arg = getAssociatedArgument();
@@ -5970,10 +5960,9 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
 
   /// Return the memory behavior information encoded in the IR for \p IRP.
   static void getKnownStateFromValue(const IRPosition &IRP,
-                                     BitIntegerState &State,
-                                     bool IgnoreSubsumingPositions = false) {
+                                     BitIntegerState &State) {
     SmallVector<Attribute, 2> Attrs;
-    IRP.getAttrs(AttrKinds, Attrs, IgnoreSubsumingPositions);
+    IRP.getAttrs(AttrKinds, Attrs);
     for (const Attribute &Attr : Attrs) {
       switch (Attr.getKindAsEnum()) {
       case Attribute::ReadNone:
@@ -6021,8 +6010,7 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
     SmallVector<Attribute, 4> DeducedAttrs;
     getDeducedAttributes(IRP.getAnchorValue().getContext(), DeducedAttrs);
     if (llvm::all_of(DeducedAttrs, [&](const Attribute &Attr) {
-          return IRP.hasAttr(Attr.getKindAsEnum(),
-                             /* IgnoreSubsumingPositions */ true);
+          return IRP.hasAttr(Attr.getKindAsEnum());
         }))
       return ChangeStatus::UNCHANGED;
 

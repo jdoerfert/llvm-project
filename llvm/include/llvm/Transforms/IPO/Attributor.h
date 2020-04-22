@@ -375,24 +375,14 @@ struct IRPosition {
 
   /// Return true if any kind in \p AKs existing in the IR at a position that
   /// will affect this one. See also getAttrs(...).
-  /// \param IgnoreSubsumingPositions Flag to determine if subsuming positions,
-  ///                                 e.g., the function position if this is an
-  ///                                 argument position, should be ignored.
   bool hasAttr(ArrayRef<Attribute::AttrKind> AKs,
-               bool IgnoreSubsumingPositions = false,
                Attributor *A = nullptr) const;
 
   /// Return the attributes of any kind in \p AKs existing in the IR at a
-  /// position that will affect this one. While each position can only have a
-  /// single attribute of any kind in \p AKs, there are "subsuming" positions
-  /// that could have an attribute as well. This method returns all attributes
+  /// position that will affect this one. This method returns all attributes
   /// found in \p Attrs.
-  /// \param IgnoreSubsumingPositions Flag to determine if subsuming positions,
-  ///                                 e.g., the function position if this is an
-  ///                                 argument position, should be ignored.
   void getAttrs(ArrayRef<Attribute::AttrKind> AKs,
                 SmallVectorImpl<Attribute> &Attrs,
-                bool IgnoreSubsumingPositions = false,
                 Attributor *A = nullptr) const;
 
   /// Remove the attribute of kind \p AKs existing in the IR at this position.
@@ -483,40 +473,6 @@ template <> struct DenseMapInfo<IRPosition> {
   static bool isEqual(const IRPosition &LHS, const IRPosition &RHS) {
     return LHS == RHS;
   }
-};
-
-/// A visitor class for IR positions.
-///
-/// Given a position P, the SubsumingPositionIterator allows to visit "subsuming
-/// positions" wrt. attributes/information. Thus, if a piece of information
-/// holds for a subsuming position, it also holds for the position P.
-///
-/// The subsuming positions always include the initial position and then,
-/// depending on the position kind, additionally the following ones:
-/// - for IRP_RETURNED:
-///   - the function (IRP_FUNCTION)
-/// - for IRP_ARGUMENT:
-///   - the function (IRP_FUNCTION)
-/// - for IRP_CALL_SITE:
-///   - the callee (IRP_FUNCTION), if known
-/// - for IRP_CALL_SITE_RETURNED:
-///   - the callee (IRP_RETURNED), if known
-///   - the call site (IRP_FUNCTION)
-///   - the callee (IRP_FUNCTION), if known
-/// - for IRP_CALL_SITE_ARGUMENT:
-///   - the argument of the callee (IRP_ARGUMENT), if known
-///   - the callee (IRP_FUNCTION), if known
-///   - the position the call site argument is associated with if it is not
-///     anchored to the call site, e.g., if it is an argument then the argument
-///     (IRP_ARGUMENT)
-class SubsumingPositionIterator {
-  SmallVector<IRPosition, 4> IRPositions;
-  using iterator = decltype(IRPositions)::iterator;
-
-public:
-  SubsumingPositionIterator(const IRPosition &IRP);
-  iterator begin() { return IRPositions.begin(); }
-  iterator end() { return IRPositions.end(); }
 };
 
 /// Wrapper for FunctoinAnalysisManager.
@@ -746,11 +702,7 @@ struct Attributor {
   /// \Returns CHANGED if the IR was changed, otherwise UNCHANGED.
   ChangeStatus run();
 
-  /// Lookup an abstract attribute of type \p AAType at position \p IRP. While
-  /// no abstract attribute is found equivalent positions are checked, see
-  /// SubsumingPositionIterator. Thus, the returned abstract attribute
-  /// might be anchored at a different position, e.g., the callee if \p IRP is a
-  /// call base.
+  /// Lookup an abstract attribute of type \p AAType at position \p IRP.
   ///
   /// This method is the only (supported) way an abstract attribute can retrieve
   /// information from another abstract attribute. As an example, take an
@@ -1776,7 +1728,7 @@ struct IRAttribute : public IRPosition, public Base {
   virtual void initialize(Attributor &A) override {
     const IRPosition &IRP = this->getIRPosition();
     if (isa<UndefValue>(IRP.getAssociatedValue()) ||
-        hasAttr(getAttrKind(), /* IgnoreSubsumingPositions */ false, &A)) {
+        hasAttr(getAttrKind(), &A)) {
       this->getState().indicateOptimisticFixpoint();
       return;
     }

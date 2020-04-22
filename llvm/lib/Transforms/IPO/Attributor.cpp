@@ -261,78 +261,13 @@ IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
 const IRPosition IRPosition::EmptyKey(255);
 const IRPosition IRPosition::TombstoneKey(256);
 
-SubsumingPositionIterator::SubsumingPositionIterator(const IRPosition &IRP) {
-  IRPositions.emplace_back(IRP);
-
-  const auto *CB = dyn_cast<CallBase>(&IRP.getAnchorValue());
-  switch (IRP.getPositionKind()) {
-  case IRPosition::IRP_INVALID:
-  case IRPosition::IRP_FLOAT:
-  case IRPosition::IRP_FUNCTION:
-    return;
-  case IRPosition::IRP_ARGUMENT:
-  case IRPosition::IRP_RETURNED:
-    IRPositions.emplace_back(IRPosition::function(*IRP.getAnchorScope()));
-    return;
-  case IRPosition::IRP_CALL_SITE:
-    assert(CB && "Expected call site!");
-    // TODO: We need to look at the operand bundles similar to the redirection
-    //       in CallBase.
-    if (!CB->hasOperandBundles())
-      if (const Function *Callee = CB->getCalledFunction())
-        IRPositions.emplace_back(IRPosition::function(*Callee));
-    return;
-  case IRPosition::IRP_CALL_SITE_RETURNED:
-    assert(CB && "Expected call site!");
-    // TODO: We need to look at the operand bundles similar to the redirection
-    //       in CallBase.
-    if (!CB->hasOperandBundles()) {
-      if (const Function *Callee = CB->getCalledFunction()) {
-        IRPositions.emplace_back(IRPosition::returned(*Callee));
-        IRPositions.emplace_back(IRPosition::function(*Callee));
-        for (const Argument &Arg : Callee->args())
-          if (Arg.hasReturnedAttr()) {
-            IRPositions.emplace_back(
-                IRPosition::callsite_argument(*CB, Arg.getArgNo()));
-            IRPositions.emplace_back(
-                IRPosition::value(*CB->getArgOperand(Arg.getArgNo())));
-            IRPositions.emplace_back(IRPosition::argument(Arg));
-          }
-      }
-    }
-    IRPositions.emplace_back(IRPosition::callsite_function(*CB));
-    return;
-  case IRPosition::IRP_CALL_SITE_ARGUMENT: {
-    int ArgNo = IRP.getArgNo();
-    assert(CB && ArgNo >= 0 && "Expected call site!");
-    // TODO: We need to look at the operand bundles similar to the redirection
-    //       in CallBase.
-    if (!CB->hasOperandBundles()) {
-      const Function *Callee = CB->getCalledFunction();
-      if (Callee && Callee->arg_size() > unsigned(ArgNo))
-        IRPositions.emplace_back(IRPosition::argument(*Callee->getArg(ArgNo)));
-      if (Callee)
-        IRPositions.emplace_back(IRPosition::function(*Callee));
-    }
-    IRPositions.emplace_back(IRPosition::value(IRP.getAssociatedValue()));
-    return;
-  }
-  }
-}
-
 bool IRPosition::hasAttr(ArrayRef<Attribute::AttrKind> AKs,
-                         bool IgnoreSubsumingPositions, Attributor *A) const {
+                         Attributor *A) const {
   SmallVector<Attribute, 4> Attrs;
-  for (const IRPosition &EquivIRP : SubsumingPositionIterator(*this)) {
+  if (getPositionKind() != IRPosition::IRP_FLOAT)
     for (Attribute::AttrKind AK : AKs)
-      if (EquivIRP.getAttrsFromIRAttr(AK, Attrs))
+      if (getAttrsFromIRAttr(AK, Attrs))
         return true;
-    // The first position returned by the SubsumingPositionIterator is
-    // always the position itself. If we ignore subsuming positions we
-    // are done after the first iteration.
-    if (IgnoreSubsumingPositions)
-      break;
-  }
   if (A)
     for (Attribute::AttrKind AK : AKs)
       if (getAttrsFromAssumes(AK, Attrs, *A))
@@ -342,16 +277,10 @@ bool IRPosition::hasAttr(ArrayRef<Attribute::AttrKind> AKs,
 
 void IRPosition::getAttrs(ArrayRef<Attribute::AttrKind> AKs,
                           SmallVectorImpl<Attribute> &Attrs,
-                          bool IgnoreSubsumingPositions, Attributor *A) const {
-  for (const IRPosition &EquivIRP : SubsumingPositionIterator(*this)) {
+                          Attributor *A) const {
+  if (getPositionKind() != IRPosition::IRP_FLOAT)
     for (Attribute::AttrKind AK : AKs)
-      EquivIRP.getAttrsFromIRAttr(AK, Attrs);
-    // The first position returned by the SubsumingPositionIterator is
-    // always the position itself. If we ignore subsuming positions we
-    // are done after the first iteration.
-    if (IgnoreSubsumingPositions)
-      break;
-  }
+      getAttrsFromIRAttr(AK, Attrs);
   if (A)
     for (Attribute::AttrKind AK : AKs)
       getAttrsFromAssumes(AK, Attrs, *A);
