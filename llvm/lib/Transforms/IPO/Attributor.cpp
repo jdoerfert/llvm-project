@@ -90,44 +90,47 @@ ChangeStatus llvm::operator&(ChangeStatus l, ChangeStatus r) {
 }
 ///}
 
-/// Return true if \p New is equal or worse than \p Old.
-static bool isEqualOrWorse(const Attribute &New, const Attribute &Old) {
-  if (!Old.isIntAttribute())
-    return true;
-
-  return Old.getValueAsInt() >= New.getValueAsInt();
-}
-
 /// Return true if the information provided by \p Attr was added to the
-/// attribute list \p Attrs. This is only the case if it was not already present
-/// in \p Attrs at the position describe by \p PK and \p AttrIdx.
-static bool addIfNotExistent(LLVMContext &Ctx, const Attribute &Attr,
-                             AttributeList &Attrs, int AttrIdx) {
+/// attribute builder \p Builder. This is only the case if it was not already
+/// present with a better or equal value.
+static bool addIfNotExistent(const Attribute &Attr, AttrBuilder &Builder) {
 
   if (Attr.isEnumAttribute()) {
     Attribute::AttrKind Kind = Attr.getKindAsEnum();
-    if (Attrs.hasAttribute(AttrIdx, Kind))
-      if (isEqualOrWorse(Attr, Attrs.getAttribute(AttrIdx, Kind)))
-        return false;
-    Attrs = Attrs.addAttribute(Ctx, AttrIdx, Attr);
+    if (Builder.contains(Kind))
+      return false;
+    Builder = Builder.addAttribute(Kind);
     return true;
   }
   if (Attr.isStringAttribute()) {
     StringRef Kind = Attr.getKindAsString();
-    if (Attrs.hasAttribute(AttrIdx, Kind))
-      if (isEqualOrWorse(Attr, Attrs.getAttribute(AttrIdx, Kind)))
-        return false;
-    Attrs = Attrs.addAttribute(Ctx, AttrIdx, Attr);
+    if (Builder.contains(Kind))
+      return false;
+    Builder = Builder.addAttribute(Kind, Attr.getValueAsString());
     return true;
   }
   if (Attr.isIntAttribute()) {
     Attribute::AttrKind Kind = Attr.getKindAsEnum();
-    if (Attrs.hasAttribute(AttrIdx, Kind))
-      if (isEqualOrWorse(Attr, Attrs.getAttribute(AttrIdx, Kind)))
+    uint64_t NewVal = Attr.getValueAsInt();
+    switch (Kind) {
+    case Attribute::Alignment:
+      if (Builder.getAlignment().valueOrOne() >= NewVal)
         return false;
-    Attrs = Attrs.removeAttribute(Ctx, AttrIdx, Kind);
-    Attrs = Attrs.addAttribute(Ctx, AttrIdx, Attr);
-    return true;
+      Builder = Builder.addAlignmentAttr(Align(NewVal));
+      return true;
+    case Attribute::Dereferenceable:
+      if (Builder.getDereferenceableBytes() >= NewVal)
+        return false;
+      Builder = Builder.addDereferenceableAttr(NewVal);
+      return true;
+    case Attribute::DereferenceableOrNull:
+      if (Builder.getDereferenceableOrNullBytes() >= NewVal)
+        return false;
+      Builder = Builder.addDereferenceableOrNullAttr(NewVal);
+      return true;
+    default:
+      llvm_unreachable("Integer attribute not handled!");
+    }
   }
 
   llvm_unreachable("Expected enum or string attribute!");
@@ -202,25 +205,21 @@ ChangeStatus AbstractAttribute::update(Attributor &A) {
   return HasChanged;
 }
 
-ChangeStatus
-IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
-                                   const ArrayRef<Attribute> &DeducedAttrs) {
-  Function *ScopeFn = IRP.getAnchorScope();
-  IRPosition::Kind PK = IRP.getPositionKind();
-
-  // In the following some generic code that will manifest attributes in
-  // DeducedAttrs if they improve the current IR. Due to the different
-  // annotation positions we use the underlying AttributeList interface.
+AttrBuilder &Attributor::getAttrBuilderForPosition(const IRPosition &IRP) {
+  AttrBuilder *&Builder = AttrBuilderMap[IRP];
+  if (Builder)
+    return *Builder;
 
   AttributeList Attrs;
-  switch (PK) {
+  switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
   case IRPosition::IRP_FLOAT:
-    return ChangeStatus::UNCHANGED;
+    llvm_unreachable(
+        "No attributes can be attached to invalid and floating positions!");
   case IRPosition::IRP_ARGUMENT:
   case IRPosition::IRP_FUNCTION:
   case IRPosition::IRP_RETURNED:
-    Attrs = ScopeFn->getAttributes();
+    Attrs = IRP.getAnchorScope()->getAttributes();
     break;
   case IRPosition::IRP_CALL_SITE:
   case IRPosition::IRP_CALL_SITE_RETURNED:
@@ -228,34 +227,22 @@ IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
     Attrs = cast<CallBase>(IRP.getAnchorValue()).getAttributes();
     break;
   }
+  Builder = new (Allocator) AttrBuilder(Attrs, IRP.getAttrIdx());
+  return *Builder;
+}
 
+ChangeStatus
+IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
+                                   const ArrayRef<Attribute> &DeducedAttrs) {
+  // Floating positions do not allow IR attributes.
+  if (IRP.getPositionKind() == IRPosition::IRP_FLOAT)
+    return ChangeStatus::UNCHANGED;
+
+  AttrBuilder &Builder = A.getAttrBuilderForPosition(IRP);
   ChangeStatus HasChanged = ChangeStatus::UNCHANGED;
-  LLVMContext &Ctx = IRP.getAnchorValue().getContext();
-  for (const Attribute &Attr : DeducedAttrs) {
-    if (!addIfNotExistent(Ctx, Attr, Attrs, IRP.getAttrIdx()))
-      continue;
-
-    HasChanged = ChangeStatus::CHANGED;
-  }
-
-  if (HasChanged == ChangeStatus::UNCHANGED)
-    return HasChanged;
-
-  switch (PK) {
-  case IRPosition::IRP_ARGUMENT:
-  case IRPosition::IRP_FUNCTION:
-  case IRPosition::IRP_RETURNED:
-    ScopeFn->setAttributes(Attrs);
-    break;
-  case IRPosition::IRP_CALL_SITE:
-  case IRPosition::IRP_CALL_SITE_RETURNED:
-  case IRPosition::IRP_CALL_SITE_ARGUMENT:
-    cast<CallBase>(IRP.getAnchorValue()).setAttributes(Attrs);
-    break;
-  case IRPosition::IRP_INVALID:
-  case IRPosition::IRP_FLOAT:
-    break;
-  }
+  for (const Attribute &Attr : DeducedAttrs)
+    if (addIfNotExistent(Attr, Builder))
+      HasChanged = ChangeStatus::CHANGED;
 
   return HasChanged;
 }
@@ -323,12 +310,12 @@ SubsumingPositionIterator::SubsumingPositionIterator(const IRPosition &IRP) {
   }
 }
 
-bool IRPosition::hasAttr(ArrayRef<Attribute::AttrKind> AKs,
-                         bool IgnoreSubsumingPositions, Attributor *A) const {
+bool IRPosition::hasAttr(Attributor &A, ArrayRef<Attribute::AttrKind> AKs,
+                         bool IgnoreSubsumingPositions) const {
   SmallVector<Attribute, 4> Attrs;
   for (const IRPosition &EquivIRP : SubsumingPositionIterator(*this)) {
     for (Attribute::AttrKind AK : AKs)
-      if (EquivIRP.getAttrsFromIRAttr(AK, Attrs))
+      if (EquivIRP.getAttrsFromIRAttr(A, AK, Attrs))
         return true;
     // The first position returned by the SubsumingPositionIterator is
     // always the position itself. If we ignore subsuming positions we
@@ -336,50 +323,72 @@ bool IRPosition::hasAttr(ArrayRef<Attribute::AttrKind> AKs,
     if (IgnoreSubsumingPositions)
       break;
   }
-  if (A)
-    for (Attribute::AttrKind AK : AKs)
-      if (getAttrsFromAssumes(AK, Attrs, *A))
-        return true;
+  for (Attribute::AttrKind AK : AKs)
+    if (getAttrsFromAssumes(A, AK, Attrs))
+      return true;
   return false;
 }
 
-void IRPosition::getAttrs(ArrayRef<Attribute::AttrKind> AKs,
+void IRPosition::getAttrs(Attributor &A, ArrayRef<Attribute::AttrKind> AKs,
                           SmallVectorImpl<Attribute> &Attrs,
-                          bool IgnoreSubsumingPositions, Attributor *A) const {
+                          bool IgnoreSubsumingPositions) const {
   for (const IRPosition &EquivIRP : SubsumingPositionIterator(*this)) {
     for (Attribute::AttrKind AK : AKs)
-      EquivIRP.getAttrsFromIRAttr(AK, Attrs);
+      EquivIRP.getAttrsFromIRAttr(A, AK, Attrs);
     // The first position returned by the SubsumingPositionIterator is
     // always the position itself. If we ignore subsuming positions we
     // are done after the first iteration.
     if (IgnoreSubsumingPositions)
       break;
   }
-  if (A)
-    for (Attribute::AttrKind AK : AKs)
-      getAttrsFromAssumes(AK, Attrs, *A);
+  for (Attribute::AttrKind AK : AKs)
+    getAttrsFromAssumes(A, AK, Attrs);
 }
 
-bool IRPosition::getAttrsFromIRAttr(Attribute::AttrKind AK,
+void IRPosition::removeAttrs(Attributor &A,
+                             ArrayRef<Attribute::AttrKind> AKs) const {
+  const auto &PK = getPositionKind();
+  if (PK == IRP_INVALID || PK == IRP_FLOAT)
+    return;
+  AttrBuilder &Builder = A.getAttrBuilderForPosition(*this);
+  for (auto &AK : AKs)
+    Builder.removeAttribute(AK);
+}
+
+bool IRPosition::getAttrsFromIRAttr(Attributor &A, Attribute::AttrKind AK,
                                     SmallVectorImpl<Attribute> &Attrs) const {
-  if (getPositionKind() == IRP_INVALID || getPositionKind() == IRP_FLOAT)
+  const auto &PK = getPositionKind();
+  if (PK == IRP_INVALID || PK == IRP_FLOAT)
     return false;
 
-  AttributeList AttrList;
-  if (const auto *CB = dyn_cast<CallBase>(&getAnchorValue()))
-    AttrList = CB->getAttributes();
-  else
-    AttrList = getAssociatedFunction()->getAttributes();
+  AttrBuilder &AB = A.getAttrBuilderForPosition(*this);
+  if (!AB.contains(AK))
+    return false;
 
-  bool HasAttr = AttrList.hasAttribute(getAttrIdx(), AK);
-  if (HasAttr)
-    Attrs.push_back(AttrList.getAttribute(getAttrIdx(), AK));
-  return HasAttr;
+  LLVMContext &Ctx = getAssociatedValue().getContext();
+  switch (AK) {
+  case Attribute::Alignment:
+    Attrs.push_back(Attribute::getWithAlignment(Ctx, *AB.getAlignment()));
+    return true;
+  case Attribute::Dereferenceable:
+    Attrs.push_back(Attribute::getWithDereferenceableBytes(
+        Ctx, AB.getDereferenceableBytes()));
+    return true;
+  case Attribute::DereferenceableOrNull:
+    Attrs.push_back(Attribute::getWithDereferenceableOrNullBytes(
+        Ctx, AB.getDereferenceableOrNullBytes()));
+    return true;
+  default:
+    assert(!Attribute::doesAttrKindHaveArgument(AK) &&
+           "Attribute with argument not handled!");
+    Attrs.push_back(Attribute::get(Ctx, AK));
+  }
+  return true;
 }
 
-bool IRPosition::getAttrsFromAssumes(Attribute::AttrKind AK,
-                                     SmallVectorImpl<Attribute> &Attrs,
-                                     Attributor &A) const {
+bool IRPosition::getAttrsFromAssumes(Attributor &A, Attribute::AttrKind AK,
+                                     SmallVectorImpl<Attribute> &Attrs
+                                     ) const {
   assert(getPositionKind() != IRP_INVALID && "Did expect a valid position!");
   Value &AssociatedValue = getAssociatedValue();
 
@@ -1071,6 +1080,36 @@ ChangeStatus Attributor::run() {
 
     NumAtFixpoint++;
     NumManifested += (LocalChange == ChangeStatus::CHANGED);
+  }
+
+  LLVMContext &Ctx = Functions.front()->getContext();
+  for (auto &It : AttrBuilderMap) {
+    const IRPosition &IRP = It.first;
+    const AttrBuilder &Builder = *It.second;
+    unsigned AttrIdx = IRP.getAttrIdx();
+    switch (IRP.getPositionKind()) {
+    case IRPosition::IRP_ARGUMENT:
+    case IRPosition::IRP_FUNCTION:
+    case IRPosition::IRP_RETURNED: {
+      Function &ScopeFn = *IRP.getAnchorScope();
+      ScopeFn.setAttributes(ScopeFn.getAttributes()
+                                .removeAttributes(Ctx, AttrIdx)
+                                .addAttributes(Ctx, AttrIdx, Builder));
+      break;
+    }
+    case IRPosition::IRP_CALL_SITE:
+    case IRPosition::IRP_CALL_SITE_RETURNED:
+    case IRPosition::IRP_CALL_SITE_ARGUMENT: {
+      CallBase &CB = cast<CallBase>(IRP.getAnchorValue());
+      CB.setAttributes(CB.getAttributes()
+                           .removeAttributes(Ctx, AttrIdx)
+                           .addAttributes(Ctx, AttrIdx, Builder));
+      break;
+    }
+    case IRPosition::IRP_INVALID:
+    case IRPosition::IRP_FLOAT:
+      break;
+    }
   }
 
   (void)NumManifested;

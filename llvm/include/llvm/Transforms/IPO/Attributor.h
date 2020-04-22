@@ -389,9 +389,8 @@ struct IRPosition {
   /// \param IgnoreSubsumingPositions Flag to determine if subsuming positions,
   ///                                 e.g., the function position if this is an
   ///                                 argument position, should be ignored.
-  bool hasAttr(ArrayRef<Attribute::AttrKind> AKs,
-               bool IgnoreSubsumingPositions = false,
-               Attributor *A = nullptr) const;
+  bool hasAttr(Attributor &A, ArrayRef<Attribute::AttrKind> AKs,
+               bool IgnoreSubsumingPositions = false) const;
 
   /// Return the attributes of any kind in \p AKs existing in the IR at a
   /// position that will affect this one. While each position can only have a
@@ -401,32 +400,12 @@ struct IRPosition {
   /// \param IgnoreSubsumingPositions Flag to determine if subsuming positions,
   ///                                 e.g., the function position if this is an
   ///                                 argument position, should be ignored.
-  void getAttrs(ArrayRef<Attribute::AttrKind> AKs,
+  void getAttrs(Attributor &A, ArrayRef<Attribute::AttrKind> AKs,
                 SmallVectorImpl<Attribute> &Attrs,
-                bool IgnoreSubsumingPositions = false,
-                Attributor *A = nullptr) const;
+                bool IgnoreSubsumingPositions = false) const;
 
   /// Remove the attribute of kind \p AKs existing in the IR at this position.
-  void removeAttrs(ArrayRef<Attribute::AttrKind> AKs) const {
-    if (getPositionKind() == IRP_INVALID || getPositionKind() == IRP_FLOAT)
-      return;
-
-    AttributeList AttrList;
-    auto *CB = dyn_cast<CallBase>(&getAnchorValue());
-    if (CB)
-      AttrList = CB->getAttributes();
-    else
-      AttrList = getAssociatedFunction()->getAttributes();
-
-    LLVMContext &Ctx = getAnchorValue().getContext();
-    for (Attribute::AttrKind AK : AKs)
-      AttrList = AttrList.removeAttribute(Ctx, getAttrIdx(), AK);
-
-    if (CB)
-      CB->setAttributes(AttrList);
-    else
-      getAssociatedFunction()->setAttributes(AttrList);
-  }
+  void removeAttrs(Attributor &A, ArrayRef<Attribute::AttrKind> AKs) const;
 
   bool isAnyCallSitePosition() const {
     switch (getPositionKind()) {
@@ -499,14 +478,13 @@ private:
   void verify();
 
   /// Return the attributes of kind \p AK existing in the IR as attribute.
-  bool getAttrsFromIRAttr(Attribute::AttrKind AK,
+  bool getAttrsFromIRAttr(Attributor&A, Attribute::AttrKind AK,
                           SmallVectorImpl<Attribute> &Attrs) const;
 
   /// Return the attributes of kind \p AK existing in the IR as operand bundles
   /// of an llvm.assume.
-  bool getAttrsFromAssumes(Attribute::AttrKind AK,
-                           SmallVectorImpl<Attribute> &Attrs,
-                           Attributor &A) const;
+  bool getAttrsFromAssumes(Attributor&A, Attribute::AttrKind AK,
+                           SmallVectorImpl<Attribute> &Attrs) const;
 
   /// Return the underlying pointer as Value *, valid for all positions but
   /// IRP_CALL_SITE_ARGUMENT.
@@ -1190,6 +1168,9 @@ struct Attributor {
   /// Return the data layout associated with the anchor scope.
   const DataLayout &getDataLayout() const { return InfoCache.DL; }
 
+  /// Return the attribute builder used to collect all attributes for \p IRP.
+  AttrBuilder &getAttrBuilderForPosition(const IRPosition &IRP);
+
   /// The allocator used to allocate memory, e.g. for `AbstractAttribute`s.
   BumpPtrAllocator &Allocator;
 
@@ -1331,6 +1312,11 @@ private:
   using QueryMapTy = DenseMap<const AbstractAttribute *, QueryMapValueTy *>;
   QueryMapTy QueryMap;
   ///}
+
+  bool hasIRAttribute(const IRPosition &IRP, Attribute::AttrKind Kind) {
+    return getAttrBuilderForPosition(IRP).contains(Kind);
+  }
+  DenseMap<IRPosition, AttrBuilder *> AttrBuilderMap;
 
   /// Map to remember all requested signature changes (= argument replacements).
   DenseMap<Function *, SmallVector<std::unique_ptr<ArgumentReplacementInfo>, 8>>
@@ -1880,8 +1866,7 @@ struct IRAttribute : public BaseType {
   virtual void initialize(Attributor &A) override {
     const IRPosition &IRP = this->getIRPosition();
     if (isa<UndefValue>(IRP.getAssociatedValue()) ||
-        this->hasAttr(getAttrKind(), /* IgnoreSubsumingPositions */ false,
-                      &A)) {
+        this->hasAttr(A, getAttrKind(), /* IgnoreSubsumingPositions */ false)) {
       this->getState().indicateOptimisticFixpoint();
       return;
     }
