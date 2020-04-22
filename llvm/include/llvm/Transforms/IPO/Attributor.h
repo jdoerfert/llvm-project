@@ -387,26 +387,7 @@ struct IRPosition {
                 Attributor *A = nullptr) const;
 
   /// Remove the attribute of kind \p AKs existing in the IR at this position.
-  void removeAttrs(ArrayRef<Attribute::AttrKind> AKs) const {
-    if (getPositionKind() == IRP_INVALID || getPositionKind() == IRP_FLOAT)
-      return;
-
-    AttributeList AttrList;
-    auto *CB = dyn_cast<CallBase>(&getAnchorValue());
-    if (CB)
-      AttrList = CB->getAttributes();
-    else
-      AttrList = getAssociatedFunction()->getAttributes();
-
-    LLVMContext &Ctx = getAnchorValue().getContext();
-    for (Attribute::AttrKind AK : AKs)
-      AttrList = AttrList.removeAttribute(Ctx, getAttrIdx(), AK);
-
-    if (CB)
-      CB->setAttributes(AttrList);
-    else
-      getAssociatedFunction()->setAttributes(AttrList);
-  }
+  void removeAttrs(Attributor &A, ArrayRef<Attribute::AttrKind> AKs) const;
 
   bool isAnyCallSitePosition() const {
     switch (getPositionKind()) {
@@ -1061,6 +1042,9 @@ struct Attributor {
   /// Return the data layout associated with the anchor scope.
   const DataLayout &getDataLayout() const { return InfoCache.DL; }
 
+  /// Return the attribute builder used to collect all attributes for \p IRP.
+  AttrBuilder &getAttrBuilderForPosition(const IRPosition &IRP);
+
   /// The allocator used to allocate memory, e.g. for `AbstractAttribute`s.
   BumpPtrAllocator &Allocator;
 
@@ -1188,6 +1172,8 @@ private:
       SmallDenseMap<const char *, AbstractAttribute *, /*InlineBuckets=*/32>;
   DenseMap<IRPosition, Kind2AAMapTy *> AAMap;
   ///}
+
+  DenseMap<IRPosition, AttrBuilder *> AttrBuilderMap;
 
   /// A map from abstract attributes to the ones that queried them through calls
   /// to the getAAFor<...>(...) method.

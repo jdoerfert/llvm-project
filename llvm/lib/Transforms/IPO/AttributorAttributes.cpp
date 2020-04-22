@@ -3292,7 +3292,7 @@ struct AADereferenceableImpl : AADereferenceable {
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Change = AADereferenceable::manifest(A);
     if (isAssumedNonNull() && hasAttr(Attribute::DereferenceableOrNull)) {
-      removeAttrs({Attribute::DereferenceableOrNull});
+      removeAttrs(A, {Attribute::DereferenceableOrNull});
       return ChangeStatus::CHANGED;
     }
     return Change;
@@ -5532,7 +5532,7 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
       return ChangeStatus::UNCHANGED;
 
     // Clear existing attributes.
-    IRP.removeAttrs(AttrKinds);
+    IRP.removeAttrs(A, AttrKinds);
 
     // Use the generic manifest method.
     return IRAttribute::manifest(A);
@@ -6060,9 +6060,9 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
       return ChangeStatus::UNCHANGED;
 
     // Clear existing attributes.
-    IRP.removeAttrs(AttrKinds);
+    IRP.removeAttrs(A, AttrKinds);
     if (isAssumedReadNone())
-      IRP.removeAttrs(AAMemoryBehaviorImpl::AttrKinds);
+      IRP.removeAttrs(A, AAMemoryBehaviorImpl::AttrKinds);
 
     // Use the generic manifest method.
     return IRAttribute::manifest(A);

@@ -6,7 +6,7 @@
 ;
 ; Mostly check we do not crash on these uses
 
-define internal void @internal(void (i8*)* %fp) {
+define internal void @internal(void (i8*)* %QQQQ) {
 ;
 ;
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@internal
@@ -39,12 +39,12 @@ entry:
   %a = alloca i32, align 4
   %tmp = bitcast i32* %a to i8*
   call void @foo(i32* nonnull %a)
-  call void %fp(i8* bitcast (void (i32*)* @foo to i8*))
+  call void %QQQQ(i8* bitcast (void (i32*)* @foo to i8*))
   call void @callback1(void (i32*)* nonnull @foo)
   call void @callback2(void (i8*)* bitcast (void (i32*)* @foo to void (i8*)*))
-  call void @callback2(void (i8*)* %fp)
+  call void @callback2(void (i8*)* %QQQQ)
   %tmp1 = bitcast i32* %a to i8*
-  call void %fp(i8* %tmp1)
+  call void %QQQQ(i8* %tmp1)
   ret void
 }
 

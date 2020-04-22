@@ -88,44 +88,47 @@ ChangeStatus llvm::operator&(ChangeStatus l, ChangeStatus r) {
 }
 ///}
 
-/// Return true if \p New is equal or worse than \p Old.
-static bool isEqualOrWorse(const Attribute &New, const Attribute &Old) {
-  if (!Old.isIntAttribute())
-    return true;
-
-  return Old.getValueAsInt() >= New.getValueAsInt();
-}
-
 /// Return true if the information provided by \p Attr was added to the
-/// attribute list \p Attrs. This is only the case if it was not already present
-/// in \p Attrs at the position describe by \p PK and \p AttrIdx.
-static bool addIfNotExistent(LLVMContext &Ctx, const Attribute &Attr,
-                             AttributeList &Attrs, int AttrIdx) {
+/// attribute builder \p Builder. This is only the case if it was not already
+/// present with a better or equal value.
+static bool addIfNotExistent(const Attribute &Attr, AttrBuilder &Builder) {
 
   if (Attr.isEnumAttribute()) {
     Attribute::AttrKind Kind = Attr.getKindAsEnum();
-    if (Attrs.hasAttribute(AttrIdx, Kind))
-      if (isEqualOrWorse(Attr, Attrs.getAttribute(AttrIdx, Kind)))
-        return false;
-    Attrs = Attrs.addAttribute(Ctx, AttrIdx, Attr);
+    if (Builder.contains(Kind))
+      return false;
+    Builder = Builder.addAttribute(Kind);
     return true;
   }
   if (Attr.isStringAttribute()) {
     StringRef Kind = Attr.getKindAsString();
-    if (Attrs.hasAttribute(AttrIdx, Kind))
-      if (isEqualOrWorse(Attr, Attrs.getAttribute(AttrIdx, Kind)))
-        return false;
-    Attrs = Attrs.addAttribute(Ctx, AttrIdx, Attr);
+    if (Builder.contains(Kind))
+      return false;
+    Builder = Builder.addAttribute(Kind, Attr.getValueAsString());
     return true;
   }
   if (Attr.isIntAttribute()) {
     Attribute::AttrKind Kind = Attr.getKindAsEnum();
-    if (Attrs.hasAttribute(AttrIdx, Kind))
-      if (isEqualOrWorse(Attr, Attrs.getAttribute(AttrIdx, Kind)))
+    uint64_t NewVal = Attr.getValueAsInt();
+    switch (Kind) {
+    case Attribute::Alignment:
+      if (Builder.getAlignment().valueOrOne() >= NewVal)
         return false;
-    Attrs = Attrs.removeAttribute(Ctx, AttrIdx, Kind);
-    Attrs = Attrs.addAttribute(Ctx, AttrIdx, Attr);
-    return true;
+      Builder = Builder.addAlignmentAttr(Align(NewVal));
+      return true;
+    case Attribute::Dereferenceable:
+      if (Builder.getDereferenceableBytes() >= NewVal)
+        return false;
+      Builder = Builder.addDereferenceableAttr(NewVal);
+      return true;
+    case Attribute::DereferenceableOrNull:
+      if (Builder.getDereferenceableOrNullBytes() >= NewVal)
+        return false;
+      Builder = Builder.addDereferenceableOrNullAttr(NewVal);
+      return true;
+    default:
+      llvm_unreachable("Integer attribute not handled!");
+    }
   }
 
   llvm_unreachable("Expected enum or string attribute!");
@@ -200,25 +203,21 @@ ChangeStatus AbstractAttribute::update(Attributor &A) {
   return HasChanged;
 }
 
-ChangeStatus
-IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
-                                   const ArrayRef<Attribute> &DeducedAttrs) {
-  Function *ScopeFn = IRP.getAnchorScope();
-  IRPosition::Kind PK = IRP.getPositionKind();
-
-  // In the following some generic code that will manifest attributes in
-  // DeducedAttrs if they improve the current IR. Due to the different
-  // annotation positions we use the underlying AttributeList interface.
+AttrBuilder &Attributor::getAttrBuilderForPosition(const IRPosition &IRP) {
+  AttrBuilder *&Builder = AttrBuilderMap[IRP];
+  if (Builder)
+    return *Builder;
 
   AttributeList Attrs;
-  switch (PK) {
+  switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
   case IRPosition::IRP_FLOAT:
-    return ChangeStatus::UNCHANGED;
+    llvm_unreachable(
+        "No attributes can be attached to invalid and floating positions!");
   case IRPosition::IRP_ARGUMENT:
   case IRPosition::IRP_FUNCTION:
   case IRPosition::IRP_RETURNED:
-    Attrs = ScopeFn->getAttributes();
+    Attrs = IRP.getAnchorScope()->getAttributes();
     break;
   case IRPosition::IRP_CALL_SITE:
   case IRPosition::IRP_CALL_SITE_RETURNED:
@@ -226,34 +225,22 @@ IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
     Attrs = cast<CallBase>(IRP.getAnchorValue()).getAttributes();
     break;
   }
+  Builder = new (Allocator) AttrBuilder(Attrs, IRP.getAttrIdx());
+  return *Builder;
+}
 
+ChangeStatus
+IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
+                                   const ArrayRef<Attribute> &DeducedAttrs) {
+  // Floating positions do not allow IR attributes.
+  if (IRP.getPositionKind() == IRPosition::IRP_FLOAT)
+    return ChangeStatus::UNCHANGED;
+
+  AttrBuilder &Builder = A.getAttrBuilderForPosition(IRP);
   ChangeStatus HasChanged = ChangeStatus::UNCHANGED;
-  LLVMContext &Ctx = IRP.getAnchorValue().getContext();
-  for (const Attribute &Attr : DeducedAttrs) {
-    if (!addIfNotExistent(Ctx, Attr, Attrs, IRP.getAttrIdx()))
-      continue;
-
-    HasChanged = ChangeStatus::CHANGED;
-  }
-
-  if (HasChanged == ChangeStatus::UNCHANGED)
-    return HasChanged;
-
-  switch (PK) {
-  case IRPosition::IRP_ARGUMENT:
-  case IRPosition::IRP_FUNCTION:
-  case IRPosition::IRP_RETURNED:
-    ScopeFn->setAttributes(Attrs);
-    break;
-  case IRPosition::IRP_CALL_SITE:
-  case IRPosition::IRP_CALL_SITE_RETURNED:
-  case IRPosition::IRP_CALL_SITE_ARGUMENT:
-    cast<CallBase>(IRP.getAnchorValue()).setAttributes(Attrs);
-    break;
-  case IRPosition::IRP_INVALID:
-  case IRPosition::IRP_FLOAT:
-    break;
-  }
+  for (const Attribute &Attr : DeducedAttrs)
+    if (addIfNotExistent(Attr, Builder))
+      HasChanged = ChangeStatus::CHANGED;
 
   return HasChanged;
 }
@@ -286,10 +273,19 @@ void IRPosition::getAttrs(ArrayRef<Attribute::AttrKind> AKs,
       getAttrsFromAssumes(AK, Attrs, *A);
 }
 
+void IRPosition::removeAttrs(Attributor &A,
+                             ArrayRef<Attribute::AttrKind> AKs) const {
+  assert(getPositionKind() != IRP_INVALID && getPositionKind() != IRP_FLOAT &&
+         "Cannot remove attributes for invalid and floating positions!");
+  AttrBuilder &Builder = A.getAttrBuilderForPosition(*this);
+  for (auto &AK : AKs)
+    Builder.removeAttribute(AK);
+}
+
 bool IRPosition::getAttrsFromIRAttr(Attribute::AttrKind AK,
                                     SmallVectorImpl<Attribute> &Attrs) const {
-  if (getPositionKind() == IRP_INVALID || getPositionKind() == IRP_FLOAT)
-    return false;
+  assert(getPositionKind() != IRP_INVALID && getPositionKind() != IRP_FLOAT &&
+         "Cannot remove attributes for invalid and floating positions!");
 
   AttributeList AttrList;
   if (const auto *CB = dyn_cast<CallBase>(&getAnchorValue()))
@@ -914,7 +910,6 @@ ChangeStatus Attributor::run() {
         }
       }
 
-
     // Add attributes to the changed set if they have been created in the last
     // iteration.
     ChangedAAs.append(AllAbstractAttributes.begin() + NumAAs,
@@ -999,6 +994,36 @@ ChangeStatus Attributor::run() {
 
     NumAtFixpoint++;
     NumManifested += (LocalChange == ChangeStatus::CHANGED);
+  }
+
+  LLVMContext &Ctx = Functions.front()->getContext();
+  for (auto &It : AttrBuilderMap) {
+    const IRPosition &IRP = It.first;
+    const AttrBuilder &Builder = *It.second;
+    unsigned AttrIdx = IRP.getAttrIdx();
+    switch (IRP.getPositionKind()) {
+    case IRPosition::IRP_ARGUMENT:
+    case IRPosition::IRP_FUNCTION:
+    case IRPosition::IRP_RETURNED: {
+      Function &ScopeFn = *IRP.getAnchorScope();
+      ScopeFn.setAttributes(ScopeFn.getAttributes()
+                                .removeAttributes(Ctx, AttrIdx)
+                                .addAttributes(Ctx, AttrIdx, Builder));
+      break;
+    }
+    case IRPosition::IRP_CALL_SITE:
+    case IRPosition::IRP_CALL_SITE_RETURNED:
+    case IRPosition::IRP_CALL_SITE_ARGUMENT: {
+      CallBase &CB = cast<CallBase>(IRP.getAnchorValue());
+      CB.setAttributes(CB.getAttributes()
+                           .removeAttributes(Ctx, AttrIdx)
+                           .addAttributes(Ctx, AttrIdx, Builder));
+      break;
+    }
+    case IRPosition::IRP_INVALID:
+    case IRPosition::IRP_FLOAT:
+      break;
+    }
   }
 
   (void)NumManifested;
