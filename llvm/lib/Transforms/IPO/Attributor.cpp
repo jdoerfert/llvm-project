@@ -192,8 +192,8 @@ Argument *IRPosition::getAssociatedArgument() const {
 
 ChangeStatus AbstractAttribute::update(Attributor &A) {
   ChangeStatus HasChanged = ChangeStatus::UNCHANGED;
-  if (isAtFixpoint())
-    return HasChanged;
+  assert(!getState().isAtFixpoint() &&
+         "Tried to update even though state indicates a fixpoint!");
 
   LLVM_DEBUG(dbgs() << "[Attributor] Update: " << *this << "\n");
 
