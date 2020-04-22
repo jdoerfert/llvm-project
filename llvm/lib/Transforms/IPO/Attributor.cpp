@@ -64,9 +64,11 @@ static cl::opt<bool> VerifyMaxFixpointIterations(
     cl::desc("Verify that max-iterations is a tight bound for a fixpoint"),
     cl::init(false));
 
-static cl::opt<bool> AnnotateDeclarationCallSites(
-    "attributor-annotate-decl-cs", cl::Hidden,
-    cl::desc("Annotate call sites of function declarations."), cl::init(false));
+static cl::opt<bool>
+    AnnotateEverything("attributor-annotate-everything", cl::Hidden,
+                       cl::desc("Annotate eveything, e.g., call sites of "
+                                "external function declarations."),
+                       cl::init(false));
 
 static cl::opt<bool> EnableHeapToStack("enable-heap-to-stack-conversion",
                                        cl::init(true), cl::Hidden);
@@ -1787,7 +1789,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
     // Skip declarations except if annotations on their call sites were
     // explicitly requested.
-    if (!AnnotateDeclarationCallSites && Callee->isDeclaration() &&
+    if (!AnnotateEverything && Callee->isDeclaration() &&
         !Callee->hasMetadata(LLVMContext::MD_callback))
       return true;
 
@@ -1824,6 +1826,11 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
       // Call site argument attribute "align".
       getOrCreateAAFor<AAAlign>(CBArgPos);
+
+      // The following attributes are just pass-through from their callee
+      // counterpart. As such we do not need to derive them explicitly.
+      if (!AnnotateEverything)
+        continue;
 
       // Call site argument attribute
       // "readnone/readonly/writeonly/..."

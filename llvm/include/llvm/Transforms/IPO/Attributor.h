@@ -1115,7 +1115,8 @@ private:
       return AA;
     }
 
-    AA.update(*this);
+    if (!AA.getState().isAtFixpoint())
+      AA.update(*this);
 
     if (TrackDependence && AA.getState().isValidState())
       recordDependence(AA, const_cast<AbstractAttribute &>(*QueryingAA),
