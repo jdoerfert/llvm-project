@@ -669,10 +669,14 @@ struct AANoUnwindCallSite final : AANoUnwindImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AANoUnwindImpl::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F)
       indicatePessimisticFixpoint();
+    else if (F->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    else if (getAnchorScope()->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    AANoUnwindImpl::initialize(A);
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -1296,10 +1300,14 @@ struct AANoSyncCallSite final : AANoSyncImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AANoSyncImpl::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F)
       indicatePessimisticFixpoint();
+    else if (F->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    else if (getAnchorScope()->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    AANoSyncImpl::initialize(A);
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -1362,10 +1370,14 @@ struct AANoFreeCallSite final : AANoFreeImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AANoFreeImpl::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F)
       indicatePessimisticFixpoint();
+    else if (F->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    else if (getAnchorScope()->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    AANoFreeImpl::initialize(A);
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -1389,6 +1401,14 @@ struct AANoFreeCallSite final : AANoFreeImpl {
 struct AANoFreeFloating : AANoFreeImpl {
   AANoFreeFloating(const IRPosition &IRP, Attributor &A)
       : AANoFreeImpl(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    if (Function *Fn = getIRPosition().getAnchorScope())
+      if (Fn->hasFnAttribute(Attribute::NoFree))
+        indicateOptimisticFixpoint();
+    AANoFreeImpl::initialize(A);
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override{STATS_DECLTRACK_FLOATING_ATTR(nofree)}
@@ -1592,8 +1612,7 @@ struct AANonNullImpl : AANonNull {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     if (!NullIsDefined &&
-        hasAttr(A, {Attribute::NonNull, Attribute::Dereferenceable},
-                /* IgnoreSubsumingPositions */ false))
+        hasAttr(A, {Attribute::NonNull, Attribute::Dereferenceable});
       indicateOptimisticFixpoint();
     else if (isa<ConstantPointerNull>(getAssociatedValue()))
       indicatePessimisticFixpoint();
@@ -1701,6 +1720,16 @@ struct AANonNullCallSiteArgument final : AANonNullFloating {
   AANonNullCallSiteArgument(const IRPosition &IRP, Attributor &A)
       : AANonNullFloating(IRP, A) {}
 
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    if (Argument *Arg = getIRPosition().getAssociatedArgument()) {
+      const auto &ArgAA = A.getAAFor<AANonNull>(
+          *this, IRPosition::argument(*Arg), /* TrackDependence */ false);
+      getState() += static_cast<const StateType&>(ArgAA.getState());
+    }
+    AANonNullFloating::initialize(A);
+  }
+
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_CSARG_ATTR(nonnull) }
 };
@@ -1793,10 +1822,14 @@ struct AANoRecurseCallSite final : AANoRecurseImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AANoRecurseImpl::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F)
       indicatePessimisticFixpoint();
+    else if (F->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    else if (getAnchorScope()->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    AANoRecurseImpl::initialize(A);
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -2114,10 +2147,14 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AAWillReturnImpl::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F)
       indicatePessimisticFixpoint();
+    else if (F->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    else if (getAnchorScope()->hasFnAttribute(getAttrKind()))
+      indicateOptimisticFixpoint();
+    AAWillReturnImpl::initialize(A);
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -2510,10 +2547,12 @@ struct AANoAliasCallSiteReturned final : AANoAliasImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AANoAliasImpl::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F)
       indicatePessimisticFixpoint();
+    else if (F->hasAttribute(AttributeList::ReturnIndex, getAttrKind()))
+      indicateOptimisticFixpoint();
+    AANoAliasImpl::initialize(A);
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -3199,7 +3238,7 @@ struct AADereferenceableImpl : AADereferenceable {
   void initialize(Attributor &A) override {
     SmallVector<Attribute, 4> Attrs;
     getAttrs(A, {Attribute::Dereferenceable, Attribute::DereferenceableOrNull},
-             Attrs, /* IgnoreSubsumingPositions */ false);
+             Attrs);
     for (const Attribute &Attr : Attrs)
       getState().takeKnownDerefBytesMaximum(Attr.getValueAsInt());
 
@@ -3386,6 +3425,16 @@ struct AADereferenceableArgument final
 struct AADereferenceableCallSiteArgument final : AADereferenceableFloating {
   AADereferenceableCallSiteArgument(const IRPosition &IRP, Attributor &A)
       : AADereferenceableFloating(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    if (Argument *Arg = getIRPosition().getAssociatedArgument()) {
+      const auto &ArgAA = A.getAAFor<AADereferenceable>(
+          *this, IRPosition::argument(*Arg), /* TrackDependence */ false);
+      getState() += static_cast<const StateType&>(ArgAA.getState());
+    }
+    AADereferenceableFloating::initialize(A);
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -3646,6 +3695,16 @@ struct AAAlignCallSiteArgument final : AAAlignFloating {
   AAAlignCallSiteArgument(const IRPosition &IRP, Attributor &A)
       : AAAlignFloating(IRP, A) {}
 
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    if (Argument *Arg = getIRPosition().getAssociatedArgument()) {
+      const auto &ArgAA = A.getAAFor<AAAlign>(
+          *this, IRPosition::argument(*Arg), /* TrackDependence */ false);
+      getState() += static_cast<const StateType&>(ArgAA.getState());
+    }
+    AAAlignFloating::initialize(A);
+  }
+
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
     // If the associated argument is involved in a must-tail call we give up
@@ -3688,10 +3747,15 @@ struct AAAlignCallSiteReturned final
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    Base::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F)
       indicatePessimisticFixpoint();
+    else if (F->hasAttribute(AttributeList::ReturnIndex, getAttrKind()))
+      takeKnownMaximum(
+          F->getAttribute(AttributeList::ReturnIndex, getAttrKind())
+              .getValueAsInt());
+
+    Base::initialize(A);
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -3704,10 +3768,12 @@ struct AANoReturnImpl : public AANoReturn {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AANoReturn::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F)
       indicatePessimisticFixpoint();
+    else if (F->hasAttribute(AttributeList::ReturnIndex, getAttrKind()))
+      indicateOptimisticFixpoint();
+    AANoReturn::initialize(A);
   }
 
   /// See AbstractAttribute::getAsStr().
@@ -3764,7 +3830,7 @@ struct AANoCaptureImpl : public AANoCapture {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    if (hasAttr(A, getAttrKind(), /* IgnoreSubsumingPositions */ true)) {
+    if (hasAttr(A, getAttrKind())) {
       indicateOptimisticFixpoint();
       return;
     }
@@ -4319,8 +4385,8 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     AAValueSimplifyImpl::initialize(A);
     if (!getAnchorScope() || getAnchorScope()->isDeclaration())
       indicatePessimisticFixpoint();
-    if (hasAttr(A, {Attribute::InAlloca, Attribute::StructRet, Attribute::Nest},
-                /* IgnoreSubsumingPositions */ true))
+    if (hasAttr(A,
+                {Attribute::InAlloca, Attribute::StructRet, Attribute::Nest}))
       indicatePessimisticFixpoint();
 
     // FIXME: This is a hack to prevent us from propagating function poiner in
@@ -5382,17 +5448,30 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
+    const IRPosition &IRP = getIRPosition();
     getState().intersectAssumedBits(BEST_STATE);
-    getKnownStateFromValue(A, getIRPosition(), getState());
+    getKnownStateFromValue(A, IRP, getState());
+
+    Argument *Arg = IRP.getAssociatedArgument();
+    if (!Arg || !Arg->hasByValOrInAllocaAttr()) {
+      Value &AssociatedValue = IRP.getAssociatedValue();
+      Function *ScopeFn = IRP.getAnchorScope();
+      if (ScopeFn && ScopeFn != &AssociatedValue)
+        getKnownStateFromValue(IRPosition::function(*ScopeFn), getState());
+
+      const IRPosition &FnIRP = IRPosition::function_scope(IRP);
+      if (FnIRP.getAssociatedFunction() != ScopeFn)
+        getKnownStateFromValue(FnIRP, getState());
+    }
+
     IRAttribute::initialize(A);
   }
 
   /// Return the memory behavior information encoded in the IR for \p IRP.
   static void getKnownStateFromValue(Attributor &A, const IRPosition &IRP,
-                                     AAMemoryBehavior::StateType &State,
-                                     bool IgnoreSubsumingPositions = false) {
+                                     AAMemoryBehavior::StateType &State) {
     SmallVector<Attribute, 2> Attrs;
-    IRP.getAttrs(A, AttrKinds, Attrs, IgnoreSubsumingPositions);
+    IRP.getAttrs(A, AttrKinds, Attrs);
     for (const Attribute &Attr : Attrs) {
       switch (Attr.getKindAsEnum()) {
       case Attribute::ReadNone:
@@ -5432,17 +5511,26 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
-    if (hasAttr(A, Attribute::ReadNone, /* IgnoreSubsumingPositions */ true))
+    if (hasAttr(A, Attribute::ReadNone))
       return ChangeStatus::UNCHANGED;
 
     const IRPosition &IRP = getIRPosition();
+
+    // TODO: Pointer arguments are not supported on vectors of pointers yet.
+    if (IRP.getAssociatedType()->isVectorTy())
+      return ChangeStatus::UNCHANGED;
+
+    // TODO: From readattrs.ll: "inalloca parameters are always
+    //                           considered written"
+    Argument *Arg = getAssociatedArgument();
+    if (Arg && Arg->hasInAllocaAttr())
+      return ChangeStatus::UNCHANGED;
 
     // Check if we would improve the existing attributes first.
     SmallVector<Attribute, 4> DeducedAttrs;
     getDeducedAttributes(IRP.getAnchorValue().getContext(), DeducedAttrs);
     if (llvm::all_of(DeducedAttrs, [&](const Attribute &Attr) {
-          return IRP.hasAttr(A, Attr.getKindAsEnum(),
-                             /* IgnoreSubsumingPositions */ true);
+          return IRP.hasAttr(A, Attr.getKindAsEnum());
         }))
       return ChangeStatus::UNCHANGED;
 
@@ -5516,24 +5604,6 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
   AAMemoryBehaviorArgument(const IRPosition &IRP, Attributor &A)
       : AAMemoryBehaviorFloating(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    getState().intersectAssumedBits(BEST_STATE);
-    const IRPosition &IRP = getIRPosition();
-    // TODO: Make IgnoreSubsumingPositions a property of an IRAttribute so we
-    // can query it when we use has/getAttr. That would allow us to reuse the
-    // initialize of the base class here.
-    bool HasByVal =
-        IRP.hasAttr(A, {Attribute::ByVal}, /* IgnoreSubsumingPositions */ true);
-    getKnownStateFromValue(A, IRP, getState(),
-                           /* IgnoreSubsumingPositions */ HasByVal);
-
-    // Initialize the use vector with all direct uses of the associated value.
-    Argument *Arg = getAssociatedArgument();
-    for (const Use &U : Arg->uses())
-      Uses.insert(&U);
-  }
-
   ChangeStatus manifest(Attributor &A) override {
     // TODO: Pointer arguments are not supported on vectors of pointers yet.
     if (!getAssociatedValue().getType()->isPointerTy())
@@ -5545,7 +5615,6 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
       getState().removeKnownBits(NO_WRITES);
       getState().removeAssumedBits(NO_WRITES);
     }
-    return AAMemoryBehaviorFloating::manifest(A);
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -5559,19 +5628,25 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
   }
 };
 
-struct AAMemoryBehaviorCallSiteArgument final : AAMemoryBehaviorArgument {
+struct AAMemoryBehaviorCallSiteArgument final : AAMemoryBehaviorImpl {
   AAMemoryBehaviorCallSiteArgument(const IRPosition &IRP, Attributor &A)
-      : AAMemoryBehaviorArgument(IRP, A) {}
+      : AAMemoryBehaviorImpl(IRP, A) {}
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AAMemoryBehaviorArgument::initialize(A);
+    AAMemoryBehaviorImpl::initialize(A);
     if (Argument *Arg = getAssociatedArgument()) {
+      // Byval arguments are copied "on the call edge", thus the call site
+      // argument is read but not written.
       if (Arg->hasByValAttr()) {
-        getState().addKnownBits(NO_WRITES);
-        getState().removeKnownBits(NO_READS);
-        getState().removeAssumedBits(NO_READS);
+        addKnownBits(NO_WRITES);
+        removeKnownBits(NO_READS);
+        removeAssumedBits(NO_READS);
+      } else {
+        getKnownStateFromValue(IRPosition::argument(*Arg), getState());
       }
+    } else {
+      indicatePessimisticFixpoint();
     }
   }
 
@@ -5941,17 +6016,27 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
+    const IRPosition &IRP = getIRPosition();
     getState().intersectAssumedBits(BEST_STATE);
-    getKnownStateFromValue(A, getIRPosition(), getState());
+    getKnownStateFromValue(A, IRP, getState());
+
+    Value &AssociatedValue = IRP.getAssociatedValue();
+    Function *ScopeFn = IRP.getAnchorScope();
+    if (ScopeFn && ScopeFn != &AssociatedValue)
+      getKnownStateFromValue(IRPosition::function(*ScopeFn), getState());
+
+    const IRPosition &FnIRP = IRPosition::function_scope(IRP);
+    if (FnIRP.getAssociatedFunction() != ScopeFn)
+      getKnownStateFromValue(FnIRP, getState());
+
     IRAttribute::initialize(A);
   }
 
   /// Return the memory behavior information encoded in the IR for \p IRP.
   static void getKnownStateFromValue(Attributor &A, const IRPosition &IRP,
-                                     AAMemoryLocation::StateType &State,
-                                     bool IgnoreSubsumingPositions = false) {
+                                     AAMemoryLocation::StateType &State) {
     SmallVector<Attribute, 2> Attrs;
-    IRP.getAttrs(A, AttrKinds, Attrs, IgnoreSubsumingPositions);
+    IRP.getAttrs(A, AttrKinds, Attrs);
     for (const Attribute &Attr : Attrs) {
       switch (Attr.getKindAsEnum()) {
       case Attribute::ReadNone:
@@ -5995,12 +6080,15 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
   ChangeStatus manifest(Attributor &A) override {
     const IRPosition &IRP = getIRPosition();
 
+    // TODO: Pointer arguments are not supported on vectors of pointers yet.
+    if (IRP.getAssociatedType()->isVectorTy())
+      return ChangeStatus::UNCHANGED;
+
     // Check if we would improve the existing attributes first.
     SmallVector<Attribute, 4> DeducedAttrs;
     getDeducedAttributes(IRP.getAnchorValue().getContext(), DeducedAttrs);
     if (llvm::all_of(DeducedAttrs, [&](const Attribute &Attr) {
-          return IRP.hasAttr(A, Attr.getKindAsEnum(),
-                             /* IgnoreSubsumingPositions */ true);
+          return IRP.hasAttr(A, Attr.getKindAsEnum());
         }))
       return ChangeStatus::UNCHANGED;
 
