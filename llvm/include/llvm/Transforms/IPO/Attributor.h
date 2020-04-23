@@ -1110,6 +1110,19 @@ private:
 
     AA.initialize(*this);
 
+    // TODO: Not all attributes require an exact definition. Find a way to
+    //       enable deduction for some but not all attributes in case the
+    //       definition might be changed at runtime, see also
+    //       http://lists.llvm.org/pipermail/llvm-dev/2018-February/121275.html.
+    // TODO: We could always determine abstract attributes and if sufficient
+    //       information was found we could duplicate the functions that do not
+    //       have an exact definition.
+    bool IsFnInterface = IRP.isFnInterfaceKind();
+    if (IsFnInterface && (!FnScope || !isFunctionIPOAmendable(*FnScope))) {
+      AA.getState().indicatePessimisticFixpoint();
+      return AA;
+    }
+
     // We can initialize (=look at) code outside the current function set but
     // not call update because that would again spawn new abstract attributes in
     // potentially unconnected code regions (=SCCs).
@@ -1733,18 +1746,6 @@ struct IRAttribute : public IRPosition, public Base {
       this->getState().indicateOptimisticFixpoint();
       return;
     }
-
-    bool IsFnInterface = IRP.isFnInterfaceKind();
-    const Function *FnScope = IRP.getAnchorScope();
-    // TODO: Not all attributes require an exact definition. Find a way to
-    //       enable deduction for some but not all attributes in case the
-    //       definition might be changed at runtime, see also
-    //       http://lists.llvm.org/pipermail/llvm-dev/2018-February/121275.html.
-    // TODO: We could always determine abstract attributes and if sufficient
-    //       information was found we could duplicate the functions that do not
-    //       have an exact definition.
-    if (IsFnInterface && (!FnScope || !A.isFunctionIPOAmendable(*FnScope)))
-      this->getState().indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::manifest(...).

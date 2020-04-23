@@ -762,9 +762,6 @@ public:
         return;
       }
     }
-
-    if (!A.isFunctionIPOAmendable(*F))
-      indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -2107,7 +2104,8 @@ struct AAWillReturnImpl : public AAWillReturn {
     AAWillReturn::initialize(A);
 
     Function *F = getAnchorScope();
-    if (!F || !A.isFunctionIPOAmendable(*F) || mayContainUnboundedCycle(*F, A))
+    assert(F);
+    if (mayContainUnboundedCycle(*F, A))
       indicatePessimisticFixpoint();
   }
 
@@ -2707,12 +2705,6 @@ struct AAIsDeadArgument : public AAIsDeadFloating {
   AAIsDeadArgument(const IRPosition &IRP, Attributor &A)
       : AAIsDeadFloating(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    if (!A.isFunctionIPOAmendable(*getAnchorScope()))
-      indicatePessimisticFixpoint();
-  }
-
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = AAIsDeadFloating::manifest(A);
@@ -3252,14 +3244,6 @@ struct AADereferenceableImpl : AADereferenceable {
     NonNullAA = &A.getAAFor<AANonNull>(*this, getIRPosition(),
                                        /* TrackDependence */ false);
 
-    const IRPosition &IRP = this->getIRPosition();
-    bool IsFnInterface = IRP.isFnInterfaceKind();
-    Function *FnScope = IRP.getAnchorScope();
-    if (IsFnInterface && (!FnScope || !A.isFunctionIPOAmendable(*FnScope))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
-
     if (Instruction *CtxI = getCtxI())
       AddInformation::fromMBEContext(*this, A, getState(), *CtxI);
   }
@@ -3571,13 +3555,6 @@ struct AAAlignImpl : AAAlign {
     for (const Attribute &Attr : Attrs)
       takeKnownMaximum(Attr.getValueAsInt());
 
-    if (getIRPosition().isFnInterfaceKind() &&
-        (!getAnchorScope() ||
-         !A.isFunctionIPOAmendable(*getAssociatedFunction()))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
-
     if (Instruction *CtxI = getCtxI())
       AddInformation::fromMBEContext(*this, A, getState(), *CtxI);
   }
@@ -3862,12 +3839,6 @@ struct AANoCaptureImpl : public AANoCapture {
       indicateOptimisticFixpoint();
       return;
     }
-    Function *AnchorScope = getAnchorScope();
-    if (isFnInterfaceKind() &&
-        (!AnchorScope || !A.isFunctionIPOAmendable(*AnchorScope))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
 
     // You cannot "capture" null in the default address space.
     if (isa<ConstantPointerNull>(getAssociatedValue()) &&
@@ -3876,7 +3847,8 @@ struct AANoCaptureImpl : public AANoCapture {
       return;
     }
 
-    const Function *F = getArgNo() >= 0 ? getAssociatedFunction() : AnchorScope;
+    const Function *F =
+        getArgNo() >= 0 ? getAssociatedFunction() : getAnchorScope();
 
     // Check what state the associated function can actually capture.
     if (F)
@@ -5629,16 +5601,6 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
   AAMemoryBehaviorArgument(const IRPosition &IRP, Attributor &A)
       : AAMemoryBehaviorFloating(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    Argument *Arg = getAssociatedArgument();
-    AAMemoryBehaviorFloating::initialize(A);
-    if (!Arg || !A.isFunctionIPOAmendable(*(Arg->getParent()))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
-  }
-
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
     if (isAssumedReadNone())
@@ -5747,14 +5709,6 @@ struct AAMemoryBehaviorFunction final : public AAMemoryBehaviorImpl {
 struct AAMemoryBehaviorCallSite final : AAMemoryBehaviorImpl {
   AAMemoryBehaviorCallSite(const IRPosition &IRP, Attributor &A)
       : AAMemoryBehaviorImpl(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AAMemoryBehaviorImpl::initialize(A);
-    Function *F = getAssociatedFunction();
-    if (!F || !A.isFunctionIPOAmendable(*F))
-      indicatePessimisticFixpoint();
-  }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -6458,14 +6412,6 @@ struct AAMemoryLocationFunction final : public AAMemoryLocationImpl {
 struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
   AAMemoryLocationCallSite(const IRPosition &IRP, Attributor &A)
       : AAMemoryLocationImpl(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AAMemoryLocationImpl::initialize(A);
-    Function *F = getAssociatedFunction();
-    if (!F || !A.isFunctionIPOAmendable(*F))
-      indicatePessimisticFixpoint();
-  }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
