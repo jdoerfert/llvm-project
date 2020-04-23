@@ -5,21 +5,13 @@
 ; RUN: opt -aa-pipeline=basic-aa -passes=attributor-cgscc -attributor-manifest-internal  -attributor-annotate-decl-cs -S < %s | FileCheck %s --check-prefixes=CHECK,NOT_TUNIT_NPM,NOT_TUNIT_OPM,NOT_CGSCC_OPM,IS__CGSCC____,IS________NPM,IS__CGSCC_NPM
 
 define dso_local i32 @visible(i32* noalias %A, i32* noalias %B) #0 {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@visible
-; IS__TUNIT____-SAME: (i32* noalias nocapture nofree readonly [[A:%.*]], i32* noalias nocapture nofree readonly [[B:%.*]])
-; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL1:%.*]] = call i32 @noalias_args(i32* noalias nocapture nofree readonly align 4 [[A]], i32* noalias nocapture nofree readonly align 4 [[B]])
-; IS__TUNIT____-NEXT:    [[CALL2:%.*]] = call i32 @noalias_args_argmem(i32* noalias nocapture nofree readonly align 4 [[A]], i32* noalias nocapture nofree readonly align 4 [[B]])
-; IS__TUNIT____-NEXT:    [[ADD:%.*]] = add nsw i32 [[CALL1]], [[CALL2]]
-; IS__TUNIT____-NEXT:    ret i32 [[ADD]]
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@visible
-; IS__CGSCC____-SAME: (i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A:%.*]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B:%.*]])
-; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[CALL1:%.*]] = call i32 @noalias_args(i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B]])
-; IS__CGSCC____-NEXT:    [[CALL2:%.*]] = call i32 @noalias_args_argmem(i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B]])
-; IS__CGSCC____-NEXT:    [[ADD:%.*]] = add nsw i32 [[CALL1]], [[CALL2]]
-; IS__CGSCC____-NEXT:    ret i32 [[ADD]]
+; CHECK-LABEL: define {{[^@]+}}@visible
+; CHECK-SAME: (i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A:%.*]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[CALL1:%.*]] = call i32 @noalias_args(i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B]])
+; CHECK-NEXT:    [[CALL2:%.*]] = call i32 @noalias_args_argmem(i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B]])
+; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[CALL1]], [[CALL2]]
+; CHECK-NEXT:    ret i32 [[ADD]]
 ;
 entry:
   %call1 = call i32 @noalias_args(i32* %A, i32* %B)
@@ -85,12 +77,12 @@ entry:
 
 define dso_local i32 @visible_local(i32* %A) #0 {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@visible_local
-; IS__TUNIT____-SAME: (i32* nocapture nofree readonly [[A:%.*]])
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    [[B:%.*]] = alloca i32, align 4
 ; IS__TUNIT____-NEXT:    store i32 5, i32* [[B]], align 4
-; IS__TUNIT____-NEXT:    [[CALL1:%.*]] = call i32 @noalias_args(i32* nocapture nofree readonly align 4 [[A]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B]])
-; IS__TUNIT____-NEXT:    [[CALL2:%.*]] = call i32 @noalias_args_argmem(i32* nocapture nofree readonly align 4 [[A]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B]])
+; IS__TUNIT____-NEXT:    [[CALL1:%.*]] = call i32 @noalias_args(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B]])
+; IS__TUNIT____-NEXT:    [[CALL2:%.*]] = call i32 @noalias_args_argmem(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree nonnull readonly align 4 dereferenceable(4) [[B]])
 ; IS__TUNIT____-NEXT:    [[ADD:%.*]] = add nsw i32 [[CALL1]], [[CALL2]]
 ; IS__TUNIT____-NEXT:    ret i32 [[ADD]]
 ;

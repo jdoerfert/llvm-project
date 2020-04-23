@@ -1162,7 +1162,8 @@ define weak_odr align 16 i32* @non_exact_4(i32* align 32 %a) {
 ;
   ret i32* %a
 }
-; We can use the alignment information of the weak function non_exact_3 argument
+
+; FIXME: We could use the alignment information of the weak function non_exact_3 argument
 ; because it was given to us and not derived.
 ; We can use the return information of the weak function non_exact_4.
 ; FIXME: %c2 and %c3 should be replaced but not %c0 or %c1!
@@ -1172,9 +1173,9 @@ define i32 @exact(i32* align 8 %a, i32* align 8 %b) {
 ; NOT_CGSCC_NPM-NEXT:    [[C0:%.*]] = call i32 @non_exact_0()
 ; NOT_CGSCC_NPM-NEXT:    [[C1:%.*]] = call i32 @non_exact_1(i32 1)
 ; NOT_CGSCC_NPM-NEXT:    [[C2:%.*]] = call i32 @non_exact_2(i32 2)
-; NOT_CGSCC_NPM-NEXT:    [[C3:%.*]] = call align 32 i32* @non_exact_3(i32* align 32 [[A]])
+; NOT_CGSCC_NPM-NEXT:    [[C3:%.*]] = call align 16 i32* @non_exact_3(i32* align 32 [[A]])
 ; NOT_CGSCC_NPM-NEXT:    [[C4:%.*]] = call align 16 i32* @non_exact_4(i32* align 32 [[B]])
-; NOT_CGSCC_NPM-NEXT:    [[C3L:%.*]] = load i32, i32* [[C3]], align 32
+; NOT_CGSCC_NPM-NEXT:    [[C3L:%.*]] = load i32, i32* [[C3]], align 16
 ; NOT_CGSCC_NPM-NEXT:    [[C4L:%.*]] = load i32, i32* [[C4]], align 16
 ; NOT_CGSCC_NPM-NEXT:    [[ADD1:%.*]] = add i32 [[C0]], [[C1]]
 ; NOT_CGSCC_NPM-NEXT:    [[ADD2:%.*]] = add i32 [[ADD1]], [[C2]]
@@ -1187,9 +1188,9 @@ define i32 @exact(i32* align 8 %a, i32* align 8 %b) {
 ; IS__CGSCC_NPM-NEXT:    [[C0:%.*]] = call i32 @non_exact_0()
 ; IS__CGSCC_NPM-NEXT:    [[C1:%.*]] = call i32 @non_exact_1(i32 1)
 ; IS__CGSCC_NPM-NEXT:    [[C2:%.*]] = call i32 @non_exact_2(i32 2)
-; IS__CGSCC_NPM-NEXT:    [[C3:%.*]] = call align 32 i32* @non_exact_3(i32* align 32 [[A]])
+; IS__CGSCC_NPM-NEXT:    [[C3:%.*]] = call align 16 i32* @non_exact_3(i32* align 32 [[A]])
 ; IS__CGSCC_NPM-NEXT:    [[C4:%.*]] = call align 16 i32* @non_exact_4(i32* align 32 [[B]])
-; IS__CGSCC_NPM-NEXT:    [[C3L:%.*]] = load i32, i32* [[C3]], align 32
+; IS__CGSCC_NPM-NEXT:    [[C3L:%.*]] = load i32, i32* [[C3]], align 16
 ; IS__CGSCC_NPM-NEXT:    [[C4L:%.*]] = load i32, i32* [[C4]], align 16
 ; IS__CGSCC_NPM-NEXT:    [[ADD1:%.*]] = add i32 [[C0]], [[C1]]
 ; IS__CGSCC_NPM-NEXT:    [[ADD2:%.*]] = add i32 [[ADD1]], 2

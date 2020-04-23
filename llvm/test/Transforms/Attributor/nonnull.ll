@@ -768,8 +768,8 @@ define internal void @called_by_weak(i32* %a) {
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@called_by_weak
-; IS__CGSCC____-SAME: (i32* nocapture nonnull readnone [[A:%.*]])
-; IS__CGSCC____-NEXT:    call void @use_i32_ptr(i32* noalias nocapture nonnull readnone [[A]])
+; IS__CGSCC____-SAME: (i32* nocapture readnone [[A:%.*]])
+; IS__CGSCC____-NEXT:    call void @use_i32_ptr(i32* noalias nocapture readnone [[A]])
 ; IS__CGSCC____-NEXT:    ret void
 ;
   call void @use_i32_ptr(i32* %a)

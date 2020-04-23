@@ -359,9 +359,9 @@ define internal void @test8(i32* %a, i32* %b, i32* %c) {
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test8
-; IS__CGSCC____-SAME: (i32* nocapture readnone align 4 [[A:%.*]], i32* nocapture readnone align 4 [[B:%.*]], i32* nocapture readnone [[C:%.*]])
-; IS__CGSCC____-NEXT:    call void @user_i32_ptr(i32* noalias nocapture readnone align 4 [[A]])
-; IS__CGSCC____-NEXT:    call void @user_i32_ptr(i32* noalias nocapture readnone align 4 [[B]])
+; IS__CGSCC____-SAME: (i32* nocapture readnone [[A:%.*]], i32* nocapture readnone [[B:%.*]], i32* nocapture readnone [[C:%.*]])
+; IS__CGSCC____-NEXT:    call void @user_i32_ptr(i32* noalias nocapture readnone [[A]])
+; IS__CGSCC____-NEXT:    call void @user_i32_ptr(i32* noalias nocapture readnone [[B]])
 ; IS__CGSCC____-NEXT:    call void @user_i32_ptr(i32* noalias nocapture readnone [[C]])
 ; IS__CGSCC____-NEXT:    ret void
 ;
@@ -743,25 +743,15 @@ define i32 @musttail_callee_1(i32* %p) {
   ret i32 %v
 }
 define i32 @musttail_caller_1(i32* %p) {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@musttail_caller_1
-; IS__TUNIT____-SAME: (i32* nocapture nofree readonly [[P:%.*]])
-; IS__TUNIT____-NEXT:    [[C:%.*]] = load i1, i1* @cnd, align 1
-; IS__TUNIT____-NEXT:    br i1 [[C]], label [[MT:%.*]], label [[EXIT:%.*]]
-; IS__TUNIT____:       mt:
-; IS__TUNIT____-NEXT:    [[V:%.*]] = musttail call i32 @musttail_callee_1(i32* nocapture nofree readonly [[P]])
-; IS__TUNIT____-NEXT:    ret i32 [[V]]
-; IS__TUNIT____:       exit:
-; IS__TUNIT____-NEXT:    ret i32 0
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@musttail_caller_1
-; IS__CGSCC____-SAME: (i32* nocapture nofree readonly [[P:%.*]])
-; IS__CGSCC____-NEXT:    [[C:%.*]] = load i1, i1* @cnd, align 1
-; IS__CGSCC____-NEXT:    br i1 [[C]], label [[MT:%.*]], label [[EXIT:%.*]]
-; IS__CGSCC____:       mt:
-; IS__CGSCC____-NEXT:    [[V:%.*]] = musttail call i32 @musttail_callee_1(i32* nocapture nofree nonnull readonly dereferenceable(4) [[P]])
-; IS__CGSCC____-NEXT:    ret i32 [[V]]
-; IS__CGSCC____:       exit:
-; IS__CGSCC____-NEXT:    ret i32 0
+; CHECK-LABEL: define {{[^@]+}}@musttail_caller_1
+; CHECK-SAME: (i32* nocapture nofree readonly [[P:%.*]])
+; CHECK-NEXT:    [[C:%.*]] = load i1, i1* @cnd, align 1
+; CHECK-NEXT:    br i1 [[C]], label [[MT:%.*]], label [[EXIT:%.*]]
+; CHECK:       mt:
+; CHECK-NEXT:    [[V:%.*]] = musttail call i32 @musttail_callee_1(i32* nocapture nofree nonnull readonly dereferenceable(4) [[P]])
+; CHECK-NEXT:    ret i32 [[V]]
+; CHECK:       exit:
+; CHECK-NEXT:    ret i32 0
 ;
   %c = load i1, i1* @cnd
   br i1 %c, label %mt, label %exit

@@ -37,15 +37,10 @@ F:
 }
 
 define i32 @foo(i32* %A) {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@foo
-; IS__TUNIT____-SAME: (i32* nocapture nofree readonly [[A:%.*]])
-; IS__TUNIT____-NEXT:    [[X:%.*]] = call i32 @callee(i32* nocapture nofree readonly align 4 [[A]])
-; IS__TUNIT____-NEXT:    ret i32 [[X]]
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@foo
-; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A:%.*]])
-; IS__CGSCC____-NEXT:    [[X:%.*]] = call i32 @callee(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A]])
-; IS__CGSCC____-NEXT:    ret i32 [[X]]
+; CHECK-LABEL: define {{[^@]+}}@foo
+; CHECK-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A:%.*]])
+; CHECK-NEXT:    [[X:%.*]] = call i32 @callee(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[A]])
+; CHECK-NEXT:    ret i32 [[X]]
 ;
   %X = call i32 @callee(i1 false, i32* %A)             ; <i32> [#uses=1]
   ret i32 %X

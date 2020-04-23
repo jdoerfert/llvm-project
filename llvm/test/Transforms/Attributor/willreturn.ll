@@ -707,7 +707,7 @@ declare void @llvm.eh.sjlj.longjmp(i8*)
 define void @call_longjmp(i8* nocapture readnone %0) local_unnamed_addr #0 {
 ; CHECK-LABEL: define {{[^@]+}}@call_longjmp
 ; CHECK-SAME: (i8* nocapture readnone [[TMP0:%.*]]) local_unnamed_addr
-; CHECK-NEXT:    tail call void @llvm.eh.sjlj.longjmp(i8* noalias readnone [[TMP0]])
+; CHECK-NEXT:    tail call void @llvm.eh.sjlj.longjmp(i8* [[TMP0]])
 ; CHECK-NEXT:    unreachable
 ;
   tail call void @llvm.eh.sjlj.longjmp(i8* %0)

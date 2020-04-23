@@ -77,17 +77,29 @@ define internal i32 @internal_load(i32*) norecurse nounwind uwtable {
 
 ; CHECK: Function Attrs: nofree noreturn nosync nounwind
 define i32 @first_block_no_return(i32 %a, i32* nonnull %ptr1, i32* %ptr2) #0 {
-; CHECK-LABEL: define {{[^@]+}}@first_block_no_return
-; CHECK-SAME: (i32 [[A:%.*]], i32* nocapture nofree nonnull readnone [[PTR1:%.*]], i32* nocapture nofree readnone [[PTR2:%.*]])
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    call void @no_return_call()
-; CHECK-NEXT:    unreachable
-; CHECK:       cond.true:
-; CHECK-NEXT:    unreachable
-; CHECK:       cond.false:
-; CHECK-NEXT:    unreachable
-; CHECK:       cond.end:
-; CHECK-NEXT:    unreachable
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@first_block_no_return
+; NOT_CGSCC_NPM-SAME: (i32 [[A:%.*]], i32* nocapture nofree nonnull readnone align 4 dereferenceable(4) [[PTR1:%.*]], i32* nocapture nofree readnone [[PTR2:%.*]])
+; NOT_CGSCC_NPM-NEXT:  entry:
+; NOT_CGSCC_NPM-NEXT:    call void @no_return_call()
+; NOT_CGSCC_NPM-NEXT:    unreachable
+; NOT_CGSCC_NPM:       cond.true:
+; NOT_CGSCC_NPM-NEXT:    unreachable
+; NOT_CGSCC_NPM:       cond.false:
+; NOT_CGSCC_NPM-NEXT:    unreachable
+; NOT_CGSCC_NPM:       cond.end:
+; NOT_CGSCC_NPM-NEXT:    unreachable
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@first_block_no_return
+; IS__CGSCC____-SAME: (i32 [[A:%.*]], i32* nocapture nofree nonnull readnone [[PTR1:%.*]], i32* nocapture nofree readnone [[PTR2:%.*]])
+; IS__CGSCC____-NEXT:  entry:
+; IS__CGSCC____-NEXT:    call void @no_return_call()
+; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____:       cond.true:
+; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____:       cond.false:
+; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____:       cond.end:
+; IS__CGSCC____-NEXT:    unreachable
 ;
 entry:
   call i32 @internal_load(i32* %ptr1)
@@ -1465,12 +1477,12 @@ define void @live_with_dead_entry_lp() personality i8* bitcast (i32 (...)* @__gx
 ; CHECK-LABEL: define {{[^@]+}}@live_with_dead_entry_lp() #2 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    invoke void @blowup()
-; CHECK-NEXT:    to label [[LIVE_WITH_DEAD_ENTRY_DEAD:%.*]] unwind label [[LP1:%.*]]
+; CHECK-NEXT:    to label [[LIVE_WITH_DEAD_ENTRY_DEAD1:%.*]] unwind label [[LP1:%.*]]
 ; CHECK:       lp1:
 ; CHECK-NEXT:    [[LP:%.*]] = landingpad { i8*, i32 }
 ; CHECK-NEXT:    catch i8* null
 ; CHECK-NEXT:    invoke void @blowup()
-; CHECK-NEXT:    to label [[LIVE_WITH_DEAD_ENTRY_DEAD1:%.*]] unwind label [[LP2:%.*]]
+; CHECK-NEXT:    to label [[LIVE_WITH_DEAD_ENTRY_DEAD:%.*]] unwind label [[LP2:%.*]]
 ; CHECK:       lp2:
 ; CHECK-NEXT:    [[TMP0:%.*]] = landingpad { i8*, i32 }
 ; CHECK-NEXT:    catch i8* null

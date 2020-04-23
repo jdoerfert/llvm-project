@@ -83,7 +83,7 @@ define void @test6_2(i8** %p, i8* %q) {
 ; inalloca parameters are always considered written
 define void @test7_1(i32* inalloca %a) {
 ; CHECK-LABEL: define {{[^@]+}}@test7_1
-; CHECK-SAME: (i32* inalloca nocapture nofree writeonly [[A:%.*]])
+; CHECK-SAME: (i32* inalloca nocapture nofree [[A:%.*]])
 ; CHECK-NEXT:    ret void
 ;
   ret void
@@ -232,7 +232,7 @@ declare void @escape_i8(i8* %ptr)
 define void @byval_not_readonly_1(i8* byval %written) readonly {
 ; CHECK-LABEL: define {{[^@]+}}@byval_not_readonly_1
 ; CHECK-SAME: (i8* noalias byval [[WRITTEN:%.*]])
-; CHECK-NEXT:    call void @escape_i8(i8* [[WRITTEN]])
+; CHECK-NEXT:    call void @escape_i8(i8* readonly [[WRITTEN]])
 ; CHECK-NEXT:    ret void
 ;
   call void @escape_i8(i8* %written)
@@ -252,7 +252,7 @@ define void @byval_not_readonly_2(i8* byval %written) readonly {
 define void @byval_not_readnone_1(i8* byval %written) readnone {
 ; CHECK-LABEL: define {{[^@]+}}@byval_not_readnone_1
 ; CHECK-SAME: (i8* noalias byval [[WRITTEN:%.*]])
-; CHECK-NEXT:    call void @escape_i8(i8* [[WRITTEN]])
+; CHECK-NEXT:    call void @escape_i8(i8* noalias readnone [[WRITTEN]])
 ; CHECK-NEXT:    ret void
 ;
   call void @escape_i8(i8* %written)
@@ -283,7 +283,7 @@ define void @testbyval(i8* %read_only) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@testbyval
 ; IS__TUNIT____-SAME: (i8* nocapture readonly [[READ_ONLY:%.*]])
 ; IS__TUNIT____-NEXT:    call void @byval_not_readonly_1(i8* nocapture readonly [[READ_ONLY]])
-; IS__TUNIT____-NEXT:    call void @byval_not_readnone_1(i8* noalias nocapture readnone [[READ_ONLY]])
+; IS__TUNIT____-NEXT:    call void @byval_not_readnone_1(i8* noalias nocapture nonnull readnone dereferenceable(1) [[READ_ONLY]])
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@testbyval

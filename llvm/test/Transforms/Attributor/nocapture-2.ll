@@ -162,26 +162,47 @@ entry:
 ;   return scc_A((int*)(scc_A(a) ? scc_B((double*)a) : scc_C(a)));
 ; }
 define float* @scc_A(i32* dereferenceable_or_null(4) %a) {
-; CHECK-LABEL: define {{[^@]+}}@scc_A
-; CHECK-SAME: (i32* nofree readnone returned dereferenceable_or_null(4) "no-capture-maybe-returned" [[A:%.*]])
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i32* [[A]], null
-; CHECK-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
-; CHECK:       cond.true:
-; CHECK-NEXT:    [[TMP0:%.*]] = bitcast i32* [[A]] to i16*
-; CHECK-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP0]])
-; CHECK-NEXT:    [[TMP1:%.*]] = bitcast i8* [[CALL]] to double*
-; CHECK-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(8) i64* @scc_B(double* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP1]])
-; CHECK-NEXT:    [[TMP2:%.*]] = bitcast i64* [[CALL1]] to i32*
-; CHECK-NEXT:    [[CALL2:%.*]] = call float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP2]])
-; CHECK-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL2]] to i32*
-; CHECK-NEXT:    br label [[COND_END:%.*]]
-; CHECK:       cond.false:
-; CHECK-NEXT:    br label [[COND_END]]
-; CHECK:       cond.end:
-; CHECK-NEXT:    [[COND:%.*]] = phi i32* [ [[TMP3]], [[COND_TRUE]] ], [ [[A]], [[COND_FALSE]] ]
-; CHECK-NEXT:    [[TMP4:%.*]] = bitcast i32* [[COND]] to float*
-; CHECK-NEXT:    ret float* [[TMP4]]
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@scc_A
+; NOT_CGSCC_NPM-SAME: (i32* nofree readnone returned dereferenceable_or_null(4) "no-capture-maybe-returned" [[A:%.*]])
+; NOT_CGSCC_NPM-NEXT:  entry:
+; NOT_CGSCC_NPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i32* [[A]], null
+; NOT_CGSCC_NPM-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
+; NOT_CGSCC_NPM:       cond.true:
+; NOT_CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[A]] to i16*
+; NOT_CGSCC_NPM-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP0]])
+; NOT_CGSCC_NPM-NEXT:    [[TMP1:%.*]] = bitcast i8* [[CALL]] to double*
+; NOT_CGSCC_NPM-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(8) i64* @scc_B(double* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP1]])
+; NOT_CGSCC_NPM-NEXT:    [[TMP2:%.*]] = bitcast i64* [[CALL1]] to i32*
+; NOT_CGSCC_NPM-NEXT:    [[CALL2:%.*]] = call float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP2]])
+; NOT_CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL2]] to i32*
+; NOT_CGSCC_NPM-NEXT:    br label [[COND_END:%.*]]
+; NOT_CGSCC_NPM:       cond.false:
+; NOT_CGSCC_NPM-NEXT:    br label [[COND_END]]
+; NOT_CGSCC_NPM:       cond.end:
+; NOT_CGSCC_NPM-NEXT:    [[COND:%.*]] = phi i32* [ [[TMP3]], [[COND_TRUE]] ], [ [[A]], [[COND_FALSE]] ]
+; NOT_CGSCC_NPM-NEXT:    [[TMP4:%.*]] = bitcast i32* [[COND]] to float*
+; NOT_CGSCC_NPM-NEXT:    ret float* [[TMP4]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@scc_A
+; IS__CGSCC_NPM-SAME: (i32* nofree readnone returned dereferenceable_or_null(4) "no-capture-maybe-returned" [[A:%.*]])
+; IS__CGSCC_NPM-NEXT:  entry:
+; IS__CGSCC_NPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i32* [[A]], null
+; IS__CGSCC_NPM-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
+; IS__CGSCC_NPM:       cond.true:
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[A]] to i16*
+; IS__CGSCC_NPM-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(2) i8* @scc_C(i16* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP0]])
+; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = bitcast i8* [[CALL]] to double*
+; IS__CGSCC_NPM-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(8) i64* @scc_B(double* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP1]])
+; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = bitcast i64* [[CALL1]] to i32*
+; IS__CGSCC_NPM-NEXT:    [[CALL2:%.*]] = call float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP2]])
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL2]] to i32*
+; IS__CGSCC_NPM-NEXT:    br label [[COND_END:%.*]]
+; IS__CGSCC_NPM:       cond.false:
+; IS__CGSCC_NPM-NEXT:    br label [[COND_END]]
+; IS__CGSCC_NPM:       cond.end:
+; IS__CGSCC_NPM-NEXT:    [[COND:%.*]] = phi i32* [ [[TMP3]], [[COND_TRUE]] ], [ [[A]], [[COND_FALSE]] ]
+; IS__CGSCC_NPM-NEXT:    [[TMP4:%.*]] = bitcast i32* [[COND]] to float*
+; IS__CGSCC_NPM-NEXT:    ret float* [[TMP4]]
 ;
 entry:
   %tobool = icmp ne i32* %a, null
@@ -252,28 +273,51 @@ cond.end:                                         ; preds = %cond.false, %cond.t
 }
 
 define i8* @scc_C(i16* dereferenceable_or_null(2) %a) {
-; CHECK-LABEL: define {{[^@]+}}@scc_C
-; CHECK-SAME: (i16* nofree readnone returned dereferenceable_or_null(4) "no-capture-maybe-returned" [[A:%.*]])
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[BC:%.*]] = bitcast i16* [[A]] to i32*
-; CHECK-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[BC]])
-; CHECK-NEXT:    [[BC2:%.*]] = bitcast float* [[CALL]] to i8*
-; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i8* [[BC2]], null
-; CHECK-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
-; CHECK:       cond.true:
-; CHECK-NEXT:    [[TMP0:%.*]] = bitcast i16* [[A]] to double*
-; CHECK-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(8) i64* @scc_B(double* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP0]])
-; CHECK-NEXT:    [[TMP1:%.*]] = bitcast i64* [[CALL1]] to i8*
-; CHECK-NEXT:    br label [[COND_END:%.*]]
-; CHECK:       cond.false:
-; CHECK-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[A]])
-; CHECK-NEXT:    br label [[COND_END]]
-; CHECK:       cond.end:
-; CHECK-NEXT:    [[COND:%.*]] = phi i8* [ [[TMP1]], [[COND_TRUE]] ], [ [[CALL2]], [[COND_FALSE]] ]
-; CHECK-NEXT:    [[TMP2:%.*]] = bitcast i8* [[COND]] to i32*
-; CHECK-NEXT:    [[CALL3:%.*]] = call float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP2]])
-; CHECK-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL3]] to i8*
-; CHECK-NEXT:    ret i8* [[TMP3]]
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@scc_C
+; NOT_CGSCC_NPM-SAME: (i16* nofree readnone returned dereferenceable_or_null(4) "no-capture-maybe-returned" [[A:%.*]])
+; NOT_CGSCC_NPM-NEXT:  entry:
+; NOT_CGSCC_NPM-NEXT:    [[BC:%.*]] = bitcast i16* [[A]] to i32*
+; NOT_CGSCC_NPM-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[BC]])
+; NOT_CGSCC_NPM-NEXT:    [[BC2:%.*]] = bitcast float* [[CALL]] to i8*
+; NOT_CGSCC_NPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i8* [[BC2]], null
+; NOT_CGSCC_NPM-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
+; NOT_CGSCC_NPM:       cond.true:
+; NOT_CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast i16* [[A]] to double*
+; NOT_CGSCC_NPM-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(8) i64* @scc_B(double* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP0]])
+; NOT_CGSCC_NPM-NEXT:    [[TMP1:%.*]] = bitcast i64* [[CALL1]] to i8*
+; NOT_CGSCC_NPM-NEXT:    br label [[COND_END:%.*]]
+; NOT_CGSCC_NPM:       cond.false:
+; NOT_CGSCC_NPM-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[A]])
+; NOT_CGSCC_NPM-NEXT:    br label [[COND_END]]
+; NOT_CGSCC_NPM:       cond.end:
+; NOT_CGSCC_NPM-NEXT:    [[COND:%.*]] = phi i8* [ [[TMP1]], [[COND_TRUE]] ], [ [[CALL2]], [[COND_FALSE]] ]
+; NOT_CGSCC_NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[COND]] to i32*
+; NOT_CGSCC_NPM-NEXT:    [[CALL3:%.*]] = call float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP2]])
+; NOT_CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL3]] to i8*
+; NOT_CGSCC_NPM-NEXT:    ret i8* [[TMP3]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@scc_C
+; IS__CGSCC_NPM-SAME: (i16* nofree readnone returned dereferenceable_or_null(2) "no-capture-maybe-returned" [[A:%.*]])
+; IS__CGSCC_NPM-NEXT:  entry:
+; IS__CGSCC_NPM-NEXT:    [[BC:%.*]] = bitcast i16* [[A]] to i32*
+; IS__CGSCC_NPM-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[BC]])
+; IS__CGSCC_NPM-NEXT:    [[BC2:%.*]] = bitcast float* [[CALL]] to i8*
+; IS__CGSCC_NPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i8* [[BC2]], null
+; IS__CGSCC_NPM-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
+; IS__CGSCC_NPM:       cond.true:
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast i16* [[A]] to double*
+; IS__CGSCC_NPM-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(8) i64* @scc_B(double* noalias nofree nonnull readnone dereferenceable(8) "no-capture-maybe-returned" [[TMP0]])
+; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = bitcast i64* [[CALL1]] to i8*
+; IS__CGSCC_NPM-NEXT:    br label [[COND_END:%.*]]
+; IS__CGSCC_NPM:       cond.false:
+; IS__CGSCC_NPM-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(2) i8* @scc_C(i16* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[A]])
+; IS__CGSCC_NPM-NEXT:    br label [[COND_END]]
+; IS__CGSCC_NPM:       cond.end:
+; IS__CGSCC_NPM-NEXT:    [[COND:%.*]] = phi i8* [ [[TMP1]], [[COND_TRUE]] ], [ [[CALL2]], [[COND_FALSE]] ]
+; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[COND]] to i32*
+; IS__CGSCC_NPM-NEXT:    [[CALL3:%.*]] = call float* @scc_A(i32* noalias nofree nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP2]])
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL3]] to i8*
+; IS__CGSCC_NPM-NEXT:    ret i8* [[TMP3]]
 ;
 entry:
   %bc = bitcast i16* %a to i32*
@@ -394,10 +438,10 @@ entry:
 ;
 define void @test_not_captured_but_returned_calls(i64* %a) #0 {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test_not_captured_but_returned_calls
-; IS__TUNIT____-SAME: (i64* nocapture nofree writeonly align 8 [[A:%.*]])
+; IS__TUNIT____-SAME: (i64* nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[A:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]])
-; IS__TUNIT____-NEXT:    [[CALL1:%.*]] = call i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]])
+; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree nonnull writeonly align 8 dereferenceable(8) "no-capture-maybe-returned" [[A]])
+; IS__TUNIT____-NEXT:    [[CALL1:%.*]] = call i64* @not_captured_but_returned_1(i64* nofree nonnull writeonly align 8 dereferenceable(16) "no-capture-maybe-returned" [[A]])
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test_not_captured_but_returned_calls
@@ -422,9 +466,9 @@ entry:
 ; There should *not* be a no-capture attribute on %a
 define i64* @negative_test_not_captured_but_returned_call_0a(i64* %a) #0 {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@negative_test_not_captured_but_returned_call_0a
-; IS__TUNIT____-SAME: (i64* nofree returned writeonly align 8 "no-capture-maybe-returned" [[A:%.*]])
+; IS__TUNIT____-SAME: (i64* nofree nonnull returned writeonly align 8 dereferenceable(8) "no-capture-maybe-returned" [[A:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]])
+; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree nonnull writeonly align 8 dereferenceable(8) "no-capture-maybe-returned" [[A]])
 ; IS__TUNIT____-NEXT:    ret i64* [[CALL]]
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@negative_test_not_captured_but_returned_call_0a
@@ -447,9 +491,9 @@ entry:
 ; There should *not* be a no-capture attribute on %a
 define void @negative_test_not_captured_but_returned_call_0b(i64* %a) #0 {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@negative_test_not_captured_but_returned_call_0b
-; IS__TUNIT____-SAME: (i64* nofree writeonly align 8 [[A:%.*]])
+; IS__TUNIT____-SAME: (i64* nofree nonnull writeonly align 8 dereferenceable(8) [[A:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]])
+; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree nonnull writeonly align 8 dereferenceable(8) "no-capture-maybe-returned" [[A]])
 ; IS__TUNIT____-NEXT:    [[TMP0:%.*]] = ptrtoint i64* [[CALL]] to i64
 ; IS__TUNIT____-NEXT:    store i64 [[TMP0]], i64* [[A]], align 8
 ; IS__TUNIT____-NEXT:    ret void
@@ -478,9 +522,9 @@ entry:
 ; There should *not* be a no-capture attribute on %a
 define i64* @negative_test_not_captured_but_returned_call_1a(i64* %a) #0 {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@negative_test_not_captured_but_returned_call_1a
-; IS__TUNIT____-SAME: (i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A:%.*]])
+; IS__TUNIT____-SAME: (i64* nofree nonnull writeonly align 8 dereferenceable(16) "no-capture-maybe-returned" [[A:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call nonnull align 8 dereferenceable(8) i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]])
+; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call nonnull align 8 dereferenceable(8) i64* @not_captured_but_returned_1(i64* nofree nonnull writeonly align 8 dereferenceable(16) "no-capture-maybe-returned" [[A]])
 ; IS__TUNIT____-NEXT:    ret i64* [[CALL]]
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@negative_test_not_captured_but_returned_call_1a
@@ -503,9 +547,9 @@ entry:
 ; There should *not* be a no-capture attribute on %a
 define void @negative_test_not_captured_but_returned_call_1b(i64* %a) #0 {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@negative_test_not_captured_but_returned_call_1b
-; IS__TUNIT____-SAME: (i64* nofree writeonly align 8 [[A:%.*]])
+; IS__TUNIT____-SAME: (i64* nofree nonnull writeonly align 8 dereferenceable(16) [[A:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call align 8 i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]])
+; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call align 8 i64* @not_captured_but_returned_1(i64* nofree nonnull writeonly align 8 dereferenceable(16) "no-capture-maybe-returned" [[A]])
 ; IS__TUNIT____-NEXT:    [[TMP0:%.*]] = ptrtoint i64* [[CALL]] to i64
 ; IS__TUNIT____-NEXT:    store i64 [[TMP0]], i64* [[CALL]], align 8
 ; IS__TUNIT____-NEXT:    ret void
@@ -598,9 +642,8 @@ declare i32* @readonly_unknown(i32*, i32*) readonly
 
 define void @not_captured_by_readonly_call(i32* %b) #0 {
 ; CHECK-LABEL: define {{[^@]+}}@not_captured_by_readonly_call
-; CHECK-SAME: (i32* nocapture readonly [[B:%.*]])
+; CHECK-SAME: (i32* nocapture nofree readnone [[B:%.*]])
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[B]])
 ; CHECK-NEXT:    ret void
 ;
 entry:

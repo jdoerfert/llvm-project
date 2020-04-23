@@ -569,7 +569,7 @@ define i8* @test_returned1(i8* %A, i8* returned %B) nounwind readonly {
 ; CHECK-LABEL: define {{[^@]+}}@test_returned1
 ; CHECK-SAME: (i8* nocapture readonly [[A:%.*]], i8* readonly returned [[B:%.*]])
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[P:%.*]] = call i8* @unknownpi8pi8(i8* [[A]], i8* [[B]])
+; CHECK-NEXT:    [[P:%.*]] = call i8* @unknownpi8pi8(i8* readonly [[A]], i8* readonly [[B]])
 ; CHECK-NEXT:    ret i8* [[P]]
 ;
 entry:

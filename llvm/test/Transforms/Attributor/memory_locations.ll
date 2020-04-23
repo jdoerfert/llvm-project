@@ -205,17 +205,11 @@ entry:
 
 ; CHECK: Function Attrs: inaccessiblemem_or_argmemonly
 define dso_local i8* @internal_argmem_only_rec(i32* %arg) {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@internal_argmem_only_rec
-; IS__TUNIT____-SAME: (i32* nocapture align 4 [[ARG:%.*]])
-; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture align 4 [[ARG]])
-; IS__TUNIT____-NEXT:    ret i8* [[CALL]]
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@internal_argmem_only_rec
-; IS__CGSCC____-SAME: (i32* nocapture nonnull align 4 dereferenceable(4) [[ARG:%.*]])
-; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture nonnull align 4 dereferenceable(4) [[ARG]])
-; IS__CGSCC____-NEXT:    ret i8* [[CALL]]
+; CHECK-LABEL: define {{[^@]+}}@internal_argmem_only_rec
+; CHECK-SAME: (i32* nocapture nonnull align 4 dereferenceable(4) [[ARG:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[CALL:%.*]] = call noalias i8* @internal_argmem_only_rec_1(i32* nocapture nonnull align 4 dereferenceable(4) [[ARG]])
+; CHECK-NEXT:    ret i8* [[CALL]]
 ;
 entry:
   %call = call i8* @internal_argmem_only_rec_1(i32* %arg)

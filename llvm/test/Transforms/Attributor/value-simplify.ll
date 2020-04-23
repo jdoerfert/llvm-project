@@ -266,18 +266,18 @@ define i32 @ipccp3() {
 %struct.X = type { i8* }
 define internal i32* @test_inalloca(i32* inalloca %a) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test_inalloca
-; IS__TUNIT____-SAME: (i32* inalloca noalias nofree returned writeonly align 536870912 "no-capture-maybe-returned" [[A:%.*]])
+; IS__TUNIT____-SAME: (i32* inalloca noalias nofree returned align 536870912 "no-capture-maybe-returned" [[A:%.*]])
 ; IS__TUNIT____-NEXT:    ret i32* [[A]]
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test_inalloca
-; IS__CGSCC____-SAME: (i32* inalloca noalias nofree returned writeonly "no-capture-maybe-returned" [[A:%.*]])
+; IS__CGSCC____-SAME: (i32* inalloca noalias nofree returned "no-capture-maybe-returned" [[A:%.*]])
 ; IS__CGSCC____-NEXT:    ret i32* [[A]]
 ;
   ret i32* %a
 }
 define i32* @complicated_args_inalloca() {
 ; CHECK-LABEL: define {{[^@]+}}@complicated_args_inalloca()
-; CHECK-NEXT:    [[CALL:%.*]] = call i32* @test_inalloca(i32* noalias nofree writeonly align 536870912 null)
+; CHECK-NEXT:    [[CALL:%.*]] = call i32* @test_inalloca(i32* noalias nofree align 536870912 null)
 ; CHECK-NEXT:    ret i32* [[CALL]]
 ;
   %call = call i32* @test_inalloca(i32* null)
@@ -302,15 +302,10 @@ define internal void @test_sret(%struct.X* sret %a, %struct.X** %b) {
 ; FIXME: Alignment and dereferenceability are not propagated to the argument
 define void @complicated_args_sret(%struct.X** %b) {
 ;
-; IS__TUNIT____-LABEL: define {{[^@]+}}@complicated_args_sret
-; IS__TUNIT____-SAME: (%struct.X** nocapture nofree writeonly [[B:%.*]])
-; IS__TUNIT____-NEXT:    call void @test_sret(%struct.X* noalias nofree writeonly align 536870912 null, %struct.X** nocapture nofree writeonly align 8 [[B]])
-; IS__TUNIT____-NEXT:    ret void
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@complicated_args_sret
-; IS__CGSCC____-SAME: (%struct.X** nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[B:%.*]])
-; IS__CGSCC____-NEXT:    call void @test_sret(%struct.X* noalias nofree writeonly align 536870912 null, %struct.X** nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[B]])
-; IS__CGSCC____-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@complicated_args_sret
+; CHECK-SAME: (%struct.X** nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[B:%.*]])
+; CHECK-NEXT:    call void @test_sret(%struct.X* noalias nofree writeonly align 536870912 null, %struct.X** nocapture nofree nonnull writeonly align 8 dereferenceable(8) [[B]])
+; CHECK-NEXT:    ret void
 ;
   call void @test_sret(%struct.X* null, %struct.X** %b)
   ret void

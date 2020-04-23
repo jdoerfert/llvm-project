@@ -18,8 +18,8 @@ define i32 @test0(i32* %p) {
 
 define i32 @test0-range-check(i32* %p) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test0-range-check
-; IS__TUNIT____-SAME: (i32* nocapture nofree readonly align 4 [[P:%.*]])
-; IS__TUNIT____-NEXT:    [[A:%.*]] = tail call i32 @test0(i32* nocapture nofree readonly align 4 [[P]]) #4, !range !0
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[P:%.*]])
+; IS__TUNIT____-NEXT:    [[A:%.*]] = tail call i32 @test0(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[P]]) #4, !range !0
 ; IS__TUNIT____-NEXT:    ret i32 [[A]]
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test0-range-check
@@ -46,8 +46,8 @@ define void @use3(i1, i1, i1) {
 define void @test0-icmp-check(i32* %p){
   ; ret = [0, 10)
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test0-icmp-check
-; IS__TUNIT____-SAME: (i32* nocapture nofree readonly align 4 [[P:%.*]])
-; IS__TUNIT____-NEXT:    [[RET:%.*]] = tail call i32 @test0(i32* nocapture nofree readonly align 4 [[P]]) #4, !range !0
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[P:%.*]])
+; IS__TUNIT____-NEXT:    [[RET:%.*]] = tail call i32 @test0(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[P]]) #4, !range !0
 ; IS__TUNIT____-NEXT:    [[CMP_EQ_2:%.*]] = icmp eq i32 [[RET]], 9
 ; IS__TUNIT____-NEXT:    [[CMP_EQ_3:%.*]] = icmp eq i32 [[RET]], 8
 ; IS__TUNIT____-NEXT:    [[CMP_EQ_4:%.*]] = icmp eq i32 [[RET]], 1
@@ -260,8 +260,8 @@ define i32 @test1(i32* %p) {
 define i1 @test1-check(i32* %p) {
 ;
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test1-check
-; IS__TUNIT____-SAME: (i32* nocapture nofree readonly align 4 [[P:%.*]])
-; IS__TUNIT____-NEXT:    [[RES:%.*]] = tail call i32 @test1(i32* nocapture nofree readonly align 4 [[P]]) #4, !range !2
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[P:%.*]])
+; IS__TUNIT____-NEXT:    [[RES:%.*]] = tail call i32 @test1(i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[P]]) #4, !range !2
 ; IS__TUNIT____-NEXT:    [[CMP:%.*]] = icmp eq i32 [[RES]], 500
 ; IS__TUNIT____-NEXT:    ret i1 [[CMP]]
 ;
@@ -306,7 +306,7 @@ entry:
 
 define i32 @test2_check(i32* %p) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test2_check
-; IS__TUNIT____-SAME: (i32* nocapture nofree readnone align 4 [[P:%.*]])
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull readnone align 4 dereferenceable(4) [[P:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    br label [[IF_THEN:%.*]]
 ; IS__TUNIT____:       if.then:

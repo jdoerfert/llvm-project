@@ -32,17 +32,11 @@ define internal void @test_byval(%struct.pair* byval %P) {
 }
 
 define void @caller(i32** %Y, %struct.pair* %P) {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@caller
-; IS__TUNIT____-SAME: (i32** nocapture readonly [[Y:%.*]], %struct.pair* nocapture nofree readnone [[P:%.*]])
-; IS__TUNIT____-NEXT:    call void @test(i32** nocapture readonly align 8 [[Y]]), !dbg !4
-; IS__TUNIT____-NEXT:    call void @test_byval(), !dbg !5
-; IS__TUNIT____-NEXT:    ret void
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@caller
-; IS__CGSCC____-SAME: (i32** nocapture nonnull readonly align 8 dereferenceable(8) [[Y:%.*]], %struct.pair* nocapture nofree readnone [[P:%.*]])
-; IS__CGSCC____-NEXT:    call void @test(i32** nocapture nonnull readonly align 8 dereferenceable(8) [[Y]]), !dbg !4
-; IS__CGSCC____-NEXT:    call void @test_byval(), !dbg !5
-; IS__CGSCC____-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@caller
+; CHECK-SAME: (i32** nocapture nonnull readonly align 8 dereferenceable(8) [[Y:%.*]], %struct.pair* nocapture nofree readnone [[P:%.*]])
+; CHECK-NEXT:    call void @test(i32** nocapture nonnull readonly align 8 dereferenceable(8) [[Y]]), !dbg !4
+; CHECK-NEXT:    call void @test_byval(), !dbg !5
+; CHECK-NEXT:    ret void
 ;
   call void @test(i32** %Y), !dbg !1
 

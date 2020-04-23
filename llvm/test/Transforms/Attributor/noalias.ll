@@ -532,21 +532,13 @@ define internal i32 @p2i(i32* %arg) {
 }
 
 define i32 @i2p(i32* %arg) {
-; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@i2p
-; NOT_CGSCC_NPM-SAME: (i32* nofree readonly [[ARG:%.*]])
-; NOT_CGSCC_NPM-NEXT:    [[C:%.*]] = call i32 @p2i(i32* noalias nofree readnone [[ARG]])
-; NOT_CGSCC_NPM-NEXT:    [[I2P:%.*]] = inttoptr i32 [[C]] to i8*
-; NOT_CGSCC_NPM-NEXT:    [[BC:%.*]] = bitcast i8* [[I2P]] to i32*
-; NOT_CGSCC_NPM-NEXT:    [[CALL:%.*]] = call i32 @ret(i32* nofree readonly align 4 [[BC]])
-; NOT_CGSCC_NPM-NEXT:    ret i32 [[CALL]]
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@i2p
-; IS__CGSCC____-SAME: (i32* nofree readonly [[ARG:%.*]])
-; IS__CGSCC____-NEXT:    [[C:%.*]] = call i32 @p2i(i32* noalias nofree readnone [[ARG]])
-; IS__CGSCC____-NEXT:    [[I2P:%.*]] = inttoptr i32 [[C]] to i8*
-; IS__CGSCC____-NEXT:    [[BC:%.*]] = bitcast i8* [[I2P]] to i32*
-; IS__CGSCC____-NEXT:    [[CALL:%.*]] = call i32 @ret(i32* nofree nonnull readonly align 4 dereferenceable(4) [[BC]])
-; IS__CGSCC____-NEXT:    ret i32 [[CALL]]
+; CHECK-LABEL: define {{[^@]+}}@i2p
+; CHECK-SAME: (i32* nofree readonly [[ARG:%.*]])
+; CHECK-NEXT:    [[C:%.*]] = call i32 @p2i(i32* noalias nofree readnone [[ARG]])
+; CHECK-NEXT:    [[I2P:%.*]] = inttoptr i32 [[C]] to i8*
+; CHECK-NEXT:    [[BC:%.*]] = bitcast i8* [[I2P]] to i32*
+; CHECK-NEXT:    [[CALL:%.*]] = call i32 @ret(i32* nofree nonnull readonly align 4 dereferenceable(4) [[BC]])
+; CHECK-NEXT:    ret i32 [[CALL]]
 ;
   %c = call i32 @p2i(i32* %arg)
   %i2p = inttoptr i32 %c to i8*
@@ -664,27 +656,16 @@ define void @only_store(i32* %p) {
 }
 
 define void @test15_caller(i32* noalias %p, i32 %c) {
-; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@test15_caller
-; NOT_CGSCC_NPM-SAME: (i32* noalias nofree writeonly [[P:%.*]], i32 [[C:%.*]])
-; NOT_CGSCC_NPM-NEXT:    [[TOBOOL:%.*]] = icmp eq i32 [[C]], 0
-; NOT_CGSCC_NPM-NEXT:    br i1 [[TOBOOL]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
-; NOT_CGSCC_NPM:       if.then:
-; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* noalias nocapture nofree writeonly align 4 [[P]])
-; NOT_CGSCC_NPM-NEXT:    br label [[IF_END]]
-; NOT_CGSCC_NPM:       if.end:
-; NOT_CGSCC_NPM-NEXT:    tail call void @make_alias(i32* nofree writeonly [[P]])
-; NOT_CGSCC_NPM-NEXT:    ret void
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@test15_caller
-; IS__CGSCC____-SAME: (i32* noalias nofree writeonly [[P:%.*]], i32 [[C:%.*]])
-; IS__CGSCC____-NEXT:    [[TOBOOL:%.*]] = icmp eq i32 [[C]], 0
-; IS__CGSCC____-NEXT:    br i1 [[TOBOOL]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
-; IS__CGSCC____:       if.then:
-; IS__CGSCC____-NEXT:    tail call void @only_store(i32* noalias nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
-; IS__CGSCC____-NEXT:    br label [[IF_END]]
-; IS__CGSCC____:       if.end:
-; IS__CGSCC____-NEXT:    tail call void @make_alias(i32* nofree writeonly [[P]])
-; IS__CGSCC____-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@test15_caller
+; CHECK-SAME: (i32* noalias nofree writeonly [[P:%.*]], i32 [[C:%.*]])
+; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp eq i32 [[C]], 0
+; CHECK-NEXT:    br i1 [[TOBOOL]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
+; CHECK:       if.then:
+; CHECK-NEXT:    tail call void @only_store(i32* noalias nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
+; CHECK-NEXT:    br label [[IF_END]]
+; CHECK:       if.end:
+; CHECK-NEXT:    tail call void @make_alias(i32* nofree writeonly [[P]])
+; CHECK-NEXT:    ret void
 ;
   %tobool = icmp eq i32 %c, 0
   br i1 %tobool, label %if.end, label %if.then
@@ -719,39 +700,22 @@ if.end:
 ;        Therefore, only one of the two conditions of if statementes will be fulfilled.
 
 define internal void @test16_sub(i32* noalias %p, i32 %c1, i32 %c2) {
-; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@test16_sub
-; NOT_CGSCC_NPM-SAME: (i32* noalias nofree writeonly [[P:%.*]], i32 [[C1:%.*]], i32 [[C2:%.*]])
-; NOT_CGSCC_NPM-NEXT:    [[TOBOOL:%.*]] = icmp eq i32 [[C1]], 0
-; NOT_CGSCC_NPM-NEXT:    br i1 [[TOBOOL]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
-; NOT_CGSCC_NPM:       if.then:
-; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* noalias nocapture nofree writeonly align 4 [[P]])
-; NOT_CGSCC_NPM-NEXT:    tail call void @make_alias(i32* nofree writeonly align 4 [[P]])
-; NOT_CGSCC_NPM-NEXT:    br label [[IF_END]]
-; NOT_CGSCC_NPM:       if.end:
-; NOT_CGSCC_NPM-NEXT:    [[TOBOOL1:%.*]] = icmp eq i32 [[C2]], 0
-; NOT_CGSCC_NPM-NEXT:    br i1 [[TOBOOL1]], label [[IF_THEN2:%.*]], label [[IF_END3:%.*]]
-; NOT_CGSCC_NPM:       if.then2:
-; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* nofree writeonly align 4 [[P]])
-; NOT_CGSCC_NPM-NEXT:    br label [[IF_END3]]
-; NOT_CGSCC_NPM:       if.end3:
-; NOT_CGSCC_NPM-NEXT:    ret void
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@test16_sub
-; IS__CGSCC____-SAME: (i32* noalias nofree writeonly [[P:%.*]], i32 [[C1:%.*]], i32 [[C2:%.*]])
-; IS__CGSCC____-NEXT:    [[TOBOOL:%.*]] = icmp eq i32 [[C1]], 0
-; IS__CGSCC____-NEXT:    br i1 [[TOBOOL]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
-; IS__CGSCC____:       if.then:
-; IS__CGSCC____-NEXT:    tail call void @only_store(i32* noalias nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
-; IS__CGSCC____-NEXT:    tail call void @make_alias(i32* nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
-; IS__CGSCC____-NEXT:    br label [[IF_END]]
-; IS__CGSCC____:       if.end:
-; IS__CGSCC____-NEXT:    [[TOBOOL1:%.*]] = icmp eq i32 [[C2]], 0
-; IS__CGSCC____-NEXT:    br i1 [[TOBOOL1]], label [[IF_THEN2:%.*]], label [[IF_END3:%.*]]
-; IS__CGSCC____:       if.then2:
-; IS__CGSCC____-NEXT:    tail call void @only_store(i32* nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
-; IS__CGSCC____-NEXT:    br label [[IF_END3]]
-; IS__CGSCC____:       if.end3:
-; IS__CGSCC____-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@test16_sub
+; CHECK-SAME: (i32* noalias nofree writeonly [[P:%.*]], i32 [[C1:%.*]], i32 [[C2:%.*]])
+; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp eq i32 [[C1]], 0
+; CHECK-NEXT:    br i1 [[TOBOOL]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
+; CHECK:       if.then:
+; CHECK-NEXT:    tail call void @only_store(i32* noalias nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
+; CHECK-NEXT:    tail call void @make_alias(i32* nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
+; CHECK-NEXT:    br label [[IF_END]]
+; CHECK:       if.end:
+; CHECK-NEXT:    [[TOBOOL1:%.*]] = icmp eq i32 [[C2]], 0
+; CHECK-NEXT:    br i1 [[TOBOOL1]], label [[IF_THEN2:%.*]], label [[IF_END3:%.*]]
+; CHECK:       if.then2:
+; CHECK-NEXT:    tail call void @only_store(i32* nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
+; CHECK-NEXT:    br label [[IF_END3]]
+; CHECK:       if.end3:
+; CHECK-NEXT:    ret void
 ;
   %tobool = icmp eq i32 %c1, 0
   br i1 %tobool, label %if.end, label %if.then

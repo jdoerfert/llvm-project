@@ -230,11 +230,12 @@ struct IRPosition {
   }
 
   /// Create a position with function scope matching the "context" of \p IRP.
-  /// If \p IRP is a call site (see isAnyCallSitePosition()) then the result
-  /// will be a call site position, otherwise the function position of the
-  /// associated function.
+  /// If \p IRP is a call site (argument) then the result will be a call site
+  /// position, otherwise the function position of the associated function.
   static const IRPosition function_scope(const IRPosition &IRP) {
-    if (IRP.isAnyCallSitePosition()) {
+    Kind PK = IRP.getPositionKind();
+    if (PK == IRPosition::IRP_CALL_SITE ||
+        PK == IRPosition::IRP_CALL_SITE_ARGUMENT) {
       return IRPosition::callsite_function(
           cast<CallBase>(IRP.getAnchorValue()));
     }
