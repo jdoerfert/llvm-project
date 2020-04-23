@@ -349,6 +349,91 @@ getBasePointerOfAccessPointerOperand(const Instruction *I, int64_t &BytesOffset,
                                           AllowNonInbounds);
 }
 
+/// Helper class to compose two generic deduction
+template <typename AAType, typename Base, typename StateType,
+          template <typename...> class F, template <typename...> class G>
+struct AAComposeTwoGenericDeduction
+    : public F<AAType, G<AAType, Base, StateType>, StateType> {
+  AAComposeTwoGenericDeduction(const IRPosition &IRP, Attributor &A)
+      : F<AAType, G<AAType, Base, StateType>, StateType>(IRP, A) {}
+
+  void initialize(Attributor &A) override {
+    StateManager SM(this->getState());
+
+    // Initialize F and check if the resulting state is at a fixpoint. If it is,
+    // there is no need to update F further.
+    F<AAType, G<AAType, Base, StateType>, StateType>::initialize(A);
+    UpdateF = !SM.storeAndReset().isAtFixpoint();
+
+    // Initialize G and check if the resulting state is at a fixpoint. If it is,
+    // there is no need to update G further.
+    G<AAType, Base, StateType>::initialize(A);
+    UpdateG = !this->getState().isAtFixpoint();
+
+    // Merge the result of F and G.
+    SM.merge();
+  }
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    StateManager SM(this->getState());
+
+    if (UpdateF) {
+      ChangeStatus ChangedF =
+          F<AAType, G<AAType, Base, StateType>, StateType>::updateImpl(A);
+      const StateType &FResult = SM.storeAndReset();
+      UpdateF = !FResult.isAtFixpoint();
+      assert(((FResult == SM.getInitState()) ==
+              (ChangedF == ChangeStatus::UNCHANGED)) &&
+             "Update reported unexpected change status!");
+
+      // Short-cut to determine if F was sufficient to keep the initial state.
+      // We cannot expect anything better but if the state is kept we do not
+      // need G.
+      if (FResult == SM.getInitState())
+        return ChangeStatus::UNCHANGED;
+    }
+
+    if (UpdateG) {
+      ChangeStatus ChangedG = G<AAType, Base, StateType>::updateImpl(A);
+      StateType GResult = this->getState();
+      UpdateG = !GResult.isAtFixpoint();
+      assert(((GResult == SM.getInitState()) ==
+              (ChangedG == ChangeStatus::UNCHANGED)) &&
+             "Update reported unexpected change status!");
+    }
+
+    // Merge the result of F and G.
+    return SM.merge();
+  }
+
+private:
+  /// Helper class to manage three states simultaneously.
+  struct StateManager {
+    StateManager(StateType &S)
+        : S(S), InitS(S), StoredS(StateType::getWorstState(S)) {}
+    const StateType &storeAndReset() {
+      StoredS = std::move(S);
+      S = InitS;
+      return StoredS;
+    }
+    ChangeStatus merge() {
+      S |= StoredS;
+      return InitS == S ? ChangeStatus::UNCHANGED : ChangeStatus::CHANGED;
+    }
+    const StateType &getInitState() const { return InitS; }
+
+  private:
+    StateType &S;
+    StateType InitS;
+    StateType StoredS;
+  };
+
+  /// Flags to remember if we should continue performing updates via G and F
+  /// respectively.
+  bool UpdateG = true, UpdateF = true;
+};
+
 /// Helper function to clamp a state \p S of type \p StateType with the
 /// information in \p R and indicate/return if \p S did change (as-in update is
 /// required to be run again).
