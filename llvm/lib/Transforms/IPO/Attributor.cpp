@@ -192,7 +192,7 @@ Argument *IRPosition::getAssociatedArgument() const {
 
 ChangeStatus AbstractAttribute::update(Attributor &A) {
   ChangeStatus HasChanged = ChangeStatus::UNCHANGED;
-  if (getState().isAtFixpoint())
+  if (isAtFixpoint())
     return HasChanged;
 
   LLVM_DEBUG(dbgs() << "[Attributor] Update: " << *this << "\n");
@@ -478,7 +478,7 @@ Attributor::getAssumedConstant(const Value &V, const AbstractAttribute &AA,
       AA, IRPosition::value(V), /* TrackDependence */ false);
   Optional<Value *> SimplifiedV =
       ValueSimplifyAA.getAssumedSimplifiedValue(*this);
-  bool IsKnown = ValueSimplifyAA.isKnown();
+  bool IsKnown = ValueSimplifyAA.isAtFixpoint();
   UsedAssumedInformation |= !IsKnown;
   if (!SimplifiedV.hasValue()) {
     recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
@@ -804,7 +804,7 @@ bool Attributor::checkForAllReturnedValuesAndReturnInsts(
   // TODO: use the function scope once we have call site AAReturnedValues.
   const IRPosition &QueryIRP = IRPosition::function(*AssociatedFunction);
   const auto &AARetVal = getAAFor<AAReturnedValues>(QueryingAA, QueryIRP);
-  if (!AARetVal.getState().isValidState())
+  if (!AARetVal.isValidState())
     return false;
 
   return AARetVal.checkForAllReturnedValuesAndReturnInsts(Pred);
@@ -821,7 +821,7 @@ bool Attributor::checkForAllReturnedValues(
   // TODO: use the function scope once we have call site AAReturnedValues.
   const IRPosition &QueryIRP = IRPosition::function(*AssociatedFunction);
   const auto &AARetVal = getAAFor<AAReturnedValues>(QueryingAA, QueryIRP);
-  if (!AARetVal.getState().isValidState())
+  if (!AARetVal.isValidState())
     return false;
 
   return AARetVal.checkForAllReturnedValuesAndReturnInsts(
@@ -943,9 +943,9 @@ ChangeStatus Attributor::run() {
           Worklist.insert(DepAA);
           continue;
         }
-        DepAA->getState().indicatePessimisticFixpoint();
-        assert(DepAA->getState().isAtFixpoint() && "Expected fixpoint state!");
-        if (!DepAA->getState().isValidState())
+        DepAA->indicatePessimisticFixpoint();
+        assert(DepAA->isAtFixpoint() && "Expected fixpoint state!");
+        if (!DepAA->isValidState())
           InvalidAAs.insert(DepAA);
         else
           ChangedAAs.push_back(DepAA);
@@ -971,8 +971,7 @@ ChangeStatus Attributor::run() {
     // Update all abstract attribute in the work list and record the ones that
     // changed.
     for (AbstractAttribute *AA : Worklist) {
-      const auto &AAState = AA->getState();
-      if (!AAState.isAtFixpoint() &&
+      if (!AA->isAtFixpoint() &&
           !isAssumedDead(*AA, nullptr, /* CheckBBLivenessOnly */ true)) {
         if (updateAA(*AA) == ChangeStatus::CHANGED) {
           ChangedAAs.push_back(AA);
@@ -980,7 +979,7 @@ ChangeStatus Attributor::run() {
       }
       // Use the InvalidAAs vector to propagate invalid states fast transitively
       // without requiring updates.
-      if (!AAState.isValidState())
+      if (!AA->isValidState())
         InvalidAAs.insert(AA);
     }
 
@@ -1014,9 +1013,8 @@ ChangeStatus Attributor::run() {
     if (!Visited.insert(ChangedAA).second)
       continue;
 
-    AbstractState &State = ChangedAA->getState();
-    if (!State.isAtFixpoint()) {
-      State.indicatePessimisticFixpoint();
+    if (!ChangedAA->isAtFixpoint()) {
+      ChangedAA->indicatePessimisticFixpoint();
 
       NumAttributesTimedOut++;
     }
@@ -1037,17 +1035,16 @@ ChangeStatus Attributor::run() {
   unsigned NumAtFixpoint = 0;
   ChangeStatus ManifestChange = ChangeStatus::UNCHANGED;
   for (AbstractAttribute *AA : AllAbstractAttributes) {
-    AbstractState &State = AA->getState();
 
     // If there is not already a fixpoint reached, we can now take the
     // optimistic state. This is correct because we enforced a pessimistic one
     // on abstract attributes that were transitively dependent on a changed one
     // already above.
-    if (!State.isAtFixpoint())
-      State.indicateOptimisticFixpoint();
+    if (!AA->isAtFixpoint())
+      AA->indicateOptimisticFixpoint();
 
     // If the state is invalid, we do not try to manifest it.
-    if (!State.isValidState())
+    if (!AA->isValidState())
       continue;
 
     // Skip dead code.
@@ -1294,15 +1291,14 @@ ChangeStatus Attributor::updateAA(AbstractAttribute &AA) {
   DependenceVector DV;
   DependenceStack.push_back(&DV);
 
-  auto &AAState = AA.getState();
   ChangeStatus CS = AA.update(*this);
   if (DV.empty()) {
     // If the attribute did not query any non-fix information, the state
     // will not change and we can indicate that right away.
-    AAState.indicateOptimisticFixpoint();
+    AA.indicateOptimisticFixpoint();
   }
 
-  if (!AAState.isAtFixpoint())
+  if (!AA.isAtFixpoint())
     rememberDependences();
 
   // Verify the stack was used properly, that is we pop the dependence vector we
@@ -1734,7 +1730,7 @@ void Attributor::recordDependence(const AbstractAttribute &FromAA,
   // put all AAs into the initial worklist anyway.
   if (DependenceStack.empty())
     return;
-  if (FromAA.getState().isAtFixpoint())
+  if (FromAA.isAtFixpoint())
     return;
   DependenceStack.back()->push_back({&FromAA, &ToAA, DepClass});
 }
@@ -2012,11 +2008,7 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const IntegerRangeState &S) {
   S.getAssumed().print(OS);
   OS << ">";
 
-  return OS << static_cast<const AbstractState &>(S);
-}
-
-raw_ostream &llvm::operator<<(raw_ostream &OS, const AbstractState &S) {
-  return OS << (!S.isValidState() ? "top" : (S.isAtFixpoint() ? "fix" : ""));
+  return printAbstractStateInfo(OS, S);
 }
 
 raw_ostream &llvm::operator<<(raw_ostream &OS, const AbstractAttribute &AA) {
@@ -2025,8 +2017,9 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const AbstractAttribute &AA) {
 }
 
 void AbstractAttribute::print(raw_ostream &OS) const {
-  OS << "[P: " << getIRPosition() << "][" << getAsStr() << "][S: " << getState()
-     << "]";
+  OS << "[P: " << getIRPosition() << "][" << getAsStr()
+     << "][S: ";
+  printAbstractStateInfo(OS, *this) << "]";
 }
 ///}
 

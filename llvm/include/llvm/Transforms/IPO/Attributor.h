@@ -36,16 +36,17 @@
 //
 // The update method `AbstractAttribute::updateImpl` is implemented by the
 // specific "abstract attribute" subclasses. The method is invoked whenever the
-// currently assumed state (see the AbstractState class) might not be valid
-// anymore. This can, for example, happen if the state was dependent on another
-// abstract attribute that changed. In every invocation, the update method has
-// to adjust the internal state of an abstract attribute to a point that is
-// justifiable by the underlying IR and the current state of abstract attributes
-// in-flight. Since the IR is given and assumed to be valid, the information
-// derived from it can be assumed to hold. However, information derived from
-// other abstract attributes is conditional on various things. If the justifying
-// state changed, the `updateImpl` has to revisit the situation and potentially
-// find another justification or limit the optimistic assumes made.
+// currently assumed state (see the AbstractState interface in the
+// AbstractAttribute class) might not be valid anymore. This can, for example,
+// happen if the state was dependent on another abstract attribute that changed.
+// In every invocation, the update method has to adjust the internal state of an
+// abstract attribute to a point that is justifiable by the underlying IR and
+// the current state of abstract attributes in-flight. Since the IR is given and
+// assumed to be valid, the information derived from it can be assumed to hold.
+// However, information derived from other abstract attributes is conditional on
+// various things. If the justifying state changed, the `updateImpl` has to
+// revisit the situation and potentially find another justification or limit the
+// optimistic assumes made.
 //
 // Change is the key in this framework. Until a state of no-change, thus a
 // fixpoint, is reached, the Attributor will query the abstract attributes
@@ -69,9 +70,8 @@
 //
 //
 // The "mechanics" of adding a new "abstract attribute":
-// - Define a class (transitively) inheriting from AbstractAttribute and one
-//   (which could be the same) that (transitively) inherits from AbstractState.
-//   For the latter, consider the already available BooleanState and
+// - Define a class (transitively) inheriting from AbstractAttribute. Consider
+//   also to inherit from the already available BooleanState and
 //   {Inc,Dec,Bit}IntegerState if they fit your needs, e.g., you require only a
 //   number tracking or bit-encoding.
 // - Implement all pure methods. Also use overloading if the attribute is not
@@ -1222,7 +1222,7 @@ private:
     // information, e.g., function -> call site. If it is not on a given
     // whitelist we will not perform updates at all.
     if (Invalidate) {
-      AA.getState().indicatePessimisticFixpoint();
+      AA.indicatePessimisticFixpoint();
       return AA;
     }
 
@@ -1232,13 +1232,13 @@ private:
     // not call update because that would again spawn new abstract attributes in
     // potentially unconnected code regions (=SCCs).
     if (FnScope && !Functions.count(const_cast<Function *>(FnScope))) {
-      AA.getState().indicatePessimisticFixpoint();
+      AA.indicatePessimisticFixpoint();
       return AA;
     }
 
     updateAA(AA);
 
-    if (TrackDependence && AA.getState().isValidState())
+    if (TrackDependence && AA.isValidState())
       recordDependence(AA, const_cast<AbstractAttribute &>(*QueryingAA),
                        DepClass);
     return AA;
@@ -1265,7 +1265,7 @@ private:
     AAType *AA = static_cast<AAType *>(AAPtr);
 
     // Do not register a dependence on an attribute with an invalid state.
-    if (TrackDependence && AA->getState().isValidState())
+    if (TrackDependence && AA->isValidState())
       recordDependence(*AA, const_cast<AbstractAttribute &>(*QueryingAA),
                        DepClass);
     return AA;
@@ -1356,51 +1356,6 @@ private:
   ///}
 };
 
-/// An interface to query the internal state of an abstract attribute.
-///
-/// The abstract state is a minimal interface that allows the Attributor to
-/// communicate with the abstract attributes about their internal state without
-/// enforcing or exposing implementation details, e.g., the (existence of an)
-/// underlying lattice.
-///
-/// It is sufficient to be able to query if a state is (1) valid or invalid, (2)
-/// at a fixpoint, and to indicate to the state that (3) an optimistic fixpoint
-/// was reached or (4) a pessimistic fixpoint was enforced.
-///
-/// All methods need to be implemented by the subclass. For the common use case,
-/// a single boolean state or a bit-encoded state, the BooleanState and
-/// {Inc,Dec,Bit}IntegerState classes are already provided. An abstract
-/// attribute can inherit from them to get the abstract state interface and
-/// additional methods to directly modify the state based if needed. See the
-/// class comments for help.
-struct AbstractState {
-  virtual ~AbstractState() {}
-
-  /// Return if this abstract state is in a valid state. If false, no
-  /// information provided should be used.
-  virtual bool isValidState() const = 0;
-
-  /// Return if this abstract state is fixed, thus does not need to be updated
-  /// if information changes as it cannot change itself.
-  virtual bool isAtFixpoint() const = 0;
-
-  /// Indicate that the abstract state should converge to the optimistic state.
-  ///
-  /// This will usually make the optimistically assumed state the known to be
-  /// true state.
-  ///
-  /// \returns ChangeStatus::UNCHANGED as the assumed value should not change.
-  virtual ChangeStatus indicateOptimisticFixpoint() = 0;
-
-  /// Indicate that the abstract state should converge to the pessimistic state.
-  ///
-  /// This will usually revert the optimistically assumed state to the known to
-  /// be true state.
-  ///
-  /// \returns ChangeStatus::CHANGED as the assumed value may change.
-  virtual ChangeStatus indicatePessimisticFixpoint() = 0;
-};
-
 /// Simple state with integers encoding.
 ///
 /// The interface ensures that the assumed bits are always a subset of the known
@@ -1412,7 +1367,7 @@ struct AbstractState {
 /// state will catch up with the assumed one, for a pessimistic fixpoint it is
 /// the other way around.
 template <typename base_ty, base_ty BestState, base_ty WorstState>
-struct IntegerStateBase : public AbstractState {
+struct IntegerStateBase {
   using base_t = base_ty;
 
   IntegerStateBase() {}
@@ -1430,21 +1385,21 @@ struct IntegerStateBase : public AbstractState {
     return getWorstState();
   }
 
-  /// See AbstractState::isValidState()
+  /// See AbstractAttribute::isValidState()
   /// NOTE: For now we simply pretend that the worst possible state is invalid.
-  bool isValidState() const override { return Assumed != getWorstState(); }
+  bool isValidState() const { return Assumed != getWorstState(); }
 
-  /// See AbstractState::isAtFixpoint()
-  bool isAtFixpoint() const override { return Assumed == Known; }
+  /// See AbstractAttribute::isAtFixpoint()
+  bool isAtFixpoint() const { return Assumed == Known; }
 
-  /// See AbstractState::indicateOptimisticFixpoint(...)
-  ChangeStatus indicateOptimisticFixpoint() override {
+  /// See AbstractAttribute::indicateOptimisticFixpoint(...)
+  ChangeStatus indicateOptimisticFixpoint() {
     Known = Assumed;
     return ChangeStatus::UNCHANGED;
   }
 
-  /// See AbstractState::indicatePessimisticFixpoint(...)
-  ChangeStatus indicatePessimisticFixpoint() override {
+  /// See AbstractAttribute::indicatePessimisticFixpoint(...)
+  ChangeStatus indicatePessimisticFixpoint() {
     Assumed = Known;
     return ChangeStatus::CHANGED;
   }
@@ -1696,7 +1651,7 @@ private:
 };
 
 /// State for an integer range.
-struct IntegerRangeState : public AbstractState {
+struct IntegerRangeState {
 
   /// Bitwidth of the associated value.
   uint32_t BitWidth;
@@ -1731,22 +1686,20 @@ struct IntegerRangeState : public AbstractState {
   /// Return associated values' bit width.
   uint32_t getBitWidth() const { return BitWidth; }
 
-  /// See AbstractState::isValidState()
-  bool isValidState() const override {
-    return BitWidth > 0 && !Assumed.isFullSet();
-  }
+  /// See AbstractAttribute::isValidState()
+  bool isValidState() const { return BitWidth > 0 && !Assumed.isFullSet(); }
 
-  /// See AbstractState::isAtFixpoint()
-  bool isAtFixpoint() const override { return Assumed == Known; }
+  /// See AbstractAttribute::isAtFixpoint()
+  bool isAtFixpoint() const { return Assumed == Known; }
 
-  /// See AbstractState::indicateOptimisticFixpoint(...)
-  ChangeStatus indicateOptimisticFixpoint() override {
+  /// See AbstractAttribute::indicateOptimisticFixpoint(...)
+  ChangeStatus indicateOptimisticFixpoint() {
     Known = Assumed;
     return ChangeStatus::CHANGED;
   }
 
-  /// See AbstractState::indicatePessimisticFixpoint(...)
-  ChangeStatus indicatePessimisticFixpoint() override {
+  /// See AbstractAttribute::indicatePessimisticFixpoint(...)
+  ChangeStatus indicatePessimisticFixpoint() {
     Assumed = Known;
     return ChangeStatus::CHANGED;
   }
@@ -1821,18 +1774,35 @@ struct IRAttributeManifest {
 
 /// Helper to tie a abstract state implementation to an abstract attribute.
 template <typename StateTy, typename BaseType, class... Ts>
-struct StateWrapper : public BaseType, public StateTy {
+struct StateWrapper : public BaseType {
   /// Provide static access to the type of the state.
   using StateType = StateTy;
 
   StateWrapper(const IRPosition &IRP, Ts... Args)
-      : BaseType(IRP), StateTy(Args...) {}
+      : BaseType(IRP), State(Args...) {}
 
-  /// See AbstractAttribute::getState(...).
-  StateType &getState() override { return *this; }
+  /// See AbstractAttribute::isValidState()
+  bool isValidState() const { return State.isValidState(); }
 
-  /// See AbstractAttribute::getState(...).
-  const AbstractState &getState() const override { return *this; }
+  /// See AbstractAttribute::isAtFixpoint()
+  bool isAtFixpoint() const { return State.isAtFixpoint(); }
+
+  /// See AbstractAttribute::indicateOptimisticFixpoint()
+  ChangeStatus indicateOptimisticFixpoint() {
+    return State.indicateOptimisticFixpoint();
+  }
+
+  /// See AbstractAttribute::indicatePessimisticFixpoint()
+  ChangeStatus indicatePessimisticFixpoint() {
+    return State.indicatePessimisticFixpoint();
+  }
+
+  StateTy &getState() { return State; }
+  const StateTy &getState() const { return State; }
+
+private:
+  /// The underlying state.
+  StateTy State;
 };
 
 /// Helper class that provides common functionality to manifest IR attributes.
@@ -1845,7 +1815,7 @@ struct IRAttribute : public BaseType {
     const IRPosition &IRP = this->getIRPosition();
     if (isa<UndefValue>(IRP.getAssociatedValue()) ||
         this->hasAttr(A, getAttrKind(), /* IgnoreSubsumingPositions */ false)) {
-      this->getState().indicateOptimisticFixpoint();
+      this->indicateOptimisticFixpoint();
       return;
     }
 
@@ -1859,7 +1829,7 @@ struct IRAttribute : public BaseType {
     //       information was found we could duplicate the functions that do not
     //       have an exact definition.
     if (IsFnInterface && (!FnScope || !A.isFunctionIPOAmendable(*FnScope)))
-      this->getState().indicatePessimisticFixpoint();
+      this->indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -1911,9 +1881,9 @@ struct IRAttribute : public BaseType {
 /// attribute(s) for an argument, call site argument, function return value, or
 /// function, the `AbstractAttribute::manifest` method should be overloaded.
 ///
-/// NOTE: If the state obtained via getState() is INVALID, thus if
-///       AbstractAttribute::getState().isValidState() returns false, no
-///       information provided by the methods of this class should be used.
+/// NOTE: If the state is INVALID, thus if AbstractAttribute::.isValidState()
+///       returns false, no information provided by the methods of this class
+///       should be used.
 /// NOTE: The Attributor currently has certain limitations to what we can do.
 ///       As a general rule of thumb, "concrete" abstract attributes should *for
 ///       now* only perform "backward" information propagation. That means
@@ -1926,7 +1896,6 @@ struct IRAttribute : public BaseType {
 /// NOTE: The mechanics of adding a new "concrete" abstract attribute are
 ///       described in the file comment.
 struct AbstractAttribute : public IRPosition {
-  using StateType = AbstractState;
 
   AbstractAttribute(const IRPosition &IRP) : IRPosition(IRP) {}
 
@@ -1943,13 +1912,55 @@ struct AbstractAttribute : public IRPosition {
   ///    in the `updateImpl` method.
   virtual void initialize(Attributor &A) {}
 
-  /// Return the internal abstract state for inspection.
-  virtual StateType &getState() = 0;
-  virtual const StateType &getState() const = 0;
-
   /// Return an IR position, see struct IRPosition.
   const IRPosition &getIRPosition() const { return *this; };
   IRPosition &getIRPosition() { return *this; };
+
+  /// AbstractState interface
+  ///
+  /// The abstract state is a minimal interface that allows the Attributor to
+  /// communicate with the abstract attributes about their internal state
+  /// without enforcing or exposing implementation details, e.g., the (existence
+  /// of an) underlying lattice.
+  ///
+  /// It is sufficient to be able to query if a state is (1) valid or invalid,
+  /// (2) at a fixpoint, and to indicate to the state that (3) an optimistic
+  /// fixpoint was reached or (4) a pessimistic fixpoint was enforced.
+  ///
+  /// All methods need to be implemented by the subclass. For the common use
+  /// case, a single boolean state or a bit-encoded state, the BooleanState and
+  /// {Inc,Dec,Bit}IntegerState classes are already provided. An abstract
+  /// attribute can inherit from them to get the abstract state interface and
+  /// additional methods to directly modify the state based if needed. See the
+  /// respective class comments for help.
+  ///
+  ///{
+
+  /// Return if this abstract state is in a valid state. If false, no
+  /// information provided should be used.
+  virtual bool isValidState() const = 0;
+
+  /// Return if this abstract state is fixed, thus does not need to be updated
+  /// if information changes as it cannot change itself.
+  virtual bool isAtFixpoint() const = 0;
+
+  /// Indicate that the abstract state should converge to the optimistic state.
+  ///
+  /// This will usually make the optimistically assumed state the known to be
+  /// true state.
+  ///
+  /// \returns ChangeStatus::UNCHANGED as the assumed value should not change.
+  virtual ChangeStatus indicateOptimisticFixpoint() = 0;
+
+  /// Indicate that the abstract state should converge to the pessimistic state.
+  ///
+  /// This will usually revert the optimistically assumed state to the known to
+  /// be true state.
+  ///
+  /// \returns ChangeStatus::CHANGED as the assumed value may change.
+  virtual ChangeStatus indicatePessimisticFixpoint() = 0;
+
+  ///};
 
   /// Helper functions, for debug purposes only.
   ///{
@@ -2010,15 +2021,19 @@ raw_ostream &operator<<(raw_ostream &OS, const AbstractAttribute &AA);
 raw_ostream &operator<<(raw_ostream &OS, ChangeStatus S);
 raw_ostream &operator<<(raw_ostream &OS, IRPosition::Kind);
 raw_ostream &operator<<(raw_ostream &OS, const IRPosition &);
-raw_ostream &operator<<(raw_ostream &OS, const AbstractState &State);
 template <typename base_ty, base_ty BestState, base_ty WorstState>
-raw_ostream &
-operator<<(raw_ostream &OS,
-           const IntegerStateBase<base_ty, BestState, WorstState> &S) {
+raw_ostream &operator<<(
+    raw_ostream &OS,
+    const IntegerStateBase<base_ty, BestState, WorstState> &S) {
   return OS << "(" << S.getKnown() << "-" << S.getAssumed() << ")"
-            << static_cast<const AbstractState &>(S);
+            << "[" << S.isAtFixpoint();
 }
 raw_ostream &operator<<(raw_ostream &OS, const IntegerRangeState &State);
+template <typename StateType>
+inline raw_ostream &printAbstractStateInfo(raw_ostream &OS,
+                                           const StateType &S) {
+  return OS << (!S.isValidState() ? "top" : (S.isAtFixpoint() ? "fix" : ""));
+}
 ///}
 
 struct AttributorPass : public PassInfoMixin<AttributorPass> {
@@ -2082,10 +2097,10 @@ struct AANoUnwind
   AANoUnwind(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Returns true if nounwind is assumed.
-  bool isAssumedNoUnwind() const { return getAssumed(); }
+  bool isAssumedNoUnwind() const { return getState().getAssumed(); }
 
   /// Returns true if nounwind is known.
-  bool isKnownNoUnwind() const { return getKnown(); }
+  bool isKnownNoUnwind() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoUnwind &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2100,10 +2115,10 @@ struct AANoSync
   AANoSync(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Returns true if "nosync" is assumed.
-  bool isAssumedNoSync() const { return getAssumed(); }
+  bool isAssumedNoSync() const { return getState().getAssumed(); }
 
   /// Returns true if "nosync" is known.
-  bool isKnownNoSync() const { return getKnown(); }
+  bool isKnownNoSync() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoSync &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2119,10 +2134,10 @@ struct AANonNull
   AANonNull(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if we assume that the underlying value is nonnull.
-  bool isAssumedNonNull() const { return getAssumed(); }
+  bool isAssumedNonNull() const { return getState().getAssumed(); }
 
   /// Return true if we know that underlying value is nonnull.
-  bool isKnownNonNull() const { return getKnown(); }
+  bool isKnownNonNull() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANonNull &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2138,10 +2153,10 @@ struct AANoRecurse
   AANoRecurse(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if "norecurse" is assumed.
-  bool isAssumedNoRecurse() const { return getAssumed(); }
+  bool isAssumedNoRecurse() const { return getState().getAssumed(); }
 
   /// Return true if "norecurse" is known.
-  bool isKnownNoRecurse() const { return getKnown(); }
+  bool isKnownNoRecurse() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoRecurse &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2157,10 +2172,10 @@ struct AAWillReturn
   AAWillReturn(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if "willreturn" is assumed.
-  bool isAssumedWillReturn() const { return getAssumed(); }
+  bool isAssumedWillReturn() const { return getState().getAssumed(); }
 
   /// Return true if "willreturn" is known.
-  bool isKnownWillReturn() const { return getKnown(); }
+  bool isKnownWillReturn() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAWillReturn &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2176,13 +2191,13 @@ struct AAUndefinedBehavior
   AAUndefinedBehavior(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
   /// Return true if "undefined behavior" is assumed.
-  bool isAssumedToCauseUB() const { return getAssumed(); }
+  bool isAssumedToCauseUB() const { return getState().getAssumed(); }
 
   /// Return true if "undefined behavior" is assumed for a specific instruction.
   virtual bool isAssumedToCauseUB(Instruction *I) const = 0;
 
   /// Return true if "undefined behavior" is known.
-  bool isKnownToCauseUB() const { return getKnown(); }
+  bool isKnownToCauseUB() const { return getState().getKnown(); }
 
   /// Return true if "undefined behavior" is known for a specific instruction.
   virtual bool isKnownToCauseUB(Instruction *I) const = 0;
@@ -2230,10 +2245,10 @@ struct AANoAlias
   AANoAlias(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if we assume that the underlying value is alias.
-  bool isAssumedNoAlias() const { return getAssumed(); }
+  bool isAssumedNoAlias() const { return getState().getAssumed(); }
 
   /// Return true if we know that underlying value is noalias.
-  bool isKnownNoAlias() const { return getKnown(); }
+  bool isKnownNoAlias() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoAlias &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2249,10 +2264,10 @@ struct AANoFree
   AANoFree(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if "nofree" is assumed.
-  bool isAssumedNoFree() const { return getAssumed(); }
+  bool isAssumedNoFree() const { return getState().getAssumed(); }
 
   /// Return true if "nofree" is known.
-  bool isKnownNoFree() const { return getKnown(); }
+  bool isKnownNoFree() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoFree &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2268,10 +2283,10 @@ struct AANoReturn
   AANoReturn(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if the underlying object is assumed to never return.
-  bool isAssumedNoReturn() const { return getAssumed(); }
+  bool isAssumedNoReturn() const { return getState().getAssumed(); }
 
   /// Return true if the underlying object is known to never return.
-  bool isKnownNoReturn() const { return getKnown(); }
+  bool isKnownNoReturn() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoReturn &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2337,7 +2352,7 @@ public:
 };
 
 /// State for dereferenceable attribute
-struct DerefState : AbstractState {
+struct DerefState {
 
   static DerefState getBestState() { return DerefState(); }
   static DerefState getBestState(const DerefState &) { return getBestState(); }
@@ -2396,24 +2411,52 @@ struct DerefState : AbstractState {
   /// State representing that whether the value is globaly dereferenceable.
   BooleanState GlobalState;
 
-  /// See AbstractState::isValidState()
-  bool isValidState() const override { return DerefBytesState.isValidState(); }
+  /// See AbstractAttribute::isValidState()
+  bool isValidState() const { return DerefBytesState.isValidState(); }
 
-  /// See AbstractState::isAtFixpoint()
-  bool isAtFixpoint() const override {
+  /// See AbstractAttribute::isAtFixpoint()
+  bool isAtFixpoint() const {
     return !isValidState() ||
            (DerefBytesState.isAtFixpoint() && GlobalState.isAtFixpoint());
   }
 
-  /// See AbstractState::indicateOptimisticFixpoint(...)
-  ChangeStatus indicateOptimisticFixpoint() override {
+  /// Return true if we assume that the underlying value is nonnull.
+  bool isAssumedNonNull() const {
+    return NonNullAA && NonNullAA->isAssumedNonNull();
+  }
+
+  /// Return true if we know that the underlying value is nonnull.
+  bool isKnownNonNull() const {
+    return NonNullAA && NonNullAA->isKnownNonNull();
+  }
+
+  /// Return true if we assume that underlying value is
+  /// dereferenceable(_or_null) globally.
+  bool isAssumedGlobal() const { return GlobalState.getAssumed(); }
+
+  /// Return true if we know that underlying value is
+  /// dereferenceable(_or_null) globally.
+  bool isKnownGlobal() const { return GlobalState.getKnown(); }
+
+  /// Return assumed dereferenceable bytes.
+  uint32_t getAssumedDereferenceableBytes() const {
+    return DerefBytesState.getAssumed();
+  }
+
+  /// Return known dereferenceable bytes.
+  uint32_t getKnownDereferenceableBytes() const {
+    return DerefBytesState.getKnown();
+  }
+
+  /// See AbstractAttribute::indicateOptimisticFixpoint(...)
+  ChangeStatus indicateOptimisticFixpoint() {
     DerefBytesState.indicateOptimisticFixpoint();
     GlobalState.indicateOptimisticFixpoint();
     return ChangeStatus::UNCHANGED;
   }
 
-  /// See AbstractState::indicatePessimisticFixpoint(...)
-  ChangeStatus indicatePessimisticFixpoint() override {
+  /// See AbstractAttribute::indicatePessimisticFixpoint(...)
+  ChangeStatus indicatePessimisticFixpoint() {
     DerefBytesState.indicatePessimisticFixpoint();
     GlobalState.indicatePessimisticFixpoint();
     return ChangeStatus::CHANGED;
@@ -2478,9 +2521,14 @@ struct DerefState : AbstractState {
     return *this;
   }
 
-protected:
+  void setNonNullAA(const AANonNull &AA) { NonNullAA = &AA; }
+
+private:
   const AANonNull *NonNullAA = nullptr;
 };
+inline raw_ostream &operator<<(raw_ostream &OS, const DerefState &State) {
+  return printAbstractStateInfo(OS, State);
+}
 
 /// An abstract interface for all dereferenceable attribute.
 struct AADereferenceable
@@ -2489,31 +2537,27 @@ struct AADereferenceable
   AADereferenceable(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if we assume that the underlying value is nonnull.
-  bool isAssumedNonNull() const {
-    return NonNullAA && NonNullAA->isAssumedNonNull();
-  }
+  bool isAssumedNonNull() const { return getState().isAssumedNonNull(); }
 
   /// Return true if we know that the underlying value is nonnull.
-  bool isKnownNonNull() const {
-    return NonNullAA && NonNullAA->isKnownNonNull();
-  }
+  bool isKnownNonNull() const { return getState().isKnownNonNull(); }
 
   /// Return true if we assume that underlying value is
   /// dereferenceable(_or_null) globally.
-  bool isAssumedGlobal() const { return GlobalState.getAssumed(); }
+  bool isAssumedGlobal() const { return getState().isAssumedGlobal(); }
 
   /// Return true if we know that underlying value is
   /// dereferenceable(_or_null) globally.
-  bool isKnownGlobal() const { return GlobalState.getKnown(); }
+  bool isKnownGlobal() const { return getState().isKnownGlobal(); }
 
   /// Return assumed dereferenceable bytes.
   uint32_t getAssumedDereferenceableBytes() const {
-    return DerefBytesState.getAssumed();
+    return getState().getAssumedDereferenceableBytes();
   }
 
   /// Return known dereferenceable bytes.
   uint32_t getKnownDereferenceableBytes() const {
-    return DerefBytesState.getKnown();
+    return getState().getKnownDereferenceableBytes();
   }
 
   /// Create an abstract attribute view for the position \p IRP.
@@ -2533,10 +2577,10 @@ struct AAAlign : public IRAttribute<
   AAAlign(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return assumed alignment.
-  unsigned getAssumedAlign() const { return getAssumed(); }
+  unsigned getAssumedAlign() const { return getState().getAssumed(); }
 
   /// Return known alignment.
-  unsigned getKnownAlign() const { return getKnown(); }
+  unsigned getKnownAlign() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAAlign &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2571,22 +2615,22 @@ struct AANoCapture
 
   /// Return true if we know that the underlying value is not captured in its
   /// respective scope.
-  bool isKnownNoCapture() const { return isKnown(NO_CAPTURE); }
+  bool isKnownNoCapture() const { return getState().isKnown(NO_CAPTURE); }
 
   /// Return true if we assume that the underlying value is not captured in its
   /// respective scope.
-  bool isAssumedNoCapture() const { return isAssumed(NO_CAPTURE); }
+  bool isAssumedNoCapture() const { return getState().isAssumed(NO_CAPTURE); }
 
   /// Return true if we know that the underlying value is not captured in its
   /// respective scope but we allow it to escape through a "return".
   bool isKnownNoCaptureMaybeReturned() const {
-    return isKnown(NO_CAPTURE_MAYBE_RETURNED);
+    return getState().isKnown(NO_CAPTURE_MAYBE_RETURNED);
   }
 
   /// Return true if we assume that the underlying value is not captured in its
   /// respective scope but we allow it to escape through a "return".
   bool isAssumedNoCaptureMaybeReturned() const {
-    return isAssumed(NO_CAPTURE_MAYBE_RETURNED);
+    return getState().isAssumed(NO_CAPTURE_MAYBE_RETURNED);
   }
 
   /// Create an abstract attribute view for the position \p IRP.
@@ -2619,10 +2663,10 @@ struct AAHeapToStack : public StateWrapper<BooleanState, AbstractAttribute> {
   AAHeapToStack(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
   /// Returns true if HeapToStack conversion is assumed to be possible.
-  bool isAssumedHeapToStack() const { return getAssumed(); }
+  bool isAssumedHeapToStack() const { return getState().getAssumed(); }
 
   /// Returns true if HeapToStack conversion is known to be possible.
-  bool isKnownHeapToStack() const { return getKnown(); }
+  bool isKnownHeapToStack() const { return getState().getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAHeapToStack &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -2647,10 +2691,10 @@ struct AAPrivatizablePtr
   AAPrivatizablePtr(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
   /// Returns true if pointer privatization is assumed to be possible.
-  bool isAssumedPrivatizablePtr() const { return getAssumed(); }
+  bool isAssumedPrivatizablePtr() const { return getState().getAssumed(); }
 
   /// Returns true if pointer privatization is known to be possible.
-  bool isKnownPrivatizablePtr() const { return getKnown(); }
+  bool isKnownPrivatizablePtr() const { return getState().getKnown(); }
 
   /// Return the type we can choose for a private copy of the underlying
   /// value. None means it is not clear yet, nullptr means there is none.
@@ -2681,31 +2725,32 @@ struct AAMemoryBehavior
 
     BEST_STATE = NO_ACCESSES,
   };
-  static_assert(BEST_STATE == getBestState(), "Unexpected BEST_STATE value");
+  static_assert(BEST_STATE == StateType::getBestState(),
+                "Unexpected BEST_STATE value");
 
   /// Return true if we know that the underlying value is not read or accessed
   /// in its respective scope.
-  bool isKnownReadNone() const { return isKnown(NO_ACCESSES); }
+  bool isKnownReadNone() const { return getState().isKnown(NO_ACCESSES); }
 
   /// Return true if we assume that the underlying value is not read or accessed
   /// in its respective scope.
-  bool isAssumedReadNone() const { return isAssumed(NO_ACCESSES); }
+  bool isAssumedReadNone() const { return getState().isAssumed(NO_ACCESSES); }
 
   /// Return true if we know that the underlying value is not accessed
   /// (=written) in its respective scope.
-  bool isKnownReadOnly() const { return isKnown(NO_WRITES); }
+  bool isKnownReadOnly() const { return getState().isKnown(NO_WRITES); }
 
   /// Return true if we assume that the underlying value is not accessed
   /// (=written) in its respective scope.
-  bool isAssumedReadOnly() const { return isAssumed(NO_WRITES); }
+  bool isAssumedReadOnly() const { return getState().isAssumed(NO_WRITES); }
 
   /// Return true if we know that the underlying value is not read in its
   /// respective scope.
-  bool isKnownWriteOnly() const { return isKnown(NO_READS); }
+  bool isKnownWriteOnly() const { return getState().isKnown(NO_READS); }
 
   /// Return true if we assume that the underlying value is not read in its
   /// respective scope.
-  bool isAssumedWriteOnly() const { return isAssumed(NO_READS); }
+  bool isAssumedWriteOnly() const { return getState().isAssumed(NO_READS); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAMemoryBehavior &createForPosition(const IRPosition &IRP,
@@ -2747,59 +2792,61 @@ struct AAMemoryLocation
 
     BEST_STATE = NO_LOCATIONS | VALID_STATE,
   };
-  static_assert(BEST_STATE == getBestState(), "Unexpected BEST_STATE value");
+  static_assert(BEST_STATE == StateType::getBestState(),
+                "Unexpected BEST_STATE value");
 
   /// Return true if we know that the associated functions has no observable
   /// accesses.
-  bool isKnownReadNone() const { return isKnown(NO_LOCATIONS); }
+  bool isKnownReadNone() const { return getState().isKnown(NO_LOCATIONS); }
 
   /// Return true if we assume that the associated functions has no observable
   /// accesses.
   bool isAssumedReadNone() const {
-    return isAssumed(NO_LOCATIONS) | isAssumedStackOnly();
+    return getState().isAssumed(NO_LOCATIONS) | isAssumedStackOnly();
   }
 
   /// Return true if we know that the associated functions has at most
   /// local/stack accesses.
   bool isKnowStackOnly() const {
-    return isKnown(inverseLocation(NO_LOCAL_MEM, true, true));
+    return getState().isKnown(inverseLocation(NO_LOCAL_MEM, true, true));
   }
 
   /// Return true if we assume that the associated functions has at most
   /// local/stack accesses.
   bool isAssumedStackOnly() const {
-    return isAssumed(inverseLocation(NO_LOCAL_MEM, true, true));
+    return getState().isAssumed(inverseLocation(NO_LOCAL_MEM, true, true));
   }
 
   /// Return true if we know that the underlying value will only access
   /// inaccesible memory only (see Attribute::InaccessibleMemOnly).
   bool isKnownInaccessibleMemOnly() const {
-    return isKnown(inverseLocation(NO_INACCESSIBLE_MEM, true, true));
+    return getState().isKnown(inverseLocation(NO_INACCESSIBLE_MEM, true, true));
   }
 
   /// Return true if we assume that the underlying value will only access
   /// inaccesible memory only (see Attribute::InaccessibleMemOnly).
   bool isAssumedInaccessibleMemOnly() const {
-    return isAssumed(inverseLocation(NO_INACCESSIBLE_MEM, true, true));
+    return getState().isAssumed(
+        inverseLocation(NO_INACCESSIBLE_MEM, true, true));
   }
 
   /// Return true if we know that the underlying value will only access
   /// argument pointees (see Attribute::ArgMemOnly).
   bool isKnownArgMemOnly() const {
-    return isKnown(inverseLocation(NO_ARGUMENT_MEM, true, true));
+    return getState().isKnown(inverseLocation(NO_ARGUMENT_MEM, true, true));
   }
 
   /// Return true if we assume that the underlying value will only access
   /// argument pointees (see Attribute::ArgMemOnly).
   bool isAssumedArgMemOnly() const {
-    return isAssumed(inverseLocation(NO_ARGUMENT_MEM, true, true));
+    return getState().isAssumed(inverseLocation(NO_ARGUMENT_MEM, true, true));
   }
 
   /// Return true if we know that the underlying value will only access
   /// inaccesible memory or argument pointees (see
   /// Attribute::InaccessibleOrArgMemOnly).
   bool isKnownInaccessibleOrArgMemOnly() const {
-    return isKnown(
+    return getState().isKnown(
         inverseLocation(NO_INACCESSIBLE_MEM | NO_ARGUMENT_MEM, true, true));
   }
 
@@ -2807,24 +2854,26 @@ struct AAMemoryLocation
   /// inaccesible memory or argument pointees (see
   /// Attribute::InaccessibleOrArgMemOnly).
   bool isAssumedInaccessibleOrArgMemOnly() const {
-    return isAssumed(
+    return getState().isAssumed(
         inverseLocation(NO_INACCESSIBLE_MEM | NO_ARGUMENT_MEM, true, true));
   }
 
   /// Return true if the underlying value may access memory through arguement
   /// pointers of the associated function, if any.
-  bool mayAccessArgMem() const { return !isAssumed(NO_ARGUMENT_MEM); }
+  bool mayAccessArgMem() const {
+    return !getState().isAssumed(NO_ARGUMENT_MEM);
+  }
 
   /// Return true if only the memory locations specififed by \p MLK are assumed
   /// to be accessed by the associated function.
   bool isAssumedSpecifiedMemOnly(MemoryLocationsKind MLK) const {
-    return isAssumed(MLK);
+    return getState().isAssumed(MLK);
   }
 
   /// Return the locations that are assumed to be not accessed by the associated
   /// function, if any.
   MemoryLocationsKind getAssumedNotAccessedLocation() const {
-    return getAssumed();
+    return getState().getAssumed();
   }
 
   /// Return the inverse of location \p Loc, thus for NO_XXX the return
@@ -2865,7 +2914,7 @@ struct AAMemoryLocation
   static AAMemoryLocation &createForPosition(const IRPosition &IRP,
                                              Attributor &A);
 
-  /// See AbstractState::getAsStr().
+  /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
     return getMemoryLocationsAsStr(getAssumedNotAccessedLocation());
   }
@@ -2880,10 +2929,6 @@ struct AAValueConstantRange
   using Base = StateWrapper<IntegerRangeState, AbstractAttribute, uint32_t>;
   AAValueConstantRange(const IRPosition &IRP, Attributor &A)
       : Base(IRP, IRP.getAssociatedType()->getIntegerBitWidth()) {}
-
-  /// See AbstractAttribute::getState(...).
-  IntegerRangeState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAValueConstantRange &createForPosition(const IRPosition &IRP,

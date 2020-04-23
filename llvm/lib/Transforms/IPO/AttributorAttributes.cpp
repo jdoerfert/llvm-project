@@ -626,7 +626,7 @@ struct AANoUnwindImpl : AANoUnwind {
   AANoUnwindImpl(const IRPosition &IRP, Attributor &A) : AANoUnwind(IRP, A) {}
 
   const std::string getAsStr() const override {
-    return getAssumed() ? "nounwind" : "may-unwind";
+    return getState().getAssumed() ? "nounwind" : "may-unwind";
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -701,7 +701,7 @@ struct AANoUnwindCallSite final : AANoUnwindImpl {
 ///
 /// If there is a unique returned value R, the manifest method will:
 ///   - mark R with the "returned" attribute, if R is an argument.
-class AAReturnedValuesImpl : public AAReturnedValues, public AbstractState {
+class AAReturnedValuesImpl : public AAReturnedValues {
 
   /// Mapping of values potentially returned by the associated function to the
   /// return instructions that might return them.
@@ -762,12 +762,6 @@ public:
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override;
-
-  /// See AbstractAttribute::getState(...).
-  AbstractState &getState() override { return *this; }
-
-  /// See AbstractAttribute::getState(...).
-  const AbstractState &getState() const override { return *this; }
 
   /// See AbstractAttribute::updateImpl(Attributor &A).
   ChangeStatus updateImpl(Attributor &A) override;
@@ -1020,7 +1014,7 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
 
     // Skip dead ends, thus if we do not know anything about the returned
     // call we mark it as unresolved and it will stay that way.
-    if (!RetValAA.getState().isValidState()) {
+    if (!RetValAA.isValidState()) {
       LLVM_DEBUG(dbgs() << "[AAReturnedValues] Unresolved call: " << *CB
                         << "\n");
       UnresolvedCalls.insert(CB);
@@ -1141,7 +1135,7 @@ struct AANoSyncImpl : AANoSync {
   AANoSyncImpl(const IRPosition &IRP, Attributor &A) : AANoSync(IRP, A) {}
 
   const std::string getAsStr() const override {
-    return getAssumed() ? "nosync" : "may-sync";
+    return getState().getAssumed() ? "nosync" : "may-sync";
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -1353,7 +1347,7 @@ struct AANoFreeImpl : public AANoFree {
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
-    return getAssumed() ? "nofree" : "may-free";
+    return getState().getAssumed() ? "nofree" : "may-free";
   }
 };
 
@@ -1628,7 +1622,7 @@ struct AANonNullImpl : AANonNull {
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
-    return getAssumed() ? "nonnull" : "may-null";
+    return getState().getAssumed() ? "nonnull" : "may-null";
   }
 
   /// Flag to determine if the underlying value can be null and still allow
@@ -1732,7 +1726,7 @@ struct AANoRecurseImpl : public AANoRecurse {
 
   /// See AbstractAttribute::getAsStr()
   const std::string getAsStr() const override {
-    return getAssumed() ? "norecurse" : "may-recurse";
+    return getState().getAssumed() ? "norecurse" : "may-recurse";
   }
 };
 
@@ -1957,7 +1951,7 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
 
   /// See AbstractAttribute::getAsStr()
   const std::string getAsStr() const override {
-    return getAssumed() ? "undefined-behavior" : "no-ub";
+    return getState().getAssumed() ? "undefined-behavior" : "no-ub";
   }
 
   /// Note: The correctness of this analysis depends on the fact that the
@@ -2006,7 +2000,7 @@ private:
         A.getAAFor<AAValueSimplify>(*this, IRPosition::value(*V));
     Optional<Value *> SimplifiedV =
         ValueSimplifyAA.getAssumedSimplifiedValue(A);
-    if (!ValueSimplifyAA.isKnown()) {
+    if (!ValueSimplifyAA.getState().isKnown()) {
       // Don't depend on assumed values.
       return llvm::None;
     }
@@ -2104,7 +2098,7 @@ struct AAWillReturnImpl : public AAWillReturn {
 
   /// See AbstractAttribute::getAsStr()
   const std::string getAsStr() const override {
-    return getAssumed() ? "willreturn" : "may-noreturn";
+    return getState().getAssumed() ? "willreturn" : "may-noreturn";
   }
 };
 
@@ -2184,7 +2178,7 @@ struct AANoAliasImpl : AANoAlias {
   }
 
   const std::string getAsStr() const override {
-    return getAssumed() ? "noalias" : "may-alias";
+    return getState().getAssumed() ? "noalias" : "may-alias";
   }
 };
 
@@ -2548,10 +2542,10 @@ struct AAIsDeadValueImpl : public AAIsDead {
   AAIsDeadValueImpl(const IRPosition &IRP, Attributor &A) : AAIsDead(IRP, A) {}
 
   /// See AAIsDead::isAssumedDead().
-  bool isAssumedDead() const override { return getAssumed(); }
+  bool isAssumedDead() const override { return getState().getAssumed(); }
 
   /// See AAIsDead::isKnownDead().
-  bool isKnownDead() const override { return getKnown(); }
+  bool isKnownDead() const override { return getState().getKnown(); }
 
   /// See AAIsDead::isAssumedDead(BasicBlock *).
   bool isAssumedDead(const BasicBlock *BB) const override { return false; }
@@ -2566,7 +2560,7 @@ struct AAIsDeadValueImpl : public AAIsDead {
 
   /// See AAIsDead::isKnownDead(Instruction *I).
   bool isKnownDead(const Instruction *I) const override {
-    return isAssumedDead(I) && getKnown();
+    return isAssumedDead(I) && getState().getKnown();
   }
 
   /// See AbstractAttribute::getAsStr().
@@ -2787,7 +2781,7 @@ struct AAIsDeadCallSiteReturned : public AAIsDeadFloating {
   const std::string getAsStr() const override {
     return isAssumedDead()
                ? "assumed-dead"
-               : (getAssumed() ? "assumed-dead-users" : "assumed-live");
+               : (getState().getAssumed() ? "assumed-dead-users" : "assumed-live");
   }
 
 private:
@@ -2921,14 +2915,14 @@ struct AAIsDeadFunction : public AAIsDead {
     assert(BB->getParent() == getAnchorScope() &&
            "BB must be in the same anchor scope function.");
 
-    if (!getAssumed())
+    if (!getState().getAssumed())
       return false;
     return !AssumedLiveBlocks.count(BB);
   }
 
   /// See AAIsDead::isKnownDead(BasicBlock *).
   bool isKnownDead(const BasicBlock *BB) const override {
-    return getKnown() && isAssumedDead(BB);
+    return getState().getKnown() && isAssumedDead(BB);
   }
 
   /// See AAIsDead::isAssumed(Instruction *I).
@@ -2936,7 +2930,7 @@ struct AAIsDeadFunction : public AAIsDead {
     assert(I->getParent()->getParent() == getAnchorScope() &&
            "Instruction must be in the same anchor scope function.");
 
-    if (!getAssumed())
+    if (!getState().getAssumed())
       return false;
 
     // If it is not in AssumedLiveBlocks then it for sure dead.
@@ -2956,7 +2950,7 @@ struct AAIsDeadFunction : public AAIsDead {
 
   /// See AAIsDead::isKnownDead(Instruction *I).
   bool isKnownDead(const Instruction *I) const override {
-    return getKnown() && isAssumedDead(I);
+    return getState().getKnown() && isAssumedDead(I);
   }
 
   /// Assume \p BB is (partially) live now and indicate to the Attributor \p A
@@ -3216,10 +3210,10 @@ struct AADereferenceableImpl : AADereferenceable {
     getAttrs(A, {Attribute::Dereferenceable, Attribute::DereferenceableOrNull},
              Attrs, /* IgnoreSubsumingPositions */ false);
     for (const Attribute &Attr : Attrs)
-      takeKnownDerefBytesMaximum(Attr.getValueAsInt());
+      getState().takeKnownDerefBytesMaximum(Attr.getValueAsInt());
 
-    NonNullAA = &A.getAAFor<AANonNull>(*this, getIRPosition(),
-                                       /* TrackDependence */ false);
+    getState().setNonNullAA(A.getAAFor<AANonNull>(*this, getIRPosition(),
+                                                  /* TrackDependence */ false));
 
     const IRPosition &IRP = this->getIRPosition();
     bool IsFnInterface = IRP.isFnInterfaceKind();
@@ -3232,12 +3226,6 @@ struct AADereferenceableImpl : AADereferenceable {
     if (Instruction *CtxI = getCtxI())
       followUsesInMBEC(*this, A, getState(), *CtxI);
   }
-
-  /// See AbstractAttribute::getState()
-  /// {
-  StateType &getState() override { return *this; }
-  const StateType &getState() const override { return *this; }
-  /// }
 
   /// Helper function for collecting accessed bytes in must-be-executed-context
   void addAccessedBytesForUse(Attributor &A, const Use *U, const Instruction *I,
@@ -3528,7 +3516,7 @@ struct AAAlignImpl : AAAlign {
     SmallVector<Attribute, 4> Attrs;
     getAttrs(A, {Attribute::Alignment}, Attrs);
     for (const Attribute &Attr : Attrs)
-      takeKnownMaximum(Attr.getValueAsInt());
+      getState().takeKnownMaximum(Attr.getValueAsInt());
 
     if (getIRPosition().isFnInterfaceKind() &&
         (!getAnchorScope() ||
@@ -3706,7 +3694,7 @@ struct AAAlignCallSiteArgument final : AAAlignFloating {
       // so we do not need to track a dependence.
       const auto &ArgAlignAA = A.getAAFor<AAAlign>(
           *this, IRPosition::argument(*Arg), /* TrackDependence */ false);
-      takeKnownMaximum(ArgAlignAA.getKnownAlign());
+      getState().takeKnownMaximum(ArgAlignAA.getKnownAlign());
     }
     return Changed;
   }
@@ -3748,7 +3736,7 @@ struct AANoReturnImpl : public AANoReturn {
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
-    return getAssumed() ? "noreturn" : "may-return";
+    return getState().getAssumed() ? "noreturn" : "may-return";
   }
 
   /// See AbstractAttribute::updateImpl(Attributor &A).
@@ -3822,7 +3810,7 @@ struct AANoCaptureImpl : public AANoCapture {
 
     // Check what state the associated function can actually capture.
     if (F)
-      determineFunctionCaptureCapabilities(getIRPosition(), *F, *this);
+      determineFunctionCaptureCapabilities(getIRPosition(), *F, getState());
     else
       indicatePessimisticFixpoint();
   }
@@ -3850,7 +3838,7 @@ struct AANoCaptureImpl : public AANoCapture {
   /// state in memory and through "returning/throwing", respectively.
   static void determineFunctionCaptureCapabilities(const IRPosition &IRP,
                                                    const Function &F,
-                                                   BitIntegerState &State) {
+                                                   AANoCapture::StateType &State) {
     // TODO: Once we have memory behavior attributes we should use them here.
 
     // If we know we cannot communicate or write to memory, we do not care about
@@ -4069,7 +4057,7 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
   if (FnMemAA.isAssumedReadOnly()) {
     T.addKnownBits(NOT_CAPTURED_IN_MEM);
     if (FnMemAA.isKnownReadOnly())
-      addKnownBits(NOT_CAPTURED_IN_MEM);
+      getState().addKnownBits(NOT_CAPTURED_IN_MEM);
     else
       A.recordDependence(FnMemAA, *this, DepClassTy::OPTIONAL);
   }
@@ -4106,9 +4094,9 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
       if (T.isKnown(NOT_CAPTURED_IN_MEM))
         return ChangeStatus::UNCHANGED;
       if (NoUnwindAA.isKnownNoUnwind() &&
-          (IsVoidTy || RVAA->getState().isAtFixpoint())) {
-        addKnownBits(NOT_CAPTURED_IN_RET);
-        if (isKnown(NOT_CAPTURED_IN_MEM))
+          (IsVoidTy || RVAA->isAtFixpoint())) {
+        getState().addKnownBits(NOT_CAPTURED_IN_RET);
+        if (getState().isKnown(NOT_CAPTURED_IN_MEM))
           return indicateOptimisticFixpoint();
       }
     }
@@ -4237,7 +4225,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
-    return getAssumed() ? (getKnown() ? "simplified" : "maybe-simple")
+    return getState().getAssumed() ? (getState().getKnown() ? "simplified" : "maybe-simple")
                         : "not-simple";
   }
 
@@ -4246,7 +4234,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
 
   /// See AAValueSimplify::getAssumedSimplifiedValue()
   Optional<Value *> getAssumedSimplifiedValue(Attributor &A) const override {
-    if (!getAssumed())
+    if (!getState().getAssumed())
       return const_cast<Value *>(&getAssociatedValue());
     return SimplifiedAssociatedValue;
   }
@@ -5423,14 +5411,14 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    intersectAssumedBits(BEST_STATE);
+    getState().intersectAssumedBits(BEST_STATE);
     getKnownStateFromValue(A, getIRPosition(), getState());
     IRAttribute::initialize(A);
   }
 
   /// Return the memory behavior information encoded in the IR for \p IRP.
   static void getKnownStateFromValue(Attributor &A, const IRPosition &IRP,
-                                     BitIntegerState &State,
+                                     AAMemoryBehavior::StateType &State,
                                      bool IgnoreSubsumingPositions = false) {
     SmallVector<Attribute, 2> Attrs;
     IRP.getAttrs(A, AttrKinds, Attrs, IgnoreSubsumingPositions);
@@ -5559,7 +5547,7 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    intersectAssumedBits(BEST_STATE);
+    getState().intersectAssumedBits(BEST_STATE);
     const IRPosition &IRP = getIRPosition();
     // TODO: Make IgnoreSubsumingPositions a property of an IRAttribute so we
     // can query it when we use has/getAttr. That would allow us to reuse the
@@ -5588,8 +5576,8 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
     // TODO: From readattrs.ll: "inalloca parameters are always
     //                           considered written"
     if (hasAttr(A, {Attribute::InAlloca})) {
-      removeKnownBits(NO_WRITES);
-      removeAssumedBits(NO_WRITES);
+      getState().removeKnownBits(NO_WRITES);
+      getState().removeAssumedBits(NO_WRITES);
     }
     return AAMemoryBehaviorFloating::manifest(A);
   }
@@ -5614,9 +5602,9 @@ struct AAMemoryBehaviorCallSiteArgument final : AAMemoryBehaviorArgument {
     AAMemoryBehaviorArgument::initialize(A);
     if (Argument *Arg = getAssociatedArgument()) {
       if (Arg->hasByValAttr()) {
-        addKnownBits(NO_WRITES);
-        removeKnownBits(NO_READS);
-        removeAssumedBits(NO_READS);
+        getState().addKnownBits(NO_WRITES);
+        getState().removeKnownBits(NO_READS);
+        getState().removeAssumedBits(NO_READS);
       }
     }
   }
@@ -5709,8 +5697,8 @@ struct AAMemoryBehaviorCallSite final : AAMemoryBehaviorImpl {
     // TODO: Filter dead ones (move to updateImpl)
     for (const Argument &Arg : F->args())
       if (Arg.hasByValAttr()) {
-        removeKnownBits(NO_READS);
-        removeAssumedBits(NO_READS);
+        getState().removeKnownBits(NO_READS);
+        getState().removeAssumedBits(NO_READS);
       }
   }
 
@@ -5742,7 +5730,7 @@ struct AAMemoryBehaviorCallSite final : AAMemoryBehaviorImpl {
 ChangeStatus AAMemoryBehaviorFunction::updateImpl(Attributor &A) {
 
   // The current assumed state used to determine a change.
-  auto AssumedState = getAssumed();
+  auto AssumedState = getState().getAssumed();
 
   auto CheckAccess = [&](const Instruction *I, const Value *V,
                          AAMemoryLocation::AccessKind AK,
@@ -5753,15 +5741,15 @@ ChangeStatus AAMemoryBehaviorFunction::updateImpl(Attributor &A) {
     if (const auto *CB = dyn_cast_or_null<CallBase>(I)) {
       const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
           *this, IRPosition::callsite_function(*CB));
-      intersectAssumedBits(MemBehaviorAA.getAssumed());
+      getState().intersectAssumedBits(MemBehaviorAA.getState().getAssumed());
       return !isAtFixpoint();
     }
 
     // Remove access kind modifiers if necessary.
     if (AK & AAMemoryLocation::READ)
-      removeAssumedBits(NO_READS);
+      getState().removeAssumedBits(NO_READS);
     if (AK & AAMemoryLocation::WRITE)
-      removeAssumedBits(NO_WRITES);
+      getState().removeAssumedBits(NO_WRITES);
     return !isAtFixpoint();
   };
 
@@ -5772,7 +5760,7 @@ ChangeStatus AAMemoryBehaviorFunction::updateImpl(Attributor &A) {
           AAMemoryLocation::NO_LOCAL_MEM | AAMemoryLocation::NO_CONST_MEM))
     return indicatePessimisticFixpoint();
 
-  return (AssumedState != getAssumed()) ? ChangeStatus::CHANGED
+  return (AssumedState != getState().getAssumed()) ? ChangeStatus::CHANGED
                                         : ChangeStatus::UNCHANGED;
 }
 
@@ -5786,14 +5774,13 @@ ChangeStatus AAMemoryBehaviorFloating::updateImpl(Attributor &A) {
   // work if the assumed information implies the current assumed information for
   // this attribute. This is a valid for all but byval arguments.
   Argument *Arg = IRP.getAssociatedArgument();
-  AAMemoryBehavior::base_t FnMemAssumedState =
-      AAMemoryBehavior::StateType::getWorstState();
+  auto FnMemAssumedState = StateType::getWorstState();
   if (!Arg || !Arg->hasByValAttr()) {
     const auto &FnMemAA = A.getAAFor<AAMemoryBehavior>(
         *this, FnPos, /* TrackDependence */ true, DepClassTy::OPTIONAL);
-    FnMemAssumedState = FnMemAA.getAssumed();
-    S.addKnownBits(FnMemAA.getKnown());
-    if ((S.getAssumed() & FnMemAA.getAssumed()) == S.getAssumed())
+    FnMemAssumedState = FnMemAA.getState().getAssumed();
+    S.addKnownBits(FnMemAA.getState().getKnown());
+    if ((S.getAssumed() & FnMemAA.getState().getAssumed()) == S.getAssumed())
       return ChangeStatus::UNCHANGED;
   }
 
@@ -5841,7 +5828,7 @@ ChangeStatus AAMemoryBehaviorFloating::updateImpl(Attributor &A) {
       analyzeUseIn(A, U, UserI);
   }
 
-  return (AssumedState != getAssumed()) ? ChangeStatus::CHANGED
+  return (AssumedState != getState().getAssumed()) ? ChangeStatus::CHANGED
                                         : ChangeStatus::UNCHANGED;
 }
 
@@ -5883,7 +5870,7 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
     break;
   case Instruction::Load:
     // Loads cause the NO_READS property to disappear.
-    removeAssumedBits(NO_READS);
+    getState().removeAssumedBits(NO_READS);
     return;
 
   case Instruction::Store:
@@ -5891,7 +5878,7 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
     // pointer operand. Note that we do assume that capturing was taken care of
     // somewhere else.
     if (cast<StoreInst>(UserI)->getPointerOperand() == U->get())
-      removeAssumedBits(NO_WRITES);
+      getState().removeAssumedBits(NO_WRITES);
     return;
 
   case Instruction::Call:
@@ -5910,7 +5897,7 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
     // Calling a function does read the function pointer, maybe write it if the
     // function is self-modifying.
     if (CB->isCallee(U)) {
-      removeAssumedBits(NO_READS);
+      getState().removeAssumedBits(NO_READS);
       break;
     }
 
@@ -5926,7 +5913,7 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
         /* TrackDependence */ true, DepClassTy::OPTIONAL);
     // "assumed" has at most the same bits as the MemBehaviorAA assumed
     // and at least "known".
-    intersectAssumedBits(MemBehaviorAA.getAssumed());
+    getState().intersectAssumedBits(MemBehaviorAA.getState().getAssumed());
     return;
   }
   };
@@ -5934,9 +5921,9 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
   // Generally, look at the "may-properties" and adjust the assumed state if we
   // did not trigger special handling before.
   if (UserI->mayReadFromMemory())
-    removeAssumedBits(NO_READS);
+    getState().removeAssumedBits(NO_READS);
   if (UserI->mayWriteToMemory())
-    removeAssumedBits(NO_WRITES);
+    getState().removeAssumedBits(NO_WRITES);
 }
 
 } // namespace
@@ -5992,14 +5979,14 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    intersectAssumedBits(BEST_STATE);
+    getState().intersectAssumedBits(BEST_STATE);
     getKnownStateFromValue(A, getIRPosition(), getState());
     IRAttribute::initialize(A);
   }
 
   /// Return the memory behavior information encoded in the IR for \p IRP.
   static void getKnownStateFromValue(Attributor &A, const IRPosition &IRP,
-                                     BitIntegerState &State,
+                                     AAMemoryLocation::StateType &State,
                                      bool IgnoreSubsumingPositions = false) {
     SmallVector<Attribute, 2> Attrs;
     IRP.getAttrs(A, AttrKinds, Attrs, IgnoreSubsumingPositions);
@@ -6098,7 +6085,7 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
     // TODO: Add pointers for argmemonly and globals to improve the results of
     //       checkForAllAccessesToMemoryKind.
     bool Changed = false;
-    MemoryLocationsKind KnownMLK = getKnown();
+    MemoryLocationsKind KnownMLK = getState().getKnown();
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
     for (MemoryLocationsKind CurMLK = 1; CurMLK < NO_LOCATIONS; CurMLK *= 2)
       if (!(CurMLK & KnownMLK))
@@ -6385,21 +6372,21 @@ struct AAMemoryLocationFunction final : public AAMemoryLocationImpl {
   virtual ChangeStatus updateImpl(Attributor &A) override {
 
     // The current assumed state used to determine a change.
-    auto AssumedState = getAssumed();
+    auto AssumedState = getState().getAssumed();
     bool Changed = false;
 
     auto CheckRWInst = [&](Instruction &I) {
       MemoryLocationsKind MLK = categorizeAccessedLocations(A, I, Changed);
       LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Accessed locations for " << I
                         << ": " << getMemoryLocationsAsStr(MLK) << "\n");
-      removeAssumedBits(inverseLocation(MLK, false, false));
+      getState().removeAssumedBits(inverseLocation(MLK, false, false));
       return true;
     };
 
     if (!A.checkForAllReadWriteInstructions(CheckRWInst, *this))
       return indicatePessimisticFixpoint();
 
-    Changed |= AssumedState != getAssumed();
+    Changed |= AssumedState != getState().getAssumed();
     return Changed ? ChangeStatus::CHANGED : ChangeStatus::UNCHANGED;
   }
 
@@ -6439,8 +6426,8 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
       bool Changed = false;
       MemoryLocationsKind MLK = categorizePtrValue(
           A, CB, *CB.getArgOperand(Arg.getArgNo()), getState(), Changed, READ);
-      removeKnownBits(MLK);
-      removeAssumedBits(MLK);
+      getState().removeKnownBits(MLK);
+      getState().removeAssumedBits(MLK);
     }
   }
 
@@ -6483,10 +6470,10 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
   const std::string getAsStr() const override {
     std::string Str;
     llvm::raw_string_ostream OS(Str);
-    OS << "range(" << getBitWidth() << ")<";
-    getKnown().print(OS);
+    OS << "range(" << getState().getBitWidth() << ")<";
+    getState().getKnown().print(OS);
     OS << " / ";
-    getAssumed().print(OS);
+    getState().getAssumed().print(OS);
     OS << ">";
     return OS.str();
   }
@@ -6519,7 +6506,7 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
   ConstantRange getConstantRangeFromSCEV(Attributor &A,
                                          const Instruction *I = nullptr) const {
     if (!getAnchorScope())
-      return getWorstState(getBitWidth());
+      return StateType::getWorstState(getState().getBitWidth());
 
     ScalarEvolution *SE =
         A.getInfoCache().getAnalysisResultForFunction<ScalarEvolutionAnalysis>(
@@ -6527,7 +6514,7 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
 
     const SCEV *S = getSCEV(A, I);
     if (!SE || !S)
-      return getWorstState(getBitWidth());
+      return StateType::getWorstState(getState().getBitWidth());
 
     return SE->getUnsignedRange(S);
   }
@@ -6538,14 +6525,14 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
   getConstantRangeFromLVI(Attributor &A,
                           const Instruction *CtxI = nullptr) const {
     if (!getAnchorScope())
-      return getWorstState(getBitWidth());
+      return StateType::getWorstState(getState().getBitWidth());
 
     LazyValueInfo *LVI =
         A.getInfoCache().getAnalysisResultForFunction<LazyValueAnalysis>(
             *getAnchorScope());
 
     if (!LVI || !CtxI)
-      return getWorstState(getBitWidth());
+      return StateType::getWorstState(getState().getBitWidth());
     return LVI->getConstantRange(&getAssociatedValue(),
                                  const_cast<BasicBlock *>(CtxI->getParent()),
                                  const_cast<Instruction *>(CtxI));
@@ -6556,11 +6543,11 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
   getKnownConstantRange(Attributor &A,
                         const Instruction *CtxI = nullptr) const override {
     if (!CtxI || CtxI == getCtxI())
-      return getKnown();
+      return getState().getKnown();
 
     ConstantRange LVIR = getConstantRangeFromLVI(A, CtxI);
     ConstantRange SCEVR = getConstantRangeFromSCEV(A, CtxI);
-    return getKnown().intersectWith(SCEVR).intersectWith(LVIR);
+    return getState().getKnown().intersectWith(SCEVR).intersectWith(LVIR);
   }
 
   /// See AAValueConstantRange::getAssumedConstantRange(..).
@@ -6573,20 +6560,20 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
     //       evolve to x^2 + x, then we can say that y is in [2, 12].
 
     if (!CtxI || CtxI == getCtxI())
-      return getAssumed();
+      return getState().getAssumed();
 
     ConstantRange LVIR = getConstantRangeFromLVI(A, CtxI);
     ConstantRange SCEVR = getConstantRangeFromSCEV(A, CtxI);
-    return getAssumed().intersectWith(SCEVR).intersectWith(LVIR);
+    return getState().getAssumed().intersectWith(SCEVR).intersectWith(LVIR);
   }
 
   /// See AbstractAttribute::initialize(..).
   void initialize(Attributor &A) override {
     // Intersect a range given by SCEV.
-    intersectKnown(getConstantRangeFromSCEV(A, getCtxI()));
+    getState().intersectKnown(getConstantRangeFromSCEV(A, getCtxI()));
 
     // Intersect a range given by LVI.
-    intersectKnown(getConstantRangeFromLVI(A, getCtxI()));
+    getState().intersectKnown(getConstantRangeFromLVI(A, getCtxI()));
   }
 
   /// Helper function to create MDNode for range metadata.
@@ -6711,14 +6698,14 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
     Value &V = getAssociatedValue();
 
     if (auto *C = dyn_cast<ConstantInt>(&V)) {
-      unionAssumed(ConstantRange(C->getValue()));
+      getState().unionAssumed(ConstantRange(C->getValue()));
       indicateOptimisticFixpoint();
       return;
     }
 
     if (isa<UndefValue>(&V)) {
       // Collapse the undef state to 0.
-      unionAssumed(ConstantRange(APInt(getBitWidth(), 0)));
+      getState().unionAssumed(ConstantRange(APInt(getState().getBitWidth(), 0)));
       indicateOptimisticFixpoint();
       return;
     }
@@ -6728,7 +6715,7 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
     // If it is a load instruction with range metadata, use it.
     if (LoadInst *LI = dyn_cast<LoadInst>(&V))
       if (auto *RangeMD = LI->getMetadata(LLVMContext::MD_range)) {
-        intersectKnown(getConstantRangeFromMetadata(*RangeMD));
+        getState().intersectKnown(getConstantRangeFromMetadata(*RangeMD));
         return;
       }
 
@@ -6787,7 +6774,7 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
         A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(OpV));
     QuerriedAAs.push_back(&OpAA);
     T.unionAssumed(
-        OpAA.getAssumed().castOp(CastI->getOpcode(), getState().getBitWidth()));
+        OpAA.getState().getAssumed().castOp(CastI->getOpcode(), getState().getBitWidth()));
     return T.isValidState();
   }
 
@@ -6896,7 +6883,7 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
       return T.isValidState();
     };
 
-    IntegerRangeState T(getBitWidth());
+    IntegerRangeState T(getState().getBitWidth());
 
     if (!genericValueTraversal<AAValueConstantRange, IntegerRangeState>(
             A, getIRPosition(), *this, T, VisitValueCB, getCtxI()))
@@ -6945,7 +6932,7 @@ struct AAValueConstantRangeCallSiteReturned
     // If it is a load instruction with range metadata, use the metadata.
     if (CallInst *CI = dyn_cast<CallInst>(&getAssociatedValue()))
       if (auto *RangeMD = CI->getMetadata(LLVMContext::MD_range))
-        intersectKnown(getConstantRangeFromMetadata(*RangeMD));
+        getState().intersectKnown(getConstantRangeFromMetadata(*RangeMD));
 
     AAValueConstantRangeImpl::initialize(A);
   }
