@@ -1228,6 +1228,19 @@ private:
 
     AA.initialize(*this);
 
+    // TODO: Not all attributes require an exact definition. Find a way to
+    //       enable deduction for some but not all attributes in case the
+    //       definition might be changed at runtime, see also
+    //       http://lists.llvm.org/pipermail/llvm-dev/2018-February/121275.html.
+    // TODO: We could always determine abstract attributes and if sufficient
+    //       information was found we could duplicate the functions that do not
+    //       have an exact definition.
+    bool IsFnInterface = IRP.isFnInterfaceKind();
+    if (IsFnInterface && (!FnScope || !isFunctionIPOAmendable(*FnScope))) {
+      AA.getState().indicatePessimisticFixpoint();
+      return AA;
+    }
+
     // We can initialize (=look at) code outside the current function set but
     // not call update because that would again spawn new abstract attributes in
     // potentially unconnected code regions (=SCCs).
@@ -1818,18 +1831,6 @@ struct IRAttribute : public BaseType {
       this->indicateOptimisticFixpoint();
       return;
     }
-
-    bool IsFnInterface = IRP.isFnInterfaceKind();
-    const Function *FnScope = IRP.getAnchorScope();
-    // TODO: Not all attributes require an exact definition. Find a way to
-    //       enable deduction for some but not all attributes in case the
-    //       definition might be changed at runtime, see also
-    //       http://lists.llvm.org/pipermail/llvm-dev/2018-February/121275.html.
-    // TODO: We could always determine abstract attributes and if sufficient
-    //       information was found we could duplicate the functions that do not
-    //       have an exact definition.
-    if (IsFnInterface && (!FnScope || !A.isFunctionIPOAmendable(*FnScope)))
-      this->indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -2053,7 +2054,8 @@ Pass *createAttributorCGSCCLegacyPass();
 
 /// An abstract attribute for the returned values of a function.
 struct AAReturnedValues
-    : public IRAttribute<Attribute::Returned, AbstractAttribute> {
+    : public IRAttribute<Attribute::Returned,
+                         StateWrapper<BooleanState, AbstractAttribute>> {
   AAReturnedValues(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return an assumed unique return value if a single candidate is found. If

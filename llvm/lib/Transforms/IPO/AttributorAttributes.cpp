@@ -754,9 +754,6 @@ public:
         return;
       }
     }
-
-    if (!A.isFunctionIPOAmendable(*F))
-      indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -2072,7 +2069,8 @@ struct AAWillReturnImpl : public AAWillReturn {
     AAWillReturn::initialize(A);
 
     Function *F = getAnchorScope();
-    if (!F || !A.isFunctionIPOAmendable(*F) || mayContainUnboundedCycle(*F, A))
+    assert(F);
+    if (mayContainUnboundedCycle(*F, A))
       indicatePessimisticFixpoint();
   }
 
@@ -2669,12 +2667,6 @@ struct AAIsDeadArgument : public AAIsDeadFloating {
   AAIsDeadArgument(const IRPosition &IRP, Attributor &A)
       : AAIsDeadFloating(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    if (!A.isFunctionIPOAmendable(*getAnchorScope()))
-      indicatePessimisticFixpoint();
-  }
-
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = AAIsDeadFloating::manifest(A);
@@ -3214,14 +3206,6 @@ struct AADereferenceableImpl : AADereferenceable {
     getState().setNonNullAA(A.getAAFor<AANonNull>(*this, getIRPosition(),
                                                   /* TrackDependence */ false));
 
-    const IRPosition &IRP = this->getIRPosition();
-    bool IsFnInterface = IRP.isFnInterfaceKind();
-    Function *FnScope = IRP.getAnchorScope();
-    if (IsFnInterface && (!FnScope || !A.isFunctionIPOAmendable(*FnScope))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
-
     if (Instruction *CtxI = getCtxI())
       followUsesInMBEC(*this, A, getState(), *CtxI);
   }
@@ -3517,13 +3501,6 @@ struct AAAlignImpl : AAAlign {
     for (const Attribute &Attr : Attrs)
       getState().takeKnownMaximum(Attr.getValueAsInt());
 
-    if (getIRPosition().isFnInterfaceKind() &&
-        (!getAnchorScope() ||
-         !A.isFunctionIPOAmendable(*getAssociatedFunction()))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
-
     if (Instruction *CtxI = getCtxI())
       followUsesInMBEC(*this, A, getState(), *CtxI);
   }
@@ -3791,12 +3768,6 @@ struct AANoCaptureImpl : public AANoCapture {
       indicateOptimisticFixpoint();
       return;
     }
-    Function *AnchorScope = getAnchorScope();
-    if (isFnInterfaceKind() &&
-        (!AnchorScope || !A.isFunctionIPOAmendable(*AnchorScope))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
 
     // You cannot "capture" null in the default address space.
     if (isa<ConstantPointerNull>(getAssociatedValue()) &&
@@ -3805,7 +3776,8 @@ struct AANoCaptureImpl : public AANoCapture {
       return;
     }
 
-    const Function *F = getArgNo() >= 0 ? getAssociatedFunction() : AnchorScope;
+    const Function *F =
+        getArgNo() >= 0 ? getAssociatedFunction() : getAnchorScope();
 
     // Check what state the associated function can actually capture.
     if (F)
@@ -5558,13 +5530,8 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
 
     // Initialize the use vector with all direct uses of the associated value.
     Argument *Arg = getAssociatedArgument();
-    if (!Arg || !A.isFunctionIPOAmendable(*(Arg->getParent()))) {
-      indicatePessimisticFixpoint();
-    } else {
-      // Initialize the use vector with all direct uses of the associated value.
-      for (const Use &U : Arg->uses())
-        Uses.insert(&U);
-    }
+    for (const Use &U : Arg->uses())
+      Uses.insert(&U);
   }
 
   ChangeStatus manifest(Attributor &A) override {
@@ -5686,19 +5653,15 @@ struct AAMemoryBehaviorCallSite final : AAMemoryBehaviorImpl {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     AAMemoryBehaviorImpl::initialize(A);
-    Function *F = getAssociatedFunction();
-    if (!F || !A.isFunctionIPOAmendable(*F)) {
-      indicatePessimisticFixpoint();
-      return;
+    if (Function *F = getAssociatedFunction()) {
+      // Byval arguments are read "at the call site".
+      // TODO: Filter dead ones (move to updateImpl)
+      for (const Argument &Arg : F->args())
+        if (Arg.hasByValAttr()) {
+          getState().removeKnownBits(NO_READS);
+          getState().removeAssumedBits(NO_READS);
+        }
     }
-
-    // Byval arguments are read "at the call site".
-    // TODO: Filter dead ones (move to updateImpl)
-    for (const Argument &Arg : F->args())
-      if (Arg.hasByValAttr()) {
-        getState().removeKnownBits(NO_READS);
-        getState().removeAssumedBits(NO_READS);
-      }
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -6410,23 +6373,21 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     AAMemoryLocationImpl::initialize(A);
-    Function *F = getAssociatedFunction();
-    if (!F || !A.isFunctionIPOAmendable(*F)) {
-      indicatePessimisticFixpoint();
-      return;
-    }
+    if (Function *F = getAssociatedFunction()) {
 
-    CallBase &CB = cast<CallBase>(*getCtxI());
-    // Byval arguments are read "at the call site".
-    // TODO: Filter dead ones (move to updateImpl)
-    for (const Argument &Arg : F->args()) {
-      if (!Arg.hasByValAttr())
-        continue;
-      bool Changed = false;
-      MemoryLocationsKind MLK = categorizePtrValue(
-          A, CB, *CB.getArgOperand(Arg.getArgNo()), getState(), Changed, READ);
-      getState().removeKnownBits(MLK);
-      getState().removeAssumedBits(MLK);
+      CallBase &CB = cast<CallBase>(*getCtxI());
+      // Byval arguments are read "at the call site".
+      // TODO: Filter dead ones (move to updateImpl)
+      for (const Argument &Arg : F->args()) {
+        if (!Arg.hasByValAttr())
+          continue;
+        bool Changed = false;
+        MemoryLocationsKind MLK =
+            categorizePtrValue(A, CB, *CB.getArgOperand(Arg.getArgNo()),
+                               getState(), Changed, READ);
+        getState().removeKnownBits(MLK);
+        getState().removeAssumedBits(MLK);
+      }
     }
   }
 
