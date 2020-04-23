@@ -1377,53 +1377,41 @@ struct IntegerStateBase {
   base_t getAssumed() const { return Assumed; }
 
   /// Equality for IntegerStateBase.
-  bool
-  operator==(const IntegerStateBase<base_t, BestState, WorstState> &R) const {
+  bool operator==(const IntegerStateBase &R) const {
     return this->getAssumed() == R.getAssumed() &&
            this->getKnown() == R.getKnown();
   }
 
   /// Inequality for IntegerStateBase.
-  bool
-  operator!=(const IntegerStateBase<base_t, BestState, WorstState> &R) const {
-    return !(*this == R);
-  }
+  bool operator!=(const IntegerStateBase &R) const { return !(*this == R); }
 
   /// "Clamp" this state with \p R. The result is subtype dependent but it is
   /// intended that only information assumed in both states will be assumed in
   /// this one afterwards.
-  void operator^=(const IntegerStateBase<base_t, BestState, WorstState> &R) {
-    handleNewAssumedValue(R.getAssumed());
+  void operator^=(const IntegerStateBase &R) {
+    DerivedTy::handleNewAssumedValue(static_cast<DerivedTy &>(*this),
+                                     R.getAssumed());
   }
 
   /// "Clamp" this state with \p R. The result is subtype dependent but it is
   /// intended that information known in either state will be known in
   /// this one afterwards.
-  void operator+=(const IntegerStateBase<base_t, BestState, WorstState> &R) {
-    handleNewKnownValue(R.getKnown());
+  void operator+=(const IntegerStateBase &R) {
+    DerivedTy::handleNewKnownValue(static_cast<DerivedTy &>(*this),
+                                   R.getKnown());
   }
 
-  void operator|=(const IntegerStateBase<base_t, BestState, WorstState> &R) {
-    joinOR(R.getAssumed(), R.getKnown());
+  void operator|=(const IntegerStateBase &R) {
+    DerivedTy::joinOR(static_cast<DerivedTy &>(*this), R.getAssumed(),
+                      R.getKnown());
   }
 
-  void operator&=(const IntegerStateBase<base_t, BestState, WorstState> &R) {
-    joinAND(R.getAssumed(), R.getKnown());
+  void operator&=(const IntegerStateBase &R) {
+    DerivedTy::joinAND(static_cast<DerivedTy &>(*this), R.getAssumed(),
+                       R.getKnown());
   }
 
 protected:
-  /// Handle a new assumed value \p Value. Subtype dependent.
-  virtual void handleNewAssumedValue(base_t Value) = 0;
-
-  /// Handle a new known value \p Value. Subtype dependent.
-  virtual void handleNewKnownValue(base_t Value) = 0;
-
-  /// Handle a  value \p Value. Subtype dependent.
-  virtual void joinOR(base_t AssumedValue, base_t KnownValue) = 0;
-
-  /// Handle a new assumed value \p Value. Subtype dependent.
-  virtual void joinAND(base_t AssumedValue, base_t KnownValue) = 0;
-
   /// The known state encoding in an integer of type base_t.
   base_t Known = getWorstState();
 
@@ -1435,7 +1423,8 @@ protected:
 template <typename base_ty = uint32_t, base_ty BestState = ~base_ty(0),
           base_ty WorstState = 0>
 struct BitIntegerState
-    : public IntegerStateBase<base_ty, BestState, WorstState> {
+    : public IntegerStateBase<base_ty, BestState, WorstState,
+                              BitIntegerState<base_ty, BestState, WorstState>> {
   using base_t = base_ty;
 
   /// Return true if the bits set in \p BitsEncoding are "known bits".
@@ -1474,18 +1463,21 @@ struct BitIntegerState
     return *this;
   }
 
-private:
-  void handleNewAssumedValue(base_t Value) override {
-    intersectAssumedBits(Value);
+  static void handleNewAssumedValue(BitIntegerState &Obj, base_t Value) {
+    Obj.intersectAssumedBits(Value);
   }
-  void handleNewKnownValue(base_t Value) override { addKnownBits(Value); }
-  void joinOR(base_t AssumedValue, base_t KnownValue) override {
-    this->Known |= KnownValue;
-    this->Assumed |= AssumedValue;
+  static void handleNewKnownValue(BitIntegerState &Obj, base_t Value) {
+    Obj.addKnownBits(Value);
   }
-  void joinAND(base_t AssumedValue, base_t KnownValue) override {
-    this->Known &= KnownValue;
-    this->Assumed &= AssumedValue;
+  static void joinOR(BitIntegerState &Obj, base_t AssumedValue,
+                     base_t KnownValue) {
+    Obj.Known |= KnownValue;
+    Obj.Assumed |= AssumedValue;
+  }
+  static void joinAND(BitIntegerState &Obj, base_t AssumedValue,
+                      base_t KnownValue) {
+    Obj.Known &= KnownValue;
+    Obj.Assumed &= AssumedValue;
   }
 };
 
@@ -1494,8 +1486,11 @@ private:
 template <typename base_ty = uint32_t, base_ty BestState = ~base_ty(0),
           base_ty WorstState = 0>
 struct IncIntegerState
-    : public IntegerStateBase<base_ty, BestState, WorstState> {
-  using super = IntegerStateBase<base_ty, BestState, WorstState>;
+    : public IntegerStateBase<base_ty, BestState, WorstState,
+                              IncIntegerState<base_ty, BestState, WorstState>> {
+  using super =
+      IntegerStateBase<base_ty, BestState, WorstState,
+                       IncIntegerState<base_ty, BestState, WorstState>>;
   using base_t = base_ty;
 
   IncIntegerState() : super() {}
@@ -1523,25 +1518,29 @@ struct IncIntegerState
     return *this;
   }
 
-private:
-  void handleNewAssumedValue(base_t Value) override {
-    takeAssumedMinimum(Value);
+  static void handleNewAssumedValue(IncIntegerState &Obj, base_t Value) {
+    Obj.takeAssumedMinimum(Value);
   }
-  void handleNewKnownValue(base_t Value) override { takeKnownMaximum(Value); }
-  void joinOR(base_t AssumedValue, base_t KnownValue) override {
-    this->Known = std::max(this->Known, KnownValue);
-    this->Assumed = std::max(this->Assumed, AssumedValue);
+  static void handleNewKnownValue(IncIntegerState &Obj, base_t Value) {
+    Obj.takeKnownMaximum(Value);
   }
-  void joinAND(base_t AssumedValue, base_t KnownValue) override {
-    this->Known = std::min(this->Known, KnownValue);
-    this->Assumed = std::min(this->Assumed, AssumedValue);
+  static void joinOR(IncIntegerState &Obj, base_t AssumedValue,
+                     base_t KnownValue) {
+    Obj.Known = std::max(Obj.Known, KnownValue);
+    Obj.Assumed = std::max(Obj.Assumed, AssumedValue);
+  }
+  static void joinAND(IncIntegerState &Obj, base_t AssumedValue,
+                      base_t KnownValue) {
+    Obj.Known = std::min(Obj.Known, KnownValue);
+    Obj.Assumed = std::min(Obj.Assumed, AssumedValue);
   }
 };
 
 /// Specialization of the integer state for a decreasing value, hence 0 is the
 /// best state and ~0u the worst.
 template <typename base_ty = uint32_t>
-struct DecIntegerState : public IntegerStateBase<base_ty, 0, ~base_ty(0)> {
+struct DecIntegerState : public IntegerStateBase<base_ty, 0, ~base_ty(0),
+                                                 DecIntegerState<base_ty>> {
   using base_t = base_ty;
 
   /// Take maximum of assumed and \p Value.
@@ -1559,24 +1558,27 @@ struct DecIntegerState : public IntegerStateBase<base_ty, 0, ~base_ty(0)> {
     return *this;
   }
 
-private:
-  void handleNewAssumedValue(base_t Value) override {
-    takeAssumedMaximum(Value);
+  static void handleNewAssumedValue(DecIntegerState &Obj, base_t Value) {
+    Obj.takeAssumedMaximum(Value);
   }
-  void handleNewKnownValue(base_t Value) override { takeKnownMinimum(Value); }
-  void joinOR(base_t AssumedValue, base_t KnownValue) override {
-    this->Assumed = std::min(this->Assumed, KnownValue);
-    this->Assumed = std::min(this->Assumed, AssumedValue);
+  static void handleNewKnownValue(DecIntegerState &Obj, base_t Value) {
+    Obj.takeKnownMinimum(Value);
   }
-  void joinAND(base_t AssumedValue, base_t KnownValue) override {
-    this->Assumed = std::max(this->Assumed, KnownValue);
-    this->Assumed = std::max(this->Assumed, AssumedValue);
+  static void joinOR(DecIntegerState &Obj, base_t AssumedValue,
+                     base_t KnownValue) {
+    Obj.Assumed = std::min(Obj.Assumed, KnownValue);
+    Obj.Assumed = std::min(Obj.Assumed, AssumedValue);
+  }
+  static void joinAND(DecIntegerState &Obj, base_t AssumedValue,
+                      base_t KnownValue) {
+    Obj.Assumed = std::max(Obj.Assumed, KnownValue);
+    Obj.Assumed = std::max(Obj.Assumed, AssumedValue);
   }
 };
 
 /// Simple wrapper for a single bit (boolean) state.
-struct BooleanState : public IntegerStateBase<bool, 1, 0> {
-  using super = IntegerStateBase<bool, 1, 0>;
+struct BooleanState : public IntegerStateBase<bool, 1, 0, BooleanState> {
+  using super = IntegerStateBase<bool, 1, 0, BooleanState>;
   using base_t = IntegerStateBase::base_t;
 
   BooleanState() : super() {}
@@ -1597,22 +1599,23 @@ struct BooleanState : public IntegerStateBase<bool, 1, 0> {
   /// Return true if the state is known to hold.
   bool isKnown() const { return getKnown(); }
 
-private:
-  void handleNewAssumedValue(base_t Value) override {
+  static void handleNewAssumedValue(BooleanState &Obj, base_t Value) {
     if (!Value)
-      Assumed = Known;
+      Obj.Assumed = Obj.Known;
   }
-  void handleNewKnownValue(base_t Value) override {
+  static void handleNewKnownValue(BooleanState &Obj, base_t Value) {
     if (Value)
-      Known = (Assumed = Value);
+      Obj.Known = (Obj.Assumed = Value);
   }
-  void joinOR(base_t AssumedValue, base_t KnownValue) override {
-    Known |= KnownValue;
-    Assumed |= AssumedValue;
+  static void joinOR(BooleanState &Obj, base_t AssumedValue,
+                     base_t KnownValue) {
+    Obj.Known |= KnownValue;
+    Obj.Assumed |= AssumedValue;
   }
-  void joinAND(base_t AssumedValue, base_t KnownValue) override {
-    Known &= KnownValue;
-    Assumed &= AssumedValue;
+  static void joinAND(BooleanState &Obj, base_t AssumedValue,
+                      base_t KnownValue) {
+    Obj.Known &= KnownValue;
+    Obj.Assumed &= AssumedValue;
   }
 };
 
