@@ -358,6 +358,20 @@ ChangeStatus clampStateAndIndicateChange(StateType &S, const StateType &R) {
                                    : ChangeStatus::CHANGED;
 }
 
+template <typename T> struct ChangedCheck {
+  ChangedCheck(const T &Before) : Before(Before) {}
+  ChangeStatus hasChanged(const T &After) {
+    return Before == After ? ChangeStatus::UNCHANGED : ChangeStatus::CHANGED;
+  };
+
+private:
+  T Before;
+};
+template <typename T>
+static ChangedCheck<T> initChangedCheck(const T &Before) {
+  return ChangedCheck<T>(Before);
+}
+
 /// Clamp the information known for all returned values of a function
 /// (identified by \p QueryingAA) into \p S.
 template <typename AAType, typename StateType = typename AAType::StateType>
@@ -4439,7 +4453,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
         return indicatePessimisticFixpoint();
     }
 
-    bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
+    auto CC = initChangedCheck(SimplifiedAssociatedValue);
 
     auto PredForCallSite = [&](AbstractCallSite ACS) {
       const IRPosition &ACSArgPos =
@@ -4469,9 +4483,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
         return indicatePessimisticFixpoint();
 
     // If a candicate was found in this update, return CHANGED.
-    return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-               ? ChangeStatus::UNCHANGED
-               : ChangeStatus ::CHANGED;
+    return CC.hasChanged(SimplifiedAssociatedValue);
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -4486,7 +4498,7 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
+    auto CC = initChangedCheck(SimplifiedAssociatedValue);
 
     auto PredForReturned = [&](Value &V) {
       return checkAndUpdate(A, *this, V, SimplifiedAssociatedValue);
@@ -4497,9 +4509,7 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
         return indicatePessimisticFixpoint();
 
     // If a candicate was found in this update, return CHANGED.
-    return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-               ? ChangeStatus::UNCHANGED
-               : ChangeStatus ::CHANGED;
+    return CC.hasChanged(SimplifiedAssociatedValue);
   }
 
   ChangeStatus manifest(Attributor &A) override {
@@ -4560,7 +4570,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
+    auto CC = initChangedCheck(SimplifiedAssociatedValue);
 
     auto VisitValueCB = [&](Value &V, const Instruction *CtxI, bool &,
                             bool Stripped) -> bool {
@@ -4582,10 +4592,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
         return indicatePessimisticFixpoint();
 
     // If a candicate was found in this update, return CHANGED.
-
-    return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-               ? ChangeStatus::UNCHANGED
-               : ChangeStatus ::CHANGED;
+    return CC.hasChanged(SimplifiedAssociatedValue);
   }
 
   /// See AbstractAttribute::trackStatistics()
