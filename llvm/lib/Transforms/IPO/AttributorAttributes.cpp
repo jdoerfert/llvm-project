@@ -114,6 +114,7 @@ PIPE_OPERATOR(AAMemoryBehavior)
 PIPE_OPERATOR(AAMemoryLocation)
 PIPE_OPERATOR(AAValueConstantRange)
 PIPE_OPERATOR(AAPrivatizablePtr)
+PIPE_OPERATOR(AAUndefinedBehavior)
 
 #undef PIPE_OPERATOR
 } // namespace llvm
@@ -367,8 +368,7 @@ template <typename T> struct ChangedCheck {
 private:
   T Before;
 };
-template <typename T>
-static ChangedCheck<T> initChangedCheck(const T &Before) {
+template <typename T> static ChangedCheck<T> initChangedCheck(const T &Before) {
   return ChangedCheck<T>(Before);
 }
 
@@ -4630,9 +4630,12 @@ struct AAValueSimplifyCallSite : AAValueSimplifyFunction {
   }
 };
 
-struct AAValueSimplifyCallSiteReturned : AAValueSimplifyReturned {
+struct AAValueSimplifyCallSiteReturned
+    : AACallSiteReturnedFromReturned<AAValueSimplify, AAValueSimplifyImpl> {
+  using Base =
+      AACallSiteReturnedFromReturned<AAValueSimplify, AAValueSimplifyImpl>;
   AAValueSimplifyCallSiteReturned(const IRPosition &IRP, Attributor &A)
-      : AAValueSimplifyReturned(IRP, A) {}
+      : Base(IRP, A) {}
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
@@ -7007,9 +7010,13 @@ const char AAValueConstantRange::ID = 0;
   case IRPosition::PK:                                                         \
     llvm_unreachable("Cannot create " #CLASS " for a " POS_NAME " position!");
 
-#define SWITCH_PK_CREATE(CLASS, IRP, PK, SUFFIX)                               \
+#define SWITCH_PK_CREATE(CLASS, IRP, PK, SUFFIX, ALLOCATOR, TMP)               \
   case IRPosition::PK:                                                         \
-    AA = new (A.Allocator) CLASS##SUFFIX(IRP, A);                              \
+    AA = new (ALLOCATOR) CLASS##SUFFIX(IRP, A);                                \
+    if (TMP)                                                                   \
+      A.TmpAAs.push_back(AA);                                                  \
+    else                                                                       \
+      A.PermAAs.push_back(AA);                                                  \
     ++NumAAs;                                                                  \
     break;
 
@@ -7023,8 +7030,9 @@ const char AAValueConstantRange::ID = 0;
       SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE_RETURNED, "call site returned")       \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE_ARGUMENT, "call site argument")       \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function, A.Allocator, false) \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite, A.Allocator,       \
+                       false)                                                  \
     }                                                                          \
     return *AA;                                                                \
   }
@@ -7036,11 +7044,17 @@ const char AAValueConstantRange::ID = 0;
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
       SWITCH_PK_INV(CLASS, IRP_FUNCTION, "function")                           \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE, "call site")                         \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating)                        \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_RETURNED, Returned)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned)   \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument)   \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating,                        \
+                       !isa<Instruction>(IRP.getAssociatedValue())                 \
+                           ? A.Allocator                                       \
+                           : A.TmpAllocator,                                   \
+                       isa<Instruction>(IRP.getAssociatedValue()))               \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument, A.Allocator, false) \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_RETURNED, Returned, A.Allocator, false) \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned,   \
+                       A.Allocator, false)                                     \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument,   \
+                       A.Allocator, false)                                     \
     }                                                                          \
     return *AA;                                                                \
   }
@@ -7050,13 +7064,18 @@ const char AAValueConstantRange::ID = 0;
     CLASS *AA = nullptr;                                                       \
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating)                        \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_RETURNED, Returned)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned)   \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument)   \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function, A.Allocator, false)        \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite, A.Allocator, false)       \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating,                        \
+                       !isa<Instruction>(IRP.getAssociatedValue())                 \
+                           ? A.Allocator                                       \
+                           : A.TmpAllocator, isa<Instruction>(IRP.getAssociatedValue()))                                   \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument, A.Allocator, false)        \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_RETURNED, Returned, A.Allocator, false)        \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned,   \
+                       A.Allocator, false)                                            \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument,   \
+                       A.Allocator, false)                                            \
     }                                                                          \
     return *AA;                                                                \
   }
@@ -7072,7 +7091,7 @@ const char AAValueConstantRange::ID = 0;
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE_RETURNED, "call site returned")       \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE_ARGUMENT, "call site argument")       \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE, "call site")                         \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function, A.Allocator, false)        \
     }                                                                          \
     return *AA;                                                                \
   }
@@ -7083,12 +7102,19 @@ const char AAValueConstantRange::ID = 0;
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
       SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating)                        \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned)   \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument)   \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function, A.Allocator, false) \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite, A.Allocator,       \
+                       false)                                                  \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating,                        \
+                       !isa<Instruction>(IRP.getAssociatedValue())                 \
+                           ? A.Allocator                                       \
+                           : A.TmpAllocator,                                   \
+                       isa<Instruction>(IRP.getAssociatedValue()))               \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument, A.Allocator, false) \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned,   \
+                       A.Allocator, false)                                     \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument,   \
+                       A.Allocator, false)                                     \
     }                                                                          \
     return *AA;                                                                \
   }
