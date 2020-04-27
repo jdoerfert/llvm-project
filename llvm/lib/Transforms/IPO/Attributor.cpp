@@ -490,7 +490,7 @@ Attributor::getAssumedConstant(const Value &V, const AbstractAttribute &AA,
 Attributor::~Attributor() {
   // The abstract attributes are allocated via the BumpPtrAllocator Allocator,
   // thus we cannot delete them. We can, and want to, destruct them though.
-  for (AbstractAttribute *AA : AllAbstractAttributes)
+  for (AbstractAttribute *AA : PermAAs)
     AA->~AbstractAttribute();
 
   // The QueryMapValueTy objects are allocated via a BumpPtrAllocator, we call
@@ -503,6 +503,7 @@ bool Attributor::isAssumedDead(const AbstractAttribute &AA,
                                const AAIsDead *FnLivenessAA,
                                bool CheckBBLivenessOnly, DepClassTy DepClass) {
   const IRPosition &IRP = AA.getIRPosition();
+  //errs() << "IRP: " << IRP << "\n";
   if (!Functions.count(IRP.getAnchorScope()))
     return false;
   return isAssumedDead(IRP, &AA, FnLivenessAA, CheckBBLivenessOnly, DepClass);
@@ -580,7 +581,12 @@ bool Attributor::isAssumedDead(const IRPosition &IRP,
                                const AbstractAttribute *QueryingAA,
                                const AAIsDead *FnLivenessAA,
                                bool CheckBBLivenessOnly, DepClassTy DepClass) {
+  //errs() << IRP << "\n";
   Instruction *CtxI = IRP.getCtxI();
+  //errs() << CtxI << "\n";
+  //if (CtxI)
+  //errs() <<* CtxI << "\n";
+
   if (CtxI &&
       isAssumedDead(*CtxI, QueryingAA, FnLivenessAA,
                     /* CheckBBLivenessOnly */ true,
@@ -899,9 +905,9 @@ bool Attributor::checkForAllReadWriteInstructions(
   return true;
 }
 
-ChangeStatus Attributor::run() {
+void Attributor::run() {
   LLVM_DEBUG(dbgs() << "[Attributor] Identified and initialized "
-                    << AllAbstractAttributes.size()
+                    << PermAAs.size() + TmpAAs.size()
                     << " abstract attributes.\n");
 
   // Now that all abstract attributes are collected and initialized we start
@@ -911,11 +917,13 @@ ChangeStatus Attributor::run() {
 
   SmallVector<AbstractAttribute *, 32> ChangedAAs;
   SetVector<AbstractAttribute *> Worklist, InvalidAAs;
-  Worklist.insert(AllAbstractAttributes.begin(), AllAbstractAttributes.end());
+  Worklist.insert(PermAAs.begin(), PermAAs.end());
+  Worklist.insert(TmpAAs.begin(), TmpAAs.end());
 
   do {
     // Remember the size to determine new attributes.
-    size_t NumAAs = AllAbstractAttributes.size();
+    size_t NumPermAAs = PermAAs.size();
+    size_t NumTmpAAs = TmpAAs.size();
     LLVM_DEBUG(dbgs() << "\n\n[Attributor] #Iteration: " << IterationCounter
                       << ", Worklist size: " << Worklist.size() << "\n");
 
@@ -935,6 +943,7 @@ ChangeStatus Attributor::run() {
                         << QuerriedAAs->OptionalAAs.size()
                         << " required/optional dependences\n");
       for (AbstractAttribute *DepOnInvalidAA : QuerriedAAs->RequiredAAs) {
+        errs() << DepOnInvalidAA << "\n";
         AbstractState &DOIAAState = DepOnInvalidAA->getState();
         DOIAAState.indicatePessimisticFixpoint();
         ++NumAttributesFixedDueToRequiredDependences;
@@ -987,8 +996,8 @@ ChangeStatus Attributor::run() {
 
     // Add attributes to the changed set if they have been created in the last
     // iteration.
-    ChangedAAs.append(AllAbstractAttributes.begin() + NumAAs,
-                      AllAbstractAttributes.end());
+    ChangedAAs.append(PermAAs.begin() + NumPermAAs, PermAAs.end());
+    ChangedAAs.append(TmpAAs.begin() + NumTmpAAs, TmpAAs.end());
 
     // Reset the work list and repopulate with the changed abstract attributes.
     // Note that dependent ones are added above.
@@ -1001,8 +1010,6 @@ ChangeStatus Attributor::run() {
   LLVM_DEBUG(dbgs() << "\n[Attributor] Fixpoint iteration done after: "
                     << IterationCounter << "/" << MaxFixpointIterations
                     << " iterations\n");
-
-  size_t NumFinalAAs = AllAbstractAttributes.size();
 
   // Reset abstract arguments not settled in a sound fixpoint by now. This
   // happens when we stopped the fixpoint iteration early. Note that only the
@@ -1038,18 +1045,45 @@ ChangeStatus Attributor::run() {
              << " abstract attributes.\n";
   });
 
-  unsigned NumManifested = 0;
-  unsigned NumAtFixpoint = 0;
-  ChangeStatus ManifestChange = ChangeStatus::UNCHANGED;
-  for (AbstractAttribute *AA : AllAbstractAttributes) {
-    AbstractState &State = AA->getState();
-
     // If there is not already a fixpoint reached, we can now take the
     // optimistic state. This is correct because we enforced a pessimistic one
     // on abstract attributes that were transitively dependent on a changed one
     // already above.
+  for (AbstractAttribute *AA : TmpAAs) {
+    AbstractState &State = AA->getState();
     if (!State.isAtFixpoint())
       State.indicateOptimisticFixpoint();
+  }
+  for (AbstractAttribute *AA : PermAAs) {
+    AbstractState &State = AA->getState();
+    if (!State.isAtFixpoint())
+      State.indicateOptimisticFixpoint();
+  }
+
+  //errs() << "TMpAAs{\n";
+  //errs()  << TmpAAs.size() << " tmp\n";
+
+  manifest(PermAAs);
+  manifest(TmpAAs);
+  for (auto *AA : TmpAAs) {
+    //errs() << "Delete: " << AA << "\n";
+    //AA->dump();
+    //Kind2AAMapTy *&Kind2AA = AAMap[AA->getIRPosition()];
+    //Kind2AA->clear();
+    AA->~AbstractAttribute();
+  }
+  //errs() << "} TMpAAs\n";
+  TmpAAs.clear();
+  TmpAllocator.Reset();
+}
+
+ChangeStatus Attributor::manifest(AAVector &AAs) {
+  unsigned NumManifested = 0;
+  unsigned NumAtFixpoint = 0;
+  ChangeStatus ManifestChange = ChangeStatus::UNCHANGED;
+
+  for (AbstractAttribute *AA : AAs) {
+    AbstractState &State = AA->getState();
 
     // If the state is invalid, we do not try to manifest it.
     if (!State.isValidState())
@@ -1079,18 +1113,10 @@ ChangeStatus Attributor::run() {
 
   NumAttributesManifested += NumManifested;
   NumAttributesValidFixpoint += NumAtFixpoint;
+  return ManifestChange;
+}
 
-  (void)NumFinalAAs;
-  if (NumFinalAAs != AllAbstractAttributes.size()) {
-    for (unsigned u = NumFinalAAs; u < AllAbstractAttributes.size(); ++u)
-      errs() << "Unexpected abstract attribute: " << *AllAbstractAttributes[u]
-             << " :: "
-             << AllAbstractAttributes[u]->getIRPosition().getAssociatedValue()
-             << "\n";
-    llvm_unreachable("Expected the final number of abstract attributes to "
-                     "remain unchanged!");
-  }
-
+ChangeStatus Attributor::manifest() {
   // Delete stuff at the end to avoid invalid references and a nice order.
   {
     LLVM_DEBUG(dbgs() << "\n[Attributor] Delete at least "
@@ -1233,8 +1259,7 @@ ChangeStatus Attributor::run() {
   }
 
   // Rewrite the functions as requested during manifest.
-  ManifestChange =
-      ManifestChange | rewriteFunctionSignatures(CGModifiedFunctions);
+  ChangeStatus ManifestChange = rewriteFunctionSignatures(CGModifiedFunctions);
 
   for (Function *Fn : CGModifiedFunctions)
     CGUpdater.reanalyzeFunction(*Fn);
@@ -1244,14 +1269,14 @@ ChangeStatus Attributor::run() {
 
   NumFnDeleted += ToBeDeletedFunctions.size();
 
-  if (VerifyMaxFixpointIterations &&
-      IterationCounter != MaxFixpointIterations) {
-    errs() << "\n[Attributor] Fixpoint iteration done after: "
-           << IterationCounter << "/" << MaxFixpointIterations
-           << " iterations\n";
-    llvm_unreachable("The fixpoint was not reached with exactly the number of "
-                     "specified iterations!");
-  }
+  //if (VerifyMaxFixpointIterations &&
+      //IterationCounter != MaxFixpointIterations) {
+    //errs() << "\n[Attributor] Fixpoint iteration done after: "
+           //<< IterationCounter << "/" << MaxFixpointIterations
+           //<< " iterations\n";
+    //llvm_unreachable("The fixpoint was not reached with exactly the number of "
+                     //"specified iterations!");
+  //}
 
 #ifdef EXPENSIVE_CHECKS
   for (Function *F : Functions) {
@@ -1867,6 +1892,8 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     if (!Callee)
       return true;
 
+    //InfoCache.getFunctionInfo(*Callee);
+
     // Skip declarations except if annotations on their call sites were
     // explicitly requested.
     if (!AnnotateDeclarationCallSites && Callee->isDeclaration() &&
@@ -1943,6 +1970,15 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       {(unsigned)Instruction::Load, (unsigned)Instruction::Store});
   (void)Success;
   assert(Success && "Expected the check call to be successful!");
+
+  //bool AllCallSitesKnown = false;
+  //checkForAllCallSites(
+      //[&](AbstractCallSite ACS) {
+        //InfoCache.getFunctionInfo(*ACS.getInstruction()->getCaller());
+        //return true;
+      //},
+      //F, [> RequireAllCallSites */ false, /* QueryingAA <] nullptr,
+      //AllCallSitesKnown);
 }
 
 /// Helpers to ease debugging through output streams and print calls.
@@ -2035,6 +2071,7 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
     else
       NumFnWithoutExactDefinition++;
 
+    errs() << "Run on: " << F->getName() << "\n";
     // We look at internal functions only on-demand but if any use is not a
     // direct call or outside the current set of analyzed functions, we have to
     // do it eagerly.
@@ -2050,11 +2087,14 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
     // Populate the Attributor with abstract attribute opportunities in the
     // function and the information cache with IR information.
     A.identifyDefaultAbstractAttributes(*F);
+    A.run();
   }
 
-  ChangeStatus Changed = A.run();
+  ChangeStatus Changed = A.manifest();
   LLVM_DEBUG(dbgs() << "[Attributor] Done with " << Functions.size()
                     << " functions, result: " << Changed << ".\n");
+  //errs()  << A.TmpAAs.size() << " tmp\n";
+  //errs()  << A.PermAAs.size() << " perm\n";
   return Changed == ChangeStatus::CHANGED;
 }
 

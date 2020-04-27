@@ -267,8 +267,10 @@ static bool genericValueTraversal(
     Item I = Worklist.pop_back_val();
     Value *V = I.first;
     CtxI = I.second;
+    errs() << "V: " << *V  <<"\n";
     if (StripCB)
       V = StripCB(V);
+    errs() << "V: " << *V  <<"\n";
 
     // Check if we should process the current value. To prevent endless
     // recursion keep a record of the values we followed!
@@ -4261,26 +4263,33 @@ struct AAValueSimplifyImpl : AAValueSimplify {
 
     auto &ValueSimplifyAA = A.getAAFor<AAValueSimplify>(
         QueryingAA, IRPosition::value(QueryingValue));
+    errs() << "checkAndUpdate : " << ValueSimplifyAA << "\n";
 
     Optional<Value *> QueryingValueSimplified =
         ValueSimplifyAA.getAssumedSimplifiedValue(A);
+    errs() << "1\n";
 
     if (!QueryingValueSimplified.hasValue())
       return true;
+    errs() << "1\n";
 
     if (!QueryingValueSimplified.getValue())
       return false;
+    errs() << "1\n";
 
     Value &QueryingValueSimplifiedUnwrapped =
         *QueryingValueSimplified.getValue();
+    errs() << "1\n";
 
     if (AccumulatedSimplifiedValue.hasValue() &&
         !isa<UndefValue>(AccumulatedSimplifiedValue.getValue()) &&
         !isa<UndefValue>(QueryingValueSimplifiedUnwrapped))
       return AccumulatedSimplifiedValue == QueryingValueSimplified;
+    errs() << "1\n";
     if (AccumulatedSimplifiedValue.hasValue() &&
         isa<UndefValue>(QueryingValueSimplifiedUnwrapped))
       return true;
+    errs() << "1\n";
 
     LLVM_DEBUG(dbgs() << "[ValueSimplify] " << QueryingValue
                       << " is assumed to be "
@@ -4291,11 +4300,14 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   }
 
   bool askSimplifiedValueForAAValueConstantRange(Attributor &A) {
+    errs() << "askSimplifiedValueForAAValueConstantRange\n";
     if (!getAssociatedValue().getType()->isIntegerTy())
       return false;
 
+    errs() << "IRP: " << getIRPosition() << "\n";
     const auto &ValueConstantRangeAA =
         A.getAAFor<AAValueConstantRange>(*this, getIRPosition());
+    errs() << ValueConstantRangeAA << "\n";
 
     Optional<ConstantInt *> COpt =
         ValueConstantRangeAA.getAssumedConstantInt(A);
@@ -4488,6 +4500,11 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
     return Changed | AAValueSimplify::manifest(A);
   }
 
+  /// See AbstractState::indicatePessimisticFixpoint(...).
+  ChangeStatus indicatePessimisticFixpoint() override {
+    return AAValueSimplify::indicatePessimisticFixpoint();
+  }
+
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
     STATS_DECLTRACK_FNRET_ATTR(value_simplify)
@@ -4516,7 +4533,13 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
     auto VisitValueCB = [&](Value &V, const Instruction *CtxI, bool &,
                             bool Stripped) -> bool {
+      errs() << "Visit: " << V << " in " << CtxI <<" : " << Stripped << "\n";
+      if (CtxI)
+      errs() << "Visit: " << V << " in " << *CtxI <<"\n";
       auto &AA = A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V));
+      this->dump();
+      AA.dump();
+      errs() << " :: " << (!Stripped && this == &AA) << "\n";
       if (!Stripped && this == &AA) {
         // TODO: Look the instruction and check recursively.
 
@@ -4524,6 +4547,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
                           << "\n");
         return false;
       }
+      errs() << "checkAndUpdate\n";
       return checkAndUpdate(A, *this, V, SimplifiedAssociatedValue);
     };
 
@@ -4575,19 +4599,36 @@ struct AAValueSimplifyCallSite : AAValueSimplifyFunction {
   }
 };
 
-struct AAValueSimplifyCallSiteReturned : AAValueSimplifyReturned {
+struct AAValueSimplifyCallSiteReturned : public AAValueSimplifyImpl {
+  using Base = AAValueSimplifyImpl;
   AAValueSimplifyCallSiteReturned(const IRPosition &IRP, Attributor &A)
-      : AAValueSimplifyReturned(IRP, A) {}
+      : Base(IRP, A) {}
 
-  /// See AbstractAttribute::manifest(...).
-  ChangeStatus manifest(Attributor &A) override {
-    return AAValueSimplifyImpl::manifest(A);
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    assert(this->getIRPosition().getPositionKind() ==
+               IRPosition::IRP_CALL_SITE_RETURNED &&
+           "Can only wrap function returned positions for call site returned "
+           "positions!");
+    auto &S = this->getState();
+
+    const Function *AssociatedFunction =
+        this->getIRPosition().getAssociatedFunction();
+    if (!AssociatedFunction)
+      return S.indicatePessimisticFixpoint();
+
+    IRPosition FnPos = IRPosition::returned(*AssociatedFunction);
+    const AAValueSimplify &AA = A.getAAFor<AAValueSimplify>(*this, FnPos);
+    SimplifiedAssociatedValue = AA.getAssumedSimplifiedValue(A);
+    return clampStateAndIndicateChange(
+        S, static_cast<const StateType &>(AA.getState()));
   }
 
   void trackStatistics() const override {
     STATS_DECLTRACK_CSRET_ATTR(value_simplify)
   }
 };
+
 struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
   AAValueSimplifyCallSiteArgument(const IRPosition &IRP, Attributor &A)
       : AAValueSimplifyFloating(IRP, A) {}
@@ -6779,6 +6820,8 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
     auto &RHSAA =
         A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(*RHS));
     QuerriedAAs.push_back(&RHSAA);
+    LLVM_DEBUG(dbgs() << "[AAValueConstantRange] " << *CmpI << " " << &LHSAA
+                      << " " << &RHSAA << "\n");
 
     auto LHSAARange = LHSAA.getAssumedConstantRange(A, CtxI);
     auto RHSAARange = RHSAA.getAssumedConstantRange(A, CtxI);
@@ -6967,9 +7010,15 @@ const char AAValueConstantRange::ID = 0;
   case IRPosition::PK:                                                         \
     llvm_unreachable("Cannot create " #CLASS " for a " POS_NAME " position!");
 
-#define SWITCH_PK_CREATE(CLASS, IRP, PK, SUFFIX)                               \
+#define SWITCH_PK_CREATE(CLASS, IRP, PK, SUFFIX, TMP)               \
   case IRPosition::PK:                                                         \
-    AA = new (A.Allocator) CLASS##SUFFIX(IRP, A);                              \
+    if (TMP) {                                                                 \
+    AA = new (A.TmpAllocator) CLASS##SUFFIX(IRP, A);                                \
+      A.TmpAAs.push_back(AA);                                                  \
+    } else {                                                                   \
+    AA = new (A.Allocator) CLASS##SUFFIX(IRP, A);                                \
+      A.PermAAs.push_back(AA);                                                 \
+    }                                                                          \
     ++NumAAs;                                                                  \
     break;
 
@@ -6983,8 +7032,8 @@ const char AAValueConstantRange::ID = 0;
       SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE_RETURNED, "call site returned")       \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE_ARGUMENT, "call site argument")       \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function, false)              \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite, false)             \
     }                                                                          \
     return *AA;                                                                \
   }
@@ -6996,11 +7045,14 @@ const char AAValueConstantRange::ID = 0;
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
       SWITCH_PK_INV(CLASS, IRP_FUNCTION, "function")                           \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE, "call site")                         \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating)                        \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_RETURNED, Returned)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned)   \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument)   \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating,                        \
+                       isa<Instruction>(IRP.getAssociatedValue()))             \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument, false)              \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_RETURNED, Returned, false)              \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned,   \
+                       false)                                                  \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument,   \
+                       false)                                                  \
     }                                                                          \
     return *AA;                                                                \
   }
@@ -7010,13 +7062,16 @@ const char AAValueConstantRange::ID = 0;
     CLASS *AA = nullptr;                                                       \
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating)                        \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_RETURNED, Returned)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned)   \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument)   \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function, false)              \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite, false)             \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating,                        \
+                       isa<Instruction>(IRP.getAssociatedValue()))             \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument, false)              \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_RETURNED, Returned, false)              \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned,   \
+                       false)                                                  \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument,   \
+                       false)                                                  \
     }                                                                          \
     return *AA;                                                                \
   }
@@ -7032,7 +7087,7 @@ const char AAValueConstantRange::ID = 0;
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE_RETURNED, "call site returned")       \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE_ARGUMENT, "call site argument")       \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE, "call site")                         \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function, false)              \
     }                                                                          \
     return *AA;                                                                \
   }
@@ -7043,12 +7098,15 @@ const char AAValueConstantRange::ID = 0;
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
       SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating)                        \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument)                     \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned)   \
-      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument)   \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function, false)              \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite, false)             \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating,                        \
+                       isa<Instruction>(IRP.getAssociatedValue()))             \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_ARGUMENT, Argument, false)              \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_RETURNED, CallSiteReturned,   \
+                       false)                                                  \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE_ARGUMENT, CallSiteArgument,   \
+                       false)                                                  \
     }                                                                          \
     return *AA;                                                                \
   }

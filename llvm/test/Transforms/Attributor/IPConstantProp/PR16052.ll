@@ -43,8 +43,8 @@ define i64 @fn2b(i32 %arg) {
 ; IS__CGSCC____-NEXT:    ret i64 [[CALL2]]
 ;
 entry:
-  %conv = sext i32 %arg to i64
-  %div = sdiv i64 8, %conv
+  %convQ = sext i32 %arg to i64
+  %div = sdiv i64 8, %convQ
   %call2 = call i64 @fn1(i64 %div)
   ret i64 %call2
 }

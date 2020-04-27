@@ -827,7 +827,10 @@ struct Attributor {
   /// as the Attributor is not destroyed (it owns the attributes now).
   ///
   /// \Returns CHANGED if the IR was changed, otherwise UNCHANGED.
-  ChangeStatus run();
+  void run();
+  using AAVector = SmallVector<AbstractAttribute *, 64>;
+  ChangeStatus manifest(AAVector &AAs);
+  ChangeStatus manifest();
 
   /// Lookup an abstract attribute of type \p AAType at position \p IRP. While
   /// no abstract attribute is found equivalent positions are checked, see
@@ -1192,6 +1195,13 @@ struct Attributor {
   /// The allocator used to allocate memory, e.g. for `AbstractAttribute`s.
   BumpPtrAllocator &Allocator;
 
+  struct FunctionAAs {
+  AAVector AAs;
+    BumpPtrAllocator FnAllocator;
+  };
+
+  DenseMap<Function, AAVector*> AAs;
+
 private:
   /// Run `::update` on \p AA and track the dependences queried while doing so.
   /// Also adjust the state if we know further updates are not necessary.
@@ -1286,6 +1296,7 @@ private:
     if (TrackDependence && AA->getState().isValidState())
       recordDependence(*AA, const_cast<AbstractAttribute &>(*QueryingAA),
                        DepClass);
+    //errs() << "lookup success: " << AA << "\n";
     return AA;
   }
 
@@ -1297,7 +1308,6 @@ private:
 
   /// The set of all abstract attributes.
   ///{
-  using AAVector = SmallVector<AbstractAttribute *, 64>;
   AAVector AllAbstractAttributes;
   ///}
 
@@ -1337,6 +1347,8 @@ private:
 
   /// The set of functions we are deriving attributes for.
   SetVector<Function *> &Functions;
+
+  unsigned FnIdx = 0;
 
   /// The information cache that holds pre-processed (LLVM-IR) information.
   InformationCache &InfoCache;
