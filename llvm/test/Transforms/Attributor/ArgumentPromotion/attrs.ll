@@ -89,7 +89,7 @@ entry:
 define i32 @test(i32* %X) {
 ;
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@test
-; IS__TUNIT_OPM-SAME: (i32* nocapture nofree readnone align 4 [[X:%.*]])
+; IS__TUNIT_OPM-SAME: (i32* nocapture nofree readonly align 4 [[X:%.*]])
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    [[S:%.*]] = alloca [[STRUCT_SS:%.*]]
 ; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 0
@@ -100,7 +100,7 @@ define i32 @test(i32* %X) {
 ; IS__TUNIT_OPM-NEXT:    ret i32 [[C]]
 ;
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@test
-; IS__TUNIT_NPM-SAME: (i32* nocapture nofree readnone align 4 [[X:%.*]])
+; IS__TUNIT_NPM-SAME: (i32* nocapture nofree readonly align 4 [[X:%.*]])
 ; IS__TUNIT_NPM-NEXT:  entry:
 ; IS__TUNIT_NPM-NEXT:    [[S:%.*]] = alloca [[STRUCT_SS:%.*]]
 ; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 0
@@ -116,14 +116,14 @@ define i32 @test(i32* %X) {
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[C]]
 ;
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@test
-; IS__CGSCC_OPM-SAME: (i32* nocapture nofree nonnull readnone align 4 dereferenceable(4) [[X:%.*]])
+; IS__CGSCC_OPM-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[X:%.*]])
 ; IS__CGSCC_OPM-NEXT:  entry:
 ; IS__CGSCC_OPM-NEXT:    [[S:%.*]] = alloca [[STRUCT_SS:%.*]]
 ; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 0
 ; IS__CGSCC_OPM-NEXT:    store i32 1, i32* [[TMP1]], align 8
 ; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 1
 ; IS__CGSCC_OPM-NEXT:    store i64 2, i64* [[TMP4]], align 4
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = call i32 @f(%struct.ss* noalias nocapture nofree nonnull readnone byval align 8 dereferenceable(12) [[S]], i32* noalias nocapture nofree nonnull readnone byval align 4 dereferenceable(4) [[X]])
+; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = call i32 @f(%struct.ss* noalias nocapture nofree nonnull readonly byval align 8 dereferenceable(12) [[S]], i32* noalias nocapture nofree nonnull readonly byval align 4 dereferenceable(4) [[X]])
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[C]]
 ;
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test

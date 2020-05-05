@@ -97,6 +97,7 @@
 #ifndef LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 #define LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 
+#include "llvm/ADT/BitmaskEnum.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SetVector.h"
@@ -2877,6 +2878,7 @@ struct AAMemoryLocation
     READ = 1 << 0,
     WRITE = 1 << 1,
     READ_WRITE = READ | WRITE,
+    LLVM_MARK_AS_BITMASK_ENUM(/* LargestValue = */ READ_WRITE)
   };
 
   /// Check \p Pred on all accesses to the memory kinds specified by \p MLK.

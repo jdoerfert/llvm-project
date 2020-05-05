@@ -142,8 +142,8 @@ define i32 @main() nounwind  {
 ; IS__CGSCC_OPM-NEXT:    store i32 1, i32* [[TMP1]], align 32
 ; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 1
 ; IS__CGSCC_OPM-NEXT:    store i64 2, i64* [[TMP4]], align 4
-; IS__CGSCC_OPM-NEXT:    [[C0:%.*]] = call i32 @f(%struct.ss* noalias nocapture nofree nonnull readnone byval align 32 dereferenceable(12) [[S]])
-; IS__CGSCC_OPM-NEXT:    [[C1:%.*]] = call i32 @g(%struct.ss* noalias nocapture nofree nonnull readnone byval align 32 dereferenceable(12) [[S]])
+; IS__CGSCC_OPM-NEXT:    [[C0:%.*]] = call i32 @f(%struct.ss* noalias nocapture nofree nonnull readonly byval align 32 dereferenceable(12) [[S]])
+; IS__CGSCC_OPM-NEXT:    [[C1:%.*]] = call i32 @g(%struct.ss* noalias nocapture nofree nonnull readonly byval align 32 dereferenceable(12) [[S]])
 ; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = add i32 [[C0]], [[C1]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[A]]
 ;

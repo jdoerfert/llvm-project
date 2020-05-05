@@ -5611,6 +5611,7 @@ struct AAMemoryBehaviorCallSiteArgument final : AAMemoryBehaviorArgument {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
+    AAMemoryBehaviorArgument::initialize(A);
     if (Argument *Arg = getAssociatedArgument()) {
       if (Arg->hasByValAttr()) {
         addKnownBits(NO_WRITES);
@@ -5618,7 +5619,6 @@ struct AAMemoryBehaviorCallSiteArgument final : AAMemoryBehaviorArgument {
         removeAssumedBits(NO_READS);
       }
     }
-    AAMemoryBehaviorArgument::initialize(A);
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -5704,6 +5704,14 @@ struct AAMemoryBehaviorCallSite final : AAMemoryBehaviorImpl {
       indicatePessimisticFixpoint();
       return;
     }
+
+    // Byval arguments are read "at the call site".
+    // TODO: Filter dead ones (move to updateImpl)
+    for (const Argument &Arg : F->args())
+      if (Arg.hasByValAttr()) {
+        removeKnownBits(NO_READS);
+        removeAssumedBits(NO_READS);
+      }
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -5828,8 +5836,13 @@ ChangeStatus AAMemoryBehaviorFloating::updateImpl(Attributor &A) {
       for (const Use &UserIUse : UserI->uses())
         Uses.insert(&UserIUse);
 
-    // If UserI might touch memory we analyze the use in detail.
+    // If UserI might touch memory we analyze the use in detail. We also do that
+    // for readnone call sites when the use is a byval argument because the call
+    // site performs a copy of the memory.
     if (UserI->mayReadOrWriteMemory())
+      analyzeUseIn(A, U, UserI);
+    else if (CallBase *CB = dyn_cast<CallBase>(UserI))
+      if (CB->isByValArgument(CB->getArgOperandNo(U)))
       analyzeUseIn(A, U, UserI);
   }
 
@@ -5869,8 +5882,6 @@ bool AAMemoryBehaviorFloating::followUsersOfUseIn(Attributor &A, const Use *U,
 
 void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
                                             const Instruction *UserI) {
-  assert(UserI->mayReadOrWriteMemory());
-
   switch (UserI->getOpcode()) {
   default:
     // TODO: Handle all atomics and other side-effect operations we know of.
@@ -6166,8 +6177,11 @@ protected:
 
   /// Determine the underlying locations kinds for \p Ptr, e.g., globals or
   /// arguments, and update the state and access map accordingly.
-  void categorizePtrValue(Attributor &A, const Instruction &I, const Value &Ptr,
-                          AAMemoryLocation::StateType &State, bool &Changed);
+  MemoryLocationsKind categorizePtrValue(Attributor &A, const Instruction &I,
+                                         const Value &Ptr,
+                                         AAMemoryLocation::StateType &State,
+                                         bool &Changed,
+                                         AccessKind AKRestriction = READ_WRITE);
 
   /// Used to allocate access sets.
   BumpPtrAllocator &Allocator;
@@ -6180,9 +6194,12 @@ const Attribute::AttrKind AAMemoryLocationImpl::AttrKinds[] = {
     Attribute::ReadNone, Attribute::InaccessibleMemOnly, Attribute::ArgMemOnly,
     Attribute::InaccessibleMemOrArgMemOnly};
 
-void AAMemoryLocationImpl::categorizePtrValue(
-    Attributor &A, const Instruction &I, const Value &Ptr,
-    AAMemoryLocation::StateType &State, bool &Changed) {
+AAMemoryLocationImpl::MemoryLocationsKind
+AAMemoryLocationImpl::categorizePtrValue(Attributor &A, const Instruction &I,
+                                         const Value &Ptr,
+                                         AAMemoryLocation::StateType &State,
+                                         bool &Changed,
+                                         AccessKind AKRestriction) {
   LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Categorize pointer locations for "
                     << Ptr << " ["
                     << getMemoryLocationsAsStr(State.getAssumed()) << "]\n");
@@ -6195,6 +6212,9 @@ void AAMemoryLocationImpl::categorizePtrValue(
     }
     return V;
   };
+
+  // All memory locations Ptr could point to.
+  MemoryLocationsKind MLKs = NO_LOCATIONS;
 
   auto VisitValueCB = [&](Value &V, const Instruction *,
                           AAMemoryLocation::StateType &T,
@@ -6228,10 +6248,11 @@ void AAMemoryLocationImpl::categorizePtrValue(
 
     assert(MLK != NO_LOCATIONS && "No location specified!");
     updateStateAndAccessesMap(T, MLK, &I, &V, Changed,
-                              getAccessKindFromInst(&I));
+                              AKRestriction & getAccessKindFromInst(&I));
     LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Ptr value cannot be categorized: "
                       << V << " -> " << getMemoryLocationsAsStr(T.getAssumed())
                       << "\n");
+    MLKs |= MLK;
     return true;
   };
 
@@ -6240,14 +6261,18 @@ void AAMemoryLocationImpl::categorizePtrValue(
           /* MaxValues */ 32, StripGEPCB)) {
     LLVM_DEBUG(
         dbgs() << "[AAMemoryLocation] Pointer locations not categorized\n");
-    updateStateAndAccessesMap(State, NO_UNKOWN_MEM, &I, nullptr, Changed,
-                              getAccessKindFromInst(&I));
+    MemoryLocationsKind MLK = NO_UNKOWN_MEM;
+    MLKs |= MLK;
+    updateStateAndAccessesMap(State, MLK, &I, nullptr, Changed,
+                              AKRestriction & getAccessKindFromInst(&I));
   } else {
     LLVM_DEBUG(
         dbgs()
         << "[AAMemoryLocation] Accessed locations with pointer locations: "
         << getMemoryLocationsAsStr(State.getAssumed()) << "\n");
   }
+
+  return MLKs;
 }
 
 AAMemoryLocation::MemoryLocationsKind
@@ -6408,6 +6433,19 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
     if (!F || !A.isFunctionIPOAmendable(*F)) {
       indicatePessimisticFixpoint();
       return;
+    }
+
+    CallBase &CB = cast<CallBase>(*getCtxI());
+    // Byval arguments are read "at the call site".
+    // TODO: Filter dead ones (move to updateImpl)
+    for (const Argument &Arg : F->args()) {
+      if (!Arg.hasByValAttr())
+        continue;
+      bool Changed = false;
+      MemoryLocationsKind MLK = categorizePtrValue(
+          A, CB, *CB.getArgOperand(Arg.getArgNo()), getState(), Changed, READ);
+      removeKnownBits(MLK);
+      removeAssumedBits(MLK);
     }
   }
 

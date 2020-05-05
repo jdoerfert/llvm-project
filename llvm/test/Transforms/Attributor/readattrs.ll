@@ -283,13 +283,13 @@ define void @testbyval(i8* %read_only) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@testbyval
 ; IS__TUNIT____-SAME: (i8* nocapture readonly [[READ_ONLY:%.*]])
 ; IS__TUNIT____-NEXT:    call void @byval_not_readonly_1(i8* nocapture readonly [[READ_ONLY]])
-; IS__TUNIT____-NEXT:    call void @byval_not_readnone_1(i8* noalias nocapture readnone [[READ_ONLY]])
+; IS__TUNIT____-NEXT:    call void @byval_not_readnone_1(i8* nocapture readonly [[READ_ONLY]])
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@testbyval
 ; IS__CGSCC____-SAME: (i8* nocapture readonly [[READ_ONLY:%.*]])
 ; IS__CGSCC____-NEXT:    call void @byval_not_readonly_1(i8* noalias nocapture readonly [[READ_ONLY]])
-; IS__CGSCC____-NEXT:    call void @byval_not_readnone_1(i8* noalias nocapture nonnull readnone dereferenceable(1) [[READ_ONLY]])
+; IS__CGSCC____-NEXT:    call void @byval_not_readnone_1(i8* noalias nocapture nonnull readonly dereferenceable(1) [[READ_ONLY]])
 ; IS__CGSCC____-NEXT:    ret void
 ;
   call void @byval_not_readonly_1(i8* %read_only)
