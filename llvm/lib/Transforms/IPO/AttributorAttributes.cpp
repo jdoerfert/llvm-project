@@ -5736,11 +5736,13 @@ ChangeStatus AAMemoryBehaviorFunction::updateImpl(Attributor &A) {
   // The current assumed state used to determine a change.
   auto AssumedState = getAssumed();
 
-  auto CheckRWInst = [&](Instruction &I) {
+  auto CheckAccess = [&](const Instruction *I, const Value *V,
+                         AAMemoryLocation::AccessKind AK,
+                         AAMemoryLocation::MemoryLocationsKind MLK) {
     // If the instruction has an own memory behavior state, use it to restrict
     // the local state. No further analysis is required as the other memory
     // state is as optimistic as it gets.
-    if (const auto *CB = dyn_cast<CallBase>(&I)) {
+    if (const auto *CB = dyn_cast_or_null<CallBase>(I)) {
       const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
           *this, IRPosition::callsite_function(*CB));
       intersectAssumedBits(MemBehaviorAA.getAssumed());
@@ -5748,14 +5750,18 @@ ChangeStatus AAMemoryBehaviorFunction::updateImpl(Attributor &A) {
     }
 
     // Remove access kind modifiers if necessary.
-    if (I.mayReadFromMemory())
+    if (AK & AAMemoryLocation::READ)
       removeAssumedBits(NO_READS);
-    if (I.mayWriteToMemory())
+    if (AK & AAMemoryLocation::WRITE)
       removeAssumedBits(NO_WRITES);
     return !isAtFixpoint();
   };
 
-  if (!A.checkForAllReadWriteInstructions(CheckRWInst, *this))
+  const auto &MemLocationAA =
+      A.getAAFor<AAMemoryLocation>(*this, this->getIRPosition());
+  if (!MemLocationAA.checkForAllAccessesToMemoryKind(
+          CheckAccess,
+          AAMemoryLocation::NO_LOCAL_MEM | AAMemoryLocation::NO_CONST_MEM))
     return indicatePessimisticFixpoint();
 
   return (AssumedState != getAssumed()) ? ChangeStatus::CHANGED
@@ -6357,17 +6363,6 @@ struct AAMemoryLocationFunction final : public AAMemoryLocationImpl {
 
   /// See AbstractAttribute::updateImpl(Attributor &A).
   virtual ChangeStatus updateImpl(Attributor &A) override {
-
-    const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
-        *this, getIRPosition(), /* TrackDependence */ false);
-    if (MemBehaviorAA.isAssumedReadNone()) {
-      if (MemBehaviorAA.isKnownReadNone())
-        return indicateOptimisticFixpoint();
-      assert(isAssumedReadNone() &&
-             "AAMemoryLocation was not read-none but AAMemoryBehavior was!");
-      A.recordDependence(MemBehaviorAA, *this, DepClassTy::OPTIONAL);
-      return ChangeStatus::UNCHANGED;
-    }
 
     // The current assumed state used to determine a change.
     auto AssumedState = getAssumed();

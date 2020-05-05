@@ -85,10 +85,11 @@ entry:
 }
 
 ; Also make sure we don't drop the call zeroext attribute.
+; FIXME: X is not readnone as it is read by the `byval` copy.
 define i32 @test(i32* %X) {
 ;
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@test
-; IS__TUNIT_OPM-SAME: (i32* nocapture nofree readonly align 4 [[X:%.*]])
+; IS__TUNIT_OPM-SAME: (i32* nocapture nofree readnone align 4 [[X:%.*]])
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    [[S:%.*]] = alloca [[STRUCT_SS:%.*]]
 ; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 0
@@ -99,7 +100,7 @@ define i32 @test(i32* %X) {
 ; IS__TUNIT_OPM-NEXT:    ret i32 [[C]]
 ;
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@test
-; IS__TUNIT_NPM-SAME: (i32* nocapture nofree readonly align 4 [[X:%.*]])
+; IS__TUNIT_NPM-SAME: (i32* nocapture nofree readnone align 4 [[X:%.*]])
 ; IS__TUNIT_NPM-NEXT:  entry:
 ; IS__TUNIT_NPM-NEXT:    [[S:%.*]] = alloca [[STRUCT_SS:%.*]]
 ; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 0

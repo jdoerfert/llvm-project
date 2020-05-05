@@ -131,7 +131,8 @@ define i32 @p() norecurse {
   ret i32 %a
 }
 
-; CHECK: Function Attrs: nofree nosync nounwind
+; NOT_CGSCC_NPM: Function Attrs: nofree nosync nounwind
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 define void @f(i32 %x)  {
 ; CHECK-LABEL: define {{[^@]+}}@f
 ; CHECK-SAME: (i32 [[X:%.*]])
@@ -142,7 +143,6 @@ define void @f(i32 %x)  {
 ; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP0]], 0
 ; CHECK-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    call void @g()
 ; CHECK-NEXT:    br label [[IF_END]]
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void
@@ -165,11 +165,51 @@ if.end:
 define void @g() norecurse {
 ; CHECK-LABEL: define {{[^@]+}}@g()
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    call void @f(i32 0)
 ; CHECK-NEXT:    ret void
 ;
 entry:
   call void @f(i32 0)
+  ret void
+}
+
+@x.addr = external global i32
+; CHECK: Function Attrs: nofree nosync nounwind
+define void @f2(i32 %x)  {
+; CHECK-LABEL: define {{[^@]+}}@f2
+; CHECK-SAME: (i32 [[X:%.*]])
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    store i32 [[X]], i32* @x.addr, align 4
+; CHECK-NEXT:    [[TMP0:%.*]] = load i32, i32* @x.addr, align 4
+; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP0]], 0
+; CHECK-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
+; CHECK:       if.then:
+; CHECK-NEXT:    call void @g2()
+; CHECK-NEXT:    br label [[IF_END]]
+; CHECK:       if.end:
+; CHECK-NEXT:    ret void
+;
+entry:
+  store i32 %x, i32* @x.addr, align 4
+  %0 = load i32, i32* @x.addr, align 4
+  %tobool = icmp ne i32 %0, 0
+  br i1 %tobool, label %if.then, label %if.end
+
+if.then:
+  call void @g2() norecurse
+  br label %if.end
+
+if.end:
+  ret void
+}
+
+define void @g2() norecurse {
+; CHECK-LABEL: define {{[^@]+}}@g2()
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    call void @f2(i32 0)
+; CHECK-NEXT:    ret void
+;
+entry:
+  call void @f2(i32 0)
   ret void
 }
 

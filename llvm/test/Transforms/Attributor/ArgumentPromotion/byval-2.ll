@@ -47,7 +47,7 @@ entry:
 define i32 @test(i32* %X) {
 ;
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test
-; IS__TUNIT____-SAME: (i32* nocapture nofree readonly align 4 [[X:%.*]])
+; IS__TUNIT____-SAME: (i32* nocapture nofree readnone align 4 [[X:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    [[S:%.*]] = alloca [[STRUCT_SS:%.*]]
 ; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 0

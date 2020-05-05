@@ -98,15 +98,15 @@ define i32 @bar(%T* %p, i32 %v) {
 }
 
 define internal i32 @test2b(%T* %p, i32 %p2) {
-; CHECK-LABEL: define {{[^@]+}}@test2b
-; CHECK-SAME: (%T* nocapture nofree readonly [[P:%.*]], i32 [[P2:%.*]])
-; CHECK-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[P]], i64 0, i32 3
-; CHECK-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* [[P]], i64 0, i32 2
-; CHECK-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]], align 4
-; CHECK-NEXT:    [[B:%.*]] = load i32, i32* [[B_GEP]], align 4
-; CHECK-NEXT:    [[V:%.*]] = add i32 [[A]], [[B]]
-; CHECK-NEXT:    [[CA:%.*]] = musttail call i32 @bar(%T* undef, i32 [[V]])
-; CHECK-NEXT:    ret i32 [[CA]]
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test2b
+; IS__CGSCC____-SAME: (%T* nocapture nofree readonly [[P:%.*]], i32 [[P2:%.*]])
+; IS__CGSCC____-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[P]], i64 0, i32 3
+; IS__CGSCC____-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* [[P]], i64 0, i32 2
+; IS__CGSCC____-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]], align 4
+; IS__CGSCC____-NEXT:    [[B:%.*]] = load i32, i32* [[B_GEP]], align 4
+; IS__CGSCC____-NEXT:    [[V:%.*]] = add i32 [[A]], [[B]]
+; IS__CGSCC____-NEXT:    [[CA:%.*]] = musttail call i32 @bar(%T* undef, i32 [[V]])
+; IS__CGSCC____-NEXT:    ret i32 [[CA]]
 ;
   %a.gep = getelementptr %T, %T* %p, i64 0, i32 3
   %b.gep = getelementptr %T, %T* %p, i64 0, i32 2
@@ -119,8 +119,7 @@ define internal i32 @test2b(%T* %p, i32 %p2) {
 
 define i32 @caller2b(%T* %g) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@caller2b
-; IS__TUNIT____-SAME: (%T* nocapture nofree readonly [[G:%.*]])
-; IS__TUNIT____-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 undef)
+; IS__TUNIT____-SAME: (%T* nocapture nofree readnone [[G:%.*]])
 ; IS__TUNIT____-NEXT:    ret i32 0
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@caller2b

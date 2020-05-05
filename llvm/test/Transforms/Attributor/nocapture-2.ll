@@ -44,7 +44,7 @@ entry:
 ; no-capture is missing on %p because it is not dereferenceable
 define i32 @is_null_control(i32* %p) #0 {
 ; CHECK-LABEL: define {{[^@]+}}@is_null_control
-; CHECK-SAME: (i32* nofree [[P:%.*]])
+; CHECK-SAME: (i32* nofree readnone [[P:%.*]])
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[RETVAL:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32* [[P]], null
