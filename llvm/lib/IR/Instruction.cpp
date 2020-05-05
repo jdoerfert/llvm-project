@@ -537,7 +537,9 @@ bool Instruction::mayReadFromMemory() const {
   case Instruction::Call:
   case Instruction::Invoke:
   case Instruction::CallBr:
-    return !cast<CallBase>(this)->doesNotReadMemory();
+    // A byval argument is read/copied at the call site.
+    return !cast<CallBase>(this)->doesNotReadMemory() ||
+           cast<CallBase>(this)->hasByValArgument();
   case Instruction::Store:
     return !cast<StoreInst>(this)->isUnordered();
   }

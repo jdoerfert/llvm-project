@@ -5836,13 +5836,8 @@ ChangeStatus AAMemoryBehaviorFloating::updateImpl(Attributor &A) {
       for (const Use &UserIUse : UserI->uses())
         Uses.insert(&UserIUse);
 
-    // If UserI might touch memory we analyze the use in detail. We also do that
-    // for readnone call sites when the use is a byval argument because the call
-    // site performs a copy of the memory.
+    // If UserI might touch memory we analyze the use in detail.
     if (UserI->mayReadOrWriteMemory())
-      analyzeUseIn(A, U, UserI);
-    else if (CallBase *CB = dyn_cast<CallBase>(UserI))
-      if (CB->isByValArgument(CB->getArgOperandNo(U)))
       analyzeUseIn(A, U, UserI);
   }
 

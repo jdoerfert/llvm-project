@@ -1687,11 +1687,6 @@ void InformationCache::initializeInformationCache(const Function &CF,
     }
     if (I.mayReadOrWriteMemory())
       FI.RWInsts.push_back(&I);
-    else if (CallBase *CB = dyn_cast<CallBase>(&I)) {
-      // A byval argument on a readnone function is still read at the call site.
-      if (CB->hasByValArgument())
-        FI.RWInsts.push_back(&I);
-    }
   }
 
   if (F.hasFnAttribute(Attribute::AlwaysInline) &&
