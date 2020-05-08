@@ -1043,10 +1043,18 @@ Currently, only the following parameter attributes are defined:
     is unable to modify the value in the caller. This attribute is only
     valid on LLVM pointer arguments. It is generally used to pass
     structs and arrays by value, but is also valid on pointers to
-    scalars. The copy is considered to belong to the caller not the
-    callee (for example, ``readonly`` functions should not write to
-    ``byval`` parameters). This is not a valid attribute for return
-    values.
+    scalars. The copy is conceptually made on the call edge. This means that
+    the pointer argument at the call site refers to the original memory and
+    the pointer argument in the callee is referring to the copy. Attributes on
+    the call site argument and function argument are associated with the
+    original and copied memory respectively. The copy is considered to be local
+    memory of the callee. That means, a callee can write a ``byval`` parameter
+    and still be ``readonly`` or ``readnone`` because the write is, similar to
+    a write to an ``alloca``, not visible from the outside. To create the copy
+    the original memory, which is the call site argument, is always read. This
+    effect is also associated with the call site, thus it cannot be `readnone`
+    or `writeonly` regardless of the callee. This is not a valid attribute for
+    return values.
 
     The byval attribute also supports an optional type argument, which must be
     the same as the pointee type of the argument.
