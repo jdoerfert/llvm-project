@@ -18,12 +18,13 @@ VERS1.0 {
     __tgt_rtl_run_target_team_region_async;
     __tgt_rtl_run_target_region;
     __tgt_rtl_run_target_region_async;
-    __tgt_rtl_initialize_async_info;
     __tgt_rtl_release_async_info;
     __tgt_rtl_wait_event;
     __tgt_rtl_record_event;
     __tgt_rtl_synchronize;
     __tgt_rtl_check_event;
+    __tgt_rtl_init_device_info;
+    __tgt_rtl_init_async_info;
   local:
     *;
 };

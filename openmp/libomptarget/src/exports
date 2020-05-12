@@ -1,4 +1,4 @@
-VERS1.0 {
+VERSION {
   global:
     __tgt_register_requires;
     __tgt_register_lib;
@@ -24,8 +24,14 @@ VERS1.0 {
     omp_target_memcpy_rect;
     omp_target_associate_ptr;
     omp_target_disassociate_ptr;
+    omp_get_interop_ptr;
+    omp_get_interop_str;
+    omp_get_interop_int;
     __kmpc_push_target_tripcount;
     __kmpc_free_async_info;
+    __kmpc_interop_init;
+    __kmpc_interop_use;
+    __kmpc_interop_destroy;
   local:
     *;
 };

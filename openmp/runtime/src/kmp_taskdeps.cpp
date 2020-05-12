@@ -541,6 +541,7 @@ kmp_int32 __kmpc_omp_task_with_deps(ident_t *loc_ref, kmp_int32 gtid,
                                     kmp_depend_info_t *dep_list,
                                     kmp_int32 ndeps_noalias,
                                     kmp_depend_info_t *noalias_dep_list) {
+  printf("OMP task with %i dependences started\n", ndeps);
 
   kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
   KA_TRACE(10, ("__kmpc_omp_task_with_deps(enter): T#%d loc=%p task=%p\n", gtid,
@@ -617,6 +618,7 @@ kmp_int32 __kmpc_omp_task_with_deps(ident_t *loc_ref, kmp_int32 gtid,
                 current_task->td_flags.final;
   kmp_task_team_t *task_team = thread->th.th_task_team;
   serial = serial && !(task_team && task_team->tt.tt_found_proxy_tasks);
+  //printf("serial %i : %i\n", serial, ndeps);
 
   if (!serial && (ndeps > 0 || ndeps_noalias > 0)) {
     /* if no dependencies have been tracked yet, create the dependence hash */
@@ -664,7 +666,9 @@ kmp_int32 __kmpc_omp_task_with_deps(ident_t *loc_ref, kmp_int32 gtid,
                 "loc=%p task=%p, transferring to __kmp_omp_task\n",
                 gtid, loc_ref, new_taskdata));
 
+  //printf("omp task\n");
   kmp_int32 ret = __kmp_omp_task(gtid, new_task, true);
+  //printf("omp task %i\n", ret);
 #if OMPT_SUPPORT
   if (ompt_enabled.enabled) {
     current_task->ompt_task_info.frame.enter_frame = ompt_data_none;
