@@ -418,7 +418,7 @@ int DeviceTy::initAsyncInfo(__tgt_async_info **AsyncInfo) {
     return OFFLOAD_FAIL;
   }
 
-  if (RTL->initAsyncInfo(RTLDeviceID, AsyncInfo) != OFFLOAD_SUCCESS)
+  if (RTL->init_async_info(RTLDeviceID, AsyncInfo) != OFFLOAD_SUCCESS)
     return OFFLOAD_FAIL;
   (*AsyncInfo)->DeviceID = DeviceID;
 

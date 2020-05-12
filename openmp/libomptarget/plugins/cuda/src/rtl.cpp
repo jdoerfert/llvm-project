@@ -318,6 +318,7 @@ class DeviceRTLTy {
     E.Table.EntriesBegin = E.Table.EntriesEnd = nullptr;
   }
 
+public:
   CUstream getStream(const int DeviceId, __tgt_async_info *AsyncInfoPtr) const {
     assert(AsyncInfoPtr && "AsyncInfoPtr is nullptr");
 
@@ -327,7 +328,6 @@ class DeviceRTLTy {
     return reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
   }
 
-public:
   // This class should not be copied
   DeviceRTLTy(const DeviceRTLTy &) = delete;
   DeviceRTLTy(DeviceRTLTy &&) = delete;
@@ -1067,6 +1067,25 @@ public:
     *AsyncInfo = P;
     return OFFLOAD_SUCCESS;
   }
+
+  int initDeviceInfo(const int DeviceId, __tgt_device_info *DeviceInfo,
+                     const char **errStr) const {
+    assert(DeviceInfo && "DeviceInfo is nullptr");
+
+    if (!DeviceInfo->Context)
+      DeviceInfo->Context = DeviceData[DeviceId].Context;
+    if (!DeviceInfo->Device) {
+      CUdevice Dev;
+      CUresult Err = cuDeviceGet(&Dev, DeviceId);
+      if (Err == CUDA_SUCCESS) {
+        DeviceInfo->Device = reinterpret_cast<void *>(Dev);
+      } else {
+        cuGetErrorString(Err, errStr);
+        return OFFLOAD_FAIL;
+      }
+    }
+    return OFFLOAD_SUCCESS;
+  }
 };
 
 DeviceRTLTy DeviceRTL;
@@ -1295,11 +1314,20 @@ int32_t __tgt_rtl_check_event(int32_t device_id, __tgt_async_info *async_info) {
   return DeviceRTL.checkEvent(device_id, async_info);
 }
 
-int32_t __tgt_rtl_initialize_async_info(int32_t device_id, __tgt_async_info **async_info) {
+int32_t __tgt_rtl_init_async_info(int32_t device_id, __tgt_async_info **async_info) {
   assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
   assert(async_info && "async_info is nullptr");
 
   return DeviceRTL.initAsyncInfo(device_id, async_info);
+}
+
+int32_t __tgt_rtl_init_device_info(int32_t device_id,
+                                   __tgt_device_info *device_info_ptr,
+                                   const char **errStr) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(device_info_ptr && "device_info_ptr is nullptr");
+
+  return DeviceRTL.initDeviceInfo(device_id, device_info_ptr, errStr);
 }
 
 #ifdef __cplusplus

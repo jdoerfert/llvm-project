@@ -152,8 +152,8 @@ void RTLsTy::LoadRTLs() {
     *((void **)&R.record_event) =
         dlsym(dynlib_handle, "__tgt_rtl_record_event");
     *((void **)&R.check_event) = dlsym(dynlib_handle, "__tgt_rtl_check_event");
-    *((void **)&R.initAsyncInfo) =
-        dlsym(dynlib_handle, "__tgt_rtl_initialize_async_info");
+    *((void **)&R.init_async_info) = dlsym(dynlib_handle, "__tgt_rtl_init_async_info");
+    *((void **)&R.init_device_info) = dlsym(dynlib_handle, "__tgt_rtl_init_device_info");
 
     if (!R.synchronize || !R.check_event) {
       DP("Asynchronous offloading not supported\n");
@@ -169,7 +169,7 @@ void RTLsTy::LoadRTLs() {
       R.record_event = nullptr;
       R.wait_event = nullptr;
       R.check_event = nullptr;
-      R.initAsyncInfo = nullptr;
+      R.init_async_info = nullptr;
     }
 
     // No devices are supported by this RTL?

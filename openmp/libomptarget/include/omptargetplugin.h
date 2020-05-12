@@ -152,6 +152,10 @@ int32_t __tgt_rtl_synchronize(int32_t ID, __tgt_async_info *AsyncInfo);
 // yet. If OFFLOAD_FAIL, something wrong.
 int32_t __tgt_rtl_check_event(int32_t ID, __tgt_async_info *AsyncInfo);
 
+int32_t __tgt_rtl_init_async_info(int32_t ID, __tgt_async_info **AsyncInfoPtr);
+int32_t __tgt_rtl_init_device_info(int32_t ID, __tgt_device_info *DeviceInfoPtr,
+                                   const char **errStr);
+
 #ifdef __cplusplus
 }
 #endif

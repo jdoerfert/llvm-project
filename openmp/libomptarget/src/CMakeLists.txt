@@ -1,9 +1,9 @@
 ##===----------------------------------------------------------------------===##
-# 
+#
 # Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-# 
+#
 ##===----------------------------------------------------------------------===##
 #
 # Build offloading library libomptarget.so.
@@ -18,7 +18,10 @@ set(src_files
   interface.cpp
   rtl.cpp
   omptarget.cpp
+  interop.cpp
 )
+
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 
 # Build libomptarget library with libdl dependency.
 add_library(omptarget SHARED ${src_files})
