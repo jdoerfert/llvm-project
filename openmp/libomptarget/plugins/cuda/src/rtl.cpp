@@ -302,6 +302,7 @@ class DeviceRTLTy {
     E.Table.EntriesBegin = E.Table.EntriesEnd = nullptr;
   }
 
+public:
   CUstream getStream(const int DeviceId, __tgt_async_info *AsyncInfoPtr) const {
     assert(AsyncInfoPtr && "AsyncInfoPtr is nullptr");
 
@@ -311,7 +312,23 @@ class DeviceRTLTy {
     return reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
   }
 
-public:
+  void getDeviceInfo(const int DeviceId, __tgt_device_info *DeviceInfo,
+                     const char **errStr) const {
+    assert(DeviceInfo && "DeviceInfo is nullptr");
+
+    if (!DeviceInfo->Context)
+      DeviceInfo->Context = DeviceData[DeviceId].Context;
+    if (!DeviceInfo->Device) {
+      CUdevice Dev;
+      CUresult Err = cuDeviceGet(&Dev, DeviceId);
+      if (Err == CUDA_SUCCESS) {
+        DeviceInfo->Device = reinterpret_cast<void *>(Dev);
+      } else {
+        cuGetErrorString(Err, errStr);
+      }
+    }
+  }
+
   // This class should not be copied
   DeviceRTLTy(const DeviceRTLTy &) = delete;
   DeviceRTLTy(DeviceRTLTy &&) = delete;
@@ -1035,6 +1052,25 @@ int32_t __tgt_rtl_synchronize(int32_t device_id,
   assert(async_info_ptr->Queue && "async_info_ptr->Queue is nullptr");
 
   return DeviceRTL.synchronize(device_id, async_info_ptr);
+}
+
+int32_t __tgt_rtl_init_async_info(int32_t device_id,
+                              __tgt_async_info *async_info_ptr) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(async_info_ptr && "async_info_ptr is nullptr");
+  assert(!async_info_ptr->Queue && "async_info_ptr->Queue is not nullptr");
+
+  DeviceRTL.getStream(device_id, async_info_ptr);
+  return 0;
+}
+int32_t __tgt_rtl_init_device_info(int32_t device_id,
+                                   __tgt_device_info *device_info_ptr,
+                                   const char **errStr) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(device_info_ptr && "device_info_ptr is nullptr");
+
+  DeviceRTL.getDeviceInfo(device_id, device_info_ptr, errStr);
+  return 0;
 }
 
 #ifdef __cplusplus

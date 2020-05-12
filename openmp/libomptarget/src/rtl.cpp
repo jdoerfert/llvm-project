@@ -139,6 +139,8 @@ void RTLsTy::LoadRTLs() {
     *((void **)&R.run_team_region_async) =
         dlsym(dynlib_handle, "__tgt_rtl_run_target_team_region_async");
     *((void **)&R.synchronize) = dlsym(dynlib_handle, "__tgt_rtl_synchronize");
+    *((void **)&R.init_async_info) = dlsym(dynlib_handle, "__tgt_rtl_init_async_info");
+    *((void **)&R.init_device_info) = dlsym(dynlib_handle, "__tgt_rtl_init_device_info");
 
     // No devices are supported by this RTL?
     if (!(R.NumberOfDevices = R.number_of_devices())) {

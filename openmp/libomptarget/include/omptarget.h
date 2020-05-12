@@ -120,6 +120,11 @@ struct __tgt_async_info {
   void *Queue = nullptr;
 };
 
+struct __tgt_device_info {
+  void *Context = nullptr;
+  void *Device = nullptr;
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -49,6 +49,9 @@ struct RTLInfoTy {
                                             __tgt_async_info *);
   typedef int64_t(init_requires_ty)(int64_t);
   typedef int64_t(synchronize_ty)(int64_t, __tgt_async_info *);
+  typedef int64_t(init_async_info_ty)(int64_t, __tgt_async_info *);
+  typedef int64_t(init_device_into_ty)(int64_t, __tgt_device_info *,
+                                       const char **);
 
   int32_t Idx = -1;             // RTL index, index is the number of devices
                                 // of other RTLs that were registered before,
@@ -79,6 +82,8 @@ struct RTLInfoTy {
   run_team_region_async_ty *run_team_region_async = nullptr;
   init_requires_ty *init_requires = nullptr;
   synchronize_ty *synchronize = nullptr;
+  init_async_info_ty *init_async_info = nullptr;
+  init_device_into_ty *init_device_info = nullptr;
 
   // Are there images associated with this RTL.
   bool isUsed = false;
@@ -116,6 +121,8 @@ struct RTLInfoTy {
     init_requires = r.init_requires;
     isUsed = r.isUsed;
     synchronize = r.synchronize;
+    init_async_info = r.init_async_info;
+    init_device_info = r.init_device_info;
   }
 };
 
