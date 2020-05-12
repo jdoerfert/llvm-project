@@ -21,20 +21,6 @@ if(LIBOMPTARGET_NVPTX_ALTERNATE_HOST_COMPILER)
   set(CUDA_HOST_COMPILER ${ALTERNATE_CUDA_HOST_COMPILER} CACHE FILEPATH "" FORCE)
 endif()
 
-# We can't use clang as nvcc host preprocessor, so we attempt to replace it with
-# gcc.
-if(CUDA_HOST_COMPILER MATCHES clang)
-
-  find_program(LIBOMPTARGET_NVPTX_ALTERNATE_GCC_HOST_COMPILER NAMES gcc)
-
-  if(NOT LIBOMPTARGET_NVPTX_ALTERNATE_GCC_HOST_COMPILER)
-    libomptarget_say("Not building CUDA offloading device RTL: clang is not supported as NVCC host compiler.")
-    libomptarget_say("Please include gcc in your path or set LIBOMPTARGET_NVPTX_ALTERNATE_HOST_COMPILER to the full path of of valid compiler.")
-    return()
-  endif()
-  set(CUDA_HOST_COMPILER "${LIBOMPTARGET_NVPTX_ALTERNATE_GCC_HOST_COMPILER}" CACHE FILEPATH "" FORCE)
-endif()
-
 get_filename_component(devicertl_base_directory
   ${CMAKE_CURRENT_SOURCE_DIR}
   DIRECTORY)
@@ -129,6 +115,7 @@ if(LIBOMPTARGET_DEP_CUDA_FOUND)
 
     # Set flags for LLVM Bitcode compilation.
     set(bc_flags ${LIBOMPTARGET_NVPTX_SELECTED_CUDA_COMPILER_FLAGS}
+                 -D__STRICT_ANSI__
                  -I${devicertl_base_directory}
                  -I${devicertl_nvptx_directory}/src)
 

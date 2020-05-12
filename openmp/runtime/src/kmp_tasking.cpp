@@ -446,6 +446,8 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   }
 #endif
 
+  if (taskdata->td_flags.reserved == 42)
+      return TASK_NOT_PUSHED;
   return TASK_SUCCESSFULLY_PUSHED;
 }
 
@@ -1366,6 +1368,7 @@ kmp_task_t *__kmp_task_alloc(ident_t *loc_ref, kmp_int32 gtid,
   taskdata->td_flags.tiedness = flags->tiedness;
   taskdata->td_flags.final = flags->final;
   taskdata->td_flags.merged_if0 = flags->merged_if0;
+  taskdata->td_flags.reserved = flags->reserved;
   taskdata->td_flags.destructors_thunk = flags->destructors_thunk;
   taskdata->td_flags.proxy = flags->proxy;
   taskdata->td_flags.detachable = flags->detachable;
@@ -1755,6 +1758,7 @@ kmp_int32 __kmp_omp_task(kmp_int32 gtid, kmp_task_t *new_task,
       __kmp_push_task(gtid, new_task) == TASK_NOT_PUSHED) // if cannot defer
   { // Execute this task immediately
     kmp_taskdata_t *current_task = __kmp_threads[gtid]->th.th_current_task;
+    //printf("__kmpc_omp_task %p %i\n", new_task, serialize_immediate);
     if (serialize_immediate)
       new_taskdata->td_flags.task_serial = 1;
     __kmp_invoke_task(gtid, new_task, current_task);
@@ -4732,6 +4736,7 @@ int __kmpc_set_async_info(void *async_info) {
   int gtid = __kmp_get_gtid();
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_depnode_t *dep = thread->th.th_current_task->td_depnode;
+  //printf("__kmpc_set_async_info %p %i %p : %p\n", async_info, gtid, dep, &dep->dn.async_info);
   if (!dep)
     return 0;
   KMP_ATOMIC_ST_REL(&dep->dn.async_info,
@@ -4751,6 +4756,7 @@ void __kmpc_get_target_task_waiting_list(void **list, int *num) {
 
   // If the depnode is nullptr, the team must work in a serial mode
   if (!taskdata->td_depnode) {
+    printf("No depnode!\n");
     *num = 0;
     return;
   }
@@ -4763,10 +4769,14 @@ void __kmpc_get_target_task_waiting_list(void **list, int *num) {
       kmp_taskdata_t *pred_task = KMP_TASK_TO_TASKDATA(dep->dn.task);
       KMP_ASSERT(pred_task->td_flags.target);
       if (list) {
-        while (KMP_ATOMIC_LD_ACQ(&dep->dn.async_info) == 0)
-          __kmpc_omp_taskyield(nullptr, gtid, 0);
+        //printf("look for async info for %i : %p\n", n, &dep->dn.async_info);
+        while (KMP_ATOMIC_LD_ACQ(&dep->dn.async_info) == 0) {
+          //printf("a %p\n", &dep->dn.async_info);
+          //__kmpc_omp_taskyield(nullptr, gtid, 0);
+        }
         list[n] =
             reinterpret_cast<void *>(KMP_ATOMIC_LD_ACQ(&dep->dn.async_info));
+        //printf("found async info for %i : %p\n", n, list[n]);
       }
       ++n;
     }

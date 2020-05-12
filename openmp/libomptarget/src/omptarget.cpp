@@ -229,7 +229,7 @@ void __kmpc_target_task_yield();
 int __kmpc_get_target_task_npredecessors();
 }
 
-namespace {
+//namespace {
 /// Internal function to do the mapping and transfer the data to the device
 int targetDataBegin(DeviceTy &Device, int32_t arg_num, void **args_base,
                     void **args, int64_t *arg_sizes, int64_t *arg_types,
@@ -860,6 +860,7 @@ int queryAndWait(DeviceTy &Device, __tgt_async_info *AsyncInfo) {
 }
 
 int recordEvent(DeviceTy &Device, __tgt_async_info *AsyncInfo) {
+  assert(Device.RTL->record_event);
   int Ret = Device.RTL->record_event(Device.RTLDeviceID, AsyncInfo);
   if (Ret != OFFLOAD_SUCCESS)
     return OFFLOAD_FAIL;
@@ -870,6 +871,7 @@ int recordEvent(DeviceTy &Device, __tgt_async_info *AsyncInfo) {
 }
 
 int waitForDeps(DeviceTy &Device, __tgt_async_info *AsyncInfo) {
+  //printf("wait for deps %p !\n", AsyncInfo);
   // Wait until current task has no depending task because during the task
   // creation as we enqueue the task even if it has depending host tasks.
   while (__kmpc_get_target_task_npredecessors() != 0)
@@ -880,12 +882,14 @@ int waitForDeps(DeviceTy &Device, __tgt_async_info *AsyncInfo) {
   // Get the number of events that this task depends on
   __kmpc_get_target_task_waiting_list(nullptr, &Num);
 
+  //printf("*** wait for deps %i !\n", Num);
   // We have a number of depending tasks so we need to insert the event wait
   // before pushing operations of current task into the queue
   if (Num > 0) {
     // Get a list of events that this task depends on
     std::vector<void *> WaitingList(Num, nullptr);
     __kmpc_get_target_task_waiting_list(WaitingList.data(), &Num);
+    //printf("-- wait for deps %i !\n", Num);
 
     for (int I = 0; I < Num; ++I) {
       __tgt_async_info *WaitingAsyncInfo =
@@ -898,6 +902,7 @@ int waitForDeps(DeviceTy &Device, __tgt_async_info *AsyncInfo) {
 
       int Ret;
 
+      //printf("I %i, %p %p\n",I, Device.RTL , Devices[WaitingAsyncInfo->DeviceID].RTL);
       // Depend on a target task of different type. We do query and wait here.
       if (Device.RTL != Devices[WaitingAsyncInfo->DeviceID].RTL) {
         Ret =
@@ -917,7 +922,7 @@ int waitForDeps(DeviceTy &Device, __tgt_async_info *AsyncInfo) {
 
   return OFFLOAD_SUCCESS;
 }
-} // namespace
+//} // namespace
 
 int target(int64_t DeviceID, void *HostPtr, int32_t ArgNum, void **ArgsBase,
            void **Args, int64_t *ArgSizes, int64_t *ArgTypes, int32_t TeamNum,
@@ -933,6 +938,8 @@ int targetNowait(int64_t DeviceID, void *HostPtr, int32_t ArgNum,
                  int IsTeamConstruct, int32_t DepNum, void *DepList,
                  int32_t NoAliasDepNum, void *NoAliasDepList) {
   DeviceTy &Device = Devices[DeviceID];
+
+  //printf("Target nowait started ('id': %p)\n", Args);
 
   // Fall back to synchronous version if necessary interfaces are not supported
   if (!Device.RTL->AsyncSupported) {
@@ -978,6 +985,7 @@ int targetNowait(int64_t DeviceID, void *HostPtr, int32_t ArgNum,
   if (!HasDependency)
     return Device.releaseAsyncInfo(AsyncInfo);
 
+  //printf("Target nowait done ('id': %p)\n", Args);
   return OFFLOAD_SUCCESS;
 }
 

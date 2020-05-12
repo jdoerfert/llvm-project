@@ -318,6 +318,7 @@ class DeviceRTLTy {
     E.Table.EntriesBegin = E.Table.EntriesEnd = nullptr;
   }
 
+public:
   CUstream getStream(const int DeviceId, __tgt_async_info *AsyncInfoPtr) const {
     assert(AsyncInfoPtr && "AsyncInfoPtr is nullptr");
 
@@ -327,7 +328,6 @@ class DeviceRTLTy {
     return reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
   }
 
-public:
   // This class should not be copied
   DeviceRTLTy(const DeviceRTLTy &) = delete;
   DeviceRTLTy(DeviceRTLTy &&) = delete;
@@ -982,6 +982,7 @@ public:
   }
 
   int releaseAsyncInfo(int DeviceId, __tgt_async_info *AsyncInfo) const {
+    return OFFLOAD_SUCCESS;
     if (AsyncInfo->Queue) {
       StreamManager->returnStream(
           DeviceId, reinterpret_cast<CUstream>(AsyncInfo->Queue));
@@ -1006,6 +1007,7 @@ public:
     CUstream Stream = getStream(DeviceID, AsyncInfo);
     CUevent Event = reinterpret_cast<CUevent>(DepAsyncInfo->Event);
 
+    printf("Issue CUDA wait   event (=%p) on stream (=%p)\n", Event, Stream);
     CUresult Err = cuStreamWaitEvent(Stream, Event, 0);
     if (!checkResult(Err, "error returned from cuStreamWaitEvent"))
       return OFFLOAD_FAIL;
@@ -1027,6 +1029,7 @@ public:
       Event = reinterpret_cast<CUevent>(AsyncInfoPtr->Event);
     }
 
+    printf("Issue CUDA record event (=%p) on stream (=%p)\n", Event, Stream);
     Err = cuEventRecord(Event, Stream);
     if (!checkResult(Err, "error returned from cuEventRecord"))
       return OFFLOAD_FAIL;
@@ -1041,6 +1044,9 @@ public:
 
     CUevent Event = reinterpret_cast<CUevent>(AsyncInfoPtr->Event);
     Err = cuEventQuery(Event);
+    CUstream Stream = reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
+
+    printf("Issue CUDA check  event (=%p) on stream (=%p)\n", Event, Stream);
     // Event has been full-filled
     if (Err == CUDA_SUCCESS)
       return OFFLOAD_SUCCESS;
@@ -1065,6 +1071,25 @@ public:
       return OFFLOAD_FAIL;
     P->Event = Event;
     *AsyncInfo = P;
+    return OFFLOAD_SUCCESS;
+  }
+
+  int initDeviceInfo(const int DeviceId, __tgt_device_info *DeviceInfo,
+                     const char **errStr) const {
+    assert(DeviceInfo && "DeviceInfo is nullptr");
+
+    if (!DeviceInfo->Context)
+      DeviceInfo->Context = DeviceData[DeviceId].Context;
+    if (!DeviceInfo->Device) {
+      CUdevice Dev;
+      CUresult Err = cuDeviceGet(&Dev, DeviceId);
+      if (Err == CUDA_SUCCESS) {
+        DeviceInfo->Device = reinterpret_cast<void *>(Dev);
+      } else {
+        cuGetErrorString(Err, errStr);
+        return OFFLOAD_FAIL;
+      }
+    }
     return OFFLOAD_SUCCESS;
   }
 };
@@ -1295,11 +1320,20 @@ int32_t __tgt_rtl_check_event(int32_t device_id, __tgt_async_info *async_info) {
   return DeviceRTL.checkEvent(device_id, async_info);
 }
 
-int32_t __tgt_rtl_initialize_async_info(int32_t device_id, __tgt_async_info **async_info) {
+int32_t __tgt_rtl_init_async_info(int32_t device_id, __tgt_async_info **async_info) {
   assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
   assert(async_info && "async_info is nullptr");
 
   return DeviceRTL.initAsyncInfo(device_id, async_info);
+}
+
+int32_t __tgt_rtl_init_device_info(int32_t device_id,
+                                   __tgt_device_info *device_info_ptr,
+                                   const char **errStr) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(device_info_ptr && "device_info_ptr is nullptr");
+
+  return DeviceRTL.initDeviceInfo(device_id, device_info_ptr, errStr);
 }
 
 #ifdef __cplusplus
