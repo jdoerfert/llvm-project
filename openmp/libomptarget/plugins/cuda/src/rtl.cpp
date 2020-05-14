@@ -11,13 +11,24 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
+#include <condition_variable>
 #include <cstddef>
 #include <cuda.h>
 #include <list>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
+#include <unistd.h>
 #include <vector>
+
+#ifndef MAX_NUM_EVENTS
+#define MAX_NUM_EVENTS (1024 + 1)
+#endif
+#ifndef NEW_KERNEL_WAIT_TIME // microseconds
+#define NEW_KERNEL_WAIT_TIME 33
+#endif
 
 #include "omptargetplugin.h"
 
@@ -30,25 +41,28 @@ static int DebugLevel = 0;
 
 #define GETNAME2(name) #name
 #define GETNAME(name) GETNAME2(name)
-#define DP(...) \
-  do { \
-    if (DebugLevel > 0) { \
-      DEBUGP("Target " GETNAME(TARGET_NAME) " RTL", __VA_ARGS__); \
-    } \
+#define DP(...)                                                                \
+  do {                                                                         \
+    if (DebugLevel > 0) {                                                      \
+      DEBUGP("Target " GETNAME(TARGET_NAME) " RTL", __VA_ARGS__);              \
+    }                                                                          \
   } while (false)
 
 // Utility for retrieving and printing CUDA error string.
-#define CUDA_ERR_STRING(err) \
-  do { \
-    if (DebugLevel > 0) { \
-      const char *errStr; \
-      cuGetErrorString(err, &errStr); \
-      DEBUGP("Target " GETNAME(TARGET_NAME) " RTL", "CUDA error is: %s\n", errStr); \
-    } \
+#define CUDA_ERR_STRING(err)                                                   \
+  do {                                                                         \
+    if (DebugLevel > 0) {                                                      \
+      const char *errStr;                                                      \
+      cuGetErrorString(err, &errStr);                                          \
+      DEBUGP("Target " GETNAME(TARGET_NAME) " RTL", "CUDA error is: %s\n",     \
+             errStr);                                                          \
+    }                                                                          \
   } while (false)
 #else // OMPTARGET_DEBUG
-#define DP(...) {}
-#define CUDA_ERR_STRING(err) {}
+#define DP(...)                                                                \
+  {}
+#define CUDA_ERR_STRING(err)                                                   \
+  {}
 #endif // OMPTARGET_DEBUG
 
 #include "../../common/elf_common.c"
@@ -123,8 +137,12 @@ class StreamManagerTy {
   std::vector<int> NextStreamId;
   // Per-device stream pool
   std::vector<std::vector<CUstream>> StreamPool;
+  // Per-device first stream
+  std::vector<CUstream> FirstStreams;
   // Reference to per-device data
   std::vector<DeviceDataTy> &DeviceData;
+
+  std::vector<unsigned> InFlight;
 
   // If there is no CUstream left in the pool, we will resize the pool to
   // allocate more CUstream. This function should be called with device mutex,
@@ -157,7 +175,9 @@ public:
       : NumberOfDevices(NumberOfDevices), EnvNumInitialStreams(32),
         DeviceData(DeviceData) {
     StreamPool.resize(NumberOfDevices);
+    FirstStreams.resize(NumberOfDevices);
     NextStreamId.resize(NumberOfDevices);
+    InFlight.resize(NumberOfDevices);
     StreamMtx.resize(NumberOfDevices);
 
     if (const char *EnvStr = getenv("LIBOMPTARGET_NUM_INITIAL_STREAMS"))
@@ -165,6 +185,7 @@ public:
 
     // Initialize the next stream id
     std::fill(NextStreamId.begin(), NextStreamId.end(), 0);
+    std::fill(InFlight.begin(), InFlight.end(), 0);
 
     // Initialize stream mutex
     for (std::unique_ptr<std::mutex> &Ptr : StreamMtx)
@@ -200,6 +221,7 @@ public:
   CUstream getStream(const int DeviceId) {
     const std::lock_guard<std::mutex> Lock(*StreamMtx[DeviceId]);
     int &Id = NextStreamId[DeviceId];
+    InFlight[DeviceId]++;
     // No CUstream left in the pool, we need to request from CUDA RT
     if (Id == StreamPool[DeviceId].size()) {
       // By default we double the stream pool every time
@@ -222,11 +244,33 @@ public:
   // id. The left one will in the end be overwritten by another CUstream.
   // Therefore, after several execution, the order of pool might be different
   // from its initial state.
-  void returnStream(const int DeviceId, CUstream Stream) {
+  unsigned returnStream(const int DeviceId, CUstream Stream) {
     const std::lock_guard<std::mutex> Lock(*StreamMtx[DeviceId]);
     int &Id = NextStreamId[DeviceId];
     assert(Id > 0 && "Wrong stream ID");
     StreamPool[DeviceId][--Id] = Stream;
+    return --InFlight[DeviceId];
+  }
+
+  CUstream getFirstStreamLockedIfNoneInFlight(const int DeviceId) {
+    StreamMtx[DeviceId]->lock();
+    if (InFlight[DeviceId]) {
+      StreamMtx[DeviceId]->unlock();
+      return nullptr;
+    }
+    CUstream FirstStream = FirstStreams[DeviceId];
+    unsigned Id = 0;
+    while (StreamPool[DeviceId][Id] != FirstStream)
+     ++Id;
+    std::swap(StreamPool[DeviceId][Id], StreamPool[DeviceId][0]);
+    assert(StreamPool[DeviceId][0] == FirstStream);
+    assert(NextStreamId[DeviceId] == 0);
+    return FirstStream;
+  }
+  void unlock(const int DeviceId) { StreamMtx[DeviceId]->unlock(); }
+
+  bool isFistStream(const int DeviceId, const CUstream &S) {
+    return FirstStreams[DeviceId] == S;
   }
 
   bool initializeDeviceStreamPool(const int DeviceId) {
@@ -242,6 +286,8 @@ public:
     for (CUstream &S : StreamPool[DeviceId])
       if (!S)
         return false;
+
+    FirstStreams[DeviceId] = StreamPool[DeviceId][0];
 
     return true;
   }
@@ -263,6 +309,30 @@ class DeviceRTLTy {
   std::unique_ptr<StreamManagerTy> StreamManager;
   std::vector<DeviceDataTy> DeviceData;
   std::vector<CUmodule> Modules;
+
+  CUgraphExec GraphExec = nullptr;
+  unsigned EventCounter = 0;
+  CUevent Events[MAX_NUM_EVENTS];
+  unsigned getNextEventNo() {
+    assert(EventCounter < MAX_NUM_EVENTS);
+    unsigned No;
+#pragma omp atomic update
+    No = EventCounter++;
+    DP("No: %i\n", No);
+    return No;
+  }
+
+  std::mutex BarrierMutex;
+  std::condition_variable Barrier;
+
+  std::mutex SeenKeysMutex;
+  std::set<std::pair<const void *, const void *>> SeenKeys;
+
+  // Keys to identify when we loop back
+  const void *GraphCaptureK0, *GraphCaptureK1;
+
+  unsigned FirstToSync = 0;
+  CUevent StartEvent = nullptr;
 
   // Record entry point associated with device
   void addOffloadEntry(const int DeviceId, const __tgt_offload_entry entry) {
@@ -302,11 +372,105 @@ class DeviceRTLTy {
     E.Table.EntriesBegin = E.Table.EntriesEnd = nullptr;
   }
 
-  CUstream getStream(const int DeviceId, __tgt_async_info *AsyncInfoPtr) const {
+  void startCapture(CUstream Stream, const void *K0, const void *K1) {
+    cuStreamBeginCapture(Stream, CU_STREAM_CAPTURE_MODE_GLOBAL);
+#pragma omp atomic write
+    GraphCaptureK0 = K0;
+#pragma omp atomic write
+    GraphCaptureK1 = K1;
+  }
+
+  CUstream getStream(const int DeviceId, __tgt_async_info *AsyncInfoPtr,
+                     const void *K0, const void *K1) {
     assert(AsyncInfoPtr && "AsyncInfoPtr is nullptr");
 
-    if (!AsyncInfoPtr->Queue)
-      AsyncInfoPtr->Queue = StreamManager->getStream(DeviceId);
+    if (!AsyncInfoPtr->Queue) {
+      const void *CaptureK0, *CaptureK1;
+
+#pragma omp atomic read
+      CaptureK0 = GraphCaptureK0;
+#pragma omp atomic read
+      CaptureK1 = GraphCaptureK1;
+
+      // Full circle, stop the capture.
+      if (K0 == CaptureK0 && K1 == CaptureK1) {
+        CUstream FirstStream;
+        do {
+          FirstStream =
+              StreamManager->getFirstStreamLockedIfNoneInFlight(DeviceId);
+          if (FirstStream)
+            break;
+          usleep(NEW_KERNEL_WAIT_TIME);
+        } while (true);
+
+        assert(FirstStream && "Something is wrong");
+        if (!GraphExec) {
+          CUgraph Graph;
+          DP("End capture and instantiate graph\n");
+          cuStreamEndCapture(FirstStream, &Graph);
+          cuGraphInstantiate(&GraphExec, Graph, nullptr, nullptr, 0);
+
+          // The initial recording needs to be replayed.
+          DP("Launch initial replay of graph\n");
+          cuGraphLaunch(GraphExec, FirstStream);
+        }
+
+        // We came full circe, run it again.
+        DP("Launch replay of graph as we went full circle\n");
+        cuGraphLaunch(GraphExec, FirstStream);
+
+        DP("Synchronize stream to wait for graph launch to finish");
+        CUresult Err = cuStreamSynchronize(FirstStream);
+        if (Err != CUDA_SUCCESS) {
+          DP("Error when synchronizing stream. stream = " DPxMOD
+             ", async info ptr = " DPxMOD "\n",
+             DPxPTR(Stream), DPxPTR(AsyncInfoPtr));
+          CUDA_ERR_STRING(Err);
+          return nullptr;
+        }
+
+        StreamManager->unlock(DeviceId);
+
+        // We do not want to use this stream as we already used the graph to
+        // perform all the actions.
+        return nullptr;
+      }
+
+      // Verify we haven't seen this key pair yet, if so we passed the full
+      // cirlce marker or we run code that doesn't fit the model. Either way, we
+      // do not issue this request.
+      // TODO: We probably need to teach the callers to deal with a nullptr
+      // here.
+      {
+        const std::lock_guard<std::mutex> Lock(SeenKeysMutex);
+        if (!SeenKeys.insert({K0, K1}).second) {
+          AsyncInfoPtr->Queue = nullptr;
+          return nullptr;
+        }
+      }
+
+      CUstream Stream = StreamManager->getStream(DeviceId);
+      AsyncInfoPtr->Queue = Stream;
+
+      if (!CaptureK0 && !CaptureK1 &&
+          StreamManager->isFistStream(DeviceId, Stream)) {
+        startCapture(Stream, K0, K1);
+      } else {
+        // Wait for the stream capture to begin.
+        while (!CaptureK1) {
+#pragma omp atomic read
+          CaptureK1 = GraphCaptureK1;
+        }
+
+        // Check if we have a synchronization point already, if so we need to
+        // record a dependence.
+        if (FirstToSync) {
+          auto Err = cuStreamWaitEvent(Stream, Events[FirstToSync],
+                                       /* must be 0 -.- */ 0);
+          checkResult(Err, "Error waiting for sync event\n");
+        }
+      }
+    }
 
     return reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
   }
@@ -693,14 +857,16 @@ public:
   }
 
   int dataSubmit(const int DeviceId, const void *TgtPtr, const void *HstPtr,
-                 const int64_t Size, __tgt_async_info *AsyncInfoPtr) const {
+                 const int64_t Size, __tgt_async_info *AsyncInfoPtr) {
     assert(AsyncInfoPtr && "AsyncInfoPtr is nullptr");
 
     CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
 
-    CUstream Stream = getStream(DeviceId, AsyncInfoPtr);
+    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, TgtPtr, HstPtr);
+    if (!Stream)
+      return OFFLOAD_SUCCESS;
 
     Err = cuMemcpyHtoDAsync((CUdeviceptr)TgtPtr, HstPtr, Size, Stream);
     if (Err != CUDA_SUCCESS) {
@@ -715,14 +881,16 @@ public:
   }
 
   int dataRetrieve(const int DeviceId, void *HstPtr, const void *TgtPtr,
-                   const int64_t Size, __tgt_async_info *AsyncInfoPtr) const {
+                   const int64_t Size, __tgt_async_info *AsyncInfoPtr) {
     assert(AsyncInfoPtr && "AsyncInfoPtr is nullptr");
 
     CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
 
-    CUstream Stream = getStream(DeviceId, AsyncInfoPtr);
+    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, HstPtr, TgtPtr);
+    if (!Stream)
+      return OFFLOAD_SUCCESS;
 
     Err = cuMemcpyDtoHAsync(HstPtr, (CUdeviceptr)TgtPtr, Size, Stream);
     if (Err != CUDA_SUCCESS) {
@@ -753,7 +921,7 @@ public:
                           const int ArgNum, const int TeamNum,
                           const int ThreadLimit,
                           const unsigned int LoopTripCount,
-                          __tgt_async_info *AsyncInfo) const {
+                          __tgt_async_info *AsyncInfo) {
     CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
@@ -844,7 +1012,10 @@ public:
     DP("Launch kernel with %d blocks and %d threads\n", CudaBlocksPerGrid,
        CudaThreadsPerBlock);
 
-    CUstream Stream = getStream(DeviceId, AsyncInfo);
+    CUstream Stream = getStream(DeviceId, AsyncInfo, TgtEntryPtr, TgtEntryPtr);
+    if (!Stream)
+      return OFFLOAD_SUCCESS;
+
     Err = cuLaunchKernel(KernelInfo->Func, CudaBlocksPerGrid, /* gridDimY */ 1,
                          /* gridDimZ */ 1, CudaThreadsPerBlock,
                          /* blockDimY */ 1, /* blockDimZ */ 1,
@@ -858,8 +1029,15 @@ public:
     return OFFLOAD_SUCCESS;
   }
 
-  int synchronize(const int DeviceId, __tgt_async_info *AsyncInfoPtr) const {
+  int synchronize(const int DeviceId, __tgt_async_info *AsyncInfoPtr) {
     CUstream Stream = reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
+    if (!Stream)
+      return OFFLOAD_SUCCESS;
+
+#if 0
+    // Once the stream is synchronized, return it to stream pool and reset
+    // async_info. This is to make sure the synchronization only works for its
+    // own tasks.
     CUresult Err = cuStreamSynchronize(Stream);
     if (Err != CUDA_SUCCESS) {
       DP("Error when synchronizing stream. stream = " DPxMOD
@@ -868,15 +1046,84 @@ public:
       CUDA_ERR_STRING(Err);
       return OFFLOAD_FAIL;
     }
+#endif
 
-    // Once the stream is synchronized, return it to stream pool and reset
-    // async_info. This is to make sure the synchronization only works for its
-    // own tasks.
-    StreamManager->returnStream(
-        DeviceId, reinterpret_cast<CUstream>(AsyncInfoPtr->Queue));
+    unsigned EventNo = getNextEventNo();
+    CUevent &Event = Events[EventNo];
+    auto Err = cuEventCreate(&Event, CU_EVENT_DEFAULT);
+    if (!checkResult(Err, "Error creating event\n"))
+      return OFFLOAD_FAIL;
+
+    Err = cuEventRecord(Event, Stream);
+    if (!checkResult(Err, "Error event recording\n"))
+      return OFFLOAD_FAIL;
+
+    DP("Finished event (%i) recording, return stream\n", EventNo);
+    unsigned InFlight = StreamManager->returnStream(DeviceId, Stream);
     AsyncInfoPtr->Queue = nullptr;
 
+    DP("InFlight: %i\n", InFlight);
+    if (InFlight == 0 && synchronizeForCapture(DeviceId, EventNo)) {
+      Barrier.notify_all();
+    } else {
+      std::unique_lock<std::mutex> lk(BarrierMutex);
+      Barrier.wait(lk, [&] { return FirstToSync > EventNo; });
+    }
+
     return OFFLOAD_SUCCESS;
+  }
+
+  bool synchronizeForCapture(const int DeviceId, const unsigned EventNo) {
+    DP("wait for stabilization\n");
+    // Wait for stabilization.
+    usleep(NEW_KERNEL_WAIT_TIME);
+
+    CUstream FirstStream =
+        StreamManager->getFirstStreamLockedIfNoneInFlight(DeviceId);
+    if (!FirstStream) {
+      DP("Still some in flight\n");
+      return false;
+    }
+    DP("nothing in flight, sync\n");
+
+    // Synchronize all kernels back to the initial stream that started the
+    // recording using the stop events we used since the recording started.
+    //
+    // [0] <- start recording
+    //  |
+    //  V  [1]  [2]  [3]
+    // [X]  V    |    |   [4]
+    //     [X]   |    V    |
+    //           |   [X]   |
+    //           |         V
+    //           |        [X]
+    //           V
+    //          [X] <- the tread that reaches this point
+    //
+    // FirstToSync will be 0
+    // EventNo will be 4.
+    //
+    // We build a linear dependence chain but we could do a binary tree if that
+    // helps.
+    DP("Wait for events [%i - %i)\n", FirstToSync, EventNo + 1);
+    for (unsigned u = FirstToSync; u < EventNo + 1; ++u) {
+      auto Err =
+          cuStreamWaitEvent(FirstStream, Events[u], /* must be 0 -.- */ 0);
+      checkResult(Err, "Error waiting for event\n");
+    }
+
+    std::unique_lock<std::mutex> lk(BarrierMutex);
+
+    FirstToSync = getNextEventNo();
+    CUevent &Event = Events[FirstToSync];
+    auto Err = cuEventCreate(&Event, CU_EVENT_DEFAULT);
+    checkResult(Err, "Error creating event\n");
+
+    Err = cuEventRecord(Event, FirstStream);
+    checkResult(Err, "Error event recording\n");
+
+    StreamManager->unlock(DeviceId);
+    return true;
   }
 };
 
@@ -1032,7 +1279,6 @@ int32_t __tgt_rtl_synchronize(int32_t device_id,
                               __tgt_async_info *async_info_ptr) {
   assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
   assert(async_info_ptr && "async_info_ptr is nullptr");
-  assert(async_info_ptr->Queue && "async_info_ptr->Queue is nullptr");
 
   return DeviceRTL.synchronize(device_id, async_info_ptr);
 }
