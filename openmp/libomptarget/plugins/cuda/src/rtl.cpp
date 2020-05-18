@@ -293,6 +293,32 @@ public:
   }
 };
 
+struct BumpAllocator {
+  BumpAllocator(CUcontext &Context, unsigned Size) : Size(Size) {
+    CUresult Err = cuCtxSetCurrent(Context);
+    checkResult(Err, "Error returned from cuCtxSetCurrent\n");
+
+    Err = cuMemAlloc(&DevicePtr, Size);
+    checkResult(Err, "Error returned from cuMemAlloc\n");
+  }
+
+  CUdeviceptr allocate(unsigned Size) {
+    unsigned Start;
+    #pragma omp atomic capture
+    {
+      Start = Offset;
+      Offset = Offset + Size;
+    }
+
+    return DevicePtr + Offset;
+  }
+
+  private:
+    CUdeviceptr DevicePtr;
+    unsigned Offset;
+    const unsigned Size;
+};
+
 class DeviceRTLTy {
   int NumberOfDevices;
   // OpenMP environment properties
@@ -307,6 +333,7 @@ class DeviceRTLTy {
   static constexpr const int DefaultNumThreads = 128;
 
   std::unique_ptr<StreamManagerTy> StreamManager;
+  std::vector<std::unique_ptr<BumpAllocator>> DeviceBumAllocator;
   std::vector<DeviceDataTy> DeviceData;
   std::vector<CUmodule> Modules;
 
@@ -520,6 +547,18 @@ public:
 
     StreamManager =
         std::make_unique<StreamManagerTy>(NumberOfDevices, DeviceData);
+
+    // 512MB
+    unsigned MaxMemory = 1024 * 1024 * 512;
+    if (const char *EnvStr = getenv("OMP_MAX_DEVICE_MEMORY")) {
+      MaxMemory = std::stoi(EnvStr);
+      DP("Parsed OMP_NUM_TEAMS=%d\n", MaxMemory);
+    }
+
+    DeviceBumAllocator.resize(NumberOfDevices);
+    for (int i = 0; i < NumberOfDevices; ++i)
+      DeviceBumAllocator[i] =
+          std::make_unique<BumpAllocator>(DeviceData[i].Context, MaxMemory);
   }
 
   ~DeviceRTLTy() {
@@ -844,6 +883,7 @@ public:
     if (Size == 0)
       return nullptr;
 
+#if 0
     CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return nullptr;
@@ -854,6 +894,9 @@ public:
       return nullptr;
 
     return (void *)DevicePtr;
+#endif
+
+    return (void *)DeviceBumAllocator[DeviceId]->allocate(Size);
   }
 
   int dataSubmit(const int DeviceId, const void *TgtPtr, const void *HstPtr,
@@ -905,6 +948,7 @@ public:
   }
 
   int dataDelete(const int DeviceId, void *TgtPtr) const {
+    #if 0
     CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
@@ -912,6 +956,7 @@ public:
     Err = cuMemFree((CUdeviceptr)TgtPtr);
     if (!checkResult(Err, "Error returned from cuMemFree\n"))
       return OFFLOAD_FAIL;
+    #endif
 
     return OFFLOAD_SUCCESS;
   }
