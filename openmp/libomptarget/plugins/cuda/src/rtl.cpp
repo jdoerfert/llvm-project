@@ -693,13 +693,8 @@ public:
       DP("Parsed OMP_NUM_TEAMS=%d\n", MaxMemory);
     }
 
-    for (int i = 0; i < NumberOfDevices; ++i) {
-      // Set the context we are using
-      CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
-      if (checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
-        DeviceBumAllocator[i] =
-            std::make_unique<BumpAllocator>(DeviceData[i].Context, MaxMemory);
-    }
+    DeviceBumAllocator[DeviceId] = std::make_unique<BumpAllocator>(
+        DeviceData[DeviceId].Context, MaxMemory);
 
     return OFFLOAD_SUCCESS;
   }
