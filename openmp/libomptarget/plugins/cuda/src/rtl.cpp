@@ -471,10 +471,13 @@ class DeviceRTLTy {
       // here.
       {
         const std::lock_guard<std::mutex> Lock(SeenKeysMutex);
+        DP("1) #SeenKeys %i\n", SeenKeys.size());
         if (!SeenKeys.insert({K0, K1}).second) {
+          DP("2) #SeenKeys %i\n", SeenKeys.size());
           AsyncInfoPtr->Queue = nullptr;
           return nullptr;
         }
+        DP("3) #SeenKeys %i\n", SeenKeys.size());
       }
 
       CUstream Stream = StreamManager->getStream(DeviceId);
