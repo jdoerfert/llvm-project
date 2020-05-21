@@ -409,6 +409,7 @@ class DeviceRTLTy {
 
   CUstream getStream(const int DeviceId, __tgt_async_info *AsyncInfoPtr,
                      const void *K0, const void *K1) {
+    DP("START getStream: %p %p\n", K0, K1);
     assert(AsyncInfoPtr && "AsyncInfoPtr is nullptr");
 
     if (!AsyncInfoPtr->Queue) {
@@ -492,6 +493,7 @@ class DeviceRTLTy {
         // Check if we have a synchronization point already, if so we need to
         // record a dependence.
         if (FirstToSync) {
+          DP("Wait for first to sync [%i]\n", FirstToSync);
           auto Err = cuStreamWaitEvent(Stream, Events[FirstToSync],
                                        /* must be 0 -.- */ 0);
           checkResult(Err, "Error waiting for sync event\n");
@@ -499,6 +501,7 @@ class DeviceRTLTy {
       }
     }
 
+    DP("DONE getStream: %p %p\n", K0, K1);
     return reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
   }
 
@@ -907,7 +910,7 @@ public:
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
 
-    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, HstPtr, HstPtr);
+    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, HstPtr, (void*)Size);
     if (!Stream)
       return OFFLOAD_SUCCESS;
 
@@ -931,7 +934,7 @@ public:
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
 
-    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, HstPtr, HstPtr);
+    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, (void*)Size, HstPtr);
     if (!Stream)
       return OFFLOAD_SUCCESS;
 
