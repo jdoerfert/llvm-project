@@ -548,17 +548,7 @@ public:
     StreamManager =
         std::make_unique<StreamManagerTy>(NumberOfDevices, DeviceData);
 
-    // 512MB
-    unsigned MaxMemory = 1024 * 1024 * 512;
-    if (const char *EnvStr = getenv("OMP_MAX_DEVICE_MEMORY")) {
-      MaxMemory = std::stoi(EnvStr);
-      DP("Parsed OMP_NUM_TEAMS=%d\n", MaxMemory);
-    }
-
     DeviceBumAllocator.resize(NumberOfDevices);
-    for (int i = 0; i < NumberOfDevices; ++i)
-      DeviceBumAllocator[i] =
-          std::make_unique<BumpAllocator>(DeviceData[i].Context, MaxMemory);
   }
 
   ~DeviceRTLTy() {
@@ -695,6 +685,17 @@ public:
          DeviceData[DeviceId].ThreadsPerBlock);
       DeviceData[DeviceId].NumTeams = DeviceData[DeviceId].ThreadsPerBlock;
     }
+
+    // 512MB
+    unsigned MaxMemory = 1024 * 1024 * 512;
+    if (const char *EnvStr = getenv("OMP_MAX_DEVICE_MEMORY")) {
+      MaxMemory = std::stoi(EnvStr);
+      DP("Parsed OMP_NUM_TEAMS=%d\n", MaxMemory);
+    }
+
+    for (int i = 0; i < NumberOfDevices; ++i)
+      DeviceBumAllocator[i] =
+          std::make_unique<BumpAllocator>(DeviceData[i].Context, MaxMemory);
 
     return OFFLOAD_SUCCESS;
   }
