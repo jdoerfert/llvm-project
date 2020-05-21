@@ -412,16 +412,29 @@ class DeviceRTLTy {
     DP("START getStream: %p %p\n", K0, K1);
     assert(AsyncInfoPtr && "AsyncInfoPtr is nullptr");
 
-    if (!AsyncInfoPtr->Queue) {
-      const void *CaptureK0, *CaptureK1;
+    const void *CaptureK0, *CaptureK1;
 
 #pragma omp atomic read
       CaptureK0 = GraphCaptureK0;
 #pragma omp atomic read
       CaptureK1 = GraphCaptureK1;
 
+    bool IsFirstInCapturedGraph = (K0 == CaptureK0 && K1 == CaptureK1);
+
+    if (!IsFirstInCapturedGraph) {
+      // Verify we haven't seen this key pair yet, if so we passed the full
+      // cirlce marker or we run code that doesn't fit the model. Either way, we
+      // do not issue this request.
+      const std::lock_guard<std::mutex> Lock(SeenKeysMutex);
+      if (!SeenKeys.insert({K0, K1}).second) {
+        AsyncInfoPtr->Queue = nullptr;
+        return nullptr;
+      }
+    }
+
+    if (!AsyncInfoPtr->Queue) {
       // Full circle, stop the capture.
-      if (K0 == CaptureK0 && K1 == CaptureK1) {
+      if (IsFirstInCapturedGraph) {
         CUstream FirstStream;
         do {
           FirstStream =
@@ -462,22 +475,6 @@ class DeviceRTLTy {
         // We do not want to use this stream as we already used the graph to
         // perform all the actions.
         return nullptr;
-      }
-
-      // Verify we haven't seen this key pair yet, if so we passed the full
-      // cirlce marker or we run code that doesn't fit the model. Either way, we
-      // do not issue this request.
-      // TODO: We probably need to teach the callers to deal with a nullptr
-      // here.
-      {
-        const std::lock_guard<std::mutex> Lock(SeenKeysMutex);
-        DP("1) #SeenKeys %i\n", SeenKeys.size());
-        if (!SeenKeys.insert({K0, K1}).second) {
-          DP("2) #SeenKeys %i\n", SeenKeys.size());
-          AsyncInfoPtr->Queue = nullptr;
-          return nullptr;
-        }
-        DP("3) #SeenKeys %i\n", SeenKeys.size());
       }
 
       CUstream Stream = StreamManager->getStream(DeviceId);
