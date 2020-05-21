@@ -907,7 +907,7 @@ public:
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
 
-    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, TgtPtr, HstPtr);
+    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, HstPtr, HstPtr);
     if (!Stream)
       return OFFLOAD_SUCCESS;
 
@@ -931,7 +931,7 @@ public:
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
 
-    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, HstPtr, TgtPtr);
+    CUstream Stream = getStream(DeviceId, AsyncInfoPtr, HstPtr, HstPtr);
     if (!Stream)
       return OFFLOAD_SUCCESS;
 
