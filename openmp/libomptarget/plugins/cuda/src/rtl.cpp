@@ -451,7 +451,7 @@ class DeviceRTLTy {
         if (Err != CUDA_SUCCESS) {
           DP("Error when synchronizing stream. stream = " DPxMOD
              ", async info ptr = " DPxMOD "\n",
-             DPxPTR(Stream), DPxPTR(AsyncInfoPtr));
+             DPxPTR(FirstStream), DPxPTR(AsyncInfoPtr));
           CUDA_ERR_STRING(Err);
           return nullptr;
         }
