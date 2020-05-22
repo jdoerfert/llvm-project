@@ -352,9 +352,6 @@ class DeviceRTLTy {
   std::mutex BarrierMutex;
   std::condition_variable Barrier;
 
-  std::mutex SeenKeysMutex;
-  std::set<std::pair<const void *, const void *>> SeenKeys;
-
   // Keys to identify when we loop back
   const void *GraphCaptureK0, *GraphCaptureK1;
 
@@ -422,14 +419,11 @@ class DeviceRTLTy {
     bool IsFirstInCapturedGraph = (K0 == CaptureK0 && K1 == CaptureK1);
 
     if (!IsFirstInCapturedGraph) {
-      // Verify we haven't seen this key pair yet, if so we passed the full
-      // cirlce marker or we run code that doesn't fit the model. Either way, we
-      // do not issue this request.
-      const std::lock_guard<std::mutex> Lock(SeenKeysMutex);
-      if (!SeenKeys.insert({K0, K1}).second) {
-        AsyncInfoPtr->Queue = nullptr;
-        return nullptr;
-      }
+      // Not the first after capturing was started then check if we are done
+      // capturing, if so, ignore this request, if not, we need this request in
+      // the graph.
+      if (GraphExec)
+        return AsyncInfoPtr->Queue = nullptr;
     }
 
     if (!AsyncInfoPtr->Queue) {
