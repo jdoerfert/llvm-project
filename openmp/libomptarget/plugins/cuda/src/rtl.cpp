@@ -482,6 +482,7 @@ class DeviceRTLTy {
 
       if (!CaptureK0 && !CaptureK1 &&
           StreamManager->isFistStream(DeviceId, Stream)) {
+        DP("Start graph capture, no actual work is done while we record\n");
         startCapture(Stream, K0, K1);
       } else {
         // Wait for the stream capture to begin.
