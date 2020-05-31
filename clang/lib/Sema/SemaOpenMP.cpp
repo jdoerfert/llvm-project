@@ -5753,9 +5753,8 @@ static void setPrototype(Sema &S, FunctionDecl *FD, FunctionDecl *FDWithProto,
 Sema::OMPDeclareVariantScope::OMPDeclareVariantScope(OMPTraitInfo &TI)
     : TI(&TI), NameSuffix(TI.getMangledName()) {}
 
-FunctionDecl *
-Sema::ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(Scope *S,
-                                                                Declarator &D) {
+FunctionDecl *Sema::ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(
+    Scope *S, Declarator &D, bool IsTemplated) {
   IdentifierInfo *BaseII = D.getIdentifier();
   LookupResult Lookup(*this, DeclarationName(BaseII), D.getIdentifierLoc(),
                       LookupOrdinaryName);
@@ -5769,7 +5768,12 @@ Sema::ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(Scope *S,
 
   FunctionDecl *BaseFD = nullptr;
   for (auto *Candidate : Lookup) {
-    auto *UDecl = dyn_cast<FunctionDecl>(Candidate->getUnderlyingDecl());
+    auto *CandidateDecl = Candidate->getUnderlyingDecl();
+    FunctionDecl *UDecl = nullptr;
+    if (IsTemplated && isa<FunctionTemplateDecl>(CandidateDecl))
+      UDecl = cast<FunctionTemplateDecl>(CandidateDecl)->getTemplatedDecl();
+    else if (!IsTemplated)
+      UDecl = dyn_cast<FunctionDecl>(CandidateDecl);
     if (!UDecl)
       continue;
 
@@ -5780,19 +5784,27 @@ Sema::ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(Scope *S,
     if (UDecl->isConsteval() && !IsConsteval)
       continue;
 
-    QualType NewType = Context.mergeFunctionTypes(
-        FType, UDecl->getType(), /* OfBlockPointer */ false,
-        /* Unqualified */ false, /* AllowCXX */ true);
-    if (NewType.isNull())
-      continue;
+    QualType UDeclTy = UDecl->getType();
+    // TODO: Verify types for templates eventually.
+    if (!UDeclTy->isDependentType()) {
+      QualType NewType = Context.mergeFunctionTypes(
+          FType, UDeclTy, /* OfBlockPointer */ false,
+          /* Unqualified */ false, /* AllowCXX */ true);
+      if (NewType.isNull())
+        continue;
+    }
 
     // Found a base!
     BaseFD = UDecl;
     break;
   }
   if (!BaseFD) {
-    BaseFD = cast<FunctionDecl>(ActOnDeclarator(S, D));
-    BaseFD->setImplicit(true);
+    Decl *BaseD = ActOnDeclarator(S, D);
+    BaseD->setImplicit(true);
+    if (auto *BaseTemplD = dyn_cast<FunctionTemplateDecl>(BaseD))
+      BaseFD = BaseTemplD->getTemplatedDecl();
+    else
+      BaseFD = cast<FunctionDecl>(BaseD);
   }
 
   OMPDeclareVariantScope &DVScope = OMPDeclareVariantScopes.back();
@@ -5808,13 +5820,18 @@ Sema::ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(Scope *S,
 }
 
 void Sema::ActOnFinishedFunctionDefinitionInOpenMPDeclareVariantScope(
-    FunctionDecl *FD, FunctionDecl *BaseFD) {
+    Decl *D, FunctionDecl *BaseFD) {
   // Do not mark function as is used to prevent its emission if this is the
   // only place where it is used.
   EnterExpressionEvaluationContext Unevaluated(
       *this, Sema::ExpressionEvaluationContext::Unevaluated);
 
-  Expr *VariantFuncRef = DeclRefExpr::Create(
+  FunctionDecl *FD = nullptr;
+  if (auto *UTemplDecl = dyn_cast<FunctionTemplateDecl>(D))
+    FD = UTemplDecl->getTemplatedDecl();
+  else
+    FD = cast<FunctionDecl>(D);
+  auto *VariantFuncRef = DeclRefExpr::Create(
       Context, NestedNameSpecifierLoc(), SourceLocation(), FD,
       /* RefersToEnclosingVariableOrCapture */ false,
       /* NameLoc */ FD->getLocation(), FD->getType(), ExprValueKind::VK_RValue);

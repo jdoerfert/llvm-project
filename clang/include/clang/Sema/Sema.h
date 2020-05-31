@@ -9905,14 +9905,13 @@ private:
   /// in an `omp begin/end declare variant` scope. In this method we create a
   /// declaration for \p D and rename \p D according to the OpenMP context
   /// selector of the surrounding scope.
-  FunctionDecl *
-  ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(Scope *S,
-                                                            Declarator &D);
+  FunctionDecl *ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(
+      Scope *S, Declarator &D, bool IsTemplated);
 
-  /// Register \p FD as specialization of \p BaseFD in the current `omp
+  /// Register \p D as specialization of \p BaseFD in the current `omp
   /// begin/end declare variant` scope.
   void ActOnFinishedFunctionDefinitionInOpenMPDeclareVariantScope(
-      FunctionDecl *FD, FunctionDecl *BaseFD);
+      Decl *D, FunctionDecl *BaseFD);
 
 public:
 

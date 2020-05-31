@@ -24,6 +24,9 @@
 // which might live in cstdlib.
 #include <cstdlib>
 
+// We need limits because __clang_cuda_cmath.h below uses `std::numeric_limit`.
+#include <limits>
+
 #pragma omp begin declare variant match(                                       \
     device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
 

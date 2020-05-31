@@ -13627,18 +13627,16 @@ Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Declarator &D,
   // specialization function under the OpenMP context defined as part of the
   // `omp begin declare variant`.
   FunctionDecl *BaseFD = nullptr;
-  if (LangOpts.OpenMP && isInOpenMPDeclareVariantScope() &&
-      TemplateParameterLists.empty())
+  if (LangOpts.OpenMP && isInOpenMPDeclareVariantScope())
     BaseFD = ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(
-        ParentScope, D);
+        ParentScope, D, !TemplateParameterLists.empty());
 
   D.setFunctionDefinitionKind(FDK_Definition);
   Decl *DP = HandleDeclarator(ParentScope, D, TemplateParameterLists);
   Decl *Dcl = ActOnStartOfFunctionDef(FnBodyScope, DP, SkipBody);
 
   if (BaseFD)
-    ActOnFinishedFunctionDefinitionInOpenMPDeclareVariantScope(
-        cast<FunctionDecl>(Dcl), BaseFD);
+    ActOnFinishedFunctionDefinitionInOpenMPDeclareVariantScope(Dcl, BaseFD);
 
   return Dcl;
 }

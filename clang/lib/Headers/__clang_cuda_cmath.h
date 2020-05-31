@@ -146,8 +146,6 @@ __DEVICE__ float tanh(float __x) { return ::tanhf(__x); }
 // libdevice doesn't provide an implementation, and we don't want to be in the
 // business of implementing tricky libm functions in this header.
 
-#ifndef _OPENMP
-
 // Now we've defined everything we promised we'd define in
 // __clang_cuda_math_forward_declares.h.  We need to do two additional things to
 // fix up our math functions.
@@ -308,6 +306,8 @@ __DEVICE__ typename __clang_cuda_enable_if<std::numeric_limits<__T>::is_integer,
 scalbn(__T __x, int __exp) {
   return std::scalbn((double)__x, __exp);
 }
+
+#ifndef _OPENMP
 
 // We need to define these overloads in exactly the namespace our standard
 // library uses (including the right inline namespace), otherwise they won't be
