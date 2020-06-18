@@ -212,6 +212,10 @@ enum FunctionModRefLocation {
 /// Loads from constant globals are not considered memory accesses for this
 /// interface. Also, functions may freely modify stack space local to their
 /// invocation without having to report it through these interfaces.
+///
+/// Note that only attributes of functions (or calls) marked as 'nosync' are
+/// considered as synchronization could make side-effects visible not issued
+/// by the function itself.
 enum FunctionModRefBehavior {
   /// This function does not perform any non-local loads or stores to memory.
   ///
