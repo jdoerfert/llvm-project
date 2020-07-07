@@ -17,21 +17,28 @@
 
 #include <cstdint>
 
-extern int target_data_begin(DeviceTy &Device, int32_t arg_num,
-                             void **args_base, void **args, int64_t *arg_sizes,
-                             int64_t *arg_types,
-                             __tgt_async_info *async_info_ptr);
+enum TargetDataFuncTy { Begin, End, Update };
 
-extern int target_data_end(DeviceTy &Device, int32_t arg_num, void **args_base,
-                           void **args, int64_t *arg_sizes, int64_t *arg_types,
-                           __tgt_async_info *async_info_ptr);
+template <TargetDataFuncTy F>
+int targetData(DeviceTy &Device, int32_t ArgNum, void **ArgsBase, void **Args,
+               int64_t *ArgSizes, int64_t *ArgTypes);
 
-extern int target_data_update(DeviceTy &Device, int32_t arg_num,
-    void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types);
+template <TargetDataFuncTy F>
+int targetDataNowait(DeviceTy &Device, int32_t ArgNum, void **ArgsBase,
+                     void **Args, int64_t *ArgSizes, int64_t *ArgTypes,
+                     int32_t DepNum, void *DepList, int32_t NoAliasDepNum,
+                     void *NoAliasDepList);
 
-extern int target(int64_t device_id, void *host_ptr, int32_t arg_num,
-    void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types,
-    int32_t team_num, int32_t thread_limit, int IsTeamConstruct);
+extern int target(int64_t DeviceID, void *HostPtr, int32_t ArgNum,
+                  void **ArgsBase, void **Args, int64_t *ArgSizes,
+                  int64_t *ArgTypes, int32_t TeamNum, int32_t ThreadLimit,
+                  int IsTeamConstruct);
+
+extern int targetNowait(int64_t DeviceID, void *HostPtr, int32_t ArgNum,
+                        void **ArgsBase, void **Args, int64_t *ArgSizes,
+                        int64_t *ArgTypes, int32_t TeamNum, int32_t ThreadLimit,
+                        int IsTeamConstruct, int32_t DepNum, void *DepList,
+                        int32_t NoAliasDepNum, void *NoAliasDepList);
 
 extern int CheckDeviceAndCtors(int64_t device_id);
 

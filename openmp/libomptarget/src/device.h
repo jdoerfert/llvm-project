@@ -212,6 +212,10 @@ struct DeviceTy {
                           uint64_t LoopTripCount,
                           __tgt_async_info *AsyncInfoPtr);
 
+  // Functions for initialization and release of async info
+  int32_t initAsyncInfo(__tgt_async_info **AsyncInfo);
+  int32_t releaseAsyncInfo(__tgt_async_info *AsyncInfo);
+
 private:
   // Call to RTL
   void init(); // To be called only via DeviceTy::initOnce()

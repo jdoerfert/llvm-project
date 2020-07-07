@@ -146,6 +146,31 @@ void RTLsTy::LoadRTLs() {
         dlsym(dynlib_handle, "__tgt_rtl_data_exchange_async");
     *((void **)&R.is_data_exchangable) =
         dlsym(dynlib_handle, "__tgt_rtl_is_data_exchangable");
+    *((void **)&R.releaseAsyncInfo) =
+        dlsym(dynlib_handle, "__tgt_rtl_release_async_info");
+    *((void **)&R.wait_event) = dlsym(dynlib_handle, "__tgt_rtl_wait_event");
+    *((void **)&R.record_event) =
+        dlsym(dynlib_handle, "__tgt_rtl_record_event");
+    *((void **)&R.check_event) = dlsym(dynlib_handle, "__tgt_rtl_check_event");
+    *((void **)&R.initAsyncInfo) =
+        dlsym(dynlib_handle, "__tgt_rtl_initialize_async_info");
+
+    if (!R.synchronize || !R.check_event) {
+      DP("Asynchronous offloading not supported\n");
+      R.AsyncSupported = false;
+      R.data_exchange_async = nullptr;
+      R.data_retrieve_async = nullptr;
+      R.data_submit_async = nullptr;
+
+      R.run_region_async = nullptr;
+      R.run_team_region_async = nullptr;
+
+      R.releaseAsyncInfo = nullptr;
+      R.record_event = nullptr;
+      R.wait_event = nullptr;
+      R.check_event = nullptr;
+      R.initAsyncInfo = nullptr;
+    }
 
     // No devices are supported by this RTL?
     if (!(R.NumberOfDevices = R.number_of_devices())) {
@@ -387,8 +412,11 @@ void RTLsTy::UnregisterLib(__tgt_bin_desc *desc) {
         Device.PendingGlobalsMtx.lock();
         if (Device.PendingCtorsDtors[desc].PendingCtors.empty()) {
           for (auto &dtor : Device.PendingCtorsDtors[desc].PendingDtors) {
-            int rc = target(Device.DeviceID, dtor, 0, NULL, NULL, NULL, NULL, 1,
-                1, true /*team*/);
+            int rc = target(Device.DeviceID, dtor, 0 /* arg_num */,
+                            NULL /* arg_base */, NULL /* args */,
+                            NULL /* arg_sizes */, NULL /* arg_types */,
+                            1 /* team_num */, 1 /* thread_limit */,
+                            true /* IsTeamConstruct */);
             if (rc != OFFLOAD_SUCCESS) {
               DP("Running destructor " DPxMOD " failed.\n", DPxPTR(dtor));
             }

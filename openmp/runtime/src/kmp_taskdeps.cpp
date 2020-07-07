@@ -45,6 +45,8 @@ static void __kmp_init_node(kmp_depnode_t *node) {
 #ifdef KMP_SUPPORT_GRAPH_OUTPUT
   node->dn.id = KMP_ATOMIC_INC(&kmp_node_id_seed);
 #endif
+  node->dn.predecessors = NULL;
+  KMP_ATOMIC_ST_REL(&node->dn.async_info, 0);
 }
 
 static inline kmp_depnode_t *__kmp_node_ref(kmp_depnode_t *node) {
@@ -243,19 +245,37 @@ __kmp_depnode_link_successor(kmp_int32 gtid, kmp_info_t *thread,
   if (!plist)
     return 0;
   kmp_int32 npredecessors = 0;
-  // link node as successor of list elements
+  kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
+  // If a task is a target task, we will check all its depending tasks. If a
+  // depending task is a target task, we put it into the predecessors list of
+  // current task. If a depending task is a host task, we will put current task
+  // into the successors list of the depending task and increase the count.
+  // Later on, when we process all dependencies of current task, if the count is
+  // not zero, meaning current target task depends on at least one host task, we
+  // will still push the task into the queue and let the RTL dispatch it.
+  // However, before starting the offloading, it will check whether the count is
+  // zero and will not proceed if not.
   for (kmp_depnode_list_t *p = plist; p; p = p->next) {
     kmp_depnode_t *dep = p->node;
     if (dep->dn.task) {
       KMP_ACQUIRE_DEPNODE(gtid, dep);
       if (dep->dn.task) {
         __kmp_track_dependence(gtid, dep, node, task);
-        dep->dn.successors = __kmp_add_node(thread, dep->dn.successors, node);
-        KA_TRACE(40, ("__kmp_process_deps: T#%d adding dependence from %p to "
-                      "%p\n",
-                      gtid, KMP_TASK_TO_TASKDATA(dep->dn.task),
-                      KMP_TASK_TO_TASKDATA(task)));
-        npredecessors++;
+        kmp_taskdata_t *dep_taskdata = KMP_TASK_TO_TASKDATA(dep->dn.task);
+        if (taskdata->td_flags.target && dep_taskdata->td_flags.target) {
+          node->dn.predecessors =
+              __kmp_add_node(thread, node->dn.predecessors, dep);
+          KA_TRACE(40, ("__kmp_process_deps: T#%d target task %p depends on "
+                        "target task %p\n",
+                        gtid, taskdata, dep_taskdata));
+        } else {
+          dep->dn.successors = __kmp_add_node(thread, dep->dn.successors, node);
+          ++npredecessors;
+          KA_TRACE(40, ("__kmp_process_deps: T#%d adding dependence from %p to "
+                        "%p\n",
+                        gtid, KMP_TASK_TO_TASKDATA(dep->dn.task),
+                        KMP_TASK_TO_TASKDATA(task)));
+        }
       }
       KMP_RELEASE_DEPNODE(gtid, dep);
     }
@@ -270,18 +290,29 @@ static inline kmp_int32 __kmp_depnode_link_successor(kmp_int32 gtid,
                                                      kmp_depnode_t *sink) {
   if (!sink)
     return 0;
+  kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_int32 npredecessors = 0;
   if (sink->dn.task) {
     // synchronously add source to sink' list of successors
     KMP_ACQUIRE_DEPNODE(gtid, sink);
     if (sink->dn.task) {
       __kmp_track_dependence(gtid, sink, source, task);
-      sink->dn.successors = __kmp_add_node(thread, sink->dn.successors, source);
-      KA_TRACE(40, ("__kmp_process_deps: T#%d adding dependence from %p to "
-                    "%p\n",
-                    gtid, KMP_TASK_TO_TASKDATA(sink->dn.task),
-                    KMP_TASK_TO_TASKDATA(task)));
-      npredecessors++;
+      kmp_taskdata_t *sink_taskdata = KMP_TASK_TO_TASKDATA(sink->dn.task);
+      if (taskdata->td_flags.target && sink_taskdata->td_flags.target) {
+        source->dn.predecessors =
+            __kmp_add_node(thread, source->dn.predecessors, sink);
+        KA_TRACE(40, ("__kmp_process_deps: T#%d target task %p depends on "
+                      "target task %p\n",
+                      gtid, taskdata, sink_taskdata));
+      } else {
+        sink->dn.successors =
+            __kmp_add_node(thread, sink->dn.successors, source);
+        npredecessors++;
+        KA_TRACE(40, ("__kmp_process_deps: T#%d adding dependence from %p to "
+                      "%p\n",
+                      gtid, KMP_TASK_TO_TASKDATA(sink->dn.task),
+                      KMP_TASK_TO_TASKDATA(task)));
+      }
     }
     KMP_RELEASE_DEPNODE(gtid, sink);
   }
@@ -615,7 +646,11 @@ kmp_int32 __kmpc_omp_task_with_deps(ident_t *loc_ref, kmp_int32 gtid,
         current_task->ompt_task_info.frame.enter_frame = ompt_data_none;
       }
 #endif
-      return TASK_CURRENT_NOT_QUEUED;
+      // All target tasks will be enqueued directly no matter whether their
+      // dependencies have been fullfilled. They will be checked again in
+      // libomptarget.
+      if (!new_taskdata->td_flags.target)
+        return TASK_CURRENT_NOT_QUEUED;
     }
   } else {
     KA_TRACE(10, ("__kmpc_omp_task_with_deps(exit): T#%d ignored dependencies "

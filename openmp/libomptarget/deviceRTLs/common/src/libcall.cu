@@ -51,9 +51,7 @@ EXTERN int omp_get_max_threads(void) {
     // We're already in parallel region.
     return 1; // default is 1 thread avail
   // Not currently in a parallel region, return what was set.
-  int rc = 1;
-  if (parallelLevel[GetWarpId()] == 0)
-    rc = nThreads;
+  int rc = nThreads;
   ASSERT0(LT_FUSSY, rc >= 0, "bad number of threads");
   PRINT(LD_IO, "call omp_get_max_threads() return %d\n", rc);
   return rc;

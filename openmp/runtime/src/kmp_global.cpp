@@ -51,6 +51,9 @@ volatile int __kmp_init_monitor =
     0; /* 1 - launched, 2 - actually started (Windows* OS only) */
 #endif
 volatile int __kmp_init_user_locks = FALSE;
+#if USE_UNSHACKLED_TASK
+volatile int __kmp_init_unshackled_threads = FALSE;
+#endif
 
 /* list of address of allocated caches for commons */
 kmp_cached_addr_t *__kmp_threadpriv_cache_list = NULL;

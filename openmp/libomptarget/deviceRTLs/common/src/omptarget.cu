@@ -59,8 +59,8 @@ EXTERN void __kmpc_kernel_init(int ThreadLimit, int16_t RequiresOMPRuntime) {
       threadId, currTeamDescr.LevelZeroTaskDescr());
 
   // set number of threads and thread limit in team to started value
-  omptarget_nvptx_TaskDescr *currTaskDescr =
-      omptarget_nvptx_threadPrivateContext->GetTopLevelTaskDescr(threadId);
+  // omptarget_nvptx_TaskDescr *currTaskDescr =
+  //     omptarget_nvptx_threadPrivateContext->GetTopLevelTaskDescr(threadId);
   nThreads = GetNumberOfThreadsInBlock();
   threadLimit = ThreadLimit;
 }
@@ -83,12 +83,7 @@ EXTERN void __kmpc_spmd_kernel_init(int ThreadLimit, int16_t RequiresOMPRuntime,
 
   setExecutionParameters(Spmd, RequiresOMPRuntime ? RuntimeInitialized
                                                   : RuntimeUninitialized);
-  int threadId = GetThreadIdInBlock();
-  if (threadId == 0) {
-    usedSlotIdx = __kmpc_impl_smid() % MAX_SM;
-    parallelLevel[0] =
-        1 + (GetNumberOfThreadsInBlock() > 1 ? OMP_ACTIVE_PARALLEL_LEVEL : 0);
-  } else if (GetLaneId() == 0) {
+  if (GetLaneId() == 0) {
     parallelLevel[GetWarpId()] =
         1 + (GetNumberOfThreadsInBlock() > 1 ? OMP_ACTIVE_PARALLEL_LEVEL : 0);
   }
@@ -101,22 +96,24 @@ EXTERN void __kmpc_spmd_kernel_init(int ThreadLimit, int16_t RequiresOMPRuntime,
   //
   // Team Context Initialization.
   //
+  int threadId = GetThreadIdInBlock();
   // In SPMD mode there is no master thread so use any cuda thread for team
   // context initialization.
   if (threadId == 0) {
+    usedSlotIdx = __kmpc_impl_smid() % MAX_SM;
     // Get a state object from the queue.
     omptarget_nvptx_threadPrivateContext =
         omptarget_nvptx_device_State[usedSlotIdx].Dequeue();
 
     omptarget_nvptx_TeamDescr &currTeamDescr = getMyTeamDescriptor();
-    omptarget_nvptx_WorkDescr &workDescr = getMyWorkDescriptor();
+    // omptarget_nvptx_WorkDescr &workDescr = getMyWorkDescriptor();
     // init team context
     currTeamDescr.InitTeamDescr();
   }
   __kmpc_impl_syncthreads();
 
   omptarget_nvptx_TeamDescr &currTeamDescr = getMyTeamDescriptor();
-  omptarget_nvptx_WorkDescr &workDescr = getMyWorkDescriptor();
+  // omptarget_nvptx_WorkDescr &workDescr = getMyWorkDescriptor();
 
   //
   // Initialize task descr for each thread.

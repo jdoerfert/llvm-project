@@ -325,6 +325,16 @@ static void __kmp_realloc_task_deque(kmp_info_t *thread,
 static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
+
+#if USE_UNSHACKLED_TASK
+  // If the task is unshackled, we always push it into the master thread of
+  // unshackled team, and update gtid to the gtid of the master thread
+  if (taskdata->td_flags.unshackled) {
+    thread = __kmp_unshackled_threads[KMP_GTID_TO_SHADOW_GTID(gtid)];
+    gtid = thread->th.th_info.ds.ds_gtid;
+  }
+#endif
+
   kmp_task_team_t *task_team = thread->th.th_task_team;
   kmp_int32 tid = __kmp_tid_from_gtid(gtid);
   kmp_thread_data_t *thread_data;
@@ -363,7 +373,8 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   // Find tasking deque specific to encountering thread
   thread_data = &task_team->tt.tt_threads_data[tid];
 
-  // No lock needed since only owner can allocate
+  // No lock needed even if the task is unshackled because we have initialized
+  // the dequeue for unshackled thread data
   if (thread_data->td.td_deque == NULL) {
     __kmp_alloc_task_deque(thread, thread_data);
   }
@@ -427,6 +438,13 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
                 thread_data->td.td_deque_head, thread_data->td.td_deque_tail));
 
   __kmp_release_bootstrap_lock(&thread_data->td.td_deque_lock);
+
+#if USE_UNSHACKLED_TASK
+  // Signal one worker thread to execute the task
+  if (taskdata->td_flags.unshackled) {
+    __kmp_unshackled_worker_thread_signal();
+  }
+#endif
 
   return TASK_SUCCESSFULLY_PUSHED;
 }
@@ -720,7 +738,6 @@ static void __kmp_free_task(kmp_int32 gtid, kmp_taskdata_t *taskdata,
 #else /* ! USE_FAST_MEMORY */
   __kmp_thread_free(thread, taskdata);
 #endif
-
   KA_TRACE(20, ("__kmp_free_task: T#%d freed task %p\n", gtid, taskdata));
 }
 
@@ -930,7 +947,7 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
 #endif
 
     // Only need to keep track of count if team parallel and tasking not
-    // serialized, or task is detachable and event has already been fulfilled 
+    // serialized, or task is detachable and event has already been fulfilled
     if (!(taskdata->td_flags.team_serial || taskdata->td_flags.tasking_ser) ||
         taskdata->td_flags.detachable == TASK_DETACHABLE) {
       // Predecrement simulated by "- 1" calculation
@@ -939,6 +956,10 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
       KMP_DEBUG_ASSERT(children >= 0);
       if (taskdata->td_taskgroup)
         KMP_ATOMIC_DEC(&taskdata->td_taskgroup->count);
+#if USE_UNSHACKLED_TASK
+      if (taskdata->td_flags.unshackled && taskdata->td_parent_task_team)
+        KMP_ATOMIC_DEC(&taskdata->td_parent_task_team->tt.tt_unfinished_unshackled_tasks);
+#endif
       __kmp_release_deps(gtid, taskdata);
     } else if (task_team && task_team->tt.tt_found_proxy_tasks) {
       // if we found proxy tasks there could exist a dependency chain
@@ -1180,12 +1201,33 @@ kmp_task_t *__kmp_task_alloc(ident_t *loc_ref, kmp_int32 gtid,
   kmp_task_t *task;
   kmp_taskdata_t *taskdata;
   kmp_info_t *thread = __kmp_threads[gtid];
+#if USE_UNSHACKLED_TASK
+  kmp_info_t *encountering_thread = thread;
+#endif
   kmp_team_t *team = thread->th.th_team;
   kmp_taskdata_t *parent_task = thread->th.th_current_task;
   size_t shareds_offset;
 
   if (!TCR_4(__kmp_init_middle))
     __kmp_middle_initialize();
+
+#if USE_UNSHACKLED_TASK
+  if (flags->unshackled) {
+    // Since unshackled threads are allocated via __kmpc_fork_call, we need to
+    // initialize parallel correspondingly
+    if (!TCR_4(__kmp_init_parallel))
+      __kmp_parallel_initialize();
+
+    // For an unshackled task encountered by a regular thread, we will push the
+    // task to the (gtid%__kmp_unshackled_threads_num)-th unshackled thread
+    if (!KMP_UNSHACKLED_THREAD(gtid)) {
+      thread = __kmp_unshackled_threads[KMP_GTID_TO_SHADOW_GTID(gtid)];
+      team = thread->th.th_team;
+      // We don't change the parent-child relation for unshackled task as we
+      // need that to do per-task-region synchronization
+    }
+  }
+#endif
 
   KA_TRACE(10, ("__kmp_task_alloc(enter): T#%d loc=%p, flags=(0x%x) "
                 "sizeof_task=%ld sizeof_shared=%ld entry=%p\n",
@@ -1197,6 +1239,13 @@ kmp_task_t *__kmp_task_alloc(ident_t *loc_ref, kmp_int32 gtid,
     }
     flags->final = 1;
   }
+
+#if USE_UNSHACKLED_TASK
+  // Unshackled thread is never final
+  if (flags->unshackled)
+    flags->final = 0;
+#endif
+
   if (flags->tiedness == TASK_UNTIED && !team->t.t_serialized) {
     // Untied task encountered causes the TSC algorithm to check entire deque of
     // the victim thread. If no untied task encountered, then checking the head
@@ -1259,11 +1308,21 @@ kmp_task_t *__kmp_task_alloc(ident_t *loc_ref, kmp_int32 gtid,
 
 // Avoid double allocation here by combining shareds with taskdata
 #if USE_FAST_MEMORY
+#if USE_UNSHACKLED_TASK
+  taskdata = (kmp_taskdata_t *)__kmp_fast_allocate(
+      encountering_thread, shareds_offset + sizeof_shareds);
+#else
   taskdata = (kmp_taskdata_t *)__kmp_fast_allocate(thread, shareds_offset +
                                                                sizeof_shareds);
+#endif
 #else /* ! USE_FAST_MEMORY */
+#if USE_UNSHACKLED_TASK
+  taskdata = (kmp_taskdata_t *)__kmp_thread_malloc(
+      encountering_thread, shareds_offset + sizeof_shareds);
+#else
   taskdata = (kmp_taskdata_t *)__kmp_thread_malloc(thread, shareds_offset +
                                                                sizeof_shareds);
+#endif
 #endif /* USE_FAST_MEMORY */
   ANNOTATE_HAPPENS_AFTER(taskdata);
 
@@ -1310,6 +1369,11 @@ kmp_task_t *__kmp_task_alloc(ident_t *loc_ref, kmp_int32 gtid,
   taskdata->td_flags.destructors_thunk = flags->destructors_thunk;
   taskdata->td_flags.proxy = flags->proxy;
   taskdata->td_flags.detachable = flags->detachable;
+#if USE_UNSHACKLED_TASK
+  taskdata->td_flags.unshackled = flags->unshackled;
+  taskdata->td_parent_task_team = encountering_thread->th.th_task_team;
+#endif
+  taskdata->td_flags.target = flags->target;
   taskdata->td_task_team = thread->th.th_task_team;
   taskdata->td_size_alloc = shareds_offset + sizeof_shareds;
   taskdata->td_flags.tasktype = TASK_EXPLICIT;
@@ -1365,6 +1429,11 @@ kmp_task_t *__kmp_task_alloc(ident_t *loc_ref, kmp_int32 gtid,
     if (taskdata->td_parent->td_flags.tasktype == TASK_EXPLICIT) {
       KMP_ATOMIC_INC(&taskdata->td_parent->td_allocated_child_tasks);
     }
+#if USE_UNSHACKLED_TASK
+    if (flags->unshackled && taskdata->td_parent_task_team)
+      KMP_ATOMIC_INC(
+          &taskdata->td_parent_task_team->tt.tt_unfinished_unshackled_tasks);
+#endif
   }
 
   KA_TRACE(20, ("__kmp_task_alloc(exit): T#%d created task %p parent=%p\n",
@@ -1405,6 +1474,10 @@ kmp_task_t *__kmpc_omp_target_task_alloc(ident_t *loc_ref, kmp_int32 gtid,
                                          size_t sizeof_shareds,
                                          kmp_routine_entry_t task_entry,
                                          kmp_int64 device_id) {
+  // All tasks created via this interface should be a target task
+  kmp_tasking_flags_t *input_flags = (kmp_tasking_flags_t *)&flags;
+  input_flags->target = TRUE;
+  input_flags->unshackled = TRUE;
   return __kmpc_omp_task_alloc(loc_ref, gtid, flags, sizeof_kmp_task_t,
                                sizeof_shareds, task_entry);
 }
@@ -1870,6 +1943,13 @@ static kmp_int32 __kmpc_omp_taskwait_template(ident_t *loc_ref, kmp_int32 gtid,
 
     must_wait = must_wait || (thread->th.th_task_team != NULL &&
                               thread->th.th_task_team->tt.tt_found_proxy_tasks);
+
+#if USE_UNSHACKLED_TASK
+    // If unshackled thread is enabled, we must enable wait as there might be
+    // task outside of any parallel region
+    must_wait = true;
+#endif
+
     if (must_wait) {
       kmp_flag_32 flag(RCAST(std::atomic<kmp_uint32> *,
                              &(taskdata->td_incomplete_child_tasks)),
@@ -2827,7 +2907,13 @@ static inline int __kmp_execute_tasks_template(
 
   thread->th.th_reap_state = KMP_NOT_SAFE_TO_REAP;
   threads_data = (kmp_thread_data_t *)TCR_PTR(task_team->tt.tt_threads_data);
+#if USE_UNSHACKLED_TASK
+  // This can happen when unshackled task is enabled
+  if (threads_data == nullptr)
+    return FALSE;
+#else
   KMP_DEBUG_ASSERT(threads_data != NULL);
+#endif
 
   nthreads = task_team->tt.tt_nproc;
   unfinished_threads = &(task_team->tt.tt_unfinished_threads);
@@ -2911,8 +2997,50 @@ static inline int __kmp_execute_tasks_template(
         }
       }
 
-      if (task == NULL) // break out of tasking loop
-        break;
+#if !USE_UNSHACKLED_TASK
+      if (task == NULL)
+        break; // break out of tasking loop
+#else
+      if (task == nullptr) {
+        // Break out of tasking loop as original way
+        if (!KMP_UNSHACKLED_THREAD(gtid))
+          break;
+
+        // For unshackled thread, we need to double check whether there is still
+        // unfinished task because each time it is waken, there must be new
+        // unshackled task encountered. It is possible that the task might be
+        // consumed by another thread, but we still need to double check
+        // otherwise there might be tasks that will never be executed.
+        // The master thread is skipped as we will never push task to it.
+        for (victim_tid = 1; victim_tid < __kmp_unshackled_threads_num;
+             ++victim_tid) {
+          if (victim_tid == tid)
+            task =
+                __kmp_remove_my_task(thread, gtid, task_team, is_constrained);
+          else {
+            other_thread = threads_data[victim_tid].td.td_thr;
+            task = __kmp_steal_task(other_thread, gtid, task_team,
+                                    unfinished_threads, thread_finished,
+                                    is_constrained);
+          }
+          if (task) {
+            if (threads_data[tid].td.td_deque_last_stolen != victim_tid) {
+              threads_data[tid].td.td_deque_last_stolen = victim_tid;
+              // The pre-refactored code did not try more than 1 successful new
+              // vicitm, unless the last one generated more local tasks;
+              // new_victim keeps track of this
+              new_victim = 1;
+            }
+            break;
+          }
+        }
+        // If now the task is still nullptr, we could safely break this loop
+        if (task == nullptr) {
+          victim_tid = -2;
+          break;
+        }
+      }
+#endif
 
 // Found a task; execute it
 #if USE_ITT_BUILD && USE_ITT_NOTIFY
@@ -3357,6 +3485,9 @@ static kmp_task_team_t *__kmp_allocate_task_team(kmp_info_t *thread,
   task_team->tt.tt_nproc = nthreads = team->t.t_nproc;
 
   KMP_ATOMIC_ST_REL(&task_team->tt.tt_unfinished_threads, nthreads);
+#if USE_UNSHACKLED_TASK
+  KMP_ATOMIC_ST_REL(&task_team->tt.tt_unfinished_unshackled_tasks, 0);
+#endif
   TCW_4(task_team->tt.tt_active, TRUE);
 
   KA_TRACE(20, ("__kmp_allocate_task_team: T#%d exiting; task_team = %p "
@@ -3508,6 +3639,23 @@ void __kmp_task_team_setup(kmp_info_t *this_thr, kmp_team_t *team, int always) {
                     __kmp_gtid_from_thread(this_thr),
                     team->t.t_task_team[other_team],
                     ((team != NULL) ? team->t.t_id : -1), other_team));
+#if USE_UNSHACKLED_TASK
+      // For regular thread, this function should be called when the task is
+      // going to be pushed to a dequeue. However, for the unshackled thread, we
+      // need it ahead of time so that some operations can be performed without
+      // race condition.
+      kmp_task_team_t *task_team = team->t.t_task_team[other_team];
+      if (this_thr == __kmp_unshackled_master_thread &&
+          !KMP_TASKING_ENABLED(task_team)) {
+        __kmp_enable_tasking(task_team, this_thr);
+        for (int i = 0; i < task_team->tt.tt_nproc; ++i) {
+          kmp_thread_data_t *thread_data = &task_team->tt.tt_threads_data[i];
+          if (thread_data->td.td_deque == NULL) {
+            __kmp_alloc_task_deque(__kmp_unshackled_threads[i], thread_data);
+          }
+        }
+      }
+#endif
     } else { // Leave the old task team struct in place for the upcoming region;
       // adjust as needed
       kmp_task_team_t *task_team = team->t.t_task_team[other_team];
@@ -3595,6 +3743,12 @@ void __kmp_task_team_wait(
 
     TCW_PTR(this_thr->th.th_task_team, NULL);
   }
+
+#if USE_UNSHACKLED_TASK
+  if (task_team)
+    while (KMP_ATOMIC_LD_ACQ(&task_team->tt.tt_unfinished_unshackled_tasks))
+      ;
+#endif
 }
 
 // __kmp_tasking_barrier:
@@ -4569,4 +4723,77 @@ void __kmpc_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     __kmpc_end_taskgroup(loc, gtid);
   }
   KA_TRACE(20, ("__kmpc_taskloop(exit): T#%d\n", gtid));
+}
+
+// Bind the async info to current task. Return a zero if the task does not have
+// the depnode, which means the task does not have any dependency; otherwise,
+// return a non-zero value.
+int __kmpc_set_async_info(void *async_info) {
+  int gtid = __kmp_get_gtid();
+  kmp_info_t *thread = __kmp_threads[gtid];
+  kmp_depnode_t *dep = thread->th.th_current_task->td_depnode;
+  if (!dep)
+    return 0;
+  KMP_ATOMIC_ST_REL(&dep->dn.async_info,
+                    reinterpret_cast<uintptr_t>(async_info));
+  return 1;
+}
+
+// Get the list of waiting async info. If list is NULL, just query the number of
+// predecessors current executing task has. If not, list will contain all
+// asynchronous
+void __kmpc_get_target_task_waiting_list(void **list, int *num) {
+  KMP_DEBUG_ASSERT(num != NULL);
+
+  int gtid = __kmp_get_gtid();
+  kmp_info_t *thread = __kmp_threads[gtid];
+  kmp_taskdata_t *taskdata = thread->th.th_current_task;
+
+  // If the depnode is nullptr, the team must work in a serial mode
+  if (!taskdata->td_depnode) {
+    *num = 0;
+    return;
+  }
+
+  int n = 0;
+  for (kmp_depnode_list_t *p = taskdata->td_depnode->dn.predecessors; p;
+       p = p->next) {
+    kmp_depnode_t *dep = p->node;
+    if (dep->dn.task) {
+      kmp_taskdata_t *pred_task = KMP_TASK_TO_TASKDATA(dep->dn.task);
+      KMP_ASSERT(pred_task->td_flags.target);
+      if (list) {
+        while (KMP_ATOMIC_LD_ACQ(&dep->dn.async_info) == 0)
+          __kmpc_omp_taskyield(nullptr, gtid, 0);
+        list[n] =
+            reinterpret_cast<void *>(KMP_ATOMIC_LD_ACQ(&dep->dn.async_info));
+      }
+      ++n;
+    }
+  }
+
+  *num = n;
+}
+
+void __kmpc_target_task_yield() {
+  int gtid = __kmp_get_gtid();
+  __kmpc_omp_taskyield(nullptr, gtid, 0);
+}
+
+int __kmpc_get_target_task_npredecessors() {
+  int gtid = __kmp_get_gtid();
+  kmp_info_t *thread = __kmp_threads[gtid];
+  kmp_taskdata_t *taskdata = thread->th.th_current_task;
+  kmp_depnode_t *dep = taskdata->td_depnode;
+
+  if (!dep)
+    return 0;
+
+  int n;
+
+  KMP_ACQUIRE_DEPNODE(gtid, dep);
+  n = dep->dn.npredecessors;
+  KMP_RELEASE_DEPNODE(gtid, dep);
+
+  return n;
 }

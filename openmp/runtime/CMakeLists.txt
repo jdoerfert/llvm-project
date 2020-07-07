@@ -288,6 +288,9 @@ if(LIBOMP_USE_VERSION_SYMBOLS AND (NOT LIBOMP_ENABLE_SHARED) )
   set (LIBOMP_USE_VERSION_SYMBOLS FALSE)
 endif()
 
+# Unshackled task support defaults to OFF
+set(LIBOMP_USE_UNSHACKLED_TASK FALSE CACHE BOOL "Use unshackled task?")
+
 # OMPT-support defaults to ON for OpenMP 5.0+ and if the requirements in
 # cmake/config-ix.cmake are fulfilled.
 set(OMPT_DEFAULT FALSE)

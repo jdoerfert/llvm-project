@@ -26,33 +26,43 @@ struct __tgt_bin_desc;
 
 struct RTLInfoTy {
   typedef int32_t(is_valid_binary_ty)(void *);
-  typedef int32_t(is_data_exchangable_ty)(int32_t, int32_t);
   typedef int32_t(number_of_devices_ty)();
   typedef int32_t(init_device_ty)(int32_t);
   typedef __tgt_target_table *(load_binary_ty)(int32_t, void *);
   typedef void *(data_alloc_ty)(int32_t, int64_t, void *);
   typedef int32_t(data_submit_ty)(int32_t, void *, void *, int64_t);
-  typedef int32_t(data_submit_async_ty)(int32_t, void *, void *, int64_t,
-                                        __tgt_async_info *);
   typedef int32_t(data_retrieve_ty)(int32_t, void *, void *, int64_t);
-  typedef int32_t(data_retrieve_async_ty)(int32_t, void *, void *, int64_t,
-                                          __tgt_async_info *);
-  typedef int32_t(data_exchange_ty)(int32_t, void *, int32_t, void *, int64_t);
-  typedef int32_t(data_exchange_async_ty)(int32_t, void *, int32_t, void *,
-                                          int64_t, __tgt_async_info *);
   typedef int32_t(data_delete_ty)(int32_t, void *);
   typedef int32_t(run_region_ty)(int32_t, void *, void **, ptrdiff_t *,
                                  int32_t);
-  typedef int32_t(run_region_async_ty)(int32_t, void *, void **, ptrdiff_t *,
-                                       int32_t, __tgt_async_info *);
   typedef int32_t(run_team_region_ty)(int32_t, void *, void **, ptrdiff_t *,
                                       int32_t, int32_t, int32_t, uint64_t);
+  typedef int64_t(init_requires_ty)(int64_t);
+
+  // Device to device memory copy interfaces
+  typedef int32_t(is_data_exchangable_ty)(int32_t, int32_t);
+  typedef int32_t(data_exchange_ty)(int32_t, void *, int32_t, void *, int64_t);
+  typedef int32_t(data_exchange_async_ty)(int32_t, void *, int32_t, void *,
+                                          int64_t, __tgt_async_info *);
+
+  // The following interfaces are all about asynchronous operations
+  typedef int32_t(data_submit_async_ty)(int32_t, void *, void *, int64_t,
+                                        __tgt_async_info *);
+  typedef int32_t(data_retrieve_async_ty)(int32_t, void *, void *, int64_t,
+                                          __tgt_async_info *);
+  typedef int32_t(run_region_async_ty)(int32_t, void *, void **, ptrdiff_t *,
+                                       int32_t, __tgt_async_info *);
   typedef int32_t(run_team_region_async_ty)(int32_t, void *, void **,
                                             ptrdiff_t *, int32_t, int32_t,
                                             int32_t, uint64_t,
                                             __tgt_async_info *);
-  typedef int64_t(init_requires_ty)(int64_t);
-  typedef int64_t(synchronize_ty)(int64_t, __tgt_async_info *);
+  typedef int32_t(wait_event_ty)(int32_t, __tgt_async_info *,
+                                 __tgt_async_info *);
+  typedef int32_t(record_event_ty)(int32_t, __tgt_async_info *);
+  typedef int32_t(synchronize_ty)(int32_t, __tgt_async_info *);
+  typedef int32_t(check_event_ty)(int32_t, __tgt_async_info *);
+  typedef int32_t(release_async_info_ty)(int32_t, __tgt_async_info *);
+  typedef int32_t(init_async_info_ty)(int32_t, __tgt_async_info **);
 
   int32_t Idx = -1;             // RTL index, index is the number of devices
                                 // of other RTLs that were registered before,
@@ -85,7 +95,12 @@ struct RTLInfoTy {
   run_team_region_ty *run_team_region = nullptr;
   run_team_region_async_ty *run_team_region_async = nullptr;
   init_requires_ty *init_requires = nullptr;
+  release_async_info_ty *releaseAsyncInfo = nullptr;
+  wait_event_ty *wait_event = nullptr;
+  record_event_ty *record_event = nullptr;
   synchronize_ty *synchronize = nullptr;
+  check_event_ty *check_event = nullptr;
+  init_async_info_ty *initAsyncInfo = nullptr;
 
   // Are there images associated with this RTL.
   bool isUsed = false;
@@ -94,6 +109,9 @@ struct RTLInfoTy {
   // It is easier to enforce thread-safety at the libomptarget level,
   // so that developers of new RTLs do not have to worry about it.
   std::mutex Mtx;
+
+  // Whether it supports asynchronous operation
+  bool AsyncSupported = true;
 
   // The existence of the mutex above makes RTLInfoTy non-copyable.
   // We need to provide a copy constructor explicitly.
@@ -125,7 +143,13 @@ struct RTLInfoTy {
     run_team_region_async = r.run_team_region_async;
     init_requires = r.init_requires;
     isUsed = r.isUsed;
+    AsyncSupported = r.AsyncSupported;
+    releaseAsyncInfo = r.releaseAsyncInfo;
+    wait_event = r.wait_event;
+    record_event = r.record_event;
     synchronize = r.synchronize;
+    check_event = r.check_event;
+    initAsyncInfo = r.initAsyncInfo;
   }
 };
 

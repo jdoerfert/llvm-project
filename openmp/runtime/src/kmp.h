@@ -2156,6 +2156,10 @@ typedef struct kmp_base_depnode {
 #endif
   std::atomic<kmp_int32> npredecessors;
   std::atomic<kmp_int32> nrefs;
+  // All its depending target tasks
+  kmp_depnode_list_t *predecessors;
+  // A pointer to __tgt_async_info
+  std::atomic<uintptr_t> async_info;
 } kmp_base_depnode_t;
 
 union KMP_ALIGN_CACHE kmp_depnode {
@@ -2235,7 +2239,11 @@ typedef struct kmp_tasking_flags { /* Total struct must be exactly 32 bits */
   unsigned priority_specified : 1; /* set if the compiler provides priority
                                       setting for the task */
   unsigned detachable : 1; /* 1 == can detach */
-  unsigned reserved : 9; /* reserved for compiler use */
+#if USE_UNSHACKLED_TASK
+  unsigned unshackled : 1; /* 1 == unshackled task */
+#endif
+  unsigned target : 1; /* 1 == target task */
+  unsigned reserved : 7; /* reserved for compiler use */
 
   /* Library flags */ /* Total library flags must be 16 bits */
   unsigned tasktype : 1; /* task is either explicit(1) or implicit (0) */
@@ -2283,6 +2291,15 @@ struct kmp_taskdata { /* aligned during dynamic allocation       */
   kmp_depnode_t
       *td_depnode; // Pointer to graph node if this task has dependencies
   kmp_task_team_t *td_task_team;
+#if USE_UNSHACKLED_TASK
+  // The task team of its parent task team. Usually we could access it via
+  // parent_task->td_task_team, but it is possible that
+  // parent_task->td_task_team is nullptr because of late initialization.
+  // Sometimes We must use this pointer, and the td_task_team of the
+  // encountering thread is never nullptr, therefore we it when this task is
+  // created.
+  kmp_task_team_t *td_parent_task_team;
+#endif
   kmp_int32 td_size_alloc; // The size of task structure, including shareds etc.
 #if defined(KMP_GOMP_COMPAT)
   // 4 or 8 byte integers for the loop bounds in GOMP_taskloop
@@ -2320,6 +2337,10 @@ typedef struct kmp_base_thread_data {
   kmp_task_stack_t td_susp_tied_tasks; // Stack of suspended tied tasks for task
 // scheduling constraint
 #endif // BUILD_TIED_TASK_STACK
+#if USE_UNSHACKLED_TASK
+  // Lock for per-thread operation by unshackled thread like memory allocation
+  kmp_bootstrap_lock_t td_thread_lock;
+#endif
 } kmp_base_thread_data_t;
 
 #define TASK_DEQUE_BITS 8 // Used solely to define INITIAL_TASK_DEQUE_SIZE
@@ -2353,6 +2374,11 @@ typedef struct kmp_base_task_team {
 
   KMP_ALIGN_CACHE
   std::atomic<kmp_int32> tt_unfinished_threads; /* #threads still active */
+
+#if USE_UNSHACKLED_TASK
+  KMP_ALIGN_CACHE
+  std::atomic<kmp_int32> tt_unfinished_unshackled_tasks;
+#endif
 
   KMP_ALIGN_CACHE
   volatile kmp_uint32
@@ -2818,6 +2844,7 @@ extern volatile int __kmp_init_parallel;
 extern volatile int __kmp_init_monitor;
 #endif
 extern volatile int __kmp_init_user_locks;
+extern volatile int __kmp_init_unshackled_threads;
 extern int __kmp_init_counter;
 extern int __kmp_root_counter;
 extern int __kmp_version;
@@ -3048,7 +3075,9 @@ extern kmp_root_t **__kmp_root; /* root of thread hierarchy */
 
 static inline bool KMP_UBER_GTID(int gtid) {
   KMP_DEBUG_ASSERT(gtid >= KMP_GTID_MIN);
-  KMP_DEBUG_ASSERT(gtid < __kmp_threads_capacity);
+  KMP_DEBUG_ASSERT(gtid < __kmp_init_unshackled_threads
+                       ? 2 * __kmp_threads_capacity
+                       : __kmp_threads_capacity);
   return (gtid >= 0 && __kmp_root[gtid] && __kmp_threads[gtid] &&
           __kmp_threads[gtid] == __kmp_root[gtid]->r.r_uber_thread);
 }
@@ -3905,6 +3934,35 @@ static inline void __kmp_resume_if_hard_paused() {
 }
 
 extern void __kmp_omp_display_env(int verbose);
+
+#if USE_UNSHACKLED_TASK
+// Master thread of unshackled team
+extern kmp_info_t *__kmp_unshackled_master_thread;
+// Descriptors for the unshackled threads
+extern kmp_info_t **__kmp_unshackled_threads;
+extern int __kmp_unshackled_threads_num;
+
+extern void __kmp_unshackled_threads_initz_routine();
+extern void __kmp_initialize_unshackled_threads();
+extern void __kmp_do_initialize_unshackled_threads();
+extern void __kmp_unshackled_threads_initz_wait();
+extern void __kmp_unshackled_initz_release();
+extern void __kmp_unshackled_master_thread_wait();
+extern void __kmp_unshackled_worker_thread_wait();
+extern void __kmp_unshackled_worker_thread_signal();
+
+// Check whether a given thread is an unshackled thread
+#define KMP_UNSHACKLED_THREAD(gtid) ((gtid) >= __kmp_threads_capacity)
+// Map a gtid to an unshackled thread. The first unshackled thread, a.k.a master
+// thread, is skipped.
+#define KMP_GTID_TO_SHADOW_GTID(gtid)                                          \
+  ((gtid) % (__kmp_unshackled_threads_num - 1) + 1)
+#endif
+// For interaction with libomptarget
+extern int __kmpc_set_async_info(void *async_info);
+extern void __kmpc_get_target_task_waiting_list(void **list, int *num);
+extern void __kmpc_target_task_yield();
+extern int __kmpc_get_target_task_npredecessors();
 
 #ifdef __cplusplus
 }

@@ -62,9 +62,39 @@ static void HandleTargetOutcome(bool success) {
       break;
     case tgt_mandatory:
       if (!success) {
-        FATAL_MESSAGE0(1, "failure of target construct while offloading is mandatory");
+        FATAL_MESSAGE0(
+            1, "failure of target construct while offloading is mandatory");
       }
       break;
+    }
+}
+
+template <bool Begin> static bool checkAndInitDevice(int64_t &DeviceId) {
+  if (IsOffloadDisabled())
+    return false;
+
+  // No devices available?
+  if (DeviceId == OFFLOAD_DEVICE_DEFAULT) {
+    DeviceId = omp_get_default_device();
+    DP("Use default device id %" PRId64 "\n", DeviceId);
+  }
+
+  // Invalid device id as we always expect a non-negative device id and it must
+  // be less than the size of all device RTLs
+  if (DeviceId < 0 || static_cast<uint64_t>(DeviceId) >= Devices.size()) {
+    DP("Invalid device %" PRId64 "\n", DeviceId);
+    return false;
+  }
+
+  if (!Begin)
+    return true;
+
+  if (CheckDeviceAndCtors(DeviceId) != OFFLOAD_SUCCESS) {
+    DP("Failed to get device %" PRId64 " ready\n", DeviceId);
+    HandleTargetOutcome(false);
+    return false;
+  } else {
+    return true;
   }
 }
 
@@ -91,22 +121,12 @@ EXTERN void __tgt_unregister_lib(__tgt_bin_desc *desc) {
 /// and passes the data to the device.
 EXTERN void __tgt_target_data_begin(int64_t device_id, int32_t arg_num,
     void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types) {
-  if (IsOffloadDisabled()) return;
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
+    return;
 
   DP("Entering data begin region for device %" PRId64 " with %d mappings\n",
-      device_id, arg_num);
-
-  // No devices available?
-  if (device_id == OFFLOAD_DEVICE_DEFAULT) {
-    device_id = omp_get_default_device();
-    DP("Use default device id %" PRId64 "\n", device_id);
-  }
-
-  if (CheckDeviceAndCtors(device_id) != OFFLOAD_SUCCESS) {
-    DP("Failed to get device %" PRId64 " ready\n", device_id);
-    HandleTargetOutcome(false);
-    return;
-  }
+     device_id, arg_num);
 
   DeviceTy &Device = Devices[device_id];
 
@@ -118,8 +138,8 @@ EXTERN void __tgt_target_data_begin(int64_t device_id, int32_t arg_num,
   }
 #endif
 
-  int rc = target_data_begin(Device, arg_num, args_base, args, arg_sizes,
-                             arg_types, nullptr);
+  const int rc = targetData<TargetDataFuncTy::Begin>(
+      Device, arg_num, args_base, args, arg_sizes, arg_types);
   HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
 }
 
@@ -127,11 +147,19 @@ EXTERN void __tgt_target_data_begin_nowait(int64_t device_id, int32_t arg_num,
     void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types,
     int32_t depNum, void *depList, int32_t noAliasDepNum,
     void *noAliasDepList) {
-  if (depNum + noAliasDepNum > 0)
-    __kmpc_omp_taskwait(NULL, __kmpc_global_thread_num(NULL));
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
+    return;
 
-  __tgt_target_data_begin(device_id, arg_num, args_base, args, arg_sizes,
-                          arg_types);
+  DP("Entering data begin region for device %" PRId64 " with %d mappings\n",
+     device_id, arg_num);
+
+  DeviceTy &Device = Devices[device_id];
+
+  const int rc = targetDataNowait<TargetDataFuncTy::Begin>(
+      Device, arg_num, args_base, args, arg_sizes, arg_types, depNum, depList,
+      noAliasDepNum, noAliasDepList);
+  HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
 }
 
 /// passes data from the target, releases target memory and destroys
@@ -139,13 +167,12 @@ EXTERN void __tgt_target_data_begin_nowait(int64_t device_id, int32_t arg_num,
 /// created by the last __tgt_target_data_begin.
 EXTERN void __tgt_target_data_end(int64_t device_id, int32_t arg_num,
     void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types) {
-  if (IsOffloadDisabled()) return;
-  DP("Entering data end region with %d mappings\n", arg_num);
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<false>(device_id))
+    return;
 
-  // No devices available?
-  if (device_id == OFFLOAD_DEVICE_DEFAULT) {
-    device_id = omp_get_default_device();
-  }
+  DP("Entering data end region for device %" PRId64 " with %d mappings\n",
+     device_id, arg_num);
 
   RTLsMtx->lock();
   size_t Devices_size = Devices.size();
@@ -164,15 +191,15 @@ EXTERN void __tgt_target_data_end(int64_t device_id, int32_t arg_num,
   }
 
 #ifdef OMPTARGET_DEBUG
-  for (int i=0; i<arg_num; ++i) {
+  for (int i = 0; i < arg_num; ++i) {
     DP("Entry %2d: Base=" DPxMOD ", Begin=" DPxMOD ", Size=%" PRId64
-        ", Type=0x%" PRIx64 "\n", i, DPxPTR(args_base[i]), DPxPTR(args[i]),
-        arg_sizes[i], arg_types[i]);
+       ", Type=0x%" PRIx64 "\n",
+       i, DPxPTR(args_base[i]), DPxPTR(args[i]), arg_sizes[i], arg_types[i]);
   }
 #endif
 
-  int rc = target_data_end(Device, arg_num, args_base, args, arg_sizes,
-                           arg_types, nullptr);
+  const int rc = targetData<TargetDataFuncTy::End>(Device, arg_num, args_base,
+                                                   args, arg_sizes, arg_types);
   HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
 }
 
@@ -180,32 +207,33 @@ EXTERN void __tgt_target_data_end_nowait(int64_t device_id, int32_t arg_num,
     void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types,
     int32_t depNum, void *depList, int32_t noAliasDepNum,
     void *noAliasDepList) {
-  if (depNum + noAliasDepNum > 0)
-    __kmpc_omp_taskwait(NULL, __kmpc_global_thread_num(NULL));
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
+    return;
 
-  __tgt_target_data_end(device_id, arg_num, args_base, args, arg_sizes,
-                        arg_types);
+  DP("Entering data end region for device %" PRId64 " with %d mappings\n",
+     device_id, arg_num);
+
+  DeviceTy &Device = Devices[device_id];
+
+  const int rc = targetDataNowait<TargetDataFuncTy::End>(
+      Device, arg_num, args_base, args, arg_sizes, arg_types, depNum, depList,
+      noAliasDepNum, noAliasDepList);
+  HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
 }
 
 EXTERN void __tgt_target_data_update(int64_t device_id, int32_t arg_num,
     void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types) {
-  if (IsOffloadDisabled()) return;
-  DP("Entering data update with %d mappings\n", arg_num);
-
-  // No devices available?
-  if (device_id == OFFLOAD_DEVICE_DEFAULT) {
-    device_id = omp_get_default_device();
-  }
-
-  if (CheckDeviceAndCtors(device_id) != OFFLOAD_SUCCESS) {
-    DP("Failed to get device %" PRId64 " ready\n", device_id);
-    HandleTargetOutcome(false);
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
     return;
-  }
 
-  DeviceTy& Device = Devices[device_id];
-  int rc = target_data_update(Device, arg_num, args_base,
-      args, arg_sizes, arg_types);
+  DP("Entering data update region for device %" PRId64 " with %d mappings\n",
+     device_id, arg_num);
+
+  DeviceTy &Device = Devices[device_id];
+  const int rc = targetData<TargetDataFuncTy::Update>(
+      Device, arg_num, args_base, args, arg_sizes, arg_types);
   HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
 }
 
@@ -213,39 +241,47 @@ EXTERN void __tgt_target_data_update_nowait(
     int64_t device_id, int32_t arg_num, void **args_base, void **args,
     int64_t *arg_sizes, int64_t *arg_types, int32_t depNum, void *depList,
     int32_t noAliasDepNum, void *noAliasDepList) {
-  if (depNum + noAliasDepNum > 0)
-    __kmpc_omp_taskwait(NULL, __kmpc_global_thread_num(NULL));
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
+    return;
 
-  __tgt_target_data_update(device_id, arg_num, args_base, args, arg_sizes,
-                           arg_types);
+  DP("Entering data update region for device %" PRId64 " with %d mappings\n",
+     device_id, arg_num);
+
+  DeviceTy &Device = Devices[device_id];
+
+  // TODO: this part should be refined maybe in case of memory error
+  __tgt_async_info *async_info = new __tgt_async_info;
+  async_info->DeviceID = device_id;
+
+  const int rc = targetDataNowait<TargetDataFuncTy::Update>(
+      Device, arg_num, args_base, args, arg_sizes, arg_types, depNum, depList,
+      noAliasDepNum, noAliasDepList);
+  HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
 }
 
 EXTERN int __tgt_target(int64_t device_id, void *host_ptr, int32_t arg_num,
     void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types) {
-  if (IsOffloadDisabled()) return OFFLOAD_FAIL;
-  DP("Entering target region with entry point " DPxMOD " and device Id %"
-      PRId64 "\n", DPxPTR(host_ptr), device_id);
-
-  if (device_id == OFFLOAD_DEVICE_DEFAULT) {
-    device_id = omp_get_default_device();
-  }
-
-  if (CheckDeviceAndCtors(device_id) != OFFLOAD_SUCCESS) {
-    DP("Failed to get device %" PRId64 " ready\n", device_id);
-    HandleTargetOutcome(false);
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
     return OFFLOAD_FAIL;
-  }
+
+  DP("Entering target region with entry point " DPxMOD " and device Id %" PRId64
+     "\n",
+     DPxPTR(host_ptr), device_id);
 
 #ifdef OMPTARGET_DEBUG
-  for (int i=0; i<arg_num; ++i) {
+  for (int i = 0; i < arg_num; ++i) {
     DP("Entry %2d: Base=" DPxMOD ", Begin=" DPxMOD ", Size=%" PRId64
-        ", Type=0x%" PRIx64 "\n", i, DPxPTR(args_base[i]), DPxPTR(args[i]),
-        arg_sizes[i], arg_types[i]);
+       ", Type=0x%" PRIx64 "\n",
+       i, DPxPTR(args_base[i]), DPxPTR(args[i]), arg_sizes[i], arg_types[i]);
   }
 #endif
 
-  int rc = target(device_id, host_ptr, arg_num, args_base, args, arg_sizes,
-      arg_types, 0, 0, false /*team*/);
+  const int rc =
+      target(device_id, host_ptr, arg_num, args_base, args, arg_sizes,
+             arg_types, /* TeamNum */ 0, /* ThreadLimit */ 0,
+             /* IsTeamConstruct*/ false);
   HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
   return rc;
 }
@@ -254,40 +290,52 @@ EXTERN int __tgt_target_nowait(int64_t device_id, void *host_ptr,
     int32_t arg_num, void **args_base, void **args, int64_t *arg_sizes,
     int64_t *arg_types, int32_t depNum, void *depList, int32_t noAliasDepNum,
     void *noAliasDepList) {
-  if (depNum + noAliasDepNum > 0)
-    __kmpc_omp_taskwait(NULL, __kmpc_global_thread_num(NULL));
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
+    return OFFLOAD_FAIL;
 
-  return __tgt_target(device_id, host_ptr, arg_num, args_base, args, arg_sizes,
-                      arg_types);
+  DP("Entering target region with entry point " DPxMOD " and device Id %" PRId64
+     "\n",
+     DPxPTR(host_ptr), device_id);
+
+#ifdef OMPTARGET_DEBUG
+  for (int i = 0; i < arg_num; ++i) {
+    DP("Entry %2d: Base=" DPxMOD ", Begin=" DPxMOD ", Size=%" PRId64
+       ", Type=0x%" PRIx64 "\n",
+       i, DPxPTR(args_base[i]), DPxPTR(args[i]), arg_sizes[i], arg_types[i]);
+  }
+#endif
+
+  const int rc = targetNowait(
+      device_id, host_ptr, arg_num, args_base, args, arg_sizes, arg_types,
+      /* TeamNum */ 0, /* ThreadLimit */ 0, /* IsTeamConstruct */ false, depNum,
+      depList, noAliasDepNum, noAliasDepList);
+  HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
+  return rc;
 }
 
 EXTERN int __tgt_target_teams(int64_t device_id, void *host_ptr,
     int32_t arg_num, void **args_base, void **args, int64_t *arg_sizes,
     int64_t *arg_types, int32_t team_num, int32_t thread_limit) {
-  if (IsOffloadDisabled()) return OFFLOAD_FAIL;
-  DP("Entering target region with entry point " DPxMOD " and device Id %"
-      PRId64 "\n", DPxPTR(host_ptr), device_id);
-
-  if (device_id == OFFLOAD_DEVICE_DEFAULT) {
-    device_id = omp_get_default_device();
-  }
-
-  if (CheckDeviceAndCtors(device_id) != OFFLOAD_SUCCESS) {
-    DP("Failed to get device %" PRId64 " ready\n", device_id);
-    HandleTargetOutcome(false);
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
     return OFFLOAD_FAIL;
-  }
+
+  DP("Entering target region with entry point " DPxMOD " and device Id %" PRId64
+     "\n",
+     DPxPTR(host_ptr), device_id);
 
 #ifdef OMPTARGET_DEBUG
-  for (int i=0; i<arg_num; ++i) {
+  for (int i = 0; i < arg_num; ++i) {
     DP("Entry %2d: Base=" DPxMOD ", Begin=" DPxMOD ", Size=%" PRId64
-        ", Type=0x%" PRIx64 "\n", i, DPxPTR(args_base[i]), DPxPTR(args[i]),
-        arg_sizes[i], arg_types[i]);
+       ", Type=0x%" PRIx64 "\n",
+       i, DPxPTR(args_base[i]), DPxPTR(args[i]), arg_sizes[i], arg_types[i]);
   }
 #endif
 
-  int rc = target(device_id, host_ptr, arg_num, args_base, args, arg_sizes,
-      arg_types, team_num, thread_limit, true /*team*/);
+  const int rc = target(device_id, host_ptr, arg_num, args_base, args,
+                        arg_sizes, arg_types, team_num, thread_limit,
+                        /* IsTeamConstruct */ true);
   HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
 
   return rc;
@@ -297,11 +345,28 @@ EXTERN int __tgt_target_teams_nowait(int64_t device_id, void *host_ptr,
     int32_t arg_num, void **args_base, void **args, int64_t *arg_sizes,
     int64_t *arg_types, int32_t team_num, int32_t thread_limit, int32_t depNum,
     void *depList, int32_t noAliasDepNum, void *noAliasDepList) {
-  if (depNum + noAliasDepNum > 0)
-    __kmpc_omp_taskwait(NULL, __kmpc_global_thread_num(NULL));
+  // device_id will be corrected if it is default value
+  if (!checkAndInitDevice<true>(device_id))
+    return OFFLOAD_FAIL;
 
-  return __tgt_target_teams(device_id, host_ptr, arg_num, args_base, args,
-                            arg_sizes, arg_types, team_num, thread_limit);
+  DP("Entering target region with entry point " DPxMOD " and device Id %" PRId64
+     "\n",
+     DPxPTR(host_ptr), device_id);
+
+#ifdef OMPTARGET_DEBUG
+  for (int i = 0; i < arg_num; ++i) {
+    DP("Entry %2d: Base=" DPxMOD ", Begin=" DPxMOD ", Size=%" PRId64
+       ", Type=0x%" PRIx64 "\n",
+       i, DPxPTR(args_base[i]), DPxPTR(args[i]), arg_sizes[i], arg_types[i]);
+  }
+#endif
+
+  const int rc = targetNowait(device_id, host_ptr, arg_num, args_base, args,
+                              arg_sizes, arg_types, team_num, thread_limit,
+                              /* IsTeamConstruct */ true, depNum, depList,
+                              noAliasDepNum, noAliasDepList);
+  HandleTargetOutcome(rc == OFFLOAD_SUCCESS);
+  return rc;
 }
 
 // Get the current number of components for a user-defined mapper.
@@ -342,9 +407,20 @@ EXTERN void __kmpc_push_target_tripcount(int64_t device_id,
   }
 
   DP("__kmpc_push_target_tripcount(%" PRId64 ", %" PRIu64 ")\n", device_id,
-      loop_tripcount);
+     loop_tripcount);
   TblMapMtx->lock();
   Devices[device_id].LoopTripCnt.emplace(__kmpc_global_thread_num(NULL),
                                          loop_tripcount);
   TblMapMtx->unlock();
+}
+
+EXTERN void __kmpc_free_async_info(void *Ptr) {
+  if (!Ptr)
+    return;
+  __tgt_async_info *AsyncInfo = reinterpret_cast<__tgt_async_info *>(Ptr);
+  int DeviceId = AsyncInfo->DeviceID;
+
+  assert(DeviceId >= 0 && "Invalid DeviceId");
+
+  Devices[DeviceId].releaseAsyncInfo(AsyncInfo);
 }

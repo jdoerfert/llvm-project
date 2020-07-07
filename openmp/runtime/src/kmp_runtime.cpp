@@ -3611,6 +3611,12 @@ int __kmp_register_root(int initial_thread) {
         serial initialization may be not a real initial thread).
   */
   capacity = __kmp_threads_capacity;
+#if USE_UNSHACKLED_TASK
+  if (__kmp_init_unshackled_threads) {
+    // The capacity doubles if we have unshackled threads
+    capacity *= 2;
+  }
+#endif
   if (!initial_thread && TCR_PTR(__kmp_threads[0]) == NULL) {
     --capacity;
   }
@@ -3627,15 +3633,28 @@ int __kmp_register_root(int initial_thread) {
     }
   }
 
-  /* find an available thread slot */
-  /* Don't reassign the zero slot since we need that to only be used by initial
-     thread */
-  for (gtid = (initial_thread ? 0 : 1); TCR_PTR(__kmp_threads[gtid]) != NULL;
-       gtid++)
-    ;
-  KA_TRACE(1,
-           ("__kmp_register_root: found slot in threads array: T#%d\n", gtid));
-  KMP_ASSERT(gtid < __kmp_threads_capacity);
+#if USE_UNSHACKLED_TASK
+  if (!__kmp_init_unshackled_threads) {
+#endif
+    /* find an available thread slot */
+    /* Don't reassign the zero slot since we need that to only be used by
+       initial thread */
+    for (gtid = (initial_thread ? 0 : 1); TCR_PTR(__kmp_threads[gtid]) != NULL;
+         gtid++)
+      ;
+    KA_TRACE(
+        1, ("__kmp_register_root: found slot in threads array: T#%d\n", gtid));
+    KMP_ASSERT(gtid < __kmp_threads_capacity);
+#if USE_UNSHACKLED_TASK
+  } else {
+    for (gtid = __kmp_threads_capacity; TCR_PTR(__kmp_threads[gtid]) != NULL;
+         gtid++)
+      ;
+    KA_TRACE(
+        1, ("__kmp_register_root: found slot in threads array: T#%d\n", gtid));
+    KMP_ASSERT(gtid < 2 * __kmp_threads_capacity);
+  }
+#endif
 
   /* update global accounting */
   __kmp_all_nth++;
@@ -4292,9 +4311,23 @@ kmp_info_t *__kmp_allocate_thread(kmp_root_t *root, kmp_team_t *team,
 #endif
 
   KMP_MB();
-  for (new_gtid = 1; TCR_PTR(__kmp_threads[new_gtid]) != NULL; ++new_gtid) {
-    KMP_DEBUG_ASSERT(new_gtid < __kmp_threads_capacity);
+
+#if USE_UNSHACKLED_TASK
+  // If we're initializing the unshackled threads, the start point is at the end
+  // of regular threads array, a.k.a the start of unshackled threads array
+  if (__kmp_init_unshackled_threads) {
+    for (new_gtid = __kmp_threads_capacity;
+         TCR_PTR(__kmp_threads[new_gtid]) != NULL; ++new_gtid) {
+      KMP_DEBUG_ASSERT(new_gtid < 2 * __kmp_threads_capacity);
+    }
+  } else {
+#endif
+    for (new_gtid = 1; TCR_PTR(__kmp_threads[new_gtid]) != NULL; ++new_gtid) {
+      KMP_DEBUG_ASSERT(new_gtid < __kmp_threads_capacity);
+    }
+#if USE_UNSHACKLED_TASK
   }
+#endif
 
   /* allocate space for it. */
   new_thr = (kmp_info_t *)__kmp_allocate(sizeof(kmp_info_t));
@@ -6677,9 +6710,17 @@ static void __kmp_do_serial_initialize(void) {
   size =
       (sizeof(kmp_info_t *) + sizeof(kmp_root_t *)) * __kmp_threads_capacity +
       CACHE_LINE;
+#if USE_UNSHACKLED_TASK
+  size +=
+      (sizeof(kmp_info_t *) + sizeof(kmp_root_t *)) * __kmp_threads_capacity;
+#endif
   __kmp_threads = (kmp_info_t **)__kmp_allocate(size);
   __kmp_root = (kmp_root_t **)((char *)__kmp_threads +
                                sizeof(kmp_info_t *) * __kmp_threads_capacity);
+#if USE_UNSHACKLED_TASK
+  __kmp_root = (kmp_root_t **)((char *)__kmp_root +
+                               sizeof(kmp_info_t *) * __kmp_threads_capacity);
+#endif
 
   /* init thread counts */
   KMP_DEBUG_ASSERT(__kmp_all_nth ==
@@ -6951,6 +6992,10 @@ void __kmp_parallel_initialize(void) {
   KA_TRACE(10, ("__kmp_parallel_initialize: exit\n"));
 
   __kmp_release_bootstrap_lock(&__kmp_initz_lock);
+
+#if USE_UNSHACKLED_TASK
+  __kmp_initialize_unshackled_threads();
+#endif
 }
 
 /* ------------------------------------------------------------------------ */
@@ -8297,7 +8342,6 @@ int __kmp_pause_resource(kmp_pause_status_t level) {
   }
 }
 
-
 void __kmp_omp_display_env(int verbose) {
   __kmp_acquire_bootstrap_lock(&__kmp_initz_lock);
   if (__kmp_init_serial == 0)
@@ -8305,3 +8349,48 @@ void __kmp_omp_display_env(int verbose) {
   __kmp_display_env_impl(!verbose, verbose);
   __kmp_release_bootstrap_lock(&__kmp_initz_lock);
 }
+
+#if USE_UNSHACKLED_TASK
+kmp_info_t **__kmp_unshackled_threads;
+kmp_info_t *__kmp_unshackled_master_thread;
+int __kmp_unshackled_threads_num;
+
+namespace {
+void __kmp_unshackled_wrapper_fn(int *gtid, int *, ...) {
+  // If master thread, then wait for signal
+  if (__kmpc_master(nullptr, *gtid)) {
+    // First, unset the initial state and release the initial thread
+    __kmp_init_unshackled_threads = FALSE;
+    __kmp_unshackled_initz_release();
+    __kmp_unshackled_master_thread_wait();
+  }
+}
+} // namespace
+
+void __kmp_unshackled_threads_initz_routine() {
+  kmp_info_t *master_thread = nullptr;
+
+  // Create a new root for unshackled team/threads
+  const int gtid = __kmp_register_root(TRUE);
+  __kmp_unshackled_master_thread = master_thread = __kmp_threads[gtid];
+  __kmp_unshackled_threads = &__kmp_threads[gtid];
+
+  // TODO: Determine how many unshackled threads
+  __kmp_unshackled_threads_num = 8;
+  master_thread->th.th_set_nproc = __kmp_unshackled_threads_num;
+
+  __kmpc_fork_call(nullptr, 0, __kmp_unshackled_wrapper_fn);
+}
+
+void __kmp_initialize_unshackled_threads() {
+  // Set the global variable indicating that we're initializing unshackled
+  // team/threads
+  __kmp_init_unshackled_threads = TRUE;
+
+  __kmp_do_initialize_unshackled_threads();
+
+  // Wait here for the finish of initialization of unshackled teams
+  __kmp_unshackled_threads_initz_wait();
+}
+
+#endif

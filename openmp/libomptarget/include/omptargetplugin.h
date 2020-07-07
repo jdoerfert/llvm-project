@@ -129,9 +129,28 @@ int32_t __tgt_rtl_run_target_team_region_async(
     int32_t NumTeams, int32_t ThreadLimit, uint64_t loop_tripcount,
     __tgt_async_info *AsyncInfoPtr);
 
-// Device synchronization. In case of success, return zero. Otherwise, return an
-// error code.
-int32_t __tgt_rtl_synchronize(int32_t ID, __tgt_async_info *AsyncInfoPtr);
+// Release all resources in __tgt_async_info
+int32_t __tgt_rtl_release_async_info(int32_t ID, __tgt_async_info *AsyncInfo);
+
+// Wait an event. This is different from synchronizing an event. Waiting an
+// event is a non-blocking operation. Basically, all operations enqueued after
+// this waiting should be blocked until this event is full-filled.
+int32_t __tgt_rtl_wait_event(int32_t ID, __tgt_async_info *AsyncInfo,
+                             __tgt_async_info *DepAsyncInfo);
+
+// Record an event such that the event can be later used for waiting or
+// synchronization. Note that once the event is recorded, all following use of
+// async_info should not use the queue again. In the implementation, the queue
+// should be released somehow.
+int32_t __tgt_rtl_record_event(int32_t ID, __tgt_async_info *AsyncInfo);
+
+// Synchronize an event. This is a blocking operation.
+int32_t __tgt_rtl_synchronize(int32_t ID, __tgt_async_info *AsyncInfo);
+
+// Query an event whether it has been full-filled. If return OFFLOAD_SUCCESS,
+// the event has been full-filled. If OFFLOAD_NOT_DONE, it has not been finished
+// yet. If OFFLOAD_FAIL, something wrong.
+int32_t __tgt_rtl_check_event(int32_t ID, __tgt_async_info *AsyncInfo);
 
 #ifdef __cplusplus
 }

@@ -381,6 +381,23 @@ final_spin=FALSE)
         break;
     }
 
+#if USE_UNSHACKLED_TASK
+    // For unshackled thread, if task_team is nullptr, it means the master
+    // thread has not released the barrier. We cannot wait here because once the
+    // master thread releases all children barriers, all unshackled threads are
+    // still sleeping. This leads to a problem that following configuration,
+    // such as task team sync, will not be performed such that this thread does
+    // not have task team. Usually it is not bad. However, a corner case is,
+    // when the first task encountered is an untied task, the check in
+    // __kmp_task_alloc will crash because it uses the task team pointer without
+    // checking whether it is nullptr. It is probably under some kind of
+    // assumption.
+    if (task_team && KMP_UNSHACKLED_THREAD(th_gtid)) {
+      __kmp_unshackled_worker_thread_wait();
+      continue;
+    }
+#endif
+
     // Don't suspend if KMP_BLOCKTIME is set to "infinite"
     if (__kmp_dflt_blocktime == KMP_MAX_BLOCKTIME &&
         __kmp_pause_status != kmp_soft_paused)

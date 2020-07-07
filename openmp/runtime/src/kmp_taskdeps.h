@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #ifndef KMP_TASKDEPS_H
 #define KMP_TASKDEPS_H
 
@@ -20,6 +19,10 @@
 #define KMP_ACQUIRE_DEPNODE(gtid, n) __kmp_acquire_lock(&(n)->dn.lock, (gtid))
 #define KMP_RELEASE_DEPNODE(gtid, n) __kmp_release_lock(&(n)->dn.lock, (gtid))
 
+extern "C" {
+__attribute__((weak)) void __kmpc_free_async_info(void *);
+}
+
 static inline void __kmp_node_deref(kmp_info_t *thread, kmp_depnode_t *node) {
   if (!node)
     return;
@@ -27,6 +30,21 @@ static inline void __kmp_node_deref(kmp_info_t *thread, kmp_depnode_t *node) {
   kmp_int32 n = KMP_ATOMIC_DEC(&node->dn.nrefs) - 1;
   if (n == 0) {
     KMP_ASSERT(node->dn.nrefs == 0);
+    // Free async info
+    if (node->dn.async_info)
+      __kmpc_free_async_info(
+          reinterpret_cast<void *>(KMP_ATOMIC_LD_ACQ(&node->dn.async_info)));
+    // Free the predecessor list
+    kmp_depnode_list_t *next;
+    for (kmp_depnode_list_t *p = node->dn.predecessors; p; p = next) {
+      __kmp_node_deref(thread, p->node);
+      next = p->next;
+#if USE_FAST_MEMORY
+      __kmp_fast_free(thread, p);
+#else
+      __kmp_thread_free(thread, p);
+#endif
+    }
 #if USE_FAST_MEMORY
     __kmp_fast_free(thread, node);
 #else
@@ -111,13 +129,15 @@ static inline void __kmp_release_deps(kmp_int32 gtid, kmp_taskdata_t *task) {
   kmp_depnode_list_t *next;
   for (kmp_depnode_list_t *p = node->dn.successors; p; p = next) {
     kmp_depnode_t *successor = p->node;
+    kmp_taskdata_t *successor_task_data = KMP_TASK_TO_TASKDATA(successor);
     kmp_int32 npredecessors = KMP_ATOMIC_DEC(&successor->dn.npredecessors) - 1;
 
     // successor task can be NULL for wait_depends or because deps are still
     // being processed
     if (npredecessors == 0) {
       KMP_MB();
-      if (successor->dn.task) {
+      // All target tasks have been enqueued before
+      if (successor->dn.task && !successor_task_data->td_flags.target) {
         KA_TRACE(20, ("__kmp_release_deps: T#%d successor %p of %p scheduled "
                       "for execution.\n",
                       gtid, successor->dn.task, task));

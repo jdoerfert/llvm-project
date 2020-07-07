@@ -153,7 +153,7 @@ LookupResult DeviceTy::lookupMapping(void *HstPtrBegin, int64_t Size) {
   return lr;
 }
 
-// Used by target_data_begin
+// Used by targetDataBegin
 // Return the target pointer begin (where the data will be moved).
 // Allocate memory if this is the first occurrence of this mapping.
 // Increment the reference counter.
@@ -221,9 +221,9 @@ void *DeviceTy::getOrAllocTgtPtr(void *HstPtrBegin, void *HstPtrBase,
   return rc;
 }
 
-// Used by target_data_begin, target_data_end, target_data_update and target.
+// Used by targetDataBegin, targetDataEnd, targetDataUpdate and target.
 // Return the target pointer begin (where the data will be moved).
-// Decrement the reference counter if called from target_data_end.
+// Decrement the reference counter if called from targetDataEnd.
 void *DeviceTy::getTgtPtrBegin(void *HstPtrBegin, int64_t Size, bool &IsLast,
     bool UpdateRefCount, bool &IsHostPtr) {
   void *rc = NULL;
@@ -343,7 +343,7 @@ __tgt_target_table *DeviceTy::load_binary(void *Img) {
 // Submit data to device
 int32_t DeviceTy::data_submit(void *TgtPtrBegin, void *HstPtrBegin,
                               int64_t Size, __tgt_async_info *AsyncInfoPtr) {
-  if (!AsyncInfoPtr || !RTL->data_submit_async || !RTL->synchronize)
+  if (!AsyncInfoPtr || !RTL->data_submit_async)
     return RTL->data_submit(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size);
   else
     return RTL->data_submit_async(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size,
@@ -353,7 +353,7 @@ int32_t DeviceTy::data_submit(void *TgtPtrBegin, void *HstPtrBegin,
 // Retrieve data from device
 int32_t DeviceTy::data_retrieve(void *HstPtrBegin, void *TgtPtrBegin,
                                 int64_t Size, __tgt_async_info *AsyncInfoPtr) {
-  if (!AsyncInfoPtr || !RTL->data_retrieve_async || !RTL->synchronize)
+  if (!AsyncInfoPtr || !RTL->data_retrieve_async)
     return RTL->data_retrieve(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size);
   else
     return RTL->data_retrieve_async(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size,
@@ -363,7 +363,7 @@ int32_t DeviceTy::data_retrieve(void *HstPtrBegin, void *TgtPtrBegin,
 // Copy data from current device to destination device directly
 int32_t DeviceTy::data_exchange(void *SrcPtr, DeviceTy DstDev, void *DstPtr,
                                 int64_t Size, __tgt_async_info *AsyncInfoPtr) {
-  if (!AsyncInfoPtr || !RTL->data_exchange_async || !RTL->synchronize) {
+  if (!AsyncInfoPtr || !RTL->data_exchange_async) {
     assert(RTL->data_exchange && "RTL->data_exchange is nullptr");
     return RTL->data_exchange(RTLDeviceID, SrcPtr, DstDev.RTLDeviceID, DstPtr,
                               Size);
@@ -376,7 +376,7 @@ int32_t DeviceTy::data_exchange(void *SrcPtr, DeviceTy DstDev, void *DstPtr,
 int32_t DeviceTy::run_region(void *TgtEntryPtr, void **TgtVarsPtr,
                              ptrdiff_t *TgtOffsets, int32_t TgtVarsSize,
                              __tgt_async_info *AsyncInfoPtr) {
-  if (!AsyncInfoPtr || !RTL->run_region || !RTL->synchronize)
+  if (!AsyncInfoPtr || !RTL->run_region)
     return RTL->run_region(RTLDeviceID, TgtEntryPtr, TgtVarsPtr, TgtOffsets,
                            TgtVarsSize);
   else
@@ -390,7 +390,7 @@ int32_t DeviceTy::run_team_region(void *TgtEntryPtr, void **TgtVarsPtr,
                                   int32_t NumTeams, int32_t ThreadLimit,
                                   uint64_t LoopTripCount,
                                   __tgt_async_info *AsyncInfoPtr) {
-  if (!AsyncInfoPtr || !RTL->run_team_region_async || !RTL->synchronize)
+  if (!AsyncInfoPtr || !RTL->run_team_region_async)
     return RTL->run_team_region(RTLDeviceID, TgtEntryPtr, TgtVarsPtr,
                                 TgtOffsets, TgtVarsSize, NumTeams, ThreadLimit,
                                 LoopTripCount);
@@ -410,6 +410,28 @@ bool DeviceTy::isDataExchangable(const DeviceTy &DstDevice) {
            (RTL->data_exchange_async != nullptr);
 
   return false;
+}
+
+int DeviceTy::initAsyncInfo(__tgt_async_info **AsyncInfo) {
+  if (!RTL->AsyncSupported) {
+    DP("Asynchronous offloading is not supported");
+    return OFFLOAD_FAIL;
+  }
+
+  if (RTL->initAsyncInfo(RTLDeviceID, AsyncInfo) != OFFLOAD_SUCCESS)
+    return OFFLOAD_FAIL;
+  (*AsyncInfo)->DeviceID = DeviceID;
+
+  return OFFLOAD_SUCCESS;
+}
+
+int32_t DeviceTy::releaseAsyncInfo(__tgt_async_info *AsyncInfo) {
+  if (!RTL->AsyncSupported) {
+    DP("Asynchronous offloading is not supported");
+    return OFFLOAD_FAIL;
+  }
+
+  return RTL->releaseAsyncInfo(RTLDeviceID, AsyncInfo);
 }
 
 /// Check whether a device has an associated RTL and initialize it if it's not

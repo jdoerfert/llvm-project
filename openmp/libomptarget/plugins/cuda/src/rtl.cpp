@@ -953,24 +953,118 @@ public:
     return OFFLOAD_SUCCESS;
   }
 
+  // Since we have two items that can be synchronized, we will always first
+  // try to synchronize the event. If success, return directly. Otherwise,
+  // synchronize the stream.
   int synchronize(const int DeviceId, __tgt_async_info *AsyncInfoPtr) const {
-    CUstream Stream = reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
-    CUresult Err = cuStreamSynchronize(Stream);
-    if (Err != CUDA_SUCCESS) {
-      DP("Error when synchronizing stream. stream = " DPxMOD
-         ", async info ptr = " DPxMOD "\n",
-         DPxPTR(Stream), DPxPTR(AsyncInfoPtr));
-      CUDA_ERR_STRING(Err);
-      return OFFLOAD_FAIL;
+    CUresult Err;
+
+    if (AsyncInfoPtr->Event) {
+      CUevent Event = reinterpret_cast<CUevent>(AsyncInfoPtr->Event);
+      Err = cuEventSynchronize(Event);
+      if (!checkResult(Err, "error returned from cuEventSynchronize"))
+        return OFFLOAD_FAIL;
+
+      return OFFLOAD_SUCCESS;
     }
 
-    // Once the stream is synchronized, return it to stream pool and reset
-    // async_info. This is to make sure the synchronization only works for its
-    // own tasks.
-    StreamManager->returnStream(
-        DeviceId, reinterpret_cast<CUstream>(AsyncInfoPtr->Queue));
+    assert(AsyncInfoPtr->Queue && "AsyncInfoPtr->Queue is nullptr");
+
+    CUstream Stream = reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
+    Err = cuStreamSynchronize(Stream);
+    if (!checkResult(Err, "error returned from cuStreamSynchronize"))
+      return OFFLOAD_FAIL;
+
+    StreamManager->returnStream(DeviceId, Stream);
     AsyncInfoPtr->Queue = nullptr;
 
+    return OFFLOAD_SUCCESS;
+  }
+
+  int releaseAsyncInfo(int DeviceId, __tgt_async_info *AsyncInfo) const {
+    if (AsyncInfo->Queue) {
+      StreamManager->returnStream(
+          DeviceId, reinterpret_cast<CUstream>(AsyncInfo->Queue));
+      AsyncInfo->Queue = nullptr;
+    }
+
+    if (AsyncInfo->Event) {
+      CUresult Err =
+          cuEventDestroy(reinterpret_cast<CUevent>(AsyncInfo->Event));
+      if (!checkResult(Err, "error returned from cuEventDestroy"))
+        return OFFLOAD_FAIL;
+      AsyncInfo->Event = nullptr;
+    }
+
+    delete AsyncInfo;
+
+    return OFFLOAD_SUCCESS;
+  }
+
+  int waitEvent(int DeviceID, __tgt_async_info *AsyncInfo,
+                __tgt_async_info *DepAsyncInfo) const {
+    CUstream Stream = getStream(DeviceID, AsyncInfo);
+    CUevent Event = reinterpret_cast<CUevent>(DepAsyncInfo->Event);
+
+    CUresult Err = cuStreamWaitEvent(Stream, Event, 0);
+    if (!checkResult(Err, "error returned from cuStreamWaitEvent"))
+      return OFFLOAD_FAIL;
+
+    return OFFLOAD_SUCCESS;
+  }
+
+  int recordEvent(int DeviceId, __tgt_async_info *AsyncInfoPtr) const {
+    CUstream Stream = reinterpret_cast<CUstream>(AsyncInfoPtr->Queue);
+    CUevent Event;
+    CUresult Err;
+
+    if (AsyncInfoPtr->Event == nullptr) {
+      Err = cuEventCreate(&Event, CU_EVENT_DISABLE_TIMING);
+      if (!checkResult(Err, "error returned from cuEventCreate"))
+        return OFFLOAD_FAIL;
+      AsyncInfoPtr->Event = Event;
+    } else {
+      Event = reinterpret_cast<CUevent>(AsyncInfoPtr->Event);
+    }
+
+    Err = cuEventRecord(Event, Stream);
+    if (!checkResult(Err, "error returned from cuEventRecord"))
+      return OFFLOAD_FAIL;
+
+    return OFFLOAD_SUCCESS;
+  }
+
+  int checkEvent(int DeviceId, __tgt_async_info *AsyncInfoPtr) const {
+    CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
+    if (!checkResult(Err, "error returned from cuCtxSetCurrent"))
+      return OFFLOAD_FAIL;
+
+    CUevent Event = reinterpret_cast<CUevent>(AsyncInfoPtr->Event);
+    Err = cuEventQuery(Event);
+    // Event has been full-filled
+    if (Err == CUDA_SUCCESS)
+      return OFFLOAD_SUCCESS;
+    // Event has not been full-filled
+    if (Err == CUDA_ERROR_NOT_READY)
+      return OFFLOAD_NOT_DONE;
+    // Other errors
+    checkResult(Err, "error returned from cuEventQuery");
+    return OFFLOAD_FAIL;
+  }
+
+  int initAsyncInfo(int DeviceId, __tgt_async_info **AsyncInfo) const {
+    CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
+    if (!checkResult(Err, "error returned from cuCtxSetCurrent"))
+      return OFFLOAD_FAIL;
+
+    __tgt_async_info *P = new __tgt_async_info;
+    getStream(DeviceId, P);
+    CUevent Event;
+    Err = cuEventCreate(&Event, CU_EVENT_DISABLE_TIMING);
+    if (!checkResult(Err, "error returned from cuEventCreate"))
+      return OFFLOAD_FAIL;
+    P->Event = Event;
+    *AsyncInfo = P;
     return OFFLOAD_SUCCESS;
   }
 };
@@ -1158,13 +1252,54 @@ int32_t __tgt_rtl_run_target_region_async(int32_t device_id,
       async_info_ptr);
 }
 
-int32_t __tgt_rtl_synchronize(int32_t device_id,
-                              __tgt_async_info *async_info_ptr) {
+int32_t __tgt_rtl_release_async_info(int32_t device_id,
+                                     __tgt_async_info *async_info) {
   assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
-  assert(async_info_ptr && "async_info_ptr is nullptr");
-  assert(async_info_ptr->Queue && "async_info_ptr->Queue is nullptr");
+  assert(async_info && "async_info is nullptr");
 
-  return DeviceRTL.synchronize(device_id, async_info_ptr);
+  return DeviceRTL.releaseAsyncInfo(device_id, async_info);
+}
+
+int32_t __tgt_rtl_wait_event(int32_t device_id, __tgt_async_info *async_info,
+                             __tgt_async_info *dep_async_info) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(async_info && "async_info is nullptr");
+  assert(dep_async_info->Event && "dep_async_info->Event is nullptr");
+
+  return DeviceRTL.waitEvent(device_id, async_info, dep_async_info);
+}
+
+int32_t __tgt_rtl_record_event(int32_t device_id,
+                               __tgt_async_info *async_info) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(async_info && "async_info is nullptr");
+  assert(async_info->Queue && "async_info->Queue is nullptr");
+
+  return DeviceRTL.recordEvent(device_id, async_info);
+}
+
+int32_t __tgt_rtl_synchronize(int32_t device_id, __tgt_async_info *async_info) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(async_info && "async_info is nullptr");
+  assert((async_info->Event || async_info->Queue) &&
+         "Both async_info->Event and async_info->Queue are nullptr");
+
+  return DeviceRTL.synchronize(device_id, async_info);
+}
+
+int32_t __tgt_rtl_check_event(int32_t device_id, __tgt_async_info *async_info) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(async_info && "async_info is nullptr");
+  assert(async_info->Event && "async_info->Event is nullptr");
+
+  return DeviceRTL.checkEvent(device_id, async_info);
+}
+
+int32_t __tgt_rtl_initialize_async_info(int32_t device_id, __tgt_async_info **async_info) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+  assert(async_info && "async_info is nullptr");
+
+  return DeviceRTL.initAsyncInfo(device_id, async_info);
 }
 
 #ifdef __cplusplus

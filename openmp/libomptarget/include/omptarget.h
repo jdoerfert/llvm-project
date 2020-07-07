@@ -19,6 +19,7 @@
 
 #define OFFLOAD_SUCCESS (0)
 #define OFFLOAD_FAIL (~0)
+#define OFFLOAD_NOT_DONE (1)
 
 #define OFFLOAD_DEVICE_DEFAULT     -1
 #define HOST_DEVICE                -10
@@ -114,10 +115,14 @@ struct __tgt_target_table {
 /// This struct contains information exchanged between different asynchronous
 /// operations for device-dependent optimization and potential synchronization
 struct __tgt_async_info {
+  // Device ID. Note that it is NOT the RTLDeviceID. We don't need to store the
+  // RTLDeviceID explicitly as we can always get it via DeviceID.
+  int DeviceID = -1;
   // A pointer to a queue-like structure where offloading operations are issued.
-  // We assume to use this structure to do synchronization. In CUDA backend, it
-  // is CUstream.
+  // We assume to use this structure to do synchronization.
   void *Queue = nullptr;
+  // A pointer to a device-dependent event used for synchronization as well.
+  void *Event = nullptr;
 };
 
 #ifdef __cplusplus
@@ -208,6 +213,7 @@ int __tgt_target_teams_nowait(int64_t device_id, void *host_ptr,
                               int32_t depNum, void *depList,
                               int32_t noAliasDepNum, void *noAliasDepList);
 void __kmpc_push_target_tripcount(int64_t device_id, uint64_t loop_tripcount);
+void __kmpc_free_async_info(void *Ptr);
 
 #ifdef __cplusplus
 }

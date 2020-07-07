@@ -25,6 +25,7 @@
 #include <alloca.h>
 #endif
 #include <math.h> // HUGE_VAL.
+#include <semaphore.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
@@ -2439,7 +2440,7 @@ int __kmp_invoke_microtask(microtask_t pkfn, int gtid, int tid, int argc,
                            ,
                            void **exit_frame_ptr
 #endif
-                           ) {
+) {
 #if OMPT_SUPPORT
   *exit_frame_ptr = OMPT_GET_FRAME_ADDRESS(0);
 #endif
@@ -2514,6 +2515,84 @@ int __kmp_invoke_microtask(microtask_t pkfn, int gtid, int tid, int argc,
   }
 
   return 1;
+}
+
+#endif
+
+#if USE_UNSHACKLED_TASK
+
+namespace {
+pthread_t __kmp_unshackled_master_thread_handle;
+
+// Condition variable for initializing unshackled team
+pthread_cond_t __kmp_unshackled_threads_initz_cond_var;
+pthread_mutex_t __kmp_unshackled_threads_initz_lock;
+
+// Condition variable for the wrapper function of master thread
+pthread_cond_t __kmp_unshackled_master_thread_cond_var;
+pthread_mutex_t _kmp_unshackled_master_thread_lock;
+
+sem_t __kmp_unshackled_task_sem;
+} // namespace
+
+void __kmp_unshackled_worker_thread_wait() {
+  if (sem_wait(&__kmp_unshackled_task_sem))
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
+}
+
+void __kmp_do_initialize_unshackled_threads() {
+  // Initialize condition variable
+  if (pthread_cond_init(&__kmp_unshackled_threads_initz_cond_var, nullptr))
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
+  if (pthread_cond_init(&__kmp_unshackled_master_thread_cond_var, nullptr))
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
+
+  if (sem_init(&__kmp_unshackled_task_sem, 0, 0))
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
+
+  // Create a new thread to finish initialization
+  if (pthread_create(
+          &__kmp_unshackled_master_thread_handle, nullptr,
+          [](void *) -> void * {
+            __kmp_unshackled_threads_initz_routine();
+            return nullptr;
+          },
+          nullptr)) {
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
+  }
+}
+
+void __kmp_unshackled_threads_initz_wait() {
+  // Initial thread waits here for the completion of the initialization. The
+  // condition variable will be notified by master thread of unshackled teams
+  if (pthread_cond_wait(&__kmp_unshackled_threads_initz_cond_var,
+                        &__kmp_unshackled_threads_initz_lock)) {
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
+  }
+}
+
+void __kmp_unshackled_initz_release() {
+  // After all initialization, reset __kmp_init_unshackled_threads to false
+  __kmp_init_unshackled_threads = FALSE;
+
+  // Notify the initial thread
+  if (pthread_cond_signal(&__kmp_unshackled_threads_initz_cond_var)) {
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
+  }
+}
+
+void __kmp_unshackled_master_thread_wait() {
+  // The master thread of unshackled team will be blocked here. The
+  // condition variable can only be signal in the destructor of RTL
+  if (pthread_cond_wait(&__kmp_unshackled_master_thread_cond_var,
+                        &_kmp_unshackled_master_thread_lock)) {
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
+  }
+}
+
+void __kmp_unshackled_worker_thread_signal() {
+  if (sem_post(&__kmp_unshackled_task_sem))
+    __kmp_fatal(KMP_MSG(CantRegisterNewThread));
 }
 
 #endif
