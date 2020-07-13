@@ -1033,6 +1033,7 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
     // Check if the function is uses in a __kmpc_kernel_prepare_parallel call at
     // all.
     bool UnknownUse = false;
+    bool KernelPrepareUse = false;
     unsigned NumDirectCalls = 0;
 
     SmallVector<Use *, 2> ToBeReplacedStateMachineUses;
@@ -1049,30 +1050,87 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
       }
       if (OpenMPOpt::getCallIfRegularCall(*U.getUser(),
                                           &KernelPrepareParallelRFI)) {
+        KernelPrepareUse = true;
         ToBeReplacedStateMachineUses.push_back(&U);
         return;
       }
       UnknownUse = true;
     });
 
-    // If this ever hits, we should investigate.
-    if (UnknownUse || NumDirectCalls != 1)
+    // Do not emit a remark if we haven't seen a __kmpc_kernel_prepare_parallel
+    // use.
+    if (!KernelPrepareUse)
       continue;
 
-    // TODO: This is not a necessary restriction and should be lifted.
-    if (ToBeReplacedStateMachineUses.size() != 2)
+    {
+      auto Remark = [&](OptimizationRemark OR) {
+        return OR << "Found a parallel region that is called in a target "
+                     "region but not part of a combined target construct nor "
+                     "nesed inside a target construct without intermediate "
+                     "code. This can lead to excessive register usage in "
+                     "unrelated kernels in the same translation unit due to "
+                     "spurious call edges assumed by ptxas.";
+      };
+      emitRemarkOnFunction(F, "OpenMPParallelRegionInNonSPMD", Remark);
+    }
+
+    // If this ever hits, we should investigate.
+    // TODO: Checking the number of uses is not a necessary restriction and
+    // should be lifted.
+    if (UnknownUse || NumDirectCalls != 1 ||
+        ToBeReplacedStateMachineUses.size() != 2) {
+      {
+        auto Remark = [&](OptimizationRemark OR) {
+          return OR << "Parallel region is used in "
+                    << (UnknownUse ? "unknown" : "unexpected")
+                    << " ways; will not attempt to rewrite the state machine.";
+        };
+        emitRemarkOnFunction(F, "OpenMPParallelRegionInNonSPMD", Remark);
+      }
       continue;
+    }
 
     // Even if we have __kmpc_kernel_prepare_parallel calls, we (for now) give
     // up if the function is not called from a unique kernel.
     Kernel K = getUniqueKernelFor(*F);
-    if (!K)
+    if (!K) {
+      {
+        auto Remark = [&](OptimizationRemark OR) {
+          return OR << "Parallel region is not known to be called from a "
+                       "unique single target region, maybe the surrounding "
+                       "function has external linkage?; will not attempt to "
+                       "rewrite the state machine use.";
+        };
+        emitRemarkOnFunction(F, "OpenMPParallelRegionInMultipleKernesl",
+                             Remark);
+      }
       continue;
+    }
 
     // We now know F is a parallel body function called only from the kernel K.
     // We also identified the state machine uses in which we replace the
     // function pointer by a new global symbol for identification purposes. This
     // ensures only direct calls to the function are left.
+
+    {
+      auto RemarkParalleRegion = [&](OptimizationRemark OR) {
+        return OR << "Specialize parallel region reached only from a single "
+                     "target region. (parallel region ID: "
+                  << ore::NV("OpenMPParallelRegion", F->getName())
+                  << ", kernel ID: "
+                  << ore::NV("OpenMPTargetRegion", K->getName()) << ")";
+      };
+      emitRemarkOnFunction(F, "OpenMPParallelRegionInNonSPMD",
+                           RemarkParalleRegion);
+      auto RemarkKernel = [&](OptimizationRemark OR) {
+        return OR << "Target region containing the parallel region that can be "
+                     "specialized. (parallel region ID: "
+                  << ore::NV("OpenMPParallelRegion", F->getName())
+                  << ", kernel ID: "
+                  << ore::NV("OpenMPTargetRegion", K->getName()) << ")";
+      };
+      emitRemarkOnFunction(K, "OpenMPParallelRegionInNonSPMD", RemarkKernel);
+    }
 
     Module &M = *F->getParent();
     Type *Int8Ty = Type::getInt8Ty(M.getContext());
