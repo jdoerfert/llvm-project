@@ -36,6 +36,12 @@ static cl::opt<bool> DisableOpenMPOptimizations(
     "openmp-opt-disable", cl::ZeroOrMore,
     cl::desc("Disable OpenMP specific optimizations."), cl::Hidden,
     cl::init(false));
+static cl::opt<bool> UnsafeAssumeNoExternalTargetRegions(
+    "openmp-unsafe-assume-no-external-target-regions", cl::ZeroOrMore,
+    cl::desc("[UNSAFE!] Assume no external target regions when specializing "
+             "OpenMP parallel regions to avoid spurious register usage issues, "
+             "combine with `-Rpass=openmp`"),
+    cl::Hidden, cl::init(false));
 
 static cl::opt<bool> PrintICVValues("openmp-print-icv-values", cl::init(false),
                                     cl::Hidden);
@@ -1096,15 +1102,23 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
     if (!K) {
       {
         auto Remark = [&](OptimizationRemark OR) {
-          return OR << "Parallel region is not known to be called from a "
+          return OR << (UnsafeAssumeNoExternalTargetRegions ? "[UNSAFE] " : "")
+                    << "Parallel region is not known to be called from a "
                        "unique single target region, maybe the surrounding "
-                       "function has external linkage?; will not attempt to "
-                       "rewrite the state machine use.";
+                       "function has external linkage?"
+                    << (UnsafeAssumeNoExternalTargetRegions
+                            ? "; will rewrite the state machine use due to "
+                              "command line flag, this can lead to undefined "
+                              "behavior if the parallel region is called from "
+                              "a target region outside this translation unit."
+                            : "; will not attempt to rewrite the state machine "
+                              "use.");
         };
         emitRemarkOnFunction(F, "OpenMPParallelRegionInMultipleKernesl",
                              Remark);
       }
-      continue;
+      if (!UnsafeAssumeNoExternalTargetRegions)
+        continue;
     }
 
     // We now know F is a parallel body function called only from the kernel K.
@@ -1120,10 +1134,12 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
                      "(parallel region ID: "
                   << ore::NV("OpenMPParallelRegion", F->getName())
                   << ", kernel ID: "
-                  << ore::NV("OpenMPTargetRegion", K->getName()) << ")";
+                  << ore::NV("OpenMPTargetRegion", K ? K->getName() : "<NONE>")
+                  << ")";
       };
       emitRemarkOnFunction(F, "OpenMPParallelRegionInNonSPMD",
                            RemarkParalleRegion);
+
       auto RemarkKernel = [&](OptimizationRemark OR) {
         return OR << "Target region containing the parallel region that is "
                      "specialized. (parallel region ID: "
@@ -1131,7 +1147,8 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
                   << ", kernel ID: "
                   << ore::NV("OpenMPTargetRegion", K->getName()) << ")";
       };
-      emitRemarkOnFunction(K, "OpenMPParallelRegionInNonSPMD", RemarkKernel);
+      if (K)
+        emitRemarkOnFunction(K, "OpenMPParallelRegionInNonSPMD", RemarkKernel);
     }
 
     Module &M = *F->getParent();
