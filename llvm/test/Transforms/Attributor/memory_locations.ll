@@ -656,3 +656,53 @@ define void @argmemonky_caller() {
   call void @argmemonly_before_ipconstprop(i32* @G)
   ret void
 }
+
+define void @argmemonly_callee(i32* %p, i32* %q) argmemonly {
+; IS__TUNIT____: Function Attrs: argmemonly nofree nosync nounwind willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@argmemonly_callee
+; IS__TUNIT____-SAME: (i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P:%.*]], i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[Q:%.*]])
+; IS__TUNIT____-NEXT:    [[L:%.*]] = load i32, i32* [[Q]], align 4
+; IS__TUNIT____-NEXT:    store i32 [[L]], i32* [[P]], align 4
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@argmemonly_callee
+; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P:%.*]], i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[Q:%.*]])
+; IS__CGSCC____-NEXT:    [[L:%.*]] = load i32, i32* [[Q]], align 4
+; IS__CGSCC____-NEXT:    store i32 [[L]], i32* [[P]], align 4
+; IS__CGSCC____-NEXT:    ret void
+;
+  %l = load i32, i32* %q
+  store i32 %l, i32* %p
+  ret void
+}
+
+define void @readnone_caller_argmemonly_call() {
+; IS__TUNIT_OPM: Function Attrs: nofree nosync nounwind willreturn
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@readnone_caller_argmemonly_call()
+; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = alloca i32, align 4
+; IS__TUNIT_OPM-NEXT:    call void @argmemonly_callee(i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[L]], i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) @G)
+; IS__TUNIT_OPM-NEXT:    ret void
+;
+; IS__TUNIT_NPM: Function Attrs: nofree nosync nounwind willreturn
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@readnone_caller_argmemonly_call()
+; IS__TUNIT_NPM-NEXT:    [[L:%.*]] = alloca i32, align 4
+; IS__TUNIT_NPM-NEXT:    call void @argmemonly_callee(i32* noalias nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[L]], i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) @G)
+; IS__TUNIT_NPM-NEXT:    ret void
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@readnone_caller_argmemonly_call()
+; IS__CGSCC_OPM-NEXT:    [[L:%.*]] = alloca i32, align 4
+; IS__CGSCC_OPM-NEXT:    call void @argmemonly_callee(i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[L]], i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) @G)
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@readnone_caller_argmemonly_call()
+; IS__CGSCC_NPM-NEXT:    [[L:%.*]] = alloca i32, align 4
+; IS__CGSCC_NPM-NEXT:    call void @argmemonly_callee(i32* noalias nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[L]], i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) @G)
+; IS__CGSCC_NPM-NEXT:    ret void
+;
+  %l = alloca i32
+  call void @argmemonly_callee(i32* %l, i32* @G)
+  ret void
+}
