@@ -940,7 +940,7 @@ bool Attributor::checkForAllReadWriteInstructions(
 }
 
 void Attributor::runTillFixpoint() {
-  TimeTraceScope TimeScope("Attributor::runTillFixpoint");
+  TimeTraceScope TimeScope("Attributor", StringRef("runTillFixpoint"));
   LLVM_DEBUG(dbgs() << "[Attributor] Identified and initialized "
                     << DG.SyntheticRoot.Deps.size()
                     << " abstract attributes.\n");
@@ -1077,7 +1077,7 @@ void Attributor::runTillFixpoint() {
 }
 
 ChangeStatus Attributor::manifestAttributes() {
-  TimeTraceScope TimeScope("Attributor::manifestAttributes");
+  TimeTraceScope TimeScope("Attributor", StringRef("manifestAttributes"));
   size_t NumFinalAAs = DG.SyntheticRoot.Deps.size();
 
   unsigned NumManifested = 0;
@@ -1102,7 +1102,12 @@ ChangeStatus Attributor::manifestAttributes() {
     if (isAssumedDead(*AA, nullptr, /* CheckBBLivenessOnly */ true))
       continue;
     // Manifest the state and record if we changed the IR.
-    ChangeStatus LocalChange = AA->manifest(*this);
+    ChangeStatus LocalChange;
+    {
+      TimeTraceScope TimeScope("Attributor",
+                               [&]() { return "manifest " + AA->getName(); });
+      LocalChange = AA->manifest(*this);
+    }
     if (LocalChange == ChangeStatus::CHANGED && AreStatisticsEnabled())
       AA->trackStatistics();
     LLVM_DEBUG(dbgs() << "[Attributor] Manifest " << LocalChange << " : " << *AA
@@ -1140,7 +1145,7 @@ ChangeStatus Attributor::manifestAttributes() {
 }
 
 ChangeStatus Attributor::cleanupIR() {
-  TimeTraceScope TimeScope("Attributor::cleanupIR");
+  TimeTraceScope TimeScope("Attributor", StringRef("cleanupIR"));
   // Delete stuff at the end to avoid invalid references and a nice order.
   LLVM_DEBUG(dbgs() << "\n[Attributor] Delete at least "
                     << ToBeDeletedFunctions.size() << " functions and "
@@ -1309,7 +1314,7 @@ ChangeStatus Attributor::cleanupIR() {
 }
 
 ChangeStatus Attributor::run() {
-  TimeTraceScope TimeScope("Attributor::run");
+  TimeTraceScope TimeScope("Attributor", StringRef("run"));
 
   SeedingPeriod = false;
   runTillFixpoint();
@@ -1330,7 +1335,8 @@ ChangeStatus Attributor::run() {
 }
 
 ChangeStatus Attributor::updateAA(AbstractAttribute &AA) {
-  TimeTraceScope TimeScope(AA.getName() + "::updateAA");
+  TimeTraceScope TimeScope("Attributor",
+                           [&]() { return "update " + AA.getName(); });
 
   // Use a new dependence vector for this update.
   DependenceVector DV;
@@ -1869,6 +1875,9 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     return;
   if (F.isDeclaration())
     return;
+
+  TimeTraceScope TimeScope("Attributor",
+                           StringRef("identifyDefaultAbstractAttributes"));
 
   // In non-module runs we need to look at the call sites of a function to
   // determine if it is part of a must-tail call edge. This will influence what

@@ -1009,7 +1009,8 @@ struct Attributor {
     }
 
     {
-      TimeTraceScope TimeScope(AA.getName() + "::initialize");
+      TimeTraceScope TimeScope("Attributor",
+                               [&]() { return "initialize " + AA.getName(); });
       AA.initialize(*this);
     }
     // We can initialize (=look at) code outside the current function set but
