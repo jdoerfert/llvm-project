@@ -3325,9 +3325,6 @@ struct AADereferenceableImpl : AADereferenceable {
       indicatePessimisticFixpoint();
       return;
     }
-
-    if (Instruction *CtxI = getCtxI())
-      followUsesInMBEC(*this, A, getState(), *CtxI);
   }
 
   /// See AbstractAttribute::getState()
@@ -3409,6 +3406,14 @@ struct AADereferenceableImpl : AADereferenceable {
 struct AADereferenceableFloating : AADereferenceableImpl {
   AADereferenceableFloating(const IRPosition &IRP, Attributor &A)
       : AADereferenceableImpl(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    AADereferenceableImpl::initialize(A);
+    if (!getState().isAtFixpoint())
+      if (Instruction *CtxI = getCtxI())
+        followUsesInMBEC(*this, A, getState(), *CtxI);
+  }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -3496,9 +3501,9 @@ struct AADereferenceableReturned final
 /// Dereferenceable attribute for an argument
 struct AADereferenceableArgument final
     : AAArgumentFromCallSiteArguments<AADereferenceable,
-                                      AADereferenceableImpl> {
-  using Base =
-      AAArgumentFromCallSiteArguments<AADereferenceable, AADereferenceableImpl>;
+                                      AADereferenceableFloating> {
+  using Base = AAArgumentFromCallSiteArguments<AADereferenceable,
+                                               AADereferenceableFloating>;
   AADereferenceableArgument(const IRPosition &IRP, Attributor &A)
       : Base(IRP, A) {}
 
@@ -3521,9 +3526,10 @@ struct AADereferenceableCallSiteArgument final : AADereferenceableFloating {
 
 /// Dereferenceable attribute deduction for a call site return value.
 struct AADereferenceableCallSiteReturned final
-    : AACallSiteReturnedFromReturned<AADereferenceable, AADereferenceableImpl> {
-  using Base =
-      AACallSiteReturnedFromReturned<AADereferenceable, AADereferenceableImpl>;
+    : AACallSiteReturnedFromReturned<AADereferenceable,
+                                     AADereferenceableFloating> {
+  using Base = AACallSiteReturnedFromReturned<AADereferenceable,
+                                              AADereferenceableFloating>;
   AADereferenceableCallSiteReturned(const IRPosition &IRP, Attributor &A)
       : Base(IRP, A) {}
 
