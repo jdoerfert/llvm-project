@@ -593,10 +593,14 @@ static void followUsesInContext(AAType &AA, Attributor &A,
 template <class AAType, typename StateType = typename AAType::StateType>
 static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
                              Instruction &CtxI) {
+  // We can only use the "use-logic" below for "local" SSA values.
+  Value &AssociatedValue = AA.getIRPosition().getAssociatedValue();
+  if (!isa<Argument>(AssociatedValue) && !isa<Instruction>(AssociatedValue))
+    return;
 
   // Container for (transitive) uses of the associated value.
   SetVector<const Use *> Uses;
-  for (const Use &U : AA.getIRPosition().getAssociatedValue().uses())
+  for (const Use &U : AssociatedValue.uses())
     Uses.insert(&U);
 
   MustBeExecutedContextExplorer &Explorer =
