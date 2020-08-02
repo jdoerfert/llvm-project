@@ -427,9 +427,9 @@ bool IRPosition::getAttrsFromAssumes(Attribute::AttrKind AK,
   unsigned AttrsSize = Attrs.size();
   MustBeExecutedContextExplorer &Explorer =
       A.getInfoCache().getMustBeExecutedContextExplorer();
-  auto EIt = Explorer.begin(getCtxI()), EEnd = Explorer.end(getCtxI());
+  Instruction &CtxI = *getCtxI();
   for (auto &It : A2K)
-    if (Explorer.findInContextOf(It.first, EIt, EEnd))
+    if (Explorer.findInContextOf(*It.first, CtxI))
       Attrs.push_back(Attribute::get(Ctx, AK, It.second.Max));
   return AttrsSize != Attrs.size();
 }
