@@ -1593,7 +1593,7 @@ static int64_t getKnownNonNullAndDerefBytesForUse(
   Type *PtrTy = UseV->getType();
   const Function *F = I->getFunction();
   bool NullPointerIsDefined =
-      F ? llvm::NullPointerIsDefined(F, PtrTy->getPointerAddressSpace()) : true;
+      llvm::NullPointerIsDefined(F, PtrTy->getPointerAddressSpace());
   const DataLayout &DL = A.getInfoCache().getDL();
   if (const auto *CB = dyn_cast<CallBase>(I)) {
     if (CB->isBundleOperand(U)) {
