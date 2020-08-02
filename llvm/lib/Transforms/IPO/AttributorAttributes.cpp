@@ -1691,10 +1691,6 @@ struct AANonNullImpl : AANonNull {
     if (V.getPointerDereferenceableBytes(A.getDataLayout(), CanBeNull))
       if (!CanBeNull)
         indicateOptimisticFixpoint();
-
-    if (!getState().isAtFixpoint())
-      if (Instruction *CtxI = getCtxI())
-        followUsesInMBEC(*this, A, getState(), *CtxI);
   }
 
   /// See followUsesInMBEC
@@ -1722,6 +1718,14 @@ struct AANonNullImpl : AANonNull {
 struct AANonNullFloating : public AANonNullImpl {
   AANonNullFloating(const IRPosition &IRP, Attributor &A)
       : AANonNullImpl(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    AANonNullImpl::initialize(A);
+    if (!getState().isAtFixpoint())
+      if (Instruction *CtxI = getCtxI())
+        followUsesInMBEC(*this, A, getState(), *CtxI);
+  }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -1781,9 +1785,9 @@ struct AANonNullReturned final
 
 /// NonNull attribute for function argument.
 struct AANonNullArgument final
-    : AAArgumentFromCallSiteArguments<AANonNull, AANonNullImpl> {
+    : AAArgumentFromCallSiteArguments<AANonNull, AANonNullFloating> {
   AANonNullArgument(const IRPosition &IRP, Attributor &A)
-      : AAArgumentFromCallSiteArguments<AANonNull, AANonNullImpl>(IRP, A) {}
+      : AAArgumentFromCallSiteArguments<AANonNull, AANonNullFloating>(IRP, A) {}
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_ARG_ATTR(nonnull) }
@@ -1799,9 +1803,9 @@ struct AANonNullCallSiteArgument final : AANonNullFloating {
 
 /// NonNull attribute for a call site return position.
 struct AANonNullCallSiteReturned final
-    : AACallSiteReturnedFromReturned<AANonNull, AANonNullImpl> {
+    : AACallSiteReturnedFromReturned<AANonNull, AANonNullFloating> {
   AANonNullCallSiteReturned(const IRPosition &IRP, Attributor &A)
-      : AACallSiteReturnedFromReturned<AANonNull, AANonNullImpl>(IRP, A) {}
+      : AACallSiteReturnedFromReturned<AANonNull, AANonNullFloating>(IRP, A) {}
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_CSRET_ATTR(nonnull) }
