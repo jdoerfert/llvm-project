@@ -234,6 +234,7 @@ FunctionAnalysisManagerCGSCCProxy::run(LazyCallGraph::SCC &C,
   // this point. There are cases when this is being run unnecessarily, but
   // it is cheap and having the assertion in place is more valuable.
   auto &MAMProxy = AM.getResult<ModuleAnalysisManagerCGSCCProxy>(C, CG);
+  assert(C.size() && "The current SCC should never be empty!");
   Module &M = *C.begin()->getFunction().getParent();
   bool ProxyExists =
       MAMProxy.cachedResultExists<FunctionAnalysisManagerModuleProxy>(M);

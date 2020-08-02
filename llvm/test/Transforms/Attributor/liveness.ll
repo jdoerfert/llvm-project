@@ -1862,7 +1862,6 @@ entry:
 declare void @use_i32p(i32*)
 
 ; Allow blockaddress users
-; NOT_CGSCC_OPM-NOT: @dead_with_blockaddress_users
 define internal void @dead_with_blockaddress_users(i32* nocapture %pc) nounwind readonly {
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@dead_with_blockaddress_users
 ; IS__CGSCC_OPM-SAME: (i32* nocapture [[PC:%.*]])

@@ -65,7 +65,6 @@ bool CallGraphUpdater::finalize() {
 
         FAM.clear(*DeadFn, DeadFn->getName());
         AM->clear(*DeadSCC, DeadSCC->getName());
-        LCG->removeDeadFunction(*DeadFn);
 
         // Mark the relevant parts of the call graph as invalid so we don't
         // visit them.
@@ -73,8 +72,12 @@ bool CallGraphUpdater::finalize() {
         UR->InvalidatedRefSCCs.insert(&DeadRC);
       }
 
-      // The function is now really dead and de-attached from everything.
-      DeadFn->eraseFromParent();
+      // The function is now really dead and de-attached from everything but we
+      // will not delete it from the module. The reason is that this will
+      // invalidate the current SCC and the UR->UpdateC might be invalid as
+      // well. The current CGSCC pass manager assumes one of the two is valid
+      // and contains at least one function. We could try to remove that
+      // invariant but there is no cost in keeping the declaration around.
     }
   }
 
