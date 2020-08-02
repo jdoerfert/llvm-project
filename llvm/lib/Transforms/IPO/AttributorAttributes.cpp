@@ -6224,16 +6224,33 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
   static void getKnownStateFromValue(Attributor &A, const IRPosition &IRP,
                                      BitIntegerState &State,
                                      bool IgnoreSubsumingPositions = false) {
-    // For internal functions we ignore `argmemonly` and
+    // For internal functions and call sites we ignore `argmemonly` and
     // `inaccessiblememorargmemonly` as we might break it via interprocedural
     // constant propagation. It is unclear if this is the best way but it is
     // unlikely this will cause real performance problems. If we are deriving
-    // attributes for the anchor function we even remove the attribute in
-    // addition to ignoring it.
-    bool UseArgMemOnly = true;
+    // attributes for the internal anchor function we even remove the attribute
+    // in addition to ignoring it.
+    //
+    // The reason we ignore argmemonly on call sites is that we want
+    // AAMemoryLocation to describe the accessed location within the caller
+    // scope. If we set the know argmemonly bit it behaves differently than
+    // the argmemonly bit on a store next. There are two downsides, one
+    // theoretical probably the other worth revisiting later:
+    //  1) The call site could be annotated argmemonly but the callee not. This
+    //     is unlikely to happen except if 2) is addressed and then we don't
+    //     need to look at the IR but can simply look at the result of 2).
+    //  2) We use call site information to augment liveness and that makes the
+    //     callee argmemonly (wrt. the callee) but only for this call site.
+    //     Since we actually ask the function for the accesses this should not
+    //     actually work fine but we don't have the infrastructure yet anyway.
+    bool UseArgMemOnly = !IRP.isAnyCallSitePosition();
+    bool RemoveArgMemOnly = false;
     Function *AnchorFn = IRP.getAnchorScope();
     if (AnchorFn && A.isRunOn(*AnchorFn))
-      UseArgMemOnly = !AnchorFn->hasLocalLinkage();
+      if (AnchorFn->hasLocalLinkage()) {
+        UseArgMemOnly = false;
+        RemoveArgMemOnly = true;
+      }
 
     SmallVector<Attribute, 2> Attrs;
     IRP.getAttrs(AttrKinds, Attrs, IgnoreSubsumingPositions);
@@ -6248,14 +6265,14 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
       case Attribute::ArgMemOnly:
         if (UseArgMemOnly)
           State.addKnownBits(inverseLocation(NO_ARGUMENT_MEM, true, true));
-        else
+        else if (RemoveArgMemOnly)
           IRP.removeAttrs({Attribute::ArgMemOnly});
         break;
       case Attribute::InaccessibleMemOrArgMemOnly:
         if (UseArgMemOnly)
           State.addKnownBits(inverseLocation(
               NO_INACCESSIBLE_MEM | NO_ARGUMENT_MEM, true, true));
-        else
+        else if (RemoveArgMemOnly)
           IRP.removeAttrs({Attribute::InaccessibleMemOrArgMemOnly});
         break;
       default:
@@ -6678,11 +6695,15 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AAMemoryLocationImpl::initialize(A);
+    // We do not want to give up if the callee is not IPO amendable but has an
+    // argmemonly or inaccessiblememorargmemonly attribute.
     Function *F = getAssociatedFunction();
-    if (!F || !A.isFunctionIPOAmendable(*F)) {
-      indicatePessimisticFixpoint();
-      return;
+    if (F && (F->hasFnAttribute(Attribute::ArgMemOnly) ||
+              F->hasFnAttribute(Attribute::InaccessibleMemOrArgMemOnly))) {
+      intersectAssumedBits(BEST_STATE);
+      getKnownStateFromValue(A, getIRPosition(), getState());
+    } else {
+      AAMemoryLocationImpl::initialize(A);
     }
   }
 
@@ -6692,19 +6713,72 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
     //       call site specific liveness liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
+    CallBase &CB = cast<CallBase>(getAnchorValue());
     Function *F = getAssociatedFunction();
+    if (!F)
+      return indicatePessimisticFixpoint();
     const IRPosition &FnPos = IRPosition::function(*F);
     auto &FnAA = A.getAAFor<AAMemoryLocation>(*this, FnPos);
     bool Changed = false;
-    auto AccessPred = [&](const Instruction *I, const Value *Ptr,
-                          AccessKind Kind, MemoryLocationsKind MLK) {
-      updateStateAndAccessesMap(getState(), MLK, I, Ptr, Changed,
-                                getAccessKindFromInst(I));
+
+    // First, check "argmem" accesses and register an access to the
+    // corresponding call site operand, if known, or all pointer call site
+    // operands, otherwise.
+    auto ArgAccessPred = [&](const Instruction *I, const Value *Ptr,
+                             AccessKind Kind, MemoryLocationsKind) {
+      if (auto *Arg = cast_or_null<Argument>(Ptr)) {
+        Ptr = CB.getArgOperand(Arg->getArgNo());
+        categorizePtrValue(A, CB, *Ptr, getState(), Changed);
+      } else {
+        categorizeArgumentPointerLocations(A, CB, getState(), Changed);
+      }
       return true;
     };
-    if (!FnAA.checkForAllAccessesToMemoryKind(AccessPred, ALL_LOCATIONS))
+    if (!FnAA.checkForAllAccessesToMemoryKind(
+            ArgAccessPred, inverseLocation(NO_ARGUMENT_MEM, false, false)))
       return indicatePessimisticFixpoint();
+
+    // Next, check accesses to globals as we can represent them in the call site
+    // scope.
+    auto GlobalAccessPred = [&](const Instruction *I, const Value *Ptr,
+                                AccessKind Kind, MemoryLocationsKind MLK) {
+      updateStateAndAccessesMap(getState(), MLK, &CB, Ptr, Changed, Kind);
+      return true;
+    };
+    if (!FnAA.checkForAllAccessesToMemoryKind(
+            GlobalAccessPred, inverseLocation(NO_GLOBAL_MEM, false, false)))
+      return indicatePessimisticFixpoint();
+
+    // Finally, check the remaining kinds and register the call without a
+    // pointer.
+    MemoryLocationsKind FnMLK = FnAA.getAssumedNotAccessedLocation();
+    for (MemoryLocationsKind CurMLK = 1; CurMLK < NO_LOCATIONS; CurMLK *= 2)
+      if (!(CurMLK & FnMLK) && CurMLK != NO_ARGUMENT_MEM &&
+          CurMLK != NO_GLOBAL_MEM)
+        updateStateAndAccessesMap(getState(), CurMLK, &CB, nullptr, Changed,
+                                  getAccessKindFromInst(&CB));
+
     return Changed ? ChangeStatus::CHANGED : ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractAttribute::manifest(...).
+  ChangeStatus manifest(Attributor &A) override {
+    // While we could annotate the call site, it is tricky. Take
+    //
+    // void foo(int *a) { *a = 1; }
+    //
+    // void bar() {
+    //   int x;
+    //   foo(&x);
+    // }
+    //
+    // While foo is argmemonly, we want the call site to be local (=stack) only
+    // while we summarize the effects of bar. At the same time we cannot use
+    // readnone for the call because it isn't. Since the call annotation would
+    // not be better than the callee annotation. It is also unclear if
+    // argmemonly on a call site means it is argmemonly wrt. the callee
+    // arguments or the caller arguments.
+    return ChangeStatus::UNCHANGED;
   }
 
   /// See AbstractAttribute::trackStatistics()
