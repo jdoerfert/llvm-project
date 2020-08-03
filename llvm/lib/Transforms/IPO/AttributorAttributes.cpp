@@ -573,10 +573,14 @@ static void followUsesInContext(AAType &AA, Attributor &A,
   for (unsigned u = 0; u < Uses.size(); ++u) {
     const Use *U = Uses[u];
     if (const Instruction *UserI = dyn_cast<Instruction>(U->getUser())) {
-      bool Found = Explorer.findInContextOf(UserI, EIt, EEnd);
-      if (Found && AA.followUseInMBEC(A, U, UserI, State))
+      StateType T = State;
+      if (AA.followUseInMBEC(A, U, UserI, T))
         for (const Use &Us : UserI->uses())
           Uses.insert(&Us);
+      if (T == State)
+        continue;
+      if (Explorer.findInContextOf(UserI, EIt, EEnd))
+        State = T;
     }
   }
 }
