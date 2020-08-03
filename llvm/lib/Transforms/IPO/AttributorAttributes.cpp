@@ -3314,10 +3314,17 @@ struct AADereferenceableImpl : AADereferenceable {
     NonNullAA = &A.getAAFor<AANonNull>(*this, IRP,
                                        /* TrackDependence */ false);
 
+    Value &AssociatedValue = IRP.getAssociatedValue();
     bool CanBeNull;
-    takeKnownDerefBytesMaximum(
-        IRP.getAssociatedValue().getPointerDereferenceableBytes(
-            A.getDataLayout(), CanBeNull));
+    takeKnownDerefBytesMaximum(AssociatedValue.getPointerDereferenceableBytes(
+        A.getDataLayout(), CanBeNull));
+
+    // For allocas we now know as much as we ever will, give up.
+    if (isa<AllocaInst>(AssociatedValue)){
+      indicatePessimisticFixpoint();
+      return;
+    }
+
 
     bool IsFnInterface = IRP.isFnInterfaceKind();
     Function *FnScope = IRP.getAnchorScope();
