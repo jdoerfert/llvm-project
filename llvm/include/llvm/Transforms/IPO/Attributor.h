@@ -2676,6 +2676,9 @@ struct DerefState : AbstractState {
   /// State representing for dereferenceable bytes.
   IncIntegerState<> DerefBytesState;
 
+  /// State representing that whether the value is globaly dereferenceable.
+  BooleanState GlobalState;
+
   /// Map representing for accessed memory offsets and sizes.
   /// A key is Offset and a value is size.
   /// If there is a load/store instruction something like,
@@ -2713,9 +2716,6 @@ struct DerefState : AbstractState {
 
     DerefBytesState.takeKnownMaximum(KnownBytes);
   }
-
-  /// State representing that whether the value is globaly dereferenceable.
-  BooleanState GlobalState;
 
   /// See AbstractState::isValidState()
   bool isValidState() const override { return DerefBytesState.isValidState(); }
@@ -2765,7 +2765,8 @@ struct DerefState : AbstractState {
   /// Equality for DerefState.
   bool operator==(const DerefState &R) const {
     return this->DerefBytesState == R.DerefBytesState &&
-           this->GlobalState == R.GlobalState;
+           this->GlobalState == R.GlobalState &&
+           AccessedBytesMap == R.AccessedBytesMap;
   }
 
   /// Inequality for DerefState.
