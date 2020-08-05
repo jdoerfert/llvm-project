@@ -145,6 +145,8 @@ ChangeStatus operator&(ChangeStatus l, ChangeStatus r);
 enum class DepClassTy {
   REQUIRED,
   OPTIONAL,
+  NONE,
+  NONENONE,
 };
 ///}
 
@@ -931,7 +933,7 @@ struct Attributor {
   /// the one reasoning about the "captured" state for the argument or the one
   /// reasoning on the memory access behavior of the function as a whole.
   ///
-  /// If the flag \p TrackDependence is set to false the dependence from
+  /// If the DepClass enum is set to None the dependence from
   /// \p QueryingAA to the return abstract attribute is not automatically
   /// recorded. This should only be used if the caller will record the
   /// dependence explicitly if necessary, thus if it the returned abstract
@@ -939,9 +941,9 @@ struct Attributor {
   /// the `Attributor::recordDependence` method.
   template <typename AAType>
   const AAType &getAAFor(const AbstractAttribute &QueryingAA,
-                         const IRPosition &IRP, bool TrackDependence = true,
+                         const IRPosition &IRP,
                          DepClassTy DepClass = DepClassTy::REQUIRED) {
-    return getOrCreateAAFor<AAType>(IRP, &QueryingAA, TrackDependence, DepClass,
+    return getOrCreateAAFor<AAType>(IRP, &QueryingAA,  DepClass,
                                     /* ForceUpdate */ false);
   }
 
@@ -953,9 +955,8 @@ struct Attributor {
   template <typename AAType>
   const AAType &getAndUpdateAAFor(const AbstractAttribute &QueryingAA,
                                   const IRPosition &IRP,
-                                  bool TrackDependence = true,
                                   DepClassTy DepClass = DepClassTy::REQUIRED) {
-    return getOrCreateAAFor<AAType>(IRP, &QueryingAA, TrackDependence, DepClass,
+    return getOrCreateAAFor<AAType>(IRP, &QueryingAA, DepClass,
                                     /* ForceUpdate */ true);
   }
 
@@ -966,10 +967,9 @@ struct Attributor {
   template <typename AAType>
   const AAType &getOrCreateAAFor(const IRPosition &IRP,
                                  const AbstractAttribute *QueryingAA = nullptr,
-                                 bool TrackDependence = false,
-                                 DepClassTy DepClass = DepClassTy::OPTIONAL,
+                                 DepClassTy DepClass = DepClassTy::REQUIRED,
                                  bool ForceUpdate = false) {
-    if (AAType *AAPtr = lookupAAFor<AAType>(IRP, QueryingAA, TrackDependence)) {
+    if (AAType *AAPtr = lookupAAFor<AAType>(IRP, QueryingAA, DepClass)) {
       if (ForceUpdate)
         updateAA(*AAPtr);
       return *AAPtr;
@@ -1014,6 +1014,11 @@ struct Attributor {
       return AA;
     }
 
+    // If we create the AA to extract known information only we don't want to
+    // update it.
+    if (DepClass == DepClassTy::NONENONE)
+      return AA;
+
     // Allow seeded attributes to declare dependencies.
     // Remember the seeding state.
     bool OldSeedingPeriod = SeedingPeriod;
@@ -1023,7 +1028,7 @@ struct Attributor {
 
     SeedingPeriod = OldSeedingPeriod;
 
-    if (TrackDependence && AA.getState().isValidState())
+    if (QueryingAA && AA.getState().isValidState())
       recordDependence(AA, const_cast<AbstractAttribute &>(*QueryingAA),
                        DepClass);
     return AA;
@@ -1034,14 +1039,10 @@ struct Attributor {
   template <typename AAType>
   AAType *lookupAAFor(const IRPosition &IRP,
                       const AbstractAttribute *QueryingAA = nullptr,
-                      bool TrackDependence = false,
                       DepClassTy DepClass = DepClassTy::OPTIONAL) {
     static_assert(std::is_base_of<AbstractAttribute, AAType>::value,
                   "Cannot query an attribute with a type not derived from "
                   "'AbstractAttribute'!");
-    assert((QueryingAA || !TrackDependence) &&
-           "Cannot track dependences without a QueryingAA!");
-
     // Lookup the abstract attribute of type AAType. If found, return it after
     // registering a dependence of QueryingAA on the one returned attribute.
     AbstractAttribute *AAPtr = AAMap.lookup({&AAType::ID, IRP});
@@ -1051,7 +1052,8 @@ struct Attributor {
     AAType *AA = static_cast<AAType *>(AAPtr);
 
     // Do not register a dependence on an attribute with an invalid state.
-    if (TrackDependence && AA->getState().isValidState())
+    if (DepClass != DepClassTy::NONE && DepClass != DepClassTy::NONENONE &&
+        QueryingAA && AA->getState().isValidState())
       recordDependence(*AA, const_cast<AbstractAttribute &>(*QueryingAA),
                        DepClass);
     return AA;
@@ -1061,7 +1063,7 @@ struct Attributor {
   /// \p FromAA changes \p ToAA should be updated as well.
   ///
   /// This method should be used in conjunction with the `getAAFor` method and
-  /// with the TrackDependence flag passed to the method set to false. This can
+  /// with the DepClass enum passed to the method set to None. This can
   /// be beneficial to avoid false dependences but it requires the users of
   /// `getAAFor` to explicitly record true dependences through this method.
   /// The \p DepClass flag indicates if the dependence is striclty necessary.
@@ -2859,7 +2861,7 @@ struct AADereferenceable
 };
 
 using AAAlignmentStateType =
-    IncIntegerState<uint32_t, Value::MaximumAlignment, 0>;
+    IncIntegerState<uint32_t, Value::MaximumAlignment, 1>;
 /// An abstract interface for all align attributes.
 struct AAAlign : public IRAttribute<
                      Attribute::Alignment,
