@@ -10366,6 +10366,9 @@ def note_omp_protected_structured_block
     : Note<"jump bypasses OpenMP structured block">;
 def note_omp_exits_structured_block
     : Note<"jump exits scope of OpenMP structured block">;
+def err_omp_misplaced_default_clause : Error<
+  "misplaced default clause! Only one default clause is allowed in "
+  "metadirective in the end">;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {

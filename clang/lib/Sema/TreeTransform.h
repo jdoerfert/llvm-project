@@ -1633,6 +1633,19 @@ public:
                                                EndLoc);
   }
 
+  /// Build a new OpenMP 'when' clause.
+  ///
+  /// By default, performs semantic analysis to build the new OpenMP clause.
+  /// Subclasses may override this routine to provide different behavior.
+  OMPClause *RebuildOMPWhenClause(Expr *expr, OpenMPDirectiveKind DKind,
+                                  ArrayRef<OMPClause *> Clauses, Stmt *AStmt,
+                                  SourceLocation StartLoc,
+                                  SourceLocation LParenLoc,
+                                  SourceLocation EndLoc) {
+    return getSema().ActOnOpenMPWhenClause(expr, DKind, Clauses, AStmt,
+                                           StartLoc, LParenLoc, EndLoc);
+  }
+
   /// Build a new OpenMP 'default' clause.
   ///
   /// By default, performs semantic analysis to build the new OpenMP clause.
@@ -8372,6 +8385,17 @@ StmtResult TreeTransform<Derived>::TransformOMPExecutableDirective(
 
 template <typename Derived>
 StmtResult
+TreeTransform<Derived>::TransformOMPMetaDirective(OMPMetaDirective *D) {
+  DeclarationNameInfo DirName;
+  getDerived().getSema().StartOpenMPDSABlock(OMPD_metadirective, DirName,
+                                             nullptr, D->getBeginLoc());
+  StmtResult Res = getDerived().TransformOMPExecutableDirective(D);
+  getDerived().getSema().EndOpenMPDSABlock(Res.get());
+  return Res;
+}
+
+template <typename Derived>
+StmtResult
 TreeTransform<Derived>::TransformOMPParallelDirective(OMPParallelDirective *D) {
   DeclarationNameInfo DirName;
   getDerived().getSema().StartOpenMPDSABlock(OMPD_parallel, DirName, nullptr,
@@ -9042,6 +9066,16 @@ TreeTransform<Derived>::TransformOMPCollapseClause(OMPCollapseClause *C) {
     return nullptr;
   return getDerived().RebuildOMPCollapseClause(
       E.get(), C->getBeginLoc(), C->getLParenLoc(), C->getEndLoc());
+}
+
+template <typename Derived>
+OMPClause *TreeTransform<Derived>::TransformOMPWhenClause(OMPWhenClause *C) {
+  ExprResult E = getDerived().TransformExpr(C->getExpr());
+  if (E.isInvalid())
+    return nullptr;
+  return getDerived().RebuildOMPWhenClause(
+      C->getExpr(), C->getDKind(), C->getClauses(), C->getInnerStmt(),
+      C->getBeginLoc(), C->getLParenLoc(), C->getEndLoc());
 }
 
 template <typename Derived>

@@ -2273,6 +2273,13 @@ void ASTStmtReader::VisitOMPLoopDirective(OMPLoopDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
+void ASTStmtReader::VisitOMPMetaDirective(OMPMetaDirective *D) {
+  VisitStmt(D);
+  // The NumClauses field was read in ReadStmtFromStream.
+  Record.skipInts(1);
+  VisitOMPExecutableDirective(D);
+}
+
 void ASTStmtReader::VisitOMPParallelDirective(OMPParallelDirective *D) {
   VisitStmt(D);
   VisitOMPExecutableDirective(D);
@@ -3111,6 +3118,11 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
                                               NestedNameSpecifierLoc(),
                                               DeclarationNameInfo(),
                                               nullptr);
+      break;
+
+    case STMT_OMP_META_DIRECTIVE:
+      S = OMPMetaDirective::CreateEmpty(
+          Context, Record[ASTStmtReader::NumStmtFields], Empty);
       break;
 
     case STMT_OMP_PARALLEL_DIRECTIVE:

@@ -476,6 +476,11 @@ void OMPClauseProfiler::VisitOMPDetachClause(const OMPDetachClause *C) {
     Profiler->VisitStmt(Evt);
 }
 
+void OMPClauseProfiler::VisitOMPWhenClause(const OMPWhenClause *C) {
+  if (C->getExpr())
+    Profiler->VisitStmt(C->getExpr());
+}
+
 void OMPClauseProfiler::VisitOMPDefaultClause(const OMPDefaultClause *C) { }
 
 void OMPClauseProfiler::VisitOMPProcBindClause(const OMPProcBindClause *C) { }
@@ -845,6 +850,10 @@ StmtProfiler::VisitOMPExecutableDirective(const OMPExecutableDirective *S) {
        I != E; ++I)
     if (*I)
       P.Visit(*I);
+}
+
+void StmtProfiler::VisitOMPMetaDirective(const OMPMetaDirective *S) {
+  VisitOMPExecutableDirective(S);
 }
 
 void StmtProfiler::VisitOMPLoopDirective(const OMPLoopDirective *S) {

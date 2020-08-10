@@ -42,6 +42,7 @@ def OMPC_NumThreads : Clause<"num_threads"> {
 def OMPC_SafeLen : Clause<"safelen"> { let clangClass = "OMPSafelenClause"; }
 def OMPC_SimdLen : Clause<"simdlen"> { let clangClass = "OMPSimdlenClause"; }
 def OMPC_Collapse : Clause<"collapse"> { let clangClass = "OMPCollapseClause"; }
+def OMPC_When : Clause<"when"> { let clangClass = "OMPWhenClause"; }
 def OMPC_Default : Clause<"default"> { let clangClass = "OMPDefaultClause"; }
 def OMPC_Private : Clause<"private"> { let clangClass = "OMPPrivateClause"; }
 def OMPC_FirstPrivate : Clause<"firstprivate"> {
@@ -199,6 +200,14 @@ def OMPC_Notinbranch : Clause<"notinbranch"> {}
 // Definition of OpenMP directives
 //===----------------------------------------------------------------------===//
 
+def OMP_Metadirective : Directive<"metadirective"> {
+  let allowedClauses = [
+    VersionedClause<OMPC_When>
+  ];
+  let allowedOnceClauses = [
+    VersionedClause<OMPC_Default>
+  ];
+}
 def OMP_ThreadPrivate : Directive<"threadprivate"> {}
 def OMP_Parallel : Directive<"parallel"> {
   let allowedClauses = [

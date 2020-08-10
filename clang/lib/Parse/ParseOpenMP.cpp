@@ -2017,6 +2017,7 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
   case OMPD_target_teams_distribute_parallel_for:
   case OMPD_target_teams_distribute_parallel_for_simd:
   case OMPD_target_teams_distribute_simd:
+  case OMPD_metadirective:
     Diag(Tok, diag::err_omp_unexpected_directive)
         << 1 << getOpenMPDirectiveName(DKind);
     break;
@@ -2089,6 +2090,73 @@ Parser::ParseOpenMPDeclarativeOrExecutableDirective(ParsedStmtContext StmtCtx) {
   bool HasAssociatedStatement = true;
 
   switch (DKind) {
+  case OMPD_metadirective: {
+    ConsumeToken();
+
+    /* Get Stmt and revert back */
+    TentativeParsingAction TPA1(*this);
+    while (Tok.isNot(tok::annot_pragma_openmp_end)) {
+      ConsumeAnyToken();
+    }
+    ConsumeAnnotationToken();
+    ParseScope InnerStmtScope(this, Scope::DeclScope,
+                              getLangOpts().C99 || getLangOpts().CPlusPlus,
+                              Tok.is(tok::l_brace));
+    StmtResult AStmt = ParseStatement();
+    InnerStmtScope.Exit();
+    TPA1.Revert();
+    /*End Get Stmt*/
+
+    ParseScope OMPDirectiveScope(this, ScopeFlags);
+    Actions.StartOpenMPDSABlock(DKind, DirName, Actions.getCurScope(), Loc);
+
+    while (Tok.isNot(tok::annot_pragma_openmp_end)) {
+      OpenMPClauseKind CKind = Tok.isAnnotation()
+                                   ? OMPC_unknown
+                                   : getOpenMPClauseKind(PP.getSpelling(Tok));
+      Actions.StartOpenMPClause(CKind);
+      OMPClause *Clause = ParseOpenMPMetaClause(DKind, CKind);
+      FirstClauses[(unsigned)CKind].setInt(true);
+      if (Clause) {
+        FirstClauses[(unsigned)CKind].setPointer(Clause);
+        Clauses.push_back(Clause);
+      }
+
+      // Skip ',' if any.
+      if (Tok.is(tok::comma))
+        ConsumeToken();
+      Actions.EndOpenMPClause();
+      // Consume trailing ')' if any
+      if (Tok.is(tok::r_paren))
+        ConsumeAnyToken();
+    }
+    // End location of the directive.
+    EndLoc = Tok.getLocation();
+    // Consume final annot_pragma_openmp_end.
+    ConsumeAnnotationToken();
+
+    for (auto i = Clauses.begin(); i < Clauses.end(); i++) {
+      OMPWhenClause *WhenClause = dyn_cast<OMPWhenClause>(*i);
+      if (WhenClause->getDKind() == OMPD_unknown)
+        WhenClause->setInnerStmt(AStmt.get());
+    }
+
+    // The body is a block scope like in Lambdas and Blocks.
+    Actions.ActOnOpenMPRegionStart(DKind, getCurScope());
+    ParsingOpenMPDirectiveRAII NormalScope(*this, /*Value=*/false);
+    StmtResult AssociatedStmt =
+        (Sema::CompoundScopeRAII(Actions), ParseStatement());
+    AssociatedStmt = Actions.ActOnOpenMPRegionEnd(AssociatedStmt, Clauses);
+
+    Directive = Actions.ActOnOpenMPExecutableDirective(
+        DKind, DirName, CancelRegion, Clauses, AssociatedStmt.get(), Loc,
+        EndLoc);
+
+    // Exit scope.
+    Actions.EndOpenMPDSABlock(Directive.get());
+    OMPDirectiveScope.Exit();
+    break;
+  }
   case OMPD_threadprivate: {
     // FIXME: Should this be permitted in C++?
     if ((StmtCtx & ParsedStmtContext::AllowDeclarationsInC) ==
@@ -2488,6 +2556,146 @@ OMPClause *Parser::ParseOpenMPUsesAllocatorClause(OpenMPDirectiveKind DKind) {
                                                 T.getCloseLocation(), Data);
 }
 
+OMPClause *Parser::ParseOpenMPMetaClause(OpenMPDirectiveKind DKind,
+                                         OpenMPClauseKind CKind) {
+  OMPClause *Clause = nullptr;
+  bool ErrorFound = false;
+  bool WrongDirective = false;
+  SmallVector<llvm::PointerIntPair<OMPClause *, 1, bool>,
+              llvm::omp::Clause_enumSize + 1>
+      FirstClauses(llvm::omp::Clause_enumSize + 1);
+  // Check if it is called from metadirective.
+  if (DKind != OMPD_metadirective) {
+    Diag(Tok, diag::err_omp_unexpected_clause)
+        << getOpenMPClauseName(CKind) << getOpenMPDirectiveName(DKind);
+    ErrorFound = true;
+  }
+
+  // Check if clause is allowed for the given directive.
+  if (CKind != OMPC_unknown &&
+      !isAllowedClauseForDirective(DKind, CKind, getLangOpts().OpenMP)) {
+    Diag(Tok, diag::err_omp_unexpected_clause)
+        << getOpenMPClauseName(CKind) << getOpenMPDirectiveName(DKind);
+    ErrorFound = true;
+    WrongDirective = true;
+  }
+
+  if (CKind == OMPC_default || CKind == OMPC_when) {
+    SourceLocation Loc = ConsumeToken();
+    SourceLocation DelimLoc;
+    // Parse '('.
+    BalancedDelimiterTracker T(*this, tok::l_paren,
+                               tok::annot_pragma_openmp_end);
+    if (T.expectAndConsume(diag::err_expected_lparen_after,
+                           getOpenMPClauseName(CKind).data()))
+      // if (T.expectAndConsume(diag::err_expected_lparen_after,
+      // ClauseName.data()))
+      return nullptr;
+
+    Expr *expr = NULL;
+    if (CKind == OMPC_when) {
+      // parse and get condition expression to pass to the When clause
+      OMPTraitInfo &TI = Actions.getASTContext().getNewOMPTraitInfo();
+      parseOMPContextSelectors(Loc, TI);
+      expr = TI.Sets.front().Selectors.front().ScoreOrCondition;
+
+      // Parse ':'
+      if (Tok.is(tok::colon))
+        ConsumeAnyToken();
+      else {
+        Diag(Tok, diag::warn_pragma_expected_colon) << "when clause";
+        return nullptr;
+      }
+    }
+
+    // Parse Directive
+    OpenMPDirectiveKind DirKind = OMPD_unknown;
+    SmallVector<OMPClause *, 5> Clauses;
+    StmtResult AssociatedStmt;
+
+    if (Tok.isNot(tok::r_paren)) {
+      ParsingOpenMPDirectiveRAII DirScope(*this);
+      ParenBraceBracketBalancer BalancerRAIIObj(*this);
+      DeclarationNameInfo DirName;
+      unsigned ScopeFlags = Scope::FnScope | Scope::DeclScope |
+                            Scope::CompoundStmtScope |
+                            Scope::OpenMPDirectiveScope;
+
+      DirKind = parseOpenMPDirectiveKind(*this);
+      ConsumeToken();
+      ParseScope OMPDirectiveScope(this, ScopeFlags);
+      Actions.StartOpenMPDSABlock(DirKind, DirName, Actions.getCurScope(), Loc);
+
+      int paren = 0;
+      while (Tok.isNot(tok::r_paren) || paren != 0) {
+        if (Tok.is(tok::l_paren))
+          paren++;
+        if (Tok.is(tok::r_paren))
+          paren--;
+
+        OpenMPClauseKind CKind = Tok.isAnnotation()
+                                     ? OMPC_unknown
+                                     : getOpenMPClauseKind(PP.getSpelling(Tok));
+        Actions.StartOpenMPClause(CKind);
+
+        OMPClause *Clause = ParseOpenMPClause(
+            DirKind, CKind, !FirstClauses[(unsigned)CKind].getInt());
+        FirstClauses[(unsigned)CKind].setInt(true);
+        if (Clause) {
+          FirstClauses[(unsigned)CKind].setPointer(Clause);
+          Clauses.push_back(Clause);
+        }
+
+        // Skip ',' if any.
+        if (Tok.is(tok::comma))
+          ConsumeToken();
+        Actions.EndOpenMPClause();
+      }
+
+      Actions.ActOnOpenMPRegionStart(DirKind, getCurScope());
+      ParsingOpenMPDirectiveRAII NormalScope(*this, /*Value=*/false);
+      /* Get Stmt and revert back */
+      TentativeParsingAction TPA(*this);
+      while (Tok.isNot(tok::annot_pragma_openmp_end)) {
+        ConsumeAnyToken();
+      }
+      ConsumeAnnotationToken();
+      ParseScope InnerStmtScope(this, Scope::DeclScope,
+                                getLangOpts().C99 || getLangOpts().CPlusPlus,
+                                Tok.is(tok::l_brace));
+      StmtResult AStmt = ParseStatement();
+      InnerStmtScope.Exit();
+      TPA.Revert();
+      /* End Get Stmt */
+      AssociatedStmt = (Sema::CompoundScopeRAII(Actions), AStmt);
+      AssociatedStmt = Actions.ActOnOpenMPRegionEnd(AssociatedStmt, Clauses);
+
+      StmtResult Directive = Actions.ActOnOpenMPExecutableDirective(
+          DirKind, DirName, OMPD_unknown, Clauses, AssociatedStmt.get(), Loc,
+          Tok.getLocation());
+
+      Actions.EndOpenMPDSABlock(Directive.get());
+      OMPDirectiveScope.Exit();
+    }
+
+    // Parse ')'
+    T.consumeClose();
+
+    if (WrongDirective)
+      return nullptr;
+
+    Clause = Actions.ActOnOpenMPWhenClause(expr, DirKind, Clauses,
+                                           AssociatedStmt.get(), Loc, DelimLoc,
+                                           Tok.getLocation());
+  } else {
+    ErrorFound = false;
+    Diag(Tok, diag::err_omp_unexpected_clause)
+        << getOpenMPClauseName(CKind) << getOpenMPDirectiveName(DKind);
+  }
+
+  return ErrorFound ? nullptr : Clause;
+}
+
 /// Parsing of OpenMP clauses.
 ///
 ///    clause:
@@ -2691,6 +2899,7 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
   case OMPC_threadprivate:
   case OMPC_uniform:
   case OMPC_match:
+  case OMPC_when:
     if (!WrongDirective)
       Diag(Tok, diag::err_omp_unexpected_clause)
           << getOpenMPClauseName(CKind) << getOpenMPDirectiveName(DKind);
