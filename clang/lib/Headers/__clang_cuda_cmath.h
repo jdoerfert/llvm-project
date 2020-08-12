@@ -66,10 +66,29 @@ __DEVICE__ float frexp(float __arg, int *__exp) {
 }
 
 // For inscrutable reasons, the CUDA headers define these functions for us on
-// Windows. For OpenMP we omit these as some old system headers have
-// non-conforming `isinf(float)` and `isnan(float)` implementations that return
-// an `int`. The system versions of these functions should be fine anyway.
+// Windows.
 #if !defined(_MSC_VER) && !defined(__OPENMP_NVPTX__)
+
+// For OpenMP we work around some old system headers that have non-conforming
+// `isinf(float)` and `isnan(float)` implementations that return an `int`. We do
+// this by providing two versions of these functions, differing only in the
+// return type. To avoid conflicting definitions we disable implicit base
+// function generation. That means we will end up with two specializations, one
+// per type, but only one has a base function defined by the system header.
+#if defined(__OPENMP_NVPTX__)
+#pragma omp begin declare variant match(                                       \
+    device = {arch(nvptx, nvptx64)},                                           \
+    implementation = {extension(disable_implicit_base)})
+
+__DEVICE__ int isinf(float __x) { return ::__isinff(__x); }
+__DEVICE__ int isinf(double __x) { return ::__isinf(__x); }
+__DEVICE__ int isfinite(float __x) { return ::__finitef(__x); }
+__DEVICE__ int isfinite(double __x) { return ::__isfinited(__x); }
+__DEVICE__ int isnan(float __x) { return ::__isnanf(__x); }
+__DEVICE__ int isnan(double __x) { return ::__isnan(__x); }
+
+#endif
+
 __DEVICE__ bool isinf(float __x) { return ::__isinff(__x); }
 __DEVICE__ bool isinf(double __x) { return ::__isinf(__x); }
 __DEVICE__ bool isfinite(float __x) { return ::__finitef(__x); }
@@ -79,6 +98,11 @@ __DEVICE__ bool isfinite(float __x) { return ::__finitef(__x); }
 __DEVICE__ bool isfinite(double __x) { return ::__isfinited(__x); }
 __DEVICE__ bool isnan(float __x) { return ::__isnanf(__x); }
 __DEVICE__ bool isnan(double __x) { return ::__isnan(__x); }
+
+#if defined(__OPENMP_NVPTX__)
+#pragma omp end declare variant
+#endif
+
 #endif
 
 __DEVICE__ bool isgreater(float __x, float __y) {
