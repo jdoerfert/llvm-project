@@ -263,12 +263,13 @@ OpenMPIRBuilder::getOrCreateSrcLocStr(const LocationDescription &Loc) {
   DILocation *DIL = Loc.DL.get();
   if (!DIL)
     return getOrCreateDefaultSrcLocStr();
-  StringRef FileName =
-      !DIL->getFilename().empty() ? DIL->getFilename() : M.getName();
+  Optional<StringRef> FileName= DIL->getSource();
+  if (!FileName)
+    FileName = M.getName();
   StringRef Function = DIL->getScope()->getSubprogram()->getName();
   Function =
       !Function.empty() ? Function : Loc.IP.getBlock()->getParent()->getName();
-  return getOrCreateSrcLocStr(Function, FileName, DIL->getLine(),
+  return getOrCreateSrcLocStr(Function, *FileName, DIL->getLine(),
                               DIL->getColumn());
 }
 
