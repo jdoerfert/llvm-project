@@ -141,3 +141,15 @@ entry:
   %ret4 = call i32 @inner4(i32 %ret3, i32 %ret3)
   ret i32 %ret4
 }
+
+; Don't crash on linkonce_odr hidden functions
+define linkonce_odr hidden void @__clang_call_terminate() {
+; CHECK-LABEL: define {{[^@]+}}@__clang_call_terminate()
+; CHECK-NEXT:    unreachable
+;
+; DWRAPPER-LABEL: define {{[^@]+}}@__clang_call_terminate()
+; DWRAPPER-NEXT:    unreachable
+;
+  unreachable
+}
+
