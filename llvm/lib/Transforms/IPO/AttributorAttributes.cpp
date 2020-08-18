@@ -4710,6 +4710,41 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   ChangeStatus updateImpl(Attributor &A) override {
     bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
 
+    Value &V = getAnchorValue();
+    if (auto *ICmp = dyn_cast<ICmpInst>(&V)) {
+      if (ICmp->isEquality()) {
+        LLVMContext &Ctx = V.getContext();
+        bool Op0IsNull = isa<ConstantPointerNull>(ICmp->getOperand(0));
+        bool Op1IsNull = isa<ConstantPointerNull>(ICmp->getOperand(1));
+        if (Op0IsNull && Op1IsNull) {
+          Value *NewVal = ConstantInt::get(
+              Type::getInt1Ty(Ctx), ICmp->getPredicate() == CmpInst::ICMP_EQ);
+          SimplifiedAssociatedValue = NewVal;
+          indicateOptimisticFixpoint();
+          assert(!HasValueBefore &&
+                 "Did not expect non-fixed value for constant comparison");
+          return ChangeStatus::CHANGED;
+        }
+        if (Op0IsNull || Op1IsNull) {
+          Value *NewVal = ConstantInt::get(
+              Type::getInt1Ty(Ctx), ICmp->getPredicate() == CmpInst::ICMP_NE);
+          unsigned PtrIdx = Op0IsNull;
+          auto &PtrNonNullAA = A.getAAFor<AANonNull>(
+              *this, IRPosition::value(*ICmp->getOperand(PtrIdx)));
+          if (PtrNonNullAA.isAssumedNonNull()) {
+            assert((!HasValueBefore || SimplifiedAssociatedValue == NewVal) &&
+                   "Did not expect to change value for zero-comparison");
+            SimplifiedAssociatedValue = NewVal;
+            if (PtrNonNullAA.isKnownNonNull())
+              indicateOptimisticFixpoint();
+            return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+                       ? ChangeStatus::UNCHANGED
+                       : ChangeStatus ::CHANGED;
+          }
+        }
+      }
+    }
+
     auto VisitValueCB = [&](Value &V, const Instruction *CtxI, bool &,
                             bool Stripped) -> bool {
       auto &AA = A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V));
