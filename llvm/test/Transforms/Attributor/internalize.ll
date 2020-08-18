@@ -153,3 +153,32 @@ define linkonce_odr hidden void @__clang_call_terminate() {
   unreachable
 }
 
+
+define linkonce_odr void @unused_arg(i8) {
+; CHECK_DISABLED-LABEL: define {{[^@]+}}@unused_arg
+; CHECK_DISABLED-SAME: (i8 [[TMP0:%.*]])
+; CHECK_DISABLED-NEXT:    unreachable
+;
+  unreachable
+}
+
+define void @unused_arg_caller() {
+; CHECK_DISABLED-LABEL: define {{[^@]+}}@unused_arg_caller()
+; CHECK_DISABLED-NEXT:    call void @unused_arg(i8 0)
+; CHECK_DISABLED-NEXT:    ret void
+;
+; IS__TUNIT_____ENABLED: Function Attrs: nofree noreturn nosync nounwind readnone willreturn
+; IS__TUNIT_____ENABLED-LABEL: define {{[^@]+}}@unused_arg_caller()
+; IS__TUNIT_____ENABLED-NEXT:    unreachable
+;
+; IS__CGSCC_____ENABLED: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; IS__CGSCC_____ENABLED-LABEL: define {{[^@]+}}@unused_arg_caller()
+; IS__CGSCC_____ENABLED-NEXT:    unreachable
+;
+; DWRAPPER: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; DWRAPPER-LABEL: define {{[^@]+}}@unused_arg_caller()
+; DWRAPPER-NEXT:    unreachable
+;
+  call void @unused_arg(i8 0)
+  ret void
+}
