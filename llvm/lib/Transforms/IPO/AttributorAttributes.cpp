@@ -55,6 +55,10 @@ static cl::opt<unsigned, true> MaxPotentialValues(
     cl::location(llvm::PotentialConstantIntValuesState::MaxPotentialValues),
     cl::init(7));
 
+/// Command line option in Attributor.cpp to enable/disable the use of the
+/// must-be-executed-context.
+extern bool UseMustBeExecutedContext;
+
 STATISTIC(NumAAs, "Number of abstract attributes created");
 
 // Some helper macros to deal with statistics tracking.
@@ -604,6 +608,8 @@ static void followUsesInContext(AAType &AA, Attributor &A,
 template <class AAType, typename StateType = typename AAType::StateType>
 static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
                              Instruction &CtxI) {
+  if (!UseMustBeExecutedContext)
+    return;
 
   // Container for (transitive) uses of the associated value.
   SetVector<const Use *> Uses;
@@ -4046,7 +4052,8 @@ struct AANoCaptureImpl : public AANoCapture {
       return;
     }
 
-    const Function *F = isArgumentPosition() ? getAssociatedFunction() : AnchorScope;
+    const Function *F =
+        isArgumentPosition() ? getAssociatedFunction() : AnchorScope;
 
     // Check what state the associated function can actually capture.
     if (F)
@@ -4277,8 +4284,8 @@ private:
 
 ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
   const IRPosition &IRP = getIRPosition();
-  const Value *V =
-      isArgumentPosition() ? IRP.getAssociatedArgument() : &IRP.getAssociatedValue();
+  const Value *V = isArgumentPosition() ? IRP.getAssociatedArgument()
+                                        : &IRP.getAssociatedValue();
   if (!V)
     return indicatePessimisticFixpoint();
 

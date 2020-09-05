@@ -86,6 +86,12 @@ static cl::opt<bool> VerifyMaxFixpointIterations(
     cl::desc("Verify that max-iterations is a tight bound for a fixpoint"),
     cl::init(false));
 
+bool UseMustBeExecutedContext;
+static cl::opt<bool, true> UseMustBeExecutedContextX(
+    "attributor-use-must-be-executed-context", cl::Hidden,
+    cl::desc("Use the must-be-executed-context to derive information"),
+    cl::location(UseMustBeExecutedContext), cl::init(false));
+
 static cl::opt<bool> AnnotateDeclarationCallSites(
     "attributor-annotate-decl-cs", cl::Hidden,
     cl::desc("Annotate call sites of function declarations."), cl::init(false));
@@ -380,7 +386,7 @@ SubsumingPositionIterator::SubsumingPositionIterator(const IRPosition &IRP) {
         if (Argument *Arg = IRP.getAssociatedArgument())
           IRPositions.emplace_back(IRPosition::argument(*Arg));
         IRPositions.emplace_back(IRPosition::function(*Callee));
-    }
+      }
     }
     IRPositions.emplace_back(IRPosition::value(IRP.getAssociatedValue()));
     return;
@@ -445,6 +451,9 @@ bool IRPosition::getAttrsFromIRAttr(Attribute::AttrKind AK,
 bool IRPosition::getAttrsFromAssumes(Attribute::AttrKind AK,
                                      SmallVectorImpl<Attribute> &Attrs,
                                      Attributor &A) const {
+  if (!UseMustBeExecutedContext)
+    return false;
+
   assert(getPositionKind() != IRP_INVALID && "Did expect a valid position!");
   Value &AssociatedValue = getAssociatedValue();
 
