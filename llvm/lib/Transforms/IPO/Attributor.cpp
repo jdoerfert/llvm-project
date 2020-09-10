@@ -1353,7 +1353,7 @@ ChangeStatus Attributor::cleanupIR() {
 
   NumFnDeleted += ToBeDeletedFunctions.size();
 
-  LLVM_DEBUG(dbgs() << "[Attributor] Deleted " << NumFnDeleted
+  LLVM_DEBUG(dbgs() << "[Attributor] Deleted " << ToBeDeletedFunctions.size()
                     << " functions after manifest.\n");
 
 #ifdef EXPENSIVE_CHECKS
@@ -2497,7 +2497,6 @@ struct AttributorLegacyPass : public ModulePass {
 };
 
 struct AttributorCGSCCLegacyPass : public CallGraphSCCPass {
-  CallGraphUpdater CGUpdater;
   static char ID;
 
   AttributorCGSCCLegacyPass() : CallGraphSCCPass(ID) {
@@ -2519,14 +2518,13 @@ struct AttributorCGSCCLegacyPass : public CallGraphSCCPass {
 
     AnalysisGetter AG;
     CallGraph &CG = const_cast<CallGraph &>(SCC.getCallGraph());
+    CallGraphUpdater CGUpdater;
     CGUpdater.initialize(CG, SCC);
     Module &M = *Functions.back()->getParent();
     BumpPtrAllocator Allocator;
     InformationCache InfoCache(M, AG, Allocator, /* CGSCC */ &Functions);
     return runAttributorOnFunctions(InfoCache, Functions, AG, CGUpdater);
   }
-
-  bool doFinalization(CallGraph &CG) override { return CGUpdater.finalize(); }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     // FIXME: Think about passes we will preserve and add them here.
