@@ -92,7 +92,10 @@ void CallGraphUpdater::reanalyzeFunction(Function &Fn) {
   } else if (LCG) {
     LazyCallGraph::Node &N = LCG->get(Fn);
     LazyCallGraph::SCC *C = LCG->lookupSCC(N);
-    updateCGAndAnalysisManagerForCGSCCPass(*LCG, *C, N, *AM, *UR, *FAM);
+    // If this function ended up outside of an SCC, through prior updates, we
+    // cannot reanalyze it, nor is it necessary.
+    if (C)
+      updateCGAndAnalysisManagerForCGSCCPass(*LCG, *C, N, *AM, *UR, *FAM);
   }
 }
 
