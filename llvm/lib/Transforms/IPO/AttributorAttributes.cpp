@@ -2582,6 +2582,7 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     A.recordDependence(NoAliasAA, *this, DepClassTy::OPTIONAL);
 
     const IRPosition &VIRP = IRPosition::value(getAssociatedValue());
+    const Function *ScopeFn = VIRP.getAnchorScope();
     auto &NoCaptureAA =
         A.getAAFor<AANoCapture>(*this, VIRP, /* TrackDependence */ false);
     // Check whether the value is captured in the scope using AANoCapture.
@@ -2590,11 +2591,11 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     auto UsePred = [&](const Use &U, bool &Follow) -> bool {
       Instruction *UserI = cast<Instruction>(U.getUser());
 
-      // If user if curr instr and only use.
-      if (UserI == getCtxI() && UserI->hasOneUse())
+      // If UserI if curr instruction and there is a single potential use of the
+      // value in UserI we allow the use.
+      if (UserI == getCtxI() && UserI->getNumOperands() == 1)
         return true;
 
-      const Function *ScopeFn = VIRP.getAnchorScope();
       if (ScopeFn) {
         const auto &ReachabilityAA =
             A.getAAFor<AAReachability>(*this, IRPosition::function(*ScopeFn));
@@ -2617,8 +2618,8 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
       }
 
       // For cases which can potentially have more users
-      if (isa<GetElementPtrInst>(U) || isa<BitCastInst>(U) || isa<PHINode>(U) ||
-          isa<SelectInst>(U)) {
+      if (isa<GetElementPtrInst>(UserI) || isa<BitCastInst>(UserI) ||
+          isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
         Follow = true;
         return true;
       }
@@ -4564,7 +4565,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   bool askSimplifiedValueForOtherAAs(Attributor &A) {
     if (askSimplifiedValueFor<AAValueConstantRange>(A))
       return true;
-    if (askSimplifiedValueFor<AAPotentialValues>(A))
+    if (isa<ICmpInst>(getAssociatedValue()) &&
+        askSimplifiedValueFor<AAPotentialValues>(A))
       return true;
     return false;
   }
