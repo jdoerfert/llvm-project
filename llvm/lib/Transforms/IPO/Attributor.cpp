@@ -73,6 +73,10 @@ static cl::opt<unsigned>
     MaxFixpointIterations("attributor-max-iterations", cl::Hidden,
                           cl::desc("Maximal number of fixpoint iterations."),
                           cl::init(32));
+static cl::opt<unsigned>
+    MaxManifest("attributor-max-manifest", cl::Hidden,
+                          cl::desc("Maximal number of fixpoint iterations."),
+                          cl::init(0));
 
 static cl::opt<unsigned, true> MaxInitializationChainLengthX(
     "attributor-max-initialization-chain-length", cl::Hidden,
@@ -1127,7 +1131,9 @@ ChangeStatus Attributor::manifestAttributes() {
     // Skip dead code.
     if (isAssumedDead(*AA, nullptr, /* CheckBBLivenessOnly */ true))
       continue;
-    // Manifest the state and record if we changed the IR.
+    if(MaxManifest && NumManifested > MaxManifest)
+      break;
+    // Manifest the statl and record if we changed the IR.
     ChangeStatus LocalChange = AA->manifest(*this);
     if (LocalChange == ChangeStatus::CHANGED && AreStatisticsEnabled())
       AA->trackStatistics();

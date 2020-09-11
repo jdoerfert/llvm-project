@@ -7068,9 +7068,10 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
     if (!AssumedConstantRange.isEmptySet() &&
         !AssumedConstantRange.isSingleElement()) {
       if (Instruction *I = dyn_cast<Instruction>(&V))
-        if (isa<CallInst>(I) || isa<LoadInst>(I))
-          if (setRangeMetadataIfisBetterRange(I, AssumedConstantRange))
-            Changed = ChangeStatus::CHANGED;
+        if (I == getCtxI())
+          if (isa<CallInst>(I) || isa<LoadInst>(I))
+            if (setRangeMetadataIfisBetterRange(I, AssumedConstantRange))
+              Changed = ChangeStatus::CHANGED;
     }
 
     return Changed;
