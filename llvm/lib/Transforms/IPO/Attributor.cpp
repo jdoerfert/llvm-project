@@ -1339,7 +1339,7 @@ ChangeStatus Attributor::cleanupIR() {
   for (Function *Fn : ToBeDeletedFunctions) {
     if (!Functions.count(Fn))
       continue;
-    CGUpdater.removeFunction(*Fn);
+     CGUpdater.removeFunction(*Fn);
   }
 
   if (!ToBeChangedUses.empty())
@@ -2303,7 +2303,8 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
   // TODO: for now we eagerly internalize functions without calculating the
   //       cost, we need a cost interface to determine whether internalizing
   //       a function is "benefitial"
-  if (AllowDeepWrapper) {
+  if (AllowDeepWrapper &&
+      Functions.size() == Functions.back()->getParent()->size()) {
     unsigned FunSize = Functions.size();
     for (unsigned u = 0; u < FunSize; u++) {
       Function *F = Functions[u];
