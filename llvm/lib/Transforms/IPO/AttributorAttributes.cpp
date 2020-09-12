@@ -2913,7 +2913,8 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       // isAssumedSideEffectFree returns true here again because it might not be
       // the case and only the users are dead but the instruction (=call) is
       // still needed.
-      if (isAssumedSideEffectFree(A, I) && !isa<InvokeInst>(I)) {
+      if (isa<StoreInst>(I) ||
+          (isAssumedSideEffectFree(A, I) && !isa<InvokeInst>(I))) {
         A.deleteAfterManifest(*I);
         return ChangeStatus::CHANGED;
       }
@@ -5175,6 +5176,13 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
       Instruction *UserI = cast<Instruction>(U.getUser());
       if (isa<LoadInst>(UserI))
         return true;
+      if (auto *ICmp = dyn_cast<ICmpInst>(UserI)) {
+        if (ICmp->isEquality() &&
+            (isa<ConstantPointerNull>(ICmp->getOperand(0)) ||
+             isa<ConstantPointerNull>(ICmp->getOperand(1))) &&
+            U.get()->stripPointerCasts() == &I)
+          return true;
+      }
       if (auto *SI = dyn_cast<StoreInst>(UserI)) {
         if (SI->getValueOperand() == U.get()) {
           LLVM_DEBUG(dbgs()
@@ -5211,7 +5219,16 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
 
         if (!NoCaptureAA.isAssumedNoCapture() ||
             !ArgNoFreeAA.isAssumedNoFree()) {
-          LLVM_DEBUG(dbgs() << "[H2S] Bad user: " << *UserI << "\n");
+          LLVM_DEBUG({
+            dbgs() << "[H2S] Bad user: " << *UserI << " "
+                   << (NoCaptureAA.isAssumedNoCapture() ? "" : "may-capture ")
+                   << ((NoCaptureAA.isAssumedNoCapture() ||
+                        ArgNoFreeAA.isAssumedNoFree())
+                           ? ""
+                           : "and ")
+                   << (ArgNoFreeAA.isAssumedNoFree() ? "" : "may-free ")
+                   << " the allocation\n";
+          });
           ValidUsesOnly = false;
         }
         return true;
