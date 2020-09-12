@@ -1290,6 +1290,8 @@ struct Attributor {
     if (V && (V->stripPointerCasts() == NV.stripPointerCasts() ||
               isa_and_nonnull<UndefValue>(V)))
       return false;
+    if (V)
+      errs() << "V: " << *V << " : " << NV << " :: " << *U.getUser() << "\n";
     assert((!V || V == &NV || isa<UndefValue>(NV)) &&
            "Use was registered twice for replacement with different values!");
     V = &NV;
@@ -3464,13 +3466,11 @@ struct AAValueConstantRange
 
   /// Return an assumed constant for the assocaited value a program point \p
   /// CtxI.
-  Optional<ConstantInt *>
-  getAssumedConstantInt(Attributor &A,
-                        const Instruction *CtxI = nullptr) const {
+  Optional<Constant *>
+  getAssumedConstant(Attributor &A, const Instruction *CtxI = nullptr) const {
     ConstantRange RangeV = getAssumedConstantRange(A, CtxI);
     if (auto *C = RangeV.getSingleElement())
-      return cast<ConstantInt>(
-          ConstantInt::get(getAssociatedValue().getType(), *C));
+      return ConstantInt::get(getAssociatedValue().getType(), *C);
     if (RangeV.isEmptySet())
       return llvm::None;
     return nullptr;
@@ -3701,18 +3701,16 @@ struct AAPotentialValues
                                               Attributor &A);
 
   /// Return assumed constant for the associated value
-  Optional<ConstantInt *>
-  getAssumedConstantInt(Attributor &A,
-                        const Instruction *CtxI = nullptr) const {
+  Optional<Constant *>
+  getAssumedConstant(Attributor &A, const Instruction *CtxI = nullptr) const {
     if (!isValidState())
       return nullptr;
     if (getAssumedSet().size() == 1)
-      return cast<ConstantInt>(ConstantInt::get(getAssociatedValue().getType(),
-                                                *(getAssumedSet().begin())));
+      return ConstantInt::get(getAssociatedValue().getType(),
+                              *(getAssumedSet().begin()));
     if (getAssumedSet().size() == 0) {
       if (undefIsContained())
-        return cast<ConstantInt>(
-            ConstantInt::get(getAssociatedValue().getType(), 0));
+        return UndefValue::get(getAssociatedValue().getType());
       return llvm::None;
     }
 
