@@ -2834,6 +2834,14 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     }
 
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
+    if (auto *SI = dyn_cast_or_null<StoreInst>(I)) {
+      //Value *Ptr = SI->getPointerOperand()->stripPointerCasts();
+      //if (isa<AllocaInst>(Ptr))
+        //return;
+      //if (auto *GV = dyn_cast<GlobalVariable>(Ptr))
+        //if (GV->hasLocalLinkage())
+          //return;
+    }
     if (!isAssumedSideEffectFree(A, I))
       indicatePessimisticFixpoint();
   }
@@ -2841,6 +2849,54 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
+    if (auto *SI = dyn_cast_or_null<StoreInst>(I)) {
+      const DataLayout &DL = A.getDataLayout();
+      int64_t Offset;
+      const Value *Base = getBasePointerOfAccessPointerOperand(
+          SI, Offset, DL, /*AllowNonInbounds*/ true);
+      if (!Base || Offset)
+        return indicatePessimisticFixpoint();
+      auto &NoCaptureAA =
+          A.getAAFor<AANoCapture>(*this, IRPosition::value(*Base));
+      if (!NoCaptureAA.isAssumedNoCapture())
+        return indicatePessimisticFixpoint();
+
+      auto UseCheck = [&](const Use &U, bool &Follow) -> bool {
+        Instruction *UserI = cast<Instruction>(U.getUser());
+        if (auto *CB = dyn_cast<CallBase>(UserI)) {
+          if (CB->isBundleOperand(&U))
+            return false;
+          if (!CB->isArgOperand(&U))
+            return true;
+          unsigned ArgNo = CB->getArgOperandNo(&U);
+
+          const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
+              *this, IRPosition::callsite_argument(*CB, ArgNo));
+          return MemBehaviorAA.isAssumedReadOnly();
+        }
+
+        if (isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
+          Follow = true;
+          return true;
+        }
+
+        if (isa<StoreInst>(UserI))
+          return true;
+        if (auto *LI = dyn_cast<LoadInst>(UserI)) {
+          bool UsedAssumedInformation = false;
+          Optional<Constant *> C =
+              A.getAssumedConstant(*LI, *this, UsedAssumedInformation);
+          if (!C.hasValue() || C.getValue())
+            return true;
+        }
+        return false;
+      };
+      if (!A.checkForAllUses(UseCheck, *this, *Base))
+        return indicatePessimisticFixpoint();
+
+      return ChangeStatus::UNCHANGED;
+    }
+
     if (!isAssumedSideEffectFree(A, I))
       return indicatePessimisticFixpoint();
 
@@ -4082,14 +4138,21 @@ struct AANoCaptureImpl : public AANoCapture {
     const Function *F = isArgumentPosition() ? getAssociatedFunction() : AnchorScope;
 
     // Check what state the associated function can actually capture.
-    if (F)
+    if (F) {
       determineFunctionCaptureCapabilities(getIRPosition(), *F, *this);
-    else
+    } else if (auto *GV = dyn_cast<GlobalVariable>(&getAssociatedValue())) {
+      if (!GV->hasLocalLinkage())
+        indicatePessimisticFixpoint();
+    } else
       indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
+
+  /// TODO
+  void trackUses(Attributor &A, const Value &V, AANoCapture::StateType &T,
+                 const AAIsDead *IsDeadAA);
 
   /// see AbstractAttribute::isAssumedNoCaptureMaybeReturned(...).
   virtual void
@@ -4180,7 +4243,7 @@ struct AACaptureUseTracker final : public CaptureTracker {
   /// the search is stopped with \p CapturedInMemory and \p CapturedInInteger
   /// conservatively set to true.
   AACaptureUseTracker(Attributor &A, AANoCapture &NoCaptureAA,
-                      const AAIsDead &IsDeadAA, AANoCapture::StateType &State,
+                      const AAIsDead *IsDeadAA, AANoCapture::StateType &State,
                       SmallVectorImpl<const Value *> &PotentialCopies,
                       unsigned &RemainingUsesToExplore)
       : A(A), NoCaptureAA(NoCaptureAA), IsDeadAA(IsDeadAA), State(State),
@@ -4269,7 +4332,7 @@ struct AACaptureUseTracker final : public CaptureTracker {
   bool shouldExplore(const Use *U) override {
     // Check liveness and ignore droppable users.
     return !U->getUser()->isDroppable() &&
-           !A.isAssumedDead(*U, &NoCaptureAA, &IsDeadAA);
+           !A.isAssumedDead(*U, &NoCaptureAA, IsDeadAA);
   }
 
   /// Update the state according to \p CapturedInMem, \p CapturedInInt, and
@@ -4296,7 +4359,7 @@ private:
   AANoCapture &NoCaptureAA;
 
   /// The abstract liveness state.
-  const AAIsDead &IsDeadAA;
+  const AAIsDead *IsDeadAA;
 
   /// The state currently updated.
   AANoCapture::StateType &State;
@@ -4375,6 +4438,20 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
     }
   }
 
+  trackUses(A, *V, T, &IsDeadAA);
+
+  AANoCapture::StateType &S = getState();
+  auto Assumed = S.getAssumed();
+  S.intersectAssumedBits(T.getAssumed());
+  if (!isAssumedNoCaptureMaybeReturned())
+    return indicatePessimisticFixpoint();
+  return Assumed == S.getAssumed() ? ChangeStatus::UNCHANGED
+                                   : ChangeStatus::CHANGED;
+}
+
+void AANoCaptureImpl::trackUses(Attributor &A, const Value &V,
+                                AANoCapture::StateType &T,
+                                const AAIsDead *IsDeadAA) {
   // Use the CaptureTracker interface and logic with the specialized tracker,
   // defined in AACaptureUseTracker, that can look at in-flight abstract
   // attributes and directly updates the assumed state.
@@ -4387,17 +4464,9 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
   // Check all potential copies of the associated value until we can assume
   // none will be captured or we have to assume at least one might be.
   unsigned Idx = 0;
-  PotentialCopies.push_back(V);
+  PotentialCopies.push_back(&V);
   while (T.isAssumed(NO_CAPTURE_MAYBE_RETURNED) && Idx < PotentialCopies.size())
     Tracker.valueMayBeCaptured(PotentialCopies[Idx++]);
-
-  AANoCapture::StateType &S = getState();
-  auto Assumed = S.getAssumed();
-  S.intersectAssumedBits(T.getAssumed());
-  if (!isAssumedNoCaptureMaybeReturned())
-    return indicatePessimisticFixpoint();
-  return Assumed == S.getAssumed() ? ChangeStatus::UNCHANGED
-                                   : ChangeStatus::CHANGED;
 }
 
 /// NoCapture attribute for function arguments.
@@ -4444,6 +4513,17 @@ struct AANoCaptureCallSiteArgument final : AANoCaptureImpl {
 struct AANoCaptureFloating final : AANoCaptureImpl {
   AANoCaptureFloating(const IRPosition &IRP, Attributor &A)
       : AANoCaptureImpl(IRP, A) {}
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    if (getAnchorScope())
+      return AANoCaptureImpl::updateImpl(A);
+
+    AANoCapture::StateType &S = getState();
+    auto Assumed = S.getAssumed();
+    trackUses(A, getAssociatedValue(), S, nullptr);
+    return Assumed == S.getAssumed() ? ChangeStatus::UNCHANGED
+                                     : ChangeStatus::CHANGED;
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4961,7 +5041,6 @@ struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
                    ->getArgOperandUse(getCallSiteArgNo());
       // We can replace the AssociatedValue with the constant.
       if (&V != C && V.getType() == C->getType()) {
-        errs() << *this << "\n";
         if (A.changeUseAfterManifest(U, *C))
           Changed = ChangeStatus::CHANGED;
       }
@@ -7816,7 +7895,16 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     int64_t Offset;
     const Value *Base = getBasePointerOfAccessPointerOperand(
         &L, Offset, DL, /*AllowNonInbounds*/ true);
-    if (!Base)
+    if (!Base || Offset)
+      return indicatePessimisticFixpoint();
+    bool UsedAssumedInformation = false;
+    Optional<Constant *> C =
+        A.getAssumedConstant(*Base, *this, UsedAssumedInformation);
+    if (!C.hasValue())
+      return ChangeStatus::UNCHANGED;
+    if (C.getValue())
+      Base = C.getValue();
+    if (isa<ConstantPointerNull>(Base))
       return indicatePessimisticFixpoint();
     auto *GV = dyn_cast<GlobalVariable>(Base);
     if (!isa<AllocaInst>(Base) && !GV)
