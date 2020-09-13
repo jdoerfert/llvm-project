@@ -7337,8 +7337,11 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
       return false;
     if (PotentialValuesAA.getState().undefIsContained())
       return false;
-    for (const APInt &PV : PotentialValuesAA.getState().getAssumedSet())
+    for (const APInt &PV : PotentialValuesAA.getState().getAssumedSet()) {
+      if (PV.getBitWidth() != T.getBitWidth())
+        return false;
       T.unionAssumed(ConstantRange(PV));
+    }
     return T.isValidState();
   }
 
