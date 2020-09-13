@@ -2835,12 +2835,12 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
 
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
     if (auto *SI = dyn_cast_or_null<StoreInst>(I)) {
-      //Value *Ptr = SI->getPointerOperand()->stripPointerCasts();
-      //if (isa<AllocaInst>(Ptr))
-        //return;
-      //if (auto *GV = dyn_cast<GlobalVariable>(Ptr))
-        //if (GV->hasLocalLinkage())
-          //return;
+      // Value *Ptr = SI->getPointerOperand()->stripPointerCasts();
+      // if (isa<AllocaInst>(Ptr))
+      // return;
+      // if (auto *GV = dyn_cast<GlobalVariable>(Ptr))
+      // if (GV->hasLocalLinkage())
+      // return;
     }
     if (!isAssumedSideEffectFree(A, I))
       indicatePessimisticFixpoint();
