@@ -1290,8 +1290,6 @@ struct Attributor {
     if (V && (V->stripPointerCasts() == NV.stripPointerCasts() ||
               isa_and_nonnull<UndefValue>(V)))
       return false;
-    if (V)
-      errs() << "V: " << *V << " : " << NV << " :: " << *U.getUser() << "\n";
     assert((!V || V == &NV || isa<UndefValue>(NV)) &&
            "Use was registered twice for replacement with different values!");
     V = &NV;

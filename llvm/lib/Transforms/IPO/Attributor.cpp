@@ -75,8 +75,8 @@ static cl::opt<unsigned>
                           cl::init(32));
 static cl::opt<unsigned>
     MaxManifest("attributor-max-manifest", cl::Hidden,
-                          cl::desc("Maximal number of fixpoint iterations."),
-                          cl::init(0));
+                cl::desc("Maximal number of fixpoint iterations."),
+                cl::init(0));
 
 static cl::opt<unsigned, true> MaxInitializationChainLengthX(
     "attributor-max-initialization-chain-length", cl::Hidden,
@@ -1131,7 +1131,7 @@ ChangeStatus Attributor::manifestAttributes() {
     // Skip dead code.
     if (isAssumedDead(*AA, nullptr, /* CheckBBLivenessOnly */ true))
       continue;
-    if(MaxManifest && NumManifested > MaxManifest)
+    if (MaxManifest && NumManifested > MaxManifest)
       break;
     // Manifest the statl and record if we changed the IR.
     ChangeStatus LocalChange = AA->manifest(*this);
@@ -1333,7 +1333,7 @@ ChangeStatus Attributor::cleanupIR() {
   for (Function *Fn : ToBeDeletedFunctions) {
     if (!Functions.count(Fn))
       continue;
-    CGUpdater.removeFunction(*Fn);
+     CGUpdater.removeFunction(*Fn);
   }
 
   if (!ToBeChangedUses.empty())
@@ -2302,7 +2302,8 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
   // TODO: for now we eagerly internalize functions without calculating the
   //       cost, we need a cost interface to determine whether internalizing
   //       a function is "benefitial"
-  if (AllowDeepWrapper) {
+  if (AllowDeepWrapper &&
+      Functions.size() == Functions.back()->getParent()->size()) {
     unsigned FunSize = Functions.size();
     for (unsigned u = 0; u < FunSize; u++) {
       Function *F = Functions[u];

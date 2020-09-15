@@ -5732,7 +5732,11 @@ struct AAPrivatizablePtrArgument final : public AAPrivatizablePtrImpl {
                                     Arg->getName() + ".priv", IP);
           createInitialization(PrivatizableType.getValue(), *AI, ReplacementFn,
                                ArgIt->getArgNo(), *IP);
-          Arg->replaceAllUsesWith(AI);
+          if (AI->getType() == Arg->getType())
+            Arg->replaceAllUsesWith(AI);
+          else
+            Arg->replaceAllUsesWith(
+                BitCastInst::CreateBitOrPointerCast(AI, Arg->getType()));
 
           for (CallInst *CI : TailCalls)
             CI->setTailCall(false);
@@ -7338,8 +7342,14 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
     if (PotentialValuesAA.getState().undefIsContained())
       return false;
     for (const APInt &PV : PotentialValuesAA.getState().getAssumedSet()) {
-      if (PV.getBitWidth() != T.getBitWidth())
+      if (PV.getBitWidth() != cast<IntegerType>(L->getType())->getBitWidth()) {
+        // L->getFunction()->dump();
+        // L->dump();
+        // PV.dump();
+        // assert(0);
+        T.indicatePessimisticFixpoint();
         return false;
+      }
       T.unionAssumed(ConstantRange(PV));
     }
     return T.isValidState();
@@ -7911,88 +7921,104 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       return indicatePessimisticFixpoint();
 
     auto AssumedBefore = getAssumed();
-    const DataLayout &DL = A.getDataLayout();
-    int64_t Offset;
-    const Value *Base = getBasePointerOfAccessPointerOperand(
-        &L, Offset, DL, /*AllowNonInbounds*/ true);
-    if (!Base || Offset)
-      return indicatePessimisticFixpoint();
-    bool UsedAssumedInformation = false;
-    Optional<Constant *> C =
-        A.getAssumedConstant(*Base, *this, UsedAssumedInformation);
-    if (!C.hasValue())
-      return ChangeStatus::UNCHANGED;
-    if (C.getValue())
-      Base = C.getValue();
-    if (isa<ConstantPointerNull>(Base))
-      return indicatePessimisticFixpoint();
-    auto *GV = dyn_cast<GlobalVariable>(Base);
-    if (!isa<AllocaInst>(Base) && !GV)
-      return indicatePessimisticFixpoint();
-    if (GV && !GV->hasLocalLinkage())
-      return indicatePessimisticFixpoint();
 
-    auto &NoCaptureAA =
-        A.getAAFor<AANoCapture>(*this, IRPosition::value(*Base));
-    if (!NoCaptureAA.isAssumedNoCapture())
-      return indicatePessimisticFixpoint();
-
-    auto UseCheck = [&](const Use &U, bool &Follow) -> bool {
-      Instruction *UserI = cast<Instruction>(U.getUser());
-      if (auto *CB = dyn_cast<CallBase>(UserI)) {
-        if (CB->isBundleOperand(&U))
-          return false;
-        if (!CB->isArgOperand(&U))
+    auto VisitValueCB = [&](Value &V, const Instruction *CtxI,
+                            AAPotentialValues::StateType &T,
+                            bool Stripped) -> bool {
+      Value *Base = &V;
+      if (!isa<AllocaInst>(V)) {
+        bool UsedAssumedInformation = false;
+        Optional<Constant *> C =
+            A.getAssumedConstant(*Base, *this, UsedAssumedInformation);
+        if (!C.hasValue())
           return true;
-        unsigned ArgNo = CB->getArgOperandNo(&U);
-
-        const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
-            *this, IRPosition::callsite_argument(*CB, ArgNo));
-        return MemBehaviorAA.isAssumedReadOnly();
-      }
-
-      if (isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
-        Follow = true;
-        return true;
-      }
-
-      if (isa<LoadInst>(UserI))
-        return true;
-      if (auto *SI = dyn_cast<StoreInst>(UserI)) {
-        if (SI->getValueOperand() == U.get())
+        if (C.getValue())
+          Base = C.getValue();
+        if (isa<ConstantPointerNull>(Base))
           return false;
-
-        auto &PotentialValuesAA = A.getAAFor<AAPotentialValues>(
-            *this, IRPosition::value(*SI->getValueOperand()));
-        if (!PotentialValuesAA.isValidState())
+        auto *GV = dyn_cast<GlobalVariable>(Base);
+        if (!GV || !GV->hasLocalLinkage())
           return false;
-        if (PotentialValuesAA.undefIsContained())
-          unionAssumedWithUndef();
-        else
-          unionAssumed(PotentialValuesAA.getAssumed());
-        return true;
       }
-      return false;
-    };
-    if (!A.checkForAllUses(UseCheck, *this, *Base))
-      return indicatePessimisticFixpoint();
 
-    if (isa<AllocaInst>(Base)) {
-      unionAssumedWithUndef();
-    } else {
-      assert(GV);
-      if (GV->hasInitializer()) {
-        auto *Initializer = GV->getInitializer();
-        if (isa<UndefValue>(Initializer))
-          unionAssumedWithUndef();
-        else if (auto *CI = dyn_cast<ConstantInt>(Initializer))
-          unionAssumed(CI->getValue());
-        else
-          return indicatePessimisticFixpoint();
+      auto &NoCaptureAA =
+          A.getAAFor<AANoCapture>(*this, IRPosition::value(*Base));
+      if (!NoCaptureAA.isAssumedNoCapture())
+        return false;
+
+      auto UseCheck = [&](const Use &U, bool &Follow) -> bool {
+        Instruction *UserI = cast<Instruction>(U.getUser());
+        if (auto *CB = dyn_cast<CallBase>(UserI)) {
+          if (CB->isBundleOperand(&U))
+            return false;
+          if (!CB->isArgOperand(&U))
+            return true;
+          unsigned ArgNo = CB->getArgOperandNo(&U);
+
+          const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
+              *this, IRPosition::callsite_argument(*CB, ArgNo));
+          return MemBehaviorAA.isAssumedReadOnly();
+        }
+
+        if (isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
+          Follow = true;
+          return true;
+        }
+        if (isa<BitCastInst>(UserI) && onlyUsedByLifetimeMarkers(UserI))
+          return true;
+
+        if (isa<LoadInst>(UserI))
+          return true;
+        if (auto *SI = dyn_cast<StoreInst>(UserI)) {
+          if (SI->getValueOperand() == U.get())
+            return false;
+          if (SI->getValueOperand()->getType() != getAssociatedType())
+            return false;
+
+          auto &PotentialValuesAA = A.getAAFor<AAPotentialValues>(
+              *this, IRPosition::value(*SI->getValueOperand()));
+          if (!PotentialValuesAA.isValidState())
+            return false;
+          if (PotentialValuesAA.undefIsContained())
+            T.unionAssumedWithUndef();
+          else
+            T.unionAssumed(PotentialValuesAA.getAssumed());
+          return true;
+        }
+        return false;
+      };
+      if (!A.checkForAllUses(UseCheck, *this, *Base))
+        return false;
+
+      if (isa<AllocaInst>(Base)) {
+        T.unionAssumedWithUndef();
       } else {
-        unionAssumedWithUndef();
+        auto *GV = cast<GlobalVariable>(Base);
+        if (GV->hasInitializer()) {
+          auto *Initializer = GV->getInitializer();
+          if (isa<UndefValue>(Initializer))
+            T.unionAssumedWithUndef();
+          else if (auto *CI = dyn_cast<ConstantInt>(Initializer)) {
+            if (CI->getType() == getAssociatedType())
+              T.unionAssumed(CI->getValue());
+            else if (CI->isZero())
+              T.unionAssumed(ConstantInt::getNullValue(getAssociatedType()));
+            else
+              return false;
+          } else
+            return false;
+        } else {
+          T.unionAssumedWithUndef();
+        }
       }
-    }
+      return true;
+    };
+
+    if (!genericValueTraversal<AAPotentialValues,
+                               PotentialConstantIntValuesState>(
+            A, IRPosition::value(*L.getPointerOperand()), *this, getState(),
+            VisitValueCB, getCtxI()))
+      return indicatePessimisticFixpoint();
 
     return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
                                          : ChangeStatus::CHANGED;
