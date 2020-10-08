@@ -532,9 +532,13 @@ def int_pcmarker      : DefaultAttrsIntrinsic<[], [llvm_i32_ty]>;
 
 def int_readcyclecounter : DefaultAttrsIntrinsic<[llvm_i64_ty]>;
 
-// The assume intrinsic is marked as arbitrarily writing so that proper
-// control dependencies will be maintained.
+// The assume intrinsic is *not* marked as speculatable but without memory
+// effects. Proper control dependencies will be maintained because weakening
+// them would potentially introduce UB on paths that did not contain it before.
 def int_assume        : DefaultAttrsIntrinsic<[], [llvm_i1_ty], [IntrWillReturn,
+                                                     IntrNoMem,
+                                                     IntrNoSync,
+                                                     IntrNoFree,
                                                      NoUndef<ArgIndex<0>>]>;
 
 // Stack Protector Intrinsic - The stackprotector intrinsic writes the stack
