@@ -1876,6 +1876,86 @@ define i1 @propagate_range2(i32 %c) {
   ret i1 %true
 }
 
+define internal i1 @non_zero(i8 %v) {
+; IS__TUNIT_OPM: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@non_zero
+; IS__TUNIT_OPM-SAME: (i8 [[V:%.*]]) [[ATTR2]] {
+; IS__TUNIT_OPM-NEXT:    [[R:%.*]] = icmp ne i8 [[V]], 0
+; IS__TUNIT_OPM-NEXT:    ret i1 [[R]]
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@non_zero
+; IS__CGSCC_OPM-SAME: (i8 [[V:%.*]]) [[ATTR2]] {
+; IS__CGSCC_OPM-NEXT:    [[R:%.*]] = icmp ne i8 [[V]], 0
+; IS__CGSCC_OPM-NEXT:    ret i1 [[R]]
+;
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@non_zero
+; IS__CGSCC_NPM-SAME: () [[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:    ret i1 undef
+;
+  %r = icmp ne i8 %v, 0
+  ret i1 %r
+}
+
+; Avoid range metadata for %l below
+define i1 @context(i8* %p) {
+; IS__TUNIT_OPM: Function Attrs: argmemonly nofree nosync nounwind readonly willreturn
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@context
+; IS__TUNIT_OPM-SAME: (i8* nocapture nofree nonnull readonly dereferenceable(1) [[P:%.*]]) [[ATTR0]] {
+; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = load i8, i8* [[P]], align 1
+; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = icmp slt i8 0, [[L]]
+; IS__TUNIT_OPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__TUNIT_OPM:       t:
+; IS__TUNIT_OPM-NEXT:    [[R:%.*]] = call i1 @non_zero(i8 [[L]]) [[ATTR2]]
+; IS__TUNIT_OPM-NEXT:    ret i1 [[R]]
+; IS__TUNIT_OPM:       f:
+; IS__TUNIT_OPM-NEXT:    ret i1 false
+;
+; IS__TUNIT_NPM: Function Attrs: argmemonly nofree nosync nounwind readonly willreturn
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@context
+; IS__TUNIT_NPM-SAME: (i8* nocapture nofree nonnull readonly dereferenceable(1) [[P:%.*]]) [[ATTR0]] {
+; IS__TUNIT_NPM-NEXT:    [[L:%.*]] = load i8, i8* [[P]], align 1
+; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = icmp slt i8 0, [[L]]
+; IS__TUNIT_NPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__TUNIT_NPM:       t:
+; IS__TUNIT_NPM-NEXT:    ret i1 true
+; IS__TUNIT_NPM:       f:
+; IS__TUNIT_NPM-NEXT:    ret i1 false
+;
+; IS__CGSCC_OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@context
+; IS__CGSCC_OPM-SAME: (i8* nocapture nofree nonnull readonly dereferenceable(1) [[P:%.*]]) [[ATTR0]] {
+; IS__CGSCC_OPM-NEXT:    [[L:%.*]] = load i8, i8* [[P]], align 1
+; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = icmp slt i8 0, [[L]]
+; IS__CGSCC_OPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__CGSCC_OPM:       t:
+; IS__CGSCC_OPM-NEXT:    [[R:%.*]] = call i1 @non_zero(i8 [[L]]) [[ATTR4]]
+; IS__CGSCC_OPM-NEXT:    ret i1 [[R]]
+; IS__CGSCC_OPM:       f:
+; IS__CGSCC_OPM-NEXT:    ret i1 false
+;
+; IS__CGSCC_NPM: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@context
+; IS__CGSCC_NPM-SAME: (i8* nocapture nofree nonnull readonly dereferenceable(1) [[P:%.*]]) [[ATTR0]] {
+; IS__CGSCC_NPM-NEXT:    [[L:%.*]] = load i8, i8* [[P]], align 1
+; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = icmp slt i8 0, [[L]]
+; IS__CGSCC_NPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__CGSCC_NPM:       t:
+; IS__CGSCC_NPM-NEXT:    ret i1 true
+; IS__CGSCC_NPM:       f:
+; IS__CGSCC_NPM-NEXT:    ret i1 false
+;
+  %l = load i8, i8* %p
+  %c = icmp slt i8 0, %l
+  br i1 %c, label %t, label %f
+t:
+  %r = call i1 @non_zero(i8 %l)
+  ret i1 %r
+f:
+  ret i1 false
+}
+
 !0 = !{i32 0, i32 10}
 !1 = !{i32 10, i32 100}
 
