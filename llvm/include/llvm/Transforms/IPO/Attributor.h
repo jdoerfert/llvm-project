@@ -1030,6 +1030,7 @@ struct Attributor {
   ///
   /// \Returns CHANGED if the IR was changed, otherwise UNCHANGED.
   ChangeStatus run();
+  void runLiveness();
 
   /// Lookup an abstract attribute of type \p AAType at position \p IRP. While
   /// no abstract attribute is found equivalent positions are checked, see
@@ -1563,7 +1564,7 @@ private:
   /// If the maximum iteration count is reached, This method will
   /// indicate pessimistic fixpoint on attributes that transitively depend
   /// on attributes that were scheduled for an update.
-  void runTillFixpoint();
+  void runTillFixpoint(bool TrackIterations);
 
   /// Gets called after scheduling, manifests attributes to the LLVM IR.
   ChangeStatus manifestAttributes();

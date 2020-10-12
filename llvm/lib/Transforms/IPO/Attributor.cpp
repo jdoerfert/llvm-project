@@ -969,7 +969,7 @@ bool Attributor::checkForAllReadWriteInstructions(
   return true;
 }
 
-void Attributor::runTillFixpoint() {
+void Attributor::runTillFixpoint(bool TrackIterations) {
   TimeTraceScope TimeScope("Attributor::runTillFixpoint");
   LLVM_DEBUG(dbgs() << "[Attributor] Identified and initialized "
                     << DG.SyntheticRoot.Deps.size()
@@ -1096,7 +1096,7 @@ void Attributor::runTillFixpoint() {
              << " abstract attributes.\n";
   });
 
-  if (VerifyMaxFixpointIterations &&
+  if (TrackIterations && VerifyMaxFixpointIterations &&
       IterationCounter != MaxFixpointIterations) {
     errs() << "\n[Attributor] Fixpoint iteration done after: "
            << IterationCounter << "/" << MaxFixpointIterations
@@ -1379,11 +1379,18 @@ ChangeStatus Attributor::cleanupIR() {
   return ManifestChange;
 }
 
+void Attributor::runLiveness() {
+  TimeTraceScope TimeScope("Attributor::runLiveness");
+
+  Phase = AttributorPhase::UPDATE;
+  runTillFixpoint(false);
+}
+
 ChangeStatus Attributor::run() {
   TimeTraceScope TimeScope("Attributor::run");
 
   Phase = AttributorPhase::UPDATE;
-  runTillFixpoint();
+  runTillFixpoint(true);
 
   // dump graphs on demand
   if (DumpDepGraph)
@@ -1965,7 +1972,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   // Check for dead BasicBlocks in every function.
   // We need dead instruction detection because we do not want to deal with
   // broken IR in which SSA rules do not apply.
-  getOrCreateAAFor<AAIsDead>(FPos);
+  //getOrCreateAAFor<AAIsDead>(FPos);
 
   // Every function might be "will-return".
   getOrCreateAAFor<AAWillReturn>(FPos);
@@ -2316,6 +2323,7 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
     }
   }
 
+  SmallVector<Function *, 32> SeedFunctions;
   for (Function *F : Functions) {
     if (F->hasExactDefinition())
       NumFnWithExactDefinition++;
@@ -2336,6 +2344,15 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
 
     // Populate the Attributor with abstract attribute opportunities in the
     // function and the information cache with IR information.
+    IRPosition FPos = IRPosition::function(*F);
+    A.getOrCreateAAFor<AAIsDead>(FPos);
+
+    SeedFunctions.push_back(F);
+  }
+
+  A.runLiveness();
+
+  for (Function *F : SeedFunctions) {
     A.identifyDefaultAbstractAttributes(*F);
   }
 
