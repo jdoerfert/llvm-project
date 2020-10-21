@@ -30,6 +30,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
@@ -229,6 +230,8 @@ struct OMPInformationCache : public InformationCache {
                   RuntimeFunction::OMPRTL___last>
       RFIs;
 
+  DenseMap<Function *, RuntimeFunctionInfo *> FunctionRFIMap;
+
   /// Map from ICV kind to the ICV description.
   EnumeratedArray<InternalControlVarInfo, InternalControlVar,
                   InternalControlVar::ICV___last>
@@ -368,6 +371,7 @@ struct OMPInformationCache : public InformationCache {
     Function *F = M.getFunction(_Name);                                        \
     if (declMatchesRTFTypes(F, OMPBuilder._ReturnType, ArgsTypes)) {           \
       auto &RFI = RFIs[_Enum];                                                 \
+      FunctionRFIMap[F] = &RFI;                                                \
       RFI.Kind = _Enum;                                                        \
       RFI.Name = _Name;                                                        \
       RFI.IsVarArg = _IsVarArg;                                                \
@@ -1464,9 +1468,16 @@ private:
     return getUniqueKernelFor(*I.getFunction());
   }
 
+  /// Rewrite the device (=GPU) code state machine create in non-SPMD mode.
+  bool rewriteDeviceCodeStateMachine();
+
   /// Rewrite the device (=GPU) code state machine create in non-SPMD mode in
   /// the cases we can avoid taking the address of a function.
-  bool rewriteDeviceCodeStateMachine();
+  bool rewriteDeviceCodeStateMachineFunctionPointers();
+
+  /// Rewrite the device (=GPU) code state machine create in non-SPMD mode in
+  /// the cases we can avoid having a fallback indirect call.
+  bool rewriteDeviceCodeStateMachineFallbackCall();
 
   ///
   ///}}
@@ -1645,6 +1656,71 @@ Kernel OpenMPOpt::getUniqueKernelFor(Function &F) {
 }
 
 bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
+  bool Changed = false;
+  Changed |= rewriteDeviceCodeStateMachineFunctionPointers();
+  Changed |= rewriteDeviceCodeStateMachineFallbackCall();
+  return Changed;
+}
+
+bool OpenMPOpt::rewriteDeviceCodeStateMachineFallbackCall() {
+  bool Changed = false;
+  OMPInformationCache::RuntimeFunctionInfo &KernelParallelRFI =
+      OMPInfoCache.RFIs[OMPRTL___kmpc_kernel_parallel];
+
+  if (!KernelParallelRFI)
+    return Changed;
+
+  Module &M = *(*SCC.begin())->getParent();
+  for (Function &F : M) {
+    if (!F.isDeclaration())
+      continue;
+    if (!OMPInfoCache.FunctionRFIMap.count(&F)) {
+      auto Remark = [&](OptimizationRemark OR) {
+        return OR << "Unkown external function" << F.getName()
+          ;
+      };
+      emitRemarkOnFunction(&F, "ExernalFnInNonSPMD", Remark);
+      return Changed;
+    }
+  }
+
+  SmallVector<CallInst *, 8> IndirectCalls;
+  // Extract the function passed to the __kmpc_kernel_prerpare_parallel, if any,
+  // into ParallelRegionFns.
+  auto CollectIndirectCalls = [&](const Use &U, const Function &) -> bool {
+    auto *CI =
+        OpenMPOpt::getCallIfRegularCall(*U.getUser(), &KernelParallelRFI);
+    if (!CI)
+      return false;
+    AllocaInst *WorkFnAI = dyn_cast<AllocaInst>(CI->getArgOperand(0));
+    if (!WorkFnAI)
+      return false;
+
+    for (User *WorkFnAIUsr : WorkFnAI->users()) {
+      if (WorkFnAIUsr == CI)
+        continue;
+      LoadInst *LI = dyn_cast<LoadInst>(WorkFnAIUsr);
+      if (!LI)
+        return false;
+      for (User *LIUsr : LI->users()) {
+        if (isa<BitCastOperator>(LIUsr) && LIUsr->getNumUses() == 1) {
+          CallInst *IndirectCall = dyn_cast<CallInst>(LIUsr->user_back());
+          if (IndirectCall && IndirectCall->isIndirectCall() &&
+              IndirectCall->getCalledOperand()->stripPointerCasts() == LI) {
+            IndirectCalls.push_back(IndirectCall);
+            IndirectCall->dump();
+          }
+        }
+      }
+    }
+    return false;
+  };
+  KernelParallelRFI.foreachUse(SCC, CollectIndirectCalls);
+
+  return Changed;
+}
+
+bool OpenMPOpt::rewriteDeviceCodeStateMachineFunctionPointers() {
   OMPInformationCache::RuntimeFunctionInfo &KernelPrepareParallelRFI =
       OMPInfoCache.RFIs[OMPRTL___kmpc_kernel_prepare_parallel];
 
@@ -1652,28 +1728,28 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
   if (!KernelPrepareParallelRFI)
     return Changed;
 
-  SmallPtrSet<Function *, 8> ParallelRegionFns;
-  // Extract the function passed to the __kmpc_kernel_prerpare_parallel, if any,
-  // into ParallelRegionFns.
-  auto CollectParallelRegion = [&](const Use &U, const Function &) -> bool {
-    auto *CI = OpenMPOpt::getCallIfRegularCall(*U.getUser(),
-                                               &KernelPrepareParallelRFI);
-    if (CI) {
-      Function *ParallelRegionFn =
-          dyn_cast<Function>(CI->getArgOperand(0)->stripPointerCasts());
-      if (ParallelRegionFn)
-        ParallelRegionFns.insert(ParallelRegionFn);
-    }
-    return false;
-  };
-  KernelPrepareParallelRFI.foreachUse(SCC, CollectParallelRegion);
+  // SmallPtrSet<Function *, 8> ParallelRegionFns;
+  //// Extract the function passed to the __kmpc_kernel_prerpare_parallel, if
+  ///any, / into ParallelRegionFns.
+  // auto CollectParallelRegion = [&](const Use &U, const Function &) -> bool {
+  // auto *CI = OpenMPOpt::getCallIfRegularCall(*U.getUser(),
+  //&KernelPrepareParallelRFI);
+  // if (CI) {
+  // Function *ParallelRegionFn =
+  // dyn_cast<Function>(CI->getArgOperand(0)->stripPointerCasts());
+  // if (ParallelRegionFn)
+  // ParallelRegionFns.insert(ParallelRegionFn);
+  //}
+  // return false;
+  //};
+  // KernelPrepareParallelRFI.foreachUse(SCC, CollectParallelRegion);
 
-  if (ParallelRegionFns.empty())
-    return Changed;
+  // if (ParallelRegionFns.empty())
+  // return Changed;
 
   for (Function *F : SCC) {
-    if (!ParallelRegionFns.count(F))
-      continue;
+    // if (!ParallelRegionFns.count(F))
+    // continue;
 
     // Check if the function is uses in a __kmpc_kernel_prepare_parallel call at
     // all.
