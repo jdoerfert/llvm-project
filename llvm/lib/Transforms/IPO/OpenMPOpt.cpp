@@ -1652,7 +1652,28 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
   if (!KernelPrepareParallelRFI)
     return Changed;
 
+  SmallPtrSet<Function *, 8> ParallelRegionFns;
+  // Extract the function passed to the __kmpc_kernel_prerpare_parallel, if any,
+  // into ParallelRegionFns.
+  auto CollectParallelRegion = [&](const Use &U, const Function &) -> bool {
+    auto *CI = OpenMPOpt::getCallIfRegularCall(*U.getUser(),
+                                               &KernelPrepareParallelRFI);
+    if (CI) {
+      Function *ParallelRegionFn =
+          dyn_cast<Function>(CI->getArgOperand(0)->stripPointerCasts());
+      if (ParallelRegionFn)
+        ParallelRegionFns.insert(ParallelRegionFn);
+    }
+    return false;
+  };
+  KernelPrepareParallelRFI.foreachUse(SCC, CollectParallelRegion);
+
+  if (ParallelRegionFns.empty())
+    return Changed;
+
   for (Function *F : SCC) {
+    if (!ParallelRegionFns.count(F))
+      continue;
 
     // Check if the function is uses in a __kmpc_kernel_prepare_parallel call at
     // all.
