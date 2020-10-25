@@ -1829,6 +1829,7 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
 
     // Replace the function in the call graph (if any).
     CGUpdater.replaceFunctionWith(*OldFn, *NewFn);
+    CGUpdater.removeFunction(*OldFn);
 
     // If the old function was modified and needed to be reanalyzed, the new one
     // does now.

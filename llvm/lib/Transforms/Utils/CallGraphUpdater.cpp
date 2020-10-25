@@ -137,7 +137,6 @@ void CallGraphUpdater::replaceFunctionWith(Function &OldFn, Function &NewFn) {
     LazyCallGraph::Node &OldLCGN = LCG->get(OldFn);
     SCC->getOuterRefSCC().replaceNodeFunction(OldLCGN, NewFn);
   }
-  removeFunction(OldFn);
 }
 
 bool CallGraphUpdater::replaceCallSite(CallBase &OldCS, CallBase &NewCS) {
