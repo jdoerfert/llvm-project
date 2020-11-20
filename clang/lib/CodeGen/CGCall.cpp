@@ -1928,6 +1928,10 @@ void CodeGenModule::ConstructAttributeList(
 
   const Decl *TargetDecl = CalleeInfo.getCalleeDecl().getDecl();
 
+  AttrVec Attrs;
+  if (TargetDecl)
+    Attrs.append(TargetDecl->attr_begin(), TargetDecl->attr_end());
+
   bool HasOptnone = false;
   // The NoBuiltinAttr attached to the target FunctionDecl.
   const NoBuiltinAttr *NBA = nullptr;
@@ -1936,17 +1940,17 @@ void CodeGenModule::ConstructAttributeList(
   // information.
   // FIXME: handle sseregparm someday...
   if (TargetDecl) {
-    if (TargetDecl->hasAttr<ReturnsTwiceAttr>())
+    if (hasSpecificAttr<ReturnsTwiceAttr>(Attrs))
       FuncAttrs.addAttribute(llvm::Attribute::ReturnsTwice);
-    if (TargetDecl->hasAttr<NoThrowAttr>())
+    if (hasSpecificAttr<NoThrowAttr>(Attrs))
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
-    if (TargetDecl->hasAttr<NoReturnAttr>())
+    if (hasSpecificAttr<NoReturnAttr>(Attrs))
       FuncAttrs.addAttribute(llvm::Attribute::NoReturn);
-    if (TargetDecl->hasAttr<ColdAttr>())
+    if (hasSpecificAttr<ColdAttr>(Attrs))
       FuncAttrs.addAttribute(llvm::Attribute::Cold);
-    if (TargetDecl->hasAttr<NoDuplicateAttr>())
+    if (hasSpecificAttr<NoDuplicateAttr>(Attrs))
       FuncAttrs.addAttribute(llvm::Attribute::NoDuplicate);
-    if (TargetDecl->hasAttr<ConvergentAttr>())
+    if (hasSpecificAttr<ConvergentAttr>(Attrs))
       FuncAttrs.addAttribute(llvm::Attribute::Convergent);
 
     if (const FunctionDecl *Fn = dyn_cast<FunctionDecl>(TargetDecl)) {
@@ -1966,35 +1970,35 @@ void CodeGenModule::ConstructAttributeList(
       if (!(AttrOnCallSite && IsVirtualCall)) {
         if (Fn->isNoReturn())
           FuncAttrs.addAttribute(llvm::Attribute::NoReturn);
-        NBA = Fn->getAttr<NoBuiltinAttr>();
+        NBA = getSpecificAttr<NoBuiltinAttr>(Attrs);
       }
     }
 
     // 'const', 'pure' and 'noalias' attributed functions are also nounwind.
-    if (TargetDecl->hasAttr<ConstAttr>()) {
+    if (hasSpecificAttr<ConstAttr>(Attrs)) {
       FuncAttrs.addAttribute(llvm::Attribute::ReadNone);
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
-    } else if (TargetDecl->hasAttr<PureAttr>()) {
+    } else if (hasSpecificAttr<PureAttr>(Attrs)) {
       FuncAttrs.addAttribute(llvm::Attribute::ReadOnly);
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
-    } else if (TargetDecl->hasAttr<NoAliasAttr>()) {
+    } else if (hasSpecificAttr<NoAliasAttr>(Attrs)) {
       FuncAttrs.addAttribute(llvm::Attribute::ArgMemOnly);
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
     }
-    if (TargetDecl->hasAttr<RestrictAttr>())
+    if (hasSpecificAttr<RestrictAttr>(Attrs))
       RetAttrs.addAttribute(llvm::Attribute::NoAlias);
-    if (TargetDecl->hasAttr<ReturnsNonNullAttr>() &&
+    if (hasSpecificAttr<ReturnsNonNullAttr>(Attrs) &&
         !CodeGenOpts.NullPointerIsValid)
       RetAttrs.addAttribute(llvm::Attribute::NonNull);
-    if (TargetDecl->hasAttr<AnyX86NoCallerSavedRegistersAttr>())
+    if (hasSpecificAttr<AnyX86NoCallerSavedRegistersAttr>(Attrs))
       FuncAttrs.addAttribute("no_caller_saved_registers");
-    if (TargetDecl->hasAttr<AnyX86NoCfCheckAttr>())
+    if (hasSpecificAttr<AnyX86NoCfCheckAttr>(Attrs))
       FuncAttrs.addAttribute(llvm::Attribute::NoCfCheck);
     if (TargetDecl->hasAttr<LeafAttr>())
       FuncAttrs.addAttribute(llvm::Attribute::NoCallback);
 
-    HasOptnone = TargetDecl->hasAttr<OptimizeNoneAttr>();
-    if (auto *AllocSize = TargetDecl->getAttr<AllocSizeAttr>()) {
+    HasOptnone = hasSpecificAttr<OptimizeNoneAttr>(Attrs);
+    if (auto *AllocSize = getSpecificAttr<AllocSizeAttr>(Attrs)) {
       Optional<unsigned> NumElemsParam;
       if (AllocSize->getNumElemsParam().isValid())
         NumElemsParam = AllocSize->getNumElemsParam().getLLVMIndex();
@@ -2002,7 +2006,7 @@ void CodeGenModule::ConstructAttributeList(
                                  NumElemsParam);
     }
 
-    if (TargetDecl->hasAttr<OpenCLKernelAttr>()) {
+    if (hasSpecificAttr<OpenCLKernelAttr>(Attrs)) {
       if (getLangOpts().OpenCLVersion <= 120) {
         // OpenCL v1.2 Work groups are always uniform
         FuncAttrs.addAttribute("uniform-work-group-size", "true");
@@ -2044,11 +2048,11 @@ void CodeGenModule::ConstructAttributeList(
   // Override some default IR attributes based on declaration-specific
   // information.
   if (TargetDecl) {
-    if (TargetDecl->hasAttr<NoSpeculativeLoadHardeningAttr>())
+    if (hasSpecificAttr<NoSpeculativeLoadHardeningAttr>(Attrs))
       FuncAttrs.removeAttribute(llvm::Attribute::SpeculativeLoadHardening);
-    if (TargetDecl->hasAttr<SpeculativeLoadHardeningAttr>())
+    if (hasSpecificAttr<SpeculativeLoadHardeningAttr>(Attrs))
       FuncAttrs.addAttribute(llvm::Attribute::SpeculativeLoadHardening);
-    if (TargetDecl->hasAttr<NoSplitStackAttr>())
+    if (hasSpecificAttr<NoSplitStackAttr>(Attrs))
       FuncAttrs.removeAttribute("split-stack");
 
     // Add NonLazyBind attribute to function declarations when -fno-plt
@@ -2067,7 +2071,7 @@ void CodeGenModule::ConstructAttributeList(
   // Collect non-call-site function IR attributes from declaration-specific
   // information.
   if (!AttrOnCallSite) {
-    if (TargetDecl && TargetDecl->hasAttr<CmseNSEntryAttr>())
+    if (TargetDecl && hasSpecificAttr<CmseNSEntryAttr>(Attrs))
       FuncAttrs.addAttribute("cmse_nonsecure_entry");
 
     // Whether tail calls are enabled.
@@ -2079,8 +2083,8 @@ void CodeGenModule::ConstructAttributeList(
       if (!TargetDecl)
         return false;
 
-      if (TargetDecl->hasAttr<DisableTailCallsAttr>() ||
-          TargetDecl->hasAttr<AnyX86InterruptAttr>())
+      if (hasSpecificAttr<DisableTailCallsAttr>(Attrs) ||
+          hasSpecificAttr<AnyX86InterruptAttr>(Attrs))
         return true;
 
       if (CodeGenOpts.NoEscapingBlockTailCalls) {
