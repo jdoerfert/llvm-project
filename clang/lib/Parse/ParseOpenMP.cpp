@@ -1744,6 +1744,9 @@ Parser::DeclGroupPtrTy Parser::ParseOMPDeclareTargetClauses() {
   return Actions.BuildDeclaratorGroup(Decls);
 }
 
+void Parser::ParseOMPErrorDirective() {
+}
+
 void Parser::skipUntilPragmaOpenMPEnd(OpenMPDirectiveKind DKind) {
   // The last seen token is annot_pragma_openmp_end - need to check for
   // extra tokens.
@@ -2142,6 +2145,9 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirectiveWithExtDecl(
     Actions.ActOnFinishOpenMPDeclareTargetDirective();
     return Actions.BuildDeclaratorGroup(Decls);
   }
+  case OMPD_error:
+    ParseOMPErrorDirective();
+    break;
   case OMPD_unknown:
     Diag(Tok, diag::err_omp_unknown_directive);
     break;
@@ -2360,6 +2366,9 @@ Parser::ParseOpenMPDeclarativeOrExecutableDirective(ParsedStmtContext StmtCtx) {
     }
     break;
   }
+  case OMPD_error:
+                            ParseOMPErrorDirective();
+                            break;
   case OMPD_flush:
   case OMPD_depobj:
   case OMPD_scan:

@@ -3117,6 +3117,9 @@ private:
   void ParseOMPEndDeclareTargetDirective(OpenMPDirectiveKind DKind,
                                          SourceLocation Loc);
 
+  /// Parse '#pragma omp error ...`.
+  void ParseOMPErrorDirective();
+
   /// Skip tokens until a `annot_pragma_openmp_end` was found. Emit a warning if
   /// it is not the current token.
   void skipUntilPragmaOpenMPEnd(OpenMPDirectiveKind DKind);

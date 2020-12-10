@@ -316,6 +316,25 @@ def OMPC_Link : Clause<"link"> {
 }
 def OMPC_Inbranch : Clause<"inbranch"> {}
 def OMPC_Notinbranch : Clause<"notinbranch"> {}
+def OMP_ERROR_AT_compilation : ClauseVal<"compilation",0,1> {}
+def OMP_ERROR_AT_execution : ClauseVal<"execution",1,1> {}
+def OMPC_At : Clause<"at"> {
+  let enumClauseValue = "ErrorAt";
+  let allowedClauseValues = [
+    OMP_ERROR_AT_compilation,
+    OMP_ERROR_AT_execution,
+  ];
+}
+def OMP_ERROR_SEVERITY_fatal : ClauseVal<"fatal",0,1> {}
+def OMP_ERROR_SEVERITY_warning : ClauseVal<"warning",1,1> {}
+def OMPC_Severity : Clause<"severity"> {
+  let enumClauseValue = "ErrorSeverity";
+  let allowedClauseValues = [
+    OMP_ERROR_SEVERITY_fatal,
+    OMP_ERROR_SEVERITY_warning,
+  ];
+}
+def OMPC_Message : Clause<"message"> {}
 
 //===----------------------------------------------------------------------===//
 // Definition of OpenMP directives
@@ -1633,6 +1652,18 @@ def OMP_EndSingle : Directive<"end single"> {
 def OMP_EndWorkshare : Directive<"end workshare"> {
   let allowedClauses = [
     VersionedClause<OMPC_NoWait>
+  ];
+}
+def OMP_Error : Directive<"error"> {
+  let allowedOnceClauses = [
+    VersionedClause<OMPC_At, 50>,
+    VersionedClause<OMPC_Severity, 50>,
+    VersionedClause<OMPC_Message, 50>,
+  ];
+  let requiredClauses = [
+    VersionedClause<OMPC_At, 50>,
+    VersionedClause<OMPC_Severity, 50>,
+    VersionedClause<OMPC_Message, 50>,
   ];
 }
 def OMP_Unknown : Directive<"unknown"> {

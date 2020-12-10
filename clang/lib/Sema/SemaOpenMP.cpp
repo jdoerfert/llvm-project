@@ -5348,6 +5348,8 @@ StmtResult Sema::ActOnOpenMPExecutableDirective(
     Res = ActOnOpenMPTaskgroupDirective(ClausesWithImplicit, AStmt, StartLoc,
                                         EndLoc);
     break;
+  case OMPD_error:
+    break;
   case OMPD_flush:
     assert(AStmt == nullptr &&
            "No associated statement allowed for 'omp flush' directive");
