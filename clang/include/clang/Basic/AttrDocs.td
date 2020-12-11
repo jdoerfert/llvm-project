@@ -4018,9 +4018,13 @@ optimization passes are aware of the following assumptions:
     "omp_no_openmp"
     "omp_no_openmp_routines"
     "omp_no_parallelism"
+    "omp_no_external_caller_in_target_region"
 
-The OpenMP standard defines the meaning of OpenMP assumptions ("omp_XYZ" is
-spelled "XYZ" in the `OpenMP 5.1 Standard`_).
+The OpenMP standard defines the meaning of the first three OpenMP assumptions
+("omp_XYZ" is spelled "XYZ" in the `OpenMP 5.1 Standard`_) while other are
+clang extensions spelled described `here
+<http://openmp.llvm.org/docs/remarks/OptimizationRemarks.html>`_ and spelled
+without the `omp` in the OpenMP assume directive syntax.
 
 .. _`OpenMP 5.1 Standard`: https://www.openmp.org/spec-html/5.1/openmpsu37.html#x56-560002.5.2
 

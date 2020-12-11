@@ -25,6 +25,13 @@ regions, this remark is to be ignored. If there are no such callers, users can
 modify the linkage and thereby help optimization with a `static` or
 `__attribute__((internal))` function annotation. If changing the linkage is
 impossible, e.g., because there are outside callers on the host, one can split
-the function into an external visible interface which is not compiled for
-the target and an internal implementation which is compiled for the target
-and should be called from within the target region.
+the function into an external visible interface which is not compiled for the
+target and an internal implementation which is compiled for the target and
+should be called from within the target region. Finally,  we provide an
+assumption for the target side which can be spelled either as
+`__attribute__((assume("omp_no_external_caller_in_target_region")))` or as
+OpenMP assumption, i.a., `#pragma omp begin assume
+ext_no_external_caller_in_target_region`. The assumption effectively allows the
+compiler to assume no caller outside the current translation unit will call the
+function from a target region, hence the function is not called from outside
+translation units on the device.

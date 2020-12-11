@@ -22,6 +22,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include "llvm/IR/Assumptions.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
@@ -1450,6 +1451,12 @@ private:
   }
 };
 
+/// The "omp_no_external_caller_in_target_region" assumption guarantees that
+/// there are no external caller of a function which are inside an OpenMP
+/// target region.
+static KnownAssumptionString
+    NoExternalCallerInTargetRegion("omp_no_external_caller_in_target_region");
+
 Kernel OpenMPOpt::getUniqueKernelFor(Function &F) {
   if (!OMPInfoCache.ModuleSlice.count(&F))
     return nullptr;
@@ -1469,7 +1476,8 @@ Kernel OpenMPOpt::getUniqueKernelFor(Function &F) {
     }
 
     CachedKernel = nullptr;
-    if (!F.hasLocalLinkage()) {
+    if (!F.hasLocalLinkage() &&
+        !hasAssumption(F, NoExternalCallerInTargetRegion)) {
 
       // See https://openmp.llvm.org/remarks/OptimizationRemarks.html
       auto Remark = [&](OptimizationRemark OR) {
