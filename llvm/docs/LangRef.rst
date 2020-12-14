@@ -2306,6 +2306,20 @@ When lowered, any relocated value will be recorded in the corresponding
 :ref:`stackmap entry <statepoint-stackmap-format>`.  See the intrinsic description
 for further details.
 
+
+.. _nocapture_use:
+
+No Capture Use Operand Bundles
+
+A "nocapture_use" operand bundle indicates that the instruction uses the
+operands of the operand bundle but does not capture them. It can be used in
+combination with the ``!nocapture`` metadata on stores to express that a pointer
+is stored into a memory and passed to a function without being captured. That is,
+the pointer store is not capturing the pointer, nor is the use of the memory in
+the instruction with the "nocapture_use" operand bundle but the indirection via
+memory is only needed for ABI reasons.
+
+
 .. _moduleasm:
 
 Module-Level Inline Assembly
@@ -9473,6 +9487,16 @@ x86.
 
 The optional ``!invariant.group`` metadata must reference a
 single metadata name ``<empty_node>``. See ``invariant.group`` metadata.
+
+The optional ``!nocapture`` metadata must reference a single metadata name
+``<empty_node>`` corresponding to a node with no entries. The existence of
+``!nocapture`` metadata on the instruction tells the optimizer that the pointer
+stored is not captured in the sense that all uses of the pointer are explicitly
+marked otherwise and the storing can be ignored during capture analysis.
+The ``!nocapture`` metadata can be used with the :ref:`"nocapture_use" operand
+bundle <nocapture_use>` to indicate a store is a necessasity of an ABI but the
+user of the memory the pointer is stored into is using the pointer value without
+capturing it.
 
 Semantics:
 """"""""""

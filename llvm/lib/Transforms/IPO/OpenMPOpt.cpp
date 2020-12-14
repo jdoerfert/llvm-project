@@ -14,7 +14,10 @@
 
 #include "llvm/Transforms/IPO/OpenMPOpt.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/EnumeratedArray.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
@@ -23,6 +26,10 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
+#include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Operator.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
@@ -506,6 +513,8 @@ struct OpenMPOpt {
     if (PrintOpenMPKernels)
       printKernels();
 
+    Changed |= introducNocaptureMetadata();
+
     Changed |= rewriteDeviceCodeStateMachine();
 
     Changed |= runAttributor();
@@ -870,6 +879,115 @@ private:
     };
 
     RFI.foreachUse(SCC, DeleteCallCB);
+
+    return Changed;
+  }
+
+  /// Try to introduce !nocapture metadata for stores which won't cause pointers
+  /// to escape.
+  bool introducNocaptureMetadata() {
+    struct NoCaptureUseTy {
+      RuntimeFunction RF;
+      unsigned ArgumentNo0;
+      unsigned ArgumentNo1;
+    };
+
+    NoCaptureUseTy NoCaptureUses[] = {
+        {OMPRTL___kmpc_reduce, 4, unsigned(-1)},
+        {OMPRTL___kmpc_reduce_nowait, 4, unsigned(-1)},
+        {OMPRTL___tgt_target_data_begin_mapper, 3, 4},
+        {OMPRTL___tgt_target_data_begin_nowait_mapper, 3, 4},
+        {OMPRTL___tgt_target_data_begin_mapper_issue, 3, 4},
+        {OMPRTL___tgt_target_data_begin_mapper_wait, 3, 4},
+        {OMPRTL___tgt_target_data_end_mapper, 3, 4},
+        {OMPRTL___tgt_target_data_end_nowait_mapper, 3, 4},
+        {OMPRTL___tgt_target_data_update_mapper, 3, 4},
+        {OMPRTL___tgt_target_data_update_nowait_mapper, 3, 4},
+    };
+
+    bool Changed = false;
+
+    SmallVector<Use *, 8> AIUses;
+    for (NoCaptureUseTy &NCU : NoCaptureUses) {
+      bool LocalChanged = false;
+      auto &RFI = OMPInfoCache.RFIs[NCU.RF];
+      if (!RFI.Declaration)
+        continue;
+
+      SmallVector<CallInst *, 8> OldCIs;
+      auto HandleNoCaptureUse = [&](Use &U, Function &Decl) {
+        auto *RTCall = getCallIfRegularCall(U, &RFI);
+        if (!RTCall)
+          return false;
+
+        SmallVector<StoreInst *, 4> SIs;
+        bool OneCall = false;
+        SmallVector<Value *, 4> AIs;
+        for (unsigned ArgumentNo : {NCU.ArgumentNo0, NCU.ArgumentNo1}) {
+          if (ArgumentNo == unsigned(-1))
+            continue;
+          OneCall = false;
+          Value *CallArg = RTCall->getArgOperand(ArgumentNo);
+          AllocaInst *AI = dyn_cast<AllocaInst>(CallArg->stripPointerCasts());
+          AIUses.clear();
+          for (auto &U : AI->uses())
+            AIUses.push_back(&U);
+          while (!AIUses.empty()) {
+            Use *U = AIUses.pop_back_val();
+            if (isa<BitCastInst>(U->getUser()) ||
+                isa<GetElementPtrInst>(U->getUser())) {
+              for (auto &U : U->getUser()->uses())
+                AIUses.push_back(&U);
+              continue;
+            }
+            if (auto *SI = dyn_cast<StoreInst>(U->getUser())) {
+              // Give up if we have seen another store already or the use is not
+              // the pointer operand.
+              if (U->getOperandNo() != /* PointerOperandNo */ 1)
+                return false;
+              SIs.push_back(SI);
+              continue;
+            }
+            if (auto *CI = dyn_cast<CallInst>(U->getUser())) {
+              // Give up if we have seen another store already.
+              if (OneCall || U->getOperandNo() != ArgumentNo || CI != RTCall)
+                return false;
+              OneCall = true;
+              continue;
+            }
+          }
+
+          AIs.push_back(AI);
+          if (!OneCall || SIs.size() != AIs.size())
+            return false;
+        }
+
+        for (auto *SI : SIs)
+          SI->setMetadata(LLVMContext::MD_nocapture,
+                          MDNode::get(SI->getContext(), {}));
+
+        SmallVector<OperandBundleDef, 8> Bundles;
+        RTCall->getOperandBundlesAsDefs(Bundles);
+        Bundles.push_back(OperandBundleDef("nocapture_use", AIs));
+
+        auto *NewCI = CallInst::Create(RTCall, Bundles, RTCall);
+        CGUpdater.replaceCallSite(*RTCall, *NewCI);
+        RTCall->replaceAllUsesWith(NewCI);
+        OldCIs.push_back(RTCall);
+
+        LocalChanged = true;
+        return false;
+      };
+
+      RFI.foreachUse(SCC, HandleNoCaptureUse);
+
+      if (LocalChanged) {
+        llvm::for_each(OldCIs, [](CallInst *CI) { CI->eraseFromParent(); });
+        RFI.clearUsesMap();
+        OMPInfoCache.collectUses(RFI, /*CollectStats*/ false);
+        Changed = true;
+      }
+    }
 
     return Changed;
   }

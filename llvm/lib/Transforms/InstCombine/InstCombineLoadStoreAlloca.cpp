@@ -517,6 +517,7 @@ static StoreInst *combineStoreToNewValue(InstCombinerImpl &IC, StoreInst &SI,
     case LLVMContext::MD_nontemporal:
     case LLVMContext::MD_mem_parallel_loop_access:
     case LLVMContext::MD_access_group:
+    case LLVMContext::MD_nocapture:
       // All of these directly apply.
       NewStore->setMetadata(ID, N);
       break;

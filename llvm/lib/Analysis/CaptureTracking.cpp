@@ -26,6 +26,7 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/CommandLine.h"
 
 using namespace llvm;
@@ -331,10 +332,13 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
       break;
     case Instruction::Store:
       // Stored the pointer - conservatively assume it may be captured.
-      // Volatile stores make the address observable.
+      // Volatile stores make the address observable. We do however ignore
+      // stores with the !nocapture metadata as it guarantees the pointer
+      // is not captured (in any way).
       if (U->getOperandNo() == 0 || cast<StoreInst>(I)->isVolatile())
-        if (Tracker->captured(U))
-          return;
+        if (!cast<StoreInst>(I)->hasMetadata(LLVMContext::MD_nocapture))
+          if (Tracker->captured(U))
+            return;
       break;
     case Instruction::AtomicRMW: {
       // atomicrmw conceptually includes both a load and store from

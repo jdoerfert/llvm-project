@@ -428,6 +428,7 @@ private:
   void visitDereferenceableMetadata(Instruction &I, MDNode *MD);
   void visitProfMetadata(Instruction &I, MDNode *MD);
   void visitAnnotationMetadata(MDNode *Annotation);
+  void visitNocaptureMetadata(Instruction &I, MDNode *Nocapture);
 
   template <class Ty> bool isValidMetadataArray(const MDTuple &N);
 #define HANDLE_SPECIALIZED_MDNODE_LEAF(CLASS) void visit##CLASS(const CLASS &N);
@@ -4289,6 +4290,13 @@ void Verifier::visitAnnotationMetadata(MDNode *Annotation) {
     Assert(isa<MDString>(Op.get()), "operands must be strings");
 }
 
+void Verifier::visitNocaptureMetadata(Instruction &I, MDNode *Nocapture) {
+  Assert(isa<MDTuple>(Nocapture), "nocapture must be a tuple");
+  Assert(Nocapture->getNumOperands() == 0,
+         "nocaptrue must have at least one operand");
+  Assert(isa<StoreInst>(I), "nocapture must be attached to a store");
+}
+
 /// verifyInstruction - Verify that an instruction is well formed.
 ///
 void Verifier::visitInstruction(Instruction &I) {
@@ -4451,6 +4459,9 @@ void Verifier::visitInstruction(Instruction &I) {
 
   if (MDNode *Annotation = I.getMetadata(LLVMContext::MD_annotation))
     visitAnnotationMetadata(Annotation);
+
+  if (MDNode *Nocapture = I.getMetadata(LLVMContext::MD_nocapture))
+    visitNocaptureMetadata(I, Nocapture);
 
   if (MDNode *N = I.getDebugLoc().getAsMDNode()) {
     AssertDI(isa<DILocation>(N), "invalid !dbg metadata attachment", &I, N);
