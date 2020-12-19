@@ -27,7 +27,7 @@ extern DEVICE
 
 EXTERN void __kmpc_kernel_init(int ThreadLimit, int16_t RequiresOMPRuntime) {
   PRINT(LD_IO, "call to __kmpc_kernel_init with version %f\n",
-        OMPTARGET_NVPTX_VERSION);
+        OMPTARGET_DEVICE_RTL_VERSION);
   ASSERT0(LT_FUSSY, RequiresOMPRuntime,
           "Generic always requires initialized runtime.");
   setExecutionParameters(Generic, RuntimeInitialized);

@@ -20,7 +20,7 @@
 #include "common/state-queue.h"
 #include "common/support.h"
 
-#define OMPTARGET_NVPTX_VERSION 1.1
+#define OMPTARGET_DEVICE_RTL_VERSION 1.1
 
 // used by the library for the interface with the app
 #define DISPATCH_FINISHED 0
