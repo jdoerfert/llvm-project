@@ -72,9 +72,9 @@ define i32 @fib(i32 %0) local_unnamed_addr #0 {
 ; IS__CGSCC_OPM-NEXT:    br i1 [[TMP2]], label [[TMP9:%.*]], label [[TMP3:%.*]]
 ; IS__CGSCC_OPM:       3:
 ; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = add nsw i32 [[TMP0]], -1
-; IS__CGSCC_OPM-NEXT:    [[TMP5:%.*]] = tail call i32 @fib(i32 [[TMP4]]) [[ATTR19:#.*]]
+; IS__CGSCC_OPM-NEXT:    [[TMP5:%.*]] = tail call i32 @fib(i32 [[TMP4]]) [[ATTR26:#.*]]
 ; IS__CGSCC_OPM-NEXT:    [[TMP6:%.*]] = add nsw i32 [[TMP0]], -2
-; IS__CGSCC_OPM-NEXT:    [[TMP7:%.*]] = tail call i32 @fib(i32 [[TMP6]]) [[ATTR19]]
+; IS__CGSCC_OPM-NEXT:    [[TMP7:%.*]] = tail call i32 @fib(i32 [[TMP6]]) [[ATTR26]]
 ; IS__CGSCC_OPM-NEXT:    [[TMP8:%.*]] = add nsw i32 [[TMP7]], [[TMP5]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[TMP8]]
 ; IS__CGSCC_OPM:       9:
@@ -87,9 +87,9 @@ define i32 @fib(i32 %0) local_unnamed_addr #0 {
 ; IS__CGSCC_NPM-NEXT:    br i1 [[TMP2]], label [[TMP9:%.*]], label [[TMP3:%.*]]
 ; IS__CGSCC_NPM:       3:
 ; IS__CGSCC_NPM-NEXT:    [[TMP4:%.*]] = add nsw i32 [[TMP0]], -1
-; IS__CGSCC_NPM-NEXT:    [[TMP5:%.*]] = tail call i32 @fib(i32 [[TMP4]]) [[ATTR21:#.*]]
+; IS__CGSCC_NPM-NEXT:    [[TMP5:%.*]] = tail call i32 @fib(i32 [[TMP4]]) [[ATTR28:#.*]]
 ; IS__CGSCC_NPM-NEXT:    [[TMP6:%.*]] = add nsw i32 [[TMP0]], -2
-; IS__CGSCC_NPM-NEXT:    [[TMP7:%.*]] = tail call i32 @fib(i32 [[TMP6]]) [[ATTR21]]
+; IS__CGSCC_NPM-NEXT:    [[TMP7:%.*]] = tail call i32 @fib(i32 [[TMP6]]) [[ATTR28]]
 ; IS__CGSCC_NPM-NEXT:    [[TMP8:%.*]] = add nsw i32 [[TMP7]], [[TMP5]]
 ; IS__CGSCC_NPM-NEXT:    ret i32 [[TMP8]]
 ; IS__CGSCC_NPM:       9:
@@ -285,7 +285,7 @@ define void @mutual_recursion1(i1 %c) #0 {
 ; IS__TUNIT_OPM-NEXT:    br i1 [[C]], label [[REC:%.*]], label [[END:%.*]]
 ; IS__TUNIT_OPM:       rec:
 ; IS__TUNIT_OPM-NEXT:    call void @sink() [[ATTR11:#.*]]
-; IS__TUNIT_OPM-NEXT:    call void @mutual_recursion2(i1 [[C]]) [[ATTR16:#.*]]
+; IS__TUNIT_OPM-NEXT:    call void @mutual_recursion2(i1 [[C]]) [[ATTR23:#.*]]
 ; IS__TUNIT_OPM-NEXT:    br label [[END]]
 ; IS__TUNIT_OPM:       end:
 ; IS__TUNIT_OPM-NEXT:    ret void
@@ -296,7 +296,7 @@ define void @mutual_recursion1(i1 %c) #0 {
 ; IS__TUNIT_NPM-NEXT:    br i1 [[C]], label [[REC:%.*]], label [[END:%.*]]
 ; IS__TUNIT_NPM:       rec:
 ; IS__TUNIT_NPM-NEXT:    call void @sink() [[ATTR11:#.*]]
-; IS__TUNIT_NPM-NEXT:    call void @mutual_recursion2(i1 noundef [[C]]) [[ATTR18:#.*]]
+; IS__TUNIT_NPM-NEXT:    call void @mutual_recursion2(i1 noundef [[C]]) [[ATTR25:#.*]]
 ; IS__TUNIT_NPM-NEXT:    br label [[END]]
 ; IS__TUNIT_NPM:       end:
 ; IS__TUNIT_NPM-NEXT:    ret void
@@ -307,7 +307,7 @@ define void @mutual_recursion1(i1 %c) #0 {
 ; IS__CGSCC_OPM-NEXT:    br i1 [[C]], label [[REC:%.*]], label [[END:%.*]]
 ; IS__CGSCC_OPM:       rec:
 ; IS__CGSCC_OPM-NEXT:    call void @sink() [[ATTR14:#.*]]
-; IS__CGSCC_OPM-NEXT:    call void @mutual_recursion2(i1 [[C]]) [[ATTR20:#.*]]
+; IS__CGSCC_OPM-NEXT:    call void @mutual_recursion2(i1 [[C]]) [[ATTR27:#.*]]
 ; IS__CGSCC_OPM-NEXT:    br label [[END]]
 ; IS__CGSCC_OPM:       end:
 ; IS__CGSCC_OPM-NEXT:    ret void
@@ -318,7 +318,7 @@ define void @mutual_recursion1(i1 %c) #0 {
 ; IS__CGSCC_NPM-NEXT:    br i1 [[C]], label [[REC:%.*]], label [[END:%.*]]
 ; IS__CGSCC_NPM:       rec:
 ; IS__CGSCC_NPM-NEXT:    call void @sink() [[ATTR14:#.*]]
-; IS__CGSCC_NPM-NEXT:    call void @mutual_recursion2(i1 noundef [[C]]) [[ATTR22:#.*]]
+; IS__CGSCC_NPM-NEXT:    call void @mutual_recursion2(i1 noundef [[C]]) [[ATTR29:#.*]]
 ; IS__CGSCC_NPM-NEXT:    br label [[END]]
 ; IS__CGSCC_NPM:       end:
 ; IS__CGSCC_NPM-NEXT:    ret void
@@ -337,25 +337,25 @@ define void @mutual_recursion2(i1 %c) #0 {
 ; IS__TUNIT_OPM: Function Attrs: nofree noinline nosync nounwind uwtable
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@mutual_recursion2
 ; IS__TUNIT_OPM-SAME: (i1 [[C:%.*]]) [[ATTR3]] {
-; IS__TUNIT_OPM-NEXT:    call void @mutual_recursion1(i1 [[C]]) [[ATTR16]]
+; IS__TUNIT_OPM-NEXT:    call void @mutual_recursion1(i1 [[C]]) [[ATTR23]]
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree noinline nosync nounwind uwtable
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@mutual_recursion2
 ; IS__TUNIT_NPM-SAME: (i1 [[C:%.*]]) [[ATTR3]] {
-; IS__TUNIT_NPM-NEXT:    call void @mutual_recursion1(i1 [[C]]) [[ATTR18]]
+; IS__TUNIT_NPM-NEXT:    call void @mutual_recursion1(i1 [[C]]) [[ATTR25]]
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree noinline nosync nounwind uwtable
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@mutual_recursion2
 ; IS__CGSCC_OPM-SAME: (i1 [[C:%.*]]) [[ATTR4]] {
-; IS__CGSCC_OPM-NEXT:    call void @mutual_recursion1(i1 [[C]]) [[ATTR20]]
+; IS__CGSCC_OPM-NEXT:    call void @mutual_recursion1(i1 [[C]]) [[ATTR27]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree noinline nosync nounwind uwtable
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@mutual_recursion2
 ; IS__CGSCC_NPM-SAME: (i1 [[C:%.*]]) [[ATTR4]] {
-; IS__CGSCC_NPM-NEXT:    call void @mutual_recursion1(i1 [[C]]) [[ATTR22]]
+; IS__CGSCC_NPM-NEXT:    call void @mutual_recursion1(i1 [[C]]) [[ATTR29]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
   call void @mutual_recursion1(i1 %c)
@@ -478,25 +478,25 @@ define float @call_floor2(float %a) #0 {
 ; IS__TUNIT_OPM: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@call_floor2
 ; IS__TUNIT_OPM-SAME: (float [[A:%.*]]) [[ATTR0:#.*]] {
-; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) [[ATTR17:#.*]]
+; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) [[ATTR24:#.*]]
 ; IS__TUNIT_OPM-NEXT:    ret float [[C]]
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@call_floor2
 ; IS__TUNIT_NPM-SAME: (float [[A:%.*]]) [[ATTR0]] {
-; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) [[ATTR19:#.*]]
+; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) [[ATTR26:#.*]]
 ; IS__TUNIT_NPM-NEXT:    ret float [[C]]
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@call_floor2
 ; IS__CGSCC_OPM-SAME: (float [[A:%.*]]) [[ATTR9:#.*]] {
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) [[ATTR21:#.*]]
+; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) [[ATTR28:#.*]]
 ; IS__CGSCC_OPM-NEXT:    ret float [[C]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@call_floor2
 ; IS__CGSCC_NPM-SAME: (float [[A:%.*]]) [[ATTR9:#.*]] {
-; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) [[ATTR23:#.*]]
+; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) [[ATTR30:#.*]]
 ; IS__CGSCC_NPM-NEXT:    ret float [[C]]
 ;
   %c = tail call float @llvm.floor.f32(float %a)
@@ -516,25 +516,25 @@ define void @call_maybe_noreturn() #0 {
 ; IS__TUNIT_OPM: Function Attrs: noinline nounwind uwtable
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@call_maybe_noreturn
 ; IS__TUNIT_OPM-SAME: () [[ATTR6:#.*]] {
-; IS__TUNIT_OPM-NEXT:    tail call void @maybe_noreturn() [[ATTR18:#.*]]
+; IS__TUNIT_OPM-NEXT:    tail call void @maybe_noreturn() [[ATTR25:#.*]]
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM: Function Attrs: noinline nounwind uwtable
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@call_maybe_noreturn
 ; IS__TUNIT_NPM-SAME: () [[ATTR6:#.*]] {
-; IS__TUNIT_NPM-NEXT:    tail call void @maybe_noreturn() [[ATTR20:#.*]]
+; IS__TUNIT_NPM-NEXT:    tail call void @maybe_noreturn() [[ATTR27:#.*]]
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM: Function Attrs: noinline nounwind uwtable
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@call_maybe_noreturn
 ; IS__CGSCC_OPM-SAME: () [[ATTR7:#.*]] {
-; IS__CGSCC_OPM-NEXT:    tail call void @maybe_noreturn() [[ATTR22:#.*]]
+; IS__CGSCC_OPM-NEXT:    tail call void @maybe_noreturn() [[ATTR29:#.*]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM: Function Attrs: noinline nounwind uwtable
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@call_maybe_noreturn
 ; IS__CGSCC_NPM-SAME: () [[ATTR7:#.*]] {
-; IS__CGSCC_NPM-NEXT:    tail call void @maybe_noreturn() [[ATTR24:#.*]]
+; IS__CGSCC_NPM-NEXT:    tail call void @maybe_noreturn() [[ATTR31:#.*]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
   tail call void @maybe_noreturn()
@@ -553,25 +553,25 @@ define void @f1() #0 {
 ; IS__TUNIT_OPM: Function Attrs: noinline nounwind uwtable willreturn
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@f1
 ; IS__TUNIT_OPM-SAME: () [[ATTR9:#.*]] {
-; IS__TUNIT_OPM-NEXT:    tail call void @will_return() [[ATTR17]]
+; IS__TUNIT_OPM-NEXT:    tail call void @will_return() [[ATTR24]]
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM: Function Attrs: noinline nounwind uwtable willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@f1
 ; IS__TUNIT_NPM-SAME: () [[ATTR9:#.*]] {
-; IS__TUNIT_NPM-NEXT:    tail call void @will_return() [[ATTR19]]
+; IS__TUNIT_NPM-NEXT:    tail call void @will_return() [[ATTR26]]
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM: Function Attrs: noinline norecurse nounwind uwtable willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@f1
 ; IS__CGSCC_OPM-SAME: () [[ATTR11:#.*]] {
-; IS__CGSCC_OPM-NEXT:    tail call void @will_return() [[ATTR21]]
+; IS__CGSCC_OPM-NEXT:    tail call void @will_return() [[ATTR28]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM: Function Attrs: noinline norecurse nounwind uwtable willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@f1
 ; IS__CGSCC_NPM-SAME: () [[ATTR11:#.*]] {
-; IS__CGSCC_NPM-NEXT:    tail call void @will_return() [[ATTR23]]
+; IS__CGSCC_NPM-NEXT:    tail call void @will_return() [[ATTR30]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
   tail call void @will_return()
@@ -640,7 +640,7 @@ define void @invoke_test() personality i32 (...)* @__gxx_personality_v0 {
 ; IS__TUNIT_OPM: Function Attrs: nounwind willreturn
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@invoke_test
 ; IS__TUNIT_OPM-SAME: () [[ATTR11]] personality i32 (...)* @__gxx_personality_v0 {
-; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception() [[ATTR17]]
+; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception() [[ATTR24]]
 ; IS__TUNIT_OPM-NEXT:    to label [[N:%.*]] unwind label [[F:%.*]]
 ; IS__TUNIT_OPM:       N:
 ; IS__TUNIT_OPM-NEXT:    ret void
@@ -652,7 +652,7 @@ define void @invoke_test() personality i32 (...)* @__gxx_personality_v0 {
 ; IS__TUNIT_NPM: Function Attrs: nounwind willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@invoke_test
 ; IS__TUNIT_NPM-SAME: () [[ATTR11]] personality i32 (...)* @__gxx_personality_v0 {
-; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception() [[ATTR19]]
+; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception() [[ATTR26]]
 ; IS__TUNIT_NPM-NEXT:    to label [[N:%.*]] unwind label [[F:%.*]]
 ; IS__TUNIT_NPM:       N:
 ; IS__TUNIT_NPM-NEXT:    ret void
@@ -664,7 +664,7 @@ define void @invoke_test() personality i32 (...)* @__gxx_personality_v0 {
 ; IS__CGSCC_OPM: Function Attrs: nounwind willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@invoke_test
 ; IS__CGSCC_OPM-SAME: () [[ATTR14]] personality i32 (...)* @__gxx_personality_v0 {
-; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception() [[ATTR21]]
+; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception() [[ATTR28]]
 ; IS__CGSCC_OPM-NEXT:    to label [[N:%.*]] unwind label [[F:%.*]]
 ; IS__CGSCC_OPM:       N:
 ; IS__CGSCC_OPM-NEXT:    ret void
@@ -676,7 +676,7 @@ define void @invoke_test() personality i32 (...)* @__gxx_personality_v0 {
 ; IS__CGSCC_NPM: Function Attrs: nounwind willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@invoke_test
 ; IS__CGSCC_NPM-SAME: () [[ATTR14]] personality i32 (...)* @__gxx_personality_v0 {
-; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception() [[ATTR23]]
+; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception() [[ATTR30]]
 ; IS__CGSCC_NPM-NEXT:    to label [[N:%.*]] unwind label [[F:%.*]]
 ; IS__CGSCC_NPM:       N:
 ; IS__CGSCC_NPM-NEXT:    ret void
@@ -1018,7 +1018,7 @@ define void @unreachable_exit_positive1() #0 {
 ; IS__TUNIT_OPM: Function Attrs: noinline nounwind uwtable willreturn
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@unreachable_exit_positive1
 ; IS__TUNIT_OPM-SAME: () [[ATTR9]] {
-; IS__TUNIT_OPM-NEXT:    tail call void @will_return() [[ATTR17]]
+; IS__TUNIT_OPM-NEXT:    tail call void @will_return() [[ATTR24]]
 ; IS__TUNIT_OPM-NEXT:    ret void
 ; IS__TUNIT_OPM:       unreachable_label:
 ; IS__TUNIT_OPM-NEXT:    unreachable
@@ -1026,7 +1026,7 @@ define void @unreachable_exit_positive1() #0 {
 ; IS__TUNIT_NPM: Function Attrs: noinline nounwind uwtable willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@unreachable_exit_positive1
 ; IS__TUNIT_NPM-SAME: () [[ATTR9]] {
-; IS__TUNIT_NPM-NEXT:    tail call void @will_return() [[ATTR19]]
+; IS__TUNIT_NPM-NEXT:    tail call void @will_return() [[ATTR26]]
 ; IS__TUNIT_NPM-NEXT:    ret void
 ; IS__TUNIT_NPM:       unreachable_label:
 ; IS__TUNIT_NPM-NEXT:    unreachable
@@ -1034,7 +1034,7 @@ define void @unreachable_exit_positive1() #0 {
 ; IS__CGSCC_OPM: Function Attrs: noinline norecurse nounwind uwtable willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@unreachable_exit_positive1
 ; IS__CGSCC_OPM-SAME: () [[ATTR11]] {
-; IS__CGSCC_OPM-NEXT:    tail call void @will_return() [[ATTR21]]
+; IS__CGSCC_OPM-NEXT:    tail call void @will_return() [[ATTR28]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ; IS__CGSCC_OPM:       unreachable_label:
 ; IS__CGSCC_OPM-NEXT:    unreachable
@@ -1042,7 +1042,7 @@ define void @unreachable_exit_positive1() #0 {
 ; IS__CGSCC_NPM: Function Attrs: noinline norecurse nounwind uwtable willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@unreachable_exit_positive1
 ; IS__CGSCC_NPM-SAME: () [[ATTR11]] {
-; IS__CGSCC_NPM-NEXT:    tail call void @will_return() [[ATTR23]]
+; IS__CGSCC_NPM-NEXT:    tail call void @will_return() [[ATTR30]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ; IS__CGSCC_NPM:       unreachable_label:
 ; IS__CGSCC_NPM-NEXT:    unreachable
@@ -1848,6 +1848,134 @@ if.else8:                                         ; preds = %entry2
   br label %entry1
 
 exit:                                             ; preds = %if.then7, %if.then3
+  ret void
+}
+
+
+declare void @unknown()
+declare void @readonly() readonly
+declare void @readnone() readnone
+declare void @unknown_mustprogress() mustprogress
+declare void @readonly_mustprogress() readonly mustprogress
+
+define void @willreturn_mustprogress_caller_1() mustprogress {
+; CHECK: Function Attrs: mustprogress
+; CHECK-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_1
+; CHECK-SAME: () [[ATTR23:#.*]] {
+; CHECK-NEXT:    call void @unknown()
+; CHECK-NEXT:    ret void
+;
+  call void @unknown()
+  ret void
+}
+define void @willreturn_mustprogress_caller_2() mustprogress {
+; IS__TUNIT_OPM: Function Attrs: readonly willreturn mustprogress
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_2
+; IS__TUNIT_OPM-SAME: () [[ATTR20:#.*]] {
+; IS__TUNIT_OPM-NEXT:    call void @readonly() [[ATTR16:#.*]]
+; IS__TUNIT_OPM-NEXT:    ret void
+;
+; IS__TUNIT_NPM: Function Attrs: readonly willreturn mustprogress
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_2
+; IS__TUNIT_NPM-SAME: () [[ATTR22:#.*]] {
+; IS__TUNIT_NPM-NEXT:    call void @readonly() [[ATTR18:#.*]]
+; IS__TUNIT_NPM-NEXT:    ret void
+;
+; IS__CGSCC_OPM: Function Attrs: readonly willreturn mustprogress
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_2
+; IS__CGSCC_OPM-SAME: () [[ATTR23:#.*]] {
+; IS__CGSCC_OPM-NEXT:    call void @readonly() [[ATTR19:#.*]]
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: readonly willreturn mustprogress
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_2
+; IS__CGSCC_NPM-SAME: () [[ATTR25:#.*]] {
+; IS__CGSCC_NPM-NEXT:    call void @readonly() [[ATTR21:#.*]]
+; IS__CGSCC_NPM-NEXT:    ret void
+;
+  call void @readonly()
+  ret void
+}
+define void @willreturn_mustprogress_caller_3() mustprogress {
+; CHECK: Function Attrs: nosync readnone willreturn mustprogress
+; CHECK-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_3
+; CHECK-SAME: () [[ATTR26:#.*]] {
+; CHECK-NEXT:    call void @readnone()
+; CHECK-NEXT:    ret void
+;
+  call void @readnone()
+  ret void
+}
+define void @willreturn_mustprogress_callee_1() {
+; CHECK-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_1() {
+; CHECK-NEXT:    call void @unknown_mustprogress()
+; CHECK-NEXT:    ret void
+;
+  call void @unknown_mustprogress()
+  ret void
+}
+define void @willreturn_mustprogress_callee_2() {
+; IS__TUNIT_OPM: Function Attrs: readonly willreturn
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_2
+; IS__TUNIT_OPM-SAME: () [[ATTR22:#.*]] {
+; IS__TUNIT_OPM-NEXT:    call void @readonly_mustprogress() [[ATTR22]]
+; IS__TUNIT_OPM-NEXT:    ret void
+;
+; IS__TUNIT_NPM: Function Attrs: readonly willreturn
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_2
+; IS__TUNIT_NPM-SAME: () [[ATTR24:#.*]] {
+; IS__TUNIT_NPM-NEXT:    call void @readonly_mustprogress() [[ATTR24]]
+; IS__TUNIT_NPM-NEXT:    ret void
+;
+; IS__CGSCC_OPM: Function Attrs: readonly willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_2
+; IS__CGSCC_OPM-SAME: () [[ATTR25:#.*]] {
+; IS__CGSCC_OPM-NEXT:    call void @readonly_mustprogress() [[ATTR25]]
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: readonly willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_2
+; IS__CGSCC_NPM-SAME: () [[ATTR27:#.*]] {
+; IS__CGSCC_NPM-NEXT:    call void @readonly_mustprogress() [[ATTR27]]
+; IS__CGSCC_NPM-NEXT:    ret void
+;
+  call void @readonly_mustprogress()
+  ret void
+}
+define void @willreturn_mustprogress_callee_3() {
+; CHECK-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_3() {
+; CHECK-NEXT:    call void @willreturn_mustprogress_callee_1()
+; CHECK-NEXT:    ret void
+;
+  call void @willreturn_mustprogress_callee_1()
+  ret void
+}
+define void @willreturn_mustprogress_callee_4() {
+; IS__TUNIT_OPM: Function Attrs: readonly willreturn
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_4
+; IS__TUNIT_OPM-SAME: () [[ATTR22]] {
+; IS__TUNIT_OPM-NEXT:    call void @willreturn_mustprogress_callee_2() [[ATTR22]]
+; IS__TUNIT_OPM-NEXT:    ret void
+;
+; IS__TUNIT_NPM: Function Attrs: readonly willreturn
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_4
+; IS__TUNIT_NPM-SAME: () [[ATTR24]] {
+; IS__TUNIT_NPM-NEXT:    call void @willreturn_mustprogress_callee_2() [[ATTR24]]
+; IS__TUNIT_NPM-NEXT:    ret void
+;
+; IS__CGSCC_OPM: Function Attrs: readonly willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_4
+; IS__CGSCC_OPM-SAME: () [[ATTR25]] {
+; IS__CGSCC_OPM-NEXT:    call void @willreturn_mustprogress_callee_2() [[ATTR25]]
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: readonly willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_4
+; IS__CGSCC_NPM-SAME: () [[ATTR27]] {
+; IS__CGSCC_NPM-NEXT:    call void @willreturn_mustprogress_callee_2() [[ATTR27]]
+; IS__CGSCC_NPM-NEXT:    ret void
+;
+  call void @willreturn_mustprogress_callee_2()
   ret void
 }
 

@@ -2281,13 +2281,43 @@ struct AAWillReturnImpl : public AAWillReturn {
   void initialize(Attributor &A) override {
     AAWillReturn::initialize(A);
 
-    Function *F = getAnchorScope();
-    if (!F || F->isDeclaration() || mayContainUnboundedCycle(*F, A))
-      indicatePessimisticFixpoint();
+    if (isImpliedByMustprogressAndReadonly(A, /* KnownOnly */ true)) {
+      indicateOptimisticFixpoint();
+      return;
+    }
+  }
+
+  /// Check for `mustprogress` and `readonly` as they imply `willreturn`.
+  bool isImpliedByMustprogressAndReadonly(Attributor &A, bool KnownOnly) {
+    // Check for `mustprogress` in the scope and the associated function which
+    // might be different if this is a call site.
+    if ((!getAnchorScope() || !getAnchorScope()->mustProgress()) &&
+        (!getAssociatedFunction() || !getAssociatedFunction()->mustProgress()))
+      return false;
+
+    if ((!getAnchorScope() || !getAnchorScope()->doesNotAccessMemory()) &&
+        (!getAssociatedFunction() ||
+         !getAssociatedFunction()->doesNotAccessMemory())) {
+
+      const auto &MemAA =
+          A.getAAFor<AAMemoryBehavior>(*this, getIRPosition(),
+                                       /* TrackDependence */ false);
+      if (!MemAA.isAssumedReadOnly())
+        return false;
+      if (KnownOnly && !MemAA.isKnownReadOnly())
+        return false;
+      if (!MemAA.isKnownReadOnly())
+        A.recordDependence(MemAA, *this, DepClassTy::OPTIONAL);
+    }
+
+    return true;
   }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    if (isImpliedByMustprogressAndReadonly(A, /* KnownOnly */ false))
+      return ChangeStatus::UNCHANGED;
+
     auto CheckForWillReturn = [&](Instruction &I) {
       IRPosition IPos = IRPosition::callsite_function(cast<CallBase>(I));
       const auto &WillReturnAA = A.getAAFor<AAWillReturn>(*this, IPos);
@@ -2315,6 +2345,15 @@ struct AAWillReturnFunction final : AAWillReturnImpl {
   AAWillReturnFunction(const IRPosition &IRP, Attributor &A)
       : AAWillReturnImpl(IRP, A) {}
 
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    AAWillReturnImpl::initialize(A);
+
+    Function *F = getAnchorScope();
+    if (!F || F->isDeclaration() || mayContainUnboundedCycle(*F, A))
+      indicatePessimisticFixpoint();
+  }
+
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_FN_ATTR(willreturn) }
 };
@@ -2326,7 +2365,7 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
-    AAWillReturn::initialize(A);
+    AAWillReturnImpl::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F || !A.isFunctionIPOAmendable(*F))
       indicatePessimisticFixpoint();
@@ -2334,6 +2373,9 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    if (isImpliedByMustprogressAndReadonly(A, /* KnownOnly */ false))
+      return ChangeStatus::UNCHANGED;
+
     // TODO: Once we have call site specific value information we can provide
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
