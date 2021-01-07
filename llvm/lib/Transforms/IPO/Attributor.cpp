@@ -700,17 +700,20 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
   if (V.use_empty())
     return true;
 
-  // If the value is replaced by another one, for now a constant, we do not have
-  // uses. Note that this requires users of `checkForAllUses` to not recurse but
-  // instead use the `follow` callback argument to look at transitive users,
-  // however, that should be clear from the presence of the argument.
-  bool UsedAssumedInformation = false;
-  Optional<Constant *> C =
-      getAssumedConstant(V, QueryingAA, UsedAssumedInformation);
-  if (C.hasValue() && C.getValue()) {
-    LLVM_DEBUG(dbgs() << "[Attributor] Value is simplified, uses skipped: " << V
-                      << " -> " << *C.getValue() << "\n");
-    return true;
+  if (!isa<Constant>(V)) {
+    // If the value is replaced by another one, for now a constant, we do not
+    // have uses. Note that this requires users of `checkForAllUses` to not
+    // recurse but instead use the `follow` callback argument to look at
+    // transitive users, however, that should be clear from the presence of the
+    // argument.
+    bool UsedAssumedInformation = false;
+    Optional<Constant *> C =
+        getAssumedConstant(V, QueryingAA, UsedAssumedInformation);
+    if (C.hasValue() && C.getValue()) {
+      LLVM_DEBUG(dbgs() << "[Attributor] Value is simplified, uses skipped: "
+                        << V << " -> " << *C.getValue() << "\n");
+      return true;
+    }
   }
 
   const IRPosition &IRP = QueryingAA.getIRPosition();
@@ -1992,6 +1995,11 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     return;
   if (F.isDeclaration())
     return;
+  if (isModulePass()) {
+    for (auto &GV : F.getParent()->global_values()) {
+      getOrCreateAAFor<AAPointerInfo>(IRPosition::value(GV));
+    }
+  }
 
   // In non-module runs we need to look at the call sites of a function to
   // determine if it is part of a must-tail call edge. This will influence what
@@ -2112,6 +2120,9 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       // Every argument with pointer type might be marked nofree.
       getOrCreateAAFor<AANoFree>(ArgPos);
 
+      // if (Arg.getType()->getPointerElementType()->isStructTy())
+      // getOrCreateAAFor<AAPointerInfo>(ArgPos);
+
       // Every argument with pointer type might be privatizable (or promotable)
       getOrCreateAAFor<AAPrivatizablePtr>(ArgPos);
     }
@@ -2208,6 +2219,18 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   Success = checkForAllInstructionsImpl(
       nullptr, OpcodeInstMap, LoadStorePred, nullptr, nullptr,
       {(unsigned)Instruction::Load, (unsigned)Instruction::Store});
+  (void)Success;
+  assert(Success && "Expected the check call to be successful!");
+
+  auto AllocaPred = [&](Instruction &I) -> bool {
+    AllocaInst &AI = cast<AllocaInst>(I);
+    if (!AI.isArrayAllocation() && AI.getAllocatedType()->isStructTy())
+      getOrCreateAAFor<AAPointerInfo>(IRPosition::value(AI));
+    return true;
+  };
+  Success =
+      checkForAllInstructionsImpl(nullptr, OpcodeInstMap, AllocaPred, nullptr,
+                                  nullptr, {(unsigned)Instruction::Alloca});
   (void)Success;
   assert(Success && "Expected the check call to be successful!");
 }

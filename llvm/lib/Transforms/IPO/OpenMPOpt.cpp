@@ -2085,6 +2085,10 @@ private:
     }
     for (Function *Kernel : OMPInfoCache.Kernels)
       A.getOrCreateAAFor<AAKernelInfo>(IRPosition::function(*Kernel));
+    //if (!OMPInfoCache.Kernels.empty()) {
+      for (auto &G: M.globals())
+        A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(G));
+    //}
   }
 };
 
@@ -2779,8 +2783,8 @@ AAICVTracker &AAICVTracker::createForPosition(const IRPosition &IRP,
 }
 
 PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
-  if (!containsOpenMP(M, OMPInModule))
-    return PreservedAnalyses::all();
+  //if (!containsOpenMP(M, OMPInModule))
+    //return PreservedAnalyses::all();
 
   if (DisableOpenMPOptimizations)
     return PreservedAnalyses::all();
