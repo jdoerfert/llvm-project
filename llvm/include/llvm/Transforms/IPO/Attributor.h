@@ -97,6 +97,7 @@
 #ifndef LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 #define LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 
+#include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/MapVector.h"
@@ -112,11 +113,14 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/ConstantRange.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
+#include <bits/stdint-uintn.h>
 
 namespace llvm {
 
@@ -3831,6 +3835,209 @@ struct AANoUndef
   const char *getIdAddr() const override { return &ID; }
 
   /// This function should return true if the type of the \p AA is AANoUndef
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+};
+
+struct OffsetAndSize : public std::pair<int64_t, int64_t> {
+  using BaseTy = std::pair<int64_t, int64_t>;
+  OffsetAndSize(int64_t Offset, int64_t Size) : BaseTy(Offset, Size) {}
+  OffsetAndSize(const BaseTy &P) : BaseTy(P) {}
+  int64_t getOffset() const { return first; }
+  int64_t getSize() const { return second; }
+  static constexpr int64_t Unknown = 1 << 31;
+};
+
+/// Helper that allows OffsetAndSize as a key in a DenseMap.
+template <>
+struct DenseMapInfo<OffsetAndSize>
+    : DenseMapInfo<std::pair<int64_t, int64_t>> {};
+
+enum AccessKind {
+  READ = 1 << 0,
+  WRITE = 1 << 1,
+  MAY = 1 << 2,
+  MUST = 1 << 3,
+};
+
+struct Access {
+  Access(Instruction *I, Value *Content, AccessKind Kind)
+      : I(I), Content(Content), Kind(Kind) {}
+  Access(const Access &Other)
+      : I(Other.I), Content(Other.Content), Kind(Other.Kind) {}
+  Access(const Access &&Other)
+      : I(Other.I), Content(Other.Content), Kind(Other.Kind) {}
+  Access &operator=(const Access &Other) {
+    I = Other.I;
+    Content = Other.Content;
+    Kind = Other.Kind;
+    return *this;
+  }
+  Instruction *I;
+  Value *Content;
+  AccessKind Kind;
+
+  bool operator==(const Access &R) const {
+    return I == R.I && Content == R.Content && Kind == R.Kind;
+  }
+};
+
+template <> struct DenseMapInfo<Access> {
+  static inline Access getEmptyKey() { return Access(nullptr, nullptr, READ); }
+  static inline Access getTombstoneKey() {
+    return Access(nullptr, nullptr, WRITE);
+  }
+
+  static unsigned getHashValue(const Access &A) {
+    return detail::combineHashValue(
+               DenseMapInfo<Instruction *>::getHashValue(A.I),
+               DenseMapInfo<Value *>::getHashValue(A.Content)) +
+           A.Kind;
+  }
+
+  static bool isEqual(const Access &LHS, const Access &RHS) {
+    return LHS == RHS;
+  }
+};
+
+/// A type to track struct usage and accesses.
+struct PointerInfoState : public AbstractState {
+
+  /// Return the best possible representable state.
+  static PointerInfoState getBestState(const PointerInfoState &SIS) {
+    return PointerInfoState();
+  }
+
+  /// Return the worst possible representable state.
+  static PointerInfoState getWorstState(const PointerInfoState &SIS) {
+    PointerInfoState R;
+    R.indicatePessimisticFixpoint();
+    return R;
+  }
+
+  PointerInfoState() {}
+  PointerInfoState(const PointerInfoState &SIS) : AccessMap(SIS.AccessMap) {}
+  PointerInfoState(PointerInfoState &&SIS)
+      : AccessMap(std::move(SIS.AccessMap)) {}
+
+  const PointerInfoState &getAssumed() const { return *this; }
+
+  /// See AbstractState::isValidState().
+  bool isValidState() const override { return BS.isValidState(); }
+
+  /// See AbstractState::isAtFixpoint().
+  bool isAtFixpoint() const override { return BS.isAtFixpoint(); }
+
+  /// See AbstractState::indicateOptimisticFixpoint().
+  ChangeStatus indicateOptimisticFixpoint() override {
+    BS.indicateOptimisticFixpoint();
+    return ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractState::indicatePessimisticFixpoint().
+  ChangeStatus indicatePessimisticFixpoint() override {
+    errs() << "AAPointerInfo INVALID FIXPOINT\n";
+    BS.indicatePessimisticFixpoint();
+    // for (ElementInfo &FI : Elements){
+    // FI.clear();
+    // FI.push_back(ElementAccessInfo::getInvalid());
+    //}
+    return ChangeStatus::CHANGED;
+  }
+
+  PointerInfoState &operator=(const PointerInfoState &R) {
+    if (this == &R)
+      return *this;
+    BS = R.BS;
+    AccessMap = R.AccessMap;
+    return *this;
+  }
+
+  PointerInfoState &operator=(PointerInfoState &&R) {
+    if (this == &R)
+      return *this;
+    std::swap(BS, R.BS);
+    std::swap(AccessMap, R.AccessMap);
+    return *this;
+  }
+
+  bool operator==(const PointerInfoState &R) const {
+    return BS == R.BS && AccessMap == R.AccessMap;
+  }
+  bool operator!=(const PointerInfoState &R) const { return !(*this == R); }
+
+  /// The result contains information assumed in both state.
+  ///{
+  void operator&=(const PointerInfoState &R) { *this ^= R; }
+  void operator^=(const PointerInfoState &R) {
+    // TODO allow mismatch
+    if (!R.isValidState()) {
+      indicatePessimisticFixpoint();
+      return;
+    }
+    if (!isValidState())
+      return;
+
+    for (auto &It : R.AccessMap) {
+      AccessMap[It.first].insert(It.second.begin(), It.second.end());
+    }
+  }
+  ///}
+
+  /// The result contains information assumed in either state.
+  ///{
+  // void operator|=(const PointerInfoState &R) {
+  // if (!R.isValidState())
+  // return;
+  // if (!isValidState()) {
+  //*this = R;
+  // return;
+  //}
+
+  //}
+  ///}
+
+protected:
+public:
+  using Accesses = DenseSet<Access>;
+
+  DenseMap<OffsetAndSize, Accesses> AccessMap;
+
+protected:
+  bool addAccess(int64_t Offset, int64_t Size, Instruction &I, Value *Content,
+                 AccessKind Kind) {
+    OffsetAndSize Key{Offset, Size};
+    Accesses &Accs = AccessMap[Key];
+    return Accs.insert(Access(&I, Content, Kind)).second;
+  }
+
+private:
+  BooleanState BS;
+
+public:
+};
+
+/// An abstract interface for struct information.
+struct AAPointerInfo
+    : public StateWrapper<PointerInfoState, AbstractAttribute> {
+  using BaseTy = StateWrapper<PointerInfoState, AbstractAttribute>;
+  AAPointerInfo(const IRPosition &IRP, Attributor &A) : BaseTy(IRP) {}
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AAPointerInfo &createForPosition(const IRPosition &IRP, Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AAPointerInfo"; }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is AAPointerInfo
+
   static bool classof(const AbstractAttribute *AA) {
     return (AA->getIdAddr() == &ID);
   }
