@@ -2068,6 +2068,9 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       // Every argument with pointer type might be marked nofree.
       getOrCreateAAFor<AANoFree>(ArgPos);
 
+      //if (Arg.getType()->getPointerElementType()->isStructTy())
+        //getOrCreateAAFor<AAPointerInfo>(ArgPos);
+
       // Every argument with pointer type might be privatizable (or promotable)
       getOrCreateAAFor<AAPrivatizablePtr>(ArgPos);
     }
@@ -2164,6 +2167,18 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   Success = checkForAllInstructionsImpl(
       nullptr, OpcodeInstMap, LoadStorePred, nullptr, nullptr,
       {(unsigned)Instruction::Load, (unsigned)Instruction::Store});
+  (void)Success;
+  assert(Success && "Expected the check call to be successful!");
+
+  auto AllocaPred = [&](Instruction &I) -> bool {
+    AllocaInst &AI = cast<AllocaInst>(I);
+    if (!AI.isArrayAllocation() && AI.getAllocatedType()->isStructTy())
+      getOrCreateAAFor<AAPointerInfo>(IRPosition::value(AI));
+    return true;
+  };
+  Success =
+      checkForAllInstructionsImpl(nullptr, OpcodeInstMap, AllocaPred, nullptr,
+                                  nullptr, {(unsigned)Instruction::Alloca});
   (void)Success;
   assert(Success && "Expected the check call to be successful!");
 }
