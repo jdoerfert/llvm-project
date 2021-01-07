@@ -26,6 +26,7 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/CommandLine.h"
 
 using namespace llvm;
@@ -314,9 +315,15 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
       // (think of self-referential objects).
       if (Call->isDataOperand(U) &&
           !Call->doesNotCapture(Call->getDataOperandNo(U))) {
-        // The parameter is not marked 'nocapture' - captured.
-        if (Tracker->captured(U))
-          return;
+        // The parameter is not marked 'nocapture', now we check for the
+        // nocapture_use operand bundle use which, as the name suggests, does
+        // not capture the pointer.
+        if (!Call->isBundleOperand(U) ||
+            Call->getBundleOpInfoForOperand(Call->getDataOperandNo(U))
+                    .Tag->getKey() != "nocapture_use") {
+          if (Tracker->captured(U))
+            return;
+        }
       }
       break;
     }
@@ -331,10 +338,13 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
       break;
     case Instruction::Store:
       // Stored the pointer - conservatively assume it may be captured.
-      // Volatile stores make the address observable.
+      // Volatile stores make the address observable. We do however ignore
+      // stores with the !nocapture metadata as it guarantees the pointer
+      // is not captured (in any way).
       if (U->getOperandNo() == 0 || cast<StoreInst>(I)->isVolatile())
-        if (Tracker->captured(U))
-          return;
+        if (!cast<StoreInst>(I)->hasMetadata(LLVMContext::MD_nocapture))
+          if (Tracker->captured(U))
+            return;
       break;
     case Instruction::AtomicRMW: {
       // atomicrmw conceptually includes both a load and store from

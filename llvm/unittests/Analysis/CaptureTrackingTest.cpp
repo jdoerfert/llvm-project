@@ -20,7 +20,7 @@ using namespace llvm;
 TEST(CaptureTracking, MaxUsesToExplore) {
   StringRef Assembly = R"(
     ; Function Attrs: nounwind ssp uwtable
-    declare void @doesnt_capture(i8* nocapture, i8* nocapture, i8* nocapture, 
+    declare void @doesnt_capture(i8* nocapture, i8* nocapture, i8* nocapture,
                                  i8* nocapture, i8* nocapture)
 
     ; %arg has 5 uses
@@ -131,4 +131,84 @@ TEST(CaptureTracking, MultipleUsesInSameInstruction) {
   // ICmp second operand
   EXPECT_EQ(ICmp, CT.Captures[6]->getUser());
   EXPECT_EQ(1u, CT.Captures[6]->getOperandNo());
+}
+
+TEST(CaptureTracking, NoCaptureMetadata) {
+  StringRef Assembly = R"(
+    define void @test(i8* %arg, i8** %ptr) {
+      store i8* %arg, i8** %ptr, !nocapture !0
+      ret void
+    }
+
+    !0 = !{}
+  )";
+
+  LLVMContext Context;
+  SMDiagnostic Error;
+  auto M = parseAssemblyString(Assembly, Error, Context);
+  ASSERT_TRUE(M) << "Bad assembly?";
+
+  Function *F = M->getFunction("test");
+  Value *Arg1 = F->getArg(0);
+  Value *Arg2 = F->getArg(1);
+
+  CollectingCaptureTracker CT;
+  PointerMayBeCaptured(Arg1, &CT);
+  PointerMayBeCaptured(Arg2, &CT);
+  EXPECT_EQ(0u, CT.Captures.size());
+}
+
+TEST(CaptureTracking, NoCaptureUseOperandBundle) {
+  StringRef Assembly = R"(
+    declare void @u()
+
+    define void @test(i8* %arg, i8** %ptr) {
+      call void @u() ["nocapture_use"(i8** %ptr), "unknown"(i8* %arg)]
+      ret void
+    }
+  )";
+
+  LLVMContext Context;
+  SMDiagnostic Error;
+  auto M = parseAssemblyString(Assembly, Error, Context);
+  ASSERT_TRUE(M) << "Bad assembly?";
+
+  Function *F = M->getFunction("test");
+  Value *Arg1 = F->getArg(0);
+  Value *Arg2 = F->getArg(1);
+
+  CollectingCaptureTracker CT;
+  PointerMayBeCaptured(Arg1, &CT);
+  PointerMayBeCaptured(Arg2, &CT);
+  ASSERT_EQ(1u, CT.Captures.size());
+  EXPECT_EQ(Arg1, CT.Captures[0]->get());
+}
+
+TEST(CaptureTracking, NoCaptureMetadataAndNocaptureUseOperandBundle) {
+  StringRef Assembly = R"(
+    declare void @u(i8**)
+
+    define void @test(i8* %arg, i8** %ptr) {
+      store i8* %arg, i8** %ptr, !nocapture !0
+      call void @u(i8** %ptr) ["nocapture_use"(i8* %arg)]
+      ret void
+    }
+
+    !0 = !{}
+  )";
+
+  LLVMContext Context;
+  SMDiagnostic Error;
+  auto M = parseAssemblyString(Assembly, Error, Context);
+  ASSERT_TRUE(M) << "Bad assembly?";
+
+  Function *F = M->getFunction("test");
+  Value *Arg1 = F->getArg(0);
+  Value *Arg2 = F->getArg(1);
+
+  CollectingCaptureTracker CT;
+  PointerMayBeCaptured(Arg1, &CT);
+  PointerMayBeCaptured(Arg2, &CT);
+  ASSERT_EQ(1u, CT.Captures.size());
+  EXPECT_EQ(Arg2, CT.Captures[0]->get());
 }
