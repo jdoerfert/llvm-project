@@ -3694,6 +3694,28 @@ KMP_EXPORT kmp_int32 __kmpc_ok_to_fork(ident_t *);
 KMP_EXPORT void __kmpc_fork_call(ident_t *, kmp_int32 nargs,
                                  kmpc_micro microtask, ...);
 
+/// The parallel region type.
+///
+/// \param global_tid The global thread ID of the executing thread.
+/// \param bound_tid  TODO
+/// \param payload    The payload/closure determined at the invocation.
+typedef void (*kmpc_parallel_region_ty)(kmp_int32 *global_tid,
+                                        kmp_int32 *bound_tid, void *payload);
+
+/// Entry point to start a new parallel region.
+///
+/// \param ident       The source identifier.
+/// \param global_tid  The global thread ID.
+/// \param if_expr     The if(expr), or 1 if none given.
+/// \param num_threads The num_threads(expr), or -1 if none given.
+/// \param proc_bind   The proc_bind, or `proc_bind_default` if none given.
+/// \param fn          The outlined parallel region.
+/// \param payload     The payload passed to the outlined parallel region.
+KMP_EXPORT void __kmpc_parallel_51(ident_t *ident, kmp_int32 global_tid,
+                                   kmp_int32 if_expr, kmp_int32 num_threads,
+                                   kmp_proc_bind_t proc_bind,
+                                   kmpc_parallel_region_ty fn, void *payload);
+
 KMP_EXPORT void __kmpc_serialized_parallel(ident_t *, kmp_int32 global_tid);
 KMP_EXPORT void __kmpc_end_serialized_parallel(ident_t *, kmp_int32 global_tid);
 
