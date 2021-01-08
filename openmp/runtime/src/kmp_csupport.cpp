@@ -18,6 +18,7 @@
 #include "kmp_itt.h"
 #include "kmp_lock.h"
 #include "kmp_stats.h"
+#include "ompt-internal.h"
 #include "ompt-specific.h"
 
 #define MAX_MESSAGE 512
@@ -329,6 +330,33 @@ void __kmpc_fork_call(ident_t *loc, kmp_int32 argc, kmpc_micro microtask, ...) {
     KMP_POP_PARTITIONED_TIMER();
   }
 #endif // KMP_STATS_ENABLED
+}
+
+void __kmpc_parallel_51(ident_t *ident, kmp_int32 global_tid, kmp_int32 if_expr,
+                        kmp_int32 num_threads, kmp_proc_bind_t proc_bind,
+                        kmpc_parallel_region_ty fn, void *payload) {
+  // TODO: For now we simply translate to the old way but we should avoid
+  //       the varags call (via __kmpc_fork_call) all together in favor of
+  //       a single closure argument.
+
+  // Handle the serialized case first.
+  if (UNLIKELY(!if_expr)) {
+    __kmpc_serialized_parallel(ident, global_tid);
+    kmp_int32 bound_tid = 0;
+    fn(&global_tid, &bound_tid, payload);
+    __kmpc_end_serialized_parallel(ident, global_tid);
+    return;
+  }
+
+  // Handle the num_threads clause.
+  if (num_threads != -1)
+    __kmpc_push_num_threads(ident, global_tid, num_threads);
+
+  // Handle the proc_bind clause.
+  if (proc_bind != proc_bind_default)
+    __kmpc_push_proc_bind(ident, global_tid, proc_bind);
+
+  __kmpc_fork_call(ident, 1, kmpc_micro(fn), payload);
 }
 
 /*!
