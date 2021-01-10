@@ -14,7 +14,9 @@
 
 #include "llvm/Transforms/IPO/OpenMPOpt.h"
 
+#include "llvm/ADT/BreadthFirstIterator.h"
 #include "llvm/ADT/EnumeratedArray.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
@@ -22,6 +24,10 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Value.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
@@ -221,6 +227,8 @@ struct OMPInformationCache : public InformationCache {
                   RuntimeFunction::OMPRTL___last>
       RFIs;
 
+  DenseMap<Function *, RuntimeFunction> RuntimeFunctionIDMap;
+
   /// Map from ICV kind to the ICV description.
   EnumeratedArray<InternalControlVarInfo, InternalControlVar,
                   InternalControlVar::ICV___last>
@@ -359,6 +367,7 @@ struct OMPInformationCache : public InformationCache {
     SmallVector<Type *, 8> ArgsTypes({__VA_ARGS__});                           \
     Function *F = M.getFunction(_Name);                                        \
     if (declMatchesRTFTypes(F, OMPBuilder._ReturnType, ArgsTypes)) {           \
+      RuntimeFunctionIDMap[F] = _Enum;                                         \
       auto &RFI = RFIs[_Enum];                                                 \
       RFI.Kind = _Enum;                                                        \
       RFI.Name = _Name;                                                        \
@@ -506,6 +515,7 @@ struct OpenMPOpt {
       printKernels();
 
     Changed |= rewriteDeviceCodeStateMachine();
+    Changed |= customizeDeviceCodeStateMachine();
 
     Changed |= runAttributor();
 
@@ -1349,6 +1359,35 @@ private:
   /// the cases we can avoid taking the address of a function.
   bool rewriteDeviceCodeStateMachine();
 
+  struct ParallelRegionExecutionGraph {
+    struct Node {
+      Function *Fn;
+      CallBase *Call;
+
+      enum {
+        PARALLEL_REGION,
+        REGULAR_CALL,
+      } Kind;
+    };
+
+    ParallelRegionExecutionGraph(Function &Kernel,
+                                 OMPInformationCache &OMPInfoCache);
+
+  private:
+    void collectNodes(Function &Kernel, OMPInformationCache &OMPInfoCache);
+    void collectEdges(Function &F, OMPInformationCache &OMPInfoCache);
+
+    Node Root{nullptr, nullptr, Node::PARALLEL_REGION};
+
+    SmallPtrSet<Function *, 8> Functions;
+
+    using NodeVector = SmallVector<Node, 2>;
+    DenseMap<BasicBlock *, NodeVector> Block2NodesMap;
+  };
+
+  bool customizeDeviceCodeStateMachine();
+  bool customizeDeviceCodeStateMachine(Function &Kernel);
+
   ///
   ///}}
 
@@ -1516,6 +1555,98 @@ Kernel OpenMPOpt::getUniqueKernelFor(Function &F) {
   UniqueKernelMap[&F] = K;
 
   return K;
+}
+
+OpenMPOpt::ParallelRegionExecutionGraph::ParallelRegionExecutionGraph(
+    Function &Kernel, OMPInformationCache &OMPInfoCache) {
+  collectNodes(Kernel, OMPInfoCache);
+  for (Function *F : Functions)
+    collectNodes(*F, OMPInfoCache);
+}
+
+void OpenMPOpt::ParallelRegionExecutionGraph::collectNodes(
+    Function &Kernel, OMPInformationCache &OMPInfoCache) {
+  SmallVector<Function *, 8> Worklist;
+
+  auto AddToWorklist = [&](Function *F) {
+    if (!F || !Functions.insert(F).second)
+      return;
+    Worklist.push_back(F);
+  };
+
+  AddToWorklist(&Kernel);
+
+  while (!Worklist.empty()) {
+    Function *F = Worklist.pop_back_val();
+    for (BasicBlock &BB : *F) {
+      for (Instruction &I : BB) {
+        CallBase *CB = dyn_cast<CallBase>(&I);
+        if (!CB)
+          continue;
+        if (isa<IntrinsicInst>(CB))
+          continue;
+        Function *Callee = CB->getCalledFunction();
+        const auto &It = OMPInfoCache.RuntimeFunctionIDMap.find(Callee);
+        if (It == OMPInfoCache.RuntimeFunctionIDMap.end()) {
+          Block2NodesMap[&BB].push_back(Node{Callee, CB, Node::REGULAR_CALL});
+          AddToWorklist(Callee);
+          continue;
+        }
+        if (It->getSecond() == OMPRTL___kmpc_kernel_parallel)
+          Block2NodesMap[&BB].push_back(
+              Node{Callee, CB, Node::PARALLEL_REGION});
+      }
+    }
+  }
+}
+
+void OpenMPOpt::ParallelRegionExecutionGraph::collectEdges(
+    Function &F, OMPInformationCache &OMPInfoCache) {
+
+  SmallVector<BasicBlock *, 8> Worklist;
+  SmallPtrSet<BasicBlock *, 8> Blocks;
+
+  auto AddToWorklist = [&](BasicBlock &BB) {
+    if (Blocks.insert(&BB).second)
+      Worklist.push_back(&BB);
+  };
+
+  AddToWorklist(F.getEntryBlock());
+
+  NodeVector PredNodes;
+  PredNodes.push_back(Root);
+
+  while (!Worklist.empty()) {
+    BasicBlock *BB = Worklist.pop_back_val();
+  }
+}
+
+bool OpenMPOpt::customizeDeviceCodeStateMachine(Function &Kernel) {
+  bool Changed = false;
+
+  ParallelRegionExecutionGraph PREG(Kernel, OMPInfoCache);
+
+  return Changed;
+}
+
+bool OpenMPOpt::customizeDeviceCodeStateMachine() {
+  bool Changed = false;
+  if (OMPInfoCache.Kernels.empty())
+    return Changed;
+
+  OMPInformationCache::RuntimeFunctionInfo &KernelPrepareParallelRFI =
+      OMPInfoCache.RFIs[OMPRTL___kmpc_kernel_prepare_parallel];
+
+  if (!KernelPrepareParallelRFI)
+    return Changed;
+
+  for (Function *F : SCC) {
+    if (!OMPInfoCache.Kernels.count(F))
+      continue;
+    Changed |= customizeDeviceCodeStateMachine(*F);
+  }
+
+  return Changed;
 }
 
 bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
