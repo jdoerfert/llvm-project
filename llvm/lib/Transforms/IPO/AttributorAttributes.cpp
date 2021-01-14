@@ -2884,6 +2884,13 @@ struct AAIsDeadValueImpl : public AAIsDead {
       return false;
 
     const IRPosition &CallIRP = IRPosition::callsite_function(*CB);
+    const auto &MustProgressAA = A.getAndUpdateAAFor<AAMustProgress>(
+        *this, CallIRP, /* TrackDependence */ false);
+    if (!MustProgressAA.isAssumedMustProgress())
+      return false;
+    if (!MustProgressAA.isKnownMustProgress())
+      A.recordDependence(MustProgressAA, *this, DepClassTy::OPTIONAL);
+
     const auto &NoUnwindAA = A.getAndUpdateAAFor<AANoUnwind>(
         *this, CallIRP, /* TrackDependence */ false);
     if (!NoUnwindAA.isAssumedNoUnwind())
