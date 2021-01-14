@@ -25,6 +25,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -119,6 +120,7 @@ PIPE_OPERATOR(AAWillReturn)
 PIPE_OPERATOR(AANoReturn)
 PIPE_OPERATOR(AAReturnedValues)
 PIPE_OPERATOR(AANonNull)
+PIPE_OPERATOR(AAMustProgress)
 PIPE_OPERATOR(AANoAlias)
 PIPE_OPERATOR(AADereferenceable)
 PIPE_OPERATOR(AAAlign)
@@ -2346,6 +2348,83 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_CS_ATTR(willreturn); }
+};
+
+/// ------------------------ Must-Progress Attributes --------------------------
+
+struct AAMustProgressImpl : public AAMustProgress {
+  AAMustProgressImpl(const IRPosition &IRP, Attributor &A)
+      : AAMustProgress(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    AAMustProgress::initialize(A);
+
+    Function *F = getAnchorScope();
+    if (!F)
+      indicatePessimisticFixpoint();
+    else if (F->mustProgress())
+      indicateOptimisticFixpoint();
+  }
+
+  /// See AbstractAttribute::getAsStr()
+  const std::string getAsStr() const override {
+    return getAssumed() ? "mustprogress" : "may-not-progress";
+  }
+};
+
+struct AAMustProgressFunction final : AAMustProgressImpl {
+  AAMustProgressFunction(const IRPosition &IRP, Attributor &A)
+      : AAMustProgressImpl(IRP, A) {}
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    auto &WillReturnAA = A.getAAFor<AAWillReturn>(*this, getIRPosition(),
+                                                  /* TrackDependence */ false);
+    if (WillReturnAA.isKnownWillReturn())
+      return indicateOptimisticFixpoint();
+
+    auto CheckForMustProgress = [&](AbstractCallSite ACS) {
+      IRPosition IPos = IRPosition::callsite_function(*ACS.getInstruction());
+      const auto &MustProgressAA = A.getAAFor<AAMustProgress>(*this, IPos);
+      return MustProgressAA.isAssumedMustProgress();
+    };
+
+    bool AllCallSitesKnown;
+    if (!A.checkForAllCallSites(CheckForMustProgress, *this,
+                                /* RequireAllCallSites */ true,
+                                AllCallSitesKnown))
+      return indicatePessimisticFixpoint();
+
+    return ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FN_ATTR(mustprogress)
+  }
+};
+
+/// MustProgress attribute deduction for a call sites.
+struct AAMustProgressCallSite final : AAMustProgressImpl {
+  AAMustProgressCallSite(const IRPosition &IRP, Attributor &A)
+      : AAMustProgressImpl(IRP, A) {}
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    // TODO: Once we have call site specific value information we can provide
+    //       call site specific liveness information and then it makes
+    //       sense to specialize attributes for call sites arguments instead of
+    //       redirecting requests to the callee argument.
+    const IRPosition &FnPos = IRPosition::function(*getAnchorScope());
+    auto &FnAA = A.getAAFor<AAMustProgress>(*this, FnPos);
+    return clampStateAndIndicateChange(getState(), FnAA.getState());
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_CS_ATTR(mustprogress);
+  }
 };
 
 /// -------------------AAReachability Attribute--------------------------
@@ -8032,6 +8111,7 @@ const char AANoUnwind::ID = 0;
 const char AANoSync::ID = 0;
 const char AANoFree::ID = 0;
 const char AANonNull::ID = 0;
+const char AAMustProgress::ID = 0;
 const char AANoRecurse::ID = 0;
 const char AAWillReturn::ID = 0;
 const char AAUndefinedBehavior::ID = 0;
@@ -8151,6 +8231,7 @@ CREATE_FUNCTION_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAWillReturn)
 CREATE_FUNCTION_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoReturn)
 CREATE_FUNCTION_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAReturnedValues)
 CREATE_FUNCTION_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAMemoryLocation)
+CREATE_FUNCTION_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAMustProgress)
 
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANonNull)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoAlias)
