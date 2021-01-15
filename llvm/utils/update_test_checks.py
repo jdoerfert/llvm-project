@@ -111,7 +111,7 @@ def main():
       common.debug('Extracted opt cmd: ' + opt_basename + ' ' + opt_args)
       common.debug('Extracted FileCheck prefixes: ' + str(prefixes))
 
-      raw_tool_output = common.invoke_tool(ti.args.opt_binary, opt_args, 
+      raw_tool_output = common.invoke_tool(ti.args.opt_binary, opt_args,
                                            ti.path)
       builder.process_run_line(common.OPT_FUNCTION_RE, common.scrub_body,
               raw_tool_output, prefixes)
@@ -119,6 +119,7 @@ def main():
     func_dict = builder.finish_and_get_func_dict()
     is_in_function = False
     is_in_function_start = False
+    has_checked_pre_function_globals = False
     prefix_set = set([prefix for prefixes, _ in prefix_list for prefix in prefixes])
     common.debug('Rewriting FileCheck prefixes:', str(prefix_set))
     output_lines = []
@@ -166,8 +167,14 @@ def main():
                                global_vars_seen_dict)
           is_in_function_start = False
 
+        m = common.IR_FUNCTION_RE.match(input_line)
+        if m and not has_checked_pre_function_globals:
+            if common.add_global_checks(builder.global_var_dict(), ';', prefix_list, output_lines, global_vars_seen_dict, args.preserve_names, True):
+                output_lines.append(';;')
+            has_checked_pre_function_globals = True
+
         if is_in_function:
-          if common.should_add_line_to_output(input_line, prefix_set):
+          if common.should_add_line_to_output(input_line, prefix_set, not is_in_function):
             # This input line of the function body will go as-is into the output.
             # Except make leading whitespace uniform: 2 spaces.
             input_line = common.SCRUB_LEADING_WHITESPACE_RE.sub(r'  ', input_line)
@@ -190,6 +197,7 @@ def main():
           continue
         is_in_function = is_in_function_start = True
 
+    common.add_global_checks(builder.global_var_dict(), ';', prefix_list, output_lines, global_vars_seen_dict, args.preserve_names, False)
     common.debug('Writing %d lines to %s...' % (len(output_lines), ti.path))
 
     with open(ti.path, 'wb') as f:
