@@ -607,6 +607,9 @@ void PassManagerBuilder::populateModulePassManager(
   // Infer attributes about declarations if possible.
   MPM.add(createInferFunctionAttrsLegacyPass());
 
+  if (OptLevel > 1)
+    MPM.add(createOpenMPOptLegacyPass());
+
   // Infer attributes on declarations, call sites, arguments, etc.
   if (AttributorRun & AttributorRunOption::MODULE)
     MPM.add(createAttributorLegacyPass());
@@ -663,7 +666,7 @@ void PassManagerBuilder::populateModulePassManager(
   // Try to perform OpenMP specific optimizations. This is a (quick!) no-op if
   // there are no OpenMP runtime calls present in the module.
   if (OptLevel > 1)
-    MPM.add(createOpenMPOptLegacyPass());
+    MPM.add(createOpenMPOptCGSCCLegacyPass());
 
   MPM.add(createPostOrderFunctionAttrsLegacyPass());
   if (OptLevel > 2)

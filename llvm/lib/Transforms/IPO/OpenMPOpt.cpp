@@ -14,15 +14,27 @@
 
 #include "llvm/Transforms/IPO/OpenMPOpt.h"
 
+#include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/EnumeratedArray.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/iterator.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/IR/Type.h"
+#include "llvm/IR/Value.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/Attributor.h"
@@ -73,7 +85,7 @@ STATISTIC(NumOpenMPParallelRegionsMerged,
           "Number of OpenMP parallel regions merged");
 
 #if !defined(NDEBUG)
-static constexpr auto TAG = "[" DEBUG_TYPE "]";
+static constexpr auto TAG = "[" DEBUG_TYPE "] ";
 #endif
 
 namespace {
@@ -212,6 +224,11 @@ struct OMPInformationCache : public InformationCache {
     /// Map from functions to all uses of this runtime function contained in
     /// them.
     DenseMap<Function *, std::shared_ptr<UseVector>> UsesMap;
+
+  public:
+    /// Iterators for the uses of this runtime function.
+    decltype(UsesMap)::iterator begin() { return UsesMap.begin(); }
+    decltype(UsesMap)::iterator end() { return UsesMap.end(); }
   };
 
   /// An OpenMP-IR-Builder instance
@@ -221,6 +238,8 @@ struct OMPInformationCache : public InformationCache {
   EnumeratedArray<RuntimeFunctionInfo, RuntimeFunction,
                   RuntimeFunction::OMPRTL___last>
       RFIs;
+
+  DenseMap<Function *, RuntimeFunction> RuntimeFunctionIDMap;
 
   /// Map from ICV kind to the ICV description.
   EnumeratedArray<InternalControlVarInfo, InternalControlVar,
@@ -280,7 +299,7 @@ struct OMPInformationCache : public InformationCache {
     if (F->arg_size() != RTFArgTypes.size())
       return false;
 
-    auto RTFTyIt = RTFArgTypes.begin();
+    auto *RTFTyIt = RTFArgTypes.begin();
     for (Argument &Arg : F->args()) {
       if (Arg.getType() != *RTFTyIt)
         return false;
@@ -364,6 +383,7 @@ struct OMPInformationCache : public InformationCache {
     SmallVector<Type *, 8> ArgsTypes({__VA_ARGS__});                           \
     Function *F = M.getFunction(_Name);                                        \
     if (declMatchesRTFTypes(F, OMPBuilder._ReturnType, ArgsTypes)) {           \
+      RuntimeFunctionIDMap[F] = _Enum;                                         \
       auto &RFI = RFIs[_Enum];                                                 \
       RFI.Kind = _Enum;                                                        \
       RFI.Name = _Name;                                                        \
@@ -482,11 +502,13 @@ struct OpenMPOpt {
   using OptimizationRemarkGetter =
       function_ref<OptimizationRemarkEmitter &(Function *)>;
 
-  OpenMPOpt(SmallVectorImpl<Function *> &SCC, CallGraphUpdater &CGUpdater,
-            OptimizationRemarkGetter OREGetter,
+  OpenMPOpt(Module &M, SmallVectorImpl<Function *> &SCC,
+            CallGraphUpdater &CGUpdater, OptimizationRemarkGetter OREGetter,
             OMPInformationCache &OMPInfoCache, Attributor &A)
-      : M(*(*SCC.begin())->getParent()), SCC(SCC), CGUpdater(CGUpdater),
-        OREGetter(OREGetter), OMPInfoCache(OMPInfoCache), A(A) {}
+      : M(M), SCC(SCC), CGUpdater(CGUpdater), OREGetter(OREGetter),
+        OMPInfoCache(OMPInfoCache), A(A) {}
+
+  bool isModulePass() const { return SCC.empty(); }
 
   /// Check if any remarks are enabled for openmp-opt
   bool remarksEnabled() {
@@ -496,33 +518,41 @@ struct OpenMPOpt {
 
   /// Run all OpenMP optimizations on the underlying SCC/ModuleSlice.
   bool run() {
-    if (SCC.empty())
-      return false;
-
     bool Changed = false;
 
-    LLVM_DEBUG(dbgs() << TAG << "Run on SCC with " << SCC.size()
-                      << " functions in a slice with "
-                      << OMPInfoCache.ModuleSlice.size() << " functions\n");
+    LLVM_DEBUG(
+        if (isModulePass()) {
+          dbgs() << TAG << "Run on module with " << M.size() << " functions.\n";
+        } else {
+          dbgs() << TAG << "Run on SCC with " << SCC.size()
+                 << " functions in a slice with "
+                 << OMPInfoCache.ModuleSlice.size() << " functions\n";
+        });
 
     if (PrintICVValues)
       printICVs();
     if (PrintOpenMPKernels)
       printKernels();
 
-    Changed |= rewriteDeviceCodeStateMachine();
+    if (isModulePass())
+      Changed |= rewriteDeviceCodeStateMachine();
 
     Changed |= runAttributor();
 
     // Recollect uses, in case Attributor deleted any.
     OMPInfoCache.recollectUses();
 
-    Changed |= deleteParallelRegions();
+    if (!isModulePass())
+      Changed |= deleteParallelRegions();
+
     if (HideMemoryTransferLatency)
       Changed |= hideMemTransfersLatency();
+
     if (remarksEnabled())
       analysisGlobalization();
+
     Changed |= deduplicateRuntimeCalls();
+
     if (EnableParallelRegionMerging) {
       if (mergeParallelRegions()) {
         deduplicateRuntimeCalls();
@@ -703,8 +733,8 @@ private:
         // Emit a load instruction and replace the use of the output value
         // with it.
         for (Instruction *UsrI : OutsideUsers) {
-          LoadInst *LoadI = new LoadInst(I.getType(), AllocaI,
-                                         I.getName() + ".seq.output.load", UsrI);
+          LoadInst *LoadI = new LoadInst(
+              I.getType(), AllocaI, I.getName() + ".seq.output.load", UsrI);
           UsrI->replaceUsesOfWith(&I, LoadI);
         }
       }
@@ -1378,10 +1408,10 @@ private:
             continue;
 
           auto Remark = [&](OptimizationRemark OR) {
-            auto newLoc = &*F.getEntryBlock().getFirstInsertionPt();
+            auto *NewLoc = &*F.getEntryBlock().getFirstInsertionPt();
             return OR << "OpenMP runtime call "
                       << ore::NV("OpenMPOptRuntime", RFI.Name) << " moved to "
-                      << ore::NV("OpenMPRuntimeMoves", newLoc->getDebugLoc());
+                      << ore::NV("OpenMPRuntimeMoves", NewLoc->getDebugLoc());
           };
           emitRemark<OptimizationRemark>(CI, "OpenMPRuntimeCodeMotion", Remark);
 
@@ -1672,15 +1702,204 @@ Kernel OpenMPOpt::getUniqueKernelFor(Function &F) {
   return K;
 }
 
+struct KernelInfo {
+  SmallVector<Function *, 2> ParallelRegions;
+  bool MayReachUnknownParallelRegions = false;
+
+  KernelInfo(Function &Kernel, OMPInformationCache &OMPInfoCache);
+};
+
+KernelInfo::KernelInfo(Function &Kernel, OMPInformationCache &OMPInfoCache){
+  SmallVector<Function *, 8> Worklist;
+  SmallPtrSet<Function *, 8> Visited;
+  Worklist.push_back(&Kernel);
+
+  while (!Worklist.empty()) {
+    Function *Fn = Worklist.pop_back_val();
+    for (Instruction &I : instructions(Fn)) {
+      CallBase *CB = dyn_cast<CallBase>(&I);
+      if (!CB || CB->hasFnAttr("no_openmp") ||
+          CB->hasFnAttr("no_openmp_routines"))
+        continue;
+      if (isa<IntrinsicInst>(CB))
+        continue;
+      Function *Callee = CB->getCalledFunction();
+      const auto &It = OMPInfoCache.RuntimeFunctionIDMap.find(Callee);
+      if (It == OMPInfoCache.RuntimeFunctionIDMap.end()) {
+        if (!Callee || Callee->isDeclaration())
+          MayReachUnknownParallelRegions = true;
+        else if (Callee && Visited.insert(Callee).second)
+          Worklist.push_back(Callee);
+        continue;
+      }
+      if (It->getSecond() == OMPRTL___kmpc_kernel_prepare_parallel) {
+        if (Function *ParallelRegion =
+                dyn_cast<Function>(CB->getArgOperand(0)->stripPointerCasts())) {
+          ParallelRegions.push_back(ParallelRegion);
+        } else {
+          MayReachUnknownParallelRegions = true;
+        }
+      }
+    }
+  }
+}
+
 bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
-  OMPInformationCache::RuntimeFunctionInfo &KernelPrepareParallelRFI =
-      OMPInfoCache.RFIs[OMPRTL___kmpc_kernel_prepare_parallel];
+  const int InitUseStateMachineArgNo = 2;
 
   bool Changed = false;
+  if (OMPInfoCache.Kernels.empty())
+    return Changed;
+
+  OMPInformationCache::RuntimeFunctionInfo &KernelPrepareParallelRFI =
+      OMPInfoCache.RFIs[OMPRTL___kmpc_kernel_prepare_parallel];
+  SmallPtrSet<Function *, 8> FunctionsWithParallelRegions;
+
+  for (auto &It : KernelPrepareParallelRFI) {
+    if (!It.getSecond()->empty())
+      FunctionsWithParallelRegions.insert(It.getFirst());
+  }
+
+  auto &Ctx = M.getContext();
+  for (Function *Kernel : OMPInfoCache.Kernels) {
+    OMPInformationCache::RuntimeFunctionInfo &TIRTI =
+        OMPInfoCache.RFIs[OMPRTL___kmpc_target_init];
+    auto *UV = TIRTI.getUseVector(*Kernel);
+    if (!UV || UV->size() != 1)
+      continue;
+
+    KernelInfo KI(*Kernel, OMPInfoCache);
+
+    CallBase *InitCB = cast<CallBase>(UV->front()->getUser());
+    ConstantInt *UseStateMachine =
+        dyn_cast<ConstantInt>(InitCB->getArgOperand(InitUseStateMachineArgNo));
+    if (!UseStateMachine || !UseStateMachine->isOne())
+      continue;
+
+    InitCB->setArgOperand(InitUseStateMachineArgNo,
+                          ConstantInt::getBool(Ctx, 0));
+    Changed = true;
+
+    // If we don't need a state machine we are done.
+    if (!KI.MayReachUnknownParallelRegions && KI.ParallelRegions.empty())
+      continue;
+
+    BasicBlock *InitBB = InitCB->getParent();
+    BasicBlock *UserCodeCheck = InitBB->splitBasicBlock(
+        InitCB->getNextNode(), "thread.user_code.check");
+    BasicBlock *StateMachineBeginBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.begin", Kernel, UserCodeCheck);
+    BasicBlock *StateMachineFinishedBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.finished", Kernel, UserCodeCheck);
+    BasicBlock *StateMachineIsActiveCheckBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.is_active.check", Kernel, UserCodeCheck);
+    BasicBlock *StateMachineSwitchBeginBB =
+        BasicBlock::Create(Ctx, "worker_state_machine.parallel_region.check",
+                           Kernel, UserCodeCheck);
+    BasicBlock *StateMachineEndParallelBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.parallel_region.end", Kernel, UserCodeCheck);
+    BasicBlock *StateMachineDoneBarrierBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.done.barrier", Kernel, UserCodeCheck);
+
+    ReturnInst::Create(Ctx, StateMachineFinishedBB);
+
+    InitBB->getTerminator()->eraseFromParent();
+    Value *IsWorker = ICmpInst::Create(
+        ICmpInst::ICmp, llvm::CmpInst::ICMP_EQ, InitCB,
+        ConstantInt::get(InitCB->getType(), -1), "thread.is_worker", InitBB);
+    BranchInst::Create(StateMachineBeginBB, UserCodeCheck, IsWorker, InitBB);
+
+    // Create local storage for the work function pointer.
+    Type *VoidPtrTy = Type::getInt8PtrTy(Ctx);
+    AllocaInst *WorkFnAI = new AllocaInst(VoidPtrTy, 0, "worker.work_fn.addr",
+                                          &Kernel->getEntryBlock().front());
+
+    OMPInfoCache.OMPBuilder.updateToLocation(IRBuilder<>::InsertPoint(
+        StateMachineBeginBB, StateMachineBeginBB->end()));
+
+    Value *Ident = InitCB->getArgOperand(0);
+    Value *GTid = OMPInfoCache.OMPBuilder.getOrCreateThreadID(Ident);
+
+    FunctionCallee BarrierFn =
+        OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+            M, OMPRTL___kmpc_barrier_simple_spmd);
+    CallInst::Create(BarrierFn, {Ident, GTid}, "", StateMachineBeginBB);
+
+    FunctionCallee KernelParallelFn =
+        OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+            M, OMPRTL___kmpc_kernel_parallel);
+    Value *IsActiveWorker = CallInst::Create(
+        KernelParallelFn, {WorkFnAI}, "worker.is_active", StateMachineBeginBB);
+    Value *WorkFn = new LoadInst(VoidPtrTy, WorkFnAI, "worker.work_fn",
+                                 StateMachineBeginBB);
+
+    FunctionType *ParallelRegionFnTy = FunctionType::get(
+        Type::getVoidTy(Ctx), {Type::getInt16Ty(Ctx), Type::getInt32Ty(Ctx)},
+        false);
+    Value *WorkFnCast = BitCastInst::CreatePointerBitCastOrAddrSpaceCast(
+        WorkFn, ParallelRegionFnTy->getPointerTo(), "worker.work_fn.addr_cast",
+        StateMachineBeginBB);
+
+    Value *IsDone = ICmpInst::Create(ICmpInst::ICmp, llvm::CmpInst::ICMP_EQ,
+                                     WorkFn, Constant::getNullValue(VoidPtrTy),
+                                     "worker.is_done", StateMachineBeginBB);
+    BranchInst::Create(StateMachineFinishedBB, StateMachineIsActiveCheckBB,
+                       IsDone, StateMachineBeginBB);
+
+    BranchInst::Create(StateMachineSwitchBeginBB, StateMachineDoneBarrierBB,
+                       IsActiveWorker, StateMachineIsActiveCheckBB);
+
+    Value *ZeroArg =
+        Constant::getNullValue(ParallelRegionFnTy->getParamType(0));
+
+    if (!KI.ParallelRegions.empty()) {
+
+      const DataLayout &DL = M.getDataLayout();
+      IntegerType *SwitchCondTy =
+          IntegerType::getIntNTy(Ctx, DL.getPointerSizeInBits());
+
+      for (auto *ParallelRegion : KI.ParallelRegions) {
+        BasicBlock *PRExecuteBB = BasicBlock::Create(
+            Ctx, "worker_state_machine.parallel_region.execute", Kernel,
+            StateMachineEndParallelBB);
+        CallInst::Create(ParallelRegion, {ZeroArg, GTid}, "", PRExecuteBB);
+        BranchInst::Create(StateMachineEndParallelBB, PRExecuteBB);
+
+        BasicBlock *PRNextBB = BasicBlock::Create(
+            Ctx, "worker_state_machine.parallel_region.check", Kernel,
+            StateMachineEndParallelBB);
+        Value *IsPR = ICmpInst::Create(
+            ICmpInst::ICmp, llvm::CmpInst::ICMP_EQ, WorkFnCast, ParallelRegion,
+            "worker.check_parallel_region", StateMachineSwitchBeginBB);
+        BranchInst::Create(PRExecuteBB, PRNextBB, IsPR,
+                           StateMachineSwitchBeginBB);
+        StateMachineSwitchBeginBB = PRNextBB;
+      }
+    }
+
+    if (KI.MayReachUnknownParallelRegions) {
+      StateMachineSwitchBeginBB->setName(
+          "worker_state_machine.parallel_region.fallback.execute");
+      CallInst::Create(ParallelRegionFnTy, WorkFnCast, {ZeroArg, GTid}, "",
+                       StateMachineSwitchBeginBB);
+    }
+    BranchInst::Create(StateMachineEndParallelBB, StateMachineSwitchBeginBB);
+
+    CallInst::Create(OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+                         M, OMPRTL___kmpc_kernel_end_parallel),
+                     {}, "", StateMachineEndParallelBB);
+    BranchInst::Create(StateMachineDoneBarrierBB, StateMachineEndParallelBB);
+
+    CallInst::Create(BarrierFn, {Ident, GTid}, "", StateMachineDoneBarrierBB);
+    BranchInst::Create(StateMachineBeginBB, StateMachineDoneBarrierBB);
+    StateMachineBeginBB->getParent()->dump();
+  }
+
+
   if (!KernelPrepareParallelRFI)
     return Changed;
 
-  for (Function *F : SCC) {
+  for (Function &F : M) {
 
     // Check if the function is uses in a __kmpc_kernel_prepare_parallel call at
     // all.
@@ -1689,7 +1908,7 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
     unsigned NumDirectCalls = 0;
 
     SmallVector<Use *, 2> ToBeReplacedStateMachineUses;
-    OMPInformationCache::foreachUse(*F, [&](Use &U) {
+    OMPInformationCache::foreachUse(F, [&](Use &U) {
       if (auto *CB = dyn_cast<CallBase>(U.getUser()))
         if (CB->isCallee(&U)) {
           ++NumDirectCalls;
@@ -1723,7 +1942,7 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
                      "unrelated target regions in the same translation unit "
                      "due to spurious call edges assumed by ptxas.";
       };
-      emitRemarkOnFunction(F, "OpenMPParallelRegionInNonSPMD", Remark);
+      emitRemarkOnFunction(&F, "OpenMPParallelRegionInNonSPMD", Remark);
     }
 
     // If this ever hits, we should investigate.
@@ -1737,14 +1956,14 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
                     << (UnknownUse ? "unknown" : "unexpected")
                     << " ways; will not attempt to rewrite the state machine.";
         };
-        emitRemarkOnFunction(F, "OpenMPParallelRegionInNonSPMD", Remark);
+        emitRemarkOnFunction(&F, "OpenMPParallelRegionInNonSPMD", Remark);
       }
       continue;
     }
 
     // Even if we have __kmpc_kernel_prepare_parallel calls, we (for now) give
     // up if the function is not called from a unique kernel.
-    Kernel K = getUniqueKernelFor(*F);
+    Kernel K = getUniqueKernelFor(F);
     if (!K) {
       {
         auto Remark = [&](OptimizationRemark OR) {
@@ -1753,7 +1972,7 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
                        "function has external linkage?; will not attempt to "
                        "rewrite the state machine use.";
         };
-        emitRemarkOnFunction(F, "OpenMPParallelRegionInMultipleKernesl",
+        emitRemarkOnFunction(&F, "OpenMPParallelRegionInMultipleKernesl",
                              Remark);
       }
       continue;
@@ -1770,28 +1989,27 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
                      "single target region to avoid spurious call edges and "
                      "excessive register usage in other target regions. "
                      "(parallel region ID: "
-                  << ore::NV("OpenMPParallelRegion", F->getName())
+                  << ore::NV("OpenMPParallelRegion", F.getName())
                   << ", kernel ID: "
                   << ore::NV("OpenMPTargetRegion", K->getName()) << ")";
       };
-      emitRemarkOnFunction(F, "OpenMPParallelRegionInNonSPMD",
+      emitRemarkOnFunction(&F, "OpenMPParallelRegionInNonSPMD",
                            RemarkParalleRegion);
       auto RemarkKernel = [&](OptimizationRemark OR) {
         return OR << "Target region containing the parallel region that is "
                      "specialized. (parallel region ID: "
-                  << ore::NV("OpenMPParallelRegion", F->getName())
+                  << ore::NV("OpenMPParallelRegion", F.getName())
                   << ", kernel ID: "
                   << ore::NV("OpenMPTargetRegion", K->getName()) << ")";
       };
       emitRemarkOnFunction(K, "OpenMPParallelRegionInNonSPMD", RemarkKernel);
     }
 
-    Module &M = *F->getParent();
     Type *Int8Ty = Type::getInt8Ty(M.getContext());
 
     auto *ID = new GlobalVariable(
         M, Int8Ty, /* isConstant */ true, GlobalValue::PrivateLinkage,
-        UndefValue::get(Int8Ty), F->getName() + ".ID");
+        UndefValue::get(Int8Ty), F.getName() + ".ID");
 
     for (Use *U : ToBeReplacedStateMachineUses)
       U->set(ConstantExpr::getBitCast(ID, U->get()->getType()));
@@ -2264,7 +2482,8 @@ AAICVTracker &AAICVTracker::createForPosition(const IRPosition &IRP,
 PreservedAnalyses OpenMPOptPass::run(LazyCallGraph::SCC &C,
                                      CGSCCAnalysisManager &AM,
                                      LazyCallGraph &CG, CGSCCUpdateResult &UR) {
-  if (!containsOpenMP(*C.begin()->getFunction().getParent(), OMPInModule))
+  Module &M = *C.begin()->getFunction().getParent();
+  if (!containsOpenMP(M, OMPInModule))
     return PreservedAnalyses::all();
 
   if (DisableOpenMPOptimizations)
@@ -2307,7 +2526,41 @@ PreservedAnalyses OpenMPOptPass::run(LazyCallGraph::SCC &C,
 
   Attributor A(Functions, InfoCache, CGUpdater);
 
-  OpenMPOpt OMPOpt(SCC, CGUpdater, OREGetter, InfoCache, A);
+  OpenMPOpt OMPOpt(M, SCC, CGUpdater, OREGetter, InfoCache, A);
+  bool Changed = OMPOpt.run();
+  if (Changed)
+    return PreservedAnalyses::none();
+
+  return PreservedAnalyses::all();
+}
+
+PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
+  if (!containsOpenMP(M, OMPInModule))
+    return PreservedAnalyses::all();
+
+  if (DisableOpenMPOptimizations)
+    return PreservedAnalyses::all();
+
+  FunctionAnalysisManager &FAM =
+      AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+  AnalysisGetter AG(FAM);
+
+  auto OREGetter = [&FAM](Function *F) -> OptimizationRemarkEmitter & {
+    return FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F);
+  };
+
+  BumpPtrAllocator Allocator;
+  SetVector<Function *> Functions(pointer_iterator<Module::iterator>(M.begin()),
+                                  pointer_iterator<Module::iterator>(M.end()));
+  OMPInformationCache InfoCache(M, AG, Allocator,
+                                /*CGSCC*/ Functions, OMPInModule.getKernels());
+
+  CallGraphUpdater CGUpdater;
+  Attributor A(Functions, InfoCache, CGUpdater);
+
+  SmallVector<Function *, 0> SCC;
+  OpenMPOpt OMPOpt(M, SCC, CGUpdater, OREGetter, InfoCache, A);
   bool Changed = OMPOpt.run();
   if (Changed)
     return PreservedAnalyses::none();
@@ -2317,13 +2570,13 @@ PreservedAnalyses OpenMPOptPass::run(LazyCallGraph::SCC &C,
 
 namespace {
 
-struct OpenMPOptLegacyPass : public CallGraphSCCPass {
+struct OpenMPOptCGSCCLegacyPass : public CallGraphSCCPass {
   CallGraphUpdater CGUpdater;
   OpenMPInModule OMPInModule;
   static char ID;
 
-  OpenMPOptLegacyPass() : CallGraphSCCPass(ID) {
-    initializeOpenMPOptLegacyPassPass(*PassRegistry::getPassRegistry());
+  OpenMPOptCGSCCLegacyPass() : CallGraphSCCPass(ID) {
+    initializeOpenMPOptCGSCCLegacyPassPass(*PassRegistry::getPassRegistry());
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -2337,7 +2590,8 @@ struct OpenMPOptLegacyPass : public CallGraphSCCPass {
   }
 
   bool runOnSCC(CallGraphSCC &CGSCC) override {
-    if (!containsOpenMP(CGSCC.getCallGraph().getModule(), OMPInModule))
+    Module &M = CGSCC.getCallGraph().getModule();
+    if (!containsOpenMP(M, OMPInModule))
       return false;
     if (DisableOpenMPOptimizations || skipSCC(CGSCC))
       return false;
@@ -2383,11 +2637,61 @@ struct OpenMPOptLegacyPass : public CallGraphSCCPass {
 
     Attributor A(Functions, InfoCache, CGUpdater);
 
-    OpenMPOpt OMPOpt(SCC, CGUpdater, OREGetter, InfoCache, A);
+    OpenMPOpt OMPOpt(M, SCC, CGUpdater, OREGetter, InfoCache, A);
     return OMPOpt.run();
   }
 
   bool doFinalization(CallGraph &CG) override { return CGUpdater.finalize(); }
+};
+
+struct OpenMPOptLegacyPass : public ModulePass {
+  OpenMPInModule OMPInModule;
+  static char ID;
+
+  OpenMPOptLegacyPass() : ModulePass(ID) {
+    initializeOpenMPOptLegacyPassPass(*PassRegistry::getPassRegistry());
+  }
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    ModulePass::getAnalysisUsage(AU);
+  }
+
+  bool doInitialization(Module &M) override {
+    // Disable the pass if there is no OpenMP (runtime call) in the module.
+    containsOpenMP(M, OMPInModule);
+    return false;
+  }
+
+  bool runOnModule(Module &M) override {
+    if (!containsOpenMP(M, OMPInModule))
+      return false;
+    if (DisableOpenMPOptimizations || skipModule(M))
+      return false;
+
+    // Maintain a map of functions to avoid rebuilding the ORE
+    DenseMap<Function *, std::unique_ptr<OptimizationRemarkEmitter>> OREMap;
+    auto OREGetter = [&OREMap](Function *F) -> OptimizationRemarkEmitter & {
+      std::unique_ptr<OptimizationRemarkEmitter> &ORE = OREMap[F];
+      if (!ORE)
+        ORE = std::make_unique<OptimizationRemarkEmitter>(F);
+      return *ORE;
+    };
+
+    AnalysisGetter AG;
+    BumpPtrAllocator Allocator;
+    SetVector<Function *> Functions(
+        pointer_iterator<Module::iterator>(M.begin()),
+        pointer_iterator<Module::iterator>(M.end()));
+    OMPInformationCache InfoCache(M, AG, Allocator, Functions,
+                                  OMPInModule.getKernels());
+
+    CallGraphUpdater CGUpdater;
+    Attributor A(Functions, InfoCache, CGUpdater);
+
+    SmallVector<Function *, 0> SCC;
+    OpenMPOpt OMPOpt(M, SCC, CGUpdater, OREGetter, InfoCache, A);
+    return OMPOpt.run();
+  }
 };
 
 } // end anonymous namespace
@@ -2449,11 +2753,20 @@ bool llvm::omp::containsOpenMP(Module &M, OpenMPInModule &OMPInModule) {
 }
 
 char OpenMPOptLegacyPass::ID = 0;
+char OpenMPOptCGSCCLegacyPass::ID = 0;
+
+INITIALIZE_PASS_BEGIN(OpenMPOptCGSCCLegacyPass, "openmpopt-cgscc",
+                      "OpenMP specific optimizations, cgscc pass", false, false)
+INITIALIZE_PASS_DEPENDENCY(CallGraphWrapperPass)
+INITIALIZE_PASS_END(OpenMPOptCGSCCLegacyPass, "openmpopt-cgscc",
+                    "OpenMP specific optimizations, cgscc pass", false, false)
 
 INITIALIZE_PASS_BEGIN(OpenMPOptLegacyPass, "openmpopt",
                       "OpenMP specific optimizations", false, false)
-INITIALIZE_PASS_DEPENDENCY(CallGraphWrapperPass)
 INITIALIZE_PASS_END(OpenMPOptLegacyPass, "openmpopt",
                     "OpenMP specific optimizations", false, false)
 
 Pass *llvm::createOpenMPOptLegacyPass() { return new OpenMPOptLegacyPass(); }
+Pass *llvm::createOpenMPOptCGSCCLegacyPass() {
+  return new OpenMPOptCGSCCLegacyPass();
+}

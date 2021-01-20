@@ -1079,6 +1079,8 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
 
   if (AttributorRun & AttributorRunOption::MODULE)
     MPM.addPass(AttributorPass());
+  if (Level.getSpeedupLevel() > 1)
+    MPM.addPass(OpenMPOptPass());
 
   // Lower type metadata and the type.test intrinsic in the ThinLTO
   // post link pipeline after ICP. This is to enable usage of the type
