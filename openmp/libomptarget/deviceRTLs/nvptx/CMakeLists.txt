@@ -63,6 +63,7 @@ if(LIBOMPTARGET_DEP_CUDA_FOUND)
     libomptarget_say("Building CUDA LLVM bitcode offloading device RTL.")
 
     set(cuda_src_files
+      ${devicertl_common_directory}/src/target.cpp
       ${devicertl_common_directory}/src/cancel.cu
       ${devicertl_common_directory}/src/critical.cu
       ${devicertl_common_directory}/src/data_sharing.cu
@@ -81,6 +82,7 @@ if(LIBOMPTARGET_DEP_CUDA_FOUND)
     # Set flags for LLVM Bitcode compilation.
     set(bc_flags ${LIBOMPTARGET_NVPTX_SELECTED_CUDA_COMPILER_FLAGS}
                  -I${devicertl_base_directory}
+                 -I${devicertl_common_directory}/include
                  -I${devicertl_nvptx_directory}/src)
 
     if(${LIBOMPTARGET_NVPTX_DEBUG})
