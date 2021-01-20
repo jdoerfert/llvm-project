@@ -405,6 +405,8 @@ __OMP_RTL(__tgt_push_mapper_component, false, Void, VoidPtr, VoidPtr, VoidPtr,
           Int64, Int64, VoidPtr)
 __OMP_RTL(__kmpc_task_allow_completion_event, false, VoidPtr, IdentPtr,
           /* Int */ Int32, /* kmp_task_t */ VoidPtr)
+__OMP_RTL(__kmpc_target_init, false, Int8, IdentPtr, Int1, Int1)
+__OMP_RTL(__kmpc_target_deinit, false, Void, IdentPtr, Int1)
 
 /// OpenMP Device runtime functions
 __OMP_RTL(__kmpc_kernel_init, false, Void, Int32, Int16)
