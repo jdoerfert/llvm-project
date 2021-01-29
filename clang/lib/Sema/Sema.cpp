@@ -1805,9 +1805,8 @@ void Sema::checkDeviceDecl(const ValueDecl *D, SourceLocation Loc) {
     }
 
     if ((Ty->isFloat16Type() && !Context.getTargetInfo().hasFloat16Type()) ||
-        ((Ty->isFloat128Type() ||
-          (Ty->isRealFloatingType() && Context.getTypeSize(Ty) == 128)) &&
-         !Context.getTargetInfo().hasFloat128Type()) ||
+        (Ty->isFloat128Type() && !Context.getTargetInfo().hasFloat128Type()) ||
+        (Ty->isLongDoubleType() && !Context.getTargetInfo().hasLongDouble()) ||
         (Ty->isIntegerType() && Context.getTypeSize(Ty) == 128 &&
          !Context.getTargetInfo().hasInt128Type())) {
       targetDiag(Loc, diag::err_device_unsupported_type)

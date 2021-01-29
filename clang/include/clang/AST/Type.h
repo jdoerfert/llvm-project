@@ -1991,6 +1991,7 @@ public:
   bool isFloat16Type() const;      // C11 extension ISO/IEC TS 18661
   bool isBFloat16Type() const;
   bool isFloat128Type() const;
+  bool isLongDoubleType() const;
   bool isRealType() const;         // C99 6.2.5p17 (real floating + integer)
   bool isArithmeticType() const;   // C99 6.2.5p18 (integer + floating)
   bool isVoidType() const;         // C99 6.2.5p19
@@ -6959,6 +6960,10 @@ inline bool Type::isBFloat16Type() const {
 
 inline bool Type::isFloat128Type() const {
   return isSpecificBuiltinType(BuiltinType::Float128);
+}
+
+inline bool Type::isLongDoubleType() const {
+  return isSpecificBuiltinType(BuiltinType::LongDouble);
 }
 
 inline bool Type::isNullPtrType() const {

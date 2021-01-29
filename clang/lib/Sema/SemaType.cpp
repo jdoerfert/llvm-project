@@ -1544,10 +1544,17 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     break;
   case DeclSpec::TST_float:   Result = Context.FloatTy; break;
   case DeclSpec::TST_double:
-    if (DS.getTypeSpecWidth() == TypeSpecifierWidth::Long)
-      Result = Context.LongDoubleTy;
-    else
+    if (DS.getTypeSpecWidth() != TypeSpecifierWidth::Long) {
       Result = Context.DoubleTy;
+    } else {
+      // ToDo: more precise diagnostics for CUDA.
+      if (!S.Context.getTargetInfo().hasLongDouble() &&
+          !S.getLangOpts().SYCLIsDevice && !S.getLangOpts().CUDA &&
+          !(S.getLangOpts().OpenMP && S.getLangOpts().OpenMPIsDevice))
+        S.Diag(DS.getTypeSpecTypeLoc(), diag::err_type_unsupported)
+            << "long double";
+      Result = Context.LongDoubleTy;
+    }
     break;
   case DeclSpec::TST_float128:
     if (!S.Context.getTargetInfo().hasFloat128Type() &&
