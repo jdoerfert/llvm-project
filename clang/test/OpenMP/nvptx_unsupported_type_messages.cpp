@@ -77,6 +77,23 @@ T1 bar1() {
 void baz1() {
   T1 t = bar1();
 }
+
+long double ld_return1a() { return 0; }
+void ld_arg1a(long double ld) {}
+typedef long double ld_ty;
+ld_ty ld_return1b() { return 0; }
+void ld_arg1b(ld_ty ld) {}
+
+
+#ifndef _ARCH_PPC
+__float128 ld_return2a() { return 0; }
+void ld_arg2a(__float128 ld) {}
+
+typedef __float128 fp128_ty;
+fp128_ty ld_return2b() { return 0; }
+void ld_arg2b(fp128_ty ld) {}
+#endif
+
 #pragma omp end declare target
 
 #ifndef _ARCH_PPC
