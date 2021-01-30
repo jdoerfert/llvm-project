@@ -193,6 +193,7 @@ protected:
   bool HasFloat16;
   bool HasBFloat16;
   bool HasStrictFP;
+  bool HasLongDouble;
 
   unsigned char MaxAtomicPromoteWidth, MaxAtomicInlineWidth;
   unsigned short SimdDefaultAlign;
@@ -570,6 +571,9 @@ public:
 
   /// Determine whether _Float16 is supported on this target.
   virtual bool hasLegalHalfType() const { return HasLegalHalfType; }
+
+  /// Determine whether `long double` type is supported on this target.
+  virtual bool hasLongDouble() const { return HasLongDouble; }
 
   /// Determine whether the __float128 type is supported on this target.
   virtual bool hasFloat128Type() const { return HasFloat128; }

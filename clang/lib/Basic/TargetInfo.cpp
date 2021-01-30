@@ -38,6 +38,7 @@ TargetInfo::TargetInfo(const llvm::Triple &T) : TargetOpts(), Triple(T) {
   HasFloat16 = false;
   HasBFloat16 = false;
   HasStrictFP = false;
+  HasLongDouble = true;
   PointerWidth = PointerAlign = 32;
   BoolWidth = BoolAlign = 8;
   IntWidth = IntAlign = 32;
