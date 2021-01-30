@@ -128,6 +128,7 @@ set(cuda_src_files
   ${devicertl_common_directory}/src/support.cu
   ${devicertl_common_directory}/src/sync.cu
   ${devicertl_common_directory}/src/task.cu
+  ${devicertl_common_directory}/src/shuffle.cpp
   src/target_impl.cu
 )
 
@@ -139,6 +140,7 @@ set(bc_flags -S -x c++ -O1 -std=c++14
              -fopenmp -fopenmp-cuda-mode -Xclang -fopenmp-is-device
              -D__CUDACC__
              -I${devicertl_base_directory}
+             -I${devicertl_common_directory}/include
              -I${devicertl_nvptx_directory}/src)
 
 if(${LIBOMPTARGET_NVPTX_DEBUG})
