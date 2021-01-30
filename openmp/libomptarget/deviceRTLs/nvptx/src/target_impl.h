@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "common/include/shuffle.h"
 #include "nvptx_interface.h"
 
 #define DEVICE __device__
@@ -102,13 +103,6 @@ INLINE uint32_t __kmpc_impl_popc(uint32_t x) { return __builtin_popcount(x); }
 
 DEVICE __kmpc_impl_lanemask_t __kmpc_impl_activemask();
 
-DEVICE int32_t __kmpc_impl_shfl_sync(__kmpc_impl_lanemask_t Mask, int32_t Var,
-                                     int32_t SrcLane);
-
-DEVICE int32_t __kmpc_impl_shfl_down_sync(__kmpc_impl_lanemask_t Mask,
-                                          int32_t Var, uint32_t Delta,
-                                          int32_t Width);
-
 DEVICE void __kmpc_impl_syncthreads();
 DEVICE void __kmpc_impl_syncwarp(__kmpc_impl_lanemask_t Mask);
 
@@ -129,6 +123,7 @@ DEVICE int GetNumberOfBlocksInKernel();
 DEVICE int GetNumberOfThreadsInBlock();
 DEVICE unsigned GetWarpId();
 DEVICE unsigned GetLaneId();
+DEVICE unsigned GetWarpSize() { return WARPSIZE; }
 
 // Atomics
 DEVICE uint32_t __kmpc_atomic_add(uint32_t *, uint32_t);

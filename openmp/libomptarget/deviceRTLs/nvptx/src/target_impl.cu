@@ -66,27 +66,6 @@ DEVICE __kmpc_impl_lanemask_t __kmpc_impl_activemask() {
 #endif
 }
 
-// In Cuda 9.0, the *_sync() version takes an extra argument 'mask'.
-DEVICE int32_t __kmpc_impl_shfl_sync(__kmpc_impl_lanemask_t Mask, int32_t Var,
-                                     int32_t SrcLane) {
-#if CUDA_VERSION >= 9000
-  return __nvvm_shfl_sync_idx_i32(Mask, Var, SrcLane, 0x1f);
-#else
-  return __nvvm_shfl_idx_i32(Var, SrcLane, 0x1f);
-#endif // CUDA_VERSION
-}
-
-DEVICE int32_t __kmpc_impl_shfl_down_sync(__kmpc_impl_lanemask_t Mask,
-                                          int32_t Var, uint32_t Delta,
-                                          int32_t Width) {
-  int32_t T = ((WARPSIZE - Width) << 8) | 0x1f;
-#if CUDA_VERSION >= 9000
-  return __nvvm_shfl_sync_down_i32(Mask, Var, Delta, T);
-#else
-  return __nvvm_shfl_down_i32(Var, Delta, T);
-#endif // CUDA_VERSION
-}
-
 DEVICE void __kmpc_impl_syncthreads() { __syncthreads(); }
 
 DEVICE void __kmpc_impl_syncwarp(__kmpc_impl_lanemask_t Mask) {

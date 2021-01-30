@@ -23,6 +23,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "common/include/shuffle.h"
+
 #define DEVICE __attribute__((device))
 #define INLINE inline DEVICE
 #define NOINLINE __attribute__((noinline)) DEVICE
@@ -87,12 +89,6 @@ INLINE uint64_t __kmpc_impl_popc(uint64_t x) { return __builtin_popcountl(x); }
 
 DEVICE __kmpc_impl_lanemask_t __kmpc_impl_activemask();
 
-DEVICE int32_t __kmpc_impl_shfl_sync(__kmpc_impl_lanemask_t, int32_t Var,
-                                     int32_t SrcLane);
-
-DEVICE int32_t __kmpc_impl_shfl_down_sync(__kmpc_impl_lanemask_t, int32_t Var,
-                                          uint32_t Delta, int32_t Width);
-
 INLINE void __kmpc_impl_syncthreads() { __builtin_amdgcn_s_barrier(); }
 
 INLINE void __kmpc_impl_syncwarp(__kmpc_impl_lanemask_t) {
@@ -124,6 +120,7 @@ DEVICE int GetNumberOfBlocksInKernel();
 DEVICE int GetNumberOfThreadsInBlock();
 DEVICE unsigned GetWarpId();
 DEVICE unsigned GetLaneId();
+DEVICE unsigned GetWarpSize() { return WARPSIZE; }
 
 // Atomics
 DEVICE uint32_t __kmpc_atomic_add(uint32_t *, uint32_t);
