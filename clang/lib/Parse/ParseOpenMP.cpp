@@ -1477,6 +1477,14 @@ bool Parser::parseOMPDeclareVariantMatchClause(SourceLocation Loc,
           MergedSelector = true;
           for (const OMPTraitProperty &ParentProperty :
                ParentSelector.Properties) {
+            // Do not propagate match extensions to nested contexts.
+            if (ParentProperty.Kind == llvm::omp::TraitProperty::
+                                           implementation_extension_match_any ||
+                ParentProperty.Kind == llvm::omp::TraitProperty::
+                                           implementation_extension_match_all ||
+                ParentProperty.Kind == llvm::omp::TraitProperty::
+                                           implementation_extension_match_none)
+              continue;
             bool MergedProperty = false;
             for (OMPTraitProperty &Property : Selector.Properties) {
               // Ignore "equivalent" properties.
