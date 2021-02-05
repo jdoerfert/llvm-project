@@ -6549,12 +6549,8 @@ const Stmt *CGOpenMPRuntime::getSingleCompoundChild(ASTContext &Ctx,
 
 /// Emit the number of teams for a target directive.  Inspect the num_teams
 /// clause associated with a teams construct combined or closely nested
-/// with the target directive.
-///
-/// Emit a team of size one for directives such as 'target parallel' that
-/// have no associated teams construct.
-///
-/// Otherwise, return nullptr.
+/// with the target directive. If the number of teams on such a construct is
+/// not defined, reutrn `i32 0`. If there is no team construct, return nullptr.
 static llvm::Value *
 emitNumTeamsForTargetDirective(CodeGenFunction &CGF,
                                const OMPExecutableDirective &D) {
@@ -6588,10 +6584,6 @@ emitNumTeamsForTargetDirective(CodeGenFunction &CGF,
         }
         return Bld.getInt32(0);
       }
-      if (isOpenMPParallelDirective(NestedDir->getDirectiveKind()) ||
-          isOpenMPSimdDirective(NestedDir->getDirectiveKind()))
-        return Bld.getInt32(1);
-      return Bld.getInt32(0);
     }
     return nullptr;
   }
@@ -6616,7 +6608,7 @@ emitNumTeamsForTargetDirective(CodeGenFunction &CGF,
   case OMPD_target_parallel_for:
   case OMPD_target_parallel_for_simd:
   case OMPD_target_simd:
-    return Bld.getInt32(1);
+    return nullptr;
   case OMPD_parallel:
   case OMPD_for:
   case OMPD_parallel_for:
