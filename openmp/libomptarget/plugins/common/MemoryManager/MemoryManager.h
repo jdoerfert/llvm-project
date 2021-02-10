@@ -33,11 +33,11 @@ public:
   /// Allocate a memory of size \p Size . \p HstPtr is used to assist the
   /// allocation. \p AsyncInfo is used to make it asynchronous, if the device
   /// (driver) supports it.
-  virtual void *allocate(size_t Size, void *HstPtr, __tgt_async_info *AsyncInfo) = 0;
+  virtual void *allocate(size_t Size, void *HstPtr, __tgt_async_info & AsyncInfo) = 0;
 
   /// Delete the pointer \p TgtPtr on the device. \p AsyncInfo is used to make it asynchronous, if the device
   /// (driver) supports it.
-  virtual int free(void *TgtPtr, __tgt_async_info *AsyncInfo) = 0;
+  virtual int free(void *TgtPtr, __tgt_async_info &AsyncInfo) = 0;
 };
 
 /// Class of memory manager. The memory manager is per-device by using
@@ -135,12 +135,12 @@ class MemoryManagerTy {
   size_t SizeThreshold = 1U << 13;
 
   /// Request memory from target device
-  void *allocateOnDevice(size_t Size, void *HstPtr, __tgt_async_info *AsyncInfo) const {
+  void *allocateOnDevice(size_t Size, void *HstPtr, __tgt_async_info &AsyncInfo) const {
     return DeviceAllocator.allocate(Size, HstPtr, AsyncInfo);
   }
 
   /// Deallocate data on device
-  int deleteOnDevice(void *Ptr) const { return DeviceAllocator.free(Ptr, /* AsyncInfo */ nullptr); }
+  int deleteOnDevice(void *Ptr, __tgt_async_info &AsyncInfo) const { return DeviceAllocator.free(Ptr, AsyncInfo); }
 
   /// This function is called when it tries to allocate memory on device but the
   /// device returns out of memory. It will first free all memory in the
@@ -214,7 +214,7 @@ public:
 
   /// Allocate memory of size \p Size from target device. \p HstPtr is used to
   /// assist the allocation.
-  void *allocate(size_t Size, void *HstPtr, __tgt_async_info *AsyncInfo) {
+  void *allocate(size_t Size, void *HstPtr, __tgt_async_info &AsyncInfo) {
     // If the size is zero, we will not bother the target device. Just return
     // nullptr directly.
     if (Size == 0)
@@ -283,7 +283,7 @@ public:
   }
 
   /// Deallocate memory pointed by \p TgtPtr
-  int free(void *TgtPtr, __tgt_async_info *AsyncInfo) {
+  int free(void *TgtPtr, __tgt_async_info &AsyncInfo) {
     DP("MemoryManagerTy::free: target memory " DPxMOD ".\n", DPxPTR(TgtPtr));
 
     NodeTy *P = nullptr;

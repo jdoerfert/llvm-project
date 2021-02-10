@@ -62,7 +62,7 @@ __tgt_target_table *__tgt_rtl_load_binary(int32_t ID,
 // __tgt_rtl_run_region(). The __tgt_rtl_data_alloc() returns NULL in
 // case an error occurred on the target device.
 void *__tgt_rtl_data_alloc(int32_t ID, int64_t Size, void *HostPtr);
-void *__tgt_rtl_data_alloc_async(int32_t ID, int64_t Size, void *HostPtr, __tgt_async_info *AsyncInfo);
+void *__tgt_rtl_data_alloc_async(int32_t ID, int64_t Size, void *HostPtr, __tgt_async_info &AsyncInfo);
 
 // Pass the data content to the target device using the target address. In case
 // of success, return zero. Otherwise, return an error code.
@@ -70,7 +70,8 @@ int32_t __tgt_rtl_data_submit(int32_t ID, void *TargetPtr, void *HostPtr,
                               int64_t Size);
 
 int32_t __tgt_rtl_data_submit_async(int32_t ID, void *TargetPtr, void *HostPtr,
-                                    int64_t Size, __tgt_async_info *AsyncInfo);
+                                    int64_t Size,
+                                    __tgt_async_info &AsyncInfo);
 
 // Retrieve the data content from the target device using its address. In case
 // of success, return zero. Otherwise, return an error code.
@@ -80,7 +81,7 @@ int32_t __tgt_rtl_data_retrieve(int32_t ID, void *HostPtr, void *TargetPtr,
 // Asynchronous version of __tgt_rtl_data_retrieve
 int32_t __tgt_rtl_data_retrieve_async(int32_t ID, void *HostPtr,
                                       void *TargetPtr, int64_t Size,
-                                      __tgt_async_info *AsyncInfo);
+                                      __tgt_async_info &AsyncInfo);
 
 // Copy the data content from one target device to another target device using
 // its address. This operation does not need to copy data back to host and then
@@ -92,12 +93,12 @@ int32_t __tgt_rtl_data_exchange(int32_t SrcID, void *SrcPtr, int32_t DstID,
 // Asynchronous version of __tgt_rtl_data_exchange
 int32_t __tgt_rtl_data_exchange_async(int32_t SrcID, void *SrcPtr,
                                       int32_t DesID, void *DstPtr, int64_t Size,
-                                      __tgt_async_info *AsyncInfo);
+                                      __tgt_async_info &AsyncInfo);
 
 // De-allocate the data referenced by target ptr on the device. In case of
 // success, return zero. Otherwise, return an error code.
 int32_t __tgt_rtl_data_delete(int32_t ID, void *TargetPtr);
-int32_t __tgt_rtl_data_delete_async(int32_t ID, void *TargetPtr, __tgt_async_info *AsyncInfo);
+int32_t __tgt_rtl_data_delete_async(int32_t ID, void *TargetPtr, __tgt_async_info &AsyncInfo);
 
 // Transfer control to the offloaded entry Entry on the target device.
 // Args and Offsets are arrays of NumArgs size of target addresses and
@@ -112,7 +113,7 @@ int32_t __tgt_rtl_run_target_region(int32_t ID, void *Entry, void **Args,
 // Asynchronous version of __tgt_rtl_run_target_region
 int32_t __tgt_rtl_run_target_region_async(int32_t ID, void *Entry, void **Args,
                                           ptrdiff_t *Offsets, int32_t NumArgs,
-                                          __tgt_async_info *AsyncInfo);
+                                          __tgt_async_info &AsyncInfo);
 
 // Similar to __tgt_rtl_run_target_region, but additionally specify the
 // number of teams to be created and a number of threads in each team. If
@@ -128,11 +129,11 @@ int32_t __tgt_rtl_run_target_team_region(int32_t ID, void *Entry, void **Args,
 int32_t __tgt_rtl_run_target_team_region_async(
     int32_t ID, void *Entry, void **Args, ptrdiff_t *Offsets, int32_t NumArgs,
     int32_t NumTeams, int32_t ThreadLimit, uint64_t loop_tripcount,
-    __tgt_async_info *AsyncInfo);
+    __tgt_async_info &AsyncInfo);
 
 // Device synchronization. In case of success, return zero. Otherwise, return an
 // error code.
-int32_t __tgt_rtl_synchronize(int32_t ID, __tgt_async_info *AsyncInfo);
+int32_t __tgt_rtl_synchronize(int32_t ID, __tgt_async_info &AsyncInfo);
 
 #ifdef __cplusplus
 }
