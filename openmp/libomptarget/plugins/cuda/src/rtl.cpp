@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cassert>
 #include <cstddef>
 #include <cuda.h>
 #include <list>
@@ -229,7 +228,7 @@ public:
     const std::lock_guard<std::mutex> Lock(*StreamMtx[DeviceId]);
     int &Id = NextStreamId[DeviceId];
     // No CUstream left in the pool, we need to request from CUDA RT
-    if (Id == StreamPool[DeviceId].size()) {
+    if (Id == int(StreamPool[DeviceId].size())) {
       // By default we double the stream pool every time
       resizeStreamPool(DeviceId, Id * 2);
     }
@@ -263,7 +262,7 @@ public:
     resizeStreamPool(DeviceId, EnvNumInitialStreams);
 
     // Check the size of stream pool
-    if (StreamPool[DeviceId].size() != EnvNumInitialStreams)
+    if (int(StreamPool[DeviceId].size()) != EnvNumInitialStreams)
       return false;
 
     // Check whether each stream is valid
