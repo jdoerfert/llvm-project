@@ -23,7 +23,7 @@ int AsyncInfoTy::synchronize() {
   int Result = OFFLOAD_SUCCESS;
   if (AsyncInfo.Queue) {
     // If we have a queue we need to synchronize it now.
-    Result = Device.synchronize(&AsyncInfo);
+    Result = Device.synchronize(*this);
     assert(AsyncInfo.Queue == nullptr &&
            "The device plugin should have nulled the queue to indicate there "
            "are no outstanding actions!");
