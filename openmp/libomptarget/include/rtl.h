@@ -31,6 +31,7 @@ struct RTLInfoTy {
   typedef int32_t(init_device_ty)(int32_t);
   typedef __tgt_target_table *(load_binary_ty)(int32_t, void *);
   typedef void *(data_alloc_ty)(int32_t, int64_t, void *);
+  typedef void *(data_alloc_async_ty)(int32_t, int64_t, void *,__tgt_async_info *);
   typedef int32_t(data_submit_ty)(int32_t, void *, void *, int64_t);
   typedef int32_t(data_submit_async_ty)(int32_t, void *, void *, int64_t,
                                         __tgt_async_info *);
@@ -41,6 +42,7 @@ struct RTLInfoTy {
   typedef int32_t(data_exchange_async_ty)(int32_t, void *, int32_t, void *,
                                           int64_t, __tgt_async_info *);
   typedef int32_t(data_delete_ty)(int32_t, void *);
+  typedef int32_t(data_delete_async_ty)(int32_t, void *,__tgt_async_info *);
   typedef int32_t(run_region_ty)(int32_t, void *, void **, ptrdiff_t *,
                                  int32_t);
   typedef int32_t(run_region_async_ty)(int32_t, void *, void **, ptrdiff_t *,
@@ -74,6 +76,7 @@ struct RTLInfoTy {
   init_device_ty *init_device = nullptr;
   load_binary_ty *load_binary = nullptr;
   data_alloc_ty *data_alloc = nullptr;
+  data_alloc_async_ty *data_alloc_async = nullptr;
   data_submit_ty *data_submit = nullptr;
   data_submit_async_ty *data_submit_async = nullptr;
   data_retrieve_ty *data_retrieve = nullptr;
@@ -81,6 +84,7 @@ struct RTLInfoTy {
   data_exchange_ty *data_exchange = nullptr;
   data_exchange_async_ty *data_exchange_async = nullptr;
   data_delete_ty *data_delete = nullptr;
+  data_delete_async_ty *data_delete_async = nullptr;
   run_region_ty *run_region = nullptr;
   run_region_async_ty *run_region_async = nullptr;
   run_team_region_ty *run_team_region = nullptr;

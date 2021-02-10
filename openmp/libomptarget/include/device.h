@@ -170,13 +170,14 @@ struct DeviceTy {
   void *getOrAllocTgtPtr(void *HstPtrBegin, void *HstPtrBase, int64_t Size,
                          map_var_info_t HstPtrName, bool &IsNew,
                          bool &IsHostPtr, bool IsImplicit, bool UpdateRefCount,
-                         bool HasCloseModifier, bool HasPresentModifier);
+                         bool HasCloseModifier, bool HasPresentModifier, __tgt_async_info *AsyncInfo);
   void *getTgtPtrBegin(void *HstPtrBegin, int64_t Size);
   void *getTgtPtrBegin(void *HstPtrBegin, int64_t Size, bool &IsLast,
                        bool UpdateRefCount, bool &IsHostPtr,
                        bool MustContain = false);
   int deallocTgtPtr(void *TgtPtrBegin, int64_t Size, bool ForceDelete,
-                    bool HasCloseModifier = false);
+                    bool HasCloseModifier,
+                     __tgt_async_info *AsyncInfoPtr);
   int associatePtr(void *HstPtrBegin, void *TgtPtrBegin, int64_t Size);
   int disassociatePtr(void *HstPtrBegin);
 
@@ -191,10 +192,12 @@ struct DeviceTy {
   /// default value of \p HstPtr is nullptr. Note: this function doesn't do
   /// pointer association. Actually, all the __tgt_rtl_data_alloc
   /// implementations ignore \p HstPtr.
-  void *allocData(int64_t Size, void *HstPtr = nullptr);
+  void *allocData(int64_t Size, void *HstPtr,
+                     __tgt_async_info *AsyncInfoPtr);
   /// Deallocates memory which \p TgtPtrBegin points at and returns
   /// OFFLOAD_SUCCESS/OFFLOAD_FAIL when succeeds/fails.
-  int32_t deleteData(void *TgtPtrBegin);
+  int32_t deleteData(void *TgtPtrBegin,
+                     __tgt_async_info *AsyncInfoPtr);
 
   // Data transfer. When AsyncInfo is nullptr, the transfer will be
   // synchronous.

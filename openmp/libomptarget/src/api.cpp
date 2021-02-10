@@ -60,7 +60,7 @@ EXTERN void *omp_target_alloc(size_t size, int device_num) {
     return NULL;
   }
 
-  rc = PM->Devices[device_num].allocData(size);
+  rc = PM->Devices[device_num].allocData(size, /* HostTable */ nullptr, /* AsyncInfo */ nullptr);
   DP("omp_target_alloc returns device ptr " DPxMOD "\n", DPxPTR(rc));
   return rc;
 }
@@ -86,7 +86,7 @@ EXTERN void omp_target_free(void *device_ptr, int device_num) {
     return;
   }
 
-  PM->Devices[device_num].deleteData(device_ptr);
+  PM->Devices[device_num].deleteData(device_ptr, /* AsyncInfo */ nullptr);
   DP("omp_target_free deallocated device ptr\n");
 }
 

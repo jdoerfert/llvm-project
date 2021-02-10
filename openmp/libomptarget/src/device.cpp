@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "device.h"
+#include "omptarget.h"
 #include "private.h"
 #include "rtl.h"
 
@@ -197,7 +198,8 @@ void *DeviceTy::getOrAllocTgtPtr(void *HstPtrBegin, void *HstPtrBase,
                                  int64_t Size, map_var_info_t HstPtrName,
                                  bool &IsNew, bool &IsHostPtr, bool IsImplicit,
                                  bool UpdateRefCount, bool HasCloseModifier,
-                                 bool HasPresentModifier) {
+                                 bool HasPresentModifier,
+                                 __tgt_async_info *AsyncInfo) {
   void *rc = NULL;
   IsHostPtr = false;
   IsNew = false;
@@ -263,7 +265,7 @@ void *DeviceTy::getOrAllocTgtPtr(void *HstPtrBegin, void *HstPtrBase,
   } else if (Size) {
     // If it is not contained and Size > 0, we should create a new entry for it.
     IsNew = true;
-    uintptr_t tp = (uintptr_t)allocData(Size, HstPtrBegin);
+    uintptr_t tp = (uintptr_t)allocData(Size, HstPtrBegin, AsyncInfo);
     DP("Creating new map entry: HstBase=" DPxMOD ", HstBegin=" DPxMOD ", "
        "HstEnd=" DPxMOD ", TgtBegin=" DPxMOD "\n",
        DPxPTR(HstPtrBase), DPxPTR(HstPtrBegin),
@@ -335,7 +337,8 @@ void *DeviceTy::getTgtPtrBegin(void *HstPtrBegin, int64_t Size) {
 }
 
 int DeviceTy::deallocTgtPtr(void *HstPtrBegin, int64_t Size, bool ForceDelete,
-                            bool HasCloseModifier) {
+                            bool HasCloseModifier,
+                            __tgt_async_info *AsyncInfo) {
   if (PM->RTLs.RequiresFlags & OMP_REQ_UNIFIED_SHARED_MEMORY &&
       !HasCloseModifier)
     return OFFLOAD_SUCCESS;
@@ -350,7 +353,7 @@ int DeviceTy::deallocTgtPtr(void *HstPtrBegin, int64_t Size, bool ForceDelete,
     if (HT.decRefCount() == 0) {
       DP("Deleting tgt data " DPxMOD " of size %" PRId64 "\n",
          DPxPTR(HT.TgtPtrBegin), Size);
-      deleteData((void *)HT.TgtPtrBegin);
+      deleteData((void *)HT.TgtPtrBegin, AsyncInfo);
       DP("Removing%s mapping with HstPtrBegin=" DPxMOD ", TgtPtrBegin=" DPxMOD
          ", Size=%" PRId64 "\n",
          (ForceDelete ? " (forced)" : ""), DPxPTR(HT.HstPtrBegin),
@@ -405,12 +408,17 @@ __tgt_target_table *DeviceTy::load_binary(void *Img) {
   return rc;
 }
 
-void *DeviceTy::allocData(int64_t Size, void *HstPtr) {
-  return RTL->data_alloc(RTLDeviceID, Size, HstPtr);
+void *DeviceTy::allocData(int64_t Size, void *HstPtr,
+                          __tgt_async_info *AsyncInfo) {
+  if (!AsyncInfo || !RTL->data_submit_async || !RTL->synchronize)
+    return RTL->data_alloc(RTLDeviceID, Size, HstPtr);
+  return RTL->data_alloc_async(RTLDeviceID, Size, HstPtr, AsyncInfo);
 }
 
-int32_t DeviceTy::deleteData(void *TgtPtrBegin) {
-  return RTL->data_delete(RTLDeviceID, TgtPtrBegin);
+int32_t DeviceTy::deleteData(void *TgtPtrBegin, __tgt_async_info *AsyncInfo) {
+  if (!AsyncInfo || !RTL->data_submit_async || !RTL->synchronize)
+    return RTL->data_delete(RTLDeviceID, TgtPtrBegin);
+  return RTL->data_delete_async(RTLDeviceID, TgtPtrBegin, AsyncInfo);
 }
 
 // Submit data to device

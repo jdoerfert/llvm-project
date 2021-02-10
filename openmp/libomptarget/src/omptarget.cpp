@@ -357,7 +357,7 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
       PointerTgtPtrBegin = Device.getOrAllocTgtPtr(
           HstPtrBase, HstPtrBase, sizeof(void *), nullptr, Pointer_IsNew,
           IsHostPtr, IsImplicit, UpdateRef, HasCloseModifier,
-          HasPresentModifier);
+          HasPresentModifier, &AsyncInfo);
       if (!PointerTgtPtrBegin) {
         REPORT("Call to getOrAllocTgtPtr returned null pointer (%s).\n",
                HasPresentModifier ? "'present' map type modifier"
@@ -376,7 +376,8 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
 
     void *TgtPtrBegin = Device.getOrAllocTgtPtr(
         HstPtrBegin, HstPtrBase, data_size, HstPtrName, IsNew, IsHostPtr,
-        IsImplicit, UpdateRef, HasCloseModifier, HasPresentModifier);
+        IsImplicit, UpdateRef, HasCloseModifier, HasPresentModifier,
+        &AsyncInfo);
     // If data_size==0, then the argument could be a zero-length pointer to
     // NULL, so getOrAlloc() returning NULL is not an error.
     if (!TgtPtrBegin && (data_size || HasPresentModifier)) {
@@ -641,22 +642,14 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
     }
   }
 
-  // TODO: We should not synchronized here but pass the AsyncInfo object to the
-  //       allocate/deallocate device APIs.
-  //
-  // We need to synchronize before deallocating data. If AsyncInfo is nullptr,
-  // the previous data transfer (if has) will be synchronous, so we don't need
-  // to synchronize again. If AsyncInfo->Queue is nullptr, there is no data
-  // transfer happened because once there is, AsyncInfo->Queue will not be
-  // nullptr, so again, we don't need to synchronize.
-  Ret = AsyncInfo.synchronize();
   if (Ret != OFFLOAD_SUCCESS)
     return OFFLOAD_FAIL;
 
   // Deallocate target pointer
   for (DeallocTgtPtrInfo &Info : DeallocTgtPtrs) {
-    Ret = Device.deallocTgtPtr(Info.HstPtrBegin, Info.DataSize,
-                               Info.ForceDelete, Info.HasCloseModifier);
+    Ret =
+        Device.deallocTgtPtr(Info.HstPtrBegin, Info.DataSize, Info.ForceDelete,
+                             Info.HasCloseModifier, &AsyncInfo);
     if (Ret != OFFLOAD_SUCCESS) {
       REPORT("Deallocating data from device failed.\n");
       return OFFLOAD_FAIL;
@@ -973,7 +966,7 @@ public:
     // predefined threshold, we will allocate memory and issue the transfer
     // immediately.
     if (ArgSize > FirstPrivateArgSizeThreshold || !IsFirstPrivate) {
-      TgtPtr = Device.allocData(ArgSize, HstPtr);
+      TgtPtr = Device.allocData(ArgSize, HstPtr, &AsyncInfo);
       if (!TgtPtr) {
         DP("Data allocation for %sprivate array " DPxMOD " failed.\n",
            (IsFirstPrivate ? "first-" : ""), DPxPTR(HstPtr));
@@ -1034,8 +1027,8 @@ public:
         Itr = std::next(Itr, Info.AlignedSize);
       }
       // Allocate target memory
-      void *TgtPtr =
-          Device.allocData(FirstPrivateArgSize, FirstPrivateArgBuffer.data());
+      void *TgtPtr = Device.allocData(FirstPrivateArgSize,
+                                      FirstPrivateArgBuffer.data(), &AsyncInfo);
       if (TgtPtr == nullptr) {
         DP("Failed to allocate target memory for private arguments.\n");
         return OFFLOAD_FAIL;
@@ -1070,7 +1063,7 @@ public:
   /// Free all target memory allocated for private arguments
   int free() {
     for (void *P : TgtPtrs) {
-      int Ret = Device.deleteData(P);
+      int Ret = Device.deleteData(P, &AsyncInfo);
       if (Ret != OFFLOAD_SUCCESS) {
         DP("Deallocation of (first-)private arrays failed.\n");
         return OFFLOAD_FAIL;
