@@ -517,6 +517,7 @@ struct OpenMPOpt {
     // Recollect uses, in case Attributor deleted any.
     OMPInfoCache.recollectUses();
 
+    Changed |= removeGlobalization();
     Changed |= deleteParallelRegions();
     if (HideMemoryTransferLatency)
       Changed |= hideMemTransfersLatency();
@@ -981,6 +982,49 @@ private:
     return Changed;
   }
 
+  bool removeGlobalization() {
+    return false;
+    auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_alloc_shared];
+
+    auto RemoveAllocCalls = [&](Use &U, Function &F) {
+      auto &FreeCall = OMPInfoCache.RFIs[OMPRTL___kmpc_free_shared];
+      CallBase *CB = OpenMPOpt::getCallIfRegularCall(U, &RFI);
+      if (!CB)
+        return false;
+
+      IRPosition AllocPos = IRPosition::callsite_returned(*CB);
+      if (!A.lookupAAFor<AANoCapture>(AllocPos)->isKnownNoCapture())
+        return false;
+
+      LLVM_DEBUG(dbgs() << TAG << "Remove globalization call in "
+                        << CB->getCaller()->getName() << "\n");
+
+      Value *AllocSize = CB->getArgOperand(0);
+
+      for (auto *U : CB->users()) {
+        CallBase *FC = dyn_cast<CallBase>(U);
+        if (FC && FC->getCalledFunction() == FreeCall.Declaration) {
+          FC->eraseFromParent();
+          break;
+        }
+      }
+
+      const DataLayout &DL = M.getDataLayout();
+      Type *Int8Ty = Type::getInt8Ty(M.getContext());
+      AllocaInst *NewAlloca =
+          new AllocaInst(Int8Ty, DL.getAllocaAddrSpace(), AllocSize,
+                         CB->getName(), &F.front().front());
+      NewAlloca->setDebugLoc(CB->getDebugLoc());
+      CB->replaceAllUsesWith(NewAlloca);
+      CB->eraseFromParent();
+
+      return false;
+    };
+    RFI.foreachUse(SCC, RemoveAllocCalls);
+
+    return false;
+  }
+
   /// Try to delete parallel regions if possible.
   bool deleteParallelRegions() {
     const unsigned CallbackCalleeOperand = 2;
@@ -1111,9 +1155,8 @@ private:
   }
 
   void analysisGlobalization() {
-    RuntimeFunction GlobalizationRuntimeIDs[] = {
-        OMPRTL___kmpc_data_sharing_coalesced_push_stack,
-        OMPRTL___kmpc_data_sharing_push_stack};
+    RuntimeFunction GlobalizationRuntimeIDs[] = {OMPRTL___kmpc_alloc_shared,
+                                                 OMPRTL___kmpc_free_shared};
 
     for (const auto GlobalizationCallID : GlobalizationRuntimeIDs) {
       auto &RFI = OMPInfoCache.RFIs[GlobalizationCallID];
@@ -1601,6 +1644,18 @@ private:
 
       GetterRFI.foreachUse(SCC, CreateAA);
     }
+
+    auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_alloc_shared];
+    auto CreateAA = [&](Use &U, Function &Decl) {
+      auto *CB = OpenMPOpt::getCallIfRegularCall(U, &RFI);
+      if (!CB)
+        return false;
+
+      IRPosition CBPos = IRPosition::function(*CB->getFunction());
+      A.getOrCreateAAFor<AAHeapToStack>(CBPos);
+      return false;
+    };
+    RFI.foreachUse(SCC, CreateAA);
   }
 };
 
