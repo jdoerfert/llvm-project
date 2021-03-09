@@ -11,8 +11,13 @@
 //===----------------------------------------------------------------------===//
 #pragma omp declare target
 
+#include "TeamState.h"
+#include "ThreadState.h"
 #include "common/omptarget.h"
 #include "target_impl.h"
+#include "target_interface.h"
+
+#include <string.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // global data tables
@@ -26,14 +31,12 @@ extern DEVICE
 // init entry points
 ////////////////////////////////////////////////////////////////////////////////
 
-EXTERN void __kmpc_kernel_init(int ThreadLimit, int16_t RequiresOMPRuntime) {
+EXTERN void __kmpc_kernel_init(int, int16_t RequiresOMPRuntime) {
   PRINT(LD_IO, "call to __kmpc_kernel_init with version %f\n",
         OMPTARGET_NVPTX_VERSION);
   ASSERT0(LT_FUSSY, RequiresOMPRuntime,
           "Generic always requires initialized runtime.");
   setExecutionParameters(Generic, RuntimeInitialized);
-  for (int I = 0; I < MAX_THREADS_PER_TEAM / WARPSIZE; ++I)
-    parallelLevel[I] = 0;
 
   int threadIdInBlock = GetThreadIdInBlock();
   ASSERT0(LT_FUSSY, threadIdInBlock == GetMasterThreadID(),
@@ -62,9 +65,16 @@ EXTERN void __kmpc_kernel_init(int ThreadLimit, int16_t RequiresOMPRuntime) {
   // set number of threads and thread limit in team to started value
   omptarget_nvptx_TaskDescr *currTaskDescr =
       omptarget_nvptx_threadPrivateContext->GetTopLevelTaskDescr(threadId);
-  nThreads = GetNumberOfThreadsInBlock();
-  threadLimit = ThreadLimit;
   __kmpc_impl_target_init();
+
+  if (threadId == 0) {
+    omp::TeamState.ICVState.nthreads_var = GetNumberOfThreadsInBlock();
+    omp::TeamState.ICVState.levels_var = 0;
+    omp::TeamState.ICVState.active_level = -1;
+    omp::TeamState.ParallelTeamSize = -1;
+    memset(omp::ThreadStates, 0,
+           GetNumberOfThreadsInBlock() * sizeof(omp::ThreadStates[0]));
+  }
 }
 
 EXTERN void __kmpc_kernel_deinit(int16_t IsOMPRuntimeInitialized) {
@@ -72,27 +82,26 @@ EXTERN void __kmpc_kernel_deinit(int16_t IsOMPRuntimeInitialized) {
   ASSERT0(LT_FUSSY, IsOMPRuntimeInitialized,
           "Generic always requires initialized runtime.");
   // Enqueue omp state object for use by another team.
-  int slot = usedSlotIdx;
+  int slot = __kmpc_impl_smid() % MAX_SM;
   omptarget_nvptx_device_State[slot].Enqueue(
       omptarget_nvptx_threadPrivateContext);
   // Done with work.  Kill the workers.
   omptarget_nvptx_workFn = 0;
 }
 
-EXTERN void __kmpc_spmd_kernel_init(int ThreadLimit,
-                                    int16_t RequiresOMPRuntime) {
+EXTERN void __kmpc_spmd_kernel_init(int, int16_t RequiresOMPRuntime) {
   PRINT0(LD_IO, "call to __kmpc_spmd_kernel_init\n");
 
   setExecutionParameters(Spmd, RequiresOMPRuntime ? RuntimeInitialized
                                                   : RuntimeUninitialized);
   int threadId = GetThreadIdInBlock();
   if (threadId == 0) {
-    usedSlotIdx = __kmpc_impl_smid() % MAX_SM;
-    parallelLevel[0] =
-        1 + (GetNumberOfThreadsInBlock() > 1 ? OMP_ACTIVE_PARALLEL_LEVEL : 0);
-  } else if (GetLaneId() == 0) {
-    parallelLevel[GetWarpId()] =
-        1 + (GetNumberOfThreadsInBlock() > 1 ? OMP_ACTIVE_PARALLEL_LEVEL : 0);
+    omp::TeamState.ICVState.nthreads_var = 1;
+    omp::TeamState.ICVState.levels_var = 1;
+    omp::TeamState.ICVState.active_level = GetNumberOfThreadsInBlock() > 1;
+    omp::TeamState.ParallelTeamSize = GetNumberOfThreadsInBlock();
+    memset(omp::ThreadStates, 0,
+           GetNumberOfThreadsInBlock() * sizeof(omp::ThreadStates[0]));
   }
   if (!RequiresOMPRuntime) {
     // Runtime is not required - exit.

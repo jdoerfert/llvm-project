@@ -56,13 +56,10 @@ DEVICE int GetMasterThreadID();
 DEVICE int GetNumberOfWorkersInTeam();
 
 // get OpenMP thread and team ids
-DEVICE int GetOmpThreadId(int threadId,
-                          bool isSPMDExecutionMode); // omp_thread_num
-DEVICE int GetOmpTeamId();                           // omp_team_num
+DEVICE int GetOmpTeamId(); // omp_team_num
 
 // get OpenMP number of threads and team
-DEVICE int GetNumberOfOmpThreads(bool isSPMDExecutionMode); // omp_num_threads
-DEVICE int GetNumberOfOmpTeams();                           // omp_num_teams
+DEVICE int GetNumberOfOmpTeams(); // omp_num_teams
 
 // get OpenMP number of procs
 DEVICE int GetNumberOfProcsInTeam(bool isSPMDExecutionMode);
@@ -70,10 +67,6 @@ DEVICE int GetNumberOfProcsInDevice(bool isSPMDExecutionMode);
 
 // masters
 DEVICE int IsTeamMaster(int ompThreadId);
-
-// Parallel level
-DEVICE void IncParallelLevel(bool ActiveParallel, __kmpc_impl_lanemask_t Mask);
-DEVICE void DecParallelLevel(bool ActiveParallel, __kmpc_impl_lanemask_t Mask);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Memory

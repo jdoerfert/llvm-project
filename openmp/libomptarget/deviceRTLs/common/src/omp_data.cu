@@ -34,13 +34,6 @@ DEVICE omptarget_nvptx_SimpleMemoryManager omptarget_nvptx_simpleMemoryManager;
 DEVICE uint32_t SHARED(usedMemIdx);
 DEVICE uint32_t SHARED(usedSlotIdx);
 
-// SHARED doesn't work with array so we add the attribute explicitly.
-[[clang::loader_uninitialized]] DEVICE uint8_t
-    parallelLevel[MAX_THREADS_PER_TEAM / WARPSIZE];
-#pragma omp allocate(parallelLevel) allocator(omp_pteam_mem_alloc)
-DEVICE uint16_t SHARED(threadLimit);
-DEVICE uint16_t SHARED(threadsInTeam);
-DEVICE uint16_t SHARED(nThreads);
 // Pointer to this team's OpenMP state object
 DEVICE omptarget_nvptx_ThreadPrivateContext *
     SHARED(omptarget_nvptx_threadPrivateContext);

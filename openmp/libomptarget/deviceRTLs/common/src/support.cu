@@ -136,37 +136,6 @@ DEVICE int GetLogicalThreadIdInBlock(bool isSPMDExecutionMode) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-DEVICE int GetOmpThreadId(int threadId, bool isSPMDExecutionMode) {
-  // omp_thread_num
-  int rc;
-  if ((parallelLevel[GetWarpId()] & (OMP_ACTIVE_PARALLEL_LEVEL - 1)) > 1) {
-    rc = 0;
-  } else if (isSPMDExecutionMode) {
-    rc = GetThreadIdInBlock();
-  } else {
-    omptarget_nvptx_TaskDescr *currTaskDescr =
-        omptarget_nvptx_threadPrivateContext->GetTopLevelTaskDescr(threadId);
-    ASSERT0(LT_FUSSY, currTaskDescr, "expected a top task descr");
-    rc = currTaskDescr->ThreadId();
-  }
-  return rc;
-}
-
-DEVICE int GetNumberOfOmpThreads(bool isSPMDExecutionMode) {
-  // omp_num_threads
-  int rc;
-  int Level = parallelLevel[GetWarpId()];
-  if (Level != OMP_ACTIVE_PARALLEL_LEVEL + 1) {
-    rc = 1;
-  } else if (isSPMDExecutionMode) {
-    rc = GetNumberOfThreadsInBlock();
-  } else {
-    rc = threadsInTeam;
-  }
-
-  return rc;
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // Team id linked to OpenMP
 
@@ -184,33 +153,6 @@ DEVICE int GetNumberOfOmpTeams() {
 // Masters
 
 DEVICE int IsTeamMaster(int ompThreadId) { return (ompThreadId == 0); }
-
-////////////////////////////////////////////////////////////////////////////////
-// Parallel level
-
-DEVICE void IncParallelLevel(bool ActiveParallel, __kmpc_impl_lanemask_t Mask) {
-  __kmpc_impl_syncwarp(Mask);
-  __kmpc_impl_lanemask_t LaneMaskLt = __kmpc_impl_lanemask_lt();
-  unsigned Rank = __kmpc_impl_popc(Mask & LaneMaskLt);
-  if (Rank == 0) {
-    parallelLevel[GetWarpId()] +=
-        (1 + (ActiveParallel ? OMP_ACTIVE_PARALLEL_LEVEL : 0));
-    __kmpc_impl_threadfence();
-  }
-  __kmpc_impl_syncwarp(Mask);
-}
-
-DEVICE void DecParallelLevel(bool ActiveParallel, __kmpc_impl_lanemask_t Mask) {
-  __kmpc_impl_syncwarp(Mask);
-  __kmpc_impl_lanemask_t LaneMaskLt = __kmpc_impl_lanemask_lt();
-  unsigned Rank = __kmpc_impl_popc(Mask & LaneMaskLt);
-  if (Rank == 0) {
-    parallelLevel[GetWarpId()] -=
-        (1 + (ActiveParallel ? OMP_ACTIVE_PARALLEL_LEVEL : 0));
-    __kmpc_impl_threadfence();
-  }
-  __kmpc_impl_syncwarp(Mask);
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // get OpenMP number of procs

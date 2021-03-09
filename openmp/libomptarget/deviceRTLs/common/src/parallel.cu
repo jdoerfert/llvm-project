@@ -31,31 +31,27 @@
 //    To make a long story short...
 //
 //===----------------------------------------------------------------------===//
+#include "ICVs.h"
+#include "TeamState.h"
+#include "ThreadState.h"
+#include "interface.h"
 #pragma omp declare target
 
 #include "common/omptarget.h"
 #include "target_impl.h"
 
+using namespace omp;
+
 ////////////////////////////////////////////////////////////////////////////////
 // support for parallel that goes parallel (1 static level only)
 ////////////////////////////////////////////////////////////////////////////////
 
-INLINE static uint16_t determineNumberOfThreads(uint16_t NumThreadsClause,
-                                                uint16_t NThreadsICV,
-                                                uint16_t ThreadLimit) {
-  uint16_t ThreadsRequested = NThreadsICV;
-  if (NumThreadsClause != 0) {
-    ThreadsRequested = NumThreadsClause;
-  }
+INLINE static uint16_t determineNumberOfThreads() {
+  int NThreadsICV = ICVStateTy::getICVForThread(&ICVStateTy::nthreads_var);
 
-  uint16_t ThreadsAvailable = GetNumberOfWorkersInTeam();
-  if (ThreadLimit != 0 && ThreadLimit < ThreadsAvailable) {
-    ThreadsAvailable = ThreadLimit;
-  }
-
-  uint16_t NumThreads = ThreadsAvailable;
-  if (ThreadsRequested != 0 && ThreadsRequested < NumThreads) {
-    NumThreads = ThreadsRequested;
+  uint16_t NumThreads = GetNumberOfWorkersInTeam();
+  if (NThreadsICV != 0 && NThreadsICV < NumThreads) {
+    NumThreads = NThreadsICV;
   }
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
@@ -92,26 +88,25 @@ EXTERN void __kmpc_kernel_prepare_parallel(void *WorkFn) {
     return;
   }
 
-  uint16_t &NumThreadsClause =
-      omptarget_nvptx_threadPrivateContext->NumThreadsForNextParallel(threadId);
+  uint16_t NumThreads = determineNumberOfThreads();
+  TeamState.ParallelTeamSize = NumThreads;
 
-  uint16_t NumThreads =
-      determineNumberOfThreads(NumThreadsClause, nThreads, threadLimit);
-
-  if (NumThreadsClause != 0) {
-    // Reset request to avoid propagating to successive #parallel
-    NumThreadsClause = 0;
-  }
-
-  ASSERT(LT_FUSSY, NumThreads > 0, "bad thread request of %d threads",
-         (int)NumThreads);
   ASSERT0(LT_FUSSY, GetThreadIdInBlock() == GetMasterThreadID(),
           "only team master can create parallel");
 
   // Set number of threads on work descriptor.
   omptarget_nvptx_WorkDescr &workDescr = getMyWorkDescriptor();
   workDescr.WorkTaskDescr()->CopyToWorkDescr(currTaskDescr);
-  threadsInTeam = NumThreads;
+
+  // We do *not* create a new data environment because all threads in the team
+  // that are active are now running this parallel region. They share the
+  // TeamState, which has an increase level-var and potentially active-level
+  // set, but they do not have individual ThreadStates yet. If they ever
+  // modify the ICVs beyond this point a ThreadStates will be allocated.
+  auto Level = TeamState.ICVState.levels_var += 1;
+  bool IsActiveParallelRegion = NumThreads > 1;
+  if (IsActiveParallelRegion)
+    TeamState.ICVState.active_level = Level;
 }
 
 // All workers call this function.  Deactivate those not needed.
@@ -122,6 +117,11 @@ EXTERN void __kmpc_kernel_prepare_parallel(void *WorkFn) {
 EXTERN bool __kmpc_kernel_parallel(void **WorkFn) {
   PRINT0(LD_IO | LD_PAR, "call to __kmpc_kernel_parallel\n");
 
+  int threadId = GetThreadIdInBlock();
+  // In case we have modified an ICV for this thread before a ThreadState was
+  // created. We drop it now to not contaminate the next parallel region.
+  ThreadStateTy::dropForThread(threadId);
+
   // Work function and arguments for L1 parallel region.
   *WorkFn = omptarget_nvptx_workFn;
 
@@ -131,14 +131,15 @@ EXTERN bool __kmpc_kernel_parallel(void **WorkFn) {
     return false;
   }
 
+  uint16_t NumThreads = determineNumberOfThreads();
+
   // Only the worker threads call this routine and the master warp
   // never arrives here.  Therefore, use the nvptx thread id.
-  int threadId = GetThreadIdInBlock();
   omptarget_nvptx_WorkDescr &workDescr = getMyWorkDescriptor();
   // Set to true for workers participating in the parallel region.
-  bool isActive = false;
+  bool ThreadIsActive = threadId < NumThreads;
   // Initialize state for active threads.
-  if (threadId < threadsInTeam) {
+  if (ThreadIsActive) {
     // init work descriptor from workdesccr
     omptarget_nvptx_TaskDescr *newTaskDescr =
         omptarget_nvptx_threadPrivateContext->Level1TaskDescr(threadId);
@@ -152,21 +153,9 @@ EXTERN bool __kmpc_kernel_parallel(void **WorkFn) {
           "thread will execute parallel region with id %d in a team of "
           "%d threads\n",
           (int)newTaskDescr->ThreadId(), (int)nThreads);
-
-    isActive = true;
-    // Reconverge the threads at the end of the parallel region to correctly
-    // handle parallel levels.
-    // In Cuda9+ in non-SPMD mode we have either 1 worker thread or the whole
-    // warp. If only 1 thread is active, not need to reconverge the threads.
-    // If we have the whole warp, reconverge all the threads in the warp before
-    // actually trying to change the parallel level. Otherwise, parallel level
-    // can be changed incorrectly because of threads divergence.
-    bool IsActiveParallelRegion = threadsInTeam != 1;
-    IncParallelLevel(IsActiveParallelRegion,
-                     IsActiveParallelRegion ? __kmpc_impl_all_lanes : 1u);
   }
 
-  return isActive;
+  return ThreadIsActive;
 }
 
 EXTERN void __kmpc_kernel_end_parallel() {
@@ -181,16 +170,13 @@ EXTERN void __kmpc_kernel_end_parallel() {
   omptarget_nvptx_threadPrivateContext->SetTopLevelTaskDescr(
       threadId, currTaskDescr->GetPrevTaskDescr());
 
-  // Reconverge the threads at the end of the parallel region to correctly
-  // handle parallel levels.
-  // In Cuda9+ in non-SPMD mode we have either 1 worker thread or the whole
-  // warp. If only 1 thread is active, not need to reconverge the threads.
-  // If we have the whole warp, reconverge all the threads in the warp before
-  // actually trying to change the parallel level. Otherwise, parallel level can
-  // be changed incorrectly because of threads divergence.
-  bool IsActiveParallelRegion = threadsInTeam != 1;
-  DecParallelLevel(IsActiveParallelRegion,
-                   IsActiveParallelRegion ? __kmpc_impl_all_lanes : 1u);
+  // We did *not* create a new data environment because all threads in the team
+  // that were active were running the parallel region. We used the TeamState
+  // which needs adjustment now.
+  TeamState.ICVState.levels_var -= 1;
+  bool IsActiveParallelRegion = omp_get_num_threads() > 1;
+  if (IsActiveParallelRegion)
+    TeamState.ICVState.active_level = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -200,7 +186,8 @@ EXTERN void __kmpc_kernel_end_parallel() {
 EXTERN void __kmpc_serialized_parallel(kmp_Ident *loc, uint32_t global_tid) {
   PRINT0(LD_IO, "call to __kmpc_serialized_parallel\n");
 
-  IncParallelLevel(/*ActiveParallel=*/false, __kmpc_impl_activemask());
+  ThreadStateTy::enterDataEnvironment();
+  ICVStateTy::incICVForThread(&ICVStateTy::levels_var, 1);
 
   if (checkRuntimeUninitialized(loc)) {
     ASSERT0(LT_FUSSY, checkSPMDMode(loc),
@@ -239,7 +226,8 @@ EXTERN void __kmpc_end_serialized_parallel(kmp_Ident *loc,
                                            uint32_t global_tid) {
   PRINT0(LD_IO, "call to __kmpc_end_serialized_parallel\n");
 
-  DecParallelLevel(/*ActiveParallel=*/false, __kmpc_impl_activemask());
+  ThreadStateTy::exitDataEnvironment();
+  ICVStateTy::incICVForThread(&ICVStateTy::levels_var, -1);
 
   if (checkRuntimeUninitialized(loc)) {
     ASSERT0(LT_FUSSY, checkSPMDMode(loc),
@@ -261,8 +249,7 @@ EXTERN void __kmpc_end_serialized_parallel(kmp_Ident *loc,
 
 EXTERN uint16_t __kmpc_parallel_level(kmp_Ident *loc, uint32_t global_tid) {
   PRINT0(LD_IO, "call to __kmpc_parallel_level\n");
-
-  return parallelLevel[GetWarpId()] & (OMP_ACTIVE_PARALLEL_LEVEL - 1);
+  return omp_get_level();
 }
 
 // This kmpc call returns the thread id across all teams. It's value is
@@ -270,22 +257,16 @@ EXTERN uint16_t __kmpc_parallel_level(kmp_Ident *loc, uint32_t global_tid) {
 // it's cheap to recalculate this value so we never use the result
 // of this call.
 EXTERN int32_t __kmpc_global_thread_num(kmp_Ident *loc) {
-  int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
-  return GetOmpThreadId(tid, checkSPMDMode(loc));
+  return omp_get_thread_num();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // push params
 ////////////////////////////////////////////////////////////////////////////////
 
-EXTERN void __kmpc_push_num_threads(kmp_Ident *loc, int32_t tid,
-                                    int32_t num_threads) {
-  PRINT(LD_IO, "call kmpc_push_num_threads %d\n", num_threads);
-  ASSERT0(LT_FUSSY, checkRuntimeInitialized(loc),
-          "Runtime must be initialized.");
-  tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
-  omptarget_nvptx_threadPrivateContext->NumThreadsForNextParallel(tid) =
-      num_threads;
+EXTERN void __kmpc_push_num_threads(kmp_Ident *Loc, int32_t TId,
+                                    int32_t NumThreads) {
+  ICVStateTy::setICVForThread(&ICVStateTy::nthreads_var, NumThreads);
 }
 
 // Do nothing. The host guarantees we started the requested number of

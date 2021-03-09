@@ -11,6 +11,7 @@
 // interface as loops.
 //
 //===----------------------------------------------------------------------===//
+#include "ICVs.h"
 #pragma omp declare target
 
 #include "common/omptarget.h"
@@ -103,7 +104,7 @@ public:
 
     // Assume we are in teams region or that we use a single block
     // per target region
-    ST numberOfActiveOMPThreads = GetNumberOfOmpThreads(IsSPMDExecutionMode);
+    ST numberOfActiveOMPThreads = omp_get_num_threads();
 
     // All warps that are in excess of the maximum requested, do
     // not execute the loop
@@ -211,7 +212,7 @@ public:
     }
     int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
     omptarget_nvptx_TaskDescr *currTaskDescr = getMyTopTaskDescriptor(tid);
-    T tnum = GetNumberOfOmpThreads(checkSPMDMode(loc));
+    T tnum = omp_get_num_threads();
     T tripCount = ub - lb + 1; // +1 because ub is inclusive
     ASSERT0(LT_FUSSY, threadId < tnum,
             "current thread is not needed here; error");
@@ -453,7 +454,7 @@ public:
 
     // automatically selects thread or warp ID based on selected implementation
     int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
-    ASSERT0(LT_FUSSY, gtid < GetNumberOfOmpThreads(checkSPMDMode(loc)),
+    ASSERT0(LT_FUSSY, gtid < omp_get_num_threads(),
             "current thread is not needed here; error");
     // retrieve schedule
     kmp_sched_t schedule =
@@ -507,9 +508,9 @@ public:
     PRINT(LD_LOOP,
           "Got sched: active %d, total %d: lb %lld, ub %lld, stride = %lld, "
           "last %d\n",
-          (int)GetNumberOfOmpThreads(isSPMDMode()),
-          (int)GetNumberOfWorkersInTeam(), (long long)*plower,
-          (long long)*pupper, (long long)*pstride, (int)*plast);
+          (int)omp_get_num_threads(), (int)GetNumberOfWorkersInTeam(),
+          (long long)*plower, (long long)*pupper, (long long)*pstride,
+          (int)*plast);
     return DISPATCH_NOTFINISHED;
   }
 
