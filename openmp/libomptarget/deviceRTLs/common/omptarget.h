@@ -35,47 +35,6 @@
 #define BARRIER_COUNTER 0
 #define ORDERED_COUNTER 1
 
-// arguments needed for L0 parallelism only.
-class omptarget_nvptx_SharedArgs {
-public:
-  // All these methods must be called by the master thread only.
-  INLINE void Init() {
-    args = buffer;
-    nArgs = MAX_SHARED_ARGS;
-  }
-  INLINE void DeInit() {
-    // Free any memory allocated for outlined parallel function with a large
-    // number of arguments.
-    if (nArgs > MAX_SHARED_ARGS) {
-      SafeFree(args, "new extended args");
-      Init();
-    }
-  }
-  INLINE void EnsureSize(size_t size) {
-    if (size > nArgs) {
-      if (nArgs > MAX_SHARED_ARGS) {
-        SafeFree(args, "new extended args");
-      }
-      args = (void **)SafeMalloc(size * sizeof(void *), "new extended args");
-      nArgs = size;
-    }
-  }
-  // Called by all threads.
-  INLINE void **GetArgs() const { return args; };
-
-private:
-  // buffer of pre-allocated arguments.
-  void *buffer[MAX_SHARED_ARGS];
-  // pointer to arguments buffer.
-  // starts off as a pointer to 'buffer' but can be dynamically allocated.
-  void **args;
-  // starts off as MAX_SHARED_ARGS but can increase in size.
-  uint32_t nArgs;
-};
-
-extern DEVICE
-    omptarget_nvptx_SharedArgs EXTERN_SHARED(omptarget_nvptx_globalArgs);
-
 // Worker slot type which is initialized with the default worker slot
 // size of 4*32 bytes.
 struct __kmpc_data_sharing_slot {
@@ -234,10 +193,6 @@ public:
     topTaskDescr[tid] = taskICV;
   }
   INLINE omptarget_nvptx_TaskDescr *GetTopLevelTaskDescr(int tid) const;
-  // parallel
-  INLINE uint16_t &NumThreadsForNextParallel(int tid) {
-    return nextRegion.tnum[tid];
-  }
   // schedule (for dispatch)
   INLINE kmp_sched_t &ScheduleType(int tid) { return schedule[tid]; }
   INLINE int64_t &Chunk(int tid) { return chunk[tid]; }
@@ -257,11 +212,6 @@ private:
   omptarget_nvptx_TaskDescr levelOneTaskDescr[MAX_THREADS_PER_TEAM];
   // pointer where to find the current task ICV (top of the stack)
   omptarget_nvptx_TaskDescr *topTaskDescr[MAX_THREADS_PER_TEAM];
-  union {
-    // Only one of the two is live at the same time.
-    // parallel
-    uint16_t tnum[MAX_THREADS_PER_TEAM];
-  } nextRegion;
   // schedule (for dispatch)
   kmp_sched_t schedule[MAX_THREADS_PER_TEAM]; // remember schedule type for #for
   int64_t chunk[MAX_THREADS_PER_TEAM];
@@ -288,6 +238,40 @@ public:
   INLINE const void *Acquire(const void *buf, size_t size);
 };
 
+struct _Scratchpad {
+  void init();
+
+  void* alloc(size_t Bytes);
+  void free(void *Ptr);
+
+
+  // Add worst-case padding to DataSize so that future stack allocations are
+  // correctly aligned.
+  static constexpr size_t Alignment = 8;
+  static constexpr uint32_t SHARED_STORAGE = 8192;
+
+  char Data[SHARED_STORAGE] ALIGN(8);
+
+  uint32_t warpStorage() {
+    uint32_t NumWarps = GetNumberOfThreadsInBlock() / WARPSIZE;
+    uint32_t WarpStorage = SHARED_STORAGE / NumWarps;
+    uint32_t WarpStorageAligned =  (WarpStorage / Alignment) * Alignment;
+    return WarpStorageAligned;
+  }
+
+  char *warpBegin() {
+    return &Data[warpStorage() * GetWarpId()];
+  }
+  char *warpData() {
+    uint32_t *warpCounter = warpStorageTracker();
+    return warpBegin() + (*warpCounter);
+  }
+  uint32_t *warpStorageTracker() {
+    return ((uint32_t*)warpBegin());
+  }
+};
+extern DEVICE _Scratchpad EXTERN_SHARED(scratchpad);
+
 ////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -296,18 +280,6 @@ public:
 
 extern DEVICE omptarget_nvptx_SimpleMemoryManager
     omptarget_nvptx_simpleMemoryManager;
-extern DEVICE uint32_t EXTERN_SHARED(usedMemIdx);
-extern DEVICE uint32_t EXTERN_SHARED(usedSlotIdx);
-#if _OPENMP
-extern DEVICE uint8_t parallelLevel[MAX_THREADS_PER_TEAM / WARPSIZE];
-#pragma omp allocate(parallelLevel) allocator(omp_pteam_mem_alloc)
-#else
-extern DEVICE
-    uint8_t EXTERN_SHARED(parallelLevel)[MAX_THREADS_PER_TEAM / WARPSIZE];
-#endif
-extern DEVICE uint16_t EXTERN_SHARED(threadLimit);
-extern DEVICE uint16_t EXTERN_SHARED(threadsInTeam);
-extern DEVICE uint16_t EXTERN_SHARED(nThreads);
 extern DEVICE omptarget_nvptx_ThreadPrivateContext *
     EXTERN_SHARED(omptarget_nvptx_threadPrivateContext);
 

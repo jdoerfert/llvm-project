@@ -22,6 +22,73 @@ INLINE static bool IsMasterThread(bool isSPMDExecutionMode) {
 ////////////////////////////////////////////////////////////////////////////////
 // Runtime functions for trunk data sharing scheme.
 ////////////////////////////////////////////////////////////////////////////////
+static const uint32_t Adjustment = 8;
+void _Scratchpad::init() {
+  int threadId = GetThreadIdInBlock();
+  uint32_t *warpCounter = warpStorageTracker();
+  *warpCounter = Adjustment;
+}
+
+
+void *_Scratchpad::alloc(size_t BytesPerLane) {
+  BytesPerLane = (BytesPerLane + (Alignment - 1)) / Alignment * Alignment;
+  void *Ptr;
+
+  __kmpc_impl_lanemask_t Active = __kmpc_impl_activemask();
+  uint32_t Leader = __kmpc_impl_ffs(Active) - 1;
+  uint32_t NumActive = __kmpc_impl_popc(Active);
+  uint32_t BytesTotal = BytesPerLane * NumActive;
+
+  __kmpc_impl_lanemask_t LaneMaskLT = __kmpc_impl_lanemask_lt();
+  unsigned int Position = __kmpc_impl_popc(Active & LaneMaskLT);
+  if (Position == 0) {
+    uint32_t *WarpCounter = warpStorageTracker();
+      /*if (*WarpCounter % Alignment != 0)*/
+        /*printf("r1");*/
+    uint32_t BytesTotalAdjusted = BytesTotal + Adjustment;
+    uint32_t BytesTotalAdjustedAligned = (BytesTotalAdjusted + (Alignment - 1)) / Alignment * Alignment;
+    uint32_t OldUsed = *WarpCounter;
+    if (OldUsed + BytesTotalAdjustedAligned > warpStorage()) {
+      Ptr = (void *)SafeMalloc(BytesTotal, "Alloc Shared");
+      /*Ptr = 0;*/
+    } else {
+      Ptr = warpData();
+      *WarpCounter += BytesTotalAdjustedAligned;
+      /*if (*WarpCounter % Alignment != 0)*/
+        /*printf("r2");*/
+      *((uint64_t*)Ptr) = BytesTotalAdjustedAligned;
+      Ptr = (char*)Ptr + Adjustment;
+    }
+  }
+
+  // Get address from lane Leader.
+  int *FP = (int *)&Ptr;
+  FP[0] = __kmpc_impl_shfl_sync(Active, FP[0], Leader);
+  if (sizeof(Ptr) == 8)
+    FP[1] = __kmpc_impl_shfl_sync(Active, FP[1], Leader);
+
+  return (char*)Ptr + (BytesPerLane * Position);
+}
+void _Scratchpad::free(void *Ptr) {
+  __kmpc_impl_lanemask_t Active = __kmpc_impl_activemask();
+  __kmpc_impl_lanemask_t LaneMaskLT = __kmpc_impl_lanemask_lt();
+  unsigned int Position = __kmpc_impl_popc(Active & LaneMaskLT);
+  if (Position)
+    return;
+  if (Ptr < &Data[0] || Ptr > &Data[SHARED_STORAGE]) {
+    SafeFree(Ptr, "Free Shared");
+  } else {
+    Ptr = (char*)Ptr - Adjustment;
+    uint64_t BytesTotalAdjustedAligned = *((uint64_t*)Ptr);
+    uint32_t *WarpCounter = warpStorageTracker();
+      /*if (*WarpCounter % Alignment != 0)*/
+        /*printf("r3");*/
+    *WarpCounter -= BytesTotalAdjustedAligned;
+  }
+}
+
+DEVICE void** SHARED(GlobalArgsPtr);
+DEVICE _Scratchpad SHARED(scratchpad);
 
 // Called at the time of the kernel initialization. This is used to initilize
 // the list of references to shared variables and to pre-allocate global storage
@@ -31,11 +98,11 @@ INLINE static bool IsMasterThread(bool isSPMDExecutionMode) {
 // UseSharedMemory is set to true, the runtime will attempt to use shared memory
 // as long as the size requested fits the pre-allocated size.
 EXTERN void *__kmpc_alloc_shared(size_t DataSize) {
-  return (void *)SafeMalloc(DataSize, "Alloc Shared");
+  return scratchpad.alloc(DataSize);
 }
 
 EXTERN void __kmpc_free_shared(void *FrameStart) {
-  SafeFree(FrameStart, "Free Shared");
+  scratchpad.free(FrameStart);
 }
 
 // Begin a data sharing context. Maintain a list of references to shared
@@ -44,8 +111,7 @@ EXTERN void __kmpc_free_shared(void *FrameStart) {
 // In L0 data sharing this is called by master thread.
 // In L1 data sharing this is called by active warp master thread.
 EXTERN void __kmpc_begin_sharing_variables(void ***GlobalArgs, size_t nArgs) {
-  omptarget_nvptx_globalArgs.EnsureSize(nArgs);
-  *GlobalArgs = omptarget_nvptx_globalArgs.GetArgs();
+  *GlobalArgs = GlobalArgsPtr = static_cast<decltype(GlobalArgsPtr)>(__kmpc_alloc_shared(nArgs * sizeof(GlobalArgsPtr[0])));
 }
 
 // End a data sharing context. There is no need to have a list of refs
@@ -55,7 +121,7 @@ EXTERN void __kmpc_begin_sharing_variables(void ***GlobalArgs, size_t nArgs) {
 // In L0 data sharing this is called by master thread.
 // In L1 data sharing this is called by active warp master thread.
 EXTERN void __kmpc_end_sharing_variables() {
-  omptarget_nvptx_globalArgs.DeInit();
+  __kmpc_free_shared(GlobalArgsPtr);
 }
 
 // This function will return a list of references to global variables. This
@@ -64,66 +130,7 @@ EXTERN void __kmpc_end_sharing_variables() {
 // preserving the order.
 // Called by all workers.
 EXTERN void __kmpc_get_shared_variables(void ***GlobalArgs) {
-  *GlobalArgs = omptarget_nvptx_globalArgs.GetArgs();
-}
-
-// This function is used to init static memory manager. This manager is used to
-// manage statically allocated global memory. This memory is allocated by the
-// compiler and used to correctly implement globalization of the variables in
-// target, teams and distribute regions.
-EXTERN void __kmpc_get_team_static_memory(int16_t isSPMDExecutionMode,
-                                          const void *buf, size_t size,
-                                          int16_t is_shared,
-                                          const void **frame) {
-  if (is_shared) {
-    *frame = buf;
-    return;
-  }
-  if (isSPMDExecutionMode) {
-    if (GetThreadIdInBlock() == 0) {
-      *frame = omptarget_nvptx_simpleMemoryManager.Acquire(buf, size);
-    }
-    __kmpc_impl_syncthreads();
-    return;
-  }
-  ASSERT0(LT_FUSSY, GetThreadIdInBlock() == GetMasterThreadID(),
-          "Must be called only in the target master thread.");
-  *frame = omptarget_nvptx_simpleMemoryManager.Acquire(buf, size);
-  __kmpc_impl_threadfence();
-}
-
-EXTERN void __kmpc_restore_team_static_memory(int16_t isSPMDExecutionMode,
-                                              int16_t is_shared) {
-  if (is_shared)
-    return;
-  if (isSPMDExecutionMode) {
-    __kmpc_impl_syncthreads();
-    if (GetThreadIdInBlock() == 0) {
-      omptarget_nvptx_simpleMemoryManager.Release();
-    }
-    return;
-  }
-  __kmpc_impl_threadfence();
-  ASSERT0(LT_FUSSY, GetThreadIdInBlock() == GetMasterThreadID(),
-          "Must be called only in the target master thread.");
-  omptarget_nvptx_simpleMemoryManager.Release();
-}
-
-// Deprecated globalization code
-EXTERN void __kmpc_data_sharing_init_stack() {}
-EXTERN void __kmpc_data_sharing_init_stack_spmd() {}
-
-EXTERN void *__kmpc_data_sharing_coalesced_push_stack(size_t DataSize,
-                                                      int16_t) {
-  return (void *)SafeMalloc(DataSize, "Alloc Deprecated");
-}
-
-EXTERN void *__kmpc_data_sharing_push_stack(size_t DataSize, int16_t) {
-  return (void *)SafeMalloc(DataSize, "Alloc Deprecated");
-}
-
-EXTERN void __kmpc_data_sharing_pop_stack(void *FrameStart) {
-  SafeFree(FrameStart, "Free Shared");
+  *GlobalArgs = GlobalArgsPtr;
 }
 
 #pragma omp end declare target

@@ -9,6 +9,7 @@
 // Include all synchronization.
 //
 //===----------------------------------------------------------------------===//
+#include "ICVs.h"
 #pragma omp declare target
 
 #include "common/omptarget.h"
@@ -48,8 +49,7 @@ EXTERN void __kmpc_barrier(kmp_Ident *loc_ref, int32_t tid) {
     __kmpc_barrier_simple_spmd(loc_ref, tid);
   } else {
     tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc_ref));
-    int numberOfActiveOMPThreads =
-        GetNumberOfOmpThreads(checkSPMDMode(loc_ref));
+    int numberOfActiveOMPThreads = omp_get_num_threads();
     if (numberOfActiveOMPThreads > 1) {
       if (checkSPMDMode(loc_ref)) {
         __kmpc_barrier_simple_spmd(loc_ref, tid);

@@ -433,9 +433,6 @@ __OMP_RTL(__kmpc_end_sharing_variables, false, Void, )
 __OMP_RTL(__kmpc_get_shared_variables, false, Void, VoidPtrPtrPtr)
 __OMP_RTL(__kmpc_parallel_level, false, Int16, IdentPtr, Int32)
 __OMP_RTL(__kmpc_is_spmd_exec_mode, false, Int8, )
-__OMP_RTL(__kmpc_get_team_static_memory, false, Void, Int16, VoidPtr, SizeTy,
-          Int16, VoidPtrPtr)
-__OMP_RTL(__kmpc_restore_team_static_memory, false, Void, Int16, Int16)
 __OMP_RTL(__kmpc_barrier_simple_spmd, false, Void, IdentPtr, Int32)
 
 __OMP_RTL(__kmpc_warp_active_thread_mask, false, LanemaskTy,)
