@@ -13,6 +13,8 @@
 //===----------------------------------------------------------------------===//
 #pragma omp declare target
 
+#include "ICVs.h"
+#include "Types.h"
 #include "common/omptarget.h"
 #include "target/shuffle.h"
 #include "target_impl.h"
@@ -25,6 +27,8 @@ struct DynamicScheduleTracker {
   kmp_sched_t ScheduleType;
   DynamicScheduleTracker *NextDST;
 };
+
+unsigned long long SHARED(Cnt);
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -113,7 +117,7 @@ public:
 
     // Assume we are in teams region or that we use a single block
     // per target region
-    ST numberOfActiveOMPThreads = GetNumberOfOmpThreads(IsSPMDExecutionMode);
+    ST numberOfActiveOMPThreads = omp_get_num_threads();
 
     // All warps that are in excess of the maximum requested, do
     // not execute the loop
@@ -220,8 +224,7 @@ public:
       return;
     }
     int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
-    omptarget_nvptx_TaskDescr *currTaskDescr = getMyTopTaskDescriptor(tid);
-    T tnum = GetNumberOfOmpThreads(checkSPMDMode(loc));
+    T tnum = omp_get_num_threads();
     T tripCount = ub - lb + 1; // +1 because ub is inclusive
     ASSERT0(LT_FUSSY, threadId < tnum,
             "current thread is not needed here; error");
@@ -247,8 +250,10 @@ public:
       chunk = tripCount; // one thread gets the whole loop
     } else if (schedule == kmp_sched_runtime) {
       // process runtime
-      omp_sched_t rtSched = currTaskDescr->GetRuntimeSched();
-      chunk = currTaskDescr->RuntimeChunkSize();
+      omp_sched_t rtSched;
+      int ChunkInt;
+      omp_get_schedule(&rtSched, &ChunkInt);
+      chunk = ChunkInt;
       switch (rtSched) {
       case omp_sched_static: {
         if (chunk > 0)
@@ -366,7 +371,7 @@ public:
       DST->NextLowerBound = lb;
       __kmpc_barrier(loc, threadId);
       if (tid == 0) {
-        omptarget_nvptx_threadPrivateContext->Cnt() = 0;
+        Cnt = 0;
         __kmpc_impl_threadfence_block();
       }
       __kmpc_barrier(loc, threadId);
@@ -399,7 +404,7 @@ public:
     uint64_t warp_res;
     if (rank == 0) {
       warp_res = __kmpc_atomic_add(
-          (unsigned long long *)&omptarget_nvptx_threadPrivateContext->Cnt(),
+          (unsigned long long *)Cnt,
           (unsigned long long)change);
     }
     warp_res = Shuffle(active, warp_res, leader);
@@ -454,7 +459,7 @@ public:
 
     // automatically selects thread or warp ID based on selected implementation
     int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
-    ASSERT0(LT_FUSSY, gtid < GetNumberOfOmpThreads(checkSPMDMode(loc)),
+    ASSERT0(LT_FUSSY, gtid < omp_get_num_threads(),
             "current thread is not needed here; error");
     // retrieve schedule
     kmp_sched_t schedule = DST->ScheduleType;
@@ -505,9 +510,9 @@ public:
     PRINT(LD_LOOP,
           "Got sched: active %d, total %d: lb %lld, ub %lld, stride = %lld, "
           "last %d\n",
-          (int)GetNumberOfOmpThreads(isSPMDMode()),
-          (int)GetNumberOfWorkersInTeam(), (long long)*plower,
-          (long long)*pupper, (long long)*pstride, (int)*plast);
+          (int)omp_get_num_threads(), (int)GetNumberOfWorkersInTeam(),
+          (long long)*plower, (long long)*pupper, (long long)*pstride,
+          (int)*plast);
     return DISPATCH_NOTFINISHED;
   }
 

@@ -61,8 +61,6 @@
 #endif
 #endif
 
-#define OMP_ACTIVE_PARALLEL_LEVEL 128
-
 // Data sharing related quantities, need to match what is used in the compiler.
 enum DATA_SHARING_SIZES {
   // The maximum number of workers in a kernel.

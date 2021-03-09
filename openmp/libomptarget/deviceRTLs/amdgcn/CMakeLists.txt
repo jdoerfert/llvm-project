@@ -53,6 +53,10 @@ endif()
 get_filename_component(devicertl_base_directory
   ${CMAKE_CURRENT_SOURCE_DIR}
   DIRECTORY)
+set(devicertl_include_directory
+  ${devicertl_base_directory}/common/include)
+set(devicertl_common_directory
+  ${devicertl_base_directory}/common)
 
 set(cuda_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/src/amdgcn_smid.hip
@@ -114,7 +118,8 @@ macro(add_cuda_bc_library)
     -O${optimization_level}
     ${CUDA_DEBUG}
     -I${CMAKE_CURRENT_SOURCE_DIR}/src
-    -I${devicertl_base_directory}/common/include
+    -I${devicertl_common_directory}
+    -I${devicertl_include_directory}
     -I${devicertl_base_directory})
 
   set(bc1_files)

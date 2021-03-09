@@ -5163,6 +5163,7 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
       A.getInfoCache().getMustBeExecutedContextExplorer();
 
   auto FreeCheck = [&](Instruction &I) {
+    return false;
     const auto &Frees = FreesForMalloc.lookup(&I);
     if (Frees.size() != 1)
       return false;

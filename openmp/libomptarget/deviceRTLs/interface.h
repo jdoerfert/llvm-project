@@ -32,13 +32,6 @@
 
 typedef uint64_t omp_nest_lock_t; /* arbitrary type of the right length */
 
-typedef enum omp_sched_t {
-  omp_sched_static = 1,  /* chunkSize >0 */
-  omp_sched_dynamic = 2, /* chunkSize >0 */
-  omp_sched_guided = 3,  /* chunkSize >0 */
-  omp_sched_auto = 4,    /* no chunkSize */
-} omp_sched_t;
-
 typedef enum omp_proc_bind_t {
   omp_proc_bind_false = 0,
   omp_proc_bind_true = 1,
@@ -80,8 +73,6 @@ EXTERN void omp_unset_nest_lock(omp_nest_lock_t *lock);
 EXTERN int omp_test_lock(omp_lock_t *lock);
 EXTERN int omp_test_nest_lock(omp_nest_lock_t *lock);
 
-EXTERN void omp_get_schedule(omp_sched_t *kind, int *modifier);
-EXTERN void omp_set_schedule(omp_sched_t kind, int modifier);
 EXTERN omp_proc_bind_t omp_get_proc_bind(void);
 EXTERN int omp_get_cancellation(void);
 EXTERN void omp_set_default_device(int deviceId);
@@ -424,13 +415,8 @@ EXTERN void __kmpc_kernel_prepare_parallel(void *WorkFn);
 EXTERN bool __kmpc_kernel_parallel(void **WorkFn);
 EXTERN void __kmpc_kernel_end_parallel();
 
-EXTERN void __kmpc_data_sharing_init_stack();
-EXTERN void __kmpc_data_sharing_init_stack_spmd();
-EXTERN void *__kmpc_data_sharing_coalesced_push_stack(size_t size,
-                                                      int16_t UseSharedMemory);
-EXTERN void *__kmpc_data_sharing_push_stack(size_t size,
-                                            int16_t UseSharedMemory);
-EXTERN void __kmpc_data_sharing_pop_stack(void *a);
+EXTERN void *__kmpc_alloc_shared(size_t size);
+EXTERN void __kmpc_free_shared(void *a);
 EXTERN void __kmpc_begin_sharing_variables(void ***GlobalArgs, size_t nArgs);
 EXTERN void __kmpc_end_sharing_variables();
 EXTERN void __kmpc_get_shared_variables(void ***GlobalArgs);
@@ -444,5 +430,12 @@ EXTERN void __kmpc_get_team_static_memory(int16_t isSPMDExecutionMode,
 
 EXTERN void __kmpc_restore_team_static_memory(int16_t isSPMDExecutionMode,
                                               int16_t is_shared);
+
+// Deprecated globalization interface
+EXTERN void *__kmpc_data_sharing_coalesced_push_stack(size_t size, int16_t s);
+EXTERN void *__kmpc_data_sharing_push_stack(size_t size, int16_t s);
+EXTERN void __kmpc_data_sharing_pop_stack(void *a);
+EXTERN void __kmpc_data_sharing_init_stack();
+EXTERN void __kmpc_data_sharing_init_stack_spmd();
 
 #endif

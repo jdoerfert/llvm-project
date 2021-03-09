@@ -8,8 +8,10 @@
 //
 // Task implementation support.
 //
+// TODO: We should not allocate and execute the task in two steps. A new API is
+//       needed for that though.
+//
 //  explicit task structure uses
-//  omptarget_nvptx task
 //  kmp_task
 //
 //  where kmp_task is
@@ -28,6 +30,9 @@
 //===----------------------------------------------------------------------===//
 #pragma omp declare target
 
+#include "ICVs.h"
+#include "ThreadState.h"
+#include "interface.h"
 #include "common/omptarget.h"
 
 EXTERN kmp_TaskDescr *__kmpc_omp_task_alloc(
@@ -45,27 +50,14 @@ EXTERN kmp_TaskDescr *__kmpc_omp_task_alloc(
   size_t padForTaskInclPriv = PadBytes(sizeOfTaskInclPrivate, sizeof(void *));
   sizeOfTaskInclPrivate += padForTaskInclPriv;
   size_t kmpSize = sizeOfTaskInclPrivate + sizeOfSharedTable;
-  ASSERT(LT_FUSSY, sizeof(omptarget_nvptx_TaskDescr) % sizeof(void *) == 0,
-         "need task descr of size %d to be a multiple of %d\n",
-         (int)sizeof(omptarget_nvptx_TaskDescr), (int)sizeof(void *));
-  size_t totSize = sizeof(omptarget_nvptx_TaskDescr) + kmpSize;
-  omptarget_nvptx_ExplicitTaskDescr *newExplicitTaskDescr =
-      (omptarget_nvptx_ExplicitTaskDescr *)SafeMalloc(
-          totSize, "explicit task descriptor");
-  kmp_TaskDescr *newKmpTaskDescr = &newExplicitTaskDescr->kmpTaskDescr;
-  ASSERT0(LT_FUSSY,
-          (uint64_t)newKmpTaskDescr ==
-              (uint64_t)ADD_BYTES(newExplicitTaskDescr,
-                                  sizeof(omptarget_nvptx_TaskDescr)),
-          "bad size assumptions");
+  kmp_TaskDescr *newKmpTaskDescr =
+      (kmp_TaskDescr *)SafeMalloc(
+          kmpSize, "explicit task descriptor");
   // init kmp_TaskDescr
   newKmpTaskDescr->sharedPointerTable =
       (void *)((char *)newKmpTaskDescr + sizeOfTaskInclPrivate);
   newKmpTaskDescr->sub = taskSub;
   newKmpTaskDescr->destructors = NULL;
-  PRINT(LD_TASK, "return with task descr kmp: 0x%llx, omptarget-nvptx 0x%llx\n",
-        (unsigned long long)newKmpTaskDescr,
-        (unsigned long long)newExplicitTaskDescr);
 
   return newKmpTaskDescr;
 }
@@ -83,26 +75,11 @@ EXTERN int32_t __kmpc_omp_task_with_deps(kmp_Ident *loc, uint32_t global_tid,
                                          void *noAliasDepList) {
   PRINT(LD_IO, "call to __kmpc_omp_task_with_deps(task 0x%llx)\n",
         P64(newKmpTaskDescr));
-  ASSERT0(LT_FUSSY, checkRuntimeInitialized(loc),
-          "Runtime must be initialized.");
-  // 1. get explicit task descr from kmp task descr
-  omptarget_nvptx_ExplicitTaskDescr *newExplicitTaskDescr =
-      (omptarget_nvptx_ExplicitTaskDescr *)SUB_BYTES(
-          newKmpTaskDescr, sizeof(omptarget_nvptx_TaskDescr));
-  ASSERT0(LT_FUSSY, &newExplicitTaskDescr->kmpTaskDescr == newKmpTaskDescr,
-          "bad assumptions");
-  omptarget_nvptx_TaskDescr *newTaskDescr = &newExplicitTaskDescr->taskDescr;
-  ASSERT0(LT_FUSSY, (uint64_t)newTaskDescr == (uint64_t)newExplicitTaskDescr,
-          "bad assumptions");
 
-  // 2. push new context: update new task descriptor
-  int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
-  omptarget_nvptx_TaskDescr *parentTaskDescr = getMyTopTaskDescriptor(tid);
-  newTaskDescr->CopyForExplicitTask(parentTaskDescr);
-  // set new task descriptor as top
-  omptarget_nvptx_threadPrivateContext->SetTopLevelTaskDescr(tid, newTaskDescr);
+  // push new context: update new task descriptor
+  omp::ThreadStateTy::enterDataEnvironment();
 
-  // 3. call sub
+  // call sub
   PRINT(LD_TASK, "call task sub 0x%llx(task descr 0x%llx)\n",
         (unsigned long long)newKmpTaskDescr->sub,
         (unsigned long long)newKmpTaskDescr);
@@ -110,11 +87,11 @@ EXTERN int32_t __kmpc_omp_task_with_deps(kmp_Ident *loc, uint32_t global_tid,
   PRINT(LD_TASK, "return from call task sub 0x%llx()\n",
         (unsigned long long)newKmpTaskDescr->sub);
 
-  // 4. pop context
-  omptarget_nvptx_threadPrivateContext->SetTopLevelTaskDescr(tid,
-                                                             parentTaskDescr);
+  // pop context
+  omp::ThreadStateTy::exitDataEnvironment();
+
   // 5. free
-  SafeFree(newExplicitTaskDescr, "explicit task descriptor");
+  SafeFree(newKmpTaskDescr, "explicit task descriptor");
   return 0;
 }
 
@@ -122,24 +99,10 @@ EXTERN void __kmpc_omp_task_begin_if0(kmp_Ident *loc, uint32_t global_tid,
                                       kmp_TaskDescr *newKmpTaskDescr) {
   PRINT(LD_IO, "call to __kmpc_omp_task_begin_if0(task 0x%llx)\n",
         (unsigned long long)newKmpTaskDescr);
-  ASSERT0(LT_FUSSY, checkRuntimeInitialized(loc),
-          "Runtime must be initialized.");
-  // 1. get explicit task descr from kmp task descr
-  omptarget_nvptx_ExplicitTaskDescr *newExplicitTaskDescr =
-      (omptarget_nvptx_ExplicitTaskDescr *)SUB_BYTES(
-          newKmpTaskDescr, sizeof(omptarget_nvptx_TaskDescr));
-  ASSERT0(LT_FUSSY, &newExplicitTaskDescr->kmpTaskDescr == newKmpTaskDescr,
-          "bad assumptions");
-  omptarget_nvptx_TaskDescr *newTaskDescr = &newExplicitTaskDescr->taskDescr;
-  ASSERT0(LT_FUSSY, (uint64_t)newTaskDescr == (uint64_t)newExplicitTaskDescr,
-          "bad assumptions");
 
-  // 2. push new context: update new task descriptor
-  int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
-  omptarget_nvptx_TaskDescr *parentTaskDescr = getMyTopTaskDescriptor(tid);
-  newTaskDescr->CopyForExplicitTask(parentTaskDescr);
-  // set new task descriptor as top
-  omptarget_nvptx_threadPrivateContext->SetTopLevelTaskDescr(tid, newTaskDescr);
+  // push new context: update new task descriptor
+  omp::ThreadStateTy::enterDataEnvironment();
+
   // 3... noting to call... is inline
   // 4 & 5 ... done in complete
 }
@@ -148,26 +111,11 @@ EXTERN void __kmpc_omp_task_complete_if0(kmp_Ident *loc, uint32_t global_tid,
                                          kmp_TaskDescr *newKmpTaskDescr) {
   PRINT(LD_IO, "call to __kmpc_omp_task_complete_if0(task 0x%llx)\n",
         (unsigned long long)newKmpTaskDescr);
-  ASSERT0(LT_FUSSY, checkRuntimeInitialized(loc),
-          "Runtime must be initialized.");
-  // 1. get explicit task descr from kmp task descr
-  omptarget_nvptx_ExplicitTaskDescr *newExplicitTaskDescr =
-      (omptarget_nvptx_ExplicitTaskDescr *)SUB_BYTES(
-          newKmpTaskDescr, sizeof(omptarget_nvptx_TaskDescr));
-  ASSERT0(LT_FUSSY, &newExplicitTaskDescr->kmpTaskDescr == newKmpTaskDescr,
-          "bad assumptions");
-  omptarget_nvptx_TaskDescr *newTaskDescr = &newExplicitTaskDescr->taskDescr;
-  ASSERT0(LT_FUSSY, (uint64_t)newTaskDescr == (uint64_t)newExplicitTaskDescr,
-          "bad assumptions");
-  // 2. get parent
-  omptarget_nvptx_TaskDescr *parentTaskDescr = newTaskDescr->GetPrevTaskDescr();
-  // 3... noting to call... is inline
-  // 4. pop context
-  int tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
-  omptarget_nvptx_threadPrivateContext->SetTopLevelTaskDescr(tid,
-                                                             parentTaskDescr);
+
+  // pop context
+  omp::ThreadStateTy::exitDataEnvironment();
   // 5. free
-  SafeFree(newExplicitTaskDescr, "explicit task descriptor");
+  SafeFree(newKmpTaskDescr, "explicit task descriptor");
 }
 
 EXTERN void __kmpc_omp_wait_deps(kmp_Ident *loc, uint32_t global_tid,
