@@ -25,6 +25,7 @@ add_llvm_component_library(LLVMipo
   InlineSimple.cpp
   Inliner.cpp
   Internalize.cpp
+  ImplementsAttrResolver.cpp
   LoopExtractor.cpp
   LowerTypeTests.cpp
   MergeFunctions.cpp

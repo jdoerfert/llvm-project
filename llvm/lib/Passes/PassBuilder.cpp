@@ -106,6 +106,7 @@
 #include "llvm/Transforms/IPO/InferFunctionAttrs.h"
 #include "llvm/Transforms/IPO/Inliner.h"
 #include "llvm/Transforms/IPO/Internalize.h"
+#include "llvm/Transforms/IPO/ImplementsAttrResolver.h"
 #include "llvm/Transforms/IPO/LoopExtractor.h"
 #include "llvm/Transforms/IPO/LowerTypeTests.h"
 #include "llvm/Transforms/IPO/MergeFunctions.h"
@@ -277,6 +278,10 @@ static cl::opt<bool> PerformMandatoryInliningsFirst(
 static cl::opt<bool> EnableO3NonTrivialUnswitching(
     "enable-npm-O3-nontrivial-unswitch", cl::init(true), cl::Hidden,
     cl::ZeroOrMore, cl::desc("Enable non-trivial loop unswitching for -O3"));
+
+static cl::opt<bool> EnableImplementsAttrResolver(
+    "enable-implements-attr-resolver", cl::init(false), cl::Hidden,
+    cl::ZeroOrMore, cl::desc("Enable the implements attribute resolver"));
 
 PipelineTuningOptions::PipelineTuningOptions() {
   LoopInterleaving = true;
@@ -1131,6 +1136,12 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   // globals.
   MPM.addPass(DeadArgumentEliminationPass());
 
+  // Replace calls to functions specifications with their "implementation".
+  // See the `implements` and `specification` clang attributes and the
+  // `implements` LLVM-IR attribute.
+  if (EnableImplementsAttrResolver)
+    MPM.addPass(ImplementsAttrResolverPass());
+
   // Create a small function pass pipeline to cleanup after all the global
   // optimizations.
   FunctionPassManager GlobalCleanupPM(DebugLogging);
@@ -1659,6 +1670,12 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
   // is fixed.
   MPM.addPass(WholeProgramDevirtPass(ExportSummary, nullptr));
 
+  // Replace calls to functions specifications with their "implementation".
+  // See the `implements` and `specification` clang attributes and the
+  // `implements` LLVM-IR attribute.
+  if (EnableImplementsAttrResolver)
+    MPM.addPass(ImplementsAttrResolverPass());
+
   // Stop here at -O1.
   if (Level == OptimizationLevel::O1) {
     // The LowerTypeTestsPass needs to run to lower type metadata and the
@@ -1891,6 +1908,12 @@ ModulePassManager PassBuilder::buildO0DefaultPipeline(OptimizationLevel Level,
   // caused by multithreaded coroutines.
   MPM.addPass(AlwaysInlinerPass(
       /*InsertLifetimeIntrinsics=*/PTO.Coroutines));
+
+  // Replace calls to functions specifications with their "implementation".
+  // See the `implements` and `specification` clang attributes and the
+  // `implements` LLVM-IR attribute.
+  if (EnableImplementsAttrResolver)
+    MPM.addPass(ImplementsAttrResolverPass());
 
   if (PTO.MergeFunctions)
     MPM.addPass(MergeFunctionsPass());
