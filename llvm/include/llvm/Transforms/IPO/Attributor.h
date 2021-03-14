@@ -102,6 +102,7 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/AssumeBundleQueries.h"
 #include "llvm/Analysis/CFG.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
@@ -806,7 +807,7 @@ struct InformationCache {
             [&](const Function &F) {
               return AG.getAnalysis<PostDominatorTreeAnalysis>(F);
             }),
-        AG(AG), CGSCC(CGSCC) {
+        AG(AG), CGSCC(CGSCC), TargetTriple(M.getTargetTriple()) {
     if (CGSCC)
       initializeModuleSlice(*CGSCC);
   }
@@ -956,6 +957,16 @@ struct InformationCache {
     return ModuleSlice.count(const_cast<Function *>(&F));
   }
 
+  /// Return true if the stack (llvm::Alloca) can be accessed by other threads.
+  bool stackIsAccessibleByOtherThreads() {
+    return !targetIsGPU();
+  }
+
+  /// Return true if the target is a GPU.
+  bool targetIsGPU() {
+    return TargetTriple.isAMDGPU() || TargetTriple.isNVPTX();
+  }
+
 private:
   struct FunctionInfo {
     ~FunctionInfo();
@@ -1018,6 +1029,9 @@ private:
   /// A map for caching results of queries for isPotentiallyReachable
   DenseMap<std::pair<const Instruction *, const Instruction *>, bool>
       PotentiallyReachableMap;
+
+  /// The triple describing the target machine.
+  Triple TargetTriple;
 
   /// Give the Attributor access to the members so
   /// Attributor::identifyDefaultAbstractAttributes(...) can initialize them.

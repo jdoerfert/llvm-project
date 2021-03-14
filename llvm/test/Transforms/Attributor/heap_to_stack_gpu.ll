@@ -4,6 +4,8 @@
 ; RUN: opt -attributor-cgscc -enable-new-pm=0 -attributor-manifest-internal  -attributor-annotate-decl-cs -S < %s | FileCheck %s --check-prefixes=CHECK,NOT_TUNIT_NPM,NOT_TUNIT_OPM,NOT_CGSCC_NPM,IS__CGSCC____,IS________OPM,IS__CGSCC_OPM
 ; RUN: opt -aa-pipeline=basic-aa -passes=attributor-cgscc -attributor-manifest-internal  -attributor-annotate-decl-cs -S < %s | FileCheck %s --check-prefixes=CHECK,NOT_TUNIT_NPM,NOT_TUNIT_OPM,NOT_CGSCC_OPM,IS__CGSCC____,IS________NPM,IS__CGSCC_NPM
 
+target triple = "nvptx64"
+
 declare noalias i8* @malloc(i64) nosync
 
 declare void @nocapture_func_frees_pointer(i8* nocapture)
@@ -146,8 +148,9 @@ define void @test3b(i8* %p) {
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@test3b
 ; IS________NPM-SAME: (i8* nocapture [[P:%.*]]) {
-; IS________NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 128, align 32
+; IS________NPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @aligned_alloc(i64 noundef 32, i64 noundef 128)
 ; IS________NPM-NEXT:    tail call void @nofree_arg_only(i8* noalias nocapture nofree [[TMP1]], i8* nocapture [[P]])
+; IS________NPM-NEXT:    tail call void @free(i8* noalias nocapture [[TMP1]])
 ; IS________NPM-NEXT:    ret void
 ;
   %1 = tail call noalias i8* @aligned_alloc(i64 32, i64 128)
@@ -172,18 +175,11 @@ define void @test3c(i64 %alignment) {
 declare noalias i8* @calloc(i64, i64)
 
 define void @test0() {
-; IS________OPM-LABEL: define {{[^@]+}}@test0() {
-; IS________OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @calloc(i64 noundef 2, i64 noundef 4)
-; IS________OPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
-; IS________OPM-NEXT:    tail call void @free(i8* noalias nocapture [[TMP1]])
-; IS________OPM-NEXT:    ret void
-;
-; IS________NPM-LABEL: define {{[^@]+}}@test0() {
-; IS________NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 8, align 1
-; IS________NPM-NEXT:    [[CALLOC_BC:%.*]] = bitcast i8* [[TMP1]] to i8*
-; IS________NPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* [[CALLOC_BC]], i8 0, i64 8, i1 false)
-; IS________NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
-; IS________NPM-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@test0() {
+; CHECK-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @calloc(i64 noundef 2, i64 noundef 4)
+; CHECK-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; CHECK-NEXT:    tail call void @free(i8* noalias nocapture [[TMP1]])
+; CHECK-NEXT:    ret void
 ;
   %1 = tail call noalias i8* @calloc(i64 2, i64 4)
   tail call void @no_sync_func(i8* %1)
@@ -392,23 +388,14 @@ define void @test8() {
 
 ; TEST 9 - FIXME: malloc should be converted.
 define void @test9() {
-; IS________OPM-LABEL: define {{[^@]+}}@test9() {
-; IS________OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
-; IS________OPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
-; IS________OPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; IS________OPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; IS________OPM-NEXT:    tail call void @foo_nounw(i32* nofree noundef align 4 [[TMP2]]) #[[ATTR6:[0-9]+]]
-; IS________OPM-NEXT:    tail call void @free(i8* nocapture noundef nonnull align 4 dereferenceable(4) [[TMP1]])
-; IS________OPM-NEXT:    ret void
-;
-; IS________NPM-LABEL: define {{[^@]+}}@test9() {
-; IS________NPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
-; IS________NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
-; IS________NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
-; IS________NPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
-; IS________NPM-NEXT:    tail call void @foo_nounw(i32* nofree noundef align 4 [[TMP2]]) #[[ATTR7:[0-9]+]]
-; IS________NPM-NEXT:    tail call void @free(i8* nocapture noundef nonnull align 4 dereferenceable(4) [[TMP1]])
-; IS________NPM-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@test9() {
+; CHECK-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
+; CHECK-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; CHECK-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
+; CHECK-NEXT:    store i32 10, i32* [[TMP2]], align 4
+; CHECK-NEXT:    tail call void @foo_nounw(i32* nofree noundef align 4 [[TMP2]]) #[[ATTR6:[0-9]+]]
+; CHECK-NEXT:    tail call void @free(i8* nocapture noundef nonnull align 4 dereferenceable(4) [[TMP1]])
+; CHECK-NEXT:    ret void
 ;
   %1 = tail call noalias i8* @malloc(i64 4)
   tail call void @no_sync_func(i8* %1)
@@ -490,16 +477,11 @@ define i32 @test_lifetime() {
 ; TEST 11
 
 define void @test11() {
-; IS________OPM-LABEL: define {{[^@]+}}@test11() {
-; IS________OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
-; IS________OPM-NEXT:    tail call void @sync_will_return(i8* [[TMP1]]) #[[ATTR6]]
-; IS________OPM-NEXT:    tail call void @free(i8* nocapture [[TMP1]])
-; IS________OPM-NEXT:    ret void
-;
-; IS________NPM-LABEL: define {{[^@]+}}@test11() {
-; IS________NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 4, align 1
-; IS________NPM-NEXT:    tail call void @sync_will_return(i8* [[TMP1]]) #[[ATTR7]]
-; IS________NPM-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@test11() {
+; CHECK-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
+; CHECK-NEXT:    tail call void @sync_will_return(i8* [[TMP1]]) #[[ATTR6]]
+; CHECK-NEXT:    tail call void @free(i8* nocapture [[TMP1]])
+; CHECK-NEXT:    ret void
 ;
   %1 = tail call noalias i8* @malloc(i64 4)
   tail call void @sync_will_return(i8* %1)
@@ -822,7 +804,7 @@ define void @test16c(i8 %v, i8** %P) {
 ; IS________NPM-SAME: (i8 [[V:%.*]], i8** nocapture writeonly [[P:%.*]]) #[[ATTR0]] {
 ; IS________NPM-NEXT:    [[TMP1:%.*]] = alloca i8, i64 4, align 1
 ; IS________NPM-NEXT:    store i8* [[TMP1]], i8** [[P]], align 8
-; IS________NPM-NEXT:    tail call void @no_sync_func(i8* nocapture nofree [[TMP1]]) #[[ATTR7]]
+; IS________NPM-NEXT:    tail call void @no_sync_func(i8* nocapture nofree [[TMP1]]) #[[ATTR6]]
 ; IS________NPM-NEXT:    ret void
 ;
   %1 = tail call noalias i8* @malloc(i64 4)
@@ -845,20 +827,11 @@ define void @test16d(i8 %v, i8** %P) {
   ret void
 }
 ;.
-; IS________OPM: attributes #[[ATTR0]] = { nosync }
-; IS________OPM: attributes #[[ATTR1:[0-9]+]] = { nounwind willreturn }
-; IS________OPM: attributes #[[ATTR2:[0-9]+]] = { nofree nosync willreturn }
-; IS________OPM: attributes #[[ATTR3:[0-9]+]] = { nofree nounwind }
-; IS________OPM: attributes #[[ATTR4]] = { noreturn }
-; IS________OPM: attributes #[[ATTR5:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
-; IS________OPM: attributes #[[ATTR6]] = { nounwind }
-;.
-; IS________NPM: attributes #[[ATTR0]] = { nosync }
-; IS________NPM: attributes #[[ATTR1:[0-9]+]] = { nounwind willreturn }
-; IS________NPM: attributes #[[ATTR2:[0-9]+]] = { nofree nosync willreturn }
-; IS________NPM: attributes #[[ATTR3:[0-9]+]] = { nofree nounwind }
-; IS________NPM: attributes #[[ATTR4]] = { noreturn }
-; IS________NPM: attributes #[[ATTR5:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
-; IS________NPM: attributes #[[ATTR6:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn writeonly }
-; IS________NPM: attributes #[[ATTR7]] = { nounwind }
+; CHECK: attributes #[[ATTR0]] = { nosync }
+; CHECK: attributes #[[ATTR1:[0-9]+]] = { nounwind willreturn }
+; CHECK: attributes #[[ATTR2:[0-9]+]] = { nofree nosync willreturn }
+; CHECK: attributes #[[ATTR3:[0-9]+]] = { nofree nounwind }
+; CHECK: attributes #[[ATTR4:[0-9]+]] = { noreturn }
+; CHECK: attributes #[[ATTR5:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR6]] = { nounwind }
 ;.
