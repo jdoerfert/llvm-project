@@ -3255,26 +3255,22 @@ struct AAValueSimplify : public StateWrapper<BooleanState, AbstractAttribute> {
   static const char ID;
 };
 
-struct AAHeapToStack : public StateWrapper<BooleanState, AbstractAttribute> {
+struct AAAllocationInfo : public StateWrapper<BooleanState, AbstractAttribute> {
   using Base = StateWrapper<BooleanState, AbstractAttribute>;
-  AAHeapToStack(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
-
-  /// Returns true if HeapToStack conversion is assumed to be possible.
-  bool isAssumedHeapToStack() const { return getAssumed(); }
-
-  /// Returns true if HeapToStack conversion is known to be possible.
-  bool isKnownHeapToStack() const { return getKnown(); }
+  AAAllocationInfo(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
   /// Create an abstract attribute view for the position \p IRP.
-  static AAHeapToStack &createForPosition(const IRPosition &IRP, Attributor &A);
+  static AAAllocationInfo &createForPosition(const IRPosition &IRP,
+                                             Attributor &A);
 
   /// See AbstractAttribute::getName()
-  const std::string getName() const override { return "AAHeapToStack"; }
+  const std::string getName() const override { return "AAAllocationInfo"; }
 
   /// See AbstractAttribute::getIdAddr()
   const char *getIdAddr() const override { return &ID; }
 
-  /// This function should return true if the type of the \p AA is AAHeapToStack
+  /// This function should return true if the type of the \p AA is
+  /// AAAllocationInfo
   static bool classof(const AbstractAttribute *AA) {
     return (AA->getIdAddr() == &ID);
   }

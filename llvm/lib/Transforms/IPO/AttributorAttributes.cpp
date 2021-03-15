@@ -126,7 +126,7 @@ PIPE_OPERATOR(AAAlign)
 PIPE_OPERATOR(AANoCapture)
 PIPE_OPERATOR(AAValueSimplify)
 PIPE_OPERATOR(AANoFree)
-PIPE_OPERATOR(AAHeapToStack)
+PIPE_OPERATOR(AAAllocationInfo)
 PIPE_OPERATOR(AAReachability)
 PIPE_OPERATOR(AAMemoryBehavior)
 PIPE_OPERATOR(AAMemoryLocation)
@@ -5123,8 +5123,8 @@ struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
 };
 
 /// ----------------------- Heap-To-Stack Conversion ---------------------------
-struct AAHeapToStackImpl : public AAHeapToStack {
-  AAHeapToStackImpl(const IRPosition &IRP, Attributor &A)
+struct AAAllocationInfoImpl : public AAAllocationInfo {
+  AAAllocationInfoImpl(const IRPosition &IRP, Attributor &A)
       : AAHeapToStack(IRP, A) {}
 
   const std::string getAsStr() const override {
@@ -5222,7 +5222,7 @@ struct AAHeapToStackImpl : public AAHeapToStack {
   ChangeStatus updateImpl(Attributor &A) override;
 };
 
-ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
+ChangeStatus AAAllocationInfoImpl::updateImpl(Attributor &A) {
   const Function *F = getAnchorScope();
   const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(*F);
 
@@ -5309,9 +5309,9 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
   return ChangeStatus::UNCHANGED;
 }
 
-struct AAHeapToStackFunction final : public AAHeapToStackImpl {
-  AAHeapToStackFunction(const IRPosition &IRP, Attributor &A)
-      : AAHeapToStackImpl(IRP, A) {}
+struct AAAllocationInfoFunction final : public AAAllocationInfoImpl {
+  AAAllocationInfoFunction(const IRPosition &IRP, Attributor &A)
+      : AAAllocationInfoImpl(IRP, A) {}
 
   /// See AbstractAttribute::trackStatistics().
   void trackStatistics() const override {
