@@ -23,6 +23,7 @@
 #include "llvm/Analysis/LazyValueInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/IRBuilder.h"
@@ -1483,6 +1484,9 @@ struct AANoFreeImpl : public AANoFree {
     return ChangeStatus::UNCHANGED;
   }
 
+  /// See AANoFreee::isKnownToBeFreedIfValueIsFreed().
+  bool isKnownToBeFreedIfValueIsFreed(Value *) const override { return false; }
+
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
     return getAssumed() ? "nofree" : "may-free";
@@ -1532,7 +1536,19 @@ struct AANoFreeFloating : AANoFreeImpl {
       : AANoFreeImpl(IRP, A) {}
 
   /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override{STATS_DECLTRACK_FLOATING_ATTR(nofree)}
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FLOATING_ATTR(nofree)
+  }
+
+  /// See AbstractAttribute::getAsStr().
+  const std::string getAsStr() const override {
+    if (isAssumedNoFree())
+      return "nofree";
+    if (allPotentialFreeingUsersAreDefiniteFreesOfValue())
+      return "freed by any of " +
+             std::to_string(getDefiniteFreeCalls().size()) + " calls";
+    return "may-free";
+  }
 
   /// See Abstract Attribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -1543,12 +1559,16 @@ struct AANoFreeFloating : AANoFreeImpl {
     if (NoFreeAA.isAssumedNoFree())
       return ChangeStatus::UNCHANGED;
 
+    SmallPtrSet<Instruction *, 4> PotentiallyFreeingUsers;
+
     Value &AssociatedValue = getIRPosition().getAssociatedValue();
     auto Pred = [&](const Use &U, bool &Follow) -> bool {
       Instruction *UserI = cast<Instruction>(U.getUser());
       if (auto *CB = dyn_cast<CallBase>(UserI)) {
-        if (CB->isBundleOperand(&U))
-          return false;
+        if (CB->isBundleOperand(&U)) {
+          PotentiallyFreeingUsers.insert(UserI);
+          return true;
+        }
         if (!CB->isArgOperand(&U))
           return true;
         unsigned ArgNo = CB->getArgOperandNo(&U);
@@ -1556,7 +1576,17 @@ struct AANoFreeFloating : AANoFreeImpl {
         const auto &NoFreeArg = A.getAAFor<AANoFree>(
             *this, IRPosition::callsite_argument(*CB, ArgNo),
             DepClassTy::REQUIRED);
-        return NoFreeArg.isAssumedNoFree();
+        if (NoFreeArg.isAssumedNoFree())
+          return true;
+        if (!NoFreeArg.allPotentialFreeingUsersAreDefiniteFreesOfValue())
+          return false;
+        Value *UnderlyingObject = getUnderlyingObject(&getAssociatedValue());
+        if (!UnderlyingObject ||
+            getUnderlyingObject(CB->getArgOperand(ArgNo)) != UnderlyingObject)
+          return false;
+        for (auto *FreeCB : NoFreeArg.getDefiniteFreeCalls())
+          registerDefinitiveFreeCall(*FreeCB);
+        return true;
       }
 
       if (isa<GetElementPtrInst>(UserI) || isa<BitCastInst>(UserI) ||
@@ -1566,12 +1596,31 @@ struct AANoFreeFloating : AANoFreeImpl {
       }
       if (isa<ReturnInst>(UserI))
         return true;
+      if (isa<LoadInst>(UserI))
+        return true;
+      if (auto *SI = dyn_cast<StoreInst>(UserI))
+        return SI->getValueOperand() != U.get();
 
       // Unknown user.
-      return false;
+      PotentiallyFreeingUsers.insert(UserI);
+      return true;
     };
     if (!A.checkForAllUses(Pred, *this, AssociatedValue))
       return indicatePessimisticFixpoint();
+
+    MustBeExecutedContextExplorer &Explorer =
+        A.getInfoCache().getMustBeExecutedContextExplorer();
+    for (auto *PotentiallyFreeingUser : PotentiallyFreeingUsers) {
+      bool Covered = false;
+      for (auto *DefiniteFreeCall : getDefiniteFreeCalls()) {
+        if (Explorer.findInContextOf(DefiniteFreeCall, PotentiallyFreeingUser)) {
+          Covered = true;
+          break;
+        }
+      }
+      if (!Covered)
+        return indicatePessimisticFixpoint();
+    }
 
     return ChangeStatus::UNCHANGED;
   }
@@ -1591,8 +1640,24 @@ struct AANoFreeCallSiteArgument final : AANoFreeFloating {
   AANoFreeCallSiteArgument(const IRPosition &IRP, Attributor &A)
       : AANoFreeFloating(IRP, A) {}
 
+  /// See AANoFreee::isKnownToBeFreedIfValueIsFreed().
+  bool isKnownToBeFreedIfValueIsFreed(Value *V) const override {
+    errs() << "isKnownToBeFreedIfValueIsFreed() " << *V << " vs "
+           << getAssociatedValue() << "\n";
+    return V == &getAssociatedValue();
+  }
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    const TargetLibraryInfo *TLI =
+        A.getInfoCache().getTargetLibraryInfoForFunction(*getAnchorScope());
+
+    CallBase &CB = cast<CallBase>(getAnchorValue());
+    if (isFreeCall(&CB, TLI)) {
+      registerDefinitiveFreeCall(CB);
+      return indicateOptimisticFixpoint();
+    }
+
     // TODO: Once we have call site specific value information we can provide
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
@@ -5080,7 +5145,11 @@ struct AAHeapToStackImpl : public AAHeapToStack {
       if (BadMallocCalls.count(MallocCall))
         continue;
 
-      for (Instruction *FreeCall : FreesForMalloc[MallocCall]) {
+      auto &NoFreeAA = A.getAAFor<AANoFree>(
+          *this, IRPosition::callsite_returned(*cast<CallBase>(MallocCall)),
+          DepClassTy::OPTIONAL);
+      const auto &Frees = NoFreeAA.getDefiniteFreeCalls();
+      for (Instruction *FreeCall : Frees) {
         LLVM_DEBUG(dbgs() << "H2S: Removing free call: " << *FreeCall << "\n");
         A.deleteAfterManifest(*FreeCall);
         HasChanged = ChangeStatus::CHANGED;
@@ -5150,9 +5219,6 @@ struct AAHeapToStackImpl : public AAHeapToStack {
   /// Collection of malloc calls that cannot be converted.
   DenseSet<const Instruction *> BadMallocCalls;
 
-  /// A map for each malloc call to the set of associated free calls.
-  DenseMap<Instruction *, SmallPtrSet<Instruction *, 4>> FreesForMalloc;
-
   ChangeStatus updateImpl(Attributor &A) override;
 };
 
@@ -5160,101 +5226,16 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
   const Function *F = getAnchorScope();
   const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(*F);
 
-  MustBeExecutedContextExplorer &Explorer =
-      A.getInfoCache().getMustBeExecutedContextExplorer();
-
-  bool StackIsAccessibleByOtherThreads =
-      A.getInfoCache().stackIsAccessibleByOtherThreads();
-
-  auto FreeCheck = [&](Instruction &I) {
-    // If the stack is not accessible by other threads, the "must-free" logic
-    // doesn't apply as the pointer could be shared and needs to be places in
-    // "sharable" memory.
-    if (!StackIsAccessibleByOtherThreads) {
-      auto &NoSyncAA =
-          A.getAAFor<AANoSync>(*this, getIRPosition(), DepClassTy::OPTIONAL);
-      if (!NoSyncAA.isAssumedNoSync()) {
-        LLVM_DEBUG(
-            dbgs() << "[H2S] found an escaping use, stack is not accessible by "
-                      "other threads and function is not nosync:\n");
-        return false;
-      }
-    }
-    const auto &Frees = FreesForMalloc.lookup(&I);
-    if (Frees.size() != 1) {
-      LLVM_DEBUG(dbgs() << "[H2S] did not find one free call but "
-                        << Frees.size() << "\n");
+  auto UsesCheck = [&](Instruction &I) {
+    const auto &NoFreeAA = A.getAAFor<AANoFree>(
+        *this, IRPosition::callsite_returned(cast<CallBase>(I)),
+        DepClassTy::OPTIONAL);
+    if (!NoFreeAA.allPotentialFreeingUsersAreDefiniteFreesOfValue()) {
+      LLVM_DEBUG(dbgs() << "[H2S] Result of " << I
+                        << " is potentially freed in an unknown call!\n");
       return false;
     }
-    Instruction *UniqueFree = *Frees.begin();
-    return Explorer.findInContextOf(UniqueFree, I.getNextNode());
-  };
-
-  auto UsesCheck = [&](Instruction &I) {
-    bool ValidUsesOnly = true;
-    bool MustUse = true;
-    auto Pred = [&](const Use &U, bool &Follow) -> bool {
-      Instruction *UserI = cast<Instruction>(U.getUser());
-      if (isa<LoadInst>(UserI))
-        return true;
-      if (auto *SI = dyn_cast<StoreInst>(UserI)) {
-        if (SI->getValueOperand() == U.get()) {
-          LLVM_DEBUG(dbgs()
-                     << "[H2S] escaping store to memory: " << *UserI << "\n");
-          ValidUsesOnly = false;
-        } else {
-          // A store into the malloc'ed memory is fine.
-        }
-        return true;
-      }
-      if (auto *CB = dyn_cast<CallBase>(UserI)) {
-        if (!CB->isArgOperand(&U) || CB->isLifetimeStartOrEnd())
-          return true;
-        // Record malloc.
-        if (isFreeCall(UserI, TLI)) {
-          if (MustUse) {
-            FreesForMalloc[&I].insert(UserI);
-          } else {
-            LLVM_DEBUG(dbgs() << "[H2S] free potentially on different mallocs: "
-                              << *UserI << "\n");
-            ValidUsesOnly = false;
-          }
-          return true;
-        }
-
-        unsigned ArgNo = CB->getArgOperandNo(&U);
-
-        const auto &NoCaptureAA = A.getAAFor<AANoCapture>(
-            *this, IRPosition::callsite_argument(*CB, ArgNo),
-            DepClassTy::OPTIONAL);
-
-        // If a callsite argument use is nofree, we are fine.
-        const auto &ArgNoFreeAA = A.getAAFor<AANoFree>(
-            *this, IRPosition::callsite_argument(*CB, ArgNo),
-            DepClassTy::OPTIONAL);
-
-        if (!NoCaptureAA.isAssumedNoCapture() ||
-            !ArgNoFreeAA.isAssumedNoFree()) {
-          LLVM_DEBUG(dbgs() << "[H2S] Bad user: " << *UserI << "\n");
-          ValidUsesOnly = false;
-        }
-        return true;
-      }
-
-      if (isa<GetElementPtrInst>(UserI) || isa<BitCastInst>(UserI) ||
-          isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
-        MustUse &= !(isa<PHINode>(UserI) || isa<SelectInst>(UserI));
-        Follow = true;
-        return true;
-      }
-      // Unknown user for which we can not track uses further (in a way that
-      // makes sense).
-      LLVM_DEBUG(dbgs() << "[H2S] Unknown user: " << *UserI << "\n");
-      ValidUsesOnly = false;
-      return true;
-    };
-    A.checkForAllUses(Pred, *this, I);
-    return ValidUsesOnly;
+    return true;
   };
 
   auto MallocCallocCheck = [&](Instruction &I) {
@@ -5271,20 +5252,20 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
 
     if (IsMalloc) {
       if (MaxHeapToStackSize == -1) {
-        if (UsesCheck(I) || FreeCheck(I)) {
+        if (UsesCheck(I)) {
           MallocCalls.insert(&I);
           return true;
         }
       }
       if (auto *Size = dyn_cast<ConstantInt>(I.getOperand(0)))
         if (Size->getValue().ule(MaxHeapToStackSize))
-          if (UsesCheck(I) || FreeCheck(I)) {
+          if (UsesCheck(I)) {
             MallocCalls.insert(&I);
             return true;
           }
     } else if (IsAlignedAllocLike && isa<ConstantInt>(I.getOperand(0))) {
       if (MaxHeapToStackSize == -1) {
-        if (UsesCheck(I) || FreeCheck(I)) {
+        if (UsesCheck(I)) {
           MallocCalls.insert(&I);
           return true;
         }
@@ -5292,13 +5273,13 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
       // Only if the alignment and sizes are constant.
       if (auto *Size = dyn_cast<ConstantInt>(I.getOperand(1)))
         if (Size->getValue().ule(MaxHeapToStackSize))
-          if (UsesCheck(I) || FreeCheck(I)) {
+          if (UsesCheck(I)) {
             MallocCalls.insert(&I);
             return true;
           }
     } else if (IsCalloc) {
       if (MaxHeapToStackSize == -1) {
-        if (UsesCheck(I) || FreeCheck(I)) {
+        if (UsesCheck(I)) {
           MallocCalls.insert(&I);
           return true;
         }
@@ -5308,7 +5289,7 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
         if (auto *Size = dyn_cast<ConstantInt>(I.getOperand(1)))
           if ((Size->getValue().umul_ov(Num->getValue(), Overflow))
                   .ule(MaxHeapToStackSize))
-            if (!Overflow && (UsesCheck(I) || FreeCheck(I))) {
+            if (!Overflow && (UsesCheck(I))) {
               MallocCalls.insert(&I);
               return true;
             }
@@ -6481,6 +6462,10 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
 }
 
 } // namespace
+
+void NoFreeStateType::registerDefinitiveFreeCall(CallBase &CB) {
+  DefiniteFreeCalls.insert(&CB);
+}
 
 /// -------------------- Memory Locations Attributes ---------------------------
 /// Includes read-none, argmemonly, inaccessiblememonly,

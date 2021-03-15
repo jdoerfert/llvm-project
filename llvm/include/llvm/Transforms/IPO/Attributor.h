@@ -958,9 +958,7 @@ struct InformationCache {
   }
 
   /// Return true if the stack (llvm::Alloca) can be accessed by other threads.
-  bool stackIsAccessibleByOtherThreads() {
-    return !targetIsGPU();
-  }
+  bool stackIsAccessibleByOtherThreads() { return !targetIsGPU(); }
 
   /// Return true if the target is a GPU.
   bool targetIsGPU() {
@@ -2771,17 +2769,46 @@ struct AANoAlias
   static const char ID;
 };
 
+struct AANoFree;
+struct NoFreeStateType : public BooleanState {
+
+  void registerDefinitiveFreeCall(CallBase &CB);
+
+  /// The set of free calls that are definitively freeing the assoicated value.
+  SmallPtrSet<CallBase *, 4> DefiniteFreeCalls;
+};
+
 /// An AbstractAttribute for nofree.
 struct AANoFree
     : public IRAttribute<Attribute::NoFree,
-                         StateWrapper<BooleanState, AbstractAttribute>> {
+                         StateWrapper<NoFreeStateType, AbstractAttribute>> {
   AANoFree(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if "nofree" is assumed.
-  bool isAssumedNoFree() const { return getAssumed(); }
+  bool isAssumedNoFree() const {
+    // Some implementations track simply assumed/know bits, others might track
+    // definite free calls, check both here.
+    return isAssumed() && getDefiniteFreeCalls().empty();
+  }
 
   /// Return true if "nofree" is known.
-  bool isKnownNoFree() const { return getKnown(); }
+  bool isKnownNoFree() const { return isAssumedNoFree() && isAtFixpoint(); }
+
+  /// Return true if all users that might free the associated values are known
+  /// defininte calls to free with the associated value. Thus, if this function
+  /// returns true there is no hidden call to free possible and all the calls
+  /// returned by `getDefiniteFreeCalls()` will for sure free the associated
+  /// value.
+  bool allPotentialFreeingUsersAreDefiniteFreesOfValue() const {
+    return isAssumed();
+  };
+
+  virtual bool isKnownToBeFreedIfValueIsFreed(Value *V) const = 0;
+
+  /// Return the known free calls tracked by this state.
+  const SmallPtrSetImpl<CallBase *> &getDefiniteFreeCalls() const {
+    return DefiniteFreeCalls;
+  }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoFree &createForPosition(const IRPosition &IRP, Attributor &A);
