@@ -15,6 +15,7 @@
 
 #include "llvm/Transforms/IPO/Attributor.h"
 
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/Statistic.h"
@@ -27,6 +28,7 @@
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/NoFolder.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
@@ -694,7 +696,9 @@ bool Attributor::isAssumedDead(const IRPosition &IRP,
 
 bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
                                  const AbstractAttribute &QueryingAA,
-                                 const Value &V, DepClassTy LivenessDepClass) {
+                                 const Value &V,
+                                 const ArrayRef<unsigned> Opcodes,
+                                 DepClassTy LivenessDepClass) {
 
   // Check the trivial case first as it catches void values.
   if (V.use_empty())
@@ -729,6 +733,10 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
                                     DepClassTy::NONE)
               : nullptr;
 
+  SmallSet<unsigned, 4> OpcodeSet;
+  for (unsigned Opcode : Opcodes)
+    OpcodeSet.insert(Opcode);
+
   while (!Worklist.empty()) {
     const Use *U = Worklist.pop_back_val();
     if (!Visited.insert(U).second)
@@ -740,17 +748,40 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
       LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");
       continue;
     }
-    if (U->getUser()->isDroppable()) {
+    const User *Usr = U->getUser();
+    if (Usr->isDroppable()) {
       LLVM_DEBUG(dbgs() << "[Attributor] Droppable user, skip!\n");
       continue;
     }
-
+    auto *UsrI = dyn_cast<Instruction>(Usr);
     bool Follow = false;
-    if (!Pred(*U, Follow))
-      return false;
+    if (!UsrI || OpcodeSet.empty() || OpcodeSet.count(UsrI->getOpcode())) {
+      if (!Pred(*U, Follow))
+        return false;
+    } else {
+      switch (UsrI->getOpcode()) {
+      case Instruction::Load:
+        break;
+      case Instruction::Store:
+        if (cast<StoreInst>(UsrI)->getValueOperand() == *U)
+          return false;
+        break;
+      case Instruction::BitCast:
+      case Instruction::AddrSpaceCast:
+      case Instruction::Select:
+      case Instruction::GetElementPtr:
+      case Instruction::PHI:
+        Follow = true;
+        break;
+      default:
+        return false;
+      }
+    }
+
     if (!Follow)
       continue;
-    for (const Use &UU : U->getUser()->uses())
+
+    for (const Use &UU : Usr->uses())
       Worklist.push_back(&UU);
   }
 

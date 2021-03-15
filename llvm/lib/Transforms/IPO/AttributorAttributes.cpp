@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/Value.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/SCCIterator.h"
@@ -126,6 +127,7 @@ PIPE_OPERATOR(AAAlign)
 PIPE_OPERATOR(AANoCapture)
 PIPE_OPERATOR(AAValueSimplify)
 PIPE_OPERATOR(AANoFree)
+PIPE_OPERATOR(AAHeapToStack)
 PIPE_OPERATOR(AAAllocationInfo)
 PIPE_OPERATOR(AAReachability)
 PIPE_OPERATOR(AAMemoryBehavior)
@@ -138,8 +140,6 @@ PIPE_OPERATOR(AANoUndef)
 
 #undef PIPE_OPERATOR
 } // namespace llvm
-
-namespace {
 
 static Optional<ConstantInt *>
 getAssumedConstantInt(Attributor &A, const Value &V,
@@ -1484,9 +1484,6 @@ struct AANoFreeImpl : public AANoFree {
     return ChangeStatus::UNCHANGED;
   }
 
-  /// See AANoFreee::isKnownToBeFreedIfValueIsFreed().
-  bool isKnownToBeFreedIfValueIsFreed(Value *) const override { return false; }
-
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
     return getAssumed() ? "nofree" : "may-free";
@@ -1536,19 +1533,7 @@ struct AANoFreeFloating : AANoFreeImpl {
       : AANoFreeImpl(IRP, A) {}
 
   /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    STATS_DECLTRACK_FLOATING_ATTR(nofree)
-  }
-
-  /// See AbstractAttribute::getAsStr().
-  const std::string getAsStr() const override {
-    if (isAssumedNoFree())
-      return "nofree";
-    if (allPotentialFreeingUsersAreDefiniteFreesOfValue())
-      return "freed by any of " +
-             std::to_string(getDefiniteFreeCalls().size()) + " calls";
-    return "may-free";
-  }
+  void trackStatistics() const override{STATS_DECLTRACK_FLOATING_ATTR(nofree)}
 
   /// See Abstract Attribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -1559,16 +1544,12 @@ struct AANoFreeFloating : AANoFreeImpl {
     if (NoFreeAA.isAssumedNoFree())
       return ChangeStatus::UNCHANGED;
 
-    SmallPtrSet<Instruction *, 4> PotentiallyFreeingUsers;
-
     Value &AssociatedValue = getIRPosition().getAssociatedValue();
     auto Pred = [&](const Use &U, bool &Follow) -> bool {
       Instruction *UserI = cast<Instruction>(U.getUser());
       if (auto *CB = dyn_cast<CallBase>(UserI)) {
-        if (CB->isBundleOperand(&U)) {
-          PotentiallyFreeingUsers.insert(UserI);
-          return true;
-        }
+        if (CB->isBundleOperand(&U))
+          return false;
         if (!CB->isArgOperand(&U))
           return true;
         unsigned ArgNo = CB->getArgOperandNo(&U);
@@ -1576,51 +1557,19 @@ struct AANoFreeFloating : AANoFreeImpl {
         const auto &NoFreeArg = A.getAAFor<AANoFree>(
             *this, IRPosition::callsite_argument(*CB, ArgNo),
             DepClassTy::REQUIRED);
-        if (NoFreeArg.isAssumedNoFree())
-          return true;
-        if (!NoFreeArg.allPotentialFreeingUsersAreDefiniteFreesOfValue())
-          return false;
-        Value *UnderlyingObject = getUnderlyingObject(&getAssociatedValue());
-        if (!UnderlyingObject ||
-            getUnderlyingObject(CB->getArgOperand(ArgNo)) != UnderlyingObject)
-          return false;
-        for (auto *FreeCB : NoFreeArg.getDefiniteFreeCalls())
-          registerDefinitiveFreeCall(*FreeCB);
-        return true;
+        return NoFreeArg.isAssumedNoFree();
       }
 
-      if (isa<GetElementPtrInst>(UserI) || isa<BitCastInst>(UserI) ||
-          isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
-        Follow = true;
-        return true;
-      }
       if (isa<ReturnInst>(UserI))
         return true;
-      if (isa<LoadInst>(UserI))
-        return true;
-      if (auto *SI = dyn_cast<StoreInst>(UserI))
-        return SI->getValueOperand() != U.get();
 
       // Unknown user.
-      PotentiallyFreeingUsers.insert(UserI);
-      return true;
+      return false;
     };
-    if (!A.checkForAllUses(Pred, *this, AssociatedValue))
+    if (!A.checkForAllUses(
+            Pred, *this, AssociatedValue,
+            {Instruction::Ret, Instruction::Call, Instruction::Invoke}))
       return indicatePessimisticFixpoint();
-
-    MustBeExecutedContextExplorer &Explorer =
-        A.getInfoCache().getMustBeExecutedContextExplorer();
-    for (auto *PotentiallyFreeingUser : PotentiallyFreeingUsers) {
-      bool Covered = false;
-      for (auto *DefiniteFreeCall : getDefiniteFreeCalls()) {
-        if (Explorer.findInContextOf(DefiniteFreeCall, PotentiallyFreeingUser)) {
-          Covered = true;
-          break;
-        }
-      }
-      if (!Covered)
-        return indicatePessimisticFixpoint();
-    }
 
     return ChangeStatus::UNCHANGED;
   }
@@ -1640,24 +1589,8 @@ struct AANoFreeCallSiteArgument final : AANoFreeFloating {
   AANoFreeCallSiteArgument(const IRPosition &IRP, Attributor &A)
       : AANoFreeFloating(IRP, A) {}
 
-  /// See AANoFreee::isKnownToBeFreedIfValueIsFreed().
-  bool isKnownToBeFreedIfValueIsFreed(Value *V) const override {
-    errs() << "isKnownToBeFreedIfValueIsFreed() " << *V << " vs "
-           << getAssociatedValue() << "\n";
-    return V == &getAssociatedValue();
-  }
-
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    const TargetLibraryInfo *TLI =
-        A.getInfoCache().getTargetLibraryInfoForFunction(*getAnchorScope());
-
-    CallBase &CB = cast<CallBase>(getAnchorValue());
-    if (isFreeCall(&CB, TLI)) {
-      registerDefinitiveFreeCall(CB);
-      return indicateOptimisticFixpoint();
-    }
-
     // TODO: Once we have call site specific value information we can provide
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
@@ -2770,19 +2703,17 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
         }
       }
 
-      // For cases which can potentially have more users
-      if (isa<GetElementPtrInst>(U) || isa<BitCastInst>(U) || isa<PHINode>(U) ||
-          isa<SelectInst>(U)) {
-        Follow = true;
+      if (isa<ReturnInst>(UserI))
         return true;
-      }
 
       LLVM_DEBUG(dbgs() << "[AANoAliasCSArg] Unknown user: " << *U << "\n");
       return false;
     };
 
     if (!NoCaptureAA.isAssumedNoCaptureMaybeReturned()) {
-      if (!A.checkForAllUses(UsePred, *this, getAssociatedValue())) {
+      if (!A.checkForAllUses(
+              UsePred, *this, getAssociatedValue(),
+              {Instruction::Ret, Instruction::Call, Instruction::Invoke})) {
         LLVM_DEBUG(
             dbgs() << "[AANoAliasCSArg] " << getAssociatedValue()
                    << " cannot be noalias as it is potentially captured\n");
@@ -2948,7 +2879,7 @@ struct AAIsDeadValueImpl : public AAIsDead {
     // chain of N dependent instructions to be considered live as soon as one is
     // without going through N update cycles. This is not required for
     // correctness.
-    return A.checkForAllUses(UsePred, *this, V, DepClassTy::REQUIRED);
+    return A.checkForAllUses(UsePred, *this, V, {}, DepClassTy::REQUIRED);
   }
 
   /// Determine if \p I is assumed to be side-effect free.
@@ -5123,13 +5054,50 @@ struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
 };
 
 /// ----------------------- Heap-To-Stack Conversion ---------------------------
-struct AAAllocationInfoImpl : public AAAllocationInfo {
-  AAAllocationInfoImpl(const IRPosition &IRP, Attributor &A)
+struct AAHeapToStackFunction final : public AAHeapToStack {
+  AAHeapToStackFunction(const IRPosition &IRP, Attributor &A)
       : AAHeapToStack(IRP, A) {}
 
+  ChangeStatus updateImpl(Attributor &A) override {
+    const Function *F = getAnchorScope();
+    const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(*F);
+
+    auto SizeBefore = AllocCalls.size();
+    auto MallocCallocCheck = [&](Instruction &I) {
+      auto &CB = cast<CallBase>(I);
+      if (NonAllocCalls.contains(&CB) || AllocCalls.contains(&CB))
+        return true;
+      if (!isMallocOrCallocLikeFn(&I, TLI)) {
+        NonAllocCalls.insert(&CB);
+      } else {
+        A.getAAFor<AAAllocationInfo>(*this, IRPosition::callsite_function(CB),
+                                     DepClassTy::OPTIONAL);
+        AllocCalls.insert(&CB);
+      }
+      return true;
+    };
+
+    bool OK = A.checkForAllCallLikeInstructions(MallocCallocCheck, *this);
+    (void)OK;
+    assert(OK && "Unexpected error occured");
+
+    if (SizeBefore != AllocCalls.size())
+      return ChangeStatus::CHANGED;
+
+    return ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractAttribute::trackStatistics().
+  void trackStatistics() const override {
+    STATS_DECL(
+        MallocCalls, Function,
+        "Number of malloc/calloc/aligned_alloc calls converted to allocas");
+    BUILD_STAT_NAME(MallocCalls, Function) += AllocCalls.size();
+  }
+
   const std::string getAsStr() const override {
-    return "[H2S] Mallocs: " + std::to_string(MallocCalls.size()) + "/" +
-           std::to_string(BadMallocCalls.size());
+    return "[H2S] Mallocs: " + std::to_string(AllocCalls.size()) + "/" +
+           std::to_string(NonAllocCalls.size());
   }
 
   ChangeStatus manifest(Attributor &A) override {
@@ -5137,192 +5105,253 @@ struct AAAllocationInfoImpl : public AAAllocationInfo {
            "Attempted to manifest an invalid state!");
 
     ChangeStatus HasChanged = ChangeStatus::UNCHANGED;
-    Function *F = getAnchorScope();
-    const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(*F);
 
-    for (Instruction *MallocCall : MallocCalls) {
-      // This malloc cannot be replaced.
-      if (BadMallocCalls.count(MallocCall))
+    for (CallBase *CB : AllocCalls) {
+
+      auto &AllocaInfo = A.getAAFor<AAAllocationInfo>(
+          *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
+      if (!AllocaInfo.isAtFixpoint())
+        continue;
+      if (!AllocaInfo.hasStaticAlignment() || !AllocaInfo.hasStaticSize() ||
+          AllocaInfo.mayHaveUnknownFrees() ||
+          AllocaInfo.getStaticSize().ugt(MaxHeapToStackSize))
         continue;
 
-      auto &NoFreeAA = A.getAAFor<AANoFree>(
-          *this, IRPosition::callsite_returned(*cast<CallBase>(MallocCall)),
-          DepClassTy::OPTIONAL);
-      const auto &Frees = NoFreeAA.getDefiniteFreeCalls();
-      for (Instruction *FreeCall : Frees) {
+      HasChanged = ChangeStatus::CHANGED;
+
+      for (Instruction *FreeCall : AllocaInfo.getFreeCalls()) {
         LLVM_DEBUG(dbgs() << "H2S: Removing free call: " << *FreeCall << "\n");
         A.deleteAfterManifest(*FreeCall);
-        HasChanged = ChangeStatus::CHANGED;
       }
 
-      LLVM_DEBUG(dbgs() << "H2S: Removing malloc call: " << *MallocCall
-                        << "\n");
+      LLVM_DEBUG(dbgs() << "H2S: Removing malloc call: " << *CB << "\n");
 
+      LLVMContext &Ctx = CB->getContext();
       Align Alignment;
       Value *Size;
-      if (isCallocLikeFn(MallocCall, TLI)) {
-        auto *Num = MallocCall->getOperand(0);
-        auto *SizeT = MallocCall->getOperand(1);
-        IRBuilder<> B(MallocCall);
-        Size = B.CreateMul(Num, SizeT, "h2s.calloc.size");
-      } else if (isAlignedAllocLikeFn(MallocCall, TLI)) {
-        Size = MallocCall->getOperand(1);
-        Alignment = MaybeAlign(cast<ConstantInt>(MallocCall->getOperand(0))
-                                   ->getValue()
-                                   .getZExtValue())
-                        .valueOrOne();
-      } else {
-        Size = MallocCall->getOperand(0);
-      }
+      std::tie(Alignment, Size) = AllocaInfo.getAlignmentAndSize();
+      unsigned AS = cast<PointerType>(CB->getType())->getAddressSpace();
+      Instruction *AI = new AllocaInst(Type::getInt8Ty(Ctx), AS, Size,
+                                       Alignment, "", CB->getNextNode());
 
-      unsigned AS = cast<PointerType>(MallocCall->getType())->getAddressSpace();
-      Instruction *AI =
-          new AllocaInst(Type::getInt8Ty(F->getContext()), AS, Size, Alignment,
-                         "", MallocCall->getNextNode());
+      if (AI->getType() != CB->getType())
+        AI = new BitCastInst(AI, CB->getType(), "h2s.bc", AI->getNextNode());
 
-      if (AI->getType() != MallocCall->getType())
-        AI = new BitCastInst(AI, MallocCall->getType(), "malloc_bc",
-                             AI->getNextNode());
+      A.changeValueAfterManifest(*CB, *AI);
 
-      A.changeValueAfterManifest(*MallocCall, *AI);
-
-      if (auto *II = dyn_cast<InvokeInst>(MallocCall)) {
+      if (auto *II = dyn_cast<InvokeInst>(CB)) {
         auto *NBB = II->getNormalDest();
-        BranchInst::Create(NBB, MallocCall->getParent());
-        A.deleteAfterManifest(*MallocCall);
+        BranchInst::Create(NBB, CB->getParent());
+        A.deleteAfterManifest(*CB);
       } else {
-        A.deleteAfterManifest(*MallocCall);
+        A.deleteAfterManifest(*CB);
       }
 
       // Zero out the allocated memory if it was a calloc.
-      if (isCallocLikeFn(MallocCall, TLI)) {
-        auto *BI = new BitCastInst(AI, MallocCall->getType(), "calloc_bc",
+      if (AllocaInfo.getAllocationKind() == AllocationInfoState::Calloc) {
+        auto *BI = new BitCastInst(AI, Type::getInt8PtrTy(Ctx), "h2s.calloc.bc",
                                    AI->getNextNode());
-        Value *Ops[] = {
-            BI, ConstantInt::get(F->getContext(), APInt(8, 0, false)), Size,
-            ConstantInt::get(Type::getInt1Ty(F->getContext()), false)};
+        Value *Ops[] = {BI, ConstantInt::get(Ctx, APInt(8, 0, false)), Size,
+                        ConstantInt::get(Type::getInt1Ty(Ctx), false)};
 
-        Type *Tys[] = {BI->getType(), MallocCall->getOperand(0)->getType()};
-        Module *M = F->getParent();
+        Type *Tys[] = {BI->getType(), CB->getOperand(0)->getType()};
+        Module *M = CB->getModule();
         Function *Fn = Intrinsic::getDeclaration(M, Intrinsic::memset, Tys);
         CallInst::Create(Fn, Ops, "", BI->getNextNode());
       }
-      HasChanged = ChangeStatus::CHANGED;
     }
 
     return HasChanged;
   }
 
-  /// Collection of all malloc calls in a function.
-  SmallSetVector<Instruction *, 4> MallocCalls;
+private:
+  /// Collection of all "alloc-like" calls in a function.
+  SmallSetVector<CallBase *, 4> AllocCalls;
 
-  /// Collection of malloc calls that cannot be converted.
-  DenseSet<const Instruction *> BadMallocCalls;
-
-  ChangeStatus updateImpl(Attributor &A) override;
+  /// Collection of non alloc-like calls.
+  DenseSet<const CallBase *> NonAllocCalls;
 };
 
-ChangeStatus AAAllocationInfoImpl::updateImpl(Attributor &A) {
-  const Function *F = getAnchorScope();
-  const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(*F);
+/// ----------------------- Allocation Info ---------------------------
 
-  auto UsesCheck = [&](Instruction &I) {
-    const auto &NoFreeAA = A.getAAFor<AANoFree>(
-        *this, IRPosition::callsite_returned(cast<CallBase>(I)),
-        DepClassTy::OPTIONAL);
-    if (!NoFreeAA.allPotentialFreeingUsersAreDefiniteFreesOfValue()) {
-      LLVM_DEBUG(dbgs() << "[H2S] Result of " << I
-                        << " is potentially freed in an unknown call!\n");
-      return false;
+struct AAAllocationInfoCallSite final : public AAAllocationInfo {
+  AAAllocationInfoCallSite(const IRPosition &IRP, Attributor &A)
+      : AAAllocationInfo(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  virtual void initialize(Attributor &A) override {
+    const Function *F = getAnchorScope();
+    const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(*F);
+
+    unsigned SizeOperand = 1;
+    auto &CB = cast<CallBase>(getAssociatedValue());
+    if (isMallocLikeFn(&CB, TLI)) {
+      setAllocationKind(Malloc);
+      SizeOperand = 0;
+    } else if (isCallocLikeFn(&CB, TLI)) {
+      setAllocationKind(Calloc);
+    } else if (isAlignedAllocLikeFn(&CB, TLI)) {
+      setAllocationKind(AlignedAlloc);
+      // Require constant alignment.
+      // TODO: Upper bound.
+      if (!isa<ConstantInt>(CB.getArgOperand(0)))
+        HasStaticAlignment = false;
+    } else {
+      indicatePessimisticFixpoint();
     }
-    return true;
-  };
 
-  auto MallocCallocCheck = [&](Instruction &I) {
-    if (BadMallocCalls.count(&I))
-      return true;
-
-    bool IsMalloc = isMallocLikeFn(&I, TLI);
-    bool IsAlignedAllocLike = isAlignedAllocLikeFn(&I, TLI);
-    bool IsCalloc = !IsMalloc && isCallocLikeFn(&I, TLI);
-    if (!IsMalloc && !IsAlignedAllocLike && !IsCalloc) {
-      BadMallocCalls.insert(&I);
-      return true;
+    auto *SizeCI = dyn_cast<ConstantInt>(CB.getArgOperand(SizeOperand));
+    if (!SizeCI) {
+      HasStaticSize = false;
+    } else if (AK == Calloc) {
+      APInt Size = SizeCI->getValue();
+      bool Overflow = true;
+      if (auto *Num = dyn_cast<ConstantInt>(CB.getOperand(0)))
+        Size = Num->getValue().umul_ov(Size, Overflow);
+      if (Overflow)
+        HasStaticSize = false;
     }
 
-    if (IsMalloc) {
-      if (MaxHeapToStackSize == -1) {
-        if (UsesCheck(I)) {
-          MallocCalls.insert(&I);
-          return true;
-        }
-      }
-      if (auto *Size = dyn_cast<ConstantInt>(I.getOperand(0)))
-        if (Size->getValue().ule(MaxHeapToStackSize))
-          if (UsesCheck(I)) {
-            MallocCalls.insert(&I);
+    // Find all frees, we only care about direct users, anything else is too
+    // complicated.
+    for (Use &U : CB.uses()) {
+      CallBase *MaybeFreeCall = dyn_cast<CallBase>(U.getUser());
+      if (!MaybeFreeCall || !MaybeFreeCall->isArgOperand(&U))
+        continue;
+      if (!isFreeCall(MaybeFreeCall, TLI))
+        continue;
+      registerFreeCall(*MaybeFreeCall);
+    }
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    if (mayHaveUnknownFrees())
+      return ChangeStatus::UNCHANGED;
+
+    auto &FreeCalls = getFreeCalls();
+
+    auto &CB = cast<CallBase>(getAssociatedValue());
+    auto &NoCaptureAA = A.getAAFor<AANoCapture>(
+        *this, IRPosition::callsite_returned(CB), DepClassTy::OPTIONAL);
+    if (NoCaptureAA.isAssumedNoCapture()) {
+      auto Pred = [&](const Use &U, bool &Follow) -> bool {
+        Instruction *UserI = cast<Instruction>(U.getUser());
+        if (auto *UserCB = dyn_cast<CallBase>(UserI)) {
+          if (UserCB->isBundleOperand(&U))
+            return false;
+          if (!UserCB->isArgOperand(&U))
             return true;
-          }
-    } else if (IsAlignedAllocLike && isa<ConstantInt>(I.getOperand(0))) {
-      if (MaxHeapToStackSize == -1) {
-        if (UsesCheck(I)) {
-          MallocCalls.insert(&I);
-          return true;
-        }
-      }
-      // Only if the alignment and sizes are constant.
-      if (auto *Size = dyn_cast<ConstantInt>(I.getOperand(1)))
-        if (Size->getValue().ule(MaxHeapToStackSize))
-          if (UsesCheck(I)) {
-            MallocCalls.insert(&I);
+          if (FreeCalls.contains(UserCB))
             return true;
-          }
-    } else if (IsCalloc) {
-      if (MaxHeapToStackSize == -1) {
-        if (UsesCheck(I)) {
-          MallocCalls.insert(&I);
-          return true;
+          unsigned ArgNo = UserCB->getArgOperandNo(&U);
+          const auto &NoFreeArg = A.getAAFor<AANoFree>(
+              *this, IRPosition::callsite_argument(*UserCB, ArgNo),
+              DepClassTy::REQUIRED);
+          return NoFreeArg.isAssumedNoFree();
         }
-      }
-      bool Overflow = false;
-      if (auto *Num = dyn_cast<ConstantInt>(I.getOperand(0)))
-        if (auto *Size = dyn_cast<ConstantInt>(I.getOperand(1)))
-          if ((Size->getValue().umul_ov(Num->getValue(), Overflow))
-                  .ule(MaxHeapToStackSize))
-            if (!Overflow && (UsesCheck(I))) {
-              MallocCalls.insert(&I);
-              return true;
-            }
+
+        // Unknown user.
+        return false;
+      };
+      if (A.checkForAllUses(Pred, *this, CB,
+                            {Instruction::Call, Instruction::Invoke}))
+        return ChangeStatus::UNCHANGED;
     }
 
-    BadMallocCalls.insert(&I);
-    return true;
-  };
+    if (FreeCalls.empty()) {
+      MayHaveUnknownFrees = true;
+      return ChangeStatus::CHANGED;
+    }
 
-  size_t NumBadMallocs = BadMallocCalls.size();
+    bool FoundFree = false;
+    auto IsFreeCall = [&](const Instruction *I) {
+      if (auto *FreeCB = dyn_cast<CallBase>(I))
+        FoundFree |= FreeCalls.contains(const_cast<CallBase *>(FreeCB));
+      return !FoundFree;
+    };
 
-  A.checkForAllCallLikeInstructions(MallocCallocCheck, *this);
+    MustBeExecutedContextExplorer &Explorer =
+        A.getInfoCache().getMustBeExecutedContextExplorer();
+    auto CheckIsFreedIfReached = [&](Instruction &I) {
+      Explorer.checkForAllContext(&I, IsFreeCall);
+      return FoundFree;
+    };
 
-  if (NumBadMallocs != BadMallocCalls.size())
+    if (!CB.isTerminator())
+      if (CheckIsFreedIfReached(*CB.getNextNode()))
+        return ChangeStatus::UNCHANGED;
+
+    // TODO: We could check escaping uses too.
+
+    const auto &WillReturnAA = A.getAAFor<AAWillReturn>(
+        *this, IRPosition::function(*getAnchorScope()), DepClassTy::OPTIONAL);
+    const auto &NoUnwindAA = A.getAAFor<AANoUnwind>(
+        *this, IRPosition::function(*getAnchorScope()), DepClassTy::OPTIONAL);
+    if (WillReturnAA.isAssumedWillReturn() && NoUnwindAA.isAssumedNoUnwind()) {
+      if (A.checkForAllInstructions(CheckIsFreedIfReached, *this,
+                                    {Instruction::Ret}))
+        return ChangeStatus::UNCHANGED;
+    }
+
+    MayHaveUnknownFrees = true;
     return ChangeStatus::CHANGED;
+  }
 
-  return ChangeStatus::UNCHANGED;
-}
-
-struct AAAllocationInfoFunction final : public AAAllocationInfoImpl {
-  AAAllocationInfoFunction(const IRPosition &IRP, Attributor &A)
-      : AAAllocationInfoImpl(IRP, A) {}
+  const std::string getAsStr() const override {
+    return "[AAI] Kind " + std::to_string(getAllocationKind()) +
+           ", static size?: " + std::to_string(hasStaticSize()) +
+           ", static alignment?: " + std::to_string(hasStaticAlignment()) +
+           ", #free calls: " + std::to_string(getFreeCalls().size()) +
+           " unknown free calls?: " + std::to_string(mayHaveUnknownFrees());
+  }
 
   /// See AbstractAttribute::trackStatistics().
   void trackStatistics() const override {
-    STATS_DECL(
-        MallocCalls, Function,
-        "Number of malloc/calloc/aligned_alloc calls converted to allocas");
-    for (auto *C : MallocCalls)
-      if (!BadMallocCalls.count(C))
-        ++BUILD_STAT_NAME(MallocCalls, Function);
+    // TODO
   }
 };
+
+APInt AAAllocationInfo::getStaticSize() const {
+  assert(hasStaticSize());
+  auto &CB = cast<CallBase>(getAssociatedValue());
+  switch (getAllocationKind()) {
+  case Malloc:
+    return cast<ConstantInt>(CB.getArgOperand(0))->getValue();
+  case AlignedAlloc:
+    return cast<ConstantInt>(CB.getArgOperand(1))->getValue();
+  case Calloc: {
+    bool Overflow;
+    return cast<ConstantInt>(CB.getArgOperand(0))
+        ->getValue()
+        .umul_ov(cast<ConstantInt>(CB.getArgOperand(1))->getValue(), Overflow);
+  }
+  };
+};
+
+std::pair<Align, Value *> AAAllocationInfo::getAlignmentAndSize() const {
+  auto &CB = cast<CallBase>(getAssociatedValue());
+  Align Alignment;
+  Value *Size;
+  switch (getAllocationKind()) {
+  case Malloc:
+    Alignment = CB.getRetAlign().getValueOr(Align(8));
+    Size = CB.getArgOperand(0);
+    break;
+  case AlignedAlloc:
+    Size = CB.getArgOperand(1);
+    Alignment = Align(
+        cast<ConstantInt>(CB.getArgOperand(0))->getValue().getZExtValue());
+    break;
+  case Calloc:
+    Alignment = CB.getRetAlign().getValueOr(Align(8));
+    auto *Num = CB.getArgOperand(0);
+    auto *SizeT = CB.getArgOperand(1);
+    IRBuilder<> B(&CB);
+    Size = B.CreateMul(Num, SizeT, "calloc.size");
+    break;
+  };
+  return {Alignment, Size};
+}
 
 /// ----------------------- Privatizable Pointers ------------------------------
 struct AAPrivatizablePtrImpl : public AAPrivatizablePtr {
@@ -6459,12 +6488,6 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
     removeAssumedBits(NO_READS);
   if (UserI->mayWriteToMemory())
     removeAssumedBits(NO_WRITES);
-}
-
-} // namespace
-
-void NoFreeStateType::registerDefinitiveFreeCall(CallBase &CB) {
-  DefiniteFreeCalls.insert(&CB);
 }
 
 /// -------------------- Memory Locations Attributes ---------------------------
@@ -8196,6 +8219,7 @@ const char AAAlign::ID = 0;
 const char AANoCapture::ID = 0;
 const char AAValueSimplify::ID = 0;
 const char AAHeapToStack::ID = 0;
+const char AAAllocationInfo::ID = 0;
 const char AAPrivatizablePtr::ID = 0;
 const char AAMemoryBehavior::ID = 0;
 const char AAMemoryLocation::ID = 0;
@@ -8264,6 +8288,22 @@ const char AANoUndef::ID = 0;
     return *AA;                                                                \
   }
 
+#define CREATE_CALL_SITE_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(CLASS)           \
+  CLASS &CLASS::createForPosition(const IRPosition &IRP, Attributor &A) {      \
+    CLASS *AA = nullptr;                                                       \
+    switch (IRP.getPositionKind()) {                                           \
+      SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
+      SWITCH_PK_INV(CLASS, IRP_FUNCTION, "function")                           \
+      SWITCH_PK_INV(CLASS, IRP_ARGUMENT, "argument")                           \
+      SWITCH_PK_INV(CLASS, IRP_FLOAT, "floating")                              \
+      SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
+      SWITCH_PK_INV(CLASS, IRP_CALL_SITE_ARGUMENT, "call site argument")       \
+      SWITCH_PK_INV(CLASS, IRP_CALL_SITE_RETURNED, "call site returned")       \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
+    }                                                                          \
+    return *AA;                                                                \
+  }
+
 #define CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(CLASS)            \
   CLASS &CLASS::createForPosition(const IRPosition &IRP, Attributor &A) {      \
     CLASS *AA = nullptr;                                                       \
@@ -8323,6 +8363,8 @@ CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAReachability)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAUndefinedBehavior)
 
 CREATE_NON_RET_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAMemoryBehavior)
+
+CREATE_CALL_SITE_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAAllocationInfo)
 
 #undef CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION
 #undef CREATE_FUNCTION_ABSTRACT_ATTRIBUTE_FOR_POSITION

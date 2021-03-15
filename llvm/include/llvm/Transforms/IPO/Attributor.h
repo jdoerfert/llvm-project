@@ -102,6 +102,7 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/AssumeBundleQueries.h"
 #include "llvm/Analysis/CFG.h"
@@ -1441,12 +1442,13 @@ struct Attributor {
                      bool CheckBBLivenessOnly = false,
                      DepClassTy DepClass = DepClassTy::OPTIONAL);
 
-  /// Check \p Pred on all (transitive) uses of \p V.
+  /// Check \p Pred on all (transitive) uses of \p V in \p Opcodes instructions.
   ///
   /// This method will evaluate \p Pred on all (transitive) uses of the
   /// associated value and return true if \p Pred holds every time.
   bool checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
                        const AbstractAttribute &QueryingAA, const Value &V,
+                       const ArrayRef<unsigned> Opcodes,
                        DepClassTy LivenessDepClass = DepClassTy::OPTIONAL);
 
   /// Helper struct used in the communication between an abstract attribute (AA)
@@ -2769,46 +2771,17 @@ struct AANoAlias
   static const char ID;
 };
 
-struct AANoFree;
-struct NoFreeStateType : public BooleanState {
-
-  void registerDefinitiveFreeCall(CallBase &CB);
-
-  /// The set of free calls that are definitively freeing the assoicated value.
-  SmallPtrSet<CallBase *, 4> DefiniteFreeCalls;
-};
-
 /// An AbstractAttribute for nofree.
 struct AANoFree
     : public IRAttribute<Attribute::NoFree,
-                         StateWrapper<NoFreeStateType, AbstractAttribute>> {
+                         StateWrapper<BooleanState, AbstractAttribute>> {
   AANoFree(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
   /// Return true if "nofree" is assumed.
-  bool isAssumedNoFree() const {
-    // Some implementations track simply assumed/know bits, others might track
-    // definite free calls, check both here.
-    return isAssumed() && getDefiniteFreeCalls().empty();
-  }
+  bool isAssumedNoFree() const { return getAssumed(); }
 
   /// Return true if "nofree" is known.
-  bool isKnownNoFree() const { return isAssumedNoFree() && isAtFixpoint(); }
-
-  /// Return true if all users that might free the associated values are known
-  /// defininte calls to free with the associated value. Thus, if this function
-  /// returns true there is no hidden call to free possible and all the calls
-  /// returned by `getDefiniteFreeCalls()` will for sure free the associated
-  /// value.
-  bool allPotentialFreeingUsersAreDefiniteFreesOfValue() const {
-    return isAssumed();
-  };
-
-  virtual bool isKnownToBeFreedIfValueIsFreed(Value *V) const = 0;
-
-  /// Return the known free calls tracked by this state.
-  const SmallPtrSetImpl<CallBase *> &getDefiniteFreeCalls() const {
-    return DefiniteFreeCalls;
-  }
+  bool isKnownNoFree() const { return getKnown(); }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoFree &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -3255,13 +3228,72 @@ struct AAValueSimplify : public StateWrapper<BooleanState, AbstractAttribute> {
   static const char ID;
 };
 
-struct AAAllocationInfo : public StateWrapper<BooleanState, AbstractAttribute> {
+struct AAHeapToStack : public StateWrapper<BooleanState, AbstractAttribute> {
   using Base = StateWrapper<BooleanState, AbstractAttribute>;
+  AAHeapToStack(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
+
+  /// Returns true if HeapToStack conversion is assumed to be possible.
+  bool isAssumedHeapToStack() const { return getAssumed(); }
+
+  /// Returns true if HeapToStack conversion is known to be possible.
+  bool isKnownHeapToStack() const { return getKnown(); }
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AAHeapToStack &createForPosition(const IRPosition &IRP, Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AAHeapToStack"; }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is AAHeapToStack
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+};
+
+struct AllocationInfoState : public BooleanState {
+
+  enum AllocationKind {
+    Malloc,
+    AlignedAlloc,
+    Calloc,
+  };
+
+  const SmallSetVector<CallBase *, 2> &getFreeCalls() const {
+    return FreeCalls;
+  }
+  AllocationKind getAllocationKind() const { return AK; }
+  bool mayHaveUnknownFrees() const { return MayHaveUnknownFrees; }
+  bool hasStaticSize() const { return HasStaticSize; }
+  bool hasStaticAlignment() const { return HasStaticAlignment; }
+
+protected:
+  void setAllocationKind(AllocationKind AK) { this->AK = AK; }
+  void registerFreeCall(CallBase &CB) { FreeCalls.insert(&CB); }
+
+  AllocationKind AK;
+  bool HasStaticSize = true;
+  bool HasStaticAlignment = true;
+  bool MayHaveUnknownFrees = false;
+  SmallSetVector<CallBase *, 2> FreeCalls;
+};
+
+struct AAAllocationInfo
+    : public StateWrapper<AllocationInfoState, AbstractAttribute> {
+  using Base = StateWrapper<AllocationInfoState, AbstractAttribute>;
   AAAllocationInfo(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAAllocationInfo &createForPosition(const IRPosition &IRP,
                                              Attributor &A);
+
+  APInt getStaticSize() const;
+  std::pair<Align, Value *> getAlignmentAndSize() const;
 
   /// See AbstractAttribute::getName()
   const std::string getName() const override { return "AAAllocationInfo"; }
