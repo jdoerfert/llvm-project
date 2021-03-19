@@ -10547,18 +10547,18 @@ void CGOpenMPRuntime::registerTargetGlobalVariable(const VarDecl *VD,
     }
     Linkage = CGM.getLLVMLinkageVarDefinition(VD, /*IsConstant=*/false);
     // Temp solution to prevent optimizations of the internal variables.
-    if (CGM.getLangOpts().OpenMPIsDevice && !VD->isExternallyVisible()) {
-      std::string RefName = getName({VarName, "ref"});
-      if (!CGM.GetGlobalValue(RefName)) {
-        llvm::Constant *AddrRef =
-            getOrCreateInternalVariable(Addr->getType(), RefName);
-        auto *GVAddrRef = cast<llvm::GlobalVariable>(AddrRef);
-        GVAddrRef->setConstant(/*Val=*/true);
-        GVAddrRef->setLinkage(llvm::GlobalValue::InternalLinkage);
-        GVAddrRef->setInitializer(Addr);
-        CGM.addCompilerUsedGlobal(GVAddrRef);
-      }
-    }
+    //if (CGM.getLangOpts().OpenMPIsDevice && !VD->isExternallyVisible()) {
+      //std::string RefName = getName({VarName, "ref"});
+      //if (!CGM.GetGlobalValue(RefName)) {
+        //llvm::Constant *AddrRef =
+            //getOrCreateInternalVariable(Addr->getType(), RefName);
+        //auto *GVAddrRef = cast<llvm::GlobalVariable>(AddrRef);
+        //GVAddrRef->setConstant([>Val=<]true);
+        //GVAddrRef->setLinkage(llvm::GlobalValue::InternalLinkage);
+        //GVAddrRef->setInitializer(Addr);
+        //CGM.addCompilerUsedGlobal(GVAddrRef);
+      //}
+    //}
   } else {
     assert(((*Res == OMPDeclareTargetDeclAttr::MT_Link) ||
             (*Res == OMPDeclareTargetDeclAttr::MT_To &&
