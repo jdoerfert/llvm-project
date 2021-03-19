@@ -12711,6 +12711,10 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
       return;
     }
 
+    // If we there is no initializer requested we don't check for one.
+    if (Var->hasAttr<LoaderUninitializedAttr>())
+      return;
+
     // Check for jumps past the implicit initializer.  C++0x
     // clarifies that this applies to a "variable with automatic
     // storage duration", not a "local variable".
