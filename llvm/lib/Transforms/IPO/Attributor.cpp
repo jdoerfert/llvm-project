@@ -704,13 +704,15 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
   // uses. Note that this requires users of `checkForAllUses` to not recurse but
   // instead use the `follow` callback argument to look at transitive users,
   // however, that should be clear from the presence of the argument.
-  bool UsedAssumedInformation = false;
-  Optional<Constant *> C =
-      getAssumedConstant(V, QueryingAA, UsedAssumedInformation);
-  if (C.hasValue() && C.getValue()) {
-    LLVM_DEBUG(dbgs() << "[Attributor] Value is simplified, uses skipped: " << V
-                      << " -> " << *C.getValue() << "\n");
-    return true;
+  if (isa<Instruction>(V) || isa<Argument>(V)) {
+    bool UsedAssumedInformation = false;
+    Optional<Constant *> C =
+        getAssumedConstant(V, QueryingAA, UsedAssumedInformation);
+    if (C.hasValue() && C.getValue()) {
+      LLVM_DEBUG(dbgs() << "[Attributor] Value is simplified, uses skipped: "
+                        << V << " -> " << *C.getValue() << "\n");
+      return true;
+    }
   }
 
   const IRPosition &IRP = QueryingAA.getIRPosition();

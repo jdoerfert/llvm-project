@@ -381,9 +381,11 @@ struct TeamStateTy {
   ICVStateTy ICVState;
   ///}
 
-  uint32_t ParallelTeamSize;
-  ParallelRegionFnTy ParallelRegionFnVar;
 };
+
+uint32_t SHARED(ParallelTeamSizeVar);
+
+ParallelRegionFnTy SHARED(ParallelRegionFnVar);
 
 TeamStateTy SHARED(TeamState);
 
@@ -391,7 +393,6 @@ void TeamStateTy::init() {
   ICVState.NThreadsVar = mapping::getBlockSize();
   ICVState.LevelVar = 0;
   ICVState.ActiveLevelVar = -1;
-  ParallelTeamSize = 1;
 }
 
 struct ThreadStateTy {
@@ -493,7 +494,7 @@ uint32_t &state::lookup32(ValueKind Kind, bool IsReadonly) {
       return lookup32Impl(&ICVStateTy::RunSchedChunkVar);
     return lookupForModify32Impl(&ICVStateTy::RunSchedChunkVar);
   case state::VK_ParallelTeamSize:
-    return TeamState.ParallelTeamSize;
+    return ParallelTeamSizeVar;
   default:
     break;
   }
@@ -503,7 +504,7 @@ uint32_t &state::lookup32(ValueKind Kind, bool IsReadonly) {
 void *&state::lookupPtr(ValueKind Kind, bool IsReadonly) {
   switch (Kind) {
   case state::VK_ParallelRegionFn:
-    return TeamState.ParallelRegionFnVar;
+    return ParallelRegionFnVar;
   default:
     break;
   }
@@ -607,6 +608,7 @@ void state::init(bool IsSPMD) {
   if (mapping::getThreadIdInBlock() != 0)
     return;
 
+  ParallelTeamSizeVar = 1;
   TeamState.init();
   for (uint32_t i = 0; i < mapping::getBlockSize(); ++i)
     ThreadStates[i] = nullptr;

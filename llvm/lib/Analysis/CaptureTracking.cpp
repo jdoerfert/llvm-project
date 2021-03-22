@@ -273,9 +273,22 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
 
   while (!Worklist.empty()) {
     const Use *U = Worklist.pop_back_val();
-    Instruction *I = cast<Instruction>(U->getUser());
+    User *Usr = U->getUser();
+    unsigned Opcode;
+    Instruction *I = dyn_cast<Instruction>(Usr);
+    if (I) {
+      Opcode = I->getOpcode();
+    } else
+    if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Usr))  {
+      Opcode = CE->getOpcode();
+    } else {
+      if (Tracker->captured(U))
+        return;
+      continue;
+    }
 
-    switch (I->getOpcode()) {
+
+    switch (Opcode) {
     case Instruction::Call:
     case Instruction::Invoke: {
       auto *Call = cast<CallBase>(I);
@@ -367,20 +380,20 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
     case Instruction::Select:
     case Instruction::AddrSpaceCast:
       // The original value is not captured via this if the new value isn't.
-      if (!AddUses(I))
+      if (!AddUses(U->getUser()))
         return;
       break;
     case Instruction::ICmp: {
       unsigned Idx = U->getOperandNo();
       unsigned OtherIdx = 1 - Idx;
-      if (auto *CPN = dyn_cast<ConstantPointerNull>(I->getOperand(OtherIdx))) {
+      if (auto *CPN = dyn_cast<ConstantPointerNull>(Usr->getOperand(OtherIdx))) {
         // Don't count comparisons of a no-alias return value against null as
         // captures. This allows us to ignore comparisons of malloc results
         // with null, for example.
         if (CPN->getType()->getAddressSpace() == 0)
           if (isNoAliasCall(U->get()->stripPointerCasts()))
             break;
-        if (!I->getFunction()->nullPointerIsDefined()) {
+        if (I && !I->getFunction()->nullPointerIsDefined()) {
           auto *O = I->getOperand(Idx)->stripPointerCastsSameRepresentation();
           // Comparing a dereferenceable_or_null pointer against null cannot
           // lead to pointer escapes, because if it is not null it must be a
@@ -392,7 +405,7 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
       // Comparison against value stored in global variable. Given the pointer
       // does not escape, its value cannot be guessed and stored separately in a
       // global variable.
-      auto *LI = dyn_cast<LoadInst>(I->getOperand(OtherIdx));
+      auto *LI = dyn_cast<LoadInst>(Usr->getOperand(OtherIdx));
       if (LI && isa<GlobalVariable>(LI->getPointerOperand()))
         break;
       // Otherwise, be conservative. There are crazy ways to capture pointers

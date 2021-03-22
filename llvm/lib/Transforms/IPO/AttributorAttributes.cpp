@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/Constant.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/SCCIterator.h"
@@ -964,6 +965,15 @@ ChangeStatus AAReturnedValuesImpl::manifest(Attributor &A) {
     return ChangeStatus::UNCHANGED;
   };
 
+  auto CastToResultType = [](Type *ResultTy, Constant &C) -> Constant & {
+    Type *T = C.getType();
+    if (ResultTy == T)
+      return C;
+    if (T->isPointerTy())
+      return *ConstantExpr::getPointerBitCastOrAddrSpaceCast(&C, ResultTy);
+    return *ConstantExpr::getTruncOrBitCast(&C, ResultTy);
+  };
+
   // If the assumed unique return value is an argument, annotate it.
   if (auto *UniqueRVArg = dyn_cast<Argument>(UniqueRV.getValue())) {
     if (UniqueRVArg->getType()->canLosslesslyBitCastTo(
@@ -978,20 +988,16 @@ ChangeStatus AAReturnedValuesImpl::manifest(Attributor &A) {
       for (const Use &U : F->uses())
         if (CallBase *CB = dyn_cast<CallBase>(U.getUser()))
           if (CB->isCallee(&U)) {
-            Constant *RVCCast =
-                CB->getType() == RVC->getType()
-                    ? RVC
-                    : ConstantExpr::getTruncOrBitCast(RVC, CB->getType());
-            Changed = ReplaceCallSiteUsersWith(*CB, *RVCCast) | Changed;
+            Changed = ReplaceCallSiteUsersWith(
+                          *CB, CastToResultType(CB->getType(), *RVC)) |
+                      Changed;
           }
     } else {
       assert(isa<CallBase>(AnchorValue) &&
              "Expcected a function or call base anchor!");
-      Constant *RVCCast =
-          AnchorValue.getType() == RVC->getType()
-              ? RVC
-              : ConstantExpr::getTruncOrBitCast(RVC, AnchorValue.getType());
-      Changed = ReplaceCallSiteUsersWith(cast<CallBase>(AnchorValue), *RVCCast);
+      Changed = ReplaceCallSiteUsersWith(
+          cast<CallBase>(AnchorValue),
+          CastToResultType(AnchorValue.getType(), *RVC));
     }
     if (Changed == ChangeStatus::CHANGED)
       STATS_DECLTRACK(UniqueConstantReturnValue, FunctionReturn,
@@ -2347,8 +2353,8 @@ struct AAWillReturnImpl : public AAWillReturn {
         (!getAssociatedFunction() || !getAssociatedFunction()->mustProgress()))
       return false;
 
-    const auto &MemAA = A.getAAFor<AAMemoryBehavior>(*this, getIRPosition(),
-                                                      DepClassTy::NONE);
+    const auto &MemAA =
+        A.getAAFor<AAMemoryBehavior>(*this, getIRPosition(), DepClassTy::NONE);
     if (!MemAA.isAssumedReadOnly())
       return false;
     if (KnownOnly && !MemAA.isKnownReadOnly())
@@ -2706,8 +2712,8 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
       }
 
       // For cases which can potentially have more users
-      if (isa<GetElementPtrInst>(U) || isa<BitCastInst>(U) || isa<PHINode>(U) ||
-          isa<SelectInst>(U)) {
+      if (isa<GetElementPtrInst>(UserI) || isa<BitCastInst>(UserI) ||
+          isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
         Follow = true;
         return true;
       }
@@ -2926,6 +2932,14 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     }
 
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
+    if (auto *SI = dyn_cast_or_null<StoreInst>(I)) {
+      // Value *Ptr = SI->getPointerOperand()->stripPointerCasts();
+      // if (isa<AllocaInst>(Ptr))
+      // return;
+      // if (auto *GV = dyn_cast<GlobalVariable>(Ptr))
+      // if (GV->hasLocalLinkage())
+      // return;
+    }
     if (!isAssumedSideEffectFree(A, I))
       indicatePessimisticFixpoint();
   }
@@ -2933,6 +2947,55 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
+    if (auto *SI = dyn_cast_or_null<StoreInst>(I)) {
+      const DataLayout &DL = A.getDataLayout();
+      int64_t Offset;
+      const Value *Base = getBasePointerOfAccessPointerOperand(
+          SI, Offset, DL, /*AllowNonInbounds*/ true);
+      if (!Base || Offset)
+        return indicatePessimisticFixpoint();
+      auto &NoCaptureAA = A.getAAFor<AANoCapture>(
+          *this, IRPosition::value(*Base), DepClassTy::REQUIRED);
+      if (!NoCaptureAA.isAssumedNoCapture())
+        return indicatePessimisticFixpoint();
+
+      auto UseCheck = [&](const Use &U, bool &Follow) -> bool {
+        Instruction *UserI = cast<Instruction>(U.getUser());
+        if (auto *CB = dyn_cast<CallBase>(UserI)) {
+          if (CB->isBundleOperand(&U))
+            return false;
+          if (!CB->isArgOperand(&U))
+            return true;
+          unsigned ArgNo = CB->getArgOperandNo(&U);
+
+          const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
+              *this, IRPosition::callsite_argument(*CB, ArgNo),
+              DepClassTy::REQUIRED);
+          return MemBehaviorAA.isAssumedReadOnly();
+        }
+
+        if (isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
+          Follow = true;
+          return true;
+        }
+
+        if (isa<StoreInst>(UserI))
+          return true;
+        if (auto *LI = dyn_cast<LoadInst>(UserI)) {
+          bool UsedAssumedInformation = false;
+          Optional<Constant *> C =
+              A.getAssumedConstant(*LI, *this, UsedAssumedInformation);
+          if (!C.hasValue() || C.getValue())
+            return true;
+        }
+        return false;
+      };
+      if (!A.checkForAllUses(UseCheck, *this, *Base))
+        return indicatePessimisticFixpoint();
+
+      return ChangeStatus::UNCHANGED;
+    }
+
     if (!isAssumedSideEffectFree(A, I))
       return indicatePessimisticFixpoint();
 
@@ -2949,7 +3012,8 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       // isAssumedSideEffectFree returns true here again because it might not be
       // the case and only the users are dead but the instruction (=call) is
       // still needed.
-      if (isAssumedSideEffectFree(A, I) && !isa<InvokeInst>(I)) {
+      if (isa<StoreInst>(I) ||
+          (isAssumedSideEffectFree(A, I) && !isa<InvokeInst>(I))) {
         A.deleteAfterManifest(*I);
         return ChangeStatus::CHANGED;
       }
@@ -4170,14 +4234,21 @@ struct AANoCaptureImpl : public AANoCapture {
         isArgumentPosition() ? getAssociatedFunction() : AnchorScope;
 
     // Check what state the associated function can actually capture.
-    if (F)
+    if (F) {
       determineFunctionCaptureCapabilities(getIRPosition(), *F, *this);
-    else
+    } else if (auto *GV = dyn_cast<GlobalVariable>(&getAssociatedValue())) {
+      if (!GV->hasLocalLinkage())
+        indicatePessimisticFixpoint();
+    } else
       indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
+
+  /// TODO
+  void trackUses(Attributor &A, const Value &V, AANoCapture::StateType &T,
+                 const AAIsDead *IsDeadAA);
 
   /// see AbstractAttribute::isAssumedNoCaptureMaybeReturned(...).
   virtual void
@@ -4268,7 +4339,7 @@ struct AACaptureUseTracker final : public CaptureTracker {
   /// the search is stopped with \p CapturedInMemory and \p CapturedInInteger
   /// conservatively set to true.
   AACaptureUseTracker(Attributor &A, AANoCapture &NoCaptureAA,
-                      const AAIsDead &IsDeadAA, AANoCapture::StateType &State,
+                      const AAIsDead *IsDeadAA, AANoCapture::StateType &State,
                       SmallVectorImpl<const Value *> &PotentialCopies,
                       unsigned &RemainingUsesToExplore)
       : A(A), NoCaptureAA(NoCaptureAA), IsDeadAA(IsDeadAA), State(State),
@@ -4300,7 +4371,12 @@ struct AACaptureUseTracker final : public CaptureTracker {
 
   /// See CaptureTracker::captured(...).
   bool captured(const Use *U) override {
-    Instruction *UInst = cast<Instruction>(U->getUser());
+    Instruction *UInst = dyn_cast<Instruction>(U->getUser());
+    if (!UInst) {
+      LLVM_DEBUG(dbgs() << " - unkown user: " << *U->getUser() << "!\n");
+      return isCapturedIn(/* Memory */ true, /* Integer */ true,
+                          /* Return */ true);
+    }
     LLVM_DEBUG(dbgs() << "Check use: " << *U->get() << " in " << *UInst
                       << "\n");
 
@@ -4357,7 +4433,7 @@ struct AACaptureUseTracker final : public CaptureTracker {
   bool shouldExplore(const Use *U) override {
     // Check liveness and ignore droppable users.
     return !U->getUser()->isDroppable() &&
-           !A.isAssumedDead(*U, &NoCaptureAA, &IsDeadAA);
+           !A.isAssumedDead(*U, &NoCaptureAA, IsDeadAA);
   }
 
   /// Update the state according to \p CapturedInMem, \p CapturedInInt, and
@@ -4384,7 +4460,7 @@ private:
   AANoCapture &NoCaptureAA;
 
   /// The abstract liveness state.
-  const AAIsDead &IsDeadAA;
+  const AAIsDead *IsDeadAA;
 
   /// The state currently updated.
   AANoCapture::StateType &State;
@@ -4462,6 +4538,20 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
     }
   }
 
+  trackUses(A, *V, T, &IsDeadAA);
+
+  AANoCapture::StateType &S = getState();
+  auto Assumed = S.getAssumed();
+  S.intersectAssumedBits(T.getAssumed());
+  if (!isAssumedNoCaptureMaybeReturned())
+    return indicatePessimisticFixpoint();
+  return Assumed == S.getAssumed() ? ChangeStatus::UNCHANGED
+                                   : ChangeStatus::CHANGED;
+}
+
+void AANoCaptureImpl::trackUses(Attributor &A, const Value &V,
+                                AANoCapture::StateType &T,
+                                const AAIsDead *IsDeadAA) {
   // Use the CaptureTracker interface and logic with the specialized tracker,
   // defined in AACaptureUseTracker, that can look at in-flight abstract
   // attributes and directly updates the assumed state.
@@ -4474,17 +4564,9 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
   // Check all potential copies of the associated value until we can assume
   // none will be captured or we have to assume at least one might be.
   unsigned Idx = 0;
-  PotentialCopies.push_back(V);
+  PotentialCopies.push_back(&V);
   while (T.isAssumed(NO_CAPTURE_MAYBE_RETURNED) && Idx < PotentialCopies.size())
     Tracker.valueMayBeCaptured(PotentialCopies[Idx++]);
-
-  AANoCapture::StateType &S = getState();
-  auto Assumed = S.getAssumed();
-  S.intersectAssumedBits(T.getAssumed());
-  if (!isAssumedNoCaptureMaybeReturned())
-    return indicatePessimisticFixpoint();
-  return Assumed == S.getAssumed() ? ChangeStatus::UNCHANGED
-                                   : ChangeStatus::CHANGED;
 }
 
 /// NoCapture attribute for function arguments.
@@ -4531,6 +4613,17 @@ struct AANoCaptureCallSiteArgument final : AANoCaptureImpl {
 struct AANoCaptureFloating final : AANoCaptureImpl {
   AANoCaptureFloating(const IRPosition &IRP, Attributor &A)
       : AANoCaptureImpl(IRP, A) {}
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    if (getAnchorScope())
+      return AANoCaptureImpl::updateImpl(A);
+
+    AANoCapture::StateType &S = getState();
+    auto Assumed = S.getAssumed();
+    trackUses(A, getAssociatedValue(), S, nullptr);
+    return Assumed == S.getAssumed() ? ChangeStatus::UNCHANGED
+                                     : ChangeStatus::CHANGED;
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4667,9 +4760,12 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   }
 
   bool askSimplifiedValueForOtherAAs(Attributor &A) {
-    if (askSimplifiedValueFor<AAValueConstantRange>(A))
+    if (getAssociatedValue().getType()->isIntegerTy() &&
+        askSimplifiedValueFor<AAValueConstantRange>(A))
       return true;
-    if (askSimplifiedValueFor<AAPotentialValues>(A))
+    if ((isa<LoadInst>(getAssociatedValue()) ||
+         isa<ICmpInst>(getAssociatedValue())) &&
+        askSimplifiedValueFor<AAPotentialValues>(A))
       return true;
     return false;
   }
@@ -4900,6 +4996,8 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
           Type::getInt1Ty(Ctx), ICmp->getPredicate() == CmpInst::ICMP_EQ);
       assert(!SimplifiedAssociatedValue.hasValue() &&
              "Did not expect non-fixed value for constant comparison");
+      LLVM_DEBUG(dbgs() << "[ValueSimplify] " << *ICmp << " is assumed to be "
+                        << *NewVal << "\n");
       SimplifiedAssociatedValue = NewVal;
       indicateOptimisticFixpoint();
       Changed = ChangeStatus::CHANGED;
@@ -5178,6 +5276,13 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
       Instruction *UserI = cast<Instruction>(U.getUser());
       if (isa<LoadInst>(UserI))
         return true;
+      if (auto *ICmp = dyn_cast<ICmpInst>(UserI)) {
+        if (ICmp->isEquality() &&
+            (isa<ConstantPointerNull>(ICmp->getOperand(0)) ||
+             isa<ConstantPointerNull>(ICmp->getOperand(1))) &&
+            U.get()->stripPointerCasts() == &I)
+          return true;
+      }
       if (auto *SI = dyn_cast<StoreInst>(UserI)) {
         if (SI->getValueOperand() == U.get()) {
           LLVM_DEBUG(dbgs()
@@ -5216,7 +5321,16 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
 
         if (!NoCaptureAA.isAssumedNoCapture() ||
             !ArgNoFreeAA.isAssumedNoFree()) {
-          LLVM_DEBUG(dbgs() << "[H2S] Bad user: " << *UserI << "\n");
+          LLVM_DEBUG({
+            dbgs() << "[H2S] Bad user: " << *UserI << " "
+                   << (NoCaptureAA.isAssumedNoCapture() ? "" : "may-capture ")
+                   << ((NoCaptureAA.isAssumedNoCapture() ||
+                        ArgNoFreeAA.isAssumedNoFree())
+                           ? ""
+                           : "and ")
+                   << (ArgNoFreeAA.isAssumedNoFree() ? "" : "may-free ")
+                   << " the allocation\n";
+          });
           ValidUsesOnly = false;
         }
         return true;
@@ -7286,11 +7400,11 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
     if (isa<BinaryOperator>(&V) || isa<CmpInst>(&V) || isa<CastInst>(&V))
       return;
     // If it is a load instruction with range metadata, use it.
-    if (LoadInst *LI = dyn_cast<LoadInst>(&V))
-      if (auto *RangeMD = LI->getMetadata(LLVMContext::MD_range)) {
+    if (LoadInst *LI = dyn_cast<LoadInst>(&V)) {
+      if (auto *RangeMD = LI->getMetadata(LLVMContext::MD_range))
         intersectKnown(getConstantRangeFromMetadata(*RangeMD));
-        return;
-      }
+      return;
+    }
 
     // We can work with PHI and select instruction as we traverse their operands
     // during update.
@@ -7351,6 +7465,32 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
     QuerriedAAs.push_back(&OpAA);
     T.unionAssumed(
         OpAA.getAssumed().castOp(CastI->getOpcode(), getState().getBitWidth()));
+    return T.isValidState();
+  }
+
+  bool calculateLoadInst(
+      Attributor &A, LoadInst *L, IntegerRangeState &T, const Instruction *CtxI,
+      SmallVectorImpl<const AAValueConstantRange *> &QuerriedAAs) {
+    if (!L->getType()->isIntegerTy())
+      return false;
+
+    auto &PotentialValuesAA = A.getAAFor<AAPotentialValues>(
+        *this, IRPosition::value(*L), DepClassTy::REQUIRED);
+    if (!PotentialValuesAA.isValidState())
+      return false;
+    if (PotentialValuesAA.getState().undefIsContained())
+      return false;
+    for (const APInt &PV : PotentialValuesAA.getState().getAssumedSet()) {
+      if (PV.getBitWidth() != cast<IntegerType>(L->getType())->getBitWidth()) {
+        // L->getFunction()->dump();
+        // L->dump();
+        // PV.dump();
+        // assert(0);
+        T.indicatePessimisticFixpoint();
+        return false;
+      }
+      T.unionAssumed(ConstantRange(PV));
+    }
     return T.isValidState();
   }
 
@@ -7435,6 +7575,9 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
           return false;
       } else if (auto *CastI = dyn_cast<CastInst>(I)) {
         if (!calculateCastInst(A, CastI, T, CtxI, QuerriedAAs))
+          return false;
+      } else if (auto *L = dyn_cast<LoadInst>(I)) {
+        if (!calculateLoadInst(A, L, T, CtxI, QuerriedAAs))
           return false;
       } else {
         // Give up with other instructions.
@@ -7607,11 +7750,19 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
   void initialize(Attributor &A) override {
     Value &V = getAssociatedValue();
 
-    if (auto *C = dyn_cast<ConstantInt>(&V)) {
-      unionAssumed(C->getValue());
+    if (auto *CI = dyn_cast<ConstantInt>(&V)) {
+      unionAssumed(CI->getValue());
       indicateOptimisticFixpoint();
       return;
     }
+    //if (auto *C = dyn_cast<Constant>(&V)) {
+      //if (C->isZeroValue()) {
+        //const DataLayout &DL = A.getInfoCache().getDL();
+        //unionAssumed(APInt::getNullValue(DL.getPointerSizeInBits()));
+        //indicateOptimisticFixpoint();
+        //return;
+      //}
+    //}
 
     if (isa<UndefValue>(&V)) {
       unionAssumedWithUndef();
@@ -7619,7 +7770,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       return;
     }
 
-    if (isa<BinaryOperator>(&V) || isa<ICmpInst>(&V) || isa<CastInst>(&V))
+    if (isa<BinaryOperator>(V) || isa<ICmpInst>(V) || isa<CastInst>(V) ||
+        isa<LoadInst>(V))
       return;
 
     if (isa<SelectInst>(V) || isa<PHINode>(V))
@@ -7929,6 +8081,123 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
                                          : ChangeStatus::CHANGED;
   }
 
+  ChangeStatus updateWithLoad(Attributor &A, LoadInst &L) {
+    if (!L.getType()->isIntegerTy())
+      return indicatePessimisticFixpoint();
+
+    auto AssumedBefore = getAssumed();
+
+    auto VisitValueCB = [&](Value &V, const Instruction *CtxI,
+                            AAPotentialValues::StateType &T,
+                            bool Stripped) -> bool {
+      Value *Base = &V;
+      if (!isa<AllocaInst>(V)) {
+        bool UsedAssumedInformation = false;
+        Optional<Constant *> C =
+            A.getAssumedConstant(*Base, *this, UsedAssumedInformation);
+        if (!C.hasValue())
+          return true;
+        if (C.getValue())
+          Base = C.getValue();
+        if (isa<ConstantPointerNull>(Base))
+          return false;
+        auto *GV = dyn_cast<GlobalVariable>(Base);
+        if (!GV || !GV->hasLocalLinkage())
+          return false;
+      }
+
+      auto &NoCaptureAA = A.getAAFor<AANoCapture>(
+          *this, IRPosition::value(*Base), DepClassTy::REQUIRED);
+      if (!NoCaptureAA.isAssumedNoCapture())
+        return false;
+
+      auto UseCheck = [&](const Use &U, bool &Follow) -> bool {
+        if (ConstantExpr *CE = dyn_cast<ConstantExpr>(U.getUser())) {
+          if (CE->isCast()) {
+            Follow = true;
+            return true;
+          }
+          return false;
+        }
+        Instruction *UserI = cast<Instruction>(U.getUser());
+        if (auto *CB = dyn_cast<CallBase>(UserI)) {
+          if (CB->isBundleOperand(&U))
+            return false;
+          if (!CB->isArgOperand(&U))
+            return true;
+          unsigned ArgNo = CB->getArgOperandNo(&U);
+
+          const auto &MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
+              *this, IRPosition::callsite_argument(*CB, ArgNo),
+              DepClassTy::REQUIRED);
+          return MemBehaviorAA.isAssumedReadOnly();
+        }
+
+        if (isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
+          Follow = true;
+          return true;
+        }
+        if (isa<BitCastInst>(UserI) && onlyUsedByLifetimeMarkers(UserI))
+          return true;
+
+        if (isa<LoadInst>(UserI))
+          return true;
+        if (auto *SI = dyn_cast<StoreInst>(UserI)) {
+          if (SI->getValueOperand() == U.get())
+            return false;
+          if (SI->getValueOperand()->getType() != getAssociatedType())
+            return false;
+
+          auto &PotentialValuesAA = A.getAAFor<AAPotentialValues>(
+              *this, IRPosition::value(*SI->getValueOperand()),
+              DepClassTy::REQUIRED);
+          if (!PotentialValuesAA.isValidState())
+            return false;
+          if (PotentialValuesAA.undefIsContained())
+            T.unionAssumedWithUndef();
+          else
+            T.unionAssumed(PotentialValuesAA.getAssumed());
+          return true;
+        }
+        return false;
+      };
+      if (!A.checkForAllUses(UseCheck, *this, *Base))
+        return false;
+
+      if (isa<AllocaInst>(Base)) {
+        T.unionAssumedWithUndef();
+      } else {
+        auto *GV = cast<GlobalVariable>(Base);
+        if (GV->hasInitializer()) {
+          auto *Initializer = GV->getInitializer();
+          if (isa<UndefValue>(Initializer))
+            T.unionAssumedWithUndef();
+          else if (auto *CI = dyn_cast<ConstantInt>(Initializer)) {
+            if (CI->getType() == getAssociatedType())
+              T.unionAssumed(CI->getValue());
+            else if (CI->isZero())
+              T.unionAssumed(ConstantInt::getNullValue(getAssociatedType()));
+            else
+              return false;
+          } else
+            return false;
+        } else {
+          T.unionAssumedWithUndef();
+        }
+      }
+      return true;
+    };
+
+    if (!genericValueTraversal<AAPotentialValues,
+                               PotentialConstantIntValuesState>(
+            A, IRPosition::value(*L.getPointerOperand()), *this, getState(),
+            VisitValueCB, getCtxI()))
+      return indicatePessimisticFixpoint();
+
+    return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                         : ChangeStatus::CHANGED;
+  }
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     Value &V = getAssociatedValue();
@@ -7948,6 +8217,9 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
 
     if (auto *PHI = dyn_cast<PHINode>(I))
       return updateWithPHINode(A, PHI);
+
+    if (auto *L = dyn_cast<LoadInst>(I))
+      return updateWithLoad(A, *L);
 
     return indicatePessimisticFixpoint();
   }
