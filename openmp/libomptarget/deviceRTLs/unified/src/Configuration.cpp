@@ -25,7 +25,7 @@ struct DeviceEnvironmentTy {
 #pragma omp declare target
 
 // TOOD: We want to change the name as soon as the old runtime is gone.
-DeviceEnvironmentTy CONSTANT(omptarget_device_environment);
+DeviceEnvironmentTy CONSTANT(omptarget_device_environment) __attribute__((used));
 
 int32_t config::getDebugLevel() { return omptarget_device_environment.DebugLevel; }
 
