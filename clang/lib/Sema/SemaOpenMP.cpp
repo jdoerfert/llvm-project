@@ -5615,7 +5615,7 @@ processImplicitMapsWithDefaultMappers(Sema &S, DSAStackTy *Stack,
         if (It == Visited.end()) {
           // Try to find the associated user-defined mapper.
           CXXScopeSpec MapperIdScopeSpec;
-          DefaultMapperId.setLoc(C->getMapLoc());
+          DefaultMapperId.setLoc(E->getExprLoc());
           assert(DefaultMapperId.getLoc().isValid() &&
                  "MapperId needs valid location");
           ExprResult ER = buildUserDefinedMapperRef(
