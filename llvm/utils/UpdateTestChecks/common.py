@@ -880,15 +880,17 @@ def dump_input_lines(output_lines, test_info, prefix_set, comment_string):
 
 def add_checks_at_end(output_lines, prefix_list, func_order,
                       comment_string, check_generator):
-  added = set()
+  printed = set()
   for prefix in prefix_list:
     prefixes = prefix[0]
     tool_args = prefix[1]
     for prefix in prefixes:
       for func in func_order[prefix]:
-        if added:
+        if (prefix, func) in printed:
+            continue
+        if printed:
           output_lines.append(comment_string)
-        added.add(func)
+        printed.add((prefix, func))
 
         # The add_*_checks routines expect a run list whose items are
         # tuples that have a list of prefixes as their first element and
