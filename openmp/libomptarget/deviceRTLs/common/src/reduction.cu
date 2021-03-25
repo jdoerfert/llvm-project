@@ -9,7 +9,6 @@
 // This file contains the implementation of reduction with KMPC interface.
 //
 //===----------------------------------------------------------------------===//
-#include "ICVs.h"
 #pragma omp declare target
 
 #include "common/omptarget.h"
@@ -71,7 +70,7 @@ static int32_t nvptx_parallel_reduce_nowait(
     kmp_ShuffleReductFctPtr shflFct, kmp_InterWarpCopyFctPtr cpyFct,
     bool isSPMDExecutionMode, bool isRuntimeUninitialized) {
   uint32_t BlockThreadId = GetLogicalThreadIdInBlock(isSPMDExecutionMode);
-  uint32_t NumThreads = omp_get_num_threads();
+  uint32_t NumThreads = GetNumberOfOmpThreads(isSPMDExecutionMode);
   if (NumThreads == 1)
     return 1;
     /*
@@ -194,7 +193,8 @@ EXTERN int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
   // In generic mode only the team master participates in the teams
   // reduction because the workers are waiting for parallel work.
   uint32_t NumThreads =
-      checkSPMDMode(loc) ? omp_get_num_threads() : /*Master thread only*/ 1;
+      checkSPMDMode(loc) ? GetNumberOfOmpThreads(/*isSPMDExecutionMode=*/true)
+                         : /*Master thread only*/ 1;
   uint32_t TeamId = GetBlockIdInKernel();
   uint32_t NumTeams = GetNumberOfBlocksInKernel();
   static unsigned SHARED(Bound);

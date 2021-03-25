@@ -68,8 +68,6 @@ endif()
 get_filename_component(devicertl_base_directory
   ${CMAKE_CURRENT_SOURCE_DIR}
   DIRECTORY)
-set(devicertl_include_directory
-  ${devicertl_base_directory}/common/include)
 set(devicertl_common_directory
   ${devicertl_base_directory}/common)
 set(devicertl_nvptx_directory
@@ -131,7 +129,6 @@ set(cuda_src_files
   ${devicertl_common_directory}/src/sync.cu
   ${devicertl_common_directory}/src/task.cu
   ${devicertl_common_directory}/src/shuffle.cpp
-  ${devicertl_common_directory}/src/ICVs.cpp
   src/target_impl.cu
 )
 
@@ -144,8 +141,7 @@ set(bc_flags -S -x c++ -O1 -std=c++14
              -Xclang -target-feature -Xclang +ptx61
              -D__CUDACC__
              -I${devicertl_base_directory}
-             -I${devicertl_common_directory}
-             -I${devicertl_include_directory}
+             -I${devicertl_common_directory}/include
              -I${devicertl_nvptx_directory}/src)
 
 if(${LIBOMPTARGET_NVPTX_DEBUG})
