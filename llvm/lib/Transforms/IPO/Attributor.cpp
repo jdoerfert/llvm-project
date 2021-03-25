@@ -14,6 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/IPO/Attributor.h"
+#include "llvm/Transforms/IPO/AttributorAttributes.h"
 
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/PointerIntPair.h"
