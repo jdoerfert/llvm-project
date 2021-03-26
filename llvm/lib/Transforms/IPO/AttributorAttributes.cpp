@@ -140,8 +140,6 @@ PIPE_OPERATOR(AANoUndef)
 #undef PIPE_OPERATOR
 } // namespace llvm
 
-namespace {
-
 static Optional<ConstantInt *>
 getAssumedConstantInt(Attributor &A, const Value &V,
                       const AbstractAttribute &AA,
@@ -6462,8 +6460,6 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
     removeAssumedBits(NO_WRITES);
 }
 
-} // namespace
-
 /// -------------------- Memory Locations Attributes ---------------------------
 /// Includes read-none, argmemonly, inaccessiblememonly,
 /// inaccessiblememorargmemonly
@@ -6496,7 +6492,6 @@ std::string AAMemoryLocation::getMemoryLocationsAsStr(
   return S;
 }
 
-namespace {
 struct AAMemoryLocationImpl : public AAMemoryLocation {
 
   AAMemoryLocationImpl(const IRPosition &IRP, Attributor &A)
@@ -8174,7 +8169,6 @@ struct AANoUndefCallSiteReturned final
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_CSRET_ATTR(noundef) }
 };
-} // namespace
 
 const char AAReturnedValues::ID = 0;
 const char AANoUnwind::ID = 0;
