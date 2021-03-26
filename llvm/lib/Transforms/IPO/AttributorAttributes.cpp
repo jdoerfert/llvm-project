@@ -32,6 +32,7 @@
 #include "llvm/IR/NoFolder.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO/ArgumentPromotion.h"
+#include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/Utils/Local.h"
 
 #include <cassert>
@@ -138,8 +139,6 @@ PIPE_OPERATOR(AANoUndef)
 
 #undef PIPE_OPERATOR
 } // namespace llvm
-
-namespace {
 
 static Optional<ConstantInt *>
 getAssumedConstantInt(Attributor &A, const Value &V,
@@ -413,17 +412,6 @@ getBasePointerOfAccessPointerOperand(const Instruction *I, int64_t &BytesOffset,
 
   return GetPointerBaseWithConstantOffset(Ptr, BytesOffset, DL,
                                           AllowNonInbounds);
-}
-
-/// Helper function to clamp a state \p S of type \p StateType with the
-/// information in \p R and indicate/return if \p S did change (as-in update is
-/// required to be run again).
-template <typename StateType>
-ChangeStatus clampStateAndIndicateChange(StateType &S, const StateType &R) {
-  auto Assumed = S.getAssumed();
-  S ^= R;
-  return Assumed == S.getAssumed() ? ChangeStatus::UNCHANGED
-                                   : ChangeStatus::CHANGED;
 }
 
 /// Clamp the information known for all returned values of a function
@@ -1278,15 +1266,48 @@ struct AAReturnedValuesCallSite final : AAReturnedValuesImpl {
 
 /// ------------------------ NoSync Function Attribute -------------------------
 
-struct AANoSyncImpl : AANoSync {
-  AANoSyncImpl(const IRPosition &IRP, Attributor &A) : AANoSync(IRP, A) {}
+struct AANoSyncFunction : AACallGraphBottomUpCheckerFunction<AANoSync> {
+  using Base = AACallGraphBottomUpCheckerFunction<AANoSync>;
+  AANoSyncFunction(const IRPosition &IRP, Attributor &A) : Base(IRP, A) {}
 
-  const std::string getAsStr() const override {
-    return getAssumed() ? "nosync" : "may-sync";
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override{STATS_DECLTRACK_FN_ATTR(nosync)}
+
+  Base::CallbackTy checkAllCallLikeInstructions(Attributor &A) const override {
+    return [&](Instruction &I) {
+      // At this point we handled all read/write effects and they are all
+      // nosync, so they can be skipped.
+      if (I.mayReadOrWriteMemory())
+        return true;
+
+      // non-convergent and readnone imply nosync.
+      return !cast<CallBase>(I).isConvergent();
+    };
   }
 
-  /// See AbstractAttribute::updateImpl(...).
-  ChangeStatus updateImpl(Attributor &A) override;
+  Base::CallbackTy checkAllReadWriteInstructions(Attributor &A) const override {
+    return [&](Instruction &I) {
+      /// We are looking for volatile instructions or Non-Relaxed atomics.
+      /// FIXME: We should improve the handling of intrinsics.
+
+      if (isa<IntrinsicInst>(&I) && isNoSyncIntrinsic(&I))
+        return true;
+
+      if (const auto *CB = dyn_cast<CallBase>(&I)) {
+        if (CB->hasFnAttr(Attribute::NoSync))
+          return true;
+
+        const auto &NoSyncAA = A.getAAFor<AANoSync>(
+            *this, IRPosition::callsite_function(*CB), DepClassTy::REQUIRED);
+        return NoSyncAA.isAssumedNoSync();
+      }
+
+      if (!isVolatile(&I) && !isNonRelaxedAtomic(&I))
+        return true;
+
+      return false;
+    };
+  }
 
   /// Helper function used to determine whether an instruction is non-relaxed
   /// atomic. In other words, if an atomic instruction does not have unordered
@@ -1301,7 +1322,7 @@ struct AANoSyncImpl : AANoSync {
   static bool isNoSyncIntrinsic(Instruction *I);
 };
 
-bool AANoSyncImpl::isNonRelaxedAtomic(Instruction *I) {
+bool AANoSyncFunction::isNonRelaxedAtomic(Instruction *I) {
   if (!I->isAtomic())
     return false;
 
@@ -1350,7 +1371,7 @@ bool AANoSyncImpl::isNonRelaxedAtomic(Instruction *I) {
 
 /// Checks if an intrinsic is nosync. Currently only checks mem* intrinsics.
 /// FIXME: We should ipmrove the handling of intrinsics.
-bool AANoSyncImpl::isNoSyncIntrinsic(Instruction *I) {
+bool AANoSyncFunction::isNoSyncIntrinsic(Instruction *I) {
   if (auto *II = dyn_cast<IntrinsicInst>(I)) {
     switch (II->getIntrinsicID()) {
     /// Element wise atomic memory intrinsics are can only be unordered,
@@ -1372,7 +1393,7 @@ bool AANoSyncImpl::isNoSyncIntrinsic(Instruction *I) {
   return false;
 }
 
-bool AANoSyncImpl::isVolatile(Instruction *I) {
+bool AANoSyncFunction::isVolatile(Instruction *I) {
   assert(!isa<CallBase>(I) && "Calls should not be checked here");
 
   switch (I->getOpcode()) {
@@ -1389,79 +1410,10 @@ bool AANoSyncImpl::isVolatile(Instruction *I) {
   }
 }
 
-ChangeStatus AANoSyncImpl::updateImpl(Attributor &A) {
-
-  auto CheckRWInstForNoSync = [&](Instruction &I) {
-    /// We are looking for volatile instructions or Non-Relaxed atomics.
-    /// FIXME: We should improve the handling of intrinsics.
-
-    if (isa<IntrinsicInst>(&I) && isNoSyncIntrinsic(&I))
-      return true;
-
-    if (const auto *CB = dyn_cast<CallBase>(&I)) {
-      if (CB->hasFnAttr(Attribute::NoSync))
-        return true;
-
-      const auto &NoSyncAA = A.getAAFor<AANoSync>(
-          *this, IRPosition::callsite_function(*CB), DepClassTy::REQUIRED);
-      return NoSyncAA.isAssumedNoSync();
-    }
-
-    if (!isVolatile(&I) && !isNonRelaxedAtomic(&I))
-      return true;
-
-    return false;
-  };
-
-  auto CheckForNoSync = [&](Instruction &I) {
-    // At this point we handled all read/write effects and they are all
-    // nosync, so they can be skipped.
-    if (I.mayReadOrWriteMemory())
-      return true;
-
-    // non-convergent and readnone imply nosync.
-    return !cast<CallBase>(I).isConvergent();
-  };
-
-  if (!A.checkForAllReadWriteInstructions(CheckRWInstForNoSync, *this) ||
-      !A.checkForAllCallLikeInstructions(CheckForNoSync, *this))
-    return indicatePessimisticFixpoint();
-
-  return ChangeStatus::UNCHANGED;
-}
-
-struct AANoSyncFunction final : public AANoSyncImpl {
-  AANoSyncFunction(const IRPosition &IRP, Attributor &A)
-      : AANoSyncImpl(IRP, A) {}
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override { STATS_DECLTRACK_FN_ATTR(nosync) }
-};
-
 /// NoSync attribute deduction for a call sites.
-struct AANoSyncCallSite final : AANoSyncImpl {
-  AANoSyncCallSite(const IRPosition &IRP, Attributor &A)
-      : AANoSyncImpl(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AANoSyncImpl::initialize(A);
-    Function *F = getAssociatedFunction();
-    if (!F || F->isDeclaration())
-      indicatePessimisticFixpoint();
-  }
-
-  /// See AbstractAttribute::updateImpl(...).
-  ChangeStatus updateImpl(Attributor &A) override {
-    // TODO: Once we have call site specific value information we can provide
-    //       call site specific liveness information and then it makes
-    //       sense to specialize attributes for call sites arguments instead of
-    //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto &FnAA = A.getAAFor<AANoSync>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(getState(), FnAA.getState());
-  }
+struct AANoSyncCallSite : AACallGraphBottomUpCheckerCallSite<AANoSync> {
+  using Base = AACallGraphBottomUpCheckerCallSite<AANoSync>;
+  AANoSyncCallSite(const IRPosition &IRP, Attributor &A) : Base(IRP, A) {}
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_CS_ATTR(nosync); }
@@ -3588,7 +3540,7 @@ struct AAIsDeadCallSite final : AAIsDeadFunction {
 /// -------------------- Dereferenceable Argument Attribute --------------------
 
 template <>
-ChangeStatus clampStateAndIndicateChange<DerefState>(DerefState &S,
+ChangeStatus llvm::clampStateAndIndicateChange<DerefState>(DerefState &S,
                                                      const DerefState &R) {
   ChangeStatus CS0 =
       clampStateAndIndicateChange(S.DerefBytesState, R.DerefBytesState);
@@ -6575,8 +6527,6 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
     removeAssumedBits(NO_WRITES);
 }
 
-} // namespace
-
 /// -------------------- Memory Locations Attributes ---------------------------
 /// Includes read-none, argmemonly, inaccessiblememonly,
 /// inaccessiblememorargmemonly
@@ -6609,7 +6559,6 @@ std::string AAMemoryLocation::getMemoryLocationsAsStr(
   return S;
 }
 
-namespace {
 struct AAMemoryLocationImpl : public AAMemoryLocation {
 
   AAMemoryLocationImpl(const IRPosition &IRP, Attributor &A)
@@ -8445,7 +8394,6 @@ struct AANoUndefCallSiteReturned final
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_CSRET_ATTR(noundef) }
 };
-} // namespace
 
 const char AAReturnedValues::ID = 0;
 const char AANoUnwind::ID = 0;

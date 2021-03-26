@@ -15,6 +15,8 @@
 
 #include "llvm/Transforms/IPO/Attributor.h"
 
+#include <functional>
+
 namespace llvm {
 
 /// Simple state with integers encoding.
@@ -516,6 +518,85 @@ raw_ostream &operator<<(raw_ostream &OS, const IntegerRangeState &State);
 ///                       Abstract Attribute Classes
 /// ----------------------------------------------------------------------------
 
+/// Helper function to clamp a state \p S of type \p StateType with the
+/// information in \p R and indicate/return if \p S did change (as-in update is
+/// required to be run again).
+template <typename StateType>
+ChangeStatus clampStateAndIndicateChange(StateType &S, const StateType &R) {
+  auto Assumed = S.getAssumed();
+  S ^= R;
+  return Assumed == S.getAssumed() ? ChangeStatus::UNCHANGED
+                                   : ChangeStatus::CHANGED;
+}
+
+template <typename BaseAA> struct AACallGraphBottomUpChecker : public BaseAA {
+  AACallGraphBottomUpChecker(const IRPosition &IRP, Attributor &A)
+      : BaseAA(IRP, A) {}
+
+  using CallbackTy = function_ref<bool(Instruction &)>;
+  virtual CallbackTy checkAllCallLikeInstructions(Attributor &) const {
+    return nullptr;
+  }
+
+  virtual CallbackTy checkAllReadWriteInstructions(Attributor &) const {
+    return {};
+  }
+
+  virtual CallbackTy checkAllOpcodes(Attributor &,
+                                     SmallVectorImpl<unsigned> &Opcodes) const {
+    return {};
+  }
+};
+
+template <typename BaseAA>
+struct AACallGraphBottomUpCheckerFunction : AACallGraphBottomUpChecker<BaseAA> {
+  using Base = AACallGraphBottomUpChecker<BaseAA>;
+  AACallGraphBottomUpCheckerFunction(const IRPosition &IRP, Attributor &A)
+      : Base(IRP, A) {}
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    if (const auto &CB = this->checkAllCallLikeInstructions(A))
+      if (!A.checkForAllCallLikeInstructions(CB, *this))
+        return this->indicatePessimisticFixpoint();
+    if (const auto &CB = this->checkAllReadWriteInstructions(A))
+      if (!A.checkForAllReadWriteInstructions(CB, *this))
+        return this->indicatePessimisticFixpoint();
+    SmallVector<unsigned> Opcodes;
+    if (const auto &CB = this->checkAllOpcodes(A, Opcodes))
+      if (!A.checkForAllInstructions(CB, *this, Opcodes))
+        return this->indicatePessimisticFixpoint();
+    return ChangeStatus::UNCHANGED;
+  }
+};
+
+template <typename BaseAA>
+struct AACallGraphBottomUpCheckerCallSite : AACallGraphBottomUpChecker<BaseAA> {
+  using Base = AACallGraphBottomUpChecker<BaseAA>;
+  AACallGraphBottomUpCheckerCallSite(const IRPosition &IRP, Attributor &A)
+      : Base(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    Base::initialize(A);
+    Function *F = this->getAssociatedFunction();
+    if (!F || F->isDeclaration())
+      this->indicatePessimisticFixpoint();
+  }
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    // TODO: Once we have call site specific value information we can provide
+    //       call site specific liveness information and then it makes
+    //       sense to specialize attributes for call sites arguments instead of
+    //       redirecting requests to the callee argument.
+    Function *F = this->getAssociatedFunction();
+    const IRPosition &FnPos = IRPosition::function(*F);
+    auto &FnAA = A.getAAFor<BaseAA>(*this, FnPos, DepClassTy::REQUIRED);
+    return clampStateAndIndicateChange(this->getState(), FnAA.getState());
+  }
+};
+
 /// An abstract attribute for the returned values of a function.
 struct AAReturnedValues
     : public IRAttribute<Attribute::Returned, AbstractAttribute> {
@@ -613,6 +694,11 @@ struct AANoSync
 
   /// See AbstractAttribute::getName()
   const std::string getName() const override { return "AANoSync"; }
+
+  /// See AbstractState::getAsStr().
+  const std::string getAsStr() const override {
+    return getAssumed() ? "nosync" : "may-sync";
+  }
 
   /// See AbstractAttribute::getIdAddr()
   const char *getIdAddr() const override { return &ID; }
