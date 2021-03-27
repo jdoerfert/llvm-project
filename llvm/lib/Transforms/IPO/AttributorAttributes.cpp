@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/AttributorAttributes.h"
+#include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -1260,6 +1260,44 @@ struct AAReturnedValuesCallSite final : AAReturnedValuesImpl {
   void trackStatistics() const override {}
 };
 
+/// ------------------------ NoIntrinsic Function Attribute --------------------
+
+struct AANoIntrinsicCallFunction
+    : AACallGraphBottomUpCheckerFunction<AANoIntrinsicCall> {
+  using Base = AACallGraphBottomUpCheckerFunction<AANoIntrinsicCall>;
+  AANoIntrinsicCallFunction(const IRPosition &IRP, Attributor &A)
+      : Base(IRP, A) {}
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override{STATS_DECLTRACK_FN_ATTR(nosync)}
+
+  Base::CallbackTy checkAllCallLikeInstructions(Attributor &A) override {
+    Attributor *APtr = &A;
+    return [this, APtr](Instruction &I) {
+      CallBase &CB = cast<CallBase>(I);
+
+      if (auto *II = dyn_cast<IntrinsicInst>(&CB))
+        removeAssumedBits(getBitMaskForIntrinsic(II->getIntrinsicID()));
+
+      const auto &NoIntrinsicCallAA = APtr->getAAFor<AANoIntrinsicCall>(
+          *this, IRPosition::callsite_function(CB), DepClassTy::REQUIRED);
+      getState() ^= NoIntrinsicCallAA.getState();
+
+      return isValidState();
+    };
+  }
+};
+
+struct AANoIntrinsicCallCallSite
+    : AACallGraphBottomUpCheckerCallSite<AANoIntrinsicCall> {
+  using Base = AACallGraphBottomUpCheckerCallSite<AANoIntrinsicCall>;
+  AANoIntrinsicCallCallSite(const IRPosition &IRP, Attributor &A)
+      : Base(IRP, A) {}
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override { STATS_DECLTRACK_CS_ATTR(nosync); }
+};
+
 /// ------------------------ NoSync Function Attribute -------------------------
 
 struct AANoSyncFunction : AACallGraphBottomUpCheckerFunction<AANoSync> {
@@ -1269,7 +1307,7 @@ struct AANoSyncFunction : AACallGraphBottomUpCheckerFunction<AANoSync> {
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override{STATS_DECLTRACK_FN_ATTR(nosync)}
 
-  Base::CallbackTy checkAllCallLikeInstructions(Attributor &A) const override {
+  Base::CallbackTy checkAllCallLikeInstructions(Attributor &A) override {
     return [](Instruction &I) {
       // At this point we handled all read/write effects and they are all
       // nosync, so they can be skipped.
@@ -1281,7 +1319,7 @@ struct AANoSyncFunction : AACallGraphBottomUpCheckerFunction<AANoSync> {
     };
   }
 
-  Base::CallbackTy checkAllReadWriteInstructions(Attributor &A) const override {
+  Base::CallbackTy checkAllReadWriteInstructions(Attributor &A) override {
     Attributor *APtr = &A;
     return [=](Instruction &I) {
       /// We are looking for volatile instructions or Non-Relaxed atomics.
@@ -2302,8 +2340,8 @@ struct AAWillReturnImpl : public AAWillReturn {
         (!getAssociatedFunction() || !getAssociatedFunction()->mustProgress()))
       return false;
 
-    const auto &MemAA = A.getAAFor<AAMemoryBehavior>(*this, getIRPosition(),
-                                                      DepClassTy::NONE);
+    const auto &MemAA =
+        A.getAAFor<AAMemoryBehavior>(*this, getIRPosition(), DepClassTy::NONE);
     if (!MemAA.isAssumedReadOnly())
       return false;
     if (KnownOnly && !MemAA.isKnownReadOnly())
@@ -3479,8 +3517,9 @@ struct AAIsDeadCallSite final : AAIsDeadFunction {
 /// -------------------- Dereferenceable Argument Attribute --------------------
 
 template <>
-ChangeStatus llvm::clampStateAndIndicateChange<DerefState>(DerefState &S,
-                                                     const DerefState &R) {
+ChangeStatus
+llvm::clampStateAndIndicateChange<DerefState>(DerefState &S,
+                                              const DerefState &R) {
   ChangeStatus CS0 =
       clampStateAndIndicateChange(S.DerefBytesState, R.DerefBytesState);
   ChangeStatus CS1 = clampStateAndIndicateChange(S.GlobalState, R.GlobalState);

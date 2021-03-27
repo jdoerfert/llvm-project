@@ -13,6 +13,7 @@
 #ifndef LLVM_TRANSFORMS_IPO_ATTRIBUTOR_ATTRIBUTES_H
 #define LLVM_TRANSFORMS_IPO_ATTRIBUTOR_ATTRIBUTES_H
 
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include <functional>
@@ -536,16 +537,16 @@ struct AACallGraphBottomUpCheckerFunction : public BaseAA {
 
   using CallbackTy = std::function<bool(Instruction &)>;
 
-  virtual CallbackTy checkAllCallLikeInstructions(Attributor &) const {
+  virtual CallbackTy checkAllCallLikeInstructions(Attributor &) {
     return nullptr;
   }
 
-  virtual CallbackTy checkAllReadWriteInstructions(Attributor &) const {
+  virtual CallbackTy checkAllReadWriteInstructions(Attributor &) {
     return nullptr;
   }
 
   virtual CallbackTy checkAllOpcodes(Attributor &,
-                                     SmallVectorImpl<unsigned> &Opcodes) const {
+                                     SmallVectorImpl<unsigned> &Opcodes) {
     return nullptr;
   }
 
@@ -672,6 +673,56 @@ struct AANoUnwind
 
   /// Unique ID (due to the unique address)
   static const char ID;
+};
+
+struct AANoIntrinsicCall
+    : public StateWrapper<BitIntegerState<uint32_t>, AbstractAttribute> {
+  using Base = StateWrapper<BitIntegerState<uint32_t>, AbstractAttribute>;
+  AANoIntrinsicCall(const IRPosition &IRP, Attributor &A,
+                    ArrayRef<Intrinsic::ID> IIDs)
+      : Base(IRP) {
+    for (Intrinsic::ID ID : IIDs)
+      IIDMap[ID] = IIDMap.size();
+  }
+
+  /// Returns true if "nosync" is assumed.
+  bool isAssumedNotCalling(Intrinsic::ID ID) const {
+    return isAssumed(getBitMaskForIntrinsic(ID));
+  }
+
+  /// Returns true if "nosync" is known.
+  bool isKnownNotCalling(Intrinsic::ID ID) const {
+    return isKnown(getBitMaskForIntrinsic(ID));
+  }
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AANoIntrinsicCall &createForPosition(const IRPosition &IRP,
+                                              Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AANoIntrinsicCall"; }
+
+  /// See AbstractState::getAsStr().
+  const std::string getAsStr() const override { return "TODO"; }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is
+  /// AANoIntrinsicCall
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+
+protected:
+  uint32_t getBitMaskForIntrinsic(Intrinsic::ID ID) const {
+    return IIDMap.lookup(ID);
+  }
+
+  SmallMapVector<Intrinsic::ID, uint32_t, 16> IIDMap;
 };
 
 struct AANoSync
