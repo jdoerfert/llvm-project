@@ -647,11 +647,11 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
     void *HstPtrBegin = Args[I];
     int64_t DataSize = ArgSizes[I];
     // Adjust for proper alignment if this is a combined entry (for structs).
-    // Look at the next argument - if that is MEMBER_OF this one, then this one
+    // Look at the previous argument - if this one is MEMBER_OF the previous, then this one
     // is a combined entry.
-    const int NextI = I + 1;
-    if (getParentIndex(ArgTypes[I]) < 0 && NextI < ArgNum &&
-        getParentIndex(ArgTypes[NextI]) == I) {
+    const int PrevI = I - 1;
+    if (PrevI >= 0 && getParentIndex(ArgTypes[PrevI]) < 0 &&
+        getParentIndex(ArgTypes[I]) == PrevI) {
       int64_t Padding = (int64_t)HstPtrBegin % Alignment;
       if (Padding) {
         DP("Using a Padding of %" PRId64 " bytes for begin address " DPxMOD
