@@ -57,6 +57,17 @@ static cl::opt<bool> PrintICVValues("openmp-print-icv-values", cl::init(false),
 static cl::opt<bool> PrintOpenMPKernels("openmp-print-gpu-kernels",
                                         cl::init(false), cl::Hidden);
 
+static cl::opt<uint64_t> SharedMemoryLimit(
+    "openmp-shared-limit", cl::Optional,
+    cl::desc("Limits the total amount of shared memory used for optimizations"),
+    cl::init(-1));
+
+static cl::opt<uint64_t>
+    SharedMemoryThreshold("openmp-shared-threshold", cl::Optional,
+                          cl::desc("Only place variables sizes larger than the "
+                                   "threshold in shared memory"),
+                          cl::init(0));
+
 static cl::opt<bool> HideMemoryTransferLatency(
     "openmp-hide-memory-transfer-latency",
     cl::desc("[WIP] Tries to hide the latency of host to device memory"
@@ -84,6 +95,9 @@ STATISTIC(
     "Number of OpenMP parallel regions replaced with ID in GPU state machines");
 STATISTIC(NumOpenMPParallelRegionsMerged,
           "Number of OpenMP parallel regions merged");
+
+STATISTIC(NumBytesMovedToSharedMemory,
+          "Amount of memory pushed to shared memory");
 
 #if !defined(NDEBUG)
 static constexpr auto TAG = "[" DEBUG_TYPE "]";
@@ -997,6 +1011,8 @@ struct OpenMPOpt {
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
 
+      Changed |= removeGlobalization();
+      Changed |= replaceGlobalization();
       Changed |= deleteParallelRegions();
       Changed |= rewriteDeviceCodeStateMachine();
 
@@ -1464,6 +1480,131 @@ private:
     return Changed;
   }
 
+  bool removeGlobalization() {
+    return false;
+    auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_alloc_shared];
+
+    auto RemoveAllocCalls = [&](Use &U, Function &F) {
+      auto &FreeCall = OMPInfoCache.RFIs[OMPRTL___kmpc_free_shared];
+      CallBase *CB = OpenMPOpt::getCallIfRegularCall(U, &RFI);
+      if (!CB)
+        return false;
+
+      IRPosition AllocPos = IRPosition::callsite_returned(*CB);
+      if (!A.lookupAAFor<AANoCapture>(AllocPos)->isKnownNoCapture())
+        return false;
+
+      LLVM_DEBUG(dbgs() << TAG << "Remove globalization call in "
+                        << CB->getCaller()->getName() << "\n");
+
+      Value *AllocSize = CB->getArgOperand(0);
+
+      for (auto *U : CB->users()) {
+        CallBase *FC = dyn_cast<CallBase>(U);
+        if (FC && FC->getCalledFunction() == FreeCall.Declaration) {
+          FC->eraseFromParent();
+          break;
+        }
+      }
+
+      const DataLayout &DL = M.getDataLayout();
+      Type *Int8Ty = Type::getInt8Ty(M.getContext());
+      AllocaInst *NewAlloca =
+          new AllocaInst(Int8Ty, DL.getAllocaAddrSpace(), AllocSize,
+                         CB->getName(), &F.front().front());
+      NewAlloca->setDebugLoc(CB->getDebugLoc());
+      CB->replaceAllUsesWith(NewAlloca);
+      CB->eraseFromParent();
+
+      return false;
+    };
+    RFI.foreachUse(SCC, RemoveAllocCalls);
+
+    return false;
+  }
+
+  /// Replace globalization calls in the device with shared memory. Variables
+  /// will not be placed in shared memory if their size is below the threshold,
+  /// or if it would exceed the limit.
+  bool replaceGlobalization() {
+    auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_alloc_shared];
+    bool Changed = false;
+
+    auto ReplaceAllocCalls = [&](Use &U, Function &F) {
+      if (!isKernel(F))
+        return false;
+      auto &FreeCall = OMPInfoCache.RFIs[OMPRTL___kmpc_free_shared];
+      CallBase *CB = OpenMPOpt::getCallIfRegularCall(U, &RFI);
+      if (!CB)
+        return false;
+
+      ConstantInt *AllocSize = dyn_cast<ConstantInt>(CB->getArgOperand(0));
+      if (!AllocSize)
+        return false;
+
+      if (AllocSize->getZExtValue() <= SharedMemoryThreshold)
+        return false;
+
+      if (NumBytesMovedToSharedMemory + AllocSize->getZExtValue() >
+          SharedMemoryLimit)
+        return false;
+
+      LLVM_DEBUG(dbgs() << TAG << "Replace globalization call in "
+                        << CB->getCaller()->getName() << " with "
+                        << AllocSize->getZExtValue()
+                        << " bytes of shared memory\n");
+
+      // Remove the free call
+      for (auto *U : CB->users()) {
+        CallBase *FC = dyn_cast<CallBase>(U);
+        if (FC && FC->getCalledFunction() == FreeCall.Declaration) {
+          FC->eraseFromParent();
+          break;
+        }
+      }
+
+      // Create a new shared memory buffer of the same size as the allocation
+      // and replace all the uses of the original allocation with it.
+      Type *Int8Ty = Type::getInt8Ty(M.getContext());
+      Type *Int8ArrTy = ArrayType::get(Int8Ty, AllocSize->getZExtValue());
+      auto *SharedMem = new GlobalVariable(
+          M, Int8ArrTy, /* IsConstant */ false, GlobalValue::InternalLinkage,
+          UndefValue::get(Int8ArrTy), CB->getName(), nullptr,
+          GlobalValue::NotThreadLocal, 3);
+      SharedMem->setAlignment(Align(32));
+
+      auto *NullInt = Constant::getNullValue(Type::getInt64Ty(M.getContext()));
+      auto *GEPExpr = ConstantExpr::getGetElementPtr(
+          Int8ArrTy, SharedMem, SmallVector<Constant *>({NullInt, NullInt}));
+
+      auto *NewBuffer = new AddrSpaceCastInst(GEPExpr, Int8Ty->getPointerTo(),
+                                              CB->getName() + "_shared", CB);
+
+      NewBuffer->setDebugLoc(CB->getDebugLoc());
+      CB->replaceAllUsesWith(NewBuffer);
+      CB->eraseFromParent();
+
+      auto Remark = [&](OptimizationRemark OR) {
+        return OR << "Replaced globalized variable with "
+                  << ore::NV("SharedMemory", AllocSize->getZExtValue())
+                  << ((AllocSize->getZExtValue() != 1) ? " bytes " : " byte ")
+                  << " of shared memory";
+      };
+      emitRemark<OptimizationRemark>(NewBuffer, "OpenMPReplaceGlobalization",
+                                     Remark);
+
+      NumBytesMovedToSharedMemory += AllocSize->getZExtValue();
+      Changed = true;
+
+      return true;
+    };
+    RFI.foreachUse(SCC, ReplaceAllocCalls);
+
+    OMPInfoCache.recollectUsesForFunction(OMPRTL___kmpc_free_shared);
+
+    return Changed;
+  }
+
   /// Try to delete parallel regions if possible.
   bool deleteParallelRegions() {
     const unsigned CallbackCalleeOperand = 2;
@@ -1594,9 +1735,8 @@ private:
   }
 
   void analysisGlobalization() {
-    RuntimeFunction GlobalizationRuntimeIDs[] = {
-        OMPRTL___kmpc_data_sharing_coalesced_push_stack,
-        OMPRTL___kmpc_data_sharing_push_stack};
+    RuntimeFunction GlobalizationRuntimeIDs[] = {OMPRTL___kmpc_alloc_shared,
+                                                 OMPRTL___kmpc_free_shared};
 
     for (const auto GlobalizationCallID : GlobalizationRuntimeIDs) {
       auto &RFI = OMPInfoCache.RFIs[GlobalizationCallID];
@@ -2094,6 +2234,18 @@ private:
       for (auto &G: M.globals())
         A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(G));
     //}
+
+    auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_alloc_shared];
+    auto CreateAA = [&](Use &U, Function &Decl) {
+      auto *CB = OpenMPOpt::getCallIfRegularCall(U, &RFI);
+      if (!CB)
+        return false;
+
+      IRPosition CBPos = IRPosition::function(*CB->getFunction());
+      A.getOrCreateAAFor<AAHeapToStack>(CBPos);
+      return false;
+    };
+    RFI.foreachUse(SCC, CreateAA);
   }
 };
 

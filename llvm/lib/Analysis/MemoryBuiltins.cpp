@@ -110,8 +110,9 @@ static const std::pair<LibFunc, AllocFnsTy> AllocationFnData[] = {
   {LibFunc_vec_realloc,         {ReallocLike, 2, 1,  -1}},
   {LibFunc_reallocf,            {ReallocLike, 2, 1,  -1}},
   {LibFunc_strdup,              {StrDupLike,  1, -1, -1}},
-  {LibFunc_strndup,             {StrDupLike,  2, 1,  -1}}
+  {LibFunc_strndup,             {StrDupLike,  2, 1,  -1}},
   // TODO: Handle "int posix_memalign(void **, size_t, size_t)"
+  {LibFunc___kmpc_alloc_shared, {MallocLike,  1, 0,  -1}},
 };
 
 static const Function *getCalledFunction(const Value *V, bool LookThroughBitCast,
@@ -439,7 +440,8 @@ bool llvm::isLibFreeFunction(const Function *F, const LibFunc TLIFn) {
       TLIFn == LibFunc_msvc_delete_ptr32 || // operator delete(void*)
       TLIFn == LibFunc_msvc_delete_ptr64 || // operator delete(void*)
       TLIFn == LibFunc_msvc_delete_array_ptr32 || // operator delete[](void*)
-      TLIFn == LibFunc_msvc_delete_array_ptr64)   // operator delete[](void*)
+      TLIFn == LibFunc_msvc_delete_array_ptr64 ||  // operator delete[](void*)
+      TLIFn == LibFunc___kmpc_free_shared)
     ExpectedNumParams = 1;
   else if (TLIFn == LibFunc_ZdlPvj ||              // delete(void*, uint)
            TLIFn == LibFunc_ZdlPvm ||              // delete(void*, ulong)

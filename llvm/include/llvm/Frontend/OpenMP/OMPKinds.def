@@ -427,12 +427,9 @@ __OMP_RTL(__kmpc_nvptx_teams_reduce_nowait_v2, false, Int32, IdentPtr, Int32,
           GlobalListPtr, GlobalListPtr, GlobalListPtr, GlobalListPtr)
 
 __OMP_RTL(__kmpc_shuffle_int64, false, Int64, Int64, Int16, Int16)
-__OMP_RTL(__kmpc_data_sharing_init_stack, false, Void, )
-__OMP_RTL(__kmpc_data_sharing_init_stack_spmd, false, Void, )
 
-__OMP_RTL(__kmpc_data_sharing_coalesced_push_stack, false, VoidPtr, SizeTy, Int16)
-__OMP_RTL(__kmpc_data_sharing_push_stack, false, VoidPtr, SizeTy, Int16)
-__OMP_RTL(__kmpc_data_sharing_pop_stack, false, Void, VoidPtr)
+__OMP_RTL(__kmpc_alloc_shared, false, VoidPtr, SizeTy)
+__OMP_RTL(__kmpc_free_shared, false, Void, VoidPtr)
 __OMP_RTL(__kmpc_begin_sharing_variables, false, Void, VoidPtrPtrPtr, SizeTy)
 __OMP_RTL(__kmpc_end_sharing_variables, false, Void, )
 __OMP_RTL(__kmpc_get_shared_variables, false, Void, VoidPtrPtrPtr)
@@ -527,6 +524,11 @@ __OMP_ATTRS_SET(ReadOnlyPtrAttrs,
                     ? AttributeSet(EnumAttr(ReadOnly), EnumAttr(NoFree),
                                    EnumAttr(NoCapture))
                     : AttributeSet())
+
+__OMP_ATTRS_SET(NoCaptureAttrs,
+                OptimisticAttributes
+                    ? AttributeSet(EnumAttr(NoCapture))
+                    : AttributeSet(EnumAttr(NoCapture)))
 
 #if 0
 __OMP_ATTRS_SET(WriteOnlyPtrAttrs,
@@ -847,38 +849,26 @@ __OMP_RTL_ATTRS(__kmpc_doacross_fini, BarrierAttrs, AttributeSet(),
 __OMP_RTL_ATTRS(__kmpc_alloc, DefaultAttrs, ReturnPtrAttrs, ParamAttrs())
 __OMP_RTL_ATTRS(__kmpc_free, AllocAttrs, AttributeSet(), ParamAttrs())
 
-__OMP_RTL_ATTRS(__kmpc_init_allocator, DefaultAttrs, ReturnPtrAttrs,
-                ParamAttrs())
-__OMP_RTL_ATTRS(__kmpc_destroy_allocator, AllocAttrs, AttributeSet(),
-                ParamAttrs())
+__OMP_RTL_ATTRS(__kmpc_init_allocator, DefaultAttrs, ReturnPtrAttrs, ParamAttrs())
+__OMP_RTL_ATTRS(__kmpc_destroy_allocator, AllocAttrs, AttributeSet(), ParamAttrs())
 
-__OMP_RTL_ATTRS(__kmpc_push_target_tripcount_mapper, SetterAttrs,
-                AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__kmpc_push_target_tripcount_mapper, SetterAttrs, AttributeSet(), ParamAttrs())
 __OMP_RTL_ATTRS(__tgt_target_mapper, ForkAttrs, AttributeSet(), ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_target_nowait_mapper, ForkAttrs, AttributeSet(),
-                ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_target_teams_mapper, ForkAttrs, AttributeSet(),
-                ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_target_teams_nowait_mapper, ForkAttrs, AttributeSet(),
-                ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_register_requires, ForkAttrs, AttributeSet(),
-                ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_target_data_begin_mapper, ForkAttrs, AttributeSet(),
-                ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_target_nowait_mapper, ForkAttrs, AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_target_teams_mapper, ForkAttrs, AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_target_teams_nowait_mapper, ForkAttrs, AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_register_requires, ForkAttrs, AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_target_data_begin_mapper, ForkAttrs, AttributeSet(), ParamAttrs())
 __OMP_RTL_ATTRS(__tgt_target_data_begin_nowait_mapper, ForkAttrs,
-                AttributeSet(), ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_target_data_end_mapper, ForkAttrs, AttributeSet(),
-                ParamAttrs())
+        AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_target_data_end_mapper, ForkAttrs, AttributeSet(), ParamAttrs())
 __OMP_RTL_ATTRS(__tgt_target_data_end_nowait_mapper, ForkAttrs,
-                AttributeSet(), ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_target_data_update_mapper, ForkAttrs, AttributeSet(),
-                ParamAttrs())
+        AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_target_data_update_mapper, ForkAttrs, AttributeSet(), ParamAttrs())
 __OMP_RTL_ATTRS(__tgt_target_data_update_nowait_mapper, ForkAttrs,
-                AttributeSet(), ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_mapper_num_components, ForkAttrs, AttributeSet(),
-                ParamAttrs())
-__OMP_RTL_ATTRS(__tgt_push_mapper_component, ForkAttrs, AttributeSet(),
-                ParamAttrs())
+        AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_mapper_num_components, ForkAttrs, AttributeSet(), ParamAttrs())
+__OMP_RTL_ATTRS(__tgt_push_mapper_component, ForkAttrs, AttributeSet(), ParamAttrs())
 __OMP_RTL_ATTRS(__kmpc_task_allow_completion_event, DefaultAttrs,
                 ReturnPtrAttrs, ParamAttrs(ReadOnlyPtrAttrs))
 
@@ -973,7 +963,6 @@ __OMP_DEFAULT_KIND(unknown)
 __OMP_PROC_BIND_KIND(master, 2)
 __OMP_PROC_BIND_KIND(close, 3)
 __OMP_PROC_BIND_KIND(spread, 4)
-__OMP_PROC_BIND_KIND(primary, 5)
 __OMP_PROC_BIND_KIND(default, 6)
 __OMP_PROC_BIND_KIND(unknown, 7)
 
@@ -1085,7 +1074,6 @@ __OMP_TRAIT_PROPERTY(user, condition, true)
 __OMP_TRAIT_PROPERTY(user, condition, false)
 __OMP_TRAIT_PROPERTY(user, condition, unknown)
 
-__OMP_TRAIT_SELECTOR_AND_PROPERTY(construct, dispatch)
 
 // Note that we put isa last so that the other conditions are checked first.
 // This allows us to issue warnings wrt. isa only if we match otherwise.
