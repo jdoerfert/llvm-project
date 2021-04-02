@@ -4295,6 +4295,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // Select the appropriate action.
   RewriteKind rewriteKind = RK_None;
 
+  bool isDeviceOffloadAction = !(JA.isDeviceOffloading(Action::OFK_None) ||
+                                  JA.isDeviceOffloading(Action::OFK_Host));
+
   // If CollectArgsForIntegratedAssembler() isn't called below, claim the args
   // it claims when not running an assembler. Otherwise, clang would emit
   // "argument unused" warnings for assembler flags when e.g. adding "-E" to
@@ -4401,9 +4404,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-emit-llvm-uselists");
 
     // Device-side jobs do not support LTO.
-    bool isDeviceOffloadAction = !(JA.isDeviceOffloading(Action::OFK_None) ||
-                                   JA.isDeviceOffloading(Action::OFK_Host));
-
     if (D.isUsingLTO() && !isDeviceOffloadAction) {
       Args.AddLastArg(CmdArgs, options::OPT_flto, options::OPT_flto_EQ);
       CmdArgs.push_back("-flto-unit");
@@ -4429,6 +4429,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       !MemProfArg->getOption().matches(options::OPT_fno_memory_profile))
     MemProfArg->render(Args, CmdArgs);
 
+  // Add the target cpu
+  std::string CPU = getCPUName(Args, Triple, /*FromAs*/ false);
+  if (!CPU.empty()) {
+    CmdArgs.push_back("-target-cpu");
+    CmdArgs.push_back(Args.MakeArgString(CPU));
+  }
+
   // Embed-bitcode option.
   // Only white-listed flags below are allowed to be embedded.
   if (C.getDriver().embedBitcodeInObject() && !C.getDriver().isUsingLTO() &&
@@ -4436,7 +4443,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     // Add flags implied by -fembed-bitcode.
     Args.AddLastArg(CmdArgs, options::OPT_fembed_bitcode_EQ);
     // Disable all llvm IR level optimizations.
-    CmdArgs.push_back("-disable-llvm-passes");
+    if (!isDeviceOffloadAction) {
+      CmdArgs.push_back("-disable-llvm-passes");
+    }
 
     // Render target options.
     TC.addClangTargetOptions(Args, CmdArgs, JA.getOffloadingDeviceKind());
@@ -5030,13 +5039,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       D.Diag(diag::err_drv_invalid_int_value)
           << A->getOption().getName() << Value;
     Args.AddLastArg(CmdArgs, options::OPT_mtls_size_EQ);
-  }
-
-  // Add the target cpu
-  std::string CPU = getCPUName(Args, Triple, /*FromAs*/ false);
-  if (!CPU.empty()) {
-    CmdArgs.push_back("-target-cpu");
-    CmdArgs.push_back(Args.MakeArgString(CPU));
   }
 
   RenderTargetOptions(Triple, Args, KernelOrKext, CmdArgs);
