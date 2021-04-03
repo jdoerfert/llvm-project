@@ -279,20 +279,34 @@ CleanupPointerRootUsers(GlobalVariable *GV,
 /// the obvious ones.  This is largely just a quick scan over the use list to
 /// clean up the easy and obvious cruft.  This returns true if it made a change.
 static bool CleanupConstantGlobalUsers(
-    Value *V, Constant *Init, const DataLayout &DL,
+    Value *FirstV, Constant *FirstInit, const DataLayout &DL,
     function_ref<TargetLibraryInfo &(Function &)> GetTLI) {
   bool Changed = false;
   // Note that we need to use a weak value handle for the worklist items. When
   // we delete a constant array, we may also be holding pointer to one of its
   // elements (or an element of one of its elements if we're dealing with an
   // array of arrays) in the worklist.
-  SmallVector<WeakTrackingVH, 8> WorkList(V->users());
+  struct WorkItem {
+    WeakTrackingVH UserValue;
+    Value *Ptr;
+    Constant *Init;
+  };
+  SmallVector<WorkItem> WorkList;
+
+  auto EnqueueUsers = [&WorkList](Value *Ptr, Constant *Init) {
+    for (auto *U : Ptr->users())
+      WorkList.push_back(WorkItem{U, Ptr, Init});
+  };
+  EnqueueUsers(FirstV, FirstInit);
+
   while (!WorkList.empty()) {
-    Value *UV = WorkList.pop_back_val();
-    if (!UV)
+    WorkItem WI = WorkList.pop_back_val();
+    Value *U = WI.UserValue;
+    if (!U)
       continue;
 
-    User *U = cast<User>(UV);
+    Constant *Init = WI.Init;
+    Value *Ptr = WI.Ptr;
 
     if (LoadInst *LI = dyn_cast<LoadInst>(U)) {
       if (Init) {
@@ -310,13 +324,13 @@ static bool CleanupConstantGlobalUsers(
         Constant *SubInit = nullptr;
         if (Init)
           SubInit = ConstantFoldLoadThroughGEPConstantExpr(Init, CE);
-        Changed |= CleanupConstantGlobalUsers(CE, SubInit, DL, GetTLI);
+        EnqueueUsers(CE, SubInit);
       } else if ((CE->getOpcode() == Instruction::BitCast &&
                   CE->getType()->isPointerTy()) ||
                  CE->getOpcode() == Instruction::AddrSpaceCast) {
         // Pointer cast, delete any stores and memsets to the global.
         // TODO: We should try to cast the Init value to the new type.
-        Changed |= CleanupConstantGlobalUsers(CE, nullptr, DL, GetTLI);
+        EnqueueUsers(CE, nullptr);
       }
 
       if (CE->use_empty()) {
@@ -327,7 +341,7 @@ static bool CleanupConstantGlobalUsers(
       if (CI->getType()->isPointerTy()) {
         // Pointer cast, delete any stores and memsets to the global.
         // TODO: We should try to cast the Init value to the new type.
-        Changed |= CleanupConstantGlobalUsers(CI, nullptr, DL, GetTLI);
+        EnqueueUsers(CI, nullptr);
         if (CI->use_empty()) {
           CI->eraseFromParent();
           Changed = true;
@@ -347,17 +361,17 @@ static bool CleanupConstantGlobalUsers(
         // If the initializer is an all-null value and we have an inbounds GEP,
         // we already know what the result of any load from that GEP is.
         // TODO: Handle splats.
-        if (Init && isa<ConstantAggregateZero>(Init) && GEP->isInBounds())
+        if (isa_and_nonnull<ConstantAggregateZero>(Init) && GEP->isInBounds())
           SubInit = Constant::getNullValue(GEP->getResultElementType());
       }
-      Changed |= CleanupConstantGlobalUsers(GEP, SubInit, DL, GetTLI);
+      EnqueueUsers(GEP, SubInit);
 
       if (GEP->use_empty()) {
         GEP->eraseFromParent();
         Changed = true;
       }
     } else if (MemIntrinsic *MI = dyn_cast<MemIntrinsic>(U)) { // memset/cpy/mv
-      if (MI->getRawDest() == V) {
+      if (MI->getRawDest() == Ptr) {
         MI->eraseFromParent();
         Changed = true;
       }
@@ -367,8 +381,7 @@ static bool CleanupConstantGlobalUsers(
       // us, and if they are all dead, nuke them without remorse.
       if (isSafeToDestroyConstant(C)) {
         C->destroyConstant();
-        CleanupConstantGlobalUsers(V, Init, DL, GetTLI);
-        return true;
+        Changed = true;
       }
     }
   }
