@@ -11,17 +11,7 @@
 
 define void @f(i32 %I32)  {
 ; CHECK-LABEL: @f(
-; CHECK-NEXT:    [[G1:%.*]] = getelementptr inbounds [[STRUCT_S:%.*]], %struct.S* @CastAccess, i32 0, i32 1, i32 [[I32:%.*]]
-; CHECK-NEXT:    [[BC1:%.*]] = bitcast i8* [[G1]] to i32*
-; CHECK-NEXT:    store i32 0, i32* [[BC1]], align 4
-; CHECK-NEXT:    [[G2:%.*]] = getelementptr inbounds [[STRUCT_S]], %struct.S* @CastAccessConst, i32 0, i32 1, i32 42
-; CHECK-NEXT:    [[BC2:%.*]] = bitcast i8* [[G2]] to i32*
-; CHECK-NEXT:    store i32 0, i32* [[BC2]], align 4
-; CHECK-NEXT:    [[AS3:%.*]] = addrspacecast [[STRUCT_S]] addrspace(3)* @ASCastAccess to %struct.S*
-; CHECK-NEXT:    [[G3:%.*]] = getelementptr inbounds [[STRUCT_S]], %struct.S* [[AS3]], i32 0, i32 1, i32 [[I32]]
-; CHECK-NEXT:    [[BC3:%.*]] = bitcast i8* [[G3]] to i32*
-; CHECK-NEXT:    store i32 0, i32* [[BC3]], align 4
-; CHECK-NEXT:    [[G4:%.*]] = getelementptr inbounds [[STRUCT_S]], %struct.S* @P2ICastAccess, i32 0, i32 1, i32 42
+; CHECK-NEXT:    [[G4:%.*]] = getelementptr inbounds [[STRUCT_S:%.*]], %struct.S* @P2ICastAccess, i32 0, i32 1, i32 42
 ; CHECK-NEXT:    [[PTR2INT:%.*]] = ptrtoint i8* [[G4]] to i64
 ; CHECK-NEXT:    [[INT2PTR:%.*]] = inttoptr i64 [[PTR2INT]] to i32*
 ; CHECK-NEXT:    store i32 0, i32* [[INT2PTR]], align 4

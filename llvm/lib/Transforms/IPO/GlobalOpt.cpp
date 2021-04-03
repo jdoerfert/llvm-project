@@ -315,12 +315,23 @@ static bool CleanupConstantGlobalUsers(
                   CE->getType()->isPointerTy()) ||
                  CE->getOpcode() == Instruction::AddrSpaceCast) {
         // Pointer cast, delete any stores and memsets to the global.
+        // TODO: We should try to cast the Init value to the new type.
         Changed |= CleanupConstantGlobalUsers(CE, nullptr, DL, GetTLI);
       }
 
       if (CE->use_empty()) {
         CE->destroyConstant();
         Changed = true;
+      }
+    } else if (CastInst *CI = dyn_cast<CastInst>(U)) {
+      if (CI->getType()->isPointerTy()) {
+        // Pointer cast, delete any stores and memsets to the global.
+        // TODO: We should try to cast the Init value to the new type.
+        Changed |= CleanupConstantGlobalUsers(CI, nullptr, DL, GetTLI);
+        if (CI->use_empty()) {
+          CI->eraseFromParent();
+          Changed = true;
+        }
       }
     } else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(U)) {
       // Do not transform "gepinst (gep constexpr (GV))" here, because forming
