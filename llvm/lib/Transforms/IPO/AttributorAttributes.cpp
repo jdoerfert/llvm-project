@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/Value.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/SCCIterator.h"
@@ -5078,16 +5080,11 @@ struct AAHeapToStackImpl : public AAHeapToStack {
     Function *F = getAnchorScope();
     const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(*F);
 
+    DenseMap<BasicBlock *, SmallVector<CallInst *>> MergeMallocs;
     for (Instruction *MallocCall : MallocCalls) {
       // This malloc cannot be replaced.
       if (BadMallocCalls.count(MallocCall))
         continue;
-
-      for (Instruction *FreeCall : FreesForMalloc[MallocCall]) {
-        LLVM_DEBUG(dbgs() << "H2S: Removing free call: " << *FreeCall << "\n");
-        A.deleteAfterManifest(*FreeCall);
-        HasChanged = ChangeStatus::CHANGED;
-      }
 
       LLVM_DEBUG(dbgs() << "H2S: Removing malloc call: " << *MallocCall
                         << "\n");
@@ -5107,6 +5104,19 @@ struct AAHeapToStackImpl : public AAHeapToStack {
                         .valueOrOne();
       } else {
         Size = MallocCall->getOperand(0);
+      }
+      if (!isa<ConstantInt>(Size)) {
+        if (auto *CI = dyn_cast<CallInst>(MallocCall))
+          if (CI->getCalledFunction() &&
+              CI->getCalledFunction()->getName() == "malloc")
+            MergeMallocs[CI->getParent()].push_back(CI);
+        continue;
+      }
+
+      for (Instruction *FreeCall : FreesForMalloc[MallocCall]) {
+        LLVM_DEBUG(dbgs() << "H2S: Removing free call: " << *FreeCall << "\n");
+        A.deleteAfterManifest(*FreeCall);
+        HasChanged = ChangeStatus::CHANGED;
       }
 
       unsigned AS = cast<PointerType>(MallocCall->getType())->getAddressSpace();
@@ -5144,6 +5154,22 @@ struct AAHeapToStackImpl : public AAHeapToStack {
       HasChanged = ChangeStatus::CHANGED;
     }
 
+    for (auto &It : MergeMallocs) {
+      if (It.second.size() < 2)
+        continue;
+      DenseMap<CallInst *, SmallPtrSet<BasicBlock *, 4>> FreeBlockMap;
+      for (auto *MallocCall : It.second)
+        for (Instruction *FreeCall : FreesForMalloc[MallocCall])
+          FreeBlockMap[MallocCall].insert(FreeCall->getParent());
+      for (unsigned u1 = 0, e = It.second.size(); u1 < e; ++u1) {
+        for (unsigned u2 = u1 + 1; u2 < e; ++u2) {
+          if (FreeBlockMap[It.second[u1]] != FreeBlockMap[It.second[u2]])
+            continue;
+        }
+      }
+
+      HasChanged = ChangeStatus::CHANGED;
+    }
     return HasChanged;
   }
 
@@ -5174,6 +5200,14 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
     return Explorer.findInContextOf(UniqueFree, I.getNextNode());
   };
 
+  auto IsFree = [&](Instruction &I) {
+    if (auto *CI = dyn_cast<CallInst>(&I))
+      if (CI->getCalledFunction() &&
+          CI->getCalledFunction()->getName() == "free")
+        return true;
+    return !!isFreeCall(&I, TLI);
+  };
+
   auto UsesCheck = [&](Instruction &I) {
     bool ValidUsesOnly = true;
     bool MustUse = true;
@@ -5195,7 +5229,7 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
         if (!CB->isArgOperand(&U) || CB->isLifetimeStartOrEnd())
           return true;
         // Record malloc.
-        if (isFreeCall(UserI, TLI)) {
+        if (IsFree(*UserI)) {
           if (MustUse) {
             FreesForMalloc[&I].insert(UserI);
           } else {
@@ -5227,7 +5261,13 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
 
       if (isa<GetElementPtrInst>(UserI) || isa<BitCastInst>(UserI) ||
           isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
-        MustUse &= !(isa<PHINode>(UserI) || isa<SelectInst>(UserI));
+        if (isa<PHINode>(UserI) || isa<SelectInst>(UserI)) {
+          if (!llvm::all_of(UserI->operands(), [&](Value *Op) {
+                return Op == U.get() || isa<UndefValue>(Op) ||
+                       isa<ConstantPointerNull>(Op);
+              }))
+            MustUse = false;
+        }
         Follow = true;
         return true;
       }
@@ -5246,6 +5286,11 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
       return true;
 
     bool IsMalloc = isMallocLikeFn(&I, TLI);
+    if (auto *CI = dyn_cast<CallInst>(&I))
+      if (CI->getCalledFunction() &&
+          CI->getCalledFunction()->getName() == "malloc")
+        IsMalloc = true;
+
     bool IsAlignedAllocLike = isAlignedAllocLikeFn(&I, TLI);
     bool IsCalloc = !IsMalloc && isCallocLikeFn(&I, TLI);
     if (!IsMalloc && !IsAlignedAllocLike && !IsCalloc) {
