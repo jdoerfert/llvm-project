@@ -2,6 +2,9 @@
 
 #include <stdlib.h>
 
+void *malloc(size_t);
+void free(void*);
+
 #if __cplusplus >= 201703L
 extern int abs (int __x) throw()  __attribute__ ((__const__)) ;
 extern long int labs (long int __x) throw() __attribute__ ((__const__)) ;

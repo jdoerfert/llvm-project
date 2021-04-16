@@ -14,6 +14,12 @@
 #error "This file is for OpenMP compilation only."
 #endif
 
+#ifdef __cplusplus
+// Ensure we make `_ZdlPv`, aka. `operator delete(void*)` available without the
+// need to `include <new>`.
+#include <new>
+#endif
+
 #pragma omp begin declare variant match(                                       \
     device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
 
