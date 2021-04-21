@@ -68,7 +68,7 @@ INLINE
 static int32_t nvptx_parallel_reduce_nowait(
     int32_t global_tid, int32_t num_vars, size_t reduce_size, void *reduce_data,
     kmp_ShuffleReductFctPtr shflFct, kmp_InterWarpCopyFctPtr cpyFct,
-    bool isSPMDExecutionMode, bool isRuntimeUninitialized) {
+    bool isSPMDExecutionMode) {
   uint32_t BlockThreadId = GetLogicalThreadIdInBlock(isSPMDExecutionMode);
   uint32_t NumThreads = GetNumberOfOmpThreads(isSPMDExecutionMode);
   if (NumThreads == 1)
@@ -121,9 +121,9 @@ static int32_t nvptx_parallel_reduce_nowait(
     gpu_irregular_warp_reduce(reduce_data, shflFct,
                               /*LaneCount=*/__kmpc_impl_popc(Liveness),
                               /*LaneId=*/GetThreadIdInBlock() % WARPSIZE);
-  else if (!isRuntimeUninitialized) // Dispersed lanes. Only threads in L2
-                                    // parallel region may enter here; return
-                                    // early.
+  else // Dispersed lanes. Only threads in L2
+       // parallel region may enter here; return
+       // early.
     return gpu_irregular_simd_reduce(reduce_data, shflFct);
 
   // When we have more than [warpsize] number of threads
@@ -142,8 +142,6 @@ static int32_t nvptx_parallel_reduce_nowait(
                                 BlockThreadId);
 
     return BlockThreadId == 0;
-  } else if (isRuntimeUninitialized /* Never an L2 parallel region without the OMP runtime */) {
-    return BlockThreadId == 0;
   }
 
   // Get the OMP thread Id. This is different from BlockThreadId in the case of
@@ -157,9 +155,9 @@ int32_t __kmpc_nvptx_parallel_reduce_nowait_v2(
     kmp_Ident *loc, int32_t global_tid, int32_t num_vars, size_t reduce_size,
     void *reduce_data, kmp_ShuffleReductFctPtr shflFct,
     kmp_InterWarpCopyFctPtr cpyFct) {
-  return nvptx_parallel_reduce_nowait(
-      global_tid, num_vars, reduce_size, reduce_data, shflFct, cpyFct,
-      checkSPMDMode(loc), checkRuntimeUninitialized(loc));
+  return nvptx_parallel_reduce_nowait(global_tid, num_vars, reduce_size,
+                                      reduce_data, shflFct, cpyFct,
+                                      checkSPMDMode(loc));
 }
 
 INLINE static bool isMaster(kmp_Ident *loc, uint32_t ThreadId) {

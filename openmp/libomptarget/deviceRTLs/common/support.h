@@ -22,20 +22,11 @@
 enum ExecutionMode {
   Spmd = 0x00u,
   Generic = 0x01u,
-  ModeMask = 0x01u,
 };
 
-enum RuntimeMode {
-  RuntimeInitialized = 0x00u,
-  RuntimeUninitialized = 0x02u,
-  RuntimeMask = 0x02u,
-};
-
-void setExecutionParameters(ExecutionMode EMode, RuntimeMode RMode);
+void setExecutionParameters(ExecutionMode EMode);
 bool isGenericMode();
 bool isSPMDMode();
-bool isRuntimeUninitialized();
-bool isRuntimeInitialized();
 
 ////////////////////////////////////////////////////////////////////////////////
 // Execution Modes based on location parameter fields
@@ -43,8 +34,6 @@ bool isRuntimeInitialized();
 
 bool checkSPMDMode(kmp_Ident *loc);
 bool checkGenericMode(kmp_Ident *loc);
-bool checkRuntimeUninitialized(kmp_Ident *loc);
-bool checkRuntimeInitialized(kmp_Ident *loc);
 
 ////////////////////////////////////////////////////////////////////////////////
 // get info from machine

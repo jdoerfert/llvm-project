@@ -162,7 +162,6 @@ EXTERN bool __kmpc_kernel_parallel(void **WorkFn) {
 EXTERN void __kmpc_kernel_end_parallel() {
   // pop stack
   PRINT0(LD_IO | LD_PAR, "call to __kmpc_kernel_end_parallel\n");
-  ASSERT0(LT_FUSSY, isRuntimeInitialized(), "Expected initialized runtime.");
 
   // Only the worker threads call this routine and the master warp
   // never arrives here.  Therefore, use the nvptx thread id.
@@ -180,12 +179,6 @@ EXTERN void __kmpc_serialized_parallel(kmp_Ident *loc, uint32_t global_tid) {
   PRINT0(LD_IO, "call to __kmpc_serialized_parallel\n");
 
   IncParallelLevel(/*ActiveParallel=*/false, __kmpc_impl_activemask());
-
-  if (checkRuntimeUninitialized(loc)) {
-    ASSERT0(LT_FUSSY, checkSPMDMode(loc),
-            "Expected SPMD mode with uninitialized runtime.");
-    return;
-  }
 
   // assume this is only called for nested parallel
   int threadId = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
@@ -219,12 +212,6 @@ EXTERN void __kmpc_end_serialized_parallel(kmp_Ident *loc,
   PRINT0(LD_IO, "call to __kmpc_end_serialized_parallel\n");
 
   DecParallelLevel(/*ActiveParallel=*/false, __kmpc_impl_activemask());
-
-  if (checkRuntimeUninitialized(loc)) {
-    ASSERT0(LT_FUSSY, checkSPMDMode(loc),
-            "Expected SPMD mode with uninitialized runtime.");
-    return;
-  }
 
   // pop stack
   int threadId = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
@@ -260,8 +247,6 @@ EXTERN int32_t __kmpc_global_thread_num(kmp_Ident *loc) {
 EXTERN void __kmpc_push_num_threads(kmp_Ident *loc, int32_t tid,
                                     int32_t num_threads) {
   PRINT(LD_IO, "call kmpc_push_num_threads %d\n", num_threads);
-  ASSERT0(LT_FUSSY, checkRuntimeInitialized(loc),
-          "Runtime must be initialized.");
   tid = GetLogicalThreadIdInBlock(checkSPMDMode(loc));
   omptarget_nvptx_threadPrivateContext->NumThreadsForNextParallel(tid) =
       num_threads;

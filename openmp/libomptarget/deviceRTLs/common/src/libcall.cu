@@ -31,7 +31,6 @@ EXTERN void omp_set_num_threads(int num) {
   // Ignore it for SPMD mode.
   if (isSPMDMode())
     return;
-  ASSERT0(LT_FUSSY, isRuntimeInitialized(), "Expected initialized runtime.");
   PRINT(LD_IO, "call omp_set_num_threads(num %d)\n", num);
   if (num <= 0) {
     WARNING0(LW_INPUT, "expected positive num; ignore\n");
@@ -216,17 +215,10 @@ EXTERN int omp_get_team_size(int level) {
 }
 
 EXTERN void omp_get_schedule(omp_sched_t *kind, int *modifier) {
-  if (isRuntimeUninitialized()) {
-    ASSERT0(LT_FUSSY, isSPMDMode(),
-            "Expected SPMD mode only with uninitialized runtime.");
-    *kind = omp_sched_static;
-    *modifier = 1;
-  } else {
-    omptarget_nvptx_TaskDescr *currTaskDescr =
-        getMyTopTaskDescriptor(isSPMDMode());
-    *kind = currTaskDescr->GetRuntimeSched();
-    *modifier = currTaskDescr->RuntimeChunkSize();
-  }
+  omptarget_nvptx_TaskDescr *currTaskDescr =
+      getMyTopTaskDescriptor(isSPMDMode());
+  *kind = currTaskDescr->GetRuntimeSched();
+  *modifier = currTaskDescr->RuntimeChunkSize();
   PRINT(LD_IO, "call omp_get_schedule returns sched %d and modif %d\n",
         (int)*kind, *modifier);
 }
@@ -234,11 +226,6 @@ EXTERN void omp_get_schedule(omp_sched_t *kind, int *modifier) {
 EXTERN void omp_set_schedule(omp_sched_t kind, int modifier) {
   PRINT(LD_IO, "call omp_set_schedule(sched %d, modif %d)\n", (int)kind,
         modifier);
-  if (isRuntimeUninitialized()) {
-    ASSERT0(LT_FUSSY, isSPMDMode(),
-            "Expected SPMD mode only with uninitialized runtime.");
-    return;
-  }
   if (kind >= omp_sched_static && kind < omp_sched_auto) {
     omptarget_nvptx_TaskDescr *currTaskDescr =
         getMyTopTaskDescriptor(isSPMDMode());

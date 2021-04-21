@@ -25,7 +25,6 @@ INLINE static bool IsMasterThread(bool isSPMDExecutionMode) {
 ////////////////////////////////////////////////////////////////////////////////
 
 INLINE static void data_sharing_init_stack_common() {
-  ASSERT0(LT_FUSSY, isRuntimeInitialized(), "Runtime must be initialized.");
   omptarget_nvptx_TeamDescr *teamDescr =
       &omptarget_nvptx_threadPrivateContext->TeamContext();
 
@@ -41,7 +40,6 @@ INLINE static void data_sharing_init_stack_common() {
 // initialization). This function is called only by the MASTER thread of each
 // team in non-SPMD mode.
 EXTERN void __kmpc_data_sharing_init_stack() {
-  ASSERT0(LT_FUSSY, isRuntimeInitialized(), "Runtime must be initialized.");
   // This function initializes the stack pointer with the pointer to the
   // statically allocated shared memory slots. The size of a shared memory
   // slot is pre-determined to be 256 bytes.
@@ -53,7 +51,6 @@ EXTERN void __kmpc_data_sharing_init_stack() {
 // once at the beginning of a data sharing context (coincides with the kernel
 // initialization). This function is called in SPMD mode only.
 EXTERN void __kmpc_data_sharing_init_stack_spmd() {
-  ASSERT0(LT_FUSSY, isRuntimeInitialized(), "Runtime must be initialized.");
   // This function initializes the stack pointer with the pointer to the
   // statically allocated shared memory slots. The size of a shared memory
   // slot is pre-determined to be 256 bytes.
@@ -64,7 +61,6 @@ EXTERN void __kmpc_data_sharing_init_stack_spmd() {
 }
 
 INLINE static void *data_sharing_push_stack_common(size_t PushSize) {
-  ASSERT0(LT_FUSSY, isRuntimeInitialized(), "Expected initialized runtime.");
 
   // Only warp active master threads manage the stack.
   bool IsWarpMaster = (GetThreadIdInBlock() % WARPSIZE) == 0;
@@ -158,9 +154,8 @@ EXTERN void *__kmpc_data_sharing_push_stack(size_t DataSize,
   // space for the variables of each thread in the warp,
   // i.e. one DataSize chunk per warp lane.
   // TODO: change WARPSIZE to the number of active threads in the warp.
-  size_t PushSize = (isRuntimeUninitialized() || IsMasterThread(isSPMDMode()))
-                        ? DataSize
-                        : WARPSIZE * DataSize;
+  size_t PushSize =
+      IsMasterThread(isSPMDMode()) ? DataSize : WARPSIZE * DataSize;
 
   // Compute the start address of the frame of each thread in the warp.
   uintptr_t FrameStartAddress =
@@ -175,7 +170,6 @@ EXTERN void *__kmpc_data_sharing_push_stack(size_t DataSize,
 // reclaim all outstanding global memory slots since it is
 // likely we have reached the end of the kernel.
 EXTERN void __kmpc_data_sharing_pop_stack(void *FrameStart) {
-  ASSERT0(LT_FUSSY, isRuntimeInitialized(), "Expected initialized runtime.");
 
   __kmpc_impl_threadfence_block();
 
