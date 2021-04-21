@@ -212,6 +212,11 @@ struct OMPInformationCache : public InformationCache {
     /// Map from functions to all uses of this runtime function contained in
     /// them.
     DenseMap<Function *, std::shared_ptr<UseVector>> UsesMap;
+
+  public:
+    /// Iterators for the uses of this runtime function.
+    decltype(UsesMap)::iterator begin() { return UsesMap.begin(); }
+    decltype(UsesMap)::iterator end() { return UsesMap.end(); }
   };
 
   /// An OpenMP-IR-Builder instance
@@ -221,6 +226,9 @@ struct OMPInformationCache : public InformationCache {
   EnumeratedArray<RuntimeFunctionInfo, RuntimeFunction,
                   RuntimeFunction::OMPRTL___last>
       RFIs;
+
+  /// Map from function declarations/definitions to their runtime enum type.
+  DenseMap<Function *, RuntimeFunction> RuntimeFunctionIDMap;
 
   /// Map from ICV kind to the ICV description.
   EnumeratedArray<InternalControlVarInfo, InternalControlVar,
@@ -364,6 +372,7 @@ struct OMPInformationCache : public InformationCache {
     SmallVector<Type *, 8> ArgsTypes({__VA_ARGS__});                           \
     Function *F = M.getFunction(_Name);                                        \
     if (declMatchesRTFTypes(F, OMPBuilder._ReturnType, ArgsTypes)) {           \
+      RuntimeFunctionIDMap[F] = _Enum;                                         \
       auto &RFI = RFIs[_Enum];                                                 \
       RFI.Kind = _Enum;                                                        \
       RFI.Name = _Name;                                                        \
@@ -508,13 +517,14 @@ struct OpenMPOpt {
     if (IsModulePass) {
       if (remarksEnabled())
         analysisGlobalization();
+
+      Changed |= createCustomDeviceCodeStateMachines();
+
     } else {
       if (PrintICVValues)
         printICVs();
       if (PrintOpenMPKernels)
         printKernels();
-
-      Changed |= rewriteDeviceCodeStateMachine();
 
       Changed |= runAttributor();
 
@@ -522,6 +532,8 @@ struct OpenMPOpt {
       OMPInfoCache.recollectUses();
 
       Changed |= deleteParallelRegions();
+      Changed |= rewriteDeviceCodeStateMachine();
+
       if (HideMemoryTransferLatency)
         Changed |= hideMemTransfersLatency();
       Changed |= deduplicateRuntimeCalls();
@@ -1504,6 +1516,10 @@ private:
     return getUniqueKernelFor(*I.getFunction());
   }
 
+  /// Create a custom device (=GPU) state machine which is specialized for the
+  /// parallel regions that are reachable by the kernel.
+  bool createCustomDeviceCodeStateMachines();
+
   /// Rewrite the device (=GPU) code state machine create in non-SPMD mode in
   /// the cases we can avoid taking the address of a function.
   bool rewriteDeviceCodeStateMachine();
@@ -1677,6 +1693,259 @@ Kernel OpenMPOpt::getUniqueKernelFor(Function &F) {
   UniqueKernelMap[&F] = K;
 
   return K;
+}
+
+struct KernelInfo {
+  SmallVector<Function *, 2> ParallelRegions;
+  bool MayReachUnknownParallelRegion = false;
+
+  KernelInfo(Function &Kernel, OMPInformationCache &OMPInfoCache);
+};
+
+KernelInfo::KernelInfo(Function &Kernel, OMPInformationCache &OMPInfoCache) {
+  SmallVector<Function *, 8> Worklist;
+  SmallPtrSet<Function *, 8> Visited;
+  Worklist.push_back(&Kernel);
+
+  // TODO: This should be done in a more holistic way as part of the Attributor
+  //       run but for now a simple traversal of all reachable functions will
+  //       do.
+  while (!Worklist.empty()) {
+    Function *Fn = Worklist.pop_back_val();
+    for (Instruction &I : instructions(Fn)) {
+      CallBase *CB = dyn_cast<CallBase>(&I);
+      if (!CB || CB->hasFnAttr("no_openmp"))
+        continue;
+      if (isa<IntrinsicInst>(CB))
+        continue;
+
+      // Check the callee to determine what to do, we distinguish three cases:
+      // 1) non-runtime functions, which we analyze further if possible,
+      // 2) runtime task function, which we handle conservatively, and
+      // 3) runtime parallel function, for which we try to identify the parallel
+      //    region function.
+      Function *Callee = CB->getCalledFunction();
+      const auto &It = OMPInfoCache.RuntimeFunctionIDMap.find(Callee);
+      if (It == OMPInfoCache.RuntimeFunctionIDMap.end()) {
+        if (!Callee || Callee->isDeclaration())
+          MayReachUnknownParallelRegion = true;
+        else if (Visited.insert(Callee).second)
+          Worklist.push_back(Callee);
+        continue;
+      }
+      // For now we are conservative when it comes to tasks
+      if (It->getSecond() == OMPRTL___kmpc_omp_task) {
+        MayReachUnknownParallelRegion = true;
+        continue;
+      }
+      // Parallel regions are are analyzed further
+      if (It->getSecond() == OMPRTL___kmpc_parallel_51) {
+        const unsigned int WrapperFunctionArgNo = 6;
+        if (Function *ParallelRegion = dyn_cast<Function>(
+                CB->getArgOperand(WrapperFunctionArgNo)->stripPointerCasts())) {
+          ParallelRegions.push_back(ParallelRegion);
+        } else {
+          MayReachUnknownParallelRegion = true;
+        }
+      }
+      // All other runtime calls are not going to result in the execution of
+      // more parallel regions.
+    }
+  }
+}
+
+bool OpenMPOpt::createCustomDeviceCodeStateMachines() {
+
+  bool Changed = false;
+  if (OMPInfoCache.Kernels.empty())
+    return Changed;
+
+  OMPInformationCache::RuntimeFunctionInfo &KernelParallelRFI =
+      OMPInfoCache.RFIs[OMPRTL___kmpc_parallel_51];
+  SmallPtrSet<Function *, 8> FunctionsWithParallelRegions;
+
+  for (auto &It : KernelParallelRFI) {
+    if (!It.getSecond()->empty())
+      FunctionsWithParallelRegions.insert(It.getFirst());
+  }
+
+  auto &Ctx = M.getContext();
+  for (Function *Kernel : OMPInfoCache.Kernels) {
+    OMPInformationCache::RuntimeFunctionInfo &TIRTI =
+        OMPInfoCache.RFIs[OMPRTL___kmpc_target_init];
+    auto *UV = TIRTI.getUseVector(*Kernel);
+    if (!UV || UV->size() != 1)
+      continue;
+
+    CallBase *InitCB = getCallIfRegularCall(*UV->front(), &TIRTI);
+    if (!InitCB)
+      continue;
+    const int InitIsSPMDArgNo = 1;
+    const int InitUseStateMachineArgNo = 2;
+
+    ConstantInt *UseStateMachine =
+        dyn_cast<ConstantInt>(InitCB->getArgOperand(InitUseStateMachineArgNo));
+    ConstantInt *IsSPMD =
+        dyn_cast<ConstantInt>(InitCB->getArgOperand(InitIsSPMDArgNo));
+    if (!UseStateMachine || UseStateMachine->isZero() || !IsSPMD ||
+        !IsSPMD->isZero())
+      continue;
+
+    // Indicate we use a custom state machine now.
+    InitCB->setArgOperand(InitUseStateMachineArgNo,
+                          ConstantInt::getBool(Ctx, 0));
+    Changed = true;
+
+    // If we don't need a state machine we are done.
+    KernelInfo KI(*Kernel, OMPInfoCache);
+    if (!KI.MayReachUnknownParallelRegion && KI.ParallelRegions.empty())
+      continue;
+
+    // Create all the blocks:
+    //
+    //                       InitCB = __kmpc_target_init(...)
+    //                       bool IsWorker = InitCB > 0;
+    //                       if (IsWorker) {
+    // SMBeginBB:               __kmpc_barrier_simple_spmd(...);
+    //                         void *WorkFn;
+    //                         bool Active = __kmpc_kernel_parallel(&WorkFn);
+    //                         if (!WorkFn) return;
+    // SMIsActiveCheckBB:       if (Active) {
+    // SMIfCascadeCurrentBB:      if      (WorkFn == <ParFn0>)
+    //                              ParFn0(...);
+    // SMIfCascadeCurrentBB:      else if (WorkFn == <ParFn1>)
+    //                              ParFn1(...);
+    //                            ...
+    // SMIfCascadeCurrentBB:      else
+    //                              ((WorkFnTy*)WorkFn)(...);
+    // SMEndParallelBB:           __kmpc_kernel_end_parallel(...);
+    //                          }
+    // SMDoneBB:                __kmpc_barrier_simple_spmd(...);
+    //                          goto SMBeginBB;
+    //                       }
+    // UserCodeEntryBB:      // user code
+    //                       __kmpc_target_deinit(...)
+    //
+    BasicBlock *InitBB = InitCB->getParent();
+    BasicBlock *UserCodeEntryBB = InitBB->splitBasicBlock(
+        InitCB->getNextNode(), "thread.user_code.check");
+    BasicBlock *StateMachineBeginBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.begin", Kernel, UserCodeEntryBB);
+    BasicBlock *StateMachineFinishedBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.finished", Kernel, UserCodeEntryBB);
+    BasicBlock *StateMachineIsActiveCheckBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.is_active.check", Kernel, UserCodeEntryBB);
+    BasicBlock *StateMachineIfCascadeCurrentBB =
+        BasicBlock::Create(Ctx, "worker_state_machine.parallel_region.check",
+                           Kernel, UserCodeEntryBB);
+    BasicBlock *StateMachineEndParallelBB =
+        BasicBlock::Create(Ctx, "worker_state_machine.parallel_region.end",
+                           Kernel, UserCodeEntryBB);
+    BasicBlock *StateMachineDoneBarrierBB = BasicBlock::Create(
+        Ctx, "worker_state_machine.done.barrier", Kernel, UserCodeEntryBB);
+
+    ReturnInst::Create(Ctx, StateMachineFinishedBB);
+
+    InitBB->getTerminator()->eraseFromParent();
+    Value *IsWorker = ICmpInst::Create(
+        ICmpInst::ICmp, llvm::CmpInst::ICMP_NE, InitCB,
+        ConstantInt::get(InitCB->getType(), 0), "thread.is_worker", InitBB);
+    BranchInst::Create(StateMachineBeginBB, UserCodeEntryBB, IsWorker, InitBB);
+
+    // Create local storage for the work function pointer.
+    Type *VoidPtrTy = Type::getInt8PtrTy(Ctx);
+    AllocaInst *WorkFnAI = new AllocaInst(VoidPtrTy, 0, "worker.work_fn.addr",
+                                          &Kernel->getEntryBlock().front());
+
+    OMPInfoCache.OMPBuilder.updateToLocation(IRBuilder<>::InsertPoint(
+        StateMachineBeginBB, StateMachineBeginBB->end()));
+
+    Value *Ident = InitCB->getArgOperand(0);
+    Value *GTid = InitCB;
+
+    FunctionCallee BarrierFn =
+        OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+            M, OMPRTL___kmpc_barrier_simple_spmd);
+    CallInst::Create(BarrierFn, {Ident, GTid}, "", StateMachineBeginBB);
+
+    FunctionCallee KernelParallelFn =
+        OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+            M, OMPRTL___kmpc_kernel_parallel);
+    Value *IsActiveWorker = CallInst::Create(
+        KernelParallelFn, {WorkFnAI}, "worker.is_active", StateMachineBeginBB);
+    Value *WorkFn = new LoadInst(VoidPtrTy, WorkFnAI, "worker.work_fn",
+                                 StateMachineBeginBB);
+
+    FunctionType *ParallelRegionFnTy = FunctionType::get(
+        Type::getVoidTy(Ctx), {Type::getInt16Ty(Ctx), Type::getInt32Ty(Ctx)},
+        false);
+    Value *WorkFnCast = BitCastInst::CreatePointerBitCastOrAddrSpaceCast(
+        WorkFn, ParallelRegionFnTy->getPointerTo(), "worker.work_fn.addr_cast",
+        StateMachineBeginBB);
+
+    Value *IsDone = ICmpInst::Create(ICmpInst::ICmp, llvm::CmpInst::ICMP_EQ,
+                                     WorkFn, Constant::getNullValue(VoidPtrTy),
+                                     "worker.is_done", StateMachineBeginBB);
+    BranchInst::Create(StateMachineFinishedBB, StateMachineIsActiveCheckBB,
+                       IsDone, StateMachineBeginBB);
+
+    BranchInst::Create(StateMachineIfCascadeCurrentBB,
+                       StateMachineDoneBarrierBB, IsActiveWorker,
+                       StateMachineIsActiveCheckBB);
+
+    Value *ZeroArg =
+        Constant::getNullValue(ParallelRegionFnTy->getParamType(0));
+
+    if (!KI.ParallelRegions.empty()) {
+
+      for (int i = 0, e = KI.ParallelRegions.size(); i < e; ++i) {
+        auto *ParallelRegion = KI.ParallelRegions[i];
+        BasicBlock *PRExecuteBB = BasicBlock::Create(
+            Ctx, "worker_state_machine.parallel_region.execute", Kernel,
+            StateMachineEndParallelBB);
+        CallInst::Create(ParallelRegion, {ZeroArg, GTid}, "", PRExecuteBB);
+        BranchInst::Create(StateMachineEndParallelBB, PRExecuteBB);
+
+        BasicBlock *PRNextBB = BasicBlock::Create(
+            Ctx, "worker_state_machine.parallel_region.check", Kernel,
+            StateMachineEndParallelBB);
+
+        // Check if we need to compare the pointer at all or if we can just
+        // call the parallel region function.
+        Value *IsPR;
+        if (i + 1 < e || KI.MayReachUnknownParallelRegion)
+          IsPR = ICmpInst::Create(ICmpInst::ICmp, llvm::CmpInst::ICMP_EQ,
+                                  WorkFnCast, ParallelRegion,
+                                  "worker.check_parallel_region",
+                                  StateMachineIfCascadeCurrentBB);
+        else
+          IsPR = ConstantInt::getTrue(Ctx);
+
+        BranchInst::Create(PRExecuteBB, PRNextBB, IsPR,
+                           StateMachineIfCascadeCurrentBB);
+        StateMachineIfCascadeCurrentBB = PRNextBB;
+      }
+    }
+
+    if (KI.MayReachUnknownParallelRegion) {
+      StateMachineIfCascadeCurrentBB->setName(
+          "worker_state_machine.parallel_region.fallback.execute");
+      CallInst::Create(ParallelRegionFnTy, WorkFnCast, {ZeroArg, GTid}, "",
+                       StateMachineIfCascadeCurrentBB);
+    }
+    BranchInst::Create(StateMachineEndParallelBB,
+                       StateMachineIfCascadeCurrentBB);
+
+    CallInst::Create(OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+                         M, OMPRTL___kmpc_kernel_end_parallel),
+                     {}, "", StateMachineEndParallelBB);
+    BranchInst::Create(StateMachineDoneBarrierBB, StateMachineEndParallelBB);
+
+    CallInst::Create(BarrierFn, {Ident, GTid}, "", StateMachineDoneBarrierBB);
+    BranchInst::Create(StateMachineBeginBB, StateMachineDoneBarrierBB);
+  }
+
+  return Changed;
 }
 
 bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
