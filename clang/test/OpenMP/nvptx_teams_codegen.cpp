@@ -55,7 +55,6 @@ int main (int argc, char **argv) {
 // CK1:  store i{{[0-9]+}} [[ARG]], i{{[0-9]+}}* [[ARGCADDR]],
 // CK1:  call void [[OUTLINED:@.+]](i32* %{{.+}}, i32* %{{.+}}, i32* [[ARGCADDR]])
 // CK1:  ret void
-// CK1-NEXT: }
 
 // CK1:  define internal void [[OUTLINED]](
 // CK1:  store i{{[0-9]+}} 0, i{{[0-9]+}}* %
@@ -76,7 +75,6 @@ int main (int argc, char **argv) {
 // CK1: store i{{[0-9]+}}** [[ARG]], i{{[0-9]+}}*** [[ARGCADDR]],
 // CK1: call void [[OUTLINED:@.+]](i32* %{{.+}}, i32* %{{.+}}, i8*** [[ARGCADDR]])
 // CK1:  ret void
-// CK1-NEXT: }
 
 // CK1:  define internal void [[OUTLINED]](
 // CK1: store i{{[0-9]+}}** null, i{{[0-9]+}}*** %

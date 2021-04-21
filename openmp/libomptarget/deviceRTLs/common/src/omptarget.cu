@@ -12,6 +12,7 @@
 #pragma omp declare target
 
 #include "common/omptarget.h"
+#include "common/support.h"
 #include "target_impl.h"
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -26,12 +27,10 @@ extern omptarget_nvptx_Queue<omptarget_nvptx_ThreadPrivateContext,
 // init entry points
 ////////////////////////////////////////////////////////////////////////////////
 
-EXTERN void __kmpc_kernel_init(int ThreadLimit, int16_t RequiresOMPRuntime) {
+static void __kmpc_generic_kernel_init() {
   PRINT(LD_IO, "call to __kmpc_kernel_init with version %f\n",
         OMPTARGET_NVPTX_VERSION);
-  ASSERT0(LT_FUSSY, RequiresOMPRuntime,
-          "Generic always requires initialized runtime.");
-  setExecutionParameters(Generic, RuntimeInitialized);
+  setExecutionParameters(Generic);
   for (int I = 0; I < MAX_THREADS_PER_TEAM / WARPSIZE; ++I)
     parallelLevel[I] = 0;
 
@@ -63,14 +62,16 @@ EXTERN void __kmpc_kernel_init(int ThreadLimit, int16_t RequiresOMPRuntime) {
   omptarget_nvptx_TaskDescr *currTaskDescr =
       omptarget_nvptx_threadPrivateContext->GetTopLevelTaskDescr(threadId);
   nThreads = GetNumberOfThreadsInBlock();
+  int ThreadLimit = GetNumberOfProcsInTeam(/* IsSPMD */ false);
   threadLimit = ThreadLimit;
   __kmpc_impl_target_init();
 }
 
-EXTERN void __kmpc_kernel_deinit(int16_t IsOMPRuntimeInitialized) {
+static void __kmpc_generic_kernel_deinit() {
   PRINT0(LD_IO, "call to __kmpc_kernel_deinit\n");
-  ASSERT0(LT_FUSSY, IsOMPRuntimeInitialized,
-          "Generic always requires initialized runtime.");
+  uint32_t TId = GetThreadIdInBlock();
+  if (!IsTeamMaster(TId))
+    return;
   // Enqueue omp state object for use by another team.
   int slot = usedSlotIdx;
   omptarget_nvptx_device_State[slot].Enqueue(
@@ -79,12 +80,10 @@ EXTERN void __kmpc_kernel_deinit(int16_t IsOMPRuntimeInitialized) {
   omptarget_nvptx_workFn = 0;
 }
 
-EXTERN void __kmpc_spmd_kernel_init(int ThreadLimit,
-                                    int16_t RequiresOMPRuntime) {
+static void __kmpc_spmd_kernel_init() {
   PRINT0(LD_IO, "call to __kmpc_spmd_kernel_init\n");
 
-  setExecutionParameters(Spmd, RequiresOMPRuntime ? RuntimeInitialized
-                                                  : RuntimeUninitialized);
+  setExecutionParameters(Spmd);
   int threadId = GetThreadIdInBlock();
   if (threadId == 0) {
     usedSlotIdx = __kmpc_impl_smid() % MAX_SM;
@@ -93,11 +92,6 @@ EXTERN void __kmpc_spmd_kernel_init(int ThreadLimit,
   } else if (GetLaneId() == 0) {
     parallelLevel[GetWarpId()] =
         1 + (GetNumberOfThreadsInBlock() > 1 ? OMP_ACTIVE_PARALLEL_LEVEL : 0);
-  }
-  if (!RequiresOMPRuntime) {
-    // Runtime is not required - exit.
-    __kmpc_impl_syncthreads();
-    return;
   }
 
   //
@@ -132,18 +126,14 @@ EXTERN void __kmpc_spmd_kernel_init(int ThreadLimit,
                                                              newTaskDescr);
 
   // init thread private from init value
+  int ThreadLimit = GetNumberOfProcsInTeam(/* IsSPMD */ true);
   PRINT(LD_PAR,
         "thread will execute parallel region with id %d in a team of "
         "%d threads\n",
         (int)newTaskDescr->ThreadId(), (int)ThreadLimit);
 }
 
-EXTERN void __kmpc_spmd_kernel_deinit_v2(int16_t RequiresOMPRuntime) {
-  // We're not going to pop the task descr stack of each thread since
-  // there are no more parallel regions in SPMD mode.
-  if (!RequiresOMPRuntime)
-    return;
-
+static void __kmpc_spmd_kernel_deinit() {
   __kmpc_impl_syncthreads();
   int threadId = GetThreadIdInBlock();
   if (threadId == 0) {
@@ -159,5 +149,61 @@ EXTERN int8_t __kmpc_is_spmd_exec_mode() {
   PRINT0(LD_IO | LD_PAR, "call to __kmpc_is_spmd_exec_mode\n");
   return isSPMDMode();
 }
+
+bool __kmpc_kernel_parallel(void**WorkFn);
+
+static void __kmpc_target_region_state_machine(ident_t *Ident) {
+
+  uint32_t TId = GetThreadIdInBlock();
+
+  do {
+    void* WorkFn = 0;
+
+    // Wait for the signal that we have a new work function.
+    __kmpc_barrier_simple_spmd(Ident, TId);
+
+
+    // Retrieve the work function from the runtime.
+    bool IsActive = __kmpc_kernel_parallel(&WorkFn);
+
+    // If there is nothing more to do, break out of the state machine by
+    // returning to the caller.
+    if (!WorkFn)
+      return;
+
+    if (IsActive)
+      ((void(*)(uint32_t,uint32_t))WorkFn)(0, TId);
+
+    __kmpc_barrier_simple_spmd(Ident, TId);
+
+  } while (true);
+}
+
+int32_t __kmpc_target_init(ident_t *Ident, bool IsSPMD,
+                          bool UseGenericStateMachine) {
+  if (IsSPMD)
+    __kmpc_spmd_kernel_init();
+  else
+    __kmpc_generic_kernel_init();
+
+  uint32_t TId = GetThreadIdInBlock();
+   __kmpc_barrier_simple_spmd(Ident, TId);
+
+   if (IsSPMD)
+     return 0;
+
+  if (UseGenericStateMachine && !IsTeamMaster(TId))
+    __kmpc_target_region_state_machine(Ident);
+
+  return TId;
+}
+
+void __kmpc_target_deinit(ident_t *Ident, bool IsSPMD) {
+  if (IsSPMD)
+    __kmpc_spmd_kernel_deinit();
+  else
+    __kmpc_generic_kernel_deinit();
+}
+
 
 #pragma omp end declare target
