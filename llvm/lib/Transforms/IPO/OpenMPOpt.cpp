@@ -15,6 +15,8 @@
 #include "llvm/Transforms/IPO/OpenMPOpt.h"
 
 #include "llvm/ADT/EnumeratedArray.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
@@ -22,8 +24,12 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -71,6 +77,9 @@ STATISTIC(
     "Number of OpenMP parallel regions replaced with ID in GPU state machines");
 STATISTIC(NumOpenMPParallelRegionsMerged,
           "Number of OpenMP parallel regions merged");
+STATISTIC(NumOpenMPTargetRegionsSPMDfromGeneric,
+          "Number of OpenMP target regions executed in SPMD mode instead of "
+          "generic mode");
 
 #if !defined(NDEBUG)
 static constexpr auto TAG = "[" DEBUG_TYPE "]";
@@ -2513,7 +2522,175 @@ struct AAICVTrackerCallSiteReturned : AAICVTracker {
     return Changed;
   }
 };
+
+struct AASPMDInfo : public StateWrapper<BooleanState, AbstractAttribute> {
+  using Base = StateWrapper<BooleanState, AbstractAttribute>;
+  AASPMDInfo(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
+
+  void initialize(Attributor &A) override {
+    Function *F = getAnchorScope();
+    if (!F || !A.isFunctionIPOAmendable(*F))
+      indicatePessimisticFixpoint();
+  }
+
+  /// Returns true if value is assumed to be tracked.
+  bool canBeExecutedInSPMDMode() const { return getAssumed(); }
+
+  /// Create an abstract attribute biew for the position \p IRP.
+  static AASPMDInfo &createForPosition(const IRPosition &IRP, Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AASPMDInfo"; }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is AASPMDInfo
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  static const char ID;
+};
+
+struct AASPMDInfoFunction : AASPMDInfo {
+  AASPMDInfoFunction(const IRPosition &IRP, Attributor &A)
+      : AASPMDInfo(IRP, A) {}
+
+  void trackStatistics() const override {
+    ++NumOpenMPTargetRegionsSPMDfromGeneric;
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+
+    auto CheckRWInst = [&](Instruction &I) {
+      // We handle calls later.
+      if (isa<CallBase>(I))
+        return true;
+      // We only care about write effects.
+      if (!I.mayWriteToMemory())
+        return true;
+      if (auto *SI = dyn_cast<StoreInst>(&I)) {
+        SmallVector<const Value *> Objects;
+        getUnderlyingObjects(SI->getPointerOperand(), Objects);
+        if (llvm::all_of(Objects,
+                         [](const Value *Obj) { return isa<AllocaInst>(Obj); }))
+          return true;
+      }
+
+      //      Function *F = getAnchorScope();
+      //      auto Remark = [&](OptimizationRemark OR) {
+      //        return OR << "OpenMP GPU kernel "
+      //                  << ore::NV("OpenMPGPUKernel", F->getName())
+      //                  << " cannot be executed in SPMD-mode due to "
+      //                  << ore::NV("OpenMPGPUKernelNonSPMDInst",
+      //                  I.getDebugLoc()) << "\n";
+      //      };
+      //      emitRemarkOnFunction(F, "OpenMPGPUGenericMode", Remark);
+      LLVM_DEBUG(dbgs() << "Failed SPMD-zation for " << I << "\n");
+      return false;
+    };
+    if (!A.checkForAllReadWriteInstructions(CheckRWInst, *this))
+      return indicatePessimisticFixpoint();
+
+    auto CheckCallInst = [&](Instruction &I) {
+      auto &CB = cast<CallBase>(I);
+      if (!CB.mayWriteToMemory())
+        return true;
+      if (isa<IntrinsicInst>(CB))
+        return true;
+
+      Function *Callee = CB.getCalledFunction();
+      auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+      const auto &It = OMPInfoCache.RuntimeFunctionIDMap.find(Callee);
+      if (It == OMPInfoCache.RuntimeFunctionIDMap.end()) {
+        if (Callee->hasLocalLinkage() && Callee->getNumUses() == 1) {
+          auto &CBAA = A.getAAFor<AASPMDInfo>(
+              *this, IRPosition::callsite_function(CB), DepClassTy::REQUIRED);
+          if (CBAA.canBeExecutedInSPMDMode())
+            return true;
+        }
+      } else if (It->getSecond() == OMPRTL___kmpc_for_static_fini) {
+        return true;
+      } else if (It->getSecond() == OMPRTL___kmpc_for_static_init_4 ||
+                 It->getSecond() == OMPRTL___kmpc_for_static_init_4u ||
+                 It->getSecond() == OMPRTL___kmpc_for_static_init_8 ||
+                 It->getSecond() == OMPRTL___kmpc_for_static_init_8u) {
+        unsigned ScheduleArgOpNo = 2;
+        auto *ScheduleTypeCI =
+            dyn_cast<ConstantInt>(CB.getArgOperand(ScheduleArgOpNo));
+        unsigned ScheduleTypeVal =
+            ScheduleTypeCI ? ScheduleTypeCI->getZExtValue() : 0;
+        if (ScheduleTypeVal == 33 || ScheduleTypeVal == 34 ||
+            ScheduleTypeVal == 91 || ScheduleTypeVal == 92)
+          return true;
+      } else if (It->getSecond() == OMPRTL___kmpc_parallel_51) {
+        ParallelRegions.push_back(&CB);
+        return true;
+      }
+
+      LLVM_DEBUG(dbgs() << "Failed SPMD-zation for " << I << "\n");
+      return false;
+    };
+    if (!A.checkForAllCallLikeInstructions(CheckRWInst, *this))
+      return indicatePessimisticFixpoint();
+    return ChangeStatus::UNCHANGED;
+  }
+
+  SmallVector<CallBase *> ParallelRegions;
+};
+
+struct AASPMDInfoCallSite : AASPMDInfo {
+  AASPMDInfoCallSite(const IRPosition &IRP, Attributor &A)
+      : AASPMDInfo(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    AASPMDInfo::initialize(A);
+    Function *F = getAssociatedFunction();
+    if (!F || F->isDeclaration())
+      indicatePessimisticFixpoint();
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    // TODO: Once we have call site specific value information we can provide
+    //       call site specific liveness information and then it makes
+    //       sense to specialize attributes for call sites arguments instead of
+    //       redirecting requests to the callee argument.
+    Function *F = getAssociatedFunction();
+    const IRPosition &FnPos = IRPosition::function(*F);
+    auto &FnAA = A.getAAFor<AASPMDInfo>(*this, FnPos, DepClassTy::REQUIRED);
+    if (getState() == FnAA.getState())
+      return ChangeStatus::UNCHANGED;
+    getState() = FnAA.getState();
+    return ChangeStatus::CHANGED;
+  }
+};
+
 } // namespace
+
+const char AASPMDInfo::ID = 0;
+
+AASPMDInfo &AASPMDInfo::createForPosition(const IRPosition &IRP,
+                                          Attributor &A) {
+  AASPMDInfo *AA = nullptr;
+  switch (IRP.getPositionKind()) {
+  case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_FLOAT:
+  case IRPosition::IRP_ARGUMENT:
+  case IRPosition::IRP_RETURNED:
+  case IRPosition::IRP_CALL_SITE_RETURNED:
+  case IRPosition::IRP_CALL_SITE_ARGUMENT:
+  case IRPosition::IRP_CALL_SITE:
+    AA = new (A.Allocator) AASPMDInfoCallSite(IRP, A);
+    break;
+  case IRPosition::IRP_FUNCTION:
+    AA = new (A.Allocator) AASPMDInfoFunction(IRP, A);
+    break;
+  }
+
+  return *AA;
+}
 
 const char AAICVTracker::ID = 0;
 
