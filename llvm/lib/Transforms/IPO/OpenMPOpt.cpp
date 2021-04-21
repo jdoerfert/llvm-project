@@ -71,6 +71,9 @@ STATISTIC(NumOpenMPRuntimeFunctionUsesIdentified,
           "Number of OpenMP runtime function uses identified");
 STATISTIC(NumOpenMPTargetRegionKernels,
           "Number of OpenMP target region entry points (=kernels) identified");
+STATISTIC(NumOpenMPTargetRegionKernelsSPMD,
+          "Number of OpenMP target region entry points (=kernels) executed in "
+          "SPMD-mode instead of generic-mode");
 STATISTIC(NumOpenMPTargetRegionKernelsCustomStateMachine,
           "Number of OpenMP target region entry points (=kernels) executed in "
           "generic-mode with customized state machines");
@@ -459,6 +462,9 @@ struct KernelInfoState : AbstractState {
   /// in the ParallelRegions set above.
   bool MayReachUnknownParallelRegion = false;
 
+  /// Flag to indicate if the associated function can be executed in SPMD mode.
+  bool IsSPMDCompatible = true;
+
   /// Abstract State interface
   ///{
 
@@ -477,6 +483,7 @@ struct KernelInfoState : AbstractState {
   /// See AbstractState::indicatePessimisticFixpoint(...)
   ChangeStatus indicatePessimisticFixpoint() override {
     IsAtFixpoint = true;
+    IsSPMDCompatible = false;
     MayReachUnknownParallelRegion = true;
     return ChangeStatus::CHANGED;
   }
@@ -492,7 +499,8 @@ struct KernelInfoState : AbstractState {
   const KernelInfoState &getAssumed() const { return *this; }
 
   bool operator==(const KernelInfoState &RHS) const {
-    if ((MayReachUnknownParallelRegion != RHS.MayReachUnknownParallelRegion))
+    if ((MayReachUnknownParallelRegion != RHS.MayReachUnknownParallelRegion) |
+        (IsSPMDCompatible != RHS.IsSPMDCompatible))
       return false;
     return ParallelRegions.size() == RHS.ParallelRegions.size();
   }
@@ -521,6 +529,7 @@ struct KernelInfoState : AbstractState {
       KernelDeinitCB = KIS.KernelDeinitCB;
     }
     MayReachUnknownParallelRegion |= KIS.MayReachUnknownParallelRegion;
+    IsSPMDCompatible &= KIS.IsSPMDCompatible;
     ParallelRegions.insert(KIS.ParallelRegions.begin(),
                            KIS.ParallelRegions.end());
     return *this;
@@ -558,6 +567,7 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
 
     const int InitIsSPMDArgNo = 1;
     const int InitUseStateMachineArgNo = 2;
+    const int DeinitIsSPMDArgNo = 1;
 
     // Check if the current configuration is non-SPMD and generic state machine.
     // If we already have SPMD mode or a custom state machine we do not need to
@@ -568,6 +578,22 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
     ConstantInt *IsSPMD =
         dyn_cast<ConstantInt>(KernelInitCB->getArgOperand(InitIsSPMDArgNo));
 
+    auto &Ctx = getAnchorValue().getContext();
+    // First check if we can go to SPMD-mode, that is the best option.
+    if (canBeExecutedInSPMDMode() && IsSPMD && IsSPMD->isZero()) {
+      // Indicate we use SPMD mode now.
+      A.changeUseAfterManifest(KernelInitCB->getArgOperandUse(InitIsSPMDArgNo),
+                               *ConstantInt::getBool(Ctx, 1));
+      A.changeUseAfterManifest(
+          KernelInitCB->getArgOperandUse(InitUseStateMachineArgNo),
+          *ConstantInt::getBool(Ctx, 0));
+      A.changeUseAfterManifest(
+          KernelDeinitCB->getArgOperandUse(DeinitIsSPMDArgNo),
+          *ConstantInt::getBool(Ctx, 1));
+      ++NumOpenMPTargetRegionKernelsSPMD;
+      return ChangeStatus::CHANGED;
+    }
+
     // If we are stuck with generic mode, try to create a custom device (=GPU)
     // state machine which is specialized for the parallel regions that are
     // reachable by the kernel.
@@ -576,8 +602,7 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
       return ChangeStatus::UNCHANGED;
     }
 
-    // First, indicate we use a custom state machine now.
-    auto &Ctx = getAnchorValue().getContext();
+    // If not SPMD mode, indicate we use a custom state machine now.
     auto *FalseVal = ConstantInt::getBool(Ctx, 0);
     A.changeUseAfterManifest(
         KernelInitCB->getArgOperandUse(InitUseStateMachineArgNo), *FalseVal);
@@ -749,11 +774,15 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
   /// Statistics are tracked as part of manifest for now.
   void trackStatistics() const override {}
 
+  /// Returns true if value is assumed to be tracked.
+  bool canBeExecutedInSPMDMode() const { return IsSPMDCompatible; }
+
   /// See AbstractAttribute::getAsStr()
   const std::string getAsStr() const override {
     if (!isValidState())
       return "<invalid>";
-    return std::string("#PR: ") + std::to_string(ParallelRegions.size()) +
+    return std::string(canBeExecutedInSPMDMode() ? "SPMD" : "generic") +
+           std::string(" | #PR: ") + std::to_string(ParallelRegions.size()) +
            (MayReachUnknownParallelRegion ? " + Unknown PR" : "");
   }
 
@@ -785,6 +814,29 @@ struct AAKernelInfoFunction : AAKernelInfo {
   ChangeStatus updateImpl(Attributor &A) override {
     KernelInfoState StateBefore = getState();
 
+    // Callback to check a read/write instruction.
+    auto CheckRWInst = [&](Instruction &I) {
+      // We handle calls later.
+      if (isa<CallBase>(I))
+        return true;
+      // We only care about write effects.
+      if (!I.mayWriteToMemory())
+        return true;
+      if (auto *SI = dyn_cast<StoreInst>(&I)) {
+        SmallVector<const Value *> Objects;
+        getUnderlyingObjects(SI->getPointerOperand(), Objects);
+        if (llvm::all_of(Objects,
+                         [](const Value *Obj) { return isa<AllocaInst>(Obj); }))
+          return true;
+      }
+      // For now we give up on everything but stores.
+      IsSPMDCompatible = false;
+      return true;
+    };
+    if (IsSPMDCompatible &&
+        !A.checkForAllReadWriteInstructions(CheckRWInst, *this))
+      IsSPMDCompatible = false;
+
     // Callback to check a call instruction.
     auto CheckCallInst = [&](Instruction &I) {
       auto &CB = cast<CallBase>(I);
@@ -792,7 +844,6 @@ struct AAKernelInfoFunction : AAKernelInfo {
       if (Callee) {
         auto &CBAA = A.getAAFor<AAKernelInfo>(
             *this, IRPosition::callsite_function(CB), DepClassTy::REQUIRED);
-        CBAA.dump();
         if (CBAA.getState().isValidState()) {
           getState() ^= CBAA.getState();
           return true;
@@ -805,6 +856,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       // don't have to completely give up here. It basically means we have no
       // idea what the effects of the call might be, for now the worst that can
       // happen are unknown parallel regions hide in the callee.
+      IsSPMDCompatible = false;
       MayReachUnknownParallelRegion = true;
       return true;
     };
@@ -857,6 +909,15 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     const unsigned int WrapperFunctionArgNo = 6;
     RuntimeFunction RF = It->getSecond();
     switch (RF) {
+    // All the functions we know are compatible with SPMD mode.
+    case OMPRTL___kmpc_for_static_fini:
+    case OMPRTL___kmpc_global_thread_num:
+    case OMPRTL___kmpc_single:
+    case OMPRTL___kmpc_end_single:
+    case OMPRTL___kmpc_master:
+    case OMPRTL___kmpc_end_master:
+    case OMPRTL___kmpc_barrier:
+      break;
     case OMPRTL___kmpc_target_init:
       KernelInitCB = &CB;
       break;
@@ -876,9 +937,33 @@ struct AAKernelInfoCallSite : AAKernelInfo {
       break;
     case OMPRTL___kmpc_omp_task:
       // We do not look into tasks right now, just give up.
+      IsSPMDCompatible = false;
       MayReachUnknownParallelRegion = true;
       break;
+    case OMPRTL___kmpc_for_static_init_4:
+    case OMPRTL___kmpc_for_static_init_4u:
+    case OMPRTL___kmpc_for_static_init_8:
+    case OMPRTL___kmpc_for_static_init_8u: {
+      // Check the schedule and allow static schedule in SPMD mode.
+      unsigned ScheduleArgOpNo = 2;
+      auto *ScheduleTypeCI =
+          dyn_cast<ConstantInt>(CB.getArgOperand(ScheduleArgOpNo));
+      unsigned ScheduleTypeVal =
+          ScheduleTypeCI ? ScheduleTypeCI->getZExtValue() : 0;
+      switch (OMPScheduleType(ScheduleTypeVal)) {
+      case OMPScheduleType::Static:
+      case OMPScheduleType::StaticChunked:
+      case OMPScheduleType::Distribute:
+      case OMPScheduleType::DistributeChunked:
+        break;
+      default:
+        IsSPMDCompatible = false;
+        break;
+      };
+      break;
+    }
     default:
+      IsSPMDCompatible = false;
       break;
     }
     // All other OpenMP runtime calls will not reach parallel regions so they
