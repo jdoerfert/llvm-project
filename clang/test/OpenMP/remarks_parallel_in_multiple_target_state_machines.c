@@ -1,8 +1,9 @@
-// RUN: %clang_cc1                                 -verify=host      -Rpass=openmp-opt -Rpass-analysis=openmp -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm-bc %s -o %t-ppc-host.bc
-// RUN: %clang_cc1                                 -verify=all,safe  -Rpass=openmp-opt -Rpass-analysis=openmp -fopenmp -O2 -x c++ -triple nvptx64-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o %t.out
+// RUN: %clang_cc1 -fexperimental-new-pass-manager -verify=host      -Rpass=openmp-opt -Rpass-analysis=openmp -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm-bc %s -o %t-ppc-host.bc
 // RUN: %clang_cc1 -fexperimental-new-pass-manager -verify=all,safe  -Rpass=openmp-opt -Rpass-analysis=openmp -fopenmp -O2 -x c++ -triple nvptx64-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o %t.out
 
 // host-no-diagnostics
+// Will be renabled with D101977
+// XFAIL: *
 
 void bar1(void) {
 #pragma omp parallel // #0
