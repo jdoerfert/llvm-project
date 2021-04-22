@@ -37,11 +37,13 @@ int maini1() {
 // CHECK: define {{.*}}[[BAR]]()
 // CHECK: alloca i32,
 // CHECK: [[A_LOCAL_ADDR:%.+]] = alloca i32,
+// CHECK: [[IS_IN_PAR:%.+]] = icmp eq i16 {{.*}}, 0
 // CHECK: [[RES:%.+]] = call i8 @__kmpc_is_spmd_exec_mode()
 // CHECK: [[IS_SPMD:%.+]] = icmp ne i8 [[RES]], 0
 // CHECK: br i1 [[IS_SPMD]], label
 // CHECK: br label
-// CHECK: [[RES:%.+]] = call i8* @__kmpc_data_sharing_coalesced_push_stack(i64 128, i16 0)
+// CHECK: [[STACK_SIZE:%.+]] = select i1 [[IS_IN_PAR]], i64 4, i64 128
+// CHECK: [[RES:%.+]] = call i8* @__kmpc_data_sharing_coalesced_push_stack(i64 [[STACK_SIZE]], i16 0)
 // CHECK: [[GLOBALS:%.+]] = bitcast i8* [[RES]] to [[GLOBAL_ST:%.+]]*
 // CHECK: br label
 // CHECK: [[ITEMS:%.+]] = phi [[GLOBAL_ST]]* [ null, {{.+}} ], [ [[GLOBALS]], {{.+}} ]
@@ -49,7 +51,9 @@ int maini1() {
 // CHECK: [[TID:%.+]] = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
 // CHECK: [[LID:%.+]] = and i32 [[TID]], 31
 // CHECK: [[A_GLOBAL_ADDR:%.+]] = getelementptr inbounds [32 x i32], [32 x i32]* [[A_ADDR]], i32 0, i32 [[LID]]
-// CHECK: [[A_ADDR:%.+]] = select i1 [[IS_SPMD]], i32* [[A_LOCAL_ADDR]], i32* [[A_GLOBAL_ADDR]]
+// CHECK: [[A_GLOBAL_ADDR_SINGLE:%.+]] = getelementptr inbounds %struct._globalized_locals_ty.0, %struct._globalized_locals_ty.0* %{{.*}}, i32 0, i32 0
+// CHECK: [[A_GLOBAL_ADDR_SEL:%.+]] = select i1 [[IS_IN_PAR]], i32* [[A_GLOBAL_ADDR_SINGLE]], i32* [[A_GLOBAL_ADDR]]
+// CHECK: [[A_ADDR:%.+]] = select i1 [[IS_SPMD]], i32* [[A_LOCAL_ADDR]], i32* [[A_GLOBAL_ADDR_SEL]]
 // CHECK: call {{.*}}[[FOO]](i32* nonnull align {{[0-9]+}} dereferenceable{{.*}} [[A_ADDR]])
 // CHECK: br i1 [[IS_SPMD]], label
 // CHECK: [[BC:%.+]] = bitcast [[GLOBAL_ST]]* [[ITEMS]] to i8*

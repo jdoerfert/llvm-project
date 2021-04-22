@@ -40,7 +40,6 @@
 // CHECK-DAG: @pair = {{.*}}addrspace(3) global %struct.PAIR undef
 // CHECK-DAG: @b ={{ hidden | }}global i32 15,
 // CHECK-DAG: @d ={{ hidden | }}global i32 0,
-// CHECK-DAG: @c = external global i32,
 // CHECK-DAG: @globals ={{ hidden | }}global %struct.S zeroinitializer,
 // CHECK-DAG: [[STAT:@.+stat]] = internal global %struct.S zeroinitializer,
 // CHECK-DAG: [[STAT_REF:@.+]] = internal constant %struct.S* [[STAT]]
@@ -252,17 +251,41 @@ struct TTT {
 // CHECK-DAG: !{{{.+}}virtual_foo
 
 #ifdef OMP5
-void host_fun() {}
-#pragma omp declare target to(host_fun) device_type(host)
-void device_fun() {}
-#pragma omp declare target to(device_fun) device_type(nohost)
-// HOST5-NOT: define {{.*}}void {{.*}}device_fun{{.*}}
-// HOST5: define {{.*}}void {{.*}}host_fun{{.*}}
-// HOST5-NOT: define {{.*}}void {{.*}}device_fun{{.*}}
+void host_fun1() {}
+#pragma omp declare target to(host_fun1) device_type(host)
+void device_fun1() {}
+#pragma omp declare target to(device_fun1) device_type(nohost)
+// HOST5-NOT: define {{.*}}void {{.*}}device_fun1{{.*}}
+// HOST5: define {{.*}}void {{.*}}host_fun1{{.*}}
+// HOST5-NOT: define {{.*}}void {{.*}}device_fun1{{.*}}
 
-// DEV5-NOT: define {{.*}}void {{.*}}host_fun{{.*}}
-// DEV5: define {{.*}}void {{.*}}device_fun{{.*}}
-// DEV5-NOT: define {{.*}}void {{.*}}host_fun{{.*}}
+// DEV5-NOT: define {{.*}}void {{.*}}host_fun1{{.*}}
+// DEV5: define {{.*}}void {{.*}}device_fun1{{.*}}
+// DEV5-NOT: define {{.*}}void {{.*}}host_fun1{{.*}}
+
+// Implicit declaration with the "wrong" device type first,
+// explicit declaration afterwards.
+#pragma omp begin declare target device_type(nohost)
+void host_fun2() {}
+#pragma omp end declare target
+#pragma omp begin declare target device_type(host)
+void device_fun2() {}
+#pragma omp end declare target
+
+// TODO: According to OpenMP 5.1 this is an OK use, arguably this
+//       is not really useful and makes it hard/costly to implement.
+//       We should remove the non-begin/end forms in OpenMP 6.0.
+#pragma omp declare target to(host_fun2) device_type(host)
+#pragma omp declare target to(device_fun2) device_type(nohost)
+
+// HOST5-NOT: define {{.*}}void {{.*}}device_fun2{{.*}}
+// HOST5: define {{.*}}void {{.*}}host_fun2{{.*}}
+// HOST5-NOT: define {{.*}}void {{.*}}device_fun2{{.*}}
+
+// DEV5-NOT: define {{.*}}void {{.*}}host_fun2{{.*}}
+// DEV5: define {{.*}}void {{.*}}device_fun2{{.*}}
+// DEV5-NOT: define {{.*}}void {{.*}}host_fun2{{.*}}
+
 #endif // OMP5
 
 struct PAIR {

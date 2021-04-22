@@ -34,21 +34,16 @@ int car() { return 0; }
 #pragma omp declare target (bar)
 int caz() { return 0; }
 
-// DEVICE-DAG: define{{ hidden | }}i32 [[FOO:@.*foo.*]]()
 // DEVICE-DAG: define{{ hidden | }}i32 [[BAR:@.*bar.*]]()
-// DEVICE-DAG: define{{ hidden | }}i32 [[BAZ:@.*baz.*]]()
-// DEVICE-DAG: define{{ hidden | }}i32 [[DOO:@.*doo.*]]()
-// DEVICE-DAG: define{{ hidden | }}i32 [[CAR:@.*car.*]]()
-// DEVICE-DAG: define{{ hidden | }}i32 [[CAZ:@.*caz.*]]()
 
 static int c = foo() + bar() + baz();
 #pragma omp declare target (c)
-// HOST-DAG: @[[C_CTOR:__omp_offloading__.+_c_l44_ctor]] = private constant i8 0
-// DEVICE-DAG: define internal void [[C_CTOR:@__omp_offloading__.+_c_l44_ctor]]()
-// DEVICE-DAG: call i32 [[FOO]]()
-// DEVICE-DAG: call i32 [[BAR]]()
-// DEVICE-DAG: call i32 [[BAZ]]()
-// DEVICE-DAG: ret void
+// HOST-DAG: @[[C_CTOR:__omp_offloading__.+_c_l39_ctor]] = private constant i8 0
+
+// DEVICE-DAG: define internal void [[C_CTOR:@__omp_offloading__.+_c_l39_ctor]]()
+// DEVICE-DAG: define{{ hidden | }}i32 [[FOO:@.*foo.*]]()
+// DEVICE-DAG: define{{ hidden | }}i32 [[BAZ:@.*baz.*]]()
+// DEVICE-DAG: define{{ hidden | }}i32 [[DOO:@.*doo.*]]()
 
 struct S {
   int a;
@@ -60,17 +55,14 @@ struct S {
 #pragma omp declare target
 S cd = doo() + car() + caz() + baz();
 #pragma omp end declare target
-// HOST-DAG: @[[CD_CTOR:__omp_offloading__.+_cd_l61_ctor]] = private constant i8 0
-// DEVICE-DAG: define internal void [[CD_CTOR:@__omp_offloading__.+_cd_l61_ctor]]()
-// DEVICE-DAG: call i32 [[DOO]]()
-// DEVICE-DAG: call i32 [[CAR]]()
-// DEVICE-DAG: call i32 [[CAZ]]()
-// DEVICE-DAG: ret void
+// HOST-DAG: @[[CD_CTOR:__omp_offloading__.+_cd_l56_ctor]] = private constant i8 0
+// DEVICE-DAG: define internal void [[CD_CTOR:@__omp_offloading__.+_cd_l56_ctor]]()
 
-// HOST-DAG: @[[CD_DTOR:__omp_offloading__.+_cd_l61_dtor]] = private constant i8 0
-// DEVICE-DAG: define internal void [[CD_DTOR:@__omp_offloading__.+_cd_l61_dtor]]()
-// DEVICE-DAG: call void
-// DEVICE-DAG: ret void
+// DEVICE-DAG: define{{ hidden | }}i32 [[CAR:@.*car.*]]()
+// DEVICE-DAG: define{{ hidden | }}i32 [[CAZ:@.*caz.*]]()
+
+// HOST-DAG: @[[CD_DTOR:__omp_offloading__.+_cd_l56_dtor]] = private constant i8 0
+// DEVICE-DAG: define internal void [[CD_DTOR:@__omp_offloading__.+_cd_l56_dtor]]()
 
 // HOST-DAG: @.omp_offloading.entry_name{{.*}} = internal unnamed_addr constant [{{[0-9]+}} x i8] c"[[C_ADDR]]\00"
 // HOST-DAG: @.omp_offloading.entry.[[C_ADDR]] = weak{{.*}} constant %struct.__tgt_offload_entry { i8* bitcast (i32* @[[C_ADDR]] to i8*), i8* getelementptr inbounds ([{{[0-9]+}} x i8], [{{[0-9]+}} x i8]* @.omp_offloading.entry_name{{.*}}, i32 0, i32 0), i64 4, i32 0, i32 0 }, section "omp_offloading_entries", align 1
@@ -91,13 +83,13 @@ int maini1() {
   return 0;
 }
 
-// DEVICE: define weak{{.*}} void @__omp_offloading_{{.*}}_{{.*}}maini1{{.*}}_l[[@LINE-7]](i32* nonnull align {{[0-9]+}} dereferenceable{{[^,]*}}
-// DEVICE: [[C:%.+]] = load i32, i32* [[C_ADDR]],
-// DEVICE: store i32 [[C]], i32* %
+// DEVICE-DAG: define weak{{.*}} void @__omp_offloading_{{.*}}_{{.*}}maini1{{.*}}_l[[@LINE-7]](i32* nonnull align {{[0-9]+}} dereferenceable{{[^,]*}}
+// DEVICE-DAG: [[C:%.+]] = load i32, i32* [[C_ADDR]],
+// DEVICE-DAG: store i32 [[C]], i32* %
 
-// HOST: define internal void @__omp_offloading_{{.*}}_{{.*}}maini1{{.*}}_l[[@LINE-11]](i32* nonnull align {{[0-9]+}} dereferenceable{{.*}})
-// HOST: [[C:%.*]] = load i32, i32* @[[C_ADDR]],
-// HOST: store i32 [[C]], i32* %
+// HOST-DAG: define internal void @__omp_offloading_{{.*}}_{{.*}}maini1{{.*}}_l[[@LINE-11]](i32* nonnull align {{[0-9]+}} dereferenceable{{.*}})
+// HOST-DAG: [[C:%.*]] = load i32, i32* @[[C_ADDR]],
+// HOST-DAG: store i32 [[C]], i32* %
 
 // HOST-DAG: !{i32 1, !"[[CD_ADDR]]", i32 0, i32 {{[0-9]+}}}
 // HOST-DAG: !{i32 1, !"[[C_ADDR]]", i32 0, i32 {{[0-9]+}}}

@@ -30,6 +30,14 @@ enum omp_allocator_handle_t {
   KMP_ALLOCATOR_MAX_HANDLE = __UINTPTR_MAX__
 };
 
+// Make sure EXT is `external` even though it was probably
+// materialized before we encountered the allocate directive.
+// CHECK-DAG: @Use = {{.*}}global i32* @EXT
+// CHECK-DAG: @EXT = external {{.*}}global i32
+extern int EXT;
+int *Use = &EXT;
+#pragma omp allocate(EXT) allocator(omp_const_mem_alloc)
+
 struct St{
  int a;
 };

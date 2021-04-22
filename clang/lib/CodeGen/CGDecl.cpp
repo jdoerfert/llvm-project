@@ -2612,3 +2612,48 @@ void CodeGenModule::EmitOMPDeclareMapper(const OMPDeclareMapperDecl *D,
 void CodeGenModule::EmitOMPRequiresDecl(const OMPRequiresDecl *D) {
   getOpenMPRuntime().processRequiresDirective(D);
 }
+
+void CodeGenModule::EmitOMPAllocateDecl(const OMPAllocateDecl *D) {
+  for (Expr *E : const_cast<OMPAllocateDecl*>(D)->varlists()) {
+    auto *DE = cast<DeclRefExpr>(E);
+    auto *VD = cast<VarDecl>(DE->getDecl());
+
+    // Skipp all but globals.
+    if (!VD->hasGlobalStorage())
+      continue;
+
+    // Check if the global has been materialized yet or not. If not, we are done as any later generation will utilize the OMPAllocateDeclAttr. However, if we already emitted the global we might have done so before the OMPAllocateDeclAttr was attached, leading to the wrong address space (potentially). While not pretty, common practise is to remove the old IR global and generate a new one, so we do that here too. Uses are replaced properly.
+    StringRef MangledName = getMangledName(VD);
+    llvm::GlobalValue *Entry = GetGlobalValue(MangledName);
+    if (!Entry)
+      continue;
+
+    // We can also keep the existing global if the address space is what we expect it to be, if not, it is replaced.
+    QualType ASTTy = VD->getType();
+    clang::LangAS GVAS = GetGlobalVarAddressSpace(VD);
+    auto TargetAS = getContext().getTargetAddressSpace(GVAS);
+
+    if (Entry->getType()->getAddressSpace() == TargetAS)
+      continue;
+
+    // Make sure the variable declaration knows about the new address space as well.
+    VD->setType(getContext().getAddrSpaceQualType(ASTTy, GVAS));
+
+    // Move the old entry aside so that we'll create a new one.
+    Entry->setName(StringRef());
+
+    // Make a new global with the correct type / address space.
+    llvm::PointerType *PTy =
+      llvm::PointerType::get(getTypes().ConvertTypeForMem(ASTTy), TargetAS);
+    llvm::Constant *GV = GetOrCreateLLVMGlobal(MangledName, PTy, VD);
+
+    // Replace all uses of the old global with the new global
+    llvm::Constant *NewPtrForOldDecl =
+        llvm::ConstantExpr::getPointerBitCastOrAddrSpaceCast(GV,
+                                                            Entry->getType());
+    Entry->replaceAllUsesWith(NewPtrForOldDecl);
+
+    // Erase the old global, since it is no longer used.
+    Entry->eraseFromParent();
+  }
+}

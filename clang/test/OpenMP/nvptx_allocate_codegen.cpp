@@ -17,6 +17,35 @@ extern const omp_allocator_handle_t omp_low_lat_mem_alloc;
 extern const omp_allocator_handle_t omp_cgroup_mem_alloc;
 extern const omp_allocator_handle_t omp_pteam_mem_alloc;
 extern const omp_allocator_handle_t omp_thread_mem_alloc;
+#pragma omp end declare target
+
+// Make sure EXT1-3 are `external` and have address space 4 even though they
+// might have been materialized before we encountered the allocate directive.
+#pragma omp declare target
+extern int EXT1;
+int *Use1 = &EXT1;
+#pragma omp end declare target
+// allocate after the end declare target
+#pragma omp allocate(EXT1) allocator(omp_const_mem_alloc)
+// CHECK-DAG: @EXT1 = external addrspace(4) {{.*}}global i32
+// CHECK-DAG: @Use1 = {{.*}}global
+
+extern int EXT2;
+#pragma omp declare target (EXT2)
+int *Use2 = &EXT2;
+#pragma omp declare target (Use2)
+// allocate after the declare target
+#pragma omp allocate(EXT2) allocator(omp_const_mem_alloc)
+// CHECK-DAG: @EXT2 = external addrspace(4) {{.*}}global i32
+// CHECK-DAG: @Use2 = {{.*}}global
+
+#pragma omp declare target
+extern int EXT3;
+int *Use3 = &EXT3;
+// allocate part of the declare target
+#pragma omp allocate(EXT3) allocator(omp_const_mem_alloc)
+// CHECK-DAG: @EXT3 = external addrspace(4) {{.*}}global i32
+// CHECK-DAG: @Use3 = {{.*}}global
 
 struct St{
  int a;
@@ -81,7 +110,19 @@ void bar() {
   }
 }
 
-#pragma omp end declare target
+int LateAllocateDecl1;
+#pragma omp declare target
+
+int LateAllocateDecl2;
+#pragma omp declare target to(LateAllocateDecl2)
+
+int LateAllocateDecl3;
+#pragma omp declare target(LateAllocateDecl3)
+
+#pragma omp allocate(LateAllocateDecl1) allocator(omp_const_mem_alloc)
+#pragma omp allocate(LateAllocateDecl2) allocator(omp_const_mem_alloc)
+#pragma omp allocate(LateAllocateDecl3) allocator(omp_const_mem_alloc)
+
 #endif
 // CHECK-LABEL: define {{[^@]+}}@main
 // CHECK-SAME: () #[[ATTR0:[0-9]+]] {
