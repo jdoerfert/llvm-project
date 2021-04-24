@@ -1742,7 +1742,7 @@ bool OpenMPOpt::rewriteDeviceCodeStateMachine() {
     // TODO: Checking the number of uses is not a necessary restriction and
     // should be lifted.
     if (UnknownUse || NumDirectCalls != 1 ||
-        ToBeReplacedStateMachineUses.size() != 2) {
+        ToBeReplacedStateMachineUses.size() > 2) {
       {
         auto Remark = [&](OptimizationRemark OR) {
           return OR << "Parallel region is used in "
