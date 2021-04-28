@@ -1502,6 +1502,8 @@ void CGOpenMPRuntimeGPU::emitParallelCall(CodeGenFunction &CGF,
     CGBuilderTy &Bld = CGF.Builder;
     llvm::Function *WFn = WrapperFunctionsMap[OutlinedFn];
     llvm::Value *ID = llvm::ConstantPointerNull::get(CGM.Int8PtrTy);
+    if (WFn)
+      ID = Bld.CreateBitOrPointerCast(WFn, CGM.Int8PtrTy);
     llvm::Value *FnPtr = Bld.CreateBitOrPointerCast(OutlinedFn, CGM.Int8PtrTy);
 
     // Create a private scope that will globalize the arguments
