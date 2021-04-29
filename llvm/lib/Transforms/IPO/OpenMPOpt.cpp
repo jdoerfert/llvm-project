@@ -2224,16 +2224,16 @@ private:
 
       GetterRFI.foreachUse(SCC, CreateAA);
     }
-    for (auto &F : SCC)
-      for (Instruction &I : instructions(F))
-        if (isa<LoadInst>(I))
-          A.getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
     for (Function *Kernel : OMPInfoCache.Kernels)
       A.getOrCreateAAFor<AAKernelInfo>(IRPosition::function(*Kernel));
-    //if (!OMPInfoCache.Kernels.empty()) {
+    if (!OMPInfoCache.Kernels.empty()) {
+      for (auto &F : SCC)
+        for (Instruction &I : instructions(F))
+          if (isa<LoadInst>(I))
+          A.getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
       for (auto &G: M.globals())
         A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(G));
-    //}
+    }
 
     auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_alloc_shared];
     auto CreateAA = [&](Use &U, Function &Decl) {
@@ -2940,8 +2940,8 @@ AAICVTracker &AAICVTracker::createForPosition(const IRPosition &IRP,
 }
 
 PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
-  //if (!containsOpenMP(M, OMPInModule))
-    //return PreservedAnalyses::all();
+  if (!containsOpenMP(M, OMPInModule))
+    return PreservedAnalyses::all();
 
   if (DisableOpenMPOptimizations)
     return PreservedAnalyses::all();
@@ -3156,6 +3156,11 @@ bool llvm::omp::containsOpenMP(Module &M, OpenMPInModule &OMPInModule) {
   }
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
   } while (false);
+
+  if (M.getModuleFlag("OpenMP"))
+    OMPInModule = true;
+  else if (OMPInModule)
+    M.addModuleFlag(Module::AppendUnique, "OpenMP", 1);
 
   // Identify kernels once. TODO: We should split the OMPInformationCache into a
   // module and an SCC part. The kernel information, among other things, could
