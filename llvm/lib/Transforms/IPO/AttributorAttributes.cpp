@@ -11,7 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/SCCIterator.h"
@@ -4789,8 +4791,8 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
                 continue;
               auto *RC = C;
               if (RC->getType() != RI->getReturnValue()->getType())
-                RC = ConstantExpr::getBitCast(RC,
-                                              RI->getReturnValue()->getType());
+                RC = ConstantExpr::getPointerCast(
+                    RC, RI->getReturnValue()->getType());
               LLVM_DEBUG(dbgs() << "[ValueSimplify] " << V << " -> " << *RC
                                 << " in " << *RI << " :: " << *this << "\n");
               if (A.changeUseAfterManifest(RI->getOperandUse(0), *RC))
@@ -4888,6 +4890,125 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     return true;
   }
 
+  bool handleLoad(Attributor &A, LoadInst &L) {
+    L.dump();
+    auto Union = [&](Constant *C) {
+      errs() << "Union " << C << " : " << SimplifiedAssociatedValue << "\n";
+      if (!C)
+        return false;
+      if (!SimplifiedAssociatedValue.hasValue()) {
+        SimplifiedAssociatedValue = C;
+        return true;
+      }
+      if (C == *SimplifiedAssociatedValue)
+        return true;
+      if (isa<UndefValue>(C))
+        return true;
+      if (isa<UndefValue>(*SimplifiedAssociatedValue)) {
+        SimplifiedAssociatedValue = C;
+        return true;
+      }
+      return false;
+    };
+    auto VisitValueCB = [&](Value &V, const Instruction *CtxI,
+                            AAValueSimplify::StateType &T,
+                            bool Stripped) -> bool {
+      V.dump();
+      Value *Base = &V;
+      if (!isa<AllocaInst>(V)) {
+        bool UsedAssumedInformation = false;
+        if (auto *UO = getUnderlyingObject(Base))
+          Base = UO;
+        Base->dump();
+        Optional<Constant *> C =
+            A.getAssumedConstant(*Base, *this, UsedAssumedInformation);
+        errs() << "C:  "<< C << "\n";
+        if (!C.hasValue())
+          return true;
+        if (C.getValue())
+          Base = C.getValue();
+        Base->dump();
+        if (isa<ConstantPointerNull>(Base))
+          return true;
+        auto *GV = dyn_cast<GlobalVariable>(Base);
+        if (!GV || !GV->hasLocalLinkage())
+          return false;
+      }
+      Base->dump();
+
+      Constant *InitialValue = nullptr;
+      if (isa<AllocaInst>(Base)) {
+        InitialValue = UndefValue::get(getAssociatedType());
+      } else {
+        auto *GV = cast<GlobalVariable>(Base);
+        if (!GV->hasInitializer())
+          return false;
+
+        auto *Initializer = GV->getInitializer();
+        if (isa<UndefValue>(Initializer)) {
+          InitialValue = UndefValue::get(getAssociatedType());
+        } else if (auto *InitC = dyn_cast<Constant>(Initializer)) {
+          if (InitC->getType() == getAssociatedType())
+            InitialValue = InitC;
+          else if (isa<ConstantPointerNull>(InitC))
+            InitialValue = ConstantInt::getNullValue(getAssociatedType());
+          else
+            InitialValue =
+                ConstantExpr::getPointerCast(InitC, getAssociatedType());
+        } else
+          return false;
+      }
+      if (!Union(InitialValue))
+        return false;
+
+      auto &PI = A.getAAFor<AAPointerInfo>(*this, IRPosition::value(*Base),
+                                           DepClassTy::REQUIRED);
+      const auto &PIState = PI.getState();
+      if (!PIState.isValidState())
+        return false;
+      OffsetAndSize OAS(-1, -1);
+      for (auto &It : PIState.AccessMap) {
+        for (auto &Access : It.getSecond()) {
+          if (Access.I == &L) {
+            OAS = It.getFirst();
+            break;
+          }
+        }
+        if (OAS.getSize() == -1)
+          continue;
+        for (auto &Access : It.getSecond()) {
+          if ((Access.Kind & WRITE) == 0)
+            continue;
+          if (!Access.Content.hasValue())
+            continue;
+          Access.I->dump();
+          Value *Content = Access.Content.getValue();
+          errs() << "CONTENT " << Content << "\n";
+          auto *ContentC = dyn_cast_or_null<Constant>(Content);
+          if (!ContentC)
+            return false;
+          errs() << "CONTENT " << *ContentC << "\n";
+          if (isa<ConstantPointerNull>(ContentC))
+            ContentC = ConstantInt::getNullValue(getAssociatedType());
+          if (ContentC->getType() != getAssociatedType())
+            ContentC =
+                ConstantExpr::getPointerCast(ContentC, getAssociatedType());
+          if (!Union(ContentC))
+            return false;
+        }
+        break;
+      }
+
+      return true;
+    };
+
+    if (!genericValueTraversal<AAValueSimplify, AAValueSimplify::StateType>(
+            A, IRPosition::value(*L.getPointerOperand()), *this, getState(),
+            VisitValueCB, getCtxI()))
+      return false;
+    return true;
+  }
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
@@ -4902,6 +5023,8 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
       auto &AA = A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V),
                                              DepClassTy::REQUIRED);
       if (!Stripped && this == &AA) {
+        if (auto *LI = dyn_cast<LoadInst>(&V))
+          return handleLoad(A, *LI);
         // TODO: Look the instruction and check recursively.
 
         LLVM_DEBUG(dbgs() << "[ValueSimplify] Can't be stripped more : " << V
@@ -7568,7 +7691,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     if (isa<BinaryOperator>(&V) || isa<ICmpInst>(&V) || isa<CastInst>(&V))
       return;
 
-    if (isa<SelectInst>(V) || isa<PHINode>(V))
+    if (isa<SelectInst>(V) || isa<PHINode>(V) || isa<LoadInst>(V))
       return;
 
     indicatePessimisticFixpoint();
@@ -7875,6 +7998,94 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
                                          : ChangeStatus::CHANGED;
   }
 
+  ChangeStatus updateWithLoad(Attributor &A, LoadInst &L) {
+    if (!L.getType()->isIntegerTy())
+      return indicatePessimisticFixpoint();
+
+    auto AssumedBefore = getAssumed();
+
+    auto VisitValueCB = [&](Value &V, const Instruction *CtxI,
+                            AAPotentialValues::StateType &T,
+                            bool Stripped) -> bool {
+      Value *Base = &V;
+      if (!isa<AllocaInst>(V)) {
+        bool UsedAssumedInformation = false;
+        Optional<Constant *> C =
+            A.getAssumedConstant(*Base, *this, UsedAssumedInformation);
+        if (!C.hasValue())
+          return true;
+        if (C.getValue())
+          Base = C.getValue();
+        if (isa<ConstantPointerNull>(Base))
+          return true;
+        auto *GV = dyn_cast<GlobalVariable>(Base);
+        if (!GV || !GV->hasLocalLinkage())
+          return false;
+      }
+
+      if (isa<AllocaInst>(Base)) {
+        T.unionAssumedWithUndef();
+      } else {
+        auto *GV = cast<GlobalVariable>(Base);
+        if (GV->hasInitializer()) {
+          auto *Initializer = GV->getInitializer();
+          if (isa<UndefValue>(Initializer))
+            T.unionAssumedWithUndef();
+          else if (auto *CI = dyn_cast<ConstantInt>(Initializer)) {
+            if (CI->getType() == getAssociatedType())
+              T.unionAssumed(CI->getValue());
+            else if (CI->isZero())
+              T.unionAssumed(ConstantInt::getNullValue(getAssociatedType()));
+            else
+              return false;
+          } else
+            return false;
+        } else {
+          T.unionAssumedWithUndef();
+        }
+      }
+
+      auto &PI = A.getAAFor<AAPointerInfo>(*this, IRPosition::value(*Base),
+                                           DepClassTy::REQUIRED);
+      const auto &PIState = PI.getState();
+      if (!PIState.isValidState())
+        return false;
+      OffsetAndSize OAS(-1, -1);
+      for (auto &It : PIState.AccessMap) {
+        for (auto &Access : It.getSecond()) {
+          if (Access.I == &L) {
+            OAS = It.getFirst();
+            break;
+          }
+        }
+        if (OAS.getSize() == -1)
+          continue;
+        for (auto &Access : It.getSecond()) {
+          if ((Access.Kind & WRITE) == 0)
+            continue;
+          if (!Access.Content.hasValue())
+            continue;
+          Value *Content = Access.Content.getValue();
+          if (!isa_and_nonnull<ConstantInt>(Content))
+            return false;
+          T.unionAssumed(cast<ConstantInt>(Content));
+        }
+        break;
+      }
+
+      return true;
+    };
+
+    if (!genericValueTraversal<AAPotentialValues,
+                               PotentialConstantIntValuesState>(
+            A, IRPosition::value(*L.getPointerOperand()), *this, getState(),
+            VisitValueCB, getCtxI()))
+      return indicatePessimisticFixpoint();
+
+    return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                         : ChangeStatus::CHANGED;
+  }
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     Value &V = getAssociatedValue();
@@ -7894,6 +8105,9 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
 
     if (auto *PHI = dyn_cast<PHINode>(I))
       return updateWithPHINode(A, PHI);
+
+    if (auto *L = dyn_cast<LoadInst>(I))
+      return updateWithLoad(A, *L);
 
     return indicatePessimisticFixpoint();
   }

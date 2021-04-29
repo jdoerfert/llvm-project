@@ -25,6 +25,7 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/InitializePasses.h"
@@ -2083,6 +2084,10 @@ private:
 
       GetterRFI.foreachUse(SCC, CreateAA);
     }
+    for (auto &F : SCC)
+      for (Instruction &I : instructions(F))
+        if (isa<LoadInst>(I))
+          A.getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
     for (Function *Kernel : OMPInfoCache.Kernels)
       A.getOrCreateAAFor<AAKernelInfo>(IRPosition::function(*Kernel));
     //if (!OMPInfoCache.Kernels.empty()) {
