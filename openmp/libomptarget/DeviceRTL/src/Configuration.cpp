@@ -44,7 +44,7 @@ uint32_t config::getGenericModeMainThreadSharedMemoryStorage() {
 }
 
 bool config::isDebugMode(config::DebugLevel Level) {
-  return config::getDebugLevel() >= Level;
+  return false && config::getDebugLevel() >= Level;
 }
 
 #pragma omp end declare target

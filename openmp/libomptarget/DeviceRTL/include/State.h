@@ -52,7 +52,7 @@ struct DateEnvironmentRAII {
 };
 
 /// TODO
-void resetStateForThread();
+void resetStateForThread(uint32_t TId);
 
 uint32_t &lookup32(ValueKind VK, bool IsReadonly);
 void* &lookupPtr(ValueKind VK, bool IsReadonly);

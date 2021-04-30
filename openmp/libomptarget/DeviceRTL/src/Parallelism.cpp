@@ -43,13 +43,9 @@ using namespace _OMP;
 
 namespace {
 
-uint32_t determineNumberOfThreads() {
-  uint32_t NThreadsICV = icv::NThreads;
+uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
+  uint32_t NThreadsICV = NumThreadsClause != -1 ? NumThreadsClause : icv::NThreads;
   uint32_t NumThreads = mapping::getBlockSize();
-
-  // In non-SPMD mode, we need to substract the warp for the master thread
-  if (!mapping::isSPMDMode())
-    NumThreads -= mapping::getWarpSize();
 
   if (NThreadsICV != 0 && NThreadsICV < NumThreads)
     NumThreads = NThreadsICV;
@@ -63,25 +59,113 @@ uint32_t determineNumberOfThreads() {
   return NumThreads;
 }
 
+// Invoke an outlined parallel function unwrapping arguments (up
+// to 32).
+void __kmp_invoke_microtask(kmp_int32 global_tid, kmp_int32 bound_tid, void *fn,
+                            void **args, size_t nargs) {
+  switch (nargs) {
+#include "generated_microtask_cases.gen"
+  default:
+    printf("Too many arguments in kmp_invoke_microtask, aborting execution.\n");
+    __builtin_trap();
+  }
+}
+
 } // namespace
 
 extern "C" {
 
-void __kmpc_kernel_prepare_parallel(ParallelRegionFnTy WorkFn) {
+void __kmpc_target_region_state_machine();
 
-  uint32_t NumThreads = determineNumberOfThreads();
-  state::ParallelTeamSize = NumThreads;
-  state::ParallelRegionFn = WorkFn;
+__attribute__((flatten, always_inline))
+void __kmpc_parallel_51(IdentTy *ident, int32_t global_tid,
+                                int32_t if_expr, int32_t num_threads,
+                                int proc_bind, void *fn, void *wrapper_fn,
+                                void **args, int64_t nargs) {
+   //printf("enter parallelready fn %p, wrapper %p, #T %i, #A %li\n", fn, wrapper_fn, num_threads, nargs);
+  //int32_t global_tid = mapping::getThreadIdInBlock();
 
-  // We do *not* create a new data environment because all threads in the team
-  // that are active are now running this parallel region. They share the
+  uint32_t NumThreads = determineNumberOfThreads(num_threads);
+   if (mapping::isSPMDMode()) {
+     if (global_tid < NumThreads) {
+       //////printf("spmd mode invoke, fn %p, wrapper %p, %i\n", fn, wrapper_fn, NumThreads);
+       __kmp_invoke_microtask(global_tid, 0, fn, args, nargs);
+     }
+     synchronize::threads();
+     return;
+   }
+
+
+   // Handle the serialized case first, same for SPMD/non-SPMD.
+   // TODO: Add UNLIKELY to optimize?
+   if (!if_expr || icv::ActiveLevel) {
+     __kmpc_serialized_parallel(ident, global_tid);
+     __kmp_invoke_microtask(global_tid, 0, fn, args, nargs);
+     __kmpc_end_serialized_parallel(ident, global_tid);
+     return;
+   }
+
+   // Handle the num_threads clause.
+   state::ParallelTeamSize = NumThreads;
+   state::ParallelRegionFn = wrapper_fn;
+   // We do *not* create a new data environment because all threads in the team
+   // that are active are now running this parallel region. They share the
   // TeamState, which has an increase level-var and potentially active-level
   // set, but they do not have individual ThreadStates yet. If they ever
   // modify the ICVs beyond this point a ThreadStates will be allocated.
   int NewLevel = ++icv::Level;
   bool IsActiveParallelRegion = NumThreads > 1;
-  if (IsActiveParallelRegion)
+  if (!IsActiveParallelRegion) {
+    __kmp_invoke_microtask(global_tid, 0, fn, args, nargs);
+  } else {
     icv::ActiveLevel = NewLevel;
+
+    void **GlobalArgs = nullptr;
+    if (nargs) {
+      __kmpc_begin_sharing_variables(&GlobalArgs, nargs);
+      //printf("alloc global args %p %u\n", GlobalArgs, mapping::activemask());
+      // TODO: faster memcpy?
+      for (int I = 0; I < nargs; I++)
+        GlobalArgs[I] = args[I];
+    }
+
+    // Master signals work to activate workers.
+    //printf("main (%i) ready fn %p, wrapper %p, %i, %u\n", global_tid, fn, wrapper_fn, NumThreads, mapping::activemask());
+    __kmpc_target_region_state_machine();
+    //state::runAndCheckState(synchronize::threads);
+
+    ////printf("main invoke fn %p, wrapper %p, %i\n", fn, wrapper_fn, NumThreads);
+    //__kmp_invoke_microtask(global_tid, 0, fn, args, nargs);
+
+    //// OpenMP [2.5, Parallel Construct, p.49]
+    //// There is an implied barrier at the end of a parallel region. After the
+    //// end of a parallel region, only the master thread of the team resumes
+    //// execution of the enclosing task region.
+    ////
+    //// The master waits at this barrier until all workers are done.
+    //printf("main done fn %p, wrapper %p, %i, %u\n", fn, wrapper_fn, NumThreads, mapping::activemask());
+    //state::runAndCheckState(synchronize::threads);
+    //printf("main alone fn %p, wrapper %p, %i\n", fn, wrapper_fn, NumThreads);
+
+
+    if (nargs) {
+      //printf("frees global args %p %u\n", GlobalArgs, mapping::activemask());
+      memory::freeShared(GlobalArgs, "global args free shared");
+    }
+    //__kmpc_end_sharing_variables(GlobalArgs);
+    //printf("main adjust fn %p, wrapper %p, %i, %u\n", fn, wrapper_fn, NumThreads, mapping::activemask());
+
+    icv::ActiveLevel = 0;
+  }
+
+  --icv::Level;
+
+  state::ParallelTeamSize = 1;
+
+   // TODO: proc_bind is a noop?
+   // if (proc_bind != proc_bind_default)
+   //  __kmpc_push_proc_bind(ident, global_tid, proc_bind);
+   //printf("exit parallelready fn %p, wrapper %p, %i\n", fn, wrapper_fn, num_threads);
 }
 
 bool __kmpc_kernel_parallel(ParallelRegionFnTy *WorkFn) {
@@ -99,20 +183,13 @@ bool __kmpc_kernel_parallel(ParallelRegionFnTy *WorkFn) {
   return ThreadIsActive;
 }
 
-void __kmpc_kernel_end_parallel() {
-  // We did *not* create a new data environment because all threads in the team
-  // that were active were running the parallel region. We used the TeamState
-  // which needs adjustment now.
-  // --icv::Level;
-  // bool IsActiveParallelRegion = state::ParallelTeamSize;
-  // if (IsActiveParallelRegion)
-  //   icv::ActiveLevel = 0;
-
-  // state::ParallelTeamSize = 1;
-
+void __kmpc_kernel_end_parallel() __attribute__((used)) {
   // In case we have modified an ICV for this thread before a ThreadState was
   // created. We drop it now to not contaminate the next parallel region.
-  state::resetStateForThread();
+  ASSERT(!mapping::isSPMDMode());
+  uint32_t TId = mapping::getThreadIdInBlock();
+  state::resetStateForThread(TId);
+  ASSERT(!mapping::isSPMDMode());
 }
 
 void __kmpc_serialized_parallel(IdentTy *, uint32_t TId) {

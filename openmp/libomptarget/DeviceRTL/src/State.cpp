@@ -16,6 +16,7 @@
 #include "Synchronization.h"
 #include "Types.h"
 #include "Utils.h"
+#include <bits/stdint-uintn.h>
 
 using namespace _OMP;
 
@@ -78,15 +79,6 @@ static_assert((StorageTrackingBytes % Alignment) == 0,
 /// special and is given more memory than the rest.
 ///
 struct SharedMemorySmartStackTy {
-  /// The amount of memory reserved for the main thread in generic mode. This
-  /// is done because the main thread in generic mode has to share values with
-  /// the workers which requires usually more space than used by workers for
-  /// sharing among each other.
-  uint32_t GenericModeMainThreadStorage;
-
-  /// The amount of memory for each warp.
-  uint32_t WarpStorageTotal;
-
   /// Initialize the stack. Must be called by all threads.
   void init(bool IsSPMD);
 
@@ -101,29 +93,29 @@ struct SharedMemorySmartStackTy {
 private:
   /// Compute the size of the storage space reserved for the warp of the
   /// encountering thread.
-  uint32_t computeWarpStorageTotal();
+  uint32_t computeWarpStorageTotal(bool IsSPMD);
 
   /// Return the bottom address of the warp data stack, that is the first
   /// address this warp allocated memory at, or will.
-  char *getWarpDataBottom();
+  char *getWarpDataBottom(bool IsSPMD);
 
   /// Same as \p getWarpDataBottom() but it can access other warp's bottom. No
   /// lock is used so it's user's responsibility to make sure the correctness.
-  char *getWarpDataBottom(uint32_t WarpId);
+  char *getWarpDataBottom(bool IsSPMD, uint32_t WarpId);
 
   /// Return the top address of the warp data stack, that is the first address
   /// this warp will allocate memory at next.
-  char *getWarpDataTop();
+  char *getWarpDataTop(bool IsSPMD);
 
   /// Return the location of the usage tracker which keeps track of the amount
   /// of memory used by this warp.
   /// TODO: We could use the next warp bottom to avoid this tracker completely.
-  uint32_t *getWarpStorageTracker();
+  uint32_t *getWarpStorageTracker(bool IsSPMD);
 
   /// Same as \p getWarpStorageTracker() but it can access other warp's bottom.
   /// No lock is used so it's user's responsibility to make sure the
   /// correctness.
-  uint32_t *getWarpStorageTracker(uint32_t WarpId);
+  uint32_t *getWarpStorageTracker(bool IsSPMD, uint32_t WarpId);
 
   /// The actual storage, shared among all warps.
   char Data[state::SharedScratchpadSize] __attribute__((aligned(Alignment)));
@@ -133,30 +125,15 @@ private:
 static SharedMemorySmartStackTy SHARED(SharedMemorySmartStack);
 
 void SharedMemorySmartStackTy::init(bool IsSPMD) {
-  // Only leaders are needed to initialize the per-warp areas.
-  if (!mapping::isLeaderInWarp())
-    return;
-
-  GenericModeMainThreadStorage =
-      IsSPMD ? 0 : config::getGenericModeMainThreadSharedMemoryStorage();
-
-  WarpStorageTotal = computeWarpStorageTotal();
-
-  // Initialize the tracker to the bytes used by the storage tracker.
-  uint32_t *WarpStorageTracker = getWarpStorageTracker();
-  *WarpStorageTracker = StorageTrackingBytes;
-
   static_assert(
-      StorageTrackingBytes >= (sizeof(*WarpStorageTracker)),
+      StorageTrackingBytes >= (sizeof(*getWarpStorageTracker(0))),
       "Storage tracker bytes should cover the size of the storage tracker.");
 
   // Initialize the tracker for all warps if in non-spmd mode because this
   // function will be only called by master thread.
-  if (!IsSPMD) {
-    for (unsigned I = 0; I < mapping::getNumberOfWarpsInBlock(); ++I) {
-      uint32_t *WarpStorageTracker = getWarpStorageTracker(I);
-      *WarpStorageTracker = StorageTrackingBytes;
-    }
+  if (mapping::isLeaderInWarp()) {
+    uint32_t *WarpStorageTracker = getWarpStorageTracker(IsSPMD);
+    *WarpStorageTracker = StorageTrackingBytes;
   }
 }
 
@@ -186,7 +163,8 @@ void *SharedMemorySmartStackTy::push(uint64_t BytesPerLane) {
           BytesTotal, "Slow path shared memory allocation, incomplete warp!");
     } else {
       // If warp is "complete" determine if we have sufficient space.
-      uint32_t *WarpStorageTracker = getWarpStorageTracker();
+      bool IsSPMD = mapping::isSPMDMode();
+      uint32_t *WarpStorageTracker = getWarpStorageTracker(IsSPMD);
       uint32_t BytesTotalAdjusted = BytesTotal + StorageTrackingBytes;
       uint32_t BytesTotalAdjustedAligned =
           (BytesTotalAdjusted + (Alignment - 1)) / Alignment * Alignment;
@@ -199,7 +177,7 @@ void *SharedMemorySmartStackTy::push(uint64_t BytesPerLane) {
       } else {
         // We have enough memory, put the new allocation on the top of the stack
         // preceded by the size of the allocation.
-        Ptr = getWarpDataTop();
+        Ptr = getWarpDataTop(IsSPMD);
         *WarpStorageTracker += BytesTotalAdjustedAligned;
         *((uint64_t *)Ptr) = BytesTotalAdjustedAligned;
         Ptr = ((char *)Ptr) + StorageTrackingBytes;
@@ -239,22 +217,23 @@ void SharedMemorySmartStackTy::pop(void *Ptr) {
       uint64_t BytesTotalAdjustedAligned = *reinterpret_cast<uint64_t *>(Ptr);
 
       // Free the memory by adjusting the storage tracker accordingly.
-      uint32_t *WarpStorageTracker = getWarpStorageTracker();
+      bool IsSPMD = mapping::isSPMDMode();
+      uint32_t *WarpStorageTracker = getWarpStorageTracker(IsSPMD);
       *WarpStorageTracker -= BytesTotalAdjustedAligned;
     }
   }
   // Ensure the entire warp waits until the pop is done.
-  synchronize::warp(mapping::activemask());
+  //synchronize::warp(mapping::activemask());
 }
 
-uint32_t SharedMemorySmartStackTy::computeWarpStorageTotal() {
-  if (mapping::isMainThreadInGenericMode())
-    return GenericModeMainThreadStorage;
+uint32_t SharedMemorySmartStackTy::computeWarpStorageTotal(bool IsSPMD) {
+  if (!IsSPMD && mapping::getThreadIdInBlock() == 0)
+    return config::getGenericModeMainThreadSharedMemoryStorage();
 
   // In generic mode we reserve parts of the storage for the main thread.
   uint32_t StorageTotal = state::SharedScratchpadSize;
-  if (mapping::isGenericMode())
-    StorageTotal -= GenericModeMainThreadStorage;
+  if (!IsSPMD)
+    StorageTotal -= config::getGenericModeMainThreadSharedMemoryStorage();
 
   uint32_t NumWarps = mapping::getNumberOfWarpsInBlock();
   uint32_t WarpStorageTotal = StorageTotal / NumWarps;
@@ -265,34 +244,34 @@ uint32_t SharedMemorySmartStackTy::computeWarpStorageTotal() {
   return WarpStorageTotal;
 }
 
-char *SharedMemorySmartStackTy::getWarpDataBottom(uint32_t WarpId) {
-  if (mapping::isMainThreadInGenericMode())
+char *SharedMemorySmartStackTy::getWarpDataBottom(bool IsSPMD, uint32_t WarpId) {
+  if (!IsSPMD && mapping::getThreadIdInBlock() == 0)
     return &Data[0];
 
   uint32_t PriorWarpStorageTotal = 0;
-  if (mapping::isGenericMode())
-    PriorWarpStorageTotal += GenericModeMainThreadStorage;
+  if (!IsSPMD)
+    PriorWarpStorageTotal +=  config::getGenericModeMainThreadSharedMemoryStorage();
 
-  PriorWarpStorageTotal += WarpStorageTotal * WarpId;
+  PriorWarpStorageTotal += computeWarpStorageTotal(IsSPMD) * WarpId;
 
   return &Data[PriorWarpStorageTotal];
 }
 
-char *SharedMemorySmartStackTy::getWarpDataBottom() {
-  return getWarpDataBottom(mapping::getWarpId());
+char *SharedMemorySmartStackTy::getWarpDataBottom(bool IsSPMD) {
+  return getWarpDataBottom(IsSPMD, mapping::getWarpId());
 }
 
-char *SharedMemorySmartStackTy::getWarpDataTop() {
-  uint32_t *WarpStorageTracker = getWarpStorageTracker();
-  return getWarpDataBottom() + (*WarpStorageTracker);
+char *SharedMemorySmartStackTy::getWarpDataTop(bool IsSPMD) {
+  uint32_t *WarpStorageTracker = getWarpStorageTracker(IsSPMD);
+  return getWarpDataBottom(IsSPMD) + (*WarpStorageTracker);
 }
 
-uint32_t *SharedMemorySmartStackTy::getWarpStorageTracker(uint32_t WarpId) {
-  return ((uint32_t *)getWarpDataBottom(WarpId));
+uint32_t *SharedMemorySmartStackTy::getWarpStorageTracker(bool IsSPMD, uint32_t WarpId) {
+  return ((uint32_t *)getWarpDataBottom(IsSPMD, WarpId));
 }
 
-uint32_t *SharedMemorySmartStackTy::getWarpStorageTracker() {
-  return getWarpStorageTracker(mapping::getWarpId());
+uint32_t *SharedMemorySmartStackTy::getWarpStorageTracker(bool IsSPMD) {
+  return getWarpStorageTracker(IsSPMD, mapping::getWarpId());
 }
 
 #pragma omp end declare target
@@ -337,15 +316,20 @@ struct ICVStateTy {
 };
 
 bool ICVStateTy::operator==(const ICVStateTy &Other) const {
-  return (NThreadsVar == Other.NThreadsVar) && (LevelVar == Other.LevelVar) &&
-         (ActiveLevelVar == Other.ActiveLevelVar) &&
-         (MaxActiveLevelsVar == Other.MaxActiveLevelsVar) &&
-         (RunSchedVar == Other.RunSchedVar) &&
+  return (NThreadsVar == Other.NThreadsVar) & (LevelVar == Other.LevelVar) &
+         (ActiveLevelVar == Other.ActiveLevelVar) &
+         (MaxActiveLevelsVar == Other.MaxActiveLevelsVar) &
+         (RunSchedVar == Other.RunSchedVar) &
          (RunSchedChunkVar == Other.RunSchedChunkVar);
 }
 
 void ICVStateTy::assertEqual(const ICVStateTy &Other) const {
-  ASSERT(*this == Other);
+  ASSERT(NThreadsVar == Other.NThreadsVar);
+  ASSERT(LevelVar == Other.LevelVar);
+  ASSERT(ActiveLevelVar == Other.ActiveLevelVar);
+  ASSERT(MaxActiveLevelsVar == Other.MaxActiveLevelsVar);
+  ASSERT(RunSchedVar == Other.RunSchedVar);
+  ASSERT(RunSchedChunkVar == Other.RunSchedChunkVar);
 }
 
 struct TeamStateTy {
@@ -381,10 +365,7 @@ void TeamStateTy::init(bool IsSPMD) {
     ICVState.RunSchedChunkVar = 1;
     ParallelTeamSize = mapping::getBlockSize();
   } else {
-    // In non-SPMD mode, the last warp only contains one thread, the master
-    // thread.
-    ICVState.NThreadsVar =
-        (mapping::getNumberOfWarpsInBlock() - 1) * mapping::getWarpSize();
+    ICVState.NThreadsVar = mapping::getBlockSize();
     ICVState.LevelVar = 0;
     ICVState.ActiveLevelVar = 0;
     ICVState.MaxActiveLevelsVar = 1;
@@ -395,12 +376,13 @@ void TeamStateTy::init(bool IsSPMD) {
 }
 
 bool TeamStateTy::operator==(const TeamStateTy &Other) const {
-  return ICVState == Other.ICVState &&
+  return ICVState == Other.ICVState &
          ParallelTeamSize == Other.ParallelTeamSize;
 }
 
 void TeamStateTy::assertEqual(TeamStateTy &Other) const {
-  ASSERT(*this == Other);
+  ICVState.assertEqual(Other.ICVState);
+  ASSERT(ParallelTeamSize == Other.ParallelTeamSize);
 }
 
 struct ThreadStateTy {
@@ -525,14 +507,10 @@ void *&state::lookupPtr(ValueKind Kind, bool IsReadonly) {
 
 void state::init(bool IsSPMD) {
   SharedMemorySmartStack.init(IsSPMD);
-  TeamState.init(IsSPMD);
+  if (!mapping::getThreadIdInBlock())
+    TeamState.init(IsSPMD);
 
-  if (IsSPMD) {
-    ThreadStates[mapping::getThreadIdInBlock()] = nullptr;
-  } else {
-    for (uint32_t i = 0; i < mapping::getBlockSize(); ++i)
-      ThreadStates[i] = nullptr;
-  }
+  ThreadStates[mapping::getThreadIdInBlock()] = nullptr;
 }
 
 void state::enterDataEnvironment() {
@@ -546,11 +524,11 @@ void state::enterDataEnvironment() {
 
 void state::exitDataEnvironment() {
   // assert(ThreadStates[TId] && "exptected thread state");
-  resetStateForThread();
+  unsigned TId = mapping::getThreadIdInBlock();
+  resetStateForThread(TId);
 }
 
-void state::resetStateForThread() {
-  unsigned TId = mapping::getThreadIdInBlock();
+void state::resetStateForThread(uint32_t TId) {
   if (!ThreadStates[TId])
     return;
 
@@ -561,22 +539,19 @@ void state::resetStateForThread() {
 
 void state::runAndCheckState(void(Func(void))) {
   TeamStateTy OldTeamState = TeamState;
+  OldTeamState.assertEqual(TeamState);
 
   Func();
 
-  ASSERT(OldTeamState == TeamState);
+  OldTeamState.assertEqual(TeamState);
 }
 
 void state::assumeInitialState(bool IsSPMD) {
   TeamStateTy InitialTeamState;
   InitialTeamState.init(IsSPMD);
-  ASSERT(InitialTeamState == TeamState);
-
-  if (IsSPMD)
-    ASSERT(ThreadStates[mapping::getThreadIdInBlock()] == nullptr);
-  else
-    for (unsigned I = 0; I < mapping::getBlockSize(); ++I)
-      ASSERT(ThreadStates[I] == nullptr);
+  InitialTeamState.assertEqual(TeamState);
+  ASSERT(!ThreadStates[mapping::getThreadIdInBlock()]);
+  ASSERT(mapping::isSPMDMode() == IsSPMD);
 }
 
 extern "C" {
@@ -697,13 +672,6 @@ void __kmpc_begin_sharing_variables(void ***GlobalArgs, uint64_t NumArgs) {
 }
 
 void __kmpc_end_sharing_variables() {
-  --icv::Level;
-  bool IsActiveParallelRegion = state::ParallelTeamSize > 1;
-  if (IsActiveParallelRegion)
-    icv::ActiveLevel = 0;
-
-  state::ParallelTeamSize = 1;
-
   __kmpc_free_shared(GlobalArgsPtr);
 }
 

@@ -169,7 +169,16 @@ void fenceSystem(int) { __nvvm_membar_sys(); }
 
 void syncWarp(__kmpc_impl_lanemask_t Mask) { __nvvm_bar_warp_sync(Mask); }
 
-void syncThreads() { __syncthreads(); }
+void syncThreads() {
+  //uint32_t NumThreads = mapping::getBlockSize();
+  //printf("sync %i\n", mapping::getThreadIdInBlock());
+  //__syncthreads();
+  constexpr int BarrierNo = 11;
+  asm volatile("barrier.sync %0;"
+               :
+               : "r"(BarrierNo)
+               : "memory");
+}
 
 constexpr uint32_t OMP_SPIN = 1000;
 constexpr uint32_t UNSET = 0;
@@ -269,10 +278,10 @@ void __kmpc_barrier_simple_spmd(IdentTy *Loc, int32_t TId) {
 }
 
 int32_t __kmpc_master(IdentTy *Loc, int32_t TId) {
-  int WarpSize = mapping::getWarpSize();
-  int BlockSize = mapping::getBlockSize();
-  int MasterId = ((WarpSize - 1) ^ (~0U)) & (BlockSize - 1);
-  return mapping::getThreadIdInBlock() == MasterId;
+  //int WarpSize = mapping::getWarpSize();
+  //int BlockSize = mapping::getBlockSize();
+  //int MasterId = ((WarpSize - 1) ^ (~0U)) & (BlockSize - 1);
+  return mapping::getThreadIdInBlock() == 0;
 }
 
 void __kmpc_end_master(IdentTy *Loc, int32_t TId) {}

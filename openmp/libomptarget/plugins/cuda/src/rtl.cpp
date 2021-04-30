@@ -938,10 +938,10 @@ public:
       DP("Setting CUDA threads per block to requested %d\n", ThreadLimit);
       CudaThreadsPerBlock = ThreadLimit;
       // Add master warp if necessary
-      if (KernelInfo->ExecutionMode == GENERIC) {
-        DP("Adding master warp: +%d threads\n", DeviceData[DeviceId].WarpSize);
-        CudaThreadsPerBlock += DeviceData[DeviceId].WarpSize;
-      }
+      //if (KernelInfo->ExecutionMode == GENERIC) {
+        //DP("Adding master warp: +%d threads\n", DeviceData[DeviceId].WarpSize);
+        //CudaThreadsPerBlock += DeviceData[DeviceId].WarpSize;
+      //}
     } else {
       DP("Setting CUDA threads per block to default %d\n",
          DeviceData[DeviceId].NumThreads);

@@ -162,7 +162,7 @@ bool mapping::isMainThreadInGenericMode() {
     return false;
 
   // Check if this is the last warp in the block.
-  return mapping::getWarpId() + 1 == mapping::getNumberOfWarpsInBlock();
+  return mapping::getThreadIdInBlock() == 0;
 }
 
 bool mapping::isLeaderInWarp() {
@@ -206,7 +206,11 @@ uint32_t mapping::getNumberOfWarpsInBlock() {
 ///{
 static int SHARED(IsSPMDMode);
 
-void mapping::init(bool IsSPMD) { IsSPMDMode = IsSPMD; }
+void mapping::init(bool IsSPMD) {
++  if (mapping::getThreadIdInBlock())
++    return;
+  IsSPMDMode = IsSPMD;
+}
 
 bool mapping::isSPMDMode() { return IsSPMDMode; }
 
