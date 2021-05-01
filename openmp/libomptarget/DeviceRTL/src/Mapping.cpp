@@ -10,7 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Mapping.h"
-
+#include "State.h"
 #include "Utils.h"
 
 using namespace _OMP;
@@ -158,7 +158,7 @@ uint32_t getNumberOfWarpsInBlock() {
 #pragma omp declare target
 
 bool mapping::isMainThreadInGenericMode() {
-  if (mapping::isSPMDMode())
+  if (mapping::isSPMDMode() || icv::Level)
     return false;
 
   // Check if this is the last warp in the block.
@@ -207,8 +207,8 @@ uint32_t mapping::getNumberOfWarpsInBlock() {
 static int SHARED(IsSPMDMode);
 
 void mapping::init(bool IsSPMD) {
-+  if (mapping::getThreadIdInBlock())
-+    return;
+  if (mapping::getThreadIdInBlock())
+    return;
   IsSPMDMode = IsSPMD;
 }
 

@@ -206,10 +206,10 @@ template <typename T, typename ST> struct omptarget_nvptx_LoopSupport {
     *plower = lb;
     *pupper = ub;
     *pstride = stride;
-    PRINT(LD_LOOP,
+    PRINT(
           "Got sched: Active %d, total %d: lb %lld, ub %lld, stride %lld, last "
           "%d\n",
-          (int)numberOfActiveOMPThreads, (int)GetNumberOfWorkersInTeam(),
+          (int)numberOfActiveOMPThreads, (int)mapping::getBlockSize(),
           (long long)(*plower), (long long)(*pupper), (long long)(*pstride),
           (int)lastiter);
   }

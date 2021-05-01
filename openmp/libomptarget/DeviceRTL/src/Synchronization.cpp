@@ -18,6 +18,7 @@
 #include "State.h"
 #include "Types.h"
 #include "Utils.h"
+#include <stdio.h>
 
 using namespace _OMP;
 
@@ -151,14 +152,16 @@ void namedBarrierInit() {}
 void namedBarrier() {
   uint32_t NumThreads = omp_get_num_threads();
   ASSERT(NumThreads % 32 == 0);
+  //printf("named barrier %i / %i\n", mapping::getThreadIdInBlock(), NumThreads);
 
   // The named barrier for active parallel threads of a team in an L1 parallel
   // region to synchronize with each other.
   int BarrierNo = 7;
-  asm volatile("bar.sync %0, %1;"
+  asm volatile("barrier.sync %0, %1;"
                :
                : "r"(BarrierNo), "r"(NumThreads)
                : "memory");
+  //printf("named barrier done %i / %i\n", mapping::getThreadIdInBlock(), NumThreads);
 }
 
 void fenceTeam(int) { __nvvm_membar_cta(); }
@@ -264,8 +267,8 @@ int32_t __kmpc_cancel_barrier(IdentTy *Loc, int32_t TId) {
 }
 
 void __kmpc_barrier(IdentTy *Loc, int32_t TId) {
-  if (mapping::isMainThreadInGenericMode())
-    return __kmpc_flush(Loc);
+  //if (mapping::isMainThreadInGenericMode())
+    //return __kmpc_flush(Loc);
 
   if (mapping::isSPMDMode())
     return __kmpc_barrier_simple_spmd(Loc, TId);
@@ -273,6 +276,7 @@ void __kmpc_barrier(IdentTy *Loc, int32_t TId) {
   impl::namedBarrier();
 }
 
+__attribute__((used))
 void __kmpc_barrier_simple_spmd(IdentTy *Loc, int32_t TId) {
   synchronize::threads();
 }

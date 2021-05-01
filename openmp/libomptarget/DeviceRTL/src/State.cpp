@@ -16,7 +16,7 @@
 #include "Synchronization.h"
 #include "Types.h"
 #include "Utils.h"
-#include <bits/stdint-uintn.h>
+#include <stdio.h>
 
 using namespace _OMP;
 
@@ -149,6 +149,7 @@ void *SharedMemorySmartStackTy::push(uint64_t BytesPerLane) {
 
   // Only the leader allocates, the rest, if any, waits for the result at the
   // shfl_sync below.
+  //printf("push %lu : %i\n", BytesPerLane, (mapping::isLeaderInWarp()));
   if (mapping::isLeaderInWarp()) {
     uint32_t BytesTotal = BytesPerLane * NumActive;
 
@@ -161,6 +162,7 @@ void *SharedMemorySmartStackTy::push(uint64_t BytesPerLane) {
         !mapping::isMainThreadInGenericMode()) {
       Ptr = memory::allocGlobal(
           BytesTotal, "Slow path shared memory allocation, incomplete warp!");
+      //printf("alloc global1 %p\n", Ptr);
     } else {
       // If warp is "complete" determine if we have sufficient space.
       bool IsSPMD = mapping::isSPMDMode();
@@ -170,10 +172,11 @@ void *SharedMemorySmartStackTy::push(uint64_t BytesPerLane) {
           (BytesTotalAdjusted + (Alignment - 1)) / Alignment * Alignment;
 
       uint32_t BytesInUse = *WarpStorageTracker;
-      if (BytesInUse + BytesTotalAdjustedAligned > WarpStorageTotal) {
+      if (BytesInUse + BytesTotalAdjustedAligned > computeWarpStorageTotal(IsSPMD)) {
         Ptr = memory::allocGlobal(
             BytesTotal,
             "Slow path shared memory allocation, insufficient memory!");
+        //printf("alloc global2 %p\n", Ptr);
       } else {
         // We have enough memory, put the new allocation on the top of the stack
         // preceded by the size of the allocation.
@@ -181,12 +184,14 @@ void *SharedMemorySmartStackTy::push(uint64_t BytesPerLane) {
         *WarpStorageTracker += BytesTotalAdjustedAligned;
         *((uint64_t *)Ptr) = BytesTotalAdjustedAligned;
         Ptr = ((char *)Ptr) + StorageTrackingBytes;
+        //printf("alloc shared %p\n", Ptr);
       }
     }
   }
 
+  //printf("allocated %p %i\n", Ptr, omp_get_num_threads());
   // Skip the shfl_sync if the thread is alone.
-  if (NumActive == 1)
+  if (omp_get_num_threads() == 1)
     return Ptr;
 
   // Get the address of the allocation from the leader.
@@ -209,11 +214,13 @@ void SharedMemorySmartStackTy::pop(void *Ptr) {
   if (mapping::isLeaderInWarp()) {
     // memory::freeGlobal(Ptr, "Slow path shared memory deallocation");
     // // Check if the pointer is from a malloc or from within the stack.
-    if (Ptr < &Data[0] || Ptr > &Data[state::SharedScratchpadSize]) {
+    if (Ptr < &Data[0] || Ptr >= &Data[state::SharedScratchpadSize]) {
+      //printf("Free global %p\n", Ptr);
       memory::freeGlobal(Ptr, "Slow path shared memory deallocation");
     } else {
       // Lookup the allocation size "below" the allocation (=Ptr).
       Ptr = reinterpret_cast<char *>(Ptr) - StorageTrackingBytes;
+      //printf("Free shared %p\n", Ptr);
       uint64_t BytesTotalAdjustedAligned = *reinterpret_cast<uint64_t *>(Ptr);
 
       // Free the memory by adjusting the storage tracker accordingly.
@@ -376,8 +383,8 @@ void TeamStateTy::init(bool IsSPMD) {
 }
 
 bool TeamStateTy::operator==(const TeamStateTy &Other) const {
-  return ICVState == Other.ICVState &
-         ParallelTeamSize == Other.ParallelTeamSize;
+  return (ICVState == Other.ICVState) &
+         (ParallelTeamSize == Other.ParallelTeamSize);
 }
 
 void TeamStateTy::assertEqual(TeamStateTy &Other) const {
@@ -414,9 +421,11 @@ ThreadStateTy *ThreadStates[mapping::MaxThreadsPerTeam];
 #pragma omp allocate(ThreadStates) allocator(omp_pteam_mem_alloc)
 
 uint32_t &lookupForModify32Impl(uint32_t ICVStateTy::*Var) {
-  if (mapping::isMainThreadInGenericMode())
+  if (TeamState.ICVState.LevelVar == 0)
     return TeamState.ICVState.*Var;
   uint32_t TId = mapping::getThreadIdInBlock();
+  //printf("ThreadState %i\n", TId);
+  //__builtin_trap();
   if (!ThreadStates[TId]) {
     ThreadStates[TId] = reinterpret_cast<ThreadStateTy *>(memory::allocGlobal(
         sizeof(ThreadStateTy), "ICV modification outside data environment"));
@@ -426,16 +435,12 @@ uint32_t &lookupForModify32Impl(uint32_t ICVStateTy::*Var) {
 }
 
 uint32_t &lookup32Impl(uint32_t ICVStateTy::*Var) {
-  if (mapping::isMainThreadInGenericMode())
-    return TeamState.ICVState.*Var;
   uint32_t TId = mapping::getThreadIdInBlock();
   if (ThreadStates[TId])
     return ThreadStates[TId]->ICVState.*Var;
   return TeamState.ICVState.*Var;
 }
 uint64_t &lookup64Impl(uint64_t ICVStateTy::*Var) {
-  if (mapping::isMainThreadInGenericMode())
-    return TeamState.ICVState.*Var;
   uint64_t TId = mapping::getThreadIdInBlock();
   if (ThreadStates[TId])
     return ThreadStates[TId]->ICVState.*Var;
@@ -462,6 +467,7 @@ int returnValIfLevelIsActive(int Level, int Val, int DefaultVal,
 #pragma omp declare target
 
 uint32_t &state::lookup32(ValueKind Kind, bool IsReadonly) {
+  //printf("lookup32 %i %i\n", Kind, IsReadonly);
   switch (Kind) {
   case state::VK_NThreads:
     if (IsReadonly)
@@ -515,6 +521,8 @@ void state::init(bool IsSPMD) {
 
 void state::enterDataEnvironment() {
   unsigned TId = mapping::getThreadIdInBlock();
+  //printf("enterDataEnv %i\n", TId);
+  //__builtin_trap();
 
   ThreadStateTy *NewThreadState =
       static_cast<ThreadStateTy *>(__kmpc_alloc_shared(sizeof(ThreadStateTy)));
@@ -587,10 +595,12 @@ int omp_get_ancestor_thread_num(int Level) {
   return returnValIfLevelIsActive(Level, mapping::getThreadIdInBlock(), 0);
 }
 
+__attribute__((flatten, always_inline))
 int omp_get_thread_num(void) {
   return omp_get_ancestor_thread_num(omp_get_level());
 }
 
+__attribute__((flatten, always_inline))
 int omp_get_team_size(int Level) {
   return returnValIfLevelIsActive(Level, state::ParallelTeamSize, 1);
 }
@@ -647,13 +657,15 @@ int omp_get_initial_device(void) { return -1; }
 extern "C" {
 // TODO: The noinline is a workaround until we run OpenMP opt before the
 // inliner.
-__attribute__((noinline)) void *__kmpc_alloc_shared(uint64_t Bytes) {
+__attribute__((flatten, noinline))
+void *__kmpc_alloc_shared(uint64_t Bytes) {
   return memory::allocShared(Bytes, "Frontend alloc shared");
 }
 
 // TODO: The noinline is a workaround until we run OpenMP opt before the
 // inliner.
-__attribute__((noinline)) void __kmpc_free_shared(void *Ptr) {
+__attribute__((flatten, noinline))
+void __kmpc_free_shared(void *Ptr) {
   memory::freeShared(Ptr, "Frontend free shared");
 }
 
@@ -664,13 +676,15 @@ __attribute__((noinline)) void __kmpc_free_shared(void *Ptr) {
 /// Workaround until the interface is changed.
 static void **SHARED(GlobalArgsPtr);
 
+__attribute__((flatten, always_inline))
 void __kmpc_begin_sharing_variables(void ***GlobalArgs, uint64_t NumArgs) {
   // TODO: To mimic the old behavior we allocate in `sizeof(void*)` chunks. We
   //       should pass the required bytes instead.
   *GlobalArgs = GlobalArgsPtr = static_cast<decltype(GlobalArgsPtr)>(
-      __kmpc_alloc_shared(NumArgs * sizeof(GlobalArgsPtr[0])));
+    __kmpc_alloc_shared(NumArgs * sizeof(GlobalArgsPtr[0])));
 }
 
+__attribute__((flatten, always_inline))
 void __kmpc_end_sharing_variables() {
   __kmpc_free_shared(GlobalArgsPtr);
 }

@@ -36,6 +36,9 @@
 #include "Mapping.h"
 #include "State.h"
 #include "Types.h"
+#include "Debug.h"
+#include "Synchronization.h"
+#include <stdio.h>
 
 using namespace _OMP;
 
@@ -61,12 +64,12 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
 
 // Invoke an outlined parallel function unwrapping arguments (up
 // to 32).
-void __kmp_invoke_microtask(kmp_int32 global_tid, kmp_int32 bound_tid, void *fn,
-                            void **args, size_t nargs) {
+void __kmp_invoke_microtask(int32_t global_tid, int32_t bound_tid, void *fn,
+                            void **args, int64_t nargs) {
   switch (nargs) {
 #include "generated_microtask_cases.gen"
   default:
-    printf("Too many arguments in kmp_invoke_microtask, aborting execution.\n");
+    //printf("Too many arguments in kmp_invoke_microtask, aborting execution.\n");
     __builtin_trap();
   }
 }
@@ -75,7 +78,7 @@ void __kmp_invoke_microtask(kmp_int32 global_tid, kmp_int32 bound_tid, void *fn,
 
 extern "C" {
 
-void __kmpc_target_region_state_machine();
+void __kmpc_target_region_state_machine(IdentTy *Ident);
 
 __attribute__((flatten, always_inline))
 void __kmpc_parallel_51(IdentTy *ident, int32_t global_tid,
@@ -98,29 +101,28 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t global_tid,
 
    // Handle the serialized case first, same for SPMD/non-SPMD.
    // TODO: Add UNLIKELY to optimize?
-   if (!if_expr || icv::ActiveLevel) {
+   if (!if_expr || icv::Level) {
+      //printf("serialize parallel\n");
      __kmpc_serialized_parallel(ident, global_tid);
      __kmp_invoke_microtask(global_tid, 0, fn, args, nargs);
      __kmpc_end_serialized_parallel(ident, global_tid);
+      //printf("serialize parallel end\n");
      return;
    }
 
-   // Handle the num_threads clause.
-   state::ParallelTeamSize = NumThreads;
-   state::ParallelRegionFn = wrapper_fn;
-   // We do *not* create a new data environment because all threads in the team
-   // that are active are now running this parallel region. They share the
+  // We do *not* create a new data environment because all threads in the team
+  // that are active are now running this parallel region. They share the
   // TeamState, which has an increase level-var and potentially active-level
   // set, but they do not have individual ThreadStates yet. If they ever
   // modify the ICVs beyond this point a ThreadStates will be allocated.
-  int NewLevel = ++icv::Level;
+
   bool IsActiveParallelRegion = NumThreads > 1;
   if (!IsActiveParallelRegion) {
+    state::ValueRAII LevelRAII(icv::Level, 1u);
     __kmp_invoke_microtask(global_tid, 0, fn, args, nargs);
   } else {
-    icv::ActiveLevel = NewLevel;
-
     void **GlobalArgs = nullptr;
+    //printf("nargs %i\n", nargs);
     if (nargs) {
       __kmpc_begin_sharing_variables(&GlobalArgs, nargs);
       //printf("alloc global args %p %u\n", GlobalArgs, mapping::activemask());
@@ -129,10 +131,22 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t global_tid,
         GlobalArgs[I] = args[I];
     }
 
-    // Master signals work to activate workers.
-    //printf("main (%i) ready fn %p, wrapper %p, %i, %u\n", global_tid, fn, wrapper_fn, NumThreads, mapping::activemask());
-    __kmpc_target_region_state_machine();
-    //state::runAndCheckState(synchronize::threads);
+    {
+      state::ValueRAII ParallelTeamSizeRAII(state::ParallelTeamSize, NumThreads);
+      state::ValueRAII ParallelRegionFnRAII(state::ParallelRegionFn, wrapper_fn);
+      state::ValueRAII ActiveLevelRAII(icv::ActiveLevel, 1u);
+      state::ValueRAII LevelRAII(icv::Level, 1u);
+
+      // Master signals work to activate workers.
+      //printf("main (%i) ready fn %p, wrapper %p, %i, %u\n", global_tid, fn, wrapper_fn, NumThreads, mapping::activemask());
+      //__kmpc_target_region_state_machine(ident);
+      synchronize::threads();
+      //printf("work %i\n", global_tid);
+      //state::runAndCheckState(synchronize::threads);
+      __kmp_invoke_microtask(global_tid, 0, fn, args, nargs);
+      //printf("work done %i\n", global_tid);
+      synchronize::threads();
+    }
 
     ////printf("main invoke fn %p, wrapper %p, %i\n", fn, wrapper_fn, NumThreads);
     //__kmp_invoke_microtask(global_tid, 0, fn, args, nargs);
@@ -147,20 +161,15 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t global_tid,
     //state::runAndCheckState(synchronize::threads);
     //printf("main alone fn %p, wrapper %p, %i\n", fn, wrapper_fn, NumThreads);
 
-
     if (nargs) {
       //printf("frees global args %p %u\n", GlobalArgs, mapping::activemask());
       memory::freeShared(GlobalArgs, "global args free shared");
     }
     //__kmpc_end_sharing_variables(GlobalArgs);
     //printf("main adjust fn %p, wrapper %p, %i, %u\n", fn, wrapper_fn, NumThreads, mapping::activemask());
-
-    icv::ActiveLevel = 0;
   }
 
-  --icv::Level;
-
-  state::ParallelTeamSize = 1;
+  //icv::Level = 0;
 
    // TODO: proc_bind is a noop?
    // if (proc_bind != proc_bind_default)
@@ -168,6 +177,7 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t global_tid,
    //printf("exit parallelready fn %p, wrapper %p, %i\n", fn, wrapper_fn, num_threads);
 }
 
+__attribute__((used))
 bool __kmpc_kernel_parallel(ParallelRegionFnTy *WorkFn) {
   // Work function and arguments for L1 parallel region.
   *WorkFn = state::ParallelRegionFn;

@@ -445,6 +445,7 @@ struct KernelInfoState : AbstractState {
   ChangeStatus indicatePessimisticFixpoint() override {
     IsAtFixpoint = true;
     IsSPMDCompatible = false;
+          errs() << "BAD 4 \n";
     MayReachUnknownParallelRegion = true;
     return ChangeStatus::CHANGED;
   }
@@ -519,6 +520,7 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
         KernelInitCB->getArgOperand(InitUseStateMachineArgNo));
     ConstantInt *IsSPMD =
         dyn_cast<ConstantInt>(KernelInitCB->getArgOperand(InitIsSPMDArgNo));
+      KernelInitCB->dump();
 
     // First check if we can go to SPMD-mode, that is the best option.
     if (canBeExecutedInSPMDMode() && IsSPMD && IsSPMD->isZero()) {
@@ -531,6 +533,7 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
       A.changeUseAfterManifest(
           KernelDeinitCB->getArgOperandUse(DeinitIsSPMDArgNo),
           *ConstantInt::getBool(Ctx, 1));
+      KernelInitCB->dump();
       ++NumOpenMPTargetRegionKernelsSPMD;
       return ChangeStatus::CHANGED;
     }
@@ -547,6 +550,8 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
     A.changeUseAfterManifest(
         KernelInitCB->getArgOperandUse(InitUseStateMachineArgNo),
         *ConstantInt::getBool(Ctx, 0));
+    KernelInitCB->dump();
+    errs() << MayReachUnknownParallelRegion << " #PR " << ParallelRegions.size() << "\n";
 
     ++NumOpenMPTargetRegionKernelsCustomStateMachine;
 
@@ -687,9 +692,6 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
     if (MayReachUnknownParallelRegion) {
       StateMachineIfCascadeCurrentBB->setName(
           "worker_state_machine.parallel_region.fallback.execute");
-      WorkFnCast->dump();
-      ZeroArg->dump();
-      GTid->dump();
       CallInst::Create(ParallelRegionFnTy, WorkFnCast, {ZeroArg, GTid}, "",
                        StateMachineIfCascadeCurrentBB);
     }
@@ -740,6 +742,34 @@ struct AAKernelInfoFunction : AAKernelInfo {
   AAKernelInfoFunction(const IRPosition &IRP, Attributor &A)
       : AAKernelInfo(IRP, A) {}
 
+  void initialize(Attributor &A) override {
+    Attributor::AttributorPhase OldPhase = A.Phase;
+    A.Phase = Attributor::AttributorPhase::MANIFEST;
+    for (auto &I : instructions(getAnchorScope())) {
+      if (auto *CB = dyn_cast<CallBase>(&I)) {
+        if (auto *F = CB->getCalledFunction()) {
+          if (F->getName() == "__kmpc_target_deinit" && F->arg_size() == 2) {
+            const int DeinitIsSPMDArgNo = 1;
+            const_cast<AAValueSimplify&>(A.getOrCreateAAFor<AAValueSimplify>(IRPosition::argument(*F->getArg(DeinitIsSPMDArgNo)))).indicatePessimisticFixpoint();
+            const_cast<AAValueConstantRange&>(A.getOrCreateAAFor<AAValueConstantRange>(IRPosition::argument(*F->getArg(DeinitIsSPMDArgNo)))).indicatePessimisticFixpoint();
+            const_cast<AAPotentialValues&>(A.getOrCreateAAFor<AAPotentialValues>(IRPosition::argument(*F->getArg(DeinitIsSPMDArgNo)))).indicatePessimisticFixpoint();
+          }
+          if (F->getName() == "__kmpc_target_init" && F->arg_size() == 3) {
+            const int InitIsSPMDArgNo = 1;
+            const int InitUseStateMachineArgNo = 2;
+            const_cast<AAValueSimplify&>(A.getOrCreateAAFor<AAValueSimplify>(IRPosition::argument(*F->getArg(InitIsSPMDArgNo)))).indicatePessimisticFixpoint();
+            const_cast<AAValueSimplify&>(A.getOrCreateAAFor<AAValueSimplify>(IRPosition::argument(*F->getArg(InitUseStateMachineArgNo)))).indicatePessimisticFixpoint();
+            const_cast<AAValueConstantRange&>(A.getOrCreateAAFor<AAValueConstantRange>(IRPosition::argument(*F->getArg(InitIsSPMDArgNo)))).indicatePessimisticFixpoint();
+            const_cast<AAValueConstantRange&>(A.getOrCreateAAFor<AAValueConstantRange>(IRPosition::argument(*F->getArg(InitUseStateMachineArgNo)))).indicatePessimisticFixpoint();
+            const_cast<AAPotentialValues&>(A.getOrCreateAAFor<AAPotentialValues>(IRPosition::argument(*F->getArg(InitIsSPMDArgNo)))).indicatePessimisticFixpoint();
+            const_cast<AAPotentialValues&>(A.getOrCreateAAFor<AAPotentialValues>(IRPosition::argument(*F->getArg(InitUseStateMachineArgNo)))).indicatePessimisticFixpoint();
+          }
+        }
+      }
+    }
+    A.Phase = OldPhase;
+  }
+
   ChangeStatus updateImpl(Attributor &A) override {
     KernelInfoState StateBefore = getState();
     // Callback to check a read/write instruction.
@@ -757,6 +787,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
                          [](const Value *Obj) { return isa<AllocaInst>(Obj); }))
           return true;
       }
+      errs() << "not SPMD1 due to " << I << "\n";
       // For now we give up on everything but stores.
       IsSPMDCompatible = false;
       return true;
@@ -783,6 +814,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         if (CBAA.getState().isValidState()) {
           getState() ^= CBAA.getState();
         } else {
+          errs() << "BAD 1 " << I << "\n";
           IsSPMDCompatible = false;
           MayReachUnknownParallelRegion = true;
         }
@@ -813,6 +845,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
           ParallelRegions.insert(ParallelRegion);
           return true;
         }
+          errs() << "BAD 2 " << I << "\n";
         MayReachUnknownParallelRegion = true;
         return true;
       case OMPRTL___kmpc_for_static_init_4:
@@ -833,16 +866,19 @@ struct AAKernelInfoFunction : AAKernelInfo {
         default:
           break;
         };
+        errs() << "not SPMD2 due to " << I << "\n";
         IsSPMDCompatible = false;
         return true;
       }
       case OMPRTL___kmpc_omp_task:
+          errs() << "BAD 3 " << I << "\n";
         MayReachUnknownParallelRegion = true;
         IsSPMDCompatible = false;
         return true;
       default:
         break;
       }
+      errs() << "not SPMD3 due to " << I << "\n";
       IsSPMDCompatible = false;
       return true;
     };
@@ -995,11 +1031,13 @@ struct OpenMPOpt {
                       << OMPInfoCache.ModuleSlice.size() << " functions\n");
 
     if (IsModulePass) {
+      SCC.front()->getParent()->dump();
       if (remarksEnabled())
         analysisGlobalization();
 
       Changed |= runAttributor();
 
+      SCC.front()->getParent()->dump();
     } else {
       if (PrintICVValues)
         printICVs();
@@ -1027,6 +1065,8 @@ struct OpenMPOpt {
       }
     }
 
+    //SCC.front()->getParent()->dump();
+    //assert(0);
     return Changed;
   }
 
@@ -1530,6 +1570,7 @@ private:
     auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_alloc_shared];
     bool Changed = false;
 
+    Function *FreeDecl = M.getFunction("free");
     auto ReplaceAllocCalls = [&](Use &U, Function &F) {
       if (!isKernel(F))
         return false;
@@ -1555,13 +1596,20 @@ private:
                         << " bytes of shared memory\n");
 
       // Remove the free call
+      CallBase *FreeCB = nullptr;
       for (auto *U : CB->users()) {
         CallBase *FC = dyn_cast<CallBase>(U);
-        if (FC && FC->getCalledFunction() == FreeCall.Declaration) {
-          FC->eraseFromParent();
-          break;
-        }
+        if (!FC)
+          continue;
+        if (FC->getCalledFunction() != FreeCall.Declaration && FC->getCalledFunction() != FreeDecl)
+          continue;
+        if (FreeCB)
+          return false;
+        FreeCB = FC;
       }
+      if (!FreeCB)
+        return false;
+      FreeCB->eraseFromParent();
 
       // Create a new shared memory buffer of the same size as the allocation
       // and replace all the uses of the original allocation with it.
@@ -1601,6 +1649,18 @@ private:
     RFI.foreachUse(SCC, ReplaceAllocCalls);
 
     OMPInfoCache.recollectUsesForFunction(OMPRTL___kmpc_free_shared);
+
+    auto &FreeRFI = OMPInfoCache.RFIs[OMPRTL___kmpc_free_shared];
+    auto InlineCalls = [&](Use &U, Function &F) {
+      if (!isKernel(F))
+        return false;
+      CallBase *CB = OpenMPOpt::getCallIfRegularCall(U);
+      if (CB)
+        CB->addAttribute(AttributeList::FunctionIndex, Attribute::AlwaysInline);
+      return false;
+    };
+    RFI.foreachUse(SCC, InlineCalls);
+    FreeRFI.foreachUse(SCC, InlineCalls);
 
     return Changed;
   }
@@ -2230,9 +2290,9 @@ private:
       for (auto &F : SCC)
         for (Instruction &I : instructions(F))
           if (isa<LoadInst>(I))
-          A.getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
-      for (auto &G: M.globals())
-        A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(G));
+            A.getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
+      //for (auto &G: M.globals())
+        //A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(G));
     }
 
     auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_alloc_shared];
@@ -2971,7 +3031,7 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
   OMPInformationCache InfoCache(M, AG, Allocator, /*CGSCC*/ Functions,
                                 OMPInModule.getKernels());
 
-  Attributor A(Functions, InfoCache, CGUpdater);
+  Attributor A(Functions, InfoCache, CGUpdater, nullptr, false);
 
   OpenMPOpt OMPOpt(SCC, CGUpdater, OREGetter, InfoCache, A);
   bool Changed = OMPOpt.run(true);
@@ -3026,7 +3086,7 @@ PreservedAnalyses OpenMPOptCGSCCPass::run(LazyCallGraph::SCC &C,
   OMPInformationCache InfoCache(*(Functions.back()->getParent()), AG, Allocator,
                                 /*CGSCC*/ Functions, OMPInModule.getKernels());
 
-  Attributor A(Functions, InfoCache, CGUpdater);
+  Attributor A(Functions, InfoCache, CGUpdater, nullptr, false);
 
   OpenMPOpt OMPOpt(SCC, CGUpdater, OREGetter, InfoCache, A);
   bool Changed = OMPOpt.run(false);
@@ -3101,7 +3161,7 @@ struct OpenMPOptCGSCCLegacyPass : public CallGraphSCCPass {
         *(Functions.back()->getParent()), AG, Allocator,
         /*CGSCC*/ Functions, OMPInModule.getKernels());
 
-    Attributor A(Functions, InfoCache, CGUpdater);
+    Attributor A(Functions, InfoCache, CGUpdater, nullptr, false);
 
     OpenMPOpt OMPOpt(SCC, CGUpdater, OREGetter, InfoCache, A);
     return OMPOpt.run(false);
@@ -3160,7 +3220,7 @@ bool llvm::omp::containsOpenMP(Module &M, OpenMPInModule &OMPInModule) {
   if (M.getModuleFlag("OpenMP"))
     OMPInModule = true;
   else if (OMPInModule)
-    M.addModuleFlag(Module::AppendUnique, "OpenMP", 1);
+    M.addModuleFlag(Module::Max, "OpenMP", 1);
 
   // Identify kernels once. TODO: We should split the OMPInformationCache into a
   // module and an SCC part. The kernel information, among other things, could

@@ -15,6 +15,7 @@
 #include "State.h"
 #include "Synchronization.h"
 #include "Types.h"
+#include <stdio.h>
 
 using namespace _OMP;
 
@@ -30,8 +31,6 @@ static void __kmpc_generic_kernel_init() {
   inititializeRuntime(/* IsSPMD */ false);
   // No need to wait since only the main threads will execute user
   // code and workers will run into a barrier right away.
-
-  ASSERT(!mapping::isSPMDMode());
 }
 
 static void __kmpc_generic_kernel_deinit() {
@@ -41,14 +40,10 @@ static void __kmpc_generic_kernel_deinit() {
 
 static void __kmpc_spmd_kernel_init() {
   inititializeRuntime(/* IsSPMD */ true);
-
-  state::runAndCheckState(synchronize::threads);
-
-  ASSERT(mapping::isSPMDMode());
 }
 
 static void __kmpc_spmd_kernel_deinit() {
-  state::assumeInitialState(/* IsSPMD */ true);
+  //state::assumeInitialState([> IsSPMD <] true);
 }
 
 extern "C" {
@@ -56,7 +51,7 @@ extern "C" {
 bool __kmpc_kernel_parallel(ParallelRegionFnTy *WorkFn);
 
 /// Simple generic state machine for worker threads.
-static void __kmpc_target_region_state_machine(IdentTy *Ident) {
+void __kmpc_target_region_state_machine(IdentTy *Ident) {
 
   uint32_t TId = mapping::getThreadIdInBlock();
 
@@ -75,22 +70,25 @@ static void __kmpc_target_region_state_machine(IdentTy *Ident) {
       return;
 
     if (IsActive) {
+      //printf("work %i\n", TId);
       ASSERT(!mapping::isSPMDMode());
       ((void(*)(uint32_t,uint32_t))WorkFn)(0, TId);
       ASSERT(!mapping::isSPMDMode());
       state::resetStateForThread(TId);
+      //printf("work done %i\n", TId);
     }
 
     synchronize::threads();
 
-  } while (TId > 0);
+  } while (true);
 }
 
 /// Initialization
 ///
 /// \param Ident               Source location identification, can be NULL.
 ///
-int8_t __kmpc_target_init(IdentTy *Ident, bool IsSPMD,
+__attribute__((flatten, always_inline))
+int32_t __kmpc_target_init(IdentTy *Ident, bool IsSPMD,
                           bool UseGenericStateMachine) {
   if (IsSPMD)
     __kmpc_spmd_kernel_init();
@@ -101,9 +99,10 @@ int8_t __kmpc_target_init(IdentTy *Ident, bool IsSPMD,
   state::assumeInitialState(IsSPMD);
 
   uint32_t TId = mapping::getThreadIdInBlock();
-  if (UseGenericStateMachine && !mapping::isMainThreadInGenericMode())
+  if (UseGenericStateMachine && !IsSPMD && TId != 0)
     __kmpc_target_region_state_machine(Ident);
 
+  //printf("init end %i\n", TId);
   return TId;
 }
 
@@ -114,11 +113,13 @@ int8_t __kmpc_target_init(IdentTy *Ident, bool IsSPMD,
 ///
 /// \param Ident Source location identification, can be NULL.
 ///
+__attribute__((flatten, always_inline))
 void __kmpc_target_deinit(IdentTy *Ident, bool IsSPMD) {
   if (IsSPMD)
     __kmpc_spmd_kernel_deinit();
   else
     __kmpc_generic_kernel_deinit();
+  //printf("deinit end %i\n", mapping::getThreadIdInBlock());
 }
 
 int8_t __kmpc_is_spmd_exec_mode() { return mapping::isSPMDMode(); }

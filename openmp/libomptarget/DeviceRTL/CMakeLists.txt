@@ -42,6 +42,7 @@ endif()
 # Get compiler directory to try to locate a suitable linker.
 get_filename_component(compiler_dir ${cuda_compiler} DIRECTORY)
 set(llvm_link "${compiler_dir}/llvm-link")
+set(opt "${compiler_dir}/opt")
 
 if (NOT LIBOMPTARGET_NVPTX_BC_LINKER STREQUAL "")
   set(bc_linker ${LIBOMPTARGET_NVPTX_BC_LINKER})
@@ -178,11 +179,18 @@ foreach(sm ${nvptx_sm_list})
       DEPENDS ${bc_files}
       COMMENT "Linking LLVM bitcode ${bclib_name}"
   )
+
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${bclib_name}_opt
+      COMMAND ${opt}
+        -O1 -o ${CMAKE_CURRENT_BINARY_DIR}/${bclib_name} ${CMAKE_CURRENT_BINARY_DIR}/${bclib_name}
+      DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${bclib_name}
+      COMMENT "Optimizing LLVM bitcode ${bclib_name}"
+  )
   set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${bclib_name})
 
   set(bclib_target_name "omptarget-nvptx-sm_${sm}-bc")
 
-  add_custom_target(${bclib_target_name} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${bclib_name})
+  add_custom_target(${bclib_target_name} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${bclib_name}_opt)
   add_dependencies(omptarget-nvptx-bc ${bclib_target_name})
 
   # Copy library to destination.

@@ -1728,6 +1728,7 @@ private:
   /// Invoke instructions with at least a single dead successor block.
   SmallVector<WeakVH, 16> InvokeWithDeadSuccessor;
 
+  public:
   /// A flag that indicates which stage of the process we are in. Initially, the
   /// phase is SEEDING. Phase is changed in `Attributor::run()`
   enum class AttributorPhase {
@@ -3650,7 +3651,6 @@ struct PotentialValuesState : AbstractState {
 
   /// Union assumed set with the passed value.
   void unionAssumed(const MemberTy &C) { insert(C); }
-
   /// Union assumed set with assumed set of the passed state \p PVS.
   void unionAssumed(const PotentialValuesState &PVS) { unionWith(PVS); }
 
@@ -3687,6 +3687,7 @@ private:
     if (!isValidState())
       return;
     Set.insert(C);
+    reduceUndefValue();
     checkAndInvalidate();
   }
 
@@ -3895,8 +3896,8 @@ template <> struct DenseMapInfo<Access> {
   static unsigned getHashValue(const Access &A) {
     return detail::combineHashValue(
                DenseMapInfo<Instruction *>::getHashValue(A.I),
-               (A.Content ? DenseMapInfo<Value *>::getHashValue(*A.Content)
-                          : 0)) +
+               (A.Content.hasValue() ? DenseMapInfo<Value *>::getHashValue(*A.Content)
+                          : ~0)) +
            A.Kind;
   }
 
@@ -4013,7 +4014,11 @@ protected:
                  Optional<Value *> Content, AccessKind Kind) {
     OffsetAndSize Key{Offset, Size};
     Accesses &Accs = AccessMap[Key];
-    return Accs.insert(Access(&I, Content, Kind)).second;
+    auto S = Accs.size();
+    errs() << "SIZE: " << Accs.size() << "\n";
+    Accs.insert(Access(&I, Content, Kind));
+    errs() << "SIZE: " << Accs.size() << "\n";
+    return S != Accs.size();
   }
 
 private:
@@ -4037,8 +4042,9 @@ struct AAPointerInfo
   /// See AbstractAttribute::getIdAddr()
   const char *getIdAddr() const override { return &ID; }
 
-  /// This function should return true if the type of the \p AA is AAPointerInfo
+  bool forallInterfearingAccesses(LoadInst &LI, function_ref<bool(const Access&, bool)> CB) const;
 
+  /// This function should return true if the type of the \p AA is AAPointerInfo
   static bool classof(const AbstractAttribute *AA) {
     return (AA->getIdAddr() == &ID);
   }

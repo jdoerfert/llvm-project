@@ -558,10 +558,10 @@ Attributor::getAssumedConstant(const Value &V, const AbstractAttribute &AA,
     recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
     return llvm::None;
   }
-  if (isa_and_nonnull<UndefValue>(SimplifiedV.getValue())) {
-    recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
-    return llvm::None;
-  }
+  //if (isa_and_nonnull<UndefValue>(SimplifiedV.getValue())) {
+    //recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
+    //return llvm::None;
+  //}
   Constant *CI = dyn_cast_or_null<Constant>(SimplifiedV.getValue());
   if (CI && CI->getType() != V.getType()) {
     // TODO: Check for a save conversion.
@@ -700,21 +700,21 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
   if (V.use_empty())
     return true;
 
-  if (!isa<Constant>(V)) {
-    // If the value is replaced by another one, for now a constant, we do not
-    // have uses. Note that this requires users of `checkForAllUses` to not
-    // recurse but instead use the `follow` callback argument to look at
-    // transitive users, however, that should be clear from the presence of the
-    // argument.
-    bool UsedAssumedInformation = false;
-    Optional<Constant *> C =
-        getAssumedConstant(V, QueryingAA, UsedAssumedInformation);
-    if (C.hasValue() && C.getValue()) {
-      LLVM_DEBUG(dbgs() << "[Attributor] Value is simplified, uses skipped: "
-                        << V << " -> " << *C.getValue() << "\n");
-      return true;
-    }
-  }
+//  if (!isa<Constant>(V)) {
+//    // If the value is replaced by another one, for now a constant, we do not
+//    // have uses. Note that this requires users of `checkForAllUses` to not
+//    // recurse but instead use the `follow` callback argument to look at
+//    // transitive users, however, that should be clear from the presence of the
+//    // argument.
+//    bool UsedAssumedInformation = false;
+//    Optional<Constant *> C =
+//        getAssumedConstant(V, QueryingAA, UsedAssumedInformation);
+//    if (C.hasValue() && C.getValue()) {
+//      LLVM_DEBUG(dbgs() << "[Attributor] Value is simplified, uses skipped: "
+//                        << V << " -> " << *C.getValue() << "\n");
+//      return true;
+//    }
+//  }
 
   const IRPosition &IRP = QueryingAA.getIRPosition();
   SmallVector<const Use *, 16> Worklist;
@@ -743,10 +743,10 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
       LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");
       continue;
     }
-    if (U->getUser()->isDroppable()) {
-      LLVM_DEBUG(dbgs() << "[Attributor] Droppable user, skip!\n");
-      continue;
-    }
+    //if (U->getUser()->isDroppable()) {
+      //LLVM_DEBUG(dbgs() << "[Attributor] Droppable user, skip!\n");
+      //continue;
+    //}
 
     bool Follow = false;
     if (!Pred(*U, Follow))
@@ -1034,9 +1034,10 @@ void Attributor::runTillFixpoint() {
         }
         DepAA->getState().indicatePessimisticFixpoint();
         assert(DepAA->getState().isAtFixpoint() && "Expected fixpoint state!");
-        if (!DepAA->getState().isValidState())
+        if (!DepAA->getState().isValidState()) {
+          errs() << "Invalidate\n" << *DepAA << " next\n";
           InvalidAAs.insert(DepAA);
-        else
+        } else
           ChangedAAs.push_back(DepAA);
       }
     }
@@ -1289,9 +1290,13 @@ ChangeStatus Attributor::cleanupIR() {
         unsigned Idx = CB->getArgOperandNo(U);
         CB->removeParamAttr(Idx, Attribute::NoUndef);
         Function *Fn = CB->getCalledFunction();
+        if (!Fn)
+          CB->getModule()->dump();
         assert(Fn && "Expected callee when call argument is replaced!");
-        if (Fn->arg_size() > Idx)
+        if (Fn->arg_size() > Idx) {
           Fn->removeParamAttr(Idx, Attribute::NoUndef);
+          Fn->removeParamAttr(Idx, Attribute::NonNull);
+        }
       }
     }
     if (isa<Constant>(NewV) && isa<BranchInst>(U->getUser())) {
@@ -1334,6 +1339,7 @@ ChangeStatus Attributor::cleanupIR() {
   }
   for (auto &V : ToBeChangedToUnreachableInsts)
     if (Instruction *I = dyn_cast_or_null<Instruction>(V)) {
+      LLVM_DEBUG(dbgs() << "Replace " << *I << " with unreachable\n");
       CGModifiedFunctions.insert(I->getFunction());
       changeToUnreachable(I, /* UseLLVMTrap */ false);
     }

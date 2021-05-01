@@ -61,18 +61,22 @@ void* &lookupPtr(ValueKind VK, bool IsReadonly);
 /// a nice interface to lookup and update ICV values
 /// we can declare in global scope.
 template <typename Ty, ValueKind Kind> struct Value {
+__attribute__((flatten, always_inline))
   operator Ty() { return lookup(/* IsReadonly */ true); }
 
+__attribute__((flatten, always_inline))
   Value &operator=(const Ty &Other) {
     set(Other);
     return *this;
   }
 
+__attribute__((flatten, always_inline))
   Value &operator++() {
     inc(1);
     return *this;
   }
 
+__attribute__((flatten, always_inline))
   Value &operator--() {
     inc(-1);
     return *this;
@@ -81,7 +85,8 @@ template <typename Ty, ValueKind Kind> struct Value {
 private:
 
   Ty &lookup(bool IsReadonly) {
-    return lookup32(Kind, IsReadonly);
+    Ty &t = lookup32(Kind, IsReadonly);
+    return t;
   }
 
   Ty &inc(int UpdateVal) {
@@ -91,14 +96,19 @@ private:
   Ty &set(Ty UpdateVal) {
     return (lookup(/* IsReadonly */ false) = UpdateVal);
   }
+
+  template<typename VTy, typename Ty2>
+  friend struct ValueRAII;
 };
 
 /// A mookup class without actual state used to provide
 /// a nice interface to lookup and update ICV values
 /// we can declare in global scope.
 template <typename Ty, ValueKind Kind> struct PtrValue {
+__attribute__((flatten, always_inline))
   operator Ty() { return lookup(/* IsReadonly */ true); }
 
+__attribute__((flatten, always_inline))
   PtrValue &operator=(const Ty Other) {
     set(Other);
     return *this;
@@ -113,7 +123,19 @@ private:
   Ty &set(Ty UpdateVal) {
     return (lookup(/* IsReadonly */ false) = UpdateVal);
   }
+
+  template<typename VTy, typename Ty2>
+  friend struct ValueRAII;
 };
+
+template <typename VTy, typename Ty> struct ValueRAII {
+  ValueRAII(VTy &V, Ty NewValue) : Ptr(V.lookup(/* IsReadonly */ false)), Val(Ptr) { Ptr = NewValue;}
+  ~ValueRAII() { Ptr = Val; }
+  private:
+  Ty &Ptr;
+  Ty Val;
+};
+
 
 /// TODO
 inline state::Value<uint32_t, state::VK_RunSchedChunk> RunSchedChunk;

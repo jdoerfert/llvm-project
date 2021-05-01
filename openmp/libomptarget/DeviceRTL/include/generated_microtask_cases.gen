@@ -1,53 +1,53 @@
 case 0:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 ))fn)(&global_tid, &bound_tid
 );
 break;
 case 1:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *))fn)(&global_tid, &bound_tid
 , args[0]);
 break;
 case 2:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *))fn)(&global_tid, &bound_tid
 , args[0], args[1]);
 break;
 case 3:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *))fn)(&global_tid, &bound_tid
 , args[0], args[1], args[2]);
 break;
 case 4:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 ))fn)(&global_tid, &bound_tid
 , args[0], args[1], args[2], args[3]
 );
 break;
 case 5:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *))fn)(&global_tid, &bound_tid
 , args[0], args[1], args[2], args[3]
 , args[4]);
 break;
 case 6:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *))fn)(&global_tid, &bound_tid
 , args[0], args[1], args[2], args[3]
 , args[4], args[5]);
 break;
 case 7:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *))fn)(&global_tid, &bound_tid
 , args[0], args[1], args[2], args[3]
 , args[4], args[5], args[6]);
 break;
 case 8:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 ))fn)(&global_tid, &bound_tid
@@ -56,7 +56,7 @@ case 8:
 );
 break;
 case 9:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *))fn)(&global_tid, &bound_tid
@@ -65,7 +65,7 @@ case 9:
 , args[8]);
 break;
 case 10:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *))fn)(&global_tid, &bound_tid
@@ -74,7 +74,7 @@ case 10:
 , args[8], args[9]);
 break;
 case 11:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *))fn)(&global_tid, &bound_tid
@@ -83,7 +83,7 @@ case 11:
 , args[8], args[9], args[10]);
 break;
 case 12:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -94,7 +94,7 @@ case 12:
 );
 break;
 case 13:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -105,7 +105,7 @@ case 13:
 , args[12]);
 break;
 case 14:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -116,7 +116,7 @@ case 14:
 , args[12], args[13]);
 break;
 case 15:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -127,7 +127,7 @@ case 15:
 , args[12], args[13], args[14]);
 break;
 case 16:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -140,7 +140,7 @@ case 16:
 );
 break;
 case 17:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -153,7 +153,7 @@ case 17:
 , args[16]);
 break;
 case 18:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -166,7 +166,7 @@ case 18:
 , args[16], args[17]);
 break;
 case 19:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -179,7 +179,7 @@ case 19:
 , args[16], args[17], args[18]);
 break;
 case 20:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -194,7 +194,7 @@ case 20:
 );
 break;
 case 21:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -209,7 +209,7 @@ case 21:
 , args[20]);
 break;
 case 22:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -224,7 +224,7 @@ case 22:
 , args[20], args[21]);
 break;
 case 23:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -239,7 +239,7 @@ case 23:
 , args[20], args[21], args[22]);
 break;
 case 24:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -256,7 +256,7 @@ case 24:
 );
 break;
 case 25:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -273,7 +273,7 @@ case 25:
 , args[24]);
 break;
 case 26:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -290,7 +290,7 @@ case 26:
 , args[24], args[25]);
 break;
 case 27:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -307,7 +307,7 @@ case 27:
 , args[24], args[25], args[26]);
 break;
 case 28:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -326,7 +326,7 @@ case 28:
 );
 break;
 case 29:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -345,7 +345,7 @@ case 29:
 , args[28]);
 break;
 case 30:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -364,7 +364,7 @@ case 30:
 , args[28], args[29]);
 break;
 case 31:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
@@ -383,7 +383,7 @@ case 31:
 , args[28], args[29], args[30]);
 break;
 case 32:
-((void (*)(kmp_int32 *, kmp_int32 *
+((void (*)(int32_t *, int32_t *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
 , void *, void *, void *, void *
