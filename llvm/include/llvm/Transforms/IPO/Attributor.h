@@ -102,6 +102,7 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/AssumeBundleQueries.h"
 #include "llvm/Analysis/CFG.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
@@ -2703,6 +2704,8 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// determines (and caches) reachability.
   bool isAssumedReachable(Attributor &A, const Instruction &From,
                           const Instruction &To) const {
+    if (!getState().isValidState())
+      return true;
     return A.getInfoCache().getPotentiallyReachable(From, To);
   }
 
@@ -2711,6 +2714,8 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// determines (and caches) reachability.
   bool isKnownReachable(Attributor &A, const Instruction &From,
                         const Instruction &To) const {
+    if (!getState().isValidState())
+      return false;
     return A.getInfoCache().getPotentiallyReachable(From, To);
   }
 
