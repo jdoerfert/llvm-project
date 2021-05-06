@@ -971,7 +971,7 @@ bool CodeGenFunction::EmitOMPCopyinClause(const OMPExecutableDirective &D) {
   // operator=(threadprivate_var2, master_threadprivate_var2);
   // ...
   // __kmpc_barrier(&loc, global_tid);
-  llvm::DenseSet<const VarDecl *> CopiedVars;
+  llvm::SetVector<const VarDecl *> CopiedVars;
   llvm::BasicBlock *CopyBegin = nullptr, *CopyEnd = nullptr;
   for (const auto *C : D.getClausesOfKind<OMPCopyinClause>()) {
     auto IRef = C->varlist_begin();
@@ -980,7 +980,7 @@ bool CodeGenFunction::EmitOMPCopyinClause(const OMPExecutableDirective &D) {
     for (const Expr *AssignOp : C->assignment_ops()) {
       const auto *VD = cast<VarDecl>(cast<DeclRefExpr>(*IRef)->getDecl());
       QualType Type = VD->getType();
-      if (CopiedVars.insert(VD->getCanonicalDecl()).second) {
+      if (CopiedVars.insert(VD->getCanonicalDecl())) {
         // Get the address of the master variable. If we are emitting code with
         // TLS support, the address is passed from the master as field in the
         // captured declaration.
@@ -1006,11 +1006,10 @@ bool CodeGenFunction::EmitOMPCopyinClause(const OMPExecutableDirective &D) {
           // need to copy data.
           CopyBegin = createBasicBlock("copyin.not.master");
           CopyEnd = createBasicBlock("copyin.not.master.end");
-          Builder.CreateCondBr(
-              Builder.CreateICmpNE(
-                  Builder.CreatePtrToInt(MasterAddr.getPointer(), CGM.IntPtrTy),
-                  Builder.CreatePtrToInt(PrivateAddr.getPointer(),
-                                         CGM.IntPtrTy)),
+          auto *A = Builder.CreatePtrToInt(MasterAddr.getPointer(), CGM.IntPtrTy);
+          auto *B = Builder.CreatePtrToInt(PrivateAddr.getPointer(),
+                                         CGM.IntPtrTy);
+          Builder.CreateCondBr(Builder.CreateICmpNE(A, B),
               CopyBegin, CopyEnd);
           EmitBlock(CopyBegin);
         }
