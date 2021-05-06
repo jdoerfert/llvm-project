@@ -2685,6 +2685,8 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// determines (and caches) reachability.
   bool isAssumedReachable(Attributor &A, const Instruction &From,
                           const Instruction &To) const {
+    if (!getState().isValidState())
+      return true;
     return A.getInfoCache().getPotentiallyReachable(From, To);
   }
 
@@ -2693,6 +2695,8 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// determines (and caches) reachability.
   bool isKnownReachable(Attributor &A, const Instruction &From,
                         const Instruction &To) const {
+    if (!getState().isValidState())
+      return false;
     return A.getInfoCache().getPotentiallyReachable(From, To);
   }
 
