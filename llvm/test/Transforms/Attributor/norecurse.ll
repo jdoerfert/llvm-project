@@ -167,8 +167,7 @@ define void @f(i32 %x)  {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[X_ADDR:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    store i32 [[X]], i32* [[X_ADDR]], align 4
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X_ADDR]], align 4
-; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP0]], 0
+; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[X]], 0
 ; CHECK-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK:       if.then:
 ; CHECK-NEXT:    call void @g() #[[ATTR8:[0-9]+]]
