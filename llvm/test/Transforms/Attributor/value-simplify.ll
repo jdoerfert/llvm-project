@@ -1086,6 +1086,32 @@ define i1 @icmp() {
   %c = icmp eq i8* null, null
   ret i1 %c
 }
+
+define i1 @test_cmp_null_after_cast() {
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test_cmp_null_after_cast
+; IS__TUNIT____-SAME: () #[[ATTR1]] {
+; IS__TUNIT____-NEXT:    ret i1 true
+;
+; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test_cmp_null_after_cast
+; IS__CGSCC____-SAME: () #[[ATTR1]] {
+; IS__CGSCC____-NEXT:    ret i1 true
+;
+  %c = call i1 @cmp_null_after_cast(i32 0, i8 0)
+  ret i1 %c
+}
+define internal i1 @cmp_null_after_cast(i32 %a, i8 %b) {
+; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@cmp_null_after_cast
+; IS__CGSCC____-SAME: () #[[ATTR1]] {
+; IS__CGSCC____-NEXT:    ret i1 undef
+;
+  %t = trunc i32 %a to i8
+  %c = icmp eq i8 %t, %b
+  ret i1 %c
+}
+
 ;.
 ; IS__TUNIT_OPM: attributes #[[ATTR0]] = { nofree nosync nounwind willreturn }
 ; IS__TUNIT_OPM: attributes #[[ATTR1]] = { nofree nosync nounwind readnone willreturn }

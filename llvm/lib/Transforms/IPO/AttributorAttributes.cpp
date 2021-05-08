@@ -1001,22 +1001,11 @@ AAReturnedValuesImpl::getAssumedUniqueReturnValue(Attributor &A) const {
   // multiple, a nullptr is returned indicating there cannot be a unique
   // returned value.
   Optional<Value *> UniqueRV;
+  Type *Ty = getAssociatedFunction()->getReturnType();
 
   auto Pred = [&](Value &RV) -> bool {
-    // If we found a second returned value and neither the current nor the saved
-    // one is an undef, there is no unique returned value. Undefs are special
-    // since we can pretend they have any value.
-    if (UniqueRV.hasValue() && UniqueRV != &RV &&
-        !(isa<UndefValue>(RV) || isa<UndefValue>(UniqueRV.getValue()))) {
-      UniqueRV = nullptr;
-      return false;
-    }
-
-    // Do not overwrite a value with an undef.
-    if (!UniqueRV.hasValue() || !isa<UndefValue>(RV))
-      UniqueRV = &RV;
-
-    return true;
+    UniqueRV = AA::combineOptionalValuesInAAValueLatice(UniqueRV, &RV, Ty);
+    return UniqueRV != Optional<Value *>(nullptr);
   };
 
   if (!A.checkForAllReturnedValues(Pred, *this))
@@ -4559,31 +4548,21 @@ struct AAValueSimplifyImpl : AAValueSimplify {
         IRPosition::value(QueryingValue, QueryingAA.getCallBaseContext()),
         DepClassTy::REQUIRED);
 
-    Optional<Value *> QueryingValueSimplified =
-        ValueSimplifyAA.getAssumedSimplifiedValue(A);
-
-    if (!QueryingValueSimplified.hasValue())
-      return true;
-
-    if (!QueryingValueSimplified.getValue())
+    AccumulatedSimplifiedValue = AA::combineOptionalValuesInAAValueLatice(
+        AccumulatedSimplifiedValue,
+        ValueSimplifyAA.getAssumedSimplifiedValue(A),
+        QueryingAA.getAssociatedType());
+    if (AccumulatedSimplifiedValue == Optional<Value *>(nullptr))
       return false;
 
-    Value &QueryingValueSimplifiedUnwrapped =
-        *QueryingValueSimplified.getValue();
-
-    if (AccumulatedSimplifiedValue.hasValue() &&
-        !isa<UndefValue>(AccumulatedSimplifiedValue.getValue()) &&
-        !isa<UndefValue>(QueryingValueSimplifiedUnwrapped))
-      return AccumulatedSimplifiedValue == QueryingValueSimplified;
-    if (AccumulatedSimplifiedValue.hasValue() &&
-        isa<UndefValue>(QueryingValueSimplifiedUnwrapped))
-      return true;
-
-    LLVM_DEBUG(dbgs() << "[ValueSimplify] " << QueryingValue
-                      << " is assumed to be "
-                      << QueryingValueSimplifiedUnwrapped << "\n");
-
-    AccumulatedSimplifiedValue = QueryingValueSimplified;
+    LLVM_DEBUG({
+      if (AccumulatedSimplifiedValue.hasValue())
+        dbgs() << "[ValueSimplify] " << QueryingValue << " is assumed to be "
+               << **AccumulatedSimplifiedValue << "\n";
+      else
+        dbgs() << "[ValueSimplify] " << QueryingValue
+               << " is assumed to be <none>\n";
+    });
     return true;
   }
 
