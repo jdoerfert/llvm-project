@@ -97,25 +97,15 @@ define void @caller_with_unused_arg(i1 %c) {
 }
 
 define internal void @callee_with_dead_arg(i1 %create, ...) {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@callee_with_dead_arg
-; IS__TUNIT____-SAME: (i1 [[CREATE:%.*]], ...) {
-; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    br label [[IF_THEN3:%.*]]
-; IS__TUNIT____:       if.then:
-; IS__TUNIT____-NEXT:    unreachable
-; IS__TUNIT____:       if.then3:
-; IS__TUNIT____-NEXT:    call void @unknown()
-; IS__TUNIT____-NEXT:    ret void
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@callee_with_dead_arg
-; IS__CGSCC____-SAME: (i1 noundef [[CREATE:%.*]], ...) {
-; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    br label [[IF_THEN3:%.*]]
-; IS__CGSCC____:       if.then:
-; IS__CGSCC____-NEXT:    unreachable
-; IS__CGSCC____:       if.then3:
-; IS__CGSCC____-NEXT:    call void @unknown()
-; IS__CGSCC____-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@callee_with_dead_arg
+; CHECK-SAME: (i1 noundef [[CREATE:%.*]], ...) {
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    br label [[IF_THEN3:%.*]]
+; CHECK:       if.then:
+; CHECK-NEXT:    unreachable
+; CHECK:       if.then3:
+; CHECK-NEXT:    call void @unknown()
+; CHECK-NEXT:    ret void
 ;
 entry:
   br i1 %create, label %if.then3, label %if.then
@@ -133,13 +123,9 @@ if.then3:                                         ; preds = %entry
 ; try to come up with a different scheme to verify the `noundef` is dropped if
 ; signature rewriting is not happening.
 define void @caller_with_noundef_arg() {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@caller_with_noundef_arg() {
-; IS__TUNIT____-NEXT:    call void (i1, ...) @callee_with_dead_arg(i1 undef)
-; IS__TUNIT____-NEXT:    ret void
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@caller_with_noundef_arg() {
-; IS__CGSCC____-NEXT:    call void (i1, ...) @callee_with_dead_arg(i1 noundef true)
-; IS__CGSCC____-NEXT:    ret void
+; CHECK-LABEL: define {{[^@]+}}@caller_with_noundef_arg() {
+; CHECK-NEXT:    call void (i1, ...) @callee_with_dead_arg(i1 noundef true)
+; CHECK-NEXT:    ret void
 ;
   call void (i1, ...) @callee_with_dead_arg(i1 noundef true)
   ret void

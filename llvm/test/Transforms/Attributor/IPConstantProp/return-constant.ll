@@ -10,7 +10,7 @@ define i1 @invokecaller(i1 %C) personality i32 (...)* @__gxx_personality_v0 {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@invokecaller
 ; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR0:[0-9]+]] personality i32 (...)* @__gxx_personality_v0 {
-; IS__TUNIT____-NEXT:    [[X:%.*]] = call i32 @foo(i1 [[C]]) #[[ATTR1:[0-9]+]]
+; IS__TUNIT____-NEXT:    [[X:%.*]] = call i32 @foo(i1 [[C]]) #[[ATTR0]]
 ; IS__TUNIT____-NEXT:    br label [[OK:%.*]]
 ; IS__TUNIT____:       OK:
 ; IS__TUNIT____-NEXT:    ret i1 true
@@ -43,9 +43,9 @@ define internal i32 @foo(i1 %C) {
 ; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR0]] {
 ; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__TUNIT____:       T:
-; IS__TUNIT____-NEXT:    ret i32 undef
+; IS__TUNIT____-NEXT:    ret i32 52
 ; IS__TUNIT____:       F:
-; IS__TUNIT____-NEXT:    ret i32 undef
+; IS__TUNIT____-NEXT:    ret i32 52
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@foo
@@ -84,7 +84,6 @@ define i1 @caller(i1 %C) {
 declare i32 @__gxx_personality_v0(...)
 ;.
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
-; IS__TUNIT____: attributes #[[ATTR1]] = { nounwind readnone }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC____: attributes #[[ATTR1]] = { nounwind readnone }

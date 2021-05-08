@@ -42,7 +42,7 @@ target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 define internal i32 @cb0(i32 %zero) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@cb0
-; IS__TUNIT____-SAME: (i32 returned [[ZERO:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-SAME: (i32 noundef returned [[ZERO:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    ret i32 0
 ;

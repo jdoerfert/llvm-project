@@ -2858,7 +2858,6 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
     if (!isAssumedSideEffectFree(A, I))
       return indicatePessimisticFixpoint();
-
     if (!areAllUsesAssumedDead(A, getAssociatedValue()))
       return indicatePessimisticFixpoint();
     return ChangeStatus::UNCHANGED;
@@ -2996,7 +2995,6 @@ struct AAIsDeadCallSiteReturned : public AAIsDeadFloating {
       IsAssumedSideEffectFree = false;
       Changed = ChangeStatus::CHANGED;
     }
-
     if (!areAllUsesAssumedDead(A, getAssociatedValue()))
       return indicatePessimisticFixpoint();
     return Changed;
