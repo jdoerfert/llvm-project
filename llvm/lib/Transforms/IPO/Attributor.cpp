@@ -27,6 +27,7 @@
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/NoFolder.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
@@ -558,7 +559,7 @@ Attributor::getAssumedConstant(const Value &V, const AbstractAttribute &AA,
   }
   if (isa_and_nonnull<UndefValue>(SimplifiedV.getValue())) {
     recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
-    return llvm::None;
+    return UndefValue::get(V.getType());
   }
   Constant *CI = dyn_cast_or_null<Constant>(SimplifiedV.getValue());
   if (CI && CI->getType() != V.getType()) {
