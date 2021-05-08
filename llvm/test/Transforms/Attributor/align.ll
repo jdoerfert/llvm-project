@@ -198,7 +198,7 @@ define internal i8* @f1(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__CGSCC_NPM:       1:
 ; IS__CGSCC_NPM-NEXT:    unreachable
 ; IS__CGSCC_NPM:       2:
-; IS__CGSCC_NPM-NEXT:    ret i8* undef
+; IS__CGSCC_NPM-NEXT:    ret i8* @a1
 ;
   %2 = icmp eq i8* %0, null
   br i1 %2, label %3, label %5
@@ -325,7 +325,7 @@ define internal i8* @f1b(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__CGSCC_NPM:       1:
 ; IS__CGSCC_NPM-NEXT:    unreachable
 ; IS__CGSCC_NPM:       2:
-; IS__CGSCC_NPM-NEXT:    ret i8* undef
+; IS__CGSCC_NPM-NEXT:    ret i8* @a1
 ;
   %2 = icmp eq i8* %0, null
   br i1 %2, label %3, label %5

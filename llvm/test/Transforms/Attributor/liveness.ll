@@ -88,9 +88,9 @@ define i32 @volatile_load(i32*) norecurse nounwind uwtable {
 }
 
 define internal i32 @internal_load(i32*) norecurse nounwind uwtable {
-; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone uwtable willreturn
+; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly uwtable willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@internal_load
-; IS__CGSCC____-SAME: () #[[ATTR8:[0-9]+]] {
+; IS__CGSCC____-SAME: (i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) [[TMP0:%.*]]) #[[ATTR8:[0-9]+]] {
 ; IS__CGSCC____-NEXT:    ret i32 undef
 ;
   %2 = load i32, i32* %0, align 4
@@ -99,18 +99,31 @@ define internal i32 @internal_load(i32*) norecurse nounwind uwtable {
 ; TEST 1: Only first block is live.
 
 define i32 @first_block_no_return(i32 %a, i32* nonnull %ptr1, i32* %ptr2) #0 {
-; CHECK: Function Attrs: nofree noreturn nosync nounwind
-; CHECK-LABEL: define {{[^@]+}}@first_block_no_return
-; CHECK-SAME: (i32 [[A:%.*]], i32* nocapture nofree nonnull readnone [[PTR1:%.*]], i32* nocapture nofree readnone [[PTR2:%.*]]) #[[ATTR0:[0-9]+]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    call void @no_return_call() #[[ATTR3:[0-9]+]]
-; CHECK-NEXT:    unreachable
-; CHECK:       cond.true:
-; CHECK-NEXT:    unreachable
-; CHECK:       cond.false:
-; CHECK-NEXT:    unreachable
-; CHECK:       cond.end:
-; CHECK-NEXT:    unreachable
+; NOT_CGSCC_NPM: Function Attrs: nofree noreturn nosync nounwind
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@first_block_no_return
+; NOT_CGSCC_NPM-SAME: (i32 [[A:%.*]], i32* nocapture nofree nonnull readnone [[PTR1:%.*]], i32* nocapture nofree readnone [[PTR2:%.*]]) #[[ATTR0:[0-9]+]] {
+; NOT_CGSCC_NPM-NEXT:  entry:
+; NOT_CGSCC_NPM-NEXT:    call void @no_return_call() #[[ATTR3:[0-9]+]]
+; NOT_CGSCC_NPM-NEXT:    unreachable
+; NOT_CGSCC_NPM:       cond.true:
+; NOT_CGSCC_NPM-NEXT:    unreachable
+; NOT_CGSCC_NPM:       cond.false:
+; NOT_CGSCC_NPM-NEXT:    unreachable
+; NOT_CGSCC_NPM:       cond.end:
+; NOT_CGSCC_NPM-NEXT:    unreachable
+;
+; IS__CGSCC____: Function Attrs: nofree noreturn nosync nounwind
+; IS__CGSCC____-LABEL: define {{[^@]+}}@first_block_no_return
+; IS__CGSCC____-SAME: (i32 [[A:%.*]], i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[PTR1:%.*]], i32* nocapture nofree readnone [[PTR2:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__CGSCC____-NEXT:  entry:
+; IS__CGSCC____-NEXT:    call void @no_return_call() #[[ATTR3:[0-9]+]]
+; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____:       cond.true:
+; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____:       cond.false:
+; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____:       cond.end:
+; IS__CGSCC____-NEXT:    unreachable
 ;
 entry:
   call i32 @internal_load(i32* %ptr1)
@@ -198,12 +211,12 @@ cond.end:                                         ; preds = %cond.false, %cond.t
 define i32 @all_dead(i32 %a) #0 {
 ; CHECK: Function Attrs: nofree noreturn nosync nounwind
 ; CHECK-LABEL: define {{[^@]+}}@all_dead
-; CHECK-SAME: (i32 [[A:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (i32 [[A:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
 ; CHECK-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
 ; CHECK:       cond.true:
-; CHECK-NEXT:    call void @no_return_call() #[[ATTR3]]
+; CHECK-NEXT:    call void @no_return_call() #[[ATTR3:[0-9]+]]
 ; CHECK-NEXT:    unreachable
 ; CHECK:       cond.false:
 ; CHECK-NEXT:    call void @no_return_call() #[[ATTR3]]
@@ -2653,7 +2666,7 @@ declare void @llvm.lifetime.end.p0i8(i64 %0, i8* %1)
 ; IS__CGSCC____: attributes #[[ATTR5]] = { nosync readnone }
 ; IS__CGSCC____: attributes #[[ATTR6]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC____: attributes #[[ATTR7]] = { argmemonly nofree norecurse nounwind uwtable willreturn }
-; IS__CGSCC____: attributes #[[ATTR8]] = { nofree norecurse nosync nounwind readnone uwtable willreturn }
+; IS__CGSCC____: attributes #[[ATTR8]] = { argmemonly nofree norecurse nosync nounwind readonly uwtable willreturn }
 ; IS__CGSCC____: attributes #[[ATTR9]] = { nosync }
 ; IS__CGSCC____: attributes #[[ATTR10]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC____: attributes #[[ATTR11]] = { nofree norecurse noreturn nosync nounwind readnone }

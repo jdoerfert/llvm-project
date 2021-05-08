@@ -48,7 +48,7 @@ define internal i32 @cb0(i32 %zero) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@cb0
-; IS__CGSCC____-SAME: (i32 returned [[ZERO:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__CGSCC____-SAME: (i32 noundef returned [[ZERO:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    ret i32 0
 ;

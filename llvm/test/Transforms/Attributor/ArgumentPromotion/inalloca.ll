@@ -80,7 +80,7 @@ entry:
 define internal i1 @g(%struct.ss* %a, %struct.ss* inalloca(%struct.ss) %b) nounwind  {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@g
-; IS__CGSCC____-SAME: (%struct.ss* noalias nocapture nofree nonnull readnone align 4 dereferenceable(8) [[A:%.*]], %struct.ss* noalias nocapture nofree nonnull writeonly inalloca([[STRUCT_SS:%.*]]) align 4 dereferenceable(8) [[B:%.*]]) #[[ATTR1]] {
+; IS__CGSCC____-SAME: (%struct.ss* noalias nofree noundef nonnull readnone align 4 dereferenceable(8) [[A:%.*]], %struct.ss* noalias nofree noundef nonnull writeonly inalloca([[STRUCT_SS:%.*]]) align 4 dereferenceable(8) [[B:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    ret i1 undef
 ;
