@@ -175,6 +175,24 @@ Value *AA::getWithType(Value &V, Type &Ty) {
   return nullptr;
 }
 
+Optional<Value *>
+AA::combineOptionalValuesInAAValueLatice(const Optional<Value *> &A,
+                                         const Optional<Value *> &B) {
+  if (A == B)
+    return A;
+  if (!A.hasValue())
+    return B;
+  if (!B.hasValue())
+    return A;
+  if (isa_and_nonnull<UndefValue>(*A))
+    return B;
+  if (isa_and_nonnull<UndefValue>(*B))
+    return A;
+  if (*B && *A == getWithType(**B, *(*A)->getType()))
+    return A;
+  return nullptr;
+}
+
 /// Return true if \p New is equal or worse than \p Old.
 static bool isEqualOrWorse(const Attribute &New, const Attribute &Old) {
   if (!Old.isIntAttribute())
