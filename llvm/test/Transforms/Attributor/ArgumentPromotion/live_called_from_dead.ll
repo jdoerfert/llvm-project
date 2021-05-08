@@ -21,7 +21,7 @@ define internal i32 @test(i32* %X, i32* %Y) {
 ; IS__CGSCC_OPM-NEXT:    br i1 true, label [[LIVE:%.*]], label [[DEAD:%.*]]
 ; IS__CGSCC_OPM:       live:
 ; IS__CGSCC_OPM-NEXT:    store i32 0, i32* [[X]], align 4
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 0
 ; IS__CGSCC_OPM:       dead:
 ; IS__CGSCC_OPM-NEXT:    unreachable
 ;
@@ -31,7 +31,7 @@ define internal i32 @test(i32* %X, i32* %Y) {
 ; IS__CGSCC_NPM-NEXT:    br i1 true, label [[LIVE:%.*]], label [[DEAD:%.*]]
 ; IS__CGSCC_NPM:       live:
 ; IS__CGSCC_NPM-NEXT:    store i32 0, i32* [[X]], align 4
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 0
 ; IS__CGSCC_NPM:       dead:
 ; IS__CGSCC_NPM-NEXT:    unreachable
 ;

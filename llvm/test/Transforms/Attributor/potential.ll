@@ -13,8 +13,8 @@
 define internal i1 @iszero1(i32 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@iszero1
-; IS__CGSCC____-SAME: () #[[ATTR0:[0-9]+]] {
-; IS__CGSCC____-NEXT:    ret i1 undef
+; IS__CGSCC____-SAME: (i32 noundef [[C:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__CGSCC____-NEXT:    ret i1 false
 ;
   %cmp = icmp eq i32 %c, 0
   ret i1 %cmp
@@ -48,8 +48,8 @@ define i1 @potential_test1(i1 %c) {
 define internal i32 @iszero2(i32 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@iszero2
-; IS__CGSCC____-SAME: () #[[ATTR0]] {
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-SAME: (i32 [[C:%.*]]) #[[ATTR0]] {
+; IS__CGSCC____-NEXT:    ret i32 0
 ;
   %cmp = icmp eq i32 %c, 0
   %ret = zext i1 %cmp to i32
@@ -59,8 +59,8 @@ define internal i32 @iszero2(i32 %c) {
 define internal i32 @call_with_two_values(i32 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@call_with_two_values
-; IS__CGSCC____-SAME: () #[[ATTR0]] {
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-SAME: (i32 noundef [[C:%.*]]) #[[ATTR0]] {
+; IS__CGSCC____-NEXT:    ret i32 0
 ;
   %csret1 = call i32 @iszero2(i32 %c)
   %minusc = sub i32 0, %c
@@ -70,9 +70,9 @@ define internal i32 @call_with_two_values(i32 %c) {
 }
 
 define i32 @potential_test2(i1 %c) {
-; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@potential_test2
-; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR0]] {
+; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__TUNIT____-NEXT:    ret i32 0
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -329,9 +329,9 @@ define internal i32 @return2or4(i32 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@return2or4
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]]) #[[ATTR0]] {
-; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp eq i32 undef, 0
-; IS__CGSCC____-NEXT:    [[RET:%.*]] = select i1 undef, i32 2, i32 4
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp eq i32 [[C]], 0
+; IS__CGSCC____-NEXT:    [[RET:%.*]] = select i1 [[CMP]], i32 2, i32 4
+; IS__CGSCC____-NEXT:    ret i32 [[RET]]
 ;
   %cmp = icmp eq i32 %c, 0
   %ret = select i1 %cmp, i32 2, i32 4
@@ -365,8 +365,8 @@ define internal i32 @return3or4(i32 %c) {
 define internal i1 @cmp_with_four(i32 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@cmp_with_four
-; IS__CGSCC____-SAME: () #[[ATTR0]] {
-; IS__CGSCC____-NEXT:    ret i1 undef
+; IS__CGSCC____-SAME: (i32 noundef [[C:%.*]]) #[[ATTR0]] {
+; IS__CGSCC____-NEXT:    ret i1 false
 ;
   %cmp = icmp eq i32 %c, 4
   ret i1 %cmp
@@ -375,7 +375,7 @@ define internal i1 @cmp_with_four(i32 %c) {
 define internal i1 @wrapper(i32 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@wrapper
-; IS__CGSCC____-SAME: () #[[ATTR0]] {
+; IS__CGSCC____-SAME: (i32 noundef [[C:%.*]]) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:    ret i1 undef
 ;
   %ret = call i1 @cmp_with_four(i32 %c)
@@ -383,9 +383,9 @@ define internal i1 @wrapper(i32 %c) {
 }
 
 define i1 @potential_test8() {
-; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@potential_test8
-; IS__TUNIT____-SAME: () #[[ATTR0]] {
+; IS__TUNIT____-SAME: () #[[ATTR1]] {
 ; IS__TUNIT____-NEXT:    ret i1 false
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -404,7 +404,7 @@ define i1 @potential_test8() {
 define i1 @potential_test9() {
 ; IS__TUNIT_OPM: Function Attrs: nofree nosync nounwind readnone
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@potential_test9
-; IS__TUNIT_OPM-SAME: () #[[ATTR1:[0-9]+]] {
+; IS__TUNIT_OPM-SAME: () #[[ATTR1]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    br label [[COND:%.*]]
 ; IS__TUNIT_OPM:       cond:
@@ -509,9 +509,9 @@ define internal i32 @may_return_undef(i32 %c) {
 ; IS__CGSCC____-NEXT:    i32 -1, label [[B:%.*]]
 ; IS__CGSCC____-NEXT:    ]
 ; IS__CGSCC____:       a:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 1
 ; IS__CGSCC____:       b:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 -1
 ; IS__CGSCC____:       otherwise:
 ; IS__CGSCC____-NEXT:    ret i32 undef
 ;
@@ -920,10 +920,8 @@ define i1 @potential_test16(i1 %c0, i1 %c1) {
 }
 
 ;.
-; IS__TUNIT_OPM: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
-; IS__TUNIT_OPM: attributes #[[ATTR1]] = { nofree nosync nounwind readnone }
-;.
-; IS__TUNIT_NPM: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nofree nosync nounwind readnone }
 ;.
 ; IS__CGSCC_OPM: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone }

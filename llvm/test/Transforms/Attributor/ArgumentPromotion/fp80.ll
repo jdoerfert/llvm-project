@@ -44,8 +44,8 @@ define void @run() {
 ; IS__CGSCC____-SAME: () #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    [[TMP0:%.*]] = load i32, i32* getelementptr inbounds ([[STRUCT_FOO:%.*]], %struct.Foo* @a, i32 0, i32 0), align 8
-; IS__CGSCC____-NEXT:    [[A_0_1:%.*]] = getelementptr [[STRUCT_FOO]], %struct.Foo* @a, i32 0, i32 1
-; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = load i64, i64* [[A_0_1]], align 8
+; IS__CGSCC____-NEXT:    [[A_0_13:%.*]] = getelementptr [[STRUCT_FOO]], %struct.Foo* @a, i32 0, i32 1
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = load i64, i64* [[A_0_13]], align 8
 ; IS__CGSCC____-NEXT:    unreachable
 ;
 entry:
@@ -59,8 +59,11 @@ entry:
 define internal i8 @UseLongDoubleUnsafely(%union.u* byval(%union.u) align 16 %arg) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@UseLongDoubleUnsafely
-; IS__CGSCC____-SAME: () #[[ATTR1:[0-9]+]] {
+; IS__CGSCC____-SAME: (x86_fp80 [[TMP0:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
+; IS__CGSCC____-NEXT:    [[ARG_PRIV:%.*]] = alloca [[UNION_U:%.*]], align 16
+; IS__CGSCC____-NEXT:    [[ARG_PRIV_CAST:%.*]] = bitcast %union.u* [[ARG_PRIV]] to x86_fp80*
+; IS__CGSCC____-NEXT:    store x86_fp80 [[TMP0]], x86_fp80* [[ARG_PRIV_CAST]], align 16
 ; IS__CGSCC____-NEXT:    ret i8 undef
 ;
 entry:
@@ -73,7 +76,10 @@ entry:
 define internal x86_fp80 @UseLongDoubleSafely(%union.u* byval(%union.u) align 16 %arg) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@UseLongDoubleSafely
-; IS__CGSCC____-SAME: () #[[ATTR1]] {
+; IS__CGSCC____-SAME: (x86_fp80 [[TMP0:%.*]]) #[[ATTR1]] {
+; IS__CGSCC____-NEXT:    [[ARG_PRIV:%.*]] = alloca [[UNION_U:%.*]], align 16
+; IS__CGSCC____-NEXT:    [[ARG_PRIV_CAST:%.*]] = bitcast %union.u* [[ARG_PRIV]] to x86_fp80*
+; IS__CGSCC____-NEXT:    store x86_fp80 [[TMP0]], x86_fp80* [[ARG_PRIV_CAST]], align 16
 ; IS__CGSCC____-NEXT:    ret x86_fp80 undef
 ;
   %gep = getelementptr inbounds %union.u, %union.u* %arg, i64 0, i32 0
@@ -84,7 +90,12 @@ define internal x86_fp80 @UseLongDoubleSafely(%union.u* byval(%union.u) align 16
 define internal i64 @AccessPaddingOfStruct(%struct.Foo* byval(%struct.Foo) %a) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@AccessPaddingOfStruct
-; IS__CGSCC____-SAME: () #[[ATTR1]] {
+; IS__CGSCC____-SAME: (i32 [[TMP0:%.*]], i64 [[TMP1:%.*]]) #[[ATTR1]] {
+; IS__CGSCC____-NEXT:    [[A_PRIV:%.*]] = alloca [[STRUCT_FOO:%.*]], align 8
+; IS__CGSCC____-NEXT:    [[A_PRIV_CAST:%.*]] = bitcast %struct.Foo* [[A_PRIV]] to i32*
+; IS__CGSCC____-NEXT:    store i32 [[TMP0]], i32* [[A_PRIV_CAST]], align 8
+; IS__CGSCC____-NEXT:    [[A_PRIV_0_1:%.*]] = getelementptr [[STRUCT_FOO]], %struct.Foo* [[A_PRIV]], i32 0, i32 1
+; IS__CGSCC____-NEXT:    store i64 [[TMP1]], i64* [[A_PRIV_0_1]], align 8
 ; IS__CGSCC____-NEXT:    ret i64 undef
 ;
   %p = bitcast %struct.Foo* %a to i64*

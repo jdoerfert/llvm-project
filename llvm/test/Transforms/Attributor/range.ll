@@ -1152,7 +1152,13 @@ define dso_local i64 @select_int2ptr_bitcast_ptr2int(i32 %a) local_unnamed_addr 
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@select_int2ptr_bitcast_ptr2int
 ; IS__TUNIT_OPM-SAME: (i32 [[A:%.*]]) local_unnamed_addr #[[ATTR2]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[I2P:%.*]] = inttoptr i1 false to i1*
+; IS__TUNIT_OPM-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[A]], 5
+; IS__TUNIT_OPM-NEXT:    [[DOT:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; IS__TUNIT_OPM-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[A]], 10
+; IS__TUNIT_OPM-NEXT:    [[Y_0_V:%.*]] = select i1 [[CMP1]], i32 1, i32 2
+; IS__TUNIT_OPM-NEXT:    [[Y_0:%.*]] = add nuw nsw i32 [[DOT]], [[Y_0_V]]
+; IS__TUNIT_OPM-NEXT:    [[CMP6:%.*]] = icmp eq i32 [[Y_0]], 5
+; IS__TUNIT_OPM-NEXT:    [[I2P:%.*]] = inttoptr i1 [[CMP6]] to i1*
 ; IS__TUNIT_OPM-NEXT:    [[BC:%.*]] = bitcast i1* [[I2P]] to i32*
 ; IS__TUNIT_OPM-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[BC]] to i64
 ; IS__TUNIT_OPM-NEXT:    ret i64 [[P2I]]
@@ -1161,7 +1167,13 @@ define dso_local i64 @select_int2ptr_bitcast_ptr2int(i32 %a) local_unnamed_addr 
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@select_int2ptr_bitcast_ptr2int
 ; IS__TUNIT_NPM-SAME: (i32 [[A:%.*]]) local_unnamed_addr #[[ATTR1]] {
 ; IS__TUNIT_NPM-NEXT:  entry:
-; IS__TUNIT_NPM-NEXT:    [[I2P:%.*]] = inttoptr i1 false to i1*
+; IS__TUNIT_NPM-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[A]], 5
+; IS__TUNIT_NPM-NEXT:    [[DOT:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; IS__TUNIT_NPM-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[A]], 10
+; IS__TUNIT_NPM-NEXT:    [[Y_0_V:%.*]] = select i1 [[CMP1]], i32 1, i32 2
+; IS__TUNIT_NPM-NEXT:    [[Y_0:%.*]] = add nuw nsw i32 [[DOT]], [[Y_0_V]]
+; IS__TUNIT_NPM-NEXT:    [[CMP6:%.*]] = icmp eq i32 [[Y_0]], 5
+; IS__TUNIT_NPM-NEXT:    [[I2P:%.*]] = inttoptr i1 [[CMP6]] to i1*
 ; IS__TUNIT_NPM-NEXT:    [[BC:%.*]] = bitcast i1* [[I2P]] to i32*
 ; IS__TUNIT_NPM-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[BC]] to i64
 ; IS__TUNIT_NPM-NEXT:    ret i64 [[P2I]]
@@ -1170,7 +1182,13 @@ define dso_local i64 @select_int2ptr_bitcast_ptr2int(i32 %a) local_unnamed_addr 
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@select_int2ptr_bitcast_ptr2int
 ; IS__CGSCC_OPM-SAME: (i32 [[A:%.*]]) local_unnamed_addr #[[ATTR2]] {
 ; IS__CGSCC_OPM-NEXT:  entry:
-; IS__CGSCC_OPM-NEXT:    [[I2P:%.*]] = inttoptr i1 false to i1*
+; IS__CGSCC_OPM-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[A]], 5
+; IS__CGSCC_OPM-NEXT:    [[DOT:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; IS__CGSCC_OPM-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[A]], 10
+; IS__CGSCC_OPM-NEXT:    [[Y_0_V:%.*]] = select i1 [[CMP1]], i32 1, i32 2
+; IS__CGSCC_OPM-NEXT:    [[Y_0:%.*]] = add nuw nsw i32 [[DOT]], [[Y_0_V]]
+; IS__CGSCC_OPM-NEXT:    [[CMP6:%.*]] = icmp eq i32 [[Y_0]], 5
+; IS__CGSCC_OPM-NEXT:    [[I2P:%.*]] = inttoptr i1 [[CMP6]] to i1*
 ; IS__CGSCC_OPM-NEXT:    [[BC:%.*]] = bitcast i1* [[I2P]] to i32*
 ; IS__CGSCC_OPM-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[BC]] to i64
 ; IS__CGSCC_OPM-NEXT:    ret i64 [[P2I]]
@@ -1179,7 +1197,13 @@ define dso_local i64 @select_int2ptr_bitcast_ptr2int(i32 %a) local_unnamed_addr 
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@select_int2ptr_bitcast_ptr2int
 ; IS__CGSCC_NPM-SAME: (i32 [[A:%.*]]) local_unnamed_addr #[[ATTR1]] {
 ; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    [[I2P:%.*]] = inttoptr i1 false to i1*
+; IS__CGSCC_NPM-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[A]], 5
+; IS__CGSCC_NPM-NEXT:    [[DOT:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; IS__CGSCC_NPM-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[A]], 10
+; IS__CGSCC_NPM-NEXT:    [[Y_0_V:%.*]] = select i1 [[CMP1]], i32 1, i32 2
+; IS__CGSCC_NPM-NEXT:    [[Y_0:%.*]] = add nuw nsw i32 [[DOT]], [[Y_0_V]]
+; IS__CGSCC_NPM-NEXT:    [[CMP6:%.*]] = icmp eq i32 [[Y_0]], 5
+; IS__CGSCC_NPM-NEXT:    [[I2P:%.*]] = inttoptr i1 [[CMP6]] to i1*
 ; IS__CGSCC_NPM-NEXT:    [[BC:%.*]] = bitcast i1* [[I2P]] to i32*
 ; IS__CGSCC_NPM-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[BC]] to i64
 ; IS__CGSCC_NPM-NEXT:    ret i64 [[P2I]]
@@ -2351,8 +2375,8 @@ define internal i1 @non_zero(i8 %v) {
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@non_zero
-; IS__CGSCC_NPM-SAME: () #[[ATTR1]] {
-; IS__CGSCC_NPM-NEXT:    ret i1 undef
+; IS__CGSCC_NPM-SAME: (i8 [[V:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:    ret i1 true
 ;
   %r = icmp ne i8 %v, 0
   ret i1 %r
