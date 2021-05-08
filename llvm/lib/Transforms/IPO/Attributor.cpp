@@ -693,6 +693,21 @@ bool Attributor::isAssumedDead(const IRPosition &IRP,
 bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
                                  const AbstractAttribute &QueryingAA,
                                  const Value &V, DepClassTy LivenessDepClass) {
+  // Do not look at uses outside the current SCC, if any.
+  auto IsValidUseInSCC = [&](const Value &V) {
+    if (isModulePass())
+      return true;
+    const Function *VScope = nullptr;
+    if (auto *I = dyn_cast<Instruction>(&V))
+      VScope = I->getFunction();
+    else if (auto *A = dyn_cast<Argument>(&V))
+      VScope = A->getParent();
+    if (VScope && !Functions.count(const_cast<Function *>(VScope)))
+      return false;
+    return true;
+  };
+  if (!IsValidUseInSCC(V))
+    return false;
 
   // Check the trivial case first as it catches void values.
   if (V.use_empty())
@@ -733,6 +748,10 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
       continue;
     LLVM_DEBUG(dbgs() << "[Attributor] Check use: " << **U << " in "
                       << *U->getUser() << "\n");
+    if (!IsValidUseInSCC(*U->getUser())) {
+      LLVM_DEBUG(dbgs() << "[Attributor] Use outside the SCC, abort!\n");
+      return false;
+    }
     if (isAssumedDead(*U, &QueryingAA, LivenessAA,
                       /* CheckBBLivenessOnly */ false, LivenessDepClass)) {
       LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");

@@ -254,12 +254,13 @@ define i32 @scc_rX(i32 %a, i32 %b, i32 %r) #0 {
 ; IS__CGSCC____-NEXT:    br i1 [[CMP2]], label [[IF_THEN3:%.*]], label [[IF_END12:%.*]]
 ; IS__CGSCC____:       if.then3:
 ; IS__CGSCC____-NEXT:    [[CALL4:%.*]] = call i32 @sink_r0(i32 [[B]])
-; IS__CGSCC____-NEXT:    [[CALL5:%.*]] = call i32 @scc_r1(i32 [[A]], i32 [[B]], i32 undef) #[[ATTR8]]
+; IS__CGSCC____-NEXT:    [[CALL5:%.*]] = call i32 @scc_r1(i32 [[A]], i32 [[B]], i32 [[R]]) #[[ATTR8]]
 ; IS__CGSCC____-NEXT:    [[CALL6:%.*]] = call i32 @scc_r2(i32 [[R]], i32 [[R]], i32 [[R]]) #[[ATTR8]]
-; IS__CGSCC____-NEXT:    [[CALL7:%.*]] = call i32 @scc_r1(i32 [[A]], i32 [[CALL6]], i32 undef) #[[ATTR8]]
-; IS__CGSCC____-NEXT:    [[CALL8:%.*]] = call i32 @scc_r1(i32 [[A]], i32 [[B]], i32 undef) #[[ATTR8]]
+; IS__CGSCC____-NEXT:    [[CALL7:%.*]] = call i32 @scc_r1(i32 [[A]], i32 [[CALL6]], i32 [[R]]) #[[ATTR8]]
+; IS__CGSCC____-NEXT:    [[CALL8:%.*]] = call i32 @scc_r1(i32 [[A]], i32 [[B]], i32 [[R]]) #[[ATTR8]]
 ; IS__CGSCC____-NEXT:    [[CALL9:%.*]] = call i32 @scc_r2(i32 [[CALL5]], i32 [[CALL7]], i32 [[CALL8]]) #[[ATTR8]]
-; IS__CGSCC____-NEXT:    [[CALL11:%.*]] = call i32 @scc_r1(i32 [[CALL4]], i32 [[CALL9]], i32 undef) #[[ATTR8]]
+; IS__CGSCC____-NEXT:    [[CALL10:%.*]] = call i32 @scc_r1(i32 [[A]], i32 [[B]], i32 [[R]]) #[[ATTR8]]
+; IS__CGSCC____-NEXT:    [[CALL11:%.*]] = call i32 @scc_r1(i32 [[CALL4]], i32 [[CALL9]], i32 [[CALL10]]) #[[ATTR8]]
 ; IS__CGSCC____-NEXT:    br label [[RETURN]]
 ; IS__CGSCC____:       if.end12:
 ; IS__CGSCC____-NEXT:    [[CMP13:%.*]] = icmp eq i32 [[A]], [[B]]

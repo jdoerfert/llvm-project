@@ -917,25 +917,27 @@ define internal i1 @undef_then_1(i1 %c, i32 %i32A, i32 %i32B) {
 ; IS__TUNIT_NPM:       b:
 ; IS__TUNIT_NPM-NEXT:    ret i1 [[CMP2]]
 ;
-; IS__CGSCC_OPM: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__CGSCC_OPM: Function Attrs: nofree nosync nounwind readnone
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@undef_then_1
 ; IS__CGSCC_OPM-SAME: (i1 [[C:%.*]]) #[[ATTR6:[0-9]+]] {
 ; IS__CGSCC_OPM-NEXT:    [[OR:%.*]] = or i1 false, [[C]]
 ; IS__CGSCC_OPM-NEXT:    br i1 [[OR]], label [[A:%.*]], label [[B:%.*]]
 ; IS__CGSCC_OPM:       a:
-; IS__CGSCC_OPM-NEXT:    ret i1 undef
+; IS__CGSCC_OPM-NEXT:    [[R2:%.*]] = call noundef i1 @undef_then_1(i1 noundef false) #[[ATTR6]]
+; IS__CGSCC_OPM-NEXT:    ret i1 false
 ; IS__CGSCC_OPM:       b:
-; IS__CGSCC_OPM-NEXT:    ret i1 undef
+; IS__CGSCC_OPM-NEXT:    ret i1 false
 ;
-; IS__CGSCC_NPM: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__CGSCC_NPM: Function Attrs: nofree nosync nounwind readnone
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@undef_then_1
 ; IS__CGSCC_NPM-SAME: (i1 [[C:%.*]]) #[[ATTR5:[0-9]+]] {
 ; IS__CGSCC_NPM-NEXT:    [[OR:%.*]] = or i1 false, [[C]]
 ; IS__CGSCC_NPM-NEXT:    br i1 [[OR]], label [[A:%.*]], label [[B:%.*]]
 ; IS__CGSCC_NPM:       a:
-; IS__CGSCC_NPM-NEXT:    ret i1 undef
+; IS__CGSCC_NPM-NEXT:    [[R2:%.*]] = call noundef i1 @undef_then_1(i1 noundef false) #[[ATTR5]]
+; IS__CGSCC_NPM-NEXT:    ret i1 false
 ; IS__CGSCC_NPM:       b:
-; IS__CGSCC_NPM-NEXT:    ret i1 undef
+; IS__CGSCC_NPM-NEXT:    ret i1 false
 ;
   %cmp1 = icmp eq i32 %i32A, %i32B
   %cmp2 = icmp eq i1 %cmp1, false
@@ -986,7 +988,7 @@ define i1 @icmp() {
 ; IS__CGSCC_OPM: attributes #[[ATTR3]] = { nofree norecurse nosync nounwind readonly willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR4]] = { argmemonly nofree norecurse nosync nounwind writeonly }
 ; IS__CGSCC_OPM: attributes #[[ATTR5]] = { nofree norecurse nosync nounwind willreturn writeonly }
-; IS__CGSCC_OPM: attributes #[[ATTR6]] = { nofree nosync nounwind readnone willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR6]] = { nofree nosync nounwind readnone }
 ; IS__CGSCC_OPM: attributes #[[ATTR7]] = { readnone willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR8]] = { willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR9]] = { nounwind readnone willreturn }
@@ -997,7 +999,7 @@ define i1 @icmp() {
 ; IS__CGSCC_NPM: attributes #[[ATTR2]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC_NPM: attributes #[[ATTR3]] = { nofree norecurse nosync nounwind readonly willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR4]] = { nofree norecurse nosync nounwind willreturn writeonly }
-; IS__CGSCC_NPM: attributes #[[ATTR5]] = { nofree nosync nounwind readnone willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR5]] = { nofree nosync nounwind readnone }
 ; IS__CGSCC_NPM: attributes #[[ATTR6]] = { readnone willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR7]] = { willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR8]] = { nounwind readnone willreturn }

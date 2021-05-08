@@ -81,7 +81,7 @@ entry:
 define internal %"a"* @f5(%"b"* %this) align 2 {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@f5
-; IS__CGSCC____-SAME: (%b* noalias nocapture nofree readnone [[THIS:%.*]]) #[[ATTR0]] align 2 {
+; IS__CGSCC____-SAME: (%b* noalias nofree readnone [[THIS:%.*]]) #[[ATTR0]] align 2 {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    [[THIS_ADDR:%.*]] = alloca %b*, align 8
 ; IS__CGSCC____-NEXT:    store %b* [[THIS]], %b** [[THIS_ADDR]], align 8

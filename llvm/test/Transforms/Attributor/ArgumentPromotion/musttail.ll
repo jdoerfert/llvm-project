@@ -74,7 +74,7 @@ define i32 @foo(%T* %p, i32 %v) {
 define internal i32 @test2(%T* %p, i32 %p2) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test2
-; IS__CGSCC____-SAME: (%T* noalias nocapture nofree readnone [[P:%.*]], i32 [[P2:%.*]]) #[[ATTR1]] {
+; IS__CGSCC____-SAME: (%T* noalias nocapture nofree readnone [[P:%.*]], i32 noundef [[P2:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC____-NEXT:    ret i32 undef
 ;
   %a.gep = getelementptr %T, %T* %p, i64 0, i32 3
@@ -139,7 +139,7 @@ define internal i32 @test2b(%T* %p, i32 %p2) {
 ;
 ; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test2b
-; IS__CGSCC____-SAME: (%T* nocapture nofree readonly [[P:%.*]], i32 [[P2:%.*]]) #[[ATTR3:[0-9]+]] {
+; IS__CGSCC____-SAME: (%T* nocapture nofree readonly [[P:%.*]], i32 noundef [[P2:%.*]]) #[[ATTR3:[0-9]+]] {
 ; IS__CGSCC____-NEXT:    [[A_GEP:%.*]] = getelementptr [[T:%.*]], %T* [[P]], i64 0, i32 3
 ; IS__CGSCC____-NEXT:    [[B_GEP:%.*]] = getelementptr [[T]], %T* [[P]], i64 0, i32 2
 ; IS__CGSCC____-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]], align 4
@@ -167,7 +167,7 @@ define i32 @caller2b(%T* %g) {
 ; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@caller2b
 ; IS__CGSCC____-SAME: (%T* nocapture nofree readonly [[G:%.*]]) #[[ATTR3]] {
-; IS__CGSCC____-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 undef) #[[ATTR6:[0-9]+]]
+; IS__CGSCC____-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 noundef 0) #[[ATTR6:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret i32 0
 ;
   %v = call i32 @test2b(%T* %g, i32 0)

@@ -13,7 +13,7 @@ define internal fastcc i32 @term_SharingList(i32* %Term, i32* %List) nounwind {
 ; IS__CGSCC____:       bb:
 ; IS__CGSCC____-NEXT:    unreachable
 ; IS__CGSCC____:       bb5:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 0
 ;
 entry:
   br i1 false, label %bb, label %bb5
