@@ -147,6 +147,11 @@ static cl::opt<bool> EnableCallSiteSpecific(
     cl::desc("Allow the Attributor to do call site specific analysis"),
     cl::init(false));
 
+static cl::opt<bool> SimplifyAllLoads("attributor-simplify-all-loads",
+                                      cl::Hidden,
+                                      cl::desc("Try to simplify all loads."),
+                                      cl::init(true));
+
 /// Logic operators for the change status enum class.
 ///
 ///{
@@ -157,6 +162,17 @@ ChangeStatus llvm::operator&(ChangeStatus L, ChangeStatus R) {
   return L == ChangeStatus::UNCHANGED ? L : R;
 }
 ///}
+
+Constant *AA::getInitialValueForObj(Value &Obj, Type &Ty) {
+  if (isa<AllocaInst>(Obj))
+    return UndefValue::get(&Ty);
+  auto *GV = dyn_cast<GlobalVariable>(&Obj);
+  if (!GV || !GV->hasLocalLinkage())
+    return nullptr;
+  if (!GV->hasInitializer())
+    return UndefValue::get(&Ty);
+  return dyn_cast_or_null<Constant>(getWithType(*GV->getInitializer(), Ty));
+}
 
 bool AA::isValidInScope(Value &V, Function *Scope) {
   if (isa<Constant>(V))
@@ -199,7 +215,7 @@ AA::combineOptionalValuesInAAValueLatice(const Optional<Value *> &A,
     return B;
   if (isa_and_nonnull<UndefValue>(*B))
     return A;
-  if (*B && *A == getWithType(**B, *(*A)->getType()))
+  if (*A && *B && *A == getWithType(**B, *(*A)->getType()))
     return A;
   return nullptr;
 }
@@ -604,18 +620,14 @@ Attributor::getAssumedConstant(const Value &V, const AbstractAttribute &AA,
     recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
     return llvm::None;
   }
-  if (isa_and_nonnull<UndefValue>(SimplifiedV.getValue())) {
-    recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
-    return UndefValue::get(V.getType());
-  }
-  Constant *CI = dyn_cast_or_null<Constant>(SimplifiedV.getValue());
-  if (CI && CI->getType() != V.getType()) {
-    // TODO: Check for a save conversion.
+  if (*SimplifiedV == nullptr)
     return nullptr;
-  }
-  if (CI)
+  if (auto *C = dyn_cast_or_null<Constant>(
+          AA::getWithType(**SimplifiedV, *V.getType()))) {
     recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
-  return CI;
+    return C;
+  }
+  return nullptr;
 }
 
 Optional<Value *>
@@ -2285,10 +2297,12 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   assert(Success && "Expected the check call to be successful!");
 
   auto LoadStorePred = [&](Instruction &I) -> bool {
-    if (isa<LoadInst>(I))
+    if (isa<LoadInst>(I)) {
       getOrCreateAAFor<AAAlign>(
           IRPosition::value(*cast<LoadInst>(I).getPointerOperand()));
-    else
+      if (SimplifyAllLoads)
+        getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
+    } else
       getOrCreateAAFor<AAAlign>(
           IRPosition::value(*cast<StoreInst>(I).getPointerOperand()));
     return true;
