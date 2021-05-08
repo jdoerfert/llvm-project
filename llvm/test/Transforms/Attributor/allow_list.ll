@@ -28,9 +28,9 @@ define internal i32 @range_test(i32 %a) #0 {
 ; CHECK_DISABLED_FUNCTION-NEXT:    [[TMP2:%.*]] = zext i1 [[TMP1]] to i32
 ; CHECK_DISABLED_FUNCTION-NEXT:    ret i32 [[TMP2]]
 ;
-; CHECK_ENABLED_FUNCTION: Function Attrs: noinline nounwind readnone uwtable
+; CHECK_ENABLED_FUNCTION: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; CHECK_ENABLED_FUNCTION-LABEL: define {{[^@]+}}@range_test
-; CHECK_ENABLED_FUNCTION-SAME: () #[[ATTR0:[0-9]+]] {
+; CHECK_ENABLED_FUNCTION-SAME: (i32 [[A:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK_ENABLED_FUNCTION-NEXT:    ret i32 1
 ;
   %1 = icmp sgt i32 %a, 100
@@ -59,7 +59,7 @@ define i32 @range_use1() #0 {
 ;
 ; CHECK_ENABLED_FUNCTION: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; CHECK_ENABLED_FUNCTION-LABEL: define {{[^@]+}}@range_use1
-; CHECK_ENABLED_FUNCTION-SAME: () #[[ATTR1:[0-9]+]] {
+; CHECK_ENABLED_FUNCTION-SAME: () #[[ATTR0]] {
 ; CHECK_ENABLED_FUNCTION-NEXT:    ret i32 1
 ;
   %1 = call i32 @range_test(i32 123)
@@ -87,8 +87,8 @@ define i32 @range_use2() #0 {
 ;
 ; CHECK_ENABLED_FUNCTION: Function Attrs: noinline nounwind uwtable
 ; CHECK_ENABLED_FUNCTION-LABEL: define {{[^@]+}}@range_use2
-; CHECK_ENABLED_FUNCTION-SAME: () #[[ATTR2:[0-9]+]] {
-; CHECK_ENABLED_FUNCTION-NEXT:    [[TMP1:%.*]] = call i32 @range_test()
+; CHECK_ENABLED_FUNCTION-SAME: () #[[ATTR1:[0-9]+]] {
+; CHECK_ENABLED_FUNCTION-NEXT:    [[TMP1:%.*]] = call i32 @range_test(i32 123)
 ; CHECK_ENABLED_FUNCTION-NEXT:    ret i32 [[TMP1]]
 ;
   %1 = call i32 @range_test(i32 123)
@@ -103,7 +103,6 @@ attributes #0 = { nounwind uwtable noinline }
 ;.
 ; CHECK_DISABLED_FUNCTION: attributes #[[ATTR0]] = { noinline nounwind uwtable }
 ;.
-; CHECK_ENABLED_FUNCTION: attributes #[[ATTR0]] = { noinline nounwind readnone uwtable }
-; CHECK_ENABLED_FUNCTION: attributes #[[ATTR1]] = { nofree noinline nosync nounwind readnone uwtable willreturn }
-; CHECK_ENABLED_FUNCTION: attributes #[[ATTR2]] = { noinline nounwind uwtable }
+; CHECK_ENABLED_FUNCTION: attributes #[[ATTR0]] = { nofree noinline nosync nounwind readnone uwtable willreturn }
+; CHECK_ENABLED_FUNCTION: attributes #[[ATTR1]] = { noinline nounwind uwtable }
 ;.

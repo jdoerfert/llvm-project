@@ -75,7 +75,8 @@ define internal i32 @test2(%T* %p, i32 %p2) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test2
 ; IS__CGSCC____-SAME: (%T* noalias nocapture nofree readnone [[P:%.*]], i32 [[P2:%.*]]) #[[ATTR1]] {
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    [[CA:%.*]] = musttail call i32 @foo(%T* undef, i32 undef) #[[ATTR5:[0-9]+]]
+; IS__CGSCC____-NEXT:    ret i32 [[CA]]
 ;
   %a.gep = getelementptr %T, %T* %p, i64 0, i32 3
   %b.gep = getelementptr %T, %T* %p, i64 0, i32 2
@@ -145,7 +146,7 @@ define internal i32 @test2b(%T* %p, i32 %p2) {
 ; IS__CGSCC____-NEXT:    [[A:%.*]] = load i32, i32* [[A_GEP]], align 4
 ; IS__CGSCC____-NEXT:    [[B:%.*]] = load i32, i32* [[B_GEP]], align 4
 ; IS__CGSCC____-NEXT:    [[V:%.*]] = add i32 [[A]], [[B]]
-; IS__CGSCC____-NEXT:    [[CA:%.*]] = musttail call i32 @bar(%T* undef, i32 [[V]]) #[[ATTR5:[0-9]+]]
+; IS__CGSCC____-NEXT:    [[CA:%.*]] = musttail call i32 @bar(%T* undef, i32 [[V]]) #[[ATTR6:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret i32 [[CA]]
 ;
   %a.gep = getelementptr %T, %T* %p, i64 0, i32 3
@@ -167,7 +168,7 @@ define i32 @caller2b(%T* %g) {
 ; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@caller2b
 ; IS__CGSCC____-SAME: (%T* nocapture nofree readonly [[G:%.*]]) #[[ATTR3]] {
-; IS__CGSCC____-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 undef) #[[ATTR6:[0-9]+]]
+; IS__CGSCC____-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 undef) #[[ATTR7:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret i32 0
 ;
   %v = call i32 @test2b(%T* %g, i32 0)
@@ -187,6 +188,7 @@ define i32 @caller2b(%T* %g) {
 ; IS__CGSCC____: attributes #[[ATTR2]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC____: attributes #[[ATTR3]] = { argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC____: attributes #[[ATTR4]] = { nosync nounwind readonly willreturn }
-; IS__CGSCC____: attributes #[[ATTR5]] = { nounwind willreturn writeonly }
-; IS__CGSCC____: attributes #[[ATTR6]] = { nosync nounwind willreturn }
+; IS__CGSCC____: attributes #[[ATTR5]] = { readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR6]] = { nounwind willreturn writeonly }
+; IS__CGSCC____: attributes #[[ATTR7]] = { nosync nounwind willreturn }
 ;.

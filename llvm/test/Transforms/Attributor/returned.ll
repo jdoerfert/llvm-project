@@ -1541,12 +1541,14 @@ define i32* @dont_use_const() #0 {
 ; IS__TUNIT____: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@dont_use_const
 ; IS__TUNIT____-SAME: () #[[ATTR0]] {
-; IS__TUNIT____-NEXT:    ret i32* bitcast (i8* @G to i32*)
+; IS__TUNIT____-NEXT:    [[C:%.*]] = musttail call i32* @ret_const() #[[ATTR5]]
+; IS__TUNIT____-NEXT:    ret i32* [[C]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@dont_use_const
 ; IS__CGSCC____-SAME: () #[[ATTR0]] {
-; IS__CGSCC____-NEXT:    ret i32* bitcast (i8* @G to i32*)
+; IS__CGSCC____-NEXT:    [[C:%.*]] = musttail call i32* @ret_const() #[[ATTR6]]
+; IS__CGSCC____-NEXT:    ret i32* [[C]]
 ;
   %c = musttail call i32* @ret_const()
   ret i32* %c

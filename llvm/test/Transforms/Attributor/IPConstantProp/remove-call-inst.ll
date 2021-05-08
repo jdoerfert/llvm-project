@@ -31,7 +31,7 @@ entry:
 define internal i32 @wwrite(i64 %i) nounwind readnone {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@wwrite
-; IS__CGSCC____-SAME: () #[[ATTR1:[0-9]+]] {
+; IS__CGSCC____-SAME: (i64 [[I:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    switch i64 0, label [[SW_DEFAULT:%.*]] [
 ; IS__CGSCC____-NEXT:    i64 3, label [[RETURN:%.*]]

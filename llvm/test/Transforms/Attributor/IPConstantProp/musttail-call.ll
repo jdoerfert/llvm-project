@@ -8,7 +8,6 @@
 
 declare i32 @external()
 
-; FIXME: We should not return undef here.
 define i8* @start(i8 %v) {
 ;
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@start
@@ -22,7 +21,8 @@ define i8* @start(i8 %v) {
 ; IS__TUNIT____-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
 ; IS__TUNIT____-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
 ; IS__TUNIT____:       c2_true:
-; IS__TUNIT____-NEXT:    ret i8* null
+; IS__TUNIT____-NEXT:    [[CA1:%.*]] = musttail call i8* @no_side_effects(i8 undef) #[[ATTR1:[0-9]+]]
+; IS__TUNIT____-NEXT:    ret i8* [[CA1]]
 ; IS__TUNIT____:       c2_false:
 ; IS__TUNIT____-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 undef)
 ; IS__TUNIT____-NEXT:    ret i8* [[CA2]]
@@ -38,7 +38,8 @@ define i8* @start(i8 %v) {
 ; IS__CGSCC____-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
 ; IS__CGSCC____-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
 ; IS__CGSCC____:       c2_true:
-; IS__CGSCC____-NEXT:    ret i8* undef
+; IS__CGSCC____-NEXT:    [[CA1:%.*]] = musttail call i8* @no_side_effects(i8 undef)
+; IS__CGSCC____-NEXT:    ret i8* [[CA1]]
 ; IS__CGSCC____:       c2_false:
 ; IS__CGSCC____-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 undef)
 ; IS__CGSCC____-NEXT:    ret i8* [[CA2]]
@@ -80,10 +81,15 @@ define internal i8* @side_effects(i8 %v) {
 }
 
 define internal i8* @no_side_effects(i8 %v) readonly nounwind {
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@no_side_effects
+; IS__TUNIT____-SAME: (i8 [[V:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-NEXT:    ret i8* null
+;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@no_side_effects
 ; IS__CGSCC____-SAME: (i8 [[V:%.*]]) #[[ATTR0:[0-9]+]] {
-; IS__CGSCC____-NEXT:    ret i8* undef
+; IS__CGSCC____-NEXT:    ret i8* null
 ;
   ret i8* null
 }
@@ -92,11 +98,14 @@ define internal i8* @dont_zap_me(i8 %v) {
 ; CHECK-LABEL: define {{[^@]+}}@dont_zap_me
 ; CHECK-SAME: (i8 [[V:%.*]]) {
 ; CHECK-NEXT:    [[I1:%.*]] = call i32 @external()
-; CHECK-NEXT:    ret i8* undef
+; CHECK-NEXT:    ret i8* null
 ;
   %i1 = call i32 @external()
   ret i8* null
 }
+;.
+; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nounwind readnone }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
 ;.

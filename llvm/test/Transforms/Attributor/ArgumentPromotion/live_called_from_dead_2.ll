@@ -21,7 +21,7 @@ define internal i32 @test(i32* %X, i32* %Y) {
 ; NOT_CGSCC_NPM-NEXT:    br i1 true, label [[LIVE:%.*]], label [[DEAD:%.*]]
 ; NOT_CGSCC_NPM:       live:
 ; NOT_CGSCC_NPM-NEXT:    store i32 0, i32* [[X]], align 4
-; NOT_CGSCC_NPM-NEXT:    ret i32 undef
+; NOT_CGSCC_NPM-NEXT:    ret i32 0
 ; NOT_CGSCC_NPM:       dead:
 ; NOT_CGSCC_NPM-NEXT:    unreachable
 ;
@@ -46,13 +46,21 @@ dead:
 }
 
 define internal i32 @caller(i32* %B) {
-; NOT_CGSCC_NPM: Function Attrs: argmemonly nofree nosync nounwind willreturn writeonly
-; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@caller
-; NOT_CGSCC_NPM-SAME: (i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR0]] {
-; NOT_CGSCC_NPM-NEXT:    [[A:%.*]] = alloca i32, align 4
-; NOT_CGSCC_NPM-NEXT:    store i32 1, i32* [[A]], align 4
-; NOT_CGSCC_NPM-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[B]]) #[[ATTR2:[0-9]+]]
-; NOT_CGSCC_NPM-NEXT:    ret i32 undef
+; IS__TUNIT____: Function Attrs: argmemonly nofree nosync nounwind willreturn writeonly
+; IS__TUNIT____-LABEL: define {{[^@]+}}@caller
+; IS__TUNIT____-SAME: (i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR0]] {
+; IS__TUNIT____-NEXT:    [[A:%.*]] = alloca i32, align 4
+; IS__TUNIT____-NEXT:    store i32 1, i32* [[A]], align 4
+; IS__TUNIT____-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[B]]) #[[ATTR2:[0-9]+]]
+; IS__TUNIT____-NEXT:    ret i32 0
+;
+; IS__CGSCC_OPM: Function Attrs: argmemonly nofree nosync nounwind willreturn writeonly
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@caller
+; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR0]] {
+; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = alloca i32, align 4
+; IS__CGSCC_OPM-NEXT:    store i32 1, i32* [[A]], align 4
+; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[B]]) #[[ATTR2:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    ret i32 undef
 ;
 ; IS__CGSCC_NPM: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@caller

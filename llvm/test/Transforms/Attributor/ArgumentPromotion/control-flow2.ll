@@ -31,7 +31,7 @@ define internal i32 @callee(i1 %C, i32* %P) {
 ;
 ; IS__CGSCC_OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@callee
-; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__CGSCC_OPM-SAME: (i1 [[C:%.*]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC_OPM-NEXT:    br label [[F:%.*]]
 ; IS__CGSCC_OPM:       T:
 ; IS__CGSCC_OPM-NEXT:    unreachable
@@ -41,7 +41,7 @@ define internal i32 @callee(i1 %C, i32* %P) {
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@callee
-; IS__CGSCC_NPM-SAME: (i32 [[TMP0:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__CGSCC_NPM-SAME: (i1 [[C:%.*]], i32 [[TMP0:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC_NPM-NEXT:    [[P_PRIV:%.*]] = alloca i32, align 4
 ; IS__CGSCC_NPM-NEXT:    store i32 [[TMP0]], i32* [[P_PRIV]], align 4
 ; IS__CGSCC_NPM-NEXT:    br label [[F:%.*]]
@@ -84,7 +84,7 @@ define i32 @foo() {
 ; IS__CGSCC_OPM-SAME: () #[[ATTR1:[0-9]+]] {
 ; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = alloca i32, align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 17, i32* [[A]], align 4
-; IS__CGSCC_OPM-NEXT:    [[X:%.*]] = call i32 @callee(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]]) #[[ATTR2:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    [[X:%.*]] = call i32 @callee(i1 undef, i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]]) #[[ATTR2:[0-9]+]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[X]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -93,7 +93,7 @@ define i32 @foo() {
 ; IS__CGSCC_NPM-NEXT:    [[A:%.*]] = alloca i32, align 4
 ; IS__CGSCC_NPM-NEXT:    store i32 17, i32* [[A]], align 4
 ; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* [[A]], align 4
-; IS__CGSCC_NPM-NEXT:    [[X:%.*]] = call i32 @callee(i32 [[TMP1]]) #[[ATTR1:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    [[X:%.*]] = call i32 @callee(i1 undef, i32 [[TMP1]]) #[[ATTR1:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    ret i32 [[X]]
 ;
   %A = alloca i32         ; <i32*> [#uses=2]

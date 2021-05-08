@@ -33,49 +33,27 @@ target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 ; CHECK: @[[GLOB1:[0-9]+]] = private unnamed_addr global [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @.str, i32 0, i32 0) }, align 8
 ;.
 define dso_local void @foo(i32 %N) {
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@foo
-; IS__TUNIT_OPM-SAME: (i32 [[N:%.*]]) {
-; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
-; IS__TUNIT_OPM-NEXT:    [[P:%.*]] = alloca float, align 4
-; IS__TUNIT_OPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; IS__TUNIT_OPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
-; IS__TUNIT_OPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; IS__TUNIT_OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 undef)
-; IS__TUNIT_OPM-NEXT:    ret void
+; IS________OPM-LABEL: define {{[^@]+}}@foo
+; IS________OPM-SAME: (i32 [[N:%.*]]) {
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
+; IS________OPM-NEXT:    [[P:%.*]] = alloca float, align 4
+; IS________OPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
+; IS________OPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
+; IS________OPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
+; IS________OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 noundef 4617315517961601024)
+; IS________OPM-NEXT:    ret void
 ;
-; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@foo
-; IS__TUNIT_NPM-SAME: (i32 [[N:%.*]]) {
-; IS__TUNIT_NPM-NEXT:  entry:
-; IS__TUNIT_NPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
-; IS__TUNIT_NPM-NEXT:    [[P:%.*]] = alloca float, align 4
-; IS__TUNIT_NPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; IS__TUNIT_NPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
-; IS__TUNIT_NPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; IS__TUNIT_NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 undef)
-; IS__TUNIT_NPM-NEXT:    ret void
-;
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@foo
-; IS__CGSCC_OPM-SAME: (i32 [[N:%.*]]) {
-; IS__CGSCC_OPM-NEXT:  entry:
-; IS__CGSCC_OPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
-; IS__CGSCC_OPM-NEXT:    [[P:%.*]] = alloca float, align 4
-; IS__CGSCC_OPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; IS__CGSCC_OPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
-; IS__CGSCC_OPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; IS__CGSCC_OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 noundef 4617315517961601024)
-; IS__CGSCC_OPM-NEXT:    ret void
-;
-; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@foo
-; IS__CGSCC_NPM-SAME: (i32 [[N:%.*]]) {
-; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
-; IS__CGSCC_NPM-NEXT:    [[P:%.*]] = alloca float, align 4
-; IS__CGSCC_NPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; IS__CGSCC_NPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
-; IS__CGSCC_NPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; IS__CGSCC_NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 noundef 4617315517961601024)
-; IS__CGSCC_NPM-NEXT:    ret void
+; IS________NPM-LABEL: define {{[^@]+}}@foo
+; IS________NPM-SAME: (i32 [[N:%.*]]) {
+; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
+; IS________NPM-NEXT:    [[P:%.*]] = alloca float, align 4
+; IS________NPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
+; IS________NPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
+; IS________NPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
+; IS________NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 noundef 4617315517961601024)
+; IS________NPM-NEXT:    ret void
 ;
 entry:
   %N.addr = alloca i32, align 4
@@ -89,7 +67,7 @@ entry:
 
 define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.bound_tid., i32* dereferenceable(4) %N, float* dereferenceable(4) %p, i64 %q) {
 ; IS________OPM-LABEL: define {{[^@]+}}@.omp_outlined.
-; IS________OPM-SAME: (i32* noalias nocapture readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]], i64 [[Q:%.*]]) {
+; IS________OPM-SAME: (i32* noalias nocapture readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]], i64 noundef [[Q:%.*]]) {
 ; IS________OPM-NEXT:  entry:
 ; IS________OPM-NEXT:    [[Q_ADDR:%.*]] = alloca i64, align 8
 ; IS________OPM-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -150,7 +128,7 @@ define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.
 ; IS________OPM-NEXT:    ret void
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@.omp_outlined.
-; IS________NPM-SAME: (i32* noalias nocapture readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]], i64 [[Q:%.*]]) {
+; IS________NPM-SAME: (i32* noalias nocapture readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* noalias nocapture noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]], i64 noundef [[Q:%.*]]) {
 ; IS________NPM-NEXT:  entry:
 ; IS________NPM-NEXT:    [[Q_ADDR:%.*]] = alloca i64, align 8
 ; IS________NPM-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4

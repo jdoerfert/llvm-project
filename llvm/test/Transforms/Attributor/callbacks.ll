@@ -16,53 +16,29 @@ target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16
 ; transfer in both directions.
 
 define void @t0_caller(i32* %a) {
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@t0_caller
-; IS__TUNIT_OPM-SAME: (i32* align 256 [[A:%.*]]) {
-; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__TUNIT_OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__TUNIT_OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__TUNIT_OPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__TUNIT_OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__TUNIT_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t0_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t0_callback_callee to void (i32*, i32*, ...)*), i32* align 256 [[A]], i64 undef, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_OPM-NEXT:    ret void
+; IS________OPM-LABEL: define {{[^@]+}}@t0_caller
+; IS________OPM-SAME: (i32* align 256 [[A:%.*]]) {
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
+; IS________OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; IS________OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; IS________OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; IS________OPM-NEXT:    store i32 42, i32* [[B]], align 32
+; IS________OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; IS________OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t0_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t0_callback_callee to void (i32*, i32*, ...)*), i32* align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________OPM-NEXT:    ret void
 ;
-; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@t0_caller
-; IS__TUNIT_NPM-SAME: (i32* align 256 [[A:%.*]]) {
-; IS__TUNIT_NPM-NEXT:  entry:
-; IS__TUNIT_NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__TUNIT_NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__TUNIT_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__TUNIT_NPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__TUNIT_NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__TUNIT_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t0_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t0_callback_callee to void (i32*, i32*, ...)*), i32* align 256 [[A]], i64 undef, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_NPM-NEXT:    ret void
-;
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@t0_caller
-; IS__CGSCC_OPM-SAME: (i32* align 256 [[A:%.*]]) {
-; IS__CGSCC_OPM-NEXT:  entry:
-; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__CGSCC_OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__CGSCC_OPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__CGSCC_OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__CGSCC_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t0_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t0_callback_callee to void (i32*, i32*, ...)*), i32* align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_OPM-NEXT:    ret void
-;
-; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@t0_caller
-; IS__CGSCC_NPM-SAME: (i32* align 256 [[A:%.*]]) {
-; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__CGSCC_NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__CGSCC_NPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__CGSCC_NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__CGSCC_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t0_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t0_callback_callee to void (i32*, i32*, ...)*), i32* align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_NPM-NEXT:    ret void
+; IS________NPM-LABEL: define {{[^@]+}}@t0_caller
+; IS________NPM-SAME: (i32* align 256 [[A:%.*]]) {
+; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
+; IS________NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; IS________NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; IS________NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; IS________NPM-NEXT:    store i32 42, i32* [[B]], align 32
+; IS________NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; IS________NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t0_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t0_callback_callee to void (i32*, i32*, ...)*), i32* align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________NPM-NEXT:    ret void
 ;
 entry:
   %b = alloca i32, align 32
@@ -80,7 +56,7 @@ entry:
 define internal void @t0_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
 ;
 ; IS________OPM-LABEL: define {{[^@]+}}@t0_callback_callee
-; IS________OPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* align 256 [[A:%.*]], i64 [[B:%.*]], i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
+; IS________OPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* align 256 [[A:%.*]], i64 noundef [[B:%.*]], i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
 ; IS________OPM-NEXT:  entry:
 ; IS________OPM-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; IS________OPM-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]], align 4
@@ -89,7 +65,7 @@ define internal void @t0_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, 
 ; IS________OPM-NEXT:    ret void
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@t0_callback_callee
-; IS________NPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* align 256 [[A:%.*]], i64 [[B:%.*]], i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
+; IS________NPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* align 256 [[A:%.*]], i64 noundef [[B:%.*]], i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
 ; IS________NPM-NEXT:  entry:
 ; IS________NPM-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; IS________NPM-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]], align 4
@@ -116,53 +92,29 @@ declare !callback !0 void @t0_callback_broker(i32*, i32*, void (i32*, i32*, ...)
 
 define void @t1_caller(i32* noalias %a) {
 ;
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@t1_caller
-; IS__TUNIT_OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__TUNIT_OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__TUNIT_OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__TUNIT_OPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__TUNIT_OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__TUNIT_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t1_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t1_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 undef, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_OPM-NEXT:    ret void
+; IS________OPM-LABEL: define {{[^@]+}}@t1_caller
+; IS________OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
+; IS________OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; IS________OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; IS________OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; IS________OPM-NEXT:    store i32 42, i32* [[B]], align 32
+; IS________OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; IS________OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t1_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t1_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________OPM-NEXT:    ret void
 ;
-; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@t1_caller
-; IS__TUNIT_NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__TUNIT_NPM-NEXT:  entry:
-; IS__TUNIT_NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__TUNIT_NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__TUNIT_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__TUNIT_NPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__TUNIT_NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__TUNIT_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t1_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t1_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 undef, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_NPM-NEXT:    ret void
-;
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@t1_caller
-; IS__CGSCC_OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__CGSCC_OPM-NEXT:  entry:
-; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__CGSCC_OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__CGSCC_OPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__CGSCC_OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__CGSCC_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t1_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t1_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_OPM-NEXT:    ret void
-;
-; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@t1_caller
-; IS__CGSCC_NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__CGSCC_NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__CGSCC_NPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__CGSCC_NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__CGSCC_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t1_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t1_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_NPM-NEXT:    ret void
+; IS________NPM-LABEL: define {{[^@]+}}@t1_caller
+; IS________NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
+; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
+; IS________NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; IS________NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; IS________NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; IS________NPM-NEXT:    store i32 42, i32* [[B]], align 32
+; IS________NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; IS________NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t1_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t1_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________NPM-NEXT:    ret void
 ;
 entry:
   %b = alloca i32, align 32
@@ -181,7 +133,7 @@ define internal void @t1_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, 
 ;
 ; IS________OPM: Function Attrs: nosync
 ; IS________OPM-LABEL: define {{[^@]+}}@t1_callback_callee
-; IS________OPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]], i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS________OPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 noundef [[B:%.*]], i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS________OPM-NEXT:  entry:
 ; IS________OPM-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; IS________OPM-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]], align 4
@@ -191,7 +143,7 @@ define internal void @t1_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, 
 ;
 ; IS________NPM: Function Attrs: nosync
 ; IS________NPM-LABEL: define {{[^@]+}}@t1_callback_callee
-; IS________NPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]], i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS________NPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 noundef [[B:%.*]], i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS________NPM-NEXT:  entry:
 ; IS________NPM-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; IS________NPM-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]], align 4
@@ -216,53 +168,29 @@ declare !callback !0 void @t1_callback_broker(i32* nocapture , i32* nocapture , 
 ; Similar to test 1 but checking that the noalias is only placed if potential synchronization through @t2_check is preserved.
 
 define void @t2_caller(i32* noalias %a) {
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@t2_caller
-; IS__TUNIT_OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__TUNIT_OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__TUNIT_OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__TUNIT_OPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__TUNIT_OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__TUNIT_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t2_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t2_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 undef, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_OPM-NEXT:    ret void
+; IS________OPM-LABEL: define {{[^@]+}}@t2_caller
+; IS________OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
+; IS________OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; IS________OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; IS________OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; IS________OPM-NEXT:    store i32 42, i32* [[B]], align 32
+; IS________OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; IS________OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t2_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t2_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________OPM-NEXT:    ret void
 ;
-; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@t2_caller
-; IS__TUNIT_NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__TUNIT_NPM-NEXT:  entry:
-; IS__TUNIT_NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__TUNIT_NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__TUNIT_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__TUNIT_NPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__TUNIT_NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__TUNIT_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t2_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t2_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 undef, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_NPM-NEXT:    ret void
-;
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@t2_caller
-; IS__CGSCC_OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__CGSCC_OPM-NEXT:  entry:
-; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__CGSCC_OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__CGSCC_OPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__CGSCC_OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__CGSCC_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t2_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t2_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_OPM-NEXT:    ret void
-;
-; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@t2_caller
-; IS__CGSCC_NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__CGSCC_NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__CGSCC_NPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__CGSCC_NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__CGSCC_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t2_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t2_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_NPM-NEXT:    ret void
+; IS________NPM-LABEL: define {{[^@]+}}@t2_caller
+; IS________NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
+; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
+; IS________NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; IS________NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; IS________NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; IS________NPM-NEXT:    store i32 42, i32* [[B]], align 32
+; IS________NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; IS________NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t2_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t2_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________NPM-NEXT:    ret void
 ;
 entry:
   %b = alloca i32, align 32
@@ -282,7 +210,7 @@ entry:
 define internal void @t2_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
 ;
 ; IS________OPM-LABEL: define {{[^@]+}}@t2_callback_callee
-; IS________OPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]], i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
+; IS________OPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 noundef [[B:%.*]], i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
 ; IS________OPM-NEXT:  entry:
 ; IS________OPM-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; IS________OPM-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]], align 4
@@ -291,7 +219,7 @@ define internal void @t2_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, 
 ; IS________OPM-NEXT:    ret void
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@t2_callback_callee
-; IS________NPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]], i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
+; IS________NPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 noundef [[B:%.*]], i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
 ; IS________NPM-NEXT:  entry:
 ; IS________NPM-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; IS________NPM-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]], align 4
@@ -316,57 +244,31 @@ declare !callback !0 void @t2_callback_broker(i32* nocapture , i32* nocapture , 
 ; Basically test 2 with the casted callback callee used twice.
 
 define void @t3_caller(i32* noalias %a) {
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@t3_caller
-; IS__TUNIT_OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__TUNIT_OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__TUNIT_OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__TUNIT_OPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__TUNIT_OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__TUNIT_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 undef, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 undef, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_OPM-NEXT:    ret void
+; IS________OPM-LABEL: define {{[^@]+}}@t3_caller
+; IS________OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
+; IS________OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; IS________OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; IS________OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; IS________OPM-NEXT:    store i32 42, i32* [[B]], align 32
+; IS________OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; IS________OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________OPM-NEXT:    ret void
 ;
-; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@t3_caller
-; IS__TUNIT_NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__TUNIT_NPM-NEXT:  entry:
-; IS__TUNIT_NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__TUNIT_NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__TUNIT_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__TUNIT_NPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__TUNIT_NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__TUNIT_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 undef, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 undef, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__TUNIT_NPM-NEXT:    ret void
-;
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@t3_caller
-; IS__CGSCC_OPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__CGSCC_OPM-NEXT:  entry:
-; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__CGSCC_OPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__CGSCC_OPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__CGSCC_OPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__CGSCC_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_OPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_OPM-NEXT:    ret void
-;
-; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@t3_caller
-; IS__CGSCC_NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
-; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
-; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
-; IS__CGSCC_NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
-; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
-; IS__CGSCC_NPM-NEXT:    store i32 42, i32* [[B]], align 32
-; IS__CGSCC_NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
-; IS__CGSCC_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
-; IS__CGSCC_NPM-NEXT:    ret void
+; IS________NPM-LABEL: define {{[^@]+}}@t3_caller
+; IS________NPM-SAME: (i32* noalias nocapture align 256 [[A:%.*]]) {
+; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    [[B:%.*]] = alloca i32, align 32
+; IS________NPM-NEXT:    [[C:%.*]] = alloca i32*, align 64
+; IS________NPM-NEXT:    [[PTR:%.*]] = alloca i32, align 128
+; IS________NPM-NEXT:    [[TMP0:%.*]] = bitcast i32* [[B]] to i8*
+; IS________NPM-NEXT:    store i32 42, i32* [[B]], align 32
+; IS________NPM-NEXT:    store i32* [[B]], i32** [[C]], align 64
+; IS________NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________NPM-NEXT:    call void (i32*, i32*, void (i32*, i32*, ...)*, ...) @t3_callback_broker(i32* noalias nocapture noundef align 536870912 null, i32* noalias nocapture noundef nonnull align 128 dereferenceable(4) [[PTR]], void (i32*, i32*, ...)* nocapture noundef bitcast (void (i32*, i32*, i32*, i64, i32**)* @t3_callback_callee to void (i32*, i32*, ...)*), i32* nocapture align 256 [[A]], i64 noundef 99, i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C]])
+; IS________NPM-NEXT:    ret void
 ;
 entry:
   %b = alloca i32, align 32
@@ -387,7 +289,7 @@ entry:
 define internal void @t3_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, i64 %b, i32** %c) {
 ;
 ; IS________OPM-LABEL: define {{[^@]+}}@t3_callback_callee
-; IS________OPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]], i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
+; IS________OPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 noundef [[B:%.*]], i32** nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
 ; IS________OPM-NEXT:  entry:
 ; IS________OPM-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; IS________OPM-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]], align 4
@@ -396,7 +298,7 @@ define internal void @t3_callback_callee(i32* %is_not_null, i32* %ptr, i32* %a, 
 ; IS________OPM-NEXT:    ret void
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@t3_callback_callee
-; IS________NPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 [[B:%.*]], i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
+; IS________NPM-SAME: (i32* nocapture noundef nonnull writeonly align 4 dereferenceable(4) [[IS_NOT_NULL:%.*]], i32* nocapture noundef nonnull readonly align 8 dereferenceable(4) [[PTR:%.*]], i32* nocapture align 256 [[A:%.*]], i64 noundef [[B:%.*]], i32** noalias nocapture noundef nonnull readonly align 64 dereferenceable(8) [[C:%.*]]) {
 ; IS________NPM-NEXT:  entry:
 ; IS________NPM-NEXT:    [[PTR_VAL:%.*]] = load i32, i32* [[PTR]], align 8
 ; IS________NPM-NEXT:    store i32 [[PTR_VAL]], i32* [[IS_NOT_NULL]], align 4

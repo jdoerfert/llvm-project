@@ -15,7 +15,7 @@ define internal i32 @test(i32** %x) {
 ;
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readonly willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test
-; IS__TUNIT____-SAME: () #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-SAME: (i32** nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[X:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    [[Y:%.*]] = load i32*, i32** @G2, align 8
 ; IS__TUNIT____-NEXT:    [[Z:%.*]] = load i32, i32* [[Y]], align 4
@@ -23,7 +23,7 @@ define internal i32 @test(i32** %x) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test
-; IS__CGSCC____-SAME: () #[[ATTR0:[0-9]+]] {
+; IS__CGSCC____-SAME: (i32** noalias nocapture nofree nonnull readnone align 8 dereferenceable(8) [[X:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    [[Y:%.*]] = load i32*, i32** @G2, align 8
 ; IS__CGSCC____-NEXT:    [[Z:%.*]] = load i32, i32* [[Y]], align 4
@@ -40,14 +40,14 @@ define i32 @caller() {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@caller
 ; IS__TUNIT____-SAME: () #[[ATTR0]] {
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[X:%.*]] = call i32 @test() #[[ATTR0]]
+; IS__TUNIT____-NEXT:    [[X:%.*]] = call i32 @test(i32** nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) @G2) #[[ATTR0]]
 ; IS__TUNIT____-NEXT:    ret i32 [[X]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@caller
 ; IS__CGSCC____-SAME: () #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[X:%.*]] = call i32 @test() #[[ATTR1:[0-9]+]]
+; IS__CGSCC____-NEXT:    [[X:%.*]] = call i32 @test(i32** noalias nocapture nofree nonnull readnone align 8 dereferenceable(8) undef) #[[ATTR1:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret i32 [[X]]
 ;
 entry:

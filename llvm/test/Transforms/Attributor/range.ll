@@ -612,11 +612,10 @@ define void @f1(i32){
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@f1
 ; IS__CGSCC_NPM-SAME: (i32 [[TMP0:%.*]]) #[[ATTR1]] {
-; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = icmp sgt i32 10, 15
-; IS__CGSCC_NPM-NEXT:    br i1 false, label [[TMP3:%.*]], label [[TMP4:%.*]]
-; IS__CGSCC_NPM:       3:
+; IS__CGSCC_NPM-NEXT:    br label [[TMP3:%.*]]
+; IS__CGSCC_NPM:       2:
 ; IS__CGSCC_NPM-NEXT:    unreachable
-; IS__CGSCC_NPM:       4:
+; IS__CGSCC_NPM:       3:
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
   %2 = tail call i32 @r1(i32 %0)
@@ -1152,7 +1151,13 @@ define dso_local i64 @select_int2ptr_bitcast_ptr2int(i32 %a) local_unnamed_addr 
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@select_int2ptr_bitcast_ptr2int
 ; IS__TUNIT_OPM-SAME: (i32 [[A:%.*]]) local_unnamed_addr #[[ATTR2]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[I2P:%.*]] = inttoptr i1 false to i1*
+; IS__TUNIT_OPM-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[A]], 5
+; IS__TUNIT_OPM-NEXT:    [[DOT:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; IS__TUNIT_OPM-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[A]], 10
+; IS__TUNIT_OPM-NEXT:    [[Y_0_V:%.*]] = select i1 [[CMP1]], i32 1, i32 2
+; IS__TUNIT_OPM-NEXT:    [[Y_0:%.*]] = add nuw nsw i32 [[DOT]], [[Y_0_V]]
+; IS__TUNIT_OPM-NEXT:    [[CMP6:%.*]] = icmp eq i32 [[Y_0]], 5
+; IS__TUNIT_OPM-NEXT:    [[I2P:%.*]] = inttoptr i1 [[CMP6]] to i1*
 ; IS__TUNIT_OPM-NEXT:    [[BC:%.*]] = bitcast i1* [[I2P]] to i32*
 ; IS__TUNIT_OPM-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[BC]] to i64
 ; IS__TUNIT_OPM-NEXT:    ret i64 [[P2I]]
@@ -1161,7 +1166,13 @@ define dso_local i64 @select_int2ptr_bitcast_ptr2int(i32 %a) local_unnamed_addr 
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@select_int2ptr_bitcast_ptr2int
 ; IS__TUNIT_NPM-SAME: (i32 [[A:%.*]]) local_unnamed_addr #[[ATTR1]] {
 ; IS__TUNIT_NPM-NEXT:  entry:
-; IS__TUNIT_NPM-NEXT:    [[I2P:%.*]] = inttoptr i1 false to i1*
+; IS__TUNIT_NPM-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[A]], 5
+; IS__TUNIT_NPM-NEXT:    [[DOT:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; IS__TUNIT_NPM-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[A]], 10
+; IS__TUNIT_NPM-NEXT:    [[Y_0_V:%.*]] = select i1 [[CMP1]], i32 1, i32 2
+; IS__TUNIT_NPM-NEXT:    [[Y_0:%.*]] = add nuw nsw i32 [[DOT]], [[Y_0_V]]
+; IS__TUNIT_NPM-NEXT:    [[CMP6:%.*]] = icmp eq i32 [[Y_0]], 5
+; IS__TUNIT_NPM-NEXT:    [[I2P:%.*]] = inttoptr i1 [[CMP6]] to i1*
 ; IS__TUNIT_NPM-NEXT:    [[BC:%.*]] = bitcast i1* [[I2P]] to i32*
 ; IS__TUNIT_NPM-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[BC]] to i64
 ; IS__TUNIT_NPM-NEXT:    ret i64 [[P2I]]
@@ -1170,7 +1181,13 @@ define dso_local i64 @select_int2ptr_bitcast_ptr2int(i32 %a) local_unnamed_addr 
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@select_int2ptr_bitcast_ptr2int
 ; IS__CGSCC_OPM-SAME: (i32 [[A:%.*]]) local_unnamed_addr #[[ATTR2]] {
 ; IS__CGSCC_OPM-NEXT:  entry:
-; IS__CGSCC_OPM-NEXT:    [[I2P:%.*]] = inttoptr i1 false to i1*
+; IS__CGSCC_OPM-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[A]], 5
+; IS__CGSCC_OPM-NEXT:    [[DOT:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; IS__CGSCC_OPM-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[A]], 10
+; IS__CGSCC_OPM-NEXT:    [[Y_0_V:%.*]] = select i1 [[CMP1]], i32 1, i32 2
+; IS__CGSCC_OPM-NEXT:    [[Y_0:%.*]] = add nuw nsw i32 [[DOT]], [[Y_0_V]]
+; IS__CGSCC_OPM-NEXT:    [[CMP6:%.*]] = icmp eq i32 [[Y_0]], 5
+; IS__CGSCC_OPM-NEXT:    [[I2P:%.*]] = inttoptr i1 [[CMP6]] to i1*
 ; IS__CGSCC_OPM-NEXT:    [[BC:%.*]] = bitcast i1* [[I2P]] to i32*
 ; IS__CGSCC_OPM-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[BC]] to i64
 ; IS__CGSCC_OPM-NEXT:    ret i64 [[P2I]]
@@ -1179,7 +1196,13 @@ define dso_local i64 @select_int2ptr_bitcast_ptr2int(i32 %a) local_unnamed_addr 
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@select_int2ptr_bitcast_ptr2int
 ; IS__CGSCC_NPM-SAME: (i32 [[A:%.*]]) local_unnamed_addr #[[ATTR1]] {
 ; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    [[I2P:%.*]] = inttoptr i1 false to i1*
+; IS__CGSCC_NPM-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[A]], 5
+; IS__CGSCC_NPM-NEXT:    [[DOT:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; IS__CGSCC_NPM-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[A]], 10
+; IS__CGSCC_NPM-NEXT:    [[Y_0_V:%.*]] = select i1 [[CMP1]], i32 1, i32 2
+; IS__CGSCC_NPM-NEXT:    [[Y_0:%.*]] = add nuw nsw i32 [[DOT]], [[Y_0_V]]
+; IS__CGSCC_NPM-NEXT:    [[CMP6:%.*]] = icmp eq i32 [[Y_0]], 5
+; IS__CGSCC_NPM-NEXT:    [[I2P:%.*]] = inttoptr i1 [[CMP6]] to i1*
 ; IS__CGSCC_NPM-NEXT:    [[BC:%.*]] = bitcast i1* [[I2P]] to i32*
 ; IS__CGSCC_NPM-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[BC]] to i64
 ; IS__CGSCC_NPM-NEXT:    ret i64 [[P2I]]
@@ -1933,14 +1956,14 @@ define internal i32 @cast_and_return(i1 %c) {
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@cast_and_return
 ; IS__CGSCC_OPM-SAME: (i1 [[C:%.*]]) #[[ATTR2]] {
-; IS__CGSCC_OPM-NEXT:    [[RET:%.*]] = zext i1 undef to i32
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    [[RET:%.*]] = zext i1 [[C]] to i32
+; IS__CGSCC_OPM-NEXT:    ret i32 [[RET]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@cast_and_return
 ; IS__CGSCC_NPM-SAME: (i1 [[C:%.*]]) #[[ATTR1]] {
-; IS__CGSCC_NPM-NEXT:    [[RET:%.*]] = zext i1 undef to i32
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    [[RET:%.*]] = zext i1 [[C]] to i32
+; IS__CGSCC_NPM-NEXT:    ret i32 [[RET]]
 ;
   %ret = zext i1 %c to i32
   ret i32 %ret
@@ -1955,13 +1978,15 @@ define internal i1 @is_less_than_3(i32 %c) {
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@is_less_than_3
-; IS__CGSCC_OPM-SAME: () #[[ATTR2]] {
-; IS__CGSCC_OPM-NEXT:    ret i1 undef
+; IS__CGSCC_OPM-SAME: (i32 [[C:%.*]]) #[[ATTR2]] {
+; IS__CGSCC_OPM-NEXT:    [[CMP:%.*]] = icmp slt i32 [[C]], 3
+; IS__CGSCC_OPM-NEXT:    ret i1 [[CMP]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@is_less_than_3
-; IS__CGSCC_NPM-SAME: () #[[ATTR1]] {
-; IS__CGSCC_NPM-NEXT:    ret i1 undef
+; IS__CGSCC_NPM-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:    [[CMP:%.*]] = icmp slt i32 [[C]], 3
+; IS__CGSCC_NPM-NEXT:    ret i1 true
 ;
   %cmp = icmp slt i32 %c, 3
   ret i1 %cmp
@@ -1986,7 +2011,11 @@ define i1 @check_casted_range(i1 %c) {
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@check_casted_range
 ; IS__CGSCC_OPM-SAME: (i1 [[C:%.*]]) #[[ATTR2]] {
-; IS__CGSCC_OPM-NEXT:    ret i1 true
+; IS__CGSCC_OPM-NEXT:    [[CSRET1:%.*]] = call i32 @cast_and_return(i1 noundef true) #[[ATTR5]]
+; IS__CGSCC_OPM-NEXT:    [[CSRET2:%.*]] = call i32 @cast_and_return(i1 [[C]]) #[[ATTR5]]
+; IS__CGSCC_OPM-NEXT:    [[ADD:%.*]] = add i32 [[CSRET1]], [[CSRET2]]
+; IS__CGSCC_OPM-NEXT:    [[RET:%.*]] = call i1 @is_less_than_3(i32 [[ADD]]) #[[ATTR5]]
+; IS__CGSCC_OPM-NEXT:    ret i1 [[RET]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@check_casted_range
@@ -2014,21 +2043,21 @@ define internal i32 @less_than_100_1(i32 %c) {
 ; IS__CGSCC_OPM-NEXT:    i32 6, label [[ONSIX:%.*]]
 ; IS__CGSCC_OPM-NEXT:    ]
 ; IS__CGSCC_OPM:       onzero:
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 0
 ; IS__CGSCC_OPM:       onone:
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 1
 ; IS__CGSCC_OPM:       ontwo:
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 2
 ; IS__CGSCC_OPM:       onthree:
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 3
 ; IS__CGSCC_OPM:       onfour:
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 4
 ; IS__CGSCC_OPM:       onfive:
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 5
 ; IS__CGSCC_OPM:       onsix:
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 6
 ; IS__CGSCC_OPM:       otherwise:
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    ret i32 99
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@less_than_100_1
@@ -2043,21 +2072,21 @@ define internal i32 @less_than_100_1(i32 %c) {
 ; IS__CGSCC_NPM-NEXT:    i32 6, label [[ONSIX:%.*]]
 ; IS__CGSCC_NPM-NEXT:    ]
 ; IS__CGSCC_NPM:       onzero:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 0
 ; IS__CGSCC_NPM:       onone:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 1
 ; IS__CGSCC_NPM:       ontwo:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 2
 ; IS__CGSCC_NPM:       onthree:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 3
 ; IS__CGSCC_NPM:       onfour:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 4
 ; IS__CGSCC_NPM:       onfive:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 5
 ; IS__CGSCC_NPM:       onsix:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 6
 ; IS__CGSCC_NPM:       otherwise:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 99
 ;
   switch i32 %c, label %otherwise [ i32 0, label %onzero
   i32 1, label %onone
@@ -2087,13 +2116,15 @@ otherwise:
 define internal i1 @is_less_than_100_1(i32 %c) {
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@is_less_than_100_1
-; IS__CGSCC_OPM-SAME: () #[[ATTR2]] {
-; IS__CGSCC_OPM-NEXT:    ret i1 undef
+; IS__CGSCC_OPM-SAME: (i32 noundef [[C:%.*]]) #[[ATTR2]] {
+; IS__CGSCC_OPM-NEXT:    [[CMP:%.*]] = icmp slt i32 [[C]], 100
+; IS__CGSCC_OPM-NEXT:    ret i1 true
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@is_less_than_100_1
-; IS__CGSCC_NPM-SAME: () #[[ATTR1]] {
-; IS__CGSCC_NPM-NEXT:    ret i1 undef
+; IS__CGSCC_NPM-SAME: (i32 noundef [[C:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:    [[CMP:%.*]] = icmp slt i32 [[C]], 100
+; IS__CGSCC_NPM-NEXT:    ret i1 true
 ;
   %cmp = icmp slt i32 %c, 100
   ret i1 %cmp
@@ -2351,8 +2382,8 @@ define internal i1 @non_zero(i8 %v) {
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@non_zero
-; IS__CGSCC_NPM-SAME: () #[[ATTR1]] {
-; IS__CGSCC_NPM-NEXT:    ret i1 undef
+; IS__CGSCC_NPM-SAME: (i8 [[V:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:    ret i1 true
 ;
   %r = icmp ne i8 %v, 0
   ret i1 %r

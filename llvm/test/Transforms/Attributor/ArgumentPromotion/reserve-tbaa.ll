@@ -35,7 +35,7 @@ define internal fastcc void @fn(i32* nocapture readonly %p1, i64* nocapture read
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@fn
-; IS__CGSCC____-SAME: () #[[ATTR0:[0-9]+]] {
+; IS__CGSCC____-SAME: (i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[P1:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    [[TMP0:%.*]] = load i32, i32* @g, align 4, !tbaa [[TBAA0:![0-9]+]]
 ; IS__CGSCC____-NEXT:    [[CONV1:%.*]] = trunc i32 [[TMP0]] to i8
@@ -71,7 +71,7 @@ define i32 @main() {
 ; IS__CGSCC____-NEXT:    store i32* @g, i32** [[TMP0]], align 8, !tbaa [[TBAA5]]
 ; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = load i32*, i32** @a, align 8, !tbaa [[TBAA5]]
 ; IS__CGSCC____-NEXT:    store i32 1, i32* [[TMP1]], align 4, !tbaa [[TBAA0]]
-; IS__CGSCC____-NEXT:    call fastcc void @fn() #[[ATTR1:[0-9]+]]
+; IS__CGSCC____-NEXT:    call fastcc void @fn(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef) #[[ATTR1:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret i32 0
 ;
 entry:

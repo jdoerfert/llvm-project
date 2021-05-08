@@ -42,17 +42,17 @@ declare i32 @bar() nosync readnone
 define internal i32 @dead_internal_func(i32 %0) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@dead_internal_func
-; IS__CGSCC____-SAME: () #[[ATTR6:[0-9]+]] {
-; IS__CGSCC____-NEXT:    br label [[TMP2:%.*]]
-; IS__CGSCC____:       1:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-SAME: (i32 noundef [[TMP0:%.*]]) #[[ATTR6:[0-9]+]] {
+; IS__CGSCC____-NEXT:    br label [[TMP3:%.*]]
 ; IS__CGSCC____:       2:
-; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = phi i32 [ [[TMP6:%.*]], [[TMP2]] ], [ 1, [[TMP0:%.*]] ]
-; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = phi i32 [ [[TMP5:%.*]], [[TMP2]] ], [ 1, [[TMP0]] ]
-; IS__CGSCC____-NEXT:    [[TMP5]] = mul nsw i32 [[TMP3]], [[TMP4]]
-; IS__CGSCC____-NEXT:    [[TMP6]] = add nuw nsw i32 [[TMP3]], 1
-; IS__CGSCC____-NEXT:    [[TMP7:%.*]] = icmp eq i32 [[TMP3]], 10
-; IS__CGSCC____-NEXT:    br i1 [[TMP7]], label [[TMP1:%.*]], label [[TMP2]]
+; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____:       3:
+; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = phi i32 [ [[TMP7:%.*]], [[TMP3]] ], [ 1, [[TMP1:%.*]] ]
+; IS__CGSCC____-NEXT:    [[TMP5:%.*]] = phi i32 [ [[TMP6:%.*]], [[TMP3]] ], [ 1, [[TMP1]] ]
+; IS__CGSCC____-NEXT:    [[TMP6]] = mul nsw i32 [[TMP4]], [[TMP5]]
+; IS__CGSCC____-NEXT:    [[TMP7]] = add nuw nsw i32 [[TMP4]], 1
+; IS__CGSCC____-NEXT:    [[TMP8:%.*]] = icmp eq i32 [[TMP4]], 10
+; IS__CGSCC____-NEXT:    br i1 [[TMP8]], label [[TMP2:%.*]], label [[TMP3]]
 ;
   %2 = icmp slt i32 %0, 1
   br i1 %2, label %3, label %5
@@ -2199,7 +2199,7 @@ define void @useless_arg_ext_int_ext(i32* %a) {
 define internal i32 @switch_default(i64 %i) nounwind {
 ; NOT_CGSCC_NPM: Function Attrs: nofree nosync nounwind willreturn
 ; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@switch_default
-; NOT_CGSCC_NPM-SAME: () #[[ATTR11]] {
+; NOT_CGSCC_NPM-SAME: (i64 noundef [[I:%.*]]) #[[ATTR11]] {
 ; NOT_CGSCC_NPM-NEXT:  entry:
 ; NOT_CGSCC_NPM-NEXT:    switch i64 0, label [[SW_DEFAULT:%.*]] [
 ; NOT_CGSCC_NPM-NEXT:    i64 3, label [[RETURN:%.*]]
@@ -2207,13 +2207,13 @@ define internal i32 @switch_default(i64 %i) nounwind {
 ; NOT_CGSCC_NPM-NEXT:    ]
 ; NOT_CGSCC_NPM:       sw.default:
 ; NOT_CGSCC_NPM-NEXT:    call void @sink() #[[ATTR14]]
-; NOT_CGSCC_NPM-NEXT:    ret i32 undef
+; NOT_CGSCC_NPM-NEXT:    ret i32 123
 ; NOT_CGSCC_NPM:       return:
 ; NOT_CGSCC_NPM-NEXT:    unreachable
 ;
 ; IS__CGSCC____: Function Attrs: nofree nosync nounwind willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@switch_default
-; IS__CGSCC____-SAME: () #[[ATTR13]] {
+; IS__CGSCC____-SAME: (i64 [[I:%.*]]) #[[ATTR13]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    switch i64 0, label [[SW_DEFAULT:%.*]] [
 ; IS__CGSCC____-NEXT:    i64 3, label [[RETURN:%.*]]
@@ -2243,13 +2243,13 @@ define i32 @switch_default_caller() {
 ; NOT_CGSCC_NPM: Function Attrs: nofree nosync nounwind willreturn
 ; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@switch_default_caller
 ; NOT_CGSCC_NPM-SAME: () #[[ATTR11]] {
-; NOT_CGSCC_NPM-NEXT:    [[CALL2:%.*]] = tail call i32 @switch_default() #[[ATTR11]]
+; NOT_CGSCC_NPM-NEXT:    [[CALL2:%.*]] = tail call i32 @switch_default(i64 noundef 0) #[[ATTR11]]
 ; NOT_CGSCC_NPM-NEXT:    ret i32 123
 ;
 ; IS__CGSCC____: Function Attrs: nofree nosync nounwind willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@switch_default_caller
 ; IS__CGSCC____-SAME: () #[[ATTR13]] {
-; IS__CGSCC____-NEXT:    [[CALL2:%.*]] = tail call i32 @switch_default() #[[ATTR17]]
+; IS__CGSCC____-NEXT:    [[CALL2:%.*]] = tail call i32 @switch_default(i64 undef) #[[ATTR17]]
 ; IS__CGSCC____-NEXT:    ret i32 123
 ;
   %call2 = tail call i32 @switch_default(i64 0)
@@ -2259,7 +2259,7 @@ define i32 @switch_default_caller() {
 define internal i32 @switch_default_dead(i64 %i) nounwind {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@switch_default_dead
-; IS__CGSCC____-SAME: () #[[ATTR6]] {
+; IS__CGSCC____-SAME: (i64 [[I:%.*]]) #[[ATTR6]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    switch i64 0, label [[SW_DEFAULT:%.*]] [
 ; IS__CGSCC____-NEXT:    i64 3, label [[RETURN:%.*]]

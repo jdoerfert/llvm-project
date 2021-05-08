@@ -577,7 +577,7 @@ define internal i32 @ret(i32* %arg) {
 ; Function Attrs: nounwind optsize
 define internal fastcc double @strtox(i8* %s, i8** %p, i32 %prec) unnamed_addr {
 ; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@strtox
-; NOT_CGSCC_NPM-SAME: (i8* [[S:%.*]]) unnamed_addr {
+; NOT_CGSCC_NPM-SAME: (i8* [[S:%.*]], i32 noundef [[PREC:%.*]]) unnamed_addr {
 ; NOT_CGSCC_NPM-NEXT:  entry:
 ; NOT_CGSCC_NPM-NEXT:    [[F:%.*]] = alloca [[STRUCT__IO_FILE:%.*]], align 8
 ; NOT_CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast %struct._IO_FILE* [[F]] to i8*
@@ -589,7 +589,7 @@ define internal fastcc double @strtox(i8* %s, i8** %p, i32 %prec) unnamed_addr {
 ; NOT_CGSCC_NPM-NEXT:    ret double [[CALL1]]
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@strtox
-; IS__CGSCC____-SAME: (i8* [[S:%.*]]) unnamed_addr {
+; IS__CGSCC____-SAME: (i8* [[S:%.*]], i32 [[PREC:%.*]]) unnamed_addr {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    [[F:%.*]] = alloca [[STRUCT__IO_FILE:%.*]], align 8
 ; IS__CGSCC____-NEXT:    [[TMP0:%.*]] = bitcast %struct._IO_FILE* [[F]] to i8*
@@ -614,11 +614,17 @@ entry:
 
 ; Function Attrs: nounwind optsize
 define dso_local double @strtod(i8* noalias %s, i8** noalias %p) {
-; CHECK-LABEL: define {{[^@]+}}@strtod
-; CHECK-SAME: (i8* noalias [[S:%.*]], i8** noalias nocapture nofree readnone [[P:%.*]]) {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CALL:%.*]] = tail call fastcc double @strtox(i8* [[S]])
-; CHECK-NEXT:    ret double [[CALL]]
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@strtod
+; NOT_CGSCC_NPM-SAME: (i8* noalias [[S:%.*]], i8** noalias nocapture nofree readnone [[P:%.*]]) {
+; NOT_CGSCC_NPM-NEXT:  entry:
+; NOT_CGSCC_NPM-NEXT:    [[CALL:%.*]] = tail call fastcc double @strtox(i8* [[S]], i32 noundef 1)
+; NOT_CGSCC_NPM-NEXT:    ret double [[CALL]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@strtod
+; IS__CGSCC____-SAME: (i8* noalias [[S:%.*]], i8** noalias nocapture nofree readnone [[P:%.*]]) {
+; IS__CGSCC____-NEXT:  entry:
+; IS__CGSCC____-NEXT:    [[CALL:%.*]] = tail call fastcc double @strtox(i8* [[S]], i32 undef)
+; IS__CGSCC____-NEXT:    ret double [[CALL]]
 ;
 entry:
   %call = tail call fastcc double @strtox(i8* %s, i8** %p, i32 1)
