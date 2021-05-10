@@ -26,6 +26,7 @@
 #include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
@@ -158,6 +159,26 @@ ChangeStatus llvm::operator&(ChangeStatus L, ChangeStatus R) {
   return L == ChangeStatus::UNCHANGED ? L : R;
 }
 ///}
+
+Value *AA::getWithType(Value &V, Type &Ty) {
+  if (V.getType() == &Ty)
+    return &V;
+  if (isa<PoisonValue>(V))
+    return PoisonValue::get(&Ty);
+  if (isa<UndefValue>(V))
+    return UndefValue::get(&Ty);
+  if (auto *C = dyn_cast<Constant>(&V)) {
+    if (C->isNullValue())
+      return Constant::getNullValue(&Ty);
+    if (C->getType()->isPointerTy() && Ty.isPointerTy())
+      return ConstantExpr::getPointerCast(C, &Ty);
+    if (C->getType()->isIntegerTy() && Ty.isIntegerTy())
+      return ConstantExpr::getTrunc(C, &Ty, /* OnlyIfReduced */ true);
+    if (C->getType()->isFloatingPointTy() && Ty.isFloatingPointTy())
+      return ConstantExpr::getFPTrunc(C, &Ty, /* OnlyIfReduced */ true);
+  }
+  return nullptr;
+}
 
 /// Return true if \p New is equal or worse than \p Old.
 static bool isEqualOrWorse(const Attribute &New, const Attribute &Old) {

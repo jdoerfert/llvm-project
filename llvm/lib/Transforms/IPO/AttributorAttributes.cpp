@@ -4628,12 +4628,13 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     auto *C = SimplifiedAssociatedValue.hasValue()
                   ? dyn_cast<Constant>(SimplifiedAssociatedValue.getValue())
                   : UndefValue::get(V.getType());
-    if (C) {
+    if (C && C != &V && !V.user_empty()) {
+      Value *NewV = AA::getWithType(*C, *V.getType());
       // We can replace the AssociatedValue with the constant.
-      if (!V.user_empty() && &V != C && V.getType() == C->getType()) {
-        LLVM_DEBUG(dbgs() << "[ValueSimplify] " << V << " -> " << *C
+      if (NewV && NewV != &V) {
+        LLVM_DEBUG(dbgs() << "[ValueSimplify] " << V << " -> " << *NewV
                           << " :: " << *this << "\n");
-        if (A.changeValueAfterManifest(V, *C))
+        if (A.changeValueAfterManifest(V, *NewV))
           Changed = ChangeStatus::CHANGED;
       }
     }
@@ -4769,35 +4770,34 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
 
     if (SimplifiedAssociatedValue.hasValue() &&
         !SimplifiedAssociatedValue.getValue())
-      return Changed;
+      return Changed | AAValueSimplify::manifest(A);
 
-    Value &V = getAssociatedValue();
     auto *C = SimplifiedAssociatedValue.hasValue()
                   ? dyn_cast<Constant>(SimplifiedAssociatedValue.getValue())
-                  : UndefValue::get(V.getType());
-    if (C) {
-      auto PredForReturned =
-          [&](Value &V, const SmallSetVector<ReturnInst *, 4> &RetInsts) {
-            // We can replace the AssociatedValue with the constant.
-            if (&V == C || V.getType() != C->getType() || isa<UndefValue>(V))
-              return true;
+                  : UndefValue::get(getAssociatedType());
+    if (!C || C == &getAssociatedValue())
+      return Changed | AAValueSimplify::manifest(A);
 
-            for (ReturnInst *RI : RetInsts) {
-              if (RI->getFunction() != getAnchorScope())
-                continue;
-              auto *RC = C;
-              if (RC->getType() != RI->getReturnValue()->getType())
-                RC = ConstantExpr::getPointerCast(
-                    RC, RI->getReturnValue()->getType());
-              LLVM_DEBUG(dbgs() << "[ValueSimplify] " << V << " -> " << *RC
-                                << " in " << *RI << " :: " << *this << "\n");
-              if (A.changeUseAfterManifest(RI->getOperandUse(0), *RC))
-                Changed = ChangeStatus::CHANGED;
-            }
+    auto PredForReturned =
+        [&](Value &V, const SmallSetVector<ReturnInst *, 4> &RetInsts) {
+          // We can replace the AssociatedValue with the constant.
+          if (&V == C || isa<UndefValue>(V))
             return true;
-          };
-      A.checkForAllReturnedValuesAndReturnInsts(PredForReturned, *this);
-    }
+
+          for (ReturnInst *RI : RetInsts) {
+            if (RI->getFunction() != getAnchorScope())
+              continue;
+            Value *NewV = AA::getWithType(*C, *RI->getReturnValue()->getType());
+            if (!NewV)
+              continue;
+            LLVM_DEBUG(dbgs() << "[ValueSimplify] " << V << " -> " << *NewV
+                              << " in " << *RI << " :: " << *this << "\n");
+            if (A.changeUseAfterManifest(RI->getOperandUse(0), *NewV))
+              Changed = ChangeStatus::CHANGED;
+          }
+          return true;
+        };
+    A.checkForAllReturnedValuesAndReturnInsts(PredForReturned, *this);
 
     return Changed | AAValueSimplify::manifest(A);
   }
@@ -4991,9 +4991,10 @@ struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
       Use &U = cast<CallBase>(&getAnchorValue())
                    ->getArgOperandUse(getCallSiteArgNo());
       // We can replace the AssociatedValue with the constant.
-      if (&V != C && V.getType() == C->getType()) {
-        if (A.changeUseAfterManifest(U, *C))
-          Changed = ChangeStatus::CHANGED;
+      if (&V != C) {
+        if (Value *NewV = AA::getWithType(*C, *V.getType()))
+          if (A.changeUseAfterManifest(U, *NewV))
+            Changed = ChangeStatus::CHANGED;
       }
     }
 
