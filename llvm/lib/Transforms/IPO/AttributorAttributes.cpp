@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/Constants.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/SCCIterator.h"
@@ -4721,6 +4722,38 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     return true;
   }
 
+  bool handleLoad(Attributor &A, LoadInst &L) {
+    auto Union = [&](Value *V) {
+      SimplifiedAssociatedValue = AA::combineOptionalValuesInAAValueLatice(
+          SimplifiedAssociatedValue, V);
+      return SimplifiedAssociatedValue != Optional<Value *>(nullptr);
+    };
+
+    Value &Ptr = *L.getPointerOperand();
+    SmallVector<Value *, 8> Objects;
+    if (!getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &L))
+      return false;
+
+    for (Value *Obj : Objects) {
+      LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
+      if (isa<UndefValue>(Obj))
+        continue;
+      bool UsedAssumedInformation;
+      if (isa<ConstantPointerNull>(Obj)) {
+        // A null pointer access can be undefined but any offset from null may
+        // be OK. We do not try to optimize the latter.
+        if (NullPointerIsDefined(L.getFunction(),
+                                 Ptr.getType()->getPointerAddressSpace()) &&
+            A.getAssumedSimplified(Ptr, *this, UsedAssumedInformation) == Obj)
+          continue;
+        return false;
+      }
+
+      return false;
+    }
+    return Union(UndefValue::get(getAssociatedType()));
+  }
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     auto Before = SimplifiedAssociatedValue;
@@ -4736,6 +4769,8 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
           *this, IRPosition::value(V, getCallBaseContext()),
           DepClassTy::REQUIRED);
       if (!Stripped && this == &AA) {
+        if (auto *LI = dyn_cast<LoadInst>(&V))
+          return handleLoad(A, *LI);
         // TODO: Look the instruction and check recursively.
 
         LLVM_DEBUG(dbgs() << "[ValueSimplify] Can't be stripped more : " << V
@@ -7398,7 +7433,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     if (isa<BinaryOperator>(&V) || isa<ICmpInst>(&V) || isa<CastInst>(&V))
       return;
 
-    if (isa<SelectInst>(V) || isa<PHINode>(V))
+    if (isa<SelectInst>(V) || isa<PHINode>(V) || isa<LoadInst>(V))
       return;
 
     indicatePessimisticFixpoint();
@@ -7704,6 +7739,38 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
                                          : ChangeStatus::CHANGED;
   }
 
+  ChangeStatus updateWithLoad(Attributor &A, LoadInst &L) {
+    if (!L.getType()->isIntegerTy())
+      return indicatePessimisticFixpoint();
+
+    auto AssumedBefore = getAssumed();
+
+    Value &Ptr = *L.getPointerOperand();
+    SmallVector<Value *, 8> Objects;
+    if (!getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &L))
+      return indicatePessimisticFixpoint();
+
+    for (Value *Obj : Objects) {
+      LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
+      if (isa<UndefValue>(Obj))
+        continue;
+      bool UsedAssumedInformation;
+      if (isa<ConstantPointerNull>(Obj)) {
+        // A null pointer access can be undefined but any offset from null may
+        // be OK. We do not try to optimize the latter.
+        if (NullPointerIsDefined(L.getFunction(),
+                                 Ptr.getType()->getPointerAddressSpace()) &&
+            A.getAssumedSimplified(Ptr, *this, UsedAssumedInformation) == Obj)
+          continue;
+        return indicatePessimisticFixpoint();
+      }
+      return indicatePessimisticFixpoint();
+    }
+    unionAssumedWithUndef();
+    return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                         : ChangeStatus::CHANGED;
+  }
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     Value &V = getAssociatedValue();
@@ -7723,6 +7790,9 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
 
     if (auto *PHI = dyn_cast<PHINode>(I))
       return updateWithPHINode(A, PHI);
+
+    if (auto *L = dyn_cast<LoadInst>(I))
+      return updateWithLoad(A, *L);
 
     return indicatePessimisticFixpoint();
   }
