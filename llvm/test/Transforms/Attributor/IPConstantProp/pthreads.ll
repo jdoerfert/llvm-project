@@ -34,27 +34,16 @@ target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 ; CHECK: @[[GLOBALVPTR:[a-zA-Z0-9_$"\\.-]+]] = common dso_local global i8* null, align 8
 ;.
 define dso_local i32 @main() {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@main() {
-; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[ALLOC1:%.*]] = alloca i8, align 8
-; IS__TUNIT____-NEXT:    [[ALLOC2:%.*]] = alloca i8, align 8
-; IS__TUNIT____-NEXT:    [[THREAD:%.*]] = alloca i64, align 8
-; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @foo, i8* noalias nocapture nofree noundef readnone align 536870912 null)
-; IS__TUNIT____-NEXT:    [[CALL1:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @bar, i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(8) "no-capture-maybe-returned" bitcast (i8** @GlobalVPtr to i8*))
-; IS__TUNIT____-NEXT:    [[CALL2:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @baz, i8* noalias nocapture nofree noundef nonnull readnone align 8 dereferenceable(1) [[ALLOC1]])
-; IS__TUNIT____-NEXT:    [[CALL3:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @buz, i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" [[ALLOC2]])
-; IS__TUNIT____-NEXT:    ret i32 0
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@main() {
-; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[ALLOC1:%.*]] = alloca i8, align 8
-; IS__CGSCC____-NEXT:    [[ALLOC2:%.*]] = alloca i8, align 8
-; IS__CGSCC____-NEXT:    [[THREAD:%.*]] = alloca i64, align 8
-; IS__CGSCC____-NEXT:    [[CALL:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @foo, i8* noalias nocapture nofree noundef readnone align 536870912 null)
-; IS__CGSCC____-NEXT:    [[CALL1:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @bar, i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(8) bitcast (i8** @GlobalVPtr to i8*))
-; IS__CGSCC____-NEXT:    [[CALL2:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @baz, i8* noalias nocapture nofree noundef nonnull readnone align 8 dereferenceable(1) [[ALLOC1]])
-; IS__CGSCC____-NEXT:    [[CALL3:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @buz, i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" [[ALLOC2]])
-; IS__CGSCC____-NEXT:    ret i32 0
+; CHECK-LABEL: define {{[^@]+}}@main() {
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[ALLOC1:%.*]] = alloca i8, align 8
+; CHECK-NEXT:    [[ALLOC2:%.*]] = alloca i8, align 8
+; CHECK-NEXT:    [[THREAD:%.*]] = alloca i64, align 8
+; CHECK-NEXT:    [[CALL:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @foo, i8* noalias nocapture nofree noundef readnone align 536870912 null)
+; CHECK-NEXT:    [[CALL1:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @bar, i8* noalias nocapture nofree noundef nonnull readnone align 8 dereferenceable(8) bitcast (i8** @GlobalVPtr to i8*))
+; CHECK-NEXT:    [[CALL2:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @baz, i8* noalias nocapture nofree noundef nonnull readnone align 8 dereferenceable(1) [[ALLOC1]])
+; CHECK-NEXT:    [[CALL3:%.*]] = call i32 @pthread_create(i64* noundef nonnull align 8 dereferenceable(8) [[THREAD]], %union.pthread_attr_t* noalias nocapture noundef align 536870912 null, i8* (i8*)* noundef nonnull @buz, i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" [[ALLOC2]])
+; CHECK-NEXT:    ret i32 0
 ;
 entry:
   %alloc1 = alloca i8, align 8
@@ -72,13 +61,13 @@ declare !callback !0 dso_local i32 @pthread_create(i64*, %union.pthread_attr_t*,
 define internal i8* @foo(i8* %arg) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@foo
-; IS__TUNIT____-SAME: (i8* noalias nofree noundef readnone returned align 536870912 "no-capture-maybe-returned" [[ARG:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-SAME: (i8* noalias nocapture nofree noundef readnone align 536870912 [[ARG:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    ret i8* null
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@foo
-; IS__CGSCC____-SAME: (i8* noalias nofree noundef readnone returned align 536870912 "no-capture-maybe-returned" [[ARG:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__CGSCC____-SAME: (i8* noalias nocapture nofree noundef readnone align 536870912 [[ARG:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    ret i8* null
 ;
@@ -89,13 +78,13 @@ entry:
 define internal i8* @bar(i8* %arg) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@bar
-; IS__TUNIT____-SAME: (i8* noalias nofree noundef nonnull readnone returned align 8 dereferenceable(8) "no-capture-maybe-returned" [[ARG:%.*]]) #[[ATTR0]] {
+; IS__TUNIT____-SAME: (i8* noalias nocapture nofree noundef nonnull readnone align 8 dereferenceable(8) [[ARG:%.*]]) #[[ATTR0]] {
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    ret i8* bitcast (i8** @GlobalVPtr to i8*)
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@bar
-; IS__CGSCC____-SAME: (i8* noalias nofree noundef nonnull readnone returned align 8 dereferenceable(8) "no-capture-maybe-returned" [[ARG:%.*]]) #[[ATTR0]] {
+; IS__CGSCC____-SAME: (i8* noalias nocapture nofree noundef nonnull readnone align 8 dereferenceable(8) [[ARG:%.*]]) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    ret i8* bitcast (i8** @GlobalVPtr to i8*)
 ;

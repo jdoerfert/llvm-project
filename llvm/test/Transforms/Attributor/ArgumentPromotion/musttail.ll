@@ -98,9 +98,9 @@ define i32 @caller2(%T* %g) {
 ; IS__TUNIT____-SAME: (%T* nocapture nofree readnone [[G:%.*]]) #[[ATTR1]] {
 ; IS__TUNIT____-NEXT:    ret i32 0
 ;
-; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@caller2
-; IS__CGSCC____-SAME: (%T* nocapture nofree readnone [[G:%.*]]) #[[ATTR1]] {
+; IS__CGSCC____-SAME: (%T* nocapture nofree readonly [[G:%.*]]) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:    ret i32 0
 ;
   %v = call i32 @test2(%T* %g, i32 0)

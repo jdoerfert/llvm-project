@@ -26,6 +26,7 @@
 #include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
@@ -158,6 +159,16 @@ ChangeStatus llvm::operator&(ChangeStatus L, ChangeStatus R) {
   return L == ChangeStatus::UNCHANGED ? L : R;
 }
 ///}
+
+bool AA::isValidInScope(Value &V, Function *Scope) {
+  if (isa<Constant>(V))
+    return true;
+  if (auto *I = dyn_cast<Instruction>(&V))
+    return I->getFunction() == Scope;
+  if (auto *A = dyn_cast<Argument>(&V))
+    return A->getParent() == Scope;
+  return false;
+}
 
 Value *AA::getWithType(Value &V, Type &Ty) {
   if (V.getType() == &Ty)
@@ -607,6 +618,42 @@ Attributor::getAssumedConstant(const Value &V, const AbstractAttribute &AA,
   if (CI)
     recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
   return CI;
+}
+
+Optional<Value *>
+Attributor::getAssumedSimplified(const Value &V, const AbstractAttribute &AA,
+                                 bool &UsedAssumedInformation) {
+  const auto &ValueSimplifyAA =
+      getAAFor<AAValueSimplify>(AA, IRPosition::value(V), DepClassTy::NONE);
+  Optional<Value *> SimplifiedV =
+      ValueSimplifyAA.getAssumedSimplifiedValue(*this);
+  bool IsKnown = ValueSimplifyAA.isKnown();
+  UsedAssumedInformation |= !IsKnown;
+  if (!SimplifiedV.hasValue()) {
+    recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
+    return llvm::None;
+  }
+  if (*SimplifiedV == nullptr)
+    return nullptr;
+  if (Value *SimpleV = AA::getWithType(**SimplifiedV, *V.getType())) {
+    recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
+    return SimpleV;
+  }
+  return nullptr;
+}
+
+Optional<Value *> Attributor::translateArgumentToCallSiteContent(
+    Optional<Value *> V, CallBase &CB, const AbstractAttribute &AA,
+    bool &UsedAssumedInformation) {
+  if (!V.hasValue())
+    return V;
+  if (*V == nullptr || isa<Constant>(*V))
+    return V;
+  if (auto *Arg = dyn_cast<Argument>(*V))
+    if (!Arg->hasPointeeInMemoryValueAttr())
+      return getAssumedSimplified(*CB.getArgOperand(Arg->getArgNo()), AA,
+                                  UsedAssumedInformation);
+  return nullptr;
 }
 
 Attributor::~Attributor() {
