@@ -133,6 +133,10 @@ class Function;
 
 /// Abstract Attribute helper functions.
 namespace AA {
+/// Return true if \p V is a valid value in \p Scope, that is a constant or an
+/// instruction/argument of \p Scope.
+bool isValidInScope(Value &V, Function *Scope);
+
 /// Try to convert \p V to type \p Ty without introducing new instructions. If
 /// this is not possible return `nullptr`. Note: this function basically knows
 /// how to cast various constants.
@@ -1407,6 +1411,18 @@ struct Attributor {
                                           const AbstractAttribute &AA,
                                           bool &UsedAssumedInformation);
 
+  /// If \p V is assumed simplified, return it, if it is unclear yet,
+  /// return None, otherwise return `nullptr`.
+  Optional<Value *> getAssumedSimplified(const Value &V,
+                                         const AbstractAttribute &AA,
+                                         bool &UsedAssumedInformation);
+
+  /// Translate \p V from the callee context into the call site context.
+  Optional<Value *>
+  translateArgumentToCallSiteContent(Optional<Value *> V, CallBase &CB,
+                                     const AbstractAttribute &AA,
+                                     bool &UsedAssumedInformation);
+
   /// Return true if \p AA (or its context instruction) is assumed dead.
   ///
   /// If \p LivenessAA is not provided it is queried.
@@ -2487,7 +2503,6 @@ struct AAReturnedValues
   virtual llvm::iterator_range<const_iterator> returned_values() const = 0;
 
   virtual size_t getNumReturnValues() const = 0;
-  virtual const SmallSetVector<CallBase *, 4> &getUnresolvedCalls() const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAReturnedValues &createForPosition(const IRPosition &IRP,
@@ -3203,7 +3218,7 @@ struct AAValueSimplify : public StateWrapper<BooleanState, AbstractAttribute> {
   AAValueSimplify(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
   /// Return an assumed simplified value if a single candidate is found. If
-  /// there cannot be one, return original value. If it is not clear yet, return
+  /// there cannot be one, return nulltpr. If it is not clear yet, return
   /// the Optional::NoneType.
   virtual Optional<Value *> getAssumedSimplifiedValue(Attributor &A) const = 0;
 

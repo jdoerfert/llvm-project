@@ -26,6 +26,7 @@
 #include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
@@ -158,6 +159,16 @@ ChangeStatus llvm::operator&(ChangeStatus L, ChangeStatus R) {
   return L == ChangeStatus::UNCHANGED ? L : R;
 }
 ///}
+
+bool AA::isValidInScope(Value &V, Function *Scope) {
+  if (isa<Constant>(V))
+    return true;
+  if (auto *I = dyn_cast<Instruction>(&V))
+    return I->getFunction() == Scope;
+  if (auto *A = dyn_cast<Argument>(&V))
+    return A->getParent() == Scope;
+  return false;
+}
 
 Value *AA::getWithType(Value &V, Type &Ty) {
   if (V.getType() == &Ty)
@@ -613,6 +624,42 @@ Attributor::getAssumedConstant(const Value &V, const AbstractAttribute &AA,
   if (CI)
     recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
   return CI;
+}
+
+Optional<Value *>
+Attributor::getAssumedSimplified(const Value &V, const AbstractAttribute &AA,
+                                 bool &UsedAssumedInformation) {
+  const auto &ValueSimplifyAA =
+      getAAFor<AAValueSimplify>(AA, IRPosition::value(V), DepClassTy::NONE);
+  Optional<Value *> SimplifiedV =
+      ValueSimplifyAA.getAssumedSimplifiedValue(*this);
+  bool IsKnown = ValueSimplifyAA.isKnown();
+  UsedAssumedInformation |= !IsKnown;
+  if (!SimplifiedV.hasValue()) {
+    recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
+    return llvm::None;
+  }
+  if (*SimplifiedV == nullptr)
+    return nullptr;
+  if (Value *SimpleV = AA::getWithType(**SimplifiedV, *V.getType())) {
+    recordDependence(ValueSimplifyAA, AA, DepClassTy::OPTIONAL);
+    return SimpleV;
+  }
+  return nullptr;
+}
+
+Optional<Value *> Attributor::translateArgumentToCallSiteContent(
+    Optional<Value *> V, CallBase &CB, const AbstractAttribute &AA,
+    bool &UsedAssumedInformation) {
+  if (!V.hasValue())
+    return V;
+  if (*V == nullptr || isa<Constant>(*V))
+    return V;
+  if (auto *Arg = dyn_cast<Argument>(*V))
+    if (!Arg->hasPointeeInMemoryValueAttr())
+      return getAssumedSimplified(*CB.getArgOperand(Arg->getArgNo()), AA,
+                                  UsedAssumedInformation);
+  return nullptr;
 }
 
 Attributor::~Attributor() {
@@ -1297,11 +1344,17 @@ ChangeStatus Attributor::cleanupIR() {
 
     // Do not replace uses in returns if the value is a must-tail call we will
     // not delete.
-    if (isa<ReturnInst>(U->getUser()))
+    if (auto *RI = dyn_cast<ReturnInst>(U->getUser())) {
       if (auto *CI = dyn_cast<CallInst>(OldV->stripPointerCasts()))
         if (CI->isMustTailCall() &&
             (!ToBeDeletedInsts.count(CI) || !isRunOn(*CI->getCaller())))
           continue;
+      // If we rewrite a return and the new value is not an argument, strip the
+      // `returned` attribute as it is wrong now.
+      if (!isa<Argument>(NewV))
+        for (auto &Arg : RI->getFunction()->args())
+          Arg.removeAttr(Attribute::Returned);
+    }
 
     // Do not perform call graph altering changes outside the SCC.
     if (auto *CB = dyn_cast<CallBase>(U->getUser()))
@@ -2198,10 +2251,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     if (!Callee->getReturnType()->isVoidTy() && !CB.use_empty()) {
 
       IRPosition CBRetPos = IRPosition::callsite_returned(CB);
-
-      // Call site return integer values might be limited by a constant range.
-      if (Callee->getReturnType()->isIntegerTy())
-        getOrCreateAAFor<AAValueConstantRange>(CBRetPos);
+      getOrCreateAAFor<AAValueSimplify>(CBRetPos);
     }
 
     for (int I = 0, E = CB.getNumArgOperands(); I < E; ++I) {

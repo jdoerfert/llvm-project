@@ -173,18 +173,9 @@ define i32* @test6_2() #0 {
 
 ; Function Attrs: nounwind readnone ssp uwtable
 define internal i8* @f1(i8* readnone %0) local_unnamed_addr #0 {
-; IS__TUNIT____: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@f1
-; IS__TUNIT____-SAME: (i8* noalias nofree nonnull readnone returned align 8 dereferenceable(1) "no-capture-maybe-returned" [[TMP0:%.*]]) local_unnamed_addr #[[ATTR0]] {
-; IS__TUNIT____-NEXT:    br label [[TMP3:%.*]]
-; IS__TUNIT____:       2:
-; IS__TUNIT____-NEXT:    unreachable
-; IS__TUNIT____:       3:
-; IS__TUNIT____-NEXT:    ret i8* [[TMP0]]
-;
 ; IS__CGSCC_OPM: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@f1
-; IS__CGSCC_OPM-SAME: (i8* noalias nofree nonnull readnone returned align 8 dereferenceable(1) "no-capture-maybe-returned" [[TMP0:%.*]]) local_unnamed_addr #[[ATTR2:[0-9]+]] {
+; IS__CGSCC_OPM-SAME: (i8* noalias nofree nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" [[TMP0:%.*]]) local_unnamed_addr #[[ATTR2:[0-9]+]] {
 ; IS__CGSCC_OPM-NEXT:    br label [[TMP3:%.*]]
 ; IS__CGSCC_OPM:       2:
 ; IS__CGSCC_OPM-NEXT:    unreachable
@@ -193,7 +184,7 @@ define internal i8* @f1(i8* readnone %0) local_unnamed_addr #0 {
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@f1
-; IS__CGSCC_NPM-SAME: (i8* noalias nofree nonnull readnone returned align 8 dereferenceable(1) "no-capture-maybe-returned" [[TMP0:%.*]]) local_unnamed_addr #[[ATTR0]] {
+; IS__CGSCC_NPM-SAME: (i8* noalias nocapture nofree nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" [[TMP0:%.*]]) local_unnamed_addr #[[ATTR0]] {
 ; IS__CGSCC_NPM-NEXT:    br label [[TMP3:%.*]]
 ; IS__CGSCC_NPM:       2:
 ; IS__CGSCC_NPM-NEXT:    unreachable
@@ -294,20 +285,17 @@ define align 4 i8* @test7() #0 {
 ; IS__TUNIT____: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test7
 ; IS__TUNIT____-SAME: () #[[ATTR0]] {
-; IS__TUNIT____-NEXT:    [[C:%.*]] = tail call i8* @f1(i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" @a1) #[[ATTR9:[0-9]+]]
-; IS__TUNIT____-NEXT:    ret i8* [[C]]
+; IS__TUNIT____-NEXT:    ret i8* @a1
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@test7
 ; IS__CGSCC_OPM-SAME: () #[[ATTR2]] {
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = tail call i8* @f1(i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" @a1) #[[ATTR14:[0-9]+]]
-; IS__CGSCC_OPM-NEXT:    ret i8* [[C]]
+; IS__CGSCC_OPM-NEXT:    ret i8* @a1
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test7
 ; IS__CGSCC_NPM-SAME: () #[[ATTR0]] {
-; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = tail call i8* @f1(i8* noalias nofree nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" undef) #[[ATTR13:[0-9]+]]
-; IS__CGSCC_NPM-NEXT:    ret i8* [[C]]
+; IS__CGSCC_NPM-NEXT:    ret i8* @a1
 ;
   %c = tail call i8* @f1(i8* align 8 dereferenceable(1) @a1)
   ret i8* %c
@@ -318,7 +306,7 @@ define align 4 i8* @test7() #0 {
 define internal i8* @f1b(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__CGSCC_OPM: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@f1b
-; IS__CGSCC_OPM-SAME: (i8* noalias nofree nonnull readnone returned align 8 dereferenceable(1) "no-capture-maybe-returned" [[TMP0:%.*]]) local_unnamed_addr #[[ATTR2]] {
+; IS__CGSCC_OPM-SAME: (i8* noalias nofree nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" [[TMP0:%.*]]) local_unnamed_addr #[[ATTR2]] {
 ; IS__CGSCC_OPM-NEXT:    br label [[TMP3:%.*]]
 ; IS__CGSCC_OPM:       2:
 ; IS__CGSCC_OPM-NEXT:    unreachable
@@ -1127,7 +1115,7 @@ end:
 define i64 @ptr2int(i32* %p) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@ptr2int
-; IS__TUNIT____-SAME: (i32* nofree readnone [[P:%.*]]) #[[ATTR9]] {
+; IS__TUNIT____-SAME: (i32* nofree readnone [[P:%.*]]) #[[ATTR9:[0-9]+]] {
 ; IS__TUNIT____-NEXT:    [[P2I:%.*]] = ptrtoint i32* [[P]] to i64
 ; IS__TUNIT____-NEXT:    ret i64 [[P2I]]
 ;
@@ -1276,7 +1264,7 @@ define i32 @musttail_caller_1(i32* %p) {
 ; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = load i1, i1* @cnd, align 1
 ; IS__CGSCC_OPM-NEXT:    br i1 [[C]], label [[MT:%.*]], label [[EXIT:%.*]]
 ; IS__CGSCC_OPM:       mt:
-; IS__CGSCC_OPM-NEXT:    [[V:%.*]] = musttail call i32 @musttail_callee_1(i32* nocapture nofree noundef nonnull readonly dereferenceable(4) [[P]]) #[[ATTR15:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    [[V:%.*]] = musttail call i32 @musttail_callee_1(i32* nocapture nofree noundef nonnull readonly dereferenceable(4) [[P]]) #[[ATTR14:[0-9]+]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[V]]
 ; IS__CGSCC_OPM:       exit:
 ; IS__CGSCC_OPM-NEXT:    ret i32 0
@@ -1287,7 +1275,7 @@ define i32 @musttail_caller_1(i32* %p) {
 ; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = load i1, i1* @cnd, align 1
 ; IS__CGSCC_NPM-NEXT:    br i1 [[C]], label [[MT:%.*]], label [[EXIT:%.*]]
 ; IS__CGSCC_NPM:       mt:
-; IS__CGSCC_NPM-NEXT:    [[V:%.*]] = musttail call i32 @musttail_callee_1(i32* nocapture nofree noundef nonnull readonly dereferenceable(4) [[P]]) #[[ATTR14:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    [[V:%.*]] = musttail call i32 @musttail_callee_1(i32* nocapture nofree noundef nonnull readonly dereferenceable(4) [[P]]) #[[ATTR13:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    ret i32 [[V]]
 ; IS__CGSCC_NPM:       exit:
 ; IS__CGSCC_NPM-NEXT:    ret i32 0
@@ -1411,8 +1399,7 @@ attributes #2 = { null_pointer_is_valid }
 ; IS__CGSCC_OPM: attributes #[[ATTR11]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR12]] = { nofree norecurse nosync nounwind readonly willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR13]] = { nofree noreturn nosync nounwind readnone }
-; IS__CGSCC_OPM: attributes #[[ATTR14]] = { readnone willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR15]] = { readonly willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR14]] = { readonly willreturn }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR1]] = { nofree noinline noreturn nosync nounwind readnone uwtable }
@@ -1427,6 +1414,5 @@ attributes #2 = { null_pointer_is_valid }
 ; IS__CGSCC_NPM: attributes #[[ATTR10]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR11]] = { nofree norecurse nosync nounwind readonly willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR12]] = { nofree noreturn nosync nounwind readnone }
-; IS__CGSCC_NPM: attributes #[[ATTR13]] = { readnone willreturn }
-; IS__CGSCC_NPM: attributes #[[ATTR14]] = { readonly willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR13]] = { readonly willreturn }
 ;.

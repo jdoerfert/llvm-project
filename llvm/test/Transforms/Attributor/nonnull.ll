@@ -255,7 +255,8 @@ define i8* @test6a() {
 ; IS__TUNIT____-NEXT:    [[RET:%.*]] = call i8* @ret_nonnull()
 ; IS__TUNIT____-NEXT:    br label [[LOOP:%.*]]
 ; IS__TUNIT____:       loop:
-; IS__TUNIT____-NEXT:    unreachable
+; IS__TUNIT____-NEXT:    [[PHI:%.*]] = phi i8* [ [[RET]], [[ENTRY:%.*]] ], [ [[PHI]], [[LOOP]] ]
+; IS__TUNIT____-NEXT:    br i1 undef, label [[LOOP]], label [[EXIT:%.*]]
 ; IS__TUNIT____:       exit:
 ; IS__TUNIT____-NEXT:    unreachable
 ;
@@ -266,7 +267,8 @@ define i8* @test6a() {
 ; IS__CGSCC_OPM-NEXT:    [[RET:%.*]] = call i8* @ret_nonnull()
 ; IS__CGSCC_OPM-NEXT:    br label [[LOOP:%.*]]
 ; IS__CGSCC_OPM:       loop:
-; IS__CGSCC_OPM-NEXT:    unreachable
+; IS__CGSCC_OPM-NEXT:    [[PHI:%.*]] = phi i8* [ [[RET]], [[ENTRY:%.*]] ], [ [[PHI]], [[LOOP]] ]
+; IS__CGSCC_OPM-NEXT:    br i1 undef, label [[LOOP]], label [[EXIT:%.*]]
 ; IS__CGSCC_OPM:       exit:
 ; IS__CGSCC_OPM-NEXT:    unreachable
 ;
@@ -277,7 +279,8 @@ define i8* @test6a() {
 ; IS__CGSCC_NPM-NEXT:    [[RET:%.*]] = call i8* @ret_nonnull()
 ; IS__CGSCC_NPM-NEXT:    br label [[LOOP:%.*]]
 ; IS__CGSCC_NPM:       loop:
-; IS__CGSCC_NPM-NEXT:    unreachable
+; IS__CGSCC_NPM-NEXT:    [[PHI:%.*]] = phi i8* [ [[RET]], [[ENTRY:%.*]] ], [ [[PHI]], [[LOOP]] ]
+; IS__CGSCC_NPM-NEXT:    br i1 undef, label [[LOOP]], label [[EXIT:%.*]]
 ; IS__CGSCC_NPM:       exit:
 ; IS__CGSCC_NPM-NEXT:    unreachable
 ;
@@ -301,7 +304,7 @@ define i8* @test6b(i1 %c) {
 ; CHECK-NEXT:    [[PHI:%.*]] = phi i8* [ [[RET]], [[ENTRY:%.*]] ], [ [[PHI]], [[LOOP]] ]
 ; CHECK-NEXT:    br i1 [[C]], label [[LOOP]], label [[EXIT:%.*]]
 ; CHECK:       exit:
-; CHECK-NEXT:    ret i8* [[PHI]]
+; CHECK-NEXT:    ret i8* [[RET]]
 ;
 entry:
   %ret = call i8* @ret_nonnull()
@@ -317,14 +320,12 @@ define i8* @test7(i8* %a) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test7
 ; IS__TUNIT____-SAME: (i8* nofree readnone returned "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR1]] {
-; IS__TUNIT____-NEXT:    [[B:%.*]] = getelementptr inbounds i8, i8* [[A]], i64 0
-; IS__TUNIT____-NEXT:    ret i8* [[B]]
+; IS__TUNIT____-NEXT:    ret i8* [[A]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test7
 ; IS__CGSCC____-SAME: (i8* nofree readnone returned "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR1]] {
-; IS__CGSCC____-NEXT:    [[B:%.*]] = getelementptr inbounds i8, i8* [[A]], i64 0
-; IS__CGSCC____-NEXT:    ret i8* [[B]]
+; IS__CGSCC____-NEXT:    ret i8* [[A]]
 ;
   %b = getelementptr inbounds i8, i8* %a, i64 0
   ret i8* %b
@@ -1243,7 +1244,7 @@ define internal i32* @g2() {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@g2
 ; IS__CGSCC____-SAME: () #[[ATTR1]] {
-; IS__CGSCC____-NEXT:    ret i32* undef
+; IS__CGSCC____-NEXT:    ret i32* inttoptr (i64 4 to i32*)
 ;
   ret i32* inttoptr (i64 4 to i32*)
 }

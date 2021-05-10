@@ -52,9 +52,9 @@ define internal i32 @foo(i1 %C) {
 ; IS__CGSCC____-SAME: (i1 [[C:%.*]]) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__CGSCC____:       T:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 52
 ; IS__CGSCC____:       F:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 52
 ;
   br i1 %C, label %T, label %F
 
@@ -86,5 +86,5 @@ declare i32 @__gxx_personality_v0(...)
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR1]] = { nounwind readnone }
+; IS__CGSCC____: attributes #[[ATTR1]] = { nounwind readnone willreturn }
 ;.

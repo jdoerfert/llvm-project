@@ -11,7 +11,7 @@ define void @test(i32 signext %n) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test
 ; IS__TUNIT____-SAME: (i32 signext [[N:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    unreachable
+; IS__TUNIT____-NEXT:    br i1 undef, label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; IS__TUNIT____:       if.then:
 ; IS__TUNIT____-NEXT:    unreachable
 ; IS__TUNIT____:       if.end:
@@ -39,7 +39,7 @@ define void @test(i32 signext %n) {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test
 ; IS__CGSCC____-SAME: (i32 signext [[N:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____-NEXT:    br i1 undef, label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; IS__CGSCC____:       if.then:
 ; IS__CGSCC____-NEXT:    unreachable
 ; IS__CGSCC____:       if.end:

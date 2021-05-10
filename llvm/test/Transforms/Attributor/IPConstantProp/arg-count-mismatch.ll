@@ -98,19 +98,11 @@ define internal i16 @bar2(i16 %p1, i16 %p2) {
 ; been provided),
 
 define dso_local i16 @vararg_tests(i16 %a) {
-; IS__TUNIT____-LABEL: define {{[^@]+}}@vararg_tests
-; IS__TUNIT____-SAME: (i16 [[A:%.*]]) {
-; IS__TUNIT____-NEXT:    [[CALL1:%.*]] = call i16 (i16, ...) @vararg_prop(i16 noundef 7, i16 noundef 8, i16 [[A]]) #[[ATTR1:[0-9]+]]
-; IS__TUNIT____-NEXT:    [[CALL2:%.*]] = call i16 bitcast (i16 (i16, i16, ...)* @vararg_no_prop to i16 (i16)*)(i16 noundef 7)
-; IS__TUNIT____-NEXT:    [[ADD:%.*]] = add i16 [[CALL1]], [[CALL2]]
-; IS__TUNIT____-NEXT:    ret i16 [[ADD]]
-;
-; IS__CGSCC____-LABEL: define {{[^@]+}}@vararg_tests
-; IS__CGSCC____-SAME: (i16 [[A:%.*]]) {
-; IS__CGSCC____-NEXT:    [[CALL1:%.*]] = call i16 (i16, ...) @vararg_prop(i16 undef, i16 noundef 8, i16 [[A]])
-; IS__CGSCC____-NEXT:    [[CALL2:%.*]] = call i16 bitcast (i16 (i16, i16, ...)* @vararg_no_prop to i16 (i16)*)(i16 noundef 7)
-; IS__CGSCC____-NEXT:    [[ADD:%.*]] = add i16 [[CALL1]], [[CALL2]]
-; IS__CGSCC____-NEXT:    ret i16 [[ADD]]
+; CHECK-LABEL: define {{[^@]+}}@vararg_tests
+; CHECK-SAME: (i16 [[A:%.*]]) {
+; CHECK-NEXT:    [[CALL2:%.*]] = call i16 bitcast (i16 (i16, i16, ...)* @vararg_no_prop to i16 (i16)*)(i16 noundef 7)
+; CHECK-NEXT:    [[ADD:%.*]] = add i16 7, [[CALL2]]
+; CHECK-NEXT:    ret i16 [[ADD]]
 ;
   %call1 = call i16 (i16, ...) @vararg_prop(i16 7, i16 8, i16 %a)
   %call2 = call i16 bitcast (i16 (i16, i16, ...) * @vararg_no_prop to i16 (i16) *) (i16 7)
@@ -119,14 +111,9 @@ define dso_local i16 @vararg_tests(i16 %a) {
 }
 
 define internal i16 @vararg_prop(i16 %p1, ...) {
-; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@vararg_prop
-; IS__TUNIT____-SAME: (i16 noundef returned [[P1:%.*]], ...) #[[ATTR0]] {
-; IS__TUNIT____-NEXT:    ret i16 7
-;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@vararg_prop
-; IS__CGSCC____-SAME: (i16 returned [[P1:%.*]], ...) #[[ATTR0]] {
+; IS__CGSCC____-SAME: (i16 [[P1:%.*]], ...) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:    ret i16 7
 ;
   ret i16 %p1
@@ -135,12 +122,12 @@ define internal i16 @vararg_prop(i16 %p1, ...) {
 define internal i16 @vararg_no_prop(i16 %p1, i16 %p2, ...) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@vararg_no_prop
-; IS__TUNIT____-SAME: (i16 noundef returned [[P1:%.*]], i16 [[P2:%.*]], ...) #[[ATTR0]] {
+; IS__TUNIT____-SAME: (i16 noundef [[P1:%.*]], i16 [[P2:%.*]], ...) #[[ATTR0]] {
 ; IS__TUNIT____-NEXT:    ret i16 7
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@vararg_no_prop
-; IS__CGSCC____-SAME: (i16 noundef returned [[P1:%.*]], i16 [[P2:%.*]], ...) #[[ATTR0]] {
+; IS__CGSCC____-SAME: (i16 noundef [[P1:%.*]], i16 [[P2:%.*]], ...) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:    ret i16 7
 ;
   ret i16 %p1
@@ -148,7 +135,6 @@ define internal i16 @vararg_no_prop(i16 %p1, i16 %p2, ...) {
 
 ;.
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
-; IS__TUNIT____: attributes #[[ATTR1]] = { nounwind readnone }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
 ;.
