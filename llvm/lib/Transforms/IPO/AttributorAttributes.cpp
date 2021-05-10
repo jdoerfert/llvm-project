@@ -12,6 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/IR/Value.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/SCCIterator.h"
@@ -4726,6 +4728,11 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (!getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &L))
       return false;
 
+    Function &Scope = *L.getFunction();
+    InformationCache &InfoCache = A.getInfoCache();
+    const DominatorTree *DT =
+        InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
+
     for (Value *Obj : Objects) {
       LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
       if (isa<UndefValue>(Obj))
@@ -4734,7 +4741,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
       if (isa<ConstantPointerNull>(Obj)) {
         // A null pointer access can be undefined but any offset from null may
         // be OK. We do not try to optimize the latter.
-        if (NullPointerIsDefined(L.getFunction(),
+        if (NullPointerIsDefined(&Scope,
                                  Ptr.getType()->getPointerAddressSpace()) &&
             A.getAssumedSimplified(Ptr, *this, UsedAssumedInformation) == Obj)
           continue;
@@ -4742,12 +4749,22 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
       }
       if (!isa<AllocaInst>(Obj) && !isa<GlobalVariable>(Obj))
         return false;
-      if (!Union(AA::getInitialValueForObj(*Obj, *L.getType())))
-        return false;
 
+      auto &PI = A.getAAFor<AAPointerInfo>(*this, IRPosition::value(*Obj),
+                                           DepClassTy::REQUIRED);
+
+      Instruction *LastWrite = PI.getLastWrite(A, L);
+      bool HasDominatingWrite = false;
       auto CheckAccess = [&](const AA::PointerInfo::Access &Acc, bool IsExact) {
         if (!Acc.isWrite())
           return true;
+        if (LastWrite && LastWrite != Acc.getInst())
+          return true;
+        BasicBlock *AccBB = Acc.getInst()->getParent();
+        bool IsDominatingWrite = DT && IsExact &&
+                                 &Scope == AccBB->getParent() &&
+                                 DT->dominates(Acc.getInst(), &L);
+        HasDominatingWrite |= IsDominatingWrite;
         if (Acc.isWrittenValueYetUndetermined())
           return true;
         Value *Content = Acc.getWrittenValue();
@@ -4764,10 +4781,13 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
         return false;
       };
 
-      auto &PI = A.getAAFor<AAPointerInfo>(*this, IRPosition::value(*Obj),
-                                           DepClassTy::REQUIRED);
       if (!PI.forallInterfearingAccesses(L, CheckAccess))
         return false;
+
+      if (!HasDominatingWrite) {
+        if (!Union(AA::getInitialValueForObj(*Obj, *L.getType())))
+          return false;
+      }
     }
     return true;
   }
@@ -7764,6 +7784,11 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     if (!getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &L))
       return indicatePessimisticFixpoint();
 
+    InformationCache &InfoCache = A.getInfoCache();
+    Function &Scope = *L.getFunction();
+    const DominatorTree *DT =
+        InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
+
     for (Value *Obj : Objects) {
       LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
       if (isa<UndefValue>(Obj))
@@ -7772,7 +7797,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       if (isa<ConstantPointerNull>(Obj)) {
         // A null pointer access can be undefined but any offset from null may
         // be OK. We do not try to optimize the latter.
-        if (NullPointerIsDefined(L.getFunction(),
+        if (NullPointerIsDefined(&Scope,
                                  Ptr.getType()->getPointerAddressSpace()) &&
             A.getAssumedSimplified(Ptr, *this, UsedAssumedInformation) == Obj)
           continue;
@@ -7780,19 +7805,21 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       }
       if (!isa<AllocaInst>(Obj) && !isa<GlobalVariable>(Obj))
         return indicatePessimisticFixpoint();
-      Constant *InitialVal = AA::getInitialValueForObj(*Obj, *L.getType());
-      if (!InitialVal)
-        return indicatePessimisticFixpoint();
-      if (isa<UndefValue>(InitialVal))
-        unionAssumedWithUndef();
-      else if (auto *CI = dyn_cast<ConstantInt>(InitialVal))
-        unionAssumed(CI->getValue());
-      else
-        return indicatePessimisticFixpoint();
 
+      auto &PI = A.getAAFor<AAPointerInfo>(*this, IRPosition::value(*Obj),
+                                           DepClassTy::REQUIRED);
+      Instruction *LastWrite = PI.getLastWrite(A, L);
+
+      bool HasDominatingWrite = false;
       auto CheckAccess = [&](const AA::PointerInfo::Access &Acc, bool IsExact) {
         if (!Acc.isWrite())
           return true;
+        if (LastWrite && LastWrite != Acc.getInst())
+          return true;
+        bool IsDominatingWrite = DT && IsExact &&
+                                 &Scope == Acc.getInst()->getFunction() &&
+                                 DT->dominates(Acc.getInst(), &L);
+        HasDominatingWrite |= IsDominatingWrite;
         if (Acc.isWrittenValueYetUndetermined())
           return true;
         Value *Content = Acc.getWrittenValue();
@@ -7811,10 +7838,20 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
         return true;
       };
 
-      auto &PI = A.getAAFor<AAPointerInfo>(*this, IRPosition::value(*Obj),
-                                           DepClassTy::REQUIRED);
       if (!PI.forallInterfearingAccesses(L, CheckAccess))
         return indicatePessimisticFixpoint();
+
+      if (!HasDominatingWrite) {
+        Constant *InitialVal = AA::getInitialValueForObj(*Obj, *L.getType());
+        if (!InitialVal)
+          return indicatePessimisticFixpoint();
+        if (isa<UndefValue>(InitialVal))
+          unionAssumedWithUndef();
+        else if (auto *CI = dyn_cast<ConstantInt>(InitialVal))
+          unionAssumed(CI->getValue());
+        else
+          return indicatePessimisticFixpoint();
+      }
     }
 
     return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
@@ -8101,6 +8138,37 @@ bool AA::PointerInfo::State::forallInterfearingAccesses(
         return false;
   }
   return true;
+}
+
+Instruction *AAPointerInfo::getLastWrite(Attributor &A, Instruction &I) const {
+  Function &Scope = *I.getFunction();
+  InformationCache &InfoCache = A.getInfoCache();
+  const DominatorTree *DT =
+      InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
+  if (!DT)
+    return nullptr;
+  const auto &NoSyncAA = A.getAAFor<AANoSync>(
+      *this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
+  if (!NoSyncAA.isAssumedNoSync())
+    return nullptr;
+
+  Instruction *NearestWrite = nullptr;
+  auto FindLastWrite = [&](const AA::PointerInfo::Access &Acc, bool IsExact) {
+    if (!Acc.isWrite())
+      return true;
+    if (!IsExact || &Scope != Acc.getInst()->getFunction())
+      return false;
+    if (!DT->dominates(Acc.getInst(), &I))
+      return false;
+    if (!NearestWrite)
+      NearestWrite = Acc.getInst();
+    else if (DT->dominates(NearestWrite, Acc.getInst()))
+      NearestWrite = Acc.getInst();
+    return true;
+  };
+  if (!State::forallInterfearingAccesses(I, FindLastWrite))
+    return nullptr;
+  return NearestWrite;
 }
 
 struct AAPointerInfoImpl : AAPointerInfo {

@@ -4206,6 +4206,8 @@ struct AAPointerInfo
     return State::forallInterfearingAccesses(SI, CB);
   }
 
+  Instruction *getLastWrite(Attributor &A, Instruction &I) const;
+
   ChangeStatus translateAndAddCalleeState(Attributor &A, const State &R,
                                           int64_t CallArgOffset, CallBase &CB) {
     if (!R.isValidState() || !isValidState())
