@@ -61,17 +61,13 @@ define internal i32 @fn1(i32 %p1) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@fn1
 ; IS__TUNIT____-SAME: (i32 returned [[P1:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[P1]], 0
-; IS__TUNIT____-NEXT:    [[COND:%.*]] = select i1 [[TOBOOL]], i32 [[P1]], i32 [[P1]]
-; IS__TUNIT____-NEXT:    ret i32 [[COND]]
+; IS__TUNIT____-NEXT:    ret i32 [[P1]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@fn1
 ; IS__CGSCC____-SAME: (i32 returned [[P1:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[P1]], 0
-; IS__CGSCC____-NEXT:    [[COND:%.*]] = select i1 [[TOBOOL]], i32 [[P1]], i32 [[P1]]
-; IS__CGSCC____-NEXT:    ret i32 [[COND]]
+; IS__CGSCC____-NEXT:    ret i32 [[P1]]
 ;
 entry:
   %tobool = icmp ne i32 %p1, 0
@@ -134,17 +130,13 @@ define internal i32 @fn0(i32 %p1) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@fn0
 ; IS__TUNIT____-SAME: (i32 returned [[P1:%.*]]) #[[ATTR1]] {
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[P1]], 0
-; IS__TUNIT____-NEXT:    [[COND:%.*]] = select i1 [[TOBOOL]], i32 [[P1]], i32 [[P1]]
-; IS__TUNIT____-NEXT:    ret i32 [[COND]]
+; IS__TUNIT____-NEXT:    ret i32 [[P1]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@fn0
 ; IS__CGSCC____-SAME: (i32 returned [[P1:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[P1]], 0
-; IS__CGSCC____-NEXT:    [[COND:%.*]] = select i1 [[TOBOOL]], i32 [[P1]], i32 [[P1]]
-; IS__CGSCC____-NEXT:    ret i32 [[COND]]
+; IS__CGSCC____-NEXT:    ret i32 [[P1]]
 ;
 entry:
   %tobool = icmp ne i32 %p1, 0

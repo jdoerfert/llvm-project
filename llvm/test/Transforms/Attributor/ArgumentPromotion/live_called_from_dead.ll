@@ -51,8 +51,8 @@ define internal i32 @caller(i32* %B) {
 ; IS__CGSCC_OPM-SAME: () #[[ATTR1:[0-9]+]] {
 ; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = alloca i32, align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 1, i32* [[A]], align 4
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[A]]) #[[ATTR3:[0-9]+]]
-; IS__CGSCC_OPM-NEXT:    ret i32 undef
+; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[A]]) #[[ATTR2:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    ret i32 0
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@caller
@@ -60,7 +60,7 @@ define internal i32 @caller(i32* %B) {
 ; IS__CGSCC_NPM-NEXT:    [[A:%.*]] = alloca i32, align 4
 ; IS__CGSCC_NPM-NEXT:    store i32 1, i32* [[A]], align 4
 ; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[A]]) #[[ATTR2:[0-9]+]]
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 0
 ;
   %A = alloca i32
   store i32 1, i32* %A
@@ -76,9 +76,9 @@ define i32 @callercaller() {
 ; IS__TUNIT____-NEXT:    store i32 2, i32* [[B]], align 4
 ; IS__TUNIT____-NEXT:    ret i32 0
 ;
-; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC_OPM: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@callercaller
-; IS__CGSCC_OPM-SAME: () #[[ATTR2:[0-9]+]] {
+; IS__CGSCC_OPM-SAME: () #[[ATTR1]] {
 ; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = alloca i32, align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 2, i32* [[B]], align 4
 ; IS__CGSCC_OPM-NEXT:    ret i32 0
@@ -101,8 +101,7 @@ define i32 @callercaller() {
 ;.
 ; IS__CGSCC_OPM: attributes #[[ATTR0]] = { argmemonly nofree nosync nounwind willreturn writeonly }
 ; IS__CGSCC_OPM: attributes #[[ATTR1]] = { nofree nosync nounwind readnone willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR3]] = { nofree nosync nounwind willreturn writeonly }
+; IS__CGSCC_OPM: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn writeonly }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC_NPM: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }

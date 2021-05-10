@@ -37,7 +37,6 @@ define void @baz(<8 x i32> %arg) local_unnamed_addr {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@baz
 ; IS__CGSCC____-SAME: (<8 x i32> [[ARG:%.*]]) local_unnamed_addr #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = extractvalue [[STRUCT_ZOT:%.*]] undef, 0, 0
 ; IS__CGSCC____-NEXT:    ret void
 ;
 bb:

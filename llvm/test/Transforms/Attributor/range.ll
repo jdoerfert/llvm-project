@@ -550,7 +550,7 @@ define internal i32 @r1(i32) local_unnamed_addr {
 ; IS__CGSCC_NPM:       2:
 ; IS__CGSCC_NPM-NEXT:    unreachable
 ; IS__CGSCC_NPM:       f:
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 10
 ; IS__CGSCC_NPM:       3:
 ; IS__CGSCC_NPM-NEXT:    [[TMP4:%.*]] = phi i32 [ 0, [[TMP0:%.*]] ], [ [[TMP7:%.*]], [[TMP3]] ]
 ; IS__CGSCC_NPM-NEXT:    [[TMP5:%.*]] = phi i32 [ 0, [[TMP0]] ], [ [[TMP6:%.*]], [[TMP3]] ]
@@ -862,12 +862,12 @@ entry:
 define dso_local i32 @test-5() {
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@test-5() {
 ; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[CALL:%.*]] = call i32 @rec(i32 noundef 0), !range [[RNG3:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    [[CALL:%.*]] = call noundef i32 @rec(i32 noundef 0), !range [[RNG3:![0-9]+]]
 ; IS__TUNIT_OPM-NEXT:    ret i32 [[CALL]]
 ;
 ; NOT_TUNIT_OPM-LABEL: define {{[^@]+}}@test-5() {
 ; NOT_TUNIT_OPM-NEXT:  entry:
-; NOT_TUNIT_OPM-NEXT:    [[CALL:%.*]] = call i32 @rec(i32 noundef 0), !range [[RNG4:![0-9]+]]
+; NOT_TUNIT_OPM-NEXT:    [[CALL:%.*]] = call noundef i32 @rec(i32 noundef 0), !range [[RNG4:![0-9]+]]
 ; NOT_TUNIT_OPM-NEXT:    ret i32 [[CALL]]
 ;
 entry:
@@ -1692,9 +1692,10 @@ define i1 @ctx_adjustment(i32 %V) {
 ; IS__TUNIT_OPM:       if.true:
 ; IS__TUNIT_OPM-NEXT:    br label [[END:%.*]]
 ; IS__TUNIT_OPM:       if.false:
+; IS__TUNIT_OPM-NEXT:    [[CALL:%.*]] = call i32 @ret100() #[[ATTR2]]
 ; IS__TUNIT_OPM-NEXT:    br label [[END]]
 ; IS__TUNIT_OPM:       end:
-; IS__TUNIT_OPM-NEXT:    [[PHI:%.*]] = phi i32 [ [[V]], [[IF_TRUE]] ], [ 100, [[IF_FALSE]] ]
+; IS__TUNIT_OPM-NEXT:    [[PHI:%.*]] = phi i32 [ [[V]], [[IF_TRUE]] ], [ [[CALL]], [[IF_FALSE]] ]
 ; IS__TUNIT_OPM-NEXT:    [[C2:%.*]] = icmp sge i32 [[PHI]], 100
 ; IS__TUNIT_OPM-NEXT:    ret i1 [[C2]]
 ;
@@ -1718,9 +1719,10 @@ define i1 @ctx_adjustment(i32 %V) {
 ; IS__CGSCC_OPM:       if.true:
 ; IS__CGSCC_OPM-NEXT:    br label [[END:%.*]]
 ; IS__CGSCC_OPM:       if.false:
+; IS__CGSCC_OPM-NEXT:    [[CALL:%.*]] = call i32 @ret100() #[[ATTR5]]
 ; IS__CGSCC_OPM-NEXT:    br label [[END]]
 ; IS__CGSCC_OPM:       end:
-; IS__CGSCC_OPM-NEXT:    [[PHI:%.*]] = phi i32 [ [[V]], [[IF_TRUE]] ], [ 100, [[IF_FALSE]] ]
+; IS__CGSCC_OPM-NEXT:    [[PHI:%.*]] = phi i32 [ [[V]], [[IF_TRUE]] ], [ [[CALL]], [[IF_FALSE]] ]
 ; IS__CGSCC_OPM-NEXT:    [[C2:%.*]] = icmp sge i32 [[PHI]], 100
 ; IS__CGSCC_OPM-NEXT:    ret i1 [[C2]]
 ;
@@ -1786,10 +1788,10 @@ define i32 @simplify_callsite_argument(i1 %d) {
 ; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = select i1 [[D]], i1 true, i1 false
 ; IS__TUNIT_OPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__TUNIT_OPM:       t:
-; IS__TUNIT_OPM-NEXT:    [[RET1:%.*]] = call i32 @func(i1 noundef [[C]]) #[[ATTR2]], !range [[RNG3]]
+; IS__TUNIT_OPM-NEXT:    [[RET1:%.*]] = call noundef i32 @func(i1 noundef [[C]]) #[[ATTR2]], !range [[RNG3]]
 ; IS__TUNIT_OPM-NEXT:    ret i32 [[RET1]]
 ; IS__TUNIT_OPM:       f:
-; IS__TUNIT_OPM-NEXT:    [[RET2:%.*]] = call i32 @func(i1 noundef false) #[[ATTR2]], !range [[RNG3]]
+; IS__TUNIT_OPM-NEXT:    [[RET2:%.*]] = call noundef i32 @func(i1 noundef false) #[[ATTR2]], !range [[RNG3]]
 ; IS__TUNIT_OPM-NEXT:    ret i32 [[RET2]]
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree nosync nounwind readnone willreturn
@@ -1798,10 +1800,10 @@ define i32 @simplify_callsite_argument(i1 %d) {
 ; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = select i1 [[D]], i1 true, i1 false
 ; IS__TUNIT_NPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__TUNIT_NPM:       t:
-; IS__TUNIT_NPM-NEXT:    [[RET1:%.*]] = call i32 @func(i1 noundef true) #[[ATTR1]], !range [[RNG4]]
+; IS__TUNIT_NPM-NEXT:    [[RET1:%.*]] = call noundef i32 @func(i1 noundef true) #[[ATTR1]], !range [[RNG4]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[RET1]]
 ; IS__TUNIT_NPM:       f:
-; IS__TUNIT_NPM-NEXT:    [[RET2:%.*]] = call i32 @func(i1 noundef false) #[[ATTR1]], !range [[RNG4]]
+; IS__TUNIT_NPM-NEXT:    [[RET2:%.*]] = call noundef i32 @func(i1 noundef false) #[[ATTR1]], !range [[RNG4]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[RET2]]
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -1810,10 +1812,10 @@ define i32 @simplify_callsite_argument(i1 %d) {
 ; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = select i1 [[D]], i1 true, i1 false
 ; IS__CGSCC_OPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__CGSCC_OPM:       t:
-; IS__CGSCC_OPM-NEXT:    [[RET1:%.*]] = call i32 @func(i1 noundef [[C]]) #[[ATTR5]], !range [[RNG4]]
+; IS__CGSCC_OPM-NEXT:    [[RET1:%.*]] = call noundef i32 @func(i1 noundef [[C]]) #[[ATTR5]], !range [[RNG4]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[RET1]]
 ; IS__CGSCC_OPM:       f:
-; IS__CGSCC_OPM-NEXT:    [[RET2:%.*]] = call i32 @func(i1 noundef false) #[[ATTR5]], !range [[RNG4]]
+; IS__CGSCC_OPM-NEXT:    [[RET2:%.*]] = call noundef i32 @func(i1 noundef false) #[[ATTR5]], !range [[RNG4]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[RET2]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -1822,10 +1824,10 @@ define i32 @simplify_callsite_argument(i1 %d) {
 ; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = select i1 [[D]], i1 true, i1 false
 ; IS__CGSCC_NPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__CGSCC_NPM:       t:
-; IS__CGSCC_NPM-NEXT:    [[RET1:%.*]] = call i32 @func(i1 noundef true) #[[ATTR3]], !range [[RNG4]]
+; IS__CGSCC_NPM-NEXT:    [[RET1:%.*]] = call noundef i32 @func(i1 noundef true) #[[ATTR3]], !range [[RNG4]]
 ; IS__CGSCC_NPM-NEXT:    ret i32 [[RET1]]
 ; IS__CGSCC_NPM:       f:
-; IS__CGSCC_NPM-NEXT:    [[RET2:%.*]] = call i32 @func(i1 noundef false) #[[ATTR3]], !range [[RNG4]]
+; IS__CGSCC_NPM-NEXT:    [[RET2:%.*]] = call noundef i32 @func(i1 noundef false) #[[ATTR3]], !range [[RNG4]]
 ; IS__CGSCC_NPM-NEXT:    ret i32 [[RET2]]
 ;
   %c = select i1 %d, i1 true, i1 false

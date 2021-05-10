@@ -24,8 +24,13 @@ define i32 @baz() {
 ; constprop @foo's return value into bar.
 
 define linkonce_odr i32 @foo() {
-; CHECK-LABEL: define {{[^@]+}}@foo() {
-; CHECK-NEXT:    ret i32 10
+; IS__TUNIT____-LABEL: define {{[^@]+}}@foo() {
+; IS__TUNIT____-NEXT:    [[VAL:%.*]] = call i32 @baz() #[[ATTR1:[0-9]+]]
+; IS__TUNIT____-NEXT:    ret i32 [[VAL]]
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@foo() {
+; IS__CGSCC____-NEXT:    [[VAL:%.*]] = call i32 @baz()
+; IS__CGSCC____-NEXT:    ret i32 [[VAL]]
 ;
 
   %val = call i32 @baz()
@@ -43,6 +48,7 @@ define i32 @bar() {
 }
 ;.
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nounwind readnone }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
 ;.
