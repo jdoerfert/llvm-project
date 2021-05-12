@@ -4980,6 +4980,8 @@ void CXXNameMangler::mangleFunctionParam(const ParmVarDecl *parm) {
   // Compute 'L'.
   // parmDepth does not include the declaring function prototype.
   // FunctionTypeDepth does account for that.
+  if(!(parmDepth < FunctionTypeDepth.getDepth()))
+    return;
   assert(parmDepth < FunctionTypeDepth.getDepth());
   unsigned nestingDepth = FunctionTypeDepth.getDepth() - parmDepth;
   if (FunctionTypeDepth.isInResultType())
