@@ -8149,8 +8149,17 @@ Instruction *AAPointerInfo::getLastWrite(Attributor &A, Instruction &I) const {
     return nullptr;
   const auto &NoSyncAA = A.getAAFor<AANoSync>(
       *this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
-  if (!NoSyncAA.isAssumedNoSync())
-    return nullptr;
+  const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(IRPosition::function(Scope),
+                                                  this, DepClassTy::OPTIONAL);
+  bool NoSync = NoSyncAA.isAssumedNoSync();
+  if (!NoSync) {
+    if (ExecDomainAA)
+      ExecDomainAA->dump();
+    if (!ExecDomainAA || !ExecDomainAA->isExecutedByInitialThreadOnly(I))
+      return nullptr;
+  }
+  const auto &ReachabilityAA = A.getAAFor<AAReachability>(
+      *this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
 
   Instruction *NearestWrite = nullptr;
   auto FindLastWrite = [&](const AA::PointerInfo::Access &Acc, bool IsExact) {
@@ -8158,13 +8167,20 @@ Instruction *AAPointerInfo::getLastWrite(Attributor &A, Instruction &I) const {
       return true;
     if (!IsExact || &Scope != Acc.getInst()->getFunction())
       return false;
-    if (!DT->dominates(Acc.getInst(), &I))
+    if (!NoSync &&
+        !ExecDomainAA->isExecutedByInitialThreadOnly(*Acc.getInst()))
       return false;
-    if (!NearestWrite)
+    if (!ReachabilityAA.isAssumedReachable(A, *Acc.getInst(), I))
+      return true;
+    if (!NearestWrite) {
       NearestWrite = Acc.getInst();
-    else if (DT->dominates(NearestWrite, Acc.getInst()))
+      return true;
+    }
+    if (DT->dominates(NearestWrite, Acc.getInst()))
       NearestWrite = Acc.getInst();
-    return true;
+    else if (DT->dominates(Acc.getInst(), NearestWrite))
+      return true;
+    return false;
   };
   if (!State::forallInterfearingAccesses(I, FindLastWrite))
     return nullptr;
