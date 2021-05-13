@@ -24,6 +24,8 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
@@ -2902,15 +2904,16 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
       return false;
 
     if (auto *CB = dyn_cast<CallBase>(Cmp->getOperand(0))) {
-      RuntimeFunction ThreadNumRuntimeIDs[] = {OMPRTL_omp_get_thread_num,
-                                               OMPRTL___kmpc_master,
-                                               OMPRTL___kmpc_global_thread_num};
+      RuntimeFunction ThreadNumRuntimeIDs[] = {OMPRTL___kmpc_target_init};
 
       for (const auto ThreadNumRuntimeID : ThreadNumRuntimeIDs) {
         auto &RFI = OMPInfoCache.RFIs[ThreadNumRuntimeID];
         if (CB->getCalledFunction() == RFI.Declaration)
           return true;
       }
+
+      if (auto *II = dyn_cast<IntrinsicInst>(CB))
+        return II->getIntrinsicID() == Intrinsic::nvvm_read_ptx_sreg_tid_x;
     }
 
     return false;
@@ -2922,15 +2925,15 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     if (pred_begin(BB) == pred_end(BB))
       return SingleThreadedBBs.contains(BB);
 
-    bool IsSingleThreaded = true;
     for (auto PredBB = pred_begin(BB), PredEndBB = pred_end(BB);
          PredBB != PredEndBB; ++PredBB) {
-      if (!IsSingleThreadOnly(dyn_cast<BranchInst>((*PredBB)->getTerminator()),
+      if (!SingleThreadedBBs.contains(*PredBB) &&
+          !IsSingleThreadOnly(dyn_cast<BranchInst>((*PredBB)->getTerminator()),
                               BB))
-        IsSingleThreaded &= SingleThreadedBBs.contains(*PredBB);
+        return false;
     }
 
-    return IsSingleThreaded;
+    return true;
   };
 
   for (auto *BB : RPOT) {
