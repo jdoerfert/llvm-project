@@ -638,7 +638,7 @@ struct AAKernelInfo : public StateWrapper<KernelInfoState, AbstractAttribute> {
     InitBB->getTerminator()->eraseFromParent();
     Value *IsWorker =
         ICmpInst::Create(ICmpInst::ICmp, llvm::CmpInst::ICMP_NE, KernelInitCB,
-                         ConstantInt::get(KernelInitCB->getType(), -1),
+                         ConstantInt::get(KernelInitCB->getType(), 0),
                          "thread.is_worker", InitBB);
     BranchInst::Create(StateMachineBeginBB, UserCodeEntryBB, IsWorker, InitBB);
 
@@ -1685,9 +1685,8 @@ private:
   }
 
   void analysisGlobalization() {
-    RuntimeFunction GlobalizationRuntimeIDs[] = {
-        OMPRTL___kmpc_data_sharing_coalesced_push_stack,
-        OMPRTL___kmpc_data_sharing_push_stack};
+    RuntimeFunction GlobalizationRuntimeIDs[] = {OMPRTL___kmpc_alloc_shared,
+                                                 OMPRTL___kmpc_free_shared};
 
     for (const auto GlobalizationCallID : GlobalizationRuntimeIDs) {
       auto &RFI = OMPInfoCache.RFIs[GlobalizationCallID];

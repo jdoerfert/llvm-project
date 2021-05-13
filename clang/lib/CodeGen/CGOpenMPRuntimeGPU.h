@@ -23,38 +23,19 @@ namespace clang {
 namespace CodeGen {
 
 class CGOpenMPRuntimeGPU : public CGOpenMPRuntime {
-public:
-  /// Defines the execution mode.
-  enum ExecutionMode {
-    /// SPMD execution mode (all threads are worker threads).
-    EM_SPMD,
-    /// Non-SPMD execution mode (1 master thread, others are workers).
-    EM_NonSPMD,
-    /// Unknown execution mode (orphaned directive).
-    EM_Unknown,
-  };
 private:
-  /// Parallel outlined function work for workers to execute.
-  llvm::SmallVector<llvm::Function *, 16> Work;
-
   struct EntryFunctionState {
     SourceLocation Loc;
   };
-
-  ExecutionMode getExecutionMode() const;
-
-  bool requiresFullRuntime() const { return RequiresFullRuntime; }
 
   /// Get barrier to synchronize all threads in a block.
   void syncCTAThreads(CodeGenFunction &CGF);
 
   /// Helper for target directive initialization.
-  void emitKernelInit(CodeGenFunction &CGF, EntryFunctionState &EST,
-                      bool IsSPMD);
+  void emitKernelInit(CodeGenFunction &CGF, EntryFunctionState &EST);
 
   /// Helper for target directive finalization.
-  void emitKernelDeinit(CodeGenFunction &CGF, EntryFunctionState &EST,
-                        bool IsSPMD);
+  void emitKernelDeinit(CodeGenFunction &CGF, EntryFunctionState &EST);
 
   /// Helper for generic variables globalization prolog.
   void emitGenericVarsProlog(CodeGenFunction &CGF, SourceLocation Loc,
@@ -82,26 +63,9 @@ private:
   /// \param IsOffloadEntry True if the outlined function is an offload entry.
   /// An outlined function may not be an entry if, e.g. the if clause always
   /// evaluates to false.
-  void emitNonSPMDKernel(const OMPExecutableDirective &D, StringRef ParentName,
-                         llvm::Function *&OutlinedFn,
-                         llvm::Constant *&OutlinedFnID, bool IsOffloadEntry,
-                         const RegionCodeGenTy &CodeGen);
-
-  /// Emit outlined function specialized for the Single Program
-  /// Multiple Data programming model for applicable target directives on the
-  /// NVPTX device.
-  /// \param D Directive to emit.
-  /// \param ParentName Name of the function that encloses the target region.
-  /// \param OutlinedFn Outlined function value to be defined by this call.
-  /// \param OutlinedFnID Outlined function ID value to be defined by this call.
-  /// \param IsOffloadEntry True if the outlined function is an offload entry.
-  /// \param CodeGen Object containing the target statements.
-  /// An outlined function may not be an entry if, e.g. the if clause always
-  /// evaluates to false.
-  void emitSPMDKernel(const OMPExecutableDirective &D, StringRef ParentName,
-                      llvm::Function *&OutlinedFn,
-                      llvm::Constant *&OutlinedFnID, bool IsOffloadEntry,
-                      const RegionCodeGenTy &CodeGen);
+  void emitKernel(const OMPExecutableDirective &D, StringRef ParentName,
+                  llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
+                  bool IsOffloadEntry, const RegionCodeGenTy &CodeGen);
 
   /// Emit outlined function for 'target' directive on the NVPTX
   /// device.
@@ -129,26 +93,10 @@ private:
   /// variables used in \a OutlinedFn function.
   /// \param IfCond Condition in the associated 'if' clause, if it was
   /// specified, nullptr otherwise.
-  void emitNonSPMDParallelCall(CodeGenFunction &CGF, SourceLocation Loc,
-                               llvm::Value *OutlinedFn,
-                               ArrayRef<llvm::Value *> CapturedVars,
-                               const Expr *IfCond);
-
-  /// Emits code for parallel or serial call of the \a OutlinedFn with
-  /// variables captured in a record which address is stored in \a
-  /// CapturedStruct.
-  /// This call is for a parallel directive within an SPMD target directive.
-  /// \param OutlinedFn Outlined function to be run in parallel threads. Type of
-  /// this function is void(*)(kmp_int32 *, kmp_int32, struct context_vars*).
-  /// \param CapturedVars A pointer to the record with the references to
-  /// variables used in \a OutlinedFn function.
-  /// \param IfCond Condition in the associated 'if' clause, if it was
-  /// specified, nullptr otherwise.
-  ///
-  void emitSPMDParallelCall(CodeGenFunction &CGF, SourceLocation Loc,
-                            llvm::Function *OutlinedFn,
-                            ArrayRef<llvm::Value *> CapturedVars,
-                            const Expr *IfCond);
+  void emitParallelCall(CodeGenFunction &CGF, SourceLocation Loc,
+                        llvm::Value *OutlinedFn,
+                        ArrayRef<llvm::Value *> CapturedVars,
+                        const Expr *IfCond);
 
 protected:
   /// Get the function name of an outlined region.
@@ -383,18 +331,6 @@ public:
   bool hasAllocateAttributeForGlobalVar(const VarDecl *VD, LangAS &AS) override;
 
 private:
-  /// Track the execution mode when codegening directives within a target
-  /// region. The appropriate mode (SPMD/NON-SPMD) is set on entry to the
-  /// target region and used by containing directives such as 'parallel'
-  /// to emit optimized code.
-  ExecutionMode CurrentExecutionMode = EM_Unknown;
-
-  /// Check if the full runtime is required (default - yes).
-  bool RequiresFullRuntime = true;
-
-  /// true if we're emitting the code for the target region and next parallel
-  /// region is L0 for sure.
-  bool IsInTargetMasterThreadRegion = false;
   /// true if currently emitting code for target/teams/distribute region, false
   /// - otherwise.
   bool IsInTTDRegion = false;
@@ -414,15 +350,14 @@ private:
   /// The data for the single globalized variable.
   struct MappedVarData {
     /// Corresponding field in the global record.
-    const FieldDecl *FD = nullptr;
+    llvm::Value *GlobalizedVal = nullptr;
     /// Corresponding address.
     Address PrivateAddr = Address::invalid();
     /// true, if only one element is required (for latprivates in SPMD mode),
     /// false, if need to create based on the warp-size.
     bool IsOnePerTeam = false;
     MappedVarData() = delete;
-    MappedVarData(const FieldDecl *FD, bool IsOnePerTeam = false)
-        : FD(FD), IsOnePerTeam(IsOnePerTeam) {}
+    MappedVarData(bool IsOnePerTeam = false) : IsOnePerTeam(IsOnePerTeam) {}
   };
   /// The map of local variables to their addresses in the global memory.
   using DeclToAddrMapTy = llvm::MapVector<const Decl *, MappedVarData>;
@@ -434,29 +369,12 @@ private:
     EscapedParamsTy EscapedParameters;
     llvm::SmallVector<const ValueDecl*, 4> EscapedVariableLengthDecls;
     llvm::SmallVector<llvm::Value *, 4> EscapedVariableLengthDeclsAddrs;
-    const RecordDecl *GlobalRecord = nullptr;
-    llvm::Optional<const RecordDecl *> SecondaryGlobalRecord = llvm::None;
-    llvm::Value *GlobalRecordAddr = nullptr;
     llvm::Value *IsInSPMDModeFlag = nullptr;
     std::unique_ptr<CodeGenFunction::OMPMapVars> MappedParams;
   };
   /// Maps the function to the list of the globalized variables with their
   /// addresses.
   llvm::SmallDenseMap<llvm::Function *, FunctionData> FunctionGlobalizedDecls;
-  /// List of records for the globalized variables in target/teams/distribute
-  /// contexts. Inner records are going to be joined into the single record,
-  /// while those resulting records are going to be joined into the single
-  /// union. This resulting union (one per CU) is the entry point for the static
-  /// memory management runtime functions.
-  struct GlobalPtrSizeRecsTy {
-    llvm::GlobalVariable *UseSharedMemory = nullptr;
-    llvm::GlobalVariable *RecSize = nullptr;
-    llvm::GlobalVariable *Buffer = nullptr;
-    SourceLocation Loc;
-    llvm::SmallVector<const RecordDecl *, 2> Records;
-    unsigned RegionCounter = 0;
-  };
-  llvm::SmallVector<GlobalPtrSizeRecsTy, 8> GlobalizedRecords;
   llvm::GlobalVariable *KernelTeamsReductionPtr = nullptr;
   /// List of the records with the list of fields for the reductions across the
   /// teams. Used to build the intermediate buffer for the fast teams
