@@ -1465,6 +1465,10 @@ struct Attributor {
                      bool CheckBBLivenessOnly = false,
                      DepClassTy DepClass = DepClassTy::OPTIONAL);
 
+  /// Return true if \p V is an instruction or argument in the current SCC (if
+  /// any) or if it is not associated with a function (=global).
+  bool isInSCC(const Value &V);
+
   /// Check \p Pred on all (transitive) uses of \p V.
   ///
   /// This method will evaluate \p Pred on all (transitive) uses of the
