@@ -8242,8 +8242,8 @@ Instruction *AAPointerInfo::getLastWrite(Attributor &A, Instruction &I) const {
     return nullptr;
   const auto &NoSyncAA = A.getAAFor<AANoSync>(
       *this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
-  const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(IRPosition::function(Scope),
-                                                  this, DepClassTy::OPTIONAL);
+  const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
+      IRPosition::function(Scope), this, DepClassTy::OPTIONAL);
   bool NoSync = NoSyncAA.isAssumedNoSync();
   if (!NoSync) {
     if (ExecDomainAA)
@@ -8260,8 +8260,7 @@ Instruction *AAPointerInfo::getLastWrite(Attributor &A, Instruction &I) const {
       return true;
     if (!IsExact || &Scope != Acc.getInst()->getFunction())
       return false;
-    if (!NoSync &&
-        !ExecDomainAA->isExecutedByInitialThreadOnly(*Acc.getInst()))
+    if (!NoSync && !ExecDomainAA->isExecutedByInitialThreadOnly(*Acc.getInst()))
       return false;
     if (!ReachabilityAA.isAssumedReachable(A, *Acc.getInst(), I))
       return true;
