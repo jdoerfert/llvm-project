@@ -3949,15 +3949,16 @@ enum AccessKind {
 
 /// An access description as used by AAPointerInfo.
 struct Access {
-  Access(Instruction *I, Optional<Value *> Content, AccessKind Kind)
-      : I(I), Content(Content), Kind(Kind) {}
+  Access(Instruction *I, Type *Ty, Optional<Value *> Content, AccessKind Kind)
+      : I(I), Ty(Ty), Content(Content), Kind(Kind) {}
   Access(const Access &Other)
-      : I(Other.I), Content(Other.Content), Kind(Other.Kind) {}
+      : I(Other.I), Ty(Other.Ty), Content(Other.Content), Kind(Other.Kind) {}
   Access(const Access &&Other)
-      : I(Other.I), Content(Other.Content), Kind(Other.Kind) {}
+      : I(Other.I), Ty(Other.Ty), Content(Other.Content), Kind(Other.Kind) {}
 
   Access &operator=(const Access &Other) {
     I = Other.I;
+    Ty = Other.Ty;
     Content = Other.Content;
     Kind = Other.Kind;
     return *this;
@@ -3968,9 +3969,16 @@ struct Access {
   bool operator!=(const Access &R) const { return !(*this == R); }
   Access &operator&=(const Access &R) {
     assert(I == R.I && "Expected same instruction!");
-    Content = AA::combineOptionalValuesInAAValueLatice(Content, R.Content);
+    Content = AA::combineOptionalValuesInAAValueLatice(Content, R.Content, Ty);
     Kind = AccessKind(Kind | R.Kind);
     return *this;
+  }
+
+  bool wouldBeRefinedBy(const Access &R) const {
+    assert(I == R.I && "Expected same instruction!");
+    return Kind != AccessKind(Kind | R.Kind) ||
+           Content !=
+               AA::combineOptionalValuesInAAValueLatice(Content, R.Content, Ty);
   }
 
   /// Return the access kind.
@@ -3999,9 +4007,14 @@ struct Access {
   /// determined.
   Optional<Value *> getContent() const { return Content; }
 
+  Type *getType() const { return Ty; }
+
 private:
   /// The instruction responsible for the access.
   Instruction *I;
+
+  ///
+  Type *Ty;
 
   /// The value written, if any. `llvm::none` means "not known yet", `nullptr`
   /// cannot be determined.
@@ -4018,10 +4031,10 @@ template <>
 struct DenseMapInfo<AA::PointerInfo::Access> : DenseMapInfo<Instruction *> {
   using Access = AA::PointerInfo::Access;
   static inline Access getEmptyKey() {
-    return Access(nullptr, nullptr, AA::PointerInfo::AK_READ);
+    return Access(nullptr, nullptr, nullptr, AA::PointerInfo::AK_READ);
   }
   static inline Access getTombstoneKey() {
-    return Access(nullptr, nullptr, AA::PointerInfo::AK_WRITE);
+    return Access(nullptr, nullptr, nullptr, AA::PointerInfo::AK_WRITE);
   }
 
   static unsigned getHashValue(const Access &A) {
@@ -4045,10 +4058,12 @@ struct AccessAsInstructionInfo : DenseMapInfo<Instruction *> {
   using Base = DenseMapInfo<Instruction *>;
   using Access = AA::PointerInfo::Access;
   static inline Access getEmptyKey() {
-    return Access(Base::getEmptyKey(), nullptr, AA::PointerInfo::AK_READ);
+    return Access(Base::getEmptyKey(), nullptr, nullptr,
+                  AA::PointerInfo::AK_READ);
   }
   static inline Access getTombstoneKey() {
-    return Access(Base::getTombstoneKey(), nullptr, AA::PointerInfo::AK_READ);
+    return Access(Base::getTombstoneKey(), nullptr, nullptr,
+                  AA::PointerInfo::AK_READ);
   }
 
   static unsigned getHashValue(const Access &A) {
@@ -4158,11 +4173,11 @@ protected:
   /// The access is associated with \p I, writes \p Content (if anything), and
   /// is of kind \p Kind.
   /// \Returns CHANGED, if the state changed, UNCHANGED otherwise.
-  ChangeStatus addAccess(int64_t Offset, int64_t Size, Instruction &I,
+  ChangeStatus addAccess(int64_t Offset, int64_t Size, Instruction &I, Type *Ty,
                          Optional<Value *> Content, AccessKind Kind) {
     OffsetAndSize Key{Offset, Size};
     Accesses &Bin = AccessBins[Key];
-    Access Acc(&I, Content, Kind);
+    Access Acc(&I, Ty, Content, Kind);
     // Check if we have an access for this instruction in this bin, if not,
     // simply add it.
     auto It = Bin.find(Acc);
@@ -4171,7 +4186,7 @@ protected:
       return ChangeStatus::CHANGED;
     }
     // If the existing access is the same as then new one, nothing changed.
-    if (*It == Acc)
+    if (!It->wouldBeRefinedBy(Acc))
       return ChangeStatus::UNCHANGED;
     // The new one will be combined with the existing one.
     *It &= Acc;
@@ -4238,10 +4253,11 @@ struct AAPointerInfo
         bool UsedAssumedInformation = false;
         Optional<Value *> Content = A.translateArgumentToCallSiteContent(
             RAcc.getContent(), CB, *this, UsedAssumedInformation);
-        AA::PointerInfo::Access TranslatedAcc(&CB, Content, RAcc.getKind());
+        AA::PointerInfo::Access TranslatedAcc(&CB, RAcc.getType(), Content,
+                                              RAcc.getKind());
         auto It = Bin.find(TranslatedAcc);
         if (It != Bin.end()) {
-          if (*It == TranslatedAcc)
+          if (!It->wouldBeRefinedBy(TranslatedAcc))
             continue;
           *It &= TranslatedAcc;
         } else {

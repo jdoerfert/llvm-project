@@ -8351,7 +8351,7 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
   void initialize(Attributor &A) override { AAPointerInfoImpl::initialize(A); }
 
   /// Deal with an access and signal if it was handled successfully.
-  bool handleAccess(Attributor &A, Instruction &I, Value &Ptr,
+  bool handleAccess(Attributor &A, Instruction &I, Value &Ptr, Type *Ty,
                     Optional<Value *> Content, AccessKind Kind, int64_t Offset,
                     ChangeStatus &Changed,
                     int64_t Size = OffsetAndSize::Unknown) {
@@ -8363,7 +8363,7 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       if (!AccessSize.isScalable())
         Size = AccessSize.getFixedSize();
     }
-    Changed = Changed | addAccess(Offset, Size, I, Content, Kind);
+    Changed = addAccess(Offset, Size, I, Ty, Content, Kind) | Changed;
     return true;
   };
 
@@ -8438,8 +8438,9 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       if (isa<CastInst>(Usr) || isa<PHINode>(Usr) || isa<SelectInst>(Usr))
         return HandlePassthroughUser(Usr, PtrOI, Follow);
       if (auto *LoadI = dyn_cast<LoadInst>(Usr))
-        return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr,
-                            AccessKind::AK_READ, PtrOI.Offset, Changed);
+        return handleAccess(A, *LoadI, *CurPtr, /* Type */ nullptr,
+                            /* Content */ nullptr, AccessKind::AK_READ,
+                            PtrOI.Offset, Changed);
       if (auto *StoreI = dyn_cast<StoreInst>(Usr)) {
         if (StoreI->getValueOperand() == CurPtr) {
           LLVM_DEBUG(dbgs() << "[AAPointerInfo] Escaping use in store "
@@ -8449,8 +8450,9 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         bool UsedAssumedInformation = false;
         Optional<Value *> Content = A.getAssumedSimplified(
             *StoreI->getValueOperand(), *this, UsedAssumedInformation);
-        return handleAccess(A, *StoreI, *CurPtr, Content, AccessKind::AK_WRITE,
-                            PtrOI.Offset, Changed);
+        return handleAccess(A, *StoreI, *CurPtr,
+                            StoreI->getValueOperand()->getType(), Content,
+                            AccessKind::AK_WRITE, PtrOI.Offset, Changed);
       }
       if (auto *CB = dyn_cast<CallBase>(Usr)) {
         if (CB->isLifetimeStartOrEnd())
@@ -8547,13 +8549,13 @@ struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
         LengthVal = Length->getSExtValue();
       Value &Ptr = getAssociatedValue();
       unsigned ArgNo = getIRPosition().getCallSiteArgNo();
-      ChangeStatus Changed;
+      ChangeStatus Changed = ChangeStatus::UNCHANGED;
       if (ArgNo == 0) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_WRITE, 0, Changed,
-                     LengthVal);
+        handleAccess(A, *MI, Ptr, /* type */ nullptr, /* content */ nullptr,
+                     AccessKind::AK_WRITE, 0, Changed, LengthVal);
       } else if (ArgNo == 1) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_READ, 0, Changed,
-                     LengthVal);
+        handleAccess(A, *MI, Ptr, /* type */ nullptr, /* content */ nullptr,
+                     AccessKind::AK_READ, 0, Changed, LengthVal);
       } else {
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled memory intrinsic "
                           << *MI << "\n");
