@@ -2619,10 +2619,10 @@ struct AAIsDeadValueImpl : public AAIsDead {
   AAIsDeadValueImpl(const IRPosition &IRP, Attributor &A) : AAIsDead(IRP, A) {}
 
   /// See AAIsDead::isAssumedDead().
-  bool isAssumedDead() const override { return getAssumed(); }
+  bool isAssumedDead() const override { return isAssumed(IS_DEAD); }
 
   /// See AAIsDead::isKnownDead().
-  bool isKnownDead() const override { return getKnown(); }
+  bool isKnownDead() const override { return isKnown(IS_DEAD); }
 
   /// See AAIsDead::isAssumedDead(BasicBlock *).
   bool isAssumedDead(const BasicBlock *BB) const override { return false; }
@@ -2637,7 +2637,7 @@ struct AAIsDeadValueImpl : public AAIsDead {
 
   /// See AAIsDead::isKnownDead(Instruction *I).
   bool isKnownDead(const Instruction *I) const override {
-    return isAssumedDead(I) && getKnown();
+    return isAssumedDead(I) && isKnownDead();
   }
 
   /// See AbstractAttribute::getAsStr().
@@ -2696,16 +2696,44 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
 
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
     if (!isAssumedSideEffectFree(A, I))
+      removeAssumedBits(HAS_NO_EFFECT);
+    if (!isa_and_nonnull<StoreInst>(I))
       indicatePessimisticFixpoint();
   }
 
+  bool isDeadStore(Attributor &A, StoreInst &SI) {
+    auto IsUnused = [&](const AA::PointerInfo::Access &Acc, bool IsExact) {
+      if (!Acc.isRead())
+        return true;
+      if (!isa<LoadInst>(Acc.getInst()) || !A.isInSCC(*Acc.getInst()))
+        return false;
+      bool UsedAssumedInformation = false;
+      Optional<Value *> SimplifiedV =
+          A.getAssumedSimplified(*Acc.getInst(), *this, UsedAssumedInformation);
+      if (!SimplifiedV.hasValue())
+        return true;
+      return *SimplifiedV && *SimplifiedV != Acc.getInst();
+    };
+    auto &PI = A.getAAFor<AAPointerInfo>(
+        *this, IRPosition::value(*SI.getPointerOperand()),
+        DepClassTy::REQUIRED);
+    PI.dump();
+    if (!PI.forallInterfearingAccesses(SI, IsUnused))
+      return false;
+    return true;
+  }
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
-    if (!isAssumedSideEffectFree(A, I))
-      return indicatePessimisticFixpoint();
-    if (!areAllUsesAssumedDead(A, getAssociatedValue()))
-      return indicatePessimisticFixpoint();
+    if (auto *SI = dyn_cast_or_null<StoreInst>(I)) {
+      if (!isDeadStore(A, *SI))
+        return indicatePessimisticFixpoint();
+    } else {
+      if (!isAssumedSideEffectFree(A, I))
+        return indicatePessimisticFixpoint();
+      if (!areAllUsesAssumedDead(A, getAssociatedValue()))
+        return indicatePessimisticFixpoint();
+    }
     return ChangeStatus::UNCHANGED;
   }
 
@@ -2717,7 +2745,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       // isAssumedSideEffectFree returns true here again because it might not be
       // the case and only the users are dead but the instruction (=call) is
       // still needed.
-      if (isAssumedSideEffectFree(A, I) && !isa<InvokeInst>(I)) {
+      if (isa<StoreInst>(I) || (isAssumedSideEffectFree(A, I) && !isa<InvokeInst>(I))) {
         A.deleteAfterManifest(*I);
         return ChangeStatus::CHANGED;
       }
