@@ -2183,12 +2183,12 @@ private:
         A.getOrCreateAAFor<AAIsDead>(IRPosition::function(*Kernel));
         A.getOrCreateAAFor<AAKernelInfo>(IRPosition::function(*Kernel));
       }
-      if (!OMPInfoCache.Kernels.empty()) {
-        for (auto &F : M) {
-          for (Instruction &I : instructions(F))
-            if (isa<LoadInst>(I))
-              A.getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
-        }
+    }
+    if (!OMPInfoCache.Kernels.empty()) {
+      for (auto &F : M) {
+        for (Instruction &I : instructions(F))
+          if (isa<LoadInst>(I))
+            A.getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
       }
     }
   }
