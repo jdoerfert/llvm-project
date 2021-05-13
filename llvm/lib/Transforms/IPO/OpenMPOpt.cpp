@@ -2931,15 +2931,15 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     if (pred_begin(BB) == pred_end(BB))
       return SingleThreadedBBs.contains(BB);
 
-    bool IsSingleThreaded = true;
     for (auto PredBB = pred_begin(BB), PredEndBB = pred_end(BB);
          PredBB != PredEndBB; ++PredBB) {
-      if (!IsSingleThreadOnly(dyn_cast<BranchInst>((*PredBB)->getTerminator()),
+      if (!SingleThreadedBBs.contains(*PredBB) &&
+          !IsSingleThreadOnly(dyn_cast<BranchInst>((*PredBB)->getTerminator()),
                               BB))
-        IsSingleThreaded &= SingleThreadedBBs.contains(*PredBB);
+        return false;
     }
 
-    return IsSingleThreaded;
+    return true;
   };
 
   for (auto *BB : RPOT) {
