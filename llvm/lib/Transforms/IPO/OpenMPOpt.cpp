@@ -831,6 +831,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         }
         // The callee is not known, not ipo-amendable (e.g., due to linkage), or
         // we can for some other reason not analyze it -> worst case.
+        LLVM_DEBUG(dbgs() << "Encountered an unanalizable call: " << I << "\n");
         IsSPMDCompatible = false;
         MayReachUnknownParallelRegion = true;
         return true;
