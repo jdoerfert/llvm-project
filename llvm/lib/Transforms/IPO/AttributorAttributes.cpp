@@ -4719,29 +4719,66 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   /// nullptr. If so, try to simplify it using AANonNull on the other operand.
   /// Return true if successful, in that case SimplifiedAssociatedValue will be
   /// updated and \p Changed is set appropriately.
-  bool checkForNullPtrCompare(Attributor &A, ICmpInst *ICmp,
-                              ChangeStatus &Changed) {
-    if (!ICmp)
+  bool handleICmp(Attributor &A, ICmpInst &ICmp) {
+    if (!ICmp.isEquality())
       return false;
-    if (!ICmp->isEquality())
+    auto Union = [&](Constant *C) {
+      if (!C)
+        return false;
+      if (!SimplifiedAssociatedValue.hasValue()) {
+        SimplifiedAssociatedValue = C;
+        return true;
+      }
+      if (C == *SimplifiedAssociatedValue)
+        return true;
+      if (isa<UndefValue>(C))
+        return true;
+      if (isa<UndefValue>(*SimplifiedAssociatedValue)) {
+        SimplifiedAssociatedValue = C;
+        return true;
+      }
       return false;
+    };
 
     // This is a comparison with == or !-. We check for nullptr now.
-    bool Op0IsNull = isa<ConstantPointerNull>(ICmp->getOperand(0));
-    bool Op1IsNull = isa<ConstantPointerNull>(ICmp->getOperand(1));
+    Value *Op0 = ICmp.getOperand(0);
+    Value *Op1 = ICmp.getOperand(1);
+    bool Op0IsNull = isa<ConstantPointerNull>(Op0);
+    bool Op1IsNull = isa<ConstantPointerNull>(Op1);
     if (!Op0IsNull && !Op1IsNull)
       return false;
 
-    LLVMContext &Ctx = ICmp->getContext();
+    LLVMContext &Ctx = ICmp.getContext();
+    bool IsAssumedNonNull = false;
+    bool UsedAssumedInformation = false;
+    if (!Op0IsNull || !Op1IsNull) {
+      Value *NonNullOp = Op0IsNull ? Op1 : Op0;
+      if (auto *UO = getUnderlyingObject(NonNullOp))
+        NonNullOp = UO;
+      Optional<Constant *> C =
+          A.getAssumedConstant(*NonNullOp, *this, UsedAssumedInformation);
+      errs() << "C " << C << " : " << *NonNullOp << "\n";
+      if (!C.hasValue())
+        return true;
+      if (C.getValue()) {
+        Constant *CV = *C;
+        if (isa<UndefValue>(CV))
+          CV = cast<Constant>(Op0IsNull ? Op0 : Op1);
+        if (isa<ConstantPointerNull>(CV))
+          Op0IsNull = Op1IsNull = true;
+        else
+          IsAssumedNonNull = true;
+      }
+    }
+
     // Check for `nullptr ==/!= nullptr` first:
     if (Op0IsNull && Op1IsNull) {
-      Value *NewVal = ConstantInt::get(
-          Type::getInt1Ty(Ctx), ICmp->getPredicate() == CmpInst::ICMP_EQ);
-      assert(!SimplifiedAssociatedValue.hasValue() &&
-             "Did not expect non-fixed value for constant comparison");
-      SimplifiedAssociatedValue = NewVal;
-      indicateOptimisticFixpoint();
-      Changed = ChangeStatus::CHANGED;
+      Constant *NewVal = ConstantInt::get(
+          Type::getInt1Ty(Ctx), ICmp.getPredicate() == CmpInst::ICMP_EQ);
+      if (!Union(NewVal))
+        return false;
+      if (!UsedAssumedInformation)
+        indicateOptimisticFixpoint();
       return true;
     }
 
@@ -4752,29 +4789,26 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
            "Expected nullptr versus non-nullptr comparison at this point");
 
     // The index is the operand that we assume is not null.
-    unsigned PtrIdx = Op0IsNull;
-    auto &PtrNonNullAA = A.getAAFor<AANonNull>(
-        *this, IRPosition::value(*ICmp->getOperand(PtrIdx)),
-        DepClassTy::REQUIRED);
-    if (!PtrNonNullAA.isAssumedNonNull())
-      return false;
+    if (!IsAssumedNonNull) {
+      unsigned PtrIdx = Op0IsNull;
+      auto &PtrNonNullAA = A.getAAFor<AANonNull>(
+          *this, IRPosition::value(*ICmp.getOperand(PtrIdx)),
+          DepClassTy::REQUIRED);
+      PtrNonNullAA.dump();
+      if (!PtrNonNullAA.isAssumedNonNull())
+        return false;
+      UsedAssumedInformation = !PtrNonNullAA.isKnownNonNull();
+    }
 
     // The new value depends on the predicate, true for != and false for ==.
-    Value *NewVal = ConstantInt::get(Type::getInt1Ty(Ctx),
-                                     ICmp->getPredicate() == CmpInst::ICMP_NE);
+    Constant *NewVal = ConstantInt::get(
+        Type::getInt1Ty(Ctx), ICmp.getPredicate() == CmpInst::ICMP_NE);
+    if (!Union(NewVal))
+      return false;
 
-    assert((!SimplifiedAssociatedValue.hasValue() ||
-            SimplifiedAssociatedValue == NewVal) &&
-           "Did not expect to change value for zero-comparison");
-
-    auto Before = SimplifiedAssociatedValue;
-    SimplifiedAssociatedValue = NewVal;
-
-    if (PtrNonNullAA.isKnownNonNull())
+    if (!UsedAssumedInformation)
       indicateOptimisticFixpoint();
 
-    Changed = Before == SimplifiedAssociatedValue ? ChangeStatus::UNCHANGED
-                                                  : ChangeStatus ::CHANGED;
     return true;
   }
 
@@ -4858,11 +4892,6 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   ChangeStatus updateImpl(Attributor &A) override {
     auto Before = SimplifiedAssociatedValue;
 
-    ChangeStatus Changed;
-    if (checkForNullPtrCompare(A, dyn_cast<ICmpInst>(&getAnchorValue()),
-                               Changed))
-      return Changed;
-
     auto VisitValueCB = [&](Value &V, const Instruction *CtxI, bool &,
                             bool Stripped) -> bool {
       auto &AA = A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V),
@@ -4870,6 +4899,8 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
       if (!Stripped && this == &AA) {
         if (auto *LI = dyn_cast<LoadInst>(&V))
           return handleLoad(A, *LI);
+        if (auto *ICmp = dyn_cast<ICmpInst>(&V))
+          return handleICmp(A, *ICmp);
         // TODO: Look the instruction and check recursively.
 
         LLVM_DEBUG(dbgs() << "[ValueSimplify] Can't be stripped more : " << V
