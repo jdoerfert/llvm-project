@@ -206,18 +206,24 @@ Value *AA::getWithType(Value &V, Type &Ty) {
 
 Optional<Value *>
 AA::combineOptionalValuesInAAValueLatice(const Optional<Value *> &A,
-                                         const Optional<Value *> &B) {
+                                         const Optional<Value *> &B, Type *Ty) {
   if (A == B)
     return A;
-  if (!A.hasValue())
-    return B;
   if (!B.hasValue())
     return A;
+  if (*B == nullptr)
+    return nullptr;
+  if (!A.hasValue())
+    return Ty ? getWithType(**B, *Ty) : nullptr;
+  if (*A == nullptr)
+    return nullptr;
+  if (!Ty)
+    Ty = (*A)->getType();
   if (isa_and_nonnull<UndefValue>(*A))
-    return B;
-  if (isa_and_nonnull<UndefValue>(*B))
+    return getWithType(**B, *Ty);
+  if (isa<UndefValue>(*B))
     return A;
-  if (*A && *B && *A == getWithType(**B, *(*A)->getType()))
+  if (*A && *B && *A == getWithType(**B, *Ty))
     return A;
   return nullptr;
 }
