@@ -997,9 +997,10 @@ AAReturnedValuesImpl::getAssumedUniqueReturnValue(Attributor &A) const {
   // multiple, a nullptr is returned indicating there cannot be a unique
   // returned value.
   Optional<Value *> UniqueRV;
+  Type *Ty = getAssociatedFunction()->getReturnType();
 
   auto Pred = [&](Value &RV) -> bool {
-    UniqueRV = AA::combineOptionalValuesInAAValueLatice(UniqueRV, &RV);
+    UniqueRV = AA::combineOptionalValuesInAAValueLatice(UniqueRV, &RV, Ty);
     return UniqueRV != Optional<Value *>(nullptr);
   };
 
@@ -4463,10 +4464,12 @@ struct AAValueSimplifyImpl : AAValueSimplify {
           QueryingAA, IRPosition::value(QueryingValue), DepClassTy::REQUIRED);
       AccumulatedSimplifiedValue = AA::combineOptionalValuesInAAValueLatice(
           AccumulatedSimplifiedValue,
-          ValueSimplifyAA.getAssumedSimplifiedValue(A));
+          ValueSimplifyAA.getAssumedSimplifiedValue(A),
+          QueryingAA.getAssociatedType());
     } else {
       AccumulatedSimplifiedValue = AA::combineOptionalValuesInAAValueLatice(
-          AccumulatedSimplifiedValue, &QueryingValue);
+          AccumulatedSimplifiedValue, &QueryingValue,
+          QueryingAA.getAssociatedType());
     }
     if (AccumulatedSimplifiedValue == Optional<Value *>(nullptr))
       return false;
@@ -4945,7 +4948,7 @@ struct AAValueSimplifyCallSiteReturned : AAValueSimplifyImpl {
               &RetVal, *cast<CallBase>(getCtxI()), *this,
               UsedAssumedInformation);
           SimplifiedAssociatedValue = AA::combineOptionalValuesInAAValueLatice(
-              SimplifiedAssociatedValue, CSRetVal);
+              SimplifiedAssociatedValue, CSRetVal, getAssociatedType());
           return SimplifiedAssociatedValue != Optional<Value *>(nullptr);
         };
     if (!RetAA.checkForAllReturnedValuesAndReturnInsts(PredForReturned))

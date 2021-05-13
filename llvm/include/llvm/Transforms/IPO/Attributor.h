@@ -154,7 +154,7 @@ Value *getWithType(Value &V, Type &Ty);
 ///          V1 + V2 => nullptr
 Optional<Value *>
 combineOptionalValuesInAAValueLatice(const Optional<Value *> &A,
-                                     const Optional<Value *> &B);
+                                     const Optional<Value *> &B, Type *Ty);
 
 /// Return the initial value of \p Obj with type \p Ty if that is a constant.
 Constant *getInitialValueForObj(Value &Obj, Type &Ty);
