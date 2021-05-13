@@ -887,6 +887,8 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     case OMPRTL___kmpc_master:
     case OMPRTL___kmpc_end_master:
     case OMPRTL___kmpc_barrier:
+    case OMPRTL___kmpc_alloc_shared:
+    case OMPRTL___kmpc_free_shared:
       break;
     case OMPRTL___kmpc_target_init:
       KernelInitCB = &CB;
