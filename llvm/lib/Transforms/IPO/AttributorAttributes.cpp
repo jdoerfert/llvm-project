@@ -2620,10 +2620,10 @@ struct AAIsDeadValueImpl : public AAIsDead {
   AAIsDeadValueImpl(const IRPosition &IRP, Attributor &A) : AAIsDead(IRP, A) {}
 
   /// See AAIsDead::isAssumedDead().
-  bool isAssumedDead() const override { return getAssumed(); }
+  bool isAssumedDead() const override { return isAssumed(IS_DEAD); }
 
   /// See AAIsDead::isKnownDead().
-  bool isKnownDead() const override { return getKnown(); }
+  bool isKnownDead() const override { return isKnown(IS_DEAD); }
 
   /// See AAIsDead::isAssumedDead(BasicBlock *).
   bool isAssumedDead(const BasicBlock *BB) const override { return false; }
@@ -2638,7 +2638,7 @@ struct AAIsDeadValueImpl : public AAIsDead {
 
   /// See AAIsDead::isKnownDead(Instruction *I).
   bool isKnownDead(const Instruction *I) const override {
-    return isAssumedDead(I) && getKnown();
+    return isAssumedDead(I) && isKnownDead();
   }
 
   /// See AbstractAttribute::getAsStr().
@@ -2697,16 +2697,66 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
 
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
     if (!isAssumedSideEffectFree(A, I))
+      removeAssumedBits(HAS_NO_EFFECT);
+    if (!isa_and_nonnull<StoreInst>(I))
       indicatePessimisticFixpoint();
   }
 
+  bool isDeadStore(Attributor &A, StoreInst &SI) {
+    auto IsUnused = [&](const AA::PointerInfo::Access &Acc, bool IsExact) {
+      if (!Acc.isRead())
+        return true;
+      if (!isa<LoadInst>(Acc.getInst()))
+        return false;
+      bool UsedAssumedInformation = false;
+      Optional<Value *> SimplifiedV =
+          A.getAssumedSimplified(*Acc.getInst(), *this, UsedAssumedInformation);
+      if (!SimplifiedV.hasValue())
+        return true;
+      return *SimplifiedV && *SimplifiedV != Acc.getInst();
+    };
+
+    Value &Ptr = *SI.getPointerOperand();
+    SmallVector<Value *, 8> Objects;
+    if (!getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &SI))
+      return false;
+
+    Function &Scope = *SI.getFunction();
+    for (Value *Obj : Objects) {
+      LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
+      if (isa<UndefValue>(Obj))
+        continue;
+      bool UsedAssumedInformation;
+      if (isa<ConstantPointerNull>(Obj)) {
+        // A null pointer access can be undefined but any offset from null may
+        // be OK. We do not try to optimize the latter.
+        if (NullPointerIsDefined(&Scope,
+                                 Ptr.getType()->getPointerAddressSpace()) &&
+            A.getAssumedSimplified(Ptr, *this, UsedAssumedInformation) == Obj)
+          continue;
+        return false;
+      }
+      if (!isa<AllocaInst>(Obj) && !isa<GlobalVariable>(Obj))
+        return false;
+      auto &PI = A.getAAFor<AAPointerInfo>(*this, IRPosition::value(*Obj),
+                                           DepClassTy::REQUIRED);
+      if (!PI.forallInterfearingAccesses(SI, IsUnused))
+        return false;
+    }
+    return true;
+  }
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
-    if (!isAssumedSideEffectFree(A, I))
-      return indicatePessimisticFixpoint();
-    if (!areAllUsesAssumedDead(A, getAssociatedValue()))
-      return indicatePessimisticFixpoint();
+    if (auto *SI = dyn_cast_or_null<StoreInst>(I)) {
+      if (!isDeadStore(A, *SI))
+        return indicatePessimisticFixpoint();
+    } else {
+      if (!isAssumedSideEffectFree(A, I))
+        return indicatePessimisticFixpoint();
+      if (!areAllUsesAssumedDead(A, getAssociatedValue()))
+        return indicatePessimisticFixpoint();
+    }
     return ChangeStatus::UNCHANGED;
   }
 
@@ -2718,7 +2768,8 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       // isAssumedSideEffectFree returns true here again because it might not be
       // the case and only the users are dead but the instruction (=call) is
       // still needed.
-      if (isAssumedSideEffectFree(A, I) && !isa<InvokeInst>(I)) {
+      if (isa<StoreInst>(I) ||
+          (isAssumedSideEffectFree(A, I) && !isa<InvokeInst>(I))) {
         A.deleteAfterManifest(*I);
         return ChangeStatus::CHANGED;
       }
@@ -8195,8 +8246,8 @@ Instruction *AAPointerInfo::getLastWrite(Attributor &A, Instruction &I) const {
     return nullptr;
   const auto &NoSyncAA = A.getAAFor<AANoSync>(
       *this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
-  const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(IRPosition::function(Scope),
-                                                  this, DepClassTy::OPTIONAL);
+  const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
+      IRPosition::function(Scope), this, DepClassTy::OPTIONAL);
   bool NoSync = NoSyncAA.isAssumedNoSync();
   if (!NoSync) {
     if (ExecDomainAA)
@@ -8213,8 +8264,7 @@ Instruction *AAPointerInfo::getLastWrite(Attributor &A, Instruction &I) const {
       return true;
     if (!IsExact || &Scope != Acc.getInst()->getFunction())
       return false;
-    if (!NoSync &&
-        !ExecDomainAA->isExecutedByInitialThreadOnly(*Acc.getInst()))
+    if (!NoSync && !ExecDomainAA->isExecutedByInitialThreadOnly(*Acc.getInst()))
       return false;
     if (!ReachabilityAA.isAssumedReachable(A, *Acc.getInst(), I))
       return true;
