@@ -4815,7 +4815,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   bool handleLoad(Attributor &A, LoadInst &L) {
     auto Union = [&](Value *V) {
       SimplifiedAssociatedValue = AA::combineOptionalValuesInAAValueLatice(
-          SimplifiedAssociatedValue, V);
+          SimplifiedAssociatedValue, V, L.getType());
       return SimplifiedAssociatedValue != Optional<Value *>(nullptr);
     };
 
