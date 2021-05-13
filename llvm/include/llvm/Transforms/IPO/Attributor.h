@@ -2861,7 +2861,8 @@ struct AANoReturn
 };
 
 /// An abstract interface for liveness abstract attribute.
-struct AAIsDead : public StateWrapper<BitIntegerState<uint8_t, 3, 0>, AbstractAttribute> {
+struct AAIsDead
+    : public StateWrapper<BitIntegerState<uint8_t, 3, 0>, AbstractAttribute> {
   using Base = StateWrapper<BitIntegerState<uint8_t, 3, 0>, AbstractAttribute>;
   AAIsDead(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
