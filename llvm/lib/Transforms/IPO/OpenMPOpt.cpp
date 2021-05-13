@@ -848,6 +848,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
       case OMPRTL___kmpc_master:
       case OMPRTL___kmpc_end_master:
       case OMPRTL___kmpc_barrier:
+      case OMPRTL___kmpc_alloc_shared:
+      case OMPRTL___kmpc_free_shared:
         return true;
       case OMPRTL___kmpc_target_init:
         // The only reason we completely give up is when we see a second init or
