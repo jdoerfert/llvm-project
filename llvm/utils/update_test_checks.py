@@ -138,6 +138,9 @@ def main():
                                                       '--include-generated-funcs',
                                                       True)
 
+    # TODO: use common.get_total_function_order to avoid adding new functions at the end but
+    #       instead place them in order between existing ones. See the CC script.
+
     if include_generated_funcs:
       # Generate the appropriate checks for each function.  We need to emit
       # these in the order according to the generated output so that CHECK-LABEL

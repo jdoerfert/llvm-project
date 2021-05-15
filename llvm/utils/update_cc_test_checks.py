@@ -305,8 +305,9 @@ def main():
                                                       lambda args: ti.args.include_generated_funcs,
                                                       '--include-generated-funcs',
                                                       True)
+    total_function_order = common.get_total_function_order(filecheck_run_list, builder.func_order())
 
-    if include_generated_funcs:
+    if include_generated_funcs and not total_function_order:
       # Generate the appropriate checks for each function.  We need to emit
       # these in the order according to the generated output so that CHECK-LABEL
       # works properly.  func_order provides that.
@@ -337,6 +338,62 @@ def main():
                                check_generator(my_output_lines,
                                                prefixes, func))
     else:
+      trailing_functions = []
+      # If we might have generated functions we need to place them in the right position now,
+      # trailing ones are kept separate though.
+      if include_generated_funcs:
+        seen_mangled = set()
+        total_order_idx = 0
+        for line in line2spell_and_mangled_list.keys():
+          to_be_added = []
+          for spell, mangled in line2spell_and_mangled_list[line]:
+            if mangled not in total_function_order or mangled in seen_mangled:
+              continue
+            seen_mangled.add(mangled)
+
+            # Figure out where this existing function is in the total order. All functions we
+            # skipped are inserted before this one.
+            index = total_function_order.index(mangled)
+            while total_order_idx < index:
+              to_be_added.append(total_function_order[total_order_idx])
+              total_order_idx += 1
+            # Account for the function itself (spell, mangled)
+            total_order_idx += 1
+          # Reverse the order to match total order again before we insert the functions
+          # in the current line.
+          to_be_added.reverse()
+          for tba in to_be_added:
+            line2spell_and_mangled_list[line].insert(0, ('', tba))
+
+        # All functions we have not handled yet are added to the end.
+        while total_order_idx < len(total_function_order):
+          func = total_function_order[total_order_idx]
+          trailing_functions.append(func)
+          total_order_idx += 1
+
+      def handle_functions_on_line(output_lines, line, args, spell, mangled, added, include_line):
+        # One line may contain multiple function declarations.
+        # Skip if the mangled name has been added before.
+        # The line number may come from an included file,
+        # we simply require the spelling name to appear on the line
+        # to exclude functions from other files.
+        if mangled in added or (spell and spell not in line):
+          return
+        if args.functions is None or any(re.search(regex, spell) for regex in args.functions):
+          last_line = output_lines[-1].strip()
+          while last_line == '//':
+            # Remove the comment line since we will generate a new  comment
+            # line as part of common.add_ir_checks()
+            output_lines.pop()
+            last_line = output_lines[-1].strip()
+          if added:
+            output_lines.append('//')
+          added.add(mangled)
+          common.add_ir_checks(output_lines, '//', filecheck_run_list, func_dict, mangled,
+                               False, args.function_signature, global_vars_seen_dict)
+          if line.rstrip('\n') == '//':
+            include_line = False
+
       # Normal mode.  Put checks before each source function.
       for line_info in ti.iterlines(output_lines):
         idx = line_info.line_number
@@ -349,30 +406,16 @@ def main():
         if idx in line2spell_and_mangled_list:
           added = set()
           for spell, mangled in line2spell_and_mangled_list[idx]:
-            # One line may contain multiple function declarations.
-            # Skip if the mangled name has been added before.
-            # The line number may come from an included file,
-            # we simply require the spelling name to appear on the line
-            # to exclude functions from other files.
-            if mangled in added or spell not in line:
-              continue
-            if args.functions is None or any(re.search(regex, spell) for regex in args.functions):
-              last_line = output_lines[-1].strip()
-              while last_line == '//':
-                # Remove the comment line since we will generate a new  comment
-                # line as part of common.add_ir_checks()
-                output_lines.pop()
-                last_line = output_lines[-1].strip()
-              if added:
-                output_lines.append('//')
-              added.add(mangled)
-              common.add_ir_checks(output_lines, '//', filecheck_run_list, func_dict, mangled,
-                                   False, args.function_signature, global_vars_seen_dict)
-              if line.rstrip('\n') == '//':
-                include_line = False
+            handle_functions_on_line(output_lines, line, args, spell, mangled, added, include_line)
 
         if include_line:
           output_lines.append(line.rstrip('\n'))
+
+      # After we inserted check lines in the original program we append all check lines for functions
+      # that were generated after the existing ones.
+      added = set()
+      for func in trailing_functions:
+          handle_functions_on_line(output_lines, func, args, func, func, added, include_line)
 
     common.debug('Writing %d lines to %s...' % (len(output_lines), ti.path))
     with open(ti.path, 'wb') as f:

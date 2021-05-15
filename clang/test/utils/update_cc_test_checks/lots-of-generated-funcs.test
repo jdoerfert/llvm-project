@@ -1,0 +1,12 @@
+## Test that CHECK lines are generated for clang-generated functions
+
+# RUN: cp %S/Inputs/lots-of-generated-funcs.c %t-lots-of-generated.c && %update_cc_test_checks --include-generated-funcs %t-lots-of-generated.c
+# RUN: diff -u %S/Inputs/lots-of-generated-funcs.c.lots-of-generated.expected %t-lots-of-generated.c
+# RUN: cp %S/Inputs/lots-of-generated-funcs.c %t-no-lots-of-generated.c && %update_cc_test_checks %t-no-lots-of-generated.c
+# RUN: diff -u %S/Inputs/lots-of-generated-funcs.c.no-lots-of-generated.expected %t-no-lots-of-generated.c
+
+## Check that re-running update_cc_test_checks doesn't change the output
+# RUN: %update_cc_test_checks --include-generated-funcs %t-lots-of-generated.c
+# RUN: diff -u %S/Inputs/lots-of-generated-funcs.c.lots-of-generated.expected %t-lots-of-generated.c
+# RUN: %update_cc_test_checks %t-no-lots-of-generated.c
+# RUN: diff -u %S/Inputs/lots-of-generated-funcs.c.no-lots-of-generated.expected %t-no-lots-of-generated.c
