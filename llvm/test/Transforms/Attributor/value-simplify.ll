@@ -1090,6 +1090,49 @@ define internal i1 @cmp_null_after_cast(i32 %a, i8 %b) {
   ret i1 %c
 }
 
+define void @test_callee_is_undef(void (i32)* %fn) {
+; IS__TUNIT____-LABEL: define {{[^@]+}}@test_callee_is_undef
+; IS__TUNIT____-SAME: (void (i32)* nocapture nofree [[FN:%.*]]) {
+; IS__TUNIT____-NEXT:    call void @callee_is_undef(void ()* undef)
+; IS__TUNIT____-NEXT:    call void @unknown_calle_arg_is_undef(void (i32)* nocapture nofree [[FN]], i32 undef)
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@test_callee_is_undef
+; IS__CGSCC____-SAME: (void (i32)* nocapture nofree [[FN:%.*]]) {
+; IS__CGSCC____-NEXT:    call void @callee_is_undef(void ()* undef)
+; IS__CGSCC____-NEXT:    call void @unknown_calle_arg_is_undef(void (i32)* nocapture nofree noundef nonnull [[FN]], i32 undef)
+; IS__CGSCC____-NEXT:    ret void
+;
+  call void @callee_is_undef(void ()* undef)
+  call void @unknown_calle_arg_is_undef(void (i32)* %fn, i32 undef)
+  ret void
+}
+define internal void @callee_is_undef(void ()* %fn) {
+;
+; IS__TUNIT____-LABEL: define {{[^@]+}}@callee_is_undef
+; IS__TUNIT____-SAME: (void ()* nocapture nofree noundef nonnull [[FN:%.*]]) {
+; IS__TUNIT____-NEXT:    call void undef()
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____-LABEL: define {{[^@]+}}@callee_is_undef
+; IS__CGSCC____-SAME: (void ()* nocapture nofree noundef nonnull [[FN:%.*]]) {
+; IS__CGSCC____-NEXT:    call void [[FN]]()
+; IS__CGSCC____-NEXT:    ret void
+;
+  call void %fn()
+  ret void
+}
+define internal void @unknown_calle_arg_is_undef(void (i32)* %fn, i32 %arg) {
+;
+; CHECK-LABEL: define {{[^@]+}}@unknown_calle_arg_is_undef
+; CHECK-SAME: (void (i32)* nocapture nofree noundef nonnull [[FN:%.*]], i32 [[ARG:%.*]]) {
+; CHECK-NEXT:    call void [[FN]](i32 undef)
+; CHECK-NEXT:    ret void
+;
+  call void %fn(i32 %arg)
+  ret void
+}
+
 ;.
 ; IS__TUNIT_OPM: attributes #[[ATTR0]] = { nofree nosync nounwind willreturn }
 ; IS__TUNIT_OPM: attributes #[[ATTR1]] = { nofree nosync nounwind readnone willreturn }
