@@ -4469,7 +4469,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       const DominatorTree *DT =
           InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(
               *I->getFunction());
-      if (!DT->dominates(I, getCtxI()))
+      if (!DT || !DT->dominates(I, getCtxI()))
         return nullptr;
     }
     return NewV;
