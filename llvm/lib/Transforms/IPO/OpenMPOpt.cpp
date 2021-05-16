@@ -2197,9 +2197,14 @@ private:
       GetterRFI.foreachUse(SCC, CreateAA);
     }
 
+    if (OMPInfoCache.Kernels.empty())
+      return;
+
     for (auto &F : M) {
-      if (!F.isDeclaration())
-        A.getOrCreateAAFor<AAExecutionDomain>(IRPosition::function(F));
+      if (F.isDeclaration())
+        continue;
+      A.getOrCreateAAFor<AAHeapToStack>(IRPosition::function(F));
+      A.getOrCreateAAFor<AAExecutionDomain>(IRPosition::function(F));
     }
     if (IsModulePass) {
       for (Function *Kernel : OMPInfoCache.Kernels)
