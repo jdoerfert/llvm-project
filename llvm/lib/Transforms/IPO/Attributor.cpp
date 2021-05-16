@@ -1366,6 +1366,13 @@ ChangeStatus Attributor::cleanupIR() {
     return !I || !isRunOn(*cast<Instruction>(I)->getFunction());
   });
 
+  LLVM_DEBUG({
+    dbgs() << "[Attributor] DeadInsts size: " << DeadInsts.size() << "\n";
+    for (auto &I : DeadInsts)
+      if (I)
+        dbgs() << "  - " << *I << "\n";
+  });
+
   RecursivelyDeleteTriviallyDeadInstructions(DeadInsts);
 
   if (unsigned NumDeadBlocks = ToBeDeletedBlocks.size()) {
@@ -2345,8 +2352,12 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
   if (Functions.empty())
     return false;
 
-  LLVM_DEBUG(dbgs() << "[Attributor] Run on module with " << Functions.size()
-                    << " functions.\n");
+  LLVM_DEBUG({
+    dbgs() << "[Attributor] Run on module with " << Functions.size()
+           << " functions:\n";
+    for (Function *Fn : Functions)
+      dbgs() << "  - " << Fn->getName() << "\n";
+  });
 
   // Create an Attributor and initially empty information cache that is filled
   // while we identify default attribute opportunities.
