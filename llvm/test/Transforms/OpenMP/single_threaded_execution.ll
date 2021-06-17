@@ -3,7 +3,7 @@
 ; ModuleID = 'single_threaded_exeuction.c'
 
 define void @kernel() {
-  call void @__kmpc_kernel_init(i32 512, i16 1)
+  call void @__kmpc_kernel_prepare_parallel(i8* null)
   call void @nvptx()
   call void @amdgcn()
   ret void
@@ -56,7 +56,7 @@ declare i32 @llvm.nvvm.read.ptx.sreg.tid.x()
 
 declare i32 @llvm.amdgcn.workitem.id.x()
 
-declare void @__kmpc_kernel_init(i32, i16)
+declare void @__kmpc_kernel_prepare_parallel(i8*)
 
 !llvm.dbg.cu = !{!0}
 !llvm.module.flags = !{!3, !4}
