@@ -108,7 +108,7 @@ define internal void @spmd_helper() {
 
 define internal void @__kmpc_parallel_51(%struct.ident_t*, i32, i32, i32, i32, i8*, i8*, i8**, i64) {
 ; CHECK-LABEL: define {{[^@]+}}@__kmpc_parallel_51
-; CHECK-SAME: (%struct.ident_t* noalias nocapture nofree readnone align 1073741824 [[TMP0:%.*]], i32 [[TMP1:%.*]], i32 [[TMP2:%.*]], i32 [[TMP3:%.*]], i32 [[TMP4:%.*]], i8* noalias nocapture nofree readnone align 1073741824 [[TMP5:%.*]], i8* noalias nocapture nofree readnone align 1073741824 [[TMP6:%.*]], i8** noalias nocapture nofree readnone align 1073741824 [[TMP7:%.*]], i64 [[TMP8:%.*]]) #[[ATTR0:[0-9]+]] {
+; CHECK-SAME: (%struct.ident_t* noalias nocapture nofree readnone align 1073741824 [[TMP0:%.*]], i32 [[TMP1:%.*]], i32 [[TMP2:%.*]], i32 [[TMP3:%.*]], i32 [[TMP4:%.*]], i8* noalias nocapture nofree readnone align 1073741824 [[TMP5:%.*]], i8* noalias nocapture nofree readnone align 1073741824 [[TMP6:%.*]], i8** noalias nocapture nofree readnone align 1073741824 [[TMP7:%.*]], i64 [[TMP8:%.*]]) #[[ATTR0:[0-9]+]] !callback !5 {
 ; CHECK-NEXT:    call void @parallel_helper()
 ; CHECK-NEXT:    ret void
 ;
@@ -149,4 +149,6 @@ declare void @__kmpc_target_deinit(%struct.ident_t* nocapture readnone, i1 zeroe
 ; CHECK: [[META2:![0-9]+]] = !{void ()* @none_spmd, !"kernel", i32 1}
 ; CHECK: [[META3:![0-9]+]] = !{void ()* @spmd, !"kernel", i32 1}
 ; CHECK: [[META4:![0-9]+]] = !{void ()* @parallel, !"kernel", i32 1}
+; CHECK: [[META5:![0-9]+]] = !{!6}
+; CHECK: [[META6:![0-9]+]] = !{i64 5, i64 -1, i64 -1, i64 7, i1 false}
 ;.

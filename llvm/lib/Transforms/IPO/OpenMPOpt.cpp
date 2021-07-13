@@ -150,11 +150,11 @@ struct AAICVTracker;
 struct OMPInformationCache : public InformationCache {
   OMPInformationCache(Module &M, AnalysisGetter &AG,
                       BumpPtrAllocator &Allocator, SetVector<Function *> &CGSCC,
-                      SmallPtrSetImpl<Kernel> &Kernels)
-      : InformationCache(M, AG, Allocator, &CGSCC), OMPBuilder(M),
+                      SmallPtrSetImpl<Kernel> &Kernels,
+                      OpenMPIRBuilder &OMPBuilder)
+      : InformationCache(M, AG, Allocator, &CGSCC), OMPBuilder(OMPBuilder),
         Kernels(Kernels) {
 
-    OMPBuilder.initialize();
     initializeRuntimeFunctions();
     initializeInternalControlVars();
   }
@@ -285,7 +285,7 @@ struct OMPInformationCache : public InformationCache {
   };
 
   /// An OpenMP-IR-Builder instance
-  OpenMPIRBuilder OMPBuilder;
+  OpenMPIRBuilder &OMPBuilder;
 
   /// Map from runtime function kind to the runtime function description.
   EnumeratedArray<RuntimeFunctionInfo, RuntimeFunction,
@@ -4454,6 +4454,12 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
       AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
   KernelSet Kernels = getDeviceKernels(M);
 
+  OpenMPIRBuilder OMPBuilder(M);
+  OMPBuilder.initialize();
+  // Make sure we have the callback annotations attached to the
+  // __kmpc_parallel_51 function declaration/definition.
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_parallel_51);
+
   auto IsCalled = [&](Function &F) {
     if (Kernels.contains(&F))
       return true;
@@ -4507,9 +4513,9 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
 
   BumpPtrAllocator Allocator;
   CallGraphUpdater CGUpdater;
-
   SetVector<Function *> Functions(SCC.begin(), SCC.end());
-  OMPInformationCache InfoCache(M, AG, Allocator, /*CGSCC*/ Functions, Kernels);
+  OMPInformationCache InfoCache(M, AG, Allocator, /*CGSCC*/ Functions, Kernels,
+                                OMPBuilder);
 
   unsigned MaxFixpointIterations = (isOpenMPDevice(M)) ? 128 : 32;
   Attributor A(Functions, InfoCache, CGUpdater, nullptr, true, false,
@@ -4563,9 +4569,11 @@ PreservedAnalyses OpenMPOptCGSCCPass::run(LazyCallGraph::SCC &C,
   CallGraphUpdater CGUpdater;
   CGUpdater.initialize(CG, C, AM, UR);
 
+  OpenMPIRBuilder OMPBuilder(M);
+  OMPBuilder.initialize();
   SetVector<Function *> Functions(SCC.begin(), SCC.end());
-  OMPInformationCache InfoCache(*(Functions.back()->getParent()), AG, Allocator,
-                                /*CGSCC*/ Functions, Kernels);
+  OMPInformationCache InfoCache(M, AG, Allocator,
+                                /*CGSCC*/ Functions, Kernels, OMPBuilder);
 
   unsigned MaxFixpointIterations = (isOpenMPDevice(M)) ? 128 : 32;
   Attributor A(Functions, InfoCache, CGUpdater, nullptr, false, true,
@@ -4633,9 +4641,10 @@ struct OpenMPOptCGSCCLegacyPass : public CallGraphSCCPass {
     AnalysisGetter AG;
     SetVector<Function *> Functions(SCC.begin(), SCC.end());
     BumpPtrAllocator Allocator;
-    OMPInformationCache InfoCache(*(Functions.back()->getParent()), AG,
-                                  Allocator,
-                                  /*CGSCC*/ Functions, Kernels);
+    OpenMPIRBuilder OMPBuilder(M);
+    OMPBuilder.initialize();
+    OMPInformationCache InfoCache(M, AG, Allocator,
+                                  /*CGSCC*/ Functions, Kernels, OMPBuilder);
 
     unsigned MaxFixpointIterations = (isOpenMPDevice(M)) ? 128 : 32;
     Attributor A(Functions, InfoCache, CGUpdater, nullptr, false, true,
