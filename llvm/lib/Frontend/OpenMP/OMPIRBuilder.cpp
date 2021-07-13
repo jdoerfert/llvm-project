@@ -112,6 +112,19 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
             *MDNode::get(Ctx, {MDB.createCallbackEncoding(
                                   2, {-1, -1}, /* VarArgsArePassed */ true)}));
       }
+    } else if (FnID == OMPRTL___kmpc_parallel_51) {
+      if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
+        LLVMContext &Ctx = Fn->getContext();
+        MDBuilder MDB(Ctx);
+        // Annotate the callback behavior of the runtime function:
+        //  - The callback callee is argument number 5 (outlined function).
+        //  - The first two arguments of the callback callee are unknown (-1).
+        //  - Argument 7, (args) is passed next, no variadic arguments are used.
+        Fn->addMetadata(LLVMContext::MD_callback,
+                        *MDNode::get(Ctx, {MDB.createCallbackEncoding(
+                                              5, {-1, -1, 7},
+                                              /* VarArgsArePassed */ false)}));
+      }
     }
 
     LLVM_DEBUG(dbgs() << "Created OpenMP runtime function " << Fn->getName()
