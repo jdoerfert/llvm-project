@@ -114,23 +114,6 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
     }
 
-    // Add information if the runtime function takes a callback function
-    if (FnID == OMPRTL___kmpc_fork_call || FnID == OMPRTL___kmpc_fork_teams) {
-      if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
-        LLVMContext &Ctx = Fn->getContext();
-        MDBuilder MDB(Ctx);
-        // Annotate the callback behavior of the runtime function:
-        //  - The callback callee is argument number 2 (microtask).
-        //  - The first two arguments of the callback callee are unknown (-1).
-        //  - All variadic arguments to the runtime function are passed to the
-        //    callback callee.
-        Fn->addMetadata(
-            LLVMContext::MD_callback,
-            *MDNode::get(Ctx, {MDB.createCallbackEncoding(
-                                  2, {-1, -1}, /* VarArgsArePassed */ true)}));
-      }
-    }
-
     LLVM_DEBUG(dbgs() << "Created OpenMP runtime function " << Fn->getName()
                       << " with type " << *Fn->getFunctionType() << "\n");
     addAttributes(FnID, *Fn);
@@ -138,6 +121,49 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
   } else {
     LLVM_DEBUG(dbgs() << "Found OpenMP runtime function " << Fn->getName()
                       << " with type " << *Fn->getFunctionType() << "\n");
+  }
+
+  // Add information if the runtime function takes a callback function
+  if (FnID == OMPRTL___kmpc_fork_call || FnID == OMPRTL___kmpc_fork_teams) {
+    if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
+      LLVMContext &Ctx = Fn->getContext();
+      MDBuilder MDB(Ctx);
+      // Annotate the callback behavior of the runtime function:
+      //  - The callback callee is argument number 2 (microtask).
+      //  - The first two arguments of the callback callee are unknown (-1).
+      //  - All variadic arguments to the runtime function are passed to the
+      //    callback callee.
+      Fn->addMetadata(
+          LLVMContext::MD_callback,
+          *MDNode::get(Ctx, {MDB.createCallbackEncoding(
+                                2, {-1, -1}, /* VarArgsArePassed */ true)}));
+    }
+  } else if (FnID == OMPRTL___kmpc_parallel_51) {
+    if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
+      LLVMContext &Ctx = Fn->getContext();
+      MDBuilder MDB(Ctx);
+      // Annotate the callback behavior of the runtime function:
+      //  - The callback callee is argument number 5 (outlined function).
+      //  - The first two arguments of the callback callee are unknown (-1).
+      //  - Argument 7, (args) is passed next, no variadic arguments are used.
+      Fn->addMetadata(LLVMContext::MD_callback,
+                      *MDNode::get(Ctx, {MDB.createCallbackEncoding(
+                                            5, {-1, -1, -1, 7},
+                                            /* VarArgsArePassed */ false)}));
+    }
+  } else if (FnID == OMPRTL___kmpc_distribute_for_static_loop) {
+    if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
+      LLVMContext &Ctx = Fn->getContext();
+      MDBuilder MDB(Ctx);
+      // Annotate the callback behavior of the runtime function:
+      //  - The callback callee is argument number 5 (outlined function).
+      //  - The first two arguments of the callback callee are unknown (-1).
+      //  - Argument 7, (args) is passed next, no variadic arguments are used.
+      Fn->addMetadata(LLVMContext::MD_callback,
+                      *MDNode::get(Ctx, {MDB.createCallbackEncoding(
+                                            0, {-1, -1, -1, 2},
+                                            /* VarArgsArePassed */ false)}));
+    }
   }
 
   assert(Fn && "Failed to create OpenMP runtime function");
