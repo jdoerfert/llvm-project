@@ -761,27 +761,41 @@ for.end38:                                        ; preds = %for.cond.cleanup30
 ;    }
 ;
 define i32 @local_alloca_simplifiable_3() {
-; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@local_alloca_simplifiable_3
-; IS__TUNIT____-SAME: () #[[ATTR3:[0-9]+]] {
-; IS__TUNIT____-NEXT:    [[A:%.*]] = alloca i32, align 4
-; IS__TUNIT____-NEXT:    store i32 1, i32* [[A]], align 4
-; IS__TUNIT____-NEXT:    br label [[SPLIT:%.*]]
-; IS__TUNIT____:       split:
-; IS__TUNIT____-NEXT:    store i32 2, i32* [[A]], align 4
-; IS__TUNIT____-NEXT:    [[L:%.*]] = load i32, i32* [[A]], align 4
-; IS__TUNIT____-NEXT:    ret i32 [[L]]
+; IS__TUNIT_OPM: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@local_alloca_simplifiable_3
+; IS__TUNIT_OPM-SAME: () #[[ATTR3:[0-9]+]] {
+; IS__TUNIT_OPM-NEXT:    [[A:%.*]] = alloca i32, align 4
+; IS__TUNIT_OPM-NEXT:    store i32 1, i32* [[A]], align 4
+; IS__TUNIT_OPM-NEXT:    br label [[SPLIT:%.*]]
+; IS__TUNIT_OPM:       split:
+; IS__TUNIT_OPM-NEXT:    store i32 2, i32* [[A]], align 4
+; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = load i32, i32* [[A]], align 4
+; IS__TUNIT_OPM-NEXT:    ret i32 [[L]]
 ;
-; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@local_alloca_simplifiable_3
-; IS__CGSCC____-SAME: () #[[ATTR2:[0-9]+]] {
-; IS__CGSCC____-NEXT:    [[A:%.*]] = alloca i32, align 4
-; IS__CGSCC____-NEXT:    store i32 1, i32* [[A]], align 4
-; IS__CGSCC____-NEXT:    br label [[SPLIT:%.*]]
-; IS__CGSCC____:       split:
-; IS__CGSCC____-NEXT:    store i32 2, i32* [[A]], align 4
-; IS__CGSCC____-NEXT:    [[L:%.*]] = load i32, i32* [[A]], align 4
-; IS__CGSCC____-NEXT:    ret i32 [[L]]
+; IS__TUNIT_NPM: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@local_alloca_simplifiable_3
+; IS__TUNIT_NPM-SAME: () #[[ATTR3:[0-9]+]] {
+; IS__TUNIT_NPM-NEXT:    br label [[SPLIT:%.*]]
+; IS__TUNIT_NPM:       split:
+; IS__TUNIT_NPM-NEXT:    ret i32 2
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@local_alloca_simplifiable_3
+; IS__CGSCC_OPM-SAME: () #[[ATTR2:[0-9]+]] {
+; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = alloca i32, align 4
+; IS__CGSCC_OPM-NEXT:    store i32 1, i32* [[A]], align 4
+; IS__CGSCC_OPM-NEXT:    br label [[SPLIT:%.*]]
+; IS__CGSCC_OPM:       split:
+; IS__CGSCC_OPM-NEXT:    store i32 2, i32* [[A]], align 4
+; IS__CGSCC_OPM-NEXT:    [[L:%.*]] = load i32, i32* [[A]], align 4
+; IS__CGSCC_OPM-NEXT:    ret i32 [[L]]
+;
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@local_alloca_simplifiable_3
+; IS__CGSCC_NPM-SAME: () #[[ATTR2:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:    br label [[SPLIT:%.*]]
+; IS__CGSCC_NPM:       split:
+; IS__CGSCC_NPM-NEXT:    ret i32 2
 ;
   %A = alloca i32, align 4
   store i32 1, i32* %A
@@ -799,12 +813,12 @@ split:
 define i32 @local_alloca_simplifiable_4() {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@local_alloca_simplifiable_4
-; IS__TUNIT____-SAME: () #[[ATTR3]] {
+; IS__TUNIT____-SAME: () #[[ATTR3:[0-9]+]] {
 ; IS__TUNIT____-NEXT:    ret i32 undef
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@local_alloca_simplifiable_4
-; IS__CGSCC____-SAME: () #[[ATTR2]] {
+; IS__CGSCC____-SAME: () #[[ATTR2:[0-9]+]] {
 ; IS__CGSCC____-NEXT:    ret i32 undef
 ;
   %A = alloca i32, align 4

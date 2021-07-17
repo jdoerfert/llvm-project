@@ -383,7 +383,7 @@ define void @test7() {
 define void @test8() {
 ; CHECK-LABEL: define {{[^@]+}}@test8() {
 ; CHECK-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
-; CHECK-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; CHECK-NEXT:    tail call void @no_sync_func(i8* nocapture nofree [[TMP1]])
 ; CHECK-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
 ; CHECK-NEXT:    store i32 10, i32* [[TMP2]], align 4
 ; CHECK-NEXT:    tail call void @foo(i32* noundef align 4 [[TMP2]])
@@ -404,7 +404,7 @@ define void @test8() {
 define void @test9() {
 ; IS________OPM-LABEL: define {{[^@]+}}@test9() {
 ; IS________OPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
-; IS________OPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; IS________OPM-NEXT:    tail call void @no_sync_func(i8* nocapture nofree [[TMP1]])
 ; IS________OPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
 ; IS________OPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
 ; IS________OPM-NEXT:    tail call void @foo_nounw(i32* nofree noundef align 4 [[TMP2]]) #[[ATTR5]]
@@ -413,7 +413,7 @@ define void @test9() {
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@test9() {
 ; IS________NPM-NEXT:    [[TMP1:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
-; IS________NPM-NEXT:    tail call void @no_sync_func(i8* noalias nocapture nofree [[TMP1]])
+; IS________NPM-NEXT:    tail call void @no_sync_func(i8* nocapture nofree [[TMP1]])
 ; IS________NPM-NEXT:    [[TMP2:%.*]] = bitcast i8* [[TMP1]] to i32*
 ; IS________NPM-NEXT:    store i32 10, i32* [[TMP2]], align 4
 ; IS________NPM-NEXT:    tail call void @foo_nounw(i32* nofree noundef align 4 [[TMP2]]) #[[ATTR6]]

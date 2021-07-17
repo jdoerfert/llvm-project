@@ -1402,9 +1402,6 @@ define internal void @__omp_outlined__5_wrapper(i16 zeroext %0, i32 %1) #0 {
 ; AMDGPU-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca i8**, align 8
-; AMDGPU-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
-; AMDGPU-NEXT:    store i16 [[TMP0]], i16* [[DOTADDR]], align 2
-; AMDGPU-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 ; AMDGPU-NEXT:    call void @__kmpc_get_shared_variables(i8*** [[GLOBAL_ARGS]])
 ; AMDGPU-NEXT:    [[TMP2:%.*]] = load i8**, i8*** [[GLOBAL_ARGS]], align 8
 ; AMDGPU-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8*, i8** [[TMP2]], i64 0
@@ -1420,9 +1417,6 @@ define internal void @__omp_outlined__5_wrapper(i16 zeroext %0, i32 %1) #0 {
 ; NVPTX-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca i8**, align 8
-; NVPTX-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
-; NVPTX-NEXT:    store i16 [[TMP0]], i16* [[DOTADDR]], align 2
-; NVPTX-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 ; NVPTX-NEXT:    call void @__kmpc_get_shared_variables(i8*** [[GLOBAL_ARGS]])
 ; NVPTX-NEXT:    [[TMP2:%.*]] = load i8**, i8*** [[GLOBAL_ARGS]], align 8
 ; NVPTX-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8*, i8** [[TMP2]], i64 0
@@ -1438,9 +1432,6 @@ define internal void @__omp_outlined__5_wrapper(i16 zeroext %0, i32 %1) #0 {
 ; AMDGPU-DISABLED-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 ; AMDGPU-DISABLED-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-DISABLED-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca i8**, align 8
-; AMDGPU-DISABLED-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
-; AMDGPU-DISABLED-NEXT:    store i16 [[TMP0]], i16* [[DOTADDR]], align 2
-; AMDGPU-DISABLED-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 ; AMDGPU-DISABLED-NEXT:    call void @__kmpc_get_shared_variables(i8*** [[GLOBAL_ARGS]])
 ; AMDGPU-DISABLED-NEXT:    [[TMP2:%.*]] = load i8**, i8*** [[GLOBAL_ARGS]], align 8
 ; AMDGPU-DISABLED-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8*, i8** [[TMP2]], i64 0
@@ -1456,9 +1447,6 @@ define internal void @__omp_outlined__5_wrapper(i16 zeroext %0, i32 %1) #0 {
 ; NVPTX-DISABLED-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 ; NVPTX-DISABLED-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-DISABLED-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca i8**, align 8
-; NVPTX-DISABLED-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
-; NVPTX-DISABLED-NEXT:    store i16 [[TMP0]], i16* [[DOTADDR]], align 2
-; NVPTX-DISABLED-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 ; NVPTX-DISABLED-NEXT:    call void @__kmpc_get_shared_variables(i8*** [[GLOBAL_ARGS]])
 ; NVPTX-DISABLED-NEXT:    [[TMP2:%.*]] = load i8**, i8*** [[GLOBAL_ARGS]], align 8
 ; NVPTX-DISABLED-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8*, i8** [[TMP2]], i64 0
@@ -1914,9 +1902,6 @@ define internal void @__omp_outlined__7_wrapper(i16 zeroext %0, i32 %1) #0 {
 ; AMDGPU-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca i8**, align 8
-; AMDGPU-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
-; AMDGPU-NEXT:    store i16 [[TMP0]], i16* [[DOTADDR]], align 2
-; AMDGPU-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 ; AMDGPU-NEXT:    call void @__kmpc_get_shared_variables(i8*** [[GLOBAL_ARGS]])
 ; AMDGPU-NEXT:    [[TMP2:%.*]] = load i8**, i8*** [[GLOBAL_ARGS]], align 8
 ; AMDGPU-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8*, i8** [[TMP2]], i64 0
@@ -1932,9 +1917,6 @@ define internal void @__omp_outlined__7_wrapper(i16 zeroext %0, i32 %1) #0 {
 ; NVPTX-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca i8**, align 8
-; NVPTX-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
-; NVPTX-NEXT:    store i16 [[TMP0]], i16* [[DOTADDR]], align 2
-; NVPTX-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 ; NVPTX-NEXT:    call void @__kmpc_get_shared_variables(i8*** [[GLOBAL_ARGS]])
 ; NVPTX-NEXT:    [[TMP2:%.*]] = load i8**, i8*** [[GLOBAL_ARGS]], align 8
 ; NVPTX-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8*, i8** [[TMP2]], i64 0
@@ -1950,9 +1932,6 @@ define internal void @__omp_outlined__7_wrapper(i16 zeroext %0, i32 %1) #0 {
 ; AMDGPU-DISABLED-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 ; AMDGPU-DISABLED-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-DISABLED-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca i8**, align 8
-; AMDGPU-DISABLED-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
-; AMDGPU-DISABLED-NEXT:    store i16 [[TMP0]], i16* [[DOTADDR]], align 2
-; AMDGPU-DISABLED-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 ; AMDGPU-DISABLED-NEXT:    call void @__kmpc_get_shared_variables(i8*** [[GLOBAL_ARGS]])
 ; AMDGPU-DISABLED-NEXT:    [[TMP2:%.*]] = load i8**, i8*** [[GLOBAL_ARGS]], align 8
 ; AMDGPU-DISABLED-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8*, i8** [[TMP2]], i64 0
@@ -1968,9 +1947,6 @@ define internal void @__omp_outlined__7_wrapper(i16 zeroext %0, i32 %1) #0 {
 ; NVPTX-DISABLED-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 ; NVPTX-DISABLED-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-DISABLED-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca i8**, align 8
-; NVPTX-DISABLED-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
-; NVPTX-DISABLED-NEXT:    store i16 [[TMP0]], i16* [[DOTADDR]], align 2
-; NVPTX-DISABLED-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 ; NVPTX-DISABLED-NEXT:    call void @__kmpc_get_shared_variables(i8*** [[GLOBAL_ARGS]])
 ; NVPTX-DISABLED-NEXT:    [[TMP2:%.*]] = load i8**, i8*** [[GLOBAL_ARGS]], align 8
 ; NVPTX-DISABLED-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8*, i8** [[TMP2]], i64 0
