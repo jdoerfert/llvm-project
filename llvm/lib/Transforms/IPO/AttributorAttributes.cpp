@@ -43,6 +43,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/ArgumentPromotion.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <cassert>
 
@@ -5250,24 +5251,82 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     return SimplifiedAssociatedValue;
   }
 
+  /// Ensure the return value is \p V with type \p Ty, if not possible return
+  /// nullptr. If \p Check is true we will only verify such an operation would
+  /// suceed and return a non-nullptr value if that is the case. No IR is
+  /// generated or modified.
+  Value *ensureType(Attributor &A, Value &V, Type &Ty, Instruction *CtxI,
+                    bool Check) const {
+    if (auto *TypedV = AA::getWithType(V, Ty))
+      return TypedV;
+    if (CtxI && V.getType()->canLosslesslyBitCastTo(&Ty))
+      return Check ? &V
+                   : BitCastInst::CreatePointerBitCastOrAddrSpaceCast(&V, &Ty,
+                                                                      "", CtxI);
+    return nullptr;
+  }
+
+  /// Reproduce \p I with type \p Ty or return nullptr if that is not posisble.
+  /// If \p Check is true we will only verify such an operation would suceed and
+  /// return a non-nullptr value if that is the case. No IR is generated or
+  /// modified.
+  Value *reproduceInst(Attributor &A, Instruction &I, Type &Ty,
+                       Instruction *CtxI, bool Check,
+                       ValueToValueMapTy &VMap) const {
+    if (Check && !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
+                                               /* TLI */ nullptr))
+      return nullptr;
+    for (Value *Op : I.operands()) {
+      Value *NewOp = reproduceValue(A, *Op, Ty, CtxI, Check, VMap);
+      if (!NewOp) {
+        assert(Check && "Manifest of new value unexpectedly failed!");
+        return nullptr;
+      }
+      if (!Check)
+        VMap[Op] = NewOp;
+    }
+    if (Check)
+      return &I;
+
+    Instruction *CloneI = I.clone();
+    VMap[&I] = CloneI;
+    CloneI->insertBefore(CtxI);
+    RemapInstruction(&I, VMap, RemapFlags::RF_IgnoreMissingLocals);
+    return CloneI;
+  }
+
+  /// Reproduce \p V with type \p Ty or return nullptr if that is not posisble.
+  /// If \p Check is true we will only verify such an operation would suceed and
+  /// return a non-nullptr value if that is the case. No IR is generated or
+  /// modified.
+  Value *reproduceValue(Attributor &A, Value &V, Type &Ty, Instruction *CtxI,
+                        bool Check, ValueToValueMapTy &VMap) const {
+    if (CtxI && AA::isValidAtPosition(V, *CtxI, A.getInfoCache()))
+      return ensureType(A, V, Ty, CtxI, Check);
+    if (!CtxI && AA::isValidInScope(V, getAnchorScope()))
+      return ensureType(A, V, Ty, CtxI, Check);
+    if (auto *I = dyn_cast<Instruction>(&V))
+      if (Value *NewV = reproduceInst(A, *I, Ty, CtxI, Check, VMap))
+        return ensureType(A, *NewV, Ty, CtxI, Check);
+    return nullptr;
+  }
+
   /// Return a value we can use as replacement for the associated one, or
   /// nullptr if we don't have one that makes sense.
-  Value *getReplacementValue(Attributor &A) const {
-    Value *NewV;
-    NewV = SimplifiedAssociatedValue.hasValue()
-               ? SimplifiedAssociatedValue.getValue()
-               : UndefValue::get(getAssociatedType());
-    if (!NewV)
-      return nullptr;
-    NewV = AA::getWithType(*NewV, *getAssociatedType());
-    if (!NewV || NewV == &getAssociatedValue())
-      return nullptr;
-    const Instruction *CtxI = getCtxI();
-    if (CtxI && !AA::isValidAtPosition(*NewV, *CtxI, A.getInfoCache()))
-      return nullptr;
-    if (!CtxI && !AA::isValidInScope(*NewV, getAnchorScope()))
-      return nullptr;
-    return NewV;
+  Value *manifestReplacementValue(Attributor &A, Instruction *CtxI) const {
+    Value *NewV = SimplifiedAssociatedValue.hasValue()
+                      ? SimplifiedAssociatedValue.getValue()
+                      : UndefValue::get(getAssociatedType());
+    if (NewV && NewV != &getAssociatedValue()) {
+      ValueToValueMapTy VMap;
+      // First verify we can reprduce the value with the required type at the
+      // context location before we actually start modifying the IR.
+      if (reproduceValue(A, *NewV, *getAssociatedType(), CtxI,
+                         /* CheckOnly */ true, VMap))
+        return reproduceValue(A, *NewV, *getAssociatedType(), CtxI,
+                              /* CheckOnly */ false, VMap);
+    }
+    return nullptr;
   }
 
   /// Helper function for querying AAValueSimplify and updating candicate.
@@ -5320,7 +5379,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     if (getAssociatedValue().user_empty())
       return Changed;
 
-    if (auto *NewV = getReplacementValue(A)) {
+    if (auto *NewV = manifestReplacementValue(A, getCtxI())) {
       LLVM_DEBUG(dbgs() << "[ValueSimplify] " << getAssociatedValue() << " -> "
                         << *NewV << " :: " << *this << "\n");
       if (A.changeValueAfterManifest(getAssociatedValue(), *NewV))
@@ -5527,25 +5586,24 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
-    if (auto *NewV = getReplacementValue(A)) {
-      auto PredForReturned =
-          [&](Value &, const SmallSetVector<ReturnInst *, 4> &RetInsts) {
-            for (ReturnInst *RI : RetInsts) {
-              Value *ReturnedVal = RI->getReturnValue();
-              if (ReturnedVal == NewV || isa<UndefValue>(ReturnedVal))
-                return true;
-              assert(RI->getFunction() == getAnchorScope() &&
-                     "ReturnInst in wrong function!");
-              LLVM_DEBUG(dbgs()
-                         << "[ValueSimplify] " << *ReturnedVal << " -> "
-                         << *NewV << " in " << *RI << " :: " << *this << "\n");
-              if (A.changeUseAfterManifest(RI->getOperandUse(0), *NewV))
-                Changed = ChangeStatus::CHANGED;
-            }
-            return true;
-          };
-      A.checkForAllReturnedValuesAndReturnInsts(PredForReturned, *this);
-    }
+    auto PredForReturned =
+        [&](Value &, const SmallSetVector<ReturnInst *, 4> &RetInsts) {
+          for (ReturnInst *RI : RetInsts) {
+            Value *ReturnedVal = RI->getReturnValue();
+            auto *NewV = manifestReplacementValue(A, RI);
+            if (!NewV || ReturnedVal == NewV || isa<UndefValue>(ReturnedVal))
+              return true;
+            assert(RI->getFunction() == getAnchorScope() &&
+                   "ReturnInst in wrong function!");
+            LLVM_DEBUG(dbgs()
+                       << "[ValueSimplify] " << *ReturnedVal << " -> " << *NewV
+                       << " in " << *RI << " :: " << *this << "\n");
+            if (A.changeUseAfterManifest(RI->getOperandUse(0), *NewV))
+              Changed = ChangeStatus::CHANGED;
+          }
+          return true;
+        };
+    A.checkForAllReturnedValuesAndReturnInsts(PredForReturned, *this);
 
     return Changed | AAValueSimplify::manifest(A);
   }
@@ -5841,7 +5899,7 @@ struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
-    if (auto *NewV = getReplacementValue(A)) {
+    if (auto *NewV = manifestReplacementValue(A, getCtxI())) {
       Use &U = cast<CallBase>(&getAnchorValue())
                    ->getArgOperandUse(getCallSiteArgNo());
       if (A.changeUseAfterManifest(U, *NewV))
