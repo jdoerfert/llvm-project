@@ -29,6 +29,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
@@ -400,20 +401,62 @@ static bool genericValueTraversal(
 bool AA::getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
                                      SmallVectorImpl<Value *> &Objects,
                                      const AbstractAttribute &QueryingAA,
-                                     const Instruction *CtxI) {
+                                     const Instruction *CtxI,
+                                     bool StopAtArguments) {
   auto StripCB = [&](Value *V) { return getUnderlyingObject(V); };
   SmallPtrSet<Value *, 8> SeenObjects;
-  auto VisitValueCB = [&SeenObjects](Value &Val, const Instruction *,
-                                     SmallVectorImpl<Value *> &Objects,
-                                     bool) -> bool {
-    if (SeenObjects.insert(&Val).second)
-      Objects.push_back(&Val);
+  SmallVector<Argument *, 8> Arguments;
+
+  auto IsUniqueInScope = [&](Argument &Arg) {
+    const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
+        QueryingAA, IRPosition::function(*Arg.getParent()),
+        DepClassTy::REQUIRED);
+    return NoRecurseAA.isAssumedNoRecurse();
+  };
+
+  auto VisitValueCB = [&](Value &Val, const Instruction *,
+                          SmallVectorImpl<Value *> &Objs, bool) -> bool {
+    if (!SeenObjects.insert(&Val).second)
+      return true;
+    auto *Arg = dyn_cast<Argument>(&Val);
+    if (!StopAtArguments && Arg && !Arg->hasPointeeInMemoryValueAttr() &&
+        IsUniqueInScope(*Arg))
+      Arguments.push_back(Arg);
+    else
+      Objs.push_back(&Val);
     return true;
   };
-  if (!genericValueTraversal<decltype(Objects)>(
-          A, IRPosition::value(Ptr), QueryingAA, Objects, VisitValueCB, CtxI,
-          true, 32, StripCB))
+
+  auto TraversePointer = [&](const Value &Ptr, SmallVectorImpl<Value *> &Objs) {
+    if (!genericValueTraversal<decltype(Objs)>(A, IRPosition::value(Ptr),
+                                               QueryingAA, Objs, VisitValueCB,
+                                               CtxI, true, 32, StripCB))
+      return false;
+    return true;
+  };
+
+  if (!TraversePointer(Ptr, Objects))
     return false;
+
+  while (!Arguments.empty()) {
+    Argument *Arg = Arguments.pop_back_val();
+
+    SmallVector<Value *, 8> ArgObjects;
+    auto CallSiteCB = [&](AbstractCallSite ACS) {
+      if (Value *Op = ACS.getCallArgOperand(*Arg))
+        return TraversePointer(*Op, ArgObjects);
+      return false;
+    };
+
+    bool AllCallSitesKnown = true;
+    if (A.checkForAllCallSites(CallSiteCB, *Arg->getParent(),
+                               /* RequireAllCallSites */ true, &QueryingAA,
+                               AllCallSitesKnown))
+      Objects.append(ArgObjects);
+    else
+      Objects.push_back(Arg);
+  }
+
   return true;
 }
 
@@ -5307,7 +5350,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
 
     Value &Ptr = *L.getPointerOperand();
     SmallVector<Value *, 8> Objects;
-    if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, AA, &L))
+    if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, AA, &L,
+                                         /* StopAtArguments */ false))
       return false;
 
     for (Value *Obj : Objects) {
@@ -5389,6 +5433,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     // Byval is only replacable if it is readonly otherwise we would write into
     // the replaced value and not the copy that byval creates implicitly.
     Argument *Arg = getAssociatedArgument();
+
     if (Arg->hasByValAttr()) {
       // TODO: We probably need to verify synchronization is not an issue, e.g.,
       //       there is no race by not copying a constant byval.
@@ -6132,7 +6177,8 @@ ChangeStatus AAHeapToStackFunction::updateImpl(Attributor &A) {
       // branches etc.
       SmallVector<Value *, 8> Objects;
       if (!AA::getAssumedUnderlyingObjects(A, *DI.CB->getArgOperand(0), Objects,
-                                           *this, DI.CB)) {
+                                           *this, DI.CB,
+                                           /* StopAtArguments */ true)) {
         LLVM_DEBUG(
             dbgs()
             << "[H2S] Unexpected failure in getAssumedUnderlyingObjects!\n");
@@ -7728,7 +7774,8 @@ void AAMemoryLocationImpl::categorizePtrValue(
                     << getMemoryLocationsAsStr(State.getAssumed()) << "]\n");
 
   SmallVector<Value *, 8> Objects;
-  if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &I)) {
+  if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &I,
+                                       /* StopAtArguments */ true)) {
     LLVM_DEBUG(
         dbgs() << "[AAMemoryLocation] Pointer locations not categorized\n");
     updateStateAndAccessesMap(State, NO_UNKOWN_MEM, &I, nullptr, Changed,

@@ -288,7 +288,8 @@ bool AA::getPotentialCopiesOfStoredValue(
 
   Value &Ptr = *SI.getPointerOperand();
   SmallVector<Value *, 8> Objects;
-  if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &SI)) {
+  if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &SI,
+                                       /* StopAtArguments */ false)) {
     LLVM_DEBUG(
         dbgs() << "Underlying objects stored into could not be determined\n";);
     return false;

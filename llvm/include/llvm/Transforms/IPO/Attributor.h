@@ -176,7 +176,10 @@ Constant *getInitialValueForObj(Value &Obj, Type &Ty);
 
 /// Collect all potential underlying objects of \p Ptr at position \p CtxI in
 /// \p Objects. Assumed information is used and dependences onto \p QueryingAA
-/// are added appropriately.
+/// are added appropriately. The flag \p StopAtArguments is false we will try to
+/// collect all objects that might be passed as an argument if that is possible.
+/// Even then, and if \p StopAtArguments is true, arguments can end up as part
+/// of the \p Objects set.
 ///
 /// \returns True if \p Objects contains all assumed underlying objects, and
 ///          false if something went wrong and the objects could not be
@@ -184,7 +187,7 @@ Constant *getInitialValueForObj(Value &Obj, Type &Ty);
 bool getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
                                  SmallVectorImpl<Value *> &Objects,
                                  const AbstractAttribute &QueryingAA,
-                                 const Instruction *CtxI);
+                                 const Instruction *CtxI, bool StopAtArguments);
 
 /// Collect all potential values of the one stored by \p SI into
 /// \p PotentialCopies. That is, the only copies that were made via the
@@ -1782,6 +1785,18 @@ public:
                             const AbstractAttribute &QueryingAA,
                             bool RequireAllCallSites, bool &AllCallSitesKnown);
 
+  /// Check \p Pred on all call sites of \p Fn.
+  ///
+  /// This method will evaluate \p Pred on call sites and return
+  /// true if \p Pred holds in every call sites. However, this is only possible
+  /// all call sites are known, hence the function has internal linkage.
+  /// If true is returned, \p AllCallSitesKnown is set if all possible call
+  /// sites of the function have been visited.
+  bool checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
+                            const Function &Fn, bool RequireAllCallSites,
+                            const AbstractAttribute *QueryingAA,
+                            bool &AllCallSitesKnown);
+
   /// Check \p Pred on all values potentially returned by \p F.
   ///
   /// This method will evaluate \p Pred on all values potentially returned by
@@ -1899,18 +1914,6 @@ private:
   /// Remember the dependences on the top of the dependence stack such that they
   /// may trigger further updates. (\see DependenceStack)
   void rememberDependences();
-
-  /// Check \p Pred on all call sites of \p Fn.
-  ///
-  /// This method will evaluate \p Pred on call sites and return
-  /// true if \p Pred holds in every call sites. However, this is only possible
-  /// all call sites are known, hence the function has internal linkage.
-  /// If true is returned, \p AllCallSitesKnown is set if all possible call
-  /// sites of the function have been visited.
-  bool checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
-                            const Function &Fn, bool RequireAllCallSites,
-                            const AbstractAttribute *QueryingAA,
-                            bool &AllCallSitesKnown);
 
   /// Determine if CallBase context in \p IRP should be propagated.
   bool shouldPropagateCallBaseContext(const IRPosition &IRP);
