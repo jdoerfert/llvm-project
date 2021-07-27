@@ -63,6 +63,15 @@ inline uint32_t popc(uint64_t V) {
   return __builtin_popcountl(V);
 }
 
+/// Return \p V aligned according to \p Align.
+template <typename Ty1, typename Ty2> inline Ty1 align(Ty1 V, Ty2 Align) {
+  return ((V + Ty1(Align) - 1) / Ty1(Align)) * Ty1(Align);
+}
+/// Return \p V divided and floored by \p Divisor.
+template <typename Ty1, typename Ty2> inline Ty1 floordiv(Ty1 V, Ty2 Divisor) {
+  return ((V + Ty1(Divisor) - 1) / Ty1(Divisor)) ;
+}
+
 #define OMP_LIKELY(EXPR) __builtin_expect((bool)(EXPR), true)
 #define OMP_UNLIKELY(EXPR) __builtin_expect((bool)(EXPR), false)
 
