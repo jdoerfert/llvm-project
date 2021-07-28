@@ -14,13 +14,18 @@
 
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 
+#include "llvm-c/OMPIRBuilder.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/Frontend/OpenMP/OMP.h.inc"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -2852,4 +2857,53 @@ void CanonicalLoopInfo::assertOK() const {
   assert(CmpI->getOperand(1) == TripCount &&
          "Exit condition must compare with the trip count");
 #endif
+}
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(OpenMPIRBuilder, LLVMOpenMPIRBuilderRef)
+
+static OpenMPIRBuilder::LocationDescription
+LLVMLoc2Loc(LLVMOpenMPIRBuilderLocationDescription LLVMLoc) {
+  // TODO: Debug loc.
+  Instruction *IP = cast_or_null<Instruction>(unwrap(LLVMLoc.IP));
+  BasicBlock *BB = unwrap(LLVMLoc.BB);
+  assert((IP || BB) &&
+         "Insertion points need to be instructions or basic blocks!");
+  if (IP)
+    return OpenMPIRBuilder::InsertPointTy(IP->getParent(), IP->getIterator());
+  return OpenMPIRBuilder::InsertPointTy(BB, BB->end());
+}
+
+static LLVMOpenMPIRBuilderLocationDescription
+Loc2LLVMLoc(const OpenMPIRBuilder::LocationDescription &Loc) {
+  // TODO: Debug loc.
+  assert(Loc.IP.isSet() && Loc.IP.getBlock() && "Required an insertion point!");
+  if (Loc.IP.getBlock()->end() == Loc.IP.getPoint())
+    return LLVMOpenMPIRBuilderLocationDescription{
+        nullptr, wrap(Loc.IP.getBlock()), nullptr};
+  return LLVMOpenMPIRBuilderLocationDescription{
+      wrap(&*Loc.IP.getPoint()), wrap(Loc.IP.getBlock()), nullptr};
+}
+
+LLVMOpenMPIRBuilderRef LLVMGetOpenMPIRBuilder(LLVMModuleRef M) {
+  auto *OMPBuilder = new OpenMPIRBuilder(*unwrap(M));
+  OMPBuilder->initialize();
+  return wrap(OMPBuilder);
+}
+
+LLVMOpenMPIRBuilderLocationDescription LLVMOpenMPIRBuilderCreateBarrier(
+    LLVMOpenMPIRBuilderRef LLVMOMPBuilder,
+    LLVMOpenMPIRBuilderLocationDescription LLVMLocationDescription,
+    LLVMOMPDirective LLVMDirective, LLVMBool LLVMForceSimpleCall,
+    LLVMBool LLVMCheckCancelFlag) {
+  auto &OMPBuilder = *unwrap(LLVMOMPBuilder);
+  auto LocDesc = LLVMLoc2Loc(LLVMLocationDescription);
+  auto IP = OMPBuilder.createBarrier(LocDesc, omp::Directive(LLVMDirective),
+                                     LLVMForceSimpleCall, LLVMCheckCancelFlag);
+   return Loc2LLVMLoc(IP);
+}
+
+void LLVMFinalizeOpenMPIRBuilder(LLVMOpenMPIRBuilderRef LLVMOMPBuilder) {
+  auto &OMPBuilder = *unwrap(LLVMOMPBuilder);
+  OMPBuilder.finalize();
+  delete &OMPBuilder;
 }
