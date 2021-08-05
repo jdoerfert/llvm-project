@@ -2899,7 +2899,7 @@ LLVMOpenMPIRBuilderLocationDescription LLVMOpenMPIRBuilderCreateBarrier(
   auto LocDesc = LLVMLoc2Loc(LLVMLocationDescription);
   auto IP = OMPBuilder.createBarrier(LocDesc, omp::Directive(LLVMDirective),
                                      LLVMForceSimpleCall, LLVMCheckCancelFlag);
-   return Loc2LLVMLoc(IP);
+  return Loc2LLVMLoc(IP);
 }
 
 void LLVMFinalizeOpenMPIRBuilder(LLVMOpenMPIRBuilderRef LLVMOMPBuilder) {

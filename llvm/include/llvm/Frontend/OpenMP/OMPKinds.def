@@ -448,6 +448,16 @@ __OMP_RTL(__kmpc_syncwarp, false, Void, LanemaskTy)
 
 __OMP_RTL(__kmpc_is_generic_main_thread_id, false, Int8, Int32)
 
+__OMP_RTL(__llvm_omp_log_parallel_region, false, Void, Int8Ptr)
+__OMP_RTL(__llvm_omp_log_parallel_region_end, false, Void, )
+__OMP_RTL(__llvm_omp_log_int_argument, false, Void, Int8Ptr, Int64)
+__OMP_RTL(__llvm_omp_log_ptr_argument, false, Void, Int8Ptr, VoidPtr)
+__OMP_RTL(__llvm_omp_log_call, false, Void, Int8Ptr)
+__OMP_RTL(__llvm_omp_log_load_int, false, Void, Int8Ptr, Int64)
+__OMP_RTL(__llvm_omp_log_load_ptr, false, Void, Int8Ptr, Int8Ptr)
+__OMP_RTL(__llvm_omp_log_store_int, false, Void, Int8Ptr, Int64)
+__OMP_RTL(__llvm_omp_log_store_ptr, false, Void, Int8Ptr, Int8Ptr)
+
 __OMP_RTL(__last, false, Void, )
 
 #undef __OMP_RTL

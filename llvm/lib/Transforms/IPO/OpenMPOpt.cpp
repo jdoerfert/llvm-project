@@ -21,6 +21,7 @@
 
 #include "llvm/ADT/EnumeratedArray.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
@@ -71,6 +72,11 @@ static cl::opt<bool> HideMemoryTransferLatency(
     cl::desc("[WIP] Tries to hide the latency of host to device memory"
              " transfers"),
     cl::Hidden, cl::init(false));
+
+static cl::opt<std::string>
+    ParallelAccessesLogFile("openmp-parallel-accesses-log-file", cl::Hidden,
+                            cl::desc("Log all parallel accesses into the "
+                                     "provided file for post-processing."));
 
 STATISTIC(NumOpenMPRuntimeCallsDeduplicated,
           "Number of OpenMP runtime calls deduplicated");
@@ -729,6 +735,10 @@ struct OpenMPOpt {
 
       if (remarksEnabled())
         analysisGlobalization();
+
+      if (ParallelAccessesLogFile.getNumOccurrences())
+        logAllParallelAccesses();
+
     } else {
       if (PrintICVValues)
         printICVs();
@@ -1838,7 +1848,154 @@ private:
   /// Populate the Attributor with abstract attribute opportunities in the
   /// function.
   void registerAAs(bool IsModulePass);
+
+  void logAllParallelAccesses();
 };
+
+void OpenMPOpt::logAllParallelAccesses() {
+  OMPInformationCache::RuntimeFunctionInfo &RFI =
+      OMPInfoCache.RFIs[OMPRTL___kmpc_fork_call];
+
+  if (!RFI.Declaration)
+    return;
+
+  const char *FilenameGVName = "__llvm_omp_log_file_name";
+  Constant *FilenameGV =
+      M.getGlobalVariable(FilenameGVName, /* AllowInternal */ true);
+
+  auto &OMPBuilder = OMPInfoCache.OMPBuilder;
+  auto &Builder = OMPBuilder.Builder;
+  IRBuilder<>::InsertPointGuard IPG(Builder);
+
+  auto GetStringConstant = [&](StringRef Str, StringRef Name) {
+    return Builder.CreateGlobalStringPtr(Str, Name, /* AS */ 0, &M);
+  };
+
+  if (!FilenameGV)
+    FilenameGV = GetStringConstant(ParallelAccessesLogFile, FilenameGVName);
+  int Q = 0;
+  dbgs() << "i " << ++Q << "\n";
+
+  FunctionCallee LogPRFn = OMPBuilder.getOrCreateRuntimeFunction(
+      M, OMPRTL___llvm_omp_log_parallel_region);
+  FunctionCallee LogPRFnEnd = OMPBuilder.getOrCreateRuntimeFunction(
+      M, OMPRTL___llvm_omp_log_parallel_region_end);
+  FunctionCallee LogIntArgFn = OMPBuilder.getOrCreateRuntimeFunction(
+      M, OMPRTL___llvm_omp_log_int_argument);
+  FunctionCallee LogPtrArgFn = OMPBuilder.getOrCreateRuntimeFunction(
+      M, OMPRTL___llvm_omp_log_ptr_argument);
+  FunctionCallee LogCallFn =
+      OMPBuilder.getOrCreateRuntimeFunction(M, OMPRTL___llvm_omp_log_call);
+  FunctionCallee LogLoadIntFn =
+      OMPBuilder.getOrCreateRuntimeFunction(M, OMPRTL___llvm_omp_log_load_int);
+  FunctionCallee LogLoadPtrFn =
+      OMPBuilder.getOrCreateRuntimeFunction(M, OMPRTL___llvm_omp_log_load_ptr);
+  FunctionCallee LogStoreIntFn =
+      OMPBuilder.getOrCreateRuntimeFunction(M, OMPRTL___llvm_omp_log_store_int);
+  FunctionCallee LogStorePtrFn =
+      OMPBuilder.getOrCreateRuntimeFunction(M, OMPRTL___llvm_omp_log_store_ptr);
+  dbgs() << "i " << ++Q << "\n";
+
+  SmallPtrSet<Function *, 16> Visited;
+  SmallVector<Function *> Worklist;
+
+  auto ForkCallCB = [&](Use &U, Function &F) {
+    CallBase *CB = OpenMPOpt::getCallIfRegularCall(U, &RFI);
+    if (!CB)
+      return false;
+    Builder.SetInsertPoint(CB);
+
+    dbgs() << "i " << ++Q << " : " << *CB << "\n";
+    const unsigned CallbackCalleeOperand = 2;
+    const unsigned CallbackFirstArgOperand = 3;
+    Function *Callee = dyn_cast<Function>(
+        CB->getArgOperand(CallbackCalleeOperand)->stripPointerCasts());
+    if (!Callee)
+      return false;
+    Worklist.push_back(Callee);
+
+    auto *PRLocation = GetStringConstant("unknown", "__llvm_omp.pr");
+    LogPRFn.getFunctionType()->dump();
+    PRLocation->dump();
+    CallInst::Create(LogPRFn, {PRLocation}, "", CB);
+    dbgs() << "i " << ++Q << " : " << *CB << "\n";
+    for (unsigned i = CallbackFirstArgOperand, e = CB->getNumArgOperands();
+         i < e; ++i) {
+      Value *ArgOp = CB->getArgOperand(i);
+      ArgOp->dump();
+      if (ArgOp->getType()->isPointerTy())
+        CallInst::Create(LogPtrArgFn,
+                         {PRLocation, Builder.CreatePointerCast(
+                                          ArgOp, Builder.getInt8PtrTy())},
+                         "", CB);
+      else if (ArgOp->getType()->isIntegerTy())
+        CallInst::Create(LogIntArgFn,
+                         {PRLocation, Builder.CreateZExtOrTrunc(
+                                          ArgOp, Builder.getInt64Ty())},
+                         "", CB);
+      ArgOp->dump();
+    }
+
+    dbgs() << "i " << ++Q << " : " << *CB << "\n";
+    CallInst::Create(LogPRFnEnd, {}, "", CB->getNextNode());
+    dbgs() << "i " << ++Q << " : " << *CB << "\n";
+
+    return false;
+  };
+  RFI.foreachUse(SCC, ForkCallCB);
+
+  dbgs() << "W " << ++Q << "\n";
+  while (!Worklist.empty()) {
+    Function *F = Worklist.pop_back_val();
+    if (!Visited.insert(F).second)
+      continue;
+
+    SmallVector<Instruction *> Insts;
+    for (Instruction &I : instructions(*F)) {
+      if (!isa<CallBase>(I) && !I.mayWriteToMemory() && !I.mayReadFromMemory())
+        continue;
+      Insts.push_back(&I);
+    }
+
+    for (auto *I : Insts) {
+      if (auto *CB = dyn_cast<CallBase>(I)) {
+        if (auto *Callee = CB->getCalledFunction()) {
+          CallInst::Create(
+              LogCallFn,
+              {GetStringConstant(Callee->getName(), "__llvm_omp.callee")}, "",
+              CB);
+          Worklist.push_back(Callee);
+        } else {
+          CallInst::Create(
+              LogCallFn,
+              {GetStringConstant("__unknown__", "__llvm_omp.callee")}, "", CB);
+        }
+        continue;
+      }
+
+      if (auto *LI = dyn_cast<LoadInst>(I)) {
+        Builder.SetInsertPoint(I->getNextNode());
+        if (LI->getType()->isIntegerTy())
+          CallInst::Create(LogLoadIntFn, {Builder.CreatePointerCast(LI->getPointerOperand(),
+                                                      Builder.getInt8PtrTy()), LI}, "", I->getNextNode());
+        continue;
+      }
+      if (auto *SI = dyn_cast<StoreInst>(I)) {
+        Builder.SetInsertPoint(I->getNextNode());
+        if (SI->getValueOperand()->getType()->isIntegerTy())
+          CallInst::Create(LogStoreIntFn,
+                           {Builder.CreatePointerCast(SI->getPointerOperand(),
+                                                      Builder.getInt8PtrTy()),
+                            SI->getValueOperand()},
+                           "", I->getNextNode());
+        continue;
+      }
+
+      errs() << "Unknown memory effect: " << *I << "\n";
+    }
+  }
+  M.dump();
+}
 
 Kernel OpenMPOpt::getUniqueKernelFor(Function &F) {
   if (!OMPInfoCache.ModuleSlice.count(&F))
@@ -1898,6 +2055,7 @@ Kernel OpenMPOpt::getUniqueKernelFor(Function &F) {
   SmallPtrSet<Kernel, 2> PotentialKernels;
   OMPInformationCache::foreachUse(F, [&](const Use &U) {
     PotentialKernels.insert(GetUniqueKernelForUse(U));
+    return false;
   });
 
   Kernel K = nullptr;
@@ -3978,7 +4136,6 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
           IRPosition::function(*Kernel), /* QueryingAA */ nullptr,
           DepClassTy::NONE, /* ForceUpdate */ false,
           /* UpdateAfterInit */ false);
-
 
     registerFoldRuntimeCall(OMPRTL___kmpc_is_generic_main_thread_id);
     registerFoldRuntimeCall(OMPRTL___kmpc_is_spmd_exec_mode);
