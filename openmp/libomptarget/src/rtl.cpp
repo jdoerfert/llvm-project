@@ -30,6 +30,7 @@ static const char *RTLNames[] = {
     /* SX-Aurora VE target  */ "libomptarget.rtl.ve.so",
     /* AMDGPU target        */ "libomptarget.rtl.amdgpu.so",
     /* Remote target        */ "libomptarget.rtl.rpc.so",
+    /* Record target (last!)*/ "libomptarget.rtl.record.so",
 };
 
 PluginManager *PM;
@@ -74,6 +75,9 @@ void RTLsTy::LoadRTLs() {
   }
 
   DP("Loading RTLs...\n");
+
+  // Number of devices we have seen so far, accumulated via all plugins.
+  int32_t TotalNumberOfDevices = 0;
 
   // Attempt to open all the plugins and, if they exist, check if the interface
   // is correct and if they are supporting any devices.
@@ -134,14 +138,24 @@ void RTLsTy::LoadRTLs() {
       continue;
     }
 
+    // Optional function initialized early as we want to use it here.
+    (*((void **)&R.number_of_devices2) =
+         dlsym(dynlib_handle, "__tgt_rtl_number_of_devices2"));
+
     // No devices are supported by this RTL?
-    if (!(R.NumberOfDevices = R.number_of_devices())) {
+    if (R.number_of_devices2)
+      R.NumberOfDevices = R.number_of_devices2(TotalNumberOfDevices);
+    else
+      R.NumberOfDevices = R.number_of_devices();
+
+    if (!R.NumberOfDevices) {
       // The RTL is invalid! Will pop the object from the RTLs list.
       DP("No devices supported in this RTL\n");
       AllRTLs.pop_back();
       continue;
     }
 
+    TotalNumberOfDevices += R.NumberOfDevices;
     R.LibraryHandler = dynlib_handle;
 
 #ifdef OMPTARGET_DEBUG
