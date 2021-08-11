@@ -2998,38 +2998,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
     return ChangeStatus::CHANGED;
   }
 
-  bool changeToSPMDMode(Attributor &A) {
-    auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
-
-    if (!SPMDCompatibilityTracker.isAssumed()) {
-      for (Instruction *NonCompatibleI : SPMDCompatibilityTracker) {
-        if (!NonCompatibleI)
-          continue;
-
-        // Skip diagnostics on calls to known OpenMP runtime functions for now.
-        if (auto *CB = dyn_cast<CallBase>(NonCompatibleI))
-          if (OMPInfoCache.RTLFunctions.contains(CB->getCalledFunction()))
-            continue;
-
-        auto Remark = [&](OptimizationRemarkAnalysis ORA) {
-          ORA << "Value has potential side effects preventing SPMD-mode "
-                 "execution";
-          if (isa<CallBase>(NonCompatibleI)) {
-            ORA << ". Add `__attribute__((assume(\"ompx_spmd_amenable\")))` to "
-                   "the called function to override";
-          }
-          return ORA << ".";
-        };
-        A.emitRemark<OptimizationRemarkAnalysis>(NonCompatibleI, "OMP121",
-                                                 Remark);
-
-        LLVM_DEBUG(dbgs() << TAG << "SPMD-incompatible side-effect: "
-                          << *NonCompatibleI << "\n");
-      }
-
-      return false;
-    }
-
+  void createLocalGuards(Attributor &A) {
     auto CreateGuardedRegion = [&](Instruction *RegionStartI,
                                    Instruction *RegionEndI) {
       LoopInfo *LI = nullptr;
@@ -3211,6 +3180,41 @@ struct AAKernelInfoFunction : AAKernelInfo {
 
     for (auto &GR : GuardedRegions)
       CreateGuardedRegion(GR.first, GR.second);
+  }
+
+  bool changeToSPMDMode(Attributor &A) {
+    auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+
+    if (!SPMDCompatibilityTracker.isAssumed()) {
+      for (Instruction *NonCompatibleI : SPMDCompatibilityTracker) {
+        if (!NonCompatibleI)
+          continue;
+
+        // Skip diagnostics on calls to known OpenMP runtime functions for now.
+        if (auto *CB = dyn_cast<CallBase>(NonCompatibleI))
+          if (OMPInfoCache.RTLFunctions.contains(CB->getCalledFunction()))
+            continue;
+
+        auto Remark = [&](OptimizationRemarkAnalysis ORA) {
+          ORA << "Value has potential side effects preventing SPMD-mode "
+                 "execution";
+          if (isa<CallBase>(NonCompatibleI)) {
+            ORA << ". Add `__attribute__((assume(\"ompx_spmd_amenable\")))` to "
+                   "the called function to override";
+          }
+          return ORA << ".";
+        };
+        A.emitRemark<OptimizationRemarkAnalysis>(NonCompatibleI, "OMP121",
+                                                 Remark);
+
+        LLVM_DEBUG(dbgs() << TAG << "SPMD-incompatible side-effect: "
+                          << *NonCompatibleI << "\n");
+      }
+
+      return false;
+    }
+
+    createLocalGuards(A);
 
     // Adjust the global exec mode flag that tells the runtime what mode this
     // kernel is executed in.
