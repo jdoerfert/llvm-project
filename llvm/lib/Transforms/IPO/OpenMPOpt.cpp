@@ -21,6 +21,7 @@
 
 #include "llvm/ADT/EnumeratedArray.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Analysis/CallGraph.h"
@@ -36,6 +37,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -776,6 +778,7 @@ struct OpenMPOpt {
       OMPInfoCache.recollectUses();
 
       Changed |= deleteParallelRegions();
+      Changed |= deleteBarriers();
 
       if (HideMemoryTransferLatency)
         Changed |= hideMemTransfersLatency();
@@ -1224,6 +1227,43 @@ private:
       OMPInfoCache.recollectUsesForFunction(OMPRTL___kmpc_barrier);
       OMPInfoCache.recollectUsesForFunction(OMPRTL___kmpc_master);
       OMPInfoCache.recollectUsesForFunction(OMPRTL___kmpc_end_master);
+    }
+
+    return Changed;
+  }
+
+  bool deleteBarriers() {
+    bool Changed = false;
+
+    for (Function *F : SCC) {
+      GlobalVariable *ExecMode =
+          M.getGlobalVariable((F->getName() + "_exec_mode").str());
+      if (!ExecMode || !ExecMode->getInitializer()->isNotOneValue())
+        continue;
+      SmallVector<Instruction *> ToDelete;
+      Instruction *Last = nullptr;
+      for (BasicBlock &BB : *F) {
+        for (Instruction &I : BB) {
+          if (isa<ReturnInst>(I) && Last) {
+            ToDelete.push_back(Last);
+            continue;
+          }
+          auto *CB = dyn_cast<CallBase>(&I);
+          bool IsBarrier = CB && CB->isInlineAsm() &&
+                           !cast<InlineAsm>(CB->getCalledOperand())
+                                ->getAsmString()
+                                .compare("barrier.sync $0;");
+          if (!IsBarrier) {
+            if (I.mayReadOrWriteMemory())
+              Last = nullptr;
+            continue;
+          }
+          if (Last)
+            ToDelete.push_back(Last);
+          Last = CB;
+        }
+      }
+      llvm::for_each(ToDelete, [&](Instruction *I) { I->eraseFromParent(); });
     }
 
     return Changed;
