@@ -54,6 +54,7 @@ namespace CodeGen {
 class Address;
 class CodeGenFunction;
 class CodeGenModule;
+class ReturnValueSlot;
 
 /// A basic class for pre|post-action for advanced codegen sequence for OpenMP
 /// region.
@@ -301,6 +302,12 @@ public:
 
   llvm::OpenMPIRBuilder &getOMPBuilder() { return OMPBuilder; }
 
+  /// Creates offloading entry for the provided entry ID \a ID,
+  /// address \a Addr, size \a Size, and flags \a Flags.
+  virtual void createOffloadEntry(llvm::Constant *ID, llvm::Constant *Addr,
+                                  uint64_t Size, int32_t Flags,
+                                  llvm::GlobalValue::LinkageTypes Linkage);
+
 protected:
   CodeGenModule &CGM;
   StringRef FirstSeparator, Separator;
@@ -311,12 +318,6 @@ protected:
   /// Constructor allowing to redefine the name separator for the variables.
   explicit CGOpenMPRuntime(CodeGenModule &CGM, StringRef FirstSeparator,
                            StringRef Separator);
-
-  /// Creates offloading entry for the provided entry ID \a ID,
-  /// address \a Addr, size \a Size, and flags \a Flags.
-  virtual void createOffloadEntry(llvm::Constant *ID, llvm::Constant *Addr,
-                                  uint64_t Size, int32_t Flags,
-                                  llvm::GlobalValue::LinkageTypes Linkage);
 
   /// Helper to emit outlined function for 'target' directive.
   /// \param D Directive to emit.
@@ -1922,6 +1923,11 @@ public:
 
   /// Returns true if the variable is a local variable in untied task.
   bool isLocalVarInUntiedTask(CodeGenFunction &CGF, const VarDecl *VD) const;
+
+  RValue EmitCUDAKernelCallExpr(CodeGenFunction &CGF,
+                                const CUDAKernelCallExpr *E,
+                                ReturnValueSlot ReturnValue);
+
 };
 
 /// Class supports emissionof SIMD-only code.

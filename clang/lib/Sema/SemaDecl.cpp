@@ -12731,9 +12731,9 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
       }
       if (CXXRecordDecl *RD = Var->getType()->getAsCXXRecordDecl()) {
         if (!RD->hasTrivialDefaultConstructor()) {
-          Diag(Var->getLocation(), diag::err_loader_uninitialized_trivial_ctor);
-          Var->setInvalidDecl();
-          return;
+          //Diag(Var->getLocation(), diag::err_loader_uninitialized_trivial_ctor);
+          //Var->setInvalidDecl();
+          //return;
         }
       }
       // The declaration is unitialized, no need for further checks.

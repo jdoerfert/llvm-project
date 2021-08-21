@@ -1255,7 +1255,8 @@ static std::string getMangledNameImpl(CodeGenModule &CGM, GlobalDecl GD,
         FD->getType()->castAs<FunctionType>()->getCallConv() == CC_X86RegCall) {
       Out << "__regcall3__" << II->getName();
     } else if (FD && FD->hasAttr<CUDAGlobalAttr>() &&
-               GD.getKernelReferenceKind() == KernelReferenceKind::Stub) {
+               (GD.getKernelReferenceKind() == KernelReferenceKind::Stub ||
+                CGM.getLangOpts().OpenMPFromCUDA)) {
       Out << "__device_stub__" << II->getName();
     } else {
       Out << II->getName();

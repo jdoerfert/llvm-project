@@ -1272,6 +1272,22 @@ void Clang::AddPreprocessingOptions(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("__clang_openmp_device_functions.h");
   }
 
+  // OpenMP from CUDA requires special wrappers and provides a custom cuda.h.
+  if (Args.hasArg(options::OPT_fopenmp_from_cuda)) {
+      SmallString<128> P(D.ResourceDir);
+      llvm::sys::path::append(P, "include");
+      llvm::sys::path::append(P, "openmp_cuda_wrappers");
+      CmdArgs.push_back("-internal-isystem");
+      CmdArgs.push_back(Args.MakeArgString(P));
+      if (Args.hasArg(options::OPT_fopenmp_is_device)) {
+        CmdArgs.push_back("-include");
+        CmdArgs.push_back("__openmp_cuda_device_wrapper.h");
+      } else {
+        CmdArgs.push_back("-include");
+        CmdArgs.push_back("__openmp_cuda_host_wrapper.h");
+      }
+  }
+
   // Add -i* options, and automatically translate to
   // -include-pch/-include-pth for transparent PCH support. It's
   // wonky, but we include looking for .gch so we can support seamless
@@ -5764,6 +5780,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       Args.AddLastArg(CmdArgs, options::OPT_fopenmp_simd,
                       options::OPT_fno_openmp_simd);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_enable_irbuilder);
+      Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_from_cuda);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_version_EQ);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_number_of_sm_EQ);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_blocks_per_sm_EQ);

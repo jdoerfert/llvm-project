@@ -1921,12 +1921,12 @@ Sema::SemaDiagnosticBuilder Sema::diagIfOpenMPDeviceCode(SourceLocation Loc,
                  ? SemaDiagnosticBuilder::K_Deferred
                  : SemaDiagnosticBuilder::K_Immediate;
       break;
+    case FunctionEmissionStatus::CUDADiscarded:
+      assert(LangOpts.OpenMPFromCUDA && "CUDADiscarded unexpected in OpenMP device compilation");
+      LLVM_FALLTHROUGH;
     case FunctionEmissionStatus::TemplateDiscarded:
     case FunctionEmissionStatus::OMPDiscarded:
       Kind = SemaDiagnosticBuilder::K_Nop;
-      break;
-    case FunctionEmissionStatus::CUDADiscarded:
-      llvm_unreachable("CUDADiscarded unexpected in OpenMP device compilation");
       break;
     }
   }

@@ -3191,6 +3191,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
 
   Opts.HIP = IK.getLanguage() == Language::HIP;
   Opts.CUDA = IK.getLanguage() == Language::CUDA || Opts.HIP;
+
   if (Opts.HIP) {
     // HIP toolchain does not support 'Fast' FPOpFusion in backends since it
     // fuses multiplication/addition instructions without contract flag from
@@ -3435,6 +3436,9 @@ void CompilerInvocation::GenerateLangArgs(const LangOptions &Opts,
 
     if (Opts.OpenMPIsDevice)
       GenerateArg(Args, OPT_fopenmp_is_device, SA);
+
+    if (Opts.OpenMPFromCUDA)
+      GenerateArg(Args, OPT_fopenmp_from_cuda, SA);
 
     if (Opts.OpenMPIRBuilder)
       GenerateArg(Args, OPT_fopenmp_enable_irbuilder, SA);
@@ -3744,8 +3748,8 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
   // '-mignore-xcoff-visibility' is implied. The generated command line will
   // contain both '-fvisibility default' and '-mignore-xcoff-visibility' and
   // subsequent calls to `CreateFromArgs`/`generateCC1CommandLine` will always
-  // produce the same arguments. 
- 
+  // produce the same arguments.
+
   if (T.isOSAIX() && (Args.hasArg(OPT_mignore_xcoff_visibility) ||
                       !Args.hasArg(OPT_fvisibility)))
     Opts.IgnoreXCOFFVisibility = 1;
@@ -3825,6 +3829,14 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
       Opts.OpenMP && Args.hasArg(options::OPT_fopenmp_enable_irbuilder);
   bool IsTargetSpecified =
       Opts.OpenMPIsDevice || Args.hasArg(options::OPT_fopenmp_targets_EQ);
+
+  // In OpenMP from CUDA mode we use CUDA semantics and map it back to the OpenMP runtime.
+  Opts.OpenMPFromCUDA = Opts.OpenMP && Args.hasArg(options::OPT_fopenmp_from_cuda);
+
+  if (Opts.OpenMPFromCUDA) {
+    Opts.CUDAIsDevice = Opts.OpenMPIsDevice;
+    Opts.CUDA = true;
+  }
 
   Opts.ConvergentFunctions = Opts.ConvergentFunctions || Opts.OpenMPIsDevice;
 
@@ -3909,7 +3921,7 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
 
   // Set CUDA mode for OpenMP target NVPTX/AMDGCN if specified in options
   Opts.OpenMPCUDAMode = Opts.OpenMPIsDevice && (T.isNVPTX() || T.isAMDGCN()) &&
-                        Args.hasArg(options::OPT_fopenmp_cuda_mode);
+                        (Args.hasArg(options::OPT_fopenmp_cuda_mode) || Opts.OpenMPFromCUDA);
 
   // Set CUDA mode for OpenMP target NVPTX/AMDGCN if specified in options
   Opts.OpenMPCUDAForceFullRuntime =

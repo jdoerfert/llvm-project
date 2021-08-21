@@ -12763,6 +12763,28 @@ void CGOpenMPRuntime::emitLastprivateConditionalFinalUpdate(
   CGF.EmitStoreOfScalar(Res, PrivLVal);
 }
 
+RValue CGOpenMPRuntime::EmitCUDAKernelCallExpr(CodeGenFunction &CGF,
+                                             const CUDAKernelCallExpr *E,
+                                             ReturnValueSlot ReturnValue) {
+  llvm::errs() << "CUDA: " << CGF.getLangOpts().CUDA << "\n";
+  llvm::BasicBlock *ConfigOKBlock = CGF.createBasicBlock("kcall.configok");
+  llvm::BasicBlock *ContBlock = CGF.createBasicBlock("kcall.end");
+
+  CodeGenFunction::ConditionalEvaluation eval(CGF);
+  CGF.EmitBranchOnBoolExpr(E->getConfig(), ContBlock, ConfigOKBlock,
+                           /*TrueCount=*/0);
+
+  eval.begin(CGF);
+  CGF.EmitBlock(ConfigOKBlock);
+  CGF.EmitSimpleCallExpr(E, ReturnValue);
+  CGF.EmitBranch(ContBlock);
+
+  CGF.EmitBlock(ContBlock);
+  eval.end(CGF);
+
+  return RValue::get(nullptr);
+}
+
 llvm::Function *CGOpenMPSIMDRuntime::emitParallelOutlinedFunction(
     const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
     OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen) {

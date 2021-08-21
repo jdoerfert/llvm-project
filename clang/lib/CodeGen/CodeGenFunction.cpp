@@ -38,6 +38,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/FPEnv.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/MDBuilder.h"
@@ -1292,6 +1293,16 @@ QualType CodeGenFunction::BuildFunctionArgList(GlobalDecl GD,
 
   return ResTy;
 }
+  static void setPropertyExecutionMode(CodeGenModule &CGM, StringRef Name,
+                                       bool Mode) {
+    auto *GVMode =
+    new llvm::GlobalVariable(CGM.getModule(), CGM.Int8Ty, /*isConstant=*/true,
+             llvm::GlobalValue::WeakAnyLinkage,
+             llvm::ConstantInt::get(CGM.Int8Ty, Mode ? 0 : 1),
+             Twine(Name, "_exec_mode"));
+    CGM.addCompilerUsedGlobal(GVMode);
+  }
+
 
 void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
                                    const CGFunctionInfo &FnInfo) {
@@ -1354,6 +1365,11 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     for (const auto *ParamDecl : FD->parameters())
       FnArgs.push_back(ParamDecl);
 
+  if (getLangOpts().OpenMPFromCUDA &&
+           getLangOpts().CUDAIsDevice &&
+           FD->hasAttr<CUDAGlobalAttr>())
+      setPropertyExecutionMode(CGM, CurFn->getName(), true);
+
   // Generate the body of the function.
   PGO.assignRegionCounters(GD, CurFn);
   if (isa<CXXDestructorDecl>(FD))
@@ -1362,8 +1378,11 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     EmitConstructorBody(Args);
   else if (getLangOpts().CUDA &&
            !getLangOpts().CUDAIsDevice &&
-           FD->hasAttr<CUDAGlobalAttr>())
+           FD->hasAttr<CUDAGlobalAttr>()) {
     CGM.getCUDARuntime().emitDeviceStub(*this, Args);
+    if (getLangOpts().OpenMPFromCUDA)
+      CGM.getOpenMPRuntime().createOffloadEntry(CurFn, CurFn, 0, 0, llvm::GlobalValue::WeakAnyLinkage);
+  }
   else if (isa<CXXMethodDecl>(FD) &&
            cast<CXXMethodDecl>(FD)->isLambdaStaticInvoker()) {
     // The lambda static invoker function is special, because it forwards or

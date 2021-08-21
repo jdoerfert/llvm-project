@@ -160,6 +160,8 @@ OMPDeclareTargetDeclAttr::getActiveAttr(const ValueDecl *VD) {
 
 llvm::Optional<OMPDeclareTargetDeclAttr::MapTypeTy>
 OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(const ValueDecl *VD) {
+  if (VD->hasAttr<CUDADeviceAttr>() || VD->hasAttr<CUDAGlobalAttr>())
+    return OMPDeclareTargetDeclAttr::MT_To;
   llvm::Optional<OMPDeclareTargetDeclAttr *> ActiveAttr = getActiveAttr(VD);
   if (ActiveAttr.hasValue())
     return ActiveAttr.getValue()->getMapType();
@@ -168,6 +170,12 @@ OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(const ValueDecl *VD) {
 
 llvm::Optional<OMPDeclareTargetDeclAttr::DevTypeTy>
 OMPDeclareTargetDeclAttr::getDeviceType(const ValueDecl *VD) {
+  if (VD->hasAttr<CUDAGlobalAttr>())
+    return OMPDeclareTargetDeclAttr::DT_Any;
+  if ((VD->hasAttr<CUDADeviceAttr>()) && !VD->hasAttr<CUDAHostAttr>())
+    return OMPDeclareTargetDeclAttr::DT_NoHost;
+  if ((VD->hasAttr<CUDADeviceAttr>() || VD->hasAttr<CUDAGlobalAttr>()) && VD->hasAttr<CUDAHostAttr>())
+    return OMPDeclareTargetDeclAttr::DT_Any;
   llvm::Optional<OMPDeclareTargetDeclAttr *> ActiveAttr = getActiveAttr(VD);
   if (ActiveAttr.hasValue())
     return ActiveAttr.getValue()->getDevType();
@@ -176,6 +184,8 @@ OMPDeclareTargetDeclAttr::getDeviceType(const ValueDecl *VD) {
 
 llvm::Optional<SourceLocation>
 OMPDeclareTargetDeclAttr::getLocation(const ValueDecl *VD) {
+  if (VD->hasAttr<CUDADeviceAttr>() || VD->hasAttr<CUDAGlobalAttr>())
+    return SourceLocation();
   llvm::Optional<OMPDeclareTargetDeclAttr *> ActiveAttr = getActiveAttr(VD);
   if (ActiveAttr.hasValue())
     return ActiveAttr.getValue()->getRange().getBegin();

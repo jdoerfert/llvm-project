@@ -907,7 +907,7 @@ void Sema::checkCUDATargetOverload(FunctionDecl *NewFD,
     // functions can have different implementations on the host and device, but
     // HD/global functions "exist" in some sense on both the host and device, so
     // should have the same implementation on both sides.
-    if (NewTarget != OldTarget &&
+    if (NewTarget != OldTarget && !getLangOpts().OpenMPIsDevice &&
         ((NewTarget == CFT_HostDevice) || (OldTarget == CFT_HostDevice) ||
          (NewTarget == CFT_Global) || (OldTarget == CFT_Global)) &&
         !IsOverload(NewFD, OldFD, /* UseMemberUsingDeclRules = */ false,
@@ -940,6 +940,8 @@ void Sema::inheritCUDATargetAttrs(FunctionDecl *FD,
 }
 
 std::string Sema::getCudaConfigureFuncName() const {
+  if (getLangOpts().OpenMPFromCUDA)
+    return "__libompxPushCallConfiguration";
   if (getLangOpts().HIP)
     return getLangOpts().HIPUseNewLaunchAPI ? "__hipPushCallConfiguration"
                                             : "hipConfigureCall";

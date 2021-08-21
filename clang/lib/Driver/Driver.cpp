@@ -668,7 +668,11 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
   //
   // We need to generate a CUDA/HIP toolchain if any of the inputs has a CUDA
   // or HIP type. However, mixed CUDA/HIP compilation is not supported.
-  bool IsCuda =
+  // or HIP type. However, mixed CUDA/HIP compilation is not supported. We also
+  // do not run a CUDA toolchain if we transpile CUDA to OpenMP.
+  bool IsOpenMPFromCuda =
+      C.getInputArgs().getLastArg(options::OPT_fopenmp_from_cuda);
+  bool IsCuda = !IsOpenMPFromCuda &&
       llvm::any_of(Inputs, [](std::pair<types::ID, const llvm::opt::Arg *> &I) {
         return types::isCuda(I.first);
       });
