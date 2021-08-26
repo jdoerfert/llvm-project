@@ -6200,6 +6200,24 @@ ChangeStatus AAHeapToStackFunction::updateImpl(Attributor &A) {
             *this, IRPosition::callsite_argument(*CB, ArgNo),
             DepClassTy::OPTIONAL);
 
+        // If the stack is not accessible by other threads, we need to make sure
+        // the pointer is not shared during the execution of the callee without
+        // escaping from the perspective of the caller.
+        // TODO: This is rather unfortunate but strictly speaking necessary. We
+        //       should consider `nosync` on arguments/values to get results
+        //       closer what we really want here.
+        if (!StackIsAccessibleByOtherThreads) {
+          auto &NoSyncAA = A.getAAFor<AANoSync>(
+              *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
+          if (!NoSyncAA.isAssumedNoSync()) {
+            LLVM_DEBUG(dbgs()
+                       << "[H2S] found a use in a call that might share "
+                          "the pointer for the duration of the callee ("
+                       << *CB << ")\n");
+            ValidUsesOnly = false;
+          }
+        }
+
         bool MaybeCaptured = !NoCaptureAA.isAssumedNoCapture();
         bool MaybeFreed = !ArgNoFreeAA.isAssumedNoFree();
         if (MaybeCaptured ||
