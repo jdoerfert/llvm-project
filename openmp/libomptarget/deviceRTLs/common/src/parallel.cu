@@ -282,6 +282,7 @@ EXTERN void __kmpc_push_proc_bind(kmp_Ident *loc, uint32_t tid, int proc_bind) {
 // parallel interface
 ////////////////////////////////////////////////////////////////////////////////
 
+__attribue__((callback(5, -1, -1, 7)))
 NOINLINE EXTERN void __kmpc_parallel_51(kmp_Ident *ident, kmp_int32 global_tid,
                                         kmp_int32 if_expr,
                                         kmp_int32 num_threads, int proc_bind,
