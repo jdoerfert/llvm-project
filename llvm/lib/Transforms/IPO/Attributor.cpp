@@ -22,6 +22,7 @@
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/LazyValueInfo.h"
+#include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MemorySSAUpdater.h"
 #include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -202,8 +203,11 @@ bool AA::isDynamicallyUnique(Attributor &A, const AbstractAttribute &QueryingAA,
   return NoRecurseAA.isAssumedNoRecurse();
 }
 
-Constant *AA::getInitialValueForObj(Value &Obj, Type &Ty) {
+Constant *AA::getInitialValueForObj(Value &Obj, Type &Ty,
+                                    const TargetLibraryInfo *TLI) {
   if (isa<AllocaInst>(Obj))
+    return UndefValue::get(&Ty);
+  if (isMallocLikeFn(&Obj, TLI))
     return UndefValue::get(&Ty);
   auto *GV = dyn_cast<GlobalVariable>(&Obj);
   if (!GV || !GV->hasLocalLinkage())
@@ -300,6 +304,8 @@ bool AA::getPotentialCopiesOfStoredValue(
   SmallVector<const AAPointerInfo *> PIs;
   SmallVector<Value *> NewCopies;
 
+  const auto *TLI =
+      A.getInfoCache().getTargetLibraryInfoForFunction(*SI.getFunction());
   for (Value *Obj : Objects) {
     LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
     if (isa<UndefValue>(Obj))
@@ -316,7 +322,8 @@ bool AA::getPotentialCopiesOfStoredValue(
           dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
       return false;
     }
-    if (!isa<AllocaInst>(Obj) && !isa<GlobalVariable>(Obj)) {
+    if (!isa<AllocaInst>(Obj) && !isa<GlobalVariable>(Obj) &&
+        !isMallocLikeFn(Obj, TLI)) {
       LLVM_DEBUG(dbgs() << "Underlying object is not supported yet: " << *Obj
                         << "\n";);
       return false;
