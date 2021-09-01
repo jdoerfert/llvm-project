@@ -303,7 +303,7 @@ int bar(int n){
 // CHECK1-NEXT:    [[C:%.*]] = alloca [5 x [10 x double]], align 8
 // CHECK1-NEXT:    [[__VLA_EXPR1:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[D:%.*]] = alloca [[STRUCT_TT:%.*]], align 8
-// CHECK1-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
+// CHECK1-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 1
 // CHECK1-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[DOTOFFLOAD_BASEPTRS:%.*]] = alloca [1 x i8*], align 8
@@ -553,7 +553,7 @@ int bar(int n){
 // CHECK1-NEXT:    [[DOTPRIVATES__ADDR_I:%.*]] = alloca i8*, align 8
 // CHECK1-NEXT:    [[DOTCOPY_FN__ADDR_I:%.*]] = alloca void (i8*, ...)*, align 8
 // CHECK1-NEXT:    [[DOTTASK_T__ADDR_I:%.*]] = alloca i8*, align 8
-// CHECK1-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon*, align 8
+// CHECK1-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon.0*, align 8
 // CHECK1-NEXT:    [[DOTADDR:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTADDR1:%.*]] = alloca %struct.kmp_task_t_with_privates*, align 8
 // CHECK1-NEXT:    store i32 [[TMP0]], i32* [[DOTADDR]], align 4
@@ -564,7 +564,7 @@ int bar(int n){
 // CHECK1-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T:%.*]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 2
 // CHECK1-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[TMP6]], align 8
-// CHECK1-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon*
+// CHECK1-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon.0*
 // CHECK1-NEXT:    [[TMP9:%.*]] = bitcast %struct.kmp_task_t_with_privates* [[TMP3]] to i8*
 // CHECK1-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META12:![0-9]+]])
 // CHECK1-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META15:![0-9]+]])
@@ -719,7 +719,7 @@ int bar(int n){
 // CHECK1-NEXT:    [[VLA_ADDR4:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 8
 // CHECK1-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 8
-// CHECK1-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 8
 // CHECK1-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK1-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -1126,7 +1126,7 @@ int bar(int n){
 // CHECK1-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 8
-// CHECK1-NEXT:    [[B_CASTED:%.*]] = alloca i64, align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_5:%.*]], align 8
 // CHECK1-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[B]], i64* [[B_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -1191,9 +1191,7 @@ int bar(int n){
 // CHECK1-NEXT:    [[AA_ADDR:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[AAA_ADDR:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK1-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[AAA_CASTED:%.*]] = alloca i64, align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_6:%.*]], align 8
 // CHECK1-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[AA]], i64* [[AA_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[AAA]], i64* [[AAA_ADDR]], align 8
@@ -1333,7 +1331,7 @@ int bar(int n){
 // CHECK2-NEXT:    [[C:%.*]] = alloca [5 x [10 x double]], align 8
 // CHECK2-NEXT:    [[__VLA_EXPR1:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[D:%.*]] = alloca [[STRUCT_TT:%.*]], align 8
-// CHECK2-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
+// CHECK2-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 1
 // CHECK2-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[DOTOFFLOAD_BASEPTRS:%.*]] = alloca [1 x i8*], align 8
@@ -1583,7 +1581,7 @@ int bar(int n){
 // CHECK2-NEXT:    [[DOTPRIVATES__ADDR_I:%.*]] = alloca i8*, align 8
 // CHECK2-NEXT:    [[DOTCOPY_FN__ADDR_I:%.*]] = alloca void (i8*, ...)*, align 8
 // CHECK2-NEXT:    [[DOTTASK_T__ADDR_I:%.*]] = alloca i8*, align 8
-// CHECK2-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon*, align 8
+// CHECK2-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon.0*, align 8
 // CHECK2-NEXT:    [[DOTADDR:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTADDR1:%.*]] = alloca %struct.kmp_task_t_with_privates*, align 8
 // CHECK2-NEXT:    store i32 [[TMP0]], i32* [[DOTADDR]], align 4
@@ -1594,7 +1592,7 @@ int bar(int n){
 // CHECK2-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T:%.*]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 2
 // CHECK2-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 0
 // CHECK2-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[TMP6]], align 8
-// CHECK2-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon*
+// CHECK2-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon.0*
 // CHECK2-NEXT:    [[TMP9:%.*]] = bitcast %struct.kmp_task_t_with_privates* [[TMP3]] to i8*
 // CHECK2-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META12:![0-9]+]])
 // CHECK2-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META15:![0-9]+]])
@@ -1749,7 +1747,7 @@ int bar(int n){
 // CHECK2-NEXT:    [[VLA_ADDR4:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 8
 // CHECK2-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 8
-// CHECK2-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 8
 // CHECK2-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK2-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -2156,7 +2154,7 @@ int bar(int n){
 // CHECK2-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 8
-// CHECK2-NEXT:    [[B_CASTED:%.*]] = alloca i64, align 8
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_5:%.*]], align 8
 // CHECK2-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[B]], i64* [[B_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -2221,9 +2219,7 @@ int bar(int n){
 // CHECK2-NEXT:    [[AA_ADDR:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[AAA_ADDR:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK2-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK2-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
-// CHECK2-NEXT:    [[AAA_CASTED:%.*]] = alloca i64, align 8
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_6:%.*]], align 8
 // CHECK2-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[AA]], i64* [[AA_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[AAA]], i64* [[AAA_ADDR]], align 8
@@ -2363,7 +2359,7 @@ int bar(int n){
 // CHECK3-NEXT:    [[C:%.*]] = alloca [5 x [10 x double]], align 8
 // CHECK3-NEXT:    [[__VLA_EXPR1:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[D:%.*]] = alloca [[STRUCT_TT:%.*]], align 4
-// CHECK3-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
+// CHECK3-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 1
 // CHECK3-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTOFFLOAD_BASEPTRS:%.*]] = alloca [1 x i8*], align 4
@@ -2610,7 +2606,7 @@ int bar(int n){
 // CHECK3-NEXT:    [[DOTPRIVATES__ADDR_I:%.*]] = alloca i8*, align 4
 // CHECK3-NEXT:    [[DOTCOPY_FN__ADDR_I:%.*]] = alloca void (i8*, ...)*, align 4
 // CHECK3-NEXT:    [[DOTTASK_T__ADDR_I:%.*]] = alloca i8*, align 4
-// CHECK3-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon*, align 4
+// CHECK3-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon.0*, align 4
 // CHECK3-NEXT:    [[DOTADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTADDR1:%.*]] = alloca %struct.kmp_task_t_with_privates*, align 4
 // CHECK3-NEXT:    store i32 [[TMP0]], i32* [[DOTADDR]], align 4
@@ -2621,7 +2617,7 @@ int bar(int n){
 // CHECK3-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T:%.*]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 2
 // CHECK3-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[TMP6]], align 4
-// CHECK3-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon*
+// CHECK3-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon.0*
 // CHECK3-NEXT:    [[TMP9:%.*]] = bitcast %struct.kmp_task_t_with_privates* [[TMP3]] to i8*
 // CHECK3-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META13:![0-9]+]])
 // CHECK3-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META16:![0-9]+]])
@@ -2770,7 +2766,7 @@ int bar(int n){
 // CHECK3-NEXT:    [[VLA_ADDR4:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 4
 // CHECK3-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 4
-// CHECK3-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 4
 // CHECK3-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK3-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -3171,7 +3167,7 @@ int bar(int n){
 // CHECK3-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 4
-// CHECK3-NEXT:    [[B_CASTED:%.*]] = alloca i32, align 4
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_5:%.*]], align 4
 // CHECK3-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[B]], i32* [[B_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -3233,9 +3229,7 @@ int bar(int n){
 // CHECK3-NEXT:    [[AA_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[AAA_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK3-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[AAA_CASTED:%.*]] = alloca i32, align 4
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_6:%.*]], align 4
 // CHECK3-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[AA]], i32* [[AA_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[AAA]], i32* [[AAA_ADDR]], align 4
@@ -3369,7 +3363,7 @@ int bar(int n){
 // CHECK4-NEXT:    [[C:%.*]] = alloca [5 x [10 x double]], align 8
 // CHECK4-NEXT:    [[__VLA_EXPR1:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[D:%.*]] = alloca [[STRUCT_TT:%.*]], align 4
-// CHECK4-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
+// CHECK4-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 1
 // CHECK4-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[DOTOFFLOAD_BASEPTRS:%.*]] = alloca [1 x i8*], align 4
@@ -3616,7 +3610,7 @@ int bar(int n){
 // CHECK4-NEXT:    [[DOTPRIVATES__ADDR_I:%.*]] = alloca i8*, align 4
 // CHECK4-NEXT:    [[DOTCOPY_FN__ADDR_I:%.*]] = alloca void (i8*, ...)*, align 4
 // CHECK4-NEXT:    [[DOTTASK_T__ADDR_I:%.*]] = alloca i8*, align 4
-// CHECK4-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon*, align 4
+// CHECK4-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon.0*, align 4
 // CHECK4-NEXT:    [[DOTADDR:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[DOTADDR1:%.*]] = alloca %struct.kmp_task_t_with_privates*, align 4
 // CHECK4-NEXT:    store i32 [[TMP0]], i32* [[DOTADDR]], align 4
@@ -3627,7 +3621,7 @@ int bar(int n){
 // CHECK4-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T:%.*]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 2
 // CHECK4-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 0
 // CHECK4-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[TMP6]], align 4
-// CHECK4-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon*
+// CHECK4-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon.0*
 // CHECK4-NEXT:    [[TMP9:%.*]] = bitcast %struct.kmp_task_t_with_privates* [[TMP3]] to i8*
 // CHECK4-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META13:![0-9]+]])
 // CHECK4-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META16:![0-9]+]])
@@ -3776,7 +3770,7 @@ int bar(int n){
 // CHECK4-NEXT:    [[VLA_ADDR4:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 4
 // CHECK4-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 4
-// CHECK4-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
+// CHECK4-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 4
 // CHECK4-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK4-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -4177,7 +4171,7 @@ int bar(int n){
 // CHECK4-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 4
-// CHECK4-NEXT:    [[B_CASTED:%.*]] = alloca i32, align 4
+// CHECK4-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_5:%.*]], align 4
 // CHECK4-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[B]], i32* [[B_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -4239,9 +4233,7 @@ int bar(int n){
 // CHECK4-NEXT:    [[AA_ADDR:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[AAA_ADDR:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK4-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
-// CHECK4-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
-// CHECK4-NEXT:    [[AAA_CASTED:%.*]] = alloca i32, align 4
+// CHECK4-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_6:%.*]], align 4
 // CHECK4-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[AA]], i32* [[AA_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[AAA]], i32* [[AAA_ADDR]], align 4
@@ -4481,7 +4473,7 @@ int bar(int n){
 // CHECK9-NEXT:    [[VLA_ADDR4:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 8
 // CHECK9-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 8
-// CHECK9-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
+// CHECK9-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_2:%.*]], align 8
 // CHECK9-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK9-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -4588,9 +4580,7 @@ int bar(int n){
 // CHECK9-NEXT:    [[AA_ADDR:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[AAA_ADDR:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK9-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK9-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
-// CHECK9-NEXT:    [[AAA_CASTED:%.*]] = alloca i64, align 8
+// CHECK9-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_3:%.*]], align 8
 // CHECK9-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[AA]], i64* [[AA_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[AAA]], i64* [[AAA_ADDR]], align 8
@@ -4662,7 +4652,7 @@ int bar(int n){
 // CHECK9-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 8
-// CHECK9-NEXT:    [[B_CASTED:%.*]] = alloca i64, align 8
+// CHECK9-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 8
 // CHECK9-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[B]], i64* [[B_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -4895,7 +4885,7 @@ int bar(int n){
 // CHECK10-NEXT:    [[VLA_ADDR4:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 8
 // CHECK10-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 8
-// CHECK10-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
+// CHECK10-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_2:%.*]], align 8
 // CHECK10-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK10-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -5002,9 +4992,7 @@ int bar(int n){
 // CHECK10-NEXT:    [[AA_ADDR:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[AAA_ADDR:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK10-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK10-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
-// CHECK10-NEXT:    [[AAA_CASTED:%.*]] = alloca i64, align 8
+// CHECK10-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_3:%.*]], align 8
 // CHECK10-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[AA]], i64* [[AA_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[AAA]], i64* [[AAA_ADDR]], align 8
@@ -5076,7 +5064,7 @@ int bar(int n){
 // CHECK10-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 8
-// CHECK10-NEXT:    [[B_CASTED:%.*]] = alloca i64, align 8
+// CHECK10-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 8
 // CHECK10-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[B]], i64* [[B_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -5306,7 +5294,7 @@ int bar(int n){
 // CHECK11-NEXT:    [[VLA_ADDR4:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 4
 // CHECK11-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 4
-// CHECK11-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
+// CHECK11-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_2:%.*]], align 4
 // CHECK11-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK11-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -5410,9 +5398,7 @@ int bar(int n){
 // CHECK11-NEXT:    [[AA_ADDR:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[AAA_ADDR:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK11-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
-// CHECK11-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
-// CHECK11-NEXT:    [[AAA_CASTED:%.*]] = alloca i32, align 4
+// CHECK11-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_3:%.*]], align 4
 // CHECK11-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[AA]], i32* [[AA_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[AAA]], i32* [[AAA_ADDR]], align 4
@@ -5481,7 +5467,7 @@ int bar(int n){
 // CHECK11-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 4
-// CHECK11-NEXT:    [[B_CASTED:%.*]] = alloca i32, align 4
+// CHECK11-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 4
 // CHECK11-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[B]], i32* [[B_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -5705,7 +5691,7 @@ int bar(int n){
 // CHECK12-NEXT:    [[VLA_ADDR4:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 4
 // CHECK12-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 4
-// CHECK12-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
+// CHECK12-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_2:%.*]], align 4
 // CHECK12-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK12-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -5809,9 +5795,7 @@ int bar(int n){
 // CHECK12-NEXT:    [[AA_ADDR:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[AAA_ADDR:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK12-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
-// CHECK12-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
-// CHECK12-NEXT:    [[AAA_CASTED:%.*]] = alloca i32, align 4
+// CHECK12-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_3:%.*]], align 4
 // CHECK12-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[AA]], i32* [[AA_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[AAA]], i32* [[AAA_ADDR]], align 4
@@ -5880,7 +5864,7 @@ int bar(int n){
 // CHECK12-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 4
-// CHECK12-NEXT:    [[B_CASTED:%.*]] = alloca i32, align 4
+// CHECK12-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 4
 // CHECK12-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[B]], i32* [[B_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -6001,7 +5985,7 @@ int bar(int n){
 // CHECK17-NEXT:    [[C:%.*]] = alloca [5 x [10 x double]], align 8
 // CHECK17-NEXT:    [[__VLA_EXPR1:%.*]] = alloca i64, align 8
 // CHECK17-NEXT:    [[D:%.*]] = alloca [[STRUCT_TT:%.*]], align 8
-// CHECK17-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
+// CHECK17-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 1
 // CHECK17-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
 // CHECK17-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
 // CHECK17-NEXT:    [[DOTOFFLOAD_BASEPTRS:%.*]] = alloca [1 x i8*], align 8
@@ -6251,7 +6235,7 @@ int bar(int n){
 // CHECK17-NEXT:    [[DOTPRIVATES__ADDR_I:%.*]] = alloca i8*, align 8
 // CHECK17-NEXT:    [[DOTCOPY_FN__ADDR_I:%.*]] = alloca void (i8*, ...)*, align 8
 // CHECK17-NEXT:    [[DOTTASK_T__ADDR_I:%.*]] = alloca i8*, align 8
-// CHECK17-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon*, align 8
+// CHECK17-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon.0*, align 8
 // CHECK17-NEXT:    [[DOTADDR:%.*]] = alloca i32, align 4
 // CHECK17-NEXT:    [[DOTADDR1:%.*]] = alloca %struct.kmp_task_t_with_privates*, align 8
 // CHECK17-NEXT:    store i32 [[TMP0]], i32* [[DOTADDR]], align 4
@@ -6262,7 +6246,7 @@ int bar(int n){
 // CHECK17-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T:%.*]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 2
 // CHECK17-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 0
 // CHECK17-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[TMP6]], align 8
-// CHECK17-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon*
+// CHECK17-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon.0*
 // CHECK17-NEXT:    [[TMP9:%.*]] = bitcast %struct.kmp_task_t_with_privates* [[TMP3]] to i8*
 // CHECK17-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META12:![0-9]+]])
 // CHECK17-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META15:![0-9]+]])
@@ -6417,7 +6401,7 @@ int bar(int n){
 // CHECK17-NEXT:    [[VLA_ADDR4:%.*]] = alloca i64, align 8
 // CHECK17-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 8
 // CHECK17-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 8
-// CHECK17-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
+// CHECK17-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 8
 // CHECK17-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK17-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 8
 // CHECK17-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -6824,7 +6808,7 @@ int bar(int n){
 // CHECK17-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK17-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK17-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 8
-// CHECK17-NEXT:    [[B_CASTED:%.*]] = alloca i64, align 8
+// CHECK17-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_5:%.*]], align 8
 // CHECK17-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 8
 // CHECK17-NEXT:    store i64 [[B]], i64* [[B_ADDR]], align 8
 // CHECK17-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -6889,9 +6873,7 @@ int bar(int n){
 // CHECK17-NEXT:    [[AA_ADDR:%.*]] = alloca i64, align 8
 // CHECK17-NEXT:    [[AAA_ADDR:%.*]] = alloca i64, align 8
 // CHECK17-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK17-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK17-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
-// CHECK17-NEXT:    [[AAA_CASTED:%.*]] = alloca i64, align 8
+// CHECK17-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_6:%.*]], align 8
 // CHECK17-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK17-NEXT:    store i64 [[AA]], i64* [[AA_ADDR]], align 8
 // CHECK17-NEXT:    store i64 [[AAA]], i64* [[AAA_ADDR]], align 8
@@ -7031,7 +7013,7 @@ int bar(int n){
 // CHECK18-NEXT:    [[C:%.*]] = alloca [5 x [10 x double]], align 8
 // CHECK18-NEXT:    [[__VLA_EXPR1:%.*]] = alloca i64, align 8
 // CHECK18-NEXT:    [[D:%.*]] = alloca [[STRUCT_TT:%.*]], align 8
-// CHECK18-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
+// CHECK18-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 1
 // CHECK18-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
 // CHECK18-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
 // CHECK18-NEXT:    [[DOTOFFLOAD_BASEPTRS:%.*]] = alloca [1 x i8*], align 8
@@ -7281,7 +7263,7 @@ int bar(int n){
 // CHECK18-NEXT:    [[DOTPRIVATES__ADDR_I:%.*]] = alloca i8*, align 8
 // CHECK18-NEXT:    [[DOTCOPY_FN__ADDR_I:%.*]] = alloca void (i8*, ...)*, align 8
 // CHECK18-NEXT:    [[DOTTASK_T__ADDR_I:%.*]] = alloca i8*, align 8
-// CHECK18-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon*, align 8
+// CHECK18-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon.0*, align 8
 // CHECK18-NEXT:    [[DOTADDR:%.*]] = alloca i32, align 4
 // CHECK18-NEXT:    [[DOTADDR1:%.*]] = alloca %struct.kmp_task_t_with_privates*, align 8
 // CHECK18-NEXT:    store i32 [[TMP0]], i32* [[DOTADDR]], align 4
@@ -7292,7 +7274,7 @@ int bar(int n){
 // CHECK18-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T:%.*]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 2
 // CHECK18-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 0
 // CHECK18-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[TMP6]], align 8
-// CHECK18-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon*
+// CHECK18-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon.0*
 // CHECK18-NEXT:    [[TMP9:%.*]] = bitcast %struct.kmp_task_t_with_privates* [[TMP3]] to i8*
 // CHECK18-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META12:![0-9]+]])
 // CHECK18-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META15:![0-9]+]])
@@ -7447,7 +7429,7 @@ int bar(int n){
 // CHECK18-NEXT:    [[VLA_ADDR4:%.*]] = alloca i64, align 8
 // CHECK18-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 8
 // CHECK18-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 8
-// CHECK18-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
+// CHECK18-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 8
 // CHECK18-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK18-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 8
 // CHECK18-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -7854,7 +7836,7 @@ int bar(int n){
 // CHECK18-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK18-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK18-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 8
-// CHECK18-NEXT:    [[B_CASTED:%.*]] = alloca i64, align 8
+// CHECK18-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_5:%.*]], align 8
 // CHECK18-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 8
 // CHECK18-NEXT:    store i64 [[B]], i64* [[B_ADDR]], align 8
 // CHECK18-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -7919,9 +7901,7 @@ int bar(int n){
 // CHECK18-NEXT:    [[AA_ADDR:%.*]] = alloca i64, align 8
 // CHECK18-NEXT:    [[AAA_ADDR:%.*]] = alloca i64, align 8
 // CHECK18-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK18-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK18-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
-// CHECK18-NEXT:    [[AAA_CASTED:%.*]] = alloca i64, align 8
+// CHECK18-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_6:%.*]], align 8
 // CHECK18-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK18-NEXT:    store i64 [[AA]], i64* [[AA_ADDR]], align 8
 // CHECK18-NEXT:    store i64 [[AAA]], i64* [[AAA_ADDR]], align 8
@@ -8061,7 +8041,7 @@ int bar(int n){
 // CHECK19-NEXT:    [[C:%.*]] = alloca [5 x [10 x double]], align 8
 // CHECK19-NEXT:    [[__VLA_EXPR1:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[D:%.*]] = alloca [[STRUCT_TT:%.*]], align 4
-// CHECK19-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
+// CHECK19-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 1
 // CHECK19-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[DOTOFFLOAD_BASEPTRS:%.*]] = alloca [1 x i8*], align 4
@@ -8308,7 +8288,7 @@ int bar(int n){
 // CHECK19-NEXT:    [[DOTPRIVATES__ADDR_I:%.*]] = alloca i8*, align 4
 // CHECK19-NEXT:    [[DOTCOPY_FN__ADDR_I:%.*]] = alloca void (i8*, ...)*, align 4
 // CHECK19-NEXT:    [[DOTTASK_T__ADDR_I:%.*]] = alloca i8*, align 4
-// CHECK19-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon*, align 4
+// CHECK19-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon.0*, align 4
 // CHECK19-NEXT:    [[DOTADDR:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[DOTADDR1:%.*]] = alloca %struct.kmp_task_t_with_privates*, align 4
 // CHECK19-NEXT:    store i32 [[TMP0]], i32* [[DOTADDR]], align 4
@@ -8319,7 +8299,7 @@ int bar(int n){
 // CHECK19-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T:%.*]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 2
 // CHECK19-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 0
 // CHECK19-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[TMP6]], align 4
-// CHECK19-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon*
+// CHECK19-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon.0*
 // CHECK19-NEXT:    [[TMP9:%.*]] = bitcast %struct.kmp_task_t_with_privates* [[TMP3]] to i8*
 // CHECK19-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META13:![0-9]+]])
 // CHECK19-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META16:![0-9]+]])
@@ -8468,7 +8448,7 @@ int bar(int n){
 // CHECK19-NEXT:    [[VLA_ADDR4:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 4
 // CHECK19-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 4
-// CHECK19-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
+// CHECK19-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 4
 // CHECK19-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK19-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 4
 // CHECK19-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -8869,7 +8849,7 @@ int bar(int n){
 // CHECK19-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 4
-// CHECK19-NEXT:    [[B_CASTED:%.*]] = alloca i32, align 4
+// CHECK19-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_5:%.*]], align 4
 // CHECK19-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 4
 // CHECK19-NEXT:    store i32 [[B]], i32* [[B_ADDR]], align 4
 // CHECK19-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -8931,9 +8911,7 @@ int bar(int n){
 // CHECK19-NEXT:    [[AA_ADDR:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[AAA_ADDR:%.*]] = alloca i32, align 4
 // CHECK19-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK19-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
-// CHECK19-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
-// CHECK19-NEXT:    [[AAA_CASTED:%.*]] = alloca i32, align 4
+// CHECK19-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_6:%.*]], align 4
 // CHECK19-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK19-NEXT:    store i32 [[AA]], i32* [[AA_ADDR]], align 4
 // CHECK19-NEXT:    store i32 [[AAA]], i32* [[AAA_ADDR]], align 4
@@ -9067,7 +9045,7 @@ int bar(int n){
 // CHECK20-NEXT:    [[C:%.*]] = alloca [5 x [10 x double]], align 8
 // CHECK20-NEXT:    [[__VLA_EXPR1:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[D:%.*]] = alloca [[STRUCT_TT:%.*]], align 4
-// CHECK20-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
+// CHECK20-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 1
 // CHECK20-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[DOTOFFLOAD_BASEPTRS:%.*]] = alloca [1 x i8*], align 4
@@ -9314,7 +9292,7 @@ int bar(int n){
 // CHECK20-NEXT:    [[DOTPRIVATES__ADDR_I:%.*]] = alloca i8*, align 4
 // CHECK20-NEXT:    [[DOTCOPY_FN__ADDR_I:%.*]] = alloca void (i8*, ...)*, align 4
 // CHECK20-NEXT:    [[DOTTASK_T__ADDR_I:%.*]] = alloca i8*, align 4
-// CHECK20-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon*, align 4
+// CHECK20-NEXT:    [[__CONTEXT_ADDR_I:%.*]] = alloca %struct.anon.0*, align 4
 // CHECK20-NEXT:    [[DOTADDR:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[DOTADDR1:%.*]] = alloca %struct.kmp_task_t_with_privates*, align 4
 // CHECK20-NEXT:    store i32 [[TMP0]], i32* [[DOTADDR]], align 4
@@ -9325,7 +9303,7 @@ int bar(int n){
 // CHECK20-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T:%.*]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 2
 // CHECK20-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT_KMP_TASK_T]], %struct.kmp_task_t* [[TMP4]], i32 0, i32 0
 // CHECK20-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[TMP6]], align 4
-// CHECK20-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon*
+// CHECK20-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP7]] to %struct.anon.0*
 // CHECK20-NEXT:    [[TMP9:%.*]] = bitcast %struct.kmp_task_t_with_privates* [[TMP3]] to i8*
 // CHECK20-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META13:![0-9]+]])
 // CHECK20-NEXT:    call void @llvm.experimental.noalias.scope.decl(metadata [[META16:![0-9]+]])
@@ -9474,7 +9452,7 @@ int bar(int n){
 // CHECK20-NEXT:    [[VLA_ADDR4:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 4
 // CHECK20-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 4
-// CHECK20-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
+// CHECK20-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 4
 // CHECK20-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK20-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 4
 // CHECK20-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -9875,7 +9853,7 @@ int bar(int n){
 // CHECK20-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 4
-// CHECK20-NEXT:    [[B_CASTED:%.*]] = alloca i32, align 4
+// CHECK20-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_5:%.*]], align 4
 // CHECK20-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 4
 // CHECK20-NEXT:    store i32 [[B]], i32* [[B_ADDR]], align 4
 // CHECK20-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -9937,9 +9915,7 @@ int bar(int n){
 // CHECK20-NEXT:    [[AA_ADDR:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[AAA_ADDR:%.*]] = alloca i32, align 4
 // CHECK20-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK20-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
-// CHECK20-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
-// CHECK20-NEXT:    [[AAA_CASTED:%.*]] = alloca i32, align 4
+// CHECK20-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_6:%.*]], align 4
 // CHECK20-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK20-NEXT:    store i32 [[AA]], i32* [[AA_ADDR]], align 4
 // CHECK20-NEXT:    store i32 [[AAA]], i32* [[AAA_ADDR]], align 4
@@ -10179,7 +10155,7 @@ int bar(int n){
 // CHECK25-NEXT:    [[VLA_ADDR4:%.*]] = alloca i64, align 8
 // CHECK25-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 8
 // CHECK25-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 8
-// CHECK25-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
+// CHECK25-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_2:%.*]], align 8
 // CHECK25-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK25-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 8
 // CHECK25-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -10286,9 +10262,7 @@ int bar(int n){
 // CHECK25-NEXT:    [[AA_ADDR:%.*]] = alloca i64, align 8
 // CHECK25-NEXT:    [[AAA_ADDR:%.*]] = alloca i64, align 8
 // CHECK25-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK25-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK25-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
-// CHECK25-NEXT:    [[AAA_CASTED:%.*]] = alloca i64, align 8
+// CHECK25-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_3:%.*]], align 8
 // CHECK25-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK25-NEXT:    store i64 [[AA]], i64* [[AA_ADDR]], align 8
 // CHECK25-NEXT:    store i64 [[AAA]], i64* [[AAA_ADDR]], align 8
@@ -10360,7 +10334,7 @@ int bar(int n){
 // CHECK25-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK25-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK25-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 8
-// CHECK25-NEXT:    [[B_CASTED:%.*]] = alloca i64, align 8
+// CHECK25-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 8
 // CHECK25-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 8
 // CHECK25-NEXT:    store i64 [[B]], i64* [[B_ADDR]], align 8
 // CHECK25-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -10593,7 +10567,7 @@ int bar(int n){
 // CHECK26-NEXT:    [[VLA_ADDR4:%.*]] = alloca i64, align 8
 // CHECK26-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 8
 // CHECK26-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 8
-// CHECK26-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
+// CHECK26-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_2:%.*]], align 8
 // CHECK26-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK26-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 8
 // CHECK26-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -10700,9 +10674,7 @@ int bar(int n){
 // CHECK26-NEXT:    [[AA_ADDR:%.*]] = alloca i64, align 8
 // CHECK26-NEXT:    [[AAA_ADDR:%.*]] = alloca i64, align 8
 // CHECK26-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK26-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK26-NEXT:    [[AA_CASTED:%.*]] = alloca i64, align 8
-// CHECK26-NEXT:    [[AAA_CASTED:%.*]] = alloca i64, align 8
+// CHECK26-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_3:%.*]], align 8
 // CHECK26-NEXT:    store i64 [[A]], i64* [[A_ADDR]], align 8
 // CHECK26-NEXT:    store i64 [[AA]], i64* [[AA_ADDR]], align 8
 // CHECK26-NEXT:    store i64 [[AAA]], i64* [[AAA_ADDR]], align 8
@@ -10774,7 +10746,7 @@ int bar(int n){
 // CHECK26-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK26-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK26-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 8
-// CHECK26-NEXT:    [[B_CASTED:%.*]] = alloca i64, align 8
+// CHECK26-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 8
 // CHECK26-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 8
 // CHECK26-NEXT:    store i64 [[B]], i64* [[B_ADDR]], align 8
 // CHECK26-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -11004,7 +10976,7 @@ int bar(int n){
 // CHECK27-NEXT:    [[VLA_ADDR4:%.*]] = alloca i32, align 4
 // CHECK27-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 4
 // CHECK27-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 4
-// CHECK27-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
+// CHECK27-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_2:%.*]], align 4
 // CHECK27-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK27-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 4
 // CHECK27-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -11108,9 +11080,7 @@ int bar(int n){
 // CHECK27-NEXT:    [[AA_ADDR:%.*]] = alloca i32, align 4
 // CHECK27-NEXT:    [[AAA_ADDR:%.*]] = alloca i32, align 4
 // CHECK27-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK27-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
-// CHECK27-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
-// CHECK27-NEXT:    [[AAA_CASTED:%.*]] = alloca i32, align 4
+// CHECK27-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_3:%.*]], align 4
 // CHECK27-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK27-NEXT:    store i32 [[AA]], i32* [[AA_ADDR]], align 4
 // CHECK27-NEXT:    store i32 [[AAA]], i32* [[AAA_ADDR]], align 4
@@ -11179,7 +11149,7 @@ int bar(int n){
 // CHECK27-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK27-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK27-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 4
-// CHECK27-NEXT:    [[B_CASTED:%.*]] = alloca i32, align 4
+// CHECK27-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 4
 // CHECK27-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 4
 // CHECK27-NEXT:    store i32 [[B]], i32* [[B_ADDR]], align 4
 // CHECK27-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -11403,7 +11373,7 @@ int bar(int n){
 // CHECK28-NEXT:    [[VLA_ADDR4:%.*]] = alloca i32, align 4
 // CHECK28-NEXT:    [[CN_ADDR:%.*]] = alloca double*, align 4
 // CHECK28-NEXT:    [[D_ADDR:%.*]] = alloca %struct.TT*, align 4
-// CHECK28-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
+// CHECK28-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_2:%.*]], align 4
 // CHECK28-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK28-NEXT:    store [10 x float]* [[B]], [10 x float]** [[B_ADDR]], align 4
 // CHECK28-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -11507,9 +11477,7 @@ int bar(int n){
 // CHECK28-NEXT:    [[AA_ADDR:%.*]] = alloca i32, align 4
 // CHECK28-NEXT:    [[AAA_ADDR:%.*]] = alloca i32, align 4
 // CHECK28-NEXT:    [[B_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK28-NEXT:    [[A_CASTED:%.*]] = alloca i32, align 4
-// CHECK28-NEXT:    [[AA_CASTED:%.*]] = alloca i32, align 4
-// CHECK28-NEXT:    [[AAA_CASTED:%.*]] = alloca i32, align 4
+// CHECK28-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_3:%.*]], align 4
 // CHECK28-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 // CHECK28-NEXT:    store i32 [[AA]], i32* [[AA_ADDR]], align 4
 // CHECK28-NEXT:    store i32 [[AAA]], i32* [[AAA_ADDR]], align 4
@@ -11578,7 +11546,7 @@ int bar(int n){
 // CHECK28-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK28-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK28-NEXT:    [[C_ADDR:%.*]] = alloca i16*, align 4
-// CHECK28-NEXT:    [[B_CASTED:%.*]] = alloca i32, align 4
+// CHECK28-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_4:%.*]], align 4
 // CHECK28-NEXT:    store %struct.S1* [[THIS]], %struct.S1** [[THIS_ADDR]], align 4
 // CHECK28-NEXT:    store i32 [[B]], i32* [[B_ADDR]], align 4
 // CHECK28-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4

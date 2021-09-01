@@ -74,8 +74,8 @@ int main() {
 // CHECK1-NEXT:    [[TMP:%.*]] = alloca [10 x [10 x [10 x i32]]]*, align 8
 // CHECK1-NEXT:    [[_TMP1:%.*]] = alloca [10 x [10 x i32]]*, align 8
 // CHECK1-NEXT:    [[_TMP2:%.*]] = alloca i8*, align 8
-// CHECK1-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [4 x i8*], align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
+// CHECK1-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 8
 // CHECK1-NEXT:    store [10 x [10 x [10 x i32]]] addrspace(1)* [[C]], [10 x [10 x [10 x i32]]] addrspace(1)** [[C_ADDR]], align 8
 // CHECK1-NEXT:    call void @llvm.dbg.declare(metadata [10 x [10 x [10 x i32]]] addrspace(1)** [[C_ADDR]], metadata [[META39:![0-9]+]], metadata !DIExpression()), !dbg [[DBG40:![0-9]+]]
 // CHECK1-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4

@@ -149,7 +149,8 @@ void unreachable_call() {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[PTR1_ADDR:%.*]] = alloca i32*, align 8
 // CHECK1-NEXT:    [[PTR2_ADDR:%.*]] = alloca i32**, align 8
-// CHECK1-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [2 x i8*], align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
+// CHECK1-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 8
 // CHECK1-NEXT:    store i32* [[PTR1]], i32** [[PTR1_ADDR]], align 8
 // CHECK1-NEXT:    store i32** [[PTR2]], i32*** [[PTR2_ADDR]], align 8
 // CHECK1-NEXT:    [[TMP0:%.*]] = load i32**, i32*** [[PTR2_ADDR]], align 8
@@ -158,14 +159,19 @@ void unreachable_call() {
 // CHECK1-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK1:       user_code.entry:
 // CHECK1-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2:[0-9]+]])
-// CHECK1-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 0
-// CHECK1-NEXT:    [[TMP4:%.*]] = bitcast i32** [[PTR1_ADDR]] to i8*
-// CHECK1-NEXT:    store i8* [[TMP4]], i8** [[TMP3]], align 8
-// CHECK1-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 1
-// CHECK1-NEXT:    [[TMP6:%.*]] = bitcast i32** [[TMP0]] to i8*
+// CHECK1-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 0
+// CHECK1-NEXT:    store i32** [[PTR1_ADDR]], i32*** [[TMP3]], align 8
+// CHECK1-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 1
+// CHECK1-NEXT:    store i32** [[TMP0]], i32*** [[TMP4]], align 8
+// CHECK1-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 0
+// CHECK1-NEXT:    [[TMP6:%.*]] = call i8* @__kmpc_alloc_shared(i64 16)
+// CHECK1-NEXT:    [[TMP7:%.*]] = load [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], align 8
+// CHECK1-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP6]] to %struct.anon*
+// CHECK1-NEXT:    store [[STRUCT_ANON]] [[TMP7]], %struct.anon* [[TMP8]], align 8
 // CHECK1-NEXT:    store i8* [[TMP6]], i8** [[TMP5]], align 8
-// CHECK1-NEXT:    [[TMP7:%.*]] = bitcast [2 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32**, i32**)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP7]], i64 2)
+// CHECK1-NEXT:    [[TMP9:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
+// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, %struct.anon*)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP9]], i64 1)
+// CHECK1-NEXT:    call void @__kmpc_free_shared(i8* [[TMP6]], i64 16)
 // CHECK1-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i1 true, i1 true)
 // CHECK1-NEXT:    ret void
 // CHECK1:       worker.exit:
@@ -416,24 +422,30 @@ void unreachable_call() {
 // CHECK1-SAME: (i32 [[F1:%.*]], double* nonnull align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR3]] {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[A_ADDR:%.*]] = alloca double*, align 8
-// CHECK1-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [2 x i8*], align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 8
+// CHECK1-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 8
 // CHECK1-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3:[0-9]+]])
 // CHECK1-NEXT:    [[F:%.*]] = call i8* @__kmpc_alloc_shared(i64 4)
 // CHECK1-NEXT:    [[F_ON_STACK:%.*]] = bitcast i8* [[F]] to i32*
 // CHECK1-NEXT:    store i32 [[F1]], i32* [[F_ON_STACK]], align 4
 // CHECK1-NEXT:    store double* [[A]], double** [[A_ADDR]], align 8
-// CHECK1-NEXT:    [[TMP1:%.*]] = load double*, double** [[A_ADDR]], align 8
-// CHECK1-NEXT:    [[TMP2:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 0
-// CHECK1-NEXT:    [[TMP3:%.*]] = bitcast i32* [[F_ON_STACK]] to i8*
-// CHECK1-NEXT:    store i8* [[TMP3]], i8** [[TMP2]], align 8
-// CHECK1-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 1
-// CHECK1-NEXT:    [[TMP5:%.*]] = bitcast double* [[TMP1]] to i8*
+// CHECK1-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 0
+// CHECK1-NEXT:    store i32* [[F_ON_STACK]], i32** [[TMP1]], align 8
+// CHECK1-NEXT:    [[TMP2:%.*]] = getelementptr inbounds [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 1
+// CHECK1-NEXT:    [[TMP3:%.*]] = load double*, double** [[A_ADDR]], align 8
+// CHECK1-NEXT:    store double* [[TMP3]], double** [[TMP2]], align 8
+// CHECK1-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 0
+// CHECK1-NEXT:    [[TMP5:%.*]] = call i8* @__kmpc_alloc_shared(i64 16)
+// CHECK1-NEXT:    [[TMP6:%.*]] = load [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], align 8
+// CHECK1-NEXT:    [[TMP7:%.*]] = bitcast i8* [[TMP5]] to %struct.anon.0*
+// CHECK1-NEXT:    store [[STRUCT_ANON_0]] [[TMP6]], %struct.anon.0* [[TMP7]], align 8
 // CHECK1-NEXT:    store i8* [[TMP5]], i8** [[TMP4]], align 8
-// CHECK1-NEXT:    [[TMP6:%.*]] = bitcast [2 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP0]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, double*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP6]], i64 2)
-// CHECK1-NEXT:    [[TMP7:%.*]] = load i32, i32* [[F_ON_STACK]], align 4
+// CHECK1-NEXT:    [[TMP8:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
+// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP0]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, %struct.anon.0*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP8]], i64 1)
+// CHECK1-NEXT:    call void @__kmpc_free_shared(i8* [[TMP5]], i64 16)
+// CHECK1-NEXT:    [[TMP9:%.*]] = load i32, i32* [[F_ON_STACK]], align 4
 // CHECK1-NEXT:    call void @__kmpc_free_shared(i8* [[F]], i64 4)
-// CHECK1-NEXT:    ret i32 [[TMP7]]
+// CHECK1-NEXT:    ret i32 [[TMP9]]
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z16unreachable_callv_l142
@@ -536,7 +548,8 @@ void unreachable_call() {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[PTR1_ADDR:%.*]] = alloca i32*, align 4
 // CHECK2-NEXT:    [[PTR2_ADDR:%.*]] = alloca i32**, align 4
-// CHECK2-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [2 x i8*], align 4
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
+// CHECK2-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 4
 // CHECK2-NEXT:    store i32* [[PTR1]], i32** [[PTR1_ADDR]], align 4
 // CHECK2-NEXT:    store i32** [[PTR2]], i32*** [[PTR2_ADDR]], align 4
 // CHECK2-NEXT:    [[TMP0:%.*]] = load i32**, i32*** [[PTR2_ADDR]], align 4
@@ -545,14 +558,19 @@ void unreachable_call() {
 // CHECK2-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK2:       user_code.entry:
 // CHECK2-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2:[0-9]+]])
-// CHECK2-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 0
-// CHECK2-NEXT:    [[TMP4:%.*]] = bitcast i32** [[PTR1_ADDR]] to i8*
-// CHECK2-NEXT:    store i8* [[TMP4]], i8** [[TMP3]], align 4
-// CHECK2-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 1
-// CHECK2-NEXT:    [[TMP6:%.*]] = bitcast i32** [[TMP0]] to i8*
+// CHECK2-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 0
+// CHECK2-NEXT:    store i32** [[PTR1_ADDR]], i32*** [[TMP3]], align 4
+// CHECK2-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 1
+// CHECK2-NEXT:    store i32** [[TMP0]], i32*** [[TMP4]], align 4
+// CHECK2-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 0
+// CHECK2-NEXT:    [[TMP6:%.*]] = call i8* @__kmpc_alloc_shared(i32 8)
+// CHECK2-NEXT:    [[TMP7:%.*]] = load [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], align 4
+// CHECK2-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP6]] to %struct.anon*
+// CHECK2-NEXT:    store [[STRUCT_ANON]] [[TMP7]], %struct.anon* [[TMP8]], align 4
 // CHECK2-NEXT:    store i8* [[TMP6]], i8** [[TMP5]], align 4
-// CHECK2-NEXT:    [[TMP7:%.*]] = bitcast [2 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32**, i32**)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP7]], i32 2)
+// CHECK2-NEXT:    [[TMP9:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
+// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, %struct.anon*)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP9]], i32 1)
+// CHECK2-NEXT:    call void @__kmpc_free_shared(i8* [[TMP6]], i32 8)
 // CHECK2-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i1 true, i1 true)
 // CHECK2-NEXT:    ret void
 // CHECK2:       worker.exit:
@@ -800,24 +818,30 @@ void unreachable_call() {
 // CHECK2-SAME: (i32 [[F1:%.*]], double* nonnull align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR3]] {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[A_ADDR:%.*]] = alloca double*, align 4
-// CHECK2-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [2 x i8*], align 4
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 4
+// CHECK2-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 4
 // CHECK2-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3:[0-9]+]])
 // CHECK2-NEXT:    [[F:%.*]] = call i8* @__kmpc_alloc_shared(i32 4)
 // CHECK2-NEXT:    [[F_ON_STACK:%.*]] = bitcast i8* [[F]] to i32*
 // CHECK2-NEXT:    store i32 [[F1]], i32* [[F_ON_STACK]], align 4
 // CHECK2-NEXT:    store double* [[A]], double** [[A_ADDR]], align 4
-// CHECK2-NEXT:    [[TMP1:%.*]] = load double*, double** [[A_ADDR]], align 4
-// CHECK2-NEXT:    [[TMP2:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 0
-// CHECK2-NEXT:    [[TMP3:%.*]] = bitcast i32* [[F_ON_STACK]] to i8*
-// CHECK2-NEXT:    store i8* [[TMP3]], i8** [[TMP2]], align 4
-// CHECK2-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 1
-// CHECK2-NEXT:    [[TMP5:%.*]] = bitcast double* [[TMP1]] to i8*
+// CHECK2-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 0
+// CHECK2-NEXT:    store i32* [[F_ON_STACK]], i32** [[TMP1]], align 4
+// CHECK2-NEXT:    [[TMP2:%.*]] = getelementptr inbounds [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 1
+// CHECK2-NEXT:    [[TMP3:%.*]] = load double*, double** [[A_ADDR]], align 4
+// CHECK2-NEXT:    store double* [[TMP3]], double** [[TMP2]], align 4
+// CHECK2-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 0
+// CHECK2-NEXT:    [[TMP5:%.*]] = call i8* @__kmpc_alloc_shared(i32 8)
+// CHECK2-NEXT:    [[TMP6:%.*]] = load [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], align 4
+// CHECK2-NEXT:    [[TMP7:%.*]] = bitcast i8* [[TMP5]] to %struct.anon.0*
+// CHECK2-NEXT:    store [[STRUCT_ANON_0]] [[TMP6]], %struct.anon.0* [[TMP7]], align 4
 // CHECK2-NEXT:    store i8* [[TMP5]], i8** [[TMP4]], align 4
-// CHECK2-NEXT:    [[TMP6:%.*]] = bitcast [2 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP0]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, double*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP6]], i32 2)
-// CHECK2-NEXT:    [[TMP7:%.*]] = load i32, i32* [[F_ON_STACK]], align 4
+// CHECK2-NEXT:    [[TMP8:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
+// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP0]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, %struct.anon.0*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP8]], i32 1)
+// CHECK2-NEXT:    call void @__kmpc_free_shared(i8* [[TMP5]], i32 8)
+// CHECK2-NEXT:    [[TMP9:%.*]] = load i32, i32* [[F_ON_STACK]], align 4
 // CHECK2-NEXT:    call void @__kmpc_free_shared(i8* [[F]], i32 4)
-// CHECK2-NEXT:    ret i32 [[TMP7]]
+// CHECK2-NEXT:    ret i32 [[TMP9]]
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z16unreachable_callv_l142
@@ -919,7 +943,8 @@ void unreachable_call() {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[PTR1_ADDR:%.*]] = alloca i32*, align 4
 // CHECK3-NEXT:    [[PTR2_ADDR:%.*]] = alloca i32**, align 4
-// CHECK3-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [2 x i8*], align 4
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
+// CHECK3-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 4
 // CHECK3-NEXT:    store i32* [[PTR1]], i32** [[PTR1_ADDR]], align 4
 // CHECK3-NEXT:    store i32** [[PTR2]], i32*** [[PTR2_ADDR]], align 4
 // CHECK3-NEXT:    [[TMP0:%.*]] = load i32**, i32*** [[PTR2_ADDR]], align 4
@@ -928,14 +953,19 @@ void unreachable_call() {
 // CHECK3-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK3:       user_code.entry:
 // CHECK3-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2:[0-9]+]])
-// CHECK3-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 0
-// CHECK3-NEXT:    [[TMP4:%.*]] = bitcast i32** [[PTR1_ADDR]] to i8*
-// CHECK3-NEXT:    store i8* [[TMP4]], i8** [[TMP3]], align 4
-// CHECK3-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 1
-// CHECK3-NEXT:    [[TMP6:%.*]] = bitcast i32** [[TMP0]] to i8*
+// CHECK3-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 0
+// CHECK3-NEXT:    store i32** [[PTR1_ADDR]], i32*** [[TMP3]], align 4
+// CHECK3-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 1
+// CHECK3-NEXT:    store i32** [[TMP0]], i32*** [[TMP4]], align 4
+// CHECK3-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 0
+// CHECK3-NEXT:    [[TMP6:%.*]] = call i8* @__kmpc_alloc_shared(i32 8)
+// CHECK3-NEXT:    [[TMP7:%.*]] = load [[STRUCT_ANON]], %struct.anon* [[OMP_OUTLINED_ARG_AGG_]], align 4
+// CHECK3-NEXT:    [[TMP8:%.*]] = bitcast i8* [[TMP6]] to %struct.anon*
+// CHECK3-NEXT:    store [[STRUCT_ANON]] [[TMP7]], %struct.anon* [[TMP8]], align 4
 // CHECK3-NEXT:    store i8* [[TMP6]], i8** [[TMP5]], align 4
-// CHECK3-NEXT:    [[TMP7:%.*]] = bitcast [2 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32**, i32**)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP7]], i32 2)
+// CHECK3-NEXT:    [[TMP9:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
+// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, %struct.anon*)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP9]], i32 1)
+// CHECK3-NEXT:    call void @__kmpc_free_shared(i8* [[TMP6]], i32 8)
 // CHECK3-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i1 true, i1 true)
 // CHECK3-NEXT:    ret void
 // CHECK3:       worker.exit:
@@ -1183,24 +1213,30 @@ void unreachable_call() {
 // CHECK3-SAME: (i32 [[F1:%.*]], double* nonnull align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR3]] {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[A_ADDR:%.*]] = alloca double*, align 4
-// CHECK3-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [2 x i8*], align 4
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_0:%.*]], align 4
+// CHECK3-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 4
 // CHECK3-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3:[0-9]+]])
 // CHECK3-NEXT:    [[F:%.*]] = call i8* @__kmpc_alloc_shared(i32 4)
 // CHECK3-NEXT:    [[F_ON_STACK:%.*]] = bitcast i8* [[F]] to i32*
 // CHECK3-NEXT:    store i32 [[F1]], i32* [[F_ON_STACK]], align 4
 // CHECK3-NEXT:    store double* [[A]], double** [[A_ADDR]], align 4
-// CHECK3-NEXT:    [[TMP1:%.*]] = load double*, double** [[A_ADDR]], align 4
-// CHECK3-NEXT:    [[TMP2:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 0
-// CHECK3-NEXT:    [[TMP3:%.*]] = bitcast i32* [[F_ON_STACK]] to i8*
-// CHECK3-NEXT:    store i8* [[TMP3]], i8** [[TMP2]], align 4
-// CHECK3-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 1
-// CHECK3-NEXT:    [[TMP5:%.*]] = bitcast double* [[TMP1]] to i8*
+// CHECK3-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 0
+// CHECK3-NEXT:    store i32* [[F_ON_STACK]], i32** [[TMP1]], align 4
+// CHECK3-NEXT:    [[TMP2:%.*]] = getelementptr inbounds [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], i32 0, i32 1
+// CHECK3-NEXT:    [[TMP3:%.*]] = load double*, double** [[A_ADDR]], align 4
+// CHECK3-NEXT:    store double* [[TMP3]], double** [[TMP2]], align 4
+// CHECK3-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[CAPTURED_VARS_ADDRS]], i32 0, i32 0
+// CHECK3-NEXT:    [[TMP5:%.*]] = call i8* @__kmpc_alloc_shared(i32 8)
+// CHECK3-NEXT:    [[TMP6:%.*]] = load [[STRUCT_ANON_0]], %struct.anon.0* [[OMP_OUTLINED_ARG_AGG_]], align 4
+// CHECK3-NEXT:    [[TMP7:%.*]] = bitcast i8* [[TMP5]] to %struct.anon.0*
+// CHECK3-NEXT:    store [[STRUCT_ANON_0]] [[TMP6]], %struct.anon.0* [[TMP7]], align 4
 // CHECK3-NEXT:    store i8* [[TMP5]], i8** [[TMP4]], align 4
-// CHECK3-NEXT:    [[TMP6:%.*]] = bitcast [2 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP0]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, double*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP6]], i32 2)
-// CHECK3-NEXT:    [[TMP7:%.*]] = load i32, i32* [[F_ON_STACK]], align 4
+// CHECK3-NEXT:    [[TMP8:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
+// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP0]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, %struct.anon.0*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP8]], i32 1)
+// CHECK3-NEXT:    call void @__kmpc_free_shared(i8* [[TMP5]], i32 8)
+// CHECK3-NEXT:    [[TMP9:%.*]] = load i32, i32* [[F_ON_STACK]], align 4
 // CHECK3-NEXT:    call void @__kmpc_free_shared(i8* [[F]], i32 4)
-// CHECK3-NEXT:    ret i32 [[TMP7]]
+// CHECK3-NEXT:    ret i32 [[TMP9]]
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z16unreachable_callv_l142
