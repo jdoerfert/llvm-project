@@ -1120,8 +1120,7 @@ int main (int argc, char **argv) {
 // CHECK9-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[A_ADDR:%.*]] = alloca i32*, align 8
-// CHECK9-NEXT:    [[N_CASTED:%.*]] = alloca i64, align 8
-// CHECK9-NEXT:    [[M_CASTED:%.*]] = alloca i64, align 8
+// CHECK9-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK9-NEXT:    store i64 [[N]], i64* [[N_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[M]], i64* [[M_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -1590,8 +1589,7 @@ int main (int argc, char **argv) {
 // CHECK10-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[VLA_ADDR2:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[A_ADDR:%.*]] = alloca i32*, align 8
-// CHECK10-NEXT:    [[N_CASTED:%.*]] = alloca i64, align 8
-// CHECK10-NEXT:    [[M_CASTED:%.*]] = alloca i64, align 8
+// CHECK10-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK10-NEXT:    store i64 [[N]], i64* [[N_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[M]], i64* [[M_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[VLA]], i64* [[VLA_ADDR]], align 8
@@ -2057,8 +2055,7 @@ int main (int argc, char **argv) {
 // CHECK11-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[A_ADDR:%.*]] = alloca i32*, align 4
-// CHECK11-NEXT:    [[N_CASTED:%.*]] = alloca i32, align 4
-// CHECK11-NEXT:    [[M_CASTED:%.*]] = alloca i32, align 4
+// CHECK11-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK11-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[M]], i32* [[M_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4
@@ -2514,8 +2511,7 @@ int main (int argc, char **argv) {
 // CHECK12-NEXT:    [[VLA_ADDR:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[VLA_ADDR2:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[A_ADDR:%.*]] = alloca i32*, align 4
-// CHECK12-NEXT:    [[N_CASTED:%.*]] = alloca i32, align 4
-// CHECK12-NEXT:    [[M_CASTED:%.*]] = alloca i32, align 4
+// CHECK12-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK12-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[M]], i32* [[M_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[VLA]], i32* [[VLA_ADDR]], align 4

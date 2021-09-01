@@ -333,8 +333,7 @@ int main() {
 // CHECK1-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S]*, align 8
 // CHECK1-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S*, align 8
 // CHECK1-NEXT:    [[SIVAR_ADDR:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[SIVAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK1-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
 // CHECK1-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 8
@@ -691,7 +690,7 @@ int main() {
 // CHECK1-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S.0]*, align 8
 // CHECK1-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S.0*, align 8
 // CHECK1-NEXT:    [[TMP:%.*]] = alloca %struct.S.0*, align 8
-// CHECK1-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_1:%.*]], align 8
 // CHECK1-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
 // CHECK1-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 8
@@ -1137,8 +1136,7 @@ int main() {
 // CHECK2-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S]*, align 8
 // CHECK2-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S*, align 8
 // CHECK2-NEXT:    [[SIVAR_ADDR:%.*]] = alloca i64, align 8
-// CHECK2-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i64, align 8
-// CHECK2-NEXT:    [[SIVAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK2-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
 // CHECK2-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 8
@@ -1495,7 +1493,7 @@ int main() {
 // CHECK2-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S.0]*, align 8
 // CHECK2-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S.0*, align 8
 // CHECK2-NEXT:    [[TMP:%.*]] = alloca %struct.S.0*, align 8
-// CHECK2-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_1:%.*]], align 8
 // CHECK2-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
 // CHECK2-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 8
@@ -1939,8 +1937,7 @@ int main() {
 // CHECK3-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S]*, align 4
 // CHECK3-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S*, align 4
 // CHECK3-NEXT:    [[SIVAR_ADDR:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[SIVAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK3-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
 // CHECK3-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 4
@@ -2288,7 +2285,7 @@ int main() {
 // CHECK3-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S.0]*, align 4
 // CHECK3-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S.0*, align 4
 // CHECK3-NEXT:    [[TMP:%.*]] = alloca %struct.S.0*, align 4
-// CHECK3-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_1:%.*]], align 4
 // CHECK3-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
 // CHECK3-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 4
@@ -2727,8 +2724,7 @@ int main() {
 // CHECK4-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S]*, align 4
 // CHECK4-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S*, align 4
 // CHECK4-NEXT:    [[SIVAR_ADDR:%.*]] = alloca i32, align 4
-// CHECK4-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i32, align 4
-// CHECK4-NEXT:    [[SIVAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK4-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK4-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
 // CHECK4-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 4
@@ -3076,7 +3072,7 @@ int main() {
 // CHECK4-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S.0]*, align 4
 // CHECK4-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S.0*, align 4
 // CHECK4-NEXT:    [[TMP:%.*]] = alloca %struct.S.0*, align 4
-// CHECK4-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK4-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_1:%.*]], align 4
 // CHECK4-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
 // CHECK4-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 4
@@ -4749,9 +4745,7 @@ int main() {
 // CHECK9-NEXT:    [[G1_ADDR:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[SIVAR_ADDR:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[TMP:%.*]] = alloca i32*, align 8
-// CHECK9-NEXT:    [[G_CASTED:%.*]] = alloca i64, align 8
-// CHECK9-NEXT:    [[G1_CASTED:%.*]] = alloca i64, align 8
-// CHECK9-NEXT:    [[SIVAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK9-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK9-NEXT:    store i64 [[G]], i64* [[G_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[G1]], i64* [[G1_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[SIVAR]], i64* [[SIVAR_ADDR]], align 8
@@ -5013,9 +5007,7 @@ int main() {
 // CHECK10-NEXT:    [[G1_ADDR:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[SIVAR_ADDR:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[TMP:%.*]] = alloca i32*, align 8
-// CHECK10-NEXT:    [[G_CASTED:%.*]] = alloca i64, align 8
-// CHECK10-NEXT:    [[G1_CASTED:%.*]] = alloca i64, align 8
-// CHECK10-NEXT:    [[SIVAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK10-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK10-NEXT:    store i64 [[G]], i64* [[G_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[G1]], i64* [[G1_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[SIVAR]], i64* [[SIVAR_ADDR]], align 8

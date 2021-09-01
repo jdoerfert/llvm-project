@@ -160,10 +160,7 @@ int main() {
 // CHECK1-NEXT:    [[SVAR_ADDR:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[SFVAR_ADDR:%.*]] = alloca i64, align 8
 // CHECK1-NEXT:    [[TMP:%.*]] = alloca double*, align 8
-// CHECK1-NEXT:    [[G_CASTED:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[G1_CASTED:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[SVAR_CASTED:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[SFVAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK1-NEXT:    store i64 [[G]], i64* [[G_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[G1]], i64* [[G1_ADDR]], align 8
 // CHECK1-NEXT:    store i64 [[SVAR]], i64* [[SVAR_ADDR]], align 8
@@ -346,10 +343,7 @@ int main() {
 // CHECK2-NEXT:    [[SVAR_ADDR:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[SFVAR_ADDR:%.*]] = alloca i64, align 8
 // CHECK2-NEXT:    [[TMP:%.*]] = alloca double*, align 8
-// CHECK2-NEXT:    [[G_CASTED:%.*]] = alloca i64, align 8
-// CHECK2-NEXT:    [[G1_CASTED:%.*]] = alloca i64, align 8
-// CHECK2-NEXT:    [[SVAR_CASTED:%.*]] = alloca i64, align 8
-// CHECK2-NEXT:    [[SFVAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK2-NEXT:    store i64 [[G]], i64* [[G_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[G1]], i64* [[G1_ADDR]], align 8
 // CHECK2-NEXT:    store i64 [[SVAR]], i64* [[SVAR_ADDR]], align 8
@@ -532,8 +526,7 @@ int main() {
 // CHECK3-NEXT:    [[SVAR_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[SFVAR_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[TMP:%.*]] = alloca double*, align 4
-// CHECK3-NEXT:    [[SVAR_CASTED:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[SFVAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK3-NEXT:    store double* [[G]], double** [[G_ADDR]], align 4
 // CHECK3-NEXT:    store double* [[G1]], double** [[G1_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[SVAR]], i32* [[SVAR_ADDR]], align 4
@@ -705,8 +698,7 @@ int main() {
 // CHECK4-NEXT:    [[SVAR_ADDR:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[SFVAR_ADDR:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[TMP:%.*]] = alloca double*, align 4
-// CHECK4-NEXT:    [[SVAR_CASTED:%.*]] = alloca i32, align 4
-// CHECK4-NEXT:    [[SFVAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK4-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK4-NEXT:    store double* [[G]], double** [[G_ADDR]], align 4
 // CHECK4-NEXT:    store double* [[G1]], double** [[G1_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[SVAR]], i32* [[SVAR_ADDR]], align 4
@@ -1064,8 +1056,7 @@ int main() {
 // CHECK9-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S*, align 8
 // CHECK9-NEXT:    [[SVAR_ADDR:%.*]] = alloca i64, align 8
 // CHECK9-NEXT:    [[TMP:%.*]] = alloca %struct.S*, align 8
-// CHECK9-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i64, align 8
-// CHECK9-NEXT:    [[SVAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK9-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK9-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
 // CHECK9-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 8
@@ -1417,7 +1408,7 @@ int main() {
 // CHECK9-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S.0]*, align 8
 // CHECK9-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S.0*, align 8
 // CHECK9-NEXT:    [[TMP:%.*]] = alloca %struct.S.0*, align 8
-// CHECK9-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK9-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_1:%.*]], align 8
 // CHECK9-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
 // CHECK9-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
 // CHECK9-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 8
@@ -1453,27 +1444,30 @@ int main() {
 // CHECK9-NEXT:    [[DOTOMP_STRIDE:%.*]] = alloca i32, align 4
 // CHECK9-NEXT:    [[DOTOMP_IS_LAST:%.*]] = alloca i32, align 4
 // CHECK9-NEXT:    [[T_VAR2:%.*]] = alloca i32, align 4
-// CHECK9-NEXT:    [[VEC3:%.*]] = alloca [2 x i32], align 4
-// CHECK9-NEXT:    [[S_ARR4:%.*]] = alloca [2 x %struct.S.0], align 4
-// CHECK9-NEXT:    [[VAR5:%.*]] = alloca [[STRUCT_S_0:%.*]], align 4
-// CHECK9-NEXT:    [[_TMP6:%.*]] = alloca %struct.S.0*, align 8
+// CHECK9-NEXT:    [[VEC:%.*]] = alloca [2 x i32], align 4
+// CHECK9-NEXT:    [[S_ARR:%.*]] = alloca [2 x %struct.S.0], align 4
+// CHECK9-NEXT:    [[VAR:%.*]] = alloca [[STRUCT_S_0:%.*]], align 4
+// CHECK9-NEXT:    [[_TMP3:%.*]] = alloca %struct.S.0*, align 8
 // CHECK9-NEXT:    [[I:%.*]] = alloca i32, align 4
 // CHECK9-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK9-NEXT:    store i32* [[DOTBOUND_TID_]], i32** [[DOTBOUND_TID__ADDR]], align 8
-// CHECK9-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
-// CHECK9-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
-// CHECK9-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 8
-// CHECK9-NEXT:    store %struct.S.0* [[VAR]], %struct.S.0** [[VAR_ADDR]], align 8
-// CHECK9-NEXT:    [[TMP0:%.*]] = load [2 x i32]*, [2 x i32]** [[VEC_ADDR]], align 8
-// CHECK9-NEXT:    [[CONV:%.*]] = bitcast i64* [[T_VAR_ADDR]] to i32*
-// CHECK9-NEXT:    [[TMP1:%.*]] = load [2 x %struct.S.0]*, [2 x %struct.S.0]** [[S_ARR_ADDR]], align 8
-// CHECK9-NEXT:    [[TMP2:%.*]] = load %struct.S.0*, %struct.S.0** [[VAR_ADDR]], align 8
-// CHECK9-NEXT:    store %struct.S.0* [[TMP2]], %struct.S.0** [[TMP]], align 8
+// CHECK9-NEXT:    store %struct.anon.1* [[__CONTEXT]], %struct.anon.1** [[__CONTEXT_ADDR]], align 8
+// CHECK9-NEXT:    [[TMP0:%.*]] = load %struct.anon.1*, %struct.anon.1** [[__CONTEXT_ADDR]], align 8
+// CHECK9-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON_1:%.*]], %struct.anon.1* [[TMP0]], i32 0, i32 0
+// CHECK9-NEXT:    [[TMP2:%.*]] = load [2 x i32]*, [2 x i32]** [[TMP1]], align 8
+// CHECK9-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 1
+// CHECK9-NEXT:    [[TMP4:%.*]] = load i32, i32* [[TMP3]], align 8
+// CHECK9-NEXT:    store i32 [[TMP4]], i32* [[T_VAR]], align 4
+// CHECK9-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 2
+// CHECK9-NEXT:    [[TMP6:%.*]] = load [2 x %struct.S.0]*, [2 x %struct.S.0]** [[TMP5]], align 8
+// CHECK9-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 3
+// CHECK9-NEXT:    [[TMP8:%.*]] = load %struct.S.0*, %struct.S.0** [[TMP7]], align 8
+// CHECK9-NEXT:    store %struct.S.0* [[TMP8]], %struct.S.0** [[TMP]], align 8
 // CHECK9-NEXT:    store i32 0, i32* [[DOTOMP_LB]], align 4
 // CHECK9-NEXT:    store i32 1, i32* [[DOTOMP_UB]], align 4
 // CHECK9-NEXT:    store i32 1, i32* [[DOTOMP_STRIDE]], align 4
 // CHECK9-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
-// CHECK9-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S.0], [2 x %struct.S.0]* [[S_ARR4]], i32 0, i32 0
+// CHECK9-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S.0], [2 x %struct.S.0]* [[S_ARR]], i32 0, i32 0
 // CHECK9-NEXT:    [[ARRAYCTOR_END:%.*]] = getelementptr inbounds [[STRUCT_S_0]], %struct.S.0* [[ARRAY_BEGIN]], i64 2
 // CHECK9-NEXT:    br label [[ARRAYCTOR_LOOP:%.*]]
 // CHECK9:       arrayctor.loop:
@@ -1784,8 +1778,7 @@ int main() {
 // CHECK10-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S*, align 8
 // CHECK10-NEXT:    [[SVAR_ADDR:%.*]] = alloca i64, align 8
 // CHECK10-NEXT:    [[TMP:%.*]] = alloca %struct.S*, align 8
-// CHECK10-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i64, align 8
-// CHECK10-NEXT:    [[SVAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK10-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK10-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
 // CHECK10-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 8
@@ -2137,7 +2130,7 @@ int main() {
 // CHECK10-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S.0]*, align 8
 // CHECK10-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S.0*, align 8
 // CHECK10-NEXT:    [[TMP:%.*]] = alloca %struct.S.0*, align 8
-// CHECK10-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i64, align 8
+// CHECK10-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_1:%.*]], align 8
 // CHECK10-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
 // CHECK10-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
 // CHECK10-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 8
@@ -2173,27 +2166,30 @@ int main() {
 // CHECK10-NEXT:    [[DOTOMP_STRIDE:%.*]] = alloca i32, align 4
 // CHECK10-NEXT:    [[DOTOMP_IS_LAST:%.*]] = alloca i32, align 4
 // CHECK10-NEXT:    [[T_VAR2:%.*]] = alloca i32, align 4
-// CHECK10-NEXT:    [[VEC3:%.*]] = alloca [2 x i32], align 4
-// CHECK10-NEXT:    [[S_ARR4:%.*]] = alloca [2 x %struct.S.0], align 4
-// CHECK10-NEXT:    [[VAR5:%.*]] = alloca [[STRUCT_S_0:%.*]], align 4
-// CHECK10-NEXT:    [[_TMP6:%.*]] = alloca %struct.S.0*, align 8
+// CHECK10-NEXT:    [[VEC:%.*]] = alloca [2 x i32], align 4
+// CHECK10-NEXT:    [[S_ARR:%.*]] = alloca [2 x %struct.S.0], align 4
+// CHECK10-NEXT:    [[VAR:%.*]] = alloca [[STRUCT_S_0:%.*]], align 4
+// CHECK10-NEXT:    [[_TMP3:%.*]] = alloca %struct.S.0*, align 8
 // CHECK10-NEXT:    [[I:%.*]] = alloca i32, align 4
 // CHECK10-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK10-NEXT:    store i32* [[DOTBOUND_TID_]], i32** [[DOTBOUND_TID__ADDR]], align 8
-// CHECK10-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 8
-// CHECK10-NEXT:    store i64 [[T_VAR]], i64* [[T_VAR_ADDR]], align 8
-// CHECK10-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 8
-// CHECK10-NEXT:    store %struct.S.0* [[VAR]], %struct.S.0** [[VAR_ADDR]], align 8
-// CHECK10-NEXT:    [[TMP0:%.*]] = load [2 x i32]*, [2 x i32]** [[VEC_ADDR]], align 8
-// CHECK10-NEXT:    [[CONV:%.*]] = bitcast i64* [[T_VAR_ADDR]] to i32*
-// CHECK10-NEXT:    [[TMP1:%.*]] = load [2 x %struct.S.0]*, [2 x %struct.S.0]** [[S_ARR_ADDR]], align 8
-// CHECK10-NEXT:    [[TMP2:%.*]] = load %struct.S.0*, %struct.S.0** [[VAR_ADDR]], align 8
-// CHECK10-NEXT:    store %struct.S.0* [[TMP2]], %struct.S.0** [[TMP]], align 8
+// CHECK10-NEXT:    store %struct.anon.1* [[__CONTEXT]], %struct.anon.1** [[__CONTEXT_ADDR]], align 8
+// CHECK10-NEXT:    [[TMP0:%.*]] = load %struct.anon.1*, %struct.anon.1** [[__CONTEXT_ADDR]], align 8
+// CHECK10-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON_1:%.*]], %struct.anon.1* [[TMP0]], i32 0, i32 0
+// CHECK10-NEXT:    [[TMP2:%.*]] = load [2 x i32]*, [2 x i32]** [[TMP1]], align 8
+// CHECK10-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 1
+// CHECK10-NEXT:    [[TMP4:%.*]] = load i32, i32* [[TMP3]], align 8
+// CHECK10-NEXT:    store i32 [[TMP4]], i32* [[T_VAR]], align 4
+// CHECK10-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 2
+// CHECK10-NEXT:    [[TMP6:%.*]] = load [2 x %struct.S.0]*, [2 x %struct.S.0]** [[TMP5]], align 8
+// CHECK10-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 3
+// CHECK10-NEXT:    [[TMP8:%.*]] = load %struct.S.0*, %struct.S.0** [[TMP7]], align 8
+// CHECK10-NEXT:    store %struct.S.0* [[TMP8]], %struct.S.0** [[TMP]], align 8
 // CHECK10-NEXT:    store i32 0, i32* [[DOTOMP_LB]], align 4
 // CHECK10-NEXT:    store i32 1, i32* [[DOTOMP_UB]], align 4
 // CHECK10-NEXT:    store i32 1, i32* [[DOTOMP_STRIDE]], align 4
 // CHECK10-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
-// CHECK10-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S.0], [2 x %struct.S.0]* [[S_ARR4]], i32 0, i32 0
+// CHECK10-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S.0], [2 x %struct.S.0]* [[S_ARR]], i32 0, i32 0
 // CHECK10-NEXT:    [[ARRAYCTOR_END:%.*]] = getelementptr inbounds [[STRUCT_S_0]], %struct.S.0* [[ARRAY_BEGIN]], i64 2
 // CHECK10-NEXT:    br label [[ARRAYCTOR_LOOP:%.*]]
 // CHECK10:       arrayctor.loop:
@@ -2502,8 +2498,7 @@ int main() {
 // CHECK11-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S*, align 4
 // CHECK11-NEXT:    [[SVAR_ADDR:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[TMP:%.*]] = alloca %struct.S*, align 4
-// CHECK11-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i32, align 4
-// CHECK11-NEXT:    [[SVAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK11-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK11-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
 // CHECK11-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 4
@@ -2542,28 +2537,34 @@ int main() {
 // CHECK11-NEXT:    [[DOTOMP_STRIDE:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[DOTOMP_IS_LAST:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[T_VAR2:%.*]] = alloca i32, align 4
-// CHECK11-NEXT:    [[VEC3:%.*]] = alloca [2 x i32], align 4
-// CHECK11-NEXT:    [[S_ARR4:%.*]] = alloca [2 x %struct.S], align 4
-// CHECK11-NEXT:    [[VAR5:%.*]] = alloca [[STRUCT_S:%.*]], align 4
-// CHECK11-NEXT:    [[_TMP6:%.*]] = alloca %struct.S*, align 4
-// CHECK11-NEXT:    [[SVAR7:%.*]] = alloca i32, align 4
+// CHECK11-NEXT:    [[VEC:%.*]] = alloca [2 x i32], align 4
+// CHECK11-NEXT:    [[S_ARR:%.*]] = alloca [2 x %struct.S], align 4
+// CHECK11-NEXT:    [[VAR:%.*]] = alloca [[STRUCT_S:%.*]], align 4
+// CHECK11-NEXT:    [[_TMP3:%.*]] = alloca %struct.S*, align 4
+// CHECK11-NEXT:    [[SVAR4:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[I:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 4
 // CHECK11-NEXT:    store i32* [[DOTBOUND_TID_]], i32** [[DOTBOUND_TID__ADDR]], align 4
-// CHECK11-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
-// CHECK11-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
-// CHECK11-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 4
-// CHECK11-NEXT:    store %struct.S* [[VAR]], %struct.S** [[VAR_ADDR]], align 4
-// CHECK11-NEXT:    store i32 [[SVAR]], i32* [[SVAR_ADDR]], align 4
-// CHECK11-NEXT:    [[TMP0:%.*]] = load [2 x i32]*, [2 x i32]** [[VEC_ADDR]], align 4
-// CHECK11-NEXT:    [[TMP1:%.*]] = load [2 x %struct.S]*, [2 x %struct.S]** [[S_ARR_ADDR]], align 4
-// CHECK11-NEXT:    [[TMP2:%.*]] = load %struct.S*, %struct.S** [[VAR_ADDR]], align 4
-// CHECK11-NEXT:    store %struct.S* [[TMP2]], %struct.S** [[TMP]], align 4
+// CHECK11-NEXT:    store %struct.anon* [[__CONTEXT]], %struct.anon** [[__CONTEXT_ADDR]], align 4
+// CHECK11-NEXT:    [[TMP0:%.*]] = load %struct.anon*, %struct.anon** [[__CONTEXT_ADDR]], align 4
+// CHECK11-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON:%.*]], %struct.anon* [[TMP0]], i32 0, i32 0
+// CHECK11-NEXT:    [[TMP2:%.*]] = load [2 x i32]*, [2 x i32]** [[TMP1]], align 4
+// CHECK11-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[TMP0]], i32 0, i32 1
+// CHECK11-NEXT:    [[TMP4:%.*]] = load i32, i32* [[TMP3]], align 4
+// CHECK11-NEXT:    store i32 [[TMP4]], i32* [[T_VAR]], align 4
+// CHECK11-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[TMP0]], i32 0, i32 2
+// CHECK11-NEXT:    [[TMP6:%.*]] = load [2 x %struct.S]*, [2 x %struct.S]** [[TMP5]], align 4
+// CHECK11-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[TMP0]], i32 0, i32 3
+// CHECK11-NEXT:    [[TMP8:%.*]] = load %struct.S*, %struct.S** [[TMP7]], align 4
+// CHECK11-NEXT:    [[TMP9:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[TMP0]], i32 0, i32 4
+// CHECK11-NEXT:    [[TMP10:%.*]] = load i32, i32* [[TMP9]], align 4
+// CHECK11-NEXT:    store i32 [[TMP10]], i32* [[SVAR]], align 4
+// CHECK11-NEXT:    store %struct.S* [[TMP8]], %struct.S** [[TMP]], align 4
 // CHECK11-NEXT:    store i32 0, i32* [[DOTOMP_LB]], align 4
 // CHECK11-NEXT:    store i32 1, i32* [[DOTOMP_UB]], align 4
 // CHECK11-NEXT:    store i32 1, i32* [[DOTOMP_STRIDE]], align 4
 // CHECK11-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
-// CHECK11-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S], [2 x %struct.S]* [[S_ARR4]], i32 0, i32 0
+// CHECK11-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S], [2 x %struct.S]* [[S_ARR]], i32 0, i32 0
 // CHECK11-NEXT:    [[ARRAYCTOR_END:%.*]] = getelementptr inbounds [[STRUCT_S]], %struct.S* [[ARRAY_BEGIN]], i32 2
 // CHECK11-NEXT:    br label [[ARRAYCTOR_LOOP:%.*]]
 // CHECK11:       arrayctor.loop:
@@ -2846,7 +2847,7 @@ int main() {
 // CHECK11-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S.0]*, align 4
 // CHECK11-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S.0*, align 4
 // CHECK11-NEXT:    [[TMP:%.*]] = alloca %struct.S.0*, align 4
-// CHECK11-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK11-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_1:%.*]], align 4
 // CHECK11-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
 // CHECK11-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
 // CHECK11-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 4
@@ -2880,26 +2881,30 @@ int main() {
 // CHECK11-NEXT:    [[DOTOMP_STRIDE:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[DOTOMP_IS_LAST:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    [[T_VAR2:%.*]] = alloca i32, align 4
-// CHECK11-NEXT:    [[VEC3:%.*]] = alloca [2 x i32], align 4
-// CHECK11-NEXT:    [[S_ARR4:%.*]] = alloca [2 x %struct.S.0], align 4
-// CHECK11-NEXT:    [[VAR5:%.*]] = alloca [[STRUCT_S_0:%.*]], align 4
-// CHECK11-NEXT:    [[_TMP6:%.*]] = alloca %struct.S.0*, align 4
+// CHECK11-NEXT:    [[VEC:%.*]] = alloca [2 x i32], align 4
+// CHECK11-NEXT:    [[S_ARR:%.*]] = alloca [2 x %struct.S.0], align 4
+// CHECK11-NEXT:    [[VAR:%.*]] = alloca [[STRUCT_S_0:%.*]], align 4
+// CHECK11-NEXT:    [[_TMP3:%.*]] = alloca %struct.S.0*, align 4
 // CHECK11-NEXT:    [[I:%.*]] = alloca i32, align 4
 // CHECK11-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 4
 // CHECK11-NEXT:    store i32* [[DOTBOUND_TID_]], i32** [[DOTBOUND_TID__ADDR]], align 4
-// CHECK11-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
-// CHECK11-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
-// CHECK11-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 4
-// CHECK11-NEXT:    store %struct.S.0* [[VAR]], %struct.S.0** [[VAR_ADDR]], align 4
-// CHECK11-NEXT:    [[TMP0:%.*]] = load [2 x i32]*, [2 x i32]** [[VEC_ADDR]], align 4
-// CHECK11-NEXT:    [[TMP1:%.*]] = load [2 x %struct.S.0]*, [2 x %struct.S.0]** [[S_ARR_ADDR]], align 4
-// CHECK11-NEXT:    [[TMP2:%.*]] = load %struct.S.0*, %struct.S.0** [[VAR_ADDR]], align 4
-// CHECK11-NEXT:    store %struct.S.0* [[TMP2]], %struct.S.0** [[TMP]], align 4
+// CHECK11-NEXT:    store %struct.anon.1* [[__CONTEXT]], %struct.anon.1** [[__CONTEXT_ADDR]], align 4
+// CHECK11-NEXT:    [[TMP0:%.*]] = load %struct.anon.1*, %struct.anon.1** [[__CONTEXT_ADDR]], align 4
+// CHECK11-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON_1:%.*]], %struct.anon.1* [[TMP0]], i32 0, i32 0
+// CHECK11-NEXT:    [[TMP2:%.*]] = load [2 x i32]*, [2 x i32]** [[TMP1]], align 4
+// CHECK11-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 1
+// CHECK11-NEXT:    [[TMP4:%.*]] = load i32, i32* [[TMP3]], align 4
+// CHECK11-NEXT:    store i32 [[TMP4]], i32* [[T_VAR]], align 4
+// CHECK11-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 2
+// CHECK11-NEXT:    [[TMP6:%.*]] = load [2 x %struct.S.0]*, [2 x %struct.S.0]** [[TMP5]], align 4
+// CHECK11-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 3
+// CHECK11-NEXT:    [[TMP8:%.*]] = load %struct.S.0*, %struct.S.0** [[TMP7]], align 4
+// CHECK11-NEXT:    store %struct.S.0* [[TMP8]], %struct.S.0** [[TMP]], align 4
 // CHECK11-NEXT:    store i32 0, i32* [[DOTOMP_LB]], align 4
 // CHECK11-NEXT:    store i32 1, i32* [[DOTOMP_UB]], align 4
 // CHECK11-NEXT:    store i32 1, i32* [[DOTOMP_STRIDE]], align 4
 // CHECK11-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
-// CHECK11-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S.0], [2 x %struct.S.0]* [[S_ARR4]], i32 0, i32 0
+// CHECK11-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S.0], [2 x %struct.S.0]* [[S_ARR]], i32 0, i32 0
 // CHECK11-NEXT:    [[ARRAYCTOR_END:%.*]] = getelementptr inbounds [[STRUCT_S_0]], %struct.S.0* [[ARRAY_BEGIN]], i32 2
 // CHECK11-NEXT:    br label [[ARRAYCTOR_LOOP:%.*]]
 // CHECK11:       arrayctor.loop:
@@ -3206,8 +3211,7 @@ int main() {
 // CHECK12-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S*, align 4
 // CHECK12-NEXT:    [[SVAR_ADDR:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[TMP:%.*]] = alloca %struct.S*, align 4
-// CHECK12-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i32, align 4
-// CHECK12-NEXT:    [[SVAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK12-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK12-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
 // CHECK12-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 4
@@ -3246,28 +3250,34 @@ int main() {
 // CHECK12-NEXT:    [[DOTOMP_STRIDE:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[DOTOMP_IS_LAST:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[T_VAR2:%.*]] = alloca i32, align 4
-// CHECK12-NEXT:    [[VEC3:%.*]] = alloca [2 x i32], align 4
-// CHECK12-NEXT:    [[S_ARR4:%.*]] = alloca [2 x %struct.S], align 4
-// CHECK12-NEXT:    [[VAR5:%.*]] = alloca [[STRUCT_S:%.*]], align 4
-// CHECK12-NEXT:    [[_TMP6:%.*]] = alloca %struct.S*, align 4
-// CHECK12-NEXT:    [[SVAR7:%.*]] = alloca i32, align 4
+// CHECK12-NEXT:    [[VEC:%.*]] = alloca [2 x i32], align 4
+// CHECK12-NEXT:    [[S_ARR:%.*]] = alloca [2 x %struct.S], align 4
+// CHECK12-NEXT:    [[VAR:%.*]] = alloca [[STRUCT_S:%.*]], align 4
+// CHECK12-NEXT:    [[_TMP3:%.*]] = alloca %struct.S*, align 4
+// CHECK12-NEXT:    [[SVAR4:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[I:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 4
 // CHECK12-NEXT:    store i32* [[DOTBOUND_TID_]], i32** [[DOTBOUND_TID__ADDR]], align 4
-// CHECK12-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
-// CHECK12-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
-// CHECK12-NEXT:    store [2 x %struct.S]* [[S_ARR]], [2 x %struct.S]** [[S_ARR_ADDR]], align 4
-// CHECK12-NEXT:    store %struct.S* [[VAR]], %struct.S** [[VAR_ADDR]], align 4
-// CHECK12-NEXT:    store i32 [[SVAR]], i32* [[SVAR_ADDR]], align 4
-// CHECK12-NEXT:    [[TMP0:%.*]] = load [2 x i32]*, [2 x i32]** [[VEC_ADDR]], align 4
-// CHECK12-NEXT:    [[TMP1:%.*]] = load [2 x %struct.S]*, [2 x %struct.S]** [[S_ARR_ADDR]], align 4
-// CHECK12-NEXT:    [[TMP2:%.*]] = load %struct.S*, %struct.S** [[VAR_ADDR]], align 4
-// CHECK12-NEXT:    store %struct.S* [[TMP2]], %struct.S** [[TMP]], align 4
+// CHECK12-NEXT:    store %struct.anon* [[__CONTEXT]], %struct.anon** [[__CONTEXT_ADDR]], align 4
+// CHECK12-NEXT:    [[TMP0:%.*]] = load %struct.anon*, %struct.anon** [[__CONTEXT_ADDR]], align 4
+// CHECK12-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON:%.*]], %struct.anon* [[TMP0]], i32 0, i32 0
+// CHECK12-NEXT:    [[TMP2:%.*]] = load [2 x i32]*, [2 x i32]** [[TMP1]], align 4
+// CHECK12-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[TMP0]], i32 0, i32 1
+// CHECK12-NEXT:    [[TMP4:%.*]] = load i32, i32* [[TMP3]], align 4
+// CHECK12-NEXT:    store i32 [[TMP4]], i32* [[T_VAR]], align 4
+// CHECK12-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[TMP0]], i32 0, i32 2
+// CHECK12-NEXT:    [[TMP6:%.*]] = load [2 x %struct.S]*, [2 x %struct.S]** [[TMP5]], align 4
+// CHECK12-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[TMP0]], i32 0, i32 3
+// CHECK12-NEXT:    [[TMP8:%.*]] = load %struct.S*, %struct.S** [[TMP7]], align 4
+// CHECK12-NEXT:    [[TMP9:%.*]] = getelementptr inbounds [[STRUCT_ANON]], %struct.anon* [[TMP0]], i32 0, i32 4
+// CHECK12-NEXT:    [[TMP10:%.*]] = load i32, i32* [[TMP9]], align 4
+// CHECK12-NEXT:    store i32 [[TMP10]], i32* [[SVAR]], align 4
+// CHECK12-NEXT:    store %struct.S* [[TMP8]], %struct.S** [[TMP]], align 4
 // CHECK12-NEXT:    store i32 0, i32* [[DOTOMP_LB]], align 4
 // CHECK12-NEXT:    store i32 1, i32* [[DOTOMP_UB]], align 4
 // CHECK12-NEXT:    store i32 1, i32* [[DOTOMP_STRIDE]], align 4
 // CHECK12-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
-// CHECK12-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S], [2 x %struct.S]* [[S_ARR4]], i32 0, i32 0
+// CHECK12-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S], [2 x %struct.S]* [[S_ARR]], i32 0, i32 0
 // CHECK12-NEXT:    [[ARRAYCTOR_END:%.*]] = getelementptr inbounds [[STRUCT_S]], %struct.S* [[ARRAY_BEGIN]], i32 2
 // CHECK12-NEXT:    br label [[ARRAYCTOR_LOOP:%.*]]
 // CHECK12:       arrayctor.loop:
@@ -3550,7 +3560,7 @@ int main() {
 // CHECK12-NEXT:    [[S_ARR_ADDR:%.*]] = alloca [2 x %struct.S.0]*, align 4
 // CHECK12-NEXT:    [[VAR_ADDR:%.*]] = alloca %struct.S.0*, align 4
 // CHECK12-NEXT:    [[TMP:%.*]] = alloca %struct.S.0*, align 4
-// CHECK12-NEXT:    [[T_VAR_CASTED:%.*]] = alloca i32, align 4
+// CHECK12-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON_1:%.*]], align 4
 // CHECK12-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
 // CHECK12-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
 // CHECK12-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 4
@@ -3584,26 +3594,30 @@ int main() {
 // CHECK12-NEXT:    [[DOTOMP_STRIDE:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[DOTOMP_IS_LAST:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    [[T_VAR2:%.*]] = alloca i32, align 4
-// CHECK12-NEXT:    [[VEC3:%.*]] = alloca [2 x i32], align 4
-// CHECK12-NEXT:    [[S_ARR4:%.*]] = alloca [2 x %struct.S.0], align 4
-// CHECK12-NEXT:    [[VAR5:%.*]] = alloca [[STRUCT_S_0:%.*]], align 4
-// CHECK12-NEXT:    [[_TMP6:%.*]] = alloca %struct.S.0*, align 4
+// CHECK12-NEXT:    [[VEC:%.*]] = alloca [2 x i32], align 4
+// CHECK12-NEXT:    [[S_ARR:%.*]] = alloca [2 x %struct.S.0], align 4
+// CHECK12-NEXT:    [[VAR:%.*]] = alloca [[STRUCT_S_0:%.*]], align 4
+// CHECK12-NEXT:    [[_TMP3:%.*]] = alloca %struct.S.0*, align 4
 // CHECK12-NEXT:    [[I:%.*]] = alloca i32, align 4
 // CHECK12-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 4
 // CHECK12-NEXT:    store i32* [[DOTBOUND_TID_]], i32** [[DOTBOUND_TID__ADDR]], align 4
-// CHECK12-NEXT:    store [2 x i32]* [[VEC]], [2 x i32]** [[VEC_ADDR]], align 4
-// CHECK12-NEXT:    store i32 [[T_VAR]], i32* [[T_VAR_ADDR]], align 4
-// CHECK12-NEXT:    store [2 x %struct.S.0]* [[S_ARR]], [2 x %struct.S.0]** [[S_ARR_ADDR]], align 4
-// CHECK12-NEXT:    store %struct.S.0* [[VAR]], %struct.S.0** [[VAR_ADDR]], align 4
-// CHECK12-NEXT:    [[TMP0:%.*]] = load [2 x i32]*, [2 x i32]** [[VEC_ADDR]], align 4
-// CHECK12-NEXT:    [[TMP1:%.*]] = load [2 x %struct.S.0]*, [2 x %struct.S.0]** [[S_ARR_ADDR]], align 4
-// CHECK12-NEXT:    [[TMP2:%.*]] = load %struct.S.0*, %struct.S.0** [[VAR_ADDR]], align 4
-// CHECK12-NEXT:    store %struct.S.0* [[TMP2]], %struct.S.0** [[TMP]], align 4
+// CHECK12-NEXT:    store %struct.anon.1* [[__CONTEXT]], %struct.anon.1** [[__CONTEXT_ADDR]], align 4
+// CHECK12-NEXT:    [[TMP0:%.*]] = load %struct.anon.1*, %struct.anon.1** [[__CONTEXT_ADDR]], align 4
+// CHECK12-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_ANON_1:%.*]], %struct.anon.1* [[TMP0]], i32 0, i32 0
+// CHECK12-NEXT:    [[TMP2:%.*]] = load [2 x i32]*, [2 x i32]** [[TMP1]], align 4
+// CHECK12-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 1
+// CHECK12-NEXT:    [[TMP4:%.*]] = load i32, i32* [[TMP3]], align 4
+// CHECK12-NEXT:    store i32 [[TMP4]], i32* [[T_VAR]], align 4
+// CHECK12-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 2
+// CHECK12-NEXT:    [[TMP6:%.*]] = load [2 x %struct.S.0]*, [2 x %struct.S.0]** [[TMP5]], align 4
+// CHECK12-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT_ANON_1]], %struct.anon.1* [[TMP0]], i32 0, i32 3
+// CHECK12-NEXT:    [[TMP8:%.*]] = load %struct.S.0*, %struct.S.0** [[TMP7]], align 4
+// CHECK12-NEXT:    store %struct.S.0* [[TMP8]], %struct.S.0** [[TMP]], align 4
 // CHECK12-NEXT:    store i32 0, i32* [[DOTOMP_LB]], align 4
 // CHECK12-NEXT:    store i32 1, i32* [[DOTOMP_UB]], align 4
 // CHECK12-NEXT:    store i32 1, i32* [[DOTOMP_STRIDE]], align 4
 // CHECK12-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
-// CHECK12-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S.0], [2 x %struct.S.0]* [[S_ARR4]], i32 0, i32 0
+// CHECK12-NEXT:    [[ARRAY_BEGIN:%.*]] = getelementptr inbounds [2 x %struct.S.0], [2 x %struct.S.0]* [[S_ARR]], i32 0, i32 0
 // CHECK12-NEXT:    [[ARRAYCTOR_END:%.*]] = getelementptr inbounds [[STRUCT_S_0]], %struct.S.0* [[ARRAY_BEGIN]], i32 2
 // CHECK12-NEXT:    br label [[ARRAYCTOR_LOOP:%.*]]
 // CHECK12:       arrayctor.loop:
