@@ -97,36 +97,6 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
     }
 
-    // Add information if the runtime function takes a callback function
-    if (FnID == OMPRTL___kmpc_fork_call || FnID == OMPRTL___kmpc_fork_teams) {
-      if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
-        LLVMContext &Ctx = Fn->getContext();
-        MDBuilder MDB(Ctx);
-        // Annotate the callback behavior of the runtime function:
-        //  - The callback callee is argument number 2 (microtask).
-        //  - The first two arguments of the callback callee are unknown (-1).
-        //  - All variadic arguments to the runtime function are passed to the
-        //    callback callee.
-        Fn->addMetadata(
-            LLVMContext::MD_callback,
-            *MDNode::get(Ctx, {MDB.createCallbackEncoding(
-                                  2, {-1, -1}, /* VarArgsArePassed */ true)}));
-      }
-    } else if (FnID == OMPRTL___kmpc_parallel_51) {
-      if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
-        LLVMContext &Ctx = Fn->getContext();
-        MDBuilder MDB(Ctx);
-        // Annotate the callback behavior of the runtime function:
-        //  - The callback callee is argument number 5 (outlined function).
-        //  - The first two arguments of the callback callee are unknown (-1).
-        //  - Argument 7, (args) is passed next, no variadic arguments are used.
-        Fn->addMetadata(LLVMContext::MD_callback,
-                        *MDNode::get(Ctx, {MDB.createCallbackEncoding(
-                                              5, {-1, -1, 7},
-                                              /* VarArgsArePassed */ false)}));
-      }
-    }
-
     LLVM_DEBUG(dbgs() << "Created OpenMP runtime function " << Fn->getName()
                       << " with type " << *Fn->getFunctionType() << "\n");
     addAttributes(FnID, *Fn);
@@ -134,6 +104,36 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
   } else {
     LLVM_DEBUG(dbgs() << "Found OpenMP runtime function " << Fn->getName()
                       << " with type " << *Fn->getFunctionType() << "\n");
+  }
+
+  // Add information if the runtime function takes a callback function
+  if (FnID == OMPRTL___kmpc_fork_call || FnID == OMPRTL___kmpc_fork_teams) {
+    if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
+      LLVMContext &Ctx = Fn->getContext();
+      MDBuilder MDB(Ctx);
+      // Annotate the callback behavior of the runtime function:
+      //  - The callback callee is argument number 2 (microtask).
+      //  - The first two arguments of the callback callee are unknown (-1).
+      //  - All variadic arguments to the runtime function are passed to the
+      //    callback callee.
+      Fn->addMetadata(
+          LLVMContext::MD_callback,
+          *MDNode::get(Ctx, {MDB.createCallbackEncoding(
+                                2, {-1, -1}, /* VarArgsArePassed */ true)}));
+    }
+  } else if (FnID == OMPRTL___kmpc_parallel_51) {
+    if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
+      LLVMContext &Ctx = Fn->getContext();
+      MDBuilder MDB(Ctx);
+      // Annotate the callback behavior of the runtime function:
+      //  - The callback callee is argument number 5 (outlined function).
+      //  - The first two arguments of the callback callee are unknown (-1).
+      //  - Argument 7, (args) is passed next, no variadic arguments are used.
+      Fn->addMetadata(LLVMContext::MD_callback,
+                      *MDNode::get(Ctx, {MDB.createCallbackEncoding(
+                                            5, {-1, -1, 7},
+                                            /* VarArgsArePassed */ false)}));
+    }
   }
 
   assert(Fn && "Failed to create OpenMP runtime function");
@@ -590,8 +590,8 @@ IRBuilder<>::InsertPoint OpenMPIRBuilder::createParallel(
 
   // Add some fake uses for OpenMP provided arguments.
   ToBeDeleted.push_back(Builder.CreateLoad(Int32, TIDAddr, "tid.addr.use"));
-  Instruction *ZeroAddrUse = Builder.CreateLoad(Int32, ZeroAddr,
-                                                "zero.addr.use");
+  Instruction *ZeroAddrUse =
+      Builder.CreateLoad(Int32, ZeroAddr, "zero.addr.use");
   ToBeDeleted.push_back(ZeroAddrUse);
 
   // ThenBB
@@ -2391,7 +2391,8 @@ CallInst *OpenMPIRBuilder::createCachedThreadPrivate(
 }
 
 OpenMPIRBuilder::InsertPointTy
-OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD, bool RequiresFullRuntime) {
+OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
+                                  bool RequiresFullRuntime) {
   if (!updateToLocation(Loc))
     return Loc.IP;
 
@@ -2400,16 +2401,18 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD, b
   ConstantInt *IsSPMDVal = ConstantInt::getBool(Int32->getContext(), IsSPMD);
   ConstantInt *UseGenericStateMachine =
       ConstantInt::getBool(Int32->getContext(), !IsSPMD);
-  ConstantInt *RequiresFullRuntimeVal = ConstantInt::getBool(Int32->getContext(), RequiresFullRuntime);
+  ConstantInt *RequiresFullRuntimeVal =
+      ConstantInt::getBool(Int32->getContext(), RequiresFullRuntime);
 
   Function *Fn = getOrCreateRuntimeFunctionPtr(
       omp::RuntimeFunction::OMPRTL___kmpc_target_init);
 
-  CallInst *ThreadKind =
-      Builder.CreateCall(Fn, {Ident, IsSPMDVal, UseGenericStateMachine, RequiresFullRuntimeVal});
+  CallInst *ThreadKind = Builder.CreateCall(
+      Fn, {Ident, IsSPMDVal, UseGenericStateMachine, RequiresFullRuntimeVal});
 
   Value *ExecUserCode = Builder.CreateICmpEQ(
-      ThreadKind, ConstantInt::get(ThreadKind->getType(), -1), "exec_user_code");
+      ThreadKind, ConstantInt::get(ThreadKind->getType(), -1),
+      "exec_user_code");
 
   // ThreadKind = __kmpc_target_init(...)
   // if (ThreadKind == -1)
@@ -2439,14 +2442,16 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD, b
 }
 
 void OpenMPIRBuilder::createTargetDeinit(const LocationDescription &Loc,
-                                         bool IsSPMD, bool RequiresFullRuntime) {
+                                         bool IsSPMD,
+                                         bool RequiresFullRuntime) {
   if (!updateToLocation(Loc))
     return;
 
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc);
   Value *Ident = getOrCreateIdent(SrcLocStr);
   ConstantInt *IsSPMDVal = ConstantInt::getBool(Int32->getContext(), IsSPMD);
-  ConstantInt *RequiresFullRuntimeVal = ConstantInt::getBool(Int32->getContext(), RequiresFullRuntime);
+  ConstantInt *RequiresFullRuntimeVal =
+      ConstantInt::getBool(Int32->getContext(), RequiresFullRuntime);
 
   Function *Fn = getOrCreateRuntimeFunctionPtr(
       omp::RuntimeFunction::OMPRTL___kmpc_target_deinit);
