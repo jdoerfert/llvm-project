@@ -775,6 +775,8 @@ private:
   }
 
   void visitLoadInst(LoadInst &LI) {
+    if(!(!LI.isSimple() || LI.getType()->isSingleValueType()))
+      return PI.setAborted(&LI);
     assert((!LI.isSimple() || LI.getType()->isSingleValueType()) &&
            "All simple FCA loads should have been pre-split");
 
@@ -794,6 +796,8 @@ private:
 
   void visitStoreInst(StoreInst &SI) {
     Value *ValOp = SI.getValueOperand();
+    if(!(!SI.isSimple() || ValOp->getType()->isSingleValueType()))
+      return PI.setAborted(&SI);
     if (ValOp == *U)
       return PI.setEscapedAndAborted(&SI);
     if (!IsOffsetKnown)
@@ -3441,6 +3445,7 @@ private:
     assert(LI.getPointerOperand() == *U);
     if (!LI.isSimple() || LI.getType()->isSingleValueType())
       return false;
+    return false;
 
     // We have an aggregate being loaded, split it apart.
     LLVM_DEBUG(dbgs() << "    original: " << LI << "\n");
@@ -3494,6 +3499,7 @@ private:
     Value *V = SI.getValueOperand();
     if (V->getType()->isSingleValueType())
       return false;
+    return false;
 
     // We have an aggregate being stored, split it apart.
     LLVM_DEBUG(dbgs() << "    original: " << SI << "\n");
@@ -4726,7 +4732,7 @@ bool SROA::deleteDeadInstructions(
   bool Changed = false;
   while (!DeadInsts.empty()) {
     Instruction *I = dyn_cast_or_null<Instruction>(DeadInsts.pop_back_val());
-    if (!I) continue; 
+    if (!I) continue;
     LLVM_DEBUG(dbgs() << "Deleting dead instruction: " << *I << "\n");
 
     // If the instruction is an alloca, find the possible dbg.declare connected
