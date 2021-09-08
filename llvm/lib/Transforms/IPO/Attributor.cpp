@@ -1011,10 +1011,11 @@ bool Attributor::isAssumedDead(const BasicBlock &BB,
   return false;
 }
 
-bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
-                                 const AbstractAttribute &QueryingAA,
-                                 const Value &V, bool CheckBBLivenessOnly,
-                                 DepClassTy LivenessDepClass) {
+bool Attributor::checkForAllUses(
+    function_ref<bool(const Use &, bool &)> Pred,
+    const AbstractAttribute &QueryingAA, const Value &V,
+    bool CheckBBLivenessOnly, DepClassTy LivenessDepClass,
+    function_ref<bool(const Use &OldU, const Use &NewU)> EquivalentUseCB) {
 
   // Check the trivial case first as it catches void values.
   if (V.use_empty())
@@ -1054,9 +1055,12 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
     }
 
     if (auto *SI = dyn_cast<StoreInst>(U->getUser())) {
+      errs() << "SI : " << *SI << "\n";
       if (&SI->getOperandUse(0) == U) {
+        errs() << "SI Op0 : " << **U << "\n";
         if (!Visited.insert(U).second)
           continue;
+        errs() << "SI Op0 : " << **U << "\n";
         SmallSetVector<Value *, 4> PotentialCopies;
         if (AA::getPotentialCopiesOfStoredValue(*this, *SI, PotentialCopies,
                                                 QueryingAA,
@@ -1065,8 +1069,15 @@ bool Attributor::checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
                             << PotentialCopies.size()
                             << " potential copies instead!\n");
           for (Value *PotentialCopy : PotentialCopies)
-            for (const Use &U : PotentialCopy->uses())
-              Worklist.push_back(&U);
+            for (const Use &CopyUse : PotentialCopy->uses()) {
+              if (EquivalentUseCB && !EquivalentUseCB(*U, CopyUse)) {
+                LLVM_DEBUG(dbgs() << "[Attributor] Potential copy was "
+                                     "reqjected by the equivalence call back: "
+                                  << *CopyUse << "!\n");
+                return false;
+              }
+              Worklist.push_back(&CopyUse);
+            }
           continue;
         }
       }

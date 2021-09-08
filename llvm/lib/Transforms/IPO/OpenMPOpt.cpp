@@ -746,7 +746,9 @@ struct OpenMPOpt {
                       << OMPInfoCache.ModuleSlice.size() << " functions\n");
 
     if (IsModulePass) {
+      M.dump();
       Changed |= runAttributor(IsModulePass);
+      M.dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -4324,6 +4326,8 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
         A.getAssumedSimplified(IRPosition::value(*LI), /* AA */ nullptr,
                                UsedAssumedInformation);
       }
+      if (auto *SI = dyn_cast<StoreInst>(&I))
+        A.getOrCreateAAFor<AAIsDead>(IRPosition::value(*SI));
     }
   }
 }

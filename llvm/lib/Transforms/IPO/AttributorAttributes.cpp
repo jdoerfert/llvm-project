@@ -1205,6 +1205,8 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         // TODO: Use range information.
         if (PtrOI.Offset == OffsetAndSize::Unknown ||
             !GEP->hasAllConstantIndices()) {
+          LLVM_DEBUG(dbgs()
+                     << "[AAPointerInfo] Non constant GEP " << *GEP << "\n");
           UsrOI.Offset = OffsetAndSize::Unknown;
           Follow = true;
           return true;
@@ -1234,34 +1236,22 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       // might change while we iterate through a loop. For now, we give up if
       // the PHI is not invariant.
       if (isa<PHINode>(Usr)) {
-        // Check if the PHI is invariant (so far).
-        OffsetInfo &UsrOI = OffsetInfoMap[Usr];
-        if (UsrOI == PtrOI)
-          return true;
-
-        // Check if the PHI operand has already an unknown offset as we can't
-        // improve on that anymore.
-        if (PtrOI.Offset == OffsetAndSize::Unknown) {
+        // Check if the PHI is new.
+        if (!OffsetInfoMap.count(Usr)) {
+          OffsetInfo &UsrOI = OffsetInfoMap[Usr];
           UsrOI = PtrOI;
           Follow = true;
           return true;
         }
 
-        // Check if the PHI operand is not dependent on the PHI itself.
-        APInt Offset(DL.getIndexTypeSizeInBits(AssociatedValue.getType()), 0);
-        if (&AssociatedValue == CurPtr->stripAndAccumulateConstantOffsets(
-                                    DL, Offset, /* AllowNonInbounds */ true)) {
-          if (Offset != PtrOI.Offset) {
-            LLVM_DEBUG(dbgs()
-                       << "[AAPointerInfo] PHI operand pointer offset mismatch "
-                       << *CurPtr << " in " << *Usr << "\n");
-            return false;
-          }
-          return HandlePassthroughUser(Usr, PtrOI, Follow);
+        // Check if the PHI is invariant (so far).
+        OffsetInfo &UsrOI = OffsetInfoMap[Usr];
+        if (UsrOI == PtrOI) {
+          return true;
         }
 
         // TODO: Approximate in case we know the direction of the recurrence.
-        LLVM_DEBUG(dbgs() << "[AAPointerInfo] PHI operand is too complex "
+        LLVM_DEBUG(dbgs() << "[AAPointerInfo] PHI operand has new offset "
                           << *CurPtr << " in " << *Usr << "\n");
         UsrOI = PtrOI;
         UsrOI.Offset = OffsetAndSize::Unknown;
@@ -1280,8 +1270,18 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
           return false;
         }
         bool UsedAssumedInformation = false;
+        errs() << "CurPtr " << *CurPtr
+               << " value:" << *StoreI->getValueOperand() << " : "
+               << PtrOI.Offset << "\n";
         Optional<Value *> Content = A.getAssumedSimplified(
             *StoreI->getValueOperand(), *this, UsedAssumedInformation);
+        errs() << "CurPtr " << *CurPtr << " simplified:" << Content << "\n";
+        if (Content) {
+          errs() << "CurPtr " << *CurPtr << " simplified:" << *Content << "\n";
+          if (*Content)
+            errs() << "CurPtr " << *CurPtr << " simplified:" << *Content
+                   << "\n";
+        }
         return handleAccess(A, *StoreI, *CurPtr, Content, AccessKind::AK_WRITE,
                             PtrOI.Offset, Changed,
                             StoreI->getValueOperand()->getType());
@@ -1309,8 +1309,15 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       LLVM_DEBUG(dbgs() << "[AAPointerInfo] User not handled " << *Usr << "\n");
       return false;
     };
+    auto EquivalentUseCB = [&](const Use &OldU, const Use &NewU) {
+      if (OffsetInfoMap.count(NewU))
+        return OffsetInfoMap[NewU] == OffsetInfoMap[OldU];
+      OffsetInfoMap[NewU] = OffsetInfoMap[OldU];
+      return true;
+    };
     if (!A.checkForAllUses(UsePred, *this, AssociatedValue,
-                           /* CheckBBLivenessOnly */ true))
+                           /* CheckBBLivenessOnly */ true, DepClassTy::OPTIONAL,
+                           EquivalentUseCB))
       return indicatePessimisticFixpoint();
 
     LLVM_DEBUG({
@@ -5488,6 +5495,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
     Value *LHS = Cmp.getOperand(0);
     Value *RHS = Cmp.getOperand(1);
+    errs() << *LHS  << " ::: " << *RHS << "\n";
 
     // Simplify the operands first.
     bool UsedAssumedInformation = false;
@@ -5508,7 +5516,14 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (!SimplifiedRHS.getValue())
       return false;
     RHS = *SimplifiedRHS;
+    errs() << *LHS  << " ::: " << *RHS << "\n";
 
+    // TODO: We could be smarter about choosing a potential outcome.
+    if (isa<UndefValue>(LHS) && !isa<UndefValue>(RHS))
+      LHS = RHS;
+    if (isa<UndefValue>(RHS))
+      RHS = LHS;
+    errs() << *LHS  << " ::: " << *RHS << "\n";
     LLVMContext &Ctx = Cmp.getContext();
     // Handle the trivial case first in which we don't even need to think about
     // null or non-null.
