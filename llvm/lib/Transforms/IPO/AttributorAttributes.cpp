@@ -29,6 +29,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/Assumptions.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
@@ -367,6 +368,21 @@ static bool genericValueTraversal(
             {PHI->getIncomingValue(u), IncomingBB->getTerminator()});
       }
       continue;
+    }
+
+    if (auto *Arg = dyn_cast<Argument>(V)) {
+      SmallVector<Item> CallSiteValues;
+      bool AllCallSitesKnown = true;
+      if (A.checkForAllCallSites(
+              [&](AbstractCallSite ACS) {
+                CallSiteValues.push_back(
+                    {ACS.getCallArgOperand(*Arg), ACS.getInstruction()});
+                return true;
+              },
+              *Arg->getParent(), true, &QueryingAA, AllCallSitesKnown)) {
+        Worklist.append(CallSiteValues);
+        continue;
+      }
     }
 
     if (UseValueSimplify && !isa<Constant>(V)) {
@@ -2465,9 +2481,9 @@ struct AANoRecurseFunction final : AANoRecurseImpl {
     AANoRecurseImpl::initialize(A);
     // TODO: We should build a call graph ourselves to enable this in the module
     // pass as well.
-    if (const Function *F = getAnchorScope())
-      if (A.getInfoCache().getSccSize(*F) != 1)
-        indicatePessimisticFixpoint();
+    // if (const Function *F = getAnchorScope())
+    // if (A.getInfoCache().getSccSize(*F) != 1)
+    // indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -2491,6 +2507,13 @@ struct AANoRecurseFunction final : AANoRecurseImpl {
         indicateOptimisticFixpoint();
       return ChangeStatus::UNCHANGED;
     }
+
+    const AAFunctionReachability &EdgeReachability =
+        A.getAAFor<AAFunctionReachability>(*this, getIRPosition(),
+                                           DepClassTy::REQUIRED);
+    if (!EdgeReachability.canReach(A, getAnchorScope()))
+      return ChangeStatus::UNCHANGED;
+    return indicatePessimisticFixpoint();
 
     // If the above check does not hold anymore we look at the calls.
     auto CheckForNoRecurse = [&](Instruction &I) {
@@ -5612,7 +5635,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
     Value *LHS = Cmp.getOperand(0);
     Value *RHS = Cmp.getOperand(1);
-    errs() << *LHS  << " ::: " << *RHS << "\n";
+    errs() << *LHS << " ::: " << *RHS << "\n";
 
     // Simplify the operands first.
     bool UsedAssumedInformation = false;
@@ -5633,14 +5656,14 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (!SimplifiedRHS.getValue())
       return false;
     RHS = *SimplifiedRHS;
-    errs() << *LHS  << " ::: " << *RHS << "\n";
+    errs() << *LHS << " ::: " << *RHS << "\n";
 
     // TODO: We could be smarter about choosing a potential outcome.
     if (isa<UndefValue>(LHS) && !isa<UndefValue>(RHS))
       LHS = RHS;
     if (isa<UndefValue>(RHS))
       RHS = LHS;
-    errs() << *LHS  << " ::: " << *RHS << "\n";
+    errs() << *LHS << " ::: " << *RHS << "\n";
     LLVMContext &Ctx = Cmp.getContext();
     // Handle the trivial case first in which we don't even need to think about
     // null or non-null.
@@ -9527,6 +9550,9 @@ struct AACallEdgesFunction : public AACallEdges {
       if (!genericValueTraversal<bool>(A, IRPosition::value(*V), *this,
                                        HasUnknownCallee, VisitValue, nullptr,
                                        false)) {
+        LLVM_DEBUG(dbgs() << "[AACallEdges] generic value traversal for called "
+                             "operand failed: "
+                          << *V << "\n");
         // If we haven't gone through all values, assume that there are unknown
         // callees.
         HasUnknownCallee = true;
@@ -9537,7 +9563,8 @@ struct AACallEdgesFunction : public AACallEdges {
     auto ProcessCallInst = [&](Instruction &Inst) {
       CallBase &CB = static_cast<CallBase &>(Inst);
       if (CB.isInlineAsm()) {
-        HasUnknownCallee = true;
+        if (!hasAssumption(&CB, ""))
+          HasUnknownCallee = true;
         return true;
       }
 
@@ -9594,8 +9621,8 @@ struct AACallEdgesFunction : public AACallEdges {
   }
 
   const std::string getAsStr() const override {
-    return "CallEdges[" + std::to_string(HasUnknownCallee) + "," +
-           std::to_string(CalledFunctions.size()) + "]";
+    return "[" + std::to_string(CalledFunctions.size()) + ":" +
+           std::to_string(HasUnknownCallee) + "]";
   }
 
   void trackStatistics() const override {}
@@ -9681,8 +9708,9 @@ struct AAFunctionReachabilityFunction : public AAFunctionReachability {
   const std::string getAsStr() const override {
     size_t QueryCount = ReachableQueries.size() + UnreachableQueries.size();
 
-    return "FunctionReachability [" + std::to_string(ReachableQueries.size()) +
-           "," + std::to_string(QueryCount) + "]";
+    return "[" + std::to_string(ReachableQueries.size()) + "," +
+           std::to_string(QueryCount) + ":" +
+           std::to_string(CanReachUnknownCallee) + "]";
   }
 
   void trackStatistics() const override {}
@@ -9695,7 +9723,9 @@ private:
     if (Edges.count(Fn))
       return true;
 
+    errs() << "Fn " << Fn->getName() << "\n";
     for (Function *Edge : Edges) {
+      errs() << "Edge " << Edge->getName() << "\n";
       // We don't need a dependency if the result is reachable.
       const AAFunctionReachability &EdgeReachability =
           A.getAAFor<AAFunctionReachability>(*this, IRPosition::function(*Edge),
