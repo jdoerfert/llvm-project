@@ -49,17 +49,28 @@ define void @avx512_legal512_prefer512_call_avx512_legal512_prefer512(<8 x i64>*
 ; IS__TUNIT____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; IS__TUNIT____-NEXT:    ret void
 ;
-; IS__CGSCC____: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@avx512_legal512_prefer512_call_avx512_legal512_prefer512
-; IS__CGSCC____-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR1:[0-9]+]] {
-; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
-; IS__CGSCC____-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11:[0-9]+]]
-; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
-; IS__CGSCC____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
-; IS__CGSCC____-NEXT:    ret void
+; IS__CGSCC_OPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@avx512_legal512_prefer512_call_avx512_legal512_prefer512
+; IS__CGSCC_OPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR1:[0-9]+]] {
+; IS__CGSCC_OPM-NEXT:  bb:
+; IS__CGSCC_OPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_OPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
+; IS__CGSCC_OPM-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@avx512_legal512_prefer512_call_avx512_legal512_prefer512
+; IS__CGSCC_NPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR1:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:  bb:
+; IS__CGSCC_NPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_NPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]], align 64
+; IS__CGSCC_NPM-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_NPM-NEXT:    ret void
 ;
 bb:
   %tmp = alloca <8 x i64>, align 32
@@ -113,17 +124,28 @@ define void @avx512_legal512_prefer256_call_avx512_legal512_prefer256(<8 x i64>*
 ; IS__TUNIT____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; IS__TUNIT____-NEXT:    ret void
 ;
-; IS__CGSCC____: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal512_prefer256
-; IS__CGSCC____-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR3:[0-9]+]] {
-; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
-; IS__CGSCC____-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
-; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
-; IS__CGSCC____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
-; IS__CGSCC____-NEXT:    ret void
+; IS__CGSCC_OPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal512_prefer256
+; IS__CGSCC_OPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR3:[0-9]+]] {
+; IS__CGSCC_OPM-NEXT:  bb:
+; IS__CGSCC_OPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_OPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
+; IS__CGSCC_OPM-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal512_prefer256
+; IS__CGSCC_NPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR3:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:  bb:
+; IS__CGSCC_NPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_NPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]], align 64
+; IS__CGSCC_NPM-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_NPM-NEXT:    ret void
 ;
 bb:
   %tmp = alloca <8 x i64>, align 32
@@ -177,17 +199,28 @@ define void @avx512_legal512_prefer512_call_avx512_legal512_prefer256(<8 x i64>*
 ; IS__TUNIT____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; IS__TUNIT____-NEXT:    ret void
 ;
-; IS__CGSCC____: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@avx512_legal512_prefer512_call_avx512_legal512_prefer256
-; IS__CGSCC____-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR1]] {
-; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
-; IS__CGSCC____-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
-; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
-; IS__CGSCC____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
-; IS__CGSCC____-NEXT:    ret void
+; IS__CGSCC_OPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@avx512_legal512_prefer512_call_avx512_legal512_prefer256
+; IS__CGSCC_OPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_OPM-NEXT:  bb:
+; IS__CGSCC_OPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_OPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
+; IS__CGSCC_OPM-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@avx512_legal512_prefer512_call_avx512_legal512_prefer256
+; IS__CGSCC_NPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:  bb:
+; IS__CGSCC_NPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_NPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]], align 64
+; IS__CGSCC_NPM-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_NPM-NEXT:    ret void
 ;
 bb:
   %tmp = alloca <8 x i64>, align 32
@@ -241,17 +274,28 @@ define void @avx512_legal512_prefer256_call_avx512_legal512_prefer512(<8 x i64>*
 ; IS__TUNIT____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; IS__TUNIT____-NEXT:    ret void
 ;
-; IS__CGSCC____: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal512_prefer512
-; IS__CGSCC____-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR3]] {
-; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
-; IS__CGSCC____-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
-; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
-; IS__CGSCC____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
-; IS__CGSCC____-NEXT:    ret void
+; IS__CGSCC_OPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal512_prefer512
+; IS__CGSCC_OPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR3]] {
+; IS__CGSCC_OPM-NEXT:  bb:
+; IS__CGSCC_OPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_OPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
+; IS__CGSCC_OPM-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal512_prefer512
+; IS__CGSCC_NPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR3]] {
+; IS__CGSCC_NPM-NEXT:  bb:
+; IS__CGSCC_NPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_NPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]], align 64
+; IS__CGSCC_NPM-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_NPM-NEXT:    ret void
 ;
 bb:
   %tmp = alloca <8 x i64>, align 32
@@ -310,7 +354,7 @@ define void @avx512_legal256_prefer256_call_avx512_legal512_prefer256(<8 x i64>*
 ; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
 ; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
 ; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
-; IS__CGSCC____-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC____-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11:[0-9]+]]
 ; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
 ; IS__CGSCC____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; IS__CGSCC____-NEXT:    ret void
@@ -367,7 +411,7 @@ define void @avx512_legal512_prefer256_call_avx512_legal256_prefer256(<8 x i64>*
 ;
 ; IS__CGSCC____: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@avx512_legal512_prefer256_call_avx512_legal256_prefer256
-; IS__CGSCC____-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR3]] {
+; IS__CGSCC____-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR3:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  bb:
 ; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
 ; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
@@ -429,17 +473,28 @@ define void @avx2_legal256_prefer256_call_avx2_legal512_prefer256(<8 x i64>* %ar
 ; IS__TUNIT____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; IS__TUNIT____-NEXT:    ret void
 ;
-; IS__CGSCC____: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@avx2_legal256_prefer256_call_avx2_legal512_prefer256
-; IS__CGSCC____-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR7:[0-9]+]] {
-; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
-; IS__CGSCC____-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
-; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
-; IS__CGSCC____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
-; IS__CGSCC____-NEXT:    ret void
+; IS__CGSCC_OPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@avx2_legal256_prefer256_call_avx2_legal512_prefer256
+; IS__CGSCC_OPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR7:[0-9]+]] {
+; IS__CGSCC_OPM-NEXT:  bb:
+; IS__CGSCC_OPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_OPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
+; IS__CGSCC_OPM-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@avx2_legal256_prefer256_call_avx2_legal512_prefer256
+; IS__CGSCC_NPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR7:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:  bb:
+; IS__CGSCC_NPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_NPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]], align 64
+; IS__CGSCC_NPM-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_NPM-NEXT:    ret void
 ;
 bb:
   %tmp = alloca <8 x i64>, align 32
@@ -493,17 +548,28 @@ define void @avx2_legal512_prefer256_call_avx2_legal256_prefer256(<8 x i64>* %ar
 ; IS__TUNIT____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
 ; IS__TUNIT____-NEXT:    ret void
 ;
-; IS__CGSCC____: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@avx2_legal512_prefer256_call_avx2_legal256_prefer256
-; IS__CGSCC____-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR9:[0-9]+]] {
-; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
-; IS__CGSCC____-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
-; IS__CGSCC____-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
-; IS__CGSCC____-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
-; IS__CGSCC____-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
-; IS__CGSCC____-NEXT:    ret void
+; IS__CGSCC_OPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@avx2_legal512_prefer256_call_avx2_legal256_prefer256
+; IS__CGSCC_OPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR9:[0-9]+]] {
+; IS__CGSCC_OPM-NEXT:  bb:
+; IS__CGSCC_OPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_OPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_OPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_OPM-NEXT:    [[TMP4:%.*]] = load <8 x i64>, <8 x i64>* [[TMP2]], align 64
+; IS__CGSCC_OPM-NEXT:    store <8 x i64> [[TMP4]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_OPM-NEXT:    ret void
+;
+; IS__CGSCC_NPM: Function Attrs: argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@avx2_legal512_prefer256_call_avx2_legal256_prefer256
+; IS__CGSCC_NPM-SAME: (<8 x i64>* nocapture nofree noundef nonnull writeonly align 2 dereferenceable(64) [[ARG:%.*]]) #[[ATTR9:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:  bb:
+; IS__CGSCC_NPM-NEXT:    [[TMP:%.*]] = alloca <8 x i64>, align 32
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = bitcast <8 x i64>* [[TMP]] to i8*
+; IS__CGSCC_NPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 64 dereferenceable(64) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR11]]
+; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = load <8 x i64>, <8 x i64>* [[TMP]], align 64
+; IS__CGSCC_NPM-NEXT:    store <8 x i64> [[TMP0]], <8 x i64>* [[ARG]], align 2
+; IS__CGSCC_NPM-NEXT:    ret void
 ;
 bb:
   %tmp = alloca <8 x i64>, align 32
@@ -535,15 +601,15 @@ attributes #5 = { argmemonly nounwind }
 ; IS__TUNIT____: attributes #[[ATTR6]] = { willreturn writeonly }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0:[0-9]+]] = { inlinehint nofree norecurse nosync nounwind readnone uwtable willreturn "min-legal-vector-width"="512" "prefer-vector-width"="512" "target-features"="+avx512vl" }
-; IS__CGSCC____: attributes #[[ATTR1]] = { argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn "min-legal-vector-width"="512" "prefer-vector-width"="512" "target-features"="+avx512vl" }
+; IS__CGSCC____: attributes #[[ATTR1:[0-9]+]] = { argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn "min-legal-vector-width"="512" "prefer-vector-width"="512" "target-features"="+avx512vl" }
 ; IS__CGSCC____: attributes #[[ATTR2:[0-9]+]] = { inlinehint nofree norecurse nosync nounwind readnone uwtable willreturn "min-legal-vector-width"="512" "prefer-vector-width"="256" "target-features"="+avx512vl" }
 ; IS__CGSCC____: attributes #[[ATTR3]] = { argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn "min-legal-vector-width"="512" "prefer-vector-width"="256" "target-features"="+avx512vl" }
 ; IS__CGSCC____: attributes #[[ATTR4]] = { argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn "min-legal-vector-width"="256" "prefer-vector-width"="256" "target-features"="+avx512vl" }
 ; IS__CGSCC____: attributes #[[ATTR5:[0-9]+]] = { inlinehint nofree norecurse nosync nounwind readnone uwtable willreturn "min-legal-vector-width"="256" "prefer-vector-width"="256" "target-features"="+avx512vl" }
 ; IS__CGSCC____: attributes #[[ATTR6:[0-9]+]] = { inlinehint nofree norecurse nosync nounwind readnone uwtable willreturn "min-legal-vector-width"="512" "prefer-vector-width"="256" "target-features"="+avx2" }
-; IS__CGSCC____: attributes #[[ATTR7]] = { argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn "min-legal-vector-width"="256" "prefer-vector-width"="256" "target-features"="+avx2" }
+; IS__CGSCC____: attributes #[[ATTR7:[0-9]+]] = { argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn "min-legal-vector-width"="256" "prefer-vector-width"="256" "target-features"="+avx2" }
 ; IS__CGSCC____: attributes #[[ATTR8:[0-9]+]] = { inlinehint nofree norecurse nosync nounwind readnone uwtable willreturn "min-legal-vector-width"="256" "prefer-vector-width"="256" "target-features"="+avx2" }
-; IS__CGSCC____: attributes #[[ATTR9]] = { argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn "min-legal-vector-width"="512" "prefer-vector-width"="256" "target-features"="+avx2" }
+; IS__CGSCC____: attributes #[[ATTR9:[0-9]+]] = { argmemonly inlinehint nofree norecurse nosync nounwind uwtable willreturn "min-legal-vector-width"="512" "prefer-vector-width"="256" "target-features"="+avx2" }
 ; IS__CGSCC____: attributes #[[ATTR10:[0-9]+]] = { argmemonly nofree nounwind willreturn writeonly }
 ; IS__CGSCC____: attributes #[[ATTR11]] = { willreturn writeonly }
 ;.

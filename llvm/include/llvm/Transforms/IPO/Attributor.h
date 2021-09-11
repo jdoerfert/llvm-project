@@ -188,6 +188,11 @@ bool getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
                                  const AbstractAttribute &QueryingAA,
                                  const Instruction *CtxI);
 
+bool getPotentialCopiesOfLoadedValue(
+    Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialCopies,
+    const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
+    bool OnlyExact = true);
+
 /// Collect all potential values of the one stored by \p SI into
 /// \p PotentialCopies. That is, the only copies that were made via the
 /// store are assumed to be known and all in \p PotentialCopies. Dependences
@@ -199,7 +204,8 @@ bool getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
 ///          determined.
 bool getPotentialCopiesOfStoredValue(
     Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
-    const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation);
+    const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
+    bool OnlyExact = true);
 
 /// Return true if \p IRP is readonly. This will query respective AAs that
 /// deduce the information and introduce dependences for \p QueryingAA.

@@ -49,7 +49,6 @@ namespace llvm {
 /// are not.
 class AbstractCallSite {
 public:
-
   /// The encoding of a callback with regards to the underlying instruction.
   struct CallbackInfo {
 
@@ -65,11 +64,9 @@ public:
     /// unknown values that are passed to the callee.
     using ParameterEncodingTy = SmallVector<int, 0>;
     ParameterEncodingTy ParameterEncoding;
-
   };
 
 private:
-
   /// The underlying call site:
   ///   caller -> callee,             if this is a direct or indirect call site
   ///   caller -> broker function,    if this is a callback call site
@@ -182,7 +179,8 @@ public:
   /// function parameter number @p ArgNo or nullptr if there is none.
   Value *getCallArgOperand(unsigned ArgNo) const {
     if (isDirectCall())
-      return CB->getArgOperand(ArgNo);
+      return CB->getNumArgOperands() > ArgNo ? CB->getArgOperand(ArgNo)
+                                             : nullptr;
     // Add 1 for the callee encoding.
     return CI.ParameterEncoding[ArgNo + 1] >= 0
                ? CB->getArgOperand(CI.ParameterEncoding[ArgNo + 1])

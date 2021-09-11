@@ -39,9 +39,8 @@ define dso_local void @foo(i32 %N) {
 ; IS__TUNIT_OPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
 ; IS__TUNIT_OPM-NEXT:    [[P:%.*]] = alloca float, align 4
 ; IS__TUNIT_OPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; IS__TUNIT_OPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
 ; IS__TUNIT_OPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; IS__TUNIT_OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 undef)
+; IS__TUNIT_OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef, i64 undef)
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@foo
@@ -50,9 +49,8 @@ define dso_local void @foo(i32 %N) {
 ; IS__TUNIT_NPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
 ; IS__TUNIT_NPM-NEXT:    [[P:%.*]] = alloca float, align 4
 ; IS__TUNIT_NPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; IS__TUNIT_NPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
 ; IS__TUNIT_NPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; IS__TUNIT_NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 undef)
+; IS__TUNIT_NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef, i64 undef)
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@foo
@@ -61,9 +59,8 @@ define dso_local void @foo(i32 %N) {
 ; IS__CGSCC_OPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
 ; IS__CGSCC_OPM-NEXT:    [[P:%.*]] = alloca float, align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; IS__CGSCC_OPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; IS__CGSCC_OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 noundef 4617315517961601024)
+; IS__CGSCC_OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[P]], i64 noundef 4617315517961601024)
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@foo
@@ -72,9 +69,8 @@ define dso_local void @foo(i32 %N) {
 ; IS__CGSCC_NPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
 ; IS__CGSCC_NPM-NEXT:    [[P:%.*]] = alloca float, align 4
 ; IS__CGSCC_NPM-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; IS__CGSCC_NPM-NEXT:    store float 3.000000e+00, float* [[P]], align 4
 ; IS__CGSCC_NPM-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; IS__CGSCC_NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P]], i64 noundef 4617315517961601024)
+; IS__CGSCC_NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[P]], i64 noundef 4617315517961601024)
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
 entry:
@@ -89,7 +85,7 @@ entry:
 
 define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.bound_tid., i32* dereferenceable(4) %N, float* dereferenceable(4) %p, i64 %q) {
 ; IS________OPM-LABEL: define {{[^@]+}}@.omp_outlined.
-; IS________OPM-SAME: (i32* noalias nocapture nofree readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]], i64 [[Q:%.*]]) {
+; IS________OPM-SAME: (i32* noalias nocapture nofree readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[P:%.*]], i64 [[Q:%.*]]) {
 ; IS________OPM-NEXT:  entry:
 ; IS________OPM-NEXT:    [[Q_ADDR:%.*]] = alloca i64, align 8
 ; IS________OPM-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -131,9 +127,8 @@ define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.
 ; IS________OPM-NEXT:    br label [[OMP_INNER_FOR_END:%.*]]
 ; IS________OPM:       omp.inner.for.body:
 ; IS________OPM-NEXT:    [[ADD10:%.*]] = add nsw i32 [[DOTOMP_IV_0]], 2
-; IS________OPM-NEXT:    [[TMP10:%.*]] = load float, float* [[P]], align 4
 ; IS________OPM-NEXT:    [[TMP11:%.*]] = load double, double* [[CONV]], align 8
-; IS________OPM-NEXT:    call void @bar(i32 [[ADD10]], float [[TMP10]], double [[TMP11]])
+; IS________OPM-NEXT:    call void @bar(i32 [[ADD10]], float 3.000000e+00, double [[TMP11]])
 ; IS________OPM-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 ; IS________OPM:       omp.body.continue:
 ; IS________OPM-NEXT:    br label [[OMP_INNER_FOR_INC]]
@@ -150,7 +145,7 @@ define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.
 ; IS________OPM-NEXT:    ret void
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@.omp_outlined.
-; IS________NPM-SAME: (i32* noalias nocapture nofree readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]], i64 [[Q:%.*]]) {
+; IS________NPM-SAME: (i32* noalias nocapture nofree readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[P:%.*]], i64 [[Q:%.*]]) {
 ; IS________NPM-NEXT:  entry:
 ; IS________NPM-NEXT:    [[Q_ADDR:%.*]] = alloca i64, align 8
 ; IS________NPM-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -192,9 +187,8 @@ define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.
 ; IS________NPM-NEXT:    br label [[OMP_INNER_FOR_END:%.*]]
 ; IS________NPM:       omp.inner.for.body:
 ; IS________NPM-NEXT:    [[ADD10:%.*]] = add nsw i32 [[DOTOMP_IV_0]], 2
-; IS________NPM-NEXT:    [[TMP10:%.*]] = load float, float* [[P]], align 4
 ; IS________NPM-NEXT:    [[TMP11:%.*]] = load double, double* [[CONV]], align 8
-; IS________NPM-NEXT:    call void @bar(i32 [[ADD10]], float [[TMP10]], double [[TMP11]])
+; IS________NPM-NEXT:    call void @bar(i32 [[ADD10]], float 3.000000e+00, double [[TMP11]])
 ; IS________NPM-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 ; IS________NPM:       omp.body.continue:
 ; IS________NPM-NEXT:    br label [[OMP_INNER_FOR_INC]]

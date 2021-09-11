@@ -375,6 +375,27 @@ static bool genericValueTraversal(
       continue;
     }
 
+    if (auto *Arg = dyn_cast<Argument>(V)) {
+      if (!Intraprocedural && !Arg->hasPassPointeeByValueCopyAttr()) {
+        SmallVector<Item> CallSiteValues;
+        bool AllCallSitesKnown = true;
+        if (A.checkForAllCallSites(
+                [&](AbstractCallSite ACS) {
+                  // Callbacks might not have a corresponding call site operand,
+                  // stick with the argument in that case.
+                  Value *CSOp = ACS.getCallArgOperand(*Arg);
+                  if (!CSOp)
+                    return false;
+                  CallSiteValues.push_back({CSOp, ACS.getInstruction()});
+                  return true;
+                },
+                *Arg->getParent(), true, &QueryingAA, AllCallSitesKnown)) {
+          Worklist.append(CallSiteValues);
+          continue;
+        }
+      }
+    }
+
     if (UseValueSimplify && !isa<Constant>(V)) {
       bool UsedAssumedInformation = false;
       Optional<Value *> SimpleV =
@@ -388,6 +409,22 @@ static bool genericValueTraversal(
         if (!Intraprocedural || !CtxI ||
             AA::isValidInScope(*NewV, CtxI->getFunction())) {
           Worklist.push_back({NewV, CtxI});
+          continue;
+        }
+      }
+    }
+
+    if (auto *LI = dyn_cast<LoadInst>(V)) {
+      bool UsedAssumedInformation = false;
+      SmallSetVector<Value *, 4> PotentialCopies;
+      if (AA::getPotentialCopiesOfLoadedValue(
+              A, *LI, PotentialCopies, QueryingAA, UsedAssumedInformation)) {
+        if (!Intraprocedural || !CtxI ||
+            llvm::all_of(PotentialCopies, [CtxI](Value *PC) {
+              return AA::isValidInScope(*PC, CtxI->getFunction());
+            })) {
+          for (auto *PotentialCopy : PotentialCopies)
+            Worklist.push_back({PotentialCopy, CtxI});
           continue;
         }
       }
@@ -1417,7 +1454,10 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         // TODO: Allow some call uses
         return false;
       }
-
+      PtrOI.Offset = OffsetAndSize::Unknown;
+      if (auto *UI = dyn_cast<Instruction>(Usr))
+        return handleAccess(A, *UI, *CurPtr, nullptr, AccessKind::AK_READ_WRITE,
+                            PtrOI.Offset, Changed, nullptr);
       LLVM_DEBUG(dbgs() << "[AAPointerInfo] User not handled " << *Usr << "\n");
       return false;
     };
@@ -5261,8 +5301,9 @@ struct AAValueSimplifyImpl : AAValueSimplify {
                               Instruction *CtxI, bool Check,
                               ValueToValueMapTy &VMap) {
     assert(CtxI && "Cannot reproduce an instruction without context!");
-    if (Check && !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
-                                               /* TLI */ nullptr))
+    if (Check && (I.mayReadFromMemory() ||
+        !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
+                                      /* TLI */ nullptr)))
       return nullptr;
     for (Value *Op : I.operands()) {
       Value *NewOp = reproduceValue(A, *Op, Ty, CtxI, Check, VMap);

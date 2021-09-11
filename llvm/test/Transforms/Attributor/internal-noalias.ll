@@ -177,7 +177,7 @@ define i32 @visible_local_3() {
 ; IS__CGSCC____-SAME: () #[[ATTR3]] {
 ; IS__CGSCC____-NEXT:    [[B:%.*]] = alloca i32, align 4
 ; IS__CGSCC____-NEXT:    store i32 5, i32* [[B]], align 4
-; IS__CGSCC____-NEXT:    [[CALL:%.*]] = call i32 @noalias_args_argmem_rn(i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[B]]) #[[ATTR6:[0-9]+]]
+; IS__CGSCC____-NEXT:    [[CALL:%.*]] = call i32 @noalias_args_argmem_rn(i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[B]]) #[[ATTR6:[0-9]+]], !range [[RNG0:![0-9]+]]
 ; IS__CGSCC____-NEXT:    ret i32 [[CALL]]
 ;
   %B = alloca i32, align 4
@@ -203,4 +203,6 @@ attributes #1 = { argmemonly noinline nounwind uwtable willreturn}
 ; IS__CGSCC____: attributes #[[ATTR4]] = { nounwind readonly }
 ; IS__CGSCC____: attributes #[[ATTR5]] = { nosync nounwind readonly }
 ; IS__CGSCC____: attributes #[[ATTR6]] = { nounwind readnone willreturn }
+;.
+; IS__CGSCC____: [[RNG0]] = !{i32 0, i32 6}
 ;.
