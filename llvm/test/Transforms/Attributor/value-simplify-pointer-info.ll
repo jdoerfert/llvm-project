@@ -4036,10 +4036,10 @@ if.end:                                           ; preds = %if.then, %entry
 
 @global = internal global %struct.STy zeroinitializer, align 8
 
-; FIXME: We should mark %dst as writeonly and %src as readonly, that is (for now) all we can expect.
+; We mark %dst as writeonly and %src as readonly, that is (for now) all we can expect.
 define dso_local void @test_nested_memory(float* %dst, double* %src) {
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@test_nested_memory
-; IS__TUNIT_OPM-SAME: (float* nocapture nofree [[DST:%.*]], double* nocapture nofree [[SRC:%.*]]) {
+; IS__TUNIT_OPM-SAME: (float* nocapture nofree writeonly [[DST:%.*]], double* nocapture nofree readonly [[SRC:%.*]]) {
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    [[LOCAL:%.*]] = alloca [[STRUCT_STY:%.*]], align 8
 ; IS__TUNIT_OPM-NEXT:    [[INNER:%.*]] = getelementptr inbounds [[STRUCT_STY]], %struct.STy* [[LOCAL]], i64 0, i32 2
@@ -4055,7 +4055,7 @@ define dso_local void @test_nested_memory(float* %dst, double* %src) {
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@test_nested_memory
-; IS__TUNIT_NPM-SAME: (float* nocapture nofree [[DST:%.*]], double* nocapture nofree [[SRC:%.*]]) {
+; IS__TUNIT_NPM-SAME: (float* nocapture nofree writeonly [[DST:%.*]], double* nocapture nofree readonly [[SRC:%.*]]) {
 ; IS__TUNIT_NPM-NEXT:  entry:
 ; IS__TUNIT_NPM-NEXT:    [[LOCAL:%.*]] = alloca [[STRUCT_STY:%.*]], align 8
 ; IS__TUNIT_NPM-NEXT:    [[INNER:%.*]] = getelementptr inbounds [[STRUCT_STY]], %struct.STy* [[LOCAL]], i64 0, i32 2
@@ -4077,7 +4077,7 @@ define dso_local void @test_nested_memory(float* %dst, double* %src) {
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@test_nested_memory
-; IS__CGSCC_OPM-SAME: (float* nocapture nofree [[DST:%.*]], double* nocapture nofree [[SRC:%.*]]) {
+; IS__CGSCC_OPM-SAME: (float* nocapture nofree writeonly [[DST:%.*]], double* nocapture nofree readonly [[SRC:%.*]]) {
 ; IS__CGSCC_OPM-NEXT:  entry:
 ; IS__CGSCC_OPM-NEXT:    [[LOCAL:%.*]] = alloca [[STRUCT_STY:%.*]], align 8
 ; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = bitcast %struct.STy* [[LOCAL]] to i8*
@@ -4094,7 +4094,7 @@ define dso_local void @test_nested_memory(float* %dst, double* %src) {
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test_nested_memory
-; IS__CGSCC_NPM-SAME: (float* nocapture nofree [[DST:%.*]], double* nocapture nofree [[SRC:%.*]]) {
+; IS__CGSCC_NPM-SAME: (float* nocapture nofree writeonly [[DST:%.*]], double* nocapture nofree readonly [[SRC:%.*]]) {
 ; IS__CGSCC_NPM-NEXT:  entry:
 ; IS__CGSCC_NPM-NEXT:    [[LOCAL:%.*]] = alloca [[STRUCT_STY:%.*]], align 8
 ; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = bitcast %struct.STy* [[LOCAL]] to i8*
