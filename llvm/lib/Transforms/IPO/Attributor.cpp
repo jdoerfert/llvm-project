@@ -1268,15 +1268,21 @@ static bool checkForAllInstructionsImpl(
   for (unsigned Opcode : Opcodes) {
     // Check if we have instructions with this opcode at all first.
     auto *Insts = OpcodeInstMap.lookup(Opcode);
-    if (!Insts)
+    if (!Insts) {
+      LLVM_DEBUG(dbgs() << "[Attributor] No instruction with opcode " << Opcode
+                        << " found\n";);
       continue;
+    }
 
     for (Instruction *I : *Insts) {
       // Skip dead instructions.
       if (A && !CheckPotentiallyDead &&
           A->isAssumedDead(IRPosition::value(*I), QueryingAA, LivenessAA,
-                           UsedAssumedInformation, CheckBBLivenessOnly))
+                           UsedAssumedInformation, CheckBBLivenessOnly)) {
+        LLVM_DEBUG(dbgs() << "[Attributor] Instruction " << *I
+                          << " is potentially dead, skip!\n";);
         continue;
+      }
 
       if (!Pred(*I))
         return false;
