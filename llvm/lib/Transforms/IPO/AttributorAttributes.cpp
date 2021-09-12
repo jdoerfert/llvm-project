@@ -1351,34 +1351,21 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       // might change while we iterate through a loop. For now, we give up if
       // the PHI is not invariant.
       if (isa<PHINode>(Usr)) {
-        // Check if the PHI is invariant (so far).
-        OffsetInfo &UsrOI = OffsetInfoMap[Usr];
-        if (UsrOI == PtrOI)
-          return true;
-
-        // Check if the PHI operand has already an unknown offset as we can't
-        // improve on that anymore.
-        if (PtrOI.Offset == OffsetAndSize::Unknown) {
+        // Check if the PHI is new.
+        if (!OffsetInfoMap.count(Usr)) {
+          OffsetInfo &UsrOI = OffsetInfoMap[Usr];
           UsrOI = PtrOI;
           Follow = true;
           return true;
         }
 
-        // Check if the PHI operand is not dependent on the PHI itself.
-        APInt Offset(DL.getIndexTypeSizeInBits(AssociatedValue.getType()), 0);
-        if (&AssociatedValue == CurPtr->stripAndAccumulateConstantOffsets(
-                                    DL, Offset, /* AllowNonInbounds */ true)) {
-          if (Offset != PtrOI.Offset) {
-            LLVM_DEBUG(dbgs()
-                       << "[AAPointerInfo] PHI operand pointer offset mismatch "
-                       << *CurPtr << " in " << *Usr << "\n");
-            return false;
-          }
-          return HandlePassthroughUser(Usr, PtrOI, Follow);
-        }
+        // Check if the PHI is invariant (so far).
+        OffsetInfo &UsrOI = OffsetInfoMap[Usr];
+        if (UsrOI == PtrOI)
+          return true;
 
         // TODO: Approximate in case we know the direction of the recurrence.
-        LLVM_DEBUG(dbgs() << "[AAPointerInfo] PHI operand is too complex "
+        LLVM_DEBUG(dbgs() << "[AAPointerInfo] PHI operand has new offset "
                           << *CurPtr << " in " << *Usr << "\n");
         UsrOI = PtrOI;
         UsrOI.Offset = OffsetAndSize::Unknown;
