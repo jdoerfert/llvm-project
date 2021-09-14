@@ -425,7 +425,7 @@ define internal i32* @test_inalloca(i32* inalloca(i32) %a) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test_inalloca
-; IS__CGSCC____-SAME: (i32* noalias nofree noundef nonnull returned writeonly inalloca(i32) dereferenceable(4) "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR1]] {
+; IS__CGSCC____-SAME: (i32* noalias nofree nonnull returned writeonly inalloca(i32) dereferenceable(4) "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC____-NEXT:    ret i32* [[A]]
 ;
   ret i32* %a
@@ -578,7 +578,7 @@ define internal void @test_byval(%struct.X* byval(%struct.X) %a) {
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test_byval
-; IS__CGSCC_NPM-SAME: (i8* noalias nocapture nofree readnone [[TMP0:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_NPM-SAME: (i8* nocapture readnone [[TMP0:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC_NPM-NEXT:    [[A_PRIV:%.*]] = alloca [[STRUCT_X:%.*]], align 8
 ; IS__CGSCC_NPM-NEXT:    [[A_PRIV_CAST:%.*]] = bitcast %struct.X* [[A_PRIV]] to i8**
 ; IS__CGSCC_NPM-NEXT:    [[G0:%.*]] = getelementptr [[STRUCT_X]], %struct.X* [[A_PRIV]], i32 0, i32 0
@@ -639,7 +639,7 @@ define internal i8*@test_byval2(%struct.X* byval(%struct.X) %a) {
 ; IS__TUNIT_NPM-NEXT:    ret i8* [[L]]
 ;
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test_byval2
-; IS__CGSCC_NPM-SAME: (i8* noalias nofree readnone returned "no-capture-maybe-returned" [[TMP0:%.*]]) {
+; IS__CGSCC_NPM-SAME: (i8* nofree readnone returned "no-capture-maybe-returned" [[TMP0:%.*]]) {
 ; IS__CGSCC_NPM-NEXT:    [[A_PRIV:%.*]] = alloca [[STRUCT_X:%.*]], align 8
 ; IS__CGSCC_NPM-NEXT:    [[A_PRIV_CAST:%.*]] = bitcast %struct.X* [[A_PRIV]] to i8**
 ; IS__CGSCC_NPM-NEXT:    store i8* [[TMP0]], i8** [[A_PRIV_CAST]], align 8

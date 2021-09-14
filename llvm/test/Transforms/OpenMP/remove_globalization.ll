@@ -78,17 +78,17 @@ define internal void @bar() {
 ; CHECK-LABEL: define {{[^@]+}}@bar
 ; CHECK-SAME: () #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[TMP0:%.*]] = call i8* @__kmpc_alloc_shared(i64 noundef 4) #[[ATTR4]], !dbg [[DBG8:![0-9]+]]
-; CHECK-NEXT:    call void @share(i8* nofree writeonly [[TMP0]]) #[[ATTR5:[0-9]+]]
-; CHECK-NEXT:    call void @__kmpc_free_shared(i8* [[TMP0]], i64 noundef 4) #[[ATTR4]]
+; CHECK-NEXT:    [[TMP0:%.*]] = call i8* @__kmpc_alloc_shared(i64 4) #[[ATTR0]], !dbg [[DBG8:![0-9]+]]
+; CHECK-NEXT:    call void @share(i8* nofree [[TMP0]]) #[[ATTR4:[0-9]+]]
+; CHECK-NEXT:    call void @__kmpc_free_shared(i8* [[TMP0]], i64 4) #[[ATTR0]]
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@bar
 ; CHECK-DISABLED-SAME: () #[[ATTR0]] {
 ; CHECK-DISABLED-NEXT:  entry:
-; CHECK-DISABLED-NEXT:    [[TMP0:%.*]] = call i8* @__kmpc_alloc_shared(i64 noundef 4) #[[ATTR4]], !dbg [[DBG8:![0-9]+]]
-; CHECK-DISABLED-NEXT:    call void @share(i8* nofree writeonly [[TMP0]]) #[[ATTR5:[0-9]+]]
-; CHECK-DISABLED-NEXT:    call void @__kmpc_free_shared(i8* [[TMP0]], i64 noundef 4) #[[ATTR4]]
+; CHECK-DISABLED-NEXT:    [[TMP0:%.*]] = call i8* @__kmpc_alloc_shared(i64 4) #[[ATTR0]], !dbg [[DBG8:![0-9]+]]
+; CHECK-DISABLED-NEXT:    call void @share(i8* nofree [[TMP0]]) #[[ATTR4:[0-9]+]]
+; CHECK-DISABLED-NEXT:    call void @__kmpc_free_shared(i8* [[TMP0]], i64 4) #[[ATTR0]]
 ; CHECK-DISABLED-NEXT:    ret void
 ;
 entry:
@@ -100,12 +100,12 @@ entry:
 
 define internal void @use(i8* %x) {
 ; CHECK-LABEL: define {{[^@]+}}@use
-; CHECK-SAME: (i8* noalias nocapture nofree readnone [[X:%.*]]) #[[ATTR1:[0-9]+]] {
+; CHECK-SAME: (i8* [[X:%.*]]) #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@use
-; CHECK-DISABLED-SAME: (i8* noalias nocapture nofree readnone [[X:%.*]]) #[[ATTR1:[0-9]+]] {
+; CHECK-DISABLED-SAME: (i8* [[X:%.*]]) #[[ATTR1:[0-9]+]] {
 ; CHECK-DISABLED-NEXT:  entry:
 ; CHECK-DISABLED-NEXT:    ret void
 ;
@@ -115,13 +115,13 @@ entry:
 
 define internal void @share(i8* %x) {
 ; CHECK-LABEL: define {{[^@]+}}@share
-; CHECK-SAME: (i8* nofree writeonly [[X:%.*]]) #[[ATTR2:[0-9]+]] {
+; CHECK-SAME: (i8* nofree [[X:%.*]]) #[[ATTR2:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i8* [[X]], i8** @S, align 8
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@share
-; CHECK-DISABLED-SAME: (i8* nofree writeonly [[X:%.*]]) #[[ATTR2:[0-9]+]] {
+; CHECK-DISABLED-SAME: (i8* nofree [[X:%.*]]) #[[ATTR2:[0-9]+]] {
 ; CHECK-DISABLED-NEXT:  entry:
 ; CHECK-DISABLED-NEXT:    store i8* [[X]], i8** @S, align 8
 ; CHECK-DISABLED-NEXT:    ret void
@@ -135,13 +135,13 @@ define void @unused() {
 ; CHECK-LABEL: define {{[^@]+}}@unused() {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = alloca i8, i64 4, align 1
-; CHECK-NEXT:    call void @use(i8* noalias readnone undef)
+; CHECK-NEXT:    call void @use(i8* undef)
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@unused() {
 ; CHECK-DISABLED-NEXT:  entry:
 ; CHECK-DISABLED-NEXT:    [[TMP0:%.*]] = call i8* @__kmpc_alloc_shared(i64 4), !dbg [[DBG11:![0-9]+]]
-; CHECK-DISABLED-NEXT:    call void @use(i8* noalias readnone [[TMP0]])
+; CHECK-DISABLED-NEXT:    call void @use(i8* [[TMP0]])
 ; CHECK-DISABLED-NEXT:    call void @__kmpc_free_shared(i8* [[TMP0]], i64 4)
 ; CHECK-DISABLED-NEXT:    ret void
 ;

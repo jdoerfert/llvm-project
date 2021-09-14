@@ -21,6 +21,11 @@ define internal i32 @range_test(i32 %a) #0 {
 ; CHECK_DISABLED-NEXT:    [[TMP2:%.*]] = zext i1 [[TMP1]] to i32
 ; CHECK_DISABLED-NEXT:    ret i32 [[TMP2]]
 ;
+; CHECK_ENABLED: Function Attrs: noinline nounwind uwtable
+; CHECK_ENABLED-LABEL: define {{[^@]+}}@range_test
+; CHECK_ENABLED-SAME: (i32 [[A:%.*]]) #[[ATTR0:[0-9]+]] {
+; CHECK_ENABLED-NEXT:    ret i32 1
+;
 ; CHECK_DISABLED_FUNCTION: Function Attrs: noinline nounwind uwtable
 ; CHECK_DISABLED_FUNCTION-LABEL: define {{[^@]+}}@range_test
 ; CHECK_DISABLED_FUNCTION-SAME: (i32 [[A:%.*]]) #[[ATTR0:[0-9]+]] {
@@ -48,7 +53,8 @@ define i32 @range_use1() #0 {
 ;
 ; CHECK_ENABLED: Function Attrs: noinline nounwind uwtable
 ; CHECK_ENABLED-LABEL: define {{[^@]+}}@range_use1
-; CHECK_ENABLED-SAME: () #[[ATTR0:[0-9]+]] {
+; CHECK_ENABLED-SAME: () #[[ATTR0]] {
+; CHECK_ENABLED-NEXT:    [[TMP1:%.*]] = call i32 @range_test(i32 123)
 ; CHECK_ENABLED-NEXT:    ret i32 1
 ;
 ; CHECK_DISABLED_FUNCTION: Function Attrs: noinline nounwind uwtable
@@ -77,6 +83,7 @@ define i32 @range_use2() #0 {
 ; CHECK_ENABLED: Function Attrs: noinline nounwind uwtable
 ; CHECK_ENABLED-LABEL: define {{[^@]+}}@range_use2
 ; CHECK_ENABLED-SAME: () #[[ATTR0]] {
+; CHECK_ENABLED-NEXT:    [[TMP1:%.*]] = call i32 @range_test(i32 123)
 ; CHECK_ENABLED-NEXT:    ret i32 1
 ;
 ; CHECK_DISABLED_FUNCTION: Function Attrs: noinline nounwind uwtable

@@ -116,7 +116,7 @@ define internal i32 @less_than_two(i32 %c) {
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]]) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp slt i32 undef, 2
 ; IS__CGSCC____-NEXT:    [[RET:%.*]] = zext i1 true to i32
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 1
 ;
   %cmp = icmp slt i32 %c, 2
   %ret = zext i1 %cmp to i32

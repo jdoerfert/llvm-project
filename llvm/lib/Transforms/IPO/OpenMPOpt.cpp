@@ -4335,8 +4335,8 @@ void OpenMPOpt::registerFoldRuntimeCall(RuntimeFunction RF) {
 
 void OpenMPOpt::registerAAs(bool IsModulePass) {
   if (SCC.empty())
-
     return;
+
   if (IsModulePass) {
     // Ensure we create the AAKernelInfo AAs first and without triggering an
     // update. This will make sure we register all value simplification

@@ -1520,7 +1520,7 @@ define internal i1 @is_less_than_65536(i32 %arg) {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@is_less_than_65536
 ; IS__CGSCC____-SAME: (i32 [[ARG:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp ult i32 undef, 65536
-; IS__CGSCC____-NEXT:    ret i1 undef
+; IS__CGSCC____-NEXT:    ret i1 true
 ;
   %cmp = icmp ult i32 %arg, 65536
   ret i1 %cmp
@@ -1599,21 +1599,21 @@ define internal i32 @less_than_100_1(i32 %c) {
 ; IS__CGSCC____-NEXT:    i32 6, label [[ONSIX:%.*]]
 ; IS__CGSCC____-NEXT:    ]
 ; IS__CGSCC____:       onzero:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 0
 ; IS__CGSCC____:       onone:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 1
 ; IS__CGSCC____:       ontwo:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 2
 ; IS__CGSCC____:       onthree:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 3
 ; IS__CGSCC____:       onfour:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 4
 ; IS__CGSCC____:       onfive:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 5
 ; IS__CGSCC____:       onsix:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 6
 ; IS__CGSCC____:       otherwise:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 99
 ;
   switch i32 %c, label %otherwise [ i32 0, label %onzero
   i32 1, label %onone
@@ -1681,21 +1681,21 @@ define internal i32 @less_than_100_2(i32 %c) {
 ; IS__CGSCC____-NEXT:    i32 6, label [[ONSIX:%.*]]
 ; IS__CGSCC____-NEXT:    ]
 ; IS__CGSCC____:       onzero:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 0
 ; IS__CGSCC____:       onone:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 1
 ; IS__CGSCC____:       ontwo:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 2
 ; IS__CGSCC____:       onthree:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 3
 ; IS__CGSCC____:       onfour:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 4
 ; IS__CGSCC____:       onfive:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 5
 ; IS__CGSCC____:       onsix:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 6
 ; IS__CGSCC____:       otherwise:
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 99
 ;
   switch i32 %c, label %otherwise [ i32 0, label %onzero
   i32 1, label %onone
@@ -1728,7 +1728,7 @@ define internal i1 @is_less_than_100_2(i32 %c) {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@is_less_than_100_2
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp slt i32 undef, 100
-; IS__CGSCC____-NEXT:    ret i1 undef
+; IS__CGSCC____-NEXT:    ret i1 true
 ;
   %cmp = icmp slt i32 %c, 100
   ret i1 %cmp

@@ -3761,15 +3761,20 @@ struct AAIsDeadFunction : public AAIsDead {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     const Function *F = getAnchorScope();
-    if (F && !F->isDeclaration()) {
-      // We only want to compute liveness once. If the function is not part of
-      // the SCC, skip it.
-      if (A.isRunOn(*const_cast<Function *>(F))) {
-        ToBeExploredFrom.insert(&F->getEntryBlock().front());
-        assumeLive(A, F->getEntryBlock());
-      } else {
-        indicatePessimisticFixpoint();
-      }
+    if (!F || F->isDeclaration()) {
+      indicatePessimisticFixpoint();
+      return;
+    }
+
+    if (AA::canBeAssumedDead(A, *F, *this))
+      return;
+    // We only want to compute liveness once. If the function is not part of
+    // the SCC, skip it.
+    if (A.isRunOn(*const_cast<Function *>(F))) {
+      ToBeExploredFrom.insert(&F->getEntryBlock().front());
+      assumeLive(F->getEntryBlock());
+    } else {
+      indicatePessimisticFixpoint();
     }
   }
 
@@ -3791,6 +3796,7 @@ struct AAIsDeadFunction : public AAIsDead {
 
     if (AssumedLiveBlocks.empty()) {
       A.deleteAfterManifest(F);
+      errs() << "delete after manifest!: " << F.getName() << "\n";
       return ChangeStatus::CHANGED;
     }
 
@@ -3839,10 +3845,12 @@ struct AAIsDeadFunction : public AAIsDead {
   void trackStatistics() const override {}
 
   /// Returns true if the function is assumed dead.
-  bool isAssumedDead() const override { return false; }
+  bool isAssumedDead() const override { return AssumedLiveBlocks.empty(); }
 
   /// See AAIsDead::isKnownDead().
-  bool isKnownDead() const override { return false; }
+  bool isKnownDead() const override {
+    return isAssumedDead() && isAtFixpoint();
+  }
 
   /// See AAIsDead::isAssumedDead(BasicBlock *).
   bool isAssumedDead(const BasicBlock *BB) const override {
@@ -3887,21 +3895,10 @@ struct AAIsDeadFunction : public AAIsDead {
     return getKnown() && isAssumedDead(I);
   }
 
-  /// Assume \p BB is (partially) live now and indicate to the Attributor \p A
-  /// that internal function called from \p BB should now be looked at.
-  bool assumeLive(Attributor &A, const BasicBlock &BB) {
+  /// Assume \p BB is (partially) live now.
+  bool assumeLive(const BasicBlock &BB) {
     if (!AssumedLiveBlocks.insert(&BB).second)
       return false;
-
-    // We assume that all of BB is (probably) live now and if there are calls to
-    // internal functions we will assume that those are now live as well. This
-    // is a performance optimization for blocks with calls to a lot of internal
-    // functions. It can however cause dead functions to be treated as live.
-    for (const Instruction &I : BB)
-      if (const auto *CB = dyn_cast<CallBase>(&I))
-        if (const Function *F = CB->getCalledFunction())
-          if (F->hasLocalLinkage())
-            A.markLiveInternalFunction(*F);
     return true;
   }
 
@@ -4014,6 +4011,18 @@ identifyAliveSuccessors(Attributor &A, const SwitchInst &SI,
 ChangeStatus AAIsDeadFunction::updateImpl(Attributor &A) {
   ChangeStatus Change = ChangeStatus::UNCHANGED;
 
+  // Check for internal assumed dead functions first.
+  if (AssumedLiveBlocks.empty()) {
+    const Function *F = getAnchorScope();
+    if (AA::canBeAssumedDead(A, *F, *this)) {
+      LLVM_DEBUG(dbgs() << "[AAIsDead] Skip assumed dead internal function\n");
+      return Change;
+    }
+    ToBeExploredFrom.insert(&F->getEntryBlock().front());
+    assumeLive(F->getEntryBlock());
+    Change = ChangeStatus::CHANGED;
+  }
+
   LLVM_DEBUG(dbgs() << "[AAIsDead] Live [" << AssumedLiveBlocks.size() << "/"
                     << getAnchorScope()->size() << "] BBs and "
                     << ToBeExploredFrom.size() << " exploration points and "
@@ -4087,7 +4096,7 @@ ChangeStatus AAIsDeadFunction::updateImpl(Attributor &A) {
         auto Edge = std::make_pair(I->getParent(), AliveSuccessor->getParent());
         if (AssumedLiveEdges.insert(Edge).second)
           Change = ChangeStatus::CHANGED;
-        if (assumeLive(A, *AliveSuccessor->getParent()))
+        if (assumeLive(*AliveSuccessor->getParent()))
           Worklist.push_back(AliveSuccessor);
       }
     }

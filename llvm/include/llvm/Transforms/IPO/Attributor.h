@@ -211,6 +211,11 @@ bool isAssumedReadOnly(Attributor &A, const IRPosition &IRP,
 bool isAssumedReadNone(Attributor &A, const IRPosition &IRP,
                        const AbstractAttribute &QueryingAA, bool &IsKnown);
 
+/// Return true if \p F can be assumed dead at the beginning of an Attributor
+/// run.
+bool canBeAssumedDead(Attributor &A, const Function &F,
+                      const AbstractAttribute &QueryingAA);
+
 } // namespace AA
 
 /// The value passed to the line option that defines the maximal initialization
@@ -1453,17 +1458,6 @@ struct Attributor {
     return F.hasExactDefinition() || InfoCache.InlineableFunctions.count(&F);
   }
 
-  /// Mark the internal function \p F as live.
-  ///
-  /// This will trigger the identification and initialization of attributes for
-  /// \p F.
-  void markLiveInternalFunction(const Function &F) {
-    assert(F.hasLocalLinkage() &&
-           "Only local linkage is assumed dead initially.");
-
-    identifyDefaultAbstractAttributes(const_cast<Function &>(F));
-  }
-
   /// Helper function to remove callsite.
   void removeCallSite(CallInst *CI) {
     if (!CI)
@@ -1808,7 +1802,8 @@ public:
   /// sites of the function have been visited.
   bool checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
                             const AbstractAttribute &QueryingAA,
-                            bool RequireAllCallSites, bool &AllCallSitesKnown);
+                            bool RequireAllCallSites, bool &AllCallSitesKnown,
+                            bool VisitDeadCallSites = false);
 
   /// Check \p Pred on all values potentially returned by \p F.
   ///
@@ -1958,7 +1953,8 @@ private:
   bool checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
                             const Function &Fn, bool RequireAllCallSites,
                             const AbstractAttribute *QueryingAA,
-                            bool &AllCallSitesKnown);
+                            bool &AllCallSitesKnown,
+                            bool VisitDeadCallSites = false);
 
   /// Determine if CallBase context in \p IRP should be propagated.
   bool shouldPropagateCallBaseContext(const IRPosition &IRP);

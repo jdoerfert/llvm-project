@@ -29,6 +29,7 @@
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
@@ -417,6 +418,26 @@ bool AA::isAssumedReadNone(Attributor &A, const IRPosition &IRP,
   return isAssumedReadOnlyOrReadNone(A, IRP, QueryingAA,
                                      /* RequireReadNone */ true, IsKnown);
 }
+
+bool AA::canBeAssumedDead(Attributor &A, const Function &F,
+                          const AbstractAttribute &QueryingAA) {
+  // We look at internal functions only on-demand but if any use is not a
+  // direct call or outside the current set of analyzed functions, we have
+  // to do it eagerly.
+  if (!F.hasLocalLinkage())
+    return false;
+  if (!A.isRunOn(const_cast<Function &>(F)))
+    return false;
+  return llvm::all_of(F.uses(), [&](const Use &U) {
+    const auto *CB = dyn_cast<CallBase>(U.getUser());
+    bool UsedAssumedInformation = false;
+    return CB && CB->isCallee(&U) &&
+           A.isAssumedDead(*CB, &QueryingAA, /* LivenessAA */ nullptr,
+                           UsedAssumedInformation,
+                           /* CheckBBLivenessOnly */ true);
+  });
+}
+
 /// Return true if \p New is equal or worse than \p Old.
 static bool isEqualOrWorse(const Attribute &New, const Attribute &Old) {
   if (!Old.isIntAttribute())
@@ -910,8 +931,26 @@ bool Attributor::isAssumedDead(const AbstractAttribute &AA,
                                bool &UsedAssumedInformation,
                                bool CheckBBLivenessOnly, DepClassTy DepClass) {
   const IRPosition &IRP = AA.getIRPosition();
-  if (!Functions.count(IRP.getAnchorScope()))
+  Function *Fn = IRP.getAnchorScope();
+  if (!Functions.count(Fn))
     return false;
+
+  // Check for assumed dead internal functions.
+  if (Fn) {
+    if (!FnLivenessAA)
+      FnLivenessAA = lookupAAFor<AAIsDead>(IRPosition::function(*Fn), &AA,
+                                           DepClassTy::NONE);
+    if (FnLivenessAA == &AA)
+      return false;
+    if (FnLivenessAA && FnLivenessAA->isAssumedDead()) {
+      if (!FnLivenessAA->isKnownDead()) {
+        recordDependence(*FnLivenessAA, AA, DepClass);
+        UsedAssumedInformation = true;
+      }
+      return true;
+    }
+  }
+
   return isAssumedDead(IRP, &AA, FnLivenessAA, UsedAssumedInformation,
                        CheckBBLivenessOnly, DepClass);
 }
@@ -957,6 +996,7 @@ bool Attributor::isAssumedDead(const Instruction &I,
                                const AAIsDead *FnLivenessAA,
                                bool &UsedAssumedInformation,
                                bool CheckBBLivenessOnly, DepClassTy DepClass) {
+  const Function *Fn = I.getFunction();
   const IRPosition::CallBaseContext *CBCtx =
       QueryingAA ? QueryingAA->getCallBaseContext() : nullptr;
 
@@ -964,13 +1004,11 @@ bool Attributor::isAssumedDead(const Instruction &I,
     return false;
 
   if (!FnLivenessAA)
-    FnLivenessAA =
-        lookupAAFor<AAIsDead>(IRPosition::function(*I.getFunction(), CBCtx),
-                              QueryingAA, DepClassTy::NONE);
+    FnLivenessAA = &getOrCreateAAFor<AAIsDead>(IRPosition::function(*Fn, CBCtx),
+                                               QueryingAA, DepClassTy::NONE);
 
   // If we have a context instruction and a liveness AA we use it.
-  if (FnLivenessAA &&
-      FnLivenessAA->getIRPosition().getAnchorScope() == I.getFunction() &&
+  if (FnLivenessAA && FnLivenessAA->getIRPosition().getAnchorScope() == Fn &&
       FnLivenessAA->isAssumedDead(&I)) {
     if (QueryingAA)
       recordDependence(*FnLivenessAA, *QueryingAA, DepClass);
@@ -1038,8 +1076,8 @@ bool Attributor::isAssumedDead(const BasicBlock &BB,
                                const AAIsDead *FnLivenessAA,
                                DepClassTy DepClass) {
   if (!FnLivenessAA)
-    FnLivenessAA = lookupAAFor<AAIsDead>(IRPosition::function(*BB.getParent()),
-                                         QueryingAA, DepClassTy::NONE);
+    FnLivenessAA = &getOrCreateAAFor<AAIsDead>(
+        IRPosition::function(*BB.getParent()), QueryingAA, DepClassTy::NONE);
   if (FnLivenessAA->isAssumedDead(&BB)) {
     if (QueryingAA)
       recordDependence(*FnLivenessAA, *QueryingAA, DepClass);
@@ -1133,7 +1171,8 @@ bool Attributor::checkForAllUses(
 bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
                                       const AbstractAttribute &QueryingAA,
                                       bool RequireAllCallSites,
-                                      bool &AllCallSitesKnown) {
+                                      bool &AllCallSitesKnown,
+                                      bool VisitDeadCallSites) {
   // We can try to determine information from
   // the call sites. However, this is only possible all call sites are known,
   // hence the function has internal linkage.
@@ -1147,14 +1186,16 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
   }
 
   return checkForAllCallSites(Pred, *AssociatedFunction, RequireAllCallSites,
-                              &QueryingAA, AllCallSitesKnown);
+                              &QueryingAA, AllCallSitesKnown,
+                              VisitDeadCallSites);
 }
 
 bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
                                       const Function &Fn,
                                       bool RequireAllCallSites,
                                       const AbstractAttribute *QueryingAA,
-                                      bool &AllCallSitesKnown) {
+                                      bool &AllCallSitesKnown,
+                                      bool VisitDeadCallSites) {
   if (RequireAllCallSites && !Fn.hasLocalLinkage()) {
     LLVM_DEBUG(
         dbgs()
@@ -1173,7 +1214,8 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
     LLVM_DEBUG(dbgs() << "[Attributor] Check use: " << *U << " in "
                       << *U.getUser() << "\n");
     bool UsedAssumedInformation = false;
-    if (isAssumedDead(U, QueryingAA, nullptr, UsedAssumedInformation,
+    if (!VisitDeadCallSites &&
+        isAssumedDead(U, QueryingAA, nullptr, UsedAssumedInformation,
                       /* CheckBBLivenessOnly */ true)) {
       LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");
       continue;
@@ -1618,6 +1660,8 @@ void Attributor::identifyDeadInternalFunctions() {
   // Early exit if we don't intend to delete functions.
   if (!DeleteFns)
     return;
+  // TODO: FIXME, this is broken and needs to be fixed
+  return;
 
   // Identify dead internal functions and delete them. This happens outside
   // the other fixpoint analysis as we might treat potentially dead functions
@@ -1625,7 +1669,7 @@ void Attributor::identifyDeadInternalFunctions() {
   // below fixpoint loop will identify and eliminate them.
   SmallVector<Function *, 8> InternalFns;
   for (Function *F : Functions)
-    if (F->hasLocalLinkage())
+    if (F->hasLocalLinkage() && F->getSection().empty())
       InternalFns.push_back(F);
 
   SmallPtrSet<Function *, 8> LiveInternalFns;
@@ -2359,8 +2403,9 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
 
     // Use the CallSiteReplacementCreator to create replacement call sites.
     bool AllCallSitesKnown;
-    bool Success = checkForAllCallSites(CallSiteReplacementCreator, *OldFn,
-                                        true, nullptr, AllCallSitesKnown);
+    bool Success =
+        checkForAllCallSites(CallSiteReplacementCreator, *OldFn, true, nullptr,
+                             AllCallSitesKnown, /* VisitDeadCallSites */ true);
     (void)Success;
     assert(Success && "Assumed call site replacement to succeed!");
 
@@ -2921,18 +2966,6 @@ static bool runAttributorOnFunctions(InformationCache &InfoCache,
       NumFnWithExactDefinition++;
     else
       NumFnWithoutExactDefinition++;
-
-    // We look at internal functions only on-demand but if any use is not a
-    // direct call or outside the current set of analyzed functions, we have
-    // to do it eagerly.
-    if (F->hasLocalLinkage()) {
-      if (llvm::all_of(F->uses(), [&Functions](const Use &U) {
-            const auto *CB = dyn_cast<CallBase>(U.getUser());
-            return CB && CB->isCallee(&U) &&
-                   Functions.count(const_cast<Function *>(CB->getCaller()));
-          }))
-        continue;
-    }
 
     // Populate the Attributor with abstract attribute opportunities in the
     // function and the information cache with IR information.

@@ -4206,7 +4206,7 @@ define internal fastcc void @nested_memory_callee(%struct.STy* nocapture readonl
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind uwtable willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@nested_memory_callee
-; IS__CGSCC_NPM-SAME: (float* noalias nocapture nofree nonnull readnone [[TMP0:%.*]], double* noalias nocapture nofree nonnull readnone [[TMP1:%.*]], %struct.STy* noalias nocapture nofree nonnull readnone align 8 dereferenceable(24) [[TMP2:%.*]]) #[[ATTR10:[0-9]+]] {
+; IS__CGSCC_NPM-SAME: (float* nocapture readnone [[TMP0:%.*]], double* nocapture readnone [[TMP1:%.*]], %struct.STy* nocapture readnone align 8 [[TMP2:%.*]]) #[[ATTR10:[0-9]+]] {
 ; IS__CGSCC_NPM-NEXT:  entry:
 ; IS__CGSCC_NPM-NEXT:    [[S_PRIV:%.*]] = alloca [[STRUCT_STY:%.*]], align 8
 ; IS__CGSCC_NPM-NEXT:    [[S_PRIV_CAST:%.*]] = bitcast %struct.STy* [[S_PRIV]] to float**
@@ -4241,17 +4241,10 @@ entry:
 }
 
 define i32 @read_global_only_written_in_dead_fn() {
-; IS__TUNIT_OPM: Function Attrs: nofree nosync nounwind readonly willreturn
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@read_global_only_written_in_dead_fn
-; IS__TUNIT_OPM-SAME: () #[[ATTR7]] {
-; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = load i32, i32* @GlobalWrittenOnlyInDeadFn, align 4
-; IS__TUNIT_OPM-NEXT:    ret i32 [[L]]
-;
-; IS__TUNIT_NPM: Function Attrs: nofree nosync nounwind readonly willreturn
-; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@read_global_only_written_in_dead_fn
-; IS__TUNIT_NPM-SAME: () #[[ATTR5]] {
-; IS__TUNIT_NPM-NEXT:    [[L:%.*]] = load i32, i32* @GlobalWrittenOnlyInDeadFn, align 4
-; IS__TUNIT_NPM-NEXT:    ret i32 [[L]]
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@read_global_only_written_in_dead_fn
+; IS__TUNIT____-SAME: () #[[ATTR3]] {
+; IS__TUNIT____-NEXT:    ret i32 0
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@read_global_only_written_in_dead_fn
