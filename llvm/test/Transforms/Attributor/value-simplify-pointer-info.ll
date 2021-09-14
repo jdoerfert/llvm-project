@@ -29,6 +29,7 @@
 @bytes1 = internal global i32 undef
 @bytes2 = internal global i32 undef
 @rec_storage = internal global i32 undef
+@GlobalWrittenOnlyInDeadFn = internal global i32 zeroinitializer, align 4
 
 ;.
 ; CHECK: @[[GLOBALBYTES:[a-zA-Z0-9_$"\\.-]+]] = global [1024 x i8] zeroinitializer, align 16
@@ -54,6 +55,7 @@
 ; CHECK: @[[BYTES1:[a-zA-Z0-9_$"\\.-]+]] = internal global i32 undef
 ; CHECK: @[[BYTES2:[a-zA-Z0-9_$"\\.-]+]] = internal global i32 undef
 ; CHECK: @[[REC_STORAGE:[a-zA-Z0-9_$"\\.-]+]] = internal global i32 undef
+; CHECK: @[[GLOBALWRITTENONLYINDEADFN:[a-zA-Z0-9_$"\\.-]+]] = internal global i32 0, align 4
 ; CHECK: @[[GLOBAL:[a-zA-Z0-9_$"\\.-]+]] = internal global [[STRUCT_STY:%.*]] zeroinitializer, align 8
 ;.
 define void @write_arg(i32* %p, i32 %v) {
@@ -4237,6 +4239,38 @@ entry:
   store float %conv, float* %4, align 4
   ret void
 }
+
+define i32 @read_global_only_written_in_dead_fn() {
+; IS__TUNIT_OPM: Function Attrs: nofree nosync nounwind readonly willreturn
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@read_global_only_written_in_dead_fn
+; IS__TUNIT_OPM-SAME: () #[[ATTR7]] {
+; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = load i32, i32* @GlobalWrittenOnlyInDeadFn, align 4
+; IS__TUNIT_OPM-NEXT:    ret i32 [[L]]
+;
+; IS__TUNIT_NPM: Function Attrs: nofree nosync nounwind readonly willreturn
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@read_global_only_written_in_dead_fn
+; IS__TUNIT_NPM-SAME: () #[[ATTR5]] {
+; IS__TUNIT_NPM-NEXT:    [[L:%.*]] = load i32, i32* @GlobalWrittenOnlyInDeadFn, align 4
+; IS__TUNIT_NPM-NEXT:    ret i32 [[L]]
+;
+; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@read_global_only_written_in_dead_fn
+; IS__CGSCC____-SAME: () #[[ATTR7]] {
+; IS__CGSCC____-NEXT:    [[L:%.*]] = load i32, i32* @GlobalWrittenOnlyInDeadFn, align 4
+; IS__CGSCC____-NEXT:    ret i32 [[L]]
+;
+  %l = load i32, i32* @GlobalWrittenOnlyInDeadFn
+  ret i32 %l
+}
+define internal void @write_global_dead() {
+; IS__CGSCC____-LABEL: define {{[^@]+}}@write_global_dead() {
+; IS__CGSCC____-NEXT:    store i32 7, i32* @GlobalWrittenOnlyInDeadFn, align 4
+; IS__CGSCC____-NEXT:    ret void
+;
+  store i32 7, i32* @GlobalWrittenOnlyInDeadFn
+  ret void
+}
+
 
 !llvm.module.flags = !{!0, !1}
 !llvm.ident = !{!2}
