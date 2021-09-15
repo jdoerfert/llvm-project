@@ -3904,11 +3904,61 @@ static void handleDeclareVariantConstructTrait(DSAStackTy *Stack,
 
 void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
   switch (DKind) {
-  case OMPD_parallel:
   case OMPD_parallel_for:
-  case OMPD_parallel_for_simd:
+  case OMPD_parallel_for_simd: {
+    QualType KmpInt32Ty = Context.getIntTypeForBitwidth(32, 1).withConst();
+    QualType KmpInt64Ty = Context.getIntTypeForBitwidth(64, 1).withConst();
+    QualType KmpInt32PtrTy =
+        Context.getPointerType(KmpInt32Ty).withConst().withRestrict();
+    if (isInOpenMPTargetExecutionDirective()) {
+      Sema::CapturedParamNameType Params[] = {
+          std::make_pair(".loop_ind.", KmpInt32Ty),
+          std::make_pair(".global_tid.", KmpInt32PtrTy),
+          std::make_pair(".bound_tid.", KmpInt32PtrTy),
+          std::make_pair(StringRef(), QualType()) // __context with shared vars
+      };
+      ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                               Params);
+    } else {
+      Sema::CapturedParamNameType Params[] = {
+          std::make_pair(".global_tid.", KmpInt32PtrTy),
+          std::make_pair(".bound_tid.", KmpInt32PtrTy),
+          std::make_pair(StringRef(), QualType()) // __context with shared vars
+      };
+      ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                               Params);
+    }
+    break;
+  }
+  case OMPD_parallel:
   case OMPD_parallel_sections:
-  case OMPD_parallel_master:
+  case OMPD_parallel_master: {
+    if (isInOpenMPTargetExecutionDirective()) {
+    QualType KmpInt32Ty = Context.getIntTypeForBitwidth(32, 1).withConst();
+    QualType KmpInt32PtrTy =
+        Context.getPointerType(KmpInt32Ty).withConst().withRestrict();
+    Sema::CapturedParamNameType Params[] = {
+        std::make_pair(".loop_ind.", KmpInt32Ty),
+        std::make_pair(".global_tid.", KmpInt32PtrTy), // TODO: Could add loop_ind here to fix rtl error in invoke microtask?
+        std::make_pair(".bound_tid.", KmpInt32PtrTy),
+        std::make_pair(StringRef(), QualType()) // __context with shared vars
+    };
+    ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                             Params);
+    } else {
+    QualType KmpInt32Ty = Context.getIntTypeForBitwidth(32, 1).withConst();
+    QualType KmpInt32PtrTy =
+        Context.getPointerType(KmpInt32Ty).withConst().withRestrict();
+    Sema::CapturedParamNameType Params[] = {
+        std::make_pair(".global_tid.", KmpInt32PtrTy), // TODO: Could add loop_ind here to fix rtl error in invoke microtask?
+        std::make_pair(".bound_tid.", KmpInt32PtrTy),
+        std::make_pair(StringRef(), QualType()) // __context with shared vars
+    };
+    ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                             Params);
+    }
+    break;
+  }
   case OMPD_teams:
   case OMPD_teams_distribute:
   case OMPD_teams_distribute_simd: {
@@ -3916,7 +3966,7 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
     QualType KmpInt32PtrTy =
         Context.getPointerType(KmpInt32Ty).withConst().withRestrict();
     Sema::CapturedParamNameType Params[] = {
-        std::make_pair(".global_tid.", KmpInt32PtrTy),
+        std::make_pair(".global_tid.", KmpInt32PtrTy), // TODO: Could add loop_ind here to fix rtl error in invoke microtask?
         std::make_pair(".bound_tid.", KmpInt32PtrTy),
         std::make_pair(StringRef(), QualType()) // __context with shared vars
     };
@@ -3924,10 +3974,56 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
                              Params);
     break;
   }
+  case OMPD_target_parallel_for:
+  case OMPD_target_parallel_for_simd: {
+    QualType KmpInt32Ty = Context.getIntTypeForBitwidth(32, 1).withConst();
+    QualType KmpInt64Ty = Context.getIntTypeForBitwidth(64, 1).withConst();
+    QualType VoidPtrTy = Context.VoidPtrTy.withConst().withRestrict();
+    QualType KmpInt32PtrTy =
+        Context.getPointerType(KmpInt32Ty).withConst().withRestrict();
+    QualType Args[] = {VoidPtrTy};
+    FunctionProtoType::ExtProtoInfo EPI;
+    EPI.Variadic = true;
+    QualType CopyFnType = Context.getFunctionType(Context.VoidTy, Args, EPI);
+    Sema::CapturedParamNameType Params[] = {
+        std::make_pair(".global_tid.", KmpInt32Ty),
+        std::make_pair(".part_id.", KmpInt32PtrTy),
+        std::make_pair(".privates.", VoidPtrTy),
+        std::make_pair(
+            ".copy_fn.",
+            Context.getPointerType(CopyFnType).withConst().withRestrict()),
+        std::make_pair(".task_t.", Context.VoidPtrTy.withConst()),
+        std::make_pair(StringRef(), QualType()) // __context with shared vars
+    };
+    ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                             Params, /*OpenMPCaptureLevel=*/0);
+    // Mark this captured region as inlined, because we don't use outlined
+    // function directly.
+    getCurCapturedRegion()->TheCapturedDecl->addAttr(
+        AlwaysInlineAttr::CreateImplicit(
+            Context, {}, AttributeCommonInfo::AS_Keyword,
+            AlwaysInlineAttr::Keyword_forceinline));
+    Sema::CapturedParamNameType ParamsTarget[] = {
+        std::make_pair(StringRef(), QualType()) // __context with shared vars
+    };
+    
+    // Start a captured region for 'target' with no implicit parameters.
+    ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                             ParamsTarget, /*OpenMPCaptureLevel=*/1);
+    Sema::CapturedParamNameType ParamsTeamsOrParallel[] = {
+        std::make_pair(".loop_ind.", KmpInt32Ty),
+        std::make_pair(".global_tid.", KmpInt32PtrTy),
+        std::make_pair(".bound_tid.", KmpInt32PtrTy),
+        std::make_pair(StringRef(), QualType()) // __context with shared vars
+    };
+    // Start a captured region for 'teams' or 'parallel'.  Both regions have
+    // the same implicit parameters.
+    ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                             ParamsTeamsOrParallel, /*OpenMPCaptureLevel=*/2);
+    break;
+  }
   case OMPD_target_teams:
   case OMPD_target_parallel:
-  case OMPD_target_parallel_for:
-  case OMPD_target_parallel_for_simd:
   case OMPD_target_teams_distribute:
   case OMPD_target_teams_distribute_simd: {
     QualType KmpInt32Ty = Context.getIntTypeForBitwidth(32, 1).withConst();
@@ -4160,32 +4256,56 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
   case OMPD_distribute_parallel_for_simd:
   case OMPD_distribute_parallel_for: {
     QualType KmpInt32Ty = Context.getIntTypeForBitwidth(32, 1).withConst();
+    QualType KmpInt64Ty = Context.getIntTypeForBitwidth(64, 1).withConst();
     QualType KmpInt32PtrTy =
         Context.getPointerType(KmpInt32Ty).withConst().withRestrict();
-    Sema::CapturedParamNameType Params[] = {
-        std::make_pair(".global_tid.", KmpInt32PtrTy),
-        std::make_pair(".bound_tid.", KmpInt32PtrTy),
-        std::make_pair(StringRef(), QualType()) // __context with shared vars
-    };
+    if (isInOpenMPTargetExecutionDirective()) {
+      Sema::CapturedParamNameType Params[] = {
+          std::make_pair(".loop_ind.", KmpInt32Ty),
+          std::make_pair(".global_tid.", KmpInt32PtrTy),
+          std::make_pair(".bound_tid.", KmpInt32PtrTy),
+          std::make_pair(StringRef(), QualType()) // __context with shared vars
+      };
 
-    VarDecl *PrevLBDecl =
-        buildVarDecl(*this, SourceLocation(), Context.getSizeType().withConst(),
-                     ".captured.omp.previous.lb");
-    VarDecl *PrevUBDecl =
-        buildVarDecl(*this, SourceLocation(), Context.getSizeType().withConst(),
-                     ".captured.omp.previous.ub");
+      VarDecl *PrevLBDecl =
+          buildVarDecl(*this, SourceLocation(), Context.getSizeType().withConst(),
+                       ".captured.omp.previous.lb");
+      VarDecl *PrevUBDecl =
+          buildVarDecl(*this, SourceLocation(), Context.getSizeType().withConst(),
+                       ".captured.omp.previous.ub");
 
-    ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
-                             Params);
+      ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                               Params);
 
-    MarkVariableReferenced(SourceLocation(), PrevLBDecl);
-    MarkVariableReferenced(SourceLocation(), PrevUBDecl);
+      MarkVariableReferenced(SourceLocation(), PrevLBDecl);
+      MarkVariableReferenced(SourceLocation(), PrevUBDecl);
+    } else {
+      Sema::CapturedParamNameType Params[] = {
+          std::make_pair(".global_tid.", KmpInt32PtrTy),
+          std::make_pair(".bound_tid.", KmpInt32PtrTy),
+          std::make_pair(StringRef(), QualType()) // __context with shared vars
+      };
 
+      VarDecl *PrevLBDecl =
+          buildVarDecl(*this, SourceLocation(), Context.getSizeType().withConst(),
+                       ".captured.omp.previous.lb");
+      VarDecl *PrevUBDecl =
+          buildVarDecl(*this, SourceLocation(), Context.getSizeType().withConst(),
+                       ".captured.omp.previous.ub");
+
+      ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
+                               Params);
+
+      MarkVariableReferenced(SourceLocation(), PrevLBDecl);
+      MarkVariableReferenced(SourceLocation(), PrevUBDecl);
+    }
+    
     break;
   }
   case OMPD_target_teams_distribute_parallel_for:
   case OMPD_target_teams_distribute_parallel_for_simd: {
     QualType KmpInt32Ty = Context.getIntTypeForBitwidth(32, 1).withConst();
+    QualType KmpInt64Ty = Context.getIntTypeForBitwidth(64, 1).withConst();
     QualType KmpInt32PtrTy =
         Context.getPointerType(KmpInt32Ty).withConst().withRestrict();
     QualType VoidPtrTy = Context.VoidPtrTy.withConst().withRestrict();
@@ -4229,6 +4349,7 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
                              ParamsTeams, /*OpenMPCaptureLevel=*/2);
 
     Sema::CapturedParamNameType ParamsParallel[] = {
+        std::make_pair(".loop_ind.", KmpInt32Ty),
         std::make_pair(".global_tid.", KmpInt32PtrTy),
         std::make_pair(".bound_tid.", KmpInt32PtrTy),
         std::make_pair(StringRef(), QualType()) // __context with shared vars

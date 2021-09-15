@@ -661,6 +661,106 @@ void __kmpc_distribute_static_init_8u(IdentTy *loc, int32_t global_tid,
 void __kmpc_for_static_fini(IdentTy *loc, int32_t global_tid) {}
 
 void __kmpc_distribute_static_fini(IdentTy *loc, int32_t global_tid) {}
+
+// FIXME: Change chunk, lower, upper to unsigned integers
+void __kmpc_for_static_loop(void *loop_body, int64_t loop_inc, void **args, int64_t chunk,
+                            int64_t lower, int64_t upper) {
+  uint64_t nt = mapping::getBlockSize() * chunk;
+
+  if (loop_inc > 0) {
+    int64_t tid = lower + mapping::getThreadIdInBlock() * chunk;
+
+    int64_t num_iters = upper - lower;
+    int64_t ub = num_iters > nt ? upper - (num_iters % nt) : upper;
+
+    while (tid < ub) {
+      for (int64_t i = 0; i < chunk; i++)
+        ((void (*)(int32_t, int32_t *, int32_t*, void *))loop_body)(tid + i, nullptr, nullptr, args);
+      tid += nt * loop_inc;
+    }
+
+    if (num_iters == ub - lower)
+      return;
+
+    tid = ub + mapping::getThreadIdInBlock() + chunk;
+    if (tid < upper)
+      for (int64_t i = 0; i < chunk && tid + i < upper; i++)
+        ((void (*)(int32_t, int32_t *, int32_t*, void *))loop_body)(tid + i, nullptr, nullptr, args);
+  } else {
+    int64_t tmp = upper;
+    upper = lower;
+    lower = tmp;
+
+    int64_t tid = upper - mapping::getThreadIdInBlock() * chunk;
+
+    int64_t num_iters = upper - lower;
+    int64_t lb = num_iters > nt ? lower + (num_iters % nt) : lower;
+
+    while (tid > lb) {
+      for (int64_t i = 0; i < chunk; i++)
+        ((void (*)(int32_t, int32_t *, int32_t*, void *))loop_body)(tid + i, nullptr, nullptr, args);
+      tid += nt * loop_inc;
+    }
+
+    if (num_iters == upper - lb)
+      return;
+
+    tid = lower + mapping::getThreadIdInBlock() + chunk;
+    if (tid < lb)
+      for (int64_t i = 0; i < chunk && tid + i < lb; i++)
+        ((void (*)(int32_t, int32_t *, int32_t*, void *))loop_body)(tid + i, nullptr, nullptr, args);
+  }
+}
+
+// FIXME: Change {outer, inner}_chunk, lower, upper to unsigned integers
+void __kmpc_distribute_for_static_loop(void *loop_body, int64_t loop_inc, void **args, int64_t outer_chunk,
+                            int64_t inner_chunk, int64_t lower, int64_t upper) {
+  uint64_t nt = mapping::getNumberOfBlocks() * outer_chunk;
+
+  if (loop_inc > 0) {
+    int64_t tid = mapping::getBlockId() * outer_chunk + mapping::getThreadIdInBlock()*inner_chunk + lower;
+
+    int64_t num_iters = upper - lower;
+    int64_t ub = num_iters > nt ? upper - (num_iters % nt) : upper;
+
+    while (tid < ub) {
+      for (int64_t i = 0; i < inner_chunk; i++)
+        ((void (*)(int32_t, int32_t *, int32_t*, void *))loop_body)(tid + i, nullptr, nullptr, args);
+      tid += nt * loop_inc;
+    }
+
+    if (num_iters == ub - lower)
+      return;
+
+    tid = ub + mapping::getBlockId() * mapping::getBlockSize() + mapping::getThreadIdInBlock() * inner_chunk;
+    if (tid < upper)
+      for (int64_t i = 0; i < inner_chunk && tid + i < upper; i++)
+        ((void (*)(int32_t, int32_t *, int32_t*, void *))loop_body)(tid + i, nullptr, nullptr, args);
+  } else {
+    int64_t tmp = upper;
+    upper = lower;
+    lower = tmp;
+
+    int64_t tid = upper - mapping::getBlockId() * outer_chunk + mapping::getThreadIdInBlock()*inner_chunk;
+
+    int64_t num_iters = upper - lower;
+    int64_t lb = num_iters > nt ? lower + (num_iters % nt) : lower;
+
+    while (tid > lb) {
+      for (int64_t i = 0; i < inner_chunk; i++)
+        ((void (*)(int32_t, int32_t *, int32_t*, void *))loop_body)(tid + i, nullptr, nullptr, args);
+      tid += nt * loop_inc;
+    }
+
+    if (num_iters == upper - lb)
+      return;
+
+    tid = lower + mapping::getBlockId() * outer_chunk + mapping::getThreadIdInBlock()*inner_chunk;
+    if (tid < lb)
+      for (int64_t i = 0; i < inner_chunk && tid + i < lb; i++)
+        ((void (*)(int32_t, int32_t *, int32_t*, void *))loop_body)(tid + i, nullptr, nullptr, args);
+  }
+}
 }
 
 #pragma omp end declare target

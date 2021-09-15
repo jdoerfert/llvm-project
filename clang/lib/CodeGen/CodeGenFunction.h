@@ -295,10 +295,6 @@ public:
   /// loop-associated directive.
   int ExpectedOMPLoopDepth = 0;
 
-  // CodeGen lambda for loops and support for ordered clause
-  typedef llvm::function_ref<void(CodeGenFunction &, const OMPLoopDirective &,
-                                  JumpDest)>
-      CodeGenLoopTy;
   typedef llvm::function_ref<void(CodeGenFunction &, SourceLocation,
                                   const unsigned, const bool)>
       CodeGenOrderedTy;
@@ -3307,7 +3303,7 @@ public:
   llvm::Value *getTypeSize(QualType Ty);
   LValue InitCapturedStruct(const CapturedStmt &S);
   llvm::Function *EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K);
-  llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S);
+  llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S, bool OnlyBody = false);
   Address GenerateCapturedStmtArgument(const CapturedStmt &S);
   llvm::Function *
   GenerateOpenMPCapturedStmtFunctionAggregate(const CapturedStmt &S,
@@ -3627,10 +3623,6 @@ public:
                               const CodeGenLoopBoundsTy &CodeGenLoopBounds,
                               const CodeGenDispatchBoundsTy &CGDispatchBounds);
 
-  /// Emit code for the distribute loop-based directive.
-  void EmitOMPDistributeLoop(const OMPLoopDirective &S,
-                             const CodeGenLoopTy &CodeGenLoop, Expr *IncExpr);
-
   /// Helpers for the OpenMP loop directives.
   void EmitOMPSimdInit(const OMPLoopDirective &D);
   void EmitOMPSimdFinal(
@@ -3643,6 +3635,8 @@ public:
 private:
   /// Helpers for blocks.
   llvm::Value *EmitBlockLiteral(const CGBlockInfo &Info);
+
+public:
 
   /// struct with the values to be passed to the OpenMP loop-related functions
   struct OMPLoopArguments {
@@ -3678,6 +3672,17 @@ private:
           IncExpr(IncExpr), Init(Init), Cond(Cond), NextLB(NextLB),
           NextUB(NextUB) {}
   };
+
+  // CodeGen lambda for loops and support for ordered clause
+  typedef llvm::function_ref<void(CodeGenFunction &, const OMPLoopDirective &,
+                                  JumpDest, const OMPLoopArguments *)>
+      CodeGenLoopTy;
+
+  /// Emit code for the distribute loop-based directive.
+  void EmitOMPDistributeLoop(const OMPLoopDirective &S,
+                             const CodeGenLoopTy &CodeGenLoop, Expr *IncExpr);
+
+
   void EmitOMPOuterLoop(bool DynamicOrOrdered, bool IsMonotonic,
                         const OMPLoopDirective &S, OMPPrivateScope &LoopScope,
                         const OMPLoopArguments &LoopArgs,
@@ -3695,8 +3700,6 @@ private:
                                   const CodeGenLoopTy &CodeGenLoopContent);
   /// Emit code for sections directive.
   void EmitSections(const OMPExecutableDirective &S);
-
-public:
 
   //===--------------------------------------------------------------------===//
   //                         LValue Expression Emission

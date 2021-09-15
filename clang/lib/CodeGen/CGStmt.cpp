@@ -2775,7 +2775,7 @@ Address CodeGenFunction::GenerateCapturedStmtArgument(const CapturedStmt &S) {
 
 /// Creates the outlined function for a CapturedStmt.
 llvm::Function *
-CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S) {
+CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S, bool OnlyBody) {
   assert(CapturedStmtInfo &&
     "CapturedStmtInfo should be set when generating the captured function");
   const CapturedDecl *CD = S.getCapturedDecl();
@@ -2828,7 +2828,27 @@ CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S) {
   }
 
   PGO.assignRegionCounters(GlobalDecl(CD), F);
-  CapturedStmtInfo->EmitBody(*this, CD->getBody());
+  if (!OnlyBody) {
+    CapturedStmtInfo->EmitBody(*this, CD->getBody());
+  } else {
+    ValueDecl *InitVD = const_cast<VarDecl *>(
+       cast<ImplicitParamDecl>(*Args.begin())->getMostRecentDecl());
+
+    auto *InitRef = DeclRefExpr::Create(
+        getContext(), NestedNameSpecifierLoc(), SourceLocation(), InitVD,
+        /*RefersToEnclosingVariableOrCapture=*/false, Loc,
+        cast<VarDecl>(
+          cast<DeclStmt>(cast<ForStmt>(CD->getBody())->getInit())->getSingleDecl())
+          ->getType(), VK_LValue);
+    InitVD->markUsed(getContext());
+
+    cast<VarDecl>(
+        cast<DeclStmt>(cast<ForStmt>(CD->getBody())->getInit())->getSingleDecl())
+        ->setInit(InitRef);
+
+    EmitStmt(cast<ForStmt>(CD->getBody())->getInit());
+    EmitStmt(cast<ForStmt>(CD->getBody())->getBody());
+  }
   FinishFunction(CD->getBodyRBrace());
 
   return F;

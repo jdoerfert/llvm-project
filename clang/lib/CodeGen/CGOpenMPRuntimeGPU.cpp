@@ -21,6 +21,7 @@
 #include "clang/Basic/Cuda.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -3526,6 +3527,9 @@ llvm::Function *CGOpenMPRuntimeGPU::createParallelDataSharingWrapper(
         llvm::Constant::getNullValue(CGF.ConvertTypeForMem(RecordPointerTy));
     Args.emplace_back(Arg);
   }
+
+  if (Args.size() == 3)
+    Args.insert(Args.begin(), llvm::ConstantInt::get(CGF.Int32Ty, 0));
 
   emitOutlinedFunctionCall(CGF, D.getBeginLoc(), OutlinedParallelFn, Args);
   CGF.FinishFunction();
