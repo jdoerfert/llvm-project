@@ -612,6 +612,7 @@ define void @complicated_args_byval() {
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@complicated_args_byval
 ; IS__CGSCC_NPM-SAME: () #[[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:    call void @test_byval(i8* noalias nocapture nofree readnone undef) #[[ATTR5:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
   call void @test_byval(%struct.X* byval(%struct.X) @S)
@@ -1296,6 +1297,7 @@ join:
 ; IS__CGSCC_NPM: attributes #[[ATTR2]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC_NPM: attributes #[[ATTR3]] = { nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC_NPM: attributes #[[ATTR4]] = { willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR5]] = { nounwind readnone willreturn }
 ;.
 ; CHECK: [[RNG0]] = !{i32 0, i32 -2147483648}
 ;.

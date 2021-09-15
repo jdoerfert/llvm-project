@@ -117,6 +117,7 @@ define i32 @test(i32* %X) {
 ; IS__CGSCC_NPM-NEXT:    [[S:%.*]] = alloca [[STRUCT_SS:%.*]], align 8
 ; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 0
 ; IS__CGSCC_NPM-NEXT:    [[TMP4:%.*]] = getelementptr [[STRUCT_SS]], %struct.ss* [[S]], i32 0, i32 1
+; IS__CGSCC_NPM-NEXT:    call void @f(i32 undef, i64 undef, i32 undef) #[[ATTR1:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    ret i32 0
 ;
 entry:
@@ -136,4 +137,5 @@ entry:
 ; IS__CGSCC_OPM: attributes #[[ATTR1]] = { nounwind willreturn }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR1]] = { nounwind readnone willreturn }
 ;.

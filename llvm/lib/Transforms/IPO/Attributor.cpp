@@ -897,9 +897,11 @@ bool Attributor::isAssumedDead(const Use &U,
                            DepClass);
     }
   } else if (ReturnInst *RI = dyn_cast<ReturnInst>(UserI)) {
-    const IRPosition &RetPos = IRPosition::returned(*RI->getFunction());
-    return isAssumedDead(RetPos, QueryingAA, FnLivenessAA,
-                         UsedAssumedInformation, CheckBBLivenessOnly, DepClass);
+    const Function *Fn = RI->getFunction();
+    const IRPosition &RetPos = IRPosition::returned(*Fn);
+    if (isAssumedDead(RetPos, QueryingAA, FnLivenessAA, UsedAssumedInformation,
+                      CheckBBLivenessOnly, DepClass))
+      return true;
   } else if (PHINode *PHI = dyn_cast<PHINode>(UserI)) {
     BasicBlock *IncomingBB = PHI->getIncomingBlock(U);
     return isAssumedDead(*IncomingBB->getTerminator(), QueryingAA, FnLivenessAA,
@@ -940,8 +942,9 @@ bool Attributor::isAssumedDead(const Instruction &I,
   if (CheckBBLivenessOnly)
     return false;
 
-  const AAIsDead &IsDeadAA = getOrCreateAAFor<AAIsDead>(
-      IRPosition::value(I, CBCtx), QueryingAA, DepClassTy::NONE);
+  const IRPosition IRP = IRPosition::inst(I, CBCtx);
+  const AAIsDead &IsDeadAA =
+      getOrCreateAAFor<AAIsDead>(IRP, QueryingAA, DepClassTy::NONE);
   // Don't check liveness for AAIsDead.
   if (QueryingAA == &IsDeadAA)
     return false;
@@ -973,21 +976,16 @@ bool Attributor::isAssumedDead(const IRPosition &IRP,
     return false;
 
   // If we haven't succeeded we query the specific liveness info for the IRP.
-  const AAIsDead *IsDeadAA;
-  if (IRP.getPositionKind() == IRPosition::IRP_CALL_SITE)
-    IsDeadAA = &getOrCreateAAFor<AAIsDead>(
-        IRPosition::callsite_returned(cast<CallBase>(IRP.getAssociatedValue())),
-        QueryingAA, DepClassTy::NONE);
-  else
-    IsDeadAA = &getOrCreateAAFor<AAIsDead>(IRP, QueryingAA, DepClassTy::NONE);
+  const AAIsDead &IsDeadAA =
+      getOrCreateAAFor<AAIsDead>(IRP, QueryingAA, DepClassTy::NONE);
   // Don't check liveness for AAIsDead.
-  if (QueryingAA == IsDeadAA)
+  if (QueryingAA == &IsDeadAA)
     return false;
 
-  if (IsDeadAA->isAssumedDead()) {
+  if (IsDeadAA.isAssumedDead()) {
     if (QueryingAA)
-      recordDependence(*IsDeadAA, *QueryingAA, DepClass);
-    if (!IsDeadAA->isKnownDead())
+      recordDependence(IsDeadAA, *QueryingAA, DepClass);
+    if (!IsDeadAA.isKnownDead())
       UsedAssumedInformation = true;
     return true;
   }
@@ -1277,7 +1275,7 @@ static bool checkForAllInstructionsImpl(
     for (Instruction *I : *Insts) {
       // Skip dead instructions.
       if (A && !CheckPotentiallyDead &&
-          A->isAssumedDead(IRPosition::value(*I), QueryingAA, LivenessAA,
+          A->isAssumedDead(IRPosition::inst(*I), QueryingAA, LivenessAA,
                            UsedAssumedInformation, CheckBBLivenessOnly)) {
         LLVM_DEBUG(dbgs() << "[Attributor] Instruction " << *I
                           << " is potentially dead, skip!\n";);
@@ -1341,7 +1339,7 @@ bool Attributor::checkForAllReadWriteInstructions(
   for (Instruction *I :
        InfoCache.getReadOrWriteInstsForFunction(*AssociatedFunction)) {
     // Skip dead instructions.
-    if (isAssumedDead(IRPosition::value(*I), &QueryingAA, &LivenessAA,
+    if (isAssumedDead(IRPosition::inst(*I), &QueryingAA, &LivenessAA,
                       UsedAssumedInformation))
       continue;
 
@@ -2612,11 +2610,11 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
   auto CallSitePred = [&](Instruction &I) -> bool {
     auto &CB = cast<CallBase>(I);
-    IRPosition CBRetPos = IRPosition::callsite_returned(CB);
+    IRPosition CBInstPos = IRPosition::inst(CB);
 
     // Call sites might be dead if they do not have side effects and no live
     // users. The return value might be dead if there are no live users.
-    getOrCreateAAFor<AAIsDead>(CBRetPos);
+    getOrCreateAAFor<AAIsDead>(CBInstPos);
 
     Function *Callee = CB.getCalledFunction();
     // TODO: Even if the callee is not known now we might be able to simplify
