@@ -108,7 +108,7 @@ define dso_local i32 @visible_local(i32* %A) #0 {
 ; IS__CGSCC____-NEXT:    [[B:%.*]] = alloca i32, align 4
 ; IS__CGSCC____-NEXT:    store i32 5, i32* [[B]], align 4
 ; IS__CGSCC____-NEXT:    [[CALL1:%.*]] = call i32 @noalias_args(i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR4]]
-; IS__CGSCC____-NEXT:    [[CALL2:%.*]] = call i32 @noalias_args_argmem(i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR4]]
+; IS__CGSCC____-NEXT:    [[CALL2:%.*]] = call i32 @noalias_args_argmem(i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR5:[0-9]+]]
 ; IS__CGSCC____-NEXT:    [[ADD:%.*]] = add nsw i32 [[CALL1]], [[CALL2]]
 ; IS__CGSCC____-NEXT:    ret i32 [[ADD]]
 ;
@@ -192,7 +192,7 @@ define i32 @visible_local_2() {
 ; IS__CGSCC_OPM-SAME: () #[[ATTR2:[0-9]+]] {
 ; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = alloca i32, align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 5, i32* [[B]], align 4
-; IS__CGSCC_OPM-NEXT:    [[CALL:%.*]] = call i32 @noalias_args_argmem_ro(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR5:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    [[CALL:%.*]] = call i32 @noalias_args_argmem_ro(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR6:[0-9]+]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[CALL]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -240,7 +240,7 @@ define i32 @visible_local_3() {
 ; IS__CGSCC_OPM-SAME: () #[[ATTR2]] {
 ; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = alloca i32, align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 5, i32* [[B]], align 4
-; IS__CGSCC_OPM-NEXT:    [[CALL:%.*]] = call i32 @noalias_args_argmem_rn(i32* noalias nocapture nofree noundef nonnull align 4 dereferenceable(4) [[B]]) #[[ATTR6:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    [[CALL:%.*]] = call i32 @noalias_args_argmem_rn(i32* noalias nocapture nofree noundef nonnull align 4 dereferenceable(4) [[B]]) #[[ATTR7:[0-9]+]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[CALL]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -248,7 +248,7 @@ define i32 @visible_local_3() {
 ; IS__CGSCC_NPM-SAME: () #[[ATTR2]] {
 ; IS__CGSCC_NPM-NEXT:    [[B:%.*]] = alloca i32, align 4
 ; IS__CGSCC_NPM-NEXT:    store i32 5, i32* [[B]], align 4
-; IS__CGSCC_NPM-NEXT:    [[CALL:%.*]] = call i32 @noalias_args_argmem_rn(i32* noalias nocapture nofree noundef nonnull align 4 dereferenceable(4) [[B]]) #[[ATTR5:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    [[CALL:%.*]] = call i32 @noalias_args_argmem_rn(i32* noalias nocapture nofree noundef nonnull align 4 dereferenceable(4) [[B]]) #[[ATTR6:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    ret i32 [[CALL]]
 ;
   %B = alloca i32, align 4
@@ -271,14 +271,16 @@ attributes #1 = { argmemonly noinline nounwind uwtable willreturn}
 ; IS__CGSCC_OPM: attributes #[[ATTR1]] = { argmemonly nofree noinline norecurse nosync nounwind uwtable willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR3]] = { nounwind readonly }
-; IS__CGSCC_OPM: attributes #[[ATTR4]] = { nosync nounwind readonly }
-; IS__CGSCC_OPM: attributes #[[ATTR5]] = { nounwind readonly willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR6]] = { nounwind willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR4]] = { norecurse nosync nounwind readonly }
+; IS__CGSCC_OPM: attributes #[[ATTR5]] = { nosync nounwind readonly }
+; IS__CGSCC_OPM: attributes #[[ATTR6]] = { norecurse nounwind readonly willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR7]] = { norecurse nounwind willreturn }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { argmemonly nofree noinline norecurse nosync nounwind readonly uwtable willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR1]] = { argmemonly nofree noinline norecurse nosync nounwind uwtable willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR3]] = { nounwind readonly }
-; IS__CGSCC_NPM: attributes #[[ATTR4]] = { nosync nounwind readonly }
-; IS__CGSCC_NPM: attributes #[[ATTR5]] = { nounwind willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR4]] = { norecurse nosync nounwind readonly }
+; IS__CGSCC_NPM: attributes #[[ATTR5]] = { nosync nounwind readonly }
+; IS__CGSCC_NPM: attributes #[[ATTR6]] = { norecurse nounwind willreturn }
 ;.

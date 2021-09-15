@@ -18,6 +18,7 @@
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Analysis/InlineCost.h"
@@ -436,6 +437,97 @@ bool AA::canBeAssumedDead(Attributor &A, const Function &F,
                            UsedAssumedInformation,
                            /* CheckBBLivenessOnly */ true);
   });
+}
+
+bool AA::isPotentiallyReachable(
+    Attributor &A, const Instruction &FromI, const Instruction &ToI,
+    const AbstractAttribute &QueryingAA,
+    std::function<bool(const Function &F)> GoBackwardsCB) {
+  LLVM_DEBUG(dbgs() << "[AA] isPotentiallyReachable " << ToI << " from "
+                    << FromI << " [GBCB: " << bool(GoBackwardsCB) << "]\n");
+
+  SmallPtrSet<const Instruction *, 8> Visited;
+  SmallVector<const Instruction *> Worklist;
+  Worklist.push_back(&FromI);
+
+  const Function *ToFn = ToI.getFunction();
+  while (!Worklist.empty()) {
+    const Instruction *CurFromI = Worklist.pop_back_val();
+    if (!Visited.insert(CurFromI).second)
+      continue;
+
+    const Function *FromFn = CurFromI->getFunction();
+    if (FromFn == ToFn) {
+      LLVM_DEBUG(dbgs() << "[AA] check " << ToI << " from " << *CurFromI
+                        << " intraprocedurally\n");
+      const auto &ReachabilityAA = A.getAAFor<AAReachability>(
+          QueryingAA, IRPosition::function(*ToFn), DepClassTy::OPTIONAL);
+      bool Result = ReachabilityAA.isAssumedReachable(A, *CurFromI, ToI);
+      LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " "
+                        << (Result ? "can potentially " : "cannot ") << "reach "
+                        << ToI << " [Intra]\n");
+      if (Result)
+        return true;
+      continue;
+    }
+
+    // If we can go arbitrarily backwards we will eventually reach an entry
+    // point that can reach ToI. Only once this takes a set of blocks through
+    // which we cannot go it makes sense to perform analysis in the absence of a
+    // GoBackwardsCB.
+    if (!GoBackwardsCB) {
+      LLVM_DEBUG(dbgs() << "[AA] check " << ToI << " from " << *CurFromI
+                        << " is not checked backwards, give up\n");
+      return true;
+    }
+
+    // Check if the FromFn is already known to reach the ToFn.
+    const auto &FnReachabilityAA = A.getAAFor<AAFunctionReachability>(
+        QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
+    bool Result =
+        FnReachabilityAA.instructionCanPotentiallyReach(A, *CurFromI, *ToFn);
+    LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " "
+                      << (Result ? "can potentially " : "cannot ") << "reach "
+                      << ToFn->getName() << " [FromFn]\n");
+    if (Result)
+      return true;
+
+    // If we do not go backwards from the FromFn we are done here and so far we
+    // could not find a way to reach ToI.
+    if (!GoBackwardsCB(*FromFn))
+      continue;
+
+    LLVM_DEBUG(dbgs() << "Stepping backwards to the call sites of "
+                      << FromFn->getName() << "\n");
+
+    auto CheckCallSite = [&](AbstractCallSite ACS) {
+      CallBase *CB = ACS.getInstruction();
+      if (!CB)
+        return false;
+
+      if (isa<InvokeInst>(CB))
+        return false;
+
+      Instruction *Inst = CB->getNextNonDebugInstruction();
+      Worklist.push_back(Inst);
+      return true;
+    };
+
+    bool AllCallSitesKnown;
+    Result = !A.checkForAllCallSites(CheckCallSite, *FromFn,
+                                     /* RequireAllCallSites */ true,
+                                     &QueryingAA, AllCallSitesKnown);
+    if (Result) {
+      LLVM_DEBUG(dbgs() << "[AA] stepping back to call sites from " << *CurFromI
+                        << " in " << FromFn->getName() << " failed, give up\n");
+      return true;
+    }
+
+    LLVM_DEBUG(dbgs() << "[AA] stepped back to call sites from " << *CurFromI
+                      << " in " << FromFn->getName()
+                      << " worklist size is: " << Worklist.size() << "\n");
+  }
+  return false;
 }
 
 /// Return true if \p New is equal or worse than \p Old.
@@ -1943,10 +2035,10 @@ ChangeStatus Attributor::cleanupIR() {
 
 ChangeStatus Attributor::run() {
   TimeTraceScope TimeScope("Attributor::run");
-  AttributorCallGraph ACallGraph(*this);
+  AACallGraphNode *ACallGraph = nullptr;
 
   if (PrintCallGraph)
-    ACallGraph.populateAll();
+    ACallGraph = new (Allocator) AACallGraphNode(*this);
 
   Phase = AttributorPhase::UPDATE;
   runTillFixpoint();
@@ -1961,14 +2053,14 @@ ChangeStatus Attributor::run() {
   if (PrintDependencies)
     DG.print();
 
+  if (PrintCallGraph)
+    ACallGraph->print(*this);
+
   Phase = AttributorPhase::MANIFEST;
   ChangeStatus ManifestChange = manifestAttributes();
 
   Phase = AttributorPhase::CLEANUP;
   ChangeStatus CleanupChange = cleanupIR();
-
-  if (PrintCallGraph)
-    ACallGraph.print();
 
   return ManifestChange | CleanupChange;
 }
@@ -3006,6 +3098,36 @@ void AADepGraph::dumpGraph() {
 void AADepGraph::print() {
   for (auto DepAA : SyntheticRoot.Deps)
     cast<AbstractAttribute>(DepAA.getPointer())->printWithDeps(outs());
+}
+
+void AACallGraphNode::print(Attributor &A) {
+  Callees.reserve(A.Functions.size());
+  DenseMap<const Function *, AACallGraphNode *> CGNodeMap;
+  for (const Function *Fn : A.Functions) {
+    Callees.push_back(new (A.Allocator) AACallGraphNode(*Fn));
+    CGNodeMap[Fn] = Callees.back();
+  }
+  for (auto *CGNode : Callees)
+    CGNode->fillCallees(A, CGNodeMap);
+  llvm::WriteGraph(outs(), this);
+}
+
+AACallGraphNode::AACallGraphNode(Attributor &A) {
+  for (const Function *Fn : A.Functions)
+    A.getOrCreateAAFor<AAFunctionReachability>(IRPosition::function(*Fn));
+}
+AACallGraphNode::AACallGraphNode(const Function &Fn) : Fn(&Fn) {}
+
+void AACallGraphNode::fillCallees(
+    Attributor &A, DenseMap<const Function *, AACallGraphNode *> &CGNodeMap) {
+  const auto &FRAA =
+      A.getOrCreateAAFor<AAFunctionReachability>(IRPosition::function(*Fn));
+  for (const Function *Fn : FRAA.getDirectCallees())
+    Callees.push_back(CGNodeMap[Fn]);
+}
+
+std::string AACallGraphNode::getName() const {
+  return Fn ? Fn->getName().str() : "<root>";
 }
 
 PreservedAnalyses AttributorPass::run(Module &M, ModuleAnalysisManager &AM) {

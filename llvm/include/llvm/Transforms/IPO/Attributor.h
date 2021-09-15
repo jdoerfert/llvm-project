@@ -125,12 +125,12 @@
 namespace llvm {
 
 struct AADepGraphNode;
+struct AACallGraphNode;
 struct AADepGraph;
 struct Attributor;
 struct AbstractAttribute;
 struct InformationCache;
 struct AAIsDead;
-struct AttributorCallGraph;
 struct IRPosition;
 
 class AAManager;
@@ -215,6 +215,13 @@ bool isAssumedReadNone(Attributor &A, const IRPosition &IRP,
 /// run.
 bool canBeAssumedDead(Attributor &A, const Function &F,
                       const AbstractAttribute &QueryingAA);
+
+/// Return true if \p ToI is potentially reachable from \p FromI. The two
+/// instructions do not need to be in the same function.
+bool isPotentiallyReachable(
+    Attributor &A, const Instruction &FromI, const Instruction &ToI,
+    const AbstractAttribute &QueryingAA,
+    std::function<bool(const Function &F)> GoBackwardsCB = nullptr);
 
 } // namespace AA
 
@@ -1805,6 +1812,19 @@ public:
                             bool RequireAllCallSites, bool &AllCallSitesKnown,
                             bool VisitDeadCallSites = false);
 
+  /// Check \p Pred on all call sites of \p Fn.
+  ///
+  /// This method will evaluate \p Pred on call sites and return
+  /// true if \p Pred holds in every call sites. However, this is only possible
+  /// all call sites are known, hence the function has internal linkage.
+  /// If true is returned, \p AllCallSitesKnown is set if all possible call
+  /// sites of the function have been visited.
+  bool checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
+                            const Function &Fn, bool RequireAllCallSites,
+                            const AbstractAttribute *QueryingAA,
+                            bool &AllCallSitesKnown,
+                            bool VisitDeadCallSites = false);
+
   /// Check \p Pred on all values potentially returned by \p F.
   ///
   /// This method will evaluate \p Pred on all values potentially returned by
@@ -1943,19 +1963,6 @@ private:
   /// may trigger further updates. (\see DependenceStack)
   void rememberDependences();
 
-  /// Check \p Pred on all call sites of \p Fn.
-  ///
-  /// This method will evaluate \p Pred on call sites and return
-  /// true if \p Pred holds in every call sites. However, this is only possible
-  /// all call sites are known, hence the function has internal linkage.
-  /// If true is returned, \p AllCallSitesKnown is set if all possible call
-  /// sites of the function have been visited.
-  bool checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
-                            const Function &Fn, bool RequireAllCallSites,
-                            const AbstractAttribute *QueryingAA,
-                            bool &AllCallSitesKnown,
-                            bool VisitDeadCallSites = false);
-
   /// Determine if CallBase context in \p IRP should be propagated.
   bool shouldPropagateCallBaseContext(const IRPosition &IRP);
 
@@ -2072,7 +2079,7 @@ private:
   const char *PassName = "";
 
   friend AADepGraph;
-  friend AttributorCallGraph;
+  friend AACallGraphNode;
 };
 
 /// An interface to query the internal state of an abstract attribute.
@@ -4275,162 +4282,37 @@ struct AANoUndef
   static const char ID;
 };
 
-struct AACallGraphNode;
-struct AACallEdges;
-
-/// An Iterator for call edges, creates AACallEdges attributes in a lazy way.
-/// This iterator becomes invalid if the underlying edge list changes.
-/// So This shouldn't outlive a iteration of Attributor.
-class AACallEdgeIterator
-    : public iterator_adaptor_base<AACallEdgeIterator,
-                                   SetVector<Function *>::iterator> {
-  AACallEdgeIterator(Attributor &A, SetVector<Function *>::iterator Begin)
-      : iterator_adaptor_base(Begin), A(A) {}
-
-public:
-  AACallGraphNode *operator*() const;
-
-private:
-  Attributor &A;
-  friend AACallEdges;
-  friend AttributorCallGraph;
-};
-
 struct AACallGraphNode {
-  AACallGraphNode(Attributor &A) : A(A) {}
+  AACallGraphNode(Attributor &A);
+  AACallGraphNode(const Function &Fn);
   virtual ~AACallGraphNode() {}
 
-  virtual AACallEdgeIterator optimisticEdgesBegin() const = 0;
-  virtual AACallEdgeIterator optimisticEdgesEnd() const = 0;
+protected:
+  void fillCallees(Attributor &A,
+                   DenseMap<const Function *, AACallGraphNode *> &CGNodeMap);
+
+  /// The associated function, or nullptr for the synthetic root.
+  const Function *Fn = nullptr;
+
+  /// Container to hold the callees, filled by fillCallees.
+  std::vector<AACallGraphNode *> Callees;
+
+public:
+  using iterator = std::vector<AACallGraphNode *>::const_iterator;
 
   /// Iterator range for exploring the call graph.
-  iterator_range<AACallEdgeIterator> optimisticEdgesRange() const {
-    return iterator_range<AACallEdgeIterator>(optimisticEdgesBegin(),
-                                              optimisticEdgesEnd());
+  iterator_range<iterator> getCallEdgeIteratorRange() const {
+    return iterator_range<iterator>(getCallEdgeIteratorBegin(),
+                                    getCallEdgeIteratorEnd());
   }
 
-protected:
-  /// Reference to Attributor needed for GraphTraits implementation.
-  Attributor &A;
-};
+  iterator getCallEdgeIteratorBegin() const { return Callees.begin(); }
 
-/// An abstract state for querying live call edges.
-/// This interface uses the Attributor's optimistic liveness
-/// information to compute the edges that are alive.
-struct AACallEdges : public StateWrapper<BooleanState, AbstractAttribute>,
-                     AACallGraphNode {
-  using Base = StateWrapper<BooleanState, AbstractAttribute>;
+  iterator getCallEdgeIteratorEnd() const { return Callees.end(); }
 
-  AACallEdges(const IRPosition &IRP, Attributor &A)
-      : Base(IRP), AACallGraphNode(A) {}
+  void print(Attributor &A);
 
-  /// Get the optimistic edges.
-  virtual const SetVector<Function *> &getOptimisticEdges() const = 0;
-
-  /// Is there any call with a unknown callee.
-  virtual bool hasUnknownCallee() const = 0;
-
-  /// Is there any call with a unknown callee, excluding any inline asm.
-  virtual bool hasNonAsmUnknownCallee() const = 0;
-
-  /// Iterator for exploring the call graph.
-  AACallEdgeIterator optimisticEdgesBegin() const override {
-    return AACallEdgeIterator(A, getOptimisticEdges().begin());
-  }
-
-  /// Iterator for exploring the call graph.
-  AACallEdgeIterator optimisticEdgesEnd() const override {
-    return AACallEdgeIterator(A, getOptimisticEdges().end());
-  }
-
-  /// Create an abstract attribute view for the position \p IRP.
-  static AACallEdges &createForPosition(const IRPosition &IRP, Attributor &A);
-
-  /// See AbstractAttribute::getName()
-  const std::string getName() const override { return "AACallEdges"; }
-
-  /// See AbstractAttribute::getIdAddr()
-  const char *getIdAddr() const override { return &ID; }
-
-  /// This function should return true if the type of the \p AA is AACallEdges.
-  static bool classof(const AbstractAttribute *AA) {
-    return (AA->getIdAddr() == &ID);
-  }
-
-  /// Unique ID (due to the unique address)
-  static const char ID;
-};
-
-// Synthetic root node for the Attributor's internal call graph.
-struct AttributorCallGraph : public AACallGraphNode {
-  AttributorCallGraph(Attributor &A) : AACallGraphNode(A) {}
-  virtual ~AttributorCallGraph() {}
-
-  AACallEdgeIterator optimisticEdgesBegin() const override {
-    return AACallEdgeIterator(A, A.Functions.begin());
-  }
-
-  AACallEdgeIterator optimisticEdgesEnd() const override {
-    return AACallEdgeIterator(A, A.Functions.end());
-  }
-
-  /// Force populate the entire call graph.
-  void populateAll() const {
-    for (const AACallGraphNode *AA : optimisticEdgesRange()) {
-      // Nothing else to do here.
-      (void)AA;
-    }
-  }
-
-  void print();
-};
-
-template <> struct GraphTraits<AACallGraphNode *> {
-  using NodeRef = AACallGraphNode *;
-  using ChildIteratorType = AACallEdgeIterator;
-
-  static AACallEdgeIterator child_begin(AACallGraphNode *Node) {
-    return Node->optimisticEdgesBegin();
-  }
-
-  static AACallEdgeIterator child_end(AACallGraphNode *Node) {
-    return Node->optimisticEdgesEnd();
-  }
-};
-
-template <>
-struct GraphTraits<AttributorCallGraph *>
-    : public GraphTraits<AACallGraphNode *> {
-  using nodes_iterator = AACallEdgeIterator;
-
-  static AACallGraphNode *getEntryNode(AttributorCallGraph *G) {
-    return static_cast<AACallGraphNode *>(G);
-  }
-
-  static AACallEdgeIterator nodes_begin(const AttributorCallGraph *G) {
-    return G->optimisticEdgesBegin();
-  }
-
-  static AACallEdgeIterator nodes_end(const AttributorCallGraph *G) {
-    return G->optimisticEdgesEnd();
-  }
-};
-
-template <>
-struct DOTGraphTraits<AttributorCallGraph *> : public DefaultDOTGraphTraits {
-  DOTGraphTraits(bool Simple = false) : DefaultDOTGraphTraits(Simple) {}
-
-  std::string getNodeLabel(const AACallGraphNode *Node,
-                           const AttributorCallGraph *Graph) {
-    const AACallEdges *AACE = static_cast<const AACallEdges *>(Node);
-    return AACE->getAssociatedFunction()->getName().str();
-  }
-
-  static bool isNodeHidden(const AACallGraphNode *Node,
-                           const AttributorCallGraph *Graph) {
-    // Hide the synth root.
-    return static_cast<const AACallGraphNode *>(Graph) == Node;
-  }
+  std::string getName() const;
 };
 
 struct AAExecutionDomain
@@ -4464,40 +4346,159 @@ struct AAExecutionDomain
   static const char ID;
 };
 
+struct FunctionReachabilityState : public BooleanState {
+  /// If we can reach a function with a call to a unknown function we assume
+  /// that we can reach any function.
+  bool canReachUnknownCallee() const {
+    return hasUnknownAsmCallee() || !isValidState();
+  }
+
+  /// Return true if we can reach an unknown callee via means other than inline
+  /// ASM.
+  bool canReachUnknownNonAsmCallee() const { return !isValidState(); }
+
+  /// Return true if we can reach an unknown callee via inline ASM.
+  bool hasUnknownAsmCallee() const { return HasUnknownAsmCallee; }
+
+  /// Return true if the associated function can reach \p Fn.
+  bool canPotentiallyReach(const Function &Fn) const {
+    return canReachUnknownCallee() ||
+           DirectReachableFns.contains({nullptr, &Fn}) ||
+           TransitiveReachableFns.contains({nullptr, &Fn});
+  }
+
+  /// Return true if the associated function can reach \p Fn through \p CB.
+  bool canPotentiallyReach(const CallBase &CB, const Function &Fn) const {
+    return canReachUnknownCallee() || DirectReachableFns.contains({&CB, &Fn}) ||
+           TransitiveReachableFns.contains({&CB, &Fn});
+  }
+
+  /// Return a range of Function * that can be directly reached by this
+  /// function.
+  auto getDirectCallees() const {
+    return make_second_range(make_filter_range(
+        DirectReachableFns, [](auto &It) { return !It.first; }));
+  }
+
+  /// Return a range of Function * that can be directly reached via \p CB.
+  auto getDirectCallees(const CallBase &CB) const {
+    return make_second_range(make_filter_range(
+        DirectReachableFns, [&](auto &It) { return It.first == &CB; }));
+  }
+
+  /// Return a range of Function * that can be transitively reached by this
+  /// function.
+  auto getTransitiveCallees() const {
+    return make_second_range(make_filter_range(
+        TransitiveReachableFns, [](auto &It) { return !It.first; }));
+  }
+
+  /// Return a range of Function * that can be transitively reached via \p CB.
+  auto getTransitiveCallees(const CallBase &CB) const {
+    return make_second_range(make_filter_range(
+        TransitiveReachableFns, [&](auto &It) { return It.first == &CB; }));
+  }
+
+  /// Return a range of Function * that can be reached by this function.
+  auto getAllCallees() const {
+    return concat<const Function *const>(getDirectCallees(),
+                                         getTransitiveCallees());
+  }
+
+  /// Return a range of Function * that can be transitively reached via \p CB.
+  auto getAllCallees(const CallBase &CB) const {
+    return concat<const Function *const>(getDirectCallees(CB),
+                                         getTransitiveCallees(CB));
+  }
+
+  /// Flag to indicate we have seen inline ASM that might have call-like
+  /// semantic.
+  bool HasUnknownAsmCallee = false;
+
+  /// Set of functions that we know for sure are directly reachable from the
+  /// associated function, attributed to the call site that can reach them.
+  DenseSet<std::pair<const CallBase *, const Function *>> DirectReachableFns;
+
+  /// Set of functions that we know for sure are transitively reachable from the
+  /// associated function, attributed to the call site that can reach them.
+  DenseSet<std::pair<const CallBase *, const Function *>>
+      TransitiveReachableFns;
+};
+
 /// An abstract Attribute for computing reachability between functions.
 struct AAFunctionReachability
-    : public StateWrapper<BooleanState, AbstractAttribute> {
-  using Base = StateWrapper<BooleanState, AbstractAttribute>;
+    : public StateWrapper<FunctionReachabilityState, AbstractAttribute> {
+  using Base = StateWrapper<FunctionReachabilityState, AbstractAttribute>;
 
   AAFunctionReachability(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
-  /// If the function represented by this possition can reach \p Fn.
-  virtual bool canReach(Attributor &A, Function *Fn) const = 0;
-
-  /// Can \p CB reach \p Fn
-  virtual bool canReach(Attributor &A, CallBase &CB, Function *Fn) const = 0;
+  /// Can \p Inst potentially reach \p Fn.
+  virtual bool instructionCanPotentiallyReach(Attributor &A,
+                                              const Instruction &Inst,
+                                              const Function &Fn) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAFunctionReachability &createForPosition(const IRPosition &IRP,
                                                    Attributor &A);
 
   /// See AbstractAttribute::getName()
-  const std::string getName() const override { return "AAFuncitonReacability"; }
+  const std::string getName() const override {
+    return "AAFunctionReachability";
+  }
 
   /// See AbstractAttribute::getIdAddr()
   const char *getIdAddr() const override { return &ID; }
 
-  /// This function should return true if the type of the \p AA is AACallEdges.
+  /// This function should return true if the type of the \p AA is
+  /// AAFunctionReachability.
   static bool classof(const AbstractAttribute *AA) {
     return (AA->getIdAddr() == &ID);
   }
 
   /// Unique ID (due to the unique address)
   static const char ID;
+};
 
-private:
-  /// Can this function reach a call with unknown calee.
-  virtual bool canReachUnknownCallee() const = 0;
+template <> struct GraphTraits<AACallGraphNode *> {
+  using NodeRef = const AACallGraphNode *;
+  using ChildIteratorType = AACallGraphNode::iterator;
+  using nodes_iterator = AACallGraphNode::iterator;
+
+  static const AACallGraphNode *getEntryNode(const AACallGraphNode *G) {
+    return G;
+  }
+
+  static nodes_iterator nodes_begin(const AACallGraphNode *G) {
+    return child_begin(G);
+  }
+
+  static nodes_iterator nodes_end(const AACallGraphNode *G) {
+    return child_end(G);
+  }
+
+  static nodes_iterator child_begin(const AACallGraphNode *Node) {
+    return Node->getCallEdgeIteratorBegin();
+  }
+
+  static nodes_iterator child_end(const AACallGraphNode *Node) {
+    return Node->getCallEdgeIteratorEnd();
+  }
+};
+
+template <>
+struct DOTGraphTraits<AACallGraphNode *> : public DefaultDOTGraphTraits {
+  DOTGraphTraits(bool Simple = false) : DefaultDOTGraphTraits(Simple) {}
+
+  std::string getNodeLabel(const AACallGraphNode *Node,
+                           const AACallGraphNode *Graph) {
+    return Node->getName();
+  }
+
+  static bool isNodeHidden(const AACallGraphNode *Node,
+                           const AACallGraphNode *Graph) {
+    // Hide the synth root.
+    return Node->getName() == Graph->getName();
+  }
 };
 
 /// An abstract interface for struct information.

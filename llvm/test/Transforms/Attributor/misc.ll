@@ -121,5 +121,5 @@ declare void @callback2(void (i8*)*)
 ; IS__TUNIT____: attributes #[[ATTR1]] = { nofree nosync nounwind willreturn writeonly }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
-; IS__CGSCC____: attributes #[[ATTR1]] = { nounwind willreturn writeonly }
+; IS__CGSCC____: attributes #[[ATTR1]] = { norecurse nounwind willreturn writeonly }
 ;.

@@ -812,7 +812,7 @@ define void @test16_caller(i32* %p, i32 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test16_caller
 ; IS__CGSCC____-SAME: (i32* nofree writeonly [[P:%.*]], i32 [[C:%.*]]) #[[ATTR7]] {
-; IS__CGSCC____-NEXT:    tail call void @test16_sub(i32* noalias nofree writeonly [[P]], i32 [[C]], i32 [[C]]) #[[ATTR13]]
+; IS__CGSCC____-NEXT:    tail call void @test16_sub(i32* noalias nofree writeonly [[P]], i32 [[C]], i32 [[C]]) #[[ATTR14:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret void
 ;
   tail call void @test16_sub(i32* %p, i32 %c, i32 %c)
@@ -974,8 +974,9 @@ l2:
 ; IS__CGSCC____: attributes #[[ATTR7]] = { nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC____: attributes #[[ATTR8]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC____: attributes #[[ATTR9]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR10]] = { readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR11]] = { readonly willreturn }
+; IS__CGSCC____: attributes #[[ATTR10]] = { norecurse nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR11]] = { norecurse nounwind readonly willreturn }
 ; IS__CGSCC____: attributes #[[ATTR12]] = { willreturn }
 ; IS__CGSCC____: attributes #[[ATTR13]] = { nounwind willreturn writeonly }
+; IS__CGSCC____: attributes #[[ATTR14]] = { norecurse nounwind willreturn writeonly }
 ;.

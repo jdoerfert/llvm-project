@@ -1584,9 +1584,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-NEXT:    ret void
 ;
 ;
-; AMDGPU: Function Attrs: convergent noinline nounwind
+; AMDGPU: Function Attrs: convergent noinline norecurse nounwind
 ; AMDGPU-LABEL: define {{[^@]+}}@simple_state_machine_interprocedural_nested_recursive_after.internalized
-; AMDGPU-SAME: (i32 [[A:%.*]]) #[[ATTR1]] {
+; AMDGPU-SAME: (i32 [[A:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
 ; AMDGPU-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
@@ -2512,9 +2512,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-NEXT:    ret void
 ;
 ;
-; NVPTX: Function Attrs: convergent noinline nounwind
+; NVPTX: Function Attrs: convergent noinline norecurse nounwind
 ; NVPTX-LABEL: define {{[^@]+}}@simple_state_machine_interprocedural_nested_recursive_after.internalized
-; NVPTX-SAME: (i32 [[A:%.*]]) #[[ATTR1]] {
+; NVPTX-SAME: (i32 [[A:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
 ; NVPTX-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
@@ -3231,9 +3231,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED-NEXT:    ret void
 ;
 ;
-; AMDGPU-DISABLED: Function Attrs: convergent noinline nounwind
+; AMDGPU-DISABLED: Function Attrs: convergent noinline norecurse nounwind
 ; AMDGPU-DISABLED-LABEL: define {{[^@]+}}@simple_state_machine_interprocedural_nested_recursive_after.internalized
-; AMDGPU-DISABLED-SAME: (i32 [[A:%.*]]) #[[ATTR1]] {
+; AMDGPU-DISABLED-SAME: (i32 [[A:%.*]]) #[[ATTR0]] {
 ; AMDGPU-DISABLED-NEXT:  entry:
 ; AMDGPU-DISABLED-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-DISABLED-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
@@ -3926,9 +3926,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED-NEXT:    ret void
 ;
 ;
-; NVPTX-DISABLED: Function Attrs: convergent noinline nounwind
+; NVPTX-DISABLED: Function Attrs: convergent noinline norecurse nounwind
 ; NVPTX-DISABLED-LABEL: define {{[^@]+}}@simple_state_machine_interprocedural_nested_recursive_after.internalized
-; NVPTX-DISABLED-SAME: (i32 [[A:%.*]]) #[[ATTR1]] {
+; NVPTX-DISABLED-SAME: (i32 [[A:%.*]]) #[[ATTR0]] {
 ; NVPTX-DISABLED-NEXT:  entry:
 ; NVPTX-DISABLED-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-DISABLED-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4

@@ -349,9 +349,9 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
     auto OrigAssumed = getAssumed();
 
     // Check for Intrinsics and propagate attributes.
-    const AACallEdges &AAEdges = A.getAAFor<AACallEdges>(
+    const auto &FunctionReachabilityAA = A.getAAFor<AAFunctionReachability>(
         *this, this->getIRPosition(), DepClassTy::REQUIRED);
-    if (AAEdges.hasNonAsmUnknownCallee())
+    if (FunctionReachabilityAA.canReachUnknownNonAsmCallee())
       return indicatePessimisticFixpoint();
 
     bool IsNonEntryFunc = !AMDGPU::isEntryFunctionCC(F->getCallingConv());
@@ -359,7 +359,7 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
 
     bool NeedsQueuePtr = false;
 
-    for (Function *Callee : AAEdges.getOptimisticEdges()) {
+    for (const Function *Callee : FunctionReachabilityAA.getAllCallees()) {
       Intrinsic::ID IID = Callee->getIntrinsicID();
       if (IID == Intrinsic::not_intrinsic) {
         const AAAMDAttributes &AAAMD = A.getAAFor<AAAMDAttributes>(
@@ -497,7 +497,7 @@ public:
     BumpPtrAllocator Allocator;
     AMDGPUInformationCache InfoCache(M, AG, Allocator, nullptr, *TM);
     DenseSet<const char *> Allowed(
-        {&AAAMDAttributes::ID, &AAUniformWorkGroupSize::ID, &AACallEdges::ID});
+        {&AAAMDAttributes::ID, &AAAMDWorkGroupSize::ID, &AAFunctionReachability::ID});
 
     Attributor A(Functions, InfoCache, CGUpdater, &Allowed);
 

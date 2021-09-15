@@ -98,7 +98,7 @@ entry:
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind willreturn }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind willreturn }
-; IS__CGSCC____: attributes #[[ATTR1]] = { nounwind willreturn }
+; IS__CGSCC____: attributes #[[ATTR1]] = { norecurse nounwind willreturn }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{!1, !1, i64 0}
 ; CHECK: [[META1:![0-9]+]] = !{!"int", !2, i64 0}

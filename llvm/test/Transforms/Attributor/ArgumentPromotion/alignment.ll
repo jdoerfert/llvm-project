@@ -227,11 +227,11 @@ define i32 @callercaller() {
 ; IS__CGSCC_OPM: attributes #[[ATTR1]] = { argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR3]] = { nosync nounwind readonly willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR4]] = { nounwind willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR4]] = { norecurse nounwind willreturn }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR1]] = { nosync nounwind readnone willreturn }
-; IS__CGSCC_NPM: attributes #[[ATTR2]] = { nounwind readnone willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR2]] = { norecurse nounwind readnone willreturn }
 ;.
 ; IS__CGSCC_NPM: [[RNG0]] = !{i32 2, i32 4}
 ;.

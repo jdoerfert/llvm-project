@@ -24,7 +24,7 @@ define void @zot() personality i32 (...)* @wibble {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@zot
 ; IS__CGSCC____-SAME: () #[[ATTR0:[0-9]+]] personality i32 (...)* @wibble {
 ; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    call void @hoge() #[[ATTR2:[0-9]+]]
+; IS__CGSCC____-NEXT:    call void @hoge() #[[ATTR3:[0-9]+]]
 ; IS__CGSCC____-NEXT:    unreachable
 ; IS__CGSCC____:       bb1:
 ; IS__CGSCC____-NEXT:    unreachable
@@ -75,8 +75,9 @@ bb:
 }
 
 define internal i1 @eggs(i8* %arg) {
+; IS__CGSCC____: Function Attrs: norecurse
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@eggs
-; IS__CGSCC____-SAME: (i8* [[ARG:%.*]]) {
+; IS__CGSCC____-SAME: (i8* [[ARG:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  bb:
 ; IS__CGSCC____-NEXT:    [[TMP:%.*]] = call zeroext i1 @barney()
 ; IS__CGSCC____-NEXT:    unreachable
@@ -89,7 +90,7 @@ bb:
 define internal i1 @barney(i8* %arg) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@barney
-; IS__CGSCC____-SAME: () #[[ATTR1:[0-9]+]] {
+; IS__CGSCC____-SAME: () #[[ATTR2:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  bb:
 ; IS__CGSCC____-NEXT:    ret i1 undef
 ;
@@ -143,6 +144,7 @@ declare i32 @wibble(...)
 ; IS__TUNIT____: attributes #[[ATTR1]] = { noreturn nounwind readnone }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR2]] = { noreturn nounwind readnone }
+; IS__CGSCC____: attributes #[[ATTR1]] = { norecurse }
+; IS__CGSCC____: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR3]] = { noreturn nounwind readnone }
 ;.

@@ -205,7 +205,7 @@ define internal i8* @f2(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__CGSCC_OPM-NEXT:    [[TMP8:%.*]] = phi i8* [ [[TMP4]], [[TMP3]] ], [ [[TMP6]], [[TMP5]] ]
 ; IS__CGSCC_OPM-NEXT:    ret i8* [[TMP8]]
 ;
-; IS__CGSCC_NPM: Function Attrs: noinline nounwind uwtable
+; IS__CGSCC_NPM: Function Attrs: noinline norecurse nounwind uwtable
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@f2
 ; IS__CGSCC_NPM-SAME: (i8* readnone [[TMP0:%.*]]) local_unnamed_addr #[[ATTR2:[0-9]+]] {
 ; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = icmp eq i8* [[TMP0]], null
@@ -342,7 +342,7 @@ define internal i8* @f2b(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__CGSCC_OPM-NEXT:    [[TMP8:%.*]] = phi i8* [ [[TMP4]], [[TMP3]] ], [ [[TMP6]], [[TMP5]] ]
 ; IS__CGSCC_OPM-NEXT:    ret i8* [[TMP8]]
 ;
-; IS__CGSCC_NPM: Function Attrs: noinline nounwind uwtable
+; IS__CGSCC_NPM: Function Attrs: noinline norecurse nounwind uwtable
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@f2b
 ; IS__CGSCC_NPM-SAME: (i8* readnone [[TMP0:%.*]]) local_unnamed_addr #[[ATTR2]] {
 ; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = icmp eq i8* [[TMP0]], null
@@ -1398,7 +1398,7 @@ attributes #2 = { null_pointer_is_valid }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR1]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
-; IS__CGSCC_NPM: attributes #[[ATTR2]] = { noinline nounwind uwtable }
+; IS__CGSCC_NPM: attributes #[[ATTR2]] = { noinline norecurse nounwind uwtable }
 ; IS__CGSCC_NPM: attributes #[[ATTR3]] = { nounwind }
 ; IS__CGSCC_NPM: attributes #[[ATTR4]] = { nofree nosync nounwind }
 ; IS__CGSCC_NPM: attributes #[[ATTR5]] = { argmemonly nofree norecurse nosync nounwind readonly willreturn }

@@ -108,5 +108,5 @@ define void @f() {
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0:[0-9]+]] = { argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC____: attributes #[[ATTR1:[0-9]+]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR2:[0-9]+]] = { nounwind willreturn }
+; IS__CGSCC____: attributes #[[ATTR2:[0-9]+]] = { norecurse nounwind willreturn }
 ;.

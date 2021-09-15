@@ -121,11 +121,11 @@ define void @intrinsic(i8* %dest, i8* %src, i32 %len) {
 declare void @llvm.memcpy.p0i8.p0i8.i32(i8*, i8*, i32, i1)
 
 define internal i32 @called_by_norecurse() {
-; IS__TUNIT____: Function Attrs: nosync readnone
-; IS__TUNIT____-LABEL: define {{[^@]+}}@called_by_norecurse
-; IS__TUNIT____-SAME: () #[[ATTR2]] {
-; IS__TUNIT____-NEXT:    [[A:%.*]] = call i32 @k()
-; IS__TUNIT____-NEXT:    ret i32 undef
+; NOT_CGSCC_OPM: Function Attrs: norecurse nosync readnone
+; NOT_CGSCC_OPM-LABEL: define {{[^@]+}}@called_by_norecurse
+; NOT_CGSCC_OPM-SAME: () #[[ATTR6:[0-9]+]] {
+; NOT_CGSCC_OPM-NEXT:    [[A:%.*]] = call i32 @k()
+; NOT_CGSCC_OPM-NEXT:    ret i32 undef
 ;
 ; IS__CGSCC_OPM: Function Attrs: norecurse nosync readnone
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@called_by_norecurse
@@ -133,19 +133,13 @@ define internal i32 @called_by_norecurse() {
 ; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = call i32 @k()
 ; IS__CGSCC_OPM-NEXT:    ret i32 undef
 ;
-; IS__CGSCC_NPM: Function Attrs: norecurse nosync readnone
-; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@called_by_norecurse
-; IS__CGSCC_NPM-SAME: () #[[ATTR6:[0-9]+]] {
-; IS__CGSCC_NPM-NEXT:    [[A:%.*]] = call i32 @k()
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
-;
   %a = call i32 @k()
   ret i32 %a
 }
 define void @m() norecurse {
 ; IS__TUNIT____: Function Attrs: norecurse nosync readnone
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@m
-; IS__TUNIT____-SAME: () #[[ATTR6:[0-9]+]] {
+; IS__TUNIT____-SAME: () #[[ATTR6]] {
 ; IS__TUNIT____-NEXT:    [[A:%.*]] = call i32 @called_by_norecurse() #[[ATTR2]]
 ; IS__TUNIT____-NEXT:    ret void
 ;
@@ -166,15 +160,15 @@ define void @m() norecurse {
 }
 
 define internal i32 @called_by_norecurse_indirectly() {
-; NOT_CGSCC_OPM: Function Attrs: nosync readnone
+; NOT_CGSCC_OPM: Function Attrs: norecurse nosync readnone
 ; NOT_CGSCC_OPM-LABEL: define {{[^@]+}}@called_by_norecurse_indirectly
-; NOT_CGSCC_OPM-SAME: () #[[ATTR2]] {
+; NOT_CGSCC_OPM-SAME: () #[[ATTR6]] {
 ; NOT_CGSCC_OPM-NEXT:    [[A:%.*]] = call i32 @k()
 ; NOT_CGSCC_OPM-NEXT:    ret i32 [[A]]
 ;
-; IS__CGSCC_OPM: Function Attrs: nosync readnone
+; IS__CGSCC_OPM: Function Attrs: norecurse nosync readnone
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@called_by_norecurse_indirectly
-; IS__CGSCC_OPM-SAME: () #[[ATTR3]] {
+; IS__CGSCC_OPM-SAME: () #[[ATTR7]] {
 ; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = call i32 @k()
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[A]]
 ;
@@ -182,9 +176,9 @@ define internal i32 @called_by_norecurse_indirectly() {
   ret i32 %a
 }
 define internal i32 @o() {
-; IS__TUNIT____: Function Attrs: nosync readnone
+; IS__TUNIT____: Function Attrs: norecurse nosync readnone
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@o
-; IS__TUNIT____-SAME: () #[[ATTR2]] {
+; IS__TUNIT____-SAME: () #[[ATTR6]] {
 ; IS__TUNIT____-NEXT:    [[A:%.*]] = call i32 @called_by_norecurse_indirectly() #[[ATTR2]]
 ; IS__TUNIT____-NEXT:    ret i32 [[A]]
 ;

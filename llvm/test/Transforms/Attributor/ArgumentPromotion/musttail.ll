@@ -186,7 +186,7 @@ define i32 @caller2b(%T* %g) {
 ; IS__CGSCC____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC____: attributes #[[ATTR2]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC____: attributes #[[ATTR3]] = { argmemonly nofree norecurse nosync nounwind willreturn }
-; IS__CGSCC____: attributes #[[ATTR4]] = { nosync nounwind readonly willreturn }
+; IS__CGSCC____: attributes #[[ATTR4]] = { norecurse nosync nounwind readonly willreturn }
 ; IS__CGSCC____: attributes #[[ATTR5]] = { nounwind willreturn writeonly }
-; IS__CGSCC____: attributes #[[ATTR6]] = { nosync nounwind willreturn }
+; IS__CGSCC____: attributes #[[ATTR6]] = { norecurse nosync nounwind willreturn }
 ;.

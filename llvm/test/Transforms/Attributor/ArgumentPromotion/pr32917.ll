@@ -64,5 +64,5 @@ define internal fastcc void @fn1(i32* nocapture readonly) unnamed_addr {
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind willreturn }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind willreturn }
-; IS__CGSCC____: attributes #[[ATTR1]] = { nounwind willreturn }
+; IS__CGSCC____: attributes #[[ATTR1]] = { norecurse nounwind willreturn }
 ;.

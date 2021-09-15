@@ -133,7 +133,7 @@ define void @caller(i1 %C) personality i32 (...)* @__gxx_personality_v0 {
 ; IS__CGSCC_OPM-NEXT:    [[W:%.*]] = call align 4 i32* @incdec(i1 [[C]], i32* noalias nofree noundef nonnull align 4 dereferenceable(4) "no-capture-maybe-returned" [[Q]]) #[[ATTR2:[0-9]+]]
 ; IS__CGSCC_OPM-NEXT:    [[S1:%.*]] = call { i32, i32 } @foo(i32 noundef 1, i32 noundef 2) #[[ATTR3:[0-9]+]]
 ; IS__CGSCC_OPM-NEXT:    [[X1:%.*]] = extractvalue { i32, i32 } [[S1]], 0
-; IS__CGSCC_OPM-NEXT:    [[S2:%.*]] = call { i32, i32 } @foo(i32 noundef 3, i32 noundef 4) #[[ATTR4:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    [[S2:%.*]] = call { i32, i32 } @foo(i32 noundef 3, i32 noundef 4) #[[ATTR3]]
 ; IS__CGSCC_OPM-NEXT:    br label [[OK:%.*]]
 ; IS__CGSCC_OPM:       OK:
 ; IS__CGSCC_OPM-NEXT:    [[X2:%.*]] = extractvalue { i32, i32 } [[S2]], 0
@@ -152,7 +152,7 @@ define void @caller(i1 %C) personality i32 (...)* @__gxx_personality_v0 {
 ; IS__CGSCC_NPM-NEXT:    [[W:%.*]] = call i32* @incdec(i1 [[C]], i32* noalias nofree noundef nonnull align 4 dereferenceable(4) "no-capture-maybe-returned" [[Q]]) #[[ATTR2:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    [[S1:%.*]] = call { i32, i32 } @foo(i32 noundef 1, i32 noundef 2) #[[ATTR3:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    [[X1:%.*]] = extractvalue { i32, i32 } [[S1]], 0
-; IS__CGSCC_NPM-NEXT:    [[S2:%.*]] = call { i32, i32 } @foo(i32 noundef 3, i32 noundef 4) #[[ATTR4:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    [[S2:%.*]] = call { i32, i32 } @foo(i32 noundef 3, i32 noundef 4) #[[ATTR3]]
 ; IS__CGSCC_NPM-NEXT:    br label [[OK:%.*]]
 ; IS__CGSCC_NPM:       OK:
 ; IS__CGSCC_NPM-NEXT:    [[X2:%.*]] = extractvalue { i32, i32 } [[S2]], 0
@@ -199,6 +199,5 @@ declare i32 @__gxx_personality_v0(...)
 ; IS__CGSCC____: attributes #[[ATTR0:[0-9]+]] = { argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC____: attributes #[[ATTR2:[0-9]+]] = { nounwind willreturn }
-; IS__CGSCC____: attributes #[[ATTR3:[0-9]+]] = { readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR4:[0-9]+]] = { nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR3:[0-9]+]] = { norecurse nounwind readnone willreturn }
 ;.

@@ -289,15 +289,15 @@ define i32 @unions_v2() nounwind {
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@unions_v2
 ; IS__TUNIT_NPM-SAME: () #[[ATTR0]] {
 ; IS__TUNIT_NPM-NEXT:  entry:
-; IS__TUNIT_NPM-NEXT:    [[MYSTR_CAST1:%.*]] = bitcast %struct.MYstr* @mystr to i8*
-; IS__TUNIT_NPM-NEXT:    [[TMP0:%.*]] = load i8, i8* [[MYSTR_CAST1]], align 8
-; IS__TUNIT_NPM-NEXT:    [[MYSTR_0_12:%.*]] = getelementptr [[STRUCT_MYSTR:%.*]], %struct.MYstr* @mystr, i32 0, i32 1
-; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* [[MYSTR_0_12]], align 8
-; IS__TUNIT_NPM-NEXT:    call void @vfu1(i8 [[TMP0]], i32 [[TMP1]]) #[[ATTR0]]
 ; IS__TUNIT_NPM-NEXT:    [[MYSTR_CAST:%.*]] = bitcast %struct.MYstr* @mystr to i8*
-; IS__TUNIT_NPM-NEXT:    [[TMP2:%.*]] = load i8, i8* [[MYSTR_CAST]], align 8
-; IS__TUNIT_NPM-NEXT:    [[MYSTR_0_1:%.*]] = getelementptr [[STRUCT_MYSTR]], %struct.MYstr* @mystr, i32 0, i32 1
-; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[MYSTR_0_1]], align 8
+; IS__TUNIT_NPM-NEXT:    [[TMP0:%.*]] = load i8, i8* [[MYSTR_CAST]], align 8
+; IS__TUNIT_NPM-NEXT:    [[MYSTR_0_1:%.*]] = getelementptr [[STRUCT_MYSTR:%.*]], %struct.MYstr* @mystr, i32 0, i32 1
+; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* [[MYSTR_0_1]], align 8
+; IS__TUNIT_NPM-NEXT:    call void @vfu1(i8 [[TMP0]], i32 [[TMP1]]) #[[ATTR0]]
+; IS__TUNIT_NPM-NEXT:    [[MYSTR_CAST1:%.*]] = bitcast %struct.MYstr* @mystr to i8*
+; IS__TUNIT_NPM-NEXT:    [[TMP2:%.*]] = load i8, i8* [[MYSTR_CAST1]], align 8
+; IS__TUNIT_NPM-NEXT:    [[MYSTR_0_12:%.*]] = getelementptr [[STRUCT_MYSTR]], %struct.MYstr* @mystr, i32 0, i32 1
+; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[MYSTR_0_12]], align 8
 ; IS__TUNIT_NPM-NEXT:    [[RESULT:%.*]] = call i32 @vfu2_v2(i8 [[TMP2]], i32 [[TMP3]]) #[[ATTR0]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[RESULT]]
 ;
@@ -306,7 +306,7 @@ define i32 @unions_v2() nounwind {
 ; IS__CGSCC_OPM-SAME: () #[[ATTR0]] {
 ; IS__CGSCC_OPM-NEXT:  entry:
 ; IS__CGSCC_OPM-NEXT:    call void @vfu1(%struct.MYstr* noalias nocapture nofree noundef nonnull readonly byval([[STRUCT_MYSTR:%.*]]) align 8 dereferenceable(8) @mystr) #[[ATTR0]]
-; IS__CGSCC_OPM-NEXT:    [[RESULT:%.*]] = call i32 @vfu2_v2(%struct.MYstr* noalias nocapture nofree noundef nonnull readonly byval([[STRUCT_MYSTR]]) align 8 dereferenceable(8) @mystr) #[[ATTR0]]
+; IS__CGSCC_OPM-NEXT:    [[RESULT:%.*]] = call i32 @vfu2_v2(%struct.MYstr* noalias nocapture nofree noundef nonnull readonly byval([[STRUCT_MYSTR]]) align 8 dereferenceable(8) @mystr) #[[ATTR2:[0-9]+]]
 ; IS__CGSCC_OPM-NEXT:    ret i32 [[RESULT]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nounwind
@@ -324,3 +324,11 @@ entry:
 ;.
 ; IS__TUNIT____: attributes #[[ATTR0:[0-9]+]] = { nounwind }
 ; IS__TUNIT____: attributes #[[ATTR1:[0-9]+]] = { argmemonly nofree nosync nounwind readonly willreturn }
+;.
+; IS__CGSCC_OPM: attributes #[[ATTR0]] = { nounwind }
+; IS__CGSCC_OPM: attributes #[[ATTR1]] = { argmemonly nofree norecurse nosync nounwind readonly willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR2]] = { nounwind readonly }
+;.
+; IS__CGSCC_NPM: attributes #[[ATTR0]] = { nounwind }
+; IS__CGSCC_NPM: attributes #[[ATTR1]] = { argmemonly nofree norecurse nosync nounwind readonly willreturn }
+;.

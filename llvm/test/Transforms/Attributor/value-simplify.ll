@@ -1289,7 +1289,7 @@ join:
 ; IS__CGSCC_OPM: attributes #[[ATTR3]] = { argmemonly nofree norecurse nosync nounwind writeonly }
 ; IS__CGSCC_OPM: attributes #[[ATTR4]] = { nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC_OPM: attributes #[[ATTR5]] = { willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR6]] = { nounwind willreturn writeonly }
+; IS__CGSCC_OPM: attributes #[[ATTR6]] = { norecurse nounwind willreturn writeonly }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { nofree nosync nounwind willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
