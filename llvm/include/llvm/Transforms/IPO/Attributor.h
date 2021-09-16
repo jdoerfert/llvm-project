@@ -131,6 +131,7 @@ struct AbstractAttribute;
 struct InformationCache;
 struct AAIsDead;
 struct AttributorCallGraph;
+struct IRPosition;
 
 class AAManager;
 class AAResults;
@@ -199,6 +200,16 @@ bool getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
 bool getPotentialCopiesOfStoredValue(
     Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation);
+
+/// Return true if \p IRP is readonly. This will query respective AAs that
+/// deduce the information and introduce dependences for \p QueryingAA.
+bool isAssumedReadOnly(Attributor &A, const IRPosition &IRP,
+                       const AbstractAttribute &QueryingAA, bool &IsKnown);
+
+/// Return true if \p IRP is readnone. This will query respective AAs that
+/// deduce the information and introduce dependences for \p QueryingAA.
+bool isAssumedReadNone(Attributor &A, const IRPosition &IRP,
+                       const AbstractAttribute &QueryingAA, bool &IsKnown);
 
 } // namespace AA
 
