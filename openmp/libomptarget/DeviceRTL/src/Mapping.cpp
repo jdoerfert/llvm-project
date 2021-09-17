@@ -67,13 +67,6 @@ uint32_t getThreadIdInWarp() {
 
 uint32_t getThreadIdInBlock() { return __builtin_amdgcn_workitem_id_x(); }
 
-uint32_t getBlockSize() {
-  // TODO: verify this logic for generic mode.
-  return getWorkgroupDim(__builtin_amdgcn_workgroup_id_x(),
-                         __builtin_amdgcn_grid_size_x(),
-                         __builtin_amdgcn_workgroup_size_x());
-}
-
 uint32_t getKernelSize() { return __builtin_amdgcn_grid_size_x(); }
 
 uint32_t getBlockId() { return __builtin_amdgcn_workgroup_id_x(); }
@@ -84,16 +77,18 @@ uint32_t getNumberOfBlocks() {
 }
 
 uint32_t getNumberOfProcessorElements() {
-  // TODO
-  return mapping::getBlockSize();
+  // TODO: verify this logic for generic mode.
+  return getWorkgroupDim(__builtin_amdgcn_workgroup_id_x(),
+                         __builtin_amdgcn_grid_size_x(),
+                         __builtin_amdgcn_workgroup_size_x());
 }
 
 uint32_t getWarpId() {
-  return mapping::getThreadIdInBlock() / mapping::getWarpSize();
+  return impl::getThreadIdInBlock() / impl::getWarpSize();
 }
 
 uint32_t getNumberOfWarpsInBlock() {
-  return mapping::getBlockSize() / mapping::getWarpSize();
+  return impl::getBlockSize() / impl::getWarpSize();
 }
 
 #pragma omp end declare variant
@@ -128,15 +123,10 @@ LaneMaskTy lanemaskGT() {
 }
 
 uint32_t getThreadIdInWarp() {
-  return mapping::getThreadIdInBlock() & (mapping::getWarpSize() - 1);
+  return impl::getThreadIdInBlock() & (impl::getWarpSize() - 1);
 }
 
 uint32_t getThreadIdInBlock() { return __nvvm_read_ptx_sreg_tid_x(); }
-
-uint32_t getBlockSize() {
-  return __nvvm_read_ptx_sreg_ntid_x() -
-         (!mapping::isSPMDMode() * mapping::getWarpSize());
-}
 
 uint32_t getKernelSize() { return __nvvm_read_ptx_sreg_nctaid_x(); }
 
@@ -149,12 +139,11 @@ uint32_t getNumberOfProcessorElements() {
 }
 
 uint32_t getWarpId() {
-  return mapping::getThreadIdInBlock() / mapping::getWarpSize();
+  return impl::getThreadIdInBlock() / impl::getWarpSize();
 }
 
 uint32_t getNumberOfWarpsInBlock() {
-  return (mapping::getBlockSize() + mapping::getWarpSize() - 1) /
-         mapping::getWarpSize();
+  return (impl::getBlockSize() + impl::getWarpSize() - 1) / impl::getWarpSize();
 }
 
 #pragma omp end declare variant
@@ -164,6 +153,10 @@ uint32_t getWarpSize() { return getGridValue().GV_Warp_Size; }
 
 } // namespace impl
 } // namespace _OMP
+
+/// We have to be deliberate about the distinction of `mapping::` and `impl::`
+/// below to avoid repeating assumptions or including irrelevant ones.
+///{
 
 bool mapping::isMainThreadInGenericMode() {
   if (mapping::isSPMDMode() || icv::Level)
@@ -187,29 +180,64 @@ LaneMaskTy mapping::lanemaskLT() { return impl::lanemaskLT(); }
 
 LaneMaskTy mapping::lanemaskGT() { return impl::lanemaskGT(); }
 
-uint32_t mapping::getThreadIdInWarp() { return impl::getThreadIdInWarp(); }
-
-uint32_t mapping::getThreadIdInBlock() { return impl::getThreadIdInBlock(); }
-
-uint32_t mapping::getBlockSize() { return impl::getBlockSize(); }
-
-uint32_t mapping::getKernelSize() { return impl::getKernelSize(); }
-
-uint32_t mapping::getBlockId() { return impl::getBlockId(); }
-
-uint32_t mapping::getNumberOfBlocks() { return impl::getNumberOfBlocks(); }
-
-uint32_t mapping::getNumberOfProcessorElements() {
-  return impl::getNumberOfProcessorElements();
+uint32_t mapping::getThreadIdInWarp() {
+  uint32_t ThreadIdInWarp = impl::getThreadIdInWarp();
+  ASSERT(ThreadIdInWarp < impl::getWarpSize());
+  return ThreadIdInWarp;
 }
 
-uint32_t mapping::getWarpId() { return impl::getWarpId(); }
+uint32_t mapping::getThreadIdInBlock() {
+  uint32_t ThreadIdInBlock = impl::getThreadIdInBlock();
+  ASSERT(ThreadIdInBlock < impl::getNumberOfProcessorElements());
+  return ThreadIdInBlock;
+}
 
 uint32_t mapping::getWarpSize() { return impl::getWarpSize(); }
 
-uint32_t mapping::getNumberOfWarpsInBlock() {
-  return impl::getNumberOfWarpsInBlock();
+uint32_t mapping::getBlockSize() {
+  uint32_t BlockSize = mapping::getNumberOfProcessorElements() -
+                       (!impl::isSPMDMode() * impl::getWarpSize());
+  ASSERT(BlockSize == 1 | (BlockSize % impl::getWarpSize() == 0));
+  return BlockSize;
 }
+
+uint32_t mapping::getKernelSize() {
+  uint32_t KernelSize = impl::getKernelSize();
+  ASSERT(KernelSize == 1 | (KernelSize % impl::getWarpSize() == 0));
+  return KernelSize;
+}
+
+uint32_t mapping::getWarpId() {
+  uint32_t WarpID = impl::getWarpId();
+  ASSERT(WarpID < impl::getNumberOfWarpsInBlock());
+  return WarpID;
+}
+
+uint32_t mapping::getBlockId() {
+  uint32_t BlockId = impl::getBlockId();
+  ASSERT(BlockId < impl::getNumberOfBlocks());
+  return BlockId;
+}
+
+uint32_t mapping::getNumberOfWarpsInBlock() {
+  uint32_t NumberOfWarpsInBlocks = impl::getNumberOfWarpsInBlocks();
+  ASSERT(impl::getWarpId() < NumberOfWarpsInBlocks);
+  return NumberOfWarpsInBlocks;
+}
+
+uint32_t mapping::getNumberOfBlocks() {
+  uint32_t NumberOfBlocks = impl::getNumberOfBlocks();
+  ASSERT(impl::getBlockId() < NumberOfBlocks);
+  return NumberOfBlocks;
+}
+
+uint32_t mapping::getNumberOfProcessorElements() {
+  uint32_t NumberOfProcessorElements = impl::getNumberOfProcessorElements();
+  ASSERT(impl::getThreadIdInBlock() < NumberOfProcessorElements);
+  return NumberOfProcessorElements();
+}
+
+///}
 
 /// Execution mode
 ///
