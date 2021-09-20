@@ -6,15 +6,15 @@
 target datalayout = "E-p:64:64:64-a0:0:8-f32:32:32-f64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-v64:64:64-v128:128:128"
 
 define internal i32 @test(i32* %X, i32* %Y) {
-; IS__TUNIT_OPM: Function Attrs: argmemonly nofree nosync nounwind readonly willreturn
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@test
-; IS__TUNIT_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[X:%.*]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[Y:%.*]]) #[[ATTR0:[0-9]+]] {
-; IS__TUNIT_OPM-NEXT:    [[A:%.*]] = load i32, i32* [[X]], align 4
-; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = load i32, i32* [[Y]], align 4
-; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = add i32 [[A]], [[B]]
-; IS__TUNIT_OPM-NEXT:    ret i32 [[C]]
+; IS________OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
+; IS________OPM-LABEL: define {{[^@]+}}@test
+; IS________OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[X:%.*]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[Y:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS________OPM-NEXT:    [[A:%.*]] = load i32, i32* [[X]], align 4
+; IS________OPM-NEXT:    [[B:%.*]] = load i32, i32* [[Y]], align 4
+; IS________OPM-NEXT:    [[C:%.*]] = add i32 [[A]], [[B]]
+; IS________OPM-NEXT:    ret i32 [[C]]
 ;
-; IS__TUNIT_NPM: Function Attrs: argmemonly nofree nosync nounwind readonly willreturn
+; IS__TUNIT_NPM: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@test
 ; IS__TUNIT_NPM-SAME: (i32 [[TMP0:%.*]], i32 [[TMP1:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__TUNIT_NPM-NEXT:    [[Y_PRIV:%.*]] = alloca i32, align 4
@@ -25,14 +25,6 @@ define internal i32 @test(i32* %X, i32* %Y) {
 ; IS__TUNIT_NPM-NEXT:    [[B:%.*]] = load i32, i32* [[Y_PRIV]], align 4
 ; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = add i32 [[A]], [[B]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[C]]
-;
-; IS__CGSCC_OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@test
-; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[X:%.*]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[Y:%.*]]) #[[ATTR0:[0-9]+]] {
-; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = load i32, i32* [[X]], align 4
-; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = load i32, i32* [[Y]], align 4
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = add i32 [[A]], [[B]]
-; IS__CGSCC_OPM-NEXT:    ret i32 [[C]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test
@@ -52,15 +44,15 @@ define internal i32 @test(i32* %X, i32* %Y) {
 }
 
 define internal i32 @caller(i32* %B) {
-; IS__TUNIT_OPM: Function Attrs: argmemonly nofree nosync nounwind willreturn
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@caller
-; IS__TUNIT_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR1:[0-9]+]] {
-; IS__TUNIT_OPM-NEXT:    [[A:%.*]] = alloca i32, align 4
-; IS__TUNIT_OPM-NEXT:    store i32 1, i32* [[A]], align 4
-; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR3:[0-9]+]]
-; IS__TUNIT_OPM-NEXT:    ret i32 [[C]]
+; IS________OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
+; IS________OPM-LABEL: define {{[^@]+}}@caller
+; IS________OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR1:[0-9]+]] {
+; IS________OPM-NEXT:    [[A:%.*]] = alloca i32, align 4
+; IS________OPM-NEXT:    store i32 1, i32* [[A]], align 4
+; IS________OPM-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR3:[0-9]+]]
+; IS________OPM-NEXT:    ret i32 [[C]]
 ;
-; IS__TUNIT_NPM: Function Attrs: argmemonly nofree nosync nounwind willreturn
+; IS__TUNIT_NPM: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@caller
 ; IS__TUNIT_NPM-SAME: (i32 [[TMP0:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__TUNIT_NPM-NEXT:    [[B_PRIV:%.*]] = alloca i32, align 4
@@ -71,14 +63,6 @@ define internal i32 @caller(i32* %B) {
 ; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[B_PRIV]], align 4
 ; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = call i32 @test(i32 [[TMP2]], i32 [[TMP3]]) #[[ATTR3:[0-9]+]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[C]]
-;
-; IS__CGSCC_OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@caller
-; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR1:[0-9]+]] {
-; IS__CGSCC_OPM-NEXT:    [[A:%.*]] = alloca i32, align 4
-; IS__CGSCC_OPM-NEXT:    store i32 1, i32* [[A]], align 4
-; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = call i32 @test(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[A]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR3:[0-9]+]]
-; IS__CGSCC_OPM-NEXT:    ret i32 [[C]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@caller
@@ -95,15 +79,15 @@ define internal i32 @caller(i32* %B) {
 }
 
 define i32 @callercaller() {
-; IS__TUNIT_OPM: Function Attrs: nofree nosync nounwind readnone
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@callercaller
-; IS__TUNIT_OPM-SAME: () #[[ATTR2:[0-9]+]] {
-; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = alloca i32, align 4
-; IS__TUNIT_OPM-NEXT:    store i32 2, i32* [[B]], align 4
-; IS__TUNIT_OPM-NEXT:    [[X:%.*]] = call i32 @caller(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR4:[0-9]+]]
-; IS__TUNIT_OPM-NEXT:    ret i32 [[X]]
+; IS________OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS________OPM-LABEL: define {{[^@]+}}@callercaller
+; IS________OPM-SAME: () #[[ATTR2:[0-9]+]] {
+; IS________OPM-NEXT:    [[B:%.*]] = alloca i32, align 4
+; IS________OPM-NEXT:    store i32 2, i32* [[B]], align 4
+; IS________OPM-NEXT:    [[X:%.*]] = call i32 @caller(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR4:[0-9]+]]
+; IS________OPM-NEXT:    ret i32 [[X]]
 ;
-; IS__TUNIT_NPM: Function Attrs: nofree nosync nounwind readnone
+; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@callercaller
 ; IS__TUNIT_NPM-SAME: () #[[ATTR2:[0-9]+]] {
 ; IS__TUNIT_NPM-NEXT:    [[B:%.*]] = alloca i32, align 4
@@ -111,14 +95,6 @@ define i32 @callercaller() {
 ; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* [[B]], align 4
 ; IS__TUNIT_NPM-NEXT:    [[X:%.*]] = call i32 @caller(i32 [[TMP1]]) #[[ATTR4:[0-9]+]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[X]]
-;
-; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@callercaller
-; IS__CGSCC_OPM-SAME: () #[[ATTR2:[0-9]+]] {
-; IS__CGSCC_OPM-NEXT:    [[B:%.*]] = alloca i32, align 4
-; IS__CGSCC_OPM-NEXT:    store i32 2, i32* [[B]], align 4
-; IS__CGSCC_OPM-NEXT:    [[X:%.*]] = call i32 @caller(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[B]]) #[[ATTR4:[0-9]+]]
-; IS__CGSCC_OPM-NEXT:    ret i32 [[X]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@callercaller
@@ -132,18 +108,18 @@ define i32 @callercaller() {
 }
 
 ;.
-; IS__TUNIT____: attributes #[[ATTR0:[0-9]+]] = { argmemonly nofree nosync nounwind readonly willreturn }
-; IS__TUNIT____: attributes #[[ATTR1:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
-; IS__TUNIT____: attributes #[[ATTR2:[0-9]+]] = { nofree nosync nounwind readnone }
+; IS__TUNIT____: attributes #[[ATTR0:[0-9]+]] = { argmemonly nofree norecurse nosync nounwind readonly willreturn }
+; IS__TUNIT____: attributes #[[ATTR1:[0-9]+]] = { argmemonly nofree norecurse nosync nounwind willreturn }
+; IS__TUNIT____: attributes #[[ATTR2:[0-9]+]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__TUNIT____: attributes #[[ATTR3:[0-9]+]] = { nofree nosync nounwind readonly willreturn }
-; IS__TUNIT____: attributes #[[ATTR4:[0-9]+]] = { nofree nosync nounwind willreturn }
+; IS__TUNIT____: attributes #[[ATTR4:[0-9]+]] = { nofree norecurse nosync nounwind willreturn }
 ;.
 ; IS__CGSCC_OPM: attributes #[[ATTR0]] = { argmemonly nofree norecurse nosync nounwind readonly willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR1]] = { argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR3]] = { norecurse nosync nounwind readonly willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR4]] = { norecurse nounwind willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR3]] = { nosync nounwind readonly willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR4]] = { nounwind willreturn }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC_NPM: attributes #[[ATTR1]] = { norecurse nosync nounwind readnone willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR1]] = { nosync nounwind readnone willreturn }
 ;.

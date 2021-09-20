@@ -2473,33 +2473,10 @@ struct AANoRecurseFunction final : AANoRecurseImpl {
       return ChangeStatus::UNCHANGED;
     }
 
-    // TODO: We should build a call graph ourselves to enable this in the module
-    // pass as well.
-    if (const Function *F = getAnchorScope())
-      if (A.getInfoCache().getSccSize(*F) != 1)
-        indicatePessimisticFixpoint();
-
-    // If the above check does not hold anymore we look at the calls.
-    auto CheckForNoRecurse = [&](Instruction &I) {
-      const auto &CB = cast<CallBase>(I);
-      if (CB.hasFnAttr(Attribute::NoRecurse))
-        return true;
-
-      const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
-          *this, IRPosition::callsite_function(CB), DepClassTy::REQUIRED);
-      if (!NoRecurseAA.isAssumedNoRecurse())
-        return false;
-
-      // Recursion to the same function
-      if (CB.getCalledFunction() == getAnchorScope())
-        return false;
-
-      return true;
-    };
-
-    bool UsedAssumedInformation = false;
-    if (!A.checkForAllCallLikeInstructions(CheckForNoRecurse, *this,
-                                           UsedAssumedInformation))
+    const AAFunctionReachability &EdgeReachability =
+        A.getAAFor<AAFunctionReachability>(*this, getIRPosition(),
+                                           DepClassTy::REQUIRED);
+    if (EdgeReachability.canPotentiallyReach(*getAnchorScope()))
       return indicatePessimisticFixpoint();
     return ChangeStatus::UNCHANGED;
   }

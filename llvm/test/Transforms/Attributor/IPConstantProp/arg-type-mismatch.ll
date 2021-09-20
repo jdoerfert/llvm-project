@@ -8,25 +8,25 @@
 ; argument type between the caller and callee.
 
 define dso_local i16 @foo(i16 %a) {
-; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@foo
-; NOT_CGSCC_NPM-SAME: (i16 [[A:%.*]]) {
-; NOT_CGSCC_NPM-NEXT:    [[CALL:%.*]] = call i16 bitcast (i16 (i16, i16)* @bar to i16 (i16, i32)*)(i16 [[A]], i32 7)
-; NOT_CGSCC_NPM-NEXT:    ret i16 [[CALL]]
+; IS__TUNIT____: Function Attrs: norecurse
+; IS__TUNIT____-LABEL: define {{[^@]+}}@foo
+; IS__TUNIT____-SAME: (i16 [[A:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-NEXT:    [[CALL:%.*]] = call i16 bitcast (i16 (i16, i16)* @bar to i16 (i16, i32)*)(i16 [[A]], i32 7)
+; IS__TUNIT____-NEXT:    ret i16 [[CALL]]
 ;
-; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone
-; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@foo
-; IS__CGSCC_NPM-SAME: (i16 [[A:%.*]]) #[[ATTR0:[0-9]+]] {
-; IS__CGSCC_NPM-NEXT:    [[CALL:%.*]] = call i16 bitcast (i16 (i16, i16)* @bar to i16 (i16, i32)*)(i16 [[A]], i32 7)
-; IS__CGSCC_NPM-NEXT:    ret i16 [[CALL]]
+; IS__CGSCC____-LABEL: define {{[^@]+}}@foo
+; IS__CGSCC____-SAME: (i16 [[A:%.*]]) {
+; IS__CGSCC____-NEXT:    [[CALL:%.*]] = call i16 bitcast (i16 (i16, i16)* @bar to i16 (i16, i32)*)(i16 [[A]], i32 7)
+; IS__CGSCC____-NEXT:    ret i16 [[CALL]]
 ;
   %call = call i16 bitcast (i16 (i16, i16) * @bar to i16 (i16, i32) *)(i16 %a, i32 7)
   ret i16 %call
 }
 
 define internal i16 @bar(i16 %p1, i16 %p2) {
-; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@bar
-; IS__TUNIT____-SAME: (i16 [[P1:%.*]], i16 returned [[P2:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-SAME: (i16 [[P1:%.*]], i16 returned [[P2:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__TUNIT____-NEXT:    ret i16 [[P2]]
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -44,7 +44,8 @@ define internal i16 @bar(i16 %p1, i16 %p2) {
 
 
 ;.
-; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR0]] = { norecurse }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
 ;.
 ; IS__CGSCC_OPM: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
 ;.

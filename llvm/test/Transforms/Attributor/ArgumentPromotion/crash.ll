@@ -9,7 +9,7 @@
 ; Inlining should nuke the invoke (and any inlined calls) here even with
 ; argument promotion running along with it.
 define void @zot() personality i32 (...)* @wibble {
-; IS__TUNIT____: Function Attrs: nofree noreturn nosync nounwind readnone willreturn
+; IS__TUNIT____: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@zot
 ; IS__TUNIT____-SAME: () #[[ATTR0:[0-9]+]] personality i32 (...)* @wibble {
 ; IS__TUNIT____-NEXT:  bb:
@@ -45,17 +45,11 @@ bb2:
 }
 
 define internal void @hoge() {
-; IS__TUNIT____: Function Attrs: nofree noreturn nosync nounwind readnone willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@hoge
-; IS__TUNIT____-SAME: () #[[ATTR0]] {
-; IS__TUNIT____-NEXT:  bb:
-; IS__TUNIT____-NEXT:    unreachable
-;
-; IS__CGSCC____: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@hoge
-; IS__CGSCC____-SAME: () #[[ATTR0]] {
-; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    unreachable
+; CHECK: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; CHECK-LABEL: define {{[^@]+}}@hoge
+; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
+; CHECK-NEXT:  bb:
+; CHECK-NEXT:    unreachable
 ;
 bb:
   %tmp = call fastcc i8* @spam(i1 (i8*)* @eggs)
@@ -99,7 +93,7 @@ bb:
 }
 
 define i32 @test_inf_promote_caller(i32 %arg) {
-; IS__TUNIT____: Function Attrs: nofree noreturn nosync nounwind readnone willreturn
+; IS__TUNIT____: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test_inf_promote_caller
 ; IS__TUNIT____-SAME: (i32 [[ARG:%.*]]) #[[ATTR0]] {
 ; IS__TUNIT____-NEXT:  bb:
@@ -140,7 +134,7 @@ bb:
 
 declare i32 @wibble(...)
 ;.
-; IS__TUNIT____: attributes #[[ATTR0]] = { nofree noreturn nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR0]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
 ; IS__TUNIT____: attributes #[[ATTR1]] = { noreturn nounwind readnone }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }

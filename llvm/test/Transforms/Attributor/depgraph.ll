@@ -102,6 +102,8 @@ define i32* @checkAndAdvance(i32* align 16 %0) {
 ; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AANoRecurse] for CtxI <<null inst>> at position {fn:checkAndAdvance [checkAndAdvance@-1]} with state may-recurse
 ; GRAPH-EMPTY:
+; GRAPH-NEXT: [AAFunctionReachability] for CtxI <<null inst>> at position {fn:checkAndAdvance [checkAndAdvance@-1]} with state Reachable Fns: #2+0
+; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AAMemoryBehavior] for CtxI <<null inst>> at position {fn:checkAndAdvance [checkAndAdvance@-1]} with state readonly
 ; GRAPH-NEXT:   updates [AAMemoryBehavior] for CtxI '  %2 = load i32, i32* %0, align 4' at position {arg: [@0]} with state readonly
 ; GRAPH-NEXT:   updates [AAMemoryBehavior] for CtxI '  %2 = load i32, i32* %0, align 4' at position {arg: [@0]} with state readonly

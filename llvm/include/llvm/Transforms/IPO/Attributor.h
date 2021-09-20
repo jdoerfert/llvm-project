@@ -907,7 +907,7 @@ struct InformationCache {
             [&](const Function &F) {
               return AG.getAnalysis<PostDominatorTreeAnalysis>(F);
             }),
-        AG(AG), CGSCC(CGSCC), TargetTriple(M.getTargetTriple()) {
+        AG(AG), TargetTriple(M.getTargetTriple()) {
     if (CGSCC)
       initializeModuleSlice(*CGSCC);
   }
@@ -1024,13 +1024,6 @@ struct InformationCache {
     return AG.getAnalysis<AP>(F);
   }
 
-  /// Return SCC size on call graph for function \p F or 0 if unknown.
-  unsigned getSccSize(const Function &F) {
-    if (CGSCC && CGSCC->count(const_cast<Function *>(&F)))
-      return CGSCC->size();
-    return 0;
-  }
-
   /// Return datalayout used in the module.
   const DataLayout &getDL() { return DL; }
 
@@ -1119,9 +1112,6 @@ private:
 
   /// Getters for analysis.
   AnalysisGetter &AG;
-
-  /// The underlying CGSCC, or null if not available.
-  SetVector<Function *> *CGSCC;
 
   /// Set of inlineable functions
   SmallPtrSet<const Function *, 8> InlineableFunctions;

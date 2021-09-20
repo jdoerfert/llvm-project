@@ -59,21 +59,14 @@ ret2:                                           ; preds = %if.then, %entry
 }
 
 define i32 @main(i1 %c) {
-; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@main
-; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR0:[0-9]+]] {
-; IS__TUNIT____-NEXT:    ret i32 99
-;
-; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@main
-; IS__CGSCC____-SAME: (i1 [[C:%.*]]) #[[ATTR0]] {
-; IS__CGSCC____-NEXT:    ret i32 99
+; CHECK: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; CHECK-LABEL: define {{[^@]+}}@main
+; CHECK-SAME: (i1 [[C:%.*]]) #[[ATTR0:[0-9]+]] {
+; CHECK-NEXT:    ret i32 99
 ;
   %res = call i32 @test1(i1 %c)
   ret i32 %res
 }
 ;.
-; IS__TUNIT____: attributes #[[ATTR0]] = { nofree nosync nounwind readnone willreturn }
-;.
-; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
+; CHECK: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
 ;.
