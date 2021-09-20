@@ -241,12 +241,19 @@ bool AA::isValidAtPosition(const Value &V, const Instruction &CtxI,
   const Function *Scope = CtxI.getFunction();
   if (auto *A = dyn_cast<Argument>(&V))
     return A->getParent() == Scope;
-  if (auto *I = dyn_cast<Instruction>(&V))
+  if (auto *I = dyn_cast<Instruction>(&V)) {
     if (I->getFunction() == Scope) {
-      const DominatorTree *DT =
-          InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(*Scope);
-      return DT && DT->dominates(I, &CtxI);
+      if (const DominatorTree *DT =
+              InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(
+                  *Scope))
+        return DT->dominates(I, &CtxI);
+      // Local dominance check mostly for the old PM passes.
+      if (I->getParent() == CtxI.getParent())
+        return llvm::any_of(
+            make_range(I->getIterator(), I->getParent()->end()),
+            [&](const Instruction &AfterI) { return &AfterI == &CtxI; });
     }
+  }
   return false;
 }
 

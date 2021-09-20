@@ -226,6 +226,8 @@ define i32* @checkAndAdvance(i32* align 16 %0) {
 ; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AAIsDead] for CtxI '  ret i32* %.0' at position {flt: [@-1]} with state assumed-live
 ; GRAPH-EMPTY:
+; GRAPH-NEXT: [AAValueSimplify] for CtxI ' %.0 = phi i32* [ %6, %4 ], [ %0, %7 ]' at position {flt:.0 [.0@-1]} with state not-simple
+; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AAIsDead] for CtxI '  %5 = getelementptr inbounds i32, i32* %0, i64 4' at position {flt: [@-1]} with state assumed-live
 ; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AAIsDead] for CtxI '  br label %8' at position {flt: [@-1]} with state assumed-live

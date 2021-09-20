@@ -638,13 +638,14 @@ entry:
 ;
 ; Make sure the returned flag on %r is strong enough to justify nocapture on %b but **not** on %r.
 ;
+; FIXME: Technically we could replace %call in the return with %r.
 define i32* @not_captured_by_readonly_call_not_returned_either1(i32* %b, i32* returned %r) {
 ; CHECK: Function Attrs: nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@not_captured_by_readonly_call_not_returned_either1
 ; CHECK-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR8:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR8]]
-; CHECK-NEXT:    ret i32* [[R]]
+; CHECK-NEXT:    ret i32* [[CALL]]
 ;
 entry:
   %call = call i32* @readonly_unknown(i32* %b, i32* %r) nounwind
