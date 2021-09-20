@@ -35,6 +35,7 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
@@ -803,6 +804,10 @@ struct OpenMPOpt {
       }
     }
 
+    LLVM_DEBUG({
+      for (Function &F : M)
+        assert(!verifyFunction(F, &errs()) && "Function verification failed!");
+    });
     return Changed;
   }
 
