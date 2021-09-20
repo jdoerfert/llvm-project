@@ -191,7 +191,7 @@ bool AA::isDynamicallyUnique(Attributor &A, const AbstractAttribute &QueryingAA,
     return !C->isThreadDependent();
   // TODO: Inspect and cache more complex instructions.
   if (auto *CB = dyn_cast<CallBase>(&V))
-    return CB->getNumOperands() == 0 && !CB->mayHaveSideEffects() &&
+    return CB->getNumArgOperands() == 0 && !CB->mayHaveSideEffects() &&
            !CB->mayReadFromMemory();
   const Function *Scope = nullptr;
   if (auto *I = dyn_cast<Instruction>(&V))

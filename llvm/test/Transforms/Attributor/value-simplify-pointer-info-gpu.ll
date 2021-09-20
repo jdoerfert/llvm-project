@@ -16,6 +16,7 @@ target triple = "amdgcn-amd-amdhsa"
 ; CHECK: @[[REACHABLEKERNELAS0:[a-zA-Z0-9_$"\\.-]+]] = internal global i32 0, align 4
 ; CHECK: @[[REACHABLENONKERNEL:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global i32 0, align 4
 ; CHECK: @[[UNREACHABLENONKERNEL:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global i32 0, align 4
+; CHECK: @[[STORAGE:[a-zA-Z0-9_$"\\.-]+]] = internal global i32 undef
 ;.
 define dso_local void @kernel(i32 %C) norecurse "kernel" {
 ; IS__TUNIT____: Function Attrs: norecurse nosync nounwind
@@ -29,7 +30,7 @@ define dso_local void @kernel(i32 %C) norecurse "kernel" {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@kernel
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    call void @level1Kernel(i32 [[C]]) #[[ATTR3:[0-9]+]]
+; IS__CGSCC____-NEXT:    call void @level1Kernel(i32 [[C]]) #[[ATTR6:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret void
 ;
 entry:
@@ -42,34 +43,34 @@ define internal void @level1Kernel(i32 %C) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@level1Kernel
 ; IS__TUNIT____-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    call void @level2Kernelall_early() #[[ATTR3:[0-9]+]]
+; IS__TUNIT____-NEXT:    call void @level2Kernelall_early() #[[ATTR6:[0-9]+]]
 ; IS__TUNIT____-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[C]], 0
 ; IS__TUNIT____-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; IS__TUNIT____:       if.then:
-; IS__TUNIT____-NEXT:    call void @level2Kernela() #[[ATTR4:[0-9]+]]
+; IS__TUNIT____-NEXT:    call void @level2Kernela() #[[ATTR7:[0-9]+]]
 ; IS__TUNIT____-NEXT:    br label [[IF_END:%.*]]
 ; IS__TUNIT____:       if.else:
-; IS__TUNIT____-NEXT:    call void @level2Kernelb() #[[ATTR4]]
+; IS__TUNIT____-NEXT:    call void @level2Kernelb() #[[ATTR7]]
 ; IS__TUNIT____-NEXT:    br label [[IF_END]]
 ; IS__TUNIT____:       if.end:
-; IS__TUNIT____-NEXT:    call void @level2Kernelall_late() #[[ATTR5:[0-9]+]]
+; IS__TUNIT____-NEXT:    call void @level2Kernelall_late() #[[ATTR8:[0-9]+]]
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____: Function Attrs: norecurse nosync nounwind
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@level1Kernel
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]]) #[[ATTR1:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    call void @level2Kernelall_early() #[[ATTR4:[0-9]+]]
+; IS__CGSCC____-NEXT:    call void @level2Kernelall_early() #[[ATTR7:[0-9]+]]
 ; IS__CGSCC____-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[C]], 0
 ; IS__CGSCC____-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; IS__CGSCC____:       if.then:
-; IS__CGSCC____-NEXT:    call void @level2Kernela() #[[ATTR3]]
+; IS__CGSCC____-NEXT:    call void @level2Kernela() #[[ATTR6]]
 ; IS__CGSCC____-NEXT:    br label [[IF_END:%.*]]
 ; IS__CGSCC____:       if.else:
-; IS__CGSCC____-NEXT:    call void @level2Kernelb() #[[ATTR3]]
+; IS__CGSCC____-NEXT:    call void @level2Kernelb() #[[ATTR6]]
 ; IS__CGSCC____-NEXT:    br label [[IF_END]]
 ; IS__CGSCC____:       if.end:
-; IS__CGSCC____-NEXT:    call void @level2Kernelall_late() #[[ATTR5:[0-9]+]]
+; IS__CGSCC____-NEXT:    call void @level2Kernelall_late() #[[ATTR8:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret void
 ;
 entry:
@@ -112,7 +113,7 @@ define internal void @level2Kernela() {
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableKernel to i32*), align 4
 ; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = load i32, i32* @ReachableKernelAS0, align 4
-; IS__TUNIT____-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 noundef 0) #[[ATTR6:[0-9]+]]
+; IS__TUNIT____-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 noundef 0) #[[ATTR9:[0-9]+]]
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____: Function Attrs: norecurse nosync nounwind
@@ -122,7 +123,7 @@ define internal void @level2Kernela() {
 ; IS__CGSCC____-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableKernel to i32*), align 4
 ; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = load i32, i32* @ReachableKernelAS0, align 4
 ; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableKernel to i32*), align 4
-; IS__CGSCC____-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 0) #[[ATTR3]]
+; IS__CGSCC____-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 0) #[[ATTR6]]
 ; IS__CGSCC____-NEXT:    ret void
 ;
 entry:
@@ -140,7 +141,7 @@ define internal void @level2Kernelb() {
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableKernel to i32*), align 4
 ; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = load i32, i32* @ReachableKernelAS0, align 4
-; IS__TUNIT____-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 noundef 0) #[[ATTR6]]
+; IS__TUNIT____-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 noundef 0) #[[ATTR9]]
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____: Function Attrs: norecurse nosync nounwind
@@ -150,7 +151,7 @@ define internal void @level2Kernelb() {
 ; IS__CGSCC____-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableKernel to i32*), align 4
 ; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = load i32, i32* @ReachableKernelAS0, align 4
 ; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableKernel to i32*), align 4
-; IS__CGSCC____-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 0) #[[ATTR3]]
+; IS__CGSCC____-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 0) #[[ATTR6]]
 ; IS__CGSCC____-NEXT:    ret void
 ;
 entry:
@@ -188,7 +189,7 @@ define dso_local void @non_kernel(i32 %C) norecurse {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@non_kernel
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    call void @level1(i32 [[C]]) #[[ATTR3]]
+; IS__CGSCC____-NEXT:    call void @level1(i32 [[C]]) #[[ATTR6]]
 ; IS__CGSCC____-NEXT:    ret void
 ;
 entry:
@@ -202,17 +203,17 @@ define internal void @level1(i32 %C) {
 ; IS__TUNIT_OPM-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    [[LOCAL:%.*]] = alloca i32, align 4
-; IS__TUNIT_OPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR3]]
+; IS__TUNIT_OPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR6]]
 ; IS__TUNIT_OPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[C]], 0
 ; IS__TUNIT_OPM-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; IS__TUNIT_OPM:       if.then:
-; IS__TUNIT_OPM-NEXT:    call void @level2a(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR4]]
+; IS__TUNIT_OPM-NEXT:    call void @level2a(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR7]]
 ; IS__TUNIT_OPM-NEXT:    br label [[IF_END:%.*]]
 ; IS__TUNIT_OPM:       if.else:
-; IS__TUNIT_OPM-NEXT:    call void @level2b(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR4]]
+; IS__TUNIT_OPM-NEXT:    call void @level2b(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR7]]
 ; IS__TUNIT_OPM-NEXT:    br label [[IF_END]]
 ; IS__TUNIT_OPM:       if.end:
-; IS__TUNIT_OPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR5]]
+; IS__TUNIT_OPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR8]]
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM: Function Attrs: norecurse nosync nounwind
@@ -220,19 +221,19 @@ define internal void @level1(i32 %C) {
 ; IS__TUNIT_NPM-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__TUNIT_NPM-NEXT:  entry:
 ; IS__TUNIT_NPM-NEXT:    [[LOCAL:%.*]] = alloca i32, align 4
-; IS__TUNIT_NPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR3]]
+; IS__TUNIT_NPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR6]]
 ; IS__TUNIT_NPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[C]], 0
 ; IS__TUNIT_NPM-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; IS__TUNIT_NPM:       if.then:
 ; IS__TUNIT_NPM-NEXT:    [[TMP0:%.*]] = load i32, i32* [[LOCAL]], align 4
-; IS__TUNIT_NPM-NEXT:    call void @level2a(i32 [[TMP0]]) #[[ATTR4]]
+; IS__TUNIT_NPM-NEXT:    call void @level2a(i32 [[TMP0]]) #[[ATTR7]]
 ; IS__TUNIT_NPM-NEXT:    br label [[IF_END:%.*]]
 ; IS__TUNIT_NPM:       if.else:
 ; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* [[LOCAL]], align 4
-; IS__TUNIT_NPM-NEXT:    call void @level2b(i32 [[TMP1]]) #[[ATTR4]]
+; IS__TUNIT_NPM-NEXT:    call void @level2b(i32 [[TMP1]]) #[[ATTR7]]
 ; IS__TUNIT_NPM-NEXT:    br label [[IF_END]]
 ; IS__TUNIT_NPM:       if.end:
-; IS__TUNIT_NPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR5]]
+; IS__TUNIT_NPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR8]]
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM: Function Attrs: norecurse nosync nounwind
@@ -240,17 +241,17 @@ define internal void @level1(i32 %C) {
 ; IS__CGSCC_OPM-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC_OPM-NEXT:  entry:
 ; IS__CGSCC_OPM-NEXT:    [[LOCAL:%.*]] = alloca i32, align 4
-; IS__CGSCC_OPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR4]]
+; IS__CGSCC_OPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR7]]
 ; IS__CGSCC_OPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[C]], 0
 ; IS__CGSCC_OPM-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; IS__CGSCC_OPM:       if.then:
-; IS__CGSCC_OPM-NEXT:    call void @level2a(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR3]]
+; IS__CGSCC_OPM-NEXT:    call void @level2a(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR6]]
 ; IS__CGSCC_OPM-NEXT:    br label [[IF_END:%.*]]
 ; IS__CGSCC_OPM:       if.else:
-; IS__CGSCC_OPM-NEXT:    call void @level2b(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR3]]
+; IS__CGSCC_OPM-NEXT:    call void @level2b(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR6]]
 ; IS__CGSCC_OPM-NEXT:    br label [[IF_END]]
 ; IS__CGSCC_OPM:       if.end:
-; IS__CGSCC_OPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR5]]
+; IS__CGSCC_OPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR8]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM: Function Attrs: norecurse nosync nounwind
@@ -258,17 +259,17 @@ define internal void @level1(i32 %C) {
 ; IS__CGSCC_NPM-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC_NPM-NEXT:  entry:
 ; IS__CGSCC_NPM-NEXT:    [[LOCAL:%.*]] = alloca i32, align 4
-; IS__CGSCC_NPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR4]]
+; IS__CGSCC_NPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR7]]
 ; IS__CGSCC_NPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[C]], 0
 ; IS__CGSCC_NPM-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; IS__CGSCC_NPM:       if.then:
-; IS__CGSCC_NPM-NEXT:    call void @level2a(i32 undef) #[[ATTR3]]
+; IS__CGSCC_NPM-NEXT:    call void @level2a(i32 undef) #[[ATTR6]]
 ; IS__CGSCC_NPM-NEXT:    br label [[IF_END:%.*]]
 ; IS__CGSCC_NPM:       if.else:
-; IS__CGSCC_NPM-NEXT:    call void @level2b(i32 undef) #[[ATTR6:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    call void @level2b(i32 undef) #[[ATTR9:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    br label [[IF_END]]
 ; IS__CGSCC_NPM:       if.end:
-; IS__CGSCC_NPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR7:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR10:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
 entry:
@@ -320,7 +321,7 @@ define internal void @level2a(i32* %addr) {
 ; IS__TUNIT_OPM-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__TUNIT_OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ADDR]], align 4
-; IS__TUNIT_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR6]]
+; IS__TUNIT_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR9]]
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM: Function Attrs: norecurse nosync nounwind
@@ -332,7 +333,7 @@ define internal void @level2a(i32* %addr) {
 ; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__TUNIT_NPM-NEXT:    [[TMP2:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[ADDR_PRIV]], align 4
-; IS__TUNIT_NPM-NEXT:    call void @use(i32 [[TMP1]], i32 [[TMP2]], i32 [[TMP3]]) #[[ATTR6]]
+; IS__TUNIT_NPM-NEXT:    call void @use(i32 [[TMP1]], i32 [[TMP2]], i32 [[TMP3]]) #[[ATTR9]]
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM: Function Attrs: norecurse nosync nounwind
@@ -342,7 +343,7 @@ define internal void @level2a(i32* %addr) {
 ; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ADDR]], align 4
-; IS__CGSCC_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR3]]
+; IS__CGSCC_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR6]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM: Function Attrs: norecurse nosync nounwind
@@ -353,7 +354,7 @@ define internal void @level2a(i32* %addr) {
 ; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[ADDR_PRIV]], align 4
-; IS__CGSCC_NPM-NEXT:    call void @use(i32 [[TMP1]], i32 [[TMP2]], i32 3) #[[ATTR3]]
+; IS__CGSCC_NPM-NEXT:    call void @use(i32 [[TMP1]], i32 [[TMP2]], i32 3) #[[ATTR6]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
 entry:
@@ -372,7 +373,7 @@ define internal void @level2b(i32* %addr) {
 ; IS__TUNIT_OPM-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__TUNIT_OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ADDR]], align 4
-; IS__TUNIT_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR6]]
+; IS__TUNIT_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR9]]
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM: Function Attrs: norecurse nosync nounwind
@@ -384,7 +385,7 @@ define internal void @level2b(i32* %addr) {
 ; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__TUNIT_NPM-NEXT:    [[TMP2:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[ADDR_PRIV]], align 4
-; IS__TUNIT_NPM-NEXT:    call void @use(i32 [[TMP1]], i32 [[TMP2]], i32 [[TMP3]]) #[[ATTR6]]
+; IS__TUNIT_NPM-NEXT:    call void @use(i32 [[TMP1]], i32 [[TMP2]], i32 [[TMP3]]) #[[ATTR9]]
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM: Function Attrs: norecurse nosync nounwind
@@ -394,7 +395,7 @@ define internal void @level2b(i32* %addr) {
 ; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ADDR]], align 4
-; IS__CGSCC_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR3]]
+; IS__CGSCC_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR6]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM: Function Attrs: norecurse nosync nounwind
@@ -405,7 +406,7 @@ define internal void @level2b(i32* %addr) {
 ; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[ADDR_PRIV]], align 4
-; IS__CGSCC_NPM-NEXT:    call void @use(i32 [[TMP1]], i32 [[TMP2]], i32 3) #[[ATTR3]]
+; IS__CGSCC_NPM-NEXT:    call void @use(i32 [[TMP1]], i32 [[TMP2]], i32 3) #[[ATTR6]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
 entry:
@@ -440,28 +441,71 @@ entry:
 
 declare dso_local void @use(i32, i32, i32) nosync norecurse nounwind
 
+@Storage = internal global i32 undef
+
+define void @setter() {
+; CHECK: Function Attrs: norecurse nosync nounwind writeonly
+; CHECK-LABEL: define {{[^@]+}}@setter
+; CHECK-SAME: () #[[ATTR3:[0-9]+]] {
+; CHECK-NEXT:    [[INTR:%.*]] = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+; CHECK-NEXT:    [[DIV:%.*]] = sdiv i32 [[INTR]], 2
+; CHECK-NEXT:    [[COMPUTE:%.*]] = add i32 [[INTR]], [[DIV]]
+; CHECK-NEXT:    store i32 [[COMPUTE]], i32* @Storage, align 4
+; CHECK-NEXT:    ret void
+;
+  %intr = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+  %div = sdiv i32 %intr, 2
+  %compute = add i32 %intr, %div
+  store i32 %compute, i32* @Storage
+  ret void
+}
+
+define i32 @getter() {
+; CHECK: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
+; CHECK-LABEL: define {{[^@]+}}@getter
+; CHECK-SAME: () #[[ATTR4:[0-9]+]] {
+; CHECK-NEXT:    [[TMP1:%.*]] = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+; CHECK-NEXT:    [[TMP2:%.*]] = sdiv i32 [[TMP1]], 2
+; CHECK-NEXT:    [[TMP3:%.*]] = add i32 [[TMP1]], [[TMP2]]
+; CHECK-NEXT:    ret i32 [[TMP3]]
+;
+  %l = load i32, i32* @Storage
+  ret i32 %l
+}
+
+declare i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+
 ;.
 ; IS__TUNIT____: attributes #[[ATTR0]] = { norecurse nosync nounwind "kernel" }
 ; IS__TUNIT____: attributes #[[ATTR1]] = { norecurse nosync nounwind }
 ; IS__TUNIT____: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind willreturn writeonly }
-; IS__TUNIT____: attributes #[[ATTR3]] = { nofree nosync nounwind willreturn writeonly }
-; IS__TUNIT____: attributes #[[ATTR4]] = { nosync nounwind }
-; IS__TUNIT____: attributes #[[ATTR5]] = { nosync nounwind writeonly }
-; IS__TUNIT____: attributes #[[ATTR6]] = { nounwind }
+; IS__TUNIT____: attributes #[[ATTR3]] = { norecurse nosync nounwind writeonly }
+; IS__TUNIT____: attributes #[[ATTR4]] = { nofree norecurse nosync nounwind readonly willreturn }
+; IS__TUNIT____: attributes #[[ATTR5:[0-9]+]] = { nounwind readnone speculatable }
+; IS__TUNIT____: attributes #[[ATTR6]] = { nofree nosync nounwind willreturn writeonly }
+; IS__TUNIT____: attributes #[[ATTR7]] = { nosync nounwind }
+; IS__TUNIT____: attributes #[[ATTR8]] = { nosync nounwind writeonly }
+; IS__TUNIT____: attributes #[[ATTR9]] = { nounwind }
 ;.
 ; IS__CGSCC_OPM: attributes #[[ATTR0]] = { norecurse nosync nounwind "kernel" }
 ; IS__CGSCC_OPM: attributes #[[ATTR1]] = { norecurse nosync nounwind }
 ; IS__CGSCC_OPM: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind willreturn writeonly }
-; IS__CGSCC_OPM: attributes #[[ATTR3]] = { nounwind }
-; IS__CGSCC_OPM: attributes #[[ATTR4]] = { nounwind willreturn writeonly }
-; IS__CGSCC_OPM: attributes #[[ATTR5]] = { nounwind writeonly }
+; IS__CGSCC_OPM: attributes #[[ATTR3]] = { norecurse nosync nounwind writeonly }
+; IS__CGSCC_OPM: attributes #[[ATTR4]] = { nofree norecurse nosync nounwind readonly willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR5:[0-9]+]] = { nounwind readnone speculatable }
+; IS__CGSCC_OPM: attributes #[[ATTR6]] = { nounwind }
+; IS__CGSCC_OPM: attributes #[[ATTR7]] = { nounwind willreturn writeonly }
+; IS__CGSCC_OPM: attributes #[[ATTR8]] = { nounwind writeonly }
 ;.
 ; IS__CGSCC_NPM: attributes #[[ATTR0]] = { norecurse nosync nounwind "kernel" }
 ; IS__CGSCC_NPM: attributes #[[ATTR1]] = { norecurse nosync nounwind }
 ; IS__CGSCC_NPM: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind willreturn writeonly }
-; IS__CGSCC_NPM: attributes #[[ATTR3]] = { nounwind }
-; IS__CGSCC_NPM: attributes #[[ATTR4]] = { nounwind willreturn writeonly }
-; IS__CGSCC_NPM: attributes #[[ATTR5]] = { nounwind writeonly }
-; IS__CGSCC_NPM: attributes #[[ATTR6]] = { nosync nounwind }
-; IS__CGSCC_NPM: attributes #[[ATTR7]] = { nosync nounwind writeonly }
+; IS__CGSCC_NPM: attributes #[[ATTR3]] = { norecurse nosync nounwind writeonly }
+; IS__CGSCC_NPM: attributes #[[ATTR4]] = { nofree norecurse nosync nounwind readonly willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR5:[0-9]+]] = { nounwind readnone speculatable }
+; IS__CGSCC_NPM: attributes #[[ATTR6]] = { nounwind }
+; IS__CGSCC_NPM: attributes #[[ATTR7]] = { nounwind willreturn writeonly }
+; IS__CGSCC_NPM: attributes #[[ATTR8]] = { nounwind writeonly }
+; IS__CGSCC_NPM: attributes #[[ATTR9]] = { nosync nounwind }
+; IS__CGSCC_NPM: attributes #[[ATTR10]] = { nosync nounwind writeonly }
 ;.
