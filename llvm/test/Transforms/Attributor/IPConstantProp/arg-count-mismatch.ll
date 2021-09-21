@@ -84,12 +84,18 @@ define internal i16 @bar2(i16 %p1, i16 %p2) {
 ; been provided),
 
 define dso_local i16 @vararg_tests(i16 %a) {
-; CHECK: Function Attrs: norecurse
-; CHECK-LABEL: define {{[^@]+}}@vararg_tests
-; CHECK-SAME: (i16 [[A:%.*]]) #[[ATTR0]] {
-; CHECK-NEXT:    [[CALL2:%.*]] = call i16 bitcast (i16 (i16, i16, ...)* @vararg_no_prop to i16 (i16)*)(i16 noundef 7)
-; CHECK-NEXT:    [[ADD:%.*]] = add i16 7, [[CALL2]]
-; CHECK-NEXT:    ret i16 [[ADD]]
+; NOT_CGSCC_NPM: Function Attrs: norecurse
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@vararg_tests
+; NOT_CGSCC_NPM-SAME: (i16 [[A:%.*]]) #[[ATTR0]] {
+; NOT_CGSCC_NPM-NEXT:    [[CALL2:%.*]] = call i16 bitcast (i16 (i16, i16, ...)* @vararg_no_prop to i16 (i16)*)(i16 noundef 7)
+; NOT_CGSCC_NPM-NEXT:    [[ADD:%.*]] = add i16 7, [[CALL2]]
+; NOT_CGSCC_NPM-NEXT:    ret i16 [[ADD]]
+;
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@vararg_tests
+; IS__CGSCC_NPM-SAME: (i16 [[A:%.*]]) {
+; IS__CGSCC_NPM-NEXT:    [[CALL2:%.*]] = call i16 bitcast (i16 (i16, i16, ...)* @vararg_no_prop to i16 (i16)*)(i16 noundef 7)
+; IS__CGSCC_NPM-NEXT:    [[ADD:%.*]] = add i16 7, [[CALL2]]
+; IS__CGSCC_NPM-NEXT:    ret i16 [[ADD]]
 ;
   %call1 = call i16 (i16, ...) @vararg_prop(i16 7, i16 8, i16 %a)
   %call2 = call i16 bitcast (i16 (i16, i16, ...) * @vararg_no_prop to i16 (i16) *) (i16 7)

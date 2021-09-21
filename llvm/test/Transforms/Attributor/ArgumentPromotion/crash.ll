@@ -24,7 +24,7 @@ define void @zot() personality i32 (...)* @wibble {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@zot
 ; IS__CGSCC____-SAME: () #[[ATTR0:[0-9]+]] personality i32 (...)* @wibble {
 ; IS__CGSCC____-NEXT:  bb:
-; IS__CGSCC____-NEXT:    call void @hoge() #[[ATTR3:[0-9]+]]
+; IS__CGSCC____-NEXT:    call void @hoge() #[[ATTR4:[0-9]+]]
 ; IS__CGSCC____-NEXT:    unreachable
 ; IS__CGSCC____:       bb1:
 ; IS__CGSCC____-NEXT:    unreachable
@@ -116,9 +116,9 @@ bb:
 }
 
 define internal i32 @test_inf_promote_callee(%S* %arg, %S* %arg1) {
-; IS__CGSCC____: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; IS__CGSCC____: Function Attrs: nofree noreturn nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test_inf_promote_callee
-; IS__CGSCC____-SAME: () #[[ATTR0]] {
+; IS__CGSCC____-SAME: () #[[ATTR3:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  bb:
 ; IS__CGSCC____-NEXT:    unreachable
 ;
@@ -140,5 +140,6 @@ declare i32 @wibble(...)
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
 ; IS__CGSCC____: attributes #[[ATTR1]] = { norecurse }
 ; IS__CGSCC____: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR3]] = { noreturn nounwind readnone }
+; IS__CGSCC____: attributes #[[ATTR3]] = { nofree noreturn nosync nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR4]] = { noreturn nounwind readnone }
 ;.

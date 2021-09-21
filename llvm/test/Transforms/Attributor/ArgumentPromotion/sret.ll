@@ -9,27 +9,12 @@ target triple = "x86_64-pc-windows-msvc"
 
 define internal void @add({i32, i32}* %this, i32* sret(i32) %r) {
 ;
-; IS________OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
-; IS________OPM-LABEL: define {{[^@]+}}@add
-; IS________OPM-SAME: ({ i32, i32 }* nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[THIS:%.*]], i32* nocapture nofree noundef nonnull writeonly sret(i32) align 4 dereferenceable(4) [[R:%.*]]) #[[ATTR0:[0-9]+]] {
-; IS________OPM-NEXT:    [[AP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 0
-; IS________OPM-NEXT:    [[BP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 1
-; IS________OPM-NEXT:    [[A:%.*]] = load i32, i32* [[AP]], align 8
-; IS________OPM-NEXT:    [[B:%.*]] = load i32, i32* [[BP]], align 4
-; IS________OPM-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
-; IS________OPM-NEXT:    store i32 [[AB]], i32* [[R]], align 4
-; IS________OPM-NEXT:    ret void
-;
-; IS________NPM: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
-; IS________NPM-LABEL: define {{[^@]+}}@add
-; IS________NPM-SAME: ({ i32, i32 }* noalias nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[THIS:%.*]], i32* noalias nocapture nofree noundef nonnull writeonly sret(i32) align 4 dereferenceable(4) [[R:%.*]]) #[[ATTR0:[0-9]+]] {
-; IS________NPM-NEXT:    [[AP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 0
-; IS________NPM-NEXT:    [[BP:%.*]] = getelementptr { i32, i32 }, { i32, i32 }* [[THIS]], i32 0, i32 1
-; IS________NPM-NEXT:    [[A:%.*]] = load i32, i32* [[AP]], align 8
-; IS________NPM-NEXT:    [[B:%.*]] = load i32, i32* [[BP]], align 4
-; IS________NPM-NEXT:    [[AB:%.*]] = add i32 [[A]], [[B]]
-; IS________NPM-NEXT:    store i32 [[AB]], i32* [[R]], align 4
-; IS________NPM-NEXT:    ret void
+; CHECK: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn writeonly
+; CHECK-LABEL: define {{[^@]+}}@add
+; CHECK-SAME: ({ i32, i32 }* noalias nocapture nofree nonnull readnone align 8 dereferenceable(8) [[THIS:%.*]], i32* noalias nocapture nofree noundef nonnull writeonly sret(i32) align 4 dereferenceable(4) [[R:%.*]]) #[[ATTR0:[0-9]+]] {
+; CHECK-NEXT:    [[AB:%.*]] = add i32 undef, undef
+; CHECK-NEXT:    store i32 [[AB]], i32* [[R]], align 4
+; CHECK-NEXT:    ret void
 ;
   %ap = getelementptr {i32, i32}, {i32, i32}* %this, i32 0, i32 0
   %bp = getelementptr {i32, i32}, {i32, i32}* %this, i32 0, i32 1
@@ -41,21 +26,12 @@ define internal void @add({i32, i32}* %this, i32* sret(i32) %r) {
 }
 
 define void @f() {
-; IS________OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; IS________OPM-LABEL: define {{[^@]+}}@f
-; IS________OPM-SAME: () #[[ATTR1:[0-9]+]] {
-; IS________OPM-NEXT:    [[R:%.*]] = alloca i32, align 4
-; IS________OPM-NEXT:    [[PAIR:%.*]] = alloca { i32, i32 }, align 8
-; IS________OPM-NEXT:    call void @add({ i32, i32 }* nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[PAIR]], i32* nocapture nofree noundef nonnull writeonly sret(i32) align 4 dereferenceable(4) [[R]]) #[[ATTR2:[0-9]+]]
-; IS________OPM-NEXT:    ret void
-;
-; IS________NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; IS________NPM-LABEL: define {{[^@]+}}@f
-; IS________NPM-SAME: () #[[ATTR1:[0-9]+]] {
-; IS________NPM-NEXT:    [[R:%.*]] = alloca i32, align 4
-; IS________NPM-NEXT:    [[PAIR:%.*]] = alloca { i32, i32 }, align 8
-; IS________NPM-NEXT:    call void @add({ i32, i32 }* noalias nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[PAIR]], i32* noalias nocapture nofree noundef nonnull writeonly sret(i32) align 4 dereferenceable(4) [[R]]) #[[ATTR2:[0-9]+]]
-; IS________NPM-NEXT:    ret void
+; CHECK: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; CHECK-LABEL: define {{[^@]+}}@f
+; CHECK-SAME: () #[[ATTR1:[0-9]+]] {
+; CHECK-NEXT:    [[R:%.*]] = alloca i32, align 4
+; CHECK-NEXT:    call void @add({ i32, i32 }* noalias nocapture nofree nonnull readnone align 8 dereferenceable(8) undef, i32* noalias nocapture nofree noundef nonnull writeonly sret(i32) align 4 dereferenceable(4) [[R]]) #[[ATTR2:[0-9]+]]
+; CHECK-NEXT:    ret void
 ;
   %r = alloca i32
   %pair = alloca {i32, i32}
@@ -64,11 +40,11 @@ define void @f() {
   ret void
 }
 ;.
-; IS__TUNIT____: attributes #[[ATTR0:[0-9]+]] = { argmemonly nofree norecurse nosync nounwind willreturn }
-; IS__TUNIT____: attributes #[[ATTR1:[0-9]+]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__TUNIT____: attributes #[[ATTR2:[0-9]+]] = { nofree nosync nounwind willreturn }
+; IS__TUNIT____: attributes #[[ATTR0]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn writeonly }
 ;.
-; IS__CGSCC____: attributes #[[ATTR0:[0-9]+]] = { argmemonly nofree norecurse nosync nounwind willreturn }
-; IS__CGSCC____: attributes #[[ATTR1:[0-9]+]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR2:[0-9]+]] = { nounwind willreturn }
+; IS__CGSCC____: attributes #[[ATTR0]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
+; IS__CGSCC____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR2]] = { nounwind willreturn writeonly }
 ;.

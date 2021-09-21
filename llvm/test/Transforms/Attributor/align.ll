@@ -86,20 +86,30 @@ define i32* @test5_2() {
 ; TEST 6
 ; SCC
 define i32* @test6_1() #0 {
-; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
-; CHECK-LABEL: define {{[^@]+}}@test6_1
-; CHECK-SAME: () #[[ATTR1:[0-9]+]] {
-; CHECK-NEXT:    unreachable
+; NOT_CGSCC_NPM: Function Attrs: nofree noinline noreturn nosync nounwind readnone uwtable willreturn
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@test6_1
+; NOT_CGSCC_NPM-SAME: () #[[ATTR1:[0-9]+]] {
+; NOT_CGSCC_NPM-NEXT:    unreachable
+;
+; IS__CGSCC_NPM: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test6_1
+; IS__CGSCC_NPM-SAME: () #[[ATTR1:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:    unreachable
 ;
   %ret = tail call i32* @test6_2()
   ret i32* %ret
 }
 
 define i32* @test6_2() #0 {
-; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
-; CHECK-LABEL: define {{[^@]+}}@test6_2
-; CHECK-SAME: () #[[ATTR1]] {
-; CHECK-NEXT:    unreachable
+; NOT_CGSCC_NPM: Function Attrs: nofree noinline noreturn nosync nounwind readnone uwtable willreturn
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@test6_2
+; NOT_CGSCC_NPM-SAME: () #[[ATTR1]] {
+; NOT_CGSCC_NPM-NEXT:    unreachable
+;
+; IS__CGSCC_NPM: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test6_2
+; IS__CGSCC_NPM-SAME: () #[[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:    unreachable
 ;
   %ret = tail call i32* @test6_1()
   ret i32* %ret
@@ -1087,7 +1097,7 @@ attributes #1 = { uwtable noinline }
 attributes #2 = { null_pointer_is_valid }
 ;.
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
-; IS__TUNIT____: attributes #[[ATTR1]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nofree noinline noreturn nosync nounwind readnone uwtable willreturn }
 ; IS__TUNIT____: attributes #[[ATTR2]] = { nounwind }
 ; IS__TUNIT____: attributes #[[ATTR3]] = { nofree nosync nounwind }
 ; IS__TUNIT____: attributes #[[ATTR4]] = { argmemonly nofree norecurse nosync nounwind readonly willreturn }
@@ -1100,7 +1110,7 @@ attributes #2 = { null_pointer_is_valid }
 ; IS__TUNIT____: attributes #[[ATTR11]] = { nofree nosync nounwind readonly willreturn }
 ;.
 ; IS__CGSCC_OPM: attributes #[[ATTR0]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR1]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR1]] = { nofree noinline noreturn nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR2]] = { noinline nounwind uwtable }
 ; IS__CGSCC_OPM: attributes #[[ATTR3]] = { nounwind }
 ; IS__CGSCC_OPM: attributes #[[ATTR4]] = { nofree nosync nounwind }

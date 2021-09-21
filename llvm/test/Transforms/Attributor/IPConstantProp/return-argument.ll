@@ -6,21 +6,7 @@
 
 ;; This function returns its second argument on all return statements
 define internal i32* @incdec(i1 %C, i32* %V) {
-; IS__TUNIT____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@incdec
-; IS__TUNIT____-SAME: (i1 [[C:%.*]], i32* noalias nofree noundef nonnull returned align 4 dereferenceable(4) "no-capture-maybe-returned" [[V:%.*]]) #[[ATTR0:[0-9]+]] {
-; IS__TUNIT____-NEXT:    [[X:%.*]] = load i32, i32* [[V]], align 4
-; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
-; IS__TUNIT____:       T:
-; IS__TUNIT____-NEXT:    [[X1:%.*]] = add i32 [[X]], 1
-; IS__TUNIT____-NEXT:    store i32 [[X1]], i32* [[V]], align 4
-; IS__TUNIT____-NEXT:    ret i32* [[V]]
-; IS__TUNIT____:       F:
-; IS__TUNIT____-NEXT:    [[X2:%.*]] = sub i32 [[X]], 1
-; IS__TUNIT____-NEXT:    store i32 [[X2]], i32* [[V]], align 4
-; IS__TUNIT____-NEXT:    ret i32* [[V]]
-;
-; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
+; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@incdec
 ; IS__CGSCC____-SAME: (i1 [[C:%.*]], i32* noalias nofree noundef nonnull align 4 dereferenceable(4) "no-capture-maybe-returned" [[V:%.*]]) #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:    [[X:%.*]] = load i32, i32* [[V]], align 4
@@ -53,7 +39,7 @@ F:              ; preds = %0
 define internal { i32, i32 } @foo(i32 %A, i32 %B) {
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; CHECK-LABEL: define {{[^@]+}}@foo
-; CHECK-SAME: (i32 noundef [[A:%.*]], i32 noundef [[B:%.*]]) #[[ATTR1:[0-9]+]] {
+; CHECK-SAME: (i32 noundef [[A:%.*]], i32 noundef [[B:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:    [[X:%.*]] = add i32 [[A]], [[B]]
 ; CHECK-NEXT:    [[Y:%.*]] = insertvalue { i32, i32 } undef, i32 [[A]], 0
 ; CHECK-NEXT:    [[Z:%.*]] = insertvalue { i32, i32 } [[Y]], i32 [[X]], 1
@@ -68,12 +54,11 @@ define internal { i32, i32 } @foo(i32 %A, i32 %B) {
 define void @caller(i1 %C) personality i32 (...)* @__gxx_personality_v0 {
 ; IS__TUNIT____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@caller
-; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR1]] personality i32 (...)* @__gxx_personality_v0 {
+; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR0]] personality i32 (...)* @__gxx_personality_v0 {
 ; IS__TUNIT____-NEXT:    [[Q:%.*]] = alloca i32, align 4
-; IS__TUNIT____-NEXT:    [[W:%.*]] = call align 4 i32* @incdec(i1 [[C]], i32* noalias nofree noundef nonnull align 4 dereferenceable(4) "no-capture-maybe-returned" [[Q]]) #[[ATTR2:[0-9]+]]
-; IS__TUNIT____-NEXT:    [[S1:%.*]] = call { i32, i32 } @foo(i32 noundef 1, i32 noundef 2) #[[ATTR3:[0-9]+]]
+; IS__TUNIT____-NEXT:    [[S1:%.*]] = call { i32, i32 } @foo(i32 noundef 1, i32 noundef 2) #[[ATTR1:[0-9]+]]
 ; IS__TUNIT____-NEXT:    [[X1:%.*]] = extractvalue { i32, i32 } [[S1]], 0
-; IS__TUNIT____-NEXT:    [[S2:%.*]] = call { i32, i32 } @foo(i32 noundef 3, i32 noundef 4) #[[ATTR3]]
+; IS__TUNIT____-NEXT:    [[S2:%.*]] = call { i32, i32 } @foo(i32 noundef 3, i32 noundef 4) #[[ATTR1]]
 ; IS__TUNIT____-NEXT:    br label [[OK:%.*]]
 ; IS__TUNIT____:       OK:
 ; IS__TUNIT____-NEXT:    [[X2:%.*]] = extractvalue { i32, i32 } [[S2]], 0
@@ -87,12 +72,11 @@ define void @caller(i1 %C) personality i32 (...)* @__gxx_personality_v0 {
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@caller
-; IS__CGSCC____-SAME: (i1 [[C:%.*]]) #[[ATTR1]] personality i32 (...)* @__gxx_personality_v0 {
+; IS__CGSCC____-SAME: (i1 [[C:%.*]]) #[[ATTR0]] personality i32 (...)* @__gxx_personality_v0 {
 ; IS__CGSCC____-NEXT:    [[Q:%.*]] = alloca i32, align 4
-; IS__CGSCC____-NEXT:    [[W:%.*]] = call i32* @incdec(i1 [[C]], i32* noalias nofree noundef nonnull align 4 dereferenceable(4) "no-capture-maybe-returned" [[Q]]) #[[ATTR2:[0-9]+]]
-; IS__CGSCC____-NEXT:    [[S1:%.*]] = call { i32, i32 } @foo(i32 noundef 1, i32 noundef 2) #[[ATTR3:[0-9]+]]
+; IS__CGSCC____-NEXT:    [[S1:%.*]] = call { i32, i32 } @foo(i32 noundef 1, i32 noundef 2) #[[ATTR1:[0-9]+]]
 ; IS__CGSCC____-NEXT:    [[X1:%.*]] = extractvalue { i32, i32 } [[S1]], 0
-; IS__CGSCC____-NEXT:    [[S2:%.*]] = call { i32, i32 } @foo(i32 noundef 3, i32 noundef 4) #[[ATTR4:[0-9]+]]
+; IS__CGSCC____-NEXT:    [[S2:%.*]] = call { i32, i32 } @foo(i32 noundef 3, i32 noundef 4) #[[ATTR2:[0-9]+]]
 ; IS__CGSCC____-NEXT:    br label [[OK:%.*]]
 ; IS__CGSCC____:       OK:
 ; IS__CGSCC____-NEXT:    [[X2:%.*]] = extractvalue { i32, i32 } [[S2]], 0
@@ -132,14 +116,10 @@ RET:
 
 declare i32 @__gxx_personality_v0(...)
 ;.
-; IS__TUNIT____: attributes #[[ATTR0]] = { argmemonly nofree norecurse nosync nounwind willreturn }
-; IS__TUNIT____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__TUNIT____: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn }
-; IS__TUNIT____: attributes #[[ATTR3]] = { nofree nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nofree nosync nounwind readnone willreturn }
 ;.
-; IS__CGSCC____: attributes #[[ATTR0]] = { argmemonly nofree norecurse nosync nounwind willreturn }
-; IS__CGSCC____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR2]] = { nounwind willreturn }
-; IS__CGSCC____: attributes #[[ATTR3]] = { readnone willreturn }
-; IS__CGSCC____: attributes #[[ATTR4]] = { nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR1]] = { readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR2]] = { nounwind readnone willreturn }
 ;.

@@ -272,7 +272,9 @@ static Value *constructPointer(Type *ResTy, Type *PtrElemTy, Value *Ptr,
 /// once. Note that the value used for the callback may still be the value
 /// associated with \p IRP (due to PHIs). To limit how much effort is invested,
 /// we will never visit more values than specified by \p MaxValues.
-template <typename StateTy>
+/// If \p Intraprocedural is set to true only values valid in the scope of
+/// \p CtxI will be visited and simplification into other scopes is prevented.
+template <typename StateTy, bool Intraprocedural = false>
 static bool genericValueTraversal(
     Attributor &A, IRPosition IRP, const AbstractAttribute &QueryingAA,
     StateTy &State,
@@ -382,8 +384,11 @@ static bool genericValueTraversal(
         return false;
       Value *NewV = SimpleV.getValue();
       if (NewV != V) {
-        Worklist.push_back({NewV, CtxI});
-        continue;
+        if (!Intraprocedural || !CtxI ||
+            AA::isValidInScope(*NewV, CtxI->getFunction())) {
+          Worklist.push_back({NewV, CtxI});
+          continue;
+        }
       }
     }
 
@@ -1812,24 +1817,16 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
 
   auto ReturnValueCB = [&](Value &V, const Instruction *CtxI, ReturnInst &Ret,
                            bool) -> bool {
-    bool UsedAssumedInformation = false;
-    Optional<Value *> SimpleRetVal =
-        A.getAssumedSimplified(V, *this, UsedAssumedInformation);
-    if (!SimpleRetVal.hasValue())
-      return true;
-    if (!SimpleRetVal.getValue())
-      return false;
-    Value *RetVal = *SimpleRetVal;
-    assert(AA::isValidInScope(*RetVal, Ret.getFunction()) &&
+    assert(AA::isValidInScope(V, Ret.getFunction()) &&
            "Assumed returned value should be valid in function scope!");
-    if (ReturnedValues[RetVal].insert(&Ret))
+    if (ReturnedValues[&V].insert(&Ret))
       Changed = ChangeStatus::CHANGED;
     return true;
   };
 
   auto ReturnInstCB = [&](Instruction &I) {
     ReturnInst &Ret = cast<ReturnInst>(I);
-    return genericValueTraversal<ReturnInst>(
+    return genericValueTraversal<ReturnInst, /* Intraprocedural */ true>(
         A, IRPosition::value(*Ret.getReturnValue()), *this, Ret, ReturnValueCB,
         &I);
   };
@@ -5448,8 +5445,8 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
       // in other functions, e.g., we don't want to say a an argument in a
       // static function is actually an argument in a different function.
       bool UsedAssumedInformation = false;
-      Optional<Constant *> SimpleArgOp =
-          A.getAssumedConstant(ACSArgPos, *this, UsedAssumedInformation);
+      Optional<Value *> SimpleArgOp =
+          A.getAssumedSimplified(ACSArgPos, *this, UsedAssumedInformation);
       if (!SimpleArgOp.hasValue())
         return true;
       if (!SimpleArgOp.getValue())
@@ -9462,7 +9459,8 @@ struct AAFunctionReachabilityFunction : public AAFunctionReachability {
 
     bool UsedAssumedInformation = false;
     if (!A.checkForAllCallLikeInstructions(CheckCallBase, *this,
-                                           UsedAssumedInformation))
+                                           UsedAssumedInformation,
+                                           /* CheckBBLivenessOnly */ true))
       return true;
     return false;
   }
@@ -9482,7 +9480,8 @@ struct AAFunctionReachabilityFunction : public AAFunctionReachability {
 
     bool UsedAssumedInformation = false;
     if (!A.checkForAllCallLikeInstructions(CheckCallBase, *this,
-                                           UsedAssumedInformation))
+                                           UsedAssumedInformation,
+                                           /* CheckBBLivenessOnly */ true))
       return indicatePessimisticFixpoint();
 
     if (!isValidState())

@@ -472,7 +472,7 @@ return:                                           ; preds = %cond.end, %if.then3
 ; }
 ;
 define i32* @rt0(i32* %a) #0 {
-; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
+; CHECK: Function Attrs: nofree noinline noreturn nosync nounwind readnone uwtable willreturn
 ; CHECK-LABEL: define {{[^@]+}}@rt0
 ; CHECK-SAME: (i32* nocapture nofree nonnull readnone align 4 dereferenceable(4) [[A:%.*]]) #[[ATTR3:[0-9]+]] {
 ; CHECK-NEXT:  entry:
@@ -493,7 +493,7 @@ entry:
 ; }
 ;
 define i32* @rt1(i32* %a) #0 {
-; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
+; CHECK: Function Attrs: nofree noinline noreturn nosync nounwind readnone uwtable willreturn
 ; CHECK-LABEL: define {{[^@]+}}@rt1
 ; CHECK-SAME: (i32* nocapture nofree nonnull readnone align 4 dereferenceable(4) [[A:%.*]]) #[[ATTR3]] {
 ; CHECK-NEXT:  entry:
@@ -1375,7 +1375,7 @@ attributes #0 = { noinline nounwind uwtable }
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
 ; IS__TUNIT____: attributes #[[ATTR1]] = { nofree noinline nosync nounwind readnone uwtable }
 ; IS__TUNIT____: attributes #[[ATTR2]] = { nofree noinline norecurse nosync nounwind readnone uwtable }
-; IS__TUNIT____: attributes #[[ATTR3]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
+; IS__TUNIT____: attributes #[[ATTR3]] = { nofree noinline noreturn nosync nounwind readnone uwtable willreturn }
 ; IS__TUNIT____: attributes #[[ATTR4]] = { noinline nounwind uwtable }
 ; IS__TUNIT____: attributes #[[ATTR5]] = { noinline norecurse nounwind uwtable }
 ; IS__TUNIT____: attributes #[[ATTR6]] = { noreturn }
@@ -1388,7 +1388,7 @@ attributes #0 = { noinline nounwind uwtable }
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC____: attributes #[[ATTR1]] = { nofree noinline nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC____: attributes #[[ATTR2]] = { nofree noinline nosync nounwind readnone uwtable }
-; IS__CGSCC____: attributes #[[ATTR3]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
+; IS__CGSCC____: attributes #[[ATTR3]] = { nofree noinline noreturn nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC____: attributes #[[ATTR4]] = { noinline nounwind uwtable }
 ; IS__CGSCC____: attributes #[[ATTR5]] = { noinline norecurse nounwind uwtable }
 ; IS__CGSCC____: attributes #[[ATTR6]] = { noreturn }

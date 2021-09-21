@@ -106,20 +106,30 @@ end:
 
 
 define void @mutual_recursion1() #0 {
-; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
-; CHECK-LABEL: define {{[^@]+}}@mutual_recursion1
-; CHECK-SAME: () #[[ATTR4:[0-9]+]] {
-; CHECK-NEXT:    unreachable
+; NOT_CGSCC_NPM: Function Attrs: nofree noinline noreturn nosync nounwind readnone uwtable willreturn
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@mutual_recursion1
+; NOT_CGSCC_NPM-SAME: () #[[ATTR4:[0-9]+]] {
+; NOT_CGSCC_NPM-NEXT:    unreachable
+;
+; IS__CGSCC_NPM: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@mutual_recursion1
+; IS__CGSCC_NPM-SAME: () #[[ATTR4:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:    unreachable
 ;
   call void @mutual_recursion2()
   ret void
 }
 
 define void @mutual_recursion2() #0 {
-; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
-; CHECK-LABEL: define {{[^@]+}}@mutual_recursion2
-; CHECK-SAME: () #[[ATTR4]] {
-; CHECK-NEXT:    unreachable
+; NOT_CGSCC_NPM: Function Attrs: nofree noinline noreturn nosync nounwind readnone uwtable willreturn
+; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@mutual_recursion2
+; NOT_CGSCC_NPM-SAME: () #[[ATTR4]] {
+; NOT_CGSCC_NPM-NEXT:    unreachable
+;
+; IS__CGSCC_NPM: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@mutual_recursion2
+; IS__CGSCC_NPM-SAME: () #[[ATTR4]] {
+; IS__CGSCC_NPM-NEXT:    unreachable
 ;
   call void @mutual_recursion1()
   ret void
@@ -179,9 +189,9 @@ define noalias i8* @call_realloc(i8* nocapture %0, i64 %1) local_unnamed_addr #0
 declare void @nofree_function() nofree readnone #0
 
 define void @call_nofree_function() #0 {
-; CHECK: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable willreturn
+; CHECK: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; CHECK-LABEL: define {{[^@]+}}@call_nofree_function
-; CHECK-SAME: () #[[ATTR3]] {
+; CHECK-SAME: () #[[ATTR6:[0-9]+]] {
 ; CHECK-NEXT:    ret void
 ;
   tail call void @nofree_function()
@@ -245,7 +255,7 @@ define float @call_floor2(float %a) #0 {
 ; CHECK: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable willreturn
 ; CHECK-LABEL: define {{[^@]+}}@call_floor2
 ; CHECK-SAME: (float [[A:%.*]]) #[[ATTR3]] {
-; CHECK-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) #[[ATTR11:[0-9]+]]
+; CHECK-NEXT:    [[C:%.*]] = tail call float @llvm.floor.f32(float [[A]]) #[[ATTR12:[0-9]+]]
 ; CHECK-NEXT:    ret float [[C]]
 ;
   %c = tail call float @llvm.floor.f32(float %a)
@@ -256,9 +266,9 @@ define float @call_floor2(float %a) #0 {
 ; Check propagation.
 
 define void @f1() #0 {
-; CHECK: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable willreturn
+; CHECK: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
 ; CHECK-LABEL: define {{[^@]+}}@f1
-; CHECK-SAME: () #[[ATTR3]] {
+; CHECK-SAME: () #[[ATTR6]] {
 ; CHECK-NEXT:    ret void
 ;
   tail call void @nofree_function()
@@ -266,10 +276,15 @@ define void @f1() #0 {
 }
 
 define void @f2() #0 {
-; CHECK: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable willreturn
-; CHECK-LABEL: define {{[^@]+}}@f2
-; CHECK-SAME: () #[[ATTR3]] {
-; CHECK-NEXT:    ret void
+; IS__TUNIT____: Function Attrs: nofree noinline nosync nounwind readnone uwtable willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@f2
+; IS__TUNIT____-SAME: () #[[ATTR6]] {
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____: Function Attrs: nofree noinline norecurse nosync nounwind readnone uwtable willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@f2
+; IS__CGSCC____-SAME: () #[[ATTR3]] {
+; IS__CGSCC____-NEXT:    ret void
 ;
   tail call void @f1()
   ret void
@@ -279,7 +294,7 @@ define void @f2() #0 {
 define double @test12(double* nocapture readonly %a) {
 ; CHECK: Function Attrs: nofree nounwind
 ; CHECK-LABEL: define {{[^@]+}}@test12
-; CHECK-SAME: (double* nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR7:[0-9]+]] {
+; CHECK-SAME: (double* nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR8:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = load double, double* [[A]], align 8
 ; CHECK-NEXT:    [[CALL:%.*]] = tail call double @cos(double [[TMP0]]) #[[ATTR2]]
@@ -334,7 +349,7 @@ define void @nonnull_assume_pos(i8* %arg1, i8* %arg2, i8* %arg3, i8* %arg4) {
 ;
 ; CHECK-LABEL: define {{[^@]+}}@nonnull_assume_pos
 ; CHECK-SAME: (i8* nofree [[ARG1:%.*]], i8* [[ARG2:%.*]], i8* nofree [[ARG3:%.*]], i8* [[ARG4:%.*]]) {
-; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR12:[0-9]+]] [ "nofree"(i8* [[ARG1]]), "nofree"(i8* [[ARG3]]) ]
+; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR13:[0-9]+]] [ "nofree"(i8* [[ARG1]]), "nofree"(i8* [[ARG3]]) ]
 ; CHECK-NEXT:    call void @unknown(i8* nofree [[ARG1]], i8* [[ARG2]], i8* nofree [[ARG3]], i8* [[ARG4]])
 ; CHECK-NEXT:    ret void
 ;
@@ -414,17 +429,33 @@ attributes #0 = { nounwind uwtable noinline }
 attributes #1 = { nounwind }
 attributes #2 = { nobuiltin nounwind }
 ;.
-; CHECK: attributes #[[ATTR0]] = { nounwind }
-; CHECK: attributes #[[ATTR1]] = { noinline nounwind uwtable }
-; CHECK: attributes #[[ATTR2]] = { nobuiltin nounwind }
-; CHECK: attributes #[[ATTR3]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
-; CHECK: attributes #[[ATTR4]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
-; CHECK: attributes #[[ATTR5:[0-9]+]] = { nofree noinline nounwind readnone uwtable }
-; CHECK: attributes #[[ATTR6:[0-9]+]] = { nofree nosync nounwind readnone speculatable willreturn }
-; CHECK: attributes #[[ATTR7]] = { nofree nounwind }
-; CHECK: attributes #[[ATTR8:[0-9]+]] = { nobuiltin nofree nounwind }
-; CHECK: attributes #[[ATTR9:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
-; CHECK: attributes #[[ATTR10:[0-9]+]] = { nounwind willreturn }
-; CHECK: attributes #[[ATTR11]] = { readnone willreturn }
-; CHECK: attributes #[[ATTR12]] = { willreturn }
+; NOT_CGSCC_NPM: attributes #[[ATTR0]] = { nounwind }
+; NOT_CGSCC_NPM: attributes #[[ATTR1]] = { noinline nounwind uwtable }
+; NOT_CGSCC_NPM: attributes #[[ATTR2]] = { nobuiltin nounwind }
+; NOT_CGSCC_NPM: attributes #[[ATTR3]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
+; NOT_CGSCC_NPM: attributes #[[ATTR4]] = { nofree noinline noreturn nosync nounwind readnone uwtable willreturn }
+; NOT_CGSCC_NPM: attributes #[[ATTR5:[0-9]+]] = { nofree noinline nounwind readnone uwtable }
+; NOT_CGSCC_NPM: attributes #[[ATTR6]] = { nofree noinline nosync nounwind readnone uwtable willreturn }
+; NOT_CGSCC_NPM: attributes #[[ATTR7:[0-9]+]] = { nofree nosync nounwind readnone speculatable willreturn }
+; NOT_CGSCC_NPM: attributes #[[ATTR8]] = { nofree nounwind }
+; NOT_CGSCC_NPM: attributes #[[ATTR9:[0-9]+]] = { nobuiltin nofree nounwind }
+; NOT_CGSCC_NPM: attributes #[[ATTR10:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
+; NOT_CGSCC_NPM: attributes #[[ATTR11:[0-9]+]] = { nounwind willreturn }
+; NOT_CGSCC_NPM: attributes #[[ATTR12]] = { readnone willreturn }
+; NOT_CGSCC_NPM: attributes #[[ATTR13]] = { willreturn }
+;.
+; IS__CGSCC_NPM: attributes #[[ATTR0]] = { nounwind }
+; IS__CGSCC_NPM: attributes #[[ATTR1]] = { noinline nounwind uwtable }
+; IS__CGSCC_NPM: attributes #[[ATTR2]] = { nobuiltin nounwind }
+; IS__CGSCC_NPM: attributes #[[ATTR3]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR4]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR5:[0-9]+]] = { nofree noinline nounwind readnone uwtable }
+; IS__CGSCC_NPM: attributes #[[ATTR6]] = { nofree noinline nosync nounwind readnone uwtable willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR7:[0-9]+]] = { nofree nosync nounwind readnone speculatable willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR8]] = { nofree nounwind }
+; IS__CGSCC_NPM: attributes #[[ATTR9:[0-9]+]] = { nobuiltin nofree nounwind }
+; IS__CGSCC_NPM: attributes #[[ATTR10:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR11:[0-9]+]] = { nounwind willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR12]] = { readnone willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR13]] = { willreturn }
 ;.

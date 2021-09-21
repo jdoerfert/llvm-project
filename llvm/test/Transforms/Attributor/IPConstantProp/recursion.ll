@@ -7,7 +7,7 @@
 ; CHECK-NOT: %X
 
 define internal i32 @foo(i32 %X) {
-; IS__CGSCC____: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; IS__CGSCC____: Function Attrs: nofree noreturn nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@foo
 ; IS__CGSCC____-SAME: () #[[ATTR0:[0-9]+]] {
 ; IS__CGSCC____-NEXT:    unreachable
@@ -18,15 +18,23 @@ define internal i32 @foo(i32 %X) {
 }
 
 define void @bar() {
-; CHECK: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
-; CHECK-LABEL: define {{[^@]+}}@bar
-; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
-; CHECK-NEXT:    unreachable
+; IS__TUNIT____: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@bar
+; IS__TUNIT____-SAME: () #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-NEXT:    unreachable
+;
+; IS__CGSCC____: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@bar
+; IS__CGSCC____-SAME: () #[[ATTR1:[0-9]+]] {
+; IS__CGSCC____-NEXT:    unreachable
 ;
   call i32 @foo( i32 17 )         ; <i32>:1 [#uses=0]
   ret void
 }
 
 ;.
-; CHECK: attributes #[[ATTR0]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR0]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
+;.
+; IS__CGSCC____: attributes #[[ATTR0]] = { nofree noreturn nosync nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR1]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
 ;.

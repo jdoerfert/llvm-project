@@ -101,7 +101,7 @@ return:                                           ; preds = %if.end3, %if.then2,
 ; }
 ;
 define double* @srec0(double* %a) #0 {
-; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
+; CHECK: Function Attrs: nofree noinline noreturn nosync nounwind readnone uwtable willreturn
 ; CHECK-LABEL: define {{[^@]+}}@srec0
 ; CHECK-SAME: (double* nocapture nofree readnone [[A:%.*]]) #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:  entry:
@@ -126,7 +126,7 @@ entry:
 ; Other arguments are possible here due to the no-return behavior.
 ;
 define i32* @srec16(i32* %a) #0 {
-; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn
+; CHECK: Function Attrs: nofree noinline noreturn nosync nounwind readnone uwtable willreturn
 ; CHECK-LABEL: define {{[^@]+}}@srec16
 ; CHECK-SAME: (i32* nocapture nofree readnone [[A:%.*]]) #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
@@ -727,7 +727,7 @@ entry:
 attributes #0 = { noinline nounwind uwtable }
 ;.
 ; IS__TUNIT____: attributes #[[ATTR0]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
-; IS__TUNIT____: attributes #[[ATTR1]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nofree noinline noreturn nosync nounwind readnone uwtable willreturn }
 ; IS__TUNIT____: attributes #[[ATTR2]] = { nofree nosync nounwind readnone }
 ; IS__TUNIT____: attributes #[[ATTR3]] = { noinline nounwind uwtable }
 ; IS__TUNIT____: attributes #[[ATTR4]] = { argmemonly nofree noinline norecurse nosync nounwind uwtable willreturn writeonly }
@@ -738,7 +738,7 @@ attributes #0 = { noinline nounwind uwtable }
 ; IS__TUNIT____: attributes #[[ATTR9]] = { nofree nosync nounwind willreturn writeonly }
 ;.
 ; IS__CGSCC____: attributes #[[ATTR0]] = { nofree noinline norecurse nosync nounwind readnone uwtable willreturn }
-; IS__CGSCC____: attributes #[[ATTR1]] = { nofree noinline norecurse noreturn nosync nounwind readnone uwtable willreturn }
+; IS__CGSCC____: attributes #[[ATTR1]] = { nofree noinline noreturn nosync nounwind readnone uwtable willreturn }
 ; IS__CGSCC____: attributes #[[ATTR2]] = { nofree nosync nounwind readnone }
 ; IS__CGSCC____: attributes #[[ATTR3]] = { noinline nounwind uwtable }
 ; IS__CGSCC____: attributes #[[ATTR4]] = { argmemonly nofree noinline norecurse nosync nounwind uwtable willreturn writeonly }

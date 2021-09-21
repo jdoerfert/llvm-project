@@ -346,7 +346,7 @@ f:
 }
 
 define void @test2(i8* %x2) {
-; CHECK: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; CHECK: Function Attrs: nofree noreturn nosync nounwind readnone willreturn
 ; CHECK-LABEL: define {{[^@]+}}@test2
 ; CHECK-SAME: (i8* nocapture nofree readnone [[X2:%.*]]) #[[ATTR8:[0-9]+]] {
 ; CHECK-NEXT:    unreachable
@@ -357,7 +357,7 @@ define void @test2(i8* %x2) {
 }
 
 define void @test3(i8* %x3, i8* %y3, i8* %z3) {
-; CHECK: Function Attrs: nofree norecurse noreturn nosync nounwind readnone willreturn
+; CHECK: Function Attrs: nofree noreturn nosync nounwind readnone willreturn
 ; CHECK-LABEL: define {{[^@]+}}@test3
 ; CHECK-SAME: (i8* nocapture nofree readnone [[X3:%.*]], i8* nocapture nofree readnone [[Y3:%.*]], i8* nocapture nofree readnone [[Z3:%.*]]) #[[ATTR8]] {
 ; CHECK-NEXT:    unreachable
@@ -718,7 +718,7 @@ declare i8* @llvm.strip.invariant.group.p0i8(i8*)
 ; IS__TUNIT____: attributes #[[ATTR5]] = { nofree norecurse nosync nounwind willreturn }
 ; IS__TUNIT____: attributes #[[ATTR6]] = { argmemonly nounwind }
 ; IS__TUNIT____: attributes #[[ATTR7]] = { nofree nosync nounwind writeonly }
-; IS__TUNIT____: attributes #[[ATTR8]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR8]] = { nofree noreturn nosync nounwind readnone willreturn }
 ; IS__TUNIT____: attributes #[[ATTR9]] = { argmemonly nofree norecurse nounwind willreturn }
 ; IS__TUNIT____: attributes #[[ATTR10]] = { inaccessiblemem_or_argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__TUNIT____: attributes #[[ATTR11]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
@@ -742,7 +742,7 @@ declare i8* @llvm.strip.invariant.group.p0i8(i8*)
 ; IS__CGSCC____: attributes #[[ATTR5]] = { nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC____: attributes #[[ATTR6]] = { argmemonly nounwind }
 ; IS__CGSCC____: attributes #[[ATTR7]] = { nofree nosync nounwind writeonly }
-; IS__CGSCC____: attributes #[[ATTR8]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR8]] = { nofree noreturn nosync nounwind readnone willreturn }
 ; IS__CGSCC____: attributes #[[ATTR9]] = { argmemonly nofree norecurse nounwind willreturn }
 ; IS__CGSCC____: attributes #[[ATTR10]] = { inaccessiblemem_or_argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC____: attributes #[[ATTR11]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
