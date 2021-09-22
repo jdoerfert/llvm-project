@@ -140,6 +140,9 @@ class Function;
 /// Abstract Attribute helper functions.
 namespace AA {
 
+bool isNoSyncInst(Attributor &A, const Instruction &I,
+                  const AbstractAttribute &QueryingAA);
+
 /// Return true if \p V is dynamically unique, that is, there are no two
 /// "instances" of \p V at runtime with different values.
 bool isDynamicallyUnique(Attributor &A, const AbstractAttribute &QueryingAA,
@@ -1024,6 +1027,10 @@ struct InformationCache {
     return FI.CalledViaMustTail || FI.ContainsMustTailCall;
   }
 
+  bool isOnlyUsedByAssume(const Instruction &I) {
+    return AssumeOnlyValues.contains(&I);
+  }
+
   /// Return the analysis result from a pass \p AP for function \p F.
   template <typename AP>
   typename AP::Result *getAnalysisResultForFunction(const Function &F) {
@@ -1115,6 +1122,9 @@ private:
 
   /// A map with knowledge retained in `llvm.assume` instructions.
   RetainedKnowledgeMap KnowledgeMap;
+
+  /// A container for all instructions that are only used by `llvm.assume`.
+  SetVector<const Instruction *> AssumeOnlyValues;
 
   /// Getters for analysis.
   AnalysisGetter &AG;
@@ -1476,6 +1486,9 @@ struct Attributor {
     if (V && (V->stripPointerCasts() == NV.stripPointerCasts() ||
               isa_and_nonnull<UndefValue>(V)))
       return false;
+    //if (auto *I = dyn_cast<Instruction>(U.get()))
+      //if (InfoCache.isOnlyUsedByAssume(*I))
+        //return false;
     assert((!V || V == &NV || isa<UndefValue>(NV)) &&
            "Use was registered twice for replacement with different values!");
     V = &NV;
@@ -1483,7 +1496,7 @@ struct Attributor {
   }
 
   /// Helper function to replace all uses of \p V with \p NV. Return true if
-  /// there is any change. The flag \p ChangeDroppable indicates if dropppable
+  /// there is any change. The flag \p ChangeDroppable indicates if droppable
   /// uses should be changed too.
   bool changeValueAfterManifest(Value &V, Value &NV,
                                 bool ChangeDroppable = true) {
@@ -1492,6 +1505,9 @@ struct Attributor {
     if (CurNV && (CurNV->stripPointerCasts() == NV.stripPointerCasts() ||
                   isa<UndefValue>(CurNV)))
       return false;
+    //if (auto *I = dyn_cast<Instruction>(&V))
+      //if (InfoCache.isOnlyUsedByAssume(*I))
+        //return false;
     assert((!CurNV || CurNV == &NV || isa<UndefValue>(NV)) &&
            "Value replacement was registered twice with different values!");
     CurNV = &NV;
@@ -2870,6 +2886,14 @@ struct AANoSync
 
   /// Returns true if "nosync" is known.
   bool isKnownNoSync() const { return getKnown(); }
+
+  /// Helper function used to determine whether an instruction is non-relaxed
+  /// atomic. In other words, if an atomic instruction does not have unordered
+  /// or monotonic ordering
+  static bool isNonRelaxedAtomic(const Instruction *I);
+
+  /// Helper function specific for intrinsics which are potentially volatile
+  static bool isNoSyncIntrinsic(const Instruction *I);
 
   /// Create an abstract attribute view for the position \p IRP.
   static AANoSync &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -4331,6 +4355,17 @@ struct AAExecutionDomain
 
   /// Check if a basic block is executed only by the initial thread.
   virtual bool isExecutedByInitialThreadOnly(const BasicBlock &) const = 0;
+
+  /// Check if a instruction is executed by all threads in the same "epoch".
+  virtual bool
+  isExecutedByAllThreadsInTheSameEpoch(const Instruction &) const = 0;
+
+  /// Check if a basic block is executed by all threads in the same "epoch".
+  virtual bool
+  isExecutedByAllThreadsInTheSameEpoch(const BasicBlock &) const = 0;
+
+  /// Check if a all threads exit this funnction in the same "epoch".
+  virtual bool isExitedByAllThreadsInTheSameEpoch() const = 0;
 
   /// This function should return true if the type of the \p AA is
   /// AAExecutionDomain.

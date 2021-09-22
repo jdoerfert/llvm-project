@@ -185,6 +185,31 @@ ChangeStatus &llvm::operator&=(ChangeStatus &L, ChangeStatus R) {
 }
 ///}
 
+bool AA::isNoSyncInst(Attributor &A, const Instruction &I,
+                      const AbstractAttribute &QueryingAA) {
+  /// We are looking for volatile instructions or Non-Relaxed atomics.
+  if (const auto *CB = dyn_cast<CallBase>(&I)) {
+    if (CB->hasFnAttr(Attribute::NoSync))
+      return true;
+
+    // non-convergent and readnone imply nosync.
+    if (!CB->isConvergent() && !CB->mayReadOrWriteMemory())
+      return true;
+
+    if (AANoSync::isNoSyncIntrinsic(&I))
+      return true;
+
+    const auto &NoSyncAA = A.getAAFor<AANoSync>(
+        QueryingAA, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
+    return NoSyncAA.isAssumedNoSync();
+  }
+
+  if (!I.mayReadOrWriteMemory())
+    return true;
+
+  return !I.isVolatile() && !AANoSync::isNonRelaxedAtomic(&I);
+}
+
 bool AA::isDynamicallyUnique(Attributor &A, const AbstractAttribute &QueryingAA,
                              const Value &V) {
   if (auto *C = dyn_cast<Constant>(&V))
@@ -310,6 +335,7 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
                                 const AbstractAttribute &QueryingAA,
                                 bool &UsedAssumedInformation, bool OnlyExact) {
   Value &Ptr = *I.getPointerOperand();
+  //errs() << " " << Ptr << "  of " << I << "\n";
   SmallVector<Value *, 8> Objects;
   if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &I)) {
     LLVM_DEBUG(
@@ -360,6 +386,7 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
     }
 
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
+      //errs() << "Acc: " << *Acc.getLocalInst() << "\n";
       if (OnlyExact && !IsExact) {
         LLVM_DEBUG(dbgs() << "Non exact access " << *Acc.getRemoteInst()
                           << "!\n");
@@ -376,6 +403,11 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
                            << *Acc.getRemoteInst() << "\n";);
             return false;
           }
+          if (auto *L = dyn_cast<LoadInst>(SI->getValueOperand()))
+            if (auto *L2 = dyn_cast<LoadInst>(
+                    L->getPointerOperand()->stripInBoundsOffsets()))
+              if (L2->getPointerOperand() == SI->getPointerOperand())
+                return true;
           NewCopies.push_back(SI->getValueOperand());
         }
       } else {
@@ -2607,6 +2639,25 @@ void InformationCache::initializeInformationCache(const Function &CF,
   // queried by abstract attributes during their initialization or update.
   // This has to happen before we create attributes.
 
+  size_t InitialAssumeOnlyValues = AssumeOnlyValues.size();
+  DenseMap<const Value *, Optional<short>> AssumeUsesMap;
+
+  // Add \p V to the assume uses map which track the number of uses outside of
+  // "visited" assumes. If no outside uses are left the value is added to the
+  // assume only use vector.
+  auto AddToAssumeUsesMap = [&](const Value &V) {
+    if (!isa<Instruction>(V))
+      return;
+    Optional<short> &NumUses = AssumeUsesMap[&V];
+    if (!NumUses.hasValue()) {
+      NumUses = V.getNumUses() - /* this assume */ 1;
+      return;
+    }
+    NumUses = NumUses.getValue() - /* this assume */ 1;
+    if (NumUses.getValue() == 1)
+      AssumeOnlyValues.insert(cast<Instruction>(&V));
+  };
+
   for (Instruction &I : instructions(&F)) {
     bool IsInterestingOpcode = false;
 
@@ -2627,6 +2678,7 @@ void InformationCache::initializeInformationCache(const Function &CF,
       // For `must-tail` calls we remember the caller and callee.
       if (auto *Assume = dyn_cast<AssumeInst>(&I)) {
         fillMapFromAssume(*Assume, KnowledgeMap);
+        AddToAssumeUsesMap(*Assume->getArgOperand(0));
       } else if (cast<CallInst>(I).isMustTailCall()) {
         FI.ContainsMustTailCall = true;
         if (const Function *Callee = cast<CallInst>(I).getCalledFunction())
@@ -2663,6 +2715,11 @@ void InformationCache::initializeInformationCache(const Function &CF,
   if (F.hasFnAttribute(Attribute::AlwaysInline) &&
       isInlineViable(F).isSuccess())
     InlineableFunctions.insert(&F);
+
+  for (size_t i = InitialAssumeOnlyValues; i < AssumeOnlyValues.size(); ++i) {
+    for (const Value *Op : AssumeOnlyValues[i]->operands())
+      AddToAssumeUsesMap(*Op);
+  }
 }
 
 AAResults *InformationCache::getAAResultsForFunction(const Function &F) {

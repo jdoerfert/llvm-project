@@ -1104,14 +1104,24 @@ struct AAPointerInfoImpl
         IRPosition::function(Scope), &QueryingAA, DepClassTy::OPTIONAL);
     const bool NoSync = NoSyncAA.isAssumedNoSync();
 
+    bool LoadIsInitialThreadOnly =
+        (ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(LI));
+    bool LoadIsInAllThreadsEpoch =
+        (ExecDomainAA &&
+         ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(LI));
+
     // Helper to determine if we need to consider threading, which we cannot
     // right now. However, if the function is (assumed) nosync or the thread
     // executing all instructions is the main thread only we can ignore
     // threading.
     auto CanIgnoreThreading = [&](const Instruction &I) -> bool {
-      if (NoSync)
+      if (NoSync && I.getFunction() == &Scope)
         return true;
-      if (ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(I))
+      if (LoadIsInitialThreadOnly &&
+          ExecDomainAA->isExecutedByInitialThreadOnly(I))
+        return true;
+      if (LoadIsInAllThreadsEpoch &&
+          ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
         return true;
       return false;
     };
@@ -1123,9 +1133,6 @@ struct AAPointerInfoImpl
       return CanIgnoreThreading(*Acc.getLocalInst());
     };
 
-    const bool CanUseCFGResoning = CanIgnoreThreading(LI);
-    LLVM_DEBUG(dbgs() << "Can use CFG reasoning: " << CanUseCFGResoning
-                      << "\n");
     InformationCache &InfoCache = A.getInfoCache();
     const DominatorTree *DT =
         InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
@@ -1180,19 +1187,21 @@ struct AAPointerInfoImpl
         };
     }
 
+    bool CouldUseCFGReasoningForAllAccesses = true;
     auto AccessCB = [&](const Access &Acc, bool Exact) {
       if (!Acc.isWrite())
         return true;
 
       // For now we only filter accesses based on CFG reasoning which does not
       // work yet if we have threading effects, or the access is complicated.
-      if (CanUseCFGResoning) {
+      if (!CanIgnoreThreading(*Acc.getLocalInst())) {
+        //errs() << "Cannot ignore threading for: " << *Acc.getLocalInst() << "\n";
+        CouldUseCFGReasoningForAllAccesses = false;
+      } else {
         if (!AA::isPotentiallyReachable(A, *Acc.getLocalInst(), LI, QueryingAA,
                                         IsLiveInCalleeCB))
           return true;
-        if (DT && Exact &&
-            (Acc.getLocalInst()->getFunction() == LI.getFunction()) &&
-            IsSameThreadAsLoad(Acc)) {
+        if (DT && Exact) {
           if (DT->dominates(Acc.getLocalInst(), &LI))
             DominatingWrites.insert(&Acc);
         }
@@ -1204,9 +1213,10 @@ struct AAPointerInfoImpl
     if (!State::forallInterferingAccesses(LI, AccessCB))
       return false;
 
-    // If we cannot use CFG reasoning we only filter the non-write accesses
-    // and are done here.
-    if (!CanUseCFGResoning) {
+    LLVM_DEBUG(dbgs() << "Could use CFG/CG reasoning for all accesses: "
+                      << CouldUseCFGReasoningForAllAccesses << "\n");
+    // If we cannot use CFG reasoning for all accesses we are done here.
+    if (!CouldUseCFGReasoningForAllAccesses) {
       for (auto &It : InterferingWrites)
         if (!UserCB(*It.first, It.second))
           return false;
@@ -1924,24 +1934,17 @@ struct AANoSyncImpl : AANoSync {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
-
-  /// Helper function used to determine whether an instruction is non-relaxed
-  /// atomic. In other words, if an atomic instruction does not have unordered
-  /// or monotonic ordering
-  static bool isNonRelaxedAtomic(Instruction *I);
-
-  /// Helper function specific for intrinsics which are potentially volatile
-  static bool isNoSyncIntrinsic(Instruction *I);
 };
 
-bool AANoSyncImpl::isNonRelaxedAtomic(Instruction *I) {
+bool AANoSync::isNonRelaxedAtomic(const Instruction *I) {
   if (!I->isAtomic())
     return false;
 
   if (auto *FI = dyn_cast<FenceInst>(I))
     // All legal orderings for fence are stronger than monotonic.
     return FI->getSyncScopeID() != SyncScope::SingleThread;
-  else if (auto *AI = dyn_cast<AtomicCmpXchgInst>(I)) {
+
+  if (auto *AI = dyn_cast<AtomicCmpXchgInst>(I)) {
     // Unordered is not a legal ordering for cmpxchg.
     return (AI->getSuccessOrdering() != AtomicOrdering::Monotonic ||
             AI->getFailureOrdering() != AtomicOrdering::Monotonic);
@@ -1970,7 +1973,7 @@ bool AANoSyncImpl::isNonRelaxedAtomic(Instruction *I) {
 /// Return true if this intrinsic is nosync.  This is only used for intrinsics
 /// which would be nosync except that they have a volatile flag.  All other
 /// intrinsics are simply annotated with the nosync attribute in Intrinsics.td.
-bool AANoSyncImpl::isNoSyncIntrinsic(Instruction *I) {
+bool AANoSync::isNoSyncIntrinsic(const Instruction *I) {
   if (auto *MI = dyn_cast<MemIntrinsic>(I))
     return !MI->isVolatile();
   return false;
@@ -1979,24 +1982,7 @@ bool AANoSyncImpl::isNoSyncIntrinsic(Instruction *I) {
 ChangeStatus AANoSyncImpl::updateImpl(Attributor &A) {
 
   auto CheckRWInstForNoSync = [&](Instruction &I) {
-    /// We are looking for volatile instructions or Non-Relaxed atomics.
-
-    if (const auto *CB = dyn_cast<CallBase>(&I)) {
-      if (CB->hasFnAttr(Attribute::NoSync))
-        return true;
-
-      if (isNoSyncIntrinsic(&I))
-        return true;
-
-      const auto &NoSyncAA = A.getAAFor<AANoSync>(
-          *this, IRPosition::callsite_function(*CB), DepClassTy::REQUIRED);
-      return NoSyncAA.isAssumedNoSync();
-    }
-
-    if (!I.isVolatile() && !isNonRelaxedAtomic(&I))
-      return true;
-
-    return false;
+    return AA::isNoSyncInst(A, I, *this);
   };
 
   auto CheckForNoSync = [&](Instruction &I) {
@@ -5302,8 +5288,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
                               ValueToValueMapTy &VMap) {
     assert(CtxI && "Cannot reproduce an instruction without context!");
     if (Check && (I.mayReadFromMemory() ||
-        !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
-                                      /* TLI */ nullptr)))
+                  !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
+                                                /* TLI */ nullptr)))
       return nullptr;
     for (Value *Op : I.operands()) {
       Value *NewOp = reproduceValue(A, *Op, Ty, CtxI, Check, VMap);

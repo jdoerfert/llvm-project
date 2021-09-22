@@ -29,6 +29,7 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
+#include "llvm/IR/Attributes.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Instruction.h"
@@ -478,6 +479,12 @@ struct OMPInformationCache : public InformationCache {
     }                                                                          \
   }
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
+
+    // Also remove the `noinline` attribute from `_OMP::` functions.
+    for (Function &F : M)
+      if (F.getName().startswith("_ZN4_OMP") &&
+          !F.hasFnAttribute(Attribute::OptimizeNone))
+        F.removeFnAttr(Attribute::NoInline);
 
     // TODO: We should attach the attributes defined in OMPKinds.def.
   }
@@ -1873,8 +1880,8 @@ private:
     // Temporarily make these function have external linkage so the Attributor
     // doesn't remove them when we try to look them up later.
     ExternalizationRAII Parallel(OMPInfoCache, OMPRTL___kmpc_kernel_parallel);
-    ExternalizationRAII EndParallel(OMPInfoCache,
-                                    OMPRTL___kmpc_kernel_end_parallel);
+    // ExternalizationRAII EndParallel(OMPInfoCache,
+    // OMPRTL___kmpc_kernel_end_parallel);
     ExternalizationRAII BarrierSPMD(OMPInfoCache,
                                     OMPRTL___kmpc_barrier_simple_spmd);
     ExternalizationRAII ThreadId(OMPInfoCache,
@@ -2506,8 +2513,10 @@ struct AAExecutionDomainFunction : public AAExecutionDomain {
       : AAExecutionDomain(IRP, A) {}
 
   const std::string getAsStr() const override {
-    return "[AAExecutionDomain] " + std::to_string(SingleThreadedBBs.size()) +
-           "/" + std::to_string(NumBBs) + " BBs thread 0 only.";
+    return "[AAExecutionDomain] (" + std::to_string(SingleThreadedBBs.size()) +
+           ", " + std::to_string(SameEpochBBs.size()) + ") of " +
+           std::to_string(NumBBs) +
+           " BBs thread 0 only, all threads same epoch.";
   }
 
   /// See AbstractAttribute::trackStatistics().
@@ -2515,8 +2524,10 @@ struct AAExecutionDomainFunction : public AAExecutionDomain {
 
   void initialize(Attributor &A) override {
     Function *F = getAnchorScope();
-    for (const auto &BB : *F)
+    for (const auto &BB : *F) {
       SingleThreadedBBs.insert(&BB);
+      SameEpochBBs.insert(&BB);
+    }
     NumBBs = SingleThreadedBBs.size();
   }
 
@@ -2525,6 +2536,14 @@ struct AAExecutionDomainFunction : public AAExecutionDomain {
       for (const BasicBlock *BB : SingleThreadedBBs)
         dbgs() << TAG << " Basic block @" << getAnchorScope()->getName() << " "
                << BB->getName() << " is executed by a single thread.\n";
+    });
+    LLVM_DEBUG({
+      for (const BasicBlock *BB : SameEpochBBs)
+        dbgs() << TAG << " Basic block @" << getAnchorScope()->getName() << " "
+               << BB->getName()
+               << " is executed by all threads in the same epoch.\n";
+      if (isExitedByAllThreadsInTheSameEpoch())
+        dbgs() << "All threads exist the function in the same epoch.\n";
     });
     return ChangeStatus::UNCHANGED;
   }
@@ -2540,32 +2559,60 @@ struct AAExecutionDomainFunction : public AAExecutionDomain {
     return isValidState() && SingleThreadedBBs.contains(&BB);
   }
 
+  bool
+  isExecutedByAllThreadsInTheSameEpoch(const Instruction &I) const override {
+    return isExecutedByAllThreadsInTheSameEpoch(*I.getParent());
+  }
+
+  bool
+  isExecutedByAllThreadsInTheSameEpoch(const BasicBlock &BB) const override {
+    return isValidState() && SameEpochBBs.count(&BB);
+  }
+
+  bool isExitedByAllThreadsInTheSameEpoch() const override {
+    return isValidState() && IsExitedByAllThreadsInTheSameEpoch;
+  }
+
   /// Set of basic blocks that are executed by a single thread.
   DenseSet<const BasicBlock *> SingleThreadedBBs;
 
+  DenseSet<const BasicBlock *> SameEpochBBs;
+
   /// Total number of basic blocks in this function.
   long unsigned NumBBs;
+
+  bool IsExitedByAllThreadsInTheSameEpoch = true;
 };
 
 ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
   Function *F = getAnchorScope();
   ReversePostOrderTraversal<Function *> RPOT(F);
   auto NumSingleThreadedBBs = SingleThreadedBBs.size();
+  auto NumSameEpochBBs = SameEpochBBs.size();
 
   bool AllCallSitesKnown;
   auto PredForCallSite = [&](AbstractCallSite ACS) {
-    const auto &ExecutionDomainAA = A.getAAFor<AAExecutionDomain>(
+    const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
         *this, IRPosition::function(*ACS.getInstruction()->getFunction()),
         DepClassTy::REQUIRED);
-    return ACS.isDirectCall() &&
-           ExecutionDomainAA.isExecutedByInitialThreadOnly(
-               *ACS.getInstruction());
+    const Instruction &I = *ACS.getInstruction();
+    if (!ACS.isDirectCall() || !ExecDomAA.isExecutedByInitialThreadOnly(I))
+      SingleThreadedBBs.erase(&F->getEntryBlock());
+    if (!ACS.isDirectCall() ||
+        !ExecDomAA.isExecutedByAllThreadsInTheSameEpoch(I))
+      SameEpochBBs.erase(&F->getEntryBlock());
+    return true;
   };
 
   if (!A.checkForAllCallSites(PredForCallSite, *this,
                               /* RequiresAllCallSites */ true,
-                              AllCallSitesKnown))
+                              AllCallSitesKnown)) {
+    // Something went wrong visiting all call sites, conservatively assume the
+    // worst.
     SingleThreadedBBs.erase(&F->getEntryBlock());
+    if (!F->hasFnAttribute("kernel"))
+      SameEpochBBs.erase(&F->getEntryBlock());
+  }
 
   auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
   auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_target_init];
@@ -2612,29 +2659,77 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     return false;
   };
 
+  // Map to cache the result *per update* only. That we we don't scan blocks
+  // with multiple successors multiple times.
+  DenseMap<const BasicBlock *, Optional<bool>> SameEpochMap;
+
+  auto IsSameEpoch = [&](BasicBlock *PredBB) {
+    Optional<bool> &PredBBIsSameEpoch = SameEpochMap[PredBB];
+    if (PredBBIsSameEpoch.hasValue())
+      return PredBBIsSameEpoch.getValue();
+    // Initially we go with the currently assumed value for the block.
+    PredBBIsSameEpoch = SameEpochBBs.count(PredBB);
+    //errs() << "PredBB: " << PredBB->getName() << " : " << PredBBIsSameEpoch
+           //<< "\n";
+
+    // Then we scan the block to see if we:
+    //  1) ever loose "same epoch" for all threads, if so we need to to record
+    //     that for the scanned block (=PredBB), and
+    //  2) end the block in "same epoch" mode or not.
+    for (Instruction &I : *PredBB) {
+      if (AA::isNoSyncInst(A, I, *this))
+        continue;
+      auto *CB = dyn_cast<CallBase>(&I);
+      if (CB && hasAssumption(*CB, "ompx_nosync"))
+        continue;
+      bool HasAllThreadBarrierAssumption =
+          CB && hasAssumption(*CB, "ompx_aligned_barrier");
+      Function *Callee = CB ? CB->getCalledFunction() : nullptr;
+      if (!CB || !Callee || Callee->isDeclaration() ||
+          HasAllThreadBarrierAssumption) {
+        //errs() << "CB: " << CB << " : " << HasAllThreadBarrierAssumption
+               //<< "\n";
+        //if (CB)
+          //errs() << "CB: " << *CB << " : " << HasAllThreadBarrierAssumption
+                 //<< "\n";
+        PredBBIsSameEpoch = HasAllThreadBarrierAssumption;
+      } else {
+        const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
+            *this, IRPosition::function(*CB->getCalledFunction()),
+            DepClassTy::REQUIRED);
+        PredBBIsSameEpoch = ExecDomAA.isExitedByAllThreadsInTheSameEpoch();
+        //errs() << "CB: " << CB << " End: " << PredBBIsSameEpoch << "\n";
+      }
+      // We track on basic block granularity so if any part of the block is not
+      // executed within the same epoch we need to avoid pretending the block
+      // is. That said, if the final result of this method is "true" it means
+      // we enter the next block with all threads in the same epoch.
+      if (!PredBBIsSameEpoch)
+        SameEpochBBs.erase(PredBB);
+    }
+    //errs() << "PredBB: " << PredBB->getName() << " : " << PredBBIsSameEpoch
+           //<< "\n";
+    return PredBBIsSameEpoch.getValue();
+  };
+
   // Merge all the predecessor states into the current basic block. A basic
   // block is executed by a single thread if all of its predecessors are.
   auto MergePredecessorStates = [&](BasicBlock *BB) {
-    if (pred_begin(BB) == pred_end(BB))
-      return SingleThreadedBBs.contains(BB);
-
-    bool IsInitialThread = true;
     for (auto PredBB = pred_begin(BB), PredEndBB = pred_end(BB);
          PredBB != PredEndBB; ++PredBB) {
-      if (!IsInitialThreadOnly(dyn_cast<BranchInst>((*PredBB)->getTerminator()),
-                               BB))
-        IsInitialThread &= SingleThreadedBBs.contains(*PredBB);
+      auto *BI = dyn_cast<BranchInst>((*PredBB)->getTerminator());
+      if (!SingleThreadedBBs.contains(*PredBB) && !IsInitialThreadOnly(BI, BB))
+        SingleThreadedBBs.erase(BB);
+      if (!IsSameEpoch(*PredBB))
+        SameEpochBBs.erase(BB);
     }
-
-    return IsInitialThread;
   };
 
-  for (auto *BB : RPOT) {
-    if (!MergePredecessorStates(BB))
-      SingleThreadedBBs.erase(BB);
-  }
+  for (auto *BB : RPOT)
+    MergePredecessorStates(BB);
 
-  return (NumSingleThreadedBBs == SingleThreadedBBs.size())
+  return (NumSingleThreadedBBs == SingleThreadedBBs.size() &&
+          NumSameEpochBBs == SameEpochBBs.size())
              ? ChangeStatus::UNCHANGED
              : ChangeStatus::CHANGED;
 }
