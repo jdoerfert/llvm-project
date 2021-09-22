@@ -93,17 +93,17 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
 
   uint32_t NumThreads = determineNumberOfThreads(num_threads);
   if (mapping::isSPMDMode()) {
-    synchronize::threads();
+    synchronize::threadsAligned();
     {
       state::ValueRAII ParallelTeamSizeRAII(state::ParallelTeamSize, NumThreads,
                                             1u, TId == 0);
       state::ValueRAII ActiveLevelRAII(icv::ActiveLevel, 1u, 0u, TId == 0);
       state::ValueRAII LevelRAII(icv::Level, 1u, 0u, TId == 0);
-      synchronize::threads();
+      synchronize::threadsAligned();
 
       if (TId < NumThreads)
         invokeMicrotask(TId, 0, fn, args, nargs);
-      synchronize::threads();
+      synchronize::threadsAligned();
     }
     return;
   }

@@ -126,7 +126,11 @@ void syncWarp(__kmpc_impl_lanemask_t) {
   // AMDGCN doesn't need to sync threads in a warp
 }
 
+#pragma omp begin assumes ext_aligned_barrier
 void syncThreads() { __builtin_amdgcn_s_barrier(); }
+
+void syncThreadsAligned() { syncThreads(); }
+#pragma omp end assumes
 
 void fenceTeam(int Ordering) { __builtin_amdgcn_fence(Ordering, "workgroup"); }
 
@@ -170,10 +174,19 @@ void fenceSystem(int) { __nvvm_membar_sys(); }
 
 void syncWarp(__kmpc_impl_lanemask_t Mask) { __nvvm_bar_warp_sync(Mask); }
 
+#pragma omp begin assumes ext_no_call_asm
 void syncThreads() {
-  constexpr int BarrierNo = 8;
+  constexpr int BarrierNo = 7;
   asm volatile("barrier.sync %0;" : : "r"(BarrierNo) : "memory");
 }
+#pragma omp end assumes
+
+#pragma omp begin assumes ext_aligned_barrier ext_no_call_asm
+void syncThreadsAligned() {
+  constexpr int BarrierNo = 8;
+  asm volatile("barrier.sync.aligned %0;" : : "r"(BarrierNo) : "memory");
+}
+#pragma omp end assumes
 
 constexpr uint32_t OMP_SPIN = 1000;
 constexpr uint32_t UNSET = 0;
@@ -223,6 +236,8 @@ void synchronize::warp(LaneMaskTy Mask) { impl::syncWarp(Mask); }
 
 void synchronize::threads() { impl::syncThreads(); }
 
+void synchronize::threadsAligned() { impl::syncThreadsAligned(); }
+
 void fence::team(int Ordering) { impl::fenceTeam(Ordering); }
 
 void fence::kernel(int Ordering) { impl::fenceKernel(Ordering); }
@@ -267,7 +282,7 @@ void __kmpc_barrier(IdentTy *Loc, int32_t TId) {
 
 __attribute__((noinline)) void __kmpc_barrier_simple_spmd(IdentTy *Loc,
                                                           int32_t TId) {
-  synchronize::threads();
+  synchronize::threadsAligned();
 }
 
 int32_t __kmpc_master(IdentTy *Loc, int32_t TId) {

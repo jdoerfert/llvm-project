@@ -175,24 +175,34 @@ inline state::Value<uint32_t, state::VK_RunSched> RunSched;
 
 namespace memory {
 
+// While generally we cannot guarantee memory allocation functions do not allow
+// the user to synchronize we can guarantee that for our memory allocation
+// functions as the user cannot access them and we do not synchronize through
+// them. The noinline is removed by the openmp-opt pass and helps to preserve
+// the information till then.
+#pragma omp begin assumes ext_nosync
+
 /// Alloca \p Size bytes in shared memory, if possible, for \p Reason.
 ///
 /// Note: See the restrictions on __kmpc_alloc_shared for proper usage.
-void *allocShared(uint64_t Size, const char *Reason);
+__attribute__((noinline)) void *allocShared(uint64_t Size, const char *Reason);
 
 /// Free \p Ptr, alloated via allocShared, for \p Reason.
 ///
 /// Note: See the restrictions on __kmpc_free_shared for proper usage.
-void freeShared(void *Ptr, uint64_t Bytes, const char *Reason);
+__attribute__((noinline)) void freeShared(void *Ptr, uint64_t Bytes,
+                                          const char *Reason);
 
 /// Alloca \p Size bytes in global memory, if possible, for \p Reason.
-void *allocGlobal(uint64_t Size, const char *Reason);
+__attribute__((noinline)) void *allocGlobal(uint64_t Size, const char *Reason);
 
 /// Return a pointer to the dynamic shared memory buffer.
 void *getDynamicBuffer();
 
 /// Free \p Ptr, alloated via allocGlobal, for \p Reason.
-void freeGlobal(void *Ptr, const char *Reason);
+__attribute__((noinline)) void freeGlobal(void *Ptr, const char *Reason);
+
+#pragma omp end assumes
 
 } // namespace memory
 
