@@ -41,19 +41,17 @@ enum ImplicitArgumentMask {
   ALL_ARGUMENT_MASK = (1 << 10) - 1
 };
 
-static constexpr std::pair<ImplicitArgumentMask,
-                           StringLiteral> ImplicitAttrs[] = {
-  {DISPATCH_PTR, "amdgpu-no-dispatch-ptr"},
-  {QUEUE_PTR, "amdgpu-no-queue-ptr"},
-  {DISPATCH_ID, "amdgpu-no-dispatch-id"},
-  {IMPLICIT_ARG_PTR, "amdgpu-no-implicitarg-ptr"},
-  {WORKGROUP_ID_X, "amdgpu-no-workgroup-id-x"},
-  {WORKGROUP_ID_Y, "amdgpu-no-workgroup-id-y"},
-  {WORKGROUP_ID_Z, "amdgpu-no-workgroup-id-z"},
-  {WORKITEM_ID_X, "amdgpu-no-workitem-id-x"},
-  {WORKITEM_ID_Y, "amdgpu-no-workitem-id-y"},
-  {WORKITEM_ID_Z, "amdgpu-no-workitem-id-z"}
-};
+static constexpr std::pair<ImplicitArgumentMask, StringLiteral>
+    ImplicitAttrs[] = {{DISPATCH_PTR, "amdgpu-no-dispatch-ptr"},
+                       {QUEUE_PTR, "amdgpu-no-queue-ptr"},
+                       {DISPATCH_ID, "amdgpu-no-dispatch-id"},
+                       {IMPLICIT_ARG_PTR, "amdgpu-no-implicitarg-ptr"},
+                       {WORKGROUP_ID_X, "amdgpu-no-workgroup-id-x"},
+                       {WORKGROUP_ID_Y, "amdgpu-no-workgroup-id-y"},
+                       {WORKGROUP_ID_Z, "amdgpu-no-workgroup-id-z"},
+                       {WORKITEM_ID_X, "amdgpu-no-workitem-id-x"},
+                       {WORKITEM_ID_Y, "amdgpu-no-workitem-id-y"},
+                       {WORKITEM_ID_Z, "amdgpu-no-workitem-id-z"}};
 
 // We do not need to note the x workitem or workgroup id because they are always
 // initialized.
@@ -186,8 +184,9 @@ private:
   DenseMap<const Constant *, uint8_t> ConstantStatus;
 };
 
-struct AAAMDAttributes : public StateWrapper<
-  BitIntegerState<uint16_t, ALL_ARGUMENT_MASK, 0>, AbstractAttribute> {
+struct AAAMDAttributes
+    : public StateWrapper<BitIntegerState<uint16_t, ALL_ARGUMENT_MASK, 0>,
+                          AbstractAttribute> {
   using Base = StateWrapper<BitIntegerState<uint16_t, ALL_ARGUMENT_MASK, 0>,
                             AbstractAttribute>;
 
@@ -363,7 +362,7 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
       Intrinsic::ID IID = Callee->getIntrinsicID();
       if (IID == Intrinsic::not_intrinsic) {
         const AAAMDAttributes &AAAMD = A.getAAFor<AAAMDAttributes>(
-          *this, IRPosition::function(*Callee), DepClassTy::REQUIRED);
+            *this, IRPosition::function(*Callee), DepClassTy::REQUIRED);
         *this &= AAAMD;
         continue;
       }
@@ -380,8 +379,8 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
     // If we found that we need amdgpu-queue-ptr, nothing else to do.
     if (NeedsQueuePtr) {
       removeAssumedBits(QUEUE_PTR);
-      return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED :
-                                           ChangeStatus::UNCHANGED;
+      return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED
+                                         : ChangeStatus::UNCHANGED;
     }
 
     auto CheckAddrSpaceCasts = [&](Instruction &I) {
@@ -409,13 +408,13 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
     // If we found  that we need amdgpu-queue-ptr, nothing else to do.
     if (NeedsQueuePtr) {
       removeAssumedBits(QUEUE_PTR);
-      return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED :
-                                           ChangeStatus::UNCHANGED;
+      return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED
+                                         : ChangeStatus::UNCHANGED;
     }
 
     if (!IsNonEntryFunc && HasApertureRegs) {
-      return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED :
-                                           ChangeStatus::UNCHANGED;
+      return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED
+                                         : ChangeStatus::UNCHANGED;
     }
 
     for (BasicBlock &BB : *F) {
@@ -424,16 +423,16 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
           if (const auto *C = dyn_cast<Constant>(U)) {
             if (InfoCache.needsQueuePtr(C, *F)) {
               removeAssumedBits(QUEUE_PTR);
-              return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED :
-                                                   ChangeStatus::UNCHANGED;
+              return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED
+                                                 : ChangeStatus::UNCHANGED;
             }
           }
         }
       }
     }
 
-    return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED :
-                                         ChangeStatus::UNCHANGED;
+    return getAssumed() != OrigAssumed ? ChangeStatus::CHANGED
+                                       : ChangeStatus::UNCHANGED;
   }
 
   ChangeStatus manifest(Attributor &A) override {
@@ -496,8 +495,9 @@ public:
     CallGraphUpdater CGUpdater;
     BumpPtrAllocator Allocator;
     AMDGPUInformationCache InfoCache(M, AG, Allocator, nullptr, *TM);
-    DenseSet<const char *> Allowed(
-        {&AAAMDAttributes::ID, &AAAMDWorkGroupSize::ID, &AAFunctionReachability::ID});
+    DenseSet<const char *> Allowed({&AAAMDAttributes::ID,
+                                    &AAUniformWorkGroupSize::ID,
+                                    &AAFunctionReachability::ID});
 
     Attributor A(Functions, InfoCache, CGUpdater, &Allowed);
 
