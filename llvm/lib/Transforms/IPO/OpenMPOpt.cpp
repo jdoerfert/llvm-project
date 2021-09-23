@@ -21,6 +21,7 @@
 
 #include "llvm/ADT/EnumeratedArray.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
@@ -30,14 +31,17 @@
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/Attributor.h"
@@ -641,13 +645,15 @@ struct KernelInfoState : AbstractState {
   KernelInfoState operator^=(const KernelInfoState &KIS) {
     // Do not merge two different _init and _deinit call sites.
     if (KIS.KernelInitCB) {
-      if(KernelInitCB && KernelInitCB != KIS.KernelInitCB)
-        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt assumptions.");
+      if (KernelInitCB && KernelInitCB != KIS.KernelInitCB)
+        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt "
+                         "assumptions.");
       KernelInitCB = KIS.KernelInitCB;
     }
     if (KIS.KernelDeinitCB) {
-      if(KernelDeinitCB && KernelDeinitCB != KIS.KernelDeinitCB)
-        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt assumptions.");
+      if (KernelDeinitCB && KernelDeinitCB != KIS.KernelDeinitCB)
+        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt "
+                         "assumptions.");
       KernelDeinitCB = KIS.KernelDeinitCB;
     }
     SPMDCompatibilityTracker ^= KIS.SPMDCompatibilityTracker;
@@ -777,7 +783,9 @@ struct OpenMPOpt {
                       << OMPInfoCache.ModuleSlice.size() << " functions\n");
 
     if (IsModulePass) {
+      M.dump();
       Changed |= runAttributor(IsModulePass);
+      M.dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -2586,7 +2594,6 @@ struct AAExecutionDomainFunction : public AAExecutionDomain {
 
 ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
   Function *F = getAnchorScope();
-  ReversePostOrderTraversal<Function *> RPOT(F);
   auto NumSingleThreadedBBs = SingleThreadedBBs.size();
   auto NumSameEpochBBs = SameEpochBBs.size();
 
@@ -2598,8 +2605,7 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     const Instruction &I = *ACS.getInstruction();
     if (!ACS.isDirectCall() || !ExecDomAA.isExecutedByInitialThreadOnly(I))
       SingleThreadedBBs.erase(&F->getEntryBlock());
-    if (!ACS.isDirectCall() ||
-        !ExecDomAA.isExecutedByAllThreadsInTheSameEpoch(I))
+    if (!ExecDomAA.isExecutedByAllThreadsInTheSameEpoch(I))
       SameEpochBBs.erase(&F->getEntryBlock());
     return true;
   };
@@ -2661,72 +2667,132 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
 
   // Map to cache the result *per update* only. That we we don't scan blocks
   // with multiple successors multiple times.
-  DenseMap<const BasicBlock *, Optional<bool>> SameEpochMap;
+  struct SameEpochInfo {
+    Optional<bool> StartsWithAlignedBarrierAsSync = llvm::None;
+    Optional<bool> EndsWithAlignedBarrierAsSync = llvm::None;
+    bool ContainsNonAlignedSync = false;
+    bool IsDead = false;
+  };
+  DenseMap<const BasicBlock *, SameEpochInfo> SameEpochMap;
 
-  auto IsSameEpoch = [&](BasicBlock *PredBB) {
-    Optional<bool> &PredBBIsSameEpoch = SameEpochMap[PredBB];
-    if (PredBBIsSameEpoch.hasValue())
-      return PredBBIsSameEpoch.getValue();
-    // Initially we go with the currently assumed value for the block.
-    PredBBIsSameEpoch = SameEpochBBs.count(PredBB);
-    //errs() << "PredBB: " << PredBB->getName() << " : " << PredBBIsSameEpoch
-           //<< "\n";
+  auto CheckInst = [&](Instruction &I) -> Optional<bool> {
+    if (AA::isNoSyncInst(A, I, *this))
+      return llvm::None;
+    auto *CB = dyn_cast<CallBase>(&I);
+    if (CB && hasAssumption(*CB, "ompx_nosync"))
+      return llvm::None;
+    if (auto *II = dyn_cast_or_null<IntrinsicInst>(CB)) {
+      switch (II->getIntrinsicID()) {
+      case Intrinsic::assume:
+      case Intrinsic::trap:
+      case Intrinsic::lifetime_start:
+      case Intrinsic::lifetime_end:
+      case Intrinsic::memset:
+      case Intrinsic::memcpy:
+      case Intrinsic::memmove:
+        return llvm::None;
+      default:
+        break;
+      }
+    }
+    bool HasAllThreadBarrierAssumption =
+        CB && hasAssumption(*CB, "ompx_aligned_barrier");
+    Function *Callee = CB ? CB->getCalledFunction() : nullptr;
+    if (!CB || !Callee || Callee->isDeclaration() ||
+        HasAllThreadBarrierAssumption) {
+      errs() << "CB: " << CB << " : " << HasAllThreadBarrierAssumption << "\n";
+      if (CB)
+        errs() << "CB: " << *CB << " : " << HasAllThreadBarrierAssumption
+               << "\n";
+      return HasAllThreadBarrierAssumption;
+    }
+
+    const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
+        *this, IRPosition::function(*CB->getCalledFunction()),
+        DepClassTy::REQUIRED);
+    return ExecDomAA.isExitedByAllThreadsInTheSameEpoch();
+  };
+
+  auto CheckBB = [&](BasicBlock &BB) {
+    SameEpochInfo &SEI = SameEpochMap[&BB];
+    SEI.IsDead = A.isAssumedDead(BB, this, nullptr, DepClassTy::OPTIONAL);
+    if (SEI.IsDead)
+      return;
 
     // Then we scan the block to see if we:
     //  1) ever loose "same epoch" for all threads, if so we need to to record
-    //     that for the scanned block (=PredBB), and
+    //     that for the scanned block (=BB), and
     //  2) end the block in "same epoch" mode or not.
-    for (Instruction &I : *PredBB) {
-      if (AA::isNoSyncInst(A, I, *this))
+    for (Instruction &I : BB) {
+      Optional<bool> InstIsAlignedSync = CheckInst(I);
+      // Non-sync instruction have no value and can be skipped.
+      if (!InstIsAlignedSync.hasValue())
         continue;
-      auto *CB = dyn_cast<CallBase>(&I);
-      if (CB && hasAssumption(*CB, "ompx_nosync"))
-        continue;
-      bool HasAllThreadBarrierAssumption =
-          CB && hasAssumption(*CB, "ompx_aligned_barrier");
-      Function *Callee = CB ? CB->getCalledFunction() : nullptr;
-      if (!CB || !Callee || Callee->isDeclaration() ||
-          HasAllThreadBarrierAssumption) {
-        //errs() << "CB: " << CB << " : " << HasAllThreadBarrierAssumption
-               //<< "\n";
-        //if (CB)
-          //errs() << "CB: " << *CB << " : " << HasAllThreadBarrierAssumption
-                 //<< "\n";
-        PredBBIsSameEpoch = HasAllThreadBarrierAssumption;
-      } else {
-        const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
-            *this, IRPosition::function(*CB->getCalledFunction()),
-            DepClassTy::REQUIRED);
-        PredBBIsSameEpoch = ExecDomAA.isExitedByAllThreadsInTheSameEpoch();
-        //errs() << "CB: " << CB << " End: " << PredBBIsSameEpoch << "\n";
-      }
+      if (!SEI.StartsWithAlignedBarrierAsSync.hasValue())
+        SEI.StartsWithAlignedBarrierAsSync = InstIsAlignedSync;
+      SEI.EndsWithAlignedBarrierAsSync = InstIsAlignedSync;
+
       // We track on basic block granularity so if any part of the block is not
       // executed within the same epoch we need to avoid pretending the block
       // is. That said, if the final result of this method is "true" it means
       // we enter the next block with all threads in the same epoch.
-      if (!PredBBIsSameEpoch)
-        SameEpochBBs.erase(PredBB);
+      if (!InstIsAlignedSync.getValue())
+        SEI.ContainsNonAlignedSync = true;
     }
-    //errs() << "PredBB: " << PredBB->getName() << " : " << PredBBIsSameEpoch
-           //<< "\n";
-    return PredBBIsSameEpoch.getValue();
   };
 
   // Merge all the predecessor states into the current basic block. A basic
   // block is executed by a single thread if all of its predecessors are.
-  auto MergePredecessorStates = [&](BasicBlock *BB) {
-    for (auto PredBB = pred_begin(BB), PredEndBB = pred_end(BB);
-         PredBB != PredEndBB; ++PredBB) {
-      auto *BI = dyn_cast<BranchInst>((*PredBB)->getTerminator());
-      if (!SingleThreadedBBs.contains(*PredBB) && !IsInitialThreadOnly(BI, BB))
-        SingleThreadedBBs.erase(BB);
-      if (!IsSameEpoch(*PredBB))
-        SameEpochBBs.erase(BB);
+  auto MergePredecessorStates = [&](BasicBlock &BB) {
+    if (SameEpochMap[&BB].IsDead)
+      return;
+    bool PredsSameEpoche = true;
+    for (BasicBlock *PredBB : predecessors(&BB)) {
+      SameEpochInfo &SEI = SameEpochMap[PredBB];
+      if (SEI.IsDead)
+        continue;
+
+      auto *BI = dyn_cast<BranchInst>(PredBB->getTerminator());
+      if (!SingleThreadedBBs.contains(PredBB) && !IsInitialThreadOnly(BI, &BB))
+        SingleThreadedBBs.erase(&BB);
+
+      if (SEI.EndsWithAlignedBarrierAsSync.hasValue() &&
+          SEI.EndsWithAlignedBarrierAsSync.getValue())
+        continue;
+      if (!SEI.ContainsNonAlignedSync && SameEpochBBs.contains(PredBB))
+        continue;
+      PredsSameEpoche = false;
+    }
+    if (!PredsSameEpoche)
+      SameEpochBBs.erase(&BB);
+  };
+
+  auto MergeSuccessorStates = [&](BasicBlock &BB) {
+    if (SameEpochMap[&BB].IsDead)
+      return;
+    if (!SameEpochBBs.count(&BB))
+      return;
+    for (BasicBlock *SuccBB : successors(&BB)) {
+      SameEpochInfo &SEI = SameEpochMap[SuccBB];
+      if (SEI.IsDead)
+        continue;
+      if (SEI.StartsWithAlignedBarrierAsSync.hasValue() &&
+          SEI.StartsWithAlignedBarrierAsSync.getValue())
+        continue;
+      if (!SEI.ContainsNonAlignedSync && SameEpochBBs.contains(SuccBB))
+        continue;
+      SameEpochBBs.erase(&BB);
+      return;
     }
   };
 
+  ReversePostOrderTraversal<Function *> RPOT(F);
   for (auto *BB : RPOT)
-    MergePredecessorStates(BB);
+    CheckBB(*BB);
+  for (auto *BB : RPOT)
+    MergePredecessorStates(*BB);
+  for (auto &BB : reverse(*F))
+    MergeSuccessorStates(BB);
 
   return (NumSingleThreadedBBs == SingleThreadedBBs.size() &&
           NumSameEpochBBs == SameEpochBBs.size())
@@ -3796,7 +3862,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
     bool UsedAssumedInformationInCheckCallInst = false;
     if (!A.checkForAllCallLikeInstructions(
             CheckCallInst, *this, UsedAssumedInformationInCheckCallInst)) {
-      LLVM_DEBUG(dbgs() << TAG << "Failed to visit all call-like instructions!\n";);
+      LLVM_DEBUG(dbgs() << TAG
+                        << "Failed to visit all call-like instructions!\n";);
       return indicatePessimisticFixpoint();
     }
 

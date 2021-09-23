@@ -1109,6 +1109,8 @@ struct AAPointerInfoImpl
     bool LoadIsInAllThreadsEpoch =
         (ExecDomainAA &&
          ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(LI));
+    errs() << "Load: Initial thread only: " << LoadIsInitialThreadOnly
+           << " : SameEpoch: " << LoadIsInAllThreadsEpoch << "\n";
 
     // Helper to determine if we need to consider threading, which we cannot
     // right now. However, if the function is (assumed) nosync or the thread
@@ -1206,13 +1208,13 @@ struct AAPointerInfoImpl
       // For now we only filter accesses based on CFG reasoning which does not
       // work yet if we have threading effects, or the access is complicated.
       if (!CanIgnoreThreading(*Acc.getLocalInst())) {
-        // errs() << "Cannot ignore threading for: " << *Acc.getLocalInst() <<
-        // "\n";
         CouldUseCFGReasoningForAllAccesses = false;
       } else {
         if (!AA::isPotentiallyReachable(A, *Acc.getLocalInst(), LI, QueryingAA,
                                         IsLiveInCalleeCB))
           return true;
+        // errs() << "Reachable:"  << DT << " : " << Exact << " "  <<
+        // *Acc.getLocalInst() <<"\n";
         if (DT && Exact) {
           if (DT->dominates(Acc.getLocalInst(), &LI))
             DominatingWrites.insert(&Acc);
@@ -3560,8 +3562,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     // threading.
     auto CanIgnoreThreading = [&](const Instruction &I) -> bool {
       const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
-          IRPosition::function(*I.getFunction()), this,
-          DepClassTy::OPTIONAL);
+          IRPosition::function(*I.getFunction()), this, DepClassTy::OPTIONAL);
       LLVM_DEBUG(
           errs() << "Store: Initial thread only: "
                  << (ExecDomainAA &&
@@ -3651,8 +3652,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       if (R || !I || !CanIgnoreThreading(*I))
         return R;
 
-      R = !AA::isPotentiallyReachable(A, SI, *I, *this,
-                                      IsLiveInCalleeCB);
+      R = !AA::isPotentiallyReachable(A, SI, *I, *this, IsLiveInCalleeCB);
       LLVM_DEBUG(dbgs() << "[AAIsDead] " << *V << " is assumed "
                         << (R ? "non-reachable" : "reachable") << " user!\n");
 
