@@ -335,7 +335,7 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
                                 const AbstractAttribute &QueryingAA,
                                 bool &UsedAssumedInformation, bool OnlyExact) {
   Value &Ptr = *I.getPointerOperand();
-  //errs() << " " << Ptr << "  of " << I << "\n";
+  // errs() << " " << Ptr << "  of " << I << "\n";
   SmallVector<Value *, 8> Objects;
   if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &I)) {
     LLVM_DEBUG(
@@ -386,7 +386,7 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
     }
 
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
-      //errs() << "Acc: " << *Acc.getLocalInst() << "\n";
+      // errs() << "Acc: " << *Acc.getLocalInst() << "\n";
       if (OnlyExact && !IsExact) {
         LLVM_DEBUG(dbgs() << "Non exact access " << *Acc.getRemoteInst()
                           << "!\n");
@@ -745,6 +745,7 @@ IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
   AttributeList Attrs;
   switch (PK) {
   case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_MODULE:
   case IRPosition::IRP_FLOAT:
     return ChangeStatus::UNCHANGED;
   case IRPosition::IRP_ARGUMENT:
@@ -783,6 +784,7 @@ IRAttributeManifest::manifestAttrs(Attributor &A, const IRPosition &IRP,
     cast<CallBase>(IRP.getAnchorValue()).setAttributes(Attrs);
     break;
   case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_MODULE:
   case IRPosition::IRP_FLOAT:
     break;
   }
@@ -807,6 +809,7 @@ SubsumingPositionIterator::SubsumingPositionIterator(const IRPosition &IRP) {
   const auto *CB = dyn_cast<CallBase>(&IRP.getAnchorValue());
   switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_MODULE:
   case IRPosition::IRP_FLOAT:
   case IRPosition::IRP_FUNCTION:
     return;
@@ -899,7 +902,8 @@ void IRPosition::getAttrs(ArrayRef<Attribute::AttrKind> AKs,
 
 bool IRPosition::getAttrsFromIRAttr(Attribute::AttrKind AK,
                                     SmallVectorImpl<Attribute> &Attrs) const {
-  if (getPositionKind() == IRP_INVALID || getPositionKind() == IRP_FLOAT)
+  auto PK = getPositionKind();
+  if (PK == IRP_INVALID || PK == IRP_MODULE || PK == IRP_FLOAT)
     return false;
 
   AttributeList AttrList;
@@ -947,6 +951,12 @@ void IRPosition::verify() {
            "Invalid position must not have CallBaseContext!");
     assert(!Enc.getOpaqueValue() &&
            "Expected a nullptr for an invalid position!");
+    return;
+  case IRP_MODULE:
+    assert((CBContext == nullptr) &&
+           "Module position must not have CallBaseContext!");
+    assert(!Enc.getOpaqueValue() &&
+           "Expected a nullptr for a module position!");
     return;
   case IRP_FLOAT:
     assert((!isa<CallBase>(&getAssociatedValue()) &&
@@ -1108,6 +1118,8 @@ bool Attributor::isAssumedDead(const AbstractAttribute &AA,
                                bool &UsedAssumedInformation,
                                bool CheckBBLivenessOnly, DepClassTy DepClass) {
   const IRPosition &IRP = AA.getIRPosition();
+  if (IRP.getPositionKind() == IRPosition::IRP_MODULE)
+    return false;
   Function *Fn = IRP.getAnchorScope();
   if (!Functions.count(Fn))
     return false;
@@ -1233,6 +1245,8 @@ bool Attributor::isAssumedDead(const IRPosition &IRP,
                                const AAIsDead *FnLivenessAA,
                                bool &UsedAssumedInformation,
                                bool CheckBBLivenessOnly, DepClassTy DepClass) {
+  if (IRP.getPositionKind() == IRPosition::IRP_MODULE)
+    return false;
   Instruction *CtxI = IRP.getCtxI();
   if (CtxI &&
       isAssumedDead(*CtxI, QueryingAA, FnLivenessAA, UsedAssumedInformation,
@@ -2176,11 +2190,15 @@ ChangeStatus Attributor::updateAA(AbstractAttribute &AA) {
   auto &AAState = AA.getState();
   ChangeStatus CS = ChangeStatus::UNCHANGED;
   bool UsedAssumedInformation = false;
-  if (!isAssumedDead(AA, nullptr, UsedAssumedInformation,
-                     /* CheckBBLivenessOnly */ true))
+  bool IsQueryAA = AA.isQueryAA();
+
+  if (IsQueryAA)
+    AA.update(*this);
+  else if (!isAssumedDead(AA, nullptr, UsedAssumedInformation,
+                                   /* CheckBBLivenessOnly */ true))
     CS = AA.update(*this);
 
-  if (DV.empty()) {
+  if (!IsQueryAA && DV.empty()) {
     // If the attribute did not query any non-fix information, the state
     // will not change and we can indicate that right away.
     AAState.indicateOptimisticFixpoint();
@@ -3018,6 +3036,8 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, IRPosition::Kind AP) {
   switch (AP) {
   case IRPosition::IRP_INVALID:
     return OS << "inv";
+  case IRPosition::IRP_MODULE:
+    return OS << "mod";
   case IRPosition::IRP_FLOAT:
     return OS << "flt";
   case IRPosition::IRP_RETURNED:
@@ -3037,6 +3057,9 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, IRPosition::Kind AP) {
 }
 
 raw_ostream &llvm::operator<<(raw_ostream &OS, const IRPosition &Pos) {
+  if (Pos.getPositionKind() == IRPosition::IRP_MODULE)
+    return OS;
+
   const Value &AV = Pos.getAssociatedValue();
   OS << "{" << Pos.getPositionKind() << ":" << AV.getName() << " ["
      << Pos.getAnchorValue().getName() << "@" << Pos.getCallSiteArgNo() << "]";

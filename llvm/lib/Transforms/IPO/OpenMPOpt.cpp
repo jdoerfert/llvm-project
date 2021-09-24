@@ -4587,6 +4587,7 @@ AAICVTracker &AAICVTracker::createForPosition(const IRPosition &IRP,
   AAICVTracker *AA = nullptr;
   switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_MODULE:
   case IRPosition::IRP_FLOAT:
   case IRPosition::IRP_ARGUMENT:
   case IRPosition::IRP_CALL_SITE_ARGUMENT:
@@ -4613,6 +4614,7 @@ AAExecutionDomain &AAExecutionDomain::createForPosition(const IRPosition &IRP,
   AAExecutionDomainFunction *AA = nullptr;
   switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_MODULE:
   case IRPosition::IRP_FLOAT:
   case IRPosition::IRP_ARGUMENT:
   case IRPosition::IRP_CALL_SITE_ARGUMENT:
@@ -4634,6 +4636,7 @@ AAHeapToShared &AAHeapToShared::createForPosition(const IRPosition &IRP,
   AAHeapToSharedFunction *AA = nullptr;
   switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_MODULE:
   case IRPosition::IRP_FLOAT:
   case IRPosition::IRP_ARGUMENT:
   case IRPosition::IRP_CALL_SITE_ARGUMENT:
@@ -4655,6 +4658,7 @@ AAKernelInfo &AAKernelInfo::createForPosition(const IRPosition &IRP,
   AAKernelInfo *AA = nullptr;
   switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_MODULE:
   case IRPosition::IRP_FLOAT:
   case IRPosition::IRP_ARGUMENT:
   case IRPosition::IRP_RETURNED:
@@ -4677,6 +4681,7 @@ AAFoldRuntimeCall &AAFoldRuntimeCall::createForPosition(const IRPosition &IRP,
   AAFoldRuntimeCall *AA = nullptr;
   switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_MODULE:
   case IRPosition::IRP_FLOAT:
   case IRPosition::IRP_ARGUMENT:
   case IRPosition::IRP_RETURNED:

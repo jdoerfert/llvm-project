@@ -1302,9 +1302,10 @@ define internal void @__omp_outlined__5(i32* noalias %.global_tid., i32* noalias
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[X_ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    store i32* [[X]], i32** [[X_ADDR]], align 8
-; AMDGPU-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X]], align 4
-; AMDGPU-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP0]], 1
-; AMDGPU-NEXT:    store i32 [[INC]], i32* [[X]], align 4
+; AMDGPU-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[X_ADDR]], align 8
+; AMDGPU-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; AMDGPU-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP1]], 1
+; AMDGPU-NEXT:    store i32 [[INC]], i32* [[TMP0]], align 4
 ; AMDGPU-NEXT:    call void @unknown() #[[ATTR8]]
 ; AMDGPU-NEXT:    ret void
 ;
@@ -1315,9 +1316,10 @@ define internal void @__omp_outlined__5(i32* noalias %.global_tid., i32* noalias
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[X_ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    store i32* [[X]], i32** [[X_ADDR]], align 8
-; NVPTX-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X]], align 4
-; NVPTX-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP0]], 1
-; NVPTX-NEXT:    store i32 [[INC]], i32* [[X]], align 4
+; NVPTX-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[X_ADDR]], align 8
+; NVPTX-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; NVPTX-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP1]], 1
+; NVPTX-NEXT:    store i32 [[INC]], i32* [[TMP0]], align 4
 ; NVPTX-NEXT:    call void @unknown() #[[ATTR8]]
 ; NVPTX-NEXT:    ret void
 ;
@@ -1328,9 +1330,10 @@ define internal void @__omp_outlined__5(i32* noalias %.global_tid., i32* noalias
 ; AMDGPU-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[X_ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    store i32* [[X]], i32** [[X_ADDR]], align 8
-; AMDGPU-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X]], align 4
-; AMDGPU-DISABLED-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP0]], 1
-; AMDGPU-DISABLED-NEXT:    store i32 [[INC]], i32* [[X]], align 4
+; AMDGPU-DISABLED-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[X_ADDR]], align 8
+; AMDGPU-DISABLED-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; AMDGPU-DISABLED-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP1]], 1
+; AMDGPU-DISABLED-NEXT:    store i32 [[INC]], i32* [[TMP0]], align 4
 ; AMDGPU-DISABLED-NEXT:    call void @unknown() #[[ATTR8]]
 ; AMDGPU-DISABLED-NEXT:    ret void
 ;
@@ -1341,9 +1344,10 @@ define internal void @__omp_outlined__5(i32* noalias %.global_tid., i32* noalias
 ; NVPTX-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[X_ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    store i32* [[X]], i32** [[X_ADDR]], align 8
-; NVPTX-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X]], align 4
-; NVPTX-DISABLED-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP0]], 1
-; NVPTX-DISABLED-NEXT:    store i32 [[INC]], i32* [[X]], align 4
+; NVPTX-DISABLED-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[X_ADDR]], align 8
+; NVPTX-DISABLED-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; NVPTX-DISABLED-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP1]], 1
+; NVPTX-DISABLED-NEXT:    store i32 [[INC]], i32* [[TMP0]], align 4
 ; NVPTX-DISABLED-NEXT:    call void @unknown() #[[ATTR8]]
 ; NVPTX-DISABLED-NEXT:    ret void
 ;
@@ -1800,9 +1804,10 @@ define internal void @__omp_outlined__7(i32* noalias %.global_tid., i32* noalias
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[X_ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    store i32* [[X]], i32** [[X_ADDR]], align 8
-; AMDGPU-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X]], align 4
-; AMDGPU-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP0]], 1
-; AMDGPU-NEXT:    store i32 [[INC]], i32* [[X]], align 4
+; AMDGPU-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[X_ADDR]], align 8
+; AMDGPU-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; AMDGPU-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP1]], 1
+; AMDGPU-NEXT:    store i32 [[INC]], i32* [[TMP0]], align 4
 ; AMDGPU-NEXT:    call void @unknown() #[[ATTR8]]
 ; AMDGPU-NEXT:    ret void
 ;
@@ -1813,9 +1818,10 @@ define internal void @__omp_outlined__7(i32* noalias %.global_tid., i32* noalias
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[X_ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    store i32* [[X]], i32** [[X_ADDR]], align 8
-; NVPTX-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X]], align 4
-; NVPTX-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP0]], 1
-; NVPTX-NEXT:    store i32 [[INC]], i32* [[X]], align 4
+; NVPTX-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[X_ADDR]], align 8
+; NVPTX-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; NVPTX-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP1]], 1
+; NVPTX-NEXT:    store i32 [[INC]], i32* [[TMP0]], align 4
 ; NVPTX-NEXT:    call void @unknown() #[[ATTR8]]
 ; NVPTX-NEXT:    ret void
 ;
@@ -1826,9 +1832,10 @@ define internal void @__omp_outlined__7(i32* noalias %.global_tid., i32* noalias
 ; AMDGPU-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[X_ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    store i32* [[X]], i32** [[X_ADDR]], align 8
-; AMDGPU-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X]], align 4
-; AMDGPU-DISABLED-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP0]], 1
-; AMDGPU-DISABLED-NEXT:    store i32 [[INC]], i32* [[X]], align 4
+; AMDGPU-DISABLED-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[X_ADDR]], align 8
+; AMDGPU-DISABLED-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; AMDGPU-DISABLED-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP1]], 1
+; AMDGPU-DISABLED-NEXT:    store i32 [[INC]], i32* [[TMP0]], align 4
 ; AMDGPU-DISABLED-NEXT:    call void @unknown() #[[ATTR8]]
 ; AMDGPU-DISABLED-NEXT:    ret void
 ;
@@ -1839,9 +1846,10 @@ define internal void @__omp_outlined__7(i32* noalias %.global_tid., i32* noalias
 ; NVPTX-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[X_ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    store i32* [[X]], i32** [[X_ADDR]], align 8
-; NVPTX-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[X]], align 4
-; NVPTX-DISABLED-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP0]], 1
-; NVPTX-DISABLED-NEXT:    store i32 [[INC]], i32* [[X]], align 4
+; NVPTX-DISABLED-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[X_ADDR]], align 8
+; NVPTX-DISABLED-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
+; NVPTX-DISABLED-NEXT:    [[INC:%.*]] = add nsw i32 [[TMP1]], 1
+; NVPTX-DISABLED-NEXT:    store i32 [[INC]], i32* [[TMP0]], align 4
 ; NVPTX-DISABLED-NEXT:    call void @unknown() #[[ATTR8]]
 ; NVPTX-DISABLED-NEXT:    ret void
 ;

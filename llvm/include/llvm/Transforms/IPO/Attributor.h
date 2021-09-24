@@ -341,6 +341,7 @@ struct IRPosition {
   /// The positions we distinguish in the IR.
   enum Kind : char {
     IRP_INVALID,  ///< An invalid position.
+    IRP_MODULE,   ///< An attribute for a module (scope).
     IRP_FLOAT,    ///< A position that is not associated with a spot suitable
                   ///< for attributes. This could be any value or instruction.
     IRP_RETURNED, ///< An attribute for the function return value.
@@ -380,6 +381,9 @@ struct IRPosition {
                                    const CallBaseContext *CBContext = nullptr) {
     return IRPosition(const_cast<Function &>(F), IRP_FUNCTION, CBContext);
   }
+
+  /// Create a position describing the module scope of \p M.
+  static const IRPosition module(const Module &M) { return IRPosition(M); }
 
   /// Create a position describing the returned value of \p F.
   /// \p CBContext is used for call base specific analysis.
@@ -494,6 +498,8 @@ struct IRPosition {
 
   /// Return the Function surrounding the anchor value.
   Function *getAnchorScope() const {
+    if (!Enc.getPointer())
+      return nullptr;
     Value &V = getAnchorValue();
     if (isa<Function>(V))
       return &cast<Function>(V);
@@ -506,6 +512,8 @@ struct IRPosition {
 
   /// Return the context instruction, if any.
   Instruction *getCtxI() const {
+    if (!Enc.getPointer())
+      return nullptr;
     Value &V = getAnchorValue();
     if (auto *I = dyn_cast<Instruction>(&V))
       return I;
@@ -553,6 +561,7 @@ struct IRPosition {
   unsigned getAttrIdx() const {
     switch (getPositionKind()) {
     case IRPosition::IRP_INVALID:
+    case IRPosition::IRP_MODULE:
     case IRPosition::IRP_FLOAT:
       break;
     case IRPosition::IRP_FUNCTION:
@@ -574,10 +583,13 @@ struct IRPosition {
     char EncodingBits = getEncodingBits();
     if (EncodingBits == ENC_CALL_SITE_ARGUMENT_USE)
       return IRP_CALL_SITE_ARGUMENT;
+
+    Value *V = getAsValuePtr();
+    if (EncodingBits == ENC_MODULE && !V)
+      return IRP_MODULE;
     if (EncodingBits == ENC_FLOATING_FUNCTION)
       return IRP_FLOAT;
 
-    Value *V = getAsValuePtr();
     if (!V)
       return IRP_INVALID;
     if (isa<Argument>(V))
@@ -617,7 +629,8 @@ struct IRPosition {
 
   /// Remove the attribute of kind \p AKs existing in the IR at this position.
   void removeAttrs(ArrayRef<Attribute::AttrKind> AKs) const {
-    if (getPositionKind() == IRP_INVALID || getPositionKind() == IRP_FLOAT)
+    auto PK = getPositionKind();
+    if (PK == IRP_INVALID || PK == IRP_MODULE || PK == IRP_FLOAT)
       return;
 
     AttributeList AttrList;
@@ -689,11 +702,19 @@ private:
     Enc.setFromOpaqueValue(Ptr);
   }
 
+  /// IRPosition anchored at \p M with module kind.
+  explicit IRPosition(const Module &M) {
+    Enc = {nullptr, ENC_MODULE};
+    verify();
+  }
+
   /// IRPosition anchored at \p AnchorVal with kind/argument numbet \p PK.
   explicit IRPosition(Value &AnchorVal, Kind PK,
                       const CallBaseContext *CBContext = nullptr)
       : CBContext(CBContext) {
     switch (PK) {
+    case IRPosition::IRP_MODULE:
+      llvm_unreachable("Cannot create module IRP with an anchor value!");
     case IRPosition::IRP_INVALID:
       llvm_unreachable("Cannot create invalid IRP with an anchor value!");
       break;
@@ -801,6 +822,7 @@ private:
     ENC_VALUE = 0b00,
     ENC_RETURNED_VALUE = 0b01,
     ENC_FLOATING_FUNCTION = 0b10,
+    ENC_MODULE = ENC_FLOATING_FUNCTION,
     ENC_CALL_SITE_ARGUMENT_USE = 0b11,
   };
 
@@ -1486,9 +1508,9 @@ struct Attributor {
     if (V && (V->stripPointerCasts() == NV.stripPointerCasts() ||
               isa_and_nonnull<UndefValue>(V)))
       return false;
-    //if (auto *I = dyn_cast<Instruction>(U.get()))
-      //if (InfoCache.isOnlyUsedByAssume(*I))
-        //return false;
+    // if (auto *I = dyn_cast<Instruction>(U.get()))
+    // if (InfoCache.isOnlyUsedByAssume(*I))
+    // return false;
     assert((!V || V == &NV || isa<UndefValue>(NV)) &&
            "Use was registered twice for replacement with different values!");
     V = &NV;
@@ -1505,9 +1527,9 @@ struct Attributor {
     if (CurNV && (CurNV->stripPointerCasts() == NV.stripPointerCasts() ||
                   isa<UndefValue>(CurNV)))
       return false;
-    //if (auto *I = dyn_cast<Instruction>(&V))
-      //if (InfoCache.isOnlyUsedByAssume(*I))
-        //return false;
+    // if (auto *I = dyn_cast<Instruction>(&V))
+    // if (InfoCache.isOnlyUsedByAssume(*I))
+    // return false;
     assert((!CurNV || CurNV == &NV || isa<UndefValue>(NV)) &&
            "Value replacement was registered twice with different values!");
     CurNV = &NV;
@@ -2690,6 +2712,8 @@ struct AbstractAttribute : public IRPosition, public AADepGraphNode {
   ///    a subset of the IR, or attributes in-flight, that have to be looked at
   ///    in the `updateImpl` method.
   virtual void initialize(Attributor &A) {}
+
+  virtual bool isQueryAA() const { return false; }
 
   /// Return the internal abstract state for inspection.
   virtual StateType &getState() = 0;
@@ -4668,6 +4692,43 @@ struct AAPointerInfo : public AbstractAttribute {
       function_ref<bool(const Access &, bool)> CB) const = 0;
 
   /// This function should return true if the type of the \p AA is AAPointerInfo
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+};
+
+/// An abstract interface for inter-procedural dominance.
+struct AADominance : public StateWrapper<BooleanState, AbstractAttribute> {
+  AADominance(const IRPosition &IRP, Attributor &A)
+      : StateWrapper<BooleanState, AbstractAttribute>(IRP) {}
+
+  using ContinueToCallerCBTy = std::function<bool(const Function &)>;
+
+  bool isQueryAA() const override { return true; }
+
+  /// Return true if we assume \p BB0 dominates \p BB1.
+  virtual bool assumedDominates(
+      Attributor &A, const BasicBlock &BB0, const BasicBlock &BB1,
+      const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const = 0;
+
+  /// Return true if we assume \p I0 dominates \p I1.
+  virtual bool assumedDominates(
+      Attributor &A, const Instruction &I0, const Instruction &I1,
+      const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const = 0;
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AADominance &createForPosition(const IRPosition &IRP, Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AADominance"; }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is AADominance
   static bool classof(const AbstractAttribute *AA) {
     return (AA->getIdAddr() == &ID);
   }

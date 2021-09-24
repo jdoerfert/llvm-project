@@ -14,6 +14,7 @@
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -158,6 +159,7 @@ PIPE_OPERATOR(AANoUndef)
 PIPE_OPERATOR(AAFunctionReachability)
 PIPE_OPERATOR(AAPointerInfo)
 PIPE_OPERATOR(AAExecutionDomain)
+PIPE_OPERATOR(AADominance)
 
 #undef PIPE_OPERATOR
 
@@ -1110,8 +1112,9 @@ struct AAPointerInfoImpl
     bool LoadIsInAllThreadsEpoch =
         (ExecDomainAA &&
          ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(LI));
-    errs() << "Load: Initial thread only: " << LoadIsInitialThreadOnly
-           << " : SameEpoch: " << LoadIsInAllThreadsEpoch << "\n";
+    LLVM_DEBUG(errs() << "Load: Initial thread only: "
+                      << LoadIsInitialThreadOnly
+                      << " : SameEpoch: " << LoadIsInAllThreadsEpoch << "\n");
 
     // Helper to determine if we need to consider threading, which we cannot
     // right now. However, if the function is (assumed) nosync or the thread
@@ -1147,10 +1150,6 @@ struct AAPointerInfoImpl
       return CanIgnoreThreading(*Acc.getLocalInst(), LoadIsInitialThreadOnly,
                                 LoadIsInAllThreadsEpoch);
     };
-
-    InformationCache &InfoCache = A.getInfoCache();
-    const DominatorTree *DT =
-        InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
 
     enum GPUAddressSpace : unsigned {
       Generic = 0,
@@ -1202,6 +1201,9 @@ struct AAPointerInfoImpl
         };
     }
 
+    const auto &DominanceAA = A.getAAFor<AADominance>(
+        *this, IRPosition::module(*LI.getModule()), DepClassTy::OPTIONAL);
+
     bool CouldUseCFGReasoningForAllAccesses = true;
     auto AccessCB = [&](const Access &Acc, bool Exact) {
       if (!Acc.isWrite())
@@ -1211,6 +1213,8 @@ struct AAPointerInfoImpl
       // work yet if we have threading effects, or the access is complicated.
       if (!CanIgnoreThreading(*Acc.getLocalInst(), LoadIsInitialThreadOnly,
                               LoadIsInAllThreadsEpoch)) {
+        LLVM_DEBUG(errs() << "Cannot ignore threading for: "
+                          << *Acc.getLocalInst() << "\n");
         CouldUseCFGReasoningForAllAccesses = false;
         if (CanIgnoreThreading(*Acc.getLocalInst(), false, true))
           if (!AA::isPotentiallyReachable(
@@ -1221,10 +1225,11 @@ struct AAPointerInfoImpl
         if (!AA::isPotentiallyReachable(A, *Acc.getLocalInst(), LI, QueryingAA,
                                         IsLiveInCalleeCB))
           return true;
-        // errs() << "Reachable:"  << DT << " : " << Exact << " "  <<
-        // *Acc.getLocalInst() <<"\n";
-        if (DT && Exact) {
-          if (DT->dominates(Acc.getLocalInst(), &LI))
+        LLVM_DEBUG(errs() << "Reachable!, Check dominance: " << Exact << " "
+                          << *Acc.getRemoteInst() << "\n");
+        if (Exact) {
+          if (DominanceAA.assumedDominates(A, *Acc.getRemoteInst(), LI,
+                                           IsLiveInCalleeCB))
             DominatingWrites.insert(&Acc);
         }
       }
@@ -1254,12 +1259,10 @@ struct AAPointerInfoImpl
       if (!DominatingWrites.count(&Acc))
         return false;
       for (const Access *DomAcc : DominatingWrites) {
-        assert(Acc.getLocalInst()->getFunction() ==
-                   DomAcc->getLocalInst()->getFunction() &&
-               "Expected dominating writes to be in the same function!");
-
-        if (DomAcc != &Acc &&
-            DT->dominates(Acc.getLocalInst(), DomAcc->getLocalInst())) {
+        if (DomAcc != &Acc && DominanceAA.assumedDominates(
+                                  A, *Acc.getRemoteInst(),
+                                  *DomAcc->getRemoteInst(), IsLiveInCalleeCB)) {
+          LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc\n");
           return true;
         }
       }
@@ -1270,7 +1273,7 @@ struct AAPointerInfoImpl
     // succeeded for all or not.
     unsigned NumInterferingWrites = InterferingWrites.size();
     for (auto &It : InterferingWrites)
-      if (!DT || NumInterferingWrites > MaxInterferingWrites ||
+      if (NumInterferingWrites > MaxInterferingWrites ||
           !CanSkipAccess(*It.first, It.second))
         if (!UserCB(*It.first, It.second))
           return false;
@@ -9888,6 +9891,165 @@ private:
 
 } // namespace
 
+/// -------------------- Inter-Procedural Dominance ----------------------------
+struct AADominanceModule : AADominance {
+private:
+  template <typename T> struct QueryKeyTy {
+    const Instruction *SourceI;
+    const T *Target;
+  };
+
+public:
+  AADominanceModule(const IRPosition &IRP, Attributor &A)
+      : AADominance(IRP, A) {}
+
+  bool assumedDominates(
+      Attributor &A, const BasicBlock &BB0, const BasicBlock &BB1,
+      const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
+    LLVM_DEBUG(dbgs() << "[AADominance] " << BB0.getName() << " dominates "
+                      << BB1.getName() << "?\n");
+    const Function *BB0Fn = BB0.getParent();
+    const Function *BB1Fn = BB1.getParent();
+    bool Res;
+    if (BB0Fn == BB1Fn) {
+      QueryKeyTy<BasicBlock> Key = {BB0.getTerminator(), &BB1};
+      Res = determineIntraProceduralDominance(A, Key);
+    } else {
+      QueryKeyTy<Function> Key = {BB0.getTerminator(), BB1Fn};
+      Res = determineInterProceduralDominance(A, Key, ContinueToCallerCB);
+    }
+    LLVM_DEBUG(dbgs() << "[AADominance] -> " << (Res ? "yes" : "no") << "\n");
+    return Res;
+  };
+
+  bool assumedDominates(
+      Attributor &A, const Instruction &I0, const Instruction &I1,
+      const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
+    LLVM_DEBUG(dbgs() << "[AADominance] " << I0 << " dominates " << I1
+                      << "?\n");
+    if (I0.getParent() == I1.getParent()) {
+      const Instruction *CurI = I0.getNextNode();
+      while (CurI && CurI != &I1)
+        CurI = CurI->getNextNode();
+      LLVM_DEBUG(dbgs() << "[AADominance] -> " << (CurI ? "yes" : "no")
+                        << "\n");
+      return CurI;
+    }
+    return assumedDominates(A, *I0.getParent(), *I1.getParent(),
+                            ContinueToCallerCB);
+  }
+
+  template <typename SourceTy>
+  bool determineIntraProceduralDominance(Attributor &A,
+                                         QueryKeyTy<SourceTy> &Key) const {
+    InformationCache &InfoCache = A.getInfoCache();
+
+    const Function *Fn = Key.SourceI->getFunction();
+    auto *DT =
+        InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(*Fn);
+    return DT && DT->dominates(Key.SourceI, Key.Target);
+  }
+
+  bool determineInterProceduralDominance(
+      Attributor &A, QueryKeyTy<Function> &Key,
+      const ContinueToCallerCBTy &ContinueToCallerCB) const {
+    auto NotDominating = []() { return false; };
+
+    DenseMap<const Function *, SmallVector<const Instruction *, 2>>
+        SourceCallTree;
+    DenseMap<const Function *, SmallVector<const Instruction *, 2>>
+        TargetCallTree;
+
+    // We already know one source tree entry, the source instruction itself.
+    SourceCallTree[Key.SourceI->getFunction()].push_back(Key.SourceI);
+
+    // Helper to build a call tree from the source/target up to a meet function
+    // or the stop function as described by the user procived
+    // ContinueToCallerCB.
+    auto BuildCallTree = [&](bool Source, const Function *&MeetFn) {
+      auto &CallTree = Source ? SourceCallTree : TargetCallTree;
+
+      const Function *UniqueCaller = nullptr;
+
+      // Helper to verify we have a unique caller and to collect call sites.
+      auto CSCheck = [&](AbstractCallSite ACS) {
+        const CallBase *CB = ACS.getInstruction();
+        const Function *Caller = CB->getCaller();
+        if (UniqueCaller && Caller != UniqueCaller)
+          return false;
+        CallTree[Caller].push_back(CB);
+        UniqueCaller = Caller;
+        return true;
+      };
+
+      // TODO: Implement a proper algorithm, this only handles linear call
+      // chains.
+      const Function *CurFn = Source ? Key.SourceI->getFunction() : Key.Target;
+      auto &OtherCallTree = Source ? TargetCallTree : SourceCallTree;
+      auto End = OtherCallTree.end();
+      do {
+        // If we find a meet function we are done.
+        auto It = OtherCallTree.find(CurFn);
+        if (It != End) {
+          MeetFn = CurFn;
+          return true;
+        }
+
+        // If the user provided a stop function callback and it triggers we do
+        // not explore further.
+        if (ContinueToCallerCB && !ContinueToCallerCB(*CurFn)) {
+          return true;
+        }
+
+        UniqueCaller = nullptr;
+        bool AllCallSitesKnown = true;
+        // Explore the caller.
+        if (!A.checkForAllCallSites(CSCheck, *CurFn, true, this,
+                                    AllCallSitesKnown))
+          return false;
+        CurFn = UniqueCaller;
+      } while (true);
+    };
+
+    const Function *MeetFn = nullptr;
+    bool SourceCallTreeIsComplete = false;
+    bool TargetCallTreeIsComplete = BuildCallTree(/* Source */ false, MeetFn);
+    LLVM_DEBUG(dbgs() << "Target call tree created (#" << TargetCallTree.size()
+                      << "), complete: " << TargetCallTreeIsComplete
+                      << ", MeetFn: " << MeetFn << "\n");
+    if (!MeetFn)
+      SourceCallTreeIsComplete = BuildCallTree(/* Source */ true, MeetFn);
+    LLVM_DEBUG(dbgs() << "Source call tree created (#" << SourceCallTree.size()
+                      << "), complete: " << SourceCallTreeIsComplete
+                      << ", MeetFn: " << MeetFn << "\n");
+    if (!MeetFn)
+      return NotDominating();
+
+    for (auto *SourceI : SourceCallTree[MeetFn]) {
+      for (auto *TargetI : TargetCallTree[MeetFn]) {
+        if (!assumedDominates(A, *SourceI, *TargetI))
+          return NotDominating();
+      }
+    }
+
+    return true;
+  };
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    return ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractAttribute::getAsStr().
+  const std::string getAsStr() const override { return "<todo>"; }
+
+  void trackStatistics() const override {}
+
+  ChangeStatus manifest(Attributor &A) override {
+    return ChangeStatus::UNCHANGED;
+  }
+};
+
 const char AAReturnedValues::ID = 0;
 const char AANoUnwind::ID = 0;
 const char AANoSync::ID = 0;
@@ -9913,6 +10075,7 @@ const char AAPotentialValues::ID = 0;
 const char AANoUndef::ID = 0;
 const char AAFunctionReachability::ID = 0;
 const char AAPointerInfo::ID = 0;
+const char AADominance::ID = 0;
 
 // Macro magic to create the static generator function for attributes that
 // follow the naming scheme.
@@ -9932,6 +10095,7 @@ const char AAPointerInfo::ID = 0;
     CLASS *AA = nullptr;                                                       \
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
+      SWITCH_PK_INV(CLASS, IRP_MODULE, "module")                               \
       SWITCH_PK_INV(CLASS, IRP_FLOAT, "floating")                              \
       SWITCH_PK_INV(CLASS, IRP_ARGUMENT, "argument")                           \
       SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
@@ -9948,6 +10112,7 @@ const char AAPointerInfo::ID = 0;
     CLASS *AA = nullptr;                                                       \
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
+      SWITCH_PK_INV(CLASS, IRP_MODULE, "module")                               \
       SWITCH_PK_INV(CLASS, IRP_FUNCTION, "function")                           \
       SWITCH_PK_INV(CLASS, IRP_CALL_SITE, "call site")                         \
       SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating)                        \
@@ -9964,6 +10129,7 @@ const char AAPointerInfo::ID = 0;
     CLASS *AA = nullptr;                                                       \
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
+      SWITCH_PK_INV(CLASS, IRP_MODULE, "module")                               \
       SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
       SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
       SWITCH_PK_CREATE(CLASS, IRP, IRP_FLOAT, Floating)                        \
@@ -9980,6 +10146,7 @@ const char AAPointerInfo::ID = 0;
     CLASS *AA = nullptr;                                                       \
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
+      SWITCH_PK_INV(CLASS, IRP_MODULE, "module")                               \
       SWITCH_PK_INV(CLASS, IRP_ARGUMENT, "argument")                           \
       SWITCH_PK_INV(CLASS, IRP_FLOAT, "floating")                              \
       SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
@@ -9991,11 +10158,29 @@ const char AAPointerInfo::ID = 0;
     return *AA;                                                                \
   }
 
+#define CREATE_MODULE_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(CLASS)              \
+  CLASS &CLASS::createForPosition(const IRPosition &IRP, Attributor &A) {      \
+    CLASS *AA = nullptr;                                                       \
+    switch (IRP.getPositionKind()) {                                           \
+      SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
+      SWITCH_PK_INV(CLASS, IRP_ARGUMENT, "argument")                           \
+      SWITCH_PK_INV(CLASS, IRP_FLOAT, "floating")                              \
+      SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
+      SWITCH_PK_INV(CLASS, IRP_CALL_SITE_RETURNED, "call site returned")       \
+      SWITCH_PK_INV(CLASS, IRP_CALL_SITE_ARGUMENT, "call site argument")       \
+      SWITCH_PK_INV(CLASS, IRP_CALL_SITE, "call site")                         \
+      SWITCH_PK_INV(CLASS, IRP_FUNCTION, "function")                           \
+      SWITCH_PK_CREATE(CLASS, IRP, IRP_MODULE, Module)                         \
+    }                                                                          \
+    return *AA;                                                                \
+  }
+
 #define CREATE_NON_RET_ABSTRACT_ATTRIBUTE_FOR_POSITION(CLASS)                  \
   CLASS &CLASS::createForPosition(const IRPosition &IRP, Attributor &A) {      \
     CLASS *AA = nullptr;                                                       \
     switch (IRP.getPositionKind()) {                                           \
       SWITCH_PK_INV(CLASS, IRP_INVALID, "invalid")                             \
+      SWITCH_PK_INV(CLASS, IRP_MODULE, "module")                               \
       SWITCH_PK_INV(CLASS, IRP_RETURNED, "returned")                           \
       SWITCH_PK_CREATE(CLASS, IRP, IRP_FUNCTION, Function)                     \
       SWITCH_PK_CREATE(CLASS, IRP, IRP_CALL_SITE, CallSite)                    \
@@ -10034,6 +10219,8 @@ CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAHeapToStack)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAReachability)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAUndefinedBehavior)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAFunctionReachability)
+
+CREATE_MODULE_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AADominance)
 
 CREATE_NON_RET_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAMemoryBehavior)
 
