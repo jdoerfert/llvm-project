@@ -801,7 +801,11 @@ struct OpenMPOpt {
       if (PrintOpenMPKernels)
         printKernels();
 
+      for (auto *F: SCC)
+        F->dump();
       Changed |= runAttributor(IsModulePass);
+      for (auto *F: SCC)
+        F->dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();

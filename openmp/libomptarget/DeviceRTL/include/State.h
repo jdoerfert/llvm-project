@@ -117,22 +117,17 @@ private:
 
 template <typename VTy, typename Ty> struct ValueRAII {
   ValueRAII(VTy &V, Ty NewValue, Ty OldValue, bool Active)
-      : Ptr(Active ? V.lookup(/* IsReadonly */ false) : Val), Val(OldValue),
-        Active(Active) {
-    if (!Active)
-      return;
+      : Ptr(Active ? V.lookup(/* IsReadonly */ false) : Val), Val(OldValue){
     ASSERT(Ptr == OldValue && "ValueRAII initialization with wrong old value!");
     Ptr = NewValue;
   }
   ~ValueRAII() {
-    if (Active)
-      Ptr = Val;
+    Ptr = Val;
   }
 
 private:
   Ty &Ptr;
   Ty Val;
-  bool Active;
 };
 
 /// TODO

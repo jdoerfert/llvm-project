@@ -1511,8 +1511,8 @@ struct Attributor {
     // if (auto *I = dyn_cast<Instruction>(U.get()))
     // if (InfoCache.isOnlyUsedByAssume(*I))
     // return false;
-    assert((!V || V == &NV || isa<UndefValue>(NV)) &&
-           "Use was registered twice for replacement with different values!");
+    //assert((!V || V == &NV || isa<UndefValue>(NV)) &&
+           //"Use was registered twice for replacement with different values!");
     V = &NV;
     return true;
   }

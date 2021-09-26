@@ -1254,12 +1254,14 @@ bool Attributor::isAssumedDead(const IRPosition &IRP,
                     CheckBBLivenessOnly ? DepClass : DepClassTy::OPTIONAL))
     return true;
 
+  errs() << "CheckBBLivenessOnly : " << CheckBBLivenessOnly <<"\n";
   if (CheckBBLivenessOnly)
     return false;
 
   // If we haven't succeeded we query the specific liveness info for the IRP.
   const AAIsDead &IsDeadAA =
       getOrCreateAAFor<AAIsDead>(IRP, QueryingAA, DepClassTy::NONE);
+  errs() << cast<AbstractAttribute>(IsDeadAA) << " :: " << (QueryingAA == &IsDeadAA)<<"\n";
   // Don't check liveness for AAIsDead.
   if (QueryingAA == &IsDeadAA)
     return false;
