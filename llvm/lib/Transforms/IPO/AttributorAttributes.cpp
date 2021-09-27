@@ -3538,8 +3538,11 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     bool UsedAssumedInformation = false;
     SmallSetVector<Value *, 4> PotentialCopies;
     if (!AA::getPotentialCopiesOfStoredValue(A, SI, PotentialCopies, *this,
-                                             UsedAssumedInformation))
+                                             UsedAssumedInformation,
+                                             /* OnlyExact */ false)) {
+      LLVM_DEBUG(dbgs() << "[AAIsDead] Collecting potential copies failed\n");
       return false;
+    }
 
     Function &Fn = *SI.getFunction();
     const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(

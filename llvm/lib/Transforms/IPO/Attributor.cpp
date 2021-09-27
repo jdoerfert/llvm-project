@@ -414,13 +414,13 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
         assert(isa<StoreInst>(I) && "Expected load or store instruction only!");
         if (Acc.isRead()) {
           auto *LI = dyn_cast<LoadInst>(Acc.getRemoteInst());
-          if (!LI) {
+          if (!LI && OnlyExact) {
             LLVM_DEBUG(dbgs() << "Underlying object read through a non-load "
                                  "instruction not supported yet: "
                               << *Acc.getRemoteInst() << "\n";);
             return false;
           }
-          NewCopies.push_back(LI);
+          NewCopies.push_back(Acc.getRemoteInst());
         }
       }
       return true;
