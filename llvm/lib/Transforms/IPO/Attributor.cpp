@@ -572,7 +572,8 @@ bool AA::isPotentiallyReachable(
         FnReachabilityAA.instructionCanPotentiallyReach(A, *CurFromI, *ToFn);
     LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " "
                       << (Result ? "can potentially " : "cannot ") << "reach "
-                      << ToFn->getName() << " [FromFn]\n");
+                      << ToFn->getName() << " [FromFn]\n"
+                      << cast<AbstractAttribute>(FnReachabilityAA) << "\n");
     if (Result)
       return true;
 

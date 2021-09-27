@@ -9763,6 +9763,8 @@ private:
     const auto &FnReachAA = A.getAAFor<AAFunctionReachability>(
         *this, IRPosition::function(Fn), DepClassTy::REQUIRED);
     if (!FnReachAA.getState().isValidState()) {
+      LLVM_DEBUG(dbgs() << "Invalid state for reachable function: " << FnReachAA
+                        << "\n");
       indicatePessimisticFixpoint();
       return;
     }
@@ -9780,8 +9782,10 @@ private:
       // Check if the assumptions tell us this is not a call. If not, record it
       // as unknown asm call.
       if (!hasAssumption(*CB.getCaller(), "ompx_no_call_asm") &&
-          !hasAssumption(CB, "ompx_no_call_asm"))
+          !hasAssumption(CB, "ompx_no_call_asm")) {
+        LLVM_DEBUG(dbgs() << "Unknown callee via ASM: " << CB << "\n");
         HasUnknownAsmCallee = true;
+      }
       return;
     }
 
