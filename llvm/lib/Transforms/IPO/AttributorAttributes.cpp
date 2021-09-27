@@ -3675,6 +3675,10 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     return ChangeStatus::UNCHANGED;
   }
 
+  bool isRemovableStore() const override {
+    return isAssumed(IS_REMOVABLE) && isa<StoreInst>(&getAssociatedValue());
+  }
+
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
     Value &V = getAssociatedValue();

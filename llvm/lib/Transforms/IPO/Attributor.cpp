@@ -1162,6 +1162,19 @@ bool Attributor::isAssumedDead(const Use &U,
     BasicBlock *IncomingBB = PHI->getIncomingBlock(U);
     return isAssumedDead(*IncomingBB->getTerminator(), QueryingAA, FnLivenessAA,
                          UsedAssumedInformation, CheckBBLivenessOnly, DepClass);
+  } else if (StoreInst *SI = dyn_cast<StoreInst>(UserI)) {
+    if (!CheckBBLivenessOnly && SI->getPointerOperand() != U.get()) {
+      const IRPosition IRP = IRPosition::inst(*SI);
+      const AAIsDead &IsDeadAA =
+          getOrCreateAAFor<AAIsDead>(IRP, QueryingAA, DepClassTy::NONE);
+      if (IsDeadAA.isRemovableStore()) {
+        if (QueryingAA)
+          recordDependence(IsDeadAA, *QueryingAA, DepClass);
+        if (!IsDeadAA.isKnown(AAIsDead::IS_REMOVABLE))
+          UsedAssumedInformation = true;
+        return true;
+      }
+    }
   }
 
   return isAssumedDead(IRPosition::value(*UserI), QueryingAA, FnLivenessAA,

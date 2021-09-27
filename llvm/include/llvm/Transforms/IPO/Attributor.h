@@ -3213,6 +3213,12 @@ protected:
   /// Returns true if \p I is known dead.
   virtual bool isKnownDead(const Instruction *I) const = 0;
 
+  /// Return true if the underlying value is a store that is known to be
+  /// removable. This is different from dead stores as the removable store
+  /// can have an effect on live values, especially loads, but that effect
+  /// is propagated which allows us to remove the store in turn.
+  virtual bool isRemovableStore() const { return false; }
+
   /// This method is used to check if at least one instruction in a collection
   /// of instructions is live.
   template <typename T> bool isLiveInstSet(T begin, T end) const {
