@@ -187,20 +187,20 @@ int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
     ListGlobalFnTy lgcpyFct, ListGlobalFnTy lgredFct, ListGlobalFnTy glcpyFct,
     ListGlobalFnTy glredFct) {
 
-  // Terminate all threads in non-SPMD mode except for the master thread.
+  // In non-generic mode all workers participate in the teams reduction.
+  // In generic mode only the team master participates in the teams
+  // reduction because the workers are waiting for parallel work.
   uint32_t ThreadId = mapping::getThreadIdInBlock();
+  uint32_t TeamId = mapping::getBlockId();
+  uint32_t NumTeams = mapping::getNumberOfBlocks();
+  uint32_t NumThreads = mapping::getBlockSize();
   if (mapping::isGenericMode()) {
     if (!mapping::isMainThreadInGenericMode())
       return 0;
     ThreadId = 0;
+    NumThreads = /* main thread only */ 1;
   }
 
-  // In non-generic mode all workers participate in the teams reduction.
-  // In generic mode only the team master participates in the teams
-  // reduction because the workers are waiting for parallel work.
-  uint32_t NumThreads = omp_get_num_threads();
-  uint32_t TeamId = omp_get_team_num();
-  uint32_t NumTeams = omp_get_num_teams();
   static unsigned SHARED(Bound);
   static unsigned SHARED(ChunkTeamCount);
 
