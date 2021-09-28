@@ -157,6 +157,7 @@ PIPE_OPERATOR(AAPotentialValues)
 PIPE_OPERATOR(AANoUndef)
 PIPE_OPERATOR(AAFunctionReachability)
 PIPE_OPERATOR(AAPointerInfo)
+PIPE_OPERATOR(AAExecutionDomain)
 
 #undef PIPE_OPERATOR
 
@@ -1116,9 +1117,9 @@ struct AAPointerInfoImpl
     // right now. However, if the function is (assumed) nosync or the thread
     // executing all instructions is the main thread only we can ignore
     // threading.
-    auto CanIgnoreThreading = [&](const Instruction &I) -> bool {
-      if (NoSync && I.getFunction() == &Scope)
-        return true;
+    auto CanIgnoreThreading = [&](const Instruction &I,
+                                  bool IsInitialThreadOnly,
+                                  bool IsInAllThreadsEpoch) -> bool {
       const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
           IRPosition::function(*I.getFunction()), &QueryingAA,
           DepClassTy::OPTIONAL);
@@ -1130,10 +1131,10 @@ struct AAPointerInfoImpl
                  << (ExecDomainAA &&
                      ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
                  << "\n");
-      if (LoadIsInitialThreadOnly && ExecDomainAA &&
+      if (IsInitialThreadOnly && ExecDomainAA &&
           ExecDomainAA->isExecutedByInitialThreadOnly(I))
         return true;
-      if (LoadIsInAllThreadsEpoch && ExecDomainAA &&
+      if (IsInAllThreadsEpoch && ExecDomainAA &&
           ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
         return true;
       return false;
@@ -1143,7 +1144,8 @@ struct AAPointerInfoImpl
     // load, for now it is sufficient to avoid any potential threading effects
     // as we cannot deal with them anyway.
     auto IsSameThreadAsLoad = [&](const Access &Acc) -> bool {
-      return CanIgnoreThreading(*Acc.getLocalInst());
+      return CanIgnoreThreading(*Acc.getLocalInst(), LoadIsInitialThreadOnly,
+                                LoadIsInAllThreadsEpoch);
     };
 
     InformationCache &InfoCache = A.getInfoCache();
@@ -1207,8 +1209,14 @@ struct AAPointerInfoImpl
 
       // For now we only filter accesses based on CFG reasoning which does not
       // work yet if we have threading effects, or the access is complicated.
-      if (!CanIgnoreThreading(*Acc.getLocalInst())) {
+      if (!CanIgnoreThreading(*Acc.getLocalInst(), LoadIsInitialThreadOnly,
+                              LoadIsInAllThreadsEpoch)) {
         CouldUseCFGReasoningForAllAccesses = false;
+        if (CanIgnoreThreading(*Acc.getLocalInst(), false, true))
+          if (!AA::isPotentiallyReachable(
+                  A, Acc.getLocalInst()->getFunction()->getEntryBlock().front(),
+                  LI, QueryingAA, IsLiveInCalleeCB))
+            return true;
       } else {
         if (!AA::isPotentiallyReachable(A, *Acc.getLocalInst(), LI, QueryingAA,
                                         IsLiveInCalleeCB))
@@ -3549,12 +3557,20 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     Function &Fn = *SI.getFunction();
     const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
         IRPosition::function(Fn), this, DepClassTy::OPTIONAL);
-
     bool StoreIsInitialThreadOnly =
         (ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(SI));
     bool StoreIsInAllThreadsEpoch =
         (ExecDomainAA &&
          ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(SI));
+
+    LLVM_DEBUG({
+      if (ExecDomainAA)
+        dbgs() << "ExecDomainAA:" << *ExecDomainAA << "\n";
+      else
+        dbgs() << "ExecDomainAA: <null>\n";
+      dbgs() << "Store: is initial thread: " << StoreIsInitialThreadOnly
+             << " : same epoch: " << StoreIsInAllThreadsEpoch << "\n";
+    });
 
     // Helper to determine if we need to consider threading, which we cannot
     // right now. However, if the function is (assumed) nosync or the thread
@@ -3564,7 +3580,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
           IRPosition::function(*I.getFunction()), this, DepClassTy::OPTIONAL);
       LLVM_DEBUG(
-          errs() << "Store: Initial thread only: "
+          errs() << "I: " << I << "\n is Initial thread only: "
                  << (ExecDomainAA &&
                      ExecDomainAA->isExecutedByInitialThreadOnly(I))
                  << " : SameEpoch: "
@@ -3649,12 +3665,21 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       LLVM_DEBUG(dbgs() << "[AAIsDead] " << *V << " is assumed "
                         << (R ? "dead" : "life") << " user!\n");
       auto *I = dyn_cast<Instruction>(V);
-      if (R || !I || !CanIgnoreThreading(*I))
+      if (R || !I)
         return R;
 
-      R = !AA::isPotentiallyReachable(A, SI, *I, *this, IsLiveInCalleeCB);
-      LLVM_DEBUG(dbgs() << "[AAIsDead] " << *V << " is assumed "
-                        << (R ? "non-reachable" : "reachable") << " user!\n");
+      if (CanIgnoreThreading(*I)) {
+        R = !AA::isPotentiallyReachable(A, SI, *I, *this, IsLiveInCalleeCB);
+        LLVM_DEBUG(dbgs() << "[AAIsDead] " << *V << " is assumed "
+                          << (R ? "non-reachable" : "reachable") << " user!\n");
+      } else if (StoreIsInAllThreadsEpoch) {
+        R = !AA::isPotentiallyReachable(
+            A, SI.getFunction()->getEntryBlock().front(), *I, *this,
+            IsLiveInCalleeCB);
+        LLVM_DEBUG(dbgs() << "[AAIsDead] " << I->getFunction()->getName()
+                          << " is assumed "
+                          << (R ? "non-reachable" : "reachable") << " user!\n");
+      }
 
       return R;
     });
