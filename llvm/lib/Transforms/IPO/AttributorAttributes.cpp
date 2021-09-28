@@ -6051,13 +6051,13 @@ struct AAHeapToStackFunction final : public AAHeapToStack {
     if (!isValidState())
       return false;
 
-    for (auto &It : AllocationInfos) {
-      AllocationInfo &AI = *It.second;
-      if (AI.Status == AllocationInfo::INVALID)
-        continue;
-
-      if (AI.PotentialFreeCalls.count(&CB))
-        return true;
+    if (DeallocationInfo *DI = DeallocationInfos.lookup(&CB)) {
+      if (DI->MightFreeUnknownObjects)
+        return false;
+      for (auto *AllocCB : DI->PotentialAllocationCalls)
+        if (!isAssumedHeapToStack(*AllocCB))
+          return false;
+      return true;
     }
 
     return false;
@@ -9654,6 +9654,13 @@ private:
           !hasAssumption(CB, "ompx_no_call_asm"))
         HasUnknownAsmCallee = true;
       return;
+    }
+
+    auto *HS = A.lookupAAFor<AAHeapToStack>(
+        IRPosition::function(*CB.getCaller()), this, DepClassTy::OPTIONAL);
+    if (HS) {
+      if (HS->isAssumedHeapToStack(CB) || HS->isAssumedHeapToStackRemovedFree(CB))
+        return;
     }
 
     // Process callee metadata if available.
