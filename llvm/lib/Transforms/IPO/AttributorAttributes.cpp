@@ -9528,6 +9528,12 @@ struct AAFunctionReachabilityFunction : public AAFunctionReachability {
   AAFunctionReachabilityFunction(const IRPosition &IRP, Attributor &A)
       : AAFunctionReachability(IRP, A) {}
 
+  void initialize(Attributor &A) override {
+    Function &Fn = *getAssociatedFunction();
+    if (Fn.isDeclaration() && Fn.hasFnAttribute(Attribute::NoCallback))
+      indicateOptimisticFixpoint();
+  }
+
   bool instructionCanPotentiallyReach(Attributor &A, const Instruction &Inst,
                                       const Function &Fn) const override {
     const auto &ReachAA = A.getAAFor<AAReachability>(
