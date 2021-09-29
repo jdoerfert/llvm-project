@@ -278,14 +278,15 @@ static Value *constructPointer(Type *ResTy, Type *PtrElemTy, Value *Ptr,
 /// we will never visit more values than specified by \p MaxValues.
 /// If \p Intraprocedural is set to true only values valid in the scope of
 /// \p CtxI will be visited and simplification into other scopes is prevented.
-template <typename StateTy, bool Intraprocedural = false>
+template <typename StateTy>
 static bool genericValueTraversal(
     Attributor &A, IRPosition IRP, const AbstractAttribute &QueryingAA,
     StateTy &State,
     function_ref<bool(Value &, const Instruction *, StateTy &, bool)>
         VisitValueCB,
     const Instruction *CtxI, bool UseValueSimplify = true, int MaxValues = 16,
-    function_ref<Value *(Value *)> StripCB = nullptr) {
+    function_ref<Value *(Value *)> StripCB = nullptr,
+    bool Intraprocedural = false) {
 
   const AAIsDead *LivenessAA = nullptr;
   if (IRP.getAnchorScope())
@@ -449,7 +450,8 @@ static bool genericValueTraversal(
 bool AA::getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
                                      SmallVectorImpl<Value *> &Objects,
                                      const AbstractAttribute &QueryingAA,
-                                     const Instruction *CtxI) {
+                                     const Instruction *CtxI,
+                                     bool Intraprocedural) {
   auto StripCB = [&](Value *V) { return getUnderlyingObject(V); };
   SmallPtrSet<Value *, 8> SeenObjects;
   auto VisitValueCB = [&SeenObjects](Value &Val, const Instruction *,
@@ -461,7 +463,7 @@ bool AA::getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
   };
   if (!genericValueTraversal<decltype(Objects)>(
           A, IRPosition::value(Ptr), QueryingAA, Objects, VisitValueCB, CtxI,
-          true, 32, StripCB))
+          true, 32, StripCB, Intraprocedural))
     return false;
   return true;
 }
@@ -1259,7 +1261,8 @@ struct AAPointerInfoImpl
         if (DomAcc != &Acc && DominanceAA.assumedDominates(
                                   A, *Acc.getRemoteInst(),
                                   *DomAcc->getRemoteInst(), IsLiveInCalleeCB)) {
-          LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc: " << *Acc.getRemoteInst() << "\n");
+          LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc: "
+                            << *Acc.getRemoteInst() << "\n");
           return true;
         }
       }
@@ -1451,12 +1454,11 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       }
 
       if (auto *LoadI = dyn_cast<LoadInst>(Usr)) {
-        AccessKind AK =  AccessKind::AK_READ;
+        AccessKind AK = AccessKind::AK_READ;
         if (getUnderlyingObject(CurPtr) != &AssociatedValue)
           AK = AccessKind(AK | AccessKind::AK_MAY);
-        return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr,
-                            AK, PtrOI.Offset, Changed,
-                            LoadI->getType());
+        return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr, AK,
+                            PtrOI.Offset, Changed, LoadI->getType());
       }
       if (auto *StoreI = dyn_cast<StoreInst>(Usr)) {
         if (StoreI->getValueOperand() == CurPtr) {
@@ -1468,12 +1470,11 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         Optional<Value *> Content = A.getAssumedSimplified(
             *StoreI->getValueOperand(), *this, UsedAssumedInformation);
 
-        AccessKind AK =  AccessKind::AK_WRITE;
+        AccessKind AK = AccessKind::AK_WRITE;
         if (getUnderlyingObject(CurPtr) != &AssociatedValue)
           AK = AccessKind(AK | AccessKind::AK_MAY);
-        return handleAccess(A, *StoreI, *CurPtr, Content,AK,
-                            PtrOI.Offset, Changed,
-                            StoreI->getValueOperand()->getType());
+        return handleAccess(A, *StoreI, *CurPtr, Content, AK, PtrOI.Offset,
+                            Changed, StoreI->getValueOperand()->getType());
       }
       if (auto *CB = dyn_cast<CallBase>(Usr)) {
         if (CB->isLifetimeStartOrEnd())
@@ -1496,8 +1497,9 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       }
       PtrOI.Offset = OffsetAndSize::Unknown;
       if (auto *UI = dyn_cast<Instruction>(Usr))
-        return handleAccess(A, *UI, *CurPtr, nullptr, AccessKind::AK_MAY_READ_WRITE,
-                            PtrOI.Offset, Changed, nullptr);
+        return handleAccess(A, *UI, *CurPtr, nullptr,
+                            AccessKind::AK_MAY_READ_WRITE, PtrOI.Offset,
+                            Changed, nullptr);
       LLVM_DEBUG(dbgs() << "[AAPointerInfo] User not handled " << *Usr << "\n");
       return false;
     };
@@ -1593,11 +1595,12 @@ struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
       if (!Length)
         AK = AccessKind::AK_MAY;
       if (ArgNo == 0) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind(AK | AccessKind::AK_WRITE), 0, Changed,
-                     nullptr, LengthVal);
+        handleAccess(A, *MI, Ptr, nullptr,
+                     AccessKind(AK | AccessKind::AK_WRITE), 0, Changed, nullptr,
+                     LengthVal);
       } else if (ArgNo == 1) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind(AK | AccessKind::AK_READ), 0, Changed,
-                     nullptr, LengthVal);
+        handleAccess(A, *MI, Ptr, nullptr, AccessKind(AK | AccessKind::AK_READ),
+                     0, Changed, nullptr, LengthVal);
       } else {
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled memory intrinsic "
                           << *MI << "\n");
@@ -1910,9 +1913,10 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
 
   auto ReturnInstCB = [&](Instruction &I) {
     ReturnInst &Ret = cast<ReturnInst>(I);
-    return genericValueTraversal<ReturnInst, /* Intraprocedural */ true>(
+    return genericValueTraversal<ReturnInst>(
         A, IRPosition::value(*Ret.getReturnValue()), *this, Ret, ReturnValueCB,
-        &I);
+        &I, /* UseValueSimplify */ true, /* MaxValues */ 16,
+        /* StripCB */ nullptr, /* Intraprocedural */ true);
   };
 
   // Discover returned values from all live returned instructions in the
@@ -3991,6 +3995,7 @@ struct AAIsDeadFunction : public AAIsDead {
       if (!AssumedLiveBlocks.count(&BB)) {
         A.deleteAfterManifest(BB);
         ++BUILD_STAT_NAME(AAIsDead, BasicBlock);
+        HasChanged = ChangeStatus::CHANGED;
       }
 
     return HasChanged;
@@ -8008,7 +8013,8 @@ void AAMemoryLocationImpl::categorizePtrValue(
                     << getMemoryLocationsAsStr(State.getAssumed()) << "]\n");
 
   SmallVector<Value *, 8> Objects;
-  if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &I)) {
+  if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &I,
+                                       /* Intraprocedural */ true)) {
     LLVM_DEBUG(
         dbgs() << "[AAMemoryLocation] Pointer locations not categorized\n");
     updateStateAndAccessesMap(State, NO_UNKOWN_MEM, &I, nullptr, Changed,

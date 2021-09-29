@@ -189,7 +189,7 @@ Constant *getInitialValueForObj(Value &Obj, Type &Ty,
 bool getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
                                  SmallVectorImpl<Value *> &Objects,
                                  const AbstractAttribute &QueryingAA,
-                                 const Instruction *CtxI);
+                                 const Instruction *CtxI, bool Intraprocedural = false);
 
 bool getPotentialCopiesOfLoadedValue(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialCopies,
