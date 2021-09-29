@@ -1227,7 +1227,7 @@ struct AAPointerInfoImpl
           return true;
         LLVM_DEBUG(errs() << "Reachable!, Check dominance: " << Exact << " "
                           << *Acc.getRemoteInst() << "\n");
-        if (Exact) {
+        if (Exact && Acc.isMustAccess()) {
           if (DominanceAA.assumedDominates(A, *Acc.getRemoteInst(), LI,
                                            IsLiveInCalleeCB))
             DominatingWrites.insert(&Acc);
@@ -1262,7 +1262,7 @@ struct AAPointerInfoImpl
         if (DomAcc != &Acc && DominanceAA.assumedDominates(
                                   A, *Acc.getRemoteInst(),
                                   *DomAcc->getRemoteInst(), IsLiveInCalleeCB)) {
-          LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc\n");
+          LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc: " << *Acc.getRemoteInst() << "\n");
           return true;
         }
       }
@@ -1453,10 +1453,14 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         return true;
       }
 
-      if (auto *LoadI = dyn_cast<LoadInst>(Usr))
+      if (auto *LoadI = dyn_cast<LoadInst>(Usr)) {
+        AccessKind AK =  AccessKind::AK_READ;
+        if (getUnderlyingObject(CurPtr) != &AssociatedValue)
+          AK = AccessKind(AK | AccessKind::AK_MAY);
         return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr,
-                            AccessKind::AK_READ, PtrOI.Offset, Changed,
+                            AK, PtrOI.Offset, Changed,
                             LoadI->getType());
+      }
       if (auto *StoreI = dyn_cast<StoreInst>(Usr)) {
         if (StoreI->getValueOperand() == CurPtr) {
           LLVM_DEBUG(dbgs() << "[AAPointerInfo] Escaping use in store "
@@ -1466,7 +1470,11 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         bool UsedAssumedInformation = false;
         Optional<Value *> Content = A.getAssumedSimplified(
             *StoreI->getValueOperand(), *this, UsedAssumedInformation);
-        return handleAccess(A, *StoreI, *CurPtr, Content, AccessKind::AK_WRITE,
+
+        AccessKind AK =  AccessKind::AK_WRITE;
+        if (getUnderlyingObject(CurPtr) != &AssociatedValue)
+          AK = AccessKind(AK | AccessKind::AK_MAY);
+        return handleAccess(A, *StoreI, *CurPtr, Content,AK,
                             PtrOI.Offset, Changed,
                             StoreI->getValueOperand()->getType());
       }
@@ -1491,7 +1499,7 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       }
       PtrOI.Offset = OffsetAndSize::Unknown;
       if (auto *UI = dyn_cast<Instruction>(Usr))
-        return handleAccess(A, *UI, *CurPtr, nullptr, AccessKind::AK_READ_WRITE,
+        return handleAccess(A, *UI, *CurPtr, nullptr, AccessKind::AK_MAY_READ_WRITE,
                             PtrOI.Offset, Changed, nullptr);
       LLVM_DEBUG(dbgs() << "[AAPointerInfo] User not handled " << *Usr << "\n");
       return false;
@@ -1584,11 +1592,14 @@ struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
       Value &Ptr = getAssociatedValue();
       unsigned ArgNo = getIRPosition().getCallSiteArgNo();
       ChangeStatus Changed;
+      AccessKind AK = AccessKind::AK_MUST;
+      if (!Length)
+        AK = AccessKind::AK_MAY;
       if (ArgNo == 0) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_WRITE, 0, Changed,
+        handleAccess(A, *MI, Ptr, nullptr, AccessKind(AK | AccessKind::AK_WRITE), 0, Changed,
                      nullptr, LengthVal);
       } else if (ArgNo == 1) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_READ, 0, Changed,
+        handleAccess(A, *MI, Ptr, nullptr, AccessKind(AK | AccessKind::AK_READ), 0, Changed,
                      nullptr, LengthVal);
       } else {
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled memory intrinsic "

@@ -4570,6 +4570,9 @@ struct AAPointerInfo : public AbstractAttribute {
     AK_READ = 1 << 0,
     AK_WRITE = 1 << 1,
     AK_READ_WRITE = AK_READ | AK_WRITE,
+    AK_MUST = 0,
+    AK_MAY = 1 << 2,
+    AK_MAY_READ_WRITE = AK_MAY | AK_READ_WRITE,
   };
 
   /// An access description.
@@ -4617,6 +4620,9 @@ struct AAPointerInfo : public AbstractAttribute {
 
     /// Return true if this is a write access.
     bool isWrite() const { return Kind & AK_WRITE; }
+
+    bool isMustAccess() const { return !isMayAccess(); }
+    bool isMayAccess() const { return Kind & AK_MAY; }
 
     /// Return the instruction that causes the access with respect to the local
     /// scope of the associated attribute.
