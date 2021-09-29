@@ -1101,11 +1101,8 @@ struct AAPointerInfoImpl
     SmallVector<std::pair<const Access *, bool>, 8> InterferingWrites;
 
     Function &Scope = *LI.getFunction();
-    const auto &NoSyncAA = A.getAAFor<AANoSync>(
-        QueryingAA, IRPosition::function(Scope), DepClassTy::OPTIONAL);
     const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
         IRPosition::function(Scope), &QueryingAA, DepClassTy::OPTIONAL);
-    const bool NoSync = NoSyncAA.isAssumedNoSync();
 
     bool LoadIsInitialThreadOnly =
         (ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(LI));
@@ -9999,6 +9996,11 @@ public:
       auto &OtherCallTree = Source ? TargetCallTree : SourceCallTree;
       auto End = OtherCallTree.end();
       do {
+        // TODO: Unclear if this just means the query source/target was dead but
+        //       we are conservative for now.
+        if (!CurFn)
+          return false;
+
         // If we find a meet function we are done.
         auto It = OtherCallTree.find(CurFn);
         if (It != End) {

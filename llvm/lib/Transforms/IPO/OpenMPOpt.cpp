@@ -783,9 +783,9 @@ struct OpenMPOpt {
                       << OMPInfoCache.ModuleSlice.size() << " functions\n");
 
     if (IsModulePass) {
-       M.dump();
+       //M.dump();
       Changed |= runAttributor(IsModulePass);
-       M.dump();
+       //M.dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -801,11 +801,11 @@ struct OpenMPOpt {
       if (PrintOpenMPKernels)
         printKernels();
 
-       for (auto *F: SCC)
-       F->dump();
+       //for (auto *F: SCC)
+       //F->dump();
       Changed |= runAttributor(IsModulePass);
-       for (auto *F: SCC)
-       F->dump();
+       //for (auto *F: SCC)
+       //F->dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
