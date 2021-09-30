@@ -1103,7 +1103,7 @@ struct AAPointerInfoImpl
   bool forallInterferingWrites(
       Attributor &A, const AbstractAttribute &QueryingAA, LoadInst &LI,
       function_ref<bool(const Access &, bool)> UserCB) const override {
-    SmallPtrSet<const Access *, 8> DominatingWrites;
+    SmallSetVector<const Access *, 8> DominatingWrites;
     SmallVector<std::pair<const Access *, bool>, 8> InterferingWrites;
 
     Function &Scope = *LI.getFunction();
@@ -1232,7 +1232,7 @@ struct AAPointerInfoImpl
                           << Acc.isMustAccess() << " " << *Acc.getRemoteInst()
                           << "\n");
         if (Exact) {
-          if (DominanceAA.assumedDominates(A, *Acc.getRemoteInst(), LI,
+          if (DominanceAA.assumedDominates(A, *Acc.getRemoteInst(), LI, nullptr,
                                            IsLiveInCalleeCB))
             DominatingWrites.insert(&Acc);
         }
@@ -1254,24 +1254,63 @@ struct AAPointerInfoImpl
       return true;
     }
 
+    // const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
+    //*this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
+    // bool ScopeIsNoRecurs = NoRecurseAA.isAssumedNoRecurse();
+    // const auto &ReachabilityAA = A.getAAFor<AAReachability>(
+    //*this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
+
     // Helper to determine if we can skip a specific write access. This is in
     // the worst case quadratic as we are looking for another write that will
     // hide the effect of this one.
     auto CanSkipAccess = [&](const Access &Acc, bool Exact) {
+      LLVM_DEBUG(dbgs() << "ACC: " << *Acc.getLocalInst() << ": "
+                        << Acc.isMustAccess() << "\n");
       if (!IsSameThreadAsLoad(Acc))
         return false;
-      if (!DominatingWrites.count(&Acc))
-        return false;
-      for (const Access *DomAcc : DominatingWrites) {
-        if (DomAcc != &Acc && DomAcc->isMustAccess() &&
-            DominanceAA.assumedDominates(A, *Acc.getRemoteInst(),
-                                         *DomAcc->getRemoteInst(),
-                                         IsLiveInCalleeCB)) {
-          LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc: "
-                            << *Acc.getRemoteInst() << "\n");
+      if (DominatingWrites.count(&Acc)) {
+        for (const Access *DomAcc : DominatingWrites) {
+          if (DomAcc == &Acc)
+            continue;
+          LLVM_DEBUG(dbgs() << "DomAcc: " << *DomAcc->getLocalInst() << ": "
+                            << DomAcc->isMustAccess() << "\n");
+          if (DomAcc->isMustAccess() &&
+              DominanceAA.assumedDominates(A, *Acc.getRemoteInst(),
+                                           *DomAcc->getRemoteInst(), nullptr,
+                                           IsLiveInCalleeCB)) {
+            LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc: "
+                              << *Acc.getRemoteInst() << "\n");
+            return true;
+          }
+          if (Acc.isMustAccess() &&
+              DominanceAA.assumedDominates(A, *DomAcc->getRemoteInst(),
+                                           *Acc.getRemoteInst(), &LI,
+                                           IsLiveInCalleeCB)) {
+            LLVM_DEBUG(errs() << "DomAcc dominates Acc wrt LI, skip Acc: "
+                              << *Acc.getRemoteInst() << "\n");
+            return true;
+          }
+        }
+      }
+#if 0
+      if (ScopeIsNoRecurs && Acc.getLocalInst()->getFunction() == &Scope &&
+          !DominatingWrites.empty() &&
+          !ReachabilityAA.isAssumedReachable(A, *Acc.getLocalInst(), LI)) {
+        for (const Access *DomAcc : DominatingWrites) {
+          if (DomAcc == &Acc || !DomAcc->isMustAccess() ||
+              DomAcc->getLocalInst()->getFunction() != &Scope)
+            continue;
+          if (!DominanceAA.assumedDominates(A, *DomAcc->getLocalInst(), LI,
+                                            nullptr))
+            continue;
+          LLVM_DEBUG(errs() << "Acc (" << *Acc.getLocalInst()
+                            << ") doesn't reach intra-procedural and there is "
+                               "a local dominating access present: "
+                            << *DomAcc->getLocalInst() << "\n");
           return true;
         }
       }
+#endif
       return false;
     };
 
@@ -5859,7 +5898,10 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     LLVMContext &Ctx = Cmp.getContext();
     // Handle the trivial case first in which we don't even need to think about
     // null or non-null.
-    if (LHS == RHS && (Cmp.isTrueWhenEqual() || Cmp.isFalseWhenEqual())) {
+    bool EqualOrUndefEqual =
+        (LHS == RHS || isa<UndefValue>(LHS) || isa<UndefValue>(RHS));
+    if (EqualOrUndefEqual &&
+        (Cmp.isTrueWhenEqual() || Cmp.isFalseWhenEqual())) {
       Constant *NewVal =
           ConstantInt::get(Type::getInt1Ty(Ctx), Cmp.isTrueWhenEqual());
       if (!Union(*NewVal))
@@ -9923,6 +9965,7 @@ private:
   template <typename T> struct QueryKeyTy {
     const Instruction *SourceI;
     const T *Target;
+    const Instruction *CtxI;
   };
 
 public:
@@ -9931,6 +9974,7 @@ public:
 
   bool assumedDominates(
       Attributor &A, const BasicBlock &BB0, const BasicBlock &BB1,
+      const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
     LLVM_DEBUG(dbgs() << "[AADominance] " << BB0.getName() << " dominates "
                       << BB1.getName() << "?\n");
@@ -9938,10 +9982,10 @@ public:
     const Function *BB1Fn = BB1.getParent();
     bool Res;
     if (BB0Fn == BB1Fn) {
-      QueryKeyTy<BasicBlock> Key = {BB0.getTerminator(), &BB1};
+      QueryKeyTy<BasicBlock> Key = {BB0.getTerminator(), &BB1, Ctx};
       Res = determineIntraProceduralDominance(A, Key);
     } else {
-      QueryKeyTy<Function> Key = {BB0.getTerminator(), BB1Fn};
+      QueryKeyTy<Function> Key = {BB0.getTerminator(), BB1Fn, Ctx};
       Res = determineInterProceduralDominance(A, Key, ContinueToCallerCB);
     }
     LLVM_DEBUG(dbgs() << "[AADominance] -> " << (Res ? "yes" : "no") << "\n");
@@ -9950,18 +9994,19 @@ public:
 
   bool assumedDominates(
       Attributor &A, const Instruction &I0, const Instruction &I1,
+      const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
     LLVM_DEBUG(dbgs() << "[AADominance] " << I0 << " dominates " << I1
                       << "?\n");
     if (I0.getParent() == I1.getParent()) {
       const Instruction *CurI = I0.getNextNode();
-      while (CurI && CurI != &I1)
+      while (CurI && CurI != &I1 && CurI != Ctx)
         CurI = CurI->getNextNode();
       LLVM_DEBUG(dbgs() << "[AADominance] -> " << (CurI ? "yes" : "no")
                         << "\n");
-      return CurI;
+      return Ctx ? CurI == Ctx : !!CurI;
     }
-    return assumedDominates(A, *I0.getParent(), *I1.getParent(),
+    return assumedDominates(A, *I0.getParent(), *I1.getParent(), Ctx,
                             ContinueToCallerCB);
   }
 
@@ -9973,7 +10018,24 @@ public:
     const Function *Fn = Key.SourceI->getFunction();
     auto *DT =
         InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(*Fn);
-    return DT && DT->dominates(Key.SourceI, Key.Target);
+    if (!DT)
+      return false;
+    if (!Key.CtxI)
+      return DT->dominates(Key.SourceI, Key.Target);
+
+    if (!DT->dominates(Key.SourceI, Key.CtxI))
+      return false;
+
+    const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
+        *this, IRPosition::function(*Fn), DepClassTy::OPTIONAL);
+    bool ScopeIsNoRecurs = NoRecurseAA.isAssumedNoRecurse();
+    if (!ScopeIsNoRecurs)
+      return false;
+    const auto &ReachabilityAA = A.getAAFor<AAReachability>(
+        *this, IRPosition::function(*Fn), DepClassTy::OPTIONAL);
+    if (ReachabilityAA.isAssumedReachable(A, Key.Target->front(), *Key.CtxI))
+      return false;
+    return true;
   }
 
   bool determineInterProceduralDominance(
@@ -10058,7 +10120,7 @@ public:
 
     for (auto *SourceI : SourceCallTree[MeetFn]) {
       for (auto *TargetI : TargetCallTree[MeetFn]) {
-        if (!assumedDominates(A, *SourceI, *TargetI))
+        if (!assumedDominates(A, *SourceI, *TargetI, Key.CtxI))
           return NotDominating();
       }
     }
