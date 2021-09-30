@@ -31,7 +31,9 @@
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Instruction.h"
@@ -783,9 +785,9 @@ struct OpenMPOpt {
                       << OMPInfoCache.ModuleSlice.size() << " functions\n");
 
     if (IsModulePass) {
-       //M.dump();
+      // M.dump();
       Changed |= runAttributor(IsModulePass);
-       //M.dump();
+      // M.dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -801,11 +803,11 @@ struct OpenMPOpt {
       if (PrintOpenMPKernels)
         printKernels();
 
-       //for (auto *F: SCC)
-       //F->dump();
+      // for (auto *F: SCC)
+      // F->dump();
       Changed |= runAttributor(IsModulePass);
-       //for (auto *F: SCC)
-       //F->dump();
+      // for (auto *F: SCC)
+      // F->dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -3258,8 +3260,41 @@ struct AAKernelInfoFunction : AAKernelInfo {
       return false;
     }
 
+    auto CreateTidAndTidCheck =
+        [&](Module &M, Instruction &IP,
+            const DebugLoc &DL) -> std::pair<Value *, Value *> {
+      using InsertPointTy = OpenMPIRBuilder::InsertPointTy;
+      OpenMPIRBuilder::LocationDescription LocRegionCheckTid(
+          InsertPointTy(IP.getParent(), IP.getIterator()), DL);
+      OMPInfoCache.OMPBuilder.updateToLocation(LocRegionCheckTid);
+      FunctionCallee HardwareTidFn =
+          OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+              M, OMPRTL___kmpc_get_hardware_thread_id_in_block);
+      Value *Tid =
+          OMPInfoCache.OMPBuilder.Builder.CreateCall(HardwareTidFn, {});
+      Value *TidCheck = OMPInfoCache.OMPBuilder.Builder.CreateIsNull(Tid);
+      return {Tid, TidCheck};
+    };
+
+    SmallPtrSet<Instruction *, 16> GuardedStores;
     auto CreateGuardedRegion = [&](Instruction *RegionStartI,
                                    Instruction *RegionEndI) {
+#if 0
+      bool AllGuardedStores = true;
+      auto *It = RegionStartI;
+      Instruction *I;
+      do {
+        I = It;
+        It = It->getNextNode();
+        if ((!I->mayHaveSideEffects() && !I->mayReadFromMemory()))
+          continue;
+        if (isa<StoreInst>(I))
+          continue;
+        AllGuardedStores = false;
+        break;
+      } while (I != RegionEndI);
+  #endif
+
       LoopInfo *LI = nullptr;
       DominatorTree *DT = nullptr;
       MemorySSAUpdater *MSU = nullptr;
@@ -3268,6 +3303,55 @@ struct AAKernelInfoFunction : AAKernelInfo {
       BasicBlock *ParentBB = RegionStartI->getParent();
       Function *Fn = ParentBB->getParent();
       Module &M = *Fn->getParent();
+
+  #if 0
+      if (AllGuardedStores) {
+        ParentBB->dump();
+        errs() << "All Guarded Stores!\n";
+        errs() << "- " << *RegionStartI << "\n";
+        errs() << "- " << *RegionEndI << "\n";
+
+        Value *Tid, *TidCheck;
+        std::tie(Tid, TidCheck) =
+            CreateTidAndTidCheck(M, *RegionStartI, RegionStartI->getDebugLoc());
+
+        const DataLayout &DL = M.getDataLayout();
+        BasicBlock &EntryBB = Fn->getEntryBlock();
+        auto *It = RegionStartI;
+        Instruction *I;
+        do {
+          I = It;
+          It = It->getNextNode();
+          auto *SI = dyn_cast<StoreInst>(I);
+          if (!SI)
+            continue;
+
+          auto *AI = new AllocaInst(
+              SI->getPointerOperandType()->getPointerElementType(),
+              DL.getAllocaAddrSpace(), nullptr,
+              SI->getPointerOperand()->getName() + ".dummy", &EntryBB.front());
+          auto *NewPtr = SelectInst::Create(TidCheck, SI->getPointerOperand(),
+                                            AI, "guarded.store.ptr.select", SI);
+          SI->setOperand(SI->getPointerOperandIndex(), NewPtr);
+        } while (I != RegionEndI);
+
+        const DebugLoc DLoc = ParentBB->getTerminator()->getDebugLoc();
+        Instruction *PastEnd = RegionEndI->getNextNode();
+        OpenMPIRBuilder::LocationDescription Loc(
+            InsertPointTy(ParentBB, PastEnd->getIterator()), DLoc);
+        OMPInfoCache.OMPBuilder.updateToLocation(Loc);
+        auto *SrcLocStr = OMPInfoCache.OMPBuilder.getOrCreateSrcLocStr(Loc);
+        Value *Ident = OMPInfoCache.OMPBuilder.getOrCreateIdent(SrcLocStr);
+
+        FunctionCallee BarrierFn =
+            OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+                M, OMPRTL___kmpc_barrier_simple_spmd);
+        OMPInfoCache.OMPBuilder.Builder.CreateCall(BarrierFn, {Ident, Tid})
+            ->setDebugLoc(DLoc);
+        ParentBB->dump();
+        return;
+      }
+  #endif
 
       // Create all the blocks and logic.
       // ParentBB:
@@ -3368,16 +3452,10 @@ struct AAKernelInfoFunction : AAKernelInfo {
       BranchInst::Create(RegionCheckTidBB, ParentBB)->setDebugLoc(DL);
 
       // Add check for Tid in RegionCheckTidBB
+      Value *Tid, *TidCheck;
+      std::tie(Tid, TidCheck) =
+          CreateTidAndTidCheck(M, RegionCheckTidBB->back(), DL);
       RegionCheckTidBB->getTerminator()->eraseFromParent();
-      OpenMPIRBuilder::LocationDescription LocRegionCheckTid(
-          InsertPointTy(RegionCheckTidBB, RegionCheckTidBB->end()), DL);
-      OMPInfoCache.OMPBuilder.updateToLocation(LocRegionCheckTid);
-      FunctionCallee HardwareTidFn =
-          OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
-              M, OMPRTL___kmpc_get_hardware_thread_id_in_block);
-      Value *Tid =
-          OMPInfoCache.OMPBuilder.Builder.CreateCall(HardwareTidFn, {});
-      Value *TidCheck = OMPInfoCache.OMPBuilder.Builder.CreateIsNull(Tid);
       OMPInfoCache.OMPBuilder.Builder
           .CreateCondBr(TidCheck, RegionStartBB, RegionBarrierBB)
           ->setDebugLoc(DL);
