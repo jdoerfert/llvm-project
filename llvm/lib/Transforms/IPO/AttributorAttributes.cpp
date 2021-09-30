@@ -284,7 +284,7 @@ static bool genericValueTraversal(
     StateTy &State,
     function_ref<bool(Value &, const Instruction *, StateTy &, bool)>
         VisitValueCB,
-    const Instruction *CtxI, bool UseValueSimplify = true, int MaxValues = 16,
+    const Instruction *CtxI, bool UseValueSimplify = true, int MaxValues = 32,
     function_ref<Value *(Value *)> StripCB = nullptr,
     bool Intraprocedural = false) {
 
@@ -316,8 +316,11 @@ static bool genericValueTraversal(
       continue;
 
     // Make sure we limit the compile time for complex expressions.
-    if (Iteration++ >= MaxValues)
+    if (Iteration++ >= MaxValues) {
+      LLVM_DEBUG(dbgs() << "Generic value traversal reached iteration limit: "
+                        << Iteration << "!\n");
       return false;
+    }
 
     // Explicitly look through calls with a "returned" attribute if we do
     // not have a pointer as stripPointerCasts only works on them.
@@ -406,10 +409,8 @@ static bool genericValueTraversal(
           A.getAssumedSimplified(*V, QueryingAA, UsedAssumedInformation);
       if (!SimpleV.hasValue())
         continue;
-      if (!SimpleV.getValue())
-        return false;
       Value *NewV = SimpleV.getValue();
-      if (NewV != V) {
+      if (NewV && NewV != V) {
         if (!Intraprocedural || !CtxI ||
             AA::isValidInScope(*NewV, CtxI->getFunction())) {
           Worklist.push_back({NewV, CtxI});
@@ -435,8 +436,11 @@ static bool genericValueTraversal(
     }
 
     // Once a leaf is reached we inform the user through the callback.
-    if (!VisitValueCB(*V, CtxI, State, Iteration > 1))
+    if (!VisitValueCB(*V, CtxI, State, Iteration > 1)) {
+      LLVM_DEBUG(dbgs() << "Generic value traversal visit callback failed for: "
+                        << *V << "!\n");
       return false;
+    }
   } while (!Worklist.empty());
 
   // If we actually used liveness information so we have to record a dependence.
@@ -1126,7 +1130,7 @@ struct AAPointerInfoImpl
           IRPosition::function(*I.getFunction()), &QueryingAA,
           DepClassTy::OPTIONAL);
       LLVM_DEBUG(
-          errs() << "Store: Initial thread only: "
+          errs() << "Store: " << I << "\n Initial thread only: "
                  << (ExecDomainAA &&
                      ExecDomainAA->isExecutedByInitialThreadOnly(I))
                  << " : SameEpoch: "
@@ -1224,9 +1228,10 @@ struct AAPointerInfoImpl
         if (!AA::isPotentiallyReachable(A, *Acc.getLocalInst(), LI, QueryingAA,
                                         IsLiveInCalleeCB))
           return true;
-        LLVM_DEBUG(errs() << "Reachable!, Check dominance: " << Exact << " "
-                          << *Acc.getRemoteInst() << "\n");
-        if (Exact && Acc.isMustAccess()) {
+        LLVM_DEBUG(errs() << "Reachable!, Check dominance: " << Exact << " : "
+                          << Acc.isMustAccess() << " " << *Acc.getRemoteInst()
+                          << "\n");
+        if (Exact) {
           if (DominanceAA.assumedDominates(A, *Acc.getRemoteInst(), LI,
                                            IsLiveInCalleeCB))
             DominatingWrites.insert(&Acc);
@@ -1258,9 +1263,10 @@ struct AAPointerInfoImpl
       if (!DominatingWrites.count(&Acc))
         return false;
       for (const Access *DomAcc : DominatingWrites) {
-        if (DomAcc != &Acc && DominanceAA.assumedDominates(
-                                  A, *Acc.getRemoteInst(),
-                                  *DomAcc->getRemoteInst(), IsLiveInCalleeCB)) {
+        if (DomAcc != &Acc && DomAcc->isMustAccess() &&
+            DominanceAA.assumedDominates(A, *Acc.getRemoteInst(),
+                                         *DomAcc->getRemoteInst(),
+                                         IsLiveInCalleeCB)) {
           LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc: "
                             << *Acc.getRemoteInst() << "\n");
           return true;
@@ -5610,7 +5616,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     const auto *TLI =
         A.getInfoCache().getTargetLibraryInfoForFunction(*L.getFunction());
     for (Value *Obj : Objects) {
-      LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
+      LLVM_DEBUG(dbgs() << "[AAValueSimplify] Visit underlying object " << *Obj
+                        << "\n");
       if (isa<UndefValue>(Obj))
         continue;
       if (isa<ConstantPointerNull>(Obj)) {
@@ -5627,14 +5634,19 @@ struct AAValueSimplifyImpl : AAValueSimplify {
           !isNoAliasFn(Obj, TLI))
         return false;
       Constant *InitialVal = AA::getInitialValueForObj(*Obj, *L.getType(), TLI);
+      LLVM_DEBUG(dbgs() << "[AAValueSimplify] Initial value: " << InitialVal
+                        << ".\n");
       if (!InitialVal || !Union(*InitialVal))
         return false;
 
-      LLVM_DEBUG(dbgs() << "Underlying object amenable to load-store "
-                           "propagation, checking accesses next.\n");
+      LLVM_DEBUG(
+          dbgs()
+          << "[AAValueSimplify] Underlying object amenable to load-store "
+             "propagation, checking accesses next.\n");
 
       auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
-        LLVM_DEBUG(dbgs() << " - visit access " << Acc << "\n");
+        LLVM_DEBUG(dbgs() << "[AAValueSimplify]  - visit access " << Acc
+                          << "\n");
         if (Acc.isWrittenValueYetUndetermined())
           return true;
         Value *Content = Acc.getWrittenValue();

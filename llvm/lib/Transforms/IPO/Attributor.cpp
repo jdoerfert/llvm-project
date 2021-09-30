@@ -335,7 +335,6 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
                                 const AbstractAttribute &QueryingAA,
                                 bool &UsedAssumedInformation, bool OnlyExact) {
   Value &Ptr = *I.getPointerOperand();
-  // errs() << " " << Ptr << "  of " << I << "\n";
   SmallVector<Value *, 8> Objects;
   if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &I)) {
     LLVM_DEBUG(
@@ -386,7 +385,6 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
     }
 
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
-      // errs() << "Acc: " << *Acc.getLocalInst() << "\n";
       if (OnlyExact && !IsExact) {
         LLVM_DEBUG(dbgs() << "Non exact access " << *Acc.getRemoteInst()
                           << "!\n");
@@ -428,12 +426,21 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
 
     auto &PI = A.getAAFor<AAPointerInfo>(QueryingAA, IRPosition::value(*Obj),
                                          DepClassTy::NONE);
-    if (!PI.forallInterferingAccesses(I, CheckAccess)) {
-      LLVM_DEBUG(
-          dbgs()
-          << "Failed to verify all interfering accesses for underlying object: "
-          << *Obj << "\n");
-      return false;
+    if (IsLoad) {
+      if (!PI.forallInterferingWrites(A, QueryingAA, cast<LoadInst>(I),
+                                      CheckAccess)) {
+        LLVM_DEBUG(dbgs() << "Failed to verify all interfering accesses for "
+                             "underlying object: "
+                          << *Obj << "\n");
+        return false;
+      }
+    } else {
+      if (!PI.forallInterferingAccesses(I, CheckAccess)) {
+        LLVM_DEBUG(dbgs() << "Failed to verify all interfering accesses for "
+                             "underlying object: "
+                          << *Obj << "\n");
+        return false;
+      }
     }
     PIs.push_back(&PI);
   }
@@ -1254,14 +1261,12 @@ bool Attributor::isAssumedDead(const IRPosition &IRP,
                     CheckBBLivenessOnly ? DepClass : DepClassTy::OPTIONAL))
     return true;
 
-  //errs() << "CheckBBLivenessOnly : " << CheckBBLivenessOnly <<"\n";
   if (CheckBBLivenessOnly)
     return false;
 
   // If we haven't succeeded we query the specific liveness info for the IRP.
   const AAIsDead &IsDeadAA =
       getOrCreateAAFor<AAIsDead>(IRP, QueryingAA, DepClassTy::NONE);
-  //errs() << cast<AbstractAttribute>(IsDeadAA) << " :: " << (QueryingAA == &IsDeadAA)<<"\n";
   // Don't check liveness for AAIsDead.
   if (QueryingAA == &IsDeadAA)
     return false;
@@ -2197,7 +2202,7 @@ ChangeStatus Attributor::updateAA(AbstractAttribute &AA) {
   if (IsQueryAA)
     AA.update(*this);
   else if (!isAssumedDead(AA, nullptr, UsedAssumedInformation,
-                                   /* CheckBBLivenessOnly */ true))
+                          /* CheckBBLivenessOnly */ true))
     CS = AA.update(*this);
 
   if (!IsQueryAA && DV.empty()) {
