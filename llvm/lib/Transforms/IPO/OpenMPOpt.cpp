@@ -102,6 +102,11 @@ static cl::opt<bool> DisableOpenMPOptStateMachineRewrite(
     cl::desc("Disable OpenMP optimizations that replace the state machine."),
     cl::Hidden, cl::init(false));
 
+static cl::opt<bool> DisableOpenMPOptBarrierElimination(
+    "openmp-opt-disable-barrier-elimination", cl::ZeroOrMore,
+    cl::desc("Disable OpenMP optimizations that eliminate barriers."),
+    cl::Hidden, cl::init(false));
+
 static cl::opt<bool> PrintModuleAfterOptimizations(
     "openmp-opt-print-module", cl::ZeroOrMore,
     cl::desc("Print the current module after OpenMP optimizations."),
@@ -151,6 +156,8 @@ STATISTIC(NumOpenMPParallelRegionsMerged,
           "Number of OpenMP parallel regions merged");
 STATISTIC(NumBytesMovedToSharedMemory,
           "Amount of memory pushed to shared memory");
+STATISTIC(NumBarriersEliminated,
+          "Number of redundant barriers eliminated");
 
 #if !defined(NDEBUG)
 static constexpr auto TAG = "[" DEBUG_TYPE "]";
@@ -825,6 +832,7 @@ struct OpenMPOpt {
           Changed = true;
         }
       }
+      Changed |= eliminateBarriers();
     }
 
     LLVM_DEBUG({
@@ -1394,6 +1402,188 @@ private:
       return WasSplit;
     };
     RFI.foreachUse(SCC, SplitMemTransfers);
+
+    return Changed;
+  }
+
+  /// Eliminates redundant, aligned barriers in OpenMP offloaded kernels.
+  bool eliminateBarriers() {
+    bool Changed = false;
+
+    if (DisableOpenMPOptBarrierElimination)
+      return /*Changed=*/false;
+
+    if (OMPInfoCache.Kernels.empty())
+      return /*Changed=*/false;
+
+    enum BarrierType { IMPLICIT_ENTRY, IMPLICIT_EXIT, EXPLICIT };
+
+    class BarrierInfo {
+    private:
+      Instruction *I;
+      enum BarrierType Type;
+
+    public:
+      BarrierInfo(Instruction *I, enum BarrierType Type) : I(I), Type(Type) {}
+
+      bool isImplicit() { return (Type != EXPLICIT); }
+
+      bool isImplicitEntry() { return (Type == IMPLICIT_ENTRY); }
+
+      bool isImplicitExit() { return (Type == IMPLICIT_EXIT); }
+
+      Instruction *getInstruction() { return I; }
+    };
+
+    for (Function *Kernel : OMPInfoCache.Kernels) {
+      for (BasicBlock &BB : *Kernel) {
+        SmallVector<BarrierInfo, 8> BarriersInBlock;
+        SmallPtrSet<Instruction *, 8> BarriersToBeDeleted;
+
+        // Add the kernel entry implicit barrier.
+        if (&Kernel->getEntryBlock() == &BB)
+          BarriersInBlock.push_back(
+              BarrierInfo(nullptr, /*Type=*/IMPLICIT_ENTRY));
+
+        // Find implicit and explicit aligned barriers in the same basic block.
+        for (Instruction &I : BB) {
+          CallBase *CB = dyn_cast<CallBase>(&I);
+          // Add an explicit aligned barrier.
+          if (CB && hasAssumption(*CB, "ompx_aligned_barrier")) {
+            BarriersInBlock.push_back(BarrierInfo(&I, /*Type=*/EXPLICIT));
+            dbgs() << "=== Found explicit barrier " << *CB << "\n";
+          }
+          // Add the implicit barrier when exiting the kernel.
+          else if (isa<ReturnInst>(I)) {
+            BarriersInBlock.push_back(BarrierInfo(&I, /*Type=*/IMPLICIT_EXIT));
+            Instruction *II = &I;
+            dbgs() << "=== Found implicit exit barrier " << *II << "\n";
+          }
+        }
+
+        if (BarriersInBlock.size() <= 1)
+          continue;
+
+        // A barrier in a barrier pair is removeable if all instructions
+        // between the barriers in the pair are side-effect free modulo the
+        // barrier operation.
+        auto IsBarrierRemoveable = [&Kernel](BarrierInfo *StartBarrierInfo,
+                                             BarrierInfo *EndBarrierInfo) {
+          // If StarBarrierInfo instructions is null then this the implicit
+          // kernel entry barrier, so iterate from the first instruction in the
+          // entry block.
+          Instruction *I = (StartBarrierInfo->isImplicitEntry())
+                               ? &Kernel->getEntryBlock().front()
+                               : StartBarrierInfo->getInstruction()->getNextNode();
+          Instruction *E = EndBarrierInfo->getInstruction();
+          assert(I && "Expected non-null start instruction");
+          assert(E && "Expected non-null end instruction");
+          assert(
+              !StartBarrierInfo->isImplicitExit() &&
+              "Expected start barrier to be other than a kernel exit barrier");
+          dbgs() << "== BB\n" << *I->getParent() << "=== End of BB\n";
+          dbgs() << "==== Examining Start " << *I << " -- "
+                 << *EndBarrierInfo->getInstruction() << "\n";
+          for (; I != E; I = I->getNextNode()) {
+            dbgs() << "=== Examining Instruction " << *I << "\n";
+            if (I->mayHaveSideEffects() || I->mayReadFromMemory()) {
+              // Loads and stores to local memory do not have side-effects,
+              // continue.
+              LoadInst *Load = dyn_cast<LoadInst>(I);
+              if (Load) {
+                dbgs() << "=> I " << *I << " is a load, pointer operand " <<
+                  *Load->getPointerOperand()->stripPointerCasts() << "\n";
+                if (isa<AllocaInst>(
+                        Load->getPointerOperand()->stripPointerCasts())) {
+                  dbgs() << "=> I " << *I
+                         << " is a load to local memory, continue\n";
+                  continue;
+                }
+              }
+
+              StoreInst *Store = dyn_cast<StoreInst>(I);
+              if (Store) {
+                dbgs() << "==> I " << *I << " is a store, pointer operand " <<
+                  *Store->getPointerOperand()->stripPointerCasts() << "\n";
+                if (isa<AllocaInst>(
+                        Store->getPointerOperand()->stripPointerCasts())) {
+                  dbgs() << "=> I " << *I
+                         << " is a store to local memory, continue\n";
+                  continue;
+                }
+              }
+
+              // Check intrinsic intructions for side-effects affecting
+              // barrier elimination.
+              if (isa<IntrinsicInst>(I)) {
+                if(MemTransferInst *MI = dyn_cast<MemTransferInst>(I))
+                  if (!isa<AllocaInst>(MI->getDest()) ||
+                      !isa<AllocaInst>(MI->getSource()))
+                    return false;
+
+                dbgs() << "=> I " << *I
+                       << " is a non-memory-transfer intrinsic, assumed free "
+                          "of side-effects, continue\n";
+                continue;
+              }
+
+              dbgs() << "=> I " << *I << " has side-effects, abort\n";
+              return false;
+            }
+
+            dbgs() << "=> I " << *I << " is free of side-effects, continue\n";
+          }
+
+          return true;
+        };
+
+        // Iterate barrier pairs and remove an explicit barrier if analysis
+        // deems it removeable.
+        for (auto *It = BarriersInBlock.begin(),
+                  *End = BarriersInBlock.end() - 1;
+             It != End; ++It) {
+
+          BarrierInfo *StartBarrierInfo = It;
+          BarrierInfo *EndBarrierInfo = (It + 1);
+
+          // Cannot remove when both are implicit barriers, continue.
+          if (StartBarrierInfo->isImplicit() && EndBarrierInfo->isImplicit())
+            continue;
+
+          if (!IsBarrierRemoveable(StartBarrierInfo, EndBarrierInfo))
+            continue;
+
+          assert(
+              !(StartBarrierInfo->isImplicit() && EndBarrierInfo->isImplicit()) &&
+              "Expected at least one explicit barrier to remove.");
+
+          // Remove an explicit barrier, check first, then second.
+          if (!StartBarrierInfo->isImplicit()) {
+            dbgs() << "=> Remove start barrier " << *StartBarrierInfo->getInstruction() << "\n";
+            BarriersToBeDeleted.insert(StartBarrierInfo->getInstruction());
+          }
+          else /*if (!EndBarrierInfo->isImplicit())*/ {
+            dbgs() << "=> Remove end barrier " << *EndBarrierInfo->getInstruction() << "\n";
+            BarriersToBeDeleted.insert(EndBarrierInfo->getInstruction());
+          }
+        }
+
+        if (!BarriersToBeDeleted.empty()) {
+          Changed = true;
+          for (Instruction *I : BarriersToBeDeleted) {
+            NumBarriersEliminated++;
+            auto Remark = [&](OptimizationRemark OR) {
+              return OR << "Redundant barrier eliminated within "
+                        << I->getFunction()->getName() << ".";
+            };
+
+            emitRemark<OptimizationRemark>(I->getFunction(), "OMP190", Remark);
+
+            I->eraseFromParent();
+          }
+        }
+      }
+    }
 
     return Changed;
   }
