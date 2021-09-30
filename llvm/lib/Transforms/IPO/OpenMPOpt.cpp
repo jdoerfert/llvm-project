@@ -785,9 +785,9 @@ struct OpenMPOpt {
                       << OMPInfoCache.ModuleSlice.size() << " functions\n");
 
     if (IsModulePass) {
-      M.dump();
+      // M.dump();
       Changed |= runAttributor(IsModulePass);
-      M.dump();
+      // M.dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -803,11 +803,11 @@ struct OpenMPOpt {
       if (PrintOpenMPKernels)
         printKernels();
 
-      for (auto *F : SCC)
-        F->dump();
+      // for (auto *F: SCC)
+      // F->dump();
       Changed |= runAttributor(IsModulePass);
-      for (auto *F : SCC)
-        F->dump();
+      // for (auto *F: SCC)
+      // F->dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -2609,10 +2609,8 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
         *this, IRPosition::function(*ACS.getInstruction()->getFunction()),
         DepClassTy::REQUIRED);
     const Instruction &I = *ACS.getInstruction();
-    if (!ACS.isCallbackCall() || !ExecDomAA.isExecutedByInitialThreadOnly(I))
+    if (!ACS.isDirectCall() || !ExecDomAA.isExecutedByInitialThreadOnly(I))
       SingleThreadedBBs.erase(&F->getEntryBlock());
-    errs() << "I: " << I << " : " << cast<AbstractAttribute>(ExecDomAA) << " : "
-           << ExecDomAA.isExecutedByAllThreadsInTheSameEpoch(I) << "\n";
     if (!ExecDomAA.isExecutedByAllThreadsInTheSameEpoch(I))
       SameEpochBBs.erase(&F->getEntryBlock());
     return true;
@@ -2623,7 +2621,6 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
                               AllCallSitesKnown)) {
     // Something went wrong visiting all call sites, conservatively assume the
     // worst.
-    errs() << "BAD\n";
     SingleThreadedBBs.erase(&F->getEntryBlock());
     if (!F->hasFnAttribute("kernel"))
       SameEpochBBs.erase(&F->getEntryBlock());
@@ -2708,16 +2705,6 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     bool HasAllThreadBarrierAssumption =
         CB && hasAssumption(*CB, "ompx_aligned_barrier");
     Function *Callee = CB ? CB->getCalledFunction() : nullptr;
-    if (CB && !Callee) {
-      bool UsedAssumedInformation = false;
-      const auto &SimpleCallee = A.getAssumedSimplified(
-          *CB->getCalledOperand(), *this, UsedAssumedInformation);
-      if (!SimpleCallee.hasValue())
-        return llvm::None;
-      if (SimpleCallee.getValue())
-        Callee =
-            dyn_cast<Function>(SimpleCallee.getValue()->stripPointerCasts());
-    }
     if (!CB || !Callee || Callee->isDeclaration() ||
         HasAllThreadBarrierAssumption) {
       LLVM_DEBUG({
@@ -2731,7 +2718,8 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     }
 
     const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
-        *this, IRPosition::function(*Callee), DepClassTy::REQUIRED);
+        *this, IRPosition::function(*CB->getCalledFunction()),
+        DepClassTy::REQUIRED);
     return ExecDomAA.isExitedByAllThreadsInTheSameEpoch();
   };
 
@@ -3307,7 +3295,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
         AllGuardedStores = false;
         break;
       } while (I != RegionEndI);
-#endif
+  #endif
+
       LoopInfo *LI = nullptr;
       DominatorTree *DT = nullptr;
       MemorySSAUpdater *MSU = nullptr;
@@ -3317,7 +3306,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       Function *Fn = ParentBB->getParent();
       Module &M = *Fn->getParent();
 
-#if 0
+  #if 0
       if (AllGuardedStores) {
         ParentBB->dump();
         errs() << "All Guarded Stores!\n";
@@ -3364,7 +3353,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         ParentBB->dump();
         return;
       }
-#endif
+  #endif
 
       // Create all the blocks and logic.
       // ParentBB:

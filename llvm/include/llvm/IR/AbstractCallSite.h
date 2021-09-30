@@ -132,7 +132,7 @@ public:
 
   /// Return true if @p U is the use that defines the callee of this ACS.
   bool isCallee(const Use *U) const {
-    if (!isCallbackCall())
+    if (isDirectCall())
       return CB->isCallee(U);
 
     assert(!CI.ParameterEncoding.empty() &&
@@ -164,7 +164,7 @@ public:
   /// Return the operand index of the underlying instruction associated with
   /// the function parameter number @p ArgNo or -1 if there is none.
   int getCallArgOperandNo(unsigned ArgNo) const {
-    if (!isCallbackCall())
+    if (isDirectCall())
       return ArgNo;
     // Add 1 for the callee encoding.
     return CI.ParameterEncoding[ArgNo + 1];
@@ -206,7 +206,7 @@ public:
 
   /// Return the pointer to function that is being called.
   Value *getCalledOperand() const {
-    if (!isCallbackCall())
+    if (isDirectCall())
       return CB->getCalledOperand();
     return CB->getArgOperand(getCallArgOperandNoForCallee());
   }

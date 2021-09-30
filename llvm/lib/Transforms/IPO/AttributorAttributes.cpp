@@ -3584,7 +3584,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
 
     Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
     if (!isAssumedSideEffectFree(A, I)) {
-      if (!isa_and_nonnull<StoreInst>(I) && !isa_and_nonnull<CallBase>(I))
+      if (!isa_and_nonnull<StoreInst>(I))
         indicatePessimisticFixpoint();
       else
         removeAssumedBits(HAS_NO_EFFECT);
@@ -3751,31 +3751,17 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     if (auto *SI = dyn_cast_or_null<StoreInst>(I)) {
       if (!isDeadStore(A, *SI))
         return indicatePessimisticFixpoint();
-      return ChangeStatus::UNCHANGED;
-    }
-
-    if (auto *CB = dyn_cast_or_null<CallBase>(I)) {
-      bool HNE = isAssumed(HAS_NO_EFFECT);
+    } else {
       if (!isAssumedSideEffectFree(A, I))
-        removeAssumedBits(HAS_NO_EFFECT);
-      auto *HS = A.lookupAAFor<AAHeapToStack>(
-          IRPosition::function(*CB->getCaller()), this, DepClassTy::OPTIONAL);
-      if (HS && (HS->isAssumedHeapToStack(*CB) ||
-                 HS->isAssumedHeapToStackRemovedFree(*CB)))
-        return HNE ? ChangeStatus::CHANGED : ChangeStatus::UNCHANGED;
+        return indicatePessimisticFixpoint();
+      if (!areAllUsesAssumedDead(A, getAssociatedValue()))
+        return indicatePessimisticFixpoint();
     }
-    if (!isAssumedSideEffectFree(A, I))
-      return indicatePessimisticFixpoint();
-    if (!areAllUsesAssumedDead(A, getAssociatedValue()))
-      return indicatePessimisticFixpoint();
     return ChangeStatus::UNCHANGED;
   }
 
   bool isRemovableStore() const override {
     return isAssumed(IS_REMOVABLE) && isa<StoreInst>(&getAssociatedValue());
-  }
-  bool isRemovableCall() const override {
-    return isAssumed(IS_REMOVABLE) && isa<CallBase>(&getAssociatedValue());
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -3791,8 +3777,6 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
         A.deleteAfterManifest(*I);
         return ChangeStatus::CHANGED;
       }
-      if (isa<CallBase>(I))
-        return ChangeStatus::CHANGED;
     }
     if (V.use_empty())
       return ChangeStatus::UNCHANGED;
@@ -4973,8 +4957,6 @@ struct AANoReturnCallSite final : AANoReturnImpl {
       if (!FnAA.isAssumedNoReturn())
         indicatePessimisticFixpoint();
     }
-    // TODO: Make aanoreturn work with aaheap2stack and similar things.
-    indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -5771,8 +5753,6 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     auto PredForCallSite = [&](AbstractCallSite ACS) {
       const IRPosition &ACSArgPos =
           IRPosition::callsite_argument(ACS, getCallSiteArgNo());
-      // errs() << "ACSAP: " << ACSArgPos << "\n";
-      // ACS.getInstruction()->dump();
       // Check if a coresponding argument was found or if it is on not
       // associated (which can happen for callback calls).
       if (ACSArgPos.getPositionKind() == IRPosition::IRP_INVALID)
@@ -5894,14 +5874,12 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
     Value *LHS = Cmp.getOperand(0);
     Value *RHS = Cmp.getOperand(1);
-    // errs() << " ::: " << *LHS << " : " << *RHS << "\n";
 
     // Simplify the operands first.
     bool UsedAssumedInformation = false;
     const auto &SimplifiedLHS =
         A.getAssumedSimplified(IRPosition::value(*LHS, getCallBaseContext()),
                                *this, UsedAssumedInformation);
-    // errs() << SimplifiedLHS << "\n";
     if (!SimplifiedLHS.hasValue())
       return true;
     if (!SimplifiedLHS.getValue())
@@ -5911,7 +5889,6 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     const auto &SimplifiedRHS =
         A.getAssumedSimplified(IRPosition::value(*RHS, getCallBaseContext()),
                                *this, UsedAssumedInformation);
-    // errs() << SimplifiedRHS << "\n";
     if (!SimplifiedRHS.hasValue())
       return true;
     if (!SimplifiedRHS.getValue())
@@ -5955,7 +5932,6 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     auto &PtrNonNullAA = A.getAAFor<AANonNull>(
         *this, IRPosition::value(*ICmp->getOperand(PtrIdx)),
         DepClassTy::REQUIRED);
-    // errs()<< PtrNonNullAA << "\n";
     if (!PtrNonNullAA.isAssumedNonNull())
       return false;
     UsedAssumedInformation |= !PtrNonNullAA.isKnownNonNull();
@@ -6265,16 +6241,6 @@ struct AAHeapToStackFunction final : public AAHeapToStack {
         /* CheckPotentiallyDead */ true);
     (void)Success;
     assert(Success && "Did not expect the call base visit callback to fail!");
-
-    Attributor::SimplifictionCallbackTy SCB =
-        [](const IRPosition &, const AbstractAttribute *,
-           bool &) -> Optional<Value *> { return nullptr; };
-    for (const auto &It : AllocationInfos)
-      A.registerSimplificationCallback(IRPosition::callsite_returned(*It.first),
-                                       SCB);
-    for (const auto &It : DeallocationInfos)
-      A.registerSimplificationCallback(IRPosition::callsite_returned(*It.first),
-                                       SCB);
   }
 
   const std::string getAsStr() const override {
@@ -6306,7 +6272,7 @@ struct AAHeapToStackFunction final : public AAHeapToStack {
     return false;
   }
 
-  bool isAssumedHeapToStackRemovedFree(const CallBase &CB) const override {
+  bool isAssumedHeapToStackRemovedFree(CallBase &CB) const override {
     if (!isValidState())
       return false;
 
@@ -8386,10 +8352,6 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
       indicatePessimisticFixpoint();
       return;
     }
-    if (!getAssociatedType()->isIntegerTy()) {
-      indicatePessimisticFixpoint();
-      return;
-    }
 
     // Intersect a range given by SCEV.
     intersectKnown(getConstantRangeFromSCEV(A, getCtxI()));
@@ -9930,11 +9892,6 @@ private:
       return;
     }
 
-    const auto &DeadAA =
-        A.getAAFor<AAIsDead>(*this, IRPosition::inst(CB), DepClassTy::OPTIONAL);
-    if (DeadAA.isRemovableCall())
-      return;
-#if 0
     auto *HS = A.lookupAAFor<AAHeapToStack>(
         IRPosition::function(*CB.getCaller()), this, DepClassTy::OPTIONAL);
     if (HS) {
@@ -9942,7 +9899,6 @@ private:
           HS->isAssumedHeapToStackRemovedFree(CB))
         return;
     }
-#endif
 
     // Process callee metadata if available.
     if (auto *MD = CB.getMetadata(LLVMContext::MD_callees)) {

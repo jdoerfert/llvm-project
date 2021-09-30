@@ -189,8 +189,7 @@ Constant *getInitialValueForObj(Value &Obj, Type &Ty,
 bool getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
                                  SmallVectorImpl<Value *> &Objects,
                                  const AbstractAttribute &QueryingAA,
-                                 const Instruction *CtxI,
-                                 bool Intraprocedural = false);
+                                 const Instruction *CtxI, bool Intraprocedural = false);
 
 bool getPotentialCopiesOfLoadedValue(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialCopies,
@@ -518,9 +517,9 @@ struct IRPosition {
     Value &V = getAnchorValue();
     if (auto *I = dyn_cast<Instruction>(&V))
       return I;
-    // if (auto *Arg = dyn_cast<Argument>(&V))
-    // if (!Arg->getParent()->isDeclaration())
-    // return &Arg->getParent()->getEntryBlock().front();
+    if (auto *Arg = dyn_cast<Argument>(&V))
+      if (!Arg->getParent()->isDeclaration())
+        return &Arg->getParent()->getEntryBlock().front();
     return nullptr;
   }
 
@@ -1512,8 +1511,8 @@ struct Attributor {
     // if (auto *I = dyn_cast<Instruction>(U.get()))
     // if (InfoCache.isOnlyUsedByAssume(*I))
     // return false;
-    // assert((!V || V == &NV || isa<UndefValue>(NV)) &&
-    //"Use was registered twice for replacement with different values!");
+    //assert((!V || V == &NV || isa<UndefValue>(NV)) &&
+           //"Use was registered twice for replacement with different values!");
     V = &NV;
     return true;
   }
@@ -3238,6 +3237,12 @@ protected:
   /// Returns true if \p I is known dead.
   virtual bool isKnownDead(const Instruction *I) const = 0;
 
+  /// Return true if the underlying value is a store that is known to be
+  /// removable. This is different from dead stores as the removable store
+  /// can have an effect on live values, especially loads, but that effect
+  /// is propagated which allows us to remove the store in turn.
+  virtual bool isRemovableStore() const { return false; }
+
   /// This method is used to check if at least one instruction in a collection
   /// of instructions is live.
   template <typename T> bool isLiveInstSet(T begin, T end) const {
@@ -3266,13 +3271,6 @@ public:
   virtual bool isEdgeDead(const BasicBlock *From, const BasicBlock *To) const {
     return false;
   }
-
-  /// Return true if the underlying value is a store that is known to be
-  /// removable. This is different from dead stores as the removable store
-  /// can have an effect on live values, especially loads, but that effect
-  /// is propagated which allows us to remove the store in turn.
-  virtual bool isRemovableStore() const { return false; }
-  virtual bool isRemovableCall() const { return false; }
 
   /// See AbstractAttribute::getName()
   const std::string getName() const override { return "AAIsDead"; }
@@ -3705,7 +3703,7 @@ struct AAHeapToStack : public StateWrapper<BooleanState, AbstractAttribute> {
 
   /// Returns true if HeapToStack conversion is assumed and the CB is a
   /// callsite to a free operation to be removed.
-  virtual bool isAssumedHeapToStackRemovedFree(const CallBase &CB) const = 0;
+  virtual bool isAssumedHeapToStackRemovedFree(CallBase &CB) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAHeapToStack &createForPosition(const IRPosition &IRP, Attributor &A);
@@ -4008,9 +4006,7 @@ struct AAValueConstantRange
     : public StateWrapper<IntegerRangeState, AbstractAttribute, uint32_t> {
   using Base = StateWrapper<IntegerRangeState, AbstractAttribute, uint32_t>;
   AAValueConstantRange(const IRPosition &IRP, Attributor &A)
-      : Base(IRP, IRP.getAssociatedType()->isIntegerTy()
-                      ? IRP.getAssociatedType()->getIntegerBitWidth()
-                      : 1) {}
+      : Base(IRP, IRP.getAssociatedType()->getIntegerBitWidth()) {}
 
   /// See AbstractAttribute::getState(...).
   IntegerRangeState &getState() override { return *this; }
