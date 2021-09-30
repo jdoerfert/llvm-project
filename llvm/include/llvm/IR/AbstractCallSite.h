@@ -132,7 +132,7 @@ public:
 
   /// Return true if @p U is the use that defines the callee of this ACS.
   bool isCallee(const Use *U) const {
-    if (isDirectCall())
+    if (!isCallbackCall())
       return CB->isCallee(U);
 
     assert(!CI.ParameterEncoding.empty() &&
@@ -149,7 +149,7 @@ public:
 
   /// Return the number of parameters of the callee.
   unsigned getNumArgOperands() const {
-    if (isDirectCall())
+    if (!isCallbackCall())
       return CB->arg_size();
     // Subtract 1 for the callee encoding.
     return CI.ParameterEncoding.size() - 1;
@@ -164,7 +164,7 @@ public:
   /// Return the operand index of the underlying instruction associated with
   /// the function parameter number @p ArgNo or -1 if there is none.
   int getCallArgOperandNo(unsigned ArgNo) const {
-    if (isDirectCall())
+    if (!isCallbackCall())
       return ArgNo;
     // Add 1 for the callee encoding.
     return CI.ParameterEncoding[ArgNo + 1];
@@ -178,9 +178,9 @@ public:
   /// Return the operand of the underlying instruction associated with the
   /// function parameter number @p ArgNo or nullptr if there is none.
   Value *getCallArgOperand(unsigned ArgNo) const {
-    if (isDirectCall())
-      return CB->getNumArgOperands() > ArgNo ? CB->getArgOperand(ArgNo)
-                                             : nullptr;
+    if (!isCallbackCall())
+      return CB->arg_size() > ArgNo ? CB->getArgOperand(ArgNo)
+                                    : nullptr;
     // Add 1 for the callee encoding.
     return CI.ParameterEncoding[ArgNo + 1] >= 0
                ? CB->getArgOperand(CI.ParameterEncoding[ArgNo + 1])
@@ -206,7 +206,7 @@ public:
 
   /// Return the pointer to function that is being called.
   Value *getCalledOperand() const {
-    if (isDirectCall())
+    if (!isCallbackCall())
       return CB->getCalledOperand();
     return CB->getArgOperand(getCallArgOperandNoForCallee());
   }

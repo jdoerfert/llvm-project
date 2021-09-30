@@ -1069,12 +1069,14 @@ Attributor::getAssumedSimplified(const IRPosition &IRP,
   // First check all callbacks provided by outside AAs. If any of them returns
   // a non-null value that is different from the associated value, or None, we
   // assume it's simpliied.
+  //errs() << "IRP : " << IRP << " : " << SimplificationCallbacks.lookup(IRP).size() << "\n";
   for (auto &CB : SimplificationCallbacks.lookup(IRP))
     return CB(IRP, AA, UsedAssumedInformation);
 
   // If no high-level/outside simplification occured, use AAValueSimplify.
   const auto &ValueSimplifyAA =
       getOrCreateAAFor<AAValueSimplify>(IRP, AA, DepClassTy::NONE);
+  //errs() << "VSAA: " << cast<AbstractAttribute>(ValueSimplifyAA) << "\n";
   Optional<Value *> SimplifiedV =
       ValueSimplifyAA.getAssumedSimplifiedValue(*this);
   bool IsKnown = ValueSimplifyAA.isAtFixpoint();
@@ -1225,6 +1227,17 @@ bool Attributor::isAssumedDead(const Instruction &I,
       UsedAssumedInformation = true;
     return true;
   }
+
+#if 0
+  if (auto *CB = dyn_cast<CallBase>(&I)) {
+    auto *HS =
+        lookupAAFor<AAHeapToStack>(IRPosition::function(*CB->getCaller()),
+                                   QueryingAA, DepClassTy::OPTIONAL);
+    if (HS && (HS->isAssumedHeapToStack(*CB) ||
+               HS->isAssumedHeapToStackRemovedFree(*CB)))
+      return true;
+  }
+#endif
 
   if (CheckBBLivenessOnly)
     return false;
@@ -1420,10 +1433,11 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
   AllCallSitesKnown = RequireAllCallSites;
 
   SmallVector<const Use *, 8> Uses(make_pointer_range(Fn.uses()));
+  //errs() << "Got #" << Uses.size() << " uses for " << Fn.getName() << "\n";
   for (unsigned u = 0; u < Uses.size(); ++u) {
     const Use &U = *Uses[u];
     LLVM_DEBUG(dbgs() << "[Attributor] Check use: " << *U << " in "
-                      << *U.getUser() << "\n");
+                      << *U.getUser() << " : " << VisitDeadCallSites << "\n");
     bool UsedAssumedInformation = false;
     if (!VisitDeadCallSites &&
         isAssumedDead(U, QueryingAA, nullptr, UsedAssumedInformation,
@@ -1431,17 +1445,30 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
       LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");
       continue;
     }
-    if (ConstantExpr *CE = dyn_cast<ConstantExpr>(U.getUser())) {
-      if (CE->isCast() && CE->getType()->isPointerTy()) {
+    if (auto *BC = dyn_cast<BitCastOperator>(U.getUser())) {
+      LLVM_DEBUG(dbgs() << "[Attributor] Use, is cast expression, add "
+                        << BC->getNumUses()
+                        << " uses of that expression instead!\n");
+      for (const Use &CEU : BC->uses())
+        Uses.push_back(&CEU);
+      continue;
+    }
+#if 1
+    if (auto *CB = dyn_cast<CallBase>(U.getUser())) {
+      Function *Callee = CB->getCalledFunction();
+      if (Callee && CB->isArgOperand(&U) &&
+          (Callee->arg_size() > CB->getArgOperandNo(&U)) &&
+          Callee->hasLocalLinkage()) {
+        Argument *Arg = Callee->getArg(CB->getArgOperandNo(&U));
         LLVM_DEBUG(
-            dbgs() << "[Attributor] Use, is constant cast expression, add "
-                   << CE->getNumUses()
-                   << " uses of that expression instead!\n");
-        for (const Use &CEU : CE->uses())
-          Uses.push_back(&CEU);
+            dbgs() << "[Attributor] Use is passed into function, analyze "
+                   << Arg->getNumUses() << " argument uses instead!\n");
+        for (const Use &AU : Arg->uses())
+          Uses.push_back(&AU);
         continue;
       }
     }
+    #endif
 
     AbstractCallSite ACS(&U);
     if (!ACS) {
@@ -1471,7 +1498,7 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
     // Make sure the arguments that can be matched between the call site and the
     // callee argee on their type. It is unlikely they do not and it doesn't
     // make sense for all attributes to know/care about this.
-    assert(&Fn == ACS.getCalledFunction() && "Expected known callee");
+    //assert(&Fn == ACS.getCalledFunction() && "Expected known callee");
     unsigned MinArgsParams =
         std::min(size_t(ACS.getNumArgOperands()), Fn.arg_size());
     for (unsigned u = 0; u < MinArgsParams; ++u) {
@@ -1482,7 +1509,7 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
                    << u << "@" << Fn.getName() << ": "
                    << *Fn.getArg(u)->getType() << " vs. "
                    << *ACS.getCallArgOperand(u)->getType() << "\n");
-        return false;
+        //return false;
       }
     }
 
