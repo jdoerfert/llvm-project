@@ -3260,6 +3260,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       return false;
     }
 
+    #if 0
     auto CreateTidAndTidCheck =
         [&](Module &M, Instruction &IP,
             const DebugLoc &DL) -> std::pair<Value *, Value *> {
@@ -3277,6 +3278,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
     };
 
     SmallPtrSet<Instruction *, 16> GuardedStores;
+    #endif
     auto CreateGuardedRegion = [&](Instruction *RegionStartI,
                                    Instruction *RegionEndI) {
 #if 0
@@ -3451,10 +3453,16 @@ struct AAKernelInfoFunction : AAKernelInfo {
       BranchInst::Create(RegionCheckTidBB, ParentBB)->setDebugLoc(DL);
 
       // Add check for Tid in RegionCheckTidBB
-      Value *Tid, *TidCheck;
-      std::tie(Tid, TidCheck) =
-          CreateTidAndTidCheck(M, RegionCheckTidBB->back(), DL);
       RegionCheckTidBB->getTerminator()->eraseFromParent();
+      OpenMPIRBuilder::LocationDescription LocRegionCheckTid(
+          InsertPointTy(RegionCheckTidBB, RegionCheckTidBB->end()), DL);
+      OMPInfoCache.OMPBuilder.updateToLocation(LocRegionCheckTid);
+      FunctionCallee HardwareTidFn =
+          OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+              M, OMPRTL___kmpc_get_hardware_thread_id_in_block);
+      Value *Tid =
+          OMPInfoCache.OMPBuilder.Builder.CreateCall(HardwareTidFn, {});
+      Value *TidCheck = OMPInfoCache.OMPBuilder.Builder.CreateIsNull(Tid);
       OMPInfoCache.OMPBuilder.Builder
           .CreateCondBr(TidCheck, RegionStartBB, RegionBarrierBB)
           ->setDebugLoc(DL);
