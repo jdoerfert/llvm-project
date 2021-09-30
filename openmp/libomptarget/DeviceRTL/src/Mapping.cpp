@@ -159,7 +159,7 @@ uint32_t getWarpSize() { return getGridValue().GV_Warp_Size; }
 ///{
 
 bool mapping::isMainThreadInGenericMode() {
-  if (mapping::isSPMDMode() || icv::Level)
+  if (mapping::isSPMDMode())
     return false;
 
   // Check if this is the last warp in the block.
