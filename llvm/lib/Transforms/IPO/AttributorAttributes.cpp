@@ -294,6 +294,7 @@ static bool genericValueTraversal(
         QueryingAA,
         IRPosition::function(*IRP.getAnchorScope(), IRP.getCallBaseContext()),
         DepClassTy::NONE);
+
   bool AnyDead = false;
 
   Value *InitialV = &IRP.getAssociatedValue();
@@ -369,10 +370,7 @@ static bool genericValueTraversal(
              "Expected liveness in the presence of instructions!");
       for (unsigned u = 0, e = PHI->getNumIncomingValues(); u < e; u++) {
         BasicBlock *IncomingBB = PHI->getIncomingBlock(u);
-        bool UsedAssumedInformation = false;
-        if (A.isAssumedDead(*IncomingBB->getTerminator(), &QueryingAA,
-                            LivenessAA, UsedAssumedInformation,
-                            /* CheckBBLivenessOnly */ true)) {
+        if (LivenessAA->isEdgeDead(IncomingBB, PHI->getParent())) {
           AnyDead = true;
           continue;
         }
@@ -4050,7 +4048,7 @@ struct AAIsDeadFunction : public AAIsDead {
   ChangeStatus updateImpl(Attributor &A) override;
 
   bool isEdgeDead(const BasicBlock *From, const BasicBlock *To) const override {
-    return !AssumedLiveEdges.count(std::make_pair(From, To));
+    return isValidState() && !AssumedLiveEdges.count(std::make_pair(From, To));
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -5684,8 +5682,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
              "propagation, checking accesses next.\n");
 
       auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
-        LLVM_DEBUG(dbgs() << "[AAValueSimplify]  - visit access " << Acc
-                          << "\n");
+        LLVM_DEBUG(dbgs() << "[AAValueSimplify]  - visit access " << Acc << ": "
+                          << IsExact << "\n");
         if (Acc.isWrittenValueYetUndetermined())
           return true;
         Value *Content = Acc.getWrittenValue();
