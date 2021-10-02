@@ -5497,16 +5497,17 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   /// If \p Check is true we will only verify such an operation would suceed and
   /// return a non-nullptr value if that is the case. No IR is generated or
   /// modified.
-  static Value *reproduceInst(Attributor &A, Instruction &I, Type &Ty,
-                              Instruction *CtxI, bool Check,
-                              ValueToValueMapTy &VMap) {
+  static Value *reproduceInst(Attributor &A,
+                              const AbstractAttribute &QueryingAA,
+                              Instruction &I, Type &Ty, Instruction *CtxI,
+                              bool Check, ValueToValueMapTy &VMap) {
     assert(CtxI && "Cannot reproduce an instruction without context!");
     if (Check && (I.mayReadFromMemory() ||
                   !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
                                                 /* TLI */ nullptr)))
       return nullptr;
     for (Value *Op : I.operands()) {
-      Value *NewOp = reproduceValue(A, *Op, Ty, CtxI, Check, VMap);
+      Value *NewOp = reproduceValue(A, QueryingAA, *Op, Ty, CtxI, Check, VMap);
       if (!NewOp) {
         assert(Check && "Manifest of new value unexpectedly failed!");
         return nullptr;
@@ -5528,18 +5529,27 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   /// If \p Check is true we will only verify such an operation would suceed and
   /// return a non-nullptr value if that is the case. No IR is generated or
   /// modified.
-  static Value *reproduceValue(Attributor &A, Value &V, Type &Ty,
-                               Instruction *CtxI, bool Check,
+  static Value *reproduceValue(Attributor &A,
+                               const AbstractAttribute &QueryingAA, Value &V,
+                               Type &Ty, Instruction *CtxI, bool Check,
                                ValueToValueMapTy &VMap) {
     if (const auto &NewV = VMap.lookup(&V))
       return NewV;
-    if (auto *C = dyn_cast<Constant>(&V))
+    bool UsedAssumedInformation = false;
+    Optional<Value *> SimpleV =
+        A.getAssumedSimplified(V, QueryingAA, UsedAssumedInformation);
+    if (!SimpleV.hasValue())
+      return PoisonValue::get(&Ty);
+    Value *EffectiveV = &V;
+    if (SimpleV.getValue())
+      EffectiveV = SimpleV.getValue();
+    if (auto *C = dyn_cast<Constant>(EffectiveV))
       if (!C->canTrap())
         return C;
-    if (CtxI && AA::isValidAtPosition(V, *CtxI, A.getInfoCache()))
-      return ensureType(A, V, Ty, CtxI, Check);
-    if (auto *I = dyn_cast<Instruction>(&V))
-      if (Value *NewV = reproduceInst(A, *I, Ty, CtxI, Check, VMap))
+    if (CtxI && AA::isValidAtPosition(*EffectiveV, *CtxI, A.getInfoCache()))
+      return ensureType(A, *EffectiveV, Ty, CtxI, Check);
+    if (auto *I = dyn_cast<Instruction>(EffectiveV))
+      if (Value *NewV = reproduceInst(A, QueryingAA, *I, Ty, CtxI, Check, VMap))
         return ensureType(A, *NewV, Ty, CtxI, Check);
     return nullptr;
   }
@@ -5554,9 +5564,9 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       ValueToValueMapTy VMap;
       // First verify we can reprduce the value with the required type at the
       // context location before we actually start modifying the IR.
-      if (reproduceValue(A, *NewV, *getAssociatedType(), CtxI,
+      if (reproduceValue(A, *this, *NewV, *getAssociatedType(), CtxI,
                          /* CheckOnly */ true, VMap))
-        return reproduceValue(A, *NewV, *getAssociatedType(), CtxI,
+        return reproduceValue(A, *this, *NewV, *getAssociatedType(), CtxI,
                               /* CheckOnly */ false, VMap);
     }
     return nullptr;
@@ -5640,7 +5650,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       if (!AA::isDynamicallyUnique(A, AA, V))
         return false;
       ValueToValueMapTy VMap;
-      if (!reproduceValue(A, V, *L.getType(), &L, /* CheckOnly */ true, VMap))
+      if (!reproduceValue(A, AA, V, *L.getType(), &L, /* CheckOnly */ true,
+                          VMap))
         return false;
       return Union(V);
     };
