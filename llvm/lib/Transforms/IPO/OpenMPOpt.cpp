@@ -3260,7 +3260,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       return false;
     }
 
-    #if 0
+#if 0
     auto CreateTidAndTidCheck =
         [&](Module &M, Instruction &IP,
             const DebugLoc &DL) -> std::pair<Value *, Value *> {
@@ -3278,7 +3278,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
     };
 
     SmallPtrSet<Instruction *, 16> GuardedStores;
-    #endif
+#endif
     auto CreateGuardedRegion = [&](Instruction *RegionStartI,
                                    Instruction *RegionEndI) {
 #if 0
@@ -3295,8 +3295,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         AllGuardedStores = false;
         break;
       } while (I != RegionEndI);
-  #endif
-
+#endif
       LoopInfo *LI = nullptr;
       DominatorTree *DT = nullptr;
       MemorySSAUpdater *MSU = nullptr;
@@ -3306,7 +3305,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       Function *Fn = ParentBB->getParent();
       Module &M = *Fn->getParent();
 
-  #if 0
+#if 0
       if (AllGuardedStores) {
         ParentBB->dump();
         errs() << "All Guarded Stores!\n";
@@ -3353,7 +3352,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         ParentBB->dump();
         return;
       }
-  #endif
+#endif
 
       // Create all the blocks and logic.
       // ParentBB:
