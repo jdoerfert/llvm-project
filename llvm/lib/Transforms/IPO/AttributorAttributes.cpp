@@ -278,7 +278,7 @@ static Value *constructPointer(Type *ResTy, Type *PtrElemTy, Value *Ptr,
 /// we will never visit more values than specified by \p MaxValues.
 /// If \p Intraprocedural is set to true only values valid in the scope of
 /// \p CtxI will be visited and simplification into other scopes is prevented.
-template <typename StateTy>
+template <typename StateTy, bool SplitSelects =true>
 static bool genericValueTraversal(
     Attributor &A, IRPosition IRP, const AbstractAttribute &QueryingAA,
     StateTy &State,
@@ -359,9 +359,11 @@ static bool genericValueTraversal(
         continue;
       }
       // We could not simplify the condition, assume both values.(
+      if (SplitSelects) {
       Worklist.push_back({SI->getTrueValue(), CtxI});
       Worklist.push_back({SI->getFalseValue(), CtxI});
       continue;
+      }
     }
 
     // Look through phi nodes, visit all live operands.
@@ -6051,7 +6053,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     };
 
     bool Dummy = false;
-    if (!genericValueTraversal<bool>(A, getIRPosition(), *this, Dummy,
+    if (!genericValueTraversal<bool, false>(A, getIRPosition(), *this, Dummy,
                                      VisitValueCB, getCtxI(),
                                      /* UseValueSimplify */ false))
       if (!askSimplifiedValueForOtherAAs(A))
