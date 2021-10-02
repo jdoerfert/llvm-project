@@ -5904,13 +5904,17 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
       return false;
     RHS = *SimplifiedRHS;
 
+    bool LHSIsNull = isa<ConstantPointerNull>(LHS);
+    bool RHSIsNull = isa<ConstantPointerNull>(RHS);
+    if ((isa<UndefValue>(LHS) || isa<UndefValue>(RHS)) &&
+        (LHSIsNull || RHSIsNull) &&
+        (Cmp.isTrueWhenEqual() || Cmp.isFalseWhenEqual()))
+      return UndefValue::get(Cmp.getType());
+
     LLVMContext &Ctx = Cmp.getContext();
     // Handle the trivial case first in which we don't even need to think about
     // null or non-null.
-    bool EqualOrUndefEqual =
-        (LHS == RHS || isa<UndefValue>(LHS) || isa<UndefValue>(RHS));
-    if (EqualOrUndefEqual &&
-        (Cmp.isTrueWhenEqual() || Cmp.isFalseWhenEqual())) {
+    if (LHS == RHS && (Cmp.isTrueWhenEqual() || Cmp.isFalseWhenEqual())) {
       Constant *NewVal =
           ConstantInt::get(Type::getInt1Ty(Ctx), Cmp.isTrueWhenEqual());
       if (!Union(*NewVal))
@@ -5925,8 +5929,6 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (!ICmp || !ICmp->isEquality())
       return false;
 
-    bool LHSIsNull = isa<ConstantPointerNull>(LHS);
-    bool RHSIsNull = isa<ConstantPointerNull>(RHS);
     if (!LHSIsNull && !RHSIsNull)
       return false;
 
