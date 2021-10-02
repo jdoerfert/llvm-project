@@ -2746,8 +2746,10 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
       // executed within the same epoch we need to avoid pretending the block
       // is. That said, if the final result of this method is "true" it means
       // we enter the next block with all threads in the same epoch.
-      if (!InstIsAlignedSync.getValue())
+      if (!InstIsAlignedSync.getValue()) {
         SEI.ContainsNonAlignedSync = true;
+        SameEpochBBs.erase(&BB);
+      }
     }
   };
 
@@ -2769,40 +2771,18 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
       if (SEI.EndsWithAlignedBarrierAsSync.hasValue() &&
           SEI.EndsWithAlignedBarrierAsSync.getValue())
         continue;
-      if (!SEI.ContainsNonAlignedSync && SameEpochBBs.contains(PredBB))
-        continue;
-      PredsSameEpoche = false;
+      if (!SameEpochBBs.contains(PredBB))
+        PredsSameEpoche = false;
     }
     if (!PredsSameEpoche)
       SameEpochBBs.erase(&BB);
   };
 
-  auto MergeSuccessorStates = [&](BasicBlock &BB) {
-    if (SameEpochMap[&BB].IsDead)
-      return;
-    if (!SameEpochBBs.count(&BB))
-      return;
-    for (BasicBlock *SuccBB : successors(&BB)) {
-      SameEpochInfo &SEI = SameEpochMap[SuccBB];
-      if (SEI.IsDead)
-        continue;
-      if (SEI.StartsWithAlignedBarrierAsSync.hasValue() &&
-          SEI.StartsWithAlignedBarrierAsSync.getValue())
-        continue;
-      if (!SEI.ContainsNonAlignedSync && SameEpochBBs.contains(SuccBB))
-        continue;
-      SameEpochBBs.erase(&BB);
-      return;
-    }
-  };
-
   ReversePostOrderTraversal<Function *> RPOT(F);
-  for (auto *BB : RPOT)
+  for (auto *BB : RPOT) {
     CheckBB(*BB);
-  for (auto *BB : RPOT)
     MergePredecessorStates(*BB);
-  for (auto &BB : reverse(*F))
-    MergeSuccessorStates(BB);
+  }
 
   return (NumSingleThreadedBBs == SingleThreadedBBs.size() &&
           NumSameEpochBBs == SameEpochBBs.size())
