@@ -9990,7 +9990,7 @@ public:
       const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
     LLVM_DEBUG(dbgs() << "[AADominance] " << BB0.getName() << " dominates "
-                      << BB1.getName() << "?\n");
+                      << BB1.getName() << " : " << Ctx << "?\n");
     const Function *BB0Fn = BB0.getParent();
     const Function *BB1Fn = BB1.getParent();
     bool Res;
@@ -10009,8 +10009,14 @@ public:
       Attributor &A, const Instruction &I0, const Instruction &I1,
       const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
-    LLVM_DEBUG(dbgs() << "[AADominance] " << I0 << " dominates " << I1
-                      << "?\n");
+    LLVM_DEBUG({
+        if (Ctx)
+        dbgs() << "[AADominance] " << I0 << " dominates " << I1
+                      << " wrt. " << *Ctx << "?\n";
+                      else
+        dbgs() << "[AADominance] " << I0 << " dominates " << I1
+                      << "?\n";
+                      });
     if (I0.getParent() == I1.getParent()) {
       const Instruction *CurI = I0.getNextNode();
       while (CurI && CurI != &I1 && CurI != Ctx)
@@ -10046,9 +10052,19 @@ public:
       return false;
     const auto &ReachabilityAA = A.getAAFor<AAReachability>(
         *this, IRPosition::function(*Fn), DepClassTy::OPTIONAL);
-    if (ReachabilityAA.isAssumedReachable(A, Key.Target->front(), *Key.CtxI))
-      return false;
-    return true;
+    if (!ReachabilityAA.isAssumedReachable(A, Key.Target->front(), *Key.CtxI))
+     return true;
+
+    const BasicBlock *SourceBB = Key.SourceI->getParent();
+    const BasicBlock *BB = Key.CtxI->getParent();
+    const BasicBlock *PredBB = BB;
+    do  {
+      if (PredBB == Key.Target)
+        return false;
+      if (PredBB == SourceBB)
+        return true;
+    } while ((PredBB = BB->getUniquePredecessor()));
+    return false;
   }
 
   bool determineInterProceduralDominance(
