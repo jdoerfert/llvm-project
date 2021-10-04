@@ -6249,6 +6249,16 @@ struct AAHeapToStackFunction final : public AAHeapToStack {
         /* CheckPotentiallyDead */ true);
     (void)Success;
     assert(Success && "Did not expect the call base visit callback to fail!");
+
+    Attributor::SimplifictionCallbackTy SCB =
+        [](const IRPosition &, const AbstractAttribute *,
+           bool &) -> Optional<Value *> { return nullptr; };
+    for (const auto &It : AllocationInfos)
+      A.registerSimplificationCallback(IRPosition::callsite_returned(*It.first),
+                                       SCB);
+    for (const auto &It : DeallocationInfos)
+      A.registerSimplificationCallback(IRPosition::callsite_returned(*It.first),
+                                       SCB);
   }
 
   const std::string getAsStr() const override {
