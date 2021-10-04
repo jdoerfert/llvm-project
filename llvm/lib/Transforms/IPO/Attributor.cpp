@@ -1255,11 +1255,15 @@ bool Attributor::isAssumedDead(const IRPosition &IRP,
   if (IRP.getPositionKind() == IRPosition::IRP_MODULE)
     return false;
   Instruction *CtxI = IRP.getCtxI();
-  if (CtxI &&
-      isAssumedDead(*CtxI, QueryingAA, FnLivenessAA, UsedAssumedInformation,
-                    /* CheckBBLivenessOnly */ true,
-                    CheckBBLivenessOnly ? DepClass : DepClassTy::OPTIONAL))
-    return true;
+  if (CtxI) {
+    if (CheckBBLivenessOnly)
+      return isAssumedDead(*CtxI->getParent(), QueryingAA, FnLivenessAA,
+                           DepClass);
+    if (isAssumedDead(*CtxI, QueryingAA, FnLivenessAA, UsedAssumedInformation,
+                      /* CheckBBLivenessOnly */ true,
+                      CheckBBLivenessOnly ? DepClass : DepClassTy::OPTIONAL))
+      return true;
+  }
 
   if (CheckBBLivenessOnly)
     return false;
@@ -1286,7 +1290,7 @@ bool Attributor::isAssumedDead(const BasicBlock &BB,
                                const AbstractAttribute *QueryingAA,
                                const AAIsDead *FnLivenessAA,
                                DepClassTy DepClass) {
-  if (!FnLivenessAA)
+  if (!FnLivenessAA || FnLivenessAA->getAnchorScope() != BB.getParent())
     FnLivenessAA = &getOrCreateAAFor<AAIsDead>(
         IRPosition::function(*BB.getParent()), QueryingAA, DepClassTy::NONE);
   if (FnLivenessAA->isAssumedDead(&BB)) {
