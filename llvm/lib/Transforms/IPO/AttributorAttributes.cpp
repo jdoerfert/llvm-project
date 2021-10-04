@@ -1497,8 +1497,37 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         AccessKind AK = AccessKind::AK_READ;
         if (getUnderlyingObject(CurPtr) != &AssociatedValue)
           AK = AccessKind(AK | AccessKind::AK_MAY);
-        return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr, AK,
-                            PtrOI.Offset, Changed, LoadI->getType());
+        if (!handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr, AK,
+                          PtrOI.Offset, Changed, LoadI->getType()))
+          return false;
+
+        if (AK & AccessKind::AK_MAY)
+          return true;
+
+        SmallVector<std::pair<IntrinsicInst *, CmpInst *>> Assumes;
+        auto GetAssumeCmpUsers = [&](Value *V) {
+          if (auto *Cmp = dyn_cast<CmpInst>(V)) {
+            if (!Cmp->isEquality() || !Cmp->isTrueWhenEqual())
+              return;
+            for (auto *User : Cmp->users()) {
+              auto *II = dyn_cast<IntrinsicInst>(User);
+              if (II && II->getIntrinsicID() == Intrinsic::assume)
+                Assumes.push_back({II, Cmp});
+            }
+          }
+        };
+        llvm::for_each(LoadI->users(), GetAssumeCmpUsers);
+
+        for (const auto &It : Assumes) {
+          Value *LHS = It.second->getOperand(0);
+          Value *RHS = It.second->getOperand(1);
+          Value *Content = LHS == LoadI ? RHS : LHS;
+
+          AccessKind AK = AccessKind::AK_WRITE;
+          handleAccess(A, *It.first, *CurPtr, Content, AK, PtrOI.Offset,
+                       Changed, Content->getType());
+        }
+        return true;
       }
       if (auto *StoreI = dyn_cast<StoreInst>(Usr)) {
         if (StoreI->getValueOperand() == CurPtr) {
