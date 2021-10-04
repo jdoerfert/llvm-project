@@ -4386,6 +4386,12 @@ struct AAExecutionDomain
   /// Check if a basic block is executed only by the initial thread.
   virtual bool isExecutedByInitialThreadOnly(const BasicBlock &) const = 0;
 
+  virtual bool isExecutedAligned(const Instruction &I) const = 0;
+
+  virtual bool isExecutedAligned(const BasicBlock &BB) const = 0;
+
+  virtual bool isExitedAligned() const = 0;
+
   /// Check if a instruction is executed by all threads in the same "epoch".
   virtual bool
   isExecutedByAllThreadsInTheSameEpoch(const Instruction &) const = 0;
@@ -4393,9 +4399,6 @@ struct AAExecutionDomain
   /// Check if a basic block is executed by all threads in the same "epoch".
   virtual bool
   isExecutedByAllThreadsInTheSameEpoch(const BasicBlock &) const = 0;
-
-  /// Check if a all threads exit this funnction in the same "epoch".
-  virtual bool isExitedByAllThreadsInTheSameEpoch() const = 0;
 
   /// This function should return true if the type of the \p AA is
   /// AAExecutionDomain.
@@ -4717,12 +4720,14 @@ struct AADominance : public StateWrapper<BooleanState, AbstractAttribute> {
 
   /// Return true if we assume \p BB0 dominates \p BB1.
   virtual bool assumedDominates(
-      Attributor &A, const BasicBlock &BB0, const BasicBlock &BB1, const Instruction *Ctx = nullptr,
+      Attributor &A, const BasicBlock &BB0, const BasicBlock &BB1,
+      const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const = 0;
 
   /// Return true if we assume \p I0 dominates \p I1.
   virtual bool assumedDominates(
-      Attributor &A, const Instruction &I0, const Instruction &I1, const Instruction *Ctx = nullptr,
+      Attributor &A, const Instruction &I0, const Instruction &I1,
+      const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
