@@ -1115,43 +1115,42 @@ struct AAPointerInfoImpl
     bool LoadIsInAllThreadsEpoch =
         (ExecDomainAA &&
          ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(LI));
+    bool LoadIsAligned = (ExecDomainAA && ExecDomainAA->isExecutedAligned(LI));
     LLVM_DEBUG(errs() << "Load: Initial thread only: "
                       << LoadIsInitialThreadOnly
-                      << " : SameEpoch: " << LoadIsInAllThreadsEpoch << "\n");
+                      << " : SameEpoch: " << LoadIsInAllThreadsEpoch
+                      << " : Aligned: " << LoadIsAligned << "\n");
 
-    // Helper to determine if we need to consider threading, which we cannot
-    // right now. However, if the function is (assumed) nosync or the thread
-    // executing all instructions is the main thread only we can ignore
-    // threading.
-    auto CanIgnoreThreading = [&](const Instruction &I,
-                                  bool IsInitialThreadOnly,
-                                  bool IsInAllThreadsEpoch) -> bool {
+    auto IsInitialThreadOnly = [&](const Instruction &I) -> bool {
+      const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
+          IRPosition::function(*I.getFunction()), &QueryingAA,
+          DepClassTy::OPTIONAL);
+      LLVM_DEBUG(errs() << "Store: " << I << "\n Initial thread only: "
+                        << (ExecDomainAA &&
+                            ExecDomainAA->isExecutedByInitialThreadOnly(I))
+                        << "\n");
+      return ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(I);
+    };
+    auto IsSameEpoch = [&](const Instruction &I) -> bool {
       const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
           IRPosition::function(*I.getFunction()), &QueryingAA,
           DepClassTy::OPTIONAL);
       LLVM_DEBUG(
-          errs() << "Store: " << I << "\n Initial thread only: "
-                 << (ExecDomainAA &&
-                     ExecDomainAA->isExecutedByInitialThreadOnly(I))
-                 << " : SameEpoch: "
+          errs() << "Store: " << I << "\n Same Epoch: "
                  << (ExecDomainAA &&
                      ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
                  << "\n");
-      if (IsInitialThreadOnly && ExecDomainAA &&
-          ExecDomainAA->isExecutedByInitialThreadOnly(I))
-        return true;
-      if (IsInAllThreadsEpoch && ExecDomainAA &&
-          ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
-        return true;
-      return false;
+      return ExecDomainAA &&
+             ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I);
     };
-
-    // Helper to determine if the access is executed by the same thread as the
-    // load, for now it is sufficient to avoid any potential threading effects
-    // as we cannot deal with them anyway.
-    auto IsSameThreadAsLoad = [&](const Access &Acc) -> bool {
-      return CanIgnoreThreading(*Acc.getLocalInst(), LoadIsInitialThreadOnly,
-                                LoadIsInAllThreadsEpoch);
+    auto IsAligned = [&](const Instruction &I) -> bool {
+      const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
+          IRPosition::function(*I.getFunction()), &QueryingAA,
+          DepClassTy::OPTIONAL);
+      LLVM_DEBUG(errs() << "Store: " << I << "\n Aligned: "
+                        << (ExecDomainAA && ExecDomainAA->isExecutedAligned(I))
+                        << "\n");
+      return ExecDomainAA && ExecDomainAA->isExecutedAligned(I);
     };
 
     enum GPUAddressSpace : unsigned {
@@ -1206,111 +1205,107 @@ struct AAPointerInfoImpl
 
     const auto &DominanceAA = A.getAAFor<AADominance>(
         *this, IRPosition::module(*LI.getModule()), DepClassTy::OPTIONAL);
+    struct AccessInfo {
+      bool ReachesLoad = false;
+      bool DominatesLoad = false;
+      bool IsInitialThreadOnly = false;
+      bool IsSameEpoch = false;
+      bool IsAligned = false;
+    };
+    DenseMap<const Access *, AccessInfo> AccessInfoMap;
 
-    bool CouldUseCFGReasoningForAllAccesses = true;
     auto AccessCB = [&](const Access &Acc, bool Exact) {
       if (!Acc.isWrite())
         return true;
 
-      // For now we only filter accesses based on CFG reasoning which does not
-      // work yet if we have threading effects, or the access is complicated.
-      if (!CanIgnoreThreading(*Acc.getLocalInst(), LoadIsInitialThreadOnly,
-                              LoadIsInAllThreadsEpoch)) {
-        LLVM_DEBUG(errs() << "Cannot ignore threading for: "
-                          << *Acc.getLocalInst() << "\n");
-        CouldUseCFGReasoningForAllAccesses = false;
-        if (CanIgnoreThreading(*Acc.getLocalInst(), false, true))
-          if (!AA::isPotentiallyReachable(
-                  A, Acc.getLocalInst()->getFunction()->getEntryBlock().front(),
-                  LI, QueryingAA, IsLiveInCalleeCB))
-            return true;
-      } else {
-        if (!AA::isPotentiallyReachable(A, *Acc.getLocalInst(), LI, QueryingAA,
-                                        IsLiveInCalleeCB))
+      AccessInfo &AI = AccessInfoMap[&Acc];
+      AI.ReachesLoad = AA::isPotentiallyReachable(A, *Acc.getLocalInst(), LI,
+                                                  QueryingAA, IsLiveInCalleeCB);
+      AI.DominatesLoad = AI.ReachesLoad && DominanceAA.assumedDominates(
+                                               A, *Acc.getRemoteInst(), LI,
+                                               nullptr, IsLiveInCalleeCB);
+      AI.IsInitialThreadOnly = IsInitialThreadOnly(*Acc.getRemoteInst());
+      AI.IsSameEpoch = IsSameEpoch(*Acc.getRemoteInst());
+      AI.IsAligned = IsAligned(*Acc.getRemoteInst());
+      LLVM_DEBUG(dbgs() << "Acc: " << *Acc.getRemoteInst() << " reach: "
+                        << AI.ReachesLoad << " dom: " << AI.DominatesLoad
+                        << ", initial thread: " << AI.IsInitialThreadOnly
+                        << ", same epoch: " << AI.IsSameEpoch
+                        << ", aligned: " << AI.IsAligned << "\n");
+
+      if (!AI.ReachesLoad) {
+        if (LoadIsInitialThreadOnly && AI.IsInitialThreadOnly)
           return true;
-        LLVM_DEBUG(errs() << "Reachable!, Check dominance: " << Exact << " : "
-                          << Acc.isMustAccess() << " " << *Acc.getRemoteInst()
-                          << "\n");
-        if (Exact) {
-          if (DominanceAA.assumedDominates(A, *Acc.getRemoteInst(), LI, nullptr,
-                                           IsLiveInCalleeCB))
-            DominatingWrites.insert(&Acc);
-        }
+        if (LoadIsInAllThreadsEpoch || AI.IsSameEpoch)
+          return true;
       }
 
+      if (AI.DominatesLoad && Exact)
+        DominatingWrites.insert(&Acc);
       InterferingWrites.push_back({&Acc, Exact});
       return true;
     };
     if (!State::forallInterferingAccesses(LI, AccessCB))
       return false;
 
-    LLVM_DEBUG(dbgs() << "Could use CFG/CG reasoning for all accesses: "
-                      << CouldUseCFGReasoningForAllAccesses << "\n");
-    // If we cannot use CFG reasoning for all accesses we are done here.
-    if (!CouldUseCFGReasoningForAllAccesses) {
-      for (auto &It : InterferingWrites)
-        if (!UserCB(*It.first, It.second))
-          return false;
-      return true;
-    }
-
-    // const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
-    //*this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
-    // bool ScopeIsNoRecurs = NoRecurseAA.isAssumedNoRecurse();
-    // const auto &ReachabilityAA = A.getAAFor<AAReachability>(
-    //*this, IRPosition::function(Scope), DepClassTy::OPTIONAL);
+    LLVM_DEBUG(dbgs() << "Got " << InterferingWrites.size()
+                      << " writes of which " << DominatingWrites.size()
+                      << " dominate the load\n");
 
     // Helper to determine if we can skip a specific write access. This is in
     // the worst case quadratic as we are looking for another write that will
     // hide the effect of this one.
     auto CanSkipAccess = [&](const Access &Acc, bool Exact) {
-      LLVM_DEBUG(dbgs() << "ACC: " << *Acc.getLocalInst() << ": "
+      LLVM_DEBUG(dbgs() << "ACC: " << *Acc.getRemoteInst() << ": "
                         << Acc.isMustAccess() << "\n");
-      if (!IsSameThreadAsLoad(Acc))
-        return false;
-      if (DominatingWrites.count(&Acc)) {
-        for (const Access *DomAcc : DominatingWrites) {
-          if (DomAcc == &Acc)
-            continue;
-          LLVM_DEBUG(dbgs() << "DomAcc: " << *DomAcc->getLocalInst() << ": "
-                            << DomAcc->isMustAccess() << "\n");
-          if (DomAcc->isMustAccess() &&
-              DominanceAA.assumedDominates(A, *Acc.getRemoteInst(),
-                                           *DomAcc->getRemoteInst(), nullptr,
-                                           IsLiveInCalleeCB)) {
-            LLVM_DEBUG(errs() << "Acc dominates DomAcc, skip Acc: "
-                              << *Acc.getRemoteInst() << "\n");
-            return true;
-          }
-          if (Acc.isMustAccess() &&
-              DominanceAA.assumedDominates(A, *DomAcc->getRemoteInst(),
-                                           *Acc.getRemoteInst(), &LI,
-                                           IsLiveInCalleeCB)) {
-            LLVM_DEBUG(errs() << "DomAcc dominates Acc wrt LI, skip Acc: "
-                              << *Acc.getRemoteInst() << "\n");
-            return true;
+      const Instruction *AccI = Acc.getRemoteInst();
+      AccessInfo &AI = AccessInfoMap[&Acc];
+      for (auto &It : InterferingWrites) {
+        const Access *OtherAcc = It.first;
+        if (OtherAcc == &Acc || !It.second)
+          continue;
+        const Instruction *OtherI = OtherAcc->getRemoteInst();
+
+        // Check intra block
+        if (AccI->getParent() == OtherI->getParent()) {
+          const Instruction *I = AccI;
+          while (!I->isTerminator()) {
+            if (I == &LI)
+              break;
+            if (I == OtherI)
+              return true;
+            I = I->getNextNonDebugInstruction();
           }
         }
-      }
-#if 0
-      if (ScopeIsNoRecurs && Acc.getLocalInst()->getFunction() == &Scope &&
-          !DominatingWrites.empty() &&
-          !ReachabilityAA.isAssumedReachable(A, *Acc.getLocalInst(), LI)) {
-        for (const Access *DomAcc : DominatingWrites) {
-          if (DomAcc == &Acc || !DomAcc->isMustAccess() ||
-              DomAcc->getLocalInst()->getFunction() != &Scope)
-            continue;
-          if (!DominanceAA.assumedDominates(A, *DomAcc->getLocalInst(), LI,
-                                            nullptr))
-            continue;
-          LLVM_DEBUG(errs() << "Acc (" << *Acc.getLocalInst()
-                            << ") doesn't reach intra-procedural and there is "
-                               "a local dominating access present: "
-                            << *DomAcc->getLocalInst() << "\n");
+
+        AccessInfo &DomAI = AccessInfoMap[OtherAcc];
+        bool BothAligned = AI.IsAligned & DomAI.IsAligned;
+        bool BothInitial = AI.IsInitialThreadOnly & DomAI.IsInitialThreadOnly;
+        LLVM_DEBUG({
+          dbgs() << "OtherAcc: " << *OtherI << ": " << OtherAcc->isMustAccess()
+                 << "\n";
+          dbgs() << "- both aligned: " << BothAligned
+                 << ", both initial: " << BothInitial << "\n";
+        });
+        if ((BothAligned || BothInitial) && OtherAcc->isMustAccess() &&
+            DominatingWrites.count(&Acc) &&
+            DominanceAA.assumedDominates(A, *AccI, *OtherI, nullptr,
+                                         IsLiveInCalleeCB)) {
+          LLVM_DEBUG(errs()
+                     << "Acc dominates OtherAcc, skip Acc: " << *AccI << "\n");
+          return true;
+        }
+
+        // This condition is not strong enough. It works because we never
+        // partially exit the kernel.
+        if ((BothAligned || BothInitial) && Acc.isMustAccess() &&
+            DominanceAA.assumedDominates(A, *OtherI, *AccI, &LI,
+                                         IsLiveInCalleeCB)) {
+          LLVM_DEBUG(errs() << "OtherAcc dominates Acc wrt LI, skip Acc: "
+                            << *AccI << "\n");
           return true;
         }
       }
-#endif
       return false;
     };
 
@@ -9769,8 +9764,21 @@ struct AAFunctionReachabilityFunction : public AAFunctionReachability {
 
   void initialize(Attributor &A) override {
     Function &Fn = *getAssociatedFunction();
-    if (Fn.isDeclaration() && Fn.hasFnAttribute(Attribute::NoCallback))
+    if (Fn.hasFnAttribute(Attribute::NoCallback))
       indicateOptimisticFixpoint();
+
+    auto CheckCallBase = [&](Instruction &CBInst) { return false; };
+    bool UsedAssumedInformation = false;
+    if (A.checkForAllCallLikeInstructions(
+            CheckCallBase, *this, UsedAssumedInformation,
+            /* CheckBBLivenessOnly */ true, /* CheckPotentiallyDead */ true))
+      indicateOptimisticFixpoint();
+  }
+
+  ChangeStatus manifest(Attributor &A) override {
+    if (DirectReachableFns.empty())
+      getAssociatedFunction()->addFnAttr(Attribute::NoCallback);
+    return ChangeStatus::UNCHANGED;
   }
 
   bool instructionCanPotentiallyReach(Attributor &A, const Instruction &Inst,
@@ -9905,14 +9913,6 @@ private:
       return;
     }
 
-    auto *HS = A.lookupAAFor<AAHeapToStack>(
-        IRPosition::function(*CB.getCaller()), this, DepClassTy::OPTIONAL);
-    if (HS) {
-      if (HS->isAssumedHeapToStack(CB) ||
-          HS->isAssumedHeapToStackRemovedFree(CB))
-        return;
-    }
-
     // Process callee metadata if available.
     if (auto *MD = CB.getMetadata(LLVMContext::MD_callees)) {
       for (auto &Op : MD->operands()) {
@@ -9953,6 +9953,9 @@ private:
       if (!genericValueTraversal<bool>(A, IRPosition::value(*V), *this,
                                        DummyValue, VisitValue, nullptr,
                                        false)) {
+        LLVM_DEBUG(dbgs() << "[AAFunctionReachability] Failed to traverse "
+                             "called operand: "
+                          << *V << "\n");
         // If we haven't gone through all values, assume that there are unknown
         // callees.
         indicatePessimisticFixpoint();
