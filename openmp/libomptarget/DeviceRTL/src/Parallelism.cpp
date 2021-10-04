@@ -51,8 +51,8 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
       NumThreadsClause != -1 ? NumThreadsClause : icv::NThreads;
   uint32_t NumThreads = mapping::getBlockSize();
 
-  if (NThreadsICV != 0 && NThreadsICV < NumThreads)
-    NumThreads = NThreadsICV;
+  utils::write(NThreadsICV != 0 && NThreadsICV < NumThreads, &NumThreads,
+               NThreadsICV);
 
   // Round down to a multiple of WARPSIZE since it is legal to do so in OpenMP.
   if (NumThreads < mapping::getWarpSize())
@@ -108,6 +108,10 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
       // Synchronize all threads after the main thread (TId == 0) set up the
       // team state properly.
       synchronize::threadsAligned();
+
+      ASSERT(state::ParallelTeamSize == NumThreads);
+      ASSERT(icv::ActiveLevel == 1u);
+      ASSERT(icv::Level == 1u);
 
       if (TId < NumThreads)
         invokeMicrotask(TId, 0, fn, args, nargs);

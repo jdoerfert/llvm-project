@@ -72,6 +72,12 @@ template <typename Ty1, typename Ty2> inline Ty1 align_down(Ty1 V, Ty2 Align) {
   return V - V % Align;
 }
 
+template <typename T> inline void write(bool Cond, T *Ptr, T Value) {
+  static T SHARED(Dummy);
+  T *P = Cond ? Ptr : &Dummy;
+  *P = Value;
+}
+
 #define OMP_LIKELY(EXPR) __builtin_expect((bool)(EXPR), true)
 #define OMP_UNLIKELY(EXPR) __builtin_expect((bool)(EXPR), false)
 

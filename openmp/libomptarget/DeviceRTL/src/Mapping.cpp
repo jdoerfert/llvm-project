@@ -245,8 +245,8 @@ uint32_t mapping::getNumberOfProcessorElements() {
 static int SHARED(IsSPMDMode);
 
 void mapping::init(bool IsSPMD) {
-  if (!mapping::getThreadIdInBlock())
-    IsSPMDMode = IsSPMD;
+  utils::write(!mapping::getThreadIdInBlock(), &IsSPMDMode,
+               static_cast<int>(IsSPMD));
 }
 
 bool mapping::isSPMDMode() { return IsSPMDMode; }

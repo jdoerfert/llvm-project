@@ -121,6 +121,7 @@ template <typename VTy, typename Ty> struct ValueRAII {
         OldValue(OldValue) {
     ASSERT(Ptr == OldValue && "ValueRAII initialization with wrong old value!");
     Ptr = NewValue;
+    ASSERT(Ptr == NewValue && "ValueRAII initialization with wrong new value!");
   }
   ~ValueRAII() { Ptr = OldValue; }
 
