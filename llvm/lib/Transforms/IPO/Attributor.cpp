@@ -1574,11 +1574,10 @@ static bool checkForAllInstructionsImpl(
   for (unsigned Opcode : Opcodes) {
     // Check if we have instructions with this opcode at all first.
     auto *Insts = OpcodeInstMap.lookup(Opcode);
-    if (!Insts) {
-      LLVM_DEBUG(dbgs() << "[Attributor] No instruction with opcode " << Opcode
-                        << " found\n";);
+    LLVM_DEBUG(dbgs() << "[Attributor] " << (Insts ? Insts->size() : 0)
+                      << " instruction with opcode " << Opcode << " found\n";);
+    if (!Insts)
       continue;
-    }
 
     for (Instruction *I : *Insts) {
       // Skip dead instructions.

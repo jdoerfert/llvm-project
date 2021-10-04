@@ -189,7 +189,8 @@ Constant *getInitialValueForObj(Value &Obj, Type &Ty,
 bool getAssumedUnderlyingObjects(Attributor &A, const Value &Ptr,
                                  SmallVectorImpl<Value *> &Objects,
                                  const AbstractAttribute &QueryingAA,
-                                 const Instruction *CtxI, bool Intraprocedural = false);
+                                 const Instruction *CtxI,
+                                 bool Intraprocedural = false);
 
 bool getPotentialCopiesOfLoadedValue(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialCopies,
@@ -1511,8 +1512,8 @@ struct Attributor {
     // if (auto *I = dyn_cast<Instruction>(U.get()))
     // if (InfoCache.isOnlyUsedByAssume(*I))
     // return false;
-    //assert((!V || V == &NV || isa<UndefValue>(NV)) &&
-           //"Use was registered twice for replacement with different values!");
+    // assert((!V || V == &NV || isa<UndefValue>(NV)) &&
+    //"Use was registered twice for replacement with different values!");
     V = &NV;
     return true;
   }
