@@ -117,17 +117,6 @@ template <typename T, typename ST> struct omptarget_nvptx_LoopSupport {
   static void for_static_init(int32_t gtid, int32_t schedtype,
                               int32_t *plastiter, T *plower, T *pupper,
                               ST *pstride, ST chunk, bool IsSPMDExecutionMode) {
-    // When IsRuntimeUninitialized is true, we assume that the caller is
-    // in an L0 parallel region and that all worker threads participate.
-
-    // Assume we are in teams region or that we use a single block
-    // per target region
-    int numberOfActiveOMPThreads = omp_get_num_threads();
-
-    // All warps that are in excess of the maximum requested, do
-    // not execute the loop
-    ASSERT0(LT_FUSSY, gtid < numberOfActiveOMPThreads,
-            "current thread is not needed here; error");
 
     // copy
     int lastiter = 0;
@@ -139,6 +128,7 @@ template <typename T, typename ST> struct omptarget_nvptx_LoopSupport {
     switch (SCHEDULE_WITHOUT_MODIFIERS(schedtype)) {
     case kmp_sched_static_chunk: {
       if (chunk > 0) {
+        int numberOfActiveOMPThreads = omp_get_num_threads();
         ForStaticChunk(lastiter, lb, ub, stride, chunk, gtid,
                        numberOfActiveOMPThreads);
         break;
@@ -146,6 +136,7 @@ template <typename T, typename ST> struct omptarget_nvptx_LoopSupport {
     } // note: if chunk <=0, use nochunk
     case kmp_sched_static_balanced_chunk: {
       if (chunk > 0) {
+        int numberOfActiveOMPThreads = omp_get_num_threads();
         // round up to make sure the chunk is enough to cover all iterations
         T tripCount = ub - lb + 1; // +1 because ub is inclusive
         T span = (tripCount + numberOfActiveOMPThreads - 1) /
@@ -163,29 +154,32 @@ template <typename T, typename ST> struct omptarget_nvptx_LoopSupport {
       }
     } // note: if chunk <=0, use nochunk
     case kmp_sched_static_nochunk: {
+      int numberOfActiveOMPThreads = omp_get_num_threads();
       ForStaticNoChunk(lastiter, lb, ub, stride, chunk, gtid,
                        numberOfActiveOMPThreads);
       break;
     }
     case kmp_sched_distr_static_chunk: {
       if (chunk > 0) {
-        ForStaticChunk(lastiter, lb, ub, stride, chunk, omp_get_team_num(),
-                       omp_get_num_teams());
+        ForStaticChunk(lastiter, lb, ub, stride, chunk, mapping::getBlockId(),
+                       mapping::getNumberOfBlocks());
         break;
       } // note: if chunk <=0, use nochunk
     }
     case kmp_sched_distr_static_nochunk: {
-      ForStaticNoChunk(lastiter, lb, ub, stride, chunk, omp_get_team_num(),
-                       omp_get_num_teams());
+      ForStaticNoChunk(lastiter, lb, ub, stride, chunk, mapping::getBlockId(),
+                       mapping::getNumberOfBlocks());
       break;
     }
     case kmp_sched_distr_static_chunk_sched_static_chunkone: {
+      int numberOfActiveOMPThreads = omp_get_num_threads();
       ForStaticChunk(lastiter, lb, ub, stride, chunk,
-                     numberOfActiveOMPThreads * omp_get_team_num() + gtid,
-                     omp_get_num_teams() * numberOfActiveOMPThreads);
+                     numberOfActiveOMPThreads * mapping::getBlockId() + gtid,
+                     mapping::getNumberOfBlocks() * numberOfActiveOMPThreads);
       break;
     }
     default: {
+      int numberOfActiveOMPThreads = omp_get_num_threads();
       // ASSERT(LT_FUSSY, 0, "unknown schedtype %d", (int)schedtype);
       ForStaticChunk(lastiter, lb, ub, stride, chunk, gtid,
                      numberOfActiveOMPThreads);
