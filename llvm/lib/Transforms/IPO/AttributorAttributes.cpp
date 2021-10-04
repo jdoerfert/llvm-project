@@ -278,7 +278,7 @@ static Value *constructPointer(Type *ResTy, Type *PtrElemTy, Value *Ptr,
 /// we will never visit more values than specified by \p MaxValues.
 /// If \p Intraprocedural is set to true only values valid in the scope of
 /// \p CtxI will be visited and simplification into other scopes is prevented.
-template <typename StateTy, bool SplitSelects =true>
+template <typename StateTy, bool SplitSelects = true>
 static bool genericValueTraversal(
     Attributor &A, IRPosition IRP, const AbstractAttribute &QueryingAA,
     StateTy &State,
@@ -360,9 +360,9 @@ static bool genericValueTraversal(
       }
       // We could not simplify the condition, assume both values.(
       if (SplitSelects) {
-      Worklist.push_back({SI->getTrueValue(), CtxI});
-      Worklist.push_back({SI->getFalseValue(), CtxI});
-      continue;
+        Worklist.push_back({SI->getTrueValue(), CtxI});
+        Worklist.push_back({SI->getFalseValue(), CtxI});
+        continue;
       }
     }
 
@@ -6049,8 +6049,8 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
     bool Dummy = false;
     if (!genericValueTraversal<bool, false>(A, getIRPosition(), *this, Dummy,
-                                     VisitValueCB, getCtxI(),
-                                     /* UseValueSimplify */ false))
+                                            VisitValueCB, getCtxI(),
+                                            /* UseValueSimplify */ false))
       if (!askSimplifiedValueForOtherAAs(A))
         return indicatePessimisticFixpoint();
 
@@ -10023,13 +10023,12 @@ public:
       const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
     LLVM_DEBUG({
-        if (Ctx)
-        dbgs() << "[AADominance] " << I0 << " dominates " << I1
-                      << " wrt. " << *Ctx << "?\n";
-                      else
-        dbgs() << "[AADominance] " << I0 << " dominates " << I1
-                      << "?\n";
-                      });
+      if (Ctx)
+        dbgs() << "[AADominance] " << I0 << " dominates " << I1 << " wrt. "
+               << *Ctx << "?\n";
+      else
+        dbgs() << "[AADominance] " << I0 << " dominates " << I1 << "?\n";
+    });
     if (I0.getParent() == I1.getParent()) {
       const Instruction *CurI = I0.getNextNode();
       while (CurI && CurI != &I1 && CurI != Ctx)
@@ -10066,17 +10065,17 @@ public:
     const auto &ReachabilityAA = A.getAAFor<AAReachability>(
         *this, IRPosition::function(*Fn), DepClassTy::OPTIONAL);
     if (!ReachabilityAA.isAssumedReachable(A, Key.Target->front(), *Key.CtxI))
-     return true;
+      return true;
 
     const BasicBlock *SourceBB = Key.SourceI->getParent();
     const BasicBlock *BB = Key.CtxI->getParent();
     const BasicBlock *PredBB = BB;
-    do  {
+    do {
       if (PredBB == Key.Target)
         return false;
       if (PredBB == SourceBB)
         return true;
-    } while ((PredBB = BB->getUniquePredecessor()));
+    } while ((PredBB = PredBB->getUniquePredecessor()));
     return false;
   }
 
