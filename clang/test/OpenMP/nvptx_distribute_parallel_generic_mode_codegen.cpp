@@ -2981,7 +2981,7 @@ int main(int argc, char **argv) {
 // CHECK4-NEXT:    [[A_ADDR:%.*]] = alloca i32*, align 8
 // CHECK4-NEXT:    [[ARGC_ADDR:%.*]] = alloca i64, align 8
 // CHECK4-NEXT:    [[D_ADDR:%.*]] = alloca [10 x i32]*, align 8
-// CHECK4-NEXT:    [[ARGC_CASTED:%.*]] = alloca i64, align 8
+// CHECK4-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
 // CHECK4-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 // CHECK4-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
@@ -3315,7 +3315,7 @@ int main(int argc, char **argv) {
 // CHECK5-NEXT:    [[A_ADDR:%.*]] = alloca i32*, align 4
 // CHECK5-NEXT:    [[ARGC_ADDR:%.*]] = alloca i32, align 4
 // CHECK5-NEXT:    [[D_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK5-NEXT:    [[ARGC_CASTED:%.*]] = alloca i32, align 4
+// CHECK5-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK5-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK5-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 // CHECK5-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
@@ -3638,7 +3638,7 @@ int main(int argc, char **argv) {
 // CHECK6-NEXT:    [[A_ADDR:%.*]] = alloca i32*, align 4
 // CHECK6-NEXT:    [[ARGC_ADDR:%.*]] = alloca i32, align 4
 // CHECK6-NEXT:    [[D_ADDR:%.*]] = alloca [10 x i32]*, align 4
-// CHECK6-NEXT:    [[ARGC_CASTED:%.*]] = alloca i32, align 4
+// CHECK6-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 4
 // CHECK6-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK6-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 // CHECK6-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4

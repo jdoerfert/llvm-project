@@ -33,6 +33,7 @@ void test() {
 // CHECK1-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIfEvv_l16
 // CHECK1-SAME: () #[[ATTR0:[0-9]+]] {
 // CHECK1-NEXT:  entry:
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
 // CHECK1-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
@@ -50,10 +51,11 @@ void test() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@__omp_outlined__
-// CHECK1-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
+// CHECK1-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]], %struct.anon* noalias [[__CONTEXT:%.*]]) #[[ATTR1:[0-9]+]] {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 // CHECK1-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
+// CHECK1-NEXT:    [[__CONTEXT_ADDR:%.*]] = alloca %struct.anon*, align 8
 // CHECK1-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[TMP:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -177,7 +179,7 @@ void test() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@_ZNSt7complexIfEC1ERKfS2_
-// CHECK1-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]], float* nonnull align 4 dereferenceable(4) [[__RE:%.*]], float* nonnull align 4 dereferenceable(4) [[__IM:%.*]]) unnamed_addr #[[ATTR3:[0-9]+]] comdat align 2 {
+// CHECK1-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]], float* nonnull align 4 dereferenceable(4) [[__RE:%.*]], float* nonnull align 4 dereferenceable(4) [[__IM:%.*]]) unnamed_addr #[[ATTR4:[0-9]+]] comdat align 2 {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK1-NEXT:    [[__RE_ADDR:%.*]] = alloca float*, align 8
@@ -617,10 +619,11 @@ void test() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@__omp_outlined__2
-// CHECK1-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
+// CHECK1-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]], %struct.anon.1* noalias [[__CONTEXT:%.*]]) #[[ATTR1]] {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 // CHECK1-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
+// CHECK1-NEXT:    [[__CONTEXT_ADDR:%.*]] = alloca %struct.anon.1*, align 8
 // CHECK1-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[TMP:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -1022,11 +1025,11 @@ void test() {
 // CHECK1-NEXT:    [[TMP9:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[TMP5]], i64 0, i64 0
 // CHECK1-NEXT:    [[TMP10:%.*]] = load i8*, i8** [[TMP9]], align 8
 // CHECK1-NEXT:    [[TMP11:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_REMOTE_REDUCE_LIST]], i64 0, i64 0
-// CHECK1-NEXT:    [[TMP12:%.*]] = bitcast i8* [[TMP10]] to %"class.std::complex.0"*
-// CHECK1-NEXT:    [[TMP13:%.*]] = getelementptr %"class.std::complex.0", %"class.std::complex.0"* [[TMP12]], i64 1
-// CHECK1-NEXT:    [[TMP14:%.*]] = bitcast %"class.std::complex.0"* [[TMP13]] to i8*
-// CHECK1-NEXT:    [[TMP15:%.*]] = bitcast %"class.std::complex.0"* [[TMP12]] to i64*
-// CHECK1-NEXT:    [[TMP16:%.*]] = bitcast %"class.std::complex.0"* [[DOTOMP_REDUCTION_ELEMENT]] to i64*
+// CHECK1-NEXT:    [[TMP12:%.*]] = bitcast i8* [[TMP10]] to %"class.std::complex.2"*
+// CHECK1-NEXT:    [[TMP13:%.*]] = getelementptr %"class.std::complex.2", %"class.std::complex.2"* [[TMP12]], i64 1
+// CHECK1-NEXT:    [[TMP14:%.*]] = bitcast %"class.std::complex.2"* [[TMP13]] to i8*
+// CHECK1-NEXT:    [[TMP15:%.*]] = bitcast %"class.std::complex.2"* [[TMP12]] to i64*
+// CHECK1-NEXT:    [[TMP16:%.*]] = bitcast %"class.std::complex.2"* [[DOTOMP_REDUCTION_ELEMENT]] to i64*
 // CHECK1-NEXT:    br label [[DOTSHUFFLE_PRE_COND:%.*]]
 // CHECK1:       .shuffle.pre_cond:
 // CHECK1-NEXT:    [[TMP17:%.*]] = phi i64* [ [[TMP15]], [[ENTRY:%.*]] ], [ [[TMP28:%.*]], [[DOTSHUFFLE_THEN:%.*]] ]
@@ -1048,7 +1051,7 @@ void test() {
 // CHECK1-NEXT:    [[TMP29]] = getelementptr i64, i64* [[TMP18]], i64 1
 // CHECK1-NEXT:    br label [[DOTSHUFFLE_PRE_COND]]
 // CHECK1:       .shuffle.exit:
-// CHECK1-NEXT:    [[TMP30:%.*]] = bitcast %"class.std::complex.0"* [[DOTOMP_REDUCTION_ELEMENT]] to i8*
+// CHECK1-NEXT:    [[TMP30:%.*]] = bitcast %"class.std::complex.2"* [[DOTOMP_REDUCTION_ELEMENT]] to i8*
 // CHECK1-NEXT:    store i8* [[TMP30]], i8** [[TMP11]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    [[TMP31:%.*]] = icmp eq i16 [[TMP8]], 0
 // CHECK1-NEXT:    [[TMP32:%.*]] = icmp eq i16 [[TMP8]], 1
@@ -1080,10 +1083,10 @@ void test() {
 // CHECK1-NEXT:    [[TMP49:%.*]] = load i8*, i8** [[TMP48]], align 8
 // CHECK1-NEXT:    [[TMP50:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[TMP5]], i64 0, i64 0
 // CHECK1-NEXT:    [[TMP51:%.*]] = load i8*, i8** [[TMP50]], align 8
-// CHECK1-NEXT:    [[TMP52:%.*]] = bitcast i8* [[TMP49]] to %"class.std::complex.0"*
-// CHECK1-NEXT:    [[TMP53:%.*]] = bitcast i8* [[TMP51]] to %"class.std::complex.0"*
-// CHECK1-NEXT:    [[TMP54:%.*]] = bitcast %"class.std::complex.0"* [[TMP53]] to i8*
-// CHECK1-NEXT:    [[TMP55:%.*]] = bitcast %"class.std::complex.0"* [[TMP52]] to i8*
+// CHECK1-NEXT:    [[TMP52:%.*]] = bitcast i8* [[TMP49]] to %"class.std::complex.2"*
+// CHECK1-NEXT:    [[TMP53:%.*]] = bitcast i8* [[TMP51]] to %"class.std::complex.2"*
+// CHECK1-NEXT:    [[TMP54:%.*]] = bitcast %"class.std::complex.2"* [[TMP53]] to i8*
+// CHECK1-NEXT:    [[TMP55:%.*]] = bitcast %"class.std::complex.2"* [[TMP52]] to i8*
 // CHECK1-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 8 [[TMP54]], i8* align 8 [[TMP55]], i64 16, i1 false), !tbaa.struct !27
 // CHECK1-NEXT:    br label [[IFCONT6:%.*]]
 // CHECK1:       else5:
@@ -1200,7 +1203,7 @@ void test() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@_ZNKSt7complexIfE4realEv
-// CHECK1-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK1-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK1-NEXT:    store %"class.std::complex"* [[THIS]], %"class.std::complex"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
@@ -1211,7 +1214,7 @@ void test() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@_ZNKSt7complexIfE4imagEv
-// CHECK1-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK1-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK1-NEXT:    store %"class.std::complex"* [[THIS]], %"class.std::complex"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
@@ -1222,20 +1225,20 @@ void test() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@_ZNSt7complexIdEC2ERKdS2_
-// CHECK1-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]], double* nonnull align 8 dereferenceable(8) [[__RE:%.*]], double* nonnull align 8 dereferenceable(8) [[__IM:%.*]]) unnamed_addr #[[ATTR3]] comdat align 2 {
+// CHECK1-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]], double* nonnull align 8 dereferenceable(8) [[__RE:%.*]], double* nonnull align 8 dereferenceable(8) [[__IM:%.*]]) unnamed_addr #[[ATTR4]] comdat align 2 {
 // CHECK1-NEXT:  entry:
-// CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
+// CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
 // CHECK1-NEXT:    [[__RE_ADDR:%.*]] = alloca double*, align 8
 // CHECK1-NEXT:    [[__IM_ADDR:%.*]] = alloca double*, align 8
-// CHECK1-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK1-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    store double* [[__RE]], double** [[__RE_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    store double* [[__IM]], double** [[__IM_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK1-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK1-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 0
+// CHECK1-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK1-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP0:%.*]] = load double*, double** [[__RE_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    [[TMP1:%.*]] = load double, double* [[TMP0]], align 8, !tbaa [[TBAA22]]
 // CHECK1-NEXT:    store double [[TMP1]], double* [[__RE_]], align 8, !tbaa [[TBAA24]]
-// CHECK1-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 1
+// CHECK1-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 1
 // CHECK1-NEXT:    [[TMP2:%.*]] = load double*, double** [[__IM_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    [[TMP3:%.*]] = load double, double* [[TMP2]], align 8, !tbaa [[TBAA22]]
 // CHECK1-NEXT:    store double [[TMP3]], double* [[__IM_]], align 8, !tbaa [[TBAA26]]
@@ -1243,23 +1246,23 @@ void test() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@_ZNKSt7complexIdE4realEv
-// CHECK1-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK1-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK1-NEXT:  entry:
-// CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
-// CHECK1-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK1-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK1-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 0
+// CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
+// CHECK1-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK1-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK1-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 0
 // CHECK1-NEXT:    [[TMP0:%.*]] = load double, double* [[__RE_]], align 8, !tbaa [[TBAA24]]
 // CHECK1-NEXT:    ret double [[TMP0]]
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@_ZNKSt7complexIdE4imagEv
-// CHECK1-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK1-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK1-NEXT:  entry:
-// CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
-// CHECK1-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK1-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK1-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 1
+// CHECK1-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
+// CHECK1-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK1-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK1-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 1
 // CHECK1-NEXT:    [[TMP0:%.*]] = load double, double* [[__IM_]], align 8, !tbaa [[TBAA26]]
 // CHECK1-NEXT:    ret double [[TMP0]]
 //
@@ -1267,6 +1270,7 @@ void test() {
 // CHECK2-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIfEvv_l16
 // CHECK2-SAME: () #[[ATTR0:[0-9]+]] {
 // CHECK2-NEXT:  entry:
+// CHECK2-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
 // CHECK2-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
@@ -1284,10 +1288,11 @@ void test() {
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@__omp_outlined__
-// CHECK2-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
+// CHECK2-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]], %struct.anon* noalias [[__CONTEXT:%.*]]) #[[ATTR1:[0-9]+]] {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 // CHECK2-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
+// CHECK2-NEXT:    [[__CONTEXT_ADDR:%.*]] = alloca %struct.anon*, align 8
 // CHECK2-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[TMP:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -1411,7 +1416,7 @@ void test() {
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@_ZNSt7complexIfEC1ERKfS2_
-// CHECK2-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]], float* nonnull align 4 dereferenceable(4) [[__RE:%.*]], float* nonnull align 4 dereferenceable(4) [[__IM:%.*]]) unnamed_addr #[[ATTR3:[0-9]+]] comdat align 2 {
+// CHECK2-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]], float* nonnull align 4 dereferenceable(4) [[__RE:%.*]], float* nonnull align 4 dereferenceable(4) [[__IM:%.*]]) unnamed_addr #[[ATTR4:[0-9]+]] comdat align 2 {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK2-NEXT:    [[__RE_ADDR:%.*]] = alloca float*, align 8
@@ -1851,10 +1856,11 @@ void test() {
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@__omp_outlined__2
-// CHECK2-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
+// CHECK2-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]], %struct.anon.1* noalias [[__CONTEXT:%.*]]) #[[ATTR1]] {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 // CHECK2-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
+// CHECK2-NEXT:    [[__CONTEXT_ADDR:%.*]] = alloca %struct.anon.1*, align 8
 // CHECK2-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[TMP:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -2256,11 +2262,11 @@ void test() {
 // CHECK2-NEXT:    [[TMP9:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[TMP5]], i64 0, i64 0
 // CHECK2-NEXT:    [[TMP10:%.*]] = load i8*, i8** [[TMP9]], align 8
 // CHECK2-NEXT:    [[TMP11:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_REMOTE_REDUCE_LIST]], i64 0, i64 0
-// CHECK2-NEXT:    [[TMP12:%.*]] = bitcast i8* [[TMP10]] to %"class.std::complex.0"*
-// CHECK2-NEXT:    [[TMP13:%.*]] = getelementptr %"class.std::complex.0", %"class.std::complex.0"* [[TMP12]], i64 1
-// CHECK2-NEXT:    [[TMP14:%.*]] = bitcast %"class.std::complex.0"* [[TMP13]] to i8*
-// CHECK2-NEXT:    [[TMP15:%.*]] = bitcast %"class.std::complex.0"* [[TMP12]] to i64*
-// CHECK2-NEXT:    [[TMP16:%.*]] = bitcast %"class.std::complex.0"* [[DOTOMP_REDUCTION_ELEMENT]] to i64*
+// CHECK2-NEXT:    [[TMP12:%.*]] = bitcast i8* [[TMP10]] to %"class.std::complex.2"*
+// CHECK2-NEXT:    [[TMP13:%.*]] = getelementptr %"class.std::complex.2", %"class.std::complex.2"* [[TMP12]], i64 1
+// CHECK2-NEXT:    [[TMP14:%.*]] = bitcast %"class.std::complex.2"* [[TMP13]] to i8*
+// CHECK2-NEXT:    [[TMP15:%.*]] = bitcast %"class.std::complex.2"* [[TMP12]] to i64*
+// CHECK2-NEXT:    [[TMP16:%.*]] = bitcast %"class.std::complex.2"* [[DOTOMP_REDUCTION_ELEMENT]] to i64*
 // CHECK2-NEXT:    br label [[DOTSHUFFLE_PRE_COND:%.*]]
 // CHECK2:       .shuffle.pre_cond:
 // CHECK2-NEXT:    [[TMP17:%.*]] = phi i64* [ [[TMP15]], [[ENTRY:%.*]] ], [ [[TMP28:%.*]], [[DOTSHUFFLE_THEN:%.*]] ]
@@ -2282,7 +2288,7 @@ void test() {
 // CHECK2-NEXT:    [[TMP29]] = getelementptr i64, i64* [[TMP18]], i64 1
 // CHECK2-NEXT:    br label [[DOTSHUFFLE_PRE_COND]]
 // CHECK2:       .shuffle.exit:
-// CHECK2-NEXT:    [[TMP30:%.*]] = bitcast %"class.std::complex.0"* [[DOTOMP_REDUCTION_ELEMENT]] to i8*
+// CHECK2-NEXT:    [[TMP30:%.*]] = bitcast %"class.std::complex.2"* [[DOTOMP_REDUCTION_ELEMENT]] to i8*
 // CHECK2-NEXT:    store i8* [[TMP30]], i8** [[TMP11]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    [[TMP31:%.*]] = icmp eq i16 [[TMP8]], 0
 // CHECK2-NEXT:    [[TMP32:%.*]] = icmp eq i16 [[TMP8]], 1
@@ -2314,10 +2320,10 @@ void test() {
 // CHECK2-NEXT:    [[TMP49:%.*]] = load i8*, i8** [[TMP48]], align 8
 // CHECK2-NEXT:    [[TMP50:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[TMP5]], i64 0, i64 0
 // CHECK2-NEXT:    [[TMP51:%.*]] = load i8*, i8** [[TMP50]], align 8
-// CHECK2-NEXT:    [[TMP52:%.*]] = bitcast i8* [[TMP49]] to %"class.std::complex.0"*
-// CHECK2-NEXT:    [[TMP53:%.*]] = bitcast i8* [[TMP51]] to %"class.std::complex.0"*
-// CHECK2-NEXT:    [[TMP54:%.*]] = bitcast %"class.std::complex.0"* [[TMP53]] to i8*
-// CHECK2-NEXT:    [[TMP55:%.*]] = bitcast %"class.std::complex.0"* [[TMP52]] to i8*
+// CHECK2-NEXT:    [[TMP52:%.*]] = bitcast i8* [[TMP49]] to %"class.std::complex.2"*
+// CHECK2-NEXT:    [[TMP53:%.*]] = bitcast i8* [[TMP51]] to %"class.std::complex.2"*
+// CHECK2-NEXT:    [[TMP54:%.*]] = bitcast %"class.std::complex.2"* [[TMP53]] to i8*
+// CHECK2-NEXT:    [[TMP55:%.*]] = bitcast %"class.std::complex.2"* [[TMP52]] to i8*
 // CHECK2-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 8 [[TMP54]], i8* align 8 [[TMP55]], i64 16, i1 false), !tbaa.struct !27
 // CHECK2-NEXT:    br label [[IFCONT6:%.*]]
 // CHECK2:       else5:
@@ -2434,7 +2440,7 @@ void test() {
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@_ZNKSt7complexIfE4realEv
-// CHECK2-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK2-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK2-NEXT:    store %"class.std::complex"* [[THIS]], %"class.std::complex"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
@@ -2445,7 +2451,7 @@ void test() {
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@_ZNKSt7complexIfE4imagEv
-// CHECK2-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK2-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK2-NEXT:    store %"class.std::complex"* [[THIS]], %"class.std::complex"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
@@ -2456,20 +2462,20 @@ void test() {
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@_ZNSt7complexIdEC2ERKdS2_
-// CHECK2-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]], double* nonnull align 8 dereferenceable(8) [[__RE:%.*]], double* nonnull align 8 dereferenceable(8) [[__IM:%.*]]) unnamed_addr #[[ATTR3]] comdat align 2 {
+// CHECK2-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]], double* nonnull align 8 dereferenceable(8) [[__RE:%.*]], double* nonnull align 8 dereferenceable(8) [[__IM:%.*]]) unnamed_addr #[[ATTR4]] comdat align 2 {
 // CHECK2-NEXT:  entry:
-// CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
+// CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
 // CHECK2-NEXT:    [[__RE_ADDR:%.*]] = alloca double*, align 8
 // CHECK2-NEXT:    [[__IM_ADDR:%.*]] = alloca double*, align 8
-// CHECK2-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK2-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    store double* [[__RE]], double** [[__RE_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    store double* [[__IM]], double** [[__IM_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK2-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK2-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 0
+// CHECK2-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK2-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 0
 // CHECK2-NEXT:    [[TMP0:%.*]] = load double*, double** [[__RE_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    [[TMP1:%.*]] = load double, double* [[TMP0]], align 8, !tbaa [[TBAA22]]
 // CHECK2-NEXT:    store double [[TMP1]], double* [[__RE_]], align 8, !tbaa [[TBAA24]]
-// CHECK2-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 1
+// CHECK2-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 1
 // CHECK2-NEXT:    [[TMP2:%.*]] = load double*, double** [[__IM_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    [[TMP3:%.*]] = load double, double* [[TMP2]], align 8, !tbaa [[TBAA22]]
 // CHECK2-NEXT:    store double [[TMP3]], double* [[__IM_]], align 8, !tbaa [[TBAA26]]
@@ -2477,23 +2483,23 @@ void test() {
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@_ZNKSt7complexIdE4realEv
-// CHECK2-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK2-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK2-NEXT:  entry:
-// CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
-// CHECK2-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK2-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK2-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 0
+// CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
+// CHECK2-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK2-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK2-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 0
 // CHECK2-NEXT:    [[TMP0:%.*]] = load double, double* [[__RE_]], align 8, !tbaa [[TBAA24]]
 // CHECK2-NEXT:    ret double [[TMP0]]
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@_ZNKSt7complexIdE4imagEv
-// CHECK2-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK2-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK2-NEXT:  entry:
-// CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
-// CHECK2-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK2-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK2-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 1
+// CHECK2-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
+// CHECK2-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK2-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK2-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 1
 // CHECK2-NEXT:    [[TMP0:%.*]] = load double, double* [[__IM_]], align 8, !tbaa [[TBAA26]]
 // CHECK2-NEXT:    ret double [[TMP0]]
 //
@@ -2501,6 +2507,7 @@ void test() {
 // CHECK3-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIfEvv_l16
 // CHECK3-SAME: () #[[ATTR0:[0-9]+]] {
 // CHECK3-NEXT:  entry:
+// CHECK3-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
 // CHECK3-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
@@ -2518,10 +2525,11 @@ void test() {
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@__omp_outlined__
-// CHECK3-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
+// CHECK3-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]], %struct.anon* noalias [[__CONTEXT:%.*]]) #[[ATTR1:[0-9]+]] {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 // CHECK3-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
+// CHECK3-NEXT:    [[__CONTEXT_ADDR:%.*]] = alloca %struct.anon*, align 8
 // CHECK3-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[TMP:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -2645,7 +2653,7 @@ void test() {
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@_ZNSt7complexIfEC1ERKfS2_
-// CHECK3-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]], float* nonnull align 4 dereferenceable(4) [[__RE:%.*]], float* nonnull align 4 dereferenceable(4) [[__IM:%.*]]) unnamed_addr #[[ATTR3:[0-9]+]] comdat align 2 {
+// CHECK3-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]], float* nonnull align 4 dereferenceable(4) [[__RE:%.*]], float* nonnull align 4 dereferenceable(4) [[__IM:%.*]]) unnamed_addr #[[ATTR4:[0-9]+]] comdat align 2 {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK3-NEXT:    [[__RE_ADDR:%.*]] = alloca float*, align 8
@@ -3085,10 +3093,11 @@ void test() {
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@__omp_outlined__2
-// CHECK3-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
+// CHECK3-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]], %struct.anon.1* noalias [[__CONTEXT:%.*]]) #[[ATTR1]] {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 // CHECK3-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
+// CHECK3-NEXT:    [[__CONTEXT_ADDR:%.*]] = alloca %struct.anon.1*, align 8
 // CHECK3-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[TMP:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -3490,11 +3499,11 @@ void test() {
 // CHECK3-NEXT:    [[TMP9:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[TMP5]], i64 0, i64 0
 // CHECK3-NEXT:    [[TMP10:%.*]] = load i8*, i8** [[TMP9]], align 8
 // CHECK3-NEXT:    [[TMP11:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_REMOTE_REDUCE_LIST]], i64 0, i64 0
-// CHECK3-NEXT:    [[TMP12:%.*]] = bitcast i8* [[TMP10]] to %"class.std::complex.0"*
-// CHECK3-NEXT:    [[TMP13:%.*]] = getelementptr %"class.std::complex.0", %"class.std::complex.0"* [[TMP12]], i64 1
-// CHECK3-NEXT:    [[TMP14:%.*]] = bitcast %"class.std::complex.0"* [[TMP13]] to i8*
-// CHECK3-NEXT:    [[TMP15:%.*]] = bitcast %"class.std::complex.0"* [[TMP12]] to i64*
-// CHECK3-NEXT:    [[TMP16:%.*]] = bitcast %"class.std::complex.0"* [[DOTOMP_REDUCTION_ELEMENT]] to i64*
+// CHECK3-NEXT:    [[TMP12:%.*]] = bitcast i8* [[TMP10]] to %"class.std::complex.2"*
+// CHECK3-NEXT:    [[TMP13:%.*]] = getelementptr %"class.std::complex.2", %"class.std::complex.2"* [[TMP12]], i64 1
+// CHECK3-NEXT:    [[TMP14:%.*]] = bitcast %"class.std::complex.2"* [[TMP13]] to i8*
+// CHECK3-NEXT:    [[TMP15:%.*]] = bitcast %"class.std::complex.2"* [[TMP12]] to i64*
+// CHECK3-NEXT:    [[TMP16:%.*]] = bitcast %"class.std::complex.2"* [[DOTOMP_REDUCTION_ELEMENT]] to i64*
 // CHECK3-NEXT:    br label [[DOTSHUFFLE_PRE_COND:%.*]]
 // CHECK3:       .shuffle.pre_cond:
 // CHECK3-NEXT:    [[TMP17:%.*]] = phi i64* [ [[TMP15]], [[ENTRY:%.*]] ], [ [[TMP28:%.*]], [[DOTSHUFFLE_THEN:%.*]] ]
@@ -3516,7 +3525,7 @@ void test() {
 // CHECK3-NEXT:    [[TMP29]] = getelementptr i64, i64* [[TMP18]], i64 1
 // CHECK3-NEXT:    br label [[DOTSHUFFLE_PRE_COND]]
 // CHECK3:       .shuffle.exit:
-// CHECK3-NEXT:    [[TMP30:%.*]] = bitcast %"class.std::complex.0"* [[DOTOMP_REDUCTION_ELEMENT]] to i8*
+// CHECK3-NEXT:    [[TMP30:%.*]] = bitcast %"class.std::complex.2"* [[DOTOMP_REDUCTION_ELEMENT]] to i8*
 // CHECK3-NEXT:    store i8* [[TMP30]], i8** [[TMP11]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    [[TMP31:%.*]] = icmp eq i16 [[TMP8]], 0
 // CHECK3-NEXT:    [[TMP32:%.*]] = icmp eq i16 [[TMP8]], 1
@@ -3548,10 +3557,10 @@ void test() {
 // CHECK3-NEXT:    [[TMP49:%.*]] = load i8*, i8** [[TMP48]], align 8
 // CHECK3-NEXT:    [[TMP50:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[TMP5]], i64 0, i64 0
 // CHECK3-NEXT:    [[TMP51:%.*]] = load i8*, i8** [[TMP50]], align 8
-// CHECK3-NEXT:    [[TMP52:%.*]] = bitcast i8* [[TMP49]] to %"class.std::complex.0"*
-// CHECK3-NEXT:    [[TMP53:%.*]] = bitcast i8* [[TMP51]] to %"class.std::complex.0"*
-// CHECK3-NEXT:    [[TMP54:%.*]] = bitcast %"class.std::complex.0"* [[TMP53]] to i8*
-// CHECK3-NEXT:    [[TMP55:%.*]] = bitcast %"class.std::complex.0"* [[TMP52]] to i8*
+// CHECK3-NEXT:    [[TMP52:%.*]] = bitcast i8* [[TMP49]] to %"class.std::complex.2"*
+// CHECK3-NEXT:    [[TMP53:%.*]] = bitcast i8* [[TMP51]] to %"class.std::complex.2"*
+// CHECK3-NEXT:    [[TMP54:%.*]] = bitcast %"class.std::complex.2"* [[TMP53]] to i8*
+// CHECK3-NEXT:    [[TMP55:%.*]] = bitcast %"class.std::complex.2"* [[TMP52]] to i8*
 // CHECK3-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 8 [[TMP54]], i8* align 8 [[TMP55]], i64 16, i1 false), !tbaa.struct !27
 // CHECK3-NEXT:    br label [[IFCONT6:%.*]]
 // CHECK3:       else5:
@@ -3668,7 +3677,7 @@ void test() {
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@_ZNKSt7complexIfE4realEv
-// CHECK3-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK3-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK3-NEXT:    store %"class.std::complex"* [[THIS]], %"class.std::complex"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
@@ -3679,7 +3688,7 @@ void test() {
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@_ZNKSt7complexIfE4imagEv
-// CHECK3-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK3-SAME: (%"class.std::complex"* nonnull align 4 dereferenceable(8) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex"*, align 8
 // CHECK3-NEXT:    store %"class.std::complex"* [[THIS]], %"class.std::complex"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
@@ -3690,20 +3699,20 @@ void test() {
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@_ZNSt7complexIdEC2ERKdS2_
-// CHECK3-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]], double* nonnull align 8 dereferenceable(8) [[__RE:%.*]], double* nonnull align 8 dereferenceable(8) [[__IM:%.*]]) unnamed_addr #[[ATTR3]] comdat align 2 {
+// CHECK3-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]], double* nonnull align 8 dereferenceable(8) [[__RE:%.*]], double* nonnull align 8 dereferenceable(8) [[__IM:%.*]]) unnamed_addr #[[ATTR4]] comdat align 2 {
 // CHECK3-NEXT:  entry:
-// CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
+// CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
 // CHECK3-NEXT:    [[__RE_ADDR:%.*]] = alloca double*, align 8
 // CHECK3-NEXT:    [[__IM_ADDR:%.*]] = alloca double*, align 8
-// CHECK3-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK3-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    store double* [[__RE]], double** [[__RE_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    store double* [[__IM]], double** [[__IM_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK3-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK3-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 0
+// CHECK3-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK3-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP0:%.*]] = load double*, double** [[__RE_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    [[TMP1:%.*]] = load double, double* [[TMP0]], align 8, !tbaa [[TBAA22]]
 // CHECK3-NEXT:    store double [[TMP1]], double* [[__RE_]], align 8, !tbaa [[TBAA24]]
-// CHECK3-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 1
+// CHECK3-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 1
 // CHECK3-NEXT:    [[TMP2:%.*]] = load double*, double** [[__IM_ADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    [[TMP3:%.*]] = load double, double* [[TMP2]], align 8, !tbaa [[TBAA22]]
 // CHECK3-NEXT:    store double [[TMP3]], double* [[__IM_]], align 8, !tbaa [[TBAA26]]
@@ -3711,23 +3720,23 @@ void test() {
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@_ZNKSt7complexIdE4realEv
-// CHECK3-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK3-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK3-NEXT:  entry:
-// CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
-// CHECK3-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK3-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK3-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 0
+// CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
+// CHECK3-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK3-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK3-NEXT:    [[__RE_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 0
 // CHECK3-NEXT:    [[TMP0:%.*]] = load double, double* [[__RE_]], align 8, !tbaa [[TBAA24]]
 // CHECK3-NEXT:    ret double [[TMP0]]
 //
 //
 // CHECK3-LABEL: define {{[^@]+}}@_ZNKSt7complexIdE4imagEv
-// CHECK3-SAME: (%"class.std::complex.0"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR4]] comdat align 2 {
+// CHECK3-SAME: (%"class.std::complex.2"* nonnull align 8 dereferenceable(16) [[THIS:%.*]]) #[[ATTR5]] comdat align 2 {
 // CHECK3-NEXT:  entry:
-// CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.0"*, align 8
-// CHECK3-NEXT:    store %"class.std::complex.0"* [[THIS]], %"class.std::complex.0"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
-// CHECK3-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.0"*, %"class.std::complex.0"** [[THIS_ADDR]], align 8
-// CHECK3-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.0", %"class.std::complex.0"* [[THIS1]], i32 0, i32 1
+// CHECK3-NEXT:    [[THIS_ADDR:%.*]] = alloca %"class.std::complex.2"*, align 8
+// CHECK3-NEXT:    store %"class.std::complex.2"* [[THIS]], %"class.std::complex.2"** [[THIS_ADDR]], align 8, !tbaa [[TBAA12]]
+// CHECK3-NEXT:    [[THIS1:%.*]] = load %"class.std::complex.2"*, %"class.std::complex.2"** [[THIS_ADDR]], align 8
+// CHECK3-NEXT:    [[__IM_:%.*]] = getelementptr inbounds %"class.std::complex.2", %"class.std::complex.2"* [[THIS1]], i32 0, i32 1
 // CHECK3-NEXT:    [[TMP0:%.*]] = load double, double* [[__IM_]], align 8, !tbaa [[TBAA26]]
 // CHECK3-NEXT:    ret double [[TMP0]]
 //

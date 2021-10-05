@@ -65,7 +65,7 @@ int main() {
   return 0;
 }
 // CHECK1-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l23_debug__
-// CHECK1-SAME: ([10 x [10 x [10 x i32]]] addrspace(1)* noalias [[C:%.*]], i32 [[A:%.*]], [10 x [10 x i32]]* noalias [[B:%.*]], i8 addrspace(1)* noalias [[BB:%.*]]) #[[ATTR0:[0-9]+]] !dbg [[DBG24:![0-9]+]] {
+// CHECK1-SAME: ([10 x [10 x [10 x i32]]] addrspace(1)* noalias [[C:%.*]], i32 [[A:%.*]], [10 x [10 x i32]]* noalias [[B:%.*]], i8 addrspace(1)* noalias [[BB:%.*]]) #[[ATTR0:[0-9]+]] !dbg [[DBG23:![0-9]+]] {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[C_ADDR:%.*]] = alloca [10 x [10 x [10 x i32]]] addrspace(1)*, align 8
 // CHECK1-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
@@ -74,8 +74,8 @@ int main() {
 // CHECK1-NEXT:    [[TMP:%.*]] = alloca [10 x [10 x [10 x i32]]]*, align 8
 // CHECK1-NEXT:    [[_TMP1:%.*]] = alloca [10 x [10 x i32]]*, align 8
 // CHECK1-NEXT:    [[_TMP2:%.*]] = alloca i8*, align 8
-// CHECK1-NEXT:    [[A_CASTED:%.*]] = alloca i64, align 8
-// CHECK1-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [4 x i8*], align 8
+// CHECK1-NEXT:    [[OMP_OUTLINED_ARG_AGG_:%.*]] = alloca [[STRUCT_ANON:%.*]], align 8
+// CHECK1-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 8
 // CHECK1-NEXT:    store [10 x [10 x [10 x i32]]] addrspace(1)* [[C]], [10 x [10 x [10 x i32]]] addrspace(1)** [[C_ADDR]], align 8
 // CHECK1-NEXT:    call void @llvm.dbg.declare(metadata [10 x [10 x [10 x i32]]] addrspace(1)** [[C_ADDR]], metadata [[META39:![0-9]+]], metadata !DIExpression()), !dbg [[DBG40:![0-9]+]]
 // CHECK1-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4

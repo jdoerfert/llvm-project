@@ -66,12 +66,7 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
 // Invoke an outlined parallel function unwrapping arguments (up to 32).
 void invokeMicrotask(int32_t global_tid, int32_t bound_tid, void *fn,
                      void **args, int64_t nargs) {
-  switch (nargs) {
-#include "generated_microtask_cases.gen"
-  default:
-    PRINT("Too many arguments in kmp_invoke_microtask, aborting execution.\n");
-    __builtin_trap();
-  }
+  ((void (*)(int32_t *, int32_t *, void *))fn)(&global_tid, &bound_tid, args);
 }
 
 } // namespace
