@@ -594,12 +594,14 @@ void __kmpc_distribute_static_init_4(IdentTy *loc, int32_t global_tid,
   ASSERT(icv::Level == 0);
   ASSERT(icv::ActiveLevel == 0);
   ASSERT(state::ParallelRegionFn == nullptr);
+  ASSERT(state::ParallelTeamSize == 1u);
   omptarget_nvptx_LoopSupport<int32_t, int32_t>::for_static_init(
       global_tid, schedtype, plastiter, plower, pupper, pstride, chunk,
       mapping::isSPMDMode());
   ASSERT(icv::Level == 0);
   ASSERT(icv::ActiveLevel == 0);
   ASSERT(state::ParallelRegionFn == nullptr);
+  ASSERT(state::ParallelTeamSize == 1u);
 }
 
 void __kmpc_distribute_static_init_4u(IdentTy *loc, int32_t global_tid,
@@ -610,12 +612,14 @@ void __kmpc_distribute_static_init_4u(IdentTy *loc, int32_t global_tid,
   ASSERT(icv::Level == 0);
   ASSERT(icv::ActiveLevel == 0);
   ASSERT(state::ParallelRegionFn == nullptr);
+  ASSERT(state::ParallelTeamSize == 1u);
   omptarget_nvptx_LoopSupport<uint32_t, int32_t>::for_static_init(
       global_tid, schedtype, plastiter, plower, pupper, pstride, chunk,
       mapping::isSPMDMode());
   ASSERT(icv::Level == 0);
   ASSERT(icv::ActiveLevel == 0);
   ASSERT(state::ParallelRegionFn == nullptr);
+  ASSERT(state::ParallelTeamSize == 1u);
 }
 
 void __kmpc_distribute_static_init_8(IdentTy *loc, int32_t global_tid,
@@ -626,12 +630,14 @@ void __kmpc_distribute_static_init_8(IdentTy *loc, int32_t global_tid,
   ASSERT(icv::Level == 0);
   ASSERT(icv::ActiveLevel == 0);
   ASSERT(state::ParallelRegionFn == nullptr);
+  ASSERT(state::ParallelTeamSize == 1u);
   omptarget_nvptx_LoopSupport<int64_t, int64_t>::for_static_init(
       global_tid, schedtype, plastiter, plower, pupper, pstride, chunk,
       mapping::isSPMDMode());
   ASSERT(icv::Level == 0);
   ASSERT(icv::ActiveLevel == 0);
   ASSERT(state::ParallelRegionFn == nullptr);
+  ASSERT(state::ParallelTeamSize == 1u);
 }
 
 void __kmpc_distribute_static_init_8u(IdentTy *loc, int32_t global_tid,
@@ -642,12 +648,14 @@ void __kmpc_distribute_static_init_8u(IdentTy *loc, int32_t global_tid,
   ASSERT(icv::Level == 0);
   ASSERT(icv::ActiveLevel == 0);
   ASSERT(state::ParallelRegionFn == nullptr);
+  ASSERT(state::ParallelTeamSize == 1u);
   omptarget_nvptx_LoopSupport<uint64_t, int64_t>::for_static_init(
       global_tid, schedtype, plastiter, plower, pupper, pstride, chunk,
       mapping::isSPMDMode());
   ASSERT(icv::Level == 0);
   ASSERT(icv::ActiveLevel == 0);
   ASSERT(state::ParallelRegionFn == nullptr);
+  ASSERT(state::ParallelTeamSize == 1u);
 }
 
 void __kmpc_for_static_fini(IdentTy *loc, int32_t global_tid) {}

@@ -119,6 +119,10 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
       // Synchronize all threads at the end of a parallel region.
       synchronize::threadsAligned();
     }
+
+    ASSERT(state::ParallelTeamSize == 1u);
+    ASSERT(icv::ActiveLevel == 0u);
+    ASSERT(icv::Level == 0u);
     return;
   }
 
