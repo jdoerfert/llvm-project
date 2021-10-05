@@ -14,6 +14,7 @@
 
 #include "Debug.h"
 #include "Types.h"
+#include "Utils.h"
 
 #pragma omp declare target
 
@@ -117,18 +118,16 @@ private:
 
 template <typename VTy, typename Ty> struct ValueRAII {
   ValueRAII(VTy &V, Ty NewValue, Ty OldValue, bool Active)
-      : Ptr(Active ? V.lookup(/* IsReadonly */ false) : Dummy),
-        OldValue(OldValue) {
-    ASSERT(Ptr == OldValue && "ValueRAII initialization with wrong old value!");
-    Ptr = NewValue;
-    ASSERT(Ptr == NewValue && "ValueRAII initialization with wrong new value!");
+      : Ptr(V.lookup(/* IsReadonly */ false)), OldValue(OldValue),
+        Active(Active) {
+    utils::write(Active, &Ptr, NewValue);
   }
-  ~ValueRAII() { Ptr = OldValue; }
+  ~ValueRAII() { utils::write(Active, &Ptr, OldValue); }
 
 private:
   Ty &Ptr;
-  Ty Dummy;
   Ty OldValue;
+  bool Active;
 };
 
 /// TODO
