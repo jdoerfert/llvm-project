@@ -1522,6 +1522,8 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
           Value *LHS = It.second->getOperand(0);
           Value *RHS = It.second->getOperand(1);
           Value *Content = LHS == LoadI ? RHS : LHS;
+          if (!isa<Constant>(Content))
+            continue;
 
           AccessKind AK = AccessKind::AK_WRITE;
           handleAccess(A, *It.first, *CurPtr, Content, AK, PtrOI.Offset,

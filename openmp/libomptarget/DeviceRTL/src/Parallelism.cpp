@@ -51,8 +51,8 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
       NumThreadsClause != -1 ? NumThreadsClause : icv::NThreads;
   uint32_t NumThreads = mapping::getBlockSize();
 
-  utils::write(NThreadsICV != 0 && NThreadsICV < NumThreads, &NumThreads,
-               NThreadsICV);
+  if (NThreadsICV != 0 && NThreadsICV < NumThreads)
+    NumThreads = NThreadsICV;
 
   // Round down to a multiple of WARPSIZE since it is legal to do so in OpenMP.
   if (NumThreads < mapping::getWarpSize())
