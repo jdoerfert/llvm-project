@@ -29,6 +29,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/Assumptions.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -156,8 +157,7 @@ STATISTIC(NumOpenMPParallelRegionsMerged,
           "Number of OpenMP parallel regions merged");
 STATISTIC(NumBytesMovedToSharedMemory,
           "Amount of memory pushed to shared memory");
-STATISTIC(NumBarriersEliminated,
-          "Number of redundant barriers eliminated");
+STATISTIC(NumBarriersEliminated, "Number of redundant barriers eliminated");
 
 #if !defined(NDEBUG)
 static constexpr auto TAG = "[" DEBUG_TYPE "]";
@@ -791,10 +791,42 @@ struct OpenMPOpt {
                       << " functions in a slice with "
                       << OMPInfoCache.ModuleSlice.size() << " functions\n");
 
+    for (auto Id : {Intrinsic::nvvm_read_ptx_sreg_ctaid_x,
+                    Intrinsic::nvvm_read_ptx_sreg_nctaid_x,
+                    Intrinsic::nvvm_read_ptx_sreg_tid_x,
+                    Intrinsic::nvvm_read_ptx_sreg_ntid_x}) {
+      Function *Fn = Intrinsic::getDeclaration(&M, Id);
+      if (!Fn)
+        continue;
+      DenseMap<Function *, SmallVector<Instruction *>> CallMap;
+      for (auto &U : Fn->uses()) {
+        AbstractCallSite ACS(&U);
+        if (!ACS || !ACS.isDirectCall() || !ACS.isCallee(&U))
+          continue;
+        Function *Caller = ACS.getInstruction()->getFunction();
+        if (!A.isRunOn(*Caller))
+          continue;
+        CallMap[Caller].push_back(ACS.getInstruction());
+      }
+      for (auto &It : CallMap) {
+        auto &Calls = It.second;
+        Instruction *I = Calls.front();
+        while (Calls.size() > 1)
+          Calls.pop_back_val()->replaceAllUsesWith(I);
+        Instruction *IP =
+            It.first->getEntryBlock().getFirstNonPHIOrDbgOrLifetime();
+        while (isa<AllocaInst>(IP))
+          IP = IP->getNextNode();
+        I->moveBefore(IP);
+        Changed = true;
+      }
+    }
+
     if (IsModulePass) {
-      // M.dump();
+
+      //M.dump();
       Changed |= runAttributor(IsModulePass);
-      // M.dump();
+      //M.dump();
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -810,13 +842,29 @@ struct OpenMPOpt {
       if (PrintOpenMPKernels)
         printKernels();
 
-      // dbgs() << "\n--------- NEW \n";
-      // for (auto *F: SCC)
-      // F->dump();
+      //dbgs() << "\n--------- NEW \n";
+      //for (auto *F : SCC)
+        //F->dump();
       Changed |= runAttributor(IsModulePass);
-      // for (auto *F: SCC)
-      // F->dump();
-      // dbgs() << "\n--------- DONE \n";
+      //for (auto *F : SCC)
+        //F->dump();
+      //dbgs() << "\n--------- DONE \n";
+
+#if 0
+      Function *Assume = Intrinsic::getDeclaration(&M, Intrinsic::assume);
+      if (Assume) {
+        SmallVector<Instruction *> ToBeDeletedAssumes;
+        for (auto &U : Assume->uses()) {
+          AbstractCallSite ACS(&U);
+          if (ACS && ACS.isDirectCall() && ACS.isCallee(&U) &&
+              A.isRunOn(*ACS.getInstruction()->getFunction())) {
+            ToBeDeletedAssumes.push_back(ACS.getInstruction());
+          }
+        }
+        for (auto *I : ToBeDeletedAssumes)
+          I->eraseFromParent();
+      }
+#endif
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
@@ -1472,9 +1520,10 @@ private:
           // If StarBarrierInfo instructions is null then this the implicit
           // kernel entry barrier, so iterate from the first instruction in the
           // entry block.
-          Instruction *I = (StartBarrierInfo->isImplicitEntry())
-                               ? &Kernel->getEntryBlock().front()
-                               : StartBarrierInfo->getInstruction()->getNextNode();
+          Instruction *I =
+              (StartBarrierInfo->isImplicitEntry())
+                  ? &Kernel->getEntryBlock().front()
+                  : StartBarrierInfo->getInstruction()->getNextNode();
           Instruction *E = EndBarrierInfo->getInstruction();
           assert(I && "Expected non-null start instruction");
           assert(E && "Expected non-null end instruction");
@@ -1491,8 +1540,9 @@ private:
               // continue.
               LoadInst *Load = dyn_cast<LoadInst>(I);
               if (Load) {
-                dbgs() << "=> I " << *I << " is a load, pointer operand " <<
-                  *Load->getPointerOperand()->stripPointerCasts() << "\n";
+                dbgs() << "=> I " << *I << " is a load, pointer operand "
+                       << *Load->getPointerOperand()->stripPointerCasts()
+                       << "\n";
                 if (isa<AllocaInst>(
                         Load->getPointerOperand()->stripPointerCasts())) {
                   dbgs() << "=> I " << *I
@@ -1503,8 +1553,9 @@ private:
 
               StoreInst *Store = dyn_cast<StoreInst>(I);
               if (Store) {
-                dbgs() << "==> I " << *I << " is a store, pointer operand " <<
-                  *Store->getPointerOperand()->stripPointerCasts() << "\n";
+                dbgs() << "==> I " << *I << " is a store, pointer operand "
+                       << *Store->getPointerOperand()->stripPointerCasts()
+                       << "\n";
                 if (isa<AllocaInst>(
                         Store->getPointerOperand()->stripPointerCasts())) {
                   dbgs() << "=> I " << *I
@@ -1516,7 +1567,7 @@ private:
               // Check intrinsic intructions for side-effects affecting
               // barrier elimination.
               if (isa<IntrinsicInst>(I)) {
-                if(MemTransferInst *MI = dyn_cast<MemTransferInst>(I))
+                if (MemTransferInst *MI = dyn_cast<MemTransferInst>(I))
                   if (!isa<AllocaInst>(MI->getDest()) ||
                       !isa<AllocaInst>(MI->getSource()))
                     return false;
@@ -1553,17 +1604,18 @@ private:
           if (!IsBarrierRemoveable(StartBarrierInfo, EndBarrierInfo))
             continue;
 
-          assert(
-              !(StartBarrierInfo->isImplicit() && EndBarrierInfo->isImplicit()) &&
-              "Expected at least one explicit barrier to remove.");
+          assert(!(StartBarrierInfo->isImplicit() &&
+                   EndBarrierInfo->isImplicit()) &&
+                 "Expected at least one explicit barrier to remove.");
 
           // Remove an explicit barrier, check first, then second.
           if (!StartBarrierInfo->isImplicit()) {
-            dbgs() << "=> Remove start barrier " << *StartBarrierInfo->getInstruction() << "\n";
+            dbgs() << "=> Remove start barrier "
+                   << *StartBarrierInfo->getInstruction() << "\n";
             BarriersToBeDeleted.insert(StartBarrierInfo->getInstruction());
-          }
-          else /*if (!EndBarrierInfo->isImplicit())*/ {
-            dbgs() << "=> Remove end barrier " << *EndBarrierInfo->getInstruction() << "\n";
+          } else /*if (!EndBarrierInfo->isImplicit())*/ {
+            dbgs() << "=> Remove end barrier "
+                   << *EndBarrierInfo->getInstruction() << "\n";
             BarriersToBeDeleted.insert(EndBarrierInfo->getInstruction());
           }
         }
