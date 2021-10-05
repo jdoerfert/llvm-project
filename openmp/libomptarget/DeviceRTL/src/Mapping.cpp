@@ -197,13 +197,13 @@ uint32_t mapping::getWarpSize() { return impl::getWarpSize(); }
 uint32_t mapping::getBlockSize() {
   uint32_t BlockSize = mapping::getNumberOfProcessorElements() -
                        (!mapping::isSPMDMode() * impl::getWarpSize());
-  ASSERT((BlockSize == 1) | (BlockSize % impl::getWarpSize() == 0));
+  //ASSERT((BlockSize == 1) | (BlockSize % impl::getWarpSize() == 0));
   return BlockSize;
 }
 
 uint32_t mapping::getKernelSize() {
   uint32_t KernelSize = impl::getKernelSize();
-  ASSERT((KernelSize == 1) | (KernelSize % impl::getWarpSize() == 0));
+  //ASSERT((KernelSize == 1) | (KernelSize % impl::getWarpSize() == 0));
   return KernelSize;
 }
 
