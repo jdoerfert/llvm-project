@@ -3037,17 +3037,28 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
   auto MergeSuccessorStates = [&](BasicBlock &BB) {
     if (SameEpochMap[&BB].IsDead)
       return;
+    bool AllStartWithAligned = true;
     for (BasicBlock *SuccBB : successors(&BB)) {
       SameEpochInfo &SEI = SameEpochMap[SuccBB];
       if (SEI.IsDead)
         continue;
-      if (SEI.StartsWithAlignedBarrierAsSync.hasValue() &&
-          SEI.StartsWithAlignedBarrierAsSync.getValue())
+      bool StartWithAligned = SEI.StartsWithAlignedBarrierAsSync.hasValue() &&
+                              SEI.StartsWithAlignedBarrierAsSync.getValue();
+      AllStartWithAligned &= (StartWithAligned | (!SEI.ContainsNonAlignedSync &
+                                                  AlignedBBs.count(SuccBB)));
+      if (StartWithAligned) {
         continue;
+      }
       if (!SEI.ContainsNonAlignedSync && SameEpochBBs.contains(SuccBB))
         continue;
       SameEpochBBs.erase(&BB);
       return;
+    }
+    if (!SameEpochMap[&BB].ContainsNonAlignedSync) {
+      if (SameEpochMap[&BB].EndsWithAlignedBarrierAsSync)
+        AlignedBBs.insert(&BB);
+      if (AllStartWithAligned)
+        AlignedBBs.insert(&BB);
     }
   };
 
