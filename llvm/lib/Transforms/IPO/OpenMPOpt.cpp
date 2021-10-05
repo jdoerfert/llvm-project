@@ -857,6 +857,14 @@ struct OpenMPOpt {
       }
 #endif
 
+      // dbgs() << "\n--------- NEW \n";
+      // for (auto *F : SCC)
+      // F->dump();
+      Changed |= runAttributor(IsModulePass);
+      // for (auto *F : SCC)
+      // F->dump();
+      // dbgs() << "\n--------- DONE \n";
+
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
 
