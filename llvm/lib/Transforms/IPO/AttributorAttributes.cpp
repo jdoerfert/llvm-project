@@ -10068,6 +10068,16 @@ public:
                         << "\n");
       return Ctx ? CurI == Ctx : !!CurI;
     }
+    #if 0
+    if (Ctx && I0.getParent() == Ctx->getParent()) {
+      const Instruction *CurI = I0.getNextNode();
+      while (CurI && CurI != Ctx)
+        CurI = CurI->getNextNode();
+      LLVM_DEBUG(dbgs() << "[AADominance] -> " << (CurI ? "yes" : "no")
+                        << "\n");
+      return !!CurI;
+    }
+    #endif
     return assumedDominates(A, *I0.getParent(), *I1.getParent(), Ctx,
                             ContinueToCallerCB);
   }

@@ -1509,9 +1509,6 @@ struct Attributor {
     if (V && (V->stripPointerCasts() == NV.stripPointerCasts() ||
               isa_and_nonnull<UndefValue>(V)))
       return false;
-    // if (auto *I = dyn_cast<Instruction>(U.get()))
-    // if (InfoCache.isOnlyUsedByAssume(*I))
-    // return false;
     // assert((!V || V == &NV || isa<UndefValue>(NV)) &&
     //"Use was registered twice for replacement with different values!");
     V = &NV;
@@ -1528,9 +1525,6 @@ struct Attributor {
     if (CurNV && (CurNV->stripPointerCasts() == NV.stripPointerCasts() ||
                   isa<UndefValue>(CurNV)))
       return false;
-    // if (auto *I = dyn_cast<Instruction>(&V))
-    // if (InfoCache.isOnlyUsedByAssume(*I))
-    // return false;
     assert((!CurNV || CurNV == &NV || isa<UndefValue>(NV)) &&
            "Value replacement was registered twice with different values!");
     CurNV = &NV;

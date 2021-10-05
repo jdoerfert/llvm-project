@@ -1028,6 +1028,9 @@ Optional<Constant *>
 Attributor::getAssumedConstant(const IRPosition &IRP,
                                const AbstractAttribute &AA,
                                bool &UsedAssumedInformation) {
+  if (auto *I = dyn_cast<Instruction>(&IRP.getAssociatedValue()))
+    if (getInfoCache().isOnlyUsedByAssume(*I))
+      return nullptr;
   // First check all callbacks provided by outside AAs. If any of them returns
   // a non-null value that is different from the associated value, or None, we
   // assume it's simpliied.
@@ -1066,6 +1069,9 @@ Optional<Value *>
 Attributor::getAssumedSimplified(const IRPosition &IRP,
                                  const AbstractAttribute *AA,
                                  bool &UsedAssumedInformation) {
+  if (auto *I = dyn_cast<Instruction>(&IRP.getAssociatedValue()))
+    if (getInfoCache().isOnlyUsedByAssume(*I))
+      return I;
   // First check all callbacks provided by outside AAs. If any of them returns
   // a non-null value that is different from the associated value, or None, we
   // assume it's simpliied.
@@ -2692,23 +2698,28 @@ void InformationCache::initializeInformationCache(const Function &CF,
   // queried by abstract attributes during their initialization or update.
   // This has to happen before we create attributes.
 
-  size_t InitialAssumeOnlyValues = AssumeOnlyValues.size();
   DenseMap<const Value *, Optional<short>> AssumeUsesMap;
 
   // Add \p V to the assume uses map which track the number of uses outside of
   // "visited" assumes. If no outside uses are left the value is added to the
   // assume only use vector.
-  auto AddToAssumeUsesMap = [&](const Value &V) {
-    if (!isa<Instruction>(V))
-      return;
-    Optional<short> &NumUses = AssumeUsesMap[&V];
-    if (!NumUses.hasValue()) {
-      NumUses = V.getNumUses() - /* this assume */ 1;
-      return;
+  auto AddToAssumeUsesMap = [&](const Value &V) -> void {
+    SmallVector<const Instruction *> Worklist;
+    if (auto *I = dyn_cast<Instruction>(&V))
+      Worklist.push_back(I);
+    while (!Worklist.empty()) {
+      const Instruction *I = Worklist.pop_back_val();
+      Optional<short> &NumUses = AssumeUsesMap[I];
+      if (!NumUses.hasValue())
+        NumUses = I->getNumUses();
+      NumUses = NumUses.getValue() - /* this assume */ 1;
+      if (NumUses.getValue() != 1)
+        return;
+      AssumeOnlyValues.insert(I);
+      for (const Value *Op : I->operands())
+        if (auto *OpI = dyn_cast<Instruction>(Op))
+          Worklist.push_back(OpI);
     }
-    NumUses = NumUses.getValue() - /* this assume */ 1;
-    if (NumUses.getValue() == 1)
-      AssumeOnlyValues.insert(cast<Instruction>(&V));
   };
 
   for (Instruction &I : instructions(&F)) {
@@ -2768,11 +2779,6 @@ void InformationCache::initializeInformationCache(const Function &CF,
   if (F.hasFnAttribute(Attribute::AlwaysInline) &&
       isInlineViable(F).isSuccess())
     InlineableFunctions.insert(&F);
-
-  for (size_t i = InitialAssumeOnlyValues; i < AssumeOnlyValues.size(); ++i) {
-    for (const Value *Op : AssumeOnlyValues[i]->operands())
-      AddToAssumeUsesMap(*Op);
-  }
 }
 
 AAResults *InformationCache::getAAResultsForFunction(const Function &F) {
