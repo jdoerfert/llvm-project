@@ -5065,6 +5065,8 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
   FunctionAnalysisManager &FAM =
       AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
   KernelSet Kernels = getDeviceKernels(M);
+  if (Kernels.empty())
+    return PreservedAnalyses::all();
 
   OpenMPIRBuilder OMPBuilder(M);
   OMPBuilder.initialize();
@@ -5175,6 +5177,8 @@ PreservedAnalyses OpenMPOptCGSCCPass::run(LazyCallGraph::SCC &C,
   Module &M = *C.begin()->getFunction().getParent();
 
   KernelSet Kernels = getDeviceKernels(M);
+  if (Kernels.empty())
+    return PreservedAnalyses::all();
 
   FunctionAnalysisManager &FAM =
       AM.getResult<FunctionAnalysisManagerCGSCCProxy>(C, CG).getManager();
