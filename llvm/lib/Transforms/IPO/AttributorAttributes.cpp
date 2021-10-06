@@ -1265,6 +1265,8 @@ struct AAPointerInfoImpl
         if (OtherAcc == &Acc || !It.second)
           continue;
         const Instruction *OtherI = OtherAcc->getRemoteInst();
+        if (OtherAcc->getContent() == Acc.getContent())
+          continue;
 
         // Check intra block
         if (AccI->getParent() == OtherI->getParent()) {
@@ -1287,8 +1289,10 @@ struct AAPointerInfoImpl
           dbgs() << "- both aligned: " << BothAligned
                  << ", both initial: " << BothInitial << "\n";
         });
-        if ((BothAligned || BothInitial) && OtherAcc->isMustAccess() &&
-            DominatingWrites.contains(OtherAcc) &&
+        if (!(BothAligned || BothInitial) || !OtherAcc->isMustAccess())
+          continue;
+
+        if (DominatingWrites.contains(OtherAcc) &&
             DominatingWrites.contains(&Acc) &&
             DominanceAA.assumedDominates(A, *AccI, *OtherI, nullptr,
                                          IsLiveInCalleeCB)) {
@@ -1299,8 +1303,7 @@ struct AAPointerInfoImpl
 
         // This condition is not strong enough. It works because we never
         // partially exit the kernel.
-        if ((BothAligned || BothInitial) && Acc.isMustAccess() &&
-            DominanceAA.assumedDominates(A, *OtherI, *AccI, &LI,
+        if (DominanceAA.assumedDominates(A, *OtherI, *AccI, &LI,
                                          IsLiveInCalleeCB)) {
           LLVM_DEBUG(errs() << "OtherAcc dominates Acc wrt LI, skip Acc: "
                             << *AccI << "\n");
