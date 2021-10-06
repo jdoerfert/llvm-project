@@ -20,6 +20,11 @@
 
 using namespace _OMP;
 
+__attribute__((noinline))
+extern "C" uint32_t __kmpc_get_hardware_num_threads_in_block() {
+   return __nvvm_read_ptx_sreg_ntid_x();
+}
+
 namespace _OMP {
 namespace impl {
 
@@ -135,7 +140,7 @@ uint32_t getBlockId() { return __nvvm_read_ptx_sreg_ctaid_x(); }
 uint32_t getNumberOfBlocks() { return __nvvm_read_ptx_sreg_nctaid_x(); }
 
 uint32_t getNumberOfProcessorElements() {
-  return __nvvm_read_ptx_sreg_ntid_x();
+  return __kmpc_get_hardware_num_threads_in_block();
 }
 
 uint32_t getWarpId() {
