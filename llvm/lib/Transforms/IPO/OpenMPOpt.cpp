@@ -841,7 +841,7 @@ struct OpenMPOpt {
         printICVs();
       if (PrintOpenMPKernels)
         printKernels();
-#if 1
+#if 0
       Function *Assume = Intrinsic::getDeclaration(&M, Intrinsic::assume);
       if (Assume) {
         SmallVector<Instruction *> ToBeDeletedAssumes;
