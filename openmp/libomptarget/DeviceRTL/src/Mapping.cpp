@@ -133,7 +133,7 @@ uint32_t getThreadIdInWarp() {
   return impl::getThreadIdInBlock() & (mapping::getWarpSize() - 1);
 }
 
-uint32_t getKernelSize() { return __nvvm_read_ptx_sreg_nctaid_x(); }
+uint32_t getKernelSize() { return __nvvm_read_ptx_sreg_nctaid_x() * getNumberOfProcessorElements(); }
 
 uint32_t getBlockId() { return __nvvm_read_ptx_sreg_ctaid_x(); }
 
