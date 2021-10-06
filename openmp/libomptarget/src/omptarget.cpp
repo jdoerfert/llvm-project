@@ -1048,14 +1048,16 @@ TableMap *getTableMap(void *HostPtr) {
 /// FIXME: This function will not work right if calling
 /// __kmpc_push_target_tripcount_mapper in one thread but doing offloading in
 /// another thread, which might occur when we call task yield.
-uint64_t getLoopTripCount(int64_t DeviceId) {
+uint64_t getLoopTripCount(int64_t DeviceId, bool &Found) {
   DeviceTy &Device = *PM->Devices[DeviceId];
   uint64_t LoopTripCount = 0;
 
+  Found = false;
   {
     std::lock_guard<std::mutex> TblMapLock(PM->TblMapMtx);
     auto I = Device.LoopTripCnt.find(__kmpc_global_thread_num(NULL));
     if (I != Device.LoopTripCnt.end()) {
+      Found = true;
       LoopTripCount = I->second;
       Device.LoopTripCnt.erase(I);
       DP("loop trip count is %" PRIu64 ".\n", LoopTripCount);
@@ -1442,14 +1444,18 @@ int target(ident_t *loc, DeviceTy &Device, void *HostPtr, int32_t ArgNum,
   }
 
   // Get loop trip count
-  uint64_t LoopTripCount = getLoopTripCount(DeviceId);
+  bool Found = true;
+  uint64_t LoopTripCount = getLoopTripCount(DeviceId, Found);
 
   // Launch device execution.
   void *TgtEntryPtr = TargetTable->EntriesBegin[TM->Index].addr;
   DP("Launching target execution %s with pointer " DPxMOD " (index=%d).\n",
      TargetTable->EntriesBegin[TM->Index].name, DPxPTR(TgtEntryPtr), TM->Index);
 
-  {
+  if (LoopTripCount == 0 && Found) {
+    DP("Will not launch empty distribute loop on target: %s with pointer " DPxMOD " (index=%d).\n",
+      TargetTable->EntriesBegin[TM->Index].name, DPxPTR(TgtEntryPtr), TM->Index);
+  } else {
     TIMESCOPE_WITH_NAME_AND_IDENT(
         IsTeamConstruct ? "runTargetTeamRegion" : "runTargetRegion", loc);
     if (IsTeamConstruct)
