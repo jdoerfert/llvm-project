@@ -1288,7 +1288,8 @@ struct AAPointerInfoImpl
                  << ", both initial: " << BothInitial << "\n";
         });
         if ((BothAligned || BothInitial) && OtherAcc->isMustAccess() &&
-            DominatingWrites.count(&Acc) &&
+            DominatingWrites.contains(OtherAcc) &&
+            DominatingWrites.contains(&Acc) &&
             DominanceAA.assumedDominates(A, *AccI, *OtherI, nullptr,
                                          IsLiveInCalleeCB)) {
           LLVM_DEBUG(errs()
