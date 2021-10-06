@@ -24,7 +24,7 @@ using namespace llvm;
 static cl::opt<unsigned> DefaultMaxBBsToExplore(
     "dom-tree-reachability-max-bbs-to-explore", cl::Hidden,
     cl::desc("Max number of BBs to explore for reachability analysis"),
-    cl::init(32));
+    cl::init(256));
 
 /// FindFunctionBackedges - Analyze the specified function to find all of the
 /// loop backedges in the function and return them.  This is a relatively cheap
