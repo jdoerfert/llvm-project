@@ -4141,6 +4141,7 @@ struct AAIsDeadFunction : public AAIsDead {
   bool assumeLive(const BasicBlock &BB) {
     if (!AssumedLiveBlocks.insert(&BB).second)
       return false;
+    LLVM_DEBUG(dbgs() << "[AAIsDead] BB is live now: " << BB.getName() << "\n");
     return true;
   }
 
