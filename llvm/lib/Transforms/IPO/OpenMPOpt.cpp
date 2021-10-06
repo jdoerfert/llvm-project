@@ -5141,7 +5141,7 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
   if (AlwaysInlineDeviceFunctions && isOpenMPDevice(M))
     for (Function &F : M)
       if (!F.isDeclaration() && !Kernels.contains(&F) &&
-          !F.hasFnAttribute(Attribute::NoInline))
+          !F.hasFnAttribute(Attribute::NoInline) && F.hasLocalLinkage())
         F.addFnAttr(Attribute::AlwaysInline);
 
   if (PrintModuleAfterOptimizations)
