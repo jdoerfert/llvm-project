@@ -880,6 +880,69 @@ struct OpenMPOpt {
         }
       }
       Changed |= eliminateBarriers();
+
+#if 0
+      SmallVector<Instruction *> Worklist;
+      for (auto Id : {Intrinsic::nvvm_read_ptx_sreg_ctaid_x,
+                      Intrinsic::nvvm_read_ptx_sreg_nctaid_x,
+                      Intrinsic::nvvm_read_ptx_sreg_tid_x,
+                      Intrinsic::nvvm_read_ptx_sreg_ntid_x}) {
+        Function *Fn = Intrinsic::getDeclaration(&M, Id);
+        if (!Fn)
+          continue;
+        DenseMap<Function *, SmallVector<Instruction *>> CallMap;
+        for (auto &U : Fn->uses()) {
+          AbstractCallSite ACS(&U);
+          if (!ACS || !ACS.isDirectCall() || !ACS.isCallee(&U))
+            continue;
+          Function *Caller = ACS.getInstruction()->getFunction();
+          if (!A.isRunOn(*Caller))
+            continue;
+          Instruction *I = ACS.getInstruction();
+          Worklist.push_back(I);
+          Changed = true;
+        }
+      }
+
+      DenseMap<Instruction *, Optional<short>> OperandInfoMap;
+      while (!Worklist.empty()) {
+        Instruction *I = Worklist.pop_back_val();
+        for (auto *Usr : I->users()) {
+          Instruction *UserI = cast<Instruction>(Usr);
+          Optional<short> &OpInfo = OperandInfoMap[UserI];
+          if (!OpInfo.hasValue())
+            OpInfo = UserI->getNumOperands();
+          OpInfo = *OpInfo - 1;
+          if (*OpInfo == 0)
+            Worklist.push_back(UserI);
+        }
+      }
+
+      SmallVector<Instruction*>CloneRoots;
+      for (auto &It : OperandInfoMap)
+        if (*It.second != 0)
+          CloneRoots.push_back(It.first);
+
+      auto CopyRec = [&](Instruction &I, Instruction &IP) {
+        Instruction *CloneI = I.clone();
+        CloneI->insertBefore(&IP);
+        IP.replaceUsesOfWith(&I, CloneI);
+        CloneRoots.push_back(CloneI);
+      };
+
+      while (!CloneRoots.empty()) {
+        Instruction *I = CloneRoots.pop_back_val();
+        for (auto &Op : I->operands()) {
+          auto *OpI = dyn_cast<Instruction>(Op);
+          if (!OpI)
+            continue;
+          const auto &OpInfo = OperandInfoMap.lookup(OpI);
+          if (!OpInfo.hasValue() || OpInfo.getValue() != 0)
+            continue;
+          CopyRec(*OpI, *I);
+        }
+      }
+#endif
     }
 
     LLVM_DEBUG({
