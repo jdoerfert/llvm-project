@@ -16,21 +16,31 @@
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/OperationKinds.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/IdentifierTable.h"
+#include "clang/Basic/LangOptions.h"
 #include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/Assumptions.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/SaveAndRestore.h"
 
 using namespace clang;
@@ -2775,7 +2785,7 @@ Address CodeGenFunction::GenerateCapturedStmtArgument(const CapturedStmt &S) {
 
 /// Creates the outlined function for a CapturedStmt.
 llvm::Function *
-CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S, bool OnlyBody) {
+CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S) {
   assert(CapturedStmtInfo &&
     "CapturedStmtInfo should be set when generating the captured function");
   const CapturedDecl *CD = S.getCapturedDecl();
@@ -2828,27 +2838,122 @@ CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S, bool OnlyBo
   }
 
   PGO.assignRegionCounters(GlobalDecl(CD), F);
-  if (!OnlyBody) {
-    CapturedStmtInfo->EmitBody(*this, CD->getBody());
-  } else {
-    ValueDecl *InitVD = const_cast<VarDecl *>(
-       cast<ImplicitParamDecl>(*Args.begin())->getMostRecentDecl());
+  CapturedStmtInfo->EmitBody(*this, CD->getBody());
+  FinishFunction(CD->getBodyRBrace());
 
-    auto *InitRef = DeclRefExpr::Create(
-        getContext(), NestedNameSpecifierLoc(), SourceLocation(), InitVD,
-        /*RefersToEnclosingVariableOrCapture=*/false, Loc,
-        cast<VarDecl>(
-          cast<DeclStmt>(cast<ForStmt>(CD->getBody())->getInit())->getSingleDecl())
-          ->getType(), VK_LValue);
-    InitVD->markUsed(getContext());
+  return F;
+}
 
-    cast<VarDecl>(
-        cast<DeclStmt>(cast<ForStmt>(CD->getBody())->getInit())->getSingleDecl())
-        ->setInit(InitRef);
+llvm::Function *
+CodeGenFunction::GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, unsigned IVSize, bool IVSigned, OMPLoopArguments LoopArgs) {
+  assert(CapturedStmtInfo &&
+    "CapturedStmtInfo should be set when generating the captured function");
+  const CapturedDecl *CD = S.getCapturedDecl();
+  const RecordDecl *RD = S.getCapturedRecordDecl();
+  SourceLocation Loc = S.getBeginLoc();
+  assert(CD->hasBody() && "missing CapturedDecl body");
 
-    EmitStmt(cast<ForStmt>(CD->getBody())->getInit());
-    EmitStmt(cast<ForStmt>(CD->getBody())->getBody());
+  // Build the argument list.
+  ASTContext &Ctx = CGM.getContext();
+  FunctionArgList Args;
+
+  IdentifierInfo *ParamName = &getContext().Idents.get("loop_ind");
+  QualType ParamType = getContext().getIntTypeForBitwidth(IVSize, IVSigned);
+  auto *DC = CapturedDecl::castToDeclContext(CD);
+  auto *Param =
+      ImplicitParamDecl::Create(getContext(), DC, Loc, ParamName, ParamType,
+                                ImplicitParamDecl::CapturedContext);
+  DC->addDecl(Param);
+  Args.insert(Args.begin(), Param);
+
+  IdentifierInfo *IncrParamName = &getContext().Idents.get("loop_incr");
+  auto *IncrParam =
+      ImplicitParamDecl::Create(getContext(), DC, Loc, IncrParamName, ParamType,
+                                ImplicitParamDecl::CapturedContext);
+  DC->addDecl(IncrParam);
+  Args.insert(Args.begin()+1, IncrParam);
+  Args.insert(Args.end(), CD->getParam(2));
+
+  // Create the function declaration.
+  const CGFunctionInfo &FuncInfo =
+    CGM.getTypes().arrangeBuiltinFunctionDeclaration(Ctx.VoidTy, Args);
+  llvm::FunctionType *FuncLLVMTy = CGM.getTypes().GetFunctionType(FuncInfo);
+
+  llvm::Function *F =
+    llvm::Function::Create(FuncLLVMTy, llvm::GlobalValue::InternalLinkage,
+                           CapturedStmtInfo->getHelperName(), &CGM.getModule());
+  CGM.SetInternalFunctionAttributes(CD, F, FuncInfo);
+  if (CD->isNothrow())
+    F->addFnAttr(llvm::Attribute::NoUnwind);
+
+  // Generate the function.
+  StartFunction(CD, Ctx.VoidTy, F, FuncInfo, Args, CD->getLocation(),
+                CD->getBody()->getBeginLoc());
+  // Set the context parameter in CapturedStmtInfo.
+  Address DeclPtr = GetAddrOfLocalVar(CD->getContextParam());
+  CapturedStmtInfo->setContextValue(Builder.CreateLoad(DeclPtr));
+
+  // Initialize variable-length arrays.
+  LValue Base = MakeNaturalAlignAddrLValue(CapturedStmtInfo->getContextValue(),
+                                           Ctx.getTagDeclType(RD));
+  for (auto *FD : RD->fields()) {
+    if (FD->hasCapturedVLAType()) {
+      auto *ExprArg =
+          EmitLoadOfLValue(EmitLValueForField(Base, FD), S.getBeginLoc())
+              .getScalarVal();
+      auto VAT = FD->getCapturedVLAType();
+      VLASizeMap[VAT->getSizeExpr()] = ExprArg;
+    }
   }
+
+  // If 'this' is captured, load it into CXXThisValue.
+  if (CapturedStmtInfo->isCXXThisExprCaptured()) {
+    FieldDecl *FD = CapturedStmtInfo->getThisFieldDecl();
+    LValue ThisLValue = EmitLValueForField(Base, FD);
+    CXXThisValue = EmitLoadOfLValue(ThisLValue, Loc).getScalarVal();
+  }
+
+  PGO.assignRegionCounters(GlobalDecl(CD), F);
+
+  ValueDecl *LoopIndVD = const_cast<VarDecl *>(
+     cast<ImplicitParamDecl>(*(Args.begin()+1))->getMostRecentDecl());
+  LoopIndVD->markUsed(getContext());
+
+  auto *LoopInd = DeclRefExpr::Create(
+      getContext(), NestedNameSpecifierLoc(), SourceLocation(), LoopIndVD,
+      /*RefersToEnclosingVariableOrCapture=*/false, Loc,
+      LoopIndVD->getType(), VK_LValue);
+
+  ValueDecl *IncrVD = const_cast<VarDecl *>(
+     cast<ImplicitParamDecl>(*Args.begin())->getMostRecentDecl());
+  IncrVD->markUsed(getContext());
+
+  auto *Incr = DeclRefExpr::Create(
+      getContext(), NestedNameSpecifierLoc(), SourceLocation(), IncrVD,
+      /*RefersToEnclosingVariableOrCapture=*/false, Loc,
+      IncrVD->getType(), VK_LValue);
+
+  auto *BodyStmt = CD->getBody();
+  while (!isa<ForStmt>(BodyStmt)) {
+    BodyStmt = cast<CompoundStmt>(BodyStmt)->body_front();
+  }
+  ForStmt *ForLoop = cast<ForStmt>(BodyStmt);
+ 
+  auto *BOp = BinaryOperator::Create(getContext(), Incr, LoopInd, BO_Mul, LoopInd->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
+
+  auto *ForLoopInit = ForLoop->getInit();
+  if (auto *Expr = dyn_cast<DeclStmt>(ForLoopInit)) {
+    auto *AddExpr = BinaryOperator::Create(getContext(), BOp, cast<VarDecl>(Expr->getSingleDecl())->getInit(), BO_Add, cast<VarDecl>(Expr->getSingleDecl())->getInit()->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
+    cast<VarDecl>(Expr->getSingleDecl())->setInit(AddExpr);
+  } else if (auto *Expr = dyn_cast<BinaryOperator>(ForLoopInit)) {
+    auto *AddExpr = BinaryOperator::Create(getContext(), BOp, Expr->getRHS(), BO_Add, Expr->getRHS()->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
+    Expr->setRHS(AddExpr);
+  } else {
+    llvm_unreachable("Unsupported initialization in for loop");
+  }
+
+  EmitStmt(ForLoop->getInit());
+  EmitStmt(ForLoop->getBody());
   FinishFunction(CD->getBodyRBrace());
 
   return F;

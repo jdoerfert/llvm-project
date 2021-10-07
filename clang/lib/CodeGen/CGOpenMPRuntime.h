@@ -22,6 +22,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
@@ -801,6 +802,11 @@ private:
                                                    bool IVSigned,
                                                    bool IsGPUDistribute);
 
+  llvm::FunctionCallee createForStaticLoopFunction(unsigned IVSize,
+                                                   bool IVSigned,
+                                                   bool IsGPUDistribute,
+                                                   llvm::Function *OutlinedFn);
+
   /// Returns __kmpc_dispatch_init_* runtime function for the specified
   /// size \a IVSize and sign \a IVSigned.
   llvm::FunctionCallee createDispatchInitFunction(unsigned IVSize,
@@ -1209,6 +1215,14 @@ public:
                                  OpenMPDirectiveKind DKind,
                                  const OpenMPScheduleTy &ScheduleKind,
                                  const StaticRTInput &Values);
+
+  virtual void emitForStaticLoop(CodeGenFunction &CGF,
+                                 const OMPLoopDirective &S,
+                                 llvm::Function *OutlinedFn,
+                                 llvm::Value *Args,
+                                 llvm::Value *NumIters,
+                                 llvm::Value *Chunk,
+                                 bool IsGPUDistribute);
 
   ///
   /// \param CGF Reference to current CodeGenFunction.

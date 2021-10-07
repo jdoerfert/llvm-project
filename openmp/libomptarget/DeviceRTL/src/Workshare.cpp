@@ -430,6 +430,78 @@ template <typename T, typename ST> struct omptarget_nvptx_LoopSupport {
     // nothing
   }
 
+  static void CommonStaticNormalizedLoop( void (*loop_body)(T, T, void**), void **args, 
+                                          uint64_t block_chunk, uint64_t b_offset, uint64_t n_blocks,
+                                          uint64_t thread_chunk, uint64_t t_offset, 
+                                          uint64_t n_threads, uint64_t tid, T upper, T incr) {
+
+    // Cover the whole array
+    while (t_offset <= upper) {
+      uint64_t b_upper_lim = b_offset + block_chunk;
+      // Cover the whole block_chunk
+      while (t_offset < b_upper_lim) {
+        uint64_t t_upper_lim = t_offset + thread_chunk;
+        // Cover the whole thread_chunk
+        while (t_offset < t_upper_lim) {
+          ((void (*)(T, T, void **))loop_body)(
+            t_offset++, incr, args);
+          // Check for border case
+          if (t_offset >= upper)
+            break;
+        }
+        t_offset += n_threads * thread_chunk - 1;
+        // if (__omp_rtl_assume_threads_oversubscription)
+        //   break;
+      }
+      b_offset += n_blocks * block_chunk;
+      // Restart thread location to beginning of block
+      t_offset = b_offset + tid * thread_chunk;
+      // if (__omp_rtl_assume_teams_oversubscription)
+      //   break;
+    }
+  }
+
+  static void for_static_loop(IdentTy *loc, void(* loop_body)(T, T, void**),
+                              void **args,
+                              T num_iters,
+                              ST incr, T chunk) {
+    __builtin_assume(incr > 0);
+    __builtin_assume(chunk > 0);
+
+    uint64_t tid = mapping::getThreadIdInBlock();
+    uint64_t n_threads = omp_get_num_threads();
+    uint64_t t_offset = tid * chunk;
+    if (incr > 0)
+      CommonStaticNormalizedLoop(loop_body, args, 
+                                num_iters, 0, 1,
+                                chunk, t_offset,
+                                n_threads, tid, num_iters, incr);
+  }
+
+  static void for_distribute_static_loop(IdentTy *loc, void(* loop_body)(T, T, void**),
+                              void **args,
+                              int64_t num_iters,
+                              T incr, T outer_chunk, T inner_chunk) {
+    __builtin_assume(incr > 0);
+    __builtin_assume(outer_chunk > 0);
+    __builtin_assume(inner_chunk > 0);
+    uint64_t nt = mapping::getNumberOfBlocks() * outer_chunk;
+      // If no outer_chunk provided, use full capacity.
+    if (outer_chunk < 1)
+      outer_chunk = mapping::getBlockSize() * mapping::getNumberOfBlocks();
+
+    uint64_t n_blocks = mapping::getNumberOfBlocks();
+    uint64_t b_offset = mapping::getBlockId() * outer_chunk;
+    uint64_t tid = mapping::getThreadIdInBlock();
+    uint64_t n_threads = omp_get_num_threads();
+    uint64_t t_offset = b_offset + tid * inner_chunk;
+    if (incr > 0)
+      CommonStaticNormalizedLoop(loop_body, args, 
+                                  outer_chunk, b_offset, n_blocks, 
+                                  inner_chunk, t_offset, 
+                                  n_threads, tid, num_iters, incr);
+  }
+
   ////////////////////////////////////////////////////////////////////////////////
   // end of template class that encapsulate all the helper functions
   ////////////////////////////////////////////////////////////////////////////////
@@ -662,6 +734,7 @@ void __kmpc_for_static_fini(IdentTy *loc, int32_t global_tid) {}
 
 void __kmpc_distribute_static_fini(IdentTy *loc, int32_t global_tid) {}
 
+/*
 // FIXME: Change chunk, lower, upper to unsigned integers
 void __kmpc_for_static_loop(void *loop_body, int64_t loop_inc, void **args,
                             int64_t chunk, int64_t lower, int64_t upper) {
@@ -710,6 +783,39 @@ void __kmpc_distribute_for_static_loop(void *loop_body, int64_t loop_inc,
           tid++, nullptr, nullptr, args);
     tid += nk;
   }
+}
+*/
+
+void __kmpc_for_static_loop_4(IdentTy *loc, void(*fn)(int32_t, int32_t, void**),
+                              void **args,
+                              int32_t num_iters,
+                              int32_t incr, int32_t chunk) {
+  omptarget_nvptx_LoopSupport<int32_t, int32_t>::for_static_loop(
+      loc, fn, args, num_iters, incr, chunk);
+}
+
+void __kmpc_for_static_loop_8(IdentTy *loc, void(*fn)(int64_t, int64_t, void**),
+                              void **args,
+                              int64_t num_iters,
+                              int64_t incr, int64_t chunk) {
+  omptarget_nvptx_LoopSupport<int64_t, int32_t>::for_static_loop(
+      loc, fn, args, num_iters, incr, chunk);
+}
+
+void __kmpc_distribute_for_static_loop_4(IdentTy *loc, void(*fn)(int32_t, int32_t, void**),
+                              void **args,
+                              int64_t num_iters,
+                              int32_t incr, int32_t outer_chunk, int32_t inner_chunk) {
+  omptarget_nvptx_LoopSupport<int32_t, int32_t>::for_distribute_static_loop(
+      loc, fn, args, num_iters, incr, outer_chunk, inner_chunk);
+}
+
+void __kmpc_distribute_for_static_loop_8(IdentTy *loc, void(*fn)(int64_t, int64_t, void**),
+                              void **args,
+                              int64_t num_iters,
+                              int64_t incr, int64_t outer_chunk, int64_t inner_chunk) {
+  omptarget_nvptx_LoopSupport<int64_t, int32_t>::for_distribute_static_loop(
+      loc, fn, args, num_iters, incr, outer_chunk, inner_chunk);
 }
 }
 

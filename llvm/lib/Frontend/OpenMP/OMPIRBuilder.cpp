@@ -148,10 +148,11 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
       //  - Argument 7, (args) is passed next, no variadic arguments are used.
       Fn->addMetadata(LLVMContext::MD_callback,
                       *MDNode::get(Ctx, {MDB.createCallbackEncoding(
-                                            5, {-1, -1, -1, 7},
+                                            5, {-1, -1, 7},
                                             /* VarArgsArePassed */ false)}));
     }
-  } else if (FnID == OMPRTL___kmpc_distribute_for_static_loop) {
+  } else if (FnID == OMPRTL___kmpc_distribute_for_static_loop_4
+             || FnID == OMPRTL___kmpc_distribute_for_static_loop_8) {
     if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
       LLVMContext &Ctx = Fn->getContext();
       MDBuilder MDB(Ctx);
@@ -161,7 +162,7 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
       //  - Argument 7, (args) is passed next, no variadic arguments are used.
       Fn->addMetadata(LLVMContext::MD_callback,
                       *MDNode::get(Ctx, {MDB.createCallbackEncoding(
-                                            0, {-1, -1, -1, 2},
+                                            1, {-1, 4, 2},
                                             /* VarArgsArePassed */ false)}));
     }
   }

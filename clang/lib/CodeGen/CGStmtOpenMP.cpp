@@ -13,12 +13,15 @@
 #include "CGBuilder.h"
 #include "CGCleanup.h"
 #include "CGOpenMPRuntime.h"
+#include "CGValue.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/ASTFwd.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclOpenMP.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/OpenMPClause.h"
@@ -27,10 +30,14 @@
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Basic/SourceLocation.h"
+#include "clang/Basic/Specifiers.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "llvm/Frontend/OpenMP/OMP.h.inc"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Debug.h"
@@ -1738,7 +1745,7 @@ static void emitCommonOMPParallelDirective(
     const CodeGenBoundParametersTy &CodeGenBoundParameters) {
   const CapturedStmt *CS = S.getCapturedStmt(OMPD_parallel);
   llvm::Function *OutlinedFn;
-  if (CS->getCapturedDecl()->getNumParams() == 3) { 
+  if (CS->getCapturedDecl()->getNumParams() == 3) {
     OutlinedFn =
         CGF.CGM.getOpenMPRuntime().emitParallelOutlinedFunction(
             S, *CS->getCapturedDecl()->param_begin(), InnermostKind, CodeGen);
@@ -2114,15 +2121,25 @@ using EmittedClosureTy = std::pair<llvm::Function *, llvm::Value *>;
 /// Emit a captured statement and return the function as well as its captured
 /// closure context.
 static EmittedClosureTy emitCapturedStmtFunc(CodeGenFunction &ParentCGF,
-                                             const CapturedStmt *S, bool OnlyBody = false) {
+                                             const CapturedStmt *S) {
   LValue CapStruct = ParentCGF.InitCapturedStruct(*S);
   CodeGenFunction CGF(ParentCGF.CGM, /*suppressNewContext=*/true);
   std::unique_ptr<CodeGenFunction::CGCapturedStmtInfo> CSI =
       std::make_unique<CodeGenFunction::CGCapturedStmtInfo>(*S);
   CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, CSI.get());
-  llvm::Function *F = CGF.GenerateCapturedStmtFunction(*S, OnlyBody);
+  llvm::Function *F = CGF.GenerateCapturedStmtFunction(*S);
 
   return {F, CapStruct.getPointer(ParentCGF)};
+}
+
+static llvm::Function * emitCapturedStmtLoopBodyFunc(CodeGenFunction &ParentCGF,
+                                             const CapturedStmt *S, unsigned IVSize, bool IVSigned,
+                                             const CodeGenFunction::OMPLoopArguments LoopArgs) {
+  CodeGenFunction CGF(ParentCGF.CGM, /*suppressNewContext=*/true);
+  std::unique_ptr<CodeGenFunction::CGCapturedStmtInfo> CSI =
+      std::make_unique<CodeGenFunction::CGCapturedStmtInfo>(*S);
+  CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, CSI.get());
+  return CGF.GenerateCapturedStmtLoopBodyFunction(*S, IVSize, IVSigned, LoopArgs);
 }
 
 /// Emit a call to a previously captured closure.
@@ -2696,9 +2713,9 @@ static void emitOMPSimdRegion(CodeGenFunction &CGF, const OMPLoopDirective &S,
   // Emit: if (PreCond) - begin.
   // If the condition constant folds and can be elided, avoid emitting the
   // whole loop.
-  bool CondConstant;
+  bool CondConstant = true;
   llvm::BasicBlock *ContBlock = nullptr;
-  if (CGF.ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
+  if (CGF.getLangOpts().OpenMPIsDevice || CGF.ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
     if (!CondConstant)
       return;
   } else {
@@ -2964,83 +2981,17 @@ void CodeGenFunction::EmitOMPOuterLoop(
      EmitBlock(LoopExit.getBlock());
   } else {
     const CapturedStmt *CS = S.getCapturedStmt(OMPD_parallel);
-
-    auto *InitVD = cast<ForStmt>(S.getRawStmt())->getInit();
-    auto *LoopInit = EmitScalarExpr(cast<VarDecl>(cast<DeclStmt>(InitVD)->getSingleDecl())->getInit());
-
     llvm::SmallVector<llvm::Value *, 16> CapturedVars;
     GenerateOpenMPCapturedVarsAggregate(*CS, CapturedVars);
 
-    auto OutlinedLoopFn = emitCapturedStmtFunc(*this, CS, true);
+    const Expr *IVExpr = S.getIterationVariable();
+    const unsigned IVSize = getContext().getTypeSize(IVExpr->getType());
+    const bool IVSigned = IVExpr->getType()->hasSignedIntegerRepresentation();
 
-    auto *LoopInc = cast<ForStmt>(S.getRawStmt())->getInc();
-    bool IsPositive;
-    llvm::Value *Stride = nullptr;
-    Expr *RHS;
+    auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(*this, CS, IVSize, IVSigned, LoopArgs);
+    auto *NumIters = EmitScalarExpr(S.getUpperBoundVariable());
 
-    if (auto *IncOp = dyn_cast<UnaryOperator>(LoopInc)) {
-      Stride = llvm::ConstantInt::get(Int64Ty, IncOp->isIncrementOp() ? 1 : -1);
-    } else if (auto *IncOp = dyn_cast<CompoundAssignOperator>(LoopInc)) {
-      IsPositive = IncOp->getOpcode() == BO_AddAssign;
-      RHS = IncOp->getRHS();
-    } else if (auto *IncOp = dyn_cast<BinaryOperator>(LoopInc)) {
-      auto * RHSOp = cast<BinaryOperator>(IncOp->getRHS());
-      if (isa<ImplicitCastExpr>(RHSOp->getRHS())) {
-        RHS = RHSOp->getLHS();
-      } else {
-        RHS = RHSOp->getRHS();
-      }
-      IsPositive = RHSOp->getOpcode() == BO_Add;
-    }
-
-     if (!Stride) {
-       OMPLoopNestStack.clear();
-       if (!IsPositive) {
-         llvm::ConstantInt *Sign = llvm::ConstantInt::getSigned(Int64Ty, -1);
-         auto *LoopIncOp = BinaryOperator::Create(
-              getContext(),
-              IntegerLiteral(getContext(), Sign->getValue(),
-                             getContext().getIntTypeForBitwidth(64, 1),
-                             SourceLocation())
-                  .getExprStmt(),
-              ImplicitCastExpr::Create(getContext(), getContext().getBaseElementType(getContext().getIntTypeForBitwidth(64, 1)), CK_IntegralCast,
-RHS, nullptr, VK_PRValue, FPOptionsOverride()),
-              BO_Mul,
-              getContext().getIntTypeForBitwidth(32, 1),
-              VK_LValue,
-              OK_Ordinary,
-              SourceLocation(),
-              FPOptionsOverride()
-         );
-         Stride = EmitScalarExpr(LoopIncOp);
-       } else {
-         Stride = EmitScalarExpr(ImplicitCastExpr::Create(getContext(), getContext().getBaseElementType(getContext().getIntTypeForBitwidth(64, 1)), CK_IntegralCast,
-RHS, nullptr, VK_PRValue, FPOptionsOverride()));
-       }
-     }
-
-    llvm::BasicBlock *CondBlock = createBasicBlock("omp.for.loop");
-    EmitBlock(CondBlock);
-    auto *Cond = cast<ForStmt>(S.getRawStmt())->getCond();
-    auto *LoopUB = EmitScalarExpr(cast<BinaryOperator>(Cond)->getRHS());
-
-    // Create the parallel call.
-    auto &OMPBuilder = CGM.getOpenMPRuntime().getOMPBuilder();
-    llvm::Value *Args[] = {
-        /* Loop Body    */ Builder.CreateBitOrPointerCast(OutlinedLoopFn.first,
-                                                          VoidPtrTy),
-        /* Loop Inc     */ Stride,
-        /* Args         */
-        Builder.CreateBitOrPointerCast(CapturedVars[0],
-                                       VoidPtrPtrTy),
-        /* Chunk Size   */ Builder.CreateIntCast(LoopArgs.Chunk, Int64Ty, true),
-        /* Lower        */
-        Builder.CreateIntCast(LoopInit, Int64Ty, true),
-        /* Upper        */ Builder.CreateIntCast(LoopUB, Int64Ty, true)};
-
-    EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
-                        CGM.getModule(), OMPRTL___kmpc_for_static_loop),
-                    Args);
+    RT.emitForStaticLoop(*this, S, OutlinedFn, CapturedVars[0], NumIters, LoopArgs.Chunk, false);
   }
 
   // Tell the runtime we are done.
@@ -3331,7 +3282,7 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
     CodeGenFunction::OMPCancelStackRAII CancelRegion(CGF, S.getDirectiveKind(),
                                                      HasCancel);
     OpenMPScheduleTy ScheduleKind;
-    if (const auto *C = S.getSingleClause<OMPScheduleClause>()) 
+    if (const auto *C = S.getSingleClause<OMPScheduleClause>())
       ScheduleKind.Schedule = C->getScheduleKind();
 
     bool Ordered = false;
@@ -3348,68 +3299,13 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
                                emitDistributeParallelForInnerBounds,
                                emitDistributeParallelForDispatchBounds);
     } else {
-      auto &Context = CGF.getContext();
-      auto &Int32Ty = CGF.Int32Ty;
-      auto &Int64Ty = CGF.Int64Ty;
-      auto &VoidPtrTy = CGF.VoidPtrTy;
-      auto &VoidPtrPtrTy = CGF.VoidPtrPtrTy;
-
-      auto *InitVD = cast<ForStmt>(S.getRawStmt())->getInit();
-      auto *LoopInit = CGF.EmitScalarExpr(cast<VarDecl>(cast<DeclStmt>(InitVD)->getSingleDecl())->getInit());
-
-      auto *Cond = cast<ForStmt>(S.getRawStmt())->getCond();
-      auto *LoopUB = CGF.EmitScalarExpr(cast<BinaryOperator>(Cond)->getRHS());
-
       const CapturedStmt *CS = S.getCapturedStmt(OMPD_parallel);
       llvm::SmallVector<llvm::Value *, 16> CapturedVars;
       CGF.GenerateOpenMPCapturedVarsAggregate(*CS, CapturedVars);
 
-      auto OutlinedLoopFn = emitCapturedStmtFunc(CGF, CS, true);
-
-      auto *LoopInc = cast<ForStmt>(S.getRawStmt())->getInc();
-      bool IsPositive;
-      llvm::Value *Stride = nullptr;
-      Expr *RHS;
-
-      if (auto *IncOp = dyn_cast<UnaryOperator>(LoopInc)) {
-        Stride = llvm::ConstantInt::get(Int64Ty, IncOp->isIncrementOp() ? 1 : -1);
-      } else if (auto *IncOp = dyn_cast<CompoundAssignOperator>(LoopInc)) {
-        IsPositive = IncOp->getOpcode() == BO_AddAssign;
-        RHS = IncOp->getRHS();
-      } else if (auto *IncOp = dyn_cast<BinaryOperator>(LoopInc)) {
-        auto * RHSOp = cast<BinaryOperator>(IncOp->getRHS());
-        if (isa<ImplicitCastExpr>(RHSOp->getRHS())) {
-          RHS = RHSOp->getLHS();
-        } else {
-          RHS = RHSOp->getRHS();
-        }
-        IsPositive = RHSOp->getOpcode() == BO_Add;
-      }
-
-      if (!Stride) {
-        if (!IsPositive) {
-          llvm::ConstantInt *Sign = llvm::ConstantInt::getSigned(Int64Ty, -1);
-          auto *LoopIncOp = BinaryOperator::Create(
-               Context,
-               IntegerLiteral(Context, Sign->getValue(),
-                              Context.getIntTypeForBitwidth(64, 1),
-                              SourceLocation())
-                   .getExprStmt(),
-               ImplicitCastExpr::Create(Context, Context.getBaseElementType(Context.getIntTypeForBitwidth(64, 1)), CK_IntegralCast,
-               RHS, nullptr, VK_PRValue, FPOptionsOverride()),
-               BO_Mul,
-               Context.getIntTypeForBitwidth(64, 1),
-               VK_LValue,
-               OK_Ordinary,
-               SourceLocation(),
-               FPOptionsOverride()
-          );
-          Stride = CGF.EmitScalarExpr(LoopIncOp);
-        } else {
-          Stride = CGF.EmitScalarExpr(ImplicitCastExpr::Create(CGF.getContext(), CGF.getContext().getBaseElementType(CGF.getContext().getIntTypeForBitwidth(64, 1)), CK_IntegralCast,
-RHS, nullptr, VK_PRValue, FPOptionsOverride()));
-        }
-      }
+      const Expr *IVExpr = S.getIterationVariable();
+      const unsigned IVSize = CGF.getContext().getTypeSize(IVExpr->getType());
+      const bool IVSigned = IVExpr->getType()->hasSignedIntegerRepresentation();
 
       // Detect the distribute schedule kind and chunk.
       llvm::Value *Chunk = nullptr;
@@ -3428,24 +3324,9 @@ RHS, nullptr, VK_PRValue, FPOptionsOverride()));
             CGF, S, ScheduleKind, Chunk);
       }
 
-      // Create the parallel call.
-      auto &OMPBuilder = CGF.CGM.getOpenMPRuntime().getOMPBuilder();
-      llvm::Value *Args[] = {
-          /* Loop Body    */ CGF.Builder.CreateBitOrPointerCast(OutlinedLoopFn.first,
-                                                            VoidPtrTy),
-          /* Loop Inc     */ Stride,
-          /* Args         */
-          CGF.Builder.CreateBitOrPointerCast(CapturedVars[0],
-                                         VoidPtrPtrTy),
-          /* Outer Chunk */ CGF.Builder.CreateIntCast(Chunk, Int64Ty, true),
-          /* Inner Chunk */ llvm::ConstantInt::get(Int64Ty, 1),
-          /* Lower        */
-          CGF.Builder.CreateIntCast(LoopInit, Int64Ty, true),
-          /* Upper        */ CGF.Builder.CreateIntCast(LoopUB, Int64Ty, true)};
-
-      CGF.EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
-                          CGF.CGM.getModule(), OMPRTL___kmpc_distribute_for_static_loop),
-                      Args);
+      auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(CGF, CS, IVSize, IVSigned, *LoopArgs);
+      auto *NumIters = CGF.EmitScalarExpr(S.getPrevUpperBoundVariable());
+      CGF.CGM.getOpenMPRuntime().emitForStaticLoop(CGF, S, OutlinedFn, CapturedVars[0], NumIters, Chunk, true);
     }
   };
 
@@ -3546,9 +3427,9 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(
     // Skip the entire loop if we don't meet the precondition.
     // If the condition constant folds and can be elided, avoid emitting the
     // whole loop.
-    bool CondConstant;
+    bool CondConstant = true;
     llvm::BasicBlock *ContBlock = nullptr;
-    if (ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
+    if (CGM.getLangOpts().OpenMPIsDevice || ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
       if (!CondConstant)
         return false;
     } else {
@@ -3712,7 +3593,7 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(
         EmitBlock(LoopExit.getBlock());
         // Tell the runtime we are done.
         auto &&CodeGen = [&S](CodeGenFunction &CGF) {
-          if (!CGF.CGM.getLangOpts().OMPTargetTriples.empty()) 
+          if (!CGF.CGM.getLangOpts().OMPTargetTriples.empty())
             CGF.CGM.getOpenMPRuntime().emitForStaticFinish(CGF, S.getEndLoc(),
                                                          S.getDirectiveKind());
         };
@@ -5544,9 +5425,9 @@ void CodeGenFunction::EmitOMPDistributeLoop(const OMPLoopDirective &S,
     // Skip the entire loop if we don't meet the precondition.
     // If the condition constant folds and can be elided, avoid emitting the
     // whole loop.
-    bool CondConstant;
+    bool CondConstant = true;
     llvm::BasicBlock *ContBlock = nullptr;
-    if (ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
+    if (CGM.getLangOpts().OpenMPIsDevice || ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
       if (!CondConstant)
         return;
     } else {
@@ -5639,11 +5520,11 @@ void CodeGenFunction::EmitOMPDistributeLoop(const OMPLoopDirective &S,
       if (RT.isStaticNonchunked(ScheduleKind,
                                 /* Chunked */ Chunk != nullptr) ||
           StaticChunked) {
-        if (!CGM.getLangOpts().OMPTargetTriples.empty()) {
-          CGOpenMPRuntime::StaticRTInput StaticInit(
+        CGOpenMPRuntime::StaticRTInput StaticInit(
               IVSize, IVSigned, /* Ordered = */ false, IL.getAddress(*this),
               LB.getAddress(*this), UB.getAddress(*this), ST.getAddress(*this),
               StaticChunked ? Chunk : nullptr);
+        if (!CGM.getLangOpts().OMPTargetTriples.empty()) {
           RT.emitDistributeStaticInit(*this, S.getBeginLoc(), ScheduleKind,
                                       StaticInit);
         }
@@ -5689,7 +5570,6 @@ void CodeGenFunction::EmitOMPDistributeLoop(const OMPLoopDirective &S,
         //   UB = min(UB, GlobalUB);
         //   IV = LB;
         // }
-        //
         //
         const OMPLoopArguments LoopArguments = {
             LB.getAddress(*this), UB.getAddress(*this), ST.getAddress(*this),
@@ -7430,10 +7310,10 @@ void CodeGenFunction::EmitOMPTaskLoopBasedDirective(const OMPLoopDirective &S) {
     // Emit: if (PreCond) - begin.
     // If the condition constant folds and can be elided, avoid emitting the
     // whole loop.
-    bool CondConstant;
+    bool CondConstant = true;
     llvm::BasicBlock *ContBlock = nullptr;
     OMPLoopScope PreInitScope(CGF, S);
-    if (CGF.ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
+    if (CGM.getLangOpts().OpenMPIsDevice || CGF.ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
       if (!CondConstant)
         return;
     } else {

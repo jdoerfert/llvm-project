@@ -3299,11 +3299,13 @@ public:
     ~OMPCancelStackRAII() { CGF.OMPCancelStack.exit(CGF); }
   };
 
+  using EmittedFunctionTy = std::pair<llvm::Function *, llvm::FunctionType *>;
+
   /// Returns calculated size of the specified type.
   llvm::Value *getTypeSize(QualType Ty);
   LValue InitCapturedStruct(const CapturedStmt &S);
   llvm::Function *EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K);
-  llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S, bool OnlyBody = false);
+  llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S);
   Address GenerateCapturedStmtArgument(const CapturedStmt &S);
   llvm::Function *
   GenerateOpenMPCapturedStmtFunctionAggregate(const CapturedStmt &S,
@@ -3677,6 +3679,8 @@ public:
   typedef llvm::function_ref<void(CodeGenFunction &, const OMPLoopDirective &,
                                   JumpDest, const OMPLoopArguments *)>
       CodeGenLoopTy;
+
+  llvm::Function *GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, unsigned IVSize, bool IVSigned, CodeGenFunction::OMPLoopArguments LoopArgs);
 
   /// Emit code for the distribute loop-based directive.
   void EmitOMPDistributeLoop(const OMPLoopDirective &S,

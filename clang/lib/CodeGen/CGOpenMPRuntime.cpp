@@ -11,14 +11,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "CGOpenMPRuntime.h"
+#include "CGBuilder.h"
 #include "CGCXXABI.h"
+#include "CGCall.h"
 #include "CGCleanup.h"
 #include "CGRecordLayout.h"
+#include "CGValue.h"
 #include "CodeGenFunction.h"
 #include "clang/AST/APValue.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
+#include "clang/AST/Expr.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/AST/OpenMPClause.h"
+#include "clang/AST/OperationKinds.h"
+#include "clang/AST/Stmt.h"
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/BitmaskEnum.h"
@@ -26,15 +33,19 @@
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/CodeGen/ConstantInitBuilder.h"
+#include "clang/Sema/Overload.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/AtomicOrdering.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
@@ -1595,6 +1606,59 @@ CGOpenMPRuntime::createForStaticInitFunction(unsigned IVSize, bool IVSigned,
 }
 
 llvm::FunctionCallee
+CGOpenMPRuntime::createForStaticLoopFunction(unsigned IVSize, bool IVSigned,
+                                             bool IsGPUDistribute, llvm::Function *OutlinedFn) {
+  assert((IVSize == 32 || IVSize == 64) &&
+         "IV size is not compatible with the omp runtime");
+  StringRef Name;
+  
+  llvm::Type *ITy = IVSize == 32 ? CGM.Int32Ty : CGM.Int64Ty;
+  auto &LLVMContext = CGM.getLLVMContext();
+  llvm::FunctionType *FTy;
+  if (IVSize == 64)
+      FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
+                                    {CGM.Int64Ty, CGM.Int64Ty,
+                                     OutlinedFn->getFunctionType()->getParamType(2)}, false);
+  else
+      FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
+                                    {CGM.Int32Ty, CGM.Int32Ty,
+                                     OutlinedFn->getFunctionType()->getParamType(2)}, false);
+  llvm::FunctionType *FnTy;
+  if (IsGPUDistribute) {
+    Name = IVSize == 32 ? "__kmpc_distribute_for_static_loop_4"
+                        : "__kmpc_distribute_for_static_loop_8";
+
+    llvm::Type *TypeParams[] = {
+      getIdentTyPointerTy(),                     // loc
+      FTy->getPointerTo(),                       // loop_body
+      CGM.VoidPtrPtrTy,                          // args
+      CGM.Int64Ty,                               // num_iters
+      ITy,                                       // incr
+      ITy,                                       // outer_chunk
+      ITy                                        // inner_chunk
+    };
+
+    FnTy = llvm::FunctionType::get(CGM.VoidTy, TypeParams, /*isVarArg*/ false);
+  } else {
+    Name = IVSize == 32 ? "__kmpc_for_static_loop_4"
+                        : "__kmpc_for_static_loop_8";
+
+    llvm::Type *TypeParams[] = {
+      getIdentTyPointerTy(),                     // loc
+      FTy->getPointerTo(),                       // loop_body
+      CGM.VoidPtrPtrTy,                          // args
+      ITy,                                       // num_iters
+      ITy,                                       // incr
+      ITy                                        // chunk
+    };
+
+    FnTy = llvm::FunctionType::get(CGM.VoidTy, TypeParams, /*isVarArg*/ false);
+  }
+
+  return CGM.CreateRuntimeFunction(FnTy, Name);
+}
+
+llvm::FunctionCallee
 CGOpenMPRuntime::createDispatchInitFunction(unsigned IVSize, bool IVSigned) {
   assert((IVSize == 32 || IVSize == 64) &&
          "IV size is not compatible with the omp runtime");
@@ -2820,6 +2884,98 @@ static void emitForStaticInitCall(
   CGF.EmitRuntimeCall(ForStaticInitFunction, Args);
 }
 
+static void emitForStaticLoopCall(
+    CodeGenFunction &CGF, llvm::Value *UpdateLocation,
+    llvm::FunctionCallee ForStaticLoopFunction,
+    llvm::Function *OutlinedFn,
+    const OMPLoopDirective &S, llvm::Value *Args, 
+    llvm::Value *NumIters,
+    llvm::Value *Chunk,
+    bool IsGPUDistribute) {
+  if (!CGF.HaveInsertPoint())
+    return;
+
+  auto &Context = CGF.getContext();
+  auto &LLVMContext = CGF.getLLVMContext();
+
+  const Expr *IVExpr = S.getIterationVariable();
+  const unsigned IVSize = CGF.getContext().getTypeSize(IVExpr->getType());
+  const bool IVSigned = IVExpr->getType()->hasSignedIntegerRepresentation();
+
+  auto *BodyStmt = S.getRawStmt();
+  while (!isa<ForStmt>(BodyStmt)) {
+    BodyStmt = cast<CompoundStmt>(BodyStmt)->body_front();
+  }
+  const ForStmt *ForLoop = cast<ForStmt>(BodyStmt);
+
+  auto *LoopInc = ForLoop->getInc();
+  bool IsPositive;
+  llvm::Value *Incr = nullptr;
+  Expr *RHS;
+
+  if (auto *IncOp = dyn_cast<UnaryOperator>(LoopInc)) {
+    Incr = llvm::ConstantInt::get(llvm::IntegerType::get(LLVMContext, IVSize), IncOp->isIncrementOp() ? 1 : -1);
+  } else if (auto *IncOp = dyn_cast<CompoundAssignOperator>(LoopInc)) {
+    IsPositive = IncOp->getOpcode() == BO_AddAssign;
+    RHS = IncOp->getRHS();
+  } else if (auto *IncOp = dyn_cast<BinaryOperator>(LoopInc)) {
+    auto * RHSOp = cast<BinaryOperator>(IncOp->getRHS());
+    if (isa<ImplicitCastExpr>(RHSOp->getRHS())) {
+      RHS = RHSOp->getLHS();
+    } else {
+      RHS = RHSOp->getRHS();
+    }
+    IsPositive = RHSOp->getOpcode() == BO_Add;
+  }
+
+  if (!Incr) {
+    if (!IsPositive) {
+      llvm::ConstantInt *Sign = llvm::ConstantInt::getSigned(llvm::IntegerType::get(LLVMContext, IVSize), -1);
+      auto *LoopIncOp = BinaryOperator::Create(
+           Context,
+           IntegerLiteral(Context, Sign->getValue(),
+                          Context.getIntTypeForBitwidth(IVSize, IVSigned),
+                          SourceLocation())
+               .getExprStmt(),
+           RHS, 
+           BO_Mul,
+           CGF.getContext().getIntTypeForBitwidth(IVSize, IVSigned),
+           VK_LValue,
+           OK_Ordinary,
+           SourceLocation(),
+           FPOptionsOverride()
+      );
+      Incr = CGF.EmitScalarExpr(LoopIncOp);
+    } else {
+      Incr = CGF.EmitScalarExpr(RHS);
+    }
+  }
+  
+  if (IsGPUDistribute) {
+    llvm::Value *FnArgs[] = {
+      /* Ident Loc    */ UpdateLocation,
+      /* Loop Body    */ OutlinedFn,
+      /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrPtrTy),
+      /* Num Iters    */ NumIters,
+      /* Loop Inc     */ Incr,
+      /* Outer Chunk  */ Chunk, 
+      /* Inner Chunk  */ CGF.Builder.getIntN(IVSize, 1)
+    };
+
+    CGF.EmitRuntimeCall(ForStaticLoopFunction, FnArgs);
+  } else {
+    llvm::Value *FnArgs[] = {
+      /* Ident Loc    */ UpdateLocation,
+      /* Loop Body    */ OutlinedFn,
+      /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrPtrTy),
+      /* Upper        */ NumIters,
+      /* Loop Inc     */ Incr,
+      /* Chunk Size   */ Chunk};
+
+    CGF.EmitRuntimeCall(ForStaticLoopFunction, FnArgs);
+  }
+}
+
 void CGOpenMPRuntime::emitForStaticInit(CodeGenFunction &CGF,
                                         SourceLocation Loc,
                                         OpenMPDirectiveKind DKind,
@@ -2839,6 +2995,24 @@ void CGOpenMPRuntime::emitForStaticInit(CodeGenFunction &CGF,
   auto DL = ApplyDebugLocation::CreateDefaultArtificial(CGF, Loc);
   emitForStaticInitCall(CGF, UpdatedLocation, ThreadId, StaticInitFunction,
                         ScheduleNum, ScheduleKind.M1, ScheduleKind.M2, Values);
+}
+
+void CGOpenMPRuntime::emitForStaticLoop(CodeGenFunction &CGF,
+                                        const OMPLoopDirective &S, 
+                                        llvm::Function *OutlinedFn,
+                                        llvm::Value *Args,
+                                        llvm::Value *NumIters,
+                                        llvm::Value *Chunk,
+                                        bool IsGPUDistribute) {
+  const Expr *IVExpr = S.getIterationVariable();
+  const unsigned IVSize = CGF.getContext().getTypeSize(IVExpr->getType());
+  const bool IVSigned = IVExpr->getType()->hasSignedIntegerRepresentation();
+
+  llvm::Value *UpdatedLocation = emitUpdateLocation(CGF, S.getBeginLoc());
+  llvm::FunctionCallee StaticLoopFunction =
+      createForStaticLoopFunction(IVSize, IVSigned, IsGPUDistribute, OutlinedFn);
+  auto DL = ApplyDebugLocation::CreateDefaultArtificial(CGF, S.getBeginLoc());
+  emitForStaticLoopCall(CGF, UpdatedLocation, StaticLoopFunction, OutlinedFn, S, Args, NumIters, Chunk, IsGPUDistribute);
 }
 
 void CGOpenMPRuntime::emitDistributeStaticInit(

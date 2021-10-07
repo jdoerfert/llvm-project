@@ -39,6 +39,10 @@ __OMP_TYPE(Int32Ptr)
 __OMP_TYPE(Int64Ptr)
 
 OMP_TYPE(SizeTy, M.getDataLayout().getIntPtrType(Ctx))
+OMP_TYPE(LoopBody4Ty, llvm::FunctionType::get(Type::getVoidTy(Ctx),
+                                               {Type::getInt32Ty(Ctx), Type::getInt32Ty(Ctx), Type::getInt8Ty(Ctx)->getPointerTo()->getPointerTo()}, /*isVarArg=*/false);)
+OMP_TYPE(LoopBody8Ty, llvm::FunctionType::get(Type::getVoidTy(Ctx),
+                                               {Type::getInt64Ty(Ctx), Type::getInt64Ty(Ctx), Type::getInt8Ty(Ctx)->getPointerTo()->getPointerTo()}, /*isVarArg=*/false);)
 
 #define __OMP_PTR_TYPE(NAME, BASE) OMP_TYPE(NAME, BASE->getPointerTo())
 
@@ -262,11 +266,15 @@ __OMP_RTL(__kmpc_end_reduce_nowait, false, Void, IdentPtr, Int32,
 __OMP_RTL(__kmpc_ordered, false, Void, IdentPtr, Int32)
 __OMP_RTL(__kmpc_end_ordered, false, Void, IdentPtr, Int32)
 
-__OMP_RTL(__kmpc_for_static_loop, false, Void, VoidPtr, Int64, VoidPtrPtr,
+__OMP_RTL(__kmpc_for_static_loop_4, false, Void, IdentPtr, LoopBody4Ty, VoidPtrPtr,
+          Int32, Int32, Int32)
+__OMP_RTL(__kmpc_for_static_loop_8, false, Void, IdentPtr, LoopBody8Ty, VoidPtrPtr,
           Int64, Int64, Int64)
 
-__OMP_RTL(__kmpc_distribute_for_static_loop, false, Void, VoidPtr, Int64,
-          VoidPtrPtr, Int64, Int64, Int64, Int64)
+__OMP_RTL(__kmpc_distribute_for_static_loop_4, false, Void, IdentPtr, LoopBody4Ty, VoidPtrPtr,
+          Int64, Int32, Int32, Int32)
+__OMP_RTL(__kmpc_distribute_for_static_loop_8, false, Void, IdentPtr, LoopBody8Ty, VoidPtrPtr,
+          Int64, Int64, Int64, Int64)
 
 __OMP_RTL(__kmpc_for_static_init_4, false, Void, IdentPtr, Int32, Int32,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)

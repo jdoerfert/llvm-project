@@ -66,7 +66,7 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
 // Invoke an outlined parallel function unwrapping arguments (up to 32).
 void invokeMicrotask(int32_t global_tid, int32_t bound_tid, void *fn,
                      void **args, int64_t nargs) {
-  ((void (*)(int32_t, int32_t *, int32_t *, void *))fn)(0, &global_tid,
+  ((void (*)(int32_t *, int32_t *, void *))fn)(&global_tid,
                                                         &bound_tid, args);
 }
 
