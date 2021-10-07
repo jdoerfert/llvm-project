@@ -20,9 +20,9 @@
 
 using namespace _OMP;
 
-__attribute__((noinline))
-extern "C" uint32_t __kmpc_get_hardware_num_threads_in_block() {
-   return __nvvm_read_ptx_sreg_ntid_x();
+__attribute__((noinline)) extern "C" uint32_t
+__kmpc_get_hardware_num_threads_in_block() {
+  return __nvvm_read_ptx_sreg_ntid_x();
 }
 
 namespace _OMP {
@@ -133,7 +133,10 @@ uint32_t getThreadIdInWarp() {
   return impl::getThreadIdInBlock() & (mapping::getWarpSize() - 1);
 }
 
-uint32_t getKernelSize() { return __nvvm_read_ptx_sreg_nctaid_x() * getNumberOfProcessorElements(); }
+uint32_t getKernelSize() {
+  return __nvvm_read_ptx_sreg_nctaid_x() *
+         mapping::getNumberOfProcessorElements();
+}
 
 uint32_t getBlockId() { return __nvvm_read_ptx_sreg_ctaid_x(); }
 
@@ -148,7 +151,8 @@ uint32_t getWarpId() {
 }
 
 uint32_t getNumberOfWarpsInBlock() {
-  return (mapping::getBlockSize() + mapping::getWarpSize() - 1) / mapping::getWarpSize();
+  return (mapping::getBlockSize() + mapping::getWarpSize() - 1) /
+         mapping::getWarpSize();
 }
 
 #pragma omp end declare variant
@@ -202,13 +206,13 @@ uint32_t mapping::getWarpSize() { return impl::getWarpSize(); }
 uint32_t mapping::getBlockSize() {
   uint32_t BlockSize = mapping::getNumberOfProcessorElements() -
                        (!mapping::isSPMDMode() * impl::getWarpSize());
-  //ASSERT((BlockSize == 1) | (BlockSize % impl::getWarpSize() == 0));
+  // ASSERT((BlockSize == 1) | (BlockSize % impl::getWarpSize() == 0));
   return BlockSize;
 }
 
 uint32_t mapping::getKernelSize() {
   uint32_t KernelSize = impl::getKernelSize();
-  //ASSERT((KernelSize == 1) | (KernelSize % impl::getWarpSize() == 0));
+  // ASSERT((KernelSize == 1) | (KernelSize % impl::getWarpSize() == 0));
   return KernelSize;
 }
 
