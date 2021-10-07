@@ -21,10 +21,10 @@ using namespace _OMP;
 
 extern "C" {
 void __assert_assume(bool cond, const char *exp, const char *file, int line) {
-  if (!cond && config::isDebugMode(config::DebugKind::Assertion)) {
-    PRINTF("ASSERTION failed: %s at %s, line %d\n", exp, file, line);
-    __builtin_trap();
-  }
+  //if (!cond && config::isDebugMode(config::DebugKind::Assertion)) {
+    //PRINTF("ASSERTION failed: %s at %s, line %d\n", exp, file, line);
+    //__builtin_trap();
+  //}
 
   __builtin_assume(cond);
 }
