@@ -1353,11 +1353,9 @@ struct Attributor {
     // set, but only if it is part of module slice we are allowed to look at.
     // Only exception is AAIsDeadFunction whose initialization is prevented
     // directly, since we don't to compute it twice.
-    if (FnScope && !Functions.count(const_cast<Function *>(FnScope))) {
-      if (!getInfoCache().isInModuleSlice(*FnScope)) {
-        AA.getState().indicatePessimisticFixpoint();
-        return AA;
-      }
+    if (FnScope && !isRunOn(*const_cast<Function *>(FnScope))) {
+      AA.getState().indicatePessimisticFixpoint();
+      return AA;
     }
 
     // If this is queried in the manifest stage, we force the AA to indicate
