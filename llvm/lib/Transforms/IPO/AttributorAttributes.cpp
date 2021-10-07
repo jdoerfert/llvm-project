@@ -6695,6 +6695,7 @@ ChangeStatus AAHeapToStackFunction::updateImpl(Attributor &A) {
     return ValidUsesOnly;
   };
 
+  unsigned NumValidH2SCalls = 0;
   // The actual update starts here. We look at all allocations and depending on
   // their status perform the appropriate check(s).
   for (auto &It : AllocationInfos) {
@@ -6731,13 +6732,17 @@ ChangeStatus AAHeapToStackFunction::updateImpl(Attributor &A) {
 
     switch (AI.Status) {
     case AllocationInfo::STACK_DUE_TO_USE:
-      if (UsesCheck(AI))
+      if (UsesCheck(AI)) {
+        ++NumValidH2SCalls;
         continue;
+      }
       AI.Status = AllocationInfo::STACK_DUE_TO_FREE;
       LLVM_FALLTHROUGH;
     case AllocationInfo::STACK_DUE_TO_FREE:
-      if (FreeCheck(AI))
+      if (FreeCheck(AI)){
+        ++NumValidH2SCalls;
         continue;
+      }
       AI.Status = AllocationInfo::INVALID;
       Changed = ChangeStatus::CHANGED;
       continue;
@@ -6745,6 +6750,9 @@ ChangeStatus AAHeapToStackFunction::updateImpl(Attributor &A) {
       llvm_unreachable("Invalid allocations should never reach this point!");
     };
   }
+
+  if (NumValidH2SCalls == 0)
+    return indicatePessimisticFixpoint();
 
   return Changed;
 }
