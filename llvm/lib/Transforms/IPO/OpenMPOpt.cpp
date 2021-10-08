@@ -3004,7 +3004,9 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     if (AA::isNoSyncInst(A, I, *this))
       return llvm::None;
     auto *CB = dyn_cast<CallBase>(&I);
-    if (CB && hasAssumption(*CB, "ompx_nosync"))
+    auto *AssumptionAA = CB ? &A.getAAFor<AAAssumptionInfo>(
+        *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL) : nullptr;
+    if (AssumptionAA && AssumptionAA->hasAssumption("ompx_nosync"))
       return llvm::None;
     if (auto *II = dyn_cast_or_null<IntrinsicInst>(CB)) {
       switch (II->getIntrinsicID()) {
@@ -3022,7 +3024,7 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
       }
     }
     bool HasAllThreadBarrierAssumption =
-        CB && hasAssumption(*CB, "ompx_aligned_barrier");
+        AssumptionAA && AssumptionAA->hasAssumption("ompx_aligned_barrier");
     Function *Callee = CB ? CB->getCalledFunction() : nullptr;
     if (!CB || !Callee || Callee->isDeclaration() ||
         HasAllThreadBarrierAssumption) {
@@ -4387,13 +4389,11 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     CallBase &CB = cast<CallBase>(getAssociatedValue());
     Function *Callee = getAssociatedFunction();
 
-    // Helper to lookup an assumption string.
-    auto HasAssumption = [](CallBase &CB, StringRef AssumptionStr) {
-      return hasAssumption(CB, AssumptionStr);
-    };
+    auto &AssumptionAA = A.getAAFor<AAAssumptionInfo>(
+        *this, IRPosition::callsite_function(CB), DepClassTy::OPTIONAL);
 
     // Check for SPMD-mode assumptions.
-    if (HasAssumption(CB, "ompx_spmd_amenable")) {
+    if (AssumptionAA.hasAssumption("ompx_spmd_amenable")) {
       SPMDCompatibilityTracker.indicateOptimisticFixpoint();
       indicateOptimisticFixpoint();
     }
@@ -4418,8 +4418,8 @@ struct AAKernelInfoCallSite : AAKernelInfo {
 
         // Unknown callees might contain parallel regions, except if they have
         // an appropriate assumption attached.
-        if (!(HasAssumption(CB, "omp_no_openmp") ||
-              HasAssumption(CB, "omp_no_parallelism")))
+        if (!(AssumptionAA.hasAssumption("omp_no_openmp") ||
+              AssumptionAA.hasAssumption("omp_no_parallelism")))
           ReachedUnknownParallelRegions.insert(&CB);
 
         // If SPMDCompatibilityTracker is not fixed, we need to give up on the
@@ -4982,11 +4982,15 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
     if (F->isDeclaration())
       continue;
 
+    A.getOrCreateAAFor<AAAssumptionInfo>(IRPosition::function(*F));
     A.getOrCreateAAFor<AAExecutionDomain>(IRPosition::function(*F));
     if (!DisableOpenMPOptDeglobalization)
       A.getOrCreateAAFor<AAHeapToStack>(IRPosition::function(*F));
 
     for (auto &I : instructions(*F)) {
+      if (auto *CB = dyn_cast<CallBase>(&I))
+        A.getOrCreateAAFor<AAAssumptionInfo>(
+            IRPosition::callsite_function(*CB));
       if (auto *LI = dyn_cast<LoadInst>(&I)) {
         bool UsedAssumedInformation = false;
         A.getAssumedSimplified(IRPosition::value(*LI), /* AA */ nullptr,
