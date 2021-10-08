@@ -9926,18 +9926,18 @@ private:
   /// functions.
   void markReachable(Attributor &A, const CallBase &FromCB,
                      const Function &Fn) {
+    // We assume intrinsics are not calling other functions.
+    // TODO: Intrinsics should have a "leaf" attribute (or similar) which
+    // exists somewhere already.
+    if (Fn.getIntrinsicID() != Intrinsic::not_intrinsic)
+      return;
+
     // We remember call site specific reachability and function wide
     // reachability in the same set.
     DirectReachableFns.insert({&FromCB, &Fn});
     DirectReachableFns.insert({nullptr, &Fn});
 
     if (&Fn == FromCB.getCaller())
-      return;
-
-    // We assume intrinsics are not calling other functions.
-    // TODO: Intrinsics should have a "leaf" attribute (or similar) which
-    // exists somewhere already.
-    if (Fn.getIntrinsicID() != Intrinsic::not_intrinsic)
       return;
 
     const auto &FnReachAA = A.getAAFor<AAFunctionReachability>(
@@ -9961,11 +9961,13 @@ private:
     if (CB.isInlineAsm()) {
       // Check if the assumptions tell us this is not a call. If not, record it
       // as unknown asm call.
+      #if 0
       if (!hasAssumption(*CB.getCaller(), "ompx_no_call_asm") &&
           !hasAssumption(CB, "ompx_no_call_asm")) {
         LLVM_DEBUG(dbgs() << "Unknown callee via ASM: " << CB << "\n");
         HasUnknownAsmCallee = true;
       }
+      #endif
       return;
     }
 
