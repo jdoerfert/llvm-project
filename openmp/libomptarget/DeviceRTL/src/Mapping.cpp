@@ -43,6 +43,13 @@ uint32_t getWorkgroupDim(uint32_t group_id, uint32_t grid_size,
   return (r < group_size) ? r : group_size;
 }
 
+__attribute__((noinline)) extern "C" uint32_t
+__kmpc_get_hardware_num_threads_in_block() {
+  return getWorkgroupDim(__builtin_amdgcn_workgroup_id_x(),
+                         __builtin_amdgcn_grid_size_x(),
+                         __builtin_amdgcn_workgroup_size_x());
+}
+
 LaneMaskTy activemask() { return __builtin_amdgcn_read_exec(); }
 
 LaneMaskTy lanemaskLT() {
@@ -77,10 +84,7 @@ uint32_t getNumberOfBlocks() {
 }
 
 uint32_t getNumberOfProcessorElements() {
-  // TODO: verify this logic for generic mode.
-  return getWorkgroupDim(__builtin_amdgcn_workgroup_id_x(),
-                         __builtin_amdgcn_grid_size_x(),
-                         __builtin_amdgcn_workgroup_size_x());
+  return __kmpc_get_hardware_num_threads_in_block();
 }
 
 uint32_t getWarpId() {
