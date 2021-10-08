@@ -176,6 +176,8 @@ define i32* @checkAndAdvance(i32* align 16 %0) {
 ; GRAPH-NEXT: [AAMemoryLocation] for CtxI '  %6 = call i32* @checkAndAdvance(i32* %5)' at position {cs: [@-1]} with state memory:argument
 ; GRAPH-NEXT:   updates [AAMemoryLocation] for CtxI <<null inst>> at position {fn:checkAndAdvance [checkAndAdvance@-1]} with state memory:argument
 ; GRAPH-EMPTY:
+; GRAPH-NEXT: [AAAssumptionInfo] for CtxI ' %6 = call i32* @checkAndAdvance(i32* %5)' at position {cs: [@-1]} with state Known [], Assumed []
+; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AAValueSimplify] for CtxI '  %6 = call i32* @checkAndAdvance(i32* %5)' at position {cs_ret: [@-1]} with state not-simple
 ; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AAIsDead] for CtxI '  %6 = call i32* @checkAndAdvance(i32* %5)' at position {cs_arg: [@0]} with state assumed-live
