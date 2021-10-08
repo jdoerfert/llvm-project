@@ -65,10 +65,10 @@ uint64_t atomicAdd(uint64_t *Address, uint64_t Val, int Ordering) {
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
 
 uint32_t atomicInc(uint32_t *Address, uint32_t Val, int Ordering) {
-  return __builtin_amdgcn_atomic_inc32(Address, Val, Ordering, "");
+  return __builtin_amdgcn_atomic_inc32(Address, Val, __ATOMIC_SEQ_CST, "");
 }
 
-uint32_t SHARD(namedBarrierTracker);
+uint32_t SHARED(namedBarrierTracker);
 
 void namedBarrierInit() {
   // Don't have global ctors, and shared memory is not zero init
@@ -79,7 +79,7 @@ void namedBarrier() {
   uint32_t NumThreads = omp_get_num_threads();
   // assert(NumThreads % 32 == 0);
 
-  uint32_t WarpSize = maping::getWarpSize();
+  uint32_t WarpSize = mapping::getWarpSize();
   uint32_t NumWaves = NumThreads / WarpSize;
 
   fence::team(__ATOMIC_ACQUIRE);
@@ -115,7 +115,7 @@ void namedBarrier() {
       // more waves still to go, spin until generation counter changes
       do {
         __builtin_amdgcn_s_sleep(0);
-        load = atomi::load(&namedBarrierTracker, __ATOMIC_RELAXED);
+        load = atomic::read(&namedBarrierTracker, __ATOMIC_RELAXED);
       } while ((load & 0xffff0000u) == generation);
     }
   }
@@ -132,11 +132,35 @@ void syncThreads() { __builtin_amdgcn_s_barrier(); }
 void syncThreadsAligned() { syncThreads(); }
 #pragma omp end assumes
 
-void fenceTeam(int Ordering) { __builtin_amdgcn_fence(Ordering, "workgroup"); }
+void fenceTeam(int Ordering) {
+  __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "workgroup");
+}
 
-void fenceKernel(int Ordering) { __builtin_amdgcn_fence(Ordering, "agent"); }
+void fenceKernel(int Ordering) {
+  __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "agent");
+}
 
-void fenceSystem(int Ordering) { __builtin_amdgcn_fence(Ordering, ""); }
+void fenceSystem(int Ordering) { __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, ""); }
+
+// TODO: Rebase needed
+#define PRINT
+
+static void warn() {
+  PRINT("Locks are not supported in this thread mapping model");
+}
+
+void unsetLock(omp_lock_t *Lock) { warn(); }
+
+int testLock(omp_lock_t *Lock) {
+  warn();
+  return 0;
+}
+
+void initLock(omp_lock_t *Lock) { warn(); }
+
+void destoryLock(omp_lock_t *Lock) { warn(); }
+
+void setLock(omp_lock_t *Lock) { warn(); }
 
 #pragma omp end declare variant
 ///}

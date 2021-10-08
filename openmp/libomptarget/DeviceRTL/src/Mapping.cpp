@@ -20,11 +20,6 @@
 
 using namespace _OMP;
 
-__attribute__((noinline)) extern "C" uint32_t
-__kmpc_get_hardware_num_threads_in_block() {
-  return __nvvm_read_ptx_sreg_ntid_x();
-}
-
 namespace _OMP {
 namespace impl {
 
@@ -34,7 +29,7 @@ namespace impl {
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
 
 constexpr const llvm::omp::GV &getGridValue() {
-  return llvm::omp::AMDGPUGridValues;
+  return llvm::omp::AMDGPUGridValues64;
 }
 
 uint32_t getGridDim(uint32_t n, uint16_t d) {
@@ -104,6 +99,11 @@ uint32_t getNumberOfWarpsInBlock() {
 ///{
 #pragma omp begin declare variant match(                                       \
     device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
+
+__attribute__((noinline)) extern "C" uint32_t
+__kmpc_get_hardware_num_threads_in_block() {
+  return __nvvm_read_ptx_sreg_ntid_x();
+}
 
 constexpr const llvm::omp::GV &getGridValue() {
   return llvm::omp::NVPTXGridValues;
