@@ -195,7 +195,7 @@ int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
   uint32_t NumTeams = mapping::getNumberOfBlocks();
   uint32_t NumThreads = mapping::getBlockSize();
   if (mapping::isGenericMode()) {
-    if (!mapping::isMainThreadInGenericMode())
+    if (!mapping::isMainThreadInGenericMode(/* IsSPMD */ false))
       return 0;
     ThreadId = 0;
     NumThreads = /* main thread only */ 1;
