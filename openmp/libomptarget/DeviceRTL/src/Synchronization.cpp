@@ -126,9 +126,9 @@ void syncWarp(__kmpc_impl_lanemask_t) {
   // AMDGCN doesn't need to sync threads in a warp
 }
 
-#pragma omp begin assumes ext_aligned_barrier
 void syncThreads() { __builtin_amdgcn_s_barrier(); }
 
+#pragma omp begin assumes ext_aligned_barrier
 void syncThreadsAligned() { syncThreads(); }
 #pragma omp end assumes
 
