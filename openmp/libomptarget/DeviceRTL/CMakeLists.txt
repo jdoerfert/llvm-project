@@ -105,6 +105,7 @@ function(build_nvptx_bclib)
 
   set(devicertl_base_directory ${CMAKE_CURRENT_SOURCE_DIR})
   set(include_directory ${devicertl_base_directory}/include)
+  set(common_include_directory ${devicertl_base_directory}/../include)
   set(source_directory ${devicertl_base_directory}/src)
 
   set(all_capabilities 35 37 50 52 53 60 61 62 70 72 75 80)
@@ -165,6 +166,7 @@ function(build_nvptx_bclib)
               -fopenmp -fopenmp-cuda-mode -Xclang -fopenmp-is-device
               -Xclang -target-feature -Xclang +ptx61
               -I${include_directory}
+              -I${common_include_directory}
               ${LIBOMPTARGET_LLVM_INCLUDE_DIRS_DEVICERTL}
   )
 
@@ -324,6 +326,7 @@ function(build_amdgcn_bclib)
       -nogpulib
       -O${optimization_level}
       -I${include_directory}
+      -I${common_include_directory}
       ${LIBOMPTARGET_LLVM_INCLUDE_DIRS_AMDGCN})
 
     set(bc1_files)

@@ -142,11 +142,7 @@ void fenceKernel(int Ordering) {
 
 void fenceSystem(int Ordering) { __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, ""); }
 
-// TODO: Rebase needed
-#define PRINT
-
 static void warn() {
-  PRINT("Locks are not supported in this thread mapping model");
 }
 
 void unsetLock(omp_lock_t *Lock) { warn(); }

@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Mapping.h"
+#include "Interface.h"
 #include "State.h"
 #include "Types.h"
 #include "Utils.h"
@@ -43,8 +44,7 @@ uint32_t getWorkgroupDim(uint32_t group_id, uint32_t grid_size,
   return (r < group_size) ? r : group_size;
 }
 
-__attribute__((noinline)) extern "C" uint32_t
-__kmpc_get_hardware_num_threads_in_block() {
+uint32_t getHardwareNumThreadsInBlock() {
   return getWorkgroupDim(__builtin_amdgcn_workgroup_id_x(),
                          __builtin_amdgcn_grid_size_x(),
                          __builtin_amdgcn_workgroup_size_x());
@@ -104,8 +104,7 @@ uint32_t getNumberOfWarpsInBlock() {
 #pragma omp begin declare variant match(                                       \
     device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
 
-__attribute__((noinline)) extern "C" uint32_t
-__kmpc_get_hardware_num_threads_in_block() {
+uint32_t getHardwareNumThreadsInBlock() {
   return __nvvm_read_ptx_sreg_ntid_x();
 }
 
@@ -274,6 +273,9 @@ bool mapping::isGenericMode() { return !isSPMDMode(); }
 extern "C" {
 __attribute__((noinline)) uint32_t __kmpc_get_hardware_thread_id_in_block() {
   return mapping::getThreadIdInBlock();
+}
+__attribute__((noinline)) uint32_t __kmpc_get_hardware_num_threads_in_block() {
+  return impl::getHardwareNumThreadsInBlock();
 }
 }
 #pragma omp end declare target
