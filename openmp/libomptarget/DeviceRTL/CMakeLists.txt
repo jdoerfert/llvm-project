@@ -12,6 +12,7 @@
 
 set(devicertl_base_directory ${CMAKE_CURRENT_SOURCE_DIR})
 set(include_directory ${devicertl_base_directory}/include)
+set(common_include_directory ${devicertl_base_directory}/../include)
 set(source_directory ${devicertl_base_directory}/src)
 
 # TODO: This part needs to be refined when libomptarget is going to support
