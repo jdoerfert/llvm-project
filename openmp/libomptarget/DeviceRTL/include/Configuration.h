@@ -15,6 +15,9 @@
 
 #include "Types.h"
 
+extern int32_t __omp_rtl_assume_teams_oversubscription;
+extern int32_t __omp_rtl_assume_threads_oversubscription;
+
 namespace _OMP {
 namespace config {
 
