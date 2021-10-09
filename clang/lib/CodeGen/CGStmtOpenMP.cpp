@@ -7314,7 +7314,7 @@ void CodeGenFunction::EmitOMPTaskLoopBasedDirective(const OMPLoopDirective &S) {
     bool CondConstant = true;
     llvm::BasicBlock *ContBlock = nullptr;
     OMPLoopScope PreInitScope(CGF, S);
-    if (CGM.getLangOpts().OpenMPIsDevice || CGF.ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
+    if (CGF.getLangOpts().OpenMPIsDevice || CGF.ConstantFoldsToSimpleInteger(S.getPreCond(), CondConstant)) {
       if (!CondConstant)
         return;
     } else {
