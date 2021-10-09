@@ -30,6 +30,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TargetInfo.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/Assumptions.h"
@@ -2865,13 +2866,6 @@ CodeGenFunction::GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, uns
                                 ImplicitParamDecl::CapturedContext);
   DC->addDecl(Param);
   Args.insert(Args.begin(), Param);
-
-  IdentifierInfo *IncrParamName = &getContext().Idents.get("loop_incr");
-  auto *IncrParam =
-      ImplicitParamDecl::Create(getContext(), DC, Loc, IncrParamName, ParamType,
-                                ImplicitParamDecl::CapturedContext);
-  DC->addDecl(IncrParam);
-  Args.insert(Args.begin()+1, IncrParam);
   Args.insert(Args.end(), CD->getParam(2));
 
   // Create the function declaration.
@@ -2916,7 +2910,7 @@ CodeGenFunction::GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, uns
   PGO.assignRegionCounters(GlobalDecl(CD), F);
 
   ValueDecl *LoopIndVD = const_cast<VarDecl *>(
-     cast<ImplicitParamDecl>(*(Args.begin()+1))->getMostRecentDecl());
+     cast<ImplicitParamDecl>(*(Args.begin()))->getMostRecentDecl());
   LoopIndVD->markUsed(getContext());
 
   auto *LoopInd = DeclRefExpr::Create(
@@ -2924,35 +2918,72 @@ CodeGenFunction::GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, uns
       /*RefersToEnclosingVariableOrCapture=*/false, Loc,
       LoopIndVD->getType(), VK_LValue);
 
-  ValueDecl *IncrVD = const_cast<VarDecl *>(
-     cast<ImplicitParamDecl>(*Args.begin())->getMostRecentDecl());
-  IncrVD->markUsed(getContext());
-
-  auto *Incr = DeclRefExpr::Create(
-      getContext(), NestedNameSpecifierLoc(), SourceLocation(), IncrVD,
-      /*RefersToEnclosingVariableOrCapture=*/false, Loc,
-      IncrVD->getType(), VK_LValue);
-
   auto *BodyStmt = CD->getBody();
   while (!isa<ForStmt>(BodyStmt)) {
     BodyStmt = cast<CompoundStmt>(BodyStmt)->body_front();
   }
   ForStmt *ForLoop = cast<ForStmt>(BodyStmt);
- 
-  auto *BOp = BinaryOperator::Create(getContext(), Incr, LoopInd, BO_Mul, LoopInd->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
+
+  auto *LoopInc = ForLoop->getInc();
+  bool IsPositive;
+  llvm::Value *IncrVal = nullptr;
+  Expr *RHS, *Incr;
+
+  if (auto *IncOp = dyn_cast<UnaryOperator>(LoopInc)) {
+    IncrVal = llvm::ConstantInt::get(llvm::IntegerType::get(getLLVMContext(), IVSize), IncOp->isIncrementOp() ? 1 : -1);
+    llvm::APInt Zero(IVSize, IncOp->isIncrementOp() ? 1 : -1, 1);
+    Incr = IntegerLiteral::Create(getContext(), Zero, getContext().getIntTypeForBitwidth(IVSize, 1), SourceLocation());
+  } else if (auto *IncOp = dyn_cast<CompoundAssignOperator>(LoopInc)) {
+    IsPositive = IncOp->getOpcode() == BO_AddAssign;
+    RHS = IncOp->getRHS();
+  } else if (auto *IncOp = dyn_cast<BinaryOperator>(LoopInc)) {
+    auto * RHSOp = cast<BinaryOperator>(IncOp->getRHS());
+    if (isa<ImplicitCastExpr>(RHSOp->getRHS())) {
+      RHS = RHSOp->getLHS();
+    } else {
+      RHS = RHSOp->getRHS();
+    }
+    IsPositive = RHSOp->getOpcode() == BO_Add;
+  }
+
+  if (!IncrVal) {
+    if (!IsPositive) {
+      llvm::ConstantInt *Sign = llvm::ConstantInt::getSigned(llvm::IntegerType::get(getLLVMContext(), IVSize), -1);
+      Incr = BinaryOperator::Create(
+           getContext(),
+           IntegerLiteral(getContext(), Sign->getValue(),
+                          getContext().getIntTypeForBitwidth(IVSize, IVSigned),
+                          SourceLocation())
+               .getExprStmt(),
+           RHS, 
+           BO_Mul,
+           getContext().getIntTypeForBitwidth(IVSize, IVSigned),
+           VK_LValue,
+           OK_Ordinary,
+           SourceLocation(),
+           FPOptionsOverride()
+      );
+    } else {
+      Incr = RHS;
+    }
+  }
 
   auto *ForLoopInit = ForLoop->getInit();
   if (auto *Expr = dyn_cast<DeclStmt>(ForLoopInit)) {
-    auto *AddExpr = BinaryOperator::Create(getContext(), BOp, cast<VarDecl>(Expr->getSingleDecl())->getInit(), BO_Add, cast<VarDecl>(Expr->getSingleDecl())->getInit()->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
+    auto *BOp = BinaryOperator::Create(getContext(), Incr, LoopInd, BO_Mul, LoopInd->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
+    auto *CastExpr = ImplicitCastExpr::Create(getContext(), cast<VarDecl>(Expr->getSingleDecl())->getInit()->getType(), CK_IntegralCast, BOp, nullptr,  VK_PRValue, FPOptionsOverride());
+    auto *AddExpr = BinaryOperator::Create(getContext(), CastExpr, cast<VarDecl>(Expr->getSingleDecl())->getInit(), BO_Add, cast<VarDecl>(Expr->getSingleDecl())->getInit()->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
     cast<VarDecl>(Expr->getSingleDecl())->setInit(AddExpr);
   } else if (auto *Expr = dyn_cast<BinaryOperator>(ForLoopInit)) {
+    auto *CastExpr = ImplicitCastExpr::Create(getContext(), Expr->getRHS()->getType(), CK_IntegralCast, LoopInd, nullptr,  VK_PRValue, FPOptionsOverride());
+    auto *BOp = BinaryOperator::Create(getContext(), Incr, CastExpr, BO_Mul, LoopInd->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
     auto *AddExpr = BinaryOperator::Create(getContext(), BOp, Expr->getRHS(), BO_Add, Expr->getRHS()->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
     Expr->setRHS(AddExpr);
   } else {
     llvm_unreachable("Unsupported initialization in for loop");
   }
 
-  EmitStmt(ForLoop->getInit());
+  EmitStmt(ForLoopInit);
   EmitStmt(ForLoop->getBody());
   FinishFunction(CD->getBodyRBrace());
 

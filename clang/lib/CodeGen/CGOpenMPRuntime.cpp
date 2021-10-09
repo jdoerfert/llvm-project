@@ -37,6 +37,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -1617,12 +1618,12 @@ CGOpenMPRuntime::createForStaticLoopFunction(unsigned IVSize, bool IVSigned,
   llvm::FunctionType *FTy;
   if (IVSize == 64)
       FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
-                                    {CGM.Int64Ty, CGM.Int64Ty,
-                                     OutlinedFn->getFunctionType()->getParamType(2)}, false);
+                                    {CGM.Int64Ty, 
+                                     OutlinedFn->getFunctionType()->getParamType(1)}, false);
   else
       FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
-                                    {CGM.Int32Ty, CGM.Int32Ty,
-                                     OutlinedFn->getFunctionType()->getParamType(2)}, false);
+                                    {CGM.Int32Ty, 
+                                     OutlinedFn->getFunctionType()->getParamType(1)}, false);
   llvm::FunctionType *FnTy;
   if (IsGPUDistribute) {
     Name = IVSize == 32 ? "__kmpc_distribute_for_static_loop_4"
@@ -1631,9 +1632,8 @@ CGOpenMPRuntime::createForStaticLoopFunction(unsigned IVSize, bool IVSigned,
     llvm::Type *TypeParams[] = {
       getIdentTyPointerTy(),                     // loc
       FTy->getPointerTo(),                       // loop_body
-      CGM.VoidPtrPtrTy,                          // args
+      CGM.VoidPtrTy,                             // args
       CGM.Int64Ty,                               // num_iters
-      ITy,                                       // incr
       ITy,                                       // outer_chunk
       ITy                                        // inner_chunk
     };
@@ -1646,9 +1646,8 @@ CGOpenMPRuntime::createForStaticLoopFunction(unsigned IVSize, bool IVSigned,
     llvm::Type *TypeParams[] = {
       getIdentTyPointerTy(),                     // loc
       FTy->getPointerTo(),                       // loop_body
-      CGM.VoidPtrPtrTy,                          // args
+      CGM.VoidPtrTy,                             // args
       ITy,                                       // num_iters
-      ITy,                                       // incr
       ITy                                        // chunk
     };
 
@@ -2955,9 +2954,8 @@ static void emitForStaticLoopCall(
     llvm::Value *FnArgs[] = {
       /* Ident Loc    */ UpdateLocation,
       /* Loop Body    */ OutlinedFn,
-      /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrPtrTy),
+      /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrTy),
       /* Num Iters    */ NumIters,
-      /* Loop Inc     */ Incr,
       /* Outer Chunk  */ Chunk, 
       /* Inner Chunk  */ CGF.Builder.getIntN(IVSize, 1)
     };
@@ -2967,9 +2965,8 @@ static void emitForStaticLoopCall(
     llvm::Value *FnArgs[] = {
       /* Ident Loc    */ UpdateLocation,
       /* Loop Body    */ OutlinedFn,
-      /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrPtrTy),
+      /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrTy),
       /* Upper        */ NumIters,
-      /* Loop Inc     */ Incr,
       /* Chunk Size   */ Chunk};
 
     CGF.EmitRuntimeCall(ForStaticLoopFunction, FnArgs);

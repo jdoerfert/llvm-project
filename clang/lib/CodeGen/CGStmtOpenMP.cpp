@@ -3322,6 +3322,7 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
         // Default behaviour for dist_schedule clause.
         CGF.CGM.getOpenMPRuntime().getDefaultDistScheduleAndChunk(
             CGF, S, ScheduleKind, Chunk);
+        Chunk = llvm::ConstantInt::get(llvm::IntegerType::get(CGF.getLLVMContext(), IVSize), 0, 0);
       }
 
       auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(CGF, CS, IVSize, IVSigned, *LoopArgs);
