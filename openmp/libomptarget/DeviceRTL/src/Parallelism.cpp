@@ -54,11 +54,13 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
   if (NThreadsICV != 0 && NThreadsICV < NumThreads)
     NumThreads = NThreadsICV;
 
+  #if 0
   // Round down to a multiple of WARPSIZE since it is legal to do so in OpenMP.
   if (NumThreads < mapping::getWarpSize())
     NumThreads = 1;
   else
     NumThreads = (NumThreads & ~((uint32_t)mapping::getWarpSize() - 1));
+  #endif
 
   return NumThreads;
 }
