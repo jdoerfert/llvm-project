@@ -2990,6 +2990,8 @@ void CodeGenFunction::EmitOMPOuterLoop(
 
     auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(*this, CS, IVSize, IVSigned, LoopArgs);
     auto *NumIters = EmitScalarExpr(S.getUpperBoundVariable());
+    llvm::Type *ITy = IVSize == 32 ? CGM.Int32Ty : CGM.Int64Ty;
+    NumIters = Builder.CreateSExtOrTrunc(NumIters, ITy);
 
     RT.emitForStaticLoop(*this, S, OutlinedFn, CapturedVars[0], NumIters, LoopArgs.Chunk, false);
   }
@@ -3327,6 +3329,8 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
 
       auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(CGF, CS, IVSize, IVSigned, *LoopArgs);
       auto *NumIters = CGF.EmitScalarExpr(S.getPrevUpperBoundVariable());
+      llvm::Type *ITy = IVSize == 32 ? CGF.CGM.Int32Ty : CGF.CGM.Int64Ty;
+      NumIters = CGF.Builder.CreateSExtOrTrunc(NumIters, ITy);
       CGF.CGM.getOpenMPRuntime().emitForStaticLoop(CGF, S, OutlinedFn, CapturedVars[0], NumIters, Chunk, true);
     }
   };
