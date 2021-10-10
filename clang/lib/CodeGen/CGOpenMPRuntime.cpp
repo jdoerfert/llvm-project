@@ -1612,17 +1612,17 @@ CGOpenMPRuntime::createForStaticLoopFunction(unsigned IVSize, bool IVSigned,
   assert((IVSize == 32 || IVSize == 64) &&
          "IV size is not compatible with the omp runtime");
   StringRef Name;
-  
+
   llvm::Type *ITy = IVSize == 32 ? CGM.Int32Ty : CGM.Int64Ty;
   auto &LLVMContext = CGM.getLLVMContext();
   llvm::FunctionType *FTy;
   if (IVSize == 64)
       FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
-                                    {CGM.Int64Ty, 
+                                    {CGM.Int64Ty,
                                      OutlinedFn->getFunctionType()->getParamType(1)}, false);
   else
       FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
-                                    {CGM.Int32Ty, 
+                                    {CGM.Int32Ty,
                                      OutlinedFn->getFunctionType()->getParamType(1)}, false);
   llvm::FunctionType *FnTy;
   if (IsGPUDistribute) {
@@ -1633,7 +1633,7 @@ CGOpenMPRuntime::createForStaticLoopFunction(unsigned IVSize, bool IVSigned,
       getIdentTyPointerTy(),                     // loc
       FTy->getPointerTo(),                       // loop_body
       CGM.VoidPtrTy,                             // args
-      CGM.Int64Ty,                               // num_iters
+      ITy,                               // num_iters
       ITy,                                       // outer_chunk
       ITy                                        // inner_chunk
     };
@@ -2887,7 +2887,7 @@ static void emitForStaticLoopCall(
     CodeGenFunction &CGF, llvm::Value *UpdateLocation,
     llvm::FunctionCallee ForStaticLoopFunction,
     llvm::Function *OutlinedFn,
-    const OMPLoopDirective &S, llvm::Value *Args, 
+    const OMPLoopDirective &S, llvm::Value *Args,
     llvm::Value *NumIters,
     llvm::Value *Chunk,
     bool IsGPUDistribute) {
@@ -2936,7 +2936,7 @@ static void emitForStaticLoopCall(
                           Context.getIntTypeForBitwidth(IVSize, IVSigned),
                           SourceLocation())
                .getExprStmt(),
-           RHS, 
+           RHS,
            BO_Mul,
            CGF.getContext().getIntTypeForBitwidth(IVSize, IVSigned),
            VK_LValue,
@@ -2949,14 +2949,14 @@ static void emitForStaticLoopCall(
       Incr = CGF.EmitScalarExpr(RHS);
     }
   }
-  
+
   if (IsGPUDistribute) {
     llvm::Value *FnArgs[] = {
       /* Ident Loc    */ UpdateLocation,
       /* Loop Body    */ OutlinedFn,
       /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrTy),
       /* Num Iters    */ NumIters,
-      /* Outer Chunk  */ Chunk, 
+      /* Outer Chunk  */ Chunk,
       /* Inner Chunk  */ CGF.Builder.getIntN(IVSize, 1)
     };
 
@@ -2995,7 +2995,7 @@ void CGOpenMPRuntime::emitForStaticInit(CodeGenFunction &CGF,
 }
 
 void CGOpenMPRuntime::emitForStaticLoop(CodeGenFunction &CGF,
-                                        const OMPLoopDirective &S, 
+                                        const OMPLoopDirective &S,
                                         llvm::Function *OutlinedFn,
                                         llvm::Value *Args,
                                         llvm::Value *NumIters,
