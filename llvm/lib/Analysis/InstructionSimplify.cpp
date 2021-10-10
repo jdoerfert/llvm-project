@@ -39,6 +39,7 @@
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/IR/ValueHandle.h"
@@ -597,6 +598,20 @@ static Value *ThreadCmpOverPHI(CmpInst::Predicate Pred, Value *LHS, Value *RHS,
   }
 
   return CommonValue;
+}
+
+static Constant *foldIntrinsicConstant(ICmpInst::Predicate Pred, Value *Op0,
+                                       Value *Op1, Type *RetTy) {
+  IntrinsicInst *Inst0 = dyn_cast<IntrinsicInst>(Op0);
+  IntrinsicInst *Inst1 = dyn_cast<IntrinsicInst>(Op1);
+
+  // fold %cmp = icmp slt i32 %tid, %ntid to true.
+  if (Inst0->getIntrinsicID() == Intrinsic::nvvm_read_ptx_sreg_tid_x &&
+      Inst1->getIntrinsicID() == Intrinsic::nvvm_read_ptx_sreg_ntid_x)
+    if (ICmpInst::isLE(Pred) || ICmpInst::isLT(Pred))
+      return ConstantInt::getTrue(RetTy);
+
+  return nullptr;
 }
 
 static Constant *foldOrCommuteConstant(Instruction::BinaryOps Opcode,
@@ -3702,6 +3717,12 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
   if (isa<PHINode>(LHS) || isa<PHINode>(RHS))
     if (Value *V = ThreadCmpOverPHI(Pred, LHS, RHS, Q, MaxRecurse))
       return V;
+
+  // If the comparison is with two instrinsic instructions try to fold them
+  // using domain knowledge.
+  if (isa<IntrinsicInst>(LHS) && isa<IntrinsicInst>(RHS))
+    if (Constant *C = foldIntrinsicConstant(Pred, LHS, RHS, ITy))
+      return C;
 
   return nullptr;
 }
