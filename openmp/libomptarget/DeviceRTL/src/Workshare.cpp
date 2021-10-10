@@ -33,7 +33,7 @@ template <typename Ty> class StaticLoopChunker {
   // single loop in this case
   static void NormalizedLoopNestNoChunk(void (*LoopBody)(Ty, void *), void *Arg,
                                         Ty NumBlocks, Ty BId, Ty NumThreads,
-                                        Ty TId, Ty NumIters) {
+                                        Ty TId, Ty NumIters, bool Break) {
     Ty KernelIteration = NumBlocks * NumThreads;
 
     // Start index in the normalized space.
@@ -51,6 +51,9 @@ template <typename Ty> class StaticLoopChunker {
         // Every thread executed one block and thread chunk now.
         IV += KernelIteration;
 
+        if (Break)
+          break;
+
       } while (IV < NumIters);
     }
   }
@@ -60,7 +63,7 @@ template <typename Ty> class StaticLoopChunker {
   static void NormalizedLoopNestChunked(void (*LoopBody)(Ty, void *), void *Arg,
                                         Ty BlockChunk, Ty NumBlocks, Ty BId,
                                         Ty ThreadChunk, Ty NumThreads, Ty TId,
-                                        Ty NumIters) {
+                                        Ty NumIters, bool ) {
     Ty KernelIteration = NumBlocks * BlockChunk;
 
     // Start index in the chunked space.
@@ -119,15 +122,18 @@ public:
 
     // If we know we have more threads than iterations we can indicate that to
     // avoid an outer loop.
-    if (__omp_rtl_assume_threads_oversubscription)
+    bool Break = false;
+    if (__omp_rtl_assume_threads_oversubscription) {
       ASSERT(NumThreads >= NumIters);
+      Break = true;
+    }
 
     if (ThreadChunk != 1)
       NormalizedLoopNestChunked(LoopBody, Arg, BlockChunk, NumBlocks, BId,
-                                ThreadChunk, NumThreads, TId, NumIters);
+                                ThreadChunk, NumThreads, TId, NumIters, Break);
     else
       NormalizedLoopNestNoChunk(LoopBody, Arg, NumBlocks, BId, NumThreads, TId,
-                                NumIters);
+                                NumIters, Break);
   }
 
   static void Distribute(IdentTy *Loc, void (*LoopBody)(Ty, void *), void *Arg,
@@ -156,15 +162,18 @@ public:
 
     // If we know we have more blocks than iterations we can indicate that to
     // avoid an outer loop.
-    if (__omp_rtl_assume_teams_oversubscription)
+    bool Break = false;
+    if (__omp_rtl_assume_teams_oversubscription) {
       ASSERT(NumBlocks >= NumIters);
+      Break = true;
+    }
 
     if (BlockChunk != NumThreads)
       NormalizedLoopNestChunked(LoopBody, Arg, BlockChunk, NumBlocks, BId,
-                                ThreadChunk, NumThreads, TId, NumIters);
+                                ThreadChunk, NumThreads, TId, NumIters, Break);
     else
       NormalizedLoopNestNoChunk(LoopBody, Arg, NumBlocks, BId, NumThreads, TId,
-                                NumIters);
+                                NumIters, Break);
 
     ASSERT(icv::Level == 0);
     ASSERT(icv::ActiveLevel == 0);
@@ -203,16 +212,19 @@ public:
 
     // If we know we have more threads (across all blocks) than iterations we
     // can indicate that to avoid an outer loop.
+    bool Break = false;
     if (__omp_rtl_assume_teams_oversubscription &
-        __omp_rtl_assume_threads_oversubscription)
+        __omp_rtl_assume_threads_oversubscription) {
+      Break = true;
       ASSERT(NumBlocks * NumThreads >= NumIters);
+    }
 
     if (BlockChunk != NumThreads || ThreadChunk != 1)
       NormalizedLoopNestChunked(LoopBody, Arg, BlockChunk, NumBlocks, BId,
-                                ThreadChunk, NumThreads, TId, NumIters);
+                                ThreadChunk, NumThreads, TId, NumIters, Break);
     else
       NormalizedLoopNestNoChunk(LoopBody, Arg, NumBlocks, BId, NumThreads, TId,
-                                NumIters);
+                                NumIters, Break);
 
     ASSERT(icv::Level == 1);
     ASSERT(icv::ActiveLevel == 1);
