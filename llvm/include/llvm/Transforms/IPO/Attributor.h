@@ -1051,7 +1051,7 @@ struct InformationCache {
     return FI.CalledViaMustTail || FI.ContainsMustTailCall;
   }
 
-  bool isOnlyUsedByAssume(const Instruction &I) {
+  bool isOnlyUsedByAssume(const Instruction &I) const {
     return AssumeOnlyValues.contains(&I);
   }
 

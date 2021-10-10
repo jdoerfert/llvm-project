@@ -3571,6 +3571,11 @@ struct AAIsDeadValueImpl : public AAIsDead {
       if (!C.hasValue() || *C)
         return true;
     }
+    // if (auto *LI = dyn_cast<LoadInst>(&V)) {
+    // if (A.getInfoCache().isOnlyUsedByAssume(*LI)) {
+
+    //}
+    //}
 
     auto UsePred = [&](const Use &U, bool &Follow) { return false; };
     // Explicitly set the dependence class to required because we want a long
@@ -5739,6 +5744,14 @@ struct AAValueSimplifyImpl : AAValueSimplify {
             AA::getWithType(*Content, *AA.getAssociatedType());
         if (!CastedContent)
           return false;
+        #if 0
+        bool UsedAssumedInformation = false;
+        if (A.getInfoCache().isOnlyUsedByAssume(L) &&
+            !A.isAssumedDead(IRPosition::inst(*Acc.getLocalInst()), &AA,
+                             nullptr, UsedAssumedInformation))
+          return false;
+        #endif
+
         if (IsExact)
           return UnionWrapper(*CastedContent, *Obj);
         if (auto *C = dyn_cast<Constant>(CastedContent))
@@ -9959,15 +9972,15 @@ private:
   /// Analyze the call base \p CB to determine reachable functions.
   void handleReachableCallBase(Attributor &A, CallBase &CB) {
     if (CB.isInlineAsm()) {
-      // Check if the assumptions tell us this is not a call. If not, record it
-      // as unknown asm call.
-      #if 0
+// Check if the assumptions tell us this is not a call. If not, record it
+// as unknown asm call.
+#if 0
       if (!hasAssumption(*CB.getCaller(), "ompx_no_call_asm") &&
           !hasAssumption(CB, "ompx_no_call_asm")) {
         LLVM_DEBUG(dbgs() << "Unknown callee via ASM: " << CB << "\n");
         HasUnknownAsmCallee = true;
       }
-      #endif
+#endif
       return;
     }
 

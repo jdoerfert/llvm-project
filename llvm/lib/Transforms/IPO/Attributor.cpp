@@ -2713,8 +2713,8 @@ void InformationCache::initializeInformationCache(const Function &CF,
       if (!NumUses.hasValue())
         NumUses = I->getNumUses();
       NumUses = NumUses.getValue() - /* this assume */ 1;
-      if (NumUses.getValue() != 1)
-        return;
+      if (NumUses.getValue() != 0)
+        continue;
       AssumeOnlyValues.insert(I);
       for (const Value *Op : I->operands())
         if (auto *OpI = dyn_cast<Instruction>(Op))
