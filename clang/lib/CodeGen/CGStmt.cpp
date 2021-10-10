@@ -2914,7 +2914,6 @@ CodeGenFunction::GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, uns
   
   auto *BodyStmt = CD->getBody();
   for (auto I = 0u; I < NumLoops; I++) {
-    Updates[I]->dumpColor();
     while (!isa<ForStmt>(BodyStmt)) {
       BodyStmt = cast<CompoundStmt>(BodyStmt)->body_front();
     }
@@ -2929,78 +2928,8 @@ CodeGenFunction::GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, uns
     }
     EmitStmt(ForLoopInit);
     BodyStmt = ForLoop->getBody();
-    ForLoop->getCond()->dumpColor();
   }
   EmitStmt(BodyStmt);
-
-  // auto *LoopInc = ForLoop->getInc();
-  // bool IsPositive;
-  // llvm::Value *IncrVal = nullptr;
-  // Expr *RHS, *Incr;
-
-  // if (auto *IncOp = dyn_cast<UnaryOperator>(LoopInc)) {
-  //   IncrVal = llvm::ConstantInt::get(llvm::IntegerType::get(getLLVMContext(), IVSize), IncOp->isIncrementOp() ? 1 : -1);
-  //   llvm::APInt Zero(IVSize, IncOp->isIncrementOp() ? 1 : -1, 1);
-  //   Incr = IntegerLiteral::Create(getContext(), Zero, getContext().getIntTypeForBitwidth(IVSize, 1), SourceLocation());
-  // } else if (auto *IncOp = dyn_cast<CompoundAssignOperator>(LoopInc)) {
-  //   IsPositive = IncOp->getOpcode() == BO_AddAssign;
-  //   RHS = IncOp->getRHS();
-  // } else if (auto *IncOp = dyn_cast<BinaryOperator>(LoopInc)) {
-  //   auto * RHSOp = cast<BinaryOperator>(IncOp->getRHS());
-  //   if (isa<ImplicitCastExpr>(RHSOp->getRHS())) {
-  //     RHS = RHSOp->getLHS();
-  //   } else {
-  //     RHS = RHSOp->getRHS();
-  //   }
-  //   IsPositive = RHSOp->getOpcode() == BO_Add;
-  // }
-
-  // if (!IncrVal) {
-  //   if (!IsPositive) {
-  //     llvm::ConstantInt *Sign = llvm::ConstantInt::getSigned(llvm::IntegerType::get(getLLVMContext(), IVSize), -1);
-  //     Incr = BinaryOperator::Create(
-  //          getContext(),
-  //          IntegerLiteral(getContext(), Sign->getValue(),
-  //                         getContext().getIntTypeForBitwidth(IVSize, IVSigned),
-  //                         SourceLocation())
-  //              .getExprStmt(),
-  //          RHS, 
-  //          BO_Mul,
-  //          getContext().getIntTypeForBitwidth(IVSize, IVSigned),
-  //          VK_LValue,
-  //          OK_Ordinary,
-  //          SourceLocation(),
-  //          FPOptionsOverride()
-  //     );
-  //   } else {
-  //     Incr = RHS;
-  //   }
-  // }
-
-  // auto *CastedIncrExpr = ImplicitCastExpr::Create(getContext(), LoopInd->getType(), CK_IntegralCast, Incr, nullptr,  VK_PRValue, FPOptionsOverride());
-
-  // ForStmt *ForLoop = cast<ForStmt>(BodyStmt);
-  // auto *ForLoopInit = ForLoop->getInit();
-  // if (auto *Expr = dyn_cast<DeclStmt>(ForLoopInit)) {
-  //   // auto *BOp = BinaryOperator::Create(getContext(), CastedIncrExpr, LoopInd, BO_Mul, LoopInd->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
-  //   // auto *CastExpr = ImplicitCastExpr::Create(getContext(), cast<VarDecl>(Expr->getSingleDecl())->getInit()->getType(), CK_IntegralCast, BOp, nullptr,  VK_PRValue, FPOptionsOverride());
-  //   // auto *AddExpr = BinaryOperator::Create(getContext(), CastExpr, cast<VarDecl>(Expr->getSingleDecl())->getInit(), BO_Add, cast<VarDecl>(Expr->getSingleDecl())->getInit()->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
-  //   cast<VarDecl>(Expr->getSingleDecl())->setInit(UE);
-  // } else if (auto *Expr = dyn_cast<BinaryOperator>(ForLoopInit)) {
-  //   // auto *CastExpr = ImplicitCastExpr::Create(getContext(), Expr->getRHS()->getType(), CK_IntegralCast, LoopInd, nullptr,  VK_PRValue, FPOptionsOverride());
-  //   // auto *BOp = BinaryOperator::Create(getContext(), CastedIncrExpr, CastExpr, BO_Mul, LoopInd->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
-  //   // auto *AddExpr = BinaryOperator::Create(getContext(), BOp, Expr->getRHS(), BO_Add, Expr->getRHS()->getType(), VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
-  //   Expr->setRHS(UE);
-  // } else {
-  //   llvm_unreachable("Unsupported initialization in for loop");
-  // }
-
-  // // ForLoop->getBody()->dumpColor();
-
-  // ForLoopInit->dumpColor();
-
-  // EmitStmt(ForLoopInit);
-  // EmitStmt(ForLoop->getBody());
   FinishFunction(CD->getBodyRBrace());
 
   return F;

@@ -2683,6 +2683,8 @@ public:
   /// GetAddrOfLocalVar - Return the address of a local variable.
   Address GetAddrOfLocalVar(const VarDecl *VD) {
     auto it = LocalDeclMap.find(VD);
+    if (it == LocalDeclMap.end())
+      VD->dumpColor();
     assert(it != LocalDeclMap.end() &&
            "Invalid argument to GetAddrOfLocalVar(), no decl!");
     return it->second;

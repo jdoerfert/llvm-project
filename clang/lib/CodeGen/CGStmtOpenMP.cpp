@@ -2890,7 +2890,7 @@ void CodeGenFunction::EmitOMPOuterLoop(
   const bool IVSigned = IVExpr->getType()->hasSignedIntegerRepresentation();
 
   if (DynamicOrOrdered || !CGM.getLangOpts().OMPTargetTriples.empty() ||
-      (S.getDirectiveKind() == OMPD_for || S.getDirectiveKind() == OMPD_for_simd)) {
+      (S.getDirectiveKind() == OMPD_for || S.getDirectiveKind() == OMPD_for_simd || S.getDirectiveKind() == OMPD_target_teams_distribute)) {
      JumpDest LoopExit = getJumpDestInCurrentScope("omp.dispatch.end");
 
      // Start the loop with a block that tests the condition.
@@ -3008,41 +3008,49 @@ void CodeGenFunction::EmitOMPOuterLoop(
         ForStmt *ForLoop = cast<ForStmt>(BodyStmt);
         auto *ForCond = cast<BinaryOperator>(ForLoop->getCond());
 
-        auto *Decl = dyn_cast<DeclStmt>(ForLoop->getInit())->getSingleDecl();
-        if (!Decl)
-          Decl = cast<DeclRefExpr>(dyn_cast<BinaryOperator>(ForLoop->getInit())->getLHS())->getDecl();
-
-        if (auto *LHS = dyn_cast<ImplicitCastExpr>(ForCond->getLHS())) {
-          if (auto *DRE = dyn_cast<DeclRefExpr>(LHS->getSubExpr())) {
-            if (DRE->getDecl() == Decl) {
-              if (!isa<IntegerLiteral>(ForCond->getRHS()))
-                LoopBounds.push_back(ForCond->getRHS());
-              Found = true;
-            } else {
-              DRE->dumpColor();
-              llvm_unreachable("Unhandled Loop Bound Case");
-            }
-          } else {
-            LHS->dumpColor();
-            llvm_unreachable("Unhandled LHS Loop Bound Case");
-          }
+        Decl *LoopIndDRE;
+        if (auto *LoopIndDeclStmt = dyn_cast<DeclStmt>(ForLoop->getInit())) {
+          LoopIndDRE = LoopIndDeclStmt->getSingleDecl();
         } else {
-          auto *RHS = dyn_cast<ImplicitCastExpr>(ForCond->getRHS());
-          if (auto *DRE = dyn_cast<DeclRefExpr>(RHS->getSubExpr())) {
-            if (DRE->getDecl() == Decl) {
-              if (!isa<IntegerLiteral>(ForCond->getLHS()))
-                LoopBounds.push_back(ForCond->getLHS());
-              Found = true;
-            } else {
-              DRE->dumpColor();
-              llvm_unreachable("Unhandled RHS Loop Bound Case");
-            }
-          } else {
-            RHS->dumpColor();
-            llvm_unreachable("Unhandled RHS Loop Bound Case");
-          }
+          LoopIndDRE = cast<DeclRefExpr>(dyn_cast<BinaryOperator>(ForLoop->getInit())->getLHS())->getDecl();
         }
 
+        auto GetLoopBound = [&LoopIndDRE, &LoopBounds, &Found] (Expr * LoopIndexCandidate, Expr *LoopUpperBoundCandidate) {
+          if (auto *LHS = dyn_cast<ImplicitCastExpr>(LoopIndexCandidate)) {
+            if (auto *DRE = dyn_cast<DeclRefExpr>(LHS->getSubExpr())) {
+              if (DRE->getDecl() == LoopIndDRE) {
+                if (!isa<IntegerLiteral>(LoopUpperBoundCandidate))
+                  LoopBounds.push_back(LoopUpperBoundCandidate);
+                Found = true;
+              } else {
+                DRE->getFoundDecl()->dumpColor();
+                DRE->dumpColor();
+                llvm_unreachable("Unhandled LHS Loop Bound Case");
+              }
+            } else if (auto *ICE = dyn_cast<ImplicitCastExpr>(LHS->getSubExpr())) {
+                llvm::dbgs() << "first parsed\n";
+              ICE->getSubExpr()->dumpColor();
+              while (auto *E = dyn_cast<ImplicitCastExpr>(ICE->getSubExpr())) {
+                llvm::dbgs() << "Further parsed\n";
+                E->dumpColor();
+                ICE = E;
+              }
+              ICE->dumpColor();
+              if (auto *DRE = dyn_cast<DeclRefExpr>(ICE)) {
+                if (!isa<IntegerLiteral>(LoopUpperBoundCandidate))
+                  LoopBounds.push_back(LoopUpperBoundCandidate);
+                Found = true;
+              } else {
+                LHS->dumpColor();
+                llvm_unreachable("Unhandled LHS Loop Bound Case");
+              }
+            }
+          }
+        };
+
+        GetLoopBound(ForCond->getRHS(), ForCond->getLHS());
+        if (!Found)
+          GetLoopBound(ForCond->getLHS(), ForCond->getRHS());
         if (!Found)
           llvm_unreachable("unhandled upper bound case");
 
@@ -3113,7 +3121,7 @@ void CodeGenFunction::EmitOMPOuterLoop(
 
   // Tell the runtime we are done.
   auto &&CodeGen = [DynamicOrOrdered, &S, this](CodeGenFunction &CGF) {
-    if (!DynamicOrOrdered && (!CGM.getLangOpts().OMPTargetTriples.empty() || (S.getDirectiveKind() == OMPD_for || S.getDirectiveKind() == OMPD_for_simd)))
+    if (!DynamicOrOrdered && (!CGM.getLangOpts().OMPTargetTriples.empty() || (S.getDirectiveKind() == OMPD_for || S.getDirectiveKind() == OMPD_for_simd || S.getDirectiveKind() == OMPD_target_teams_distribute)))
       CGF.CGM.getOpenMPRuntime().emitForStaticFinish(CGF, S.getEndLoc(),
                                                      S.getDirectiveKind());
   };
@@ -3198,7 +3206,7 @@ void CodeGenFunction::EmitOMPForOuterLoop(
     RT.emitForDispatchInit(*this, S.getBeginLoc(), ScheduleKind, IVSize,
                            IVSigned, Ordered, DipatchRTInputValues);
   } else if (!CGM.getLangOpts().OMPTargetTriples.empty() ||
-      (S.getDirectiveKind() == OMPD_for || S.getDirectiveKind() == OMPD_for_simd)) {
+      (S.getDirectiveKind() == OMPD_for || S.getDirectiveKind() == OMPD_for_simd || S.getDirectiveKind() == OMPD_target_teams_distribute)) {
     CGOpenMPRuntime::StaticRTInput StaticInit(
         IVSize, IVSigned, Ordered, LoopArgs.IL, LoopArgs.LB, LoopArgs.UB,
         LoopArgs.ST, LoopArgs.Chunk);
@@ -3456,46 +3464,58 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
           ForStmt *ForLoop = cast<ForStmt>(BodyStmt);
           auto *ForCond = cast<BinaryOperator>(ForLoop->getCond());
 
-          auto *Decl = dyn_cast<DeclStmt>(ForLoop->getInit())->getSingleDecl();
-          if (!Decl)
-            Decl = cast<DeclRefExpr>(dyn_cast<BinaryOperator>(ForLoop->getInit())->getLHS())->getDecl();
+        Decl *LoopIndDRE;
+        if (auto *LoopIndDeclStmt = dyn_cast<DeclStmt>(ForLoop->getInit())) {
+          LoopIndDRE = LoopIndDeclStmt->getSingleDecl();
+        } else {
+          LoopIndDRE = cast<DeclRefExpr>(dyn_cast<BinaryOperator>(ForLoop->getInit())->getLHS())->getDecl();
+        }
 
-          if (auto *LHS = dyn_cast<ImplicitCastExpr>(ForCond->getLHS())) {
+        auto GetLoopBound = [&LoopIndDRE, &LoopBounds, &Found] (Expr * LoopIndexCandidate, Expr *LoopUpperBoundCandidate) {
+          if (auto *LHS = dyn_cast<ImplicitCastExpr>(LoopIndexCandidate)) {
             if (auto *DRE = dyn_cast<DeclRefExpr>(LHS->getSubExpr())) {
-              if (DRE->getDecl() == Decl) {
-                if (!isa<IntegerLiteral>(ForCond->getRHS()))
-                  LoopBounds.push_back(ForCond->getRHS());
+              if (DRE->getDecl() == LoopIndDRE) {
+                if (!isa<IntegerLiteral>(LoopUpperBoundCandidate))
+                  LoopBounds.push_back(LoopUpperBoundCandidate);
                 Found = true;
+              // } else if (DRE->getFoundDecl() == LoopIndDRE->) {
+              //   if (!isa<IntegerLiteral>(LoopUpperBoundCandidate))
+              //     LoopBounds.push_back(LoopUpperBoundCandidate);
+              //   Found = true;
               } else {
+                LoopIndDRE->dumpColor();
                 DRE->dumpColor();
                 llvm_unreachable("Unhandled Loop Bound Case");
               }
-            } else {
-              LHS->dumpColor();
-              llvm_unreachable("Unhandled LHS Loop Bound Case");
-            }
-          } else {
-            auto *RHS = dyn_cast<ImplicitCastExpr>(ForCond->getRHS());
-            if (auto *DRE = dyn_cast<DeclRefExpr>(RHS->getSubExpr())) {
-              if (DRE->getDecl() == Decl) {
-                if (!isa<IntegerLiteral>(ForCond->getLHS()))
-                  LoopBounds.push_back(ForCond->getLHS());
+            } else if (auto *ICE = dyn_cast<ImplicitCastExpr>(LHS->getSubExpr())) {
+                llvm::dbgs() << "first parsed\n";
+              ICE->getSubExpr()->dumpColor();
+              while (auto *E = dyn_cast<ImplicitCastExpr>(ICE->getSubExpr())) {
+                llvm::dbgs() << "Further parsed\n";
+                E->dumpColor();
+                ICE = E;
+              }
+              ICE->dumpColor();
+              if (auto *DRE = dyn_cast<DeclRefExpr>(ICE)) {
+                if (!isa<IntegerLiteral>(LoopUpperBoundCandidate))
+                  LoopBounds.push_back(LoopUpperBoundCandidate);
                 Found = true;
               } else {
-                DRE->dumpColor();
-                llvm_unreachable("Unhandled RHS Loop Bound Case");
+                LHS->dumpColor();
+                llvm_unreachable("Unhandled Loop Bound Case");
               }
-            } else {
-              RHS->dumpColor();
-              llvm_unreachable("Unhandled RHS Loop Bound Case");
             }
           }
+        };
 
-          if (!Found)
-            llvm_unreachable("unhandled upper bound case");
+        // GetLoopBound(ForCond->getRHS(), ForCond->getLHS());
+        // if (!Found)
+          GetLoopBound(ForCond->getLHS(), ForCond->getRHS());
+        if (!Found)
+          llvm_unreachable("unhandled upper bound case");
 
-          BodyStmt = ForLoop->getBody();
-        }
+        BodyStmt = ForLoop->getBody();
+      }
 
         if (!LoopBounds.empty())
           LoopBounds.erase(LoopBounds.begin());
@@ -5747,7 +5767,7 @@ void CodeGenFunction::EmitOMPDistributeLoop(const OMPLoopDirective &S,
               IVSize, IVSigned, /* Ordered = */ false, IL.getAddress(*this),
               LB.getAddress(*this), UB.getAddress(*this), ST.getAddress(*this),
               StaticChunked ? Chunk : nullptr);
-        if (!CGM.getLangOpts().OMPTargetTriples.empty()) {
+        if (!CGM.getLangOpts().OMPTargetTriples.empty() || S.getDirectiveKind() == OMPD_target_teams_distribute) {
           RT.emitDistributeStaticInit(*this, S.getBeginLoc(), ScheduleKind,
                                       StaticInit);
         }
@@ -5807,11 +5827,11 @@ void CodeGenFunction::EmitOMPDistributeLoop(const OMPLoopDirective &S,
              &LoopArguments](CodeGenFunction &CGF, PrePostActionTy &) {
                     CodeGenLoop(CGF, S, LoopExit, &LoopArguments);
             });
-        if (ContBlock)
+        if (ContBlock && !CGM.getLangOpts().OMPTargetTriples.empty())
           EmitBranch(ContBlock);
         // EmitBlock(LoopExit.getBlock());
         // Tell the runtime we are done.
-        if (!CGM.getLangOpts().OMPTargetTriples.empty())
+        if (!CGM.getLangOpts().OMPTargetTriples.empty() || !isOpenMPLoopBoundSharingDirective(S.getDirectiveKind()))
           RT.emitForStaticFinish(*this, S.getEndLoc(), S.getDirectiveKind());
       } else {
         // Emit the outer loop, which requests its work chunk [LB..UB] from
