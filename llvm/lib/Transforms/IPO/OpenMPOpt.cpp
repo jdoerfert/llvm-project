@@ -4270,7 +4270,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         // Check for AAHeapToStack moved objects which must not be guarded.
         auto &HS = A.getAAFor<AAHeapToStack>(
             *this, IRPosition::function(*I.getFunction()),
-            DepClassTy::REQUIRED);
+            DepClassTy::OPTIONAL);
         if (llvm::all_of(Objects, [&HS](const Value *Obj) {
               auto *CB = dyn_cast<CallBase>(Obj);
               if (!CB)
