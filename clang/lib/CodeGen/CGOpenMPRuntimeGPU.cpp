@@ -3528,9 +3528,6 @@ llvm::Function *CGOpenMPRuntimeGPU::createParallelDataSharingWrapper(
     Args.emplace_back(Arg);
   }
 
-  if (Args.size() == 3)
-    Args.insert(Args.begin(), llvm::ConstantInt::get(CGF.Int32Ty, 0));
-
   emitOutlinedFunctionCall(CGF, D.getBeginLoc(), OutlinedParallelFn, Args);
   CGF.FinishFunction();
   return Fn;
