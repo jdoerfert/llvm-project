@@ -1586,13 +1586,13 @@ private:
           // Add an explicit aligned barrier.
           if (CB && hasAssumption(*CB, "ompx_aligned_barrier")) {
             BarriersInBlock.push_back(BarrierInfo(&I, /*Type=*/EXPLICIT));
-            dbgs() << "=== Found explicit barrier " << *CB << "\n";
+            //dbgs() << "=== Found explicit barrier " << *CB << "\n";
           }
           // Add the implicit barrier when exiting the kernel.
           else if (isa<ReturnInst>(I)) {
             BarriersInBlock.push_back(BarrierInfo(&I, /*Type=*/IMPLICIT_EXIT));
             Instruction *II = &I;
-            dbgs() << "=== Found implicit exit barrier " << *II << "\n";
+            //dbgs() << "=== Found implicit exit barrier " << *II << "\n";
           }
         }
 
@@ -1617,36 +1617,36 @@ private:
           assert(
               !StartBarrierInfo->isImplicitExit() &&
               "Expected start barrier to be other than a kernel exit barrier");
-          dbgs() << "== BB\n" << *I->getParent() << "=== End of BB\n";
-          dbgs() << "==== Examining Start " << *I << " -- "
-                 << *EndBarrierInfo->getInstruction() << "\n";
+          //dbgs() << "== BB\n" << *I->getParent() << "=== End of BB\n";
+          //dbgs() << "==== Examining Start " << *I << " -- "
+                 //<< *EndBarrierInfo->getInstruction() << "\n";
           for (; I != E; I = I->getNextNode()) {
-            dbgs() << "=== Examining Instruction " << *I << "\n";
+            //dbgs() << "=== Examining Instruction " << *I << "\n";
             if (I->mayHaveSideEffects() || I->mayReadFromMemory()) {
               // Loads and stores to local memory do not have side-effects,
               // continue.
               LoadInst *Load = dyn_cast<LoadInst>(I);
               if (Load) {
-                dbgs() << "=> I " << *I << " is a load, pointer operand "
-                       << *Load->getPointerOperand()->stripPointerCasts()
-                       << "\n";
+                //dbgs() << "=> I " << *I << " is a load, pointer operand "
+                       //<< *Load->getPointerOperand()->stripPointerCasts()
+                       //<< "\n";
                 if (isa<AllocaInst>(
                         Load->getPointerOperand()->stripPointerCasts())) {
-                  dbgs() << "=> I " << *I
-                         << " is a load to local memory, continue\n";
+                  //dbgs() << "=> I " << *I
+                         //<< " is a load to local memory, continue\n";
                   continue;
                 }
               }
 
               StoreInst *Store = dyn_cast<StoreInst>(I);
               if (Store) {
-                dbgs() << "==> I " << *I << " is a store, pointer operand "
-                       << *Store->getPointerOperand()->stripPointerCasts()
-                       << "\n";
+                //dbgs() << "==> I " << *I << " is a store, pointer operand "
+                       //<< *Store->getPointerOperand()->stripPointerCasts()
+                       //<< "\n";
                 if (isa<AllocaInst>(
                         Store->getPointerOperand()->stripPointerCasts())) {
-                  dbgs() << "=> I " << *I
-                         << " is a store to local memory, continue\n";
+                  //dbgs() << "=> I " << *I
+                         //<< " is a store to local memory, continue\n";
                   continue;
                 }
               }
@@ -1659,17 +1659,17 @@ private:
                       !isa<AllocaInst>(MI->getSource()))
                     return false;
 
-                dbgs() << "=> I " << *I
-                       << " is a non-memory-transfer intrinsic, assumed free "
-                          "of side-effects, continue\n";
+                //dbgs() << "=> I " << *I
+                       //<< " is a non-memory-transfer intrinsic, assumed free "
+                          //"of side-effects, continue\n";
                 continue;
               }
 
-              dbgs() << "=> I " << *I << " has side-effects, abort\n";
+              //dbgs() << "=> I " << *I << " has side-effects, abort\n";
               return false;
             }
 
-            dbgs() << "=> I " << *I << " is free of side-effects, continue\n";
+            //dbgs() << "=> I " << *I << " is free of side-effects, continue\n";
           }
 
           return true;
@@ -1697,12 +1697,12 @@ private:
 
           // Remove an explicit barrier, check first, then second.
           if (!StartBarrierInfo->isImplicit()) {
-            dbgs() << "=> Remove start barrier "
-                   << *StartBarrierInfo->getInstruction() << "\n";
+            //dbgs() << "=> Remove start barrier "
+                   //<< *StartBarrierInfo->getInstruction() << "\n";
             BarriersToBeDeleted.insert(StartBarrierInfo->getInstruction());
           } else /*if (!EndBarrierInfo->isImplicit())*/ {
-            dbgs() << "=> Remove end barrier "
-                   << *EndBarrierInfo->getInstruction() << "\n";
+            //dbgs() << "=> Remove end barrier "
+                   //<< *EndBarrierInfo->getInstruction() << "\n";
             BarriersToBeDeleted.insert(EndBarrierInfo->getInstruction());
           }
         }
