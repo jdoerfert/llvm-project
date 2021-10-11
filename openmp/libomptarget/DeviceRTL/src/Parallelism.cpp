@@ -79,6 +79,7 @@ extern "C" {
 void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
                         int32_t num_threads, int proc_bind, void *fn,
                         void *wrapper_fn, void **args, int64_t nargs) {
+  ASSERT(nargs == 1);
 
   uint32_t TId = mapping::getThreadIdInBlock();
   // Handle the serialized case first, same for SPMD/non-SPMD.
@@ -138,12 +139,8 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
   }
 
   void **GlobalArgs = nullptr;
-  if (nargs) {
-    __kmpc_begin_sharing_variables(&GlobalArgs, nargs);
-#pragma unroll
-    for (int I = 0; I < nargs; I++)
-      GlobalArgs[I] = args[I];
-  }
+  __kmpc_begin_sharing_variables(&GlobalArgs, nargs);
+  GlobalArgs[0] = args[0];
 
   {
     // Note that the order here is important. `icv::Level` has to be updated
@@ -162,8 +159,7 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
     synchronize::threads();
   }
 
-  if (nargs)
-    __kmpc_end_sharing_variables();
+  __kmpc_end_sharing_variables();
 }
 
 __attribute__((noinline)) bool

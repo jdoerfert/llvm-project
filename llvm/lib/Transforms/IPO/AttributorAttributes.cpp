@@ -1274,6 +1274,8 @@ struct AAPointerInfoImpl
         if (AccI->getParent() == OtherI->getParent()) {
           const Instruction *I = AccI;
           while (!I->isTerminator()) {
+            if (!AA::isNoSyncInst(A, *I, *this))
+              break;
             if (I == &LI)
               break;
             if (I == OtherI)
