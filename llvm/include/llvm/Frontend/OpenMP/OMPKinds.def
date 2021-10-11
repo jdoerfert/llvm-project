@@ -268,12 +268,29 @@ __OMP_RTL(__kmpc_end_ordered, false, Void, IdentPtr, Int32)
 
 __OMP_RTL(__kmpc_for_static_loop_4, false, Void, IdentPtr, LoopBody4Ty, VoidPtrPtr,
           Int32, Int32)
+__OMP_RTL(__kmpc_for_static_loop_4u, false, Void, IdentPtr, LoopBody4Ty, VoidPtrPtr,
+          Int32, Int32)
 __OMP_RTL(__kmpc_for_static_loop_8, false, Void, IdentPtr, LoopBody8Ty, VoidPtrPtr,
+          Int64, Int64)
+__OMP_RTL(__kmpc_for_static_loop_8u, false, Void, IdentPtr, LoopBody8Ty, VoidPtrPtr,
+          Int64, Int64)
+
+__OMP_RTL(__kmpc_distribute_static_loop_4, false, Void, IdentPtr, LoopBody4Ty, VoidPtrPtr,
+          Int32, Int32)
+__OMP_RTL(__kmpc_distribute_static_loop_4u, false, Void, IdentPtr, LoopBody4Ty, VoidPtrPtr,
+          Int32, Int32)
+__OMP_RTL(__kmpc_distribute_static_loop_8, false, Void, IdentPtr, LoopBody8Ty, VoidPtrPtr,
+          Int64, Int64)
+__OMP_RTL(__kmpc_distribute_static_loop_8u, false, Void, IdentPtr, LoopBody8Ty, VoidPtrPtr,
           Int64, Int64)
 
 __OMP_RTL(__kmpc_distribute_for_static_loop_4, false, Void, IdentPtr, LoopBody4Ty, VoidPtrPtr,
-          Int64, Int32, Int32)
+          Int32, Int32, Int32)
+__OMP_RTL(__kmpc_distribute_for_static_loop_4u, false, Void, IdentPtr, LoopBody4Ty, VoidPtrPtr,
+          Int32, Int32, Int32)
 __OMP_RTL(__kmpc_distribute_for_static_loop_8, false, Void, IdentPtr, LoopBody8Ty, VoidPtrPtr,
+          Int64, Int64, Int64)
+__OMP_RTL(__kmpc_distribute_for_static_loop_8u, false, Void, IdentPtr, LoopBody8Ty, VoidPtrPtr,
           Int64, Int64, Int64)
 
 __OMP_RTL(__kmpc_for_static_init_4, false, Void, IdentPtr, Int32, Int32,

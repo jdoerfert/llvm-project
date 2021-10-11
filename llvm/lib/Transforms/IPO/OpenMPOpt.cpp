@@ -3477,7 +3477,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       // state. As long as we are not in an invalid state, we will create a
       // custom state machine so the value should be a `i1 false`. If we are
       // in an invalid state, we won't change the value that is in the IR.
-      if (!isValidState())
+      if (!ReachedKnownParallelRegions.isValidState())
         return nullptr;
       // If we have disabled state machine rewrites, don't make a custom one.
       if (DisableOpenMPOptStateMachineRewrite)
@@ -4480,6 +4480,19 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     case OMPRTL___kmpc_master:
     case OMPRTL___kmpc_end_master:
     case OMPRTL___kmpc_barrier:
+      break;
+    case OMPRTL___kmpc_for_static_loop_4:
+    case OMPRTL___kmpc_for_static_loop_8:
+    case OMPRTL___kmpc_for_static_loop_4u:
+    case OMPRTL___kmpc_for_static_loop_8u:
+    case OMPRTL___kmpc_distribute_static_loop_4:
+    case OMPRTL___kmpc_distribute_static_loop_8:
+    case OMPRTL___kmpc_distribute_static_loop_4u:
+    case OMPRTL___kmpc_distribute_static_loop_8u:
+    case OMPRTL___kmpc_distribute_for_static_loop_4:
+    case OMPRTL___kmpc_distribute_for_static_loop_8:
+    case OMPRTL___kmpc_distribute_for_static_loop_4u:
+    case OMPRTL___kmpc_distribute_for_static_loop_8u:
       break;
     case OMPRTL___kmpc_distribute_static_init_4:
     case OMPRTL___kmpc_distribute_static_init_4u:
