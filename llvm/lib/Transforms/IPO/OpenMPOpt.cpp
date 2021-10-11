@@ -828,6 +828,25 @@ struct OpenMPOpt {
 
     if (IsModulePass) {
 
+#if 1
+      static int NumRun = 0;
+      if (NumRun++) {
+        Function *Assume = Intrinsic::getDeclaration(&M, Intrinsic::assume);
+        if (Assume) {
+          SmallVector<Instruction *> ToBeDeletedAssumes;
+          for (auto &U : Assume->uses()) {
+            AbstractCallSite ACS(&U);
+            if (ACS && ACS.isDirectCall() && ACS.isCallee(&U) &&
+                A.isRunOn(*ACS.getInstruction()->getFunction())) {
+              ToBeDeletedAssumes.push_back(ACS.getInstruction());
+            }
+          }
+          for (auto *I : ToBeDeletedAssumes)
+            I->eraseFromParent();
+        }
+      }
+#endif
+
       // M.dump();
       Changed |= runAttributor(IsModulePass);
       // M.dump();
@@ -840,6 +859,8 @@ struct OpenMPOpt {
 
       if (remarksEnabled())
         analysisGlobalization();
+
+      Changed |= eliminateBarriers();
     } else {
       if (PrintICVValues)
         printICVs();
@@ -3009,7 +3030,9 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
       return llvm::None;
     auto *CB = dyn_cast<CallBase>(&I);
     auto *AssumptionAA = CB ? &A.getAAFor<AAAssumptionInfo>(
-        *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL) : nullptr;
+                                  *this, IRPosition::callsite_function(*CB),
+                                  DepClassTy::OPTIONAL)
+                            : nullptr;
     if (AssumptionAA && AssumptionAA->hasAssumption("ompx_nosync"))
       return llvm::None;
     if (auto *II = dyn_cast_or_null<IntrinsicInst>(CB)) {

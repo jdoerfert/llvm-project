@@ -1028,9 +1028,9 @@ Optional<Constant *>
 Attributor::getAssumedConstant(const IRPosition &IRP,
                                const AbstractAttribute &AA,
                                bool &UsedAssumedInformation) {
-  if (auto *I = dyn_cast<Instruction>(&IRP.getAssociatedValue()))
-    if (getInfoCache().isOnlyUsedByAssume(*I))
-      return nullptr;
+  //if (auto *I = dyn_cast<Instruction>(&IRP.getAssociatedValue()))
+    //if (getInfoCache().isOnlyUsedByAssume(*I))
+      //return nullptr;
   // First check all callbacks provided by outside AAs. If any of them returns
   // a non-null value that is different from the associated value, or None, we
   // assume it's simpliied.
@@ -1069,9 +1069,9 @@ Optional<Value *>
 Attributor::getAssumedSimplified(const IRPosition &IRP,
                                  const AbstractAttribute *AA,
                                  bool &UsedAssumedInformation) {
-  if (auto *I = dyn_cast<Instruction>(&IRP.getAssociatedValue()))
-    if (getInfoCache().isOnlyUsedByAssume(*I))
-      return I;
+  //if (auto *I = dyn_cast<Instruction>(&IRP.getAssociatedValue()))
+    //if (getInfoCache().isOnlyUsedByAssume(*I))
+      //return I;
   // First check all callbacks provided by outside AAs. If any of them returns
   // a non-null value that is different from the associated value, or None, we
   // assume it's simpliied.
@@ -1185,8 +1185,9 @@ bool Attributor::isAssumedDead(const Use &U,
       return true;
   } else if (PHINode *PHI = dyn_cast<PHINode>(UserI)) {
     BasicBlock *IncomingBB = PHI->getIncomingBlock(U);
-    return isAssumedDead(*IncomingBB->getTerminator(), QueryingAA, FnLivenessAA,
-                         UsedAssumedInformation, CheckBBLivenessOnly, DepClass);
+    if (isAssumedDead(*IncomingBB->getTerminator(), QueryingAA, FnLivenessAA,
+                         UsedAssumedInformation, CheckBBLivenessOnly, DepClass))
+      return true;
   } else if (StoreInst *SI = dyn_cast<StoreInst>(UserI)) {
     if (!CheckBBLivenessOnly && SI->getPointerOperand() != U.get()) {
       const IRPosition IRP = IRPosition::inst(*SI);
@@ -1352,10 +1353,10 @@ bool Attributor::checkForAllUses(
       LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");
       continue;
     }
-    if (U->getUser()->isDroppable()) {
-      LLVM_DEBUG(dbgs() << "[Attributor] Droppable user, skip!\n");
-      continue;
-    }
+    //if (U->getUser()->isDroppable()) {
+      //LLVM_DEBUG(dbgs() << "[Attributor] Droppable user, skip!\n");
+      //continue;
+    //}
 
     if (auto *SI = dyn_cast<StoreInst>(U->getUser())) {
       if (&SI->getOperandUse(0) == U) {
