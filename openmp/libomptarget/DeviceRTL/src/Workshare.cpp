@@ -38,7 +38,7 @@ template <typename Ty> class StaticLoopChunker {
 
     // Start index in the normalized space.
     Ty IV = BId * NumThreads + TId;
-    ASSERT(IV > 0);
+    ASSERT(IV >= 0);
 
     // Cover the entire iteration space, assumptions in the caller might allow
     // to simplify this loop to a conditional.
@@ -68,7 +68,7 @@ template <typename Ty> class StaticLoopChunker {
 
     // Start index in the chunked space.
     Ty IV = BId * BlockChunk + TId;
-    ASSERT(IV > 0);
+    ASSERT(IV >= 0);
 
     // Cover the entire iteration space, assumptions in the caller might allow
     // to simplify this loop to a conditional.
@@ -100,7 +100,7 @@ public:
   // Worksharing `for` loop.
   static void For(IdentTy *Loc, void (*LoopBody)(Ty, void *), void *Arg,
                   Ty NumIters, Ty ThreadChunk) {
-    ASSERT(NumIters > 0);
+    ASSERT(NumIters >= 0);
     ASSERT(ThreadChunk >= 0);
 
     // All threads need to participate but we don't know if we are in a
@@ -143,7 +143,7 @@ public:
     ASSERT(state::ParallelRegionFn == nullptr);
     ASSERT(state::ParallelTeamSize == 1);
 
-    ASSERT(NumIters > 0);
+    ASSERT(NumIters >= 0);
     ASSERT(BlockChunk >= 0);
 
     // There are no threads involved here.
@@ -188,7 +188,7 @@ public:
     ASSERT(icv::ActiveLevel == 1);
     ASSERT(state::ParallelRegionFn == nullptr);
 
-    ASSERT(NumIters > 0);
+    ASSERT(NumIters >= 0);
     ASSERT(BlockChunk >= 0);
     ASSERT(ThreadChunk >= 0);
 
