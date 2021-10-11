@@ -37,10 +37,14 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/AtomicOrdering.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include <stack>
 using namespace clang;
 using namespace CodeGen;
 using namespace llvm::omp;
@@ -2134,12 +2138,14 @@ static EmittedClosureTy emitCapturedStmtFunc(CodeGenFunction &ParentCGF,
 
 static llvm::Function * emitCapturedStmtLoopBodyFunc(CodeGenFunction &ParentCGF,
                                              const CapturedStmt *S, unsigned IVSize, bool IVSigned,
-                                             const CodeGenFunction::OMPLoopArguments LoopArgs) {
+                                             const CodeGenFunction::OMPLoopArguments LoopArgs,
+                                             unsigned int NumLoops,
+                                             llvm::function_ref<std::vector<Expr *>(VarDecl *)> ReplaceUpdates) {
   CodeGenFunction CGF(ParentCGF.CGM, /*suppressNewContext=*/true);
   std::unique_ptr<CodeGenFunction::CGCapturedStmtInfo> CSI =
       std::make_unique<CodeGenFunction::CGCapturedStmtInfo>(*S);
   CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, CSI.get());
-  return CGF.GenerateCapturedStmtLoopBodyFunction(*S, IVSize, IVSigned, LoopArgs);
+  return CGF.GenerateCapturedStmtLoopBodyFunction(*S, IVSize, IVSigned, LoopArgs, NumLoops, ReplaceUpdates);
 }
 
 /// Emit a call to a previously captured closure.
@@ -2988,7 +2994,116 @@ void CodeGenFunction::EmitOMPOuterLoop(
     const unsigned IVSize = getContext().getTypeSize(IVExpr->getType());
     const bool IVSigned = IVExpr->getType()->hasSignedIntegerRepresentation();
 
-    auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(*this, CS, IVSize, IVSigned, LoopArgs);
+    auto ReplaceUpdates = [&S, this, &CS] (VarDecl *LoopInd) {
+      LoopInd->markUsed(getContext());
+
+      // Get Decls for Loop Bounds
+      std::vector<Expr*> LoopBounds;
+      auto *BodyStmt = CS->getCapturedDecl()->getBody();
+      for (auto I = 0u; I < S.getLoopsNumber(); I++) {
+        bool Found = false;
+        while (!isa<ForStmt>(BodyStmt)) {
+          BodyStmt = cast<CompoundStmt>(BodyStmt)->body_front();
+        }
+        ForStmt *ForLoop = cast<ForStmt>(BodyStmt);
+        auto *ForCond = cast<BinaryOperator>(ForLoop->getCond());
+
+        auto *Decl = dyn_cast<DeclStmt>(ForLoop->getInit())->getSingleDecl();
+        if (!Decl)
+          Decl = cast<DeclRefExpr>(dyn_cast<BinaryOperator>(ForLoop->getInit())->getLHS())->getDecl();
+
+        if (auto *LHS = dyn_cast<ImplicitCastExpr>(ForCond->getLHS())) {
+          if (auto *DRE = dyn_cast<DeclRefExpr>(LHS->getSubExpr())) {
+            if (DRE->getDecl() == Decl) {
+              if (!isa<IntegerLiteral>(ForCond->getRHS()))
+                LoopBounds.push_back(ForCond->getRHS());
+              Found = true;
+            } else {
+              DRE->dumpColor();
+              llvm_unreachable("Unhandled Loop Bound Case");
+            }
+          } else {
+            LHS->dumpColor();
+            llvm_unreachable("Unhandled LHS Loop Bound Case");
+          }
+        } else {
+          auto *RHS = dyn_cast<ImplicitCastExpr>(ForCond->getRHS());
+          if (auto *DRE = dyn_cast<DeclRefExpr>(RHS->getSubExpr())) {
+            if (DRE->getDecl() == Decl) {
+              if (!isa<IntegerLiteral>(ForCond->getLHS()))
+                LoopBounds.push_back(ForCond->getLHS());
+              Found = true;
+            } else {
+              DRE->dumpColor();
+              llvm_unreachable("Unhandled RHS Loop Bound Case");
+            }
+          } else {
+            RHS->dumpColor();
+            llvm_unreachable("Unhandled RHS Loop Bound Case");
+          }
+        }
+
+        if (!Found)
+          llvm_unreachable("unhandled upper bound case");
+
+        BodyStmt = ForLoop->getBody();
+      }
+
+      if (!LoopBounds.empty())
+        LoopBounds.erase(LoopBounds.begin());
+        
+      std::map<Decl*, bool> UpdatedCapturedBound;
+      // Modify update expressions and return them to intialize loop indices
+      std::vector<Expr *> Inits;
+      unsigned int Index = 0;
+      bool SetIV = false;
+      std::stack<Expr *> Stack;
+      auto *UE = S.updates()[0];
+        UE->dumpColor();
+        UE->dumpPretty(getContext());
+        llvm::dbgs() << "\n";
+        Stack.push(UE);
+
+        while (!Stack.empty()) {
+          Expr *Cur = Stack.top();
+          Stack.pop();
+
+          if (auto *Expr = dyn_cast<BinaryOperator>(Cur)) {
+            Stack.push(Expr->getLHS());
+            Stack.push(Expr->getRHS());
+          } else if (auto *Expr = dyn_cast<ParenExpr>(Cur)) {
+            Stack.push(Expr->getSubExpr());
+          } else if (auto *Expr = dyn_cast<ImplicitCastExpr>(Cur)) {
+            if (auto *DeclExpr = dyn_cast<DeclRefExpr>(Expr->getSubExpr())) {
+              if (DeclExpr->getNameInfo().getAsString().compare(".omp.iv") != 0) {
+                auto *CastExpr = ImplicitCastExpr::Create(getContext(), DeclExpr->getType(), CK_IntegralCast, LoopBounds[Index++], nullptr,  VK_LValue, FPOptionsOverride());
+                Expr->setSubExpr(CastExpr);
+              } else if (!SetIV) {
+                DeclExpr->setDecl(LoopInd);
+                SetIV = true;
+              }
+            } else {
+              Stack.push(Expr->getSubExpr());
+            }
+          } else if (auto *Expr = dyn_cast<DeclRefExpr>(Cur)) {
+            if (Expr->getNameInfo().getAsString().compare(".omp.iv") == 0)
+              Expr->setDecl(LoopInd);
+          } else if (!isa<IntegerLiteral>(Cur)) {
+            Cur->dumpColor();
+            llvm_unreachable("reached invalid expr");
+          }
+        }
+
+        UE->dumpColor();
+        UE->dumpPretty(getContext());
+        llvm::dbgs() << "\n";
+      for (auto *UE : S.updates()) {
+        Inits.push_back(cast<BinaryOperator>(UE)->getRHS());
+      }
+     return Inits;
+   };
+
+    auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(*this, CS, IVSize, IVSigned, LoopArgs, S.getLoopsNumber(), ReplaceUpdates);
     auto *NumIters = EmitScalarExpr(S.getUpperBoundVariable());
     llvm::Type *ITy = IVSize == 32 ? CGM.Int32Ty : CGM.Int64Ty;
     NumIters = Builder.CreateSExtOrTrunc(NumIters, ITy);
@@ -3327,7 +3442,110 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
         Chunk = llvm::ConstantInt::get(llvm::IntegerType::get(CGF.getLLVMContext(), IVSize), 0, 0);
       }
 
-      auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(CGF, CS, IVSize, IVSigned, *LoopArgs);
+      auto ReplaceUpdates = [&S, &CGF, &CS] (VarDecl *LoopInd) {
+        LoopInd->markUsed(CGF.getContext());
+
+        // Get Decls for Loop Bounds
+        std::vector<Expr*> LoopBounds;
+        auto *BodyStmt = CS->getCapturedDecl()->getBody();
+        for (auto I = 0u; I < S.getLoopsNumber(); I++) {
+          bool Found = false;
+          while (!isa<ForStmt>(BodyStmt)) {
+            BodyStmt = cast<CompoundStmt>(BodyStmt)->body_front();
+          }
+          ForStmt *ForLoop = cast<ForStmt>(BodyStmt);
+          auto *ForCond = cast<BinaryOperator>(ForLoop->getCond());
+
+          auto *Decl = dyn_cast<DeclStmt>(ForLoop->getInit())->getSingleDecl();
+          if (!Decl)
+            Decl = cast<DeclRefExpr>(dyn_cast<BinaryOperator>(ForLoop->getInit())->getLHS())->getDecl();
+
+          if (auto *LHS = dyn_cast<ImplicitCastExpr>(ForCond->getLHS())) {
+            if (auto *DRE = dyn_cast<DeclRefExpr>(LHS->getSubExpr())) {
+              if (DRE->getDecl() == Decl) {
+                if (!isa<IntegerLiteral>(ForCond->getRHS()))
+                  LoopBounds.push_back(ForCond->getRHS());
+                Found = true;
+              } else {
+                DRE->dumpColor();
+                llvm_unreachable("Unhandled Loop Bound Case");
+              }
+            } else {
+              LHS->dumpColor();
+              llvm_unreachable("Unhandled LHS Loop Bound Case");
+            }
+          } else {
+            auto *RHS = dyn_cast<ImplicitCastExpr>(ForCond->getRHS());
+            if (auto *DRE = dyn_cast<DeclRefExpr>(RHS->getSubExpr())) {
+              if (DRE->getDecl() == Decl) {
+                if (!isa<IntegerLiteral>(ForCond->getLHS()))
+                  LoopBounds.push_back(ForCond->getLHS());
+                Found = true;
+              } else {
+                DRE->dumpColor();
+                llvm_unreachable("Unhandled RHS Loop Bound Case");
+              }
+            } else {
+              RHS->dumpColor();
+              llvm_unreachable("Unhandled RHS Loop Bound Case");
+            }
+          }
+
+          if (!Found)
+            llvm_unreachable("unhandled upper bound case");
+
+          BodyStmt = ForLoop->getBody();
+        }
+
+        if (!LoopBounds.empty())
+          LoopBounds.erase(LoopBounds.begin());
+          
+        std::map<Decl*, bool> UpdatedCapturedBound;
+        // Modify update expressions and return them to intialize loop indices
+        std::vector<Expr *> Inits;
+        unsigned int Index = 0;
+        bool SetIV = false;
+        std::stack<Expr *> Stack;
+        auto *UE = S.updates()[0];
+          Stack.push(UE);
+
+          while (!Stack.empty()) {
+            Expr *Cur = Stack.top();
+            Stack.pop();
+
+            if (auto *Expr = dyn_cast<BinaryOperator>(Cur)) {
+              Stack.push(Expr->getLHS());
+              Stack.push(Expr->getRHS());
+            } else if (auto *Expr = dyn_cast<ParenExpr>(Cur)) {
+              Stack.push(Expr->getSubExpr());
+            } else if (auto *Expr = dyn_cast<ImplicitCastExpr>(Cur)) {
+              if (auto *DeclExpr = dyn_cast<DeclRefExpr>(Expr->getSubExpr())) {
+                if (DeclExpr->getNameInfo().getAsString().compare(".omp.iv") != 0) {
+                  auto *CastExpr = ImplicitCastExpr::Create(CGF.getContext(), DeclExpr->getType(), CK_IntegralCast, LoopBounds[Index++], nullptr,  VK_LValue, FPOptionsOverride());
+                  Expr->setSubExpr(CastExpr);
+                } else if (!SetIV) {
+                  DeclExpr->setDecl(LoopInd);
+                  SetIV = true;
+                }
+              } else {
+                Stack.push(Expr->getSubExpr());
+              }
+            } else if (auto *Expr = dyn_cast<DeclRefExpr>(Cur)) {
+              if (Expr->getNameInfo().getAsString().compare(".omp.iv") == 0)
+                Expr->setDecl(LoopInd);
+            } else if (!isa<IntegerLiteral>(Cur)) {
+              Cur->dumpColor();
+              llvm_unreachable("reached invalid expr");
+            }
+          }
+
+        for (auto *UE : S.updates()) {
+          Inits.push_back(cast<BinaryOperator>(UE)->getRHS());
+        }
+       return Inits;
+      };
+
+      auto *OutlinedFn = emitCapturedStmtLoopBodyFunc(CGF, CS, IVSize, IVSigned, *LoopArgs, S.getLoopsNumber(), ReplaceUpdates);
       auto *NumIters = CGF.EmitScalarExpr(S.getPrevUpperBoundVariable());
       llvm::Type *ITy = IVSize == 32 ? CGF.CGM.Int32Ty : CGF.CGM.Int64Ty;
       NumIters = CGF.Builder.CreateSExtOrTrunc(NumIters, ITy);

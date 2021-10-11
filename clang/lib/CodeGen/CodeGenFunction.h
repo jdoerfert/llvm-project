@@ -3680,7 +3680,7 @@ public:
                                   JumpDest, const OMPLoopArguments *)>
       CodeGenLoopTy;
 
-  llvm::Function *GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, unsigned IVSize, bool IVSigned, CodeGenFunction::OMPLoopArguments LoopArgs);
+  llvm::Function *GenerateCapturedStmtLoopBodyFunction(const CapturedStmt &S, unsigned IVSize, bool IVSigned, CodeGenFunction::OMPLoopArguments LoopArgs, unsigned int NumLoops, llvm::function_ref<std::vector<Expr*>(VarDecl*)> ReplaceUpdates);
 
   /// Emit code for the distribute loop-based directive.
   void EmitOMPDistributeLoop(const OMPLoopDirective &S,
