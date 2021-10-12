@@ -1558,7 +1558,10 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       if (auto *CB = dyn_cast<CallBase>(Usr)) {
         if (CB->isLifetimeStartOrEnd())
           return true;
-        if (TLI && isFreeCall(CB, TLI))
+        if (!TLI)
+          TLI = A.getInfoCache().getTargetLibraryInfoForFunction(
+              *CB->getFunction());
+        if (isFreeCall(CB, TLI))
           return true;
         if (CB->isArgOperand(&U)) {
           unsigned ArgNo = CB->getArgOperandNo(&U);
@@ -3766,6 +3769,18 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       auto *I = dyn_cast<Instruction>(V);
       if (R || !I)
         return R;
+
+      Optional<Value *> C =
+          A.getAssumedSimplified(*I, *this, UsedAssumedInformation);
+      if (!C.hasValue())
+        return true;
+      Value *CV = *C;
+      if (isa_and_nonnull<Constant>(CV))
+        return true;
+      if (auto *CB = dyn_cast_or_null<CallBase>(CV))
+        if (CB->getNumArgOperands() == 0 && !CB->mayHaveSideEffects() &&
+            !CB->mayReadFromMemory())
+          return true;
 
       if (CanIgnoreThreading(*I)) {
         R = !AA::isPotentiallyReachable(A, SI, *I, *this, IsLiveInCalleeCB);
