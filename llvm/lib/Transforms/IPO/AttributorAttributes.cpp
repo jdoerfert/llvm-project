@@ -1156,11 +1156,11 @@ struct AAPointerInfoImpl
     };
 
     enum GPUAddressSpace : unsigned {
-      Generic = 0,
-      Global = 1,
-      Shared = 3,
-      Constant = 4,
-      Local = 5,
+      AS_Generic = 0,
+      AS_Global = 1,
+      AS_Shared = 3,
+      AS_Constant = 4,
+      AS_Local = 5,
     };
 
     // Helper to check if a value has "kernel lifetime", that is it will not
@@ -1171,9 +1171,9 @@ struct AAPointerInfoImpl
       if (!(T.isAMDGPU() || T.isNVPTX()))
         return false;
       switch (V->getType()->getPointerAddressSpace()) {
-      case GPUAddressSpace::Shared:
-      case GPUAddressSpace::Constant:
-      case GPUAddressSpace::Local:
+      case GPUAddressSpace::AS_Shared:
+      case GPUAddressSpace::AS_Constant:
+      case GPUAddressSpace::AS_Local:
         return true;
       default:
         return false;
@@ -3701,11 +3701,11 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     // TODO: This is copied and needs to be deduplicated!
     //{
     enum GPUAddressSpace : unsigned {
-      Generic = 0,
-      Global = 1,
-      Shared = 3,
-      Constant = 4,
-      Local = 5,
+      AS_Generic = 0,
+      AS_Global = 1,
+      AS_Shared = 3,
+      AS_Constant = 4,
+      AS_Local = 5,
     };
 
     auto HasKernelLifetime = [&](Value *V, Module &M) {
@@ -3713,9 +3713,9 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       if (!(T.isAMDGPU() || T.isNVPTX()))
         return false;
       switch (V->getType()->getPointerAddressSpace()) {
-      case GPUAddressSpace::Shared:
-      case GPUAddressSpace::Constant:
-      case GPUAddressSpace::Local:
+      case GPUAddressSpace::AS_Shared:
+      case GPUAddressSpace::AS_Constant:
+      case GPUAddressSpace::AS_Local:
         return true;
       default:
         return false;
@@ -5761,13 +5761,13 @@ struct AAValueSimplifyImpl : AAValueSimplify {
             AA::getWithType(*Content, *AA.getAssociatedType());
         if (!CastedContent)
           return false;
-        #if 0
+#if 0
         bool UsedAssumedInformation = false;
         if (A.getInfoCache().isOnlyUsedByAssume(L) &&
             !A.isAssumedDead(IRPosition::inst(*Acc.getLocalInst()), &AA,
                              nullptr, UsedAssumedInformation))
           return false;
-        #endif
+#endif
 
         if (IsExact)
           return UnionWrapper(*CastedContent, *Obj);
