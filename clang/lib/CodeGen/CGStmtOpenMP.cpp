@@ -3051,7 +3051,7 @@ void CodeGenFunction::EmitOMPOuterLoop(
 
       if (!LoopBounds.empty())
         LoopBounds.erase(LoopBounds.begin());
-        
+
       std::map<Decl*, bool> UpdatedCapturedBound;
       // Modify update expressions and return them to intialize loop indices
       std::vector<Expr *> Inits;
@@ -3059,9 +3059,9 @@ void CodeGenFunction::EmitOMPOuterLoop(
       bool SetIV = false;
       std::stack<Expr *> Stack;
       auto *UE = S.updates()[0];
-        UE->dumpColor();
-        UE->dumpPretty(getContext());
-        llvm::dbgs() << "\n";
+        //UE->dumpColor();
+        //UE->dumpPretty(getContext());
+        //llvm::dbgs() << "\n";
         Stack.push(UE);
 
         while (!Stack.empty()) {
@@ -3094,9 +3094,9 @@ void CodeGenFunction::EmitOMPOuterLoop(
           }
         }
 
-        UE->dumpColor();
-        UE->dumpPretty(getContext());
-        llvm::dbgs() << "\n";
+        //UE->dumpColor();
+        //UE->dumpPretty(getContext());
+        //llvm::dbgs() << "\n";
       for (auto *UE : S.updates()) {
         Inits.push_back(cast<BinaryOperator>(UE)->getRHS());
       }
@@ -3499,7 +3499,7 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
 
         if (!LoopBounds.empty())
           LoopBounds.erase(LoopBounds.begin());
-          
+
         std::map<Decl*, bool> UpdatedCapturedBound;
         // Modify update expressions and return them to intialize loop indices
         std::vector<Expr *> Inits;
