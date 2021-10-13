@@ -828,7 +828,7 @@ struct OpenMPOpt {
 
     if (IsModulePass) {
 
-      Changed |= outlineDistribute();
+      //Changed |= outlineDistribute();
 #if 1
       static int NumRun = 0;
       if (NumRun++) {
