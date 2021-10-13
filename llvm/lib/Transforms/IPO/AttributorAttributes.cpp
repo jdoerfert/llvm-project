@@ -3642,162 +3642,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     return AAIsDeadValueImpl::getAsStr();
   }
 
-  bool isDeadStore(Attributor &A, StoreInst &SI) {
-    // Lang ref now states volatile store is not UB/dead, let's skip them.
-    if (SI.isVolatile())
-      return false;
-
-    bool UsedAssumedInformation = false;
-    SmallSetVector<Value *, 4> PotentialCopies;
-    if (!AA::getPotentialCopiesOfStoredValue(A, SI, PotentialCopies, *this,
-                                             UsedAssumedInformation,
-                                             /* OnlyExact */ false)) {
-      LLVM_DEBUG(dbgs() << "[AAIsDead] Collecting potential copies failed\n");
-      return false;
-    }
-
-    Function &Fn = *SI.getFunction();
-    const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
-        IRPosition::function(Fn), this, DepClassTy::OPTIONAL);
-    bool StoreIsInitialThreadOnly =
-        (ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(SI));
-    bool StoreIsInAllThreadsEpoch =
-        (ExecDomainAA &&
-         ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(SI));
-
-    LLVM_DEBUG({
-      if (ExecDomainAA)
-        dbgs() << "ExecDomainAA:" << *ExecDomainAA << "\n";
-      else
-        dbgs() << "ExecDomainAA: <null>\n";
-      dbgs() << "Store: is initial thread: " << StoreIsInitialThreadOnly
-             << " : same epoch: " << StoreIsInAllThreadsEpoch << "\n";
-    });
-
-    // Helper to determine if we need to consider threading, which we cannot
-    // right now. However, if the function is (assumed) nosync or the thread
-    // executing all instructions is the main thread only we can ignore
-    // threading.
-    auto CanIgnoreThreading = [&](const Instruction &I) -> bool {
-      const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
-          IRPosition::function(*I.getFunction()), this, DepClassTy::OPTIONAL);
-      LLVM_DEBUG(
-          errs() << "I: " << I << "\n is Initial thread only: "
-                 << (ExecDomainAA &&
-                     ExecDomainAA->isExecutedByInitialThreadOnly(I))
-                 << " : SameEpoch: "
-                 << (ExecDomainAA &&
-                     ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
-                 << "\n");
-      if (StoreIsInitialThreadOnly && ExecDomainAA &&
-          ExecDomainAA->isExecutedByInitialThreadOnly(I))
-        return true;
-      if (StoreIsInAllThreadsEpoch && ExecDomainAA &&
-          ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
-        return true;
-      return false;
-    };
-
-    // TODO: This is copied and needs to be deduplicated!
-    //{
-    enum GPUAddressSpace : unsigned {
-      AS_Generic = 0,
-      AS_Global = 1,
-      AS_Shared = 3,
-      AS_Constant = 4,
-      AS_Local = 5,
-    };
-
-    auto HasKernelLifetime = [&](Value *V, Module &M) {
-      Triple T(M.getTargetTriple());
-      if (!(T.isAMDGPU() || T.isNVPTX()))
-        return false;
-      switch (V->getType()->getPointerAddressSpace()) {
-      case GPUAddressSpace::AS_Shared:
-      case GPUAddressSpace::AS_Constant:
-      case GPUAddressSpace::AS_Local:
-        return true;
-      default:
-        return false;
-      };
-    };
-
-    // The IsLiveInCalleeCB will be used by the AA::isPotentiallyReachable query
-    // to determine if we should look at reachability from the callee. For
-    // certain pointers we know the lifetime and we do not have to step into the
-    // callee to determine reachability as the pointer would be dead in the
-    // callee. See the conditional initialization below.
-    std::function<bool(const Function &)> IsLiveInCalleeCB;
-
-    Value &Ptr = *SI.getPointerOperand();
-    SmallVector<Value *, 8> Objects;
-    if (AA::getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &SI)) {
-      for (auto *Obj : Objects) {
-        auto LastIsLiveInCalleeCB = IsLiveInCalleeCB;
-        if (auto *AI = dyn_cast<AllocaInst>(Obj)) {
-          // If the alloca containing function is not recursive the alloca
-          // must be dead in the callee.
-          const Function *AIFn = AI->getFunction();
-          const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
-              *this, IRPosition::function(*AIFn), DepClassTy::OPTIONAL);
-          if (NoRecurseAA.isAssumedNoRecurse()) {
-            IsLiveInCalleeCB = [=](const Function &Fn) {
-              if (LastIsLiveInCalleeCB && !LastIsLiveInCalleeCB(Fn))
-                return true;
-              return AIFn != &Fn;
-            };
-          }
-        } else if (auto *GV = dyn_cast<GlobalValue>(Obj)) {
-          // If the global has kernel lifetime we can stop if we reach a kernel
-          // as it is "dead" in the (unknown) callees.
-          if (HasKernelLifetime(GV, *GV->getParent()))
-            IsLiveInCalleeCB = [=](const Function &Fn) {
-              if (LastIsLiveInCalleeCB && !LastIsLiveInCalleeCB(Fn))
-                return true;
-              return !Fn.hasFnAttribute("kernel");
-            };
-        }
-      }
-    }
-    //}
-
-    return llvm::all_of(PotentialCopies, [&](Value *V) {
-      bool R = A.isAssumedDead(IRPosition::value(*V), this, nullptr,
-                               UsedAssumedInformation);
-      LLVM_DEBUG(dbgs() << "[AAIsDead] " << *V << " is assumed "
-                        << (R ? "dead" : "life") << " user!\n");
-      auto *I = dyn_cast<Instruction>(V);
-      if (R || !I)
-        return R;
-
-      Optional<Value *> C =
-          A.getAssumedSimplified(*I, *this, UsedAssumedInformation);
-      if (!C.hasValue())
-        return true;
-      Value *CV = *C;
-      if (isa_and_nonnull<Constant>(CV))
-        return true;
-      if (auto *CB = dyn_cast_or_null<CallBase>(CV))
-        if (CB->getNumArgOperands() == 0 && !CB->mayHaveSideEffects() &&
-            !CB->mayReadFromMemory())
-          return true;
-
-      if (CanIgnoreThreading(*I)) {
-        R = !AA::isPotentiallyReachable(A, SI, *I, *this, IsLiveInCalleeCB);
-        LLVM_DEBUG(dbgs() << "[AAIsDead] " << *V << " is assumed "
-                          << (R ? "non-reachable" : "reachable") << " user!\n");
-      } else if (StoreIsInAllThreadsEpoch) {
-        R = !AA::isPotentiallyReachable(
-            A, SI.getFunction()->getEntryBlock().front(), *I, *this,
-            IsLiveInCalleeCB);
-        LLVM_DEBUG(dbgs() << "[AAIsDead] " << I->getFunction()->getName()
-                          << " is assumed "
-                          << (R ? "non-reachable" : "reachable") << " user!\n");
-      }
-
-      return R;
-    });
-  }
+  bool isDeadStore(Attributor &A, StoreInst &SI);
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -10411,6 +10256,158 @@ public:
     return ChangeStatus::UNCHANGED;
   }
 };
+
+bool AAIsDeadFloating::isDeadStore(Attributor &A, StoreInst &SI) {
+  // Lang ref now states volatile store is not UB/dead, let's skip them.
+  if (SI.isVolatile())
+    return false;
+
+  bool UsedAssumedInformation = false;
+  SmallSetVector<Value *, 4> PotentialCopies;
+  if (!AA::getPotentialCopiesOfStoredValue(A, SI, PotentialCopies, *this,
+                                           UsedAssumedInformation,
+                                           /* OnlyExact */ false)) {
+    LLVM_DEBUG(dbgs() << "[AAIsDead] Collecting potential copies failed\n");
+    return false;
+  }
+
+  Function &Fn = *SI.getFunction();
+  const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
+      IRPosition::function(Fn), this, DepClassTy::OPTIONAL);
+  bool StoreIsInitialThreadOnly =
+      (ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(SI));
+  bool StoreIsInAllThreadsEpoch =
+      (ExecDomainAA && ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(SI));
+
+  LLVM_DEBUG({
+    if (ExecDomainAA)
+      dbgs() << "ExecDomainAA:" << *ExecDomainAA << "\n";
+    else
+      dbgs() << "ExecDomainAA: <null>\n";
+    dbgs() << "Store: is initial thread: " << StoreIsInitialThreadOnly
+           << " : same epoch: " << StoreIsInAllThreadsEpoch << "\n";
+  });
+
+  // Helper to determine if we need to consider threading, which we cannot
+  // right now. However, if the function is (assumed) nosync or the thread
+  // executing all instructions is the main thread only we can ignore
+  // threading.
+  auto CanIgnoreThreading = [&](const Instruction &I) -> bool {
+    const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
+        IRPosition::function(*I.getFunction()), this, DepClassTy::OPTIONAL);
+    LLVM_DEBUG(errs() << "I: " << I << "\n is Initial thread only: "
+                      << (ExecDomainAA &&
+                          ExecDomainAA->isExecutedByInitialThreadOnly(I))
+                      << " : SameEpoch: "
+                      << (ExecDomainAA &&
+                          ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
+                      << "\n");
+    if (StoreIsInitialThreadOnly && ExecDomainAA &&
+        ExecDomainAA->isExecutedByInitialThreadOnly(I))
+      return true;
+    if (StoreIsInAllThreadsEpoch && ExecDomainAA &&
+        ExecDomainAA->isExecutedByAllThreadsInTheSameEpoch(I))
+      return true;
+    return false;
+  };
+
+  // TODO: This is copied and needs to be deduplicated!
+  //{
+  enum GPUAddressSpace : unsigned {
+    AS_Generic = 0,
+    AS_Global = 1,
+    AS_Shared = 3,
+    AS_Constant = 4,
+    AS_Local = 5,
+  };
+
+  auto HasKernelLifetime = [&](Value *V, Module &M) {
+    Triple T(M.getTargetTriple());
+    if (!(T.isAMDGPU() || T.isNVPTX()))
+      return false;
+    switch (V->getType()->getPointerAddressSpace()) {
+    case GPUAddressSpace::AS_Shared:
+    case GPUAddressSpace::AS_Constant:
+    case GPUAddressSpace::AS_Local:
+      return true;
+    default:
+      return false;
+    };
+  };
+
+  // The IsLiveInCalleeCB will be used by the AA::isPotentiallyReachable query
+  // to determine if we should look at reachability from the callee. For
+  // certain pointers we know the lifetime and we do not have to step into the
+  // callee to determine reachability as the pointer would be dead in the
+  // callee. See the conditional initialization below.
+  std::function<bool(const Function &)> IsLiveInCalleeCB;
+
+  Value &Ptr = *SI.getPointerOperand();
+  SmallVector<Value *, 8> Objects;
+  if (AA::getAssumedUnderlyingObjects(A, Ptr, Objects, *this, &SI)) {
+    for (auto *Obj : Objects) {
+      auto LastIsLiveInCalleeCB = IsLiveInCalleeCB;
+      if (auto *AI = dyn_cast<AllocaInst>(Obj)) {
+        // If the alloca containing function is not recursive the alloca
+        // must be dead in the callee.
+        const Function *AIFn = AI->getFunction();
+        const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
+            *this, IRPosition::function(*AIFn), DepClassTy::OPTIONAL);
+        if (NoRecurseAA.isAssumedNoRecurse()) {
+          IsLiveInCalleeCB = [=](const Function &Fn) {
+            if (LastIsLiveInCalleeCB && !LastIsLiveInCalleeCB(Fn))
+              return true;
+            return AIFn != &Fn;
+          };
+        }
+      } else if (auto *GV = dyn_cast<GlobalValue>(Obj)) {
+        // If the global has kernel lifetime we can stop if we reach a kernel
+        // as it is "dead" in the (unknown) callees.
+        if (HasKernelLifetime(GV, *GV->getParent()))
+          IsLiveInCalleeCB = [=](const Function &Fn) {
+            if (LastIsLiveInCalleeCB && !LastIsLiveInCalleeCB(Fn))
+              return true;
+            return !Fn.hasFnAttribute("kernel");
+          };
+      }
+    }
+  }
+  //}
+
+  return llvm::all_of(PotentialCopies, [&](Value *V) {
+    bool R = A.isAssumedDead(IRPosition::value(*V), this, nullptr,
+                             UsedAssumedInformation);
+    LLVM_DEBUG(dbgs() << "[AAIsDead] " << *V << " is assumed "
+                      << (R ? "dead" : "life") << " user!\n");
+    auto *I = dyn_cast<Instruction>(V);
+    if (R || !I)
+      return R;
+
+    Optional<Value *> C =
+        A.getAssumedSimplified(*I, *this, UsedAssumedInformation);
+    if (!C.hasValue())
+      return true;
+    ValueToValueMapTy VMap;
+    if (AAValueSimplifyImpl::reproduceValue(A, *this, **C, *V->getType(), I,
+                                            /* CheckOnly */ true, VMap))
+      return true;
+
+    if (CanIgnoreThreading(*I)) {
+      R = !AA::isPotentiallyReachable(A, SI, *I, *this, IsLiveInCalleeCB);
+      LLVM_DEBUG(dbgs() << "[AAIsDead] " << *V << " is assumed "
+                        << (R ? "non-reachable" : "reachable") << " user!\n");
+    } else if (StoreIsInAllThreadsEpoch) {
+      R = !AA::isPotentiallyReachable(A,
+                                      SI.getFunction()->getEntryBlock().front(),
+                                      *I, *this, IsLiveInCalleeCB);
+      LLVM_DEBUG(dbgs() << "[AAIsDead] " << I->getFunction()->getName()
+                        << " is assumed " << (R ? "non-reachable" : "reachable")
+                        << " user!\n");
+    }
+
+    return R;
+  });
+}
 
 const char AAReturnedValues::ID = 0;
 const char AANoUnwind::ID = 0;
