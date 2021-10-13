@@ -18,12 +18,28 @@
 
 using namespace _OMP;
 
+#define _OMP_LOOP_ENTRY(BW, TY)                                                \
+  __attribute__((flatten)) void __kmpc_distribute_static_loop##BW(             \
+      IdentTy *loc, void (*fn)(TY, void *), void *arg, TY num_iters,           \
+      TY block_chunk);
+
+extern "C" {
+_OMP_LOOP_ENTRY(_4, int32_t)
+_OMP_LOOP_ENTRY(_4u, uint32_t)
+_OMP_LOOP_ENTRY(_8, int64_t)
+_OMP_LOOP_ENTRY(_8u, uint64_t)
+}
+
 namespace _OMP {
 /// Helper to keep code alive without introducing a performance penalty.
 __attribute__((used, weak, optnone)) void keepAlive() {
   __kmpc_get_hardware_thread_id_in_block();
   __kmpc_barrier_simple_spmd(nullptr, 0);
   __kmpc_get_hardware_num_threads_in_block();
+  __kmpc_distribute_static_loop_4(0, 0, 0, 0, 0);
+  __kmpc_distribute_static_loop_4u(0, 0, 0, 0, 0);
+  __kmpc_distribute_static_loop_8(0, 0, 0, 0, 0);
+  __kmpc_distribute_static_loop_8u(0, 0, 0, 0, 0);
 }
 } // namespace _OMP
 

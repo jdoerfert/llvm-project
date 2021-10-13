@@ -828,6 +828,7 @@ struct OpenMPOpt {
 
     if (IsModulePass) {
 
+      Changed |= outlineDistribute();
 #if 1
       static int NumRun = 0;
       if (NumRun++) {
@@ -1541,6 +1542,158 @@ private:
     return Changed;
   }
 
+  bool outlineDistribute() {
+    bool Changed = false;
+
+    auto &RFIFini = OMPInfoCache.RFIs[OMPRTL___kmpc_for_static_fini];
+    if (!RFIFini.Declaration)
+      return Changed;
+
+    auto &IRBuilder = OMPInfoCache.OMPBuilder;
+    RuntimeFunction RFs[4][2] = {{OMPRTL___kmpc_for_static_init_4,
+                                  OMPRTL___kmpc_distribute_static_init_4},
+                                 {OMPRTL___kmpc_for_static_init_4u,
+                                  OMPRTL___kmpc_distribute_static_init_4u},
+                                 {OMPRTL___kmpc_for_static_init_8,
+                                  OMPRTL___kmpc_distribute_static_init_8},
+                                 {OMPRTL___kmpc_for_static_init_8u,
+                                  OMPRTL___kmpc_distribute_static_init_8u}};
+    for (auto *It : RFs) {
+      auto RC = It[0];
+      auto &RFIInit = OMPInfoCache.RFIs[RC];
+      if (!RFIInit.Declaration)
+        continue;
+
+      auto UseCB = [&](Use &U, Function &Decl) {
+        CallInst *InitCB = getCallIfRegularCall(U, &RFIInit);
+        assert(InitCB);
+        Value *Loc = InitCB->getArgOperand(0);
+        Value *UBLoc = InitCB->getArgOperand(4);
+        Value *LBLoc = InitCB->getArgOperand(5);
+        Instruction *IVLoc = nullptr;
+        for (auto *Usr : LBLoc->users()){
+          LoadInst *LI = dyn_cast<LoadInst>(Usr);
+          if (!LI)
+            continue;
+          assert(IVLoc == nullptr);
+          assert(LI->getNumUses() == 1);
+          StoreInst *SI = cast<StoreInst>(LI->user_back());
+          IVLoc = cast<AllocaInst>(SI->getPointerOperand());
+          SI->eraseFromParent();
+          break;
+        }
+        assert(IVLoc);
+        LoopInfo *LI = nullptr;
+        DominatorTree *DT = nullptr;
+        MemorySSAUpdater *MSU = nullptr;
+        BasicBlock *DistBeginBB =
+            SplitBlock(InitCB->getParent(), InitCB, DT, LI, MSU, "dist.begin");
+
+        SmallVector<BasicBlock *> BBs;
+        SmallVector<BasicBlock *> Worklist;
+        SmallPtrSet<BasicBlock *, 8> Visited;
+        Worklist.push_back(DistBeginBB);
+
+        CallInst *EndI = nullptr;
+        while (!Worklist.empty()) {
+          BasicBlock *BB = Worklist.pop_back_val();
+          BBs.push_back(BB);
+          for (auto &I : *BB)
+            if (auto *CI = dyn_cast<CallInst>(&I))
+              if (CI->getCalledFunction() == RFIFini.Declaration) {
+                assert(!EndI);
+                EndI = CI;
+                break;
+              }
+          if (EndI && EndI->getParent() == BB)
+            continue;
+          for (auto *SuccBB : successors(BB))
+            if (Visited.insert(SuccBB).second)
+              Worklist.push_back(SuccBB);
+        }
+        assert(EndI);
+
+        IVLoc->moveBefore(InitCB);
+
+        BasicBlock *DistEndBB = SplitBlock(
+            EndI->getParent(), EndI->getNextNode(), DT, LI, MSU, "dist.done");
+        EndI->eraseFromParent();
+        InitCB->eraseFromParent();
+
+        CodeExtractorAnalysisCache CEAC(Decl);
+        CodeExtractor CE(BBs, /* DominatorTree */ nullptr,
+                         /* AggregateArgs */ true,
+                         /* BlockFrequencyInfo */ nullptr,
+                         /* BranchProbabilityInfo */ nullptr,
+                         /* AssumptionCache */ nullptr,
+                         /* AllowVarArgs */ false, /* AllowAlloca */ true,
+                         /* Suffix */ "new.dist");
+        Function *NewFn = CE.extractCodeRegion(CEAC);
+        assert(NewFn && "Failed to outline distribute region");
+        if (!NewFn)
+          return false;
+        assert(NewFn->getNumUses() == 1);
+        CallBase *CB = cast<CallBase>(NewFn->user_back());
+        assert(CB->getNumArgOperands() == 1);
+
+        IVLoc->moveBefore(&*NewFn->getEntryBlock().getFirstInsertionPt());
+        LoadInst *IVLoad = cast<LoadInst>(*IVLoc->user_begin());
+        while (IVLoc->getNumUses() > 1) {
+          auto *Usr = IVLoc->user_back();
+          assert(Usr != IVLoad);
+          assert(isa<LoadInst>(Usr));
+          Usr->replaceAllUsesWith(IVLoad);
+          Usr->eraseFromParent();
+        }
+
+        IVLoad->moveAfter(IVLoc);
+        SplitBlock(IVLoad->getParent(), IVLoad->getNextNode(), DT, LI, MSU, "");
+        BBs.clear();
+        for (auto &BB: *NewFn)
+          if (&BB != &NewFn->getEntryBlock())
+            BBs.push_back(&BB);
+        CodeExtractorAnalysisCache CEAC2(Decl);
+        CodeExtractor CE2(BBs, /* DominatorTree */ nullptr,
+                         /* AggregateArgs */ false,
+                         /* BlockFrequencyInfo */ nullptr,
+                         /* BranchProbabilityInfo */ nullptr,
+                         /* AssumptionCache */ nullptr,
+                         /* AllowVarArgs */ false, /* AllowAlloca */ false,
+                         /* Suffix */ "new.dist.2");
+        Function *NewFn2 = CE2.extractCodeRegion(CEAC2);
+        assert(NewFn2 && "Failed to outline distribute region");
+        if (!NewFn2)
+          return false;
+        assert(NewFn2->getNumUses() == 1);
+        CallBase *CB2 = cast<CallBase>(NewFn2->user_back());
+        assert(CB2->getNumArgOperands() == 2);
+
+
+        Value *TripCount = new LoadInst(
+            UBLoc->getType()->getPointerElementType(), UBLoc, "dist.ub", CB);
+        new StoreInst(TripCount, LBLoc, "dist.lb.reset", CB);
+        FunctionCallee NewDecl = IRBuilder.getOrCreateRuntimeFunction(M, It[1]);
+        CB->getModule()->dump();
+        NewFn2->dump();
+        CB->getArgOperand(0)->dump();
+        TripCount->dump();
+        CallInst *NewCI =
+            CallInst::Create(NewDecl,
+                             {Loc, NewFn2, CB->getArgOperand(0), TripCount,
+                              ConstantInt::getNullValue(TripCount->getType())},
+                             /*NameStr=*/"", CB);
+        CB2->dump();
+        NewCI->dump();
+        CB->eraseFromParent();
+
+        return true;
+      };
+      RFIInit.foreachUse(SCC, UseCB);
+    }
+
+    return Changed;
+  }
+
   /// Eliminates redundant, aligned barriers in OpenMP offloaded kernels.
   bool eliminateBarriers() {
     bool Changed = false;
@@ -1586,13 +1739,13 @@ private:
           // Add an explicit aligned barrier.
           if (CB && hasAssumption(*CB, "ompx_aligned_barrier")) {
             BarriersInBlock.push_back(BarrierInfo(&I, /*Type=*/EXPLICIT));
-            //dbgs() << "=== Found explicit barrier " << *CB << "\n";
+            // dbgs() << "=== Found explicit barrier " << *CB << "\n";
           }
           // Add the implicit barrier when exiting the kernel.
           else if (isa<ReturnInst>(I)) {
             BarriersInBlock.push_back(BarrierInfo(&I, /*Type=*/IMPLICIT_EXIT));
             Instruction *II = &I;
-            //dbgs() << "=== Found implicit exit barrier " << *II << "\n";
+            // dbgs() << "=== Found implicit exit barrier " << *II << "\n";
           }
         }
 
@@ -1617,36 +1770,36 @@ private:
           assert(
               !StartBarrierInfo->isImplicitExit() &&
               "Expected start barrier to be other than a kernel exit barrier");
-          //dbgs() << "== BB\n" << *I->getParent() << "=== End of BB\n";
-          //dbgs() << "==== Examining Start " << *I << " -- "
-                 //<< *EndBarrierInfo->getInstruction() << "\n";
+          // dbgs() << "== BB\n" << *I->getParent() << "=== End of BB\n";
+          // dbgs() << "==== Examining Start " << *I << " -- "
+          //<< *EndBarrierInfo->getInstruction() << "\n";
           for (; I != E; I = I->getNextNode()) {
-            //dbgs() << "=== Examining Instruction " << *I << "\n";
+            // dbgs() << "=== Examining Instruction " << *I << "\n";
             if (I->mayHaveSideEffects() || I->mayReadFromMemory()) {
               // Loads and stores to local memory do not have side-effects,
               // continue.
               LoadInst *Load = dyn_cast<LoadInst>(I);
               if (Load) {
-                //dbgs() << "=> I " << *I << " is a load, pointer operand "
-                       //<< *Load->getPointerOperand()->stripPointerCasts()
-                       //<< "\n";
+                // dbgs() << "=> I " << *I << " is a load, pointer operand "
+                //<< *Load->getPointerOperand()->stripPointerCasts()
+                //<< "\n";
                 if (isa<AllocaInst>(
                         Load->getPointerOperand()->stripPointerCasts())) {
-                  //dbgs() << "=> I " << *I
-                         //<< " is a load to local memory, continue\n";
+                  // dbgs() << "=> I " << *I
+                  //<< " is a load to local memory, continue\n";
                   continue;
                 }
               }
 
               StoreInst *Store = dyn_cast<StoreInst>(I);
               if (Store) {
-                //dbgs() << "==> I " << *I << " is a store, pointer operand "
-                       //<< *Store->getPointerOperand()->stripPointerCasts()
-                       //<< "\n";
+                // dbgs() << "==> I " << *I << " is a store, pointer operand "
+                //<< *Store->getPointerOperand()->stripPointerCasts()
+                //<< "\n";
                 if (isa<AllocaInst>(
                         Store->getPointerOperand()->stripPointerCasts())) {
-                  //dbgs() << "=> I " << *I
-                         //<< " is a store to local memory, continue\n";
+                  // dbgs() << "=> I " << *I
+                  //<< " is a store to local memory, continue\n";
                   continue;
                 }
               }
@@ -1659,17 +1812,18 @@ private:
                       !isa<AllocaInst>(MI->getSource()))
                     return false;
 
-                //dbgs() << "=> I " << *I
-                       //<< " is a non-memory-transfer intrinsic, assumed free "
-                          //"of side-effects, continue\n";
+                // dbgs() << "=> I " << *I
+                //<< " is a non-memory-transfer intrinsic, assumed free "
+                //"of side-effects, continue\n";
                 continue;
               }
 
-              //dbgs() << "=> I " << *I << " has side-effects, abort\n";
+              // dbgs() << "=> I " << *I << " has side-effects, abort\n";
               return false;
             }
 
-            //dbgs() << "=> I " << *I << " is free of side-effects, continue\n";
+            // dbgs() << "=> I " << *I << " is free of side-effects,
+            // continue\n";
           }
 
           return true;
@@ -1697,12 +1851,12 @@ private:
 
           // Remove an explicit barrier, check first, then second.
           if (!StartBarrierInfo->isImplicit()) {
-            //dbgs() << "=> Remove start barrier "
-                   //<< *StartBarrierInfo->getInstruction() << "\n";
+            // dbgs() << "=> Remove start barrier "
+            //<< *StartBarrierInfo->getInstruction() << "\n";
             BarriersToBeDeleted.insert(StartBarrierInfo->getInstruction());
           } else /*if (!EndBarrierInfo->isImplicit())*/ {
-            //dbgs() << "=> Remove end barrier "
-                   //<< *EndBarrierInfo->getInstruction() << "\n";
+            // dbgs() << "=> Remove end barrier "
+            //<< *EndBarrierInfo->getInstruction() << "\n";
             BarriersToBeDeleted.insert(EndBarrierInfo->getInstruction());
           }
         }
