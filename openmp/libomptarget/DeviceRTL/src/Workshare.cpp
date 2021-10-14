@@ -834,6 +834,7 @@ void __kmpc_distribute_static_init_8u(IdentTy *loc, int32_t global_tid,
       mapping::isSPMDMode());
 }
 
+//__attribute__((noinline, weak))
 void __kmpc_distribute_static_fini(IdentTy *loc, int32_t global_tid) {}
 }
 

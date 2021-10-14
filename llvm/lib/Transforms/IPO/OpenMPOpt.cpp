@@ -1545,19 +1545,19 @@ private:
   bool outlineDistribute() {
     bool Changed = false;
 
-    auto &RFIFini = OMPInfoCache.RFIs[OMPRTL___kmpc_for_static_fini];
+    auto &RFIFini = OMPInfoCache.RFIs[OMPRTL___kmpc_distribute_static_fini];
     if (!RFIFini.Declaration)
       return Changed;
 
     auto &IRBuilder = OMPInfoCache.OMPBuilder;
-    RuntimeFunction RFs[4][2] = {{OMPRTL___kmpc_for_static_init_4,
-                                  OMPRTL___kmpc_distribute_static_init_4},
-                                 {OMPRTL___kmpc_for_static_init_4u,
-                                  OMPRTL___kmpc_distribute_static_init_4u},
-                                 {OMPRTL___kmpc_for_static_init_8,
-                                  OMPRTL___kmpc_distribute_static_init_8},
-                                 {OMPRTL___kmpc_for_static_init_8u,
-                                  OMPRTL___kmpc_distribute_static_init_8u}};
+    RuntimeFunction RFs[4][2] = {{OMPRTL___kmpc_distribute_static_init_4,
+                                  OMPRTL___kmpc_distribute_static_loop_4},
+                                 {OMPRTL___kmpc_distribute_static_init_4u,
+                                  OMPRTL___kmpc_distribute_static_loop_4u},
+                                 {OMPRTL___kmpc_distribute_static_init_8,
+                                  OMPRTL___kmpc_distribute_static_loop_8},
+                                 {OMPRTL___kmpc_distribute_static_init_8u,
+                                  OMPRTL___kmpc_distribute_static_loop_8u}};
     for (auto *It : RFs) {
       auto RC = It[0];
       auto &RFIInit = OMPInfoCache.RFIs[RC];
@@ -1568,8 +1568,8 @@ private:
         CallInst *InitCB = getCallIfRegularCall(U, &RFIInit);
         assert(InitCB);
         Value *Loc = InitCB->getArgOperand(0);
-        Value *UBLoc = InitCB->getArgOperand(4);
-        Value *LBLoc = InitCB->getArgOperand(5);
+        Value *LBLoc = InitCB->getArgOperand(4);
+        Value *UBLoc = InitCB->getArgOperand(5);
         Instruction *IVLoc = nullptr;
         for (auto *Usr : LBLoc->users()){
           LoadInst *LI = dyn_cast<LoadInst>(Usr);
@@ -1578,7 +1578,14 @@ private:
           assert(IVLoc == nullptr);
           assert(LI->getNumUses() == 1);
           StoreInst *SI = cast<StoreInst>(LI->user_back());
-          IVLoc = cast<AllocaInst>(SI->getPointerOperand());
+          if (auto *AI = dyn_cast<AllocaInst>(SI->getPointerOperand()))
+            IVLoc = AI;
+          else {
+            IVLoc = new AllocaInst(
+              LI->getType(), 0, "dist.iv",
+              &*Decl.getEntryBlock().getFirstInsertionPt());
+            SI->getPointerOperand()->replaceAllUsesWith(IVLoc);
+          }
           SI->eraseFromParent();
           break;
         }
@@ -1637,6 +1644,12 @@ private:
         assert(CB->getNumArgOperands() == 1);
 
         IVLoc->moveBefore(&*NewFn->getEntryBlock().getFirstInsertionPt());
+        Decl.dump();
+        NewFn->dump();
+        IVLoc->dump();
+
+        Instruction *IP = IVLoc;
+        #if 0
         LoadInst *IVLoad = cast<LoadInst>(*IVLoc->user_begin());
         while (IVLoc->getNumUses() > 1) {
           auto *Usr = IVLoc->user_back();
@@ -1647,7 +1660,20 @@ private:
         }
 
         IVLoad->moveAfter(IVLoc);
-        SplitBlock(IVLoad->getParent(), IVLoad->getNextNode(), DT, LI, MSU, "");
+        IP = IVLoad;
+        #endif
+
+        auto *IVLoc2 = new AllocaInst(
+          IVLoc->getType()->getPointerElementType(), 0, "dist.iv2",
+          &*NewFn->getEntryBlock().getFirstInsertionPt());
+        IVLoc->replaceAllUsesWith(IVLoc2);
+
+        Instruction *IVVal = new LoadInst(
+            IVLoc->getType()->getPointerElementType(), IVLoc, "iv.val", IVLoc->getNextNode());
+
+        IP = IVVal;
+
+        SplitBlock(IP->getParent(), IP->getNextNode(), DT, LI, MSU, "");
         BBs.clear();
         for (auto &BB: *NewFn)
           if (&BB != &NewFn->getEntryBlock())
@@ -1724,9 +1750,9 @@ private:
     };
 
     for (Function *Kernel : OMPInfoCache.Kernels) {
+        SmallPtrSet<Instruction *, 8> BarriersToBeDeleted;
       for (BasicBlock &BB : *Kernel) {
         SmallVector<BarrierInfo, 8> BarriersInBlock;
-        SmallPtrSet<Instruction *, 8> BarriersToBeDeleted;
 
         // Add the kernel entry implicit barrier.
         if (&Kernel->getEntryBlock() == &BB)
@@ -1739,6 +1765,7 @@ private:
           // Add an explicit aligned barrier.
           if (CB && hasAssumption(*CB, "ompx_aligned_barrier")) {
             BarriersInBlock.push_back(BarrierInfo(&I, /*Type=*/EXPLICIT));
+            //BarriersToBeDeleted.insert(CB);
             // dbgs() << "=== Found explicit barrier " << *CB << "\n";
           }
           // Add the implicit barrier when exiting the kernel.
@@ -1749,6 +1776,7 @@ private:
           }
         }
 
+          //continue;
         if (BarriersInBlock.size() <= 1)
           continue;
 
@@ -1861,6 +1889,7 @@ private:
           }
         }
 
+      }
         if (!BarriersToBeDeleted.empty()) {
           Changed = true;
           for (Instruction *I : BarriersToBeDeleted) {
@@ -1875,7 +1904,6 @@ private:
             I->eraseFromParent();
           }
         }
-      }
     }
 
     return Changed;
@@ -5334,6 +5362,18 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
   // Make sure we have the callback annotations attached to the
   // __kmpc_parallel_51 function declaration/definition.
   OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_parallel_51);
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_for_static_loop_4);
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_for_static_loop_4u);
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_for_static_loop_8);
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_for_static_loop_8u);
+  //OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_distribute_static_loop_4);
+  //OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_distribute_static_loop_4u);
+  //OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_distribute_static_loop_8);
+  //OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_distribute_static_loop_8u);
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_distribute_for_static_loop_4);
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_distribute_for_static_loop_4u);
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_distribute_for_static_loop_8);
+  OMPBuilder.getOrCreateRuntimeFunctionPtr(OMPRTL___kmpc_distribute_for_static_loop_8u);
 
   auto IsCalled = [&](Function &F) {
     if (Kernels.contains(&F))

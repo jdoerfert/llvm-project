@@ -151,8 +151,20 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
                                             5, {-1, -1, 7},
                                             /* VarArgsArePassed */ false)}));
     }
-  } else if (FnID == OMPRTL___kmpc_distribute_for_static_loop_4
-             || FnID == OMPRTL___kmpc_distribute_for_static_loop_8) {
+  } else if (
+      FnID == OMPRTL___kmpc_for_static_loop_4 ||
+      FnID == OMPRTL___kmpc_for_static_loop_4u ||
+      FnID == OMPRTL___kmpc_for_static_loop_8 ||
+      FnID == OMPRTL___kmpc_for_static_loop_8u ||
+      FnID == OMPRTL___kmpc_distribute_static_loop_4 ||
+      FnID == OMPRTL___kmpc_distribute_static_loop_4u ||
+      FnID == OMPRTL___kmpc_distribute_static_loop_8 ||
+      FnID == OMPRTL___kmpc_distribute_static_loop_8u ||
+      FnID == OMPRTL___kmpc_distribute_for_static_loop_4 ||
+      FnID == OMPRTL___kmpc_distribute_for_static_loop_4u ||
+      FnID == OMPRTL___kmpc_distribute_for_static_loop_8 ||
+      FnID == OMPRTL___kmpc_distribute_for_static_loop_8u
+             ) {
     if (!Fn->hasMetadata(LLVMContext::MD_callback)) {
       LLVMContext &Ctx = Fn->getContext();
       MDBuilder MDB(Ctx);
@@ -162,7 +174,7 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
       //  - Argument 7, (args) is passed next, no variadic arguments are used.
       Fn->addMetadata(LLVMContext::MD_callback,
                       *MDNode::get(Ctx, {MDB.createCallbackEncoding(
-                                            1, {-1, 4, 2},
+                                            1, {-1, 2},
                                             /* VarArgsArePassed */ false)}));
     }
   }
@@ -176,6 +188,8 @@ OpenMPIRBuilder::getOrCreateRuntimeFunction(Module &M, RuntimeFunction FnID) {
 
 Function *OpenMPIRBuilder::getOrCreateRuntimeFunctionPtr(RuntimeFunction FnID) {
   FunctionCallee RTLFn = getOrCreateRuntimeFunction(M, FnID);
+  //errs() << "FnID: " << (int)FnID << "\n";
+  //errs() << "FnID: " << *RTLFn.getCallee() << "\n";
   auto *Fn = dyn_cast<llvm::Function>(RTLFn.getCallee());
   assert(Fn && "Failed to create OpenMP runtime function pointer");
   return Fn;
