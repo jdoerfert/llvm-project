@@ -10409,7 +10409,6 @@ bool AAIsDeadFloating::isDeadStore(Attributor &A, StoreInst &SI) {
   });
 }
 
-
 const char AAReturnedValues::ID = 0;
 const char AANoUnwind::ID = 0;
 const char AANoSync::ID = 0;

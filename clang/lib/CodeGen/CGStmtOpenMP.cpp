@@ -2518,7 +2518,6 @@ static void emitPreCond(CodeGenFunction &CGF, const OMPLoopDirective &S,
   }
   // Check that loop is executed at least one time.
   CGF.EmitBranchOnBoolExpr(Cond, TrueBlock, FalseBlock, TrueCount);
-  //CGF.EmitBranch(TrueBlock);
   PreCondVars.restore(CGF);
 }
 
@@ -5818,51 +5817,22 @@ void CodeGenFunction::EmitOMPDistributeLoop(const OMPLoopDirective &S,
         const OMPLoopArguments LoopArguments = {
             LB.getAddress(*this), UB.getAddress(*this), ST.getAddress(*this),
             IL.getAddress(*this), Chunk};
-        if (!CGM.getLangOpts().OMPTargetTriples.empty() || S.getDirectiveKind() == OMPD_target_teams_distribute) {
-          emitCommonSimdLoop(
-              *this, S,
-              [&S](CodeGenFunction &CGF, PrePostActionTy &) {
-                if (isOpenMPSimdDirective(S.getDirectiveKind()))
-                  CGF.EmitOMPSimdInit(S);
-              },
-              [&S, &LoopScope, Cond, IncExpr, LoopExit, &CodeGenLoop,
-               StaticChunked, &LoopArguments](CodeGenFunction &CGF, PrePostActionTy &) {
-                CGF.EmitOMPInnerLoop(
-                    S, LoopScope.requiresCleanups(), Cond, IncExpr,
-                    [&S, LoopExit, &CodeGenLoop, &LoopArguments](CodeGenFunction &CGF) {
-                      CodeGenLoop(CGF, S, LoopExit, &LoopArguments);
-                    },
-                    [&S, StaticChunked](CodeGenFunction &CGF) {
-                      if (StaticChunked) {
-                        CGF.EmitIgnoredExpr(S.getCombinedNextLowerBound());
-                        CGF.EmitIgnoredExpr(S.getCombinedNextUpperBound());
-                        CGF.EmitIgnoredExpr(S.getCombinedEnsureUpperBound());
-                        CGF.EmitIgnoredExpr(S.getCombinedInit());
-                      }
-                    });
-              });
-          EmitBlock(LoopExit.getBlock());
-          // Tell the runtime we are done.
+        emitCommonSimdLoop(
+            *this, S,
+            [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+              if (isOpenMPSimdDirective(S.getDirectiveKind()))
+                CGF.EmitOMPSimdInit(S);
+            },
+            [&S, LoopExit, &CodeGenLoop,
+             &LoopArguments](CodeGenFunction &CGF, PrePostActionTy &) {
+                    CodeGenLoop(CGF, S, LoopExit, &LoopArguments);
+            });
+        if (ContBlock && !CGM.getLangOpts().OMPTargetTriples.empty())
+          EmitBranch(ContBlock);
+        // EmitBlock(LoopExit.getBlock());
+        // Tell the runtime we are done.
+        if (!CGM.getLangOpts().OMPTargetTriples.empty() || !isOpenMPLoopBoundSharingDirective(S.getDirectiveKind()))
           RT.emitForStaticFinish(*this, S.getEndLoc(), S.getDirectiveKind());
-        } else {
-            emitCommonSimdLoop(
-              *this, S,
-              [&S](CodeGenFunction &CGF, PrePostActionTy &) {
-                if (isOpenMPSimdDirective(S.getDirectiveKind()))
-                  CGF.EmitOMPSimdInit(S);
-              },
-              [&S, LoopExit, &CodeGenLoop,
-              &LoopArguments](CodeGenFunction &CGF, PrePostActionTy &) {
-                      CodeGenLoop(CGF, S, LoopExit, &LoopArguments);
-              });
-          if (ContBlock && !CGM.getLangOpts().OMPTargetTriples.empty())
-          //if (ContBlock && (!CGM.getLangOpts().OMPTargetTriples.empty() || !isOpenMPLoopBoundSharingDirective(S.getDirectiveKind())))
-            EmitBranch(ContBlock);
-          // EmitBlock(LoopExit.getBlock());
-          // Tell the runtime we are done.
-          if (!CGM.getLangOpts().OMPTargetTriples.empty() || !isOpenMPLoopBoundSharingDirective(S.getDirectiveKind()))
-            RT.emitForStaticFinish(*this, S.getEndLoc(), S.getDirectiveKind());
-        }
       } else {
         // Emit the outer loop, which requests its work chunk [LB..UB] from
         // runtime and runs the inner loop to process it.

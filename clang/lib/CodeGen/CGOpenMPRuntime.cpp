@@ -1619,11 +1619,11 @@ CGOpenMPRuntime::createForStaticLoopFunction(unsigned IVSize, bool IVSigned,
   if (IVSize == 64)
       FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
                                     {CGM.Int64Ty,
-                                     CGM.VoidPtrTy}, false);
+                                     OutlinedFn->getFunctionType()->getParamType(1)}, false);
   else
       FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
                                     {CGM.Int32Ty,
-                                     CGM.VoidPtrTy}, false);
+                                     OutlinedFn->getFunctionType()->getParamType(1)}, false);
   llvm::FunctionType *FnTy;
   if (IsGPUDistribute) {
     Name = IVSize == 32 ? "__kmpc_distribute_for_static_loop_4"
@@ -2949,20 +2949,11 @@ static void emitForStaticLoopCall(
       Incr = CGF.EmitScalarExpr(RHS);
     }
   }
-  llvm::FunctionType *FTy;
-  if (IVSize == 64)
-      FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
-                                    {CGF.CGM.Int64Ty,
-                                     CGF.CGM.VoidPtrTy}, false);
-  else
-      FTy = llvm::FunctionType::get(llvm::Type::getVoidTy(LLVMContext),
-                                    {CGF.CGM.Int32Ty,
-                                     CGF.CGM.VoidPtrTy}, false);
 
   if (IsGPUDistribute) {
     llvm::Value *FnArgs[] = {
       /* Ident Loc    */ UpdateLocation,
-      /* Loop Body    */ CGF.Builder.CreateBitCast(OutlinedFn, FTy->getPointerTo()),
+      /* Loop Body    */ OutlinedFn,
       /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrTy),
       /* Num Iters    */ NumIters,
       /* Outer Chunk  */ Chunk,
@@ -2973,7 +2964,7 @@ static void emitForStaticLoopCall(
   } else {
     llvm::Value *FnArgs[] = {
       /* Ident Loc    */ UpdateLocation,
-      /* Loop Body    */ CGF.Builder.CreateBitCast(OutlinedFn, FTy->getPointerTo()),
+      /* Loop Body    */ OutlinedFn,
       /* Args         */ CGF.Builder.CreateBitOrPointerCast(Args, CGF.VoidPtrTy),
       /* Upper        */ NumIters,
       /* Chunk Size   */ Chunk};
