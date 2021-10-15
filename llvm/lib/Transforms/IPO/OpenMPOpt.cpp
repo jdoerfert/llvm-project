@@ -42,6 +42,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Casting.h"
@@ -1783,6 +1784,8 @@ private:
                 // dbgs() << "=> I " << *I << " is a load, pointer operand "
                 //<< *Load->getPointerOperand()->stripPointerCasts()
                 //<< "\n";
+                if (Load->hasMetadata(LLVMContext::MD_invariant_load))
+                  continue;
                 if (isa<AllocaInst>(
                         Load->getPointerOperand()->stripPointerCasts())) {
                   // dbgs() << "=> I " << *I
