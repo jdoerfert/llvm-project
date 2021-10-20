@@ -12,16 +12,32 @@
 #ifndef OMPTARGET_DEVICERTL_DEBUG_H
 #define OMPTARGET_DEVICERTL_DEBUG_H
 
+#include "Configuration.h"
+#include "Utils.h"
+
 /// Assertion
 ///
 /// {
 extern "C" {
-void __assert_assume(bool cond, const char *exp, const char *file, int line);
+void __assert_assume(bool cond, bool enabled, bool print, const char *exp,
+                     const char *file, int line);
 void __assert_fail(const char *assertion, const char *file, unsigned line,
                    const char *function);
 }
 
-#define ASSERT(e) __assert_assume(e, #e, __FILE__, __LINE__)
+/// Helper expansion for ASSERT. \p Cond is the expression in the assertion,
+/// \p Enabled determines if assertions are enabled at all, \p ID is a unique
+/// identifier for the assertion so we can ensure it is only reported once.
+#define ASSERT_IMPL(Cond, Enabled, ID)                                         \
+  __assert_assume(Cond, Enabled,                                               \
+                  Enabled &&utils::SingletonFlag<ID>::testAndSet(), #Cond,     \
+                  __FILE__, __LINE__)
+
+/// Assert \p Cond holds. If assertions are enabled it will check it, otherwise
+/// simply assume it holds.
+#define ASSERT(Cond)                                                           \
+  ASSERT_IMPL(Cond, config::isDebugMode(config::DebugKind::Assertion),         \
+              __COUNTER__)
 
 ///}
 

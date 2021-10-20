@@ -20,9 +20,12 @@ using namespace _OMP;
 #pragma omp declare target
 
 extern "C" {
-void __assert_assume(bool cond, const char *exp, const char *file, int line) {
-  if (!cond && config::isDebugMode(config::DebugKind::Assertion)) {
-    PRINTF("ASSERTION failed: %s at %s, line %d\n", exp, file, line);
+void __assert_assume(bool cond, bool enabled, bool print, const char *exp,
+                     const char *file, int line) {
+  // TODO: Consider printing the thread coordinates as well.
+  if (enabled && !cond) {
+    if (print)
+      PRINTF("ASSERTION failed: %s at %s, line %d\n", exp, file, line);
     __builtin_trap();
   }
 

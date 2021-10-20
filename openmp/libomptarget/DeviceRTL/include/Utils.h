@@ -12,6 +12,7 @@
 #ifndef OMPTARGET_DEVICERTL_UTILS_H
 #define OMPTARGET_DEVICERTL_UTILS_H
 
+#include "Synchronization.h"
 #include "Types.h"
 
 namespace _OMP {
@@ -71,6 +72,31 @@ template <typename Ty1, typename Ty2> inline Ty1 align_up(Ty1 V, Ty2 Align) {
 template <typename Ty1, typename Ty2> inline Ty1 align_down(Ty1 V, Ty2 Align) {
   return V - V % Align;
 }
+
+/// Helper class to perform an action only once.
+///
+/// Using this is probably costly even if it is not executed. It should be
+/// guarded such that release mode execution will not be impacted.
+template <auto ID> struct SingletonFlag {
+
+  /// Each SingletonFlag instantiation with the same ID has an internal flag.
+  /// This function will return true if the flag was not set before, otherwise
+  /// it will return false. In either case the flag will be set atomically.
+  static bool testAndSet() {
+    /// Uninitialized on purpose to avoid any cost in case assertions are
+    /// disabled or we don't validate any. The likelihood DoOnceFlag contains
+    /// the Magic value is low. Using the undefined value in the comparison (and
+    /// then a branch) is technically UB, however the atomic (builtin) access we
+    /// use to read it does not expose the undef value to the compiler yet. The
+    /// hardware will not exploit the UB and we are A-OK as long as LLVM won't
+    /// look through atomic exchange. By the time it does we hopefully have
+    /// source level `freeze` intrinsics.
+    static uint32_t DoOnceFlag [[clang::loader_uninitialized]];
+
+    uint32_t Magic = 0b010011110100110101010000 + ID;
+    return Magic != atomic::exchange(&DoOnceFlag, Magic, __ATOMIC_SEQ_CST);
+  }
+};
 
 #define OMP_LIKELY(EXPR) __builtin_expect((bool)(EXPR), true)
 #define OMP_UNLIKELY(EXPR) __builtin_expect((bool)(EXPR), false)
