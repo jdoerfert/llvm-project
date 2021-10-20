@@ -65,7 +65,7 @@ uint32_t getWarpSize();
 /// Return the number of warps in the block.
 uint32_t getNumberOfWarpsInBlock();
 
-/// Return the block Id in the kernel, in [0, getKernelSize()).
+/// Return the block Id in the kernel, in [0, getBlockSize()).
 uint32_t getBlockId();
 
 /// Return the block size, thus number of threads in the block.

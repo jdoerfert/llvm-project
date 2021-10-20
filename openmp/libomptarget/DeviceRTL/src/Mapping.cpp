@@ -43,6 +43,12 @@ uint32_t getWorkgroupDim(uint32_t group_id, uint32_t grid_size,
   return (r < group_size) ? r : group_size;
 }
 
+uint32_t getNumberOfThreadsInBlock() {
+  return getWorkgroupDim(__builtin_amdgcn_workgroup_id_x(),
+                         __builtin_amdgcn_grid_size_x(),
+                         __builtin_amdgcn_workgroup_size_x());
+}
+
 LaneMaskTy activemask() { return __builtin_amdgcn_read_exec(); }
 
 LaneMaskTy lanemaskLT() {
@@ -67,13 +73,6 @@ uint32_t getThreadIdInWarp() {
 
 uint32_t getThreadIdInBlock() { return __builtin_amdgcn_workitem_id_x(); }
 
-uint32_t getBlockSize() {
-  // TODO: verify this logic for generic mode.
-  return getWorkgroupDim(__builtin_amdgcn_workgroup_id_x(),
-                         __builtin_amdgcn_grid_size_x(),
-                         __builtin_amdgcn_workgroup_size_x());
-}
-
 uint32_t getKernelSize() { return __builtin_amdgcn_grid_size_x(); }
 
 uint32_t getBlockId() { return __builtin_amdgcn_workgroup_id_x(); }
@@ -81,18 +80,6 @@ uint32_t getBlockId() { return __builtin_amdgcn_workgroup_id_x(); }
 uint32_t getNumberOfBlocks() {
   return getGridDim(__builtin_amdgcn_grid_size_x(),
                     __builtin_amdgcn_workgroup_size_x());
-}
-
-uint32_t getNumberOfProcessorElements() {
-  return getBlockSize();
-}
-
-uint32_t getWarpId() {
-  return mapping::getThreadIdInBlock() / mapping::getWarpSize();
-}
-
-uint32_t getNumberOfWarpsInBlock() {
-  return mapping::getBlockSize() / mapping::getWarpSize();
 }
 
 #pragma omp end declare variant
@@ -132,29 +119,15 @@ uint32_t getThreadIdInWarp() {
 
 uint32_t getThreadIdInBlock() { return __nvvm_read_ptx_sreg_tid_x(); }
 
-uint32_t getBlockSize() {
-  return __nvvm_read_ptx_sreg_ntid_x() -
-         (!mapping::isSPMDMode() * mapping::getWarpSize());
+uint32_t getKernelSize() {
+  return mapping::getNumberOfBlocks() * mapping::getBlockSize();
 }
-
-uint32_t getKernelSize() { return __nvvm_read_ptx_sreg_nctaid_x(); }
 
 uint32_t getBlockId() { return __nvvm_read_ptx_sreg_ctaid_x(); }
 
 uint32_t getNumberOfBlocks() { return __nvvm_read_ptx_sreg_nctaid_x(); }
 
-uint32_t getNumberOfProcessorElements() {
-  return __nvvm_read_ptx_sreg_ntid_x();
-}
-
-uint32_t getWarpId() {
-  return mapping::getThreadIdInBlock() / mapping::getWarpSize();
-}
-
-uint32_t getNumberOfWarpsInBlock() {
-  return (mapping::getBlockSize() + mapping::getWarpSize() - 1) /
-         mapping::getWarpSize();
-}
+uint32_t getNumberOfThreadsInBlock() { return __nvvm_read_ptx_sreg_ntid_x(); }
 
 #pragma omp end declare variant
 ///}
@@ -194,7 +167,10 @@ uint32_t mapping::getThreadIdInWarp() { return impl::getThreadIdInWarp(); }
 
 uint32_t mapping::getThreadIdInBlock() { return impl::getThreadIdInBlock(); }
 
-uint32_t mapping::getBlockSize() { return impl::getBlockSize(); }
+uint32_t mapping::getBlockSize() {
+  return impl::getNumberOfThreadsInBlock() -
+         (!mapping::isSPMDMode() * mapping::getWarpSize());
+}
 
 uint32_t mapping::getKernelSize() { return impl::getKernelSize(); }
 
@@ -203,21 +179,25 @@ uint32_t mapping::getBlockId() { return impl::getBlockId(); }
 uint32_t mapping::getNumberOfBlocks() { return impl::getNumberOfBlocks(); }
 
 uint32_t mapping::getNumberOfProcessorElements() {
-  return impl::getNumberOfProcessorElements();
+  // TODO: This should probably look at the actual hardware.
+  return impl::getNumberOfThreadsInBlock();
 }
 
-uint32_t mapping::getWarpId() { return impl::getWarpId(); }
+uint32_t mapping::getWarpId() {
+  return mapping::getThreadIdInBlock() / mapping::getWarpSize();
+}
 
 uint32_t mapping::getWarpSize() { return impl::getWarpSize(); }
 
 uint32_t mapping::getNumberOfWarpsInBlock() {
-  return impl::getNumberOfWarpsInBlock();
+  return (mapping::getBlockSize() + mapping::getWarpSize() - 1) /
+         mapping::getWarpSize();
 }
 
 /// Execution mode
 ///
 ///{
-static int SHARED(IsSPMDMode);
+static bool SHARED(IsSPMDMode);
 
 void mapping::init(bool IsSPMD) {
   if (!mapping::getThreadIdInBlock())
