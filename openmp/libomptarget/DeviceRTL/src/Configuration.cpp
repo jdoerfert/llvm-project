@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "Configuration.h"
-#include "DeviceEnvironment.h"
 #include "State.h"
 #include "Types.h"
 
@@ -42,7 +41,7 @@ uint64_t config::getDynamicMemorySize() {
   return omptarget_device_environment.DynamicMemSize;
 }
 
-bool config::isDebugMode(config::DebugKind Kind) {
+bool config::isConfigurationEnabled(uint32_t Kind) {
   return config::getDebugKind() & Kind;
 }
 

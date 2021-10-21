@@ -78,6 +78,13 @@ uint64_t add(uint64_t *Addr, uint64_t V, int Ordering);
 /// old value of \p *Addr.
 uint32_t exchange(uint32_t *Addr, uint32_t V, int Ordering);
 
+/// Atomically compare \p *Addr with \p Compare and set the content to \p Val if
+/// the values were equal. \p Compare is updated to reflect the value in \p Addr
+/// and true is returned iff \p Addr was written.
+bool compareAndSwap(uint32_t *Addr, uint32_t &Compare, uint32_t Val,
+                    int Ordering);
+bool compareAndSwap(uint64_t *Addr, uint64_t &Compare, uint64_t Val,
+                    int Ordering);
 } // namespace atomic
 
 } // namespace _OMP

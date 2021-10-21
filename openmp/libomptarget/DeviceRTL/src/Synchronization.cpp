@@ -51,11 +51,17 @@ uint32_t atomicExchange(uint32_t *Address, uint32_t Val, int Ordering) {
   __atomic_exchange(Address, &Val, &R, Ordering);
   return R;
 }
-uint32_t atomicCAS(uint32_t *Address, uint32_t Compare, uint32_t Val,
-                   int Ordering) {
-  (void)__atomic_compare_exchange(Address, &Compare, &Val, false, Ordering,
-                                  Ordering);
-  return Compare;
+
+bool atomicCAS(uint32_t *Address, uint32_t &Compare, uint32_t Val,
+               int Ordering) {
+  return __atomic_compare_exchange(Address, &Compare, &Val, false, Ordering,
+                                   Ordering);
+}
+
+bool atomicCAS(uint64_t *Address, uint64_t &Compare, uint64_t Val,
+               int Ordering) {
+  return __atomic_compare_exchange(Address, &Compare, &Val, false, Ordering,
+                                   Ordering);
 }
 
 uint64_t atomicAdd(uint64_t *Address, uint64_t Val, int Ordering) {
@@ -204,7 +210,8 @@ void destroyLock(omp_lock_t *Lock) { unsetLock(Lock); }
 
 void setLock(omp_lock_t *Lock) {
   // TODO: not sure spinning is a good idea here..
-  while (atomicCAS((uint32_t *)Lock, UNSET, SET, __ATOMIC_SEQ_CST) != UNSET) {
+  uint32_t UnsetV = UNSET;
+  while (!atomicCAS((uint32_t *)Lock, UnsetV, SET, __ATOMIC_SEQ_CST)) {
     int32_t start = __nvvm_read_ptx_sreg_clock();
     int32_t now;
     for (;;) {
@@ -261,6 +268,16 @@ uint64_t atomic::add(uint64_t *Addr, uint64_t V, int Ordering) {
 
 uint32_t atomic::exchange(uint32_t *Addr, uint32_t V, int Ordering) {
   return impl::atomicExchange(Addr, V, Ordering);
+}
+
+bool atomic::compareAndSwap(uint32_t *Addr, uint32_t &Compare, uint32_t Val,
+                            int Ordering) {
+  return impl::atomicCAS(Addr, Compare, Val, Ordering);
+}
+
+bool atomic::compareAndSwap(uint64_t *Addr, uint64_t &Compare, uint64_t Val,
+                            int Ordering) {
+  return impl::atomicCAS(Addr, Compare, Val, Ordering);
 }
 
 extern "C" {

@@ -12,6 +12,18 @@
 #ifndef OMPTARGET_TYPES_H
 #define OMPTARGET_TYPES_H
 
+namespace _OMP {
+namespace type {
+/// Helper to select a type based on a compile time condition.
+///{
+template <bool B, class T1, class T2> struct selector { typedef T2 type; };
+template <class T1, class T2> struct selector<true, T1, T2> {
+  typedef T1 type;
+};
+///}
+} // namespace type
+} // namespace _OMP
+
 /// Base type declarations for freestanding mode
 ///
 ///{
@@ -23,6 +35,8 @@ using int32_t = int;
 using uint32_t = unsigned int;
 using int64_t = long;
 using uint64_t = unsigned long;
+using uintptr_t = _OMP::type::selector<sizeof(void *) == sizeof(uint64_t),
+                                       uint64_t, uint32_t>::type;
 
 static_assert(sizeof(int8_t) == 1, "type size mismatch");
 static_assert(sizeof(uint8_t) == 1, "type size mismatch");
@@ -201,6 +215,8 @@ enum OMPTgtExecModeFlags : int8_t {
 //       does?
 #define CONSTANT(NAME)                                                         \
   NAME [[clang::loader_uninitialized, clang::address_space(4)]]
+
+#define GLOBAL(NAME) NAME [[clang::loader_uninitialized]]
 
 ///}
 

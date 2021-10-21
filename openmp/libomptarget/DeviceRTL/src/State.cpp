@@ -13,6 +13,7 @@
 #include "Debug.h"
 #include "Interface.h"
 #include "Mapping.h"
+#include "Profile.h"
 #include "Synchronization.h"
 #include "Types.h"
 #include "Utils.h"
@@ -278,6 +279,7 @@ uint32_t &lookupForModify32Impl(uint32_t ICVStateTy::*Var, IdentTy *Ident) {
     return TeamState.ICVState.*Var;
   uint32_t TId = mapping::getThreadIdInBlock();
   if (!ThreadStates[TId]) {
+    profile::singletonEvent<profile::UserICVUpdate, IdentTy *>(Ident);
     ThreadStates[TId] = reinterpret_cast<ThreadStateTy *>(memory::allocGlobal(
         sizeof(ThreadStateTy), "ICV modification outside data environment"));
     ThreadStates[TId]->init();
@@ -366,6 +368,7 @@ void state::init(bool IsSPMD) {
 }
 
 void state::enterDataEnvironment(IdentTy *Ident) {
+  profile::singletonEvent<profile::UserICVUpdate, IdentTy *>(Ident);
   unsigned TId = mapping::getThreadIdInBlock();
   ThreadStateTy *NewThreadState =
       static_cast<ThreadStateTy *>(__kmpc_alloc_shared(sizeof(ThreadStateTy)));
@@ -405,11 +408,16 @@ void state::assumeInitialState(bool IsSPMD) {
 }
 
 extern "C" {
-void omp_set_dynamic(int V) {}
+void omp_set_dynamic(int V) {
+  profile::singletonEvent<profile::UserICVUpdate, IdentTy *>(nullptr);
+}
 
 int omp_get_dynamic(void) { return 0; }
 
-void omp_set_num_threads(int V) { icv::NThreads = V; }
+void omp_set_num_threads(int V) {
+  profile::singletonEvent<profile::UserICVUpdate, IdentTy *>(nullptr);
+  icv::NThreads = V;
+}
 
 int omp_get_max_threads(void) { return icv::NThreads; }
 
@@ -429,6 +437,7 @@ void omp_get_schedule(omp_sched_t *ScheduleKind, int *ChunkSize) {
 }
 
 void omp_set_schedule(omp_sched_t ScheduleKind, int ChunkSize) {
+  profile::singletonEvent<profile::UserICVUpdate, IdentTy *>(nullptr);
   icv::RunSched = (int)ScheduleKind;
   state::RunSchedChunk = ChunkSize;
 }
@@ -453,11 +462,14 @@ int omp_get_thread_limit(void) { return mapping::getBlockSize(); }
 
 int omp_get_num_procs(void) { return mapping::getNumberOfProcessorElements(); }
 
-void omp_set_nested(int) {}
+void omp_set_nested(int) {
+  profile::singletonEvent<profile::UserICVUpdate, IdentTy *>(nullptr);
+}
 
 int omp_get_nested(void) { return false; }
 
 void omp_set_max_active_levels(int Levels) {
+  profile::singletonEvent<profile::UserICVUpdate, IdentTy *>(nullptr);
   icv::MaxActiveLevels = Levels > 0 ? 1 : 0;
 }
 
@@ -483,7 +495,9 @@ void omp_get_partition_place_nums(int *) {
 
 int omp_get_cancellation(void) { return 0; }
 
-void omp_set_default_device(int) {}
+void omp_set_default_device(int) {
+  profile::singletonEvent<profile::UserICVUpdate, IdentTy *>(nullptr);
+}
 
 int omp_get_default_device(void) { return -1; }
 
