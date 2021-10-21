@@ -149,6 +149,7 @@ set(src_files
   ${source_directory}/Kernel.cpp
   ${source_directory}/Mapping.cpp
   ${source_directory}/Misc.cpp
+  ${source_directory}/Profile.cpp
   ${source_directory}/Parallelism.cpp
   ${source_directory}/Reduction.cpp
   ${source_directory}/State.cpp

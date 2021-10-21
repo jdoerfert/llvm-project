@@ -36,7 +36,7 @@ void __assert_fail(const char *assertion, const char *file, unsigned line,
 /// Assert \p Cond holds. If assertions are enabled it will check it, otherwise
 /// simply assume it holds.
 #define ASSERT(Cond)                                                           \
-  ASSERT_IMPL(Cond, config::isDebugMode(config::DebugKind::Assertion),         \
+  ASSERT_IMPL(Cond, config::isConfigurationEnabled(config::Assertion),         \
               __COUNTER__)
 
 ///}
@@ -59,6 +59,8 @@ int printf(const char *format, ...);
 #define PRINTF(fmt, ...)
 #define PRINT(str)
 #endif
+
+#define WARN(fmt, ...) PRINTF("WARNING" # fmt, __VA_ARGS__);
 
 ///}
 

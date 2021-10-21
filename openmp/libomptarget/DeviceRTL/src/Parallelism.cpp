@@ -37,6 +37,7 @@
 #include "Mapping.h"
 #include "State.h"
 #include "Synchronization.h"
+#include "Profile.h"
 #include "Types.h"
 #include "Utils.h"
 
@@ -73,8 +74,9 @@ void invokeMicrotask(int32_t global_tid, int32_t bound_tid, void *fn,
 extern "C" {
 
 void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
-                        int32_t num_threads, int proc_bind, void *fn,
-                        void *wrapper_fn, void **args, int64_t nargs) {
+                        int32_t num_threads, int, void *fn, void *wrapper_fn,
+                        void **args, int64_t nargs) {
+  profile::RAII<profile::ParallelRegion> RAII(ident);
 
   uint32_t TId = mapping::getThreadIdInBlock();
   // Handle the serialized case first, same for SPMD/non-SPMD.

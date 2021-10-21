@@ -22,4 +22,15 @@ struct DeviceEnvironmentTy {
   uint32_t DynamicMemSize;
 };
 
+#pragma omp declare target
+namespace _OMP {
+  namespace config {
+    static constexpr uint32_t Assertion = 1U << 0;
+    static constexpr uint32_t FunctionTracing = 1U << 1;
+    static constexpr uint32_t Profile = 1U << 2;
+    static constexpr uint32_t Advisor = 1U << 3;
+  }
+}
+#pragma omp end declare target
+
 #endif

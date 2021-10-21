@@ -21,8 +21,11 @@
 #include <vector>
 
 #include "Debug.h"
-#include "DeviceEnvironment.h"
+#include "omptarget.h"
 #include "omptargetplugin.h"
+
+#include "AdvisorEnvironment.h"
+#include "DeviceEnvironment.h"
 
 #define TARGET_NAME CUDA
 #define DEBUG_PREFIX "Target " GETNAME(TARGET_NAME) " RTL"
@@ -30,6 +33,8 @@
 #include "MemoryManager.h"
 
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
+
+using namespace _OMP;
 
 // Utility for retrieving and printing CUDA error string.
 #ifdef OMPTARGET_DEBUG
@@ -322,6 +327,9 @@ public:
 };
 
 class DeviceRTLTy {
+  /// The debug/configuration kind we read from LIBOMPTARGET_DEVICE_RTL_DEBUG
+  uint32_t DebugKind;
+
   int NumberOfDevices;
   // OpenMP environment properties
   int EnvNumTeams;
@@ -558,10 +566,20 @@ public:
 
     StreamManager = nullptr;
 
-    for (CUmodule &M : Modules)
+    for (CUmodule &M : Modules) {
+      if (!M)
+        continue;
+
+      if (DebugKind & (config::Profile | config::Advisor)) {
+        AdvisorEnvironmentTy AdvisorEnv;
+        receiveEnvironment("__llvm_omp_advisor_environment", AdvisorEnv, M);
+        AdvisorEnv.AnyNonGenericModeKernel.dump();
+        AdvisorEnv.AnyNonSPMDModeKernel.dump();
+        AdvisorEnv.AnyParallelRegionInGenericMode.dump();
+      }
       // Close module
-      if (M)
-        checkResult(cuModuleUnload(M), "Error returned from cuModuleUnload\n");
+      checkResult(cuModuleUnload(M), "Error returned from cuModuleUnload\n");
+    }
 
     for (DeviceDataTy &D : DeviceData) {
       // Destroy context
@@ -754,6 +772,66 @@ public:
     return OFFLOAD_SUCCESS;
   }
 
+  template <typename EnvironmentTy, bool Send>
+  bool sendOrReceiveEnvironment(const char *DeviceEnvName,
+                                EnvironmentTy &Environment,
+                                CUmodule Module) const {
+    CUdeviceptr DeviceEnvPtr;
+    size_t CUSize;
+
+    CUresult Err =
+        cuModuleGetGlobal(&DeviceEnvPtr, &CUSize, Module, DeviceEnvName);
+    if (Err != CUDA_SUCCESS) {
+      REPORT("Global device environment '%s' - symbol missing.\nContinue, "
+             "considering this is a device RTL which does not accept "
+             "this environment.\n",
+             DeviceEnvName);
+      return OFFLOAD_SUCCESS;
+    }
+
+    if (CUSize != sizeof(Environment)) {
+      REPORT("Global device environment '%s' - size mismatch (%zu != "
+             "%zu).\nContinue, "
+             "considering this is a device RTL which is not compatible with "
+             "this environment.\n",
+             DeviceEnvName, CUSize, sizeof(int32_t))
+      CUDA_ERR_STRING(Err);
+      return OFFLOAD_SUCCESS;
+    }
+
+    if (Send)
+      Err = cuMemcpyHtoD(DeviceEnvPtr, &Environment, CUSize);
+    else
+      Err = cuMemcpyDtoH(&Environment, DeviceEnvPtr, CUSize);
+
+    if (Err != CUDA_SUCCESS) {
+      REPORT("Error when copying data from %s. Pointers: "
+             "host = " DPxMOD ", device = " DPxMOD ", size = %zu\n",
+             Send ? "host to device" : "device to host", DPxPTR(&Environment),
+             DPxPTR(DeviceEnvPtr), CUSize);
+      CUDA_ERR_STRING(Err);
+      return OFFLOAD_FAIL;
+    }
+
+    DP("%s global device environment data %zu bytes\n",
+       Send ? "Sending" : "Retriving", CUSize);
+    return OFFLOAD_SUCCESS;
+  }
+
+  template <typename EnvironmentTy>
+  bool sendEnvironment(const char *DeviceEnvName, EnvironmentTy &Environment,
+                       CUmodule Module) const {
+    return sendOrReceiveEnvironment<EnvironmentTy, /* Send */ true>(
+        DeviceEnvName, Environment, Module);
+  }
+
+  template <typename EnvironmentTy>
+  bool receiveEnvironment(const char *DeviceEnvName, EnvironmentTy &Environment,
+                          CUmodule Module) const {
+    return sendOrReceiveEnvironment<EnvironmentTy, /* Send */ false>(
+        DeviceEnvName, Environment, Module);
+  }
+
   __tgt_target_table *loadBinary(const int DeviceId,
                                  const __tgt_device_image *Image) {
     // Set the context we are using
@@ -885,45 +963,25 @@ public:
       addOffloadEntry(DeviceId, Entry);
     }
 
-    // send device environment data to the device
+    // send environments to the device
     {
+      if (const char *EnvStr = getenv("LIBOMPTARGET_DEVICE_RTL_DEBUG"))
+        DebugKind = std::stoi(EnvStr);
+
       // TODO: The device ID used here is not the real device ID used by OpenMP.
-      DeviceEnvironmentTy DeviceEnv{0, static_cast<uint32_t>(NumberOfDevices),
+      DeviceEnvironmentTy DeviceEnv{DebugKind,
+                                    static_cast<uint32_t>(NumberOfDevices),
                                     static_cast<uint32_t>(DeviceId),
                                     static_cast<uint32_t>(DynamicMemorySize)};
 
-      if (const char *EnvStr = getenv("LIBOMPTARGET_DEVICE_RTL_DEBUG"))
-        DeviceEnv.DebugKind = std::stoi(EnvStr);
+      if (sendEnvironment("omptarget_device_environment", DeviceEnv, Module))
+        return nullptr;
 
-      const char *DeviceEnvName = "omptarget_device_environment";
-      CUdeviceptr DeviceEnvPtr;
-      size_t CUSize;
-
-      Err = cuModuleGetGlobal(&DeviceEnvPtr, &CUSize, Module, DeviceEnvName);
-      if (Err == CUDA_SUCCESS) {
-        if (CUSize != sizeof(DeviceEnv)) {
-          REPORT(
-              "Global device_environment '%s' - size mismatch (%zu != %zu)\n",
-              DeviceEnvName, CUSize, sizeof(int32_t));
-          CUDA_ERR_STRING(Err);
+      if (DebugKind & (config::Profile | config::Advisor)) {
+        AdvisorEnvironmentTy AdvisorEnv;
+        if (sendEnvironment("__llvm_omp_advisor_environment", AdvisorEnv,
+                            Module))
           return nullptr;
-        }
-
-        Err = cuMemcpyHtoD(DeviceEnvPtr, &DeviceEnv, CUSize);
-        if (Err != CUDA_SUCCESS) {
-          REPORT("Error when copying data from host to device. Pointers: "
-                 "host = " DPxMOD ", device = " DPxMOD ", size = %zu\n",
-                 DPxPTR(&DeviceEnv), DPxPTR(DeviceEnvPtr), CUSize);
-          CUDA_ERR_STRING(Err);
-          return nullptr;
-        }
-
-        DP("Sending global device environment data %zu bytes\n", CUSize);
-      } else {
-        DP("Finding global device environment '%s' - symbol missing.\n",
-           DeviceEnvName);
-        DP("Continue, considering this is a device RTL which does not accept "
-           "environment setting.\n");
       }
     }
 

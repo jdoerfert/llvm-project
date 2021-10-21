@@ -200,6 +200,8 @@ enum OMPTgtExecModeFlags : int8_t {
 #define CONSTANT(NAME)                                                         \
   NAME [[clang::loader_uninitialized, clang::address_space(4)]]
 
+#define GLOBAL(NAME) NAME [[clang::loader_uninitialized]]
+
 ///}
 
 #endif

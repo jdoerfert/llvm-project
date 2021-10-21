@@ -13,6 +13,7 @@
 #include "Debug.h"
 #include "Interface.h"
 #include "Mapping.h"
+#include "Profile.h"
 #include "State.h"
 #include "Synchronization.h"
 #include "Types.h"
@@ -66,6 +67,8 @@ extern "C" {
 ///
 int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
                            bool UseGenericStateMachine, bool) {
+  profile::RAII<profile::KernelInit> PRAII(Ident, Mode, UseGenericStateMachine);
+
   const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
   if (IsSPMD) {
     inititializeRuntime(/* IsSPMD */ true);

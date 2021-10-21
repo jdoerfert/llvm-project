@@ -14,14 +14,10 @@
 #define OMPTARGET_CONFIGURATION_H
 
 #include "Types.h"
+#include "DeviceEnvironment.h"
 
 namespace _OMP {
 namespace config {
-
-enum DebugKind : uint32_t {
-  Assertion = 1U << 0,
-  FunctionTracing = 1U << 1,
-};
 
 /// Return the number of devices in the system, same number as returned on the
 /// host by omp_get_num_devices.
@@ -37,7 +33,8 @@ uint32_t getDebugKind();
 /// Return the amount of dynamic shared memory that was allocated at launch.
 uint64_t getDynamicMemorySize();
 
-bool isDebugMode(DebugKind Level);
+/// Return true if the configuration option \p Kind is enabled for this run.
+bool isConfigurationEnabled(uint32_t Kind);
 
 } // namespace config
 } // namespace _OMP

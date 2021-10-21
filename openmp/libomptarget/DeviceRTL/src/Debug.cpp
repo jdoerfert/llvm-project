@@ -45,7 +45,7 @@ static uint32_t Level = 0;
 #pragma omp allocate(Level) allocator(omp_pteam_mem_alloc)
 
 DebugEntryRAII::DebugEntryRAII(const unsigned Line, const char *Function) {
-  if (config::isDebugMode(config::DebugKind::FunctionTracing) &&
+  if (config::isConfigurationEnabled(config::FunctionTracing) &&
       mapping::getThreadIdInBlock() == 0) {
 
     for (int I = 0; I < Level; ++I)
@@ -58,7 +58,7 @@ DebugEntryRAII::DebugEntryRAII(const unsigned Line, const char *Function) {
 }
 
 DebugEntryRAII::~DebugEntryRAII() {
-  if (config::isDebugMode(config::DebugKind::FunctionTracing) &&
+  if (config::isConfigurationEnabled(config::FunctionTracing) &&
       mapping::getThreadIdInBlock() == 0)
     Level--;
 }

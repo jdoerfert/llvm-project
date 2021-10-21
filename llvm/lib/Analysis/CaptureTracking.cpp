@@ -373,9 +373,13 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker,
     case Instruction::Store:
       // Stored the pointer - conservatively assume it may be captured.
       // Volatile stores make the address observable.
-      if (U->getOperandNo() == 0 || cast<StoreInst>(I)->isVolatile())
+      if (U->getOperandNo() == 0 || cast<StoreInst>(I)->isVolatile()) {
+        if (auto *AI = dyn_cast<AllocaInst>(I->getOperand(1)->stripInBoundsOffsets()))
+          if (AI->hasMetadata("nocapture_storage"))
+            break;
         if (Tracker->captured(U))
           return;
+      }
       break;
     case Instruction::AtomicRMW: {
       // atomicrmw conceptually includes both a load and store from

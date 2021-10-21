@@ -263,6 +263,11 @@ uint32_t atomic::exchange(uint32_t *Addr, uint32_t V, int Ordering) {
   return impl::atomicExchange(Addr, V, Ordering);
 }
 
+uint32_t atomic::compareAndSwap(uint32_t *Addr, uint32_t Compare, uint32_t Val,
+                                int Ordering) {
+  return impl::atomicCAS(Addr, Compare, Val, Ordering);
+}
+
 extern "C" {
 void __kmpc_ordered(IdentTy *Loc, int32_t TId) {}
 
