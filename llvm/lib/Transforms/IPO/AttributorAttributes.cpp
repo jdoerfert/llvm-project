@@ -645,20 +645,22 @@ struct AACallSiteReturnedFromReturned : public BaseType {
            "positions!");
     auto &S = this->getState();
 
-    const Function *AssociatedFunction =
-        this->getIRPosition().getAssociatedFunction();
-    if (!AssociatedFunction)
-      return S.indicatePessimisticFixpoint();
-
-    CallBase &CBContext = static_cast<CallBase &>(this->getAnchorValue());
+    CallBase &CB = cast<CallBase>(this->getAnchorValue());
     if (IntroduceCallBaseContext)
-      LLVM_DEBUG(dbgs() << "[Attributor] Introducing call base context:"
-                        << CBContext << "\n");
+      LLVM_DEBUG(dbgs() << "[Attributor] Introducing call base context:" << CB
+                        << "\n");
 
-    IRPosition FnPos = IRPosition::returned(
-        *AssociatedFunction, IntroduceCallBaseContext ? &CBContext : nullptr);
-    const AAType &AA = A.getAAFor<AAType>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(S, AA.getState());
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    auto CalleePred = [&](const Function &Callee, bool MustCallee) {
+      IRPosition FnPos = IRPosition::returned(
+          Callee, IntroduceCallBaseContext ? &CB : nullptr);
+      const AAType &AA = A.getAAFor<AAType>(*this, FnPos, DepClassTy::REQUIRED);
+      Changed |= clampStateAndIndicateChange(S, AA.getState());
+      return true;
+    };
+    if (!A.checkForAllCallees(CalleePred, *this, CB))
+      return S.indicatePessimisticFixpoint();
+    return Changed;
   }
 };
 
@@ -1491,10 +1493,17 @@ struct AANoUnwindCallSite final : AANoUnwindImpl {
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto &FnAA = A.getAAFor<AANoUnwind>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(getState(), FnAA.getState());
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    auto CalleePred = [&](const Function &Callee, bool MustCallee) {
+      const IRPosition &FnPos = IRPosition::function(Callee);
+      auto &FnAA = A.getAAFor<AANoUnwind>(*this, FnPos, DepClassTy::REQUIRED);
+      Changed |= clampStateAndIndicateChange(getState(), FnAA.getState());
+      return true;
+    };
+    CallBase &CB = *cast<CallBase>(getCtxI());
+    if (!A.checkForAllCallees(CalleePred, *this, CB))
+      return indicatePessimisticFixpoint();
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -1537,8 +1546,10 @@ public:
       indicatePessimisticFixpoint();
       return;
     }
-    assert(!F->getReturnType()->isVoidTy() &&
-           "Did not expect a void return type!");
+    if (F->getReturnType()->isVoidTy()) {
+      indicatePessimisticFixpoint();
+      return;
+    }
 
     // The map from instruction opcodes to those instructions in the function.
     auto &OpcodeInstMap = A.getInfoCache().getOpcodeInstMapForFunction(*F);
@@ -1889,10 +1900,17 @@ struct AANoSyncCallSite final : AANoSyncImpl {
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto &FnAA = A.getAAFor<AANoSync>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(getState(), FnAA.getState());
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    auto CalleePred = [&](const Function &Callee, bool MustCallee) {
+      const IRPosition &FnPos = IRPosition::function(Callee);
+      auto &FnAA = A.getAAFor<AANoSync>(*this, FnPos, DepClassTy::REQUIRED);
+      Changed |= clampStateAndIndicateChange(getState(), FnAA.getState());
+      return true;
+    };
+    CallBase &CB = *cast<CallBase>(getCtxI());
+    if (!A.checkForAllCallees(CalleePred, *this, CB))
+      return indicatePessimisticFixpoint();
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -1956,10 +1974,17 @@ struct AANoFreeCallSite final : AANoFreeImpl {
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto &FnAA = A.getAAFor<AANoFree>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(getState(), FnAA.getState());
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    auto CalleePred = [&](const Function &Callee, bool MustCallee) {
+      const IRPosition &FnPos = IRPosition::function(Callee);
+      auto &FnAA = A.getAAFor<AANoFree>(*this, FnPos, DepClassTy::REQUIRED);
+      Changed |= clampStateAndIndicateChange(getState(), FnAA.getState());
+      return true;
+    };
+    CallBase &CB = *cast<CallBase>(getCtxI());
+    if (!A.checkForAllCallees(CalleePred, *this, CB))
+      return indicatePessimisticFixpoint();
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -2395,24 +2420,23 @@ struct AANoRecurseCallSite final : AANoRecurseImpl {
   AANoRecurseCallSite(const IRPosition &IRP, Attributor &A)
       : AANoRecurseImpl(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AANoRecurseImpl::initialize(A);
-    Function *F = getAssociatedFunction();
-    if (!F || F->isDeclaration())
-      indicatePessimisticFixpoint();
-  }
-
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     // TODO: Once we have call site specific value information we can provide
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto &FnAA = A.getAAFor<AANoRecurse>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(getState(), FnAA.getState());
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    auto CalleePred = [&](const Function &Callee, bool MustCallee) {
+      const IRPosition &FnPos = IRPosition::function(Callee);
+      auto &FnAA = A.getAAFor<AANoRecurse>(*this, FnPos, DepClassTy::REQUIRED);
+      Changed |= clampStateAndIndicateChange(getState(), FnAA.getState());
+      return true;
+    };
+    CallBase &CB = *cast<CallBase>(getCtxI());
+    if (!A.checkForAllCallees(CalleePred, *this, CB))
+      return indicatePessimisticFixpoint();
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -2879,15 +2903,21 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
   ChangeStatus updateImpl(Attributor &A) override {
     if (isImpliedByMustprogressAndReadonly(A, /* KnownOnly */ false))
       return ChangeStatus::UNCHANGED;
-
     // TODO: Once we have call site specific value information we can provide
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto &FnAA = A.getAAFor<AAWillReturn>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(getState(), FnAA.getState());
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    auto CalleePred = [&](const Function &Callee, bool MustCallee) {
+      const IRPosition &FnPos = IRPosition::function(Callee);
+      auto &FnAA = A.getAAFor<AAWillReturn>(*this, FnPos, DepClassTy::REQUIRED);
+      Changed |= clampStateAndIndicateChange(getState(), FnAA.getState());
+      return true;
+    };
+    CallBase &CB = *cast<CallBase>(getCtxI());
+    if (!A.checkForAllCallees(CalleePred, *this, CB))
+      return indicatePessimisticFixpoint();
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -4623,10 +4653,17 @@ struct AANoReturnCallSite final : AANoReturnImpl {
     //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto &FnAA = A.getAAFor<AANoReturn>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(getState(), FnAA.getState());
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    auto CalleePred = [&](const Function &Callee, bool MustCallee) {
+      const IRPosition &FnPos = IRPosition::function(Callee);
+      auto &FnAA = A.getAAFor<AANoReturn>(*this, FnPos, DepClassTy::REQUIRED);
+      Changed |= clampStateAndIndicateChange(getState(), FnAA.getState());
+      return true;
+    };
+    CallBase &CB = *cast<CallBase>(getCtxI());
+    if (!A.checkForAllCallees(CalleePred, *this, CB))
+      return indicatePessimisticFixpoint();
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -7177,14 +7214,21 @@ struct AAMemoryBehaviorCallSite final : AAMemoryBehaviorImpl {
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     // TODO: Once we have call site specific value information we can provide
-    //       call site specific liveness liveness information and then it makes
+    //       call site specific liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
     //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto &FnAA =
-        A.getAAFor<AAMemoryBehavior>(*this, FnPos, DepClassTy::REQUIRED);
-    return clampStateAndIndicateChange(getState(), FnAA.getState());
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    auto CalleePred = [&](const Function &Callee, bool MustCallee) {
+      const IRPosition &FnPos = IRPosition::function(Callee);
+      auto &FnAA =
+          A.getAAFor<AAMemoryBehavior>(*this, FnPos, DepClassTy::REQUIRED);
+      Changed |= clampStateAndIndicateChange(getState(), FnAA.getState());
+      return true;
+    };
+    CallBase &CB = *cast<CallBase>(getCtxI());
+    if (!A.checkForAllCallees(CalleePred, *this, CB))
+      return indicatePessimisticFixpoint();
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -9658,6 +9702,7 @@ public:
   }
 
   void trackStatistics() const override {}
+
 private:
   bool canReachUnknownCallee() const override {
     return WholeFunction.CanReachUnknownCallee;

@@ -1618,6 +1618,15 @@ public:
                      const AAIsDead *FnLivenessAA,
                      DepClassTy DepClass = DepClassTy::OPTIONAL);
 
+  /// Check \p Pred on all potential Callees of \p CB.
+  ///
+  /// This method will evaluate \p Pred on all potential callees of \p CB and
+  /// return true if \p Pred holds every time. The second argument to \p Pred
+  /// indicates if this is a must-be-called callee or a may-be-called callee.
+  /// If some callees might be unknown this function will return false.
+  bool checkForAllCallees(function_ref<bool(const Function &, bool)> Pred,
+                       const AbstractAttribute &QueryingAA, const CallBase &CB);
+
   /// Check \p Pred on all (transitive) uses of \p V.
   ///
   /// This method will evaluate \p Pred on all (transitive) uses of the
