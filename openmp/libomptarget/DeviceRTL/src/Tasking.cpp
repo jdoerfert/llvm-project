@@ -46,7 +46,7 @@ int32_t __kmpc_omp_task(IdentTy *Loc, uint32_t TId,
 int32_t __kmpc_omp_task_with_deps(IdentTy *Loc, uint32_t TId,
                                   TaskDescriptorTy *TaskDescriptor, int32_t,
                                   void *, int32_t, void *) {
-  state::DateEnvironmentRAII DERAII;
+  state::DateEnvironmentRAII DERAII(Loc);
 
   TaskDescriptor->TaskFn(0, TaskDescriptor);
 
@@ -56,7 +56,7 @@ int32_t __kmpc_omp_task_with_deps(IdentTy *Loc, uint32_t TId,
 
 void __kmpc_omp_task_begin_if0(IdentTy *Loc, uint32_t TId,
                                TaskDescriptorTy *TaskDescriptor) {
-  state::enterDataEnvironment();
+  state::enterDataEnvironment(Loc);
 }
 
 void __kmpc_omp_task_complete_if0(IdentTy *Loc, uint32_t TId,
