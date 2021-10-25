@@ -633,13 +633,15 @@ struct KernelInfoState : AbstractState {
   KernelInfoState operator^=(const KernelInfoState &KIS) {
     // Do not merge two different _init and _deinit call sites.
     if (KIS.KernelInitCB) {
-      if(KernelInitCB && KernelInitCB != KIS.KernelInitCB)
-        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt assumptions.");
+      if (KernelInitCB && KernelInitCB != KIS.KernelInitCB)
+        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt "
+                         "assumptions.");
       KernelInitCB = KIS.KernelInitCB;
     }
     if (KIS.KernelDeinitCB) {
-      if(KernelDeinitCB && KernelDeinitCB != KIS.KernelDeinitCB)
-        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt assumptions.");
+      if (KernelDeinitCB && KernelDeinitCB != KIS.KernelDeinitCB)
+        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt "
+                         "assumptions.");
       KernelDeinitCB = KIS.KernelDeinitCB;
     }
     SPMDCompatibilityTracker ^= KIS.SPMDCompatibilityTracker;
@@ -1588,8 +1590,11 @@ private:
             &F.getEntryBlock(), F.getEntryBlock().begin()));
       // Create a fallback location if non was found.
       // TODO: Use the debug locations of the calls instead.
-      Constant *Loc = OMPInfoCache.OMPBuilder.getOrCreateDefaultSrcLocStr();
-      Ident = OMPInfoCache.OMPBuilder.getOrCreateIdent(Loc);
+
+      uint32_t SrcLocStrSize;
+      Constant *Loc =
+          OMPInfoCache.OMPBuilder.getOrCreateDefaultSrcLocStr(SrcLocStrSize);
+      Ident = OMPInfoCache.OMPBuilder.getOrCreateIdent(Loc, SrcLocStrSize);
     }
     return Ident;
   }
@@ -3189,8 +3194,9 @@ struct AAKernelInfoFunction : AAKernelInfo {
       OpenMPIRBuilder::LocationDescription Loc(
           InsertPointTy(ParentBB, ParentBB->end()), DL);
       OMPInfoCache.OMPBuilder.updateToLocation(Loc);
-      auto *SrcLocStr = OMPInfoCache.OMPBuilder.getOrCreateSrcLocStr(Loc);
-      Value *Ident = OMPInfoCache.OMPBuilder.getOrCreateIdent(SrcLocStr);
+      uint32_t SrcLocStrSize;
+      auto *SrcLocStr = OMPInfoCache.OMPBuilder.getOrCreateSrcLocStr(Loc, SrcLocStrSize);
+      Value *Ident = OMPInfoCache.OMPBuilder.getOrCreateIdent(SrcLocStr, SrcLocStrSize);
       BranchInst::Create(RegionCheckTidBB, ParentBB)->setDebugLoc(DL);
 
       // Add check for Tid in RegionCheckTidBB
@@ -3696,7 +3702,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
     bool UsedAssumedInformationInCheckCallInst = false;
     if (!A.checkForAllCallLikeInstructions(
             CheckCallInst, *this, UsedAssumedInformationInCheckCallInst)) {
-      LLVM_DEBUG(dbgs() << TAG << "Failed to visit all call-like instructions!\n";);
+      LLVM_DEBUG(dbgs() << TAG
+                        << "Failed to visit all call-like instructions!\n";);
       return indicatePessimisticFixpoint();
     }
 
