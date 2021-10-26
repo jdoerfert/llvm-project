@@ -58,9 +58,9 @@ void profile::EventHandler<profile::ThreadStateUsage>::singleton(IdentTy *Loc) {
   if (profile::isInAdvisorMode())
     __llvm_omp_advisor_environment.ThreadStateUsage.inc(Loc);
 }
-void profile::EventHandler<profile::PrintCall>::singleton(IdentTy *Loc) {
+void profile::EventHandler<profile::PrintCall>::singleton() {
   if (profile::isInAdvisorMode())
-    __llvm_omp_advisor_environment.PrintCalls.inc(Loc);
+    __llvm_omp_advisor_environment.PrintCalls.inc();
 }
 void profile::EventHandler<profile::AssertionCall>::singleton(IdentTy *Loc) {
   if (profile::isInAdvisorMode())

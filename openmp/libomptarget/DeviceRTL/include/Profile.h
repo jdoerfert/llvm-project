@@ -68,7 +68,7 @@ EntryExitEvent(profile::KernelInit, IdentTy *, int8_t, bool);
 EntryExitEvent(profile::ParallelRegion, IdentTy *);
 SingletonEvent(profile::SharedStackUsage, IdentTy *);
 SingletonEvent(profile::ThreadStateUsage, IdentTy *);
-SingletonEvent(profile::PrintCall, IdentTy *);
+SingletonEvent(profile::PrintCall);
 SingletonEvent(profile::AssertionCall, IdentTy *);
 SingletonEvent(profile::UserICVUpdate, IdentTy *);
 

@@ -14,6 +14,7 @@
 #include "Configuration.h"
 #include "Mapping.h"
 #include "Types.h"
+#include "Profile.h"
 
 using namespace _OMP;
 
@@ -47,6 +48,7 @@ int32_t vprintf(const char *, void *) { return 0; }
 #pragma omp end declare variant
 
 int32_t __llvm_omp_vprintf(const char *Format, void *Arguments) {
+  profile::singletonEvent<profile::PrintCall>();
   return vprintf(Format, Arguments);
 }
 }
