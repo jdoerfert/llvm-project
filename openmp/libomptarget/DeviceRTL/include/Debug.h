@@ -46,17 +46,12 @@ void __assert_fail(const char *assertion, const char *file, unsigned line,
 /// macro.
 /// {
 
-#ifndef __AMDGCN__
 extern "C" {
 int printf(const char *format, ...);
 }
 
 #define PRINTF(fmt, ...) (void)printf(fmt, __VA_ARGS__)
 #define PRINT(str) PRINTF("%s", str)
-#else
-#define PRINTF(fmt, ...)
-#define PRINT(str)
-#endif
 
 #define WARN(fmt, ...) PRINTF("WARNING: " #fmt, __VA_ARGS__)
 

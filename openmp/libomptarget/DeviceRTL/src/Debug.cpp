@@ -38,6 +38,17 @@ void __assert_fail(const char *assertion, const char *file, unsigned line,
          assertion);
   __builtin_trap();
 }
+
+int32_t vprintf(const char *, void *);
+
+// We do not have a vprintf implementation for AMD GPU yet so we use a stub.
+#pragma omp begin declare variant match(device = {arch(amdgcn)})
+int32_t vprintf(const char *, void *) { return 0; }
+#pragma omp end declare variant
+
+int32_t __llvm_omp_vprintf(const char *Format, void *Arguments) {
+  return vprintf(Format, Arguments);
+}
 }
 
 /// Current indentation level for the function trace. Only accessed by thread 0.

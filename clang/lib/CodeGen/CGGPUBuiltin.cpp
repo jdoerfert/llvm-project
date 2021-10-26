@@ -21,24 +21,30 @@
 using namespace clang;
 using namespace CodeGen;
 
-static llvm::Function *GetVprintfDeclaration(llvm::Module &M) {
+static llvm::Function *GetVprintfDeclaration(CodeGenModule &CGM) {
+  bool UsesNewOpenMPDeviceRuntime = CGM.getLangOpts().OpenMPIsDevice &&
+                                    CGM.getLangOpts().OpenMPTargetNewRuntime;
+  const char *Name =
+      UsesNewOpenMPDeviceRuntime ? "__llvm_omp_vprintf" : "vprintf";
+  llvm::Module &M = CGM.getModule();
   llvm::Type *ArgTypes[] = {llvm::Type::getInt8PtrTy(M.getContext()),
                             llvm::Type::getInt8PtrTy(M.getContext())};
   llvm::FunctionType *VprintfFuncType = llvm::FunctionType::get(
       llvm::Type::getInt32Ty(M.getContext()), ArgTypes, false);
 
-  if (auto* F = M.getFunction("vprintf")) {
+  if (auto *F = M.getFunction(Name)) {
     // Our CUDA system header declares vprintf with the right signature, so
     // nobody else should have been able to declare vprintf with a bogus
-    // signature.
+    // signature. The OpenMP device runtime provides a wrapper around vprintf
+    // which we use here. The signature should match though.
     assert(F->getFunctionType() == VprintfFuncType);
     return F;
   }
 
-  // vprintf doesn't already exist; create a declaration and insert it into the
-  // module.
+  // vprintf, or for OpenMP device offloading the vprintf wrapper, doesn't
+  // already exist; create a declaration and insert it into the module.
   return llvm::Function::Create(
-      VprintfFuncType, llvm::GlobalVariable::ExternalLinkage, "vprintf", &M);
+      VprintfFuncType, llvm::GlobalVariable::ExternalLinkage, Name, &M);
 }
 
 // Transforms a call to printf into a call to the NVPTX vprintf syscall (which
@@ -117,7 +123,7 @@ CodeGenFunction::EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
   }
 
   // Invoke vprintf and return.
-  llvm::Function* VprintfFunc = GetVprintfDeclaration(CGM.getModule());
+  llvm::Function *VprintfFunc = GetVprintfDeclaration(CGM);
   return RValue::get(Builder.CreateCall(
       VprintfFunc, {Args[0].getRValue(*this).getScalarVal(), BufferPtr}));
 }
@@ -129,6 +135,12 @@ CodeGenFunction::EmitAMDGPUDevicePrintfCallExpr(const CallExpr *E,
   assert(E->getBuiltinCallee() == Builtin::BIprintf ||
          E->getBuiltinCallee() == Builtin::BI__builtin_printf);
   assert(E->getNumArgs() >= 1); // printf always has at least one arg.
+
+  // For OpenMP target offloading we go with a modified nvptx printf method.
+  // Basically creating calls to __llvm_omp_vprintf with the arguments and
+  // dealing with the details in the device runtime itself.
+  if (getLangOpts().OpenMPIsDevice && getLangOpts().OpenMPTargetNewRuntime)
+    return EmitNVPTXDevicePrintfCallExpr(E, ReturnValue);
 
   CallArgList CallArgs;
   EmitCallArgs(CallArgs,

@@ -5027,7 +5027,8 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
     if (getTarget().getTriple().isNVPTX())
       return EmitNVPTXDevicePrintfCallExpr(E, ReturnValue);
     if (getTarget().getTriple().getArch() == Triple::amdgcn &&
-        getLangOpts().HIP)
+        (getLangOpts().HIP || (getLangOpts().OpenMPIsDevice &&
+                               getLangOpts().OpenMPTargetNewRuntime)))
       return EmitAMDGPUDevicePrintfCallExpr(E, ReturnValue);
     break;
   case Builtin::BI__builtin_canonicalize:
