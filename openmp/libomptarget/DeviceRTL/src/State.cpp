@@ -33,6 +33,8 @@ constexpr const uint32_t Alignment = 8;
 extern unsigned char DynamicSharedBuffer[] __attribute__((aligned(Alignment)));
 #pragma omp allocate(DynamicSharedBuffer) allocator(omp_pteam_mem_alloc)
 
+static kernel::KernelEnvironmentTy *SHARED(KernelEnvironmentPtr);
+
 namespace {
 
 /// Fallback implementations are missing to trigger a link time error.
@@ -359,12 +361,17 @@ void *&state::lookupPtr(ValueKind Kind, bool IsReadonly) {
   __builtin_unreachable();
 }
 
-void state::init(bool IsSPMD) {
+void state::init(bool IsSPMD, kernel::KernelEnvironmentTy &KernelEnv) {
   SharedMemorySmartStack.init(IsSPMD);
-  if (!mapping::getThreadIdInBlock())
+  if (!mapping::getThreadIdInBlock()) {
     TeamState.init(IsSPMD);
-
+    KernelEnvironmentPtr = &KernelEnv;
+  }
   ThreadStates[mapping::getThreadIdInBlock()] = nullptr;
+}
+
+kernel::KernelEnvironmentTy &state::getKernelEnvironment() {
+  return *KernelEnvironmentPtr;
 }
 
 void state::enterDataEnvironment(IdentTy *Ident) {

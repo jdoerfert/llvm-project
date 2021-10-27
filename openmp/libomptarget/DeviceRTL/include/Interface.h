@@ -12,6 +12,7 @@
 #ifndef OMPTARGET_DEVICERTL_INTERFACE_H
 #define OMPTARGET_DEVICERTL_INTERFACE_H
 
+#include "KernelEnvironment.h"
 #include "Types.h"
 
 /// External API
@@ -206,9 +207,10 @@ void __kmpc_get_shared_variables(void ***GlobalArgs);
 int8_t __kmpc_is_spmd_exec_mode();
 
 int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
-                           bool UseGenericStateMachine, bool);
+                           bool UseGenericStateMachine,
+                           _OMP::kernel::KernelEnvironmentTy &KernelEnv);
 
-void __kmpc_target_deinit(IdentTy *Ident, int8_t Mode, bool);
+void __kmpc_target_deinit(IdentTy *Ident, int8_t Mode);
 
 ///}
 

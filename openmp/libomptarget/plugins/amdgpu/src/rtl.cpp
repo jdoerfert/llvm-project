@@ -30,13 +30,19 @@
 #include "internal.h"
 #include "rt.h"
 
+#include "llvm/Frontend/OpenMP/OMPConstants.h"
+#include "llvm/Frontend/OpenMP/OMPGridValues.h"
+
+constexpr const llvm::omp::GV &getGridValue() {
+  return llvm::omp::getAMDGPUGridValues<32>();
+}
+
+#include "ProfileEnvironment.h"
 #include "DeviceEnvironment.h"
+
 #include "get_elf_mach_gfx_name.h"
 #include "omptargetplugin.h"
 #include "print_tracing.h"
-
-#include "llvm/Frontend/OpenMP/OMPConstants.h"
-#include "llvm/Frontend/OpenMP/OMPGridValues.h"
 
 // hostrpc interface, FIXME: consider moving to its own include these are
 // statically linked into amdgpu/plugin if present from hostrpc_services.a,
@@ -1317,12 +1323,12 @@ struct device_environment {
                      __tgt_device_image *image, const size_t img_size)
       : image(image), img_size(img_size) {
 
+    host_device_env.DynamicConfiguration = 0;
     host_device_env.NumDevices = number_devices;
     host_device_env.DeviceNum = device_id;
-    host_device_env.DebugKind = 0;
     host_device_env.DynamicMemSize = 0;
     if (char *envStr = getenv("LIBOMPTARGET_DEVICE_RTL_DEBUG")) {
-      host_device_env.DebugKind = std::stoi(envStr);
+      host_device_env.DynamicConfiguration = std::stoi(envStr);
     }
 
     int rc = get_symbol_info_without_loading((char *)image->ImageStart,

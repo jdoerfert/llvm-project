@@ -12,6 +12,7 @@
 
 #include "Debug.h"
 #include "Interface.h"
+#include "KernelEnvironment.h"
 #include "Mapping.h"
 #include "Profile.h"
 #include "State.h"
@@ -22,11 +23,13 @@ using namespace _OMP;
 
 #pragma omp declare target
 
-static void inititializeRuntime(bool IsSPMD) {
+static void inititializeRuntime(bool IsSPMD,
+                                kernel::KernelEnvironmentTy &KernelEnv) {
   // Order is important here.
   synchronize::init(IsSPMD);
   mapping::init(IsSPMD);
-  state::init(IsSPMD);
+  state::init(IsSPMD, KernelEnv);
+  profile::init(IsSPMD, KernelEnv);
 }
 
 /// Simple generic state machine for worker threads.
@@ -66,15 +69,16 @@ extern "C" {
 /// \param Ident               Source location identification, can be NULL.
 ///
 int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
-                           bool UseGenericStateMachine, bool) {
-  profile::RAII<profile::KernelInit> PRAII(Ident, Mode, UseGenericStateMachine);
+                           bool UseGenericStateMachine,
+                           kernel::KernelEnvironmentTy &KernelEnv) {
+  profile::RAII<profile::KernelInit> PRAII;
 
   const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
   if (IsSPMD) {
-    inititializeRuntime(/* IsSPMD */ true);
+    inititializeRuntime(/* IsSPMD */ true, KernelEnv);
     synchronize::threadsAligned();
   } else {
-    inititializeRuntime(/* IsSPMD */ false);
+    inititializeRuntime(/* IsSPMD */ false, KernelEnv);
     // No need to wait since only the main threads will execute user
     // code and workers will run into a barrier right away.
   }
@@ -100,7 +104,7 @@ int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
 ///
 /// \param Ident Source location identification, can be NULL.
 ///
-void __kmpc_target_deinit(IdentTy *Ident, int8_t Mode, bool) {
+void __kmpc_target_deinit(IdentTy *Ident, int8_t Mode) {
   const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
   state::assumeInitialState(IsSPMD);
   if (IsSPMD)

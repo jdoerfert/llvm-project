@@ -13,6 +13,7 @@
 
 #include "Debug.h"
 #include "Types.h"
+#include "KernelEnvironment.h"
 
 namespace _OMP {
 namespace profile {
@@ -25,6 +26,10 @@ enum EventKind : uint32_t {
   PrintCall,
   AssertionCall,
   UserICVUpdate,
+  SequentializedParallel,
+  NumThreadsClause,
+  NonDefaultNumThreads,
+  IdleThreads,
 };
 
 enum EventLocation : uint8_t {
@@ -32,6 +37,8 @@ enum EventLocation : uint8_t {
   EL_EXIT,
   EL_SINGLETON,
 };
+
+void init(bool IsSPMD, kernel::KernelEnvironmentTy &KernelEnv);
 
 bool isInProfileMode();
 bool isInAdvisorMode();
@@ -64,13 +71,15 @@ struct EventHandler : public EventHandlerBase<Kind> {};
     static void singleton(__VA_ARGS__);                                        \
   }
 
-EntryExitEvent(profile::KernelInit, IdentTy *, int8_t, bool);
+EntryExitEvent(profile::KernelInit);
 EntryExitEvent(profile::ParallelRegion, IdentTy *);
 SingletonEvent(profile::SharedStackUsage, IdentTy *);
 SingletonEvent(profile::ThreadStateUsage, IdentTy *);
 SingletonEvent(profile::PrintCall);
-SingletonEvent(profile::AssertionCall, IdentTy *);
+SingletonEvent(profile::AssertionCall, const char*, unsigned, const char*);
 SingletonEvent(profile::UserICVUpdate, IdentTy *);
+SingletonEvent(profile::SequentializedParallel, IdentTy *);
+SingletonEvent(profile::IdleThreads, IdentTy *);
 
 #undef EntryExitEvent
 #undef SingletonEvent

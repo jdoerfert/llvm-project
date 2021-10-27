@@ -47,13 +47,18 @@ using namespace _OMP;
 
 namespace {
 
-uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
+uint32_t determineNumberOfThreads(IdentTy *Ident, int32_t NumThreadsClause) {
   uint32_t NThreadsICV =
       NumThreadsClause != -1 ? NumThreadsClause : icv::NThreads;
   uint32_t NumThreads = mapping::getBlockSize();
 
   if (NThreadsICV != 0 && NThreadsICV < NumThreads)
     NumThreads = NThreadsICV;
+
+  if (NumThreads != NThreadsICV)
+    profile::singletonEvent<profile::NumThreadsClause>(Ident);
+  if (NumThreads != defaults::NumThreads)
+    profile::singletonEvent<profile::NonDefaultNumThreads>(Ident);
 
   return NumThreads;
 }
@@ -81,13 +86,14 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
   uint32_t TId = mapping::getThreadIdInBlock();
   // Handle the serialized case first, same for SPMD/non-SPMD.
   if (OMP_UNLIKELY(!if_expr || icv::Level)) {
+    profile::singletonEvent<profile::SequentializedParallel>(ident);
     state::DateEnvironmentRAII DERAII(ident);
     ++icv::Level;
     invokeMicrotask(TId, 0, fn, args, nargs);
     return;
   }
 
-  uint32_t NumThreads = determineNumberOfThreads(num_threads);
+  uint32_t NumThreads = determineNumberOfThreads(ident, num_threads);
   if (mapping::isSPMDMode()) {
     // Avoid the race between the read of the `icv::Level` above and the write
     // below by synchronizing all threads here.
@@ -112,6 +118,8 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
 
       if (TId < NumThreads)
         invokeMicrotask(TId, 0, fn, args, nargs);
+      else
+        profile::singletonEvent<profile::IdleThreads>(ident);
 
       // Synchronize all threads at the end of a parallel region.
       synchronize::threadsAligned();
@@ -131,6 +139,7 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
 
   bool IsActiveParallelRegion = NumThreads > 1;
   if (!IsActiveParallelRegion) {
+    profile::singletonEvent<profile::SequentializedParallel>(ident);
     state::ValueRAII LevelRAII(icv::Level, 1u, 0u, true, ident);
     invokeMicrotask(TId, 0, fn, args, nargs);
     return;

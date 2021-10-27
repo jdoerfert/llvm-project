@@ -53,6 +53,7 @@ install(TARGETS omptarget.rtl.cuda LIBRARY DESTINATION "${OPENMP_INSTALL_LIBDIR}
 target_link_libraries(omptarget.rtl.cuda
   elf_common
   MemoryManager
+  Profile
   ${LIBOMPTARGET_DEP_LIBRARIES}
   ${LIBOMPTARGET_DEP_LIBELF_LIBRARIES}
   ${OPENMP_PTHREAD_LIB}

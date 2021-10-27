@@ -35,6 +35,7 @@ void __assert_assume(bool cond, bool enabled, bool print, const char *exp,
 
 void __assert_fail(const char *assertion, const char *file, unsigned line,
                    const char *function) {
+  profile::singletonEvent<profile::AssertionCall>(file, line, function);
   PRINTF("%s:%u: %s: Assertion `%s' failed.\n", file, line, function,
          assertion);
   __builtin_trap();
@@ -58,7 +59,7 @@ static uint32_t Level = 0;
 #pragma omp allocate(Level) allocator(omp_pteam_mem_alloc)
 
 DebugEntryRAII::DebugEntryRAII(const unsigned Line, const char *Function) {
-  if (config::isConfigurationEnabled(config::FunctionTracing) &&
+  if (config::isConfigurationEnabled(config::EnableFunctionTracing) &&
       mapping::getThreadIdInBlock() == 0) {
 
     for (int I = 0; I < Level; ++I)
@@ -71,7 +72,7 @@ DebugEntryRAII::DebugEntryRAII(const unsigned Line, const char *Function) {
 }
 
 DebugEntryRAII::~DebugEntryRAII() {
-  if (config::isConfigurationEnabled(config::FunctionTracing) &&
+  if (config::isConfigurationEnabled(config::EnableFunctionTracing) &&
       mapping::getThreadIdInBlock() == 0)
     Level--;
 }

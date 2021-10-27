@@ -13,6 +13,7 @@
 #define OMPTARGET_DEVICERTL_DEBUG_H
 
 #include "Configuration.h"
+#include "DeviceEnvironment.h"
 #include "Utils.h"
 
 /// Assertion
@@ -35,7 +36,7 @@ void __assert_fail(const char *assertion, const char *file, unsigned line,
 /// Assert \p Cond holds. If assertions are enabled it will check it, otherwise
 /// simply assume it holds.
 #define ASSERT(Cond)                                                           \
-  ASSERT_IMPL(Cond, config::isConfigurationEnabled(config::Assertion))
+  ASSERT_IMPL(Cond, config::isConfigurationEnabled(config::EnableAssertion))
 
 ///}
 

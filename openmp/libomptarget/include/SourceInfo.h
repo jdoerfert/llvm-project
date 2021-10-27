@@ -32,7 +32,7 @@ struct ident_t {
   int32_t reserved_1;
   int32_t flags;
   int32_t reserved_2;
-  int32_t reserved_3;
+  int32_t SourceLocationSize;
   char const *psource;
 };
 

@@ -208,6 +208,7 @@ CUresult cuDeviceGet(CUdevice *, int);
 CUresult cuDeviceGetAttribute(int *, CUdevice_attribute, CUdevice);
 CUresult cuDeviceGetCount(int *);
 CUresult cuFuncGetAttribute(int *, CUfunction_attribute, CUfunction);
+CUresult cuFuncGetModule(CUmodule *, CUfunction);
 
 // Device info
 CUresult cuDeviceGetName(char *, int, CUdevice);

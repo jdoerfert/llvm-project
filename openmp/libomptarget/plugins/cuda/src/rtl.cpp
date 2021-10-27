@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <cuda.h>
 #include <list>
 #include <memory>
@@ -24,15 +25,22 @@
 #include "omptarget.h"
 #include "omptargetplugin.h"
 
-#include "AdvisorEnvironment.h"
+#include "llvm/Frontend/OpenMP/OMPConstants.h"
+#include "llvm/Frontend/OpenMP/OMPGridValues.h"
+
+constexpr const llvm::omp::GV &getGridValue() {
+  return llvm::omp::NVPTXGridValues;
+}
+
 #include "DeviceEnvironment.h"
+#include "KernelEnvironment.h"
+#include "ProfileEnvironment.h"
 
 #define TARGET_NAME CUDA
 #define DEBUG_PREFIX "Target " GETNAME(TARGET_NAME) " RTL"
 
 #include "MemoryManager.h"
-
-#include "llvm/Frontend/OpenMP/OMPConstants.h"
+#include "Profile.h"
 
 using namespace _OMP;
 
@@ -86,11 +94,15 @@ struct KernelTy {
   // execution mode of kernel
   llvm::omp::OMPTgtExecModeFlags ExecutionMode;
 
+  /// The name of the kernel.
+  std::string Name;
+
   /// Maximal number of threads per block for this kernel.
   int MaxThreadsPerBlock = 0;
 
-  KernelTy(CUfunction _Func, llvm::omp::OMPTgtExecModeFlags _ExecutionMode)
-      : Func(_Func), ExecutionMode(_ExecutionMode) {}
+  KernelTy(CUfunction _Func, llvm::omp::OMPTgtExecModeFlags _ExecutionMode,
+           std::string Name)
+      : Func(_Func), ExecutionMode(_ExecutionMode), Name(Name) {}
 };
 
 namespace {
@@ -340,10 +352,13 @@ class DeviceRTLTy {
   // Amount of dynamic shared memory to use at launch.
   uint64_t DynamicMemorySize;
 
+  /// An instance of the target independent profiler which is used when
+  /// profiling is explicitly enabled.
+  ProfilerTy Profiler;
+
   static constexpr const int HardTeamLimit = 1U << 16U; // 64k
   static constexpr const int HardThreadLimit = 1024;
   static constexpr const int DefaultNumTeams = 128;
-  static constexpr const int DefaultNumThreads = 128;
 
   std::unique_ptr<StreamManagerTy> StreamManager;
   std::vector<DeviceDataTy> DeviceData;
@@ -493,7 +508,15 @@ public:
   DeviceRTLTy()
       : NumberOfDevices(0), EnvNumTeams(-1), EnvTeamLimit(-1),
         EnvTeamThreadLimit(-1), RequiresFlags(OMP_REQ_UNDEFINED),
-        DynamicMemorySize(0) {
+        DynamicMemorySize(0),
+        Profiler(
+            [&](int DeviceId, void *HstPtr, const void *TgtPtr, int64_t Size,
+                __tgt_async_info *AsyncInfo) {
+              return dataRetrieve(DeviceId, HstPtr, TgtPtr, Size, AsyncInfo);
+            },
+            [&](int DeviceId, __tgt_async_info *AsyncInfo) {
+              return synchronize(DeviceId, AsyncInfo);
+            }) {
 
     DP("Start initializing CUDA\n");
 
@@ -559,6 +582,10 @@ public:
   }
 
   ~DeviceRTLTy() {
+
+    if (DebugKind & (config::EnableAdvisor | config::EnableProfile))
+      collectProfiles();
+
     // We first destruct memory managers in case that its dependent data are
     // destroyed before it.
     for (auto &M : MemoryManagers)
@@ -570,13 +597,6 @@ public:
       if (!M)
         continue;
 
-      if (DebugKind & (config::Profile | config::Advisor)) {
-        AdvisorEnvironmentTy AdvisorEnv;
-        receiveEnvironment("__llvm_omp_advisor_environment", AdvisorEnv, M);
-        //AdvisorEnv.AnyNonGenericModeKernel.dump();
-        //AdvisorEnv.AnyNonSPMDModeKernel.dump();
-        //AdvisorEnv.AnyParallelRegionInGenericMode.dump();
-      }
       // Close module
       checkResult(cuModuleUnload(M), "Error returned from cuModuleUnload\n");
     }
@@ -591,6 +611,30 @@ public:
                     "Error returned from cuCtxGetDevice\n");
         checkResult(cuDevicePrimaryCtxRelease(Device),
                     "Error returned from cuDevicePrimaryCtxRelease\n");
+      }
+    }
+  }
+
+  void collectProfiles() {
+    for (int DeviceId = 0; DeviceId < NumberOfDevices; ++DeviceId) {
+      std::list<KernelTy> &KernelsList = DeviceData[DeviceId].KernelsList;
+      for (KernelTy &KernelInfo : KernelsList) {
+        CUmodule Module;
+        CUresult Err = cuFuncGetModule(&Module, KernelInfo.Func);
+        if (Err == CUDA_SUCCESS) {
+          std::string KernelEnvironmentGlobalName =
+              KernelInfo.Name + "_kernel_info";
+          kernel::KernelEnvironmentTy KernelEnvironment;
+          if (receiveEnvironment(KernelEnvironmentGlobalName.c_str(),
+                                 KernelEnvironment, Module)) {
+            Profiler.registerKernelProfile(DeviceId, KernelEnvironment);
+            continue;
+          }
+        }
+
+        INFO(OMP_INFOTYPE_PLUGIN_KERNEL, DeviceId,
+             "Failed to retrieve profile information for %s",
+             KernelInfo.Name.c_str());
       }
     }
   }
@@ -672,8 +716,8 @@ public:
                                CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, Device);
     if (Err != CUDA_SUCCESS) {
       DP("Error getting max block dimension, use default value %d\n",
-         DeviceRTLTy::DefaultNumThreads);
-      DeviceData[DeviceId].ThreadsPerBlock = DeviceRTLTy::DefaultNumThreads;
+         defaults::NumThreads);
+      DeviceData[DeviceId].ThreadsPerBlock = defaults::NumThreads;
     } else {
       DP("Using %d CUDA threads per block\n", MaxBlockDimX);
       DeviceData[DeviceId].ThreadsPerBlock = MaxBlockDimX;
@@ -759,9 +803,9 @@ public:
     }
 
     // Set default number of threads
-    DeviceData[DeviceId].NumThreads = DeviceRTLTy::DefaultNumThreads;
+    DeviceData[DeviceId].NumThreads = defaults::NumThreads;
     DP("Default number of threads set according to library's default %d\n",
-       DeviceRTLTy::DefaultNumThreads);
+       defaults::NumThreads);
     if (DeviceData[DeviceId].NumThreads >
         DeviceData[DeviceId].ThreadsPerBlock) {
       DP("Default number of threads exceeds device limit, capping at %d\n",
@@ -794,7 +838,7 @@ public:
              "%zu).\nContinue, "
              "considering this is a device RTL which is not compatible with "
              "this environment.\n",
-             DeviceEnvName, CUSize, sizeof(int32_t))
+             DeviceEnvName, CUSize, sizeof(Environment))
       CUDA_ERR_STRING(Err);
       return OFFLOAD_SUCCESS;
     }
@@ -956,7 +1000,7 @@ public:
            ExecModeName);
       }
 
-      KernelsList.emplace_back(Func, ExecModeVal);
+      KernelsList.emplace_back(Func, ExecModeVal, E->name);
 
       __tgt_offload_entry Entry = *E;
       Entry.addr = &KernelsList.back();
@@ -976,13 +1020,6 @@ public:
 
       if (sendEnvironment("omptarget_device_environment", DeviceEnv, Module))
         return nullptr;
-
-      if (DebugKind & (config::Profile | config::Advisor)) {
-        AdvisorEnvironmentTy AdvisorEnv;
-        if (sendEnvironment("__llvm_omp_advisor_environment", AdvisorEnv,
-                            Module))
-          return nullptr;
-      }
     }
 
     return getOffloadEntriesTable(DeviceId);
@@ -1226,10 +1263,7 @@ public:
 
     INFO(OMP_INFOTYPE_PLUGIN_KERNEL, DeviceId,
          "Launching kernel %s with %d blocks and %d threads in %s mode\n",
-         (getOffloadEntry(DeviceId, TgtEntryPtr))
-             ? getOffloadEntry(DeviceId, TgtEntryPtr)->name
-             : "(null)",
-         CudaBlocksPerGrid, CudaThreadsPerBlock,
+         KernelInfo->Name.c_str(), CudaBlocksPerGrid, CudaThreadsPerBlock,
          (!IsSPMDMode ? (IsGenericMode ? "Generic" : "SPMD-Generic") : "SPMD"));
 
     CUstream Stream = getStream(DeviceId, AsyncInfo);

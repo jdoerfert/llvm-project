@@ -14,6 +14,7 @@
 #ifndef _OMPTARGETPLUGIN_H_
 #define _OMPTARGETPLUGIN_H_
 
+#include "ProfileEnvironment.h"
 #include <omptarget.h>
 
 #ifdef __cplusplus

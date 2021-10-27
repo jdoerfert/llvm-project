@@ -148,9 +148,7 @@ void RTLsTy::LoadRTLs() {
 
     R.LibraryHandler = dynlib_handle;
 
-#ifdef OMPTARGET_DEBUG
     R.RTLName = Name;
-#endif
 
     DP("Registering RTL %s supporting %d devices!\n", R.RTLName.c_str(),
        R.NumberOfDevices);

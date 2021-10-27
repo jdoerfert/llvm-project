@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Global device environment
+// Device environment definition used by the host and device runtime.
 //
 //===----------------------------------------------------------------------===//
 
@@ -16,7 +16,7 @@
 // deviceRTL uses <stdint> and DeviceRTL uses explicit definitions
 
 struct DeviceEnvironmentTy {
-  uint32_t DebugKind;
+  uint64_t DynamicConfiguration;
   uint32_t NumDevices;
   uint32_t DeviceNum;
   uint32_t DynamicMemSize;
@@ -24,13 +24,28 @@ struct DeviceEnvironmentTy {
 
 #pragma omp declare target
 namespace _OMP {
-  namespace config {
-    static constexpr uint32_t Assertion = 1U << 0;
-    static constexpr uint32_t FunctionTracing = 1U << 1;
-    static constexpr uint32_t Profile = 1U << 2;
-    static constexpr uint32_t Advisor = 1U << 3;
-  }
-}
+namespace config {};
+
+using namespace config;
+
+/// Helper to get access to default values from the host and device.
+namespace defaults {
+/// The number of threads that we use by default.
+static constexpr uint32_t NumThreads = getGridValue().GV_Default_WG_Size;
+static constexpr uint32_t MaxConcurrentKernels = getGridValue().GV_Max_Kernels;
+} // namespace defaults
+
+/// A set of configuration bits layed out through variables.
+/// If the corresponding bit is set in the configuration bit-field, which is
+/// combined from the static and dynamic configuration the user choose, the
+/// method `config::isConfigurationEnabled` will return true.
+namespace config {
+static constexpr uint32_t EnableAssertion = 1U << 0;
+static constexpr uint32_t EnableFunctionTracing = 1U << 1;
+static constexpr uint32_t EnableProfile = 1U << 2;
+static constexpr uint32_t EnableAdvisor = 1U << 3;
+} // namespace config
+} // namespace _OMP
 #pragma omp end declare target
 
 #endif

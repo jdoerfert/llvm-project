@@ -5,11 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
 ##===----------------------------------------------------------------------===##
-#
-# Common parts which can be used by all plugins
-#
-##===----------------------------------------------------------------------===##
 
-add_subdirectory(elf_common)
-add_subdirectory(MemoryManager)
-add_subdirectory(Profile)
+add_library(Profile INTERFACE)
+
+target_include_directories(Profile INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})

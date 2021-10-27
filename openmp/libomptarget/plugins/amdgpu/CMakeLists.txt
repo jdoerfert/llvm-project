@@ -90,6 +90,7 @@ target_link_libraries(
   omptarget.rtl.amdgpu
   PRIVATE
   elf_common
+  Profile
   ${LIBOMPTARGET_DEP_LIBRARIES}
   ${CMAKE_DL_LIBS}
   ${LIBOMPTARGET_DEP_LIBELF_LIBRARIES}

@@ -29,6 +29,7 @@ VERS1.0 {
     __tgt_rtl_wait_event;
     __tgt_rtl_sync_event;
     __tgt_rtl_destroy_event;
+    __tgt_rtl_get_advisor_environments;
   local:
     *;
 };

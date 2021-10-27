@@ -75,6 +75,9 @@ struct GV {
   // The default maximum team size for a working group
   const unsigned GV_Default_WG_Size;
 
+  /// The maximum number of concurrently executing kernels.
+  const unsigned GV_Max_Kernels;
+
   constexpr unsigned maxWarpNumber() const {
     return GV_Max_WG_Size / GV_Warp_Size;
   }
@@ -88,6 +91,7 @@ static constexpr GV AMDGPUGridValues64 = {
     896,  // GV_SimpleBufferSize
     1024, // GV_Max_WG_Size,
     256,  // GV_Default_WG_Size
+    128,  // GV_Max_Kernels
 };
 
 static constexpr GV AMDGPUGridValues32 = {
@@ -97,6 +101,7 @@ static constexpr GV AMDGPUGridValues32 = {
     896,  // GV_SimpleBufferSize
     1024, // GV_Max_WG_Size,
     256,  // GV_Default_WG_Size
+    128,  // GV_Max_Kernels
 };
 
 template <unsigned wavesize> constexpr const GV &getAMDGPUGridValues() {
@@ -112,6 +117,16 @@ static constexpr GV NVPTXGridValues = {
     896,  // GV_SimpleBufferSize
     1024, // GV_Max_WG_Size
     128,  // GV_Default_WG_Size
+    128,  // GV_Max_Kernels
+};
+
+static constexpr GV UnspecifiedGridValues = {
+    0, // GV_Slot_Size
+    0, // GV_Warp_Size
+    0, // GV_Max_Teams
+    0, // GV_SimpleBufferSize
+    0, // GV_Max_WG_Size
+    0, // GV_Default_WG_Size
 };
 
 } // namespace omp

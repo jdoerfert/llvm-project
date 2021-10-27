@@ -9,66 +9,121 @@
 //===----------------------------------------------------------------------===//
 
 #include "Profile.h"
-#define _OMPTARGET_DEVICE_RUNTIME_
-#include "AdvisorEnvironment.h"
 #include "Configuration.h"
+#include "DeviceEnvironment.h"
 #include "Mapping.h"
+#include "State.h"
+#include "Types.h"
+#include "ProfileEnvironment.h"
 #include "Synchronization.h"
 
 using namespace _OMP;
 
 #pragma omp declare target
 
-AdvisorEnvironmentTy GLOBAL(__llvm_omp_advisor_environment);
+/// Pointer to the profiling environment used by this kernel invocation.
+static profile::ProfileEnvironmentTy *SHARED(ProfileEnvironment);
+
+void profile::init(bool IsSPMD, kernel::KernelEnvironmentTy &KernelEnv) {
+  // Early exit if we are not profiling.
+  if (!profile::isInProfileOrAdvisorMode())
+    return;
+
+  if (!mapping::getThreadIdInBlock()) {
+    // The actual profile environment storage is provided by the kernel info
+    // object. Every block will have a pointer to it in shared memory.
+    ProfileEnvironment = &KernelEnv.ProfileEnvironment;
+  }
+
+  synchronize::threadsAligned();
+}
 
 bool profile::isInProfileMode() {
-  return config::isConfigurationEnabled(config::Profile);
+  return config::isConfigurationEnabled(config::EnableProfile);
 }
 bool profile::isInAdvisorMode() {
-  return config::isConfigurationEnabled(config::Advisor);
+  return config::isConfigurationEnabled(config::EnableAdvisor);
 }
 bool profile::isInProfileOrAdvisorMode() {
   return isInProfileMode() || isInAdvisorMode();
 }
 
-void profile::EventHandler<profile::KernelInit>::enter(
-    IdentTy *Loc, int8_t Mode, bool UseGenericStateMachine) {
-  const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
+/// Profile environment implementations
+///
+///{
+
+void profile::ProfileValueTy::set(IdentTy *Loc, uint32_t NewV) {
+  uintptr_t OldLoc = 0;
+  uintptr_t NewLoc = uintptr_t(Loc);
+  if (atomic::compareAndSwap((uintptr_t *)(FirstLoc), OldLoc, NewLoc,
+                             __ATOMIC_ACQ_REL))
+    Value = NewV;
+}
+
+void profile::ProfileValueTy::inc(IdentTy *Loc) {
+  uintptr_t OldLoc = 0;
+  uintptr_t NewLoc = uintptr_t(Loc);
+  atomic::compareAndSwap((uintptr_t *)(FirstLoc), OldLoc, NewLoc,
+                         __ATOMIC_ACQ_REL);
+  atomic::inc(&Value, 1, __ATOMIC_ACQ_REL);
+}
+
+///}
+
+/// Event handler implementations
+///
+///{
+
+void profile::EventHandler<profile::KernelInit>::enter() {}
+void profile::EventHandler<profile::KernelInit>::exit() {
   if (profile::isInAdvisorMode()) {
-    if (IsSPMD)
-      __llvm_omp_advisor_environment.NonGenericModeKernels.inc(Loc);
+    IdentTy *Loc = &state::getKernelEnvironment().Ident;
+    if (mapping::isSPMDMode())
+      ProfileEnvironment->NonGenericModeKernels.inc(Loc);
     else
-      __llvm_omp_advisor_environment.NonSPMDModeKernels.inc(Loc);
+      ProfileEnvironment->NonSPMDModeKernels.inc(Loc);
   }
 }
-void profile::EventHandler<profile::KernelInit>::exit() {}
-
 void profile::EventHandler<profile::ParallelRegion>::enter(IdentTy *Loc) {
   bool IsSPMD = mapping::isSPMDMode();
   if (profile::isInAdvisorMode() && !IsSPMD)
-    __llvm_omp_advisor_environment.ParallelRegionsInGenericMode.inc(Loc);
+    ProfileEnvironment->ParallelRegionsInGenericMode.inc(Loc);
 }
 void profile::EventHandler<profile::ParallelRegion>::exit() {}
 
 void profile::EventHandler<profile::SharedStackUsage>::singleton(IdentTy *Loc) {
   if (profile::isInAdvisorMode())
-    __llvm_omp_advisor_environment.SharedMemoryStackUsage.inc(Loc);
+    ProfileEnvironment->SharedMemoryStackUsage.inc(Loc);
 }
 void profile::EventHandler<profile::ThreadStateUsage>::singleton(IdentTy *Loc) {
   if (profile::isInAdvisorMode())
-    __llvm_omp_advisor_environment.ThreadStateUsage.inc(Loc);
+    ProfileEnvironment->ThreadStateUsage.inc(Loc);
 }
 void profile::EventHandler<profile::PrintCall>::singleton() {
   if (profile::isInAdvisorMode())
-    __llvm_omp_advisor_environment.PrintCalls.inc();
+    ProfileEnvironment->PrintCalls.inc();
 }
-void profile::EventHandler<profile::AssertionCall>::singleton(IdentTy *Loc) {
-  if (profile::isInAdvisorMode())
-    __llvm_omp_advisor_environment.AssertionCalls.inc(Loc);
+void profile::EventHandler<profile::AssertionCall>::singleton(
+    const char *File, unsigned Line, const char *Function) {
+  if (profile::isInAdvisorMode()) {
+    // TODO: Build a IdentTy object from the arguments or pass them along.
+    ProfileEnvironment->AssertionCalls.inc();
+  }
 }
 void profile::EventHandler<profile::UserICVUpdate>::singleton(IdentTy *Loc) {
   if (profile::isInAdvisorMode())
-    __llvm_omp_advisor_environment.UserICVUpdates.inc(Loc);
+    ProfileEnvironment->UserICVUpdates.inc(Loc);
 }
+void profile::EventHandler<profile::SequentializedParallel>::singleton(
+    IdentTy *Loc) {
+  if (profile::isInAdvisorMode())
+    ProfileEnvironment->SequentializedParallel.inc(Loc);
+}
+void profile::EventHandler<profile::IdleThreads>::singleton(IdentTy *Loc) {
+  if (profile::isInAdvisorMode())
+    ProfileEnvironment->IdleThreads.inc(Loc);
+}
+
+///}
 
 #pragma omp end declare target

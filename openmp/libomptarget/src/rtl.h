@@ -71,9 +71,7 @@ struct RTLInfoTy {
 
   void *LibraryHandler = nullptr;
 
-#ifdef OMPTARGET_DEBUG
   std::string RTLName;
-#endif
 
   // Functions implemented in the RTL.
   is_valid_binary_ty *is_valid_binary = nullptr;
