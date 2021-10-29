@@ -2946,7 +2946,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       // state. As long as we are not in an invalid state, we will create a
       // custom state machine so the value should be a `i1 false`. If we are
       // in an invalid state, we won't change the value that is in the IR.
-      if (!isValidState())
+      if (!ReachedKnownParallelRegions.isValidState())
         return nullptr;
       // If we have disabled state machine rewrites, don't make a custom one.
       if (DisableOpenMPOptStateMachineRewrite)
@@ -3666,7 +3666,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         // Check for AAHeapToStack moved objects which must not be guarded.
         auto &HS = A.getAAFor<AAHeapToStack>(
             *this, IRPosition::function(*I.getFunction()),
-            DepClassTy::REQUIRED);
+            DepClassTy::OPTIONAL);
         if (llvm::all_of(Objects, [&HS](const Value *Obj) {
               auto *CB = dyn_cast<CallBase>(Obj);
               if (!CB)
