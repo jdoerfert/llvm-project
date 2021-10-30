@@ -37,6 +37,11 @@ bool isGenericMode();
 bool isMainThreadInGenericMode();
 bool isMainThreadInGenericMode(bool IsSPMD);
 
+/// Return true if this thread should be used for single threaded
+/// initialization tasks. We pick a special thread to ensure there are no
+/// races between the initialization and the first read of initialized state.
+bool isInitializationThread(bool IsSPMD);
+
 /// Return true if the executing thread has the lowest Id of the active threads
 /// in the warp.
 bool isLeaderInWarp();

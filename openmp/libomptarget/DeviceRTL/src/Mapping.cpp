@@ -178,6 +178,12 @@ bool mapping::isMainThreadInGenericMode() {
   return mapping::isMainThreadInGenericMode(mapping::isSPMDMode());
 }
 
+bool mapping::isInitializationThread(bool IsSPMD) {
+  if (IsSPMD)
+    return mapping::getThreadIdInBlock() == 0;
+  return mapping::isMainThreadInGenericMode(IsSPMD);
+}
+
 bool mapping::isLeaderInWarp() {
   __kmpc_impl_lanemask_t Active = mapping::activemask();
   __kmpc_impl_lanemask_t LaneMaskLT = mapping::lanemaskLT();
@@ -220,7 +226,7 @@ uint32_t mapping::getNumberOfWarpsInBlock() {
 static int SHARED(IsSPMDMode);
 
 void mapping::init(bool IsSPMD) {
-  if (!mapping::getThreadIdInBlock())
+  if (mapping::isInitializationThread(IsSPMD))
     IsSPMDMode = IsSPMD;
 }
 
