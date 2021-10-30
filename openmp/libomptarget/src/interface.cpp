@@ -346,13 +346,15 @@ EXTERN int __tgt_target_teams_nowait(int64_t device_id, void *host_ptr,
                                    nullptr, nullptr, team_num, thread_limit);
 }
 
-EXTERN int __tgt_target_teams_mapper(ident_t *loc, int64_t device_id,
-                                     void *host_ptr, int32_t arg_num,
-                                     void **args_base, void **args,
-                                     int64_t *arg_sizes, int64_t *arg_types,
-                                     map_var_info_t *arg_names,
-                                     void **arg_mappers, int32_t team_num,
-                                     int32_t thread_limit) {
+static int TargetEntryPoint(ident_t *loc, int64_t device_id, void *host_ptr,
+                            int32_t arg_num, void **args_base, void **args,
+                            int64_t *arg_sizes, int64_t *arg_types,
+                            map_var_info_t *arg_names, void **arg_mappers,
+                            int32_t team_num, int32_t thread_limit,
+                            size_t SharedMem = 0, int GridDimY = 1,
+                            int GridDimZ = 1, int BlockDimY = 1,
+                            int BlockDimZ = 1, void *Stream = nullptr,
+                            bool IsNonOpenMPKernel = false) {
   DP("Entering target region with entry point " DPxMOD " and device Id %" PRId64
      "\n",
      DPxPTR(host_ptr), device_id);
@@ -361,29 +363,48 @@ EXTERN int __tgt_target_teams_mapper(ident_t *loc, int64_t device_id,
     return OMP_TGT_FAIL;
   }
 
-  if (getInfoLevel() & OMP_INFOTYPE_KERNEL_ARGS)
-    printKernelArguments(loc, device_id, arg_num, arg_sizes, arg_types,
-                         arg_names, "Entering OpenMP kernel");
+  if (!IsNonOpenMPKernel) {
+    if (getInfoLevel() & OMP_INFOTYPE_KERNEL_ARGS)
+      printKernelArguments(loc, device_id, arg_num, arg_sizes, arg_types,
+                           arg_names, "Entering OpenMP kernel");
 #ifdef OMPTARGET_DEBUG
-  for (int i = 0; i < arg_num; ++i) {
-    DP("Entry %2d: Base=" DPxMOD ", Begin=" DPxMOD ", Size=%" PRId64
-       ", Type=0x%" PRIx64 ", Name=%s\n",
-       i, DPxPTR(args_base[i]), DPxPTR(args[i]), arg_sizes[i], arg_types[i],
-       (arg_names) ? getNameFromMapping(arg_names[i]).c_str() : "unknown");
-  }
+    for (int i = 0; i < arg_num; ++i) {
+      DP("Entry %2d: Base=" DPxMOD ", Begin=" DPxMOD ", Size=%" PRId64
+         ", Type=0x%" PRIx64 ", Name=%s\n",
+         i, DPxPTR(args_base[i]), DPxPTR(args[i]), arg_sizes[i], arg_types[i],
+         (arg_names) ? getNameFromMapping(arg_names[i]).c_str() : "unknown");
+    }
 #endif
+  }
 
   DeviceTy &Device = *PM->Devices[device_id];
-  AsyncInfoTy AsyncInfo(Device);
+  AsyncInfoTy AsyncInfo(Device, Stream);
   int rc = target(loc, Device, host_ptr, arg_num, args_base, args, arg_sizes,
                   arg_types, arg_names, arg_mappers, team_num, thread_limit,
-                  true /*team*/, AsyncInfo);
-  if (rc == OFFLOAD_SUCCESS)
-    rc = AsyncInfo.synchronize();
+                  true /*team*/, AsyncInfo, SharedMem, GridDimY, GridDimZ,
+                  BlockDimY, BlockDimZ, IsNonOpenMPKernel);
+
+  if (!IsNonOpenMPKernel) {
+    if (rc == OFFLOAD_SUCCESS)
+      rc = AsyncInfo.synchronize();
+  }
+
   handleTargetOutcome(rc == OFFLOAD_SUCCESS, loc);
   assert(rc == OFFLOAD_SUCCESS &&
          "__tgt_target_teams_mapper unexpected failure!");
   return OMP_TGT_SUCCESS;
+}
+
+EXTERN int __tgt_target_teams_mapper(ident_t *loc, int64_t device_id,
+                                     void *host_ptr, int32_t arg_num,
+                                     void **args_base, void **args,
+                                     int64_t *arg_sizes, int64_t *arg_types,
+                                     map_var_info_t *arg_names,
+                                     void **arg_mappers, int32_t team_num,
+                                     int32_t thread_limit) {
+  return TargetEntryPoint(loc, device_id, host_ptr, arg_num, args_base, args,
+                          arg_sizes, arg_types, arg_names, arg_mappers,
+                          team_num, thread_limit);
 }
 
 EXTERN int __tgt_target_teams_nowait_mapper(
@@ -397,6 +418,22 @@ EXTERN int __tgt_target_teams_nowait_mapper(
   return __tgt_target_teams_mapper(loc, device_id, host_ptr, arg_num, args_base,
                                    args, arg_sizes, arg_types, arg_names,
                                    arg_mappers, team_num, thread_limit);
+}
+
+EXTERN int __tgt_kernel(int64_t device_id, const void *host_ptr, void **args,
+                        int32_t grid_dim_x, int32_t grid_dim_y,
+                        int32_t grid_dim_z, int32_t block_dim_x,
+                        int32_t block_dim_y, int32_t block_dim_z,
+                        size_t sharedMem, void *stream) {
+  TIMESCOPE();
+
+  return TargetEntryPoint(
+      /* loc */ nullptr, device_id, const_cast<void *>(host_ptr),
+      /* arg_num */ 0, /* args_base */ args, args,
+      /* arg_sizes */ nullptr, /* arg_types */ nullptr, /* arg_names */ nullptr,
+      /* arg_mappers */ nullptr, grid_dim_x, block_dim_x, grid_dim_y,
+      grid_dim_z, block_dim_y, block_dim_z, sharedMem, stream,
+      /* IsNonOpenMPKernel */ true);
 }
 
 // Get the current number of components for a user-defined mapper.

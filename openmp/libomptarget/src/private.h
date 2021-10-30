@@ -42,7 +42,10 @@ extern int target(ident_t *loc, DeviceTy &Device, void *HostPtr, int32_t ArgNum,
                   void **ArgBases, void **Args, int64_t *ArgSizes,
                   int64_t *ArgTypes, map_var_info_t *arg_names,
                   void **ArgMappers, int32_t TeamNum, int32_t ThreadLimit,
-                  int IsTeamConstruct, AsyncInfoTy &AsyncInfo);
+                  int IsTeamConstruct, AsyncInfoTy &AsyncInfo,
+                  size_t SharedMem = 0, int GridDimY = 1, int GridDimZ = 1,
+                  int BlockDimY = 1, int BlockDimZ = 1,
+                  bool IsNonOpenMPKernel = false);
 
 extern void handleTargetOutcome(bool Success, ident_t *Loc);
 extern bool checkDeviceAndCtors(int64_t &DeviceID, ident_t *Loc);

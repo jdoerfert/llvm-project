@@ -342,6 +342,10 @@ struct DeviceTy {
                         ptrdiff_t *TgtOffsets, int32_t TgtVarsSize,
                         int32_t NumTeams, int32_t ThreadLimit,
                         uint64_t LoopTripCount, AsyncInfoTy &AsyncInfo);
+  int32_t runKernel(void *TgtEntryPtr, void **TgtVarsPtr, int32_t GridDimX,
+                    int32_t GridDimY, int32_t GridDimZ, int32_t BlockDimX,
+                    int32_t BlockDimY, int32_t BlockDimZ, size_t SharedMem,
+                    AsyncInfoTy &AsyncInfo);
 
   /// Synchronize device/queue/event based on \p AsyncInfo and return
   /// OFFLOAD_SUCCESS/OFFLOAD_FAIL when succeeds/fails.

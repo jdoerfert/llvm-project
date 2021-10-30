@@ -301,6 +301,9 @@ void CudaInstallationDetector::AddCudaIncludeArgs(
 
   CC1Args.push_back("-include");
   CC1Args.push_back("__clang_cuda_runtime_wrapper.h");
+
+  CC1Args.push_back("-include");
+  CC1Args.push_back("__openmp_cuda_host_wrapper.h");
 }
 
 void CudaInstallationDetector::CheckCudaVersionSupportsArch(

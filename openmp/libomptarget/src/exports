@@ -26,6 +26,7 @@ VERS1.0 {
     __tgt_target_teams_nowait_mapper;
     __tgt_mapper_num_components;
     __tgt_push_mapper_component;
+    __tgt_kernel;
     __kmpc_push_target_tripcount;
     __kmpc_push_target_tripcount_mapper;
     omp_get_num_devices;

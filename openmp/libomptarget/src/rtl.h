@@ -51,6 +51,12 @@ struct RTLInfoTy {
                                             ptrdiff_t *, int32_t, int32_t,
                                             int32_t, uint64_t,
                                             __tgt_async_info *);
+  typedef int32_t(run_kernel_async_ty)(int32_t device_id, void *tgt_entry_ptr,
+                                       void **tgt_args, int32_t grid_dim_x,
+                                       int32_t grid_dim_y, int32_t grid_dim_z,
+                                       int32_t block_dim_x, int32_t block_dim_y,
+                                       int32_t block_dim_z, size_t shared_mem,
+                                       __tgt_async_info *async_info_ptr);
   typedef int64_t(init_requires_ty)(int64_t);
   typedef int32_t(synchronize_ty)(int32_t, __tgt_async_info *);
   typedef int32_t (*register_lib_ty)(__tgt_bin_desc *);
@@ -93,6 +99,7 @@ struct RTLInfoTy {
   run_region_async_ty *run_region_async = nullptr;
   run_team_region_ty *run_team_region = nullptr;
   run_team_region_async_ty *run_team_region_async = nullptr;
+  run_kernel_async_ty *run_kernel_async = nullptr;
   init_requires_ty *init_requires = nullptr;
   synchronize_ty *synchronize = nullptr;
   register_lib_ty register_lib = nullptr;

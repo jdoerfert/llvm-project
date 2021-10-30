@@ -517,11 +517,10 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
 
     const bool HasFlagTo = arg_types[i] & OMP_TGT_MAPTYPE_TO;
     const bool HasFlagAlways = arg_types[i] & OMP_TGT_MAPTYPE_ALWAYS;
-    auto TPR = Device.getTargetPointer(HstPtrBegin, HstPtrBase, data_size,
-                                       HstPtrName, HasFlagTo, HasFlagAlways,
-                                       IsImplicit, UpdateRef, HasCloseModifier,
-                                       HasPresentModifier, HasHoldModifier,
-                                       AsyncInfo);
+    auto TPR = Device.getTargetPointer(
+        HstPtrBegin, HstPtrBase, data_size, HstPtrName, HasFlagTo,
+        HasFlagAlways, IsImplicit, UpdateRef, HasCloseModifier,
+        HasPresentModifier, HasHoldModifier, AsyncInfo);
     void *TgtPtrBegin = TPR.TargetPointer;
     IsHostPtr = TPR.Flags.IsHostPointer;
     // If data_size==0, then the argument could be a zero-length pointer to
@@ -1403,7 +1402,9 @@ static int processDataAfter(ident_t *loc, int64_t DeviceId, void *HostPtr,
 int target(ident_t *loc, DeviceTy &Device, void *HostPtr, int32_t ArgNum,
            void **ArgBases, void **Args, int64_t *ArgSizes, int64_t *ArgTypes,
            map_var_info_t *ArgNames, void **ArgMappers, int32_t TeamNum,
-           int32_t ThreadLimit, int IsTeamConstruct, AsyncInfoTy &AsyncInfo) {
+           int32_t ThreadLimit, int IsTeamConstruct, AsyncInfoTy &AsyncInfo,
+           size_t SharedMem, int GridDimY, int GridDimZ, int BlockDimY,
+           int BlockDimZ, bool IsNonOpenMPKernel) {
   int32_t DeviceId = Device.DeviceID;
 
   TableMap *TM = getTableMap(HostPtr);
@@ -1455,7 +1456,7 @@ int target(ident_t *loc, DeviceTy &Device, void *HostPtr, int32_t ArgNum,
   DP("Launching target execution %s with pointer " DPxMOD " (index=%d).\n",
      TargetTable->EntriesBegin[TM->Index].name, DPxPTR(TgtEntryPtr), TM->Index);
 
-  {
+  if (!IsNonOpenMPKernel) {
     TIMESCOPE_WITH_NAME_AND_IDENT(
         IsTeamConstruct ? "runTargetTeamRegion" : "runTargetRegion", loc);
     if (IsTeamConstruct)
@@ -1465,6 +1466,11 @@ int target(ident_t *loc, DeviceTy &Device, void *HostPtr, int32_t ArgNum,
     else
       Ret = Device.runRegion(TgtEntryPtr, &TgtArgs[0], &TgtOffsets[0],
                              TgtArgs.size(), AsyncInfo);
+  } else {
+    TIMESCOPE_WITH_NAME_AND_IDENT("runNonOpenMPKernel", loc);
+    Ret = Device.runKernel(TgtEntryPtr, Args, TeamNum, GridDimY, GridDimZ,
+                           ThreadLimit, BlockDimY, BlockDimZ, SharedMem,
+                           AsyncInfo);
   }
 
   if (Ret != OFFLOAD_SUCCESS) {

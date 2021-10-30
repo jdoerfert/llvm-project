@@ -153,13 +153,11 @@ LookupResult DeviceTy::lookupMapping(void *HstPtrBegin, int64_t Size) {
   return lr;
 }
 
-TargetPointerResultTy
-DeviceTy::getTargetPointer(void *HstPtrBegin, void *HstPtrBase, int64_t Size,
-                           map_var_info_t HstPtrName, bool HasFlagTo,
-                           bool HasFlagAlways, bool IsImplicit,
-                           bool UpdateRefCount, bool HasCloseModifier,
-                           bool HasPresentModifier, bool HasHoldModifier,
-                           AsyncInfoTy &AsyncInfo) {
+TargetPointerResultTy DeviceTy::getTargetPointer(
+    void *HstPtrBegin, void *HstPtrBase, int64_t Size,
+    map_var_info_t HstPtrName, bool HasFlagTo, bool HasFlagAlways,
+    bool IsImplicit, bool UpdateRefCount, bool HasCloseModifier,
+    bool HasPresentModifier, bool HasHoldModifier, AsyncInfoTy &AsyncInfo) {
   void *TargetPointer = nullptr;
   bool IsHostPtr = false;
   bool IsNew = false;
@@ -527,6 +525,18 @@ int32_t DeviceTy::runTeamRegion(void *TgtEntryPtr, void **TgtVarsPtr,
     return RTL->run_team_region_async(RTLDeviceID, TgtEntryPtr, TgtVarsPtr,
                                       TgtOffsets, TgtVarsSize, NumTeams,
                                       ThreadLimit, LoopTripCount, AsyncInfo);
+}
+
+int32_t DeviceTy::runKernel(void *TgtEntryPtr, void **TgtVarsPtr,
+                            int32_t GridDimX, int32_t GridDimY,
+                            int32_t GridDimZ, int32_t BlockDimX,
+                            int32_t BlockDimY, int32_t BlockDimZ,
+                            size_t SharedMem, AsyncInfoTy &AsyncInfo) {
+  if (!RTL->run_kernel_async)
+    return OFFLOAD_FAIL;
+  return RTL->run_kernel_async(RTLDeviceID, TgtEntryPtr, TgtVarsPtr, GridDimX,
+                               GridDimY, GridDimZ, BlockDimX, BlockDimY,
+                               BlockDimZ, SharedMem, AsyncInfo);
 }
 
 // Whether data can be copied to DstDevice directly

@@ -1056,129 +1056,144 @@ public:
                           ptrdiff_t *TgtOffsets, const int ArgNum,
                           const int TeamNum, const int ThreadLimit,
                           const unsigned int LoopTripCount,
-                          __tgt_async_info *AsyncInfo) const {
+                          __tgt_async_info *AsyncInfo, const int GridDimY = 1,
+                          const int GridDimZ = 1, const int BlockDimY = 1,
+                          const int BlockDimZ = 1) const {
     CUresult Err = cuCtxSetCurrent(DeviceData[DeviceId].Context);
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
 
-    // All args are references.
-    std::vector<void *> Args(ArgNum);
-    std::vector<void *> Ptrs(ArgNum);
-
-    for (int I = 0; I < ArgNum; ++I) {
-      Ptrs[I] = (void *)((intptr_t)TgtArgs[I] + TgtOffsets[I]);
-      Args[I] = &Ptrs[I];
-    }
-
     KernelTy *KernelInfo = reinterpret_cast<KernelTy *>(TgtEntryPtr);
 
-    const bool IsSPMDGenericMode =
-        KernelInfo->ExecutionMode == llvm::omp::OMP_TGT_EXEC_MODE_GENERIC_SPMD;
-    const bool IsSPMDMode =
-        KernelInfo->ExecutionMode == llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
-    const bool IsGenericMode =
-        KernelInfo->ExecutionMode == llvm::omp::OMP_TGT_EXEC_MODE_GENERIC;
+    bool OpenMPMode = TgtOffsets != nullptr;
+    bool IsSPMDMode = !OpenMPMode;
+    bool IsGenericMode = !IsSPMDMode;
+    bool IsSPMDGenericMode = false;
+    unsigned CudaBlocksPerGrid = TeamNum;
+    unsigned CudaThreadsPerBlock = ThreadLimit;
+    CUstream Stream = (CUstream)AsyncInfo;
 
-    int CudaThreadsPerBlock;
-    if (ThreadLimit > 0) {
-      DP("Setting CUDA threads per block to requested %d\n", ThreadLimit);
-      CudaThreadsPerBlock = ThreadLimit;
-      // Add master warp if necessary
-      if (IsGenericMode) {
-        DP("Adding master warp: +%d threads\n", DeviceData[DeviceId].WarpSize);
-        CudaThreadsPerBlock += DeviceData[DeviceId].WarpSize;
+    if (OpenMPMode) {
+      // All args are references.
+      std::vector<void *> Args(ArgNum);
+      std::vector<void *> Ptrs(ArgNum);
+
+      for (int I = 0; I < ArgNum; ++I) {
+        Ptrs[I] = (void *)((intptr_t)TgtArgs[I] + TgtOffsets[I]);
+        Args[I] = &Ptrs[I];
       }
-    } else {
-      DP("Setting CUDA threads per block to default %d\n",
-         DeviceData[DeviceId].NumThreads);
-      CudaThreadsPerBlock = DeviceData[DeviceId].NumThreads;
-    }
+      TgtArgs = &Args[0];
 
-    if (CudaThreadsPerBlock > DeviceData[DeviceId].ThreadsPerBlock) {
-      DP("Threads per block capped at device limit %d\n",
-         DeviceData[DeviceId].ThreadsPerBlock);
-      CudaThreadsPerBlock = DeviceData[DeviceId].ThreadsPerBlock;
-    }
+      IsSPMDGenericMode = KernelInfo->ExecutionMode ==
+                          llvm::omp::OMP_TGT_EXEC_MODE_GENERIC_SPMD;
+      IsSPMDMode =
+          KernelInfo->ExecutionMode == llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
+      IsGenericMode =
+          KernelInfo->ExecutionMode == llvm::omp::OMP_TGT_EXEC_MODE_GENERIC;
 
-    if (!KernelInfo->MaxThreadsPerBlock) {
-      Err = cuFuncGetAttribute(&KernelInfo->MaxThreadsPerBlock,
-                               CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK,
-                               KernelInfo->Func);
-      if (!checkResult(Err, "Error returned from cuFuncGetAttribute\n"))
-        return OFFLOAD_FAIL;
-    }
-
-    if (KernelInfo->MaxThreadsPerBlock < CudaThreadsPerBlock) {
-      DP("Threads per block capped at kernel limit %d\n",
-         KernelInfo->MaxThreadsPerBlock);
-      CudaThreadsPerBlock = KernelInfo->MaxThreadsPerBlock;
-    }
-
-    unsigned int CudaBlocksPerGrid;
-    if (TeamNum <= 0) {
-      if (LoopTripCount > 0 && EnvNumTeams < 0) {
-        if (IsSPMDGenericMode) {
-          // If we reach this point, then we are executing a kernel that was
-          // transformed from Generic-mode to SPMD-mode. This kernel has
-          // SPMD-mode execution, but needs its blocks to be scheduled
-          // differently because the current loop trip count only applies to the
-          // `teams distribute` region and will create var too few blocks using
-          // the regular SPMD-mode method.
-          CudaBlocksPerGrid = LoopTripCount;
-        } else if (IsSPMDMode) {
-          // We have a combined construct, i.e. `target teams distribute
-          // parallel for [simd]`. We launch so many teams so that each thread
-          // will execute one iteration of the loop. round up to the nearest
-          // integer
-          CudaBlocksPerGrid = ((LoopTripCount - 1) / CudaThreadsPerBlock) + 1;
-        } else if (IsGenericMode) {
-          // If we reach this point, then we have a non-combined construct, i.e.
-          // `teams distribute` with a nested `parallel for` and each team is
-          // assigned one iteration of the `distribute` loop. E.g.:
-          //
-          // #pragma omp target teams distribute
-          // for(...loop_tripcount...) {
-          //   #pragma omp parallel for
-          //   for(...) {}
-          // }
-          //
-          // Threads within a team will execute the iterations of the `parallel`
-          // loop.
-          CudaBlocksPerGrid = LoopTripCount;
-        } else {
-          REPORT("Unknown execution mode: %d\n",
-                 static_cast<int8_t>(KernelInfo->ExecutionMode));
-          return OFFLOAD_FAIL;
+      if (ThreadLimit > 0) {
+        DP("Setting CUDA threads per block to requested %d\n", ThreadLimit);
+        CudaThreadsPerBlock = ThreadLimit;
+        // Add master warp if necessary
+        if (IsGenericMode) {
+          DP("Adding master warp: +%d threads\n",
+             DeviceData[DeviceId].WarpSize);
+          CudaThreadsPerBlock += DeviceData[DeviceId].WarpSize;
         }
-        DP("Using %d teams due to loop trip count %" PRIu32
-           " and number of threads per block %d\n",
-           CudaBlocksPerGrid, LoopTripCount, CudaThreadsPerBlock);
       } else {
-        DP("Using default number of teams %d\n", DeviceData[DeviceId].NumTeams);
-        CudaBlocksPerGrid = DeviceData[DeviceId].NumTeams;
+        DP("Setting CUDA threads per block to default %d\n",
+           DeviceData[DeviceId].NumThreads);
+        CudaThreadsPerBlock = DeviceData[DeviceId].NumThreads;
       }
-    } else if (TeamNum > DeviceData[DeviceId].BlocksPerGrid) {
-      DP("Capping number of teams to team limit %d\n",
-         DeviceData[DeviceId].BlocksPerGrid);
-      CudaBlocksPerGrid = DeviceData[DeviceId].BlocksPerGrid;
-    } else {
-      DP("Using requested number of teams %d\n", TeamNum);
-      CudaBlocksPerGrid = TeamNum;
+
+      if (CudaThreadsPerBlock > DeviceData[DeviceId].ThreadsPerBlock) {
+        DP("Threads per block capped at device limit %d\n",
+           DeviceData[DeviceId].ThreadsPerBlock);
+        CudaThreadsPerBlock = DeviceData[DeviceId].ThreadsPerBlock;
+      }
+
+      if (!KernelInfo->MaxThreadsPerBlock) {
+        Err = cuFuncGetAttribute(&KernelInfo->MaxThreadsPerBlock,
+                                 CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK,
+                                 KernelInfo->Func);
+        if (!checkResult(Err, "Error returned from cuFuncGetAttribute\n"))
+          return OFFLOAD_FAIL;
+      }
+
+      if (KernelInfo->MaxThreadsPerBlock < CudaThreadsPerBlock) {
+        DP("Threads per block capped at kernel limit %d\n",
+           KernelInfo->MaxThreadsPerBlock);
+        CudaThreadsPerBlock = KernelInfo->MaxThreadsPerBlock;
+      }
+
+      if (TeamNum <= 0) {
+        if (LoopTripCount > 0 && EnvNumTeams < 0) {
+          if (IsSPMDGenericMode) {
+            // If we reach this point, then we are executing a kernel that was
+            // transformed from Generic-mode to SPMD-mode. This kernel has
+            // SPMD-mode execution, but needs its blocks to be scheduled
+            // differently because the current loop trip count only applies to
+            // the `teams distribute` region and will create var too few blocks
+            // using the regular SPMD-mode method.
+            CudaBlocksPerGrid = LoopTripCount;
+          } else if (IsSPMDMode) {
+            // We have a combined construct, i.e. `target teams distribute
+            // parallel for [simd]`. We launch so many teams so that each thread
+            // will execute one iteration of the loop. round up to the nearest
+            // integer
+            CudaBlocksPerGrid = ((LoopTripCount - 1) / CudaThreadsPerBlock) + 1;
+          } else if (IsGenericMode) {
+            // If we reach this point, then we have a non-combined construct,
+            // i.e. `teams distribute` with a nested `parallel for` and each
+            // team is assigned one iteration of the `distribute` loop. E.g.:
+            //
+            // #pragma omp target teams distribute
+            // for(...loop_tripcount...) {
+            //   #pragma omp parallel for
+            //   for(...) {}
+            // }
+            //
+            // Threads within a team will execute the iterations of the
+            // `parallel` loop.
+            CudaBlocksPerGrid = LoopTripCount;
+          } else {
+            REPORT("Unknown execution mode: %d\n",
+                   static_cast<int8_t>(KernelInfo->ExecutionMode));
+            return OFFLOAD_FAIL;
+          }
+          DP("Using %d teams due to loop trip count %" PRIu32
+             " and number of threads per block %d\n",
+             CudaBlocksPerGrid, LoopTripCount, CudaThreadsPerBlock);
+        } else {
+          DP("Using default number of teams %d\n",
+             DeviceData[DeviceId].NumTeams);
+          CudaBlocksPerGrid = DeviceData[DeviceId].NumTeams;
+        }
+      } else if (TeamNum > DeviceData[DeviceId].BlocksPerGrid) {
+        DP("Capping number of teams to team limit %d\n",
+           DeviceData[DeviceId].BlocksPerGrid);
+        CudaBlocksPerGrid = DeviceData[DeviceId].BlocksPerGrid;
+      } else {
+        DP("Using requested number of teams %d\n", TeamNum);
+        CudaBlocksPerGrid = TeamNum;
+      }
+
+      Stream = getStream(DeviceId, AsyncInfo);
     }
 
     INFO(OMP_INFOTYPE_PLUGIN_KERNEL, DeviceId,
-         "Launching kernel %s with %d blocks and %d threads in %s mode\n",
+         "Launching kernel %s with [%d,%d,%d] blocks and [%d,%d,%d] threads in "
+         "%s mode\n",
          (getOffloadEntry(DeviceId, TgtEntryPtr))
              ? getOffloadEntry(DeviceId, TgtEntryPtr)->name
              : "(null)",
-         CudaBlocksPerGrid, CudaThreadsPerBlock,
+         CudaBlocksPerGrid, GridDimY, GridDimZ, CudaThreadsPerBlock, BlockDimY,
+         BlockDimZ,
          (!IsSPMDMode ? (IsGenericMode ? "Generic" : "SPMD-Generic") : "SPMD"));
 
-    CUstream Stream = getStream(DeviceId, AsyncInfo);
-    Err = cuLaunchKernel(KernelInfo->Func, CudaBlocksPerGrid, /* gridDimY */ 1,
-                         /* gridDimZ */ 1, CudaThreadsPerBlock,
-                         /* blockDimY */ 1, /* blockDimZ */ 1,
-                         DynamicMemorySize, Stream, &Args[0], nullptr);
+    Err = cuLaunchKernel(KernelInfo->Func, CudaBlocksPerGrid, GridDimY,
+                         GridDimZ, CudaThreadsPerBlock, BlockDimY, BlockDimZ,
+                         DynamicMemorySize, Stream, TgtArgs, nullptr);
     if (!checkResult(Err, "Error returned from cuLaunchKernel\n"))
       return OFFLOAD_FAIL;
 
@@ -1557,6 +1572,20 @@ int32_t __tgt_rtl_run_target_team_region_async(
   return DeviceRTL.runTargetTeamRegion(
       device_id, tgt_entry_ptr, tgt_args, tgt_offsets, arg_num, team_num,
       thread_limit, loop_tripcount, async_info_ptr);
+}
+
+int32_t __tgt_rtl_run_kernel_async(int32_t device_id, void *tgt_entry_ptr,
+                                   void **tgt_args, int32_t grid_dim_x,
+                                   int32_t grid_dim_y, int32_t grid_dim_z,
+                                   int32_t block_dim_x, int32_t block_dim_y,
+                                   int32_t block_dim_z,
+                                   __tgt_async_info *async_info_ptr) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+
+  return DeviceRTL.runTargetTeamRegion(
+      device_id, tgt_entry_ptr, tgt_args, /* tgt_offsets */ nullptr,
+      /* arg_num */ 0, grid_dim_x, block_dim_x, /* loop_tripcount */ 0,
+      async_info_ptr, grid_dim_y, grid_dim_z, block_dim_y, block_dim_z);
 }
 
 int32_t __tgt_rtl_run_target_region(int32_t device_id, void *tgt_entry_ptr,

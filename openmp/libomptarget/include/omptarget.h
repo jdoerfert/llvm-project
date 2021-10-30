@@ -164,11 +164,12 @@ class AsyncInfoTy {
   /// as long as this AsyncInfoTy object.
   std::deque<void *> BufferLocations;
 
-  __tgt_async_info AsyncInfo;
   DeviceTy &Device;
+  __tgt_async_info AsyncInfo;
 
 public:
-  AsyncInfoTy(DeviceTy &Device) : Device(Device) {}
+  AsyncInfoTy(DeviceTy &Device, void *Stream = nullptr)
+      : Device(Device), AsyncInfo{Stream} {}
   ~AsyncInfoTy() { synchronize(); }
 
   /// Implicit conversion to the __tgt_async_info which is used in the
@@ -341,6 +342,12 @@ int __tgt_target_teams_mapper(ident_t *loc, int64_t device_id, void *host_ptr,
                               int64_t *arg_sizes, int64_t *arg_types,
                               map_var_info_t *arg_names, void **arg_mappers,
                               int32_t num_teams, int32_t thread_limit);
+
+int __tgt_kernel(int64_t device_id, const void *host_ptr, void **args,
+                 int32_t grid_dim_x, int32_t grid_dim_y, int32_t grid_dim_z,
+                 int32_t block_dim_x, int32_t block_dim_y, int32_t block_dim_z,
+                 size_t SharedMem, void *Stream);
+
 int __tgt_target_teams_nowait_mapper(
     ident_t *loc, int64_t device_id, void *host_ptr, int32_t arg_num,
     void **args_base, void **args, int64_t *arg_sizes, int64_t *arg_types,

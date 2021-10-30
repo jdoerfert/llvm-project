@@ -135,6 +135,14 @@ int32_t __tgt_rtl_run_target_team_region_async(
     int32_t NumTeams, int32_t ThreadLimit, uint64_t loop_tripcount,
     __tgt_async_info *AsyncInfo);
 
+// Entry point for non-OpenMP kernels
+int32_t __tgt_rtl_run_kernel_async(int32_t device_id, void *tgt_entry_ptr,
+                                   void **tgt_args, int32_t grid_dim_x,
+                                   int32_t grid_dim_y, int32_t grid_dim_z,
+                                   int32_t block_dim_x, int32_t block_dim_y,
+                                   int32_t block_dim_z,
+                                   __tgt_async_info *async_info_ptr);
+
 // Device synchronization. In case of success, return zero. Otherwise, return an
 // error code.
 int32_t __tgt_rtl_synchronize(int32_t ID, __tgt_async_info *AsyncInfo);
