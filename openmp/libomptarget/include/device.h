@@ -258,6 +258,9 @@ struct DeviceTy {
 
   std::mutex DataMapMtx, PendingGlobalsMtx, ShadowMtx;
 
+  /// Flag to indicate if the device supports asynchronous frees.
+  bool SupportsAsyncFree;
+
   // NOTE: Once libomp gains full target-task support, this state should be
   // moved into the target task in libomp.
   std::map<int32_t, uint64_t> LoopTripCnt;
@@ -301,7 +304,8 @@ struct DeviceTy {
   /// \c OFFLOAD_FAIL if not.  It is the caller's responsibility to skip calling
   /// this function if the map entry is not expected to exist because
   /// \p HstPtrBegin uses shared memory.
-  int deallocTgtPtr(void *HstPtrBegin, int64_t Size, bool HasHoldModifier);
+  int deallocTgtPtr(void *HstPtrBegin, int64_t Size, bool HasHoldModifier,
+                    AsyncInfoTy &AsyncInfo);
   int associatePtr(void *HstPtrBegin, void *TgtPtrBegin, int64_t Size);
   int disassociatePtr(void *HstPtrBegin);
 
@@ -318,11 +322,12 @@ struct DeviceTy {
   /// pointer association. Actually, all the __tgt_rtl_data_alloc
   /// implementations ignore \p HstPtr. \p Kind dictates what allocator should
   /// be used (host, shared, device).
-  void *allocData(int64_t Size, void *HstPtr = nullptr,
-                  int32_t Kind = TARGET_ALLOC_DEFAULT);
+  void *allocData(int64_t Size, void *HstPtr, int32_t Kind,
+                  __tgt_async_info *AsyncInfo = nullptr);
+
   /// Deallocates memory which \p TgtPtrBegin points at and returns
   /// OFFLOAD_SUCCESS/OFFLOAD_FAIL when succeeds/fails.
-  int32_t deleteData(void *TgtPtrBegin);
+  int32_t deleteData(void *TgtPtrBegin, __tgt_async_info *AsyncInfoPtr);
 
   // Data transfer. When AsyncInfo is nullptr, the transfer will be
   // synchronous.

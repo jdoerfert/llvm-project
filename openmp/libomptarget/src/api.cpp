@@ -76,7 +76,7 @@ EXTERN void omp_target_free(void *device_ptr, int device_num) {
     return;
   }
 
-  PM->Devices[device_num]->deleteData(device_ptr);
+  PM->Devices[device_num]->deleteData(device_ptr, /* AsyncInfoPtr */ nullptr);
   DP("omp_target_free deallocated device ptr\n");
 }
 

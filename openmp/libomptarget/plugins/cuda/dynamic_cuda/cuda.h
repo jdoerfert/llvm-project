@@ -221,6 +221,7 @@ CUresult cuLaunchKernel(CUfunction, unsigned, unsigned, unsigned, unsigned,
                         void **);
 
 CUresult cuMemAlloc(CUdeviceptr *, size_t);
+CUresult cuMemAllocAsync(CUdeviceptr *, size_t, CUstream);
 CUresult cuMemAllocHost(void **, size_t);
 CUresult cuMemAllocManaged(CUdeviceptr *, size_t, unsigned int);
 
@@ -231,6 +232,7 @@ CUresult cuMemcpyHtoD(CUdeviceptr, const void *, size_t);
 CUresult cuMemcpyHtoDAsync(CUdeviceptr, const void *, size_t, CUstream);
 
 CUresult cuMemFree(CUdeviceptr);
+CUresult cuMemFreeAsync(CUdeviceptr, CUstream);
 CUresult cuMemFreeHost(void *);
 
 CUresult cuModuleGetFunction(CUfunction *, CUmodule, const char *);

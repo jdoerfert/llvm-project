@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "device.h"
+#include "omptarget.h"
 #include "private.h"
 #include "rtl.h"
 
@@ -22,7 +23,9 @@
 DeviceTy::DeviceTy(RTLInfoTy *RTL)
     : DeviceID(-1), RTL(RTL), RTLDeviceID(-1), IsInit(false), InitFlag(),
       HasPendingGlobals(false), HostDataToTargetMap(), PendingCtorsDtors(),
-      ShadowPtrMap(), DataMapMtx(), PendingGlobalsMtx(), ShadowMtx() {}
+      ShadowPtrMap(), DataMapMtx(), PendingGlobalsMtx(), ShadowMtx() {
+  SupportsAsyncFree = RTL->data_delete_async && RTL->synchronize;
+}
 
 DeviceTy::~DeviceTy() {
   if (DeviceID == -1 || !(getInfoLevel() & OMP_INFOTYPE_DUMP_TABLE))
@@ -153,13 +156,11 @@ LookupResult DeviceTy::lookupMapping(void *HstPtrBegin, int64_t Size) {
   return lr;
 }
 
-TargetPointerResultTy
-DeviceTy::getTargetPointer(void *HstPtrBegin, void *HstPtrBase, int64_t Size,
-                           map_var_info_t HstPtrName, bool HasFlagTo,
-                           bool HasFlagAlways, bool IsImplicit,
-                           bool UpdateRefCount, bool HasCloseModifier,
-                           bool HasPresentModifier, bool HasHoldModifier,
-                           AsyncInfoTy &AsyncInfo) {
+TargetPointerResultTy DeviceTy::getTargetPointer(
+    void *HstPtrBegin, void *HstPtrBase, int64_t Size,
+    map_var_info_t HstPtrName, bool HasFlagTo, bool HasFlagAlways,
+    bool IsImplicit, bool UpdateRefCount, bool HasCloseModifier,
+    bool HasPresentModifier, bool HasHoldModifier, AsyncInfoTy &AsyncInfo) {
   void *TargetPointer = nullptr;
   bool IsHostPtr = false;
   bool IsNew = false;
@@ -235,7 +236,8 @@ DeviceTy::getTargetPointer(void *HstPtrBegin, void *HstPtrBase, int64_t Size,
   } else if (Size) {
     // If it is not contained and Size > 0, we should create a new entry for it.
     IsNew = true;
-    uintptr_t Ptr = (uintptr_t)allocData(Size, HstPtrBegin);
+    uintptr_t Ptr = (uintptr_t)allocData(Size, HstPtrBegin,
+                                         TARGET_ALLOC_DEFAULT, AsyncInfo);
     Entry = HostDataToTargetMap
                 .emplace((uintptr_t)HstPtrBase, (uintptr_t)HstPtrBegin,
                          (uintptr_t)HstPtrBegin + Size, Ptr, HasHoldModifier,
@@ -363,7 +365,7 @@ void *DeviceTy::getTgtPtrBegin(void *HstPtrBegin, int64_t Size) {
 }
 
 int DeviceTy::deallocTgtPtr(void *HstPtrBegin, int64_t Size,
-                            bool HasHoldModifier) {
+                            bool HasHoldModifier, AsyncInfoTy &AsyncInfo) {
   // Check if the pointer is contained in any sub-nodes.
   int rc;
   DataMapMtx.lock();
@@ -373,7 +375,7 @@ int DeviceTy::deallocTgtPtr(void *HstPtrBegin, int64_t Size,
     if (HT.decRefCount(HasHoldModifier) == 0) {
       DP("Deleting tgt data " DPxMOD " of size %" PRId64 "\n",
          DPxPTR(HT.TgtPtrBegin), Size);
-      deleteData((void *)HT.TgtPtrBegin);
+      deleteData((void *)HT.TgtPtrBegin, AsyncInfo);
       INFO(OMP_INFOTYPE_MAPPING_CHANGED, DeviceID,
            "Removing map entry with HstPtrBegin=" DPxMOD ", TgtPtrBegin=" DPxMOD
            ", Size=%" PRId64 ", Name=%s\n",
@@ -430,12 +432,17 @@ __tgt_target_table *DeviceTy::load_binary(void *Img) {
   return rc;
 }
 
-void *DeviceTy::allocData(int64_t Size, void *HstPtr, int32_t Kind) {
-  return RTL->data_alloc(RTLDeviceID, Size, HstPtr, Kind);
+void *DeviceTy::allocData(int64_t Size, void *HstPtr, int32_t Kind,
+                          __tgt_async_info *AsyncInfo) {
+  if (!AsyncInfo || !SupportsAsyncFree)
+    return RTL->data_alloc(RTLDeviceID, Size, HstPtr, Kind);
+  return RTL->data_alloc_async(RTLDeviceID, Size, HstPtr, Kind, AsyncInfo);
 }
 
-int32_t DeviceTy::deleteData(void *TgtPtrBegin) {
-  return RTL->data_delete(RTLDeviceID, TgtPtrBegin);
+int32_t DeviceTy::deleteData(void *TgtPtrBegin, __tgt_async_info *AsyncInfo) {
+  if (!AsyncInfo || !SupportsAsyncFree)
+    return RTL->data_delete(RTLDeviceID, TgtPtrBegin);
+  return RTL->data_delete_async(RTLDeviceID, TgtPtrBegin, AsyncInfo);
 }
 
 // Submit data to device
@@ -455,9 +462,8 @@ int32_t DeviceTy::submitData(void *TgtPtrBegin, void *HstPtrBegin, int64_t Size,
 
   if (!AsyncInfo || !RTL->data_submit_async || !RTL->synchronize)
     return RTL->data_submit(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size);
-  else
-    return RTL->data_submit_async(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size,
-                                  AsyncInfo);
+  return RTL->data_submit_async(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size,
+                                AsyncInfo);
 }
 
 // Retrieve data from device
@@ -476,9 +482,8 @@ int32_t DeviceTy::retrieveData(void *HstPtrBegin, void *TgtPtrBegin,
 
   if (!RTL->data_retrieve_async || !RTL->synchronize)
     return RTL->data_retrieve(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size);
-  else
-    return RTL->data_retrieve_async(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size,
-                                    AsyncInfo);
+  return RTL->data_retrieve_async(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size,
+                                  AsyncInfo);
 }
 
 // Copy data from current device to destination device directly
@@ -488,9 +493,9 @@ int32_t DeviceTy::dataExchange(void *SrcPtr, DeviceTy &DstDev, void *DstPtr,
     assert(RTL->data_exchange && "RTL->data_exchange is nullptr");
     return RTL->data_exchange(RTLDeviceID, SrcPtr, DstDev.RTLDeviceID, DstPtr,
                               Size);
-  } else
-    return RTL->data_exchange_async(RTLDeviceID, SrcPtr, DstDev.RTLDeviceID,
-                                    DstPtr, Size, AsyncInfo);
+  }
+  return RTL->data_exchange_async(RTLDeviceID, SrcPtr, DstDev.RTLDeviceID,
+                                  DstPtr, Size, AsyncInfo);
 }
 
 // Run region on device
@@ -500,9 +505,8 @@ int32_t DeviceTy::runRegion(void *TgtEntryPtr, void **TgtVarsPtr,
   if (!RTL->run_region || !RTL->synchronize)
     return RTL->run_region(RTLDeviceID, TgtEntryPtr, TgtVarsPtr, TgtOffsets,
                            TgtVarsSize);
-  else
-    return RTL->run_region_async(RTLDeviceID, TgtEntryPtr, TgtVarsPtr,
-                                 TgtOffsets, TgtVarsSize, AsyncInfo);
+  return RTL->run_region_async(RTLDeviceID, TgtEntryPtr, TgtVarsPtr, TgtOffsets,
+                               TgtVarsSize, AsyncInfo);
 }
 
 // Run region on device
@@ -523,10 +527,9 @@ int32_t DeviceTy::runTeamRegion(void *TgtEntryPtr, void **TgtVarsPtr,
     return RTL->run_team_region(RTLDeviceID, TgtEntryPtr, TgtVarsPtr,
                                 TgtOffsets, TgtVarsSize, NumTeams, ThreadLimit,
                                 LoopTripCount);
-  else
-    return RTL->run_team_region_async(RTLDeviceID, TgtEntryPtr, TgtVarsPtr,
-                                      TgtOffsets, TgtVarsSize, NumTeams,
-                                      ThreadLimit, LoopTripCount, AsyncInfo);
+  return RTL->run_team_region_async(RTLDeviceID, TgtEntryPtr, TgtVarsPtr,
+                                    TgtOffsets, TgtVarsSize, NumTeams,
+                                    ThreadLimit, LoopTripCount, AsyncInfo);
 }
 
 // Whether data can be copied to DstDevice directly
