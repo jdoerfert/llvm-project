@@ -183,6 +183,10 @@ public:
   /// Return a void* reference with a lifetime that is at least as long as this
   /// AsyncInfoTy object. The location can be used as intermediate buffer.
   void *&getVoidPtrLocation();
+
+  /// Return true if the associated __tgt_async_info object has a queue, thus is
+  /// initialized and has "pending" asynchronous work.
+  bool hasPotentiallyPendingAsyncWork() const { return AsyncInfo.Queue; }
 };
 
 /// This struct is a record of non-contiguous information

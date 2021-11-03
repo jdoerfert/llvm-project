@@ -69,6 +69,8 @@ __tgt_target_table *__tgt_rtl_load_binary(int32_t ID,
 // to use (e.g. shared, host, device).
 void *__tgt_rtl_data_alloc(int32_t ID, int64_t Size, void *HostPtr,
                            int32_t Kind);
+void *__tgt_rtl_data_alloc_async(int32_t ID, int64_t Size, void *HostPtr,
+                                 int32_t Kind, __tgt_async_info *AsyncInfo);
 
 // Pass the data content to the target device using the target address. In case
 // of success, return zero. Otherwise, return an error code.
@@ -103,6 +105,8 @@ int32_t __tgt_rtl_data_exchange_async(int32_t SrcID, void *SrcPtr,
 // De-allocate the data referenced by target ptr on the device. In case of
 // success, return zero. Otherwise, return an error code.
 int32_t __tgt_rtl_data_delete(int32_t ID, void *TargetPtr);
+int32_t __tgt_rtl_data_delete_async(int32_t ID, void *TargetPtr,
+                                    __tgt_async_info *AsyncInfo);
 
 // Transfer control to the offloaded entry Entry on the target device.
 // Args and Offsets are arrays of NumArgs size of target addresses and
