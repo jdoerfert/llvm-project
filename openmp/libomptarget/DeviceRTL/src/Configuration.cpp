@@ -12,9 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "Configuration.h"
-#include "DeviceEnvironment.h"
 #include "State.h"
 #include "Types.h"
+#include "llvm/Frontend/OpenMP/DeviceEnvironment.h"
 
 using namespace _OMP;
 

@@ -362,4 +362,3 @@ int main() {
 // CHECK2-NEXT:    call void @__clang_call_terminate(i8* [[TMP11]]) #[[ATTR7]]
 // CHECK2-NEXT:    unreachable
 //
-//

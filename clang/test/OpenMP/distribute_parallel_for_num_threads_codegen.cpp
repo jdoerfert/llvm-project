@@ -9068,4 +9068,3 @@ int main() {
 // CHECK14-NEXT:    call void @__tgt_register_requires(i64 1)
 // CHECK14-NEXT:    ret void
 //
-//

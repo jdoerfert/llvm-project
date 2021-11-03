@@ -222,7 +222,7 @@ void foo() {
 // CHECK1-NEXT:    call void @_ZN1SIfED1Ev(%struct.S* nonnull align 4 dereferenceable(4) [[REF_TMP]]) #[[ATTR3:[0-9]+]]
 // CHECK1-NEXT:    [[TMP0:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ4mainE5s_arr to i8*) acquire, align 8
 // CHECK1-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK1-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2:![0-9]+]]
+// CHECK1-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3:![0-9]+]]
 // CHECK1:       init.check:
 // CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ4mainE5s_arr) #[[ATTR3]]
 // CHECK1-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP1]], 0
@@ -238,7 +238,7 @@ void foo() {
 // CHECK1:       init.end:
 // CHECK1-NEXT:    [[TMP4:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ4mainE3var to i8*) acquire, align 8
 // CHECK1-NEXT:    [[GUARD_UNINITIALIZED1:%.*]] = icmp eq i8 [[TMP4]], 0
-// CHECK1-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END5:%.*]], !prof [[PROF2]]
+// CHECK1-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END5:%.*]], !prof [[PROF3]]
 // CHECK1:       init.check2:
 // CHECK1-NEXT:    [[TMP5:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ4mainE3var) #[[ATTR3]]
 // CHECK1-NEXT:    [[TOBOOL3:%.*]] = icmp ne i32 [[TMP5]], 0
@@ -474,7 +474,7 @@ void foo() {
 // CHECK1-NEXT:    call void @_ZN1SIiED1Ev(%struct.S.0* nonnull align 4 dereferenceable(4) [[REF_TMP]]) #[[ATTR3]]
 // CHECK1-NEXT:    [[TMP0:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ5tmainIiET_vE5s_arr to i8*) acquire, align 8
 // CHECK1-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK1-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2]]
+// CHECK1-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3]]
 // CHECK1:       init.check:
 // CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ5tmainIiET_vE5s_arr) #[[ATTR3]]
 // CHECK1-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP1]], 0
@@ -490,7 +490,7 @@ void foo() {
 // CHECK1:       init.end:
 // CHECK1-NEXT:    [[TMP4:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ5tmainIiET_vE3var to i8*) acquire, align 8
 // CHECK1-NEXT:    [[GUARD_UNINITIALIZED1:%.*]] = icmp eq i8 [[TMP4]], 0
-// CHECK1-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END5:%.*]], !prof [[PROF2]]
+// CHECK1-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END5:%.*]], !prof [[PROF3]]
 // CHECK1:       init.check2:
 // CHECK1-NEXT:    [[TMP5:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ5tmainIiET_vE3var) #[[ATTR3]]
 // CHECK1-NEXT:    [[TOBOOL3:%.*]] = icmp ne i32 [[TMP5]], 0
@@ -808,7 +808,7 @@ void foo() {
 // CHECK2-NEXT:    call void @_ZN1SIfED1Ev(%struct.S* nonnull align 4 dereferenceable(4) [[REF_TMP]]) #[[ATTR3:[0-9]+]]
 // CHECK2-NEXT:    [[TMP0:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ4mainE5s_arr to i8*) acquire, align 8
 // CHECK2-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK2-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2:![0-9]+]]
+// CHECK2-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3:![0-9]+]]
 // CHECK2:       init.check:
 // CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ4mainE5s_arr) #[[ATTR3]]
 // CHECK2-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP1]], 0
@@ -824,7 +824,7 @@ void foo() {
 // CHECK2:       init.end:
 // CHECK2-NEXT:    [[TMP4:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ4mainE3var to i8*) acquire, align 8
 // CHECK2-NEXT:    [[GUARD_UNINITIALIZED1:%.*]] = icmp eq i8 [[TMP4]], 0
-// CHECK2-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END5:%.*]], !prof [[PROF2]]
+// CHECK2-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END5:%.*]], !prof [[PROF3]]
 // CHECK2:       init.check2:
 // CHECK2-NEXT:    [[TMP5:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ4mainE3var) #[[ATTR3]]
 // CHECK2-NEXT:    [[TOBOOL3:%.*]] = icmp ne i32 [[TMP5]], 0
@@ -1060,7 +1060,7 @@ void foo() {
 // CHECK2-NEXT:    call void @_ZN1SIiED1Ev(%struct.S.0* nonnull align 4 dereferenceable(4) [[REF_TMP]]) #[[ATTR3]]
 // CHECK2-NEXT:    [[TMP0:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ5tmainIiET_vE5s_arr to i8*) acquire, align 8
 // CHECK2-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK2-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2]]
+// CHECK2-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3]]
 // CHECK2:       init.check:
 // CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ5tmainIiET_vE5s_arr) #[[ATTR3]]
 // CHECK2-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP1]], 0
@@ -1076,7 +1076,7 @@ void foo() {
 // CHECK2:       init.end:
 // CHECK2-NEXT:    [[TMP4:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ5tmainIiET_vE3var to i8*) acquire, align 8
 // CHECK2-NEXT:    [[GUARD_UNINITIALIZED1:%.*]] = icmp eq i8 [[TMP4]], 0
-// CHECK2-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END5:%.*]], !prof [[PROF2]]
+// CHECK2-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END5:%.*]], !prof [[PROF3]]
 // CHECK2:       init.check2:
 // CHECK2-NEXT:    [[TMP5:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ5tmainIiET_vE3var) #[[ATTR3]]
 // CHECK2-NEXT:    [[TOBOOL3:%.*]] = icmp ne i32 [[TMP5]], 0
@@ -1491,7 +1491,7 @@ void foo() {
 // CHECK5-NEXT:  entry:
 // CHECK5-NEXT:    [[TMP0:%.*]] = load atomic i8, i8* bitcast (i64* @_ZGVZ10array_funcvE1s to i8*) acquire, align 8
 // CHECK5-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK5-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2:![0-9]+]]
+// CHECK5-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3:![0-9]+]]
 // CHECK5:       init.check:
 // CHECK5-NEXT:    [[TMP1:%.*]] = call i32 @__cxa_guard_acquire(i64* @_ZGVZ10array_funcvE1s) #[[ATTR1:[0-9]+]]
 // CHECK5-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP1]], 0
@@ -1675,7 +1675,7 @@ void foo() {
 // CHECK11-NEXT:    call void @_ZN1SIfED1Ev(%struct.S* nonnull align 4 dereferenceable(4) [[REF_TMP]]) #[[ATTR4:[0-9]+]]
 // CHECK11-NEXT:    [[TMP0:%.*]] = load i8, i8* @_ZGVZ4mainE5s_arr, align 1
 // CHECK11-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK11-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2:![0-9]+]]
+// CHECK11-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3:![0-9]+]]
 // CHECK11:       init.check:
 // CHECK11-NEXT:    call void @_ZN1SIfEC1Ef(%struct.S* nonnull align 4 dereferenceable(4) getelementptr inbounds ([2 x %struct.S], [2 x %struct.S]* @_ZZ4mainE5s_arr, i64 0, i64 0), float 1.000000e+00)
 // CHECK11-NEXT:    call void @_ZN1SIfEC1Ef(%struct.S* nonnull align 4 dereferenceable(4) getelementptr inbounds ([2 x %struct.S], [2 x %struct.S]* @_ZZ4mainE5s_arr, i64 0, i64 1), float 2.000000e+00)
@@ -1685,7 +1685,7 @@ void foo() {
 // CHECK11:       init.end:
 // CHECK11-NEXT:    [[TMP2:%.*]] = load i8, i8* @_ZGVZ4mainE3var, align 1
 // CHECK11-NEXT:    [[GUARD_UNINITIALIZED1:%.*]] = icmp eq i8 [[TMP2]], 0
-// CHECK11-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END3:%.*]], !prof [[PROF2]]
+// CHECK11-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END3:%.*]], !prof [[PROF3]]
 // CHECK11:       init.check2:
 // CHECK11-NEXT:    call void @_ZN1SIfEC1Ef(%struct.S* nonnull align 4 dereferenceable(4) @_ZZ4mainE3var, float 3.000000e+00)
 // CHECK11-NEXT:    [[TMP3:%.*]] = call i32 @__cxa_thread_atexit(void (i8*)* bitcast (void (%struct.S*)* @_ZN1SIfED1Ev to void (i8*)*), i8* bitcast (%struct.S* @_ZZ4mainE3var to i8*), i8* @__dso_handle) #[[ATTR4]]
@@ -1849,7 +1849,7 @@ void foo() {
 // CHECK11-NEXT:    call void @_ZN1SIiED1Ev(%struct.S.0* nonnull align 4 dereferenceable(4) [[REF_TMP]]) #[[ATTR4]]
 // CHECK11-NEXT:    [[TMP0:%.*]] = load i8, i8* bitcast (i64* @_ZGVZ5tmainIiET_vE5s_arr to i8*), align 8
 // CHECK11-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK11-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2]]
+// CHECK11-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3]]
 // CHECK11:       init.check:
 // CHECK11-NEXT:    call void @_ZN1SIiEC1Ei(%struct.S.0* nonnull align 4 dereferenceable(4) getelementptr inbounds ([2 x %struct.S.0], [2 x %struct.S.0]* @_ZZ5tmainIiET_vE5s_arr, i64 0, i64 0), i32 1)
 // CHECK11-NEXT:    call void @_ZN1SIiEC1Ei(%struct.S.0* nonnull align 4 dereferenceable(4) getelementptr inbounds ([2 x %struct.S.0], [2 x %struct.S.0]* @_ZZ5tmainIiET_vE5s_arr, i64 0, i64 1), i32 2)
@@ -1859,7 +1859,7 @@ void foo() {
 // CHECK11:       init.end:
 // CHECK11-NEXT:    [[TMP2:%.*]] = load i8, i8* bitcast (i64* @_ZGVZ5tmainIiET_vE3var to i8*), align 8
 // CHECK11-NEXT:    [[GUARD_UNINITIALIZED1:%.*]] = icmp eq i8 [[TMP2]], 0
-// CHECK11-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END3:%.*]], !prof [[PROF2]]
+// CHECK11-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END3:%.*]], !prof [[PROF3]]
 // CHECK11:       init.check2:
 // CHECK11-NEXT:    call void @_ZN1SIiEC1Ei(%struct.S.0* nonnull align 4 dereferenceable(4) @_ZZ5tmainIiET_vE3var, i32 3)
 // CHECK11-NEXT:    [[TMP3:%.*]] = call i32 @__cxa_thread_atexit(void (i8*)* bitcast (void (%struct.S.0*)* @_ZN1SIiED1Ev to void (i8*)*), i8* bitcast (%struct.S.0* @_ZZ5tmainIiET_vE3var to i8*), i8* @__dso_handle) #[[ATTR4]]
@@ -2100,7 +2100,7 @@ void foo() {
 // CHECK12-NEXT:    call void @_ZN1SIfED1Ev(%struct.S* nonnull align 4 dereferenceable(4) [[REF_TMP]]) #[[ATTR4:[0-9]+]]
 // CHECK12-NEXT:    [[TMP0:%.*]] = load i8, i8* @_ZGVZ4mainE5s_arr, align 1
 // CHECK12-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK12-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2:![0-9]+]]
+// CHECK12-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3:![0-9]+]]
 // CHECK12:       init.check:
 // CHECK12-NEXT:    call void @_ZN1SIfEC1Ef(%struct.S* nonnull align 4 dereferenceable(4) getelementptr inbounds ([2 x %struct.S], [2 x %struct.S]* @_ZZ4mainE5s_arr, i64 0, i64 0), float 1.000000e+00)
 // CHECK12-NEXT:    call void @_ZN1SIfEC1Ef(%struct.S* nonnull align 4 dereferenceable(4) getelementptr inbounds ([2 x %struct.S], [2 x %struct.S]* @_ZZ4mainE5s_arr, i64 0, i64 1), float 2.000000e+00)
@@ -2110,7 +2110,7 @@ void foo() {
 // CHECK12:       init.end:
 // CHECK12-NEXT:    [[TMP2:%.*]] = load i8, i8* @_ZGVZ4mainE3var, align 1
 // CHECK12-NEXT:    [[GUARD_UNINITIALIZED1:%.*]] = icmp eq i8 [[TMP2]], 0
-// CHECK12-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END3:%.*]], !prof [[PROF2]]
+// CHECK12-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END3:%.*]], !prof [[PROF3]]
 // CHECK12:       init.check2:
 // CHECK12-NEXT:    call void @_ZN1SIfEC1Ef(%struct.S* nonnull align 4 dereferenceable(4) @_ZZ4mainE3var, float 3.000000e+00)
 // CHECK12-NEXT:    [[TMP3:%.*]] = call i32 @__cxa_thread_atexit(void (i8*)* bitcast (void (%struct.S*)* @_ZN1SIfED1Ev to void (i8*)*), i8* bitcast (%struct.S* @_ZZ4mainE3var to i8*), i8* @__dso_handle) #[[ATTR4]]
@@ -2274,7 +2274,7 @@ void foo() {
 // CHECK12-NEXT:    call void @_ZN1SIiED1Ev(%struct.S.0* nonnull align 4 dereferenceable(4) [[REF_TMP]]) #[[ATTR4]]
 // CHECK12-NEXT:    [[TMP0:%.*]] = load i8, i8* bitcast (i64* @_ZGVZ5tmainIiET_vE5s_arr to i8*), align 8
 // CHECK12-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK12-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2]]
+// CHECK12-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3]]
 // CHECK12:       init.check:
 // CHECK12-NEXT:    call void @_ZN1SIiEC1Ei(%struct.S.0* nonnull align 4 dereferenceable(4) getelementptr inbounds ([2 x %struct.S.0], [2 x %struct.S.0]* @_ZZ5tmainIiET_vE5s_arr, i64 0, i64 0), i32 1)
 // CHECK12-NEXT:    call void @_ZN1SIiEC1Ei(%struct.S.0* nonnull align 4 dereferenceable(4) getelementptr inbounds ([2 x %struct.S.0], [2 x %struct.S.0]* @_ZZ5tmainIiET_vE5s_arr, i64 0, i64 1), i32 2)
@@ -2284,7 +2284,7 @@ void foo() {
 // CHECK12:       init.end:
 // CHECK12-NEXT:    [[TMP2:%.*]] = load i8, i8* bitcast (i64* @_ZGVZ5tmainIiET_vE3var to i8*), align 8
 // CHECK12-NEXT:    [[GUARD_UNINITIALIZED1:%.*]] = icmp eq i8 [[TMP2]], 0
-// CHECK12-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END3:%.*]], !prof [[PROF2]]
+// CHECK12-NEXT:    br i1 [[GUARD_UNINITIALIZED1]], label [[INIT_CHECK2:%.*]], label [[INIT_END3:%.*]], !prof [[PROF3]]
 // CHECK12:       init.check2:
 // CHECK12-NEXT:    call void @_ZN1SIiEC1Ei(%struct.S.0* nonnull align 4 dereferenceable(4) @_ZZ5tmainIiET_vE3var, i32 3)
 // CHECK12-NEXT:    [[TMP3:%.*]] = call i32 @__cxa_thread_atexit(void (i8*)* bitcast (void (%struct.S.0*)* @_ZN1SIiED1Ev to void (i8*)*), i8* bitcast (%struct.S.0* @_ZZ5tmainIiET_vE3var to i8*), i8* @__dso_handle) #[[ATTR4]]
@@ -2627,7 +2627,7 @@ void foo() {
 // CHECK15-NEXT:  entry:
 // CHECK15-NEXT:    [[TMP0:%.*]] = load i8, i8* @_ZGVZ10array_funcvE1s, align 1
 // CHECK15-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK15-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF2:![0-9]+]]
+// CHECK15-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT_CHECK:%.*]], label [[INIT_END:%.*]], !prof [[PROF3:![0-9]+]]
 // CHECK15:       init.check:
 // CHECK15-NEXT:    br label [[ARRAYCTOR_LOOP:%.*]]
 // CHECK15:       arrayctor.loop:
@@ -2820,12 +2820,11 @@ void foo() {
 // CHECK16-NEXT:  entry:
 // CHECK16-NEXT:    [[TMP0:%.*]] = load i8, i8* @__tls_guard, align 1
 // CHECK16-NEXT:    [[GUARD_UNINITIALIZED:%.*]] = icmp eq i8 [[TMP0]], 0
-// CHECK16-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT:%.*]], label [[EXIT:%.*]], !prof [[PROF4:![0-9]+]]
+// CHECK16-NEXT:    br i1 [[GUARD_UNINITIALIZED]], label [[INIT:%.*]], label [[EXIT:%.*]], !prof [[PROF5:![0-9]+]]
 // CHECK16:       init:
 // CHECK16-NEXT:    store i8 1, i8* @__tls_guard, align 1
 // CHECK16-NEXT:    call void @__cxx_global_var_init()
 // CHECK16-NEXT:    br label [[EXIT]]
 // CHECK16:       exit:
 // CHECK16-NEXT:    ret void
-//
 //

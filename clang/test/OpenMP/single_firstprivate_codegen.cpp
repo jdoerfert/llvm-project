@@ -1500,4 +1500,3 @@ int main() {
 // CHECK4-NEXT:    call void @__cxx_global_var_init.2()
 // CHECK4-NEXT:    ret void
 //
-//

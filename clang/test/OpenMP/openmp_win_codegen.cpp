@@ -155,4 +155,3 @@ int main() {
 // CHECK1-NEXT:    store i32 [[TMP12]], i32* [[TMP8]], align 4
 // CHECK1-NEXT:    ret void
 //
-//

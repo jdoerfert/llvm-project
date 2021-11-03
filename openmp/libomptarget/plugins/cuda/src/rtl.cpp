@@ -24,6 +24,7 @@
 #include "DeviceInterface.h"
 #include "GlobalHandler.h"
 
+#include "llvm/Frontend/OpenMP/DeviceEnvironment.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
 

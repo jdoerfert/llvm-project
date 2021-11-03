@@ -131,6 +131,8 @@ macro(add_cuda_bc_library)
     -fvisibility=default
     -Wno-unused-value
     -nogpulib
+    -DOMPTARGET_DEVICE
+    -DOMPTARGET_OLD_DEVICE_RUNTIME
     -O${optimization_level}
     ${CUDA_DEBUG}
     -I${CMAKE_CURRENT_SOURCE_DIR}/src

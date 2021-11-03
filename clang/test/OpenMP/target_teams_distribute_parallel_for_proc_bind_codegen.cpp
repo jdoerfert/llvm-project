@@ -973,4 +973,3 @@ int main() {
 // CHECK2-NEXT:    call void @__tgt_register_requires(i64 1)
 // CHECK2-NEXT:    ret void
 //
-//

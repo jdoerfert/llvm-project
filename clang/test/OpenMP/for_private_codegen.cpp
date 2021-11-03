@@ -1326,4 +1326,3 @@ int main() {
 // CHECK4-NEXT:    store float 9.000000e+00, float* [[BLOCK_CAPTURE_ADDR3]], align 4
 // CHECK4-NEXT:    ret void
 //
-//

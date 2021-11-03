@@ -437,12 +437,11 @@ EXTERN int32_t __kmpc_cancellationpoint(kmp_Ident *loc, int32_t global_tid,
 EXTERN int32_t __kmpc_cancel(kmp_Ident *loc, int32_t global_tid,
                              int32_t cancelVal);
 
+#include "llvm/Frontend/OpenMP/KernelEnvironment.h"
 // non standard
-EXTERN int32_t __kmpc_target_init(ident_t *Ident, int8_t Mode,
-                                  bool UseGenericStateMachine,
+EXTERN int32_t __kmpc_target_init(KernelEnvironmentTy& KernelEnvironment,
                                   bool RequiresFullRuntime);
-EXTERN void __kmpc_target_deinit(ident_t *Ident, int8_t Mode,
-                                 bool RequiresFullRuntime);
+EXTERN void __kmpc_target_deinit(bool RequiresFullRuntime);
 EXTERN void __kmpc_kernel_prepare_parallel(void *WorkFn,
                                            int32_t NumThreadsClause);
 EXTERN bool __kmpc_kernel_parallel(void **WorkFn);

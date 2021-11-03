@@ -27,6 +27,7 @@
 #include "GlobalHandler.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Frontend/OpenMP/DeviceEnvironment.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
 

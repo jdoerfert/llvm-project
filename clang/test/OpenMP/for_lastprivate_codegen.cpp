@@ -7858,4 +7858,3 @@ int main() {
 // CHECK8-NEXT:    call void @__kmpc_barrier(%struct.ident_t* @[[GLOB2]], i32 [[TMP4]])
 // CHECK8-NEXT:    ret void
 //
-//
