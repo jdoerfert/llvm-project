@@ -2159,4 +2159,3 @@ int main() {
 // CHECK4-NEXT:    store double [[ADD]], double* [[TMP11]], align 8
 // CHECK4-NEXT:    ret void
 //
-//

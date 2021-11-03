@@ -36,10 +36,13 @@
 
 
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
 @0 = private unnamed_addr constant [23 x i8] c";unknown;unknown;0;0;;\00", align 1
 @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
 @__omp_offloading_10301_87b2c_foo_l7_exec_mode = weak constant i8 1
+@__omp_offloading_10301_87b2c_foo_l7_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 @2 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 2, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
 @llvm.compiler.used = appending global [1 x i8*] [i8* @__omp_offloading_10301_87b2c_foo_l7_exec_mode], section "llvm.metadata"
 
@@ -48,7 +51,7 @@ entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
   store i32 0, i32* %.zero.addr, align 4
-  %0 = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 1, i1 true, i1 true)
+  %0 = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @__omp_offloading_10301_87b2c_foo_l7_kernel_info, i1 true)
   %exec_user_code = icmp eq i32 %0, -1
   br i1 %exec_user_code, label %user_code.entry, label %worker.exit
 
@@ -56,14 +59,16 @@ user_code.entry:                                  ; preds = %entry
   %1 = call i32 @__kmpc_global_thread_num(%struct.ident_t* @1)
   store i32 %1, i32* %.threadid_temp., align 4
   call void @__omp_outlined__(i32* %.threadid_temp., i32* %.zero.addr)
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 
 worker.exit:                                      ; preds = %entry
   ret void
 }
 
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1)
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
+
 declare void @unknown()
 
 define internal void @__omp_outlined__(i32* noalias %.global_tid., i32* noalias %.bound_tid.) {
@@ -145,8 +150,6 @@ entry:
 }
 
 declare i32 @__kmpc_global_thread_num(%struct.ident_t*)
-
-declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1)
 
 define internal void @__omp_outlined__3(i32* noalias %.global_tid., i32* noalias %.bound_tid.) {
 entry:

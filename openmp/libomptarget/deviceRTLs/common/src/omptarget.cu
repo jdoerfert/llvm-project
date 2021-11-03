@@ -38,7 +38,8 @@ static void __kmpc_generic_kernel_init() {
   if (threadIdInBlock != GetMasterThreadID())
     return;
 
-  setExecutionParameters(OMP_TGT_EXEC_MODE_GENERIC, OMP_TGT_RUNTIME_INITIALIZED);
+  setExecutionParameters(llvm::omp::OMP_TGT_EXEC_MODE_GENERIC,
+                         OMP_TGT_RUNTIME_INITIALIZED);
   ASSERT0(LT_FUSSY, threadIdInBlock == GetMasterThreadID(),
           "__kmpc_kernel_init() must be called by team master warp only!");
   PRINT0(LD_IO, "call to __kmpc_kernel_init for master\n");
@@ -85,7 +86,7 @@ static void __kmpc_generic_kernel_deinit() {
 static void __kmpc_spmd_kernel_init(bool RequiresFullRuntime) {
   PRINT0(LD_IO, "call to __kmpc_spmd_kernel_init\n");
 
-  setExecutionParameters(OMP_TGT_EXEC_MODE_SPMD,
+  setExecutionParameters(llvm::omp::OMP_TGT_EXEC_MODE_SPMD,
                          RequiresFullRuntime ? OMP_TGT_RUNTIME_INITIALIZED
                                              : OMP_TGT_RUNTIME_UNINITIALIZED);
   int threadId = __kmpc_get_hardware_thread_id_in_block();
@@ -165,7 +166,8 @@ static void __kmpc_spmd_kernel_deinit(bool RequiresFullRuntime) {
 // by comparision between the parallel level and the return value of this
 // function.
 EXTERN int8_t __kmpc_is_spmd_exec_mode() {
-  return (execution_param & OMP_TGT_EXEC_MODE_SPMD) == OMP_TGT_EXEC_MODE_SPMD;
+  return (execution_param & llvm::omp::OMP_TGT_EXEC_MODE_SPMD) ==
+         llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
 }
 
 EXTERN int8_t __kmpc_is_generic_main_thread(kmp_int32 Tid) {
@@ -176,17 +178,16 @@ NOINLINE EXTERN int8_t __kmpc_is_generic_main_thread_id(kmp_int32 Tid) {
   return GetMasterThreadID() == Tid;
 }
 
-EXTERN bool __kmpc_kernel_parallel(void**WorkFn);
+EXTERN bool __kmpc_kernel_parallel(void **WorkFn);
 
 static void __kmpc_target_region_state_machine(ident_t *Ident) {
 
   int TId = __kmpc_get_hardware_thread_id_in_block();
   do {
-    void* WorkFn = 0;
+    void *WorkFn = 0;
 
     // Wait for the signal that we have a new work function.
     __kmpc_barrier_simple_spmd(Ident, TId);
-
 
     // Retrieve the work function from the runtime.
     bool IsActive = __kmpc_kernel_parallel(&WorkFn);
@@ -197,7 +198,7 @@ static void __kmpc_target_region_state_machine(ident_t *Ident) {
       return;
 
     if (IsActive) {
-      ((void(*)(uint32_t,uint32_t))WorkFn)(0, TId);
+      ((void (*)(uint32_t, uint32_t))WorkFn)(0, TId);
       __kmpc_kernel_end_parallel();
     }
 
@@ -207,34 +208,33 @@ static void __kmpc_target_region_state_machine(ident_t *Ident) {
 }
 
 EXTERN
-int32_t __kmpc_target_init(ident_t *Ident, int8_t Mode,
-                           bool UseGenericStateMachine,
+int32_t __kmpc_target_init(KernelEnvironmentTy& KernelEnv,
                            bool RequiresFullRuntime) {
-  const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
+  bool IsSPMD = KernelEnv.Configuration.ExecMode & llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
+  bool UseGenericStateMachine = KernelEnv.Configuration.UseGenericStateMachine;
   int TId = __kmpc_get_hardware_thread_id_in_block();
   if (IsSPMD)
     __kmpc_spmd_kernel_init(RequiresFullRuntime);
   else
     __kmpc_generic_kernel_init();
 
-   if (IsSPMD) {
-    __kmpc_barrier_simple_spmd(Ident, TId);
-     return -1;
-   }
+  if (IsSPMD) {
+    __kmpc_barrier_simple_spmd(&KernelEnv.Ident, TId);
+    return -1;
+  }
 
-   if (TId == GetMasterThreadID())
-     return -1;
+  if (TId == GetMasterThreadID())
+    return -1;
 
   if (UseGenericStateMachine)
-    __kmpc_target_region_state_machine(Ident);
+    __kmpc_target_region_state_machine(&KernelEnv.Ident);
 
   return TId;
 }
 
 EXTERN
-void __kmpc_target_deinit(ident_t *Ident, int8_t Mode,
-                          bool RequiresFullRuntime) {
-  const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
+void __kmpc_target_deinit(bool RequiresFullRuntime) {
+  const bool IsSPMD = __kmpc_is_spmd_exec_mode();
   if (IsSPMD)
     __kmpc_spmd_kernel_deinit(RequiresFullRuntime);
   else

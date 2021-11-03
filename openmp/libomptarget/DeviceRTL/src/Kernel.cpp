@@ -16,20 +16,21 @@
 #include "State.h"
 #include "Synchronization.h"
 #include "Types.h"
+#include "llvm/Frontend/OpenMP/KernelEnvironment.h"
 
 using namespace _OMP;
 
 #pragma omp declare target
 
-static void inititializeRuntime(bool IsSPMD) {
+static void inititializeRuntime(bool IsSPMD, KernelEnvironmentTy &KernelEnv) {
   // Order is important here.
   synchronize::init(IsSPMD);
   mapping::init(IsSPMD);
-  state::init(IsSPMD);
+  state::init(IsSPMD, KernelEnv);
 }
 
 /// Simple generic state machine for worker threads.
-static void genericStateMachine(IdentTy *Ident) {
+static void genericStateMachine(IdentTy &Ident) {
   FunctionTracingRAII();
 
   uint32_t TId = mapping::getThreadIdInBlock();
@@ -61,19 +62,15 @@ static void genericStateMachine(IdentTy *Ident) {
 
 extern "C" {
 
-/// Initialization
-///
-/// \param Ident               Source location identification, can be NULL.
-///
-int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
-                           bool UseGenericStateMachine, bool) {
+int32_t __kmpc_target_init(KernelEnvironmentTy &KernelEnv, bool) {
   FunctionTracingRAII();
-  const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
+  bool IsSPMD = KernelEnv.Configuration.ExecMode & OMP_TGT_EXEC_MODE_SPMD;
+  bool UseGenericStateMachine = KernelEnv.Configuration.UseGenericStateMachine;
   if (IsSPMD) {
-    inititializeRuntime(/* IsSPMD */ true);
+    inititializeRuntime(/* IsSPMD */ true, KernelEnv);
     synchronize::threadsAligned();
   } else {
-    inititializeRuntime(/* IsSPMD */ false);
+    inititializeRuntime(/* IsSPMD */ false, KernelEnv);
     // No need to wait since only the main threads will execute user
     // code and workers will run into a barrier right away.
   }
@@ -87,7 +84,7 @@ int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
     return -1;
 
   if (UseGenericStateMachine)
-    genericStateMachine(Ident);
+    genericStateMachine(KernelEnv.Ident);
 
   return mapping::getThreadIdInBlock();
 }
@@ -96,12 +93,9 @@ int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
 ///
 /// In non-SPMD, this function releases the workers trapped in a state machine
 /// and also any memory dynamically allocated by the runtime.
-///
-/// \param Ident Source location identification, can be NULL.
-///
-void __kmpc_target_deinit(IdentTy *Ident, int8_t Mode, bool) {
+void __kmpc_target_deinit(bool) {
   FunctionTracingRAII();
-  const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
+  const bool IsSPMD = mapping::isSPMDMode();
   state::assumeInitialState(IsSPMD);
   if (IsSPMD)
     return;

@@ -17,40 +17,49 @@ target triple = "nvptx64"
 @S = external local_unnamed_addr global i8*
 
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1)
-declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1)
+@0 = private unnamed_addr constant [1 x i8] c"\00", align 1
+@kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
+
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 
 ;.
 ; CHECK: @[[S:[a-zA-Z0-9_$"\\.-]+]] = external local_unnamed_addr global i8*
+; CHECK: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+; CHECK: @[[KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 1 }, i16 0 }
 ;.
 ; CHECK-DISABLED: @[[S:[a-zA-Z0-9_$"\\.-]+]] = external local_unnamed_addr global i8*
+; CHECK-DISABLED: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+; CHECK-DISABLED: @[[KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 1 }, i16 0 }
 ;.
 define void @kernel() {
 ; CHECK-LABEL: define {{[^@]+}}@kernel() {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* nonnull null, i8 1, i1 false, i1 true)
+; CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
 ; CHECK-NEXT:    call void @foo() #[[ATTR4:[0-9]+]]
 ; CHECK-NEXT:    call void @bar() #[[ATTR4]]
 ; CHECK-NEXT:    call void @unknown_no_openmp()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* nonnull null, i8 1, i1 true)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@kernel() {
 ; CHECK-DISABLED-NEXT:  entry:
-; CHECK-DISABLED-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* nonnull null, i8 1, i1 false, i1 true)
+; CHECK-DISABLED-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
 ; CHECK-DISABLED-NEXT:    call void @foo() #[[ATTR4:[0-9]+]]
 ; CHECK-DISABLED-NEXT:    call void @bar() #[[ATTR4]]
 ; CHECK-DISABLED-NEXT:    call void @unknown_no_openmp()
-; CHECK-DISABLED-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* nonnull null, i8 1, i1 true)
+; CHECK-DISABLED-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-DISABLED-NEXT:    ret void
 ;
 entry:
-  %0 = call i32 @__kmpc_target_init(%struct.ident_t* nonnull null, i8 1, i1 true, i1 true)
+  %0 = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
   call void @foo()
   call void @bar()
   call void @unknown_no_openmp()
-  call void @__kmpc_target_deinit(%struct.ident_t* nonnull null, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 

@@ -24,16 +24,16 @@
 #include <unordered_map>
 #include <vector>
 
-#include "interop_hsa.h"
 #include "impl_runtime.h"
+#include "interop_hsa.h"
 
 #include "internal.h"
 #include "rt.h"
 
-#include "DeviceEnvironment.h"
 #include "get_elf_mach_gfx_name.h"
 #include "omptargetplugin.h"
 #include "print_tracing.h"
+#include "llvm/Frontend/OpenMP/DeviceEnvironment.h"
 
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"

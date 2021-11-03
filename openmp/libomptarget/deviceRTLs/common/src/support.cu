@@ -19,13 +19,13 @@
 // Execution Parameters
 ////////////////////////////////////////////////////////////////////////////////
 
-void setExecutionParameters(OMPTgtExecModeFlags EMode,
+void setExecutionParameters(llvm::omp::OMPTgtExecModeFlags EMode,
                             OMPTgtRuntimeModeFlags RMode) {
   execution_param = EMode;
   execution_param |= RMode;
 }
 
-bool isGenericMode() { return execution_param & OMP_TGT_EXEC_MODE_GENERIC; }
+bool isGenericMode() { return execution_param == llvm::omp::OMP_TGT_EXEC_MODE_GENERIC; }
 
 bool isRuntimeUninitialized() { return !isRuntimeInitialized(); }
 

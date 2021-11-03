@@ -13,6 +13,7 @@
 #define OMPTARGET_DEVICERTL_INTERFACE_H
 
 #include "Types.h"
+#include "llvm/Frontend/OpenMP/KernelEnvironment.h"
 
 /// External API
 ///
@@ -214,10 +215,9 @@ uint32_t __kmpc_get_warp_size();
 ///{
 int8_t __kmpc_is_spmd_exec_mode();
 
-int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
-                           bool UseGenericStateMachine, bool);
+int32_t __kmpc_target_init(_OMP::KernelEnvironmentTy &KernelEnv, bool);
 
-void __kmpc_target_deinit(IdentTy *Ident, int8_t Mode, bool);
+void __kmpc_target_deinit(bool);
 
 ///}
 

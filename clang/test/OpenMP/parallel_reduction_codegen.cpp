@@ -925,7 +925,7 @@ int main() {
 // CHECK1-NEXT:    [[TMP7:%.*]] = bitcast %struct.S* [[ARRAYIDX6]] to i8*
 // CHECK1-NEXT:    [[TMP8:%.*]] = bitcast %struct.S* [[VAR3]] to i8*
 // CHECK1-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 [[TMP7]], i8* align 4 [[TMP8]], i64 4, i1 false)
-// CHECK1-NEXT:    br label [[WHILE_COND]], !llvm.loop [[LOOP4:![0-9]+]]
+// CHECK1-NEXT:    br label [[WHILE_COND]], !llvm.loop [[LOOP5:![0-9]+]]
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@.omp_outlined..4
@@ -2324,7 +2324,7 @@ int main() {
 // CHECK2-NEXT:    [[TMP7:%.*]] = bitcast %struct.S* [[ARRAYIDX6]] to i8*
 // CHECK2-NEXT:    [[TMP8:%.*]] = bitcast %struct.S* [[VAR3]] to i8*
 // CHECK2-NEXT:    call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 4 [[TMP7]], i8* align 4 [[TMP8]], i64 4, i1 false)
-// CHECK2-NEXT:    br label [[WHILE_COND]], !llvm.loop [[LOOP4:![0-9]+]]
+// CHECK2-NEXT:    br label [[WHILE_COND]], !llvm.loop [[LOOP5:![0-9]+]]
 //
 //
 // CHECK2-LABEL: define {{[^@]+}}@.omp_outlined..4
@@ -4398,5 +4398,4 @@ int main() {
 // CHECK4-NEXT:    [[ADD3:%.*]] = add nsw i32 [[TMP28]], [[TMP29]]
 // CHECK4-NEXT:    store i32 [[ADD3]], i32* [[TMP23]], align 4
 // CHECK4-NEXT:    ret void
-//
 //

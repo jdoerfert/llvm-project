@@ -187,7 +187,7 @@ add_custom_target(omptarget-nvptx-bc)
 
 # Generate a Bitcode library for all the compute capabilities the user requested
 foreach(sm ${nvptx_sm_list})
-  set(cuda_flags -Xclang -target-cpu -Xclang sm_${sm} "-D__CUDA_ARCH__=${sm}0")
+  set(cuda_flags -Xclang -target-cpu -Xclang sm_${sm} "-D__CUDA_ARCH__=${sm}0" -DOMPTARGET_DEVICE -DOMPTARGET_OLD_DEVICE_RUNTIME)
   set(bc_files "")
   foreach(src ${cuda_src_files})
     get_filename_component(infile ${src} ABSOLUTE)

@@ -25,17 +25,22 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
+#include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Frontend/OpenMP/KernelEnvironment.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
+#include "llvm/IR/Value.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO.h"
@@ -152,6 +157,71 @@ static constexpr auto TAG = "[" DEBUG_TYPE "]";
 #endif
 
 namespace {
+
+/// Return the constant element of \p StructC at \p Offset.
+template <int Offset>
+unsigned getConstantStructOffsetIdx(const DataLayout &DL,
+                                    ConstantStruct *StructC) {
+  StructType *ST = cast<StructType>(StructC->getType());
+  return DL.getStructLayout(ST)->getElementContainingOffset(Offset);
+}
+
+/// Return the constant element of \p StructC at \p Offset.
+template <int Offset>
+Constant *getConstantStructOffsetElementAddr(const DataLayout &DL,
+                                             ConstantStruct *StructC,
+                                             Constant *Ptr) {
+  unsigned Idx = getConstantStructOffsetIdx<Offset>(DL, StructC);
+  StructType *ST = cast<StructType>(StructC->getType());
+  return ConstantExpr::getInBoundsGetElementPtr(
+      ST, Ptr,
+      ArrayRef<Constant *>{
+          ConstantInt::getNullValue(IntegerType::getInt32Ty(ST->getContext())),
+          ConstantInt::get(IntegerType::getInt32Ty(ST->getContext()), Idx)});
+}
+
+/// Return the constant element of \p StructC at \p Offset.
+template <int Offset>
+Constant *getConstantStructOffsetElement(const DataLayout &DL,
+                                         ConstantStruct *StructC) {
+  return StructC->getAggregateElement(
+      getConstantStructOffsetIdx<Offset>(DL, StructC));
+}
+
+/// Set the constant element of \p StructC at \p Offset to be \p V.
+template <int Offset>
+static ConstantStruct *setConstantStructOffsetElement(const DataLayout &DL,
+                                                      ConstantStruct *StructC,
+                                                      Constant *V) {
+  unsigned Idxs[1] = {getConstantStructOffsetIdx<Offset>(DL, StructC)};
+  Constant *NewStructC = ConstantFoldInsertValueInstruction(StructC, V, Idxs);
+  assert(NewStructC && "Failed to create constant kernel environment!");
+  return cast<ConstantStruct>(NewStructC);
+}
+
+#define GET_KERNEL_ENVIRONMENT_MEMBER(Member, DL, StructC)                     \
+  getConstantStructOffsetElement<offsetof(struct KernelEnvironmentTy,          \
+                                          Member)>(DL, StructC)
+#define GET_KERNEL_ENVIRONMENT_MEMBER_ADDR(Member, DL, StructC, Ptr)           \
+  getConstantStructOffsetElementAddr<offsetof(struct KernelEnvironmentTy,      \
+                                              Member)>(DL, StructC, Ptr)
+#define SET_KERNEL_ENVIRONMENT_MEMBER(Member, DL, StructC, V)                  \
+  setConstantStructOffsetElement<offsetof(struct KernelEnvironmentTy,          \
+                                          Member)>(DL, StructC, V)
+#define GET_KERNEL_CONFIGURATION_ENVIRONMENT_MEMBER(Member, DL, StructC)       \
+  getConstantStructOffsetElement<offsetof(struct ConfigurationEnvironmentTy,   \
+                                          Member)>(                            \
+      DL, cast<ConstantStruct>(                                                \
+              GET_KERNEL_ENVIRONMENT_MEMBER(Configuration, DL, StructC)))
+#define SET_KERNEL_CONFIGURATION_ENVIRONMENT_MEMBER(Member, DL, StructC, V)    \
+  SET_KERNEL_ENVIRONMENT_MEMBER(                                               \
+      Configuration, DL, StructC,                                              \
+      setConstantStructOffsetElement<offsetof(                                 \
+          struct ConfigurationEnvironmentTy, Member)>(                         \
+          DL,                                                                  \
+          cast<ConstantStruct>(                                                \
+              GET_KERNEL_ENVIRONMENT_MEMBER(Configuration, DL, StructC)),      \
+          V))
 
 struct AAHeapToShared;
 
@@ -546,6 +616,10 @@ struct KernelInfoState : AbstractState {
   /// one we abort as the kernel is malformed.
   CallBase *KernelInitCB = nullptr;
 
+  /// The constant kernel environement as taken from and passed to
+  /// __kmpc_target_init.
+  ConstantStruct *KernelEnvC = nullptr;
+
   /// The __kmpc_target_deinit call in this kernel, if any. If we find more than
   /// one we abort as the kernel is malformed.
   CallBase *KernelDeinitCB = nullptr;
@@ -636,6 +710,12 @@ struct KernelInfoState : AbstractState {
         llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt "
                          "assumptions.");
       KernelInitCB = KIS.KernelInitCB;
+    }
+    if (KIS.KernelEnvC) {
+      if (KernelEnvC && KernelEnvC != KIS.KernelEnvC)
+        llvm_unreachable("Kernel that calls another kernel violates OpenMP-Opt "
+                         "assumptions.");
+      KernelEnvC = KIS.KernelEnvC;
     }
     if (KIS.KernelDeinitCB) {
       if (KernelDeinitCB && KernelDeinitCB != KIS.KernelDeinitCB)
@@ -2592,8 +2672,8 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
       CB = CB ? OpenMPOpt::getCallIfRegularCall(*CB, &RFI) : nullptr;
       if (!CB)
         return false;
-      const int InitModeArgNo = 1;
-      auto *ModeCI = dyn_cast<ConstantInt>(CB->getOperand(InitModeArgNo));
+      const int InitializeIsSPMD = 1;
+      auto *ModeCI = dyn_cast<ConstantInt>(CB->getOperand(InitializeIsSPMD));
       return ModeCI && (ModeCI->getSExtValue() & OMP_TGT_EXEC_MODE_GENERIC);
     }
 
@@ -2881,6 +2961,35 @@ struct AAKernelInfoFunction : AAKernelInfo {
     return GuardedInstructions;
   }
 
+  /// Return the IdentTy (ident_ty) corresponding to the associated kernel.
+  Constant *getKernelIdent(ConstantStruct *StructC) {
+    const DataLayout &DL = KernelInitCB->getModule()->getDataLayout();
+    GlobalVariable *KernelEnvGV = getKernelEnvironementGlobalVariable();
+    return GET_KERNEL_ENVIRONMENT_MEMBER_ADDR(Ident, DL, StructC, KernelEnvGV);
+  }
+
+#define KERNEL_CONFIGURATION_GETTER_AND_SETTER_INT(Member)                     \
+  ConstantInt *getKernelConfiguration##Member(ConstantStruct *StructC) {       \
+    const DataLayout &DL = KernelInitCB->getModule()->getDataLayout();         \
+    return cast<ConstantInt>(                                                  \
+        GET_KERNEL_CONFIGURATION_ENVIRONMENT_MEMBER(Member, DL, StructC));     \
+  }                                                                            \
+  void setKernelConfiguration##Member(ConstantStruct *StructC, Constant *V) {  \
+    const DataLayout &DL = KernelInitCB->getModule()->getDataLayout();         \
+    KernelEnvC =                                                               \
+        SET_KERNEL_CONFIGURATION_ENVIRONMENT_MEMBER(Member, DL, StructC, V);   \
+  }
+
+  KERNEL_CONFIGURATION_GETTER_AND_SETTER_INT(UseGenericStateMachine)
+  KERNEL_CONFIGURATION_GETTER_AND_SETTER_INT(ExecMode)
+
+  GlobalVariable *getKernelEnvironementGlobalVariable() {
+    constexpr const int InitKernelEnvironmentArgNo = 0;
+    return cast<GlobalVariable>(
+        KernelInitCB->getArgOperand(InitKernelEnvironmentArgNo)
+            ->stripPointerCasts());
+  }
+
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     // This is a high-level transform that might change the constant arguments
@@ -2907,10 +3016,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
                             OMPInformationCache::RuntimeFunctionInfo &RFI,
                             CallBase *&Storage) {
       CallBase *CB = OpenMPOpt::getCallIfRegularCall(U, &RFI);
-      assert(CB &&
-             "Unexpected use of __kmpc_target_init or __kmpc_target_deinit!");
-      assert(!Storage &&
-             "Multiple uses of __kmpc_target_init or __kmpc_target_deinit!");
+      assert(CB && "Unexpected use of kernel (de)init!");
+      assert(!Storage && "Multiple uses of kernel (de)init!");
       Storage = CB;
       return false;
     };
@@ -2933,55 +3040,35 @@ struct AAKernelInfoFunction : AAKernelInfo {
       return;
     }
 
-    // For kernels we might need to initialize/finalize the IsSPMD state and
-    // we need to register a simplification callback so that the Attributor
-    // knows the constant arguments to __kmpc_target_init and
-    // __kmpc_target_deinit might actually change.
+    GlobalVariable *KernelEnvGV = getKernelEnvironementGlobalVariable();
+    KernelEnvC = cast<ConstantStruct>(KernelEnvGV->getInitializer());
 
-    Attributor::SimplifictionCallbackTy StateMachineSimplifyCB =
+    auto *ExecModeC = getKernelConfigurationExecMode(KernelEnvC);
+    auto *AssumedExecModeC = ConstantInt::get(
+        ExecModeC->getType(),
+        ExecModeC->getZExtValue() | OMP_TGT_EXEC_MODE_GENERIC_SPMD);
+
+    // Next rewrite the kernel configuration to indicate we use SPMD-mode now.
+    auto &Ctx = getAnchorValue().getContext();
+    if (!DisableOpenMPOptSPMDization)
+      setKernelConfigurationExecMode(KernelEnvC, AssumedExecModeC);
+    // If we have disabled state machine rewrites, don't make a custom one.
+    if (!DisableOpenMPOptStateMachineRewrite)
+      setKernelConfigurationUseGenericStateMachine(
+          KernelEnvC, ConstantInt::get(Type::getInt8Ty(Ctx), 0));
+
+    Attributor::SimplifictionCallbackTy KernelConfigurationSimplifyCB =
         [&](const IRPosition &IRP, const AbstractAttribute *AA,
             bool &UsedAssumedInformation) -> Optional<Value *> {
-      // IRP represents the "use generic state machine" argument of an
-      // __kmpc_target_init call. We will answer this one with the internal
-      // state. As long as we are not in an invalid state, we will create a
-      // custom state machine so the value should be a `i1 false`. If we are
-      // in an invalid state, we won't change the value that is in the IR.
-      if (!ReachedKnownParallelRegions.isValidState())
-        return nullptr;
-      // If we have disabled state machine rewrites, don't make a custom one.
-      if (DisableOpenMPOptStateMachineRewrite)
-        return nullptr;
-      if (AA)
-        A.recordDependence(*this, *AA, DepClassTy::OPTIONAL);
-      UsedAssumedInformation = !isAtFixpoint();
-      auto *FalseVal =
-          ConstantInt::getBool(IRP.getAnchorValue().getContext(), 0);
-      return FalseVal;
+      return KernelEnvC;
     };
+    A.registerSimplificationCallback(
+        IRPosition::value(*KernelEnvGV->getInitializer()),
+        KernelConfigurationSimplifyCB);
 
-    Attributor::SimplifictionCallbackTy ModeSimplifyCB =
-        [&](const IRPosition &IRP, const AbstractAttribute *AA,
-            bool &UsedAssumedInformation) -> Optional<Value *> {
-      // IRP represents the "SPMDCompatibilityTracker" argument of an
-      // __kmpc_target_init or
-      // __kmpc_target_deinit call. We will answer this one with the internal
-      // state.
-      if (!SPMDCompatibilityTracker.isValidState())
-        return nullptr;
-      if (!SPMDCompatibilityTracker.isAtFixpoint()) {
-        if (AA)
-          A.recordDependence(*this, *AA, DepClassTy::OPTIONAL);
-        UsedAssumedInformation = true;
-      } else {
-        UsedAssumedInformation = false;
-      }
-      auto *Val = ConstantInt::getSigned(
-          IntegerType::getInt8Ty(IRP.getAnchorValue().getContext()),
-          SPMDCompatibilityTracker.isAssumed() ? OMP_TGT_EXEC_MODE_SPMD
-                                               : OMP_TGT_EXEC_MODE_GENERIC);
-      return Val;
-    };
-
+    // TODO: These are only needed for the old runtime and should be removed
+    // with it:
+    //{
     Attributor::SimplifictionCallbackTy IsGenericModeSimplifyCB =
         [&](const IRPosition &IRP, const AbstractAttribute *AA,
             bool &UsedAssumedInformation) -> Optional<Value *> {
@@ -3003,20 +3090,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
       return Val;
     };
 
-    constexpr const int InitModeArgNo = 1;
-    constexpr const int DeinitModeArgNo = 1;
-    constexpr const int InitUseStateMachineArgNo = 2;
-    constexpr const int InitRequiresFullRuntimeArgNo = 3;
-    constexpr const int DeinitRequiresFullRuntimeArgNo = 2;
-    A.registerSimplificationCallback(
-        IRPosition::callsite_argument(*KernelInitCB, InitUseStateMachineArgNo),
-        StateMachineSimplifyCB);
-    A.registerSimplificationCallback(
-        IRPosition::callsite_argument(*KernelInitCB, InitModeArgNo),
-        ModeSimplifyCB);
-    A.registerSimplificationCallback(
-        IRPosition::callsite_argument(*KernelDeinitCB, DeinitModeArgNo),
-        ModeSimplifyCB);
+    constexpr const int InitRequiresFullRuntimeArgNo = 1;
+    constexpr const int DeinitRequiresFullRuntimeArgNo = 0;
     A.registerSimplificationCallback(
         IRPosition::callsite_argument(*KernelInitCB,
                                       InitRequiresFullRuntimeArgNo),
@@ -3025,11 +3100,10 @@ struct AAKernelInfoFunction : AAKernelInfo {
         IRPosition::callsite_argument(*KernelDeinitCB,
                                       DeinitRequiresFullRuntimeArgNo),
         IsGenericModeSimplifyCB);
+    //}
 
     // Check if we know we are in SPMD-mode already.
-    ConstantInt *ModeArg =
-        dyn_cast<ConstantInt>(KernelInitCB->getArgOperand(InitModeArgNo));
-    if (ModeArg && (ModeArg->getSExtValue() & OMP_TGT_EXEC_MODE_SPMD))
+    if (ExecModeC->getSExtValue() & OMP_TGT_EXEC_MODE_SPMD)
       SPMDCompatibilityTracker.indicateOptimisticFixpoint();
     // This is a generic region but SPMDization is disabled so stop tracking.
     else if (DisableOpenMPOptSPMDization)
@@ -3330,35 +3404,28 @@ struct AAKernelInfoFunction : AAKernelInfo {
     // kernel is executed in.
     assert(ExecModeVal == OMP_TGT_EXEC_MODE_GENERIC &&
            "Initially non-SPMD kernel has SPMD exec mode!");
-    ExecMode->setInitializer(
+    auto *ExecModeC =
         ConstantInt::get(ExecMode->getInitializer()->getType(),
-                         ExecModeVal | OMP_TGT_EXEC_MODE_GENERIC_SPMD));
+                         ExecModeVal | OMP_TGT_EXEC_MODE_GENERIC_SPMD);
+    ExecMode->setInitializer(ExecModeC);
 
-    // Next rewrite the init and deinit calls to indicate we use SPMD-mode now.
-    const int InitModeArgNo = 1;
-    const int DeinitModeArgNo = 1;
-    const int InitUseStateMachineArgNo = 2;
-    const int InitRequiresFullRuntimeArgNo = 3;
-    const int DeinitRequiresFullRuntimeArgNo = 2;
+    // Next rewrite the kernel configuration to indicate we use SPMD-mode now.
+    GlobalVariable *KernelEnvGV = getKernelEnvironementGlobalVariable();
+    KernelEnvGV->setInitializer(KernelEnvC);
 
+    // TODO: These are only needed for the old runtime and should be removed
+    // with it:
+    //{
+    const int InitRequiresFullRuntimeArgNo = 1;
+    const int DeinitRequiresFullRuntimeArgNo = 0;
     auto &Ctx = getAnchorValue().getContext();
-    A.changeUseAfterManifest(
-        KernelInitCB->getArgOperandUse(InitModeArgNo),
-        *ConstantInt::getSigned(IntegerType::getInt8Ty(Ctx),
-                                OMP_TGT_EXEC_MODE_SPMD));
-    A.changeUseAfterManifest(
-        KernelInitCB->getArgOperandUse(InitUseStateMachineArgNo),
-        *ConstantInt::getBool(Ctx, 0));
-    A.changeUseAfterManifest(
-        KernelDeinitCB->getArgOperandUse(DeinitModeArgNo),
-        *ConstantInt::getSigned(IntegerType::getInt8Ty(Ctx),
-                                OMP_TGT_EXEC_MODE_SPMD));
     A.changeUseAfterManifest(
         KernelInitCB->getArgOperandUse(InitRequiresFullRuntimeArgNo),
         *ConstantInt::getBool(Ctx, 0));
     A.changeUseAfterManifest(
         KernelDeinitCB->getArgOperandUse(DeinitRequiresFullRuntimeArgNo),
         *ConstantInt::getBool(Ctx, 0));
+    //}
 
     ++NumOpenMPTargetRegionKernelsSPMD;
 
@@ -3367,7 +3434,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
     };
     A.emitRemark<OptimizationRemark>(KernelInitCB, "OMP120", Remark);
     return true;
-  };
+  }
 
   ChangeStatus buildCustomStateMachine(Attributor &A) {
     // If we have disabled state machine rewrites, don't make a custom one
@@ -3378,30 +3445,13 @@ struct AAKernelInfoFunction : AAKernelInfo {
     if (!ReachedKnownParallelRegions.isValidState())
       return ChangeStatus::UNCHANGED;
 
-    const int InitModeArgNo = 1;
-    const int InitUseStateMachineArgNo = 2;
-
-    // Check if the current configuration is non-SPMD and generic state machine.
-    // If we already have SPMD mode or a custom state machine we do not need to
-    // go any further. If it is anything but a constant something is weird and
-    // we give up.
-    ConstantInt *UseStateMachine = dyn_cast<ConstantInt>(
-        KernelInitCB->getArgOperand(InitUseStateMachineArgNo));
-    ConstantInt *Mode =
-        dyn_cast<ConstantInt>(KernelInitCB->getArgOperand(InitModeArgNo));
-
     // If we are stuck with generic mode, try to create a custom device (=GPU)
     // state machine which is specialized for the parallel regions that are
     // reachable by the kernel.
-    if (!UseStateMachine || UseStateMachine->isZero() || !Mode ||
-        (Mode->getSExtValue() & OMP_TGT_EXEC_MODE_SPMD))
-      return ChangeStatus::UNCHANGED;
 
     // If not SPMD mode, indicate we use a custom state machine now.
-    auto &Ctx = getAnchorValue().getContext();
-    auto *FalseVal = ConstantInt::getBool(Ctx, 0);
-    A.changeUseAfterManifest(
-        KernelInitCB->getArgOperandUse(InitUseStateMachineArgNo), *FalseVal);
+    GlobalVariable *KernelEnvGV = getKernelEnvironementGlobalVariable();
+    KernelEnvGV->setInitializer(KernelEnvC);
 
     // If we don't actually need a state machine we are done here. This can
     // happen if there simply are no parallel regions. In the resulting kernel
@@ -3478,6 +3528,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
     Function *Kernel = getAssociatedFunction();
     assert(Kernel && "Expected an associated function!");
 
+    auto &Ctx = Kernel->getContext();
     BasicBlock *InitBB = KernelInitCB->getParent();
     BasicBlock *UserCodeEntryBB = InitBB->splitBasicBlock(
         KernelInitCB->getNextNode(), "thread.user_code.check");
@@ -3532,7 +3583,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
                                      StateMachineBeginBB->end()),
             DLoc));
 
-    Value *Ident = KernelInitCB->getArgOperand(0);
+    Value *Ident = getKernelIdent(KernelEnvC);
     Value *GTid = KernelInitCB;
 
     FunctionCallee BarrierFn =
@@ -3655,6 +3706,38 @@ struct AAKernelInfoFunction : AAKernelInfo {
   /// changed its state (and in the beginning).
   ChangeStatus updateImpl(Attributor &A) override {
     KernelInfoState StateBefore = getState();
+
+    // When we leave this function this RAII will make sure the member
+    // KernelEnvC is updated properly depending on the state. That member is
+    // used for simplification of values and needs to be up to date at all
+    // times.
+    struct UpdateKernelEnvCRAII {
+      UpdateKernelEnvCRAII(AAKernelInfoFunction &AA) : AA(AA) {}
+
+      ~UpdateKernelEnvCRAII() {
+        if (!AA.KernelEnvC)
+          return;
+        GlobalVariable *KernelEnvGV = AA.getKernelEnvironementGlobalVariable();
+        if (!AA.isValidState()) {
+          AA.KernelEnvC = cast<ConstantStruct>(KernelEnvGV->getInitializer());
+          return;
+        }
+        if (!AA.ReachedKnownParallelRegions.isValidState()) {
+          AA.setKernelConfigurationUseGenericStateMachine(
+              AA.KernelEnvC,
+              AA.getKernelConfigurationUseGenericStateMachine(
+                  cast<ConstantStruct>(KernelEnvGV->getInitializer())));
+        }
+        if (!AA.SPMDCompatibilityTracker.isValidState()) {
+          AA.setKernelConfigurationExecMode(
+              AA.KernelEnvC,
+              AA.getKernelConfigurationExecMode(
+                  cast<ConstantStruct>(KernelEnvGV->getInitializer())));
+        }
+      }
+
+      AAKernelInfoFunction &AA;
+    } RAII(*this);
 
     // Callback to check a read/write instruction.
     auto CheckRWInst = [&](Instruction &I) {

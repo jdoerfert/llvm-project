@@ -680,6 +680,12 @@ public:
   Constant *getOrCreateSrcLocStr(const LocationDescription &Loc,
                                  uint32_t &SrcLocStrSize);
 
+  /// Return an ident_t encoding the source location \p SrcLocStr and \p Flags.
+  Constant *
+  getOrCreateIdentInitializer(Constant *SrcLocStr, uint32_t SrcLocStrSize,
+                              omp::IdentFlag Flags = omp::IdentFlag(0),
+                              unsigned Reserve2Flags = 0);
+
   /// Return an ident_t* encoding the source location \p SrcLocStr and \p Flags.
   /// TODO: Create a enum class for the Reserve2Flags
   Constant *getOrCreateIdent(Constant *SrcLocStr, uint32_t SrcLocStrSize,

@@ -3,60 +3,70 @@
 target triple = "nvptx64"
 
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
+@0 = private unnamed_addr constant [1 x i8] c"\00", align 1
 @kernel0_exec_mode = weak constant i8 1
+@kernel0_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 
 @G = external global i32
 ;.
+; CHECK: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
 ; CHECK: @[[KERNEL0_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 3
+; CHECK: @[[KERNEL0_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 3 }, i16 0 }
 ; CHECK: @[[G:[a-zA-Z0-9_$"\\.-]+]] = external global i32
 ; CHECK: @[[KERNEL1_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 3
+; CHECK: @[[KERNEL1_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 3 }, i16 0 }
 ; CHECK: @[[KERNEL2_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 3
-; CHECK: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [23 x i8] c"
-; CHECK: @[[GLOB1:[0-9]+]] = private unnamed_addr constant [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @[[GLOB0]], i32 0, i32 0) }, align 8
+; CHECK: @[[KERNEL2_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 3 }, i16 0 }
+; CHECK: @[[GLOB1:[0-9]+]] = private unnamed_addr constant [23 x i8] c"
+; CHECK: @[[GLOB2:[0-9]+]] = private unnamed_addr constant [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @[[GLOB1]], i32 0, i32 0) }, align 8
 ;.
 define weak void @kernel0() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel0
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
-; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
+; CHECK-NEXT:    [[CALL:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel0_info, i1 false)
 ; CHECK-NEXT:    call void @helper0() #[[ATTR1:[0-9]+]]
 ; CHECK-NEXT:    call void @helper1() #[[ATTR1]]
 ; CHECK-NEXT:    call void @helper2() #[[ATTR1]]
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* null, i8 2, i1 false)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false)
 ; CHECK-NEXT:    ret void
 ;
-  %i = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
+  %call = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel0_info, i1 true)
   call void @helper0()
   call void @helper1()
   call void @helper2()
-  call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 false)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
 @kernel1_exec_mode = weak constant i8 1
+@kernel1_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 
 define weak void @kernel1() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel1
 ; CHECK-SAME: () #[[ATTR0]] {
-; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
+; CHECK-NEXT:    [[CALL:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel1_info, i1 false)
 ; CHECK-NEXT:    call void @helper1() #[[ATTR1]]
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* null, i8 2, i1 false)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false)
 ; CHECK-NEXT:    ret void
 ;
-  %i = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
+  %call = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel1_info, i1 true)
   call void @helper1()
-  call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 false)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
 @kernel2_exec_mode = weak constant i8 1
+@kernel2_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 
 define weak void @kernel2() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel2
 ; CHECK-SAME: () #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
-; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
+; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel2_info, i1 false)
 ; CHECK-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[I]], -1
 ; CHECK-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[COMMON_RET:%.*]]
 ; CHECK:       common.ret:
@@ -68,12 +78,12 @@ define weak void @kernel2() #0 {
 ; CHECK-NEXT:    call void @helper1() #[[ATTR1]]
 ; CHECK-NEXT:    call void @helper2() #[[ATTR1]]
 ; CHECK-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* null, i32 [[TMP0]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*)* @__omp_outlined__ to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined___wrapper to i8*), i8** [[TMP1]], i64 0)
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* null, i8 2, i1 false)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false)
 ; CHECK-NEXT:    ret void
 ;
 entry:
   %captured_vars_addrs = alloca [0 x i8*], align 8
-  %i = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 true, i1 true)
+  %i = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel2_info, i1 true)
   %exec_user_code = icmp eq i32 %i, -1
   br i1 %exec_user_code, label %user_code.entry, label %common.ret
 
@@ -87,7 +97,7 @@ user_code.entry:
   call void @helper1()
   call void @helper2()
   call void @__kmpc_parallel_51(%struct.ident_t* null, i32 %0, i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*)* @__omp_outlined__ to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined___wrapper to i8*), i8** %1, i64 0)
-  call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
@@ -105,7 +115,7 @@ define internal void @helper0() {
 ; CHECK:       region.guarded.end:
 ; CHECK-NEXT:    br label [[REGION_BARRIER]]
 ; CHECK:       region.barrier:
-; CHECK-NEXT:    call void @__kmpc_barrier_simple_spmd(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]])
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_spmd(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]])
 ; CHECK-NEXT:    br label [[REGION_EXIT:%.*]]
 ; CHECK:       region.exit:
 ; CHECK-NEXT:    ret void
@@ -148,7 +158,7 @@ define internal void @helper2() {
 ; CHECK:       region.guarded.end:
 ; CHECK-NEXT:    br label [[REGION_BARRIER]]
 ; CHECK:       region.barrier:
-; CHECK-NEXT:    call void @__kmpc_barrier_simple_spmd(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]])
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_spmd(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]])
 ; CHECK-NEXT:    br label [[REGION_EXIT:%.*]]
 ; CHECK:       region.exit:
 ; CHECK-NEXT:    ret void
@@ -179,11 +189,11 @@ entry:
 }
 
 declare i32 @__kmpc_get_hardware_num_threads_in_block()
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1 zeroext, i1 zeroext) #1
-declare void @__kmpc_target_deinit(%struct.ident_t* nocapture readnone, i8, i1 zeroext) #1
 declare void @__kmpc_parallel_51(%struct.ident_t*, i32, i32, i32, i32, i8*, i8*, i8**, i64)
 declare i32 @__kmpc_global_thread_num(%struct.ident_t*)
 
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 
 !llvm.module.flags = !{!0, !1}
 !nvvm.annotations = !{!2, !3, !4}

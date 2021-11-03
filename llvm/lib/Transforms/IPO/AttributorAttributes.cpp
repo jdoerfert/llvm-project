@@ -5253,8 +5253,14 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       if (!isa<AllocaInst>(Obj) && !isa<GlobalVariable>(Obj))
         return false;
       Constant *InitialVal = AA::getInitialValueForObj(*Obj, *L.getType());
-      if (!InitialVal || !Union(*InitialVal))
+      if (!InitialVal)
         return false;
+      bool UsedAssumedInformation = false;
+      Optional<Value *> SimplifiedInitialVal = A.getAssumedSimplified(
+          IRPosition::value(*InitialVal), AA, UsedAssumedInformation);
+      if (SimplifiedInitialVal.hasValue())
+        if (!SimplifiedInitialVal.getValue() || !Union(**SimplifiedInitialVal))
+          return false;
 
       LLVM_DEBUG(dbgs() << "Underlying object amenable to load-store "
                            "propagation, checking accesses next.\n");

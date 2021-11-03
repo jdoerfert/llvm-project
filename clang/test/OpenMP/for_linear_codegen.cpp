@@ -2570,4 +2570,3 @@ int main() {
 // CHECK4-NEXT:    call void @__kmpc_barrier(%struct.ident_t* @[[GLOB1]], i32 [[TMP12]])
 // CHECK4-NEXT:    ret void
 //
-//

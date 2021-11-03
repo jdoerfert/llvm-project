@@ -11,27 +11,30 @@ target triple = "nvptx64"
 ; UTC_ARGS: --enable
 
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
 @S = external local_unnamed_addr global i8*
 @0 = private unnamed_addr constant [113 x i8] c";llvm/test/Transforms/OpenMP/custom_state_machines_remarks.c;__omp_offloading_2a_d80d3d_test_fallback_l11;11;1;;\00", align 1
 @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([113 x i8], [113 x i8]* @0, i32 0, i32 0) }, align 8
+@kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([113 x i8], [113 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 
 
 define dso_local void @foo() {
 entry:
-  %c = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 1, i1 true, i1 true)
+  %c = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
   %x = call i8* @__kmpc_alloc_shared(i64 4)
   call void @unknown_no_openmp()
   %x_on_stack = bitcast i8* %x to i32*
   %0 = bitcast i32* %x_on_stack to i8*
   call void @use(i8* %0)
   call void @__kmpc_free_shared(i8* %x, i64 4)
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
 define void @bar() {
-  %c = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 1, i1 true, i1 true)
+  %c = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
   call void @unknown_no_openmp()
   %cmp = icmp eq i32 %c, -1
   br i1 %cmp, label %master1, label %exit
@@ -54,12 +57,12 @@ master2:
   call void @__kmpc_free_shared(i8* %y, i64 4)
   br label %exit
 exit:
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
 define void @baz_spmd() {
-  %c = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 2, i1 true, i1 true)
+  %c = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
   call void @unknown_no_openmp()
   %c0 = icmp eq i32 %c, -1
   br i1 %c0, label %master3, label %exit
@@ -71,7 +74,7 @@ master3:
   call void @__kmpc_free_shared(i8* %z, i64 24)
   br label %exit
 exit:
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 2, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
@@ -91,9 +94,8 @@ declare i32 @llvm.nvvm.read.ptx.sreg.ntid.x()
 
 declare i32 @llvm.nvvm.read.ptx.sreg.warpsize()
 
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1)
-
-declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1)
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 
 declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 
@@ -119,22 +121,24 @@ declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 ; CHECK: @[[S:[a-zA-Z0-9_$"\\.-]+]] = external local_unnamed_addr global i8*
 ; CHECK: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [113 x i8] c"
 ; CHECK: @[[GLOB1:[0-9]+]] = private unnamed_addr constant [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([113 x i8], [113 x i8]* @[[GLOB0]], i32 0, i32 0) }, align 8
+; CHECK: @[[KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = external global %"struct._OMP::KernelEnvironmentTy"
 ; CHECK: @[[X:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global [16 x i8] undef, align 32
 ; CHECK: @[[Y:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global [4 x i8] undef, align 32
+; CHECK: @[[Z:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global [24 x i8] undef, align 32
 ;.
 ; CHECK-LABEL: define {{[^@]+}}@foo() {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 1, i1 false, i1 true)
+; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
 ; CHECK-NEXT:    [[X:%.*]] = call i8* @__kmpc_alloc_shared(i64 4) #[[ATTR5:[0-9]+]]
 ; CHECK-NEXT:    call void @unknown_no_openmp()
 ; CHECK-NEXT:    call void @use.internalized(i8* nofree writeonly [[X]]) #[[ATTR6:[0-9]+]]
 ; CHECK-NEXT:    call void @__kmpc_free_shared(i8* [[X]], i64 4) #[[ATTR5]]
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-NEXT:    ret void
 ;
 ;
 ; CHECK-LABEL: define {{[^@]+}}@bar() {
-; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 1, i1 false, i1 true)
+; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
 ; CHECK-NEXT:    call void @unknown_no_openmp()
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[C]], -1
 ; CHECK-NEXT:    br i1 [[CMP]], label [[MASTER1:%.*]], label [[EXIT:%.*]]
@@ -148,22 +152,20 @@ declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 ; CHECK-NEXT:    call void @use.internalized(i8* nofree addrspacecast (i8 addrspace(3)* getelementptr inbounds ([4 x i8], [4 x i8] addrspace(3)* @y, i32 0, i32 0) to i8*)) #[[ATTR6]]
 ; CHECK-NEXT:    br label [[EXIT]]
 ; CHECK:       exit:
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-NEXT:    ret void
 ;
 ;
 ; CHECK-LABEL: define {{[^@]+}}@baz_spmd() {
-; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 2, i1 true, i1 true)
+; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
 ; CHECK-NEXT:    call void @unknown_no_openmp()
 ; CHECK-NEXT:    [[C0:%.*]] = icmp eq i32 [[C]], -1
 ; CHECK-NEXT:    br i1 [[C0]], label [[MASTER3:%.*]], label [[EXIT:%.*]]
 ; CHECK:       master3:
-; CHECK-NEXT:    [[Z:%.*]] = call i8* @__kmpc_alloc_shared(i64 24) #[[ATTR5]], !dbg [[DBG9:![0-9]+]]
-; CHECK-NEXT:    call void @use.internalized(i8* nofree [[Z]]) #[[ATTR6]]
-; CHECK-NEXT:    call void @__kmpc_free_shared(i8* [[Z]], i64 24) #[[ATTR5]]
+; CHECK-NEXT:    call void @use.internalized(i8* nofree addrspacecast (i8 addrspace(3)* getelementptr inbounds ([24 x i8], [24 x i8] addrspace(3)* @z, i32 0, i32 0) to i8*)) #[[ATTR6]]
 ; CHECK-NEXT:    br label [[EXIT]]
 ; CHECK:       exit:
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 true)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-NEXT:    ret void
 ;
 ;
@@ -199,7 +201,4 @@ declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 ; CHECK: [[META6:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
 ; CHECK: [[META7:![0-9]+]] = !{void ()* @foo, !"kernel", i32 1}
 ; CHECK: [[META8:![0-9]+]] = !{void ()* @bar, !"kernel", i32 1}
-; CHECK: [[DBG9]] = !DILocation(line: 5, column: 14, scope: !10)
-; CHECK: [[META10:![0-9]+]] = distinct !DISubprogram(name: "bar", scope: !1, file: !1, line: 1, type: !11, scopeLine: 1, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !2)
-; CHECK: [[META11:![0-9]+]] = !DISubroutineType(types: !2)
 ;.

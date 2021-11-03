@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
 // CHECK1-NEXT:    [[CONV:%.*]] = bitcast i64* [[ARGC_ADDR]] to i32*
 // CHECK1-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[A_ADDR]], align 8
 // CHECK1-NEXT:    [[CONV1:%.*]] = bitcast i64* [[DOTCAPTURE_EXPR__ADDR]] to i32*
-// CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 false)
+// CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l24_kernel_info, i1 false)
 // CHECK1-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP1]], -1
 // CHECK1-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK1:       user_code.entry:
@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
 // CHECK1-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK1-NEXT:    store i32 [[TMP2]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK1-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]], i64 [[TMP4]], i32* [[TMP0]], i64 [[TMP6]]) #[[ATTR2:[0-9]+]]
-// CHECK1-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 false)
+// CHECK1-NEXT:    call void @__kmpc_target_deinit(i1 false)
 // CHECK1-NEXT:    ret void
 // CHECK1:       worker.exit:
 // CHECK1-NEXT:    ret void
@@ -353,7 +353,7 @@ int main(int argc, char **argv) {
 // CHECK2-NEXT:    store i32* [[A]], i32** [[A_ADDR]], align 4
 // CHECK2-NEXT:    store i32 [[DOTCAPTURE_EXPR_]], i32* [[DOTCAPTURE_EXPR__ADDR]], align 4
 // CHECK2-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[A_ADDR]], align 4
-// CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 false)
+// CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l24_kernel_info, i1 false)
 // CHECK2-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP1]], -1
 // CHECK2-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK2:       user_code.entry:
@@ -367,7 +367,7 @@ int main(int argc, char **argv) {
 // CHECK2-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK2-NEXT:    store i32 [[TMP2]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK2-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]], i32 [[TMP4]], i32* [[TMP0]], i32 [[TMP6]]) #[[ATTR2:[0-9]+]]
-// CHECK2-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 false)
+// CHECK2-NEXT:    call void @__kmpc_target_deinit(i1 false)
 // CHECK2-NEXT:    ret void
 // CHECK2:       worker.exit:
 // CHECK2-NEXT:    ret void
@@ -647,7 +647,7 @@ int main(int argc, char **argv) {
 // CHECK3-NEXT:    store i32* [[A]], i32** [[A_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[DOTCAPTURE_EXPR_]], i32* [[DOTCAPTURE_EXPR__ADDR]], align 4
 // CHECK3-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[A_ADDR]], align 4
-// CHECK3-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 false)
+// CHECK3-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l24_kernel_info, i1 false)
 // CHECK3-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP1]], -1
 // CHECK3-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK3:       user_code.entry:
@@ -661,7 +661,7 @@ int main(int argc, char **argv) {
 // CHECK3-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[TMP2]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK3-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]], i32 [[TMP4]], i32* [[TMP0]], i32 [[TMP6]]) #[[ATTR2:[0-9]+]]
-// CHECK3-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 false)
+// CHECK3-NEXT:    call void @__kmpc_target_deinit(i1 false)
 // CHECK3-NEXT:    ret void
 // CHECK3:       worker.exit:
 // CHECK3-NEXT:    ret void
@@ -943,7 +943,7 @@ int main(int argc, char **argv) {
 // CHECK4-NEXT:    [[CONV:%.*]] = bitcast i64* [[ARGC_ADDR]] to i32*
 // CHECK4-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[A_ADDR]], align 8
 // CHECK4-NEXT:    [[CONV1:%.*]] = bitcast i64* [[DOTCAPTURE_EXPR__ADDR]] to i32*
-// CHECK4-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 false)
+// CHECK4-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l24_kernel_info, i1 false)
 // CHECK4-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP1]], -1
 // CHECK4-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK4:       user_code.entry:
@@ -959,7 +959,7 @@ int main(int argc, char **argv) {
 // CHECK4-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK4-NEXT:    store i32 [[TMP2]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK4-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]], i64 [[TMP4]], i32* [[TMP0]], i64 [[TMP6]]) #[[ATTR2:[0-9]+]]
-// CHECK4-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 false)
+// CHECK4-NEXT:    call void @__kmpc_target_deinit(i1 false)
 // CHECK4-NEXT:    ret void
 // CHECK4:       worker.exit:
 // CHECK4-NEXT:    ret void
@@ -1251,7 +1251,7 @@ int main(int argc, char **argv) {
 // CHECK5-NEXT:    store i32* [[A]], i32** [[A_ADDR]], align 4
 // CHECK5-NEXT:    store i32 [[DOTCAPTURE_EXPR_]], i32* [[DOTCAPTURE_EXPR__ADDR]], align 4
 // CHECK5-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[A_ADDR]], align 4
-// CHECK5-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 false)
+// CHECK5-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l24_kernel_info, i1 false)
 // CHECK5-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP1]], -1
 // CHECK5-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK5:       user_code.entry:
@@ -1265,7 +1265,7 @@ int main(int argc, char **argv) {
 // CHECK5-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK5-NEXT:    store i32 [[TMP2]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK5-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]], i32 [[TMP4]], i32* [[TMP0]], i32 [[TMP6]]) #[[ATTR2:[0-9]+]]
-// CHECK5-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 false)
+// CHECK5-NEXT:    call void @__kmpc_target_deinit(i1 false)
 // CHECK5-NEXT:    ret void
 // CHECK5:       worker.exit:
 // CHECK5-NEXT:    ret void
@@ -1545,7 +1545,7 @@ int main(int argc, char **argv) {
 // CHECK6-NEXT:    store i32* [[A]], i32** [[A_ADDR]], align 4
 // CHECK6-NEXT:    store i32 [[DOTCAPTURE_EXPR_]], i32* [[DOTCAPTURE_EXPR__ADDR]], align 4
 // CHECK6-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[A_ADDR]], align 4
-// CHECK6-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 false)
+// CHECK6-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l24_kernel_info, i1 false)
 // CHECK6-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP1]], -1
 // CHECK6-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK6:       user_code.entry:
@@ -1559,7 +1559,7 @@ int main(int argc, char **argv) {
 // CHECK6-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK6-NEXT:    store i32 [[TMP2]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK6-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]], i32 [[TMP4]], i32* [[TMP0]], i32 [[TMP6]]) #[[ATTR2:[0-9]+]]
-// CHECK6-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 false)
+// CHECK6-NEXT:    call void @__kmpc_target_deinit(i1 false)
 // CHECK6-NEXT:    ret void
 // CHECK6:       worker.exit:
 // CHECK6-NEXT:    ret void

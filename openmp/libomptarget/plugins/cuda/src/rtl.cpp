@@ -21,8 +21,8 @@
 #include <vector>
 
 #include "Debug.h"
-#include "DeviceEnvironment.h"
 #include "omptargetplugin.h"
+#include "llvm/Frontend/OpenMP/DeviceEnvironment.h"
 
 #define TARGET_NAME CUDA
 #define DEBUG_PREFIX "Target " GETNAME(TARGET_NAME) " RTL"
@@ -912,9 +912,10 @@ public:
     // send device environment data to the device
     {
       // TODO: The device ID used here is not the real device ID used by OpenMP.
-      DeviceEnvironmentTy DeviceEnv{0, static_cast<uint32_t>(NumberOfDevices),
-                                    static_cast<uint32_t>(DeviceId),
-                                    static_cast<uint32_t>(DynamicMemorySize)};
+      DeviceEnvironmentTy DeviceEnv{
+          0, static_cast<uint32_t>(NumberOfDevices),
+          static_cast<uint32_t>(DeviceId),
+          static_cast<uint32_t>(DynamicMemorySize)};
 
       if (const char *EnvStr = getenv("LIBOMPTARGET_DEVICE_RTL_DEBUG"))
         DeviceEnv.DebugKind = std::stoi(EnvStr);

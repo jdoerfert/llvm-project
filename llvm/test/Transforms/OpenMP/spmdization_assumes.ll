@@ -12,11 +12,14 @@
 
 target triple = "nvptx64"
 
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
 @0 = private unnamed_addr constant [23 x i8] c";unknown;unknown;0;0;;\00", align 1
 @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
 @__omp_offloading_fd02_404433c2_main_l5_exec_mode = weak constant i8 1
+@__omp_offloading_fd02_404433c2_main_l5_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 @llvm.compiler.used = appending global [1 x i8*] [i8* @__omp_offloading_fd02_404433c2_main_l5_exec_mode], section "llvm.metadata"
 
 ; Function Attrs: alwaysinline convergent norecurse nounwind
@@ -24,14 +27,16 @@ target triple = "nvptx64"
 ; CHECK: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [23 x i8] c"
 ; CHECK: @[[GLOB1:[0-9]+]] = private unnamed_addr constant [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @[[GLOB0]], i32 0, i32 0) }, align 8
 ; CHECK: @[[__OMP_OFFLOADING_FD02_404433C2_MAIN_L5_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 3
+; CHECK: @[[__OMP_OFFLOADING_FD02_404433C2_MAIN_L5_KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 3 }, i16 0 }
 ; CHECK: @[[LLVM_COMPILER_USED:[a-zA-Z0-9_$"\\.-]+]] = appending global [1 x i8*] [i8* @__omp_offloading_fd02_404433c2_main_l5_exec_mode], section "llvm.metadata"
+; CHECK: @[[GLOB2:[0-9]+]] = private unnamed_addr constant [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @[[GLOB0]], i32 0, i32 0) }, align 8
 ;.
 define weak void @__omp_offloading_fd02_404433c2_main_l5(double* nonnull align 8 dereferenceable(8) %x) local_unnamed_addr #0 {
 ; CHECK-LABEL: define {{[^@]+}}@__omp_offloading_fd02_404433c2_main_l5
 ; CHECK-SAME: (double* nonnull align 8 dereferenceable(8) [[X:%.*]]) local_unnamed_addr #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
-; CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* nonnull @[[GLOB1]], i8 2, i1 false, i1 false) #[[ATTR3:[0-9]+]]
+; CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @__omp_offloading_fd02_404433c2_main_l5_kernel_info, i1 false) #[[ATTR3:[0-9]+]]
 ; CHECK-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; CHECK-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[COMMON_RET:%.*]]
 ; CHECK:       common.ret:
@@ -50,17 +55,17 @@ define weak void @__omp_offloading_fd02_404433c2_main_l5(double* nonnull align 8
 ; CHECK:       region.guarded.end:
 ; CHECK-NEXT:    br label [[REGION_BARRIER]]
 ; CHECK:       region.barrier:
-; CHECK-NEXT:    call void @__kmpc_barrier_simple_spmd(%struct.ident_t* @[[GLOB1]], i32 [[TMP2]])
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_spmd(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]])
 ; CHECK-NEXT:    br label [[REGION_EXIT:%.*]]
 ; CHECK:       region.exit:
 ; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [0 x i8*], [0 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 0
 ; CHECK-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* nonnull @[[GLOB1]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*)* @__omp_outlined__ to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined___wrapper to i8*), i8** nonnull [[TMP4]], i64 0) #[[ATTR3]]
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* nonnull @[[GLOB1]], i8 2, i1 false) #[[ATTR3]]
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false) #[[ATTR3]]
 ; CHECK-NEXT:    br label [[COMMON_RET]]
 ;
 entry:
   %captured_vars_addrs = alloca [0 x i8*], align 8
-  %0 = call i32 @__kmpc_target_init(%struct.ident_t* nonnull @1, i8 1, i1 true, i1 true) #3
+  %0 = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @__omp_offloading_fd02_404433c2_main_l5_kernel_info, i1 true) #3
   %exec_user_code = icmp eq i32 %0, -1
   br i1 %exec_user_code, label %user_code.entry, label %common.ret
 
@@ -73,11 +78,9 @@ user_code.entry:                                  ; preds = %entry
   store double %call.i, double* %x, align 8, !tbaa !8
   %2 = getelementptr inbounds [0 x i8*], [0 x i8*]* %captured_vars_addrs, i64 0, i64 0
   call void @__kmpc_parallel_51(%struct.ident_t* nonnull @1, i32 %1, i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*)* @__omp_outlined__ to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined___wrapper to i8*), i8** nonnull %2, i64 0) #3
-  call void @__kmpc_target_deinit(%struct.ident_t* nonnull @1, i8 1, i1 true) #3
+  call void @__kmpc_target_deinit(i1 true) #3
   br label %common.ret
 }
-
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1) local_unnamed_addr
 
 ; Function Attrs: alwaysinline mustprogress nofree norecurse nosync nounwind readnone willreturn
 define internal void @__omp_outlined__(i32* noalias nocapture %.global_tid., i32* noalias nocapture %.bound_tid.) #1 {
@@ -113,7 +116,8 @@ declare i32 @__kmpc_global_thread_num(%struct.ident_t*) local_unnamed_addr #3
 ; Function Attrs: alwaysinline
 declare void @__kmpc_parallel_51(%struct.ident_t*, i32, i32, i32, i32, i8*, i8*, i8**, i64) local_unnamed_addr #4
 
-declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1) local_unnamed_addr
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 
 ; Function Attrs: convergent
 declare double @__nv_sin(double) local_unnamed_addr #5

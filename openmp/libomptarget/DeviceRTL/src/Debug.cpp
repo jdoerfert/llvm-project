@@ -14,6 +14,7 @@
 #include "Configuration.h"
 #include "Interface.h"
 #include "Mapping.h"
+#include "State.h"
 #include "Types.h"
 
 using namespace _OMP;
@@ -54,14 +55,11 @@ int32_t __llvm_omp_vprintf(const char *Format, void *Arguments, uint32_t Size) {
 }
 }
 
-/// Current indentation level for the function trace. Only accessed by thread 0.
-static uint32_t Level = 0;
-#pragma omp allocate(Level) allocator(omp_pteam_mem_alloc)
-
 DebugEntryRAII::DebugEntryRAII(const char *File, const unsigned Line,
                                const char *Function) {
   if (config::isDebugMode(config::DebugKind::FunctionTracing) &&
       mapping::getThreadIdInBlock() == 0 && mapping::getBlockId() == 0) {
+    uint16_t Level = state::getKernelEnvironment().DebugIndentionLevel;
 
     for (int I = 0; I < Level; ++I)
       PRINTF("%s", "  ");
@@ -74,8 +72,10 @@ DebugEntryRAII::DebugEntryRAII(const char *File, const unsigned Line,
 
 DebugEntryRAII::~DebugEntryRAII() {
   if (config::isDebugMode(config::DebugKind::FunctionTracing) &&
-      mapping::getThreadIdInBlock() == 0 && mapping::getBlockId() == 0)
+      mapping::getThreadIdInBlock() == 0 && mapping::getBlockId() == 0) {
+    uint16_t Level = state::getKernelEnvironment().DebugIndentionLevel;
     Level--;
+  }
 }
 
 #pragma omp end declare target

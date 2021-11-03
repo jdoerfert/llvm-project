@@ -14,10 +14,13 @@
 #ifndef LLVM_FRONTEND_OPENMP_OMPCONSTANTS_H
 #define LLVM_FRONTEND_OPENMP_OMPCONSTANTS_H
 
+#ifndef OMPTARGET_DEVICE
 #include "llvm/ADT/BitmaskEnum.h"
-
-#include "llvm/ADT/StringRef.h"
 #include "llvm/Frontend/OpenMP/OMP.h.inc"
+#else
+#define LLVM_MARK_AS_BITMASK_ENUM(X)
+#define LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE()
+#endif
 
 namespace llvm {
 class Type;

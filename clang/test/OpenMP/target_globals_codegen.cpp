@@ -15,22 +15,47 @@
 // CHECK: @__omp_rtl_debug_kind = weak_odr constant i32 1
 // CHECK: @__omp_rtl_assume_teams_oversubscription = weak_odr constant i32 0
 // CHECK: @__omp_rtl_assume_threads_oversubscription = weak_odr constant i32 0
+// CHECK: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK: @__omp_offloading_2b_1007f3d__Z3foov_l61_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
+// CHECK: @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode = weak constant i8 1
+// CHECK: @llvm.compiler.used = appending global [1 x i8*] [i8* @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode], section "llvm.metadata"
 //.
 // CHECK-EQ: @__omp_rtl_debug_kind = weak_odr constant i32 111
 // CHECK-EQ: @__omp_rtl_assume_teams_oversubscription = weak_odr constant i32 0
 // CHECK-EQ: @__omp_rtl_assume_threads_oversubscription = weak_odr constant i32 0
+// CHECK-EQ: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK-EQ: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK-EQ: @__omp_offloading_2b_1007f3d__Z3foov_l61_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
+// CHECK-EQ: @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode = weak constant i8 1
+// CHECK-EQ: @llvm.compiler.used = appending global [1 x i8*] [i8* @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode], section "llvm.metadata"
 //.
 // CHECK-DEFAULT: @__omp_rtl_debug_kind = weak_odr constant i32 0
 // CHECK-DEFAULT: @__omp_rtl_assume_teams_oversubscription = weak_odr constant i32 0
 // CHECK-DEFAULT: @__omp_rtl_assume_threads_oversubscription = weak_odr constant i32 0
+// CHECK-DEFAULT: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK-DEFAULT: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK-DEFAULT: @__omp_offloading_2b_1007f3d__Z3foov_l61_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
+// CHECK-DEFAULT: @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode = weak constant i8 1
+// CHECK-DEFAULT: @llvm.compiler.used = appending global [1 x i8*] [i8* @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode], section "llvm.metadata"
 //.
 // CHECK-THREADS: @__omp_rtl_debug_kind = weak_odr constant i32 0
 // CHECK-THREADS: @__omp_rtl_assume_teams_oversubscription = weak_odr constant i32 0
 // CHECK-THREADS: @__omp_rtl_assume_threads_oversubscription = weak_odr constant i32 1
+// CHECK-THREADS: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK-THREADS: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK-THREADS: @__omp_offloading_2b_1007f3d__Z3foov_l61_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
+// CHECK-THREADS: @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode = weak constant i8 1
+// CHECK-THREADS: @llvm.compiler.used = appending global [1 x i8*] [i8* @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode], section "llvm.metadata"
 //.
 // CHECK-TEAMS: @__omp_rtl_debug_kind = weak_odr constant i32 0
 // CHECK-TEAMS: @__omp_rtl_assume_teams_oversubscription = weak_odr constant i32 1
 // CHECK-TEAMS: @__omp_rtl_assume_threads_oversubscription = weak_odr constant i32 0
+// CHECK-TEAMS: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK-TEAMS: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK-TEAMS: @__omp_offloading_2b_1007f3d__Z3foov_l61_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
+// CHECK-TEAMS: @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode = weak constant i8 1
+// CHECK-TEAMS: @llvm.compiler.used = appending global [1 x i8*] [i8* @__omp_offloading_2b_1007f3d__Z3foov_l61_exec_mode], section "llvm.metadata"
 //.
 void foo() {
 #pragma omp target
@@ -38,3 +63,49 @@ void foo() {
 }
 
 #endif
+//.
+// CHECK: attributes #0 = { convergent noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+ptx32,+sm_20" }
+//.
+// CHECK-EQ: attributes #0 = { convergent noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+ptx32,+sm_20" }
+//.
+// CHECK-DEFAULT: attributes #0 = { convergent noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+ptx32,+sm_20" }
+//.
+// CHECK-THREADS: attributes #0 = { convergent noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+ptx32,+sm_20" }
+//.
+// CHECK-TEAMS: attributes #0 = { convergent noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+ptx32,+sm_20" }
+//.
+// CHECK: !0 = !{i32 0, i32 43, i32 16809789, !"_Z3foov", i32 61, i32 0}
+// CHECK: !1 = !{void ()* @__omp_offloading_2b_1007f3d__Z3foov_l61, !"kernel", i32 1}
+// CHECK: !2 = !{i32 1, !"wchar_size", i32 4}
+// CHECK: !3 = !{i32 7, !"openmp", i32 50}
+// CHECK: !4 = !{i32 7, !"openmp-device", i32 50}
+// CHECK: !5 = !{!"clang version 14.0.0"}
+//.
+// CHECK-EQ: !0 = !{i32 0, i32 43, i32 16809789, !"_Z3foov", i32 61, i32 0}
+// CHECK-EQ: !1 = !{void ()* @__omp_offloading_2b_1007f3d__Z3foov_l61, !"kernel", i32 1}
+// CHECK-EQ: !2 = !{i32 1, !"wchar_size", i32 4}
+// CHECK-EQ: !3 = !{i32 7, !"openmp", i32 50}
+// CHECK-EQ: !4 = !{i32 7, !"openmp-device", i32 50}
+// CHECK-EQ: !5 = !{!"clang version 14.0.0"}
+//.
+// CHECK-DEFAULT: !0 = !{i32 0, i32 43, i32 16809789, !"_Z3foov", i32 61, i32 0}
+// CHECK-DEFAULT: !1 = !{void ()* @__omp_offloading_2b_1007f3d__Z3foov_l61, !"kernel", i32 1}
+// CHECK-DEFAULT: !2 = !{i32 1, !"wchar_size", i32 4}
+// CHECK-DEFAULT: !3 = !{i32 7, !"openmp", i32 50}
+// CHECK-DEFAULT: !4 = !{i32 7, !"openmp-device", i32 50}
+// CHECK-DEFAULT: !5 = !{!"clang version 14.0.0"}
+//.
+// CHECK-THREADS: !0 = !{i32 0, i32 43, i32 16809789, !"_Z3foov", i32 61, i32 0}
+// CHECK-THREADS: !1 = !{void ()* @__omp_offloading_2b_1007f3d__Z3foov_l61, !"kernel", i32 1}
+// CHECK-THREADS: !2 = !{i32 1, !"wchar_size", i32 4}
+// CHECK-THREADS: !3 = !{i32 7, !"openmp", i32 50}
+// CHECK-THREADS: !4 = !{i32 7, !"openmp-device", i32 50}
+// CHECK-THREADS: !5 = !{!"clang version 14.0.0"}
+//.
+// CHECK-TEAMS: !0 = !{i32 0, i32 43, i32 16809789, !"_Z3foov", i32 61, i32 0}
+// CHECK-TEAMS: !1 = !{void ()* @__omp_offloading_2b_1007f3d__Z3foov_l61, !"kernel", i32 1}
+// CHECK-TEAMS: !2 = !{i32 1, !"wchar_size", i32 4}
+// CHECK-TEAMS: !3 = !{i32 7, !"openmp", i32 50}
+// CHECK-TEAMS: !4 = !{i32 7, !"openmp-device", i32 50}
+// CHECK-TEAMS: !5 = !{!"clang version 14.0.0"}
+//.

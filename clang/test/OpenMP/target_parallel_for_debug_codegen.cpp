@@ -55,7 +55,7 @@ int main() {
   return 0;
 }
 // CHECK1-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l13_debug__
-// CHECK1-SAME: ([10 x [10 x [10 x i32]]] addrspace(1)* noalias [[C:%.*]], i32 [[A:%.*]], [10 x [10 x i32]]* noalias [[B:%.*]], i8 addrspace(1)* noalias [[BB:%.*]], i1 zeroext [[DOTCAPTURE_EXPR_:%.*]]) #[[ATTR0:[0-9]+]] !dbg [[DBG14:![0-9]+]] {
+// CHECK1-SAME: ([10 x [10 x [10 x i32]]] addrspace(1)* noalias [[C:%.*]], i32 [[A:%.*]], [10 x [10 x i32]]* noalias [[B:%.*]], i8 addrspace(1)* noalias [[BB:%.*]], i1 zeroext [[DOTCAPTURE_EXPR_:%.*]]) #[[ATTR0:[0-9]+]] !dbg [[DBG13:![0-9]+]] {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[C_ADDR:%.*]] = alloca [10 x [10 x [10 x i32]]] addrspace(1)*, align 8
 // CHECK1-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
@@ -89,7 +89,7 @@ int main() {
 // CHECK1-NEXT:    [[TMP6:%.*]] = addrspacecast i8 addrspace(1)* [[TMP5]] to i8*, !dbg [[DBG41]]
 // CHECK1-NEXT:    store i8* [[TMP6]], i8** [[_TMP2]], align 8, !dbg [[DBG41]]
 // CHECK1-NEXT:    [[TMP7:%.*]] = load i8*, i8** [[_TMP2]], align 8, !dbg [[DBG41]]
-// CHECK1-NEXT:    [[TMP8:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 false), !dbg [[DBG41]]
+// CHECK1-NEXT:    [[TMP8:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l13_debug___kernel_info, i1 false), !dbg [[DBG41]]
 // CHECK1-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP8]], -1, !dbg [[DBG41]]
 // CHECK1-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]], !dbg [[DBG41]]
 // CHECK1:       user_code.entry:
@@ -114,7 +114,7 @@ int main() {
 // CHECK1-NEXT:    [[TMP20:%.*]] = zext i1 [[TOBOOL]] to i32, !dbg [[DBG42]]
 // CHECK1-NEXT:    [[TMP21:%.*]] = bitcast [4 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**, !dbg [[DBG42]]
 // CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB6]], i32 [[TMP9]], i32 [[TMP20]], i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, [10 x [10 x [10 x i32]]]*, i64, [10 x [10 x i32]]*, i8*)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP21]], i64 4), !dbg [[DBG42]]
-// CHECK1-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB8:[0-9]+]], i8 2, i1 false), !dbg [[DBG45:![0-9]+]]
+// CHECK1-NEXT:    call void @__kmpc_target_deinit(i1 false), !dbg [[DBG45:![0-9]+]]
 // CHECK1-NEXT:    ret void, !dbg [[DBG46:![0-9]+]]
 // CHECK1:       worker.exit:
 // CHECK1-NEXT:    ret void, !dbg [[DBG41]]
@@ -326,7 +326,7 @@ int main() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l13
-// CHECK1-SAME: ([10 x [10 x [10 x i32]]]* nonnull align 4 dereferenceable(4000) [[C:%.*]], i64 [[A:%.*]], [10 x [10 x i32]]* nonnull align 4 dereferenceable(400) [[B:%.*]], i8* nonnull align 1 dereferenceable(1) [[BB:%.*]], i64 [[DOTCAPTURE_EXPR_:%.*]]) #[[ATTR4:[0-9]+]] !dbg [[DBG106:![0-9]+]] {
+// CHECK1-SAME: ([10 x [10 x [10 x i32]]]* nonnull align 4 dereferenceable(4000) [[C:%.*]], i64 [[A:%.*]], [10 x [10 x i32]]* nonnull align 4 dereferenceable(400) [[B:%.*]], i8* nonnull align 1 dereferenceable(1) [[BB:%.*]], i64 [[DOTCAPTURE_EXPR_:%.*]]) #[[ATTR5:[0-9]+]] !dbg [[DBG123:![0-9]+]] {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[C_ADDR:%.*]] = alloca [10 x [10 x [10 x i32]]]*, align 8
 // CHECK1-NEXT:    [[A_ADDR:%.*]] = alloca i64, align 8
@@ -392,11 +392,11 @@ int main() {
 // CHECK1-NEXT:    [[TMP7:%.*]] = addrspacecast i8 addrspace(1)* [[TMP6]] to i8*, !dbg [[DBG146]]
 // CHECK1-NEXT:    store i8* [[TMP7]], i8** [[_TMP2]], align 8, !dbg [[DBG146]]
 // CHECK1-NEXT:    [[TMP8:%.*]] = load i8*, i8** [[_TMP2]], align 8, !dbg [[DBG146]]
-// CHECK1-NEXT:    [[TMP9:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB10:[0-9]+]], i8 2, i1 false, i1 false), !dbg [[DBG146]]
+// CHECK1-NEXT:    [[TMP9:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l27_debug___kernel_info, i1 false), !dbg [[DBG146]]
 // CHECK1-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP9]], -1, !dbg [[DBG146]]
 // CHECK1-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]], !dbg [[DBG146]]
 // CHECK1:       user_code.entry:
-// CHECK1-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB15:[0-9]+]])
+// CHECK1-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB13:[0-9]+]])
 // CHECK1-NEXT:    [[TMP11:%.*]] = load i32, i32* [[A_ADDR]], align 4, !dbg [[DBG147:![0-9]+]]
 // CHECK1-NEXT:    [[CONV:%.*]] = bitcast i64* [[A_CASTED]] to i32*, !dbg [[DBG147]]
 // CHECK1-NEXT:    store i32 [[TMP11]], i32* [[CONV]], align 4, !dbg [[DBG147]]
@@ -413,8 +413,8 @@ int main() {
 // CHECK1-NEXT:    [[TMP19:%.*]] = getelementptr inbounds [4 x i8*], [4 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 3, !dbg [[DBG147]]
 // CHECK1-NEXT:    store i8* [[TMP8]], i8** [[TMP19]], align 8, !dbg [[DBG147]]
 // CHECK1-NEXT:    [[TMP20:%.*]] = bitcast [4 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**, !dbg [[DBG147]]
-// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB15]], i32 [[TMP10]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, [10 x [10 x [10 x i32]]]*, i64, [10 x [10 x i32]]*, i8*)* @__omp_outlined__2 to i8*), i8* null, i8** [[TMP20]], i64 4), !dbg [[DBG147]]
-// CHECK1-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB17:[0-9]+]], i8 2, i1 false), !dbg [[DBG148:![0-9]+]]
+// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB13]], i32 [[TMP10]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, [10 x [10 x [10 x i32]]]*, i64, [10 x [10 x i32]]*, i8*)* @__omp_outlined__2 to i8*), i8* null, i8** [[TMP20]], i64 4), !dbg [[DBG147]]
+// CHECK1-NEXT:    call void @__kmpc_target_deinit(i1 false), !dbg [[DBG148:![0-9]+]]
 // CHECK1-NEXT:    ret void, !dbg [[DBG150:![0-9]+]]
 // CHECK1:       worker.exit:
 // CHECK1-NEXT:    ret void, !dbg [[DBG146]]
@@ -479,7 +479,7 @@ int main() {
 // CHECK1-NEXT:    call void @llvm.dbg.declare(metadata i32* [[I]], metadata [[META172:![0-9]+]], metadata !DIExpression()), !dbg [[DBG155]]
 // CHECK1-NEXT:    [[TMP9:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8, !dbg [[DBG165]]
 // CHECK1-NEXT:    [[TMP10:%.*]] = load i32, i32* [[TMP9]], align 4, !dbg [[DBG165]]
-// CHECK1-NEXT:    call void @__kmpc_for_static_init_4(%struct.ident_t* @[[GLOB12:[0-9]+]], i32 [[TMP10]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1), !dbg [[DBG173:![0-9]+]]
+// CHECK1-NEXT:    call void @__kmpc_for_static_init_4(%struct.ident_t* @[[GLOB10:[0-9]+]], i32 [[TMP10]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1), !dbg [[DBG173:![0-9]+]]
 // CHECK1-NEXT:    br label [[OMP_DISPATCH_COND:%.*]], !dbg [[DBG165]]
 // CHECK1:       omp.dispatch.cond:
 // CHECK1-NEXT:    [[TMP11:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !dbg [[DBG168]]
@@ -572,7 +572,7 @@ int main() {
 // CHECK1-NEXT:    store i32 [[ADD25]], i32* [[DOTOMP_UB]], align 4, !dbg [[DBG165]]
 // CHECK1-NEXT:    br label [[OMP_DISPATCH_COND]], !dbg [[DBG173]], !llvm.loop [[LOOP203:![0-9]+]]
 // CHECK1:       omp.dispatch.end:
-// CHECK1-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB14:[0-9]+]], i32 [[TMP10]]), !dbg [[DBG202:![0-9]+]]
+// CHECK1-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB12:[0-9]+]], i32 [[TMP10]]), !dbg [[DBG202:![0-9]+]]
 // CHECK1-NEXT:    ret void, !dbg [[DBG204:![0-9]+]]
 //
 //
@@ -615,7 +615,7 @@ int main() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l27
-// CHECK1-SAME: ([10 x [10 x [10 x i32]]]* nonnull align 4 dereferenceable(4000) [[C:%.*]], i64 [[A:%.*]], [10 x [10 x i32]]* nonnull align 4 dereferenceable(400) [[B:%.*]], i8* nonnull align 1 dereferenceable(1) [[BB:%.*]]) #[[ATTR4]] !dbg [[DBG190:![0-9]+]] {
+// CHECK1-SAME: ([10 x [10 x [10 x i32]]]* nonnull align 4 dereferenceable(4000) [[C:%.*]], i64 [[A:%.*]], [10 x [10 x i32]]* nonnull align 4 dereferenceable(400) [[B:%.*]], i8* nonnull align 1 dereferenceable(1) [[BB:%.*]]) #[[ATTR5]] !dbg [[DBG214:![0-9]+]] {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[C_ADDR:%.*]] = alloca [10 x [10 x [10 x i32]]]*, align 8
 // CHECK1-NEXT:    [[A_ADDR:%.*]] = alloca i64, align 8
@@ -680,11 +680,11 @@ int main() {
 // CHECK1-NEXT:    [[TMP10:%.*]] = addrspacecast i8 addrspace(1)* [[TMP9]] to i8*, !dbg [[DBG236]]
 // CHECK1-NEXT:    store i8* [[TMP10]], i8** [[_TMP3]], align 8, !dbg [[DBG236]]
 // CHECK1-NEXT:    [[TMP11:%.*]] = load i8*, i8** [[_TMP3]], align 8, !dbg [[DBG236]]
-// CHECK1-NEXT:    [[TMP12:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB19:[0-9]+]], i8 2, i1 false, i1 false), !dbg [[DBG236]]
+// CHECK1-NEXT:    [[TMP12:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l41_debug___kernel_info, i1 false), !dbg [[DBG236]]
 // CHECK1-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP12]], -1, !dbg [[DBG236]]
 // CHECK1-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]], !dbg [[DBG236]]
 // CHECK1:       user_code.entry:
-// CHECK1-NEXT:    [[TMP13:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB24:[0-9]+]])
+// CHECK1-NEXT:    [[TMP13:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB20:[0-9]+]])
 // CHECK1-NEXT:    [[TMP14:%.*]] = getelementptr inbounds [4 x i8*], [4 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 0, !dbg [[DBG237:![0-9]+]]
 // CHECK1-NEXT:    [[TMP15:%.*]] = bitcast [10 x [10 x [10 x i32]]]* [[TMP2]] to i8*, !dbg [[DBG237]]
 // CHECK1-NEXT:    store i8* [[TMP15]], i8** [[TMP14]], align 8, !dbg [[DBG237]]
@@ -697,8 +697,8 @@ int main() {
 // CHECK1-NEXT:    [[TMP20:%.*]] = getelementptr inbounds [4 x i8*], [4 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 3, !dbg [[DBG237]]
 // CHECK1-NEXT:    store i8* [[TMP11]], i8** [[TMP20]], align 8, !dbg [[DBG237]]
 // CHECK1-NEXT:    [[TMP21:%.*]] = bitcast [4 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**, !dbg [[DBG237]]
-// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB24]], i32 [[TMP13]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, [10 x [10 x [10 x i32]]]*, i32*, [10 x [10 x i32]]*, i8*)* @__omp_outlined__4 to i8*), i8* null, i8** [[TMP21]], i64 4), !dbg [[DBG237]]
-// CHECK1-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB26:[0-9]+]], i8 2, i1 false), !dbg [[DBG238:![0-9]+]]
+// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB20]], i32 [[TMP13]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, [10 x [10 x [10 x i32]]]*, i32*, [10 x [10 x i32]]*, i8*)* @__omp_outlined__4 to i8*), i8* null, i8** [[TMP21]], i64 4), !dbg [[DBG237]]
+// CHECK1-NEXT:    call void @__kmpc_target_deinit(i1 false), !dbg [[DBG238:![0-9]+]]
 // CHECK1-NEXT:    ret void, !dbg [[DBG240:![0-9]+]]
 // CHECK1:       worker.exit:
 // CHECK1-NEXT:    ret void, !dbg [[DBG236]]
@@ -768,7 +768,7 @@ int main() {
 // CHECK1-NEXT:    call void @llvm.dbg.declare(metadata i32* [[I]], metadata [[META262:![0-9]+]], metadata !DIExpression()), !dbg [[DBG245]]
 // CHECK1-NEXT:    [[TMP12:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8, !dbg [[DBG255]]
 // CHECK1-NEXT:    [[TMP13:%.*]] = load i32, i32* [[TMP12]], align 4, !dbg [[DBG255]]
-// CHECK1-NEXT:    call void @__kmpc_for_static_init_4(%struct.ident_t* @[[GLOB21:[0-9]+]], i32 [[TMP13]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1), !dbg [[DBG263:![0-9]+]]
+// CHECK1-NEXT:    call void @__kmpc_for_static_init_4(%struct.ident_t* @[[GLOB17:[0-9]+]], i32 [[TMP13]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1), !dbg [[DBG263:![0-9]+]]
 // CHECK1-NEXT:    br label [[OMP_DISPATCH_COND:%.*]], !dbg [[DBG255]]
 // CHECK1:       omp.dispatch.cond:
 // CHECK1-NEXT:    [[TMP14:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !dbg [[DBG258]]
@@ -865,7 +865,7 @@ int main() {
 // CHECK1-NEXT:    store i32 [[ADD29]], i32* [[DOTOMP_UB]], align 4, !dbg [[DBG255]]
 // CHECK1-NEXT:    br label [[OMP_DISPATCH_COND]], !dbg [[DBG263]], !llvm.loop [[LOOP294:![0-9]+]]
 // CHECK1:       omp.dispatch.end:
-// CHECK1-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB23:[0-9]+]], i32 [[TMP13]]), !dbg [[DBG293:![0-9]+]]
+// CHECK1-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB19:[0-9]+]], i32 [[TMP13]]), !dbg [[DBG293:![0-9]+]]
 // CHECK1-NEXT:    ret void, !dbg [[DBG295:![0-9]+]]
 //
 //
@@ -909,7 +909,7 @@ int main() {
 //
 //
 // CHECK1-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l41
-// CHECK1-SAME: ([10 x [10 x [10 x i32]]]* nonnull align 4 dereferenceable(4000) [[C:%.*]], i32* nonnull align 4 dereferenceable(4) [[A:%.*]], [10 x [10 x i32]]* nonnull align 4 dereferenceable(400) [[B:%.*]], i8* nonnull align 1 dereferenceable(1) [[BB:%.*]]) #[[ATTR4]] !dbg [[DBG269:![0-9]+]] {
+// CHECK1-SAME: ([10 x [10 x [10 x i32]]]* nonnull align 4 dereferenceable(4000) [[C:%.*]], i32* nonnull align 4 dereferenceable(4) [[A:%.*]], [10 x [10 x i32]]* nonnull align 4 dereferenceable(400) [[B:%.*]], i8* nonnull align 1 dereferenceable(1) [[BB:%.*]]) #[[ATTR5]] !dbg [[DBG307:![0-9]+]] {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[C_ADDR:%.*]] = alloca [10 x [10 x [10 x i32]]]*, align 8
 // CHECK1-NEXT:    [[A_ADDR:%.*]] = alloca i32*, align 8

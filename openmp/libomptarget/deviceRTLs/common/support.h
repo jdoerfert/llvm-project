@@ -15,21 +15,17 @@
 
 #include "interface.h"
 #include "target_impl.h"
+#include "llvm/Frontend/OpenMP/ConfigurationEnvironment.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // Execution Parameters
 ////////////////////////////////////////////////////////////////////////////////
-enum OMPTgtExecModeFlags : int8_t {
-  OMP_TGT_EXEC_MODE_GENERIC = 1 << 0,
-  OMP_TGT_EXEC_MODE_SPMD = 1 << 1
-};
-
 enum OMPTgtRuntimeModeFlags : int8_t {
   OMP_TGT_RUNTIME_UNINITIALIZED = 0,
   OMP_TGT_RUNTIME_INITIALIZED = 1 << 2
 };
 
-void setExecutionParameters(OMPTgtExecModeFlags EMode,
+void setExecutionParameters(llvm::omp::OMPTgtExecModeFlags EMode,
                             OMPTgtRuntimeModeFlags RMode);
 bool isGenericMode();
 bool isRuntimeUninitialized();

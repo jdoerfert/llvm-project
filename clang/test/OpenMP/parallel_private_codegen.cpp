@@ -1366,4 +1366,3 @@ int main() {
 // CHECK4-NEXT:    store i32 [[DIV]], i32* [[TMP4]], align 4
 // CHECK4-NEXT:    ret void
 //
-//

@@ -848,4 +848,3 @@ int main() {
 // CHECK4-NEXT:    store i32 203, i32* [[BLOCK_CAPTURE_ADDR1]], align 8
 // CHECK4-NEXT:    ret void
 //
-//

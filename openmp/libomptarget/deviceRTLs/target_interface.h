@@ -15,8 +15,8 @@
 
 #include <stdint.h>
 
-#include "DeviceEnvironment.h"
 #include "target_impl.h"
+#include "llvm/Frontend/OpenMP/DeviceEnvironment.h"
 
 // Calls to the NVPTX layer (assuming 1D layout)
 EXTERN int __kmpc_get_hardware_thread_id_in_block();
