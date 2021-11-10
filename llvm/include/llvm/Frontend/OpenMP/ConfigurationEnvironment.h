@@ -21,8 +21,12 @@ namespace _OMP {
 #endif
 
 struct ConfigurationEnvironmentTy {
-  uint8_t UseGenericStateMachine;
-
+  bool UseGenericStateMachine;
+  bool NoSequentializedParallelRegions;
+  bool NoIdleThreads;
+  bool NoSharedStackUsage;
+  bool NoThreadStateUsage;
+  uint8_t Unused : 3;
   llvm::omp::OMPTgtExecModeFlags ExecMode;
 
   /// The number of print slots available (=pre-allocated) in the print
