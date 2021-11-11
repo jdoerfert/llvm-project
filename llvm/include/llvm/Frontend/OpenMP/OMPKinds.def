@@ -87,13 +87,16 @@ __OMP_ARRAY_TYPE(KmpCriticalName, Int32, 8)
 
 __OMP_STRUCT_TYPE(Ident, ident_t, Int32, Int32, Int32, Int32, Int8Ptr)
 __OMP_STRUCT_TYPE(AsyncInfo, __tgt_async_info, Int8Ptr)
+__OMP_STRUCT_TYPE(PrintEnvironmentTy, _OMP::PrintEnvironmentTy, )
 __OMP_STRUCT_TYPE(ConfigurationEnvironmentTy, _OMP::ConfigurationEnvironmentTy,\
                   Int8,                                                        \
                   Int8)
 __OMP_STRUCT_TYPE(KernelEnvironmentTy, _OMP::KernelEnvironmentTy,              \
                   Ident,                                                       \
                   ConfigurationEnvironmentTy,                                  \
-                  Int16)
+                  Int16,                                                       \
+                  PrintEnvironmentTyPtr,                                       \
+                  )
 
 #undef __OMP_STRUCT_TYPE
 #undef OMP_STRUCT_TYPE

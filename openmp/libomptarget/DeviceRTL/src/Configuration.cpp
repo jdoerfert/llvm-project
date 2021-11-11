@@ -46,4 +46,8 @@ bool config::isDebugMode(config::DebugKind Kind) {
   return config::getDebugKind() & Kind;
 }
 
+uint32_t config::getNumPrintSlots() {
+  return state::getKernelEnvironment().Configuration.NumPrintSlots;
+}
+
 #pragma omp end declare target

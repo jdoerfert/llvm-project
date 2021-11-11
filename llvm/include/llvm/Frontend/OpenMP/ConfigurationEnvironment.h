@@ -24,6 +24,10 @@ struct ConfigurationEnvironmentTy {
   uint8_t UseGenericStateMachine;
 
   llvm::omp::OMPTgtExecModeFlags ExecMode;
+
+  /// The number of print slots available (=pre-allocated) in the print
+  /// environment.
+  uint32_t NumPrintSlots;
 };
 
 #ifdef OMPTARGET_DEVICE_RUNTIME
