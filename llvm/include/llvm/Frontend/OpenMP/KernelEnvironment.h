@@ -15,6 +15,7 @@
 
 #include "ConfigurationEnvironment.h"
 #include "Environment.h"
+#include "PrintEnvironment.h"
 
 #ifdef OMPTARGET_DEVICE_RUNTIME
 namespace _OMP {
@@ -28,6 +29,11 @@ struct KernelEnvironmentTy {
   /// Current indentation level for the function trace. Only accessed by thread
   /// 0.
   uint16_t DebugIndentionLevel;
+
+  /// Pointer to a print environment, basically an array of print slots. The
+  /// size of the array is set as part of the constant kernel configuration
+  /// environment (see Configuration member).
+  PrintEnvironmentTy *PrintEnvironment;
 };
 
 #ifdef OMPTARGET_DEVICE_RUNTIME

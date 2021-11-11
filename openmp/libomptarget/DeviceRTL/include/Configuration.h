@@ -35,6 +35,9 @@ uint32_t getDeviceNum();
 /// Return the user choosen debug level.
 uint32_t getDebugKind();
 
+/// Return the number of print slots available for this kernel.
+uint32_t getNumPrintSlots();
+
 /// Return the amount of dynamic shared memory that was allocated at launch.
 uint64_t getDynamicMemorySize();
 
