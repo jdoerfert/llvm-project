@@ -59,6 +59,14 @@ void system(int Ordering);
 
 namespace atomic {
 
+enum {
+  RELAXED = __ATOMIC_RELAXED,
+  ACQUIRE = __ATOMIC_ACQUIRE,
+  RELEASE = __ATOMIC_RELEASE,
+  ACQ_REL = __ATOMIC_ACQ_REL,
+  SEQ_CST = __ATOMIC_SEQ_CST,
+};
+
 /// Atomically load \p Addr with \p Ordering semantics.
 uint32_t load(uint32_t *Addr, int Ordering);
 
@@ -73,6 +81,10 @@ uint32_t add(uint32_t *Addr, uint32_t V, int Ordering);
 
 /// Atomically add \p V to \p *Addr with \p Ordering semantics.
 uint64_t add(uint64_t *Addr, uint64_t V, int Ordering);
+
+/// Atomically compare \p *Addr with \p Compare and if equal write \p Value with
+/// \p Ordering semantics. If not equal return \p *Addr. (cas=compare-and-swap)
+bool cas(uint32_t *Addr, uint32_t *Compare, uint32_t Value, int Ordering);
 
 } // namespace atomic
 

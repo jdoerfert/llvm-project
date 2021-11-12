@@ -20,6 +20,8 @@
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Frontend/OpenMP/OMPConstants.h"
+#include "llvm/Frontend/OpenMP/PrintEnvironment.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfo.h"
@@ -2799,48 +2801,73 @@ CallInst *OpenMPIRBuilder::createCachedThreadPrivate(
   return Builder.CreateCall(Fn, Args);
 }
 
-OpenMPIRBuilder::InsertPointTy
-OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
-                                  bool RequiresFullRuntime) {
+OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
+    const LocationDescription &Loc, bool RequiresFullRuntime,
+    ConfigurationEnvironmentTy &KernelConfiguration) {
   if (!updateToLocation(Loc))
     return Loc.IP;
+
+  Function *Kernel = Builder.GetInsertBlock()->getParent();
+  const DataLayout &DL = Kernel->getParent()->getDataLayout();
 
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
   Constant *Initializer = getOrCreateIdentInitializer(SrcLocStr, SrcLocStrSize);
-  Constant *IsSPMDVal = ConstantInt::get(
-      Int8, IsSPMD ? OMP_TGT_EXEC_MODE_SPMD : OMP_TGT_EXEC_MODE_GENERIC);
-  Constant *UseGenericStateMachine = ConstantInt::getSigned(Int8, !IsSPMD);
+  Constant *IsSPMDVal = ConstantInt::get(Int8, KernelConfiguration.ExecMode);
+  Constant *UseGenericStateMachine =
+      ConstantInt::getSigned(Int8, KernelConfiguration.UseGenericStateMachine);
+  Constant *NumPrintSlots =
+      ConstantInt::getSigned(Int32, KernelConfiguration.NumPrintSlots);
   ConstantInt *RequiresFullRuntimeVal =
       ConstantInt::getBool(Int32->getContext(), RequiresFullRuntime);
+
+  Constant *PrintEnvironmentPtr;
+  if (KernelConfiguration.NumPrintSlots == 0) {
+    // No print slots -> no print environment.
+    PrintEnvironmentPtr = Constant::getNullValue(PrintEnvironmentLLVMTyPtr);
+  } else {
+    std::string PrintEnvironmentName =
+        (Kernel->getName() + "_print_environment").str();
+    auto *StorageTy = ArrayType::get(
+        Int8, sizeof(PrintEnvironmentTy) +
+                  KernelConfiguration.NumPrintSlots * sizeof(PrintSlotTy));
+    auto *PrintEnvironmentStorage = new GlobalVariable(
+        M, StorageTy, /*IsConstant*/ false, llvm::GlobalValue::ExternalLinkage,
+        Constant::getNullValue(StorageTy), PrintEnvironmentName,
+        /*InsertBefore=*/nullptr, llvm::GlobalValue::NotThreadLocal,
+        DL.getDefaultGlobalsAddressSpace());
+    PrintEnvironmentPtr = ConstantExpr::getPointerBitCastOrAddrSpaceCast(
+        PrintEnvironmentStorage, PrintEnvironmentLLVMTyPtr);
+  }
 
   Function *Fn = getOrCreateRuntimeFunctionPtr(
       omp::RuntimeFunction::OMPRTL___kmpc_target_init);
 
-  Function *Kernel = Builder.GetInsertBlock()->getParent();
-  const DataLayout &DL = Fn->getParent()->getDataLayout();
   Constant *ConfigurationEnvironmentInitializer = ConstantStruct::get(
-      ConfigurationEnvironmentTy, {
-                                      UseGenericStateMachine,
-                                      IsSPMDVal,
-                                  });
+      ConfigurationEnvironmentLLVMTy, {
+                                          UseGenericStateMachine,
+                                          IsSPMDVal,
+                                          NumPrintSlots,
+                                      });
   Constant *KernelEnvironmentInitializer = ConstantStruct::get(
-      KernelEnvironmentTy, {
-                               Initializer,
-                               ConfigurationEnvironmentInitializer,
-                               ConstantInt::getNullValue(Int16),
-                           });
+      KernelEnvironmentLLVMTy, {
+                                   Initializer,
+                                   ConfigurationEnvironmentInitializer,
+                                   ConstantInt::getNullValue(Int16),
+                                   PrintEnvironmentPtr,
+                               });
+
   std::string KernelEnvironmentName =
       (Kernel->getName() + "_kernel_info").str();
   GlobalVariable *KernelEnvironment = new GlobalVariable(
-      M, KernelEnvironmentTy, /*IsConstant*/ true,
+      M, KernelEnvironmentLLVMTy, /*IsConstant*/ true,
       llvm::GlobalValue::ExternalLinkage, KernelEnvironmentInitializer,
       KernelEnvironmentName,
       /*InsertBefore=*/nullptr, llvm::GlobalValue::NotThreadLocal,
       DL.getDefaultGlobalsAddressSpace());
   auto *KernelEnvironmentCasted =
-      ConstantExpr::getPointerBitCastOrAddrSpaceCast(KernelEnvironment,
-                                                     KernelEnvironmentTyPtr);
+      ConstantExpr::getPointerBitCastOrAddrSpaceCast(
+          KernelEnvironment, KernelEnvironmentLLVMTyPtr);
 
   CallInst *ThreadKind =
       Builder.CreateCall(Fn, {KernelEnvironmentCasted, RequiresFullRuntimeVal});
@@ -2877,7 +2904,6 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
 }
 
 void OpenMPIRBuilder::createTargetDeinit(const LocationDescription &Loc,
-                                         bool IsSPMD,
                                          bool RequiresFullRuntime) {
   if (!updateToLocation(Loc))
     return;

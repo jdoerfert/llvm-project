@@ -72,6 +72,20 @@ template <typename Ty1, typename Ty2> inline Ty1 align_down(Ty1 V, Ty2 Align) {
   return V - V % Align;
 }
 
+/// Return the size of the C-string \p S.
+inline size_t strlen(const char *S) {
+  size_t Size = 0;
+  while (S[Size] != '\0')
+    ++Size;
+  return Size;
+  // return __builtin_strlen(S);
+}
+
+/// Copy \p N bytes from \p Src to \p Dst.
+inline void memcpy(void *Dst, const void *Src, size_t N) {
+  __builtin_memcpy(Dst, Src, N);
+}
+
 #define OMP_LIKELY(EXPR) __builtin_expect((bool)(EXPR), true)
 #define OMP_UNLIKELY(EXPR) __builtin_expect((bool)(EXPR), false)
 

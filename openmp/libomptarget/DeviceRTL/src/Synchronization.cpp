@@ -32,7 +32,7 @@ namespace impl {
 uint32_t atomicInc(uint32_t *Address, uint32_t Val, int Ordering);
 
 uint32_t atomicLoad(uint32_t *Address, int Ordering) {
-  return __atomic_fetch_add(Address, 0U, __ATOMIC_SEQ_CST);
+  return __atomic_fetch_add(Address, 0U, atomic::SEQ_CST);
 }
 
 void atomicStore(uint32_t *Address, uint32_t Val, int Ordering) {
@@ -51,11 +51,14 @@ uint32_t atomicExchange(uint32_t *Address, uint32_t Val, int Ordering) {
   __atomic_exchange(Address, &Val, &R, Ordering);
   return R;
 }
-uint32_t atomicCAS(uint32_t *Address, uint32_t Compare, uint32_t Val,
-                   int Ordering) {
-  (void)__atomic_compare_exchange(Address, &Compare, &Val, false, Ordering,
-                                  Ordering);
-  return Compare;
+bool atomicCAS(uint32_t *Address, uint32_t *Compare, uint32_t Val,
+               int Ordering) {
+  return __atomic_compare_exchange(Address, Compare, &Val, false, Ordering,
+                                   Ordering);
+}
+bool atomicCAS(uint32_t *Address, uint32_t Compare, uint32_t Val,
+               int Ordering) {
+  return atomicCAS(Address, &Compare, Val, Ordering);
 }
 
 uint64_t atomicAdd(uint64_t *Address, uint64_t Val, int Ordering) {
@@ -74,16 +77,16 @@ uint32_t atomicInc(uint32_t *A, uint32_t V, int Ordering) {
   switch (Ordering) {
   default:
     __builtin_unreachable();
-  case __ATOMIC_RELAXED:
-    return __builtin_amdgcn_atomic_inc32(A, V, __ATOMIC_RELAXED, "");
-  case __ATOMIC_ACQUIRE:
-    return __builtin_amdgcn_atomic_inc32(A, V, __ATOMIC_ACQUIRE, "");
-  case __ATOMIC_RELEASE:
-    return __builtin_amdgcn_atomic_inc32(A, V, __ATOMIC_RELEASE, "");
-  case __ATOMIC_ACQ_REL:
-    return __builtin_amdgcn_atomic_inc32(A, V, __ATOMIC_ACQ_REL, "");
-  case __ATOMIC_SEQ_CST:
-    return __builtin_amdgcn_atomic_inc32(A, V, __ATOMIC_SEQ_CST, "");
+  case atomic::RELAXED:
+    return __builtin_amdgcn_atomic_inc32(A, V, atomic::RELAXED, "");
+  case atomic::ACQUIRE:
+    return __builtin_amdgcn_atomic_inc32(A, V, atomic::ACQUIRE, "");
+  case atomic::RELEASE:
+    return __builtin_amdgcn_atomic_inc32(A, V, atomic::RELEASE, "");
+  case atomic::ACQ_REL:
+    return __builtin_amdgcn_atomic_inc32(A, V, atomic::ACQ_REL, "");
+  case atomic::SEQ_CST:
+    return __builtin_amdgcn_atomic_inc32(A, V, atomic::SEQ_CST, "");
   }
 }
 
@@ -91,7 +94,7 @@ uint32_t SHARED(namedBarrierTracker);
 
 void namedBarrierInit() {
   // Don't have global ctors, and shared memory is not zero init
-  atomic::store(&namedBarrierTracker, 0u, __ATOMIC_RELEASE);
+  atomic::store(&namedBarrierTracker, 0u, atomic::RELEASE);
 }
 
 void namedBarrier() {
@@ -101,7 +104,7 @@ void namedBarrier() {
   uint32_t WarpSize = mapping::getWarpSize();
   uint32_t NumWaves = NumThreads / WarpSize;
 
-  fence::team(__ATOMIC_ACQUIRE);
+  fence::team(atomic::ACQUIRE);
 
   // named barrier implementation for amdgcn.
   // Uses two 16 bit unsigned counters. One for the number of waves to have
@@ -117,7 +120,7 @@ void namedBarrier() {
   // Increment the low 16 bits once, using the lowest active thread.
   if (mapping::isLeaderInWarp()) {
     uint32_t load = atomic::add(&namedBarrierTracker, 1,
-                                __ATOMIC_RELAXED); // commutative
+                                atomic::RELAXED); // commutative
 
     // Record the number of times the barrier has been passed
     uint32_t generation = load & 0xffff0000u;
@@ -129,16 +132,16 @@ void namedBarrier() {
       load &= 0xffff0000u; // because bits zeroed second
 
       // Reset the wave counter and release the waiting waves
-      atomic::store(&namedBarrierTracker, load, __ATOMIC_RELAXED);
+      atomic::store(&namedBarrierTracker, load, atomic::RELAXED);
     } else {
       // more waves still to go, spin until generation counter changes
       do {
         __builtin_amdgcn_s_sleep(0);
-        load = atomic::load(&namedBarrierTracker, __ATOMIC_RELAXED);
+        load = atomic::load(&namedBarrierTracker, atomic::RELAXED);
       } while ((load & 0xffff0000u) == generation);
     }
   }
-  fence::team(__ATOMIC_RELEASE);
+  fence::team(atomic::RELEASE);
 }
 
 // sema checking of amdgcn_fence is aggressive. Intention is to patch clang
@@ -148,42 +151,42 @@ void fenceTeam(int Ordering) {
   switch (Ordering) {
   default:
     __builtin_unreachable();
-  case __ATOMIC_ACQUIRE:
-    return __builtin_amdgcn_fence(__ATOMIC_ACQUIRE, "workgroup");
-  case __ATOMIC_RELEASE:
-    return __builtin_amdgcn_fence(__ATOMIC_RELEASE, "workgroup");
-  case __ATOMIC_ACQ_REL:
-    return __builtin_amdgcn_fence(__ATOMIC_ACQ_REL, "workgroup");
-  case __ATOMIC_SEQ_CST:
-    return __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "workgroup");
+  case atomic::ACQUIRE:
+    return __builtin_amdgcn_fence(atomic::ACQUIRE, "workgroup");
+  case atomic::RELEASE:
+    return __builtin_amdgcn_fence(atomic::RELEASE, "workgroup");
+  case atomic::ACQ_REL:
+    return __builtin_amdgcn_fence(atomic::ACQ_REL, "workgroup");
+  case atomic::SEQ_CST:
+    return __builtin_amdgcn_fence(atomic::SEQ_CST, "workgroup");
   }
 }
 void fenceKernel(int Ordering) {
   switch (Ordering) {
   default:
     __builtin_unreachable();
-  case __ATOMIC_ACQUIRE:
-    return __builtin_amdgcn_fence(__ATOMIC_ACQUIRE, "agent");
-  case __ATOMIC_RELEASE:
-    return __builtin_amdgcn_fence(__ATOMIC_RELEASE, "agent");
-  case __ATOMIC_ACQ_REL:
-    return __builtin_amdgcn_fence(__ATOMIC_ACQ_REL, "agent");
-  case __ATOMIC_SEQ_CST:
-    return __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "agent");
+  case atomic::ACQUIRE:
+    return __builtin_amdgcn_fence(atomic::ACQUIRE, "agent");
+  case atomic::RELEASE:
+    return __builtin_amdgcn_fence(atomic::RELEASE, "agent");
+  case atomic::ACQ_REL:
+    return __builtin_amdgcn_fence(atomic::ACQ_REL, "agent");
+  case atomic::SEQ_CST:
+    return __builtin_amdgcn_fence(atomic::SEQ_CST, "agent");
   }
 }
 void fenceSystem(int Ordering) {
   switch (Ordering) {
   default:
     __builtin_unreachable();
-  case __ATOMIC_ACQUIRE:
-    return __builtin_amdgcn_fence(__ATOMIC_ACQUIRE, "");
-  case __ATOMIC_RELEASE:
-    return __builtin_amdgcn_fence(__ATOMIC_RELEASE, "");
-  case __ATOMIC_ACQ_REL:
-    return __builtin_amdgcn_fence(__ATOMIC_ACQ_REL, "");
-  case __ATOMIC_SEQ_CST:
-    return __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "");
+  case atomic::ACQUIRE:
+    return __builtin_amdgcn_fence(atomic::ACQUIRE, "");
+  case atomic::RELEASE:
+    return __builtin_amdgcn_fence(atomic::RELEASE, "");
+  case atomic::ACQ_REL:
+    return __builtin_amdgcn_fence(atomic::ACQ_REL, "");
+  case atomic::SEQ_CST:
+    return __builtin_amdgcn_fence(atomic::SEQ_CST, "");
   }
 }
 
@@ -252,11 +255,11 @@ constexpr uint32_t SET = 1;
 // called before it is defined
 //       here the overload won't happen. Investigate lalter!
 void unsetLock(omp_lock_t *Lock) {
-  (void)atomicExchange((uint32_t *)Lock, UNSET, __ATOMIC_SEQ_CST);
+  (void)atomicExchange((uint32_t *)Lock, UNSET, atomic::SEQ_CST);
 }
 
 int testLock(omp_lock_t *Lock) {
-  return atomicAdd((uint32_t *)Lock, 0u, __ATOMIC_SEQ_CST);
+  return atomicAdd((uint32_t *)Lock, 0u, atomic::SEQ_CST);
 }
 
 void initLock(omp_lock_t *Lock) { unsetLock(Lock); }
@@ -265,7 +268,7 @@ void destroyLock(omp_lock_t *Lock) { unsetLock(Lock); }
 
 void setLock(omp_lock_t *Lock) {
   // TODO: not sure spinning is a good idea here..
-  while (atomicCAS((uint32_t *)Lock, UNSET, SET, __ATOMIC_SEQ_CST) != UNSET) {
+  while (!atomicCAS((uint32_t *)Lock, UNSET, SET, atomic::SEQ_CST)) {
     int32_t start = __nvvm_read_ptx_sreg_clock();
     int32_t now;
     for (;;) {
@@ -318,6 +321,11 @@ uint32_t atomic::add(uint32_t *Addr, uint32_t V, int Ordering) {
 
 uint64_t atomic::add(uint64_t *Addr, uint64_t V, int Ordering) {
   return impl::atomicAdd(Addr, V, Ordering);
+}
+
+bool atomic::cas(uint32_t *Addr, uint32_t *Compare, uint32_t Value,
+                 int Ordering) {
+  return impl::atomicCAS(Addr, Compare, Value, Ordering);
 }
 
 extern "C" {
@@ -373,7 +381,7 @@ void __kmpc_end_single(IdentTy *Loc, int32_t TId) {
 
 void __kmpc_flush(IdentTy *Loc) {
   FunctionTracingRAII();
-  fence::kernel(__ATOMIC_SEQ_CST);
+  fence::kernel(atomic::SEQ_CST);
 }
 
 uint64_t __kmpc_warp_active_thread_mask(void) {

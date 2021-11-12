@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -24,16 +25,20 @@
 #include <unordered_map>
 #include <vector>
 
+#include "hsa.h"
 #include "impl_runtime.h"
 #include "interop_hsa.h"
 
 #include "internal.h"
+#include "omptarget.h"
 #include "rt.h"
 
 #include "get_elf_mach_gfx_name.h"
 #include "omptargetplugin.h"
 #include "print_tracing.h"
 #include "llvm/Frontend/OpenMP/DeviceEnvironment.h"
+#include "llvm/Frontend/OpenMP/PrintEnvironment.h"
+#include "llvm/Frontend/OpenMP/KernelEnvironment.h"
 
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
@@ -212,19 +217,19 @@ std::unordered_map<std::string /*kernel*/, std::unique_ptr<KernelArgPool>>
 
 /// Use a single entity to encode a kernel and a set of flags
 struct KernelTy {
-  llvm::omp::OMPTgtExecModeFlags ExecutionMode;
+  KernelEnvironmentTy HostKernelEnv;
   int16_t ConstWGSize;
   int32_t device_id;
   void *CallStackAddr = nullptr;
   const char *Name;
 
-  KernelTy(llvm::omp::OMPTgtExecModeFlags _ExecutionMode, int16_t _ConstWGSize,
+  KernelTy(int16_t _ConstWGSize,
            int32_t _device_id, void *_CallStackAddr, const char *_Name,
            uint32_t _kernarg_segment_size,
            hsa_amd_memory_pool_t &KernArgMemoryPool)
-      : ExecutionMode(_ExecutionMode), ConstWGSize(_ConstWGSize),
+      : ConstWGSize(_ConstWGSize),
         device_id(_device_id), CallStackAddr(_CallStackAddr), Name(_Name) {
-    DP("Construct kernelinfo: ExecMode %d\n", ExecutionMode);
+    DP("Construct kernelinfo: ExecMode %d\n", getExecutionMode());
 
     std::string N(_Name);
     if (KernelArgPoolMap.find(N) == KernelArgPoolMap.end()) {
@@ -232,6 +237,10 @@ struct KernelTy {
           std::make_pair(N, std::unique_ptr<KernelArgPool>(new KernelArgPool(
                                 _kernarg_segment_size, KernArgMemoryPool))));
     }
+  }
+
+  llvm::omp::OMPTgtExecModeFlags getExecutionMode() const {
+    return HostKernelEnv.Configuration.ExecMode;
   }
 };
 
@@ -1290,8 +1299,16 @@ __tgt_target_table *__tgt_rtl_load_binary(int32_t device_id,
   return res;
 }
 
-struct device_environment {
-  // initialise an DeviceEnvironmentTy in the deviceRTL
+template<typename EnvTy>
+struct EnvironmentHandler {
+  /// The target device id.
+  int DeviceId;
+
+  /// The EnvTy to be pushed into the deviceRTL
+  EnvTy &HostEnv;
+
+  uint32_t Size;
+
   // patches around differences in the deviceRTL between trunk, aomp,
   // rocmcc. Over time these differences will tend to zero and this class
   // simplified.
@@ -1304,85 +1321,98 @@ struct device_environment {
   // If the symbol is in .data (aomp, rocm) it can be written directly.
   // If it is in .bss, we must wait for it to be allocated space on the
   // gpu (trunk) and initialize after loading.
-  const char *sym() { return "omptarget_device_environment"; }
+  const char *Name;
 
-  DeviceEnvironmentTy host_device_env;
-  symbol_info si;
-  bool valid = false;
+  symbol_info SI;
+  __tgt_device_image *Image;
 
-  __tgt_device_image *image;
-  const size_t img_size;
+  bool Valid = false;
 
-  device_environment(int device_id, int number_devices,
-                     __tgt_device_image *image, const size_t img_size)
-      : image(image), img_size(img_size) {
+  EnvironmentHandler(EnvTy &HostEnv, const char *Name,int DeviceId,
+                     __tgt_device_image *Image, const size_t ImageSize, uint32_t Size = sizeof(EnvTy))
+      : DeviceId(DeviceId), HostEnv(HostEnv), Size(Size), Name(Name), Image(Image) {
 
-    host_device_env.NumDevices = number_devices;
-    host_device_env.DeviceNum = device_id;
-    host_device_env.DebugKind = 0;
-    host_device_env.DynamicMemSize = 0;
-    if (char *envStr = getenv("LIBOMPTARGET_DEVICE_RTL_DEBUG")) {
-      host_device_env.DebugKind = std::stoi(envStr);
-    }
-
-    int rc = get_symbol_info_without_loading((char *)image->ImageStart,
-                                             img_size, sym(), &si);
+    int rc = get_symbol_info_without_loading((char *)Image->ImageStart,
+                                             ImageSize, Name, &SI);
     if (rc != 0) {
-      DP("Finding global device environment '%s' - symbol missing.\n", sym());
+      DP("Finding global device environment '%s' - symbol missing.\n", Name);
       return;
     }
 
-    if (si.size > sizeof(host_device_env)) {
-      DP("Symbol '%s' has size %u, expected at most %zu.\n", sym(), si.size,
-         sizeof(host_device_env));
+    if (SI.size > Size) {
+      DP("Symbol '%s' has size %u, expected at most %zu.\n", Name, SI.size,
+         Size);
       return;
     }
 
-    valid = true;
+    Valid = true;
   }
 
-  bool in_image() { return si.sh_type != SHT_NOBITS; }
-
-  hsa_status_t before_loading(void *data, size_t size) {
-    if (valid) {
-      if (in_image()) {
-        DP("Setting global device environment before load (%u bytes)\n",
-           si.size);
-        uint64_t offset = (char *)si.addr - (char *)image->ImageStart;
-        void *pos = (char *)data + offset;
-        memcpy(pos, &host_device_env, si.size);
-      }
+  /// Constructor for environments moved after loading.
+  EnvironmentHandler(EnvTy &HostEnv, const char *Name,int DeviceId, uint32_t Size = sizeof(EnvTy))
+      : DeviceId(DeviceId), HostEnv(HostEnv), Size(Size), Name(Name), Image(nullptr) {
+    auto &SymbolInfo = DeviceInfo.SymbolInfoTable[DeviceId];
+    hsa_status_t err = interop_hsa_get_symbol_info(
+        SymbolInfo, DeviceId, Name, &SI.addr, &SI.size);
+    if (err != HSA_STATUS_SUCCESS) {
+      DP("Failed to find symbol %s in table\n", Name);
+      return;
     }
+    if (SI.size != Size) {
+      DP("Symbol has size %u, expected %u \n", SymbolSize,
+          Size);
+      return;
+    }
+
+    Valid = true;
+  }
+
+  bool in_image() { return SI.sh_type != SHT_NOBITS; }
+
+  hsa_status_t receive_before_loading() {
+    if (!Valid || !Image)
+      return HSA_STATUS_ERROR;
+    if (!in_image())
+      return HSA_STATUS_ERROR;
+    DP("Getting device environment before load (%u bytes)\n",
+        Size);
+    memcpy(&HostEnv, SI.addr, Size);
     return HSA_STATUS_SUCCESS;
   }
 
-  hsa_status_t after_loading() {
-    if (valid) {
-      if (!in_image()) {
-        DP("Setting global device environment after load (%u bytes)\n",
-           si.size);
-        int device_id = host_device_env.DeviceNum;
-        auto &SymbolInfo = DeviceInfo.SymbolInfoTable[device_id];
-        void *state_ptr;
-        uint32_t state_ptr_size;
-        hsa_status_t err = interop_hsa_get_symbol_info(
-            SymbolInfo, device_id, sym(), &state_ptr, &state_ptr_size);
-        if (err != HSA_STATUS_SUCCESS) {
-          DP("failed to find %s in loaded image\n", sym());
-          return err;
-        }
-
-        if (state_ptr_size != si.size) {
-          DP("Symbol had size %u before loading, %u after\n", state_ptr_size,
-             si.size);
-          return HSA_STATUS_ERROR;
-        }
-
-        return DeviceInfo.freesignalpool_memcpy_h2d(state_ptr, &host_device_env,
-                                                    state_ptr_size, device_id);
-      }
-    }
+  hsa_status_t send_before_loading(void *Data, size_t _Size) {
+    if (!Valid || !Image)
+      return HSA_STATUS_SUCCESS;
+    if (!in_image())
+      return HSA_STATUS_SUCCESS;
+    DP("Setting device environment before load (%u bytes)\n",
+        _Size);
+    uint64_t Offset = (char *)SI.addr - (char *)Image->ImageStart;
+    void *Pos = (char *)Data + Offset;
+    memcpy(Pos, &HostEnv, _Size);
     return HSA_STATUS_SUCCESS;
+  }
+
+  hsa_status_t send_after_loading() {
+    return move_after_loading(/* Send */ true);
+  }
+  hsa_status_t receive_after_loading() {
+    return move_after_loading(/* Send */ false);
+  }
+
+  private:
+  hsa_status_t move_after_loading(bool Send) {
+    if (!Valid)
+      return HSA_STATUS_SUCCESS;
+
+    DP("%s global device environment %s from device (%u bytes)\n",
+        Send ? "Sending" : "Receiving" , Name, Size);
+
+    if (Send)
+      return DeviceInfo.freesignalpool_memcpy_h2d(SI.addr, &HostEnv,
+                                                  Size, DeviceId);
+    return DeviceInfo.freesignalpool_memcpy_d2h(&HostEnv,SI.addr,
+                                                Size, DeviceId);
   }
 };
 
@@ -1448,7 +1478,15 @@ __tgt_target_table *__tgt_rtl_load_binary_locked(int32_t device_id,
   }
 
   {
-    auto env = device_environment(device_id, DeviceInfo.NumberOfDevices, image,
+    DeviceEnvironmentTy HostDeviceEnv;
+    HostDeviceEnv.NumDevices = DeviceInfo.NumberOfDevices;
+    HostDeviceEnv.DeviceNum = device_id;
+    HostDeviceEnv.DebugKind = 0;
+    HostDeviceEnv.DynamicMemSize = 0;
+    if (char *EnvStr = getenv("LIBOMPTARGET_DEVICE_RTL_DEBUG"))
+      HostDeviceEnv.DebugKind = std::stoi(EnvStr);
+
+    EnvironmentHandler<DeviceEnvironmentTy> Env(HostDeviceEnv, "omptarget_device_environment", device_id,  image,
                                   img_size);
 
     auto &KernelInfo = DeviceInfo.KernelInfoTable[device_id];
@@ -1460,7 +1498,7 @@ __tgt_target_table *__tgt_rtl_load_binary_locked(int32_t device_id,
             __atomic_store_n(&DeviceInfo.hostcall_required, true,
                              __ATOMIC_RELEASE);
           }
-          return env.before_loading(data, size);
+          return Env.send_before_loading(data, size);
         },
         DeviceInfo.HSAExecutables);
 
@@ -1480,7 +1518,7 @@ __tgt_target_table *__tgt_rtl_load_binary_locked(int32_t device_id,
       return NULL;
     }
 
-    err = env.after_loading();
+    err = Env.send_after_loading();
     if (err != HSA_STATUS_SUCCESS) {
       return NULL;
     }
@@ -1635,10 +1673,6 @@ __tgt_target_table *__tgt_rtl_load_binary_locked(int32_t device_id,
       *it = sizeof(void *);
     }
 
-    // default value GENERIC (in case symbol is missing from cubin file)
-    llvm::omp::OMPTgtExecModeFlags ExecModeVal =
-        llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_GENERIC;
-
     // get flat group size if present, else Default_WG_Size
     int16_t WGSizeVal = RTLDeviceInfoTy::Default_WG_Size;
 
@@ -1654,6 +1688,7 @@ __tgt_target_table *__tgt_rtl_load_binary_locked(int32_t device_id,
     KernDescNameStr += "_kern_desc";
     const char *KernDescName = KernDescNameStr.c_str();
 
+    // TODO: Use the EnvironmentHandler to grab this from the device (image).
     void *KernDescPtr;
     uint32_t KernDescSize;
     void *CallStackAddr = nullptr;
@@ -1695,6 +1730,7 @@ __tgt_target_table *__tgt_rtl_load_binary_locked(int32_t device_id,
 
       void *WGSizePtr;
       uint32_t WGSize;
+      // TODO: Use the EnvironmentHandler to grab this from the device (image).
       err = interop_get_symbol_info((char *)image->ImageStart, img_size,
                                     WGSizeName, &WGSizePtr, &WGSize);
 
@@ -1727,49 +1763,25 @@ __tgt_target_table *__tgt_rtl_load_binary_locked(int32_t device_id,
       check("Loading WGSize computation property", err);
     }
 
-    // Read execution mode from global in binary
-    std::string ExecModeNameStr(e->name);
-    ExecModeNameStr += "_exec_mode";
-    const char *ExecModeName = ExecModeNameStr.c_str();
-
-    void *ExecModePtr;
-    uint32_t varsize;
-    err = interop_get_symbol_info((char *)image->ImageStart, img_size,
-                                  ExecModeName, &ExecModePtr, &varsize);
-
-    if (err == HSA_STATUS_SUCCESS) {
-      if ((size_t)varsize != sizeof(llvm::omp::OMPTgtExecModeFlags)) {
-        DP("Loading global computation properties '%s' - size mismatch(%u != "
-           "%lu)\n",
-           ExecModeName, varsize, sizeof(llvm::omp::OMPTgtExecModeFlags));
-        return NULL;
-      }
-
-      memcpy(&ExecModeVal, ExecModePtr, (size_t)varsize);
-
-      DP("After loading global for %s ExecMode = %d\n", ExecModeName,
-         ExecModeVal);
-
-      if (ExecModeVal < 0 ||
-          ExecModeVal > llvm::omp::OMP_TGT_EXEC_MODE_GENERIC_SPMD) {
-        DP("Error wrong exec_mode value specified in HSA code object file: "
-           "%d\n",
-           ExecModeVal);
-        return NULL;
-      }
-    } else {
-      DP("Loading global exec_mode '%s' - symbol missing, using default "
-         "value "
-         "GENERIC (1)\n",
-         ExecModeName);
-    }
-    check("Loading computation property", err);
-
-    KernelsList.push_back(KernelTy(ExecModeVal, WGSizeVal, device_id,
+    KernelsList.push_back(KernelTy(WGSizeVal, device_id,
                                    CallStackAddr, e->name, kernarg_segment_size,
                                    DeviceInfo.KernArgPool));
+    KernelTy &KernelInfo = KernelsList.back();
+
+    // Read kernel environment from global in the binary image.
+    std::string KernelEnvName(e->name);
+    KernelEnvName += "_kernel_info";
+    EnvironmentHandler<KernelEnvironmentTy> Env(KernelInfo.HostKernelEnv, KernelEnvName.c_str(), device_id,  image, img_size);
+    err = Env.receive_before_loading();
+    if (err != HSA_STATUS_SUCCESS) {
+      DP("Error retriving kernel info environment for %s\n", e->name);
+      // We do not initialize the kernel environment but instead leave it to be 0.
+      // At this point defaulting to something really is guessing, we should rather
+      // error out when a kernel w/o kernel info is launched.
+    }
+
     __tgt_offload_entry entry = *e;
-    entry.addr = (void *)&KernelsList.back();
+    entry.addr = (void *)&KernelInfo;
     DeviceInfo.addOffloadEntry(device_id, entry);
     DP("Entry point %ld maps to %s\n", e - HostBegin, e->name);
   }
@@ -2076,7 +2088,7 @@ int32_t __tgt_rtl_run_target_team_region_locked(
    */
   launchVals LV =
       getLaunchVals(DeviceInfo.WarpSize[device_id], DeviceInfo.Env,
-                    KernelInfo->ConstWGSize, KernelInfo->ExecutionMode,
+                    KernelInfo->ConstWGSize, KernelInfo->getExecutionMode(),
                     num_teams,      // From run_region arg
                     thread_limit,   // From run_region arg
                     loop_tripcount, // From run_region arg
@@ -2093,7 +2105,7 @@ int32_t __tgt_rtl_run_target_team_region_locked(
             "DEVID:%2d SGN:%1d ConstWGSize:%-4d args:%2d teamsXthrds:(%4dX%4d) "
             "reqd:(%4dX%4d) lds_usage:%uB sgpr_count:%u vgpr_count:%u "
             "sgpr_spill_count:%u vgpr_spill_count:%u tripcount:%lu n:%s\n",
-            device_id, KernelInfo->ExecutionMode, KernelInfo->ConstWGSize,
+            device_id, KernelInfo->getExecutionMode(), KernelInfo->ConstWGSize,
             arg_num, num_groups, WorkgroupSize, num_teams, thread_limit,
             group_segment_size, sgpr_count, vgpr_count, sgpr_spill_count,
             vgpr_spill_count, loop_tripcount, KernelInfo->Name);
@@ -2189,6 +2201,20 @@ int32_t __tgt_rtl_run_target_team_region_locked(
       DP("Failed to get signal instance\n");
       return OFFLOAD_FAIL;
     }
+
+
+    PrintEnvironmentTy *HostPrintEnv = nullptr;
+    uint32_t NumPrintSlots = KernelInfo->HostKernelEnv.Configuration.NumPrintSlots;
+    uint32_t PrintEnvironmentSize = sizeof(PrintEnvironmentTy) + NumPrintSlots * sizeof(PrintSlotTy);
+    std::string PrintEnvironmentName = KernelInfo->Name;
+    PrintEnvironmentName += "_print_environment";
+
+    if (NumPrintSlots) {
+      HostPrintEnv = reinterpret_cast<PrintEnvironmentTy *>(malloc(PrintEnvironmentSize));
+      EnvironmentHandler<PrintEnvironmentTy> Env(*HostPrintEnv, PrintEnvironmentName.c_str(), device_id, PrintEnvironmentSize);
+      Env.send_after_loading();
+    }
+
     packet->completion_signal = s;
     hsa_signal_store_relaxed(packet->completion_signal, 1);
 
@@ -2207,6 +2233,55 @@ int32_t __tgt_rtl_run_target_team_region_locked(
     assert(ArgPool);
     ArgPool->deallocate(kernarg);
     DeviceInfo.FreeSignalPool.push(s);
+
+    if (NumPrintSlots) {
+      EnvironmentHandler<PrintEnvironmentTy> Env(*HostPrintEnv, PrintEnvironmentName.c_str(), device_id, PrintEnvironmentSize);
+      if (Env.receive_after_loading() != HSA_STATUS_SUCCESS) {
+        DP("Failed to receive print environment after kernel execution\n");
+      } else {
+        PrintSlotTy *Slots = HostPrintEnv->slots();
+        struct {
+          int gp_offset = 48;
+          int fp_offset = 304;
+          void *overflow_arg_area;
+          void *reg_save_area = nullptr;
+        } X86VarArgs;
+
+        va_list VarArgs;
+        std::vector<char> Buffer;
+        Buffer.reserve(NumPrintSlots * 80);
+        uint32_t BufferFillIdx = 0;
+
+        __tgt_async_info AsyncInfo;
+        int32_t Idx = 0;
+        while (Idx < HostPrintEnv->NumSlotsUsed) {
+          uint32_t FormatStringSize = Slots[Idx+ 0].Payload.Metadata.FormatStringSize;
+          uint32_t NumArgumentSlots = Slots[Idx+ 0].Payload.Metadata.NumArgumentSlots;
+          void *FormatString = Slots[Idx + 1].Payload.FormatString;
+          void *BufferPtr = &Buffer.back();
+          Buffer.resize(BufferFillIdx + FormatStringSize);
+          BufferFillIdx += FormatStringSize;
+          int32_t rc = dataRetrieve(device_id, BufferPtr, FormatString, FormatStringSize, &AsyncInfo);
+          if (rc != OFFLOAD_SUCCESS)
+            return OFFLOAD_SUCCESS;
+          Slots[Idx + 1].Payload.FormatString = BufferPtr;
+          Idx += 2+  NumArgumentSlots;
+        }
+
+        if (__tgt_rtl_synchronize(device_id, &AsyncInfo) != OFFLOAD_SUCCESS)
+          return OFFLOAD_SUCCESS;
+
+        Idx = 0;
+        while (Idx < HostPrintEnv->NumSlotsUsed) {
+          uint32_t NumArgumentSlots = Slots[Idx+ 0].Payload.Metadata.NumArgumentSlots;
+          const char *FormatString = reinterpret_cast<const char *>(Slots[Idx + 1].Payload.FormatString);
+          X86VarArgs.overflow_arg_area = &Slots[Idx+2];
+          memcpy(&VarArgs, &X86VarArgs, sizeof(VarArgs));
+          vprintf(FormatString, VarArgs);
+          Idx += 2+  NumArgumentSlots;
+        }
+      }
+    }
   }
 
   DP("Kernel completed\n");
