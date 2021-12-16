@@ -265,6 +265,11 @@ hsa_status_t hsa_executable_load_code_object(hsa_executable_t executable,
                                              hsa_code_object_t code_object,
                                              const char *options);
 
+hsa_status_t hsa_executable_get_symbol_by_name(hsa_executable_t executable,
+                                               const char *symbol_name,
+                                               const hsa_agent_t *agent,
+                                               hsa_executable_symbol_t *symbol);
+
 #ifdef __cplusplus
 }
 #endif
