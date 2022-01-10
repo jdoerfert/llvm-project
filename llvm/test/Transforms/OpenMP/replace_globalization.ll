@@ -14,6 +14,8 @@ target triple = "nvptx64"
 ; UTC_ARGS: --enable
 
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
 @S = external local_unnamed_addr global i8*
 @0 = private unnamed_addr constant [113 x i8] c";llvm/test/Transforms/OpenMP/custom_state_machines_remarks.c;__omp_offloading_2a_d80d3d_test_fallback_l11;11;1;;\00", align 1
@@ -21,23 +23,25 @@ target triple = "nvptx64"
 @foo_exec_mode = weak constant i8 1
 @bar_exec_mode = weak constant i8 1
 @baz_spmd_exec_mode = weak constant i8 2
+@kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([113 x i8], [113 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
+@kernel_spmd_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([113 x i8], [113 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 2 }, i16 0 }
 
 
 define dso_local void @foo() "kernel" {
 entry:
-  %c = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 1, i1 true, i1 true)
+  %c = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
   %x = call align 4 i8* @__kmpc_alloc_shared(i64 4)
   call void @unknown_no_openmp()
   %x_on_stack = bitcast i8* %x to i32*
   %0 = bitcast i32* %x_on_stack to i8*
   call void @use(i8* %0)
   call void @__kmpc_free_shared(i8* %x, i64 4)
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
 define void @bar() "kernel" {
-  %c = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 1, i1 true, i1 true)
+  %c = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
   call void @unknown_no_openmp()
   %cmp = icmp eq i32 %c, -1
   br i1 %cmp, label %master1, label %exit
@@ -60,12 +64,12 @@ master2:
   call void @__kmpc_free_shared(i8* %y, i64 4)
   br label %exit
 exit:
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
 define void @baz_spmd() "kernel" {
-  %c = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 2, i1 true, i1 true)
+  %c = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_spmd_info, i1 true)
   call void @unknown_no_openmp()
   %c0 = icmp eq i32 %c, -1
   br i1 %c0, label %master3, label %exit
@@ -77,7 +81,7 @@ master3:
   call void @__kmpc_free_shared(i8* %z, i64 24)
   br label %exit
 exit:
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 2, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
@@ -105,9 +109,8 @@ declare i32 @llvm.nvvm.read.ptx.sreg.ntid.x()
 
 declare i32 @llvm.nvvm.read.ptx.sreg.warpsize()
 
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1)
-
-declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1)
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 
 declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 
@@ -136,28 +139,31 @@ declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 ; CHECK: @[[FOO_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 1
 ; CHECK: @[[BAR_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 1
 ; CHECK: @[[BAZ_SPMD_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 2
+; CHECK: @[[KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([113 x i8], [113 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 1 }, i16 0 }
+; CHECK: @[[KERNEL_SPMD_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([113 x i8], [113 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 2 }, i16 0 }
 ; CHECK: @[[OFFSET:[a-zA-Z0-9_$"\\.-]+]] = global i32 undef
 ; CHECK: @[[STACK:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global [1024 x i8] undef
 ; CHECK: @[[X_SHARED:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global [16 x i8] undef, align 4
 ; CHECK: @[[Y_SHARED:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global [4 x i8] undef, align 4
+; CHECK: @[[Z_SHARED:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global [24 x i8] undef, align 4
 ;.
 ; CHECK-LABEL: define {{[^@]+}}@foo
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 1, i1 false, i1 true)
+; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
 ; CHECK-NEXT:    [[X:%.*]] = call align 4 i8* @__kmpc_alloc_shared(i64 4) #[[ATTR7:[0-9]+]]
 ; CHECK-NEXT:    call void @unknown_no_openmp() #[[ATTR6:[0-9]+]]
 ; CHECK-NEXT:    [[X_ON_STACK:%.*]] = bitcast i8* [[X]] to i32*
 ; CHECK-NEXT:    [[TMP0:%.*]] = bitcast i32* [[X_ON_STACK]] to i8*
 ; CHECK-NEXT:    call void @use.internalized(i8* nofree [[TMP0]]) #[[ATTR8:[0-9]+]]
 ; CHECK-NEXT:    call void @__kmpc_free_shared(i8* [[X]], i64 4) #[[ATTR9:[0-9]+]]
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-NEXT:    ret void
 ;
 ;
 ; CHECK-LABEL: define {{[^@]+}}@bar
 ; CHECK-SAME: () #[[ATTR0]] {
-; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 1, i1 false, i1 true)
+; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
 ; CHECK-NEXT:    call void @unknown_no_openmp() #[[ATTR6]]
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[C]], -1
 ; CHECK-NEXT:    br i1 [[CMP]], label [[MASTER1:%.*]], label [[EXIT:%.*]]
@@ -175,25 +181,23 @@ declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 ; CHECK-NEXT:    call void @use.internalized(i8* nofree [[B1]]) #[[ATTR8]]
 ; CHECK-NEXT:    br label [[EXIT]]
 ; CHECK:       exit:
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-NEXT:    ret void
 ;
 ;
 ; CHECK-LABEL: define {{[^@]+}}@baz_spmd
 ; CHECK-SAME: () #[[ATTR0]] {
-; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 2, i1 true, i1 true)
+; CHECK-NEXT:    [[C:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_spmd_info, i1 true)
 ; CHECK-NEXT:    call void @unknown_no_openmp() #[[ATTR6]]
 ; CHECK-NEXT:    [[C0:%.*]] = icmp eq i32 [[C]], -1
 ; CHECK-NEXT:    br i1 [[C0]], label [[MASTER3:%.*]], label [[EXIT:%.*]]
 ; CHECK:       master3:
-; CHECK-NEXT:    [[Z:%.*]] = call align 4 i8* @__kmpc_alloc_shared(i64 24) #[[ATTR7]], !dbg [[DBG10:![0-9]+]]
-; CHECK-NEXT:    [[Z_ON_STACK:%.*]] = bitcast i8* [[Z]] to [6 x i32]*
+; CHECK-NEXT:    [[Z_ON_STACK:%.*]] = bitcast i8* addrspacecast (i8 addrspace(3)* getelementptr inbounds ([24 x i8], [24 x i8] addrspace(3)* @z_shared, i32 0, i32 0) to i8*) to [6 x i32]*
 ; CHECK-NEXT:    [[C1:%.*]] = bitcast [6 x i32]* [[Z_ON_STACK]] to i8*
 ; CHECK-NEXT:    call void @use.internalized(i8* nofree [[C1]]) #[[ATTR8]]
-; CHECK-NEXT:    call void @__kmpc_free_shared(i8* [[Z]], i64 24) #[[ATTR9]]
 ; CHECK-NEXT:    br label [[EXIT]]
 ; CHECK:       exit:
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 true)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-NEXT:    ret void
 ;
 ;
@@ -240,7 +244,4 @@ declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 ; CHECK: [[META7:![0-9]+]] = !{void ()* @foo, !"kernel", i32 1}
 ; CHECK: [[META8:![0-9]+]] = !{void ()* @bar, !"kernel", i32 1}
 ; CHECK: [[META9:![0-9]+]] = !{void ()* @baz_spmd, !"kernel", i32 1}
-; CHECK: [[DBG10]] = !DILocation(line: 5, column: 14, scope: !11)
-; CHECK: [[META11:![0-9]+]] = distinct !DISubprogram(name: "bar", scope: !1, file: !1, line: 1, type: !12, scopeLine: 1, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !2)
-; CHECK: [[META12:![0-9]+]] = !DISubroutineType(types: !2)
 ;.

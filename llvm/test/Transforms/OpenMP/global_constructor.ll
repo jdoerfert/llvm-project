@@ -2,15 +2,18 @@
 ; RUN: opt -S -passes=openmp-opt < %s | FileCheck %s
 
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
 @0 = private unnamed_addr constant [23 x i8] c";unknown;unknown;0;0;;\00", align 1
 @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
 @_ZL6Device = internal global double 0.000000e+00, align 8
-@__omp_offloading_fd02_85283c04_main_l11_exec_mode = weak constant i8 0
+@__omp_offloading_fd02_85283c04_main_l11_exec_mode = weak constant i8 1
+@kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 
 define weak void @__omp_offloading_fd02_85283c04_main_l11(double* nonnull align 8 dereferenceable(8) %X) local_unnamed_addr {
 entry:
-  %0 = tail call i32 @__kmpc_target_init(%struct.ident_t* nonnull @1, i8 2, i1 false, i1 false) #0
+  %0 = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 false)
   %exec_user_code = icmp eq i32 %0, -1
   br i1 %exec_user_code, label %user_code.entry, label %common.ret
 
@@ -29,13 +32,12 @@ region.guarded:
 
 region.barrier:
   tail call void @__kmpc_barrier_simple_spmd(%struct.ident_t* nonnull @1, i32 %2)
-  tail call void @__kmpc_target_deinit(%struct.ident_t* nonnull @1, i8 2, i1 false) #0
+  call void @__kmpc_target_deinit(i1 false)
   br label %common.ret
 }
 
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1) local_unnamed_addr
-
-declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1) local_unnamed_addr
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 
 define internal void @__omp_offloading__fd02_85283c04_Device_l6_ctor() {
 entry:
@@ -78,21 +80,21 @@ attributes #1 = { convergent nounwind }
 ; CHECK-LABEL: define {{[^@]+}}@__omp_offloading_fd02_85283c04_main_l11
 ; CHECK-SAME: (double* nonnull align 8 dereferenceable(8) [[X:%.*]]) local_unnamed_addr {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[TMP0:%.*]] = tail call i32 @__kmpc_target_init(%struct.ident_t* nonnull @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 false) #[[ATTR1:[0-9]+]]
+; CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 false)
 ; CHECK-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; CHECK-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[COMMON_RET:%.*]]
 ; CHECK:       common.ret:
 ; CHECK-NEXT:    ret void
 ; CHECK:       user_code.entry:
 ; CHECK-NEXT:    [[TMP1:%.*]] = load double, double* @_ZL6Device, align 8, !tbaa [[TBAA11:![0-9]+]]
-; CHECK-NEXT:    [[TMP2:%.*]] = tail call i32 @__kmpc_get_hardware_thread_id_in_block() #[[ATTR1]]
+; CHECK-NEXT:    [[TMP2:%.*]] = tail call i32 @__kmpc_get_hardware_thread_id_in_block() #[[ATTR1:[0-9]+]]
 ; CHECK-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[TMP2]], 0
 ; CHECK-NEXT:    br i1 [[TMP3]], label [[REGION_GUARDED:%.*]], label [[REGION_BARRIER:%.*]]
 ; CHECK:       region.guarded:
 ; CHECK-NEXT:    store double [[TMP1]], double* [[X]], align 8, !tbaa [[TBAA11]]
 ; CHECK-NEXT:    br label [[REGION_BARRIER]]
 ; CHECK:       region.barrier:
-; CHECK-NEXT:    tail call void @__kmpc_barrier_simple_spmd(%struct.ident_t* nonnull @[[GLOB1]], i32 [[TMP2]]) #[[ATTR1]]
-; CHECK-NEXT:    tail call void @__kmpc_target_deinit(%struct.ident_t* nonnull @[[GLOB1]], i8 2, i1 false) #[[ATTR1]]
+; CHECK-NEXT:    tail call void @__kmpc_barrier_simple_spmd(%struct.ident_t* nonnull @[[GLOB1:[0-9]+]], i32 [[TMP2]]) #[[ATTR1]]
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false)
 ; CHECK-NEXT:    br label [[COMMON_RET]]
 ;

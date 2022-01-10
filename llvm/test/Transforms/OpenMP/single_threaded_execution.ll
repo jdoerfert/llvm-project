@@ -4,9 +4,12 @@
 ; ModuleID = 'single_threaded_exeuction.c'
 
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
 @0 = private unnamed_addr constant [1 x i8] c"\00", align 1
 @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, align 8
+@kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 
 
 ; CHECK-NOT: [openmp-opt] Basic block @kernel entry is executed by a single thread.
@@ -14,7 +17,7 @@
 ; CHECK-NOT: [openmp-opt] Basic block @kernel if.else is executed by a single thread.
 ; CHECK-NOT: [openmp-opt] Basic block @kernel if.end is executed by a single thread.
 define void @kernel() {
-  %call = call i32 @__kmpc_target_init(%struct.ident_t* nonnull @1, i8 1, i1 false, i1 false)
+  %call = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
   %cmp = icmp eq i32 %call, -1
   br i1 %cmp, label %if.then, label %if.else
 if.then:
@@ -22,7 +25,7 @@ if.then:
 if.else:
   br label %if.end
 if.end:
-  call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 true)
   ret void
 }
 
@@ -105,9 +108,8 @@ declare i32 @llvm.amdgcn.workitem.id.x()
 
 declare void @__kmpc_kernel_prepare_parallel(i8*)
 
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1)
-
-declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1)
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 
 attributes #0 = { cold noinline }
 

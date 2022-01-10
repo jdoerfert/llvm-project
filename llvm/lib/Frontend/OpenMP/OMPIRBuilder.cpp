@@ -375,6 +375,19 @@ GlobalValue *OpenMPIRBuilder::createGlobalFlag(unsigned Value, StringRef Name) {
   return GV;
 }
 
+Constant *OpenMPIRBuilder::getOrCreateIdentInitializer(Constant *SrcLocStr,
+                                                       uint32_t SrcLocStrSize,
+                                                       omp::IdentFlag LocFlags,
+                                                       unsigned Reserve2Flags) {
+  // Enable "C-mode".
+  LocFlags |= OMP_IDENT_FLAG_KMPC;
+  Constant *I32Null = ConstantInt::getNullValue(Int32);
+  Constant *IdentData[] = {I32Null, ConstantInt::get(Int32, uint32_t(LocFlags)),
+                           ConstantInt::get(Int32, Reserve2Flags),
+                           ConstantInt::get(Int32, SrcLocStrSize), SrcLocStr};
+  return ConstantStruct::get(OpenMPIRBuilder::Ident, IdentData);
+}
+
 Constant *OpenMPIRBuilder::getOrCreateIdent(Constant *SrcLocStr,
                                             uint32_t SrcLocStrSize,
                                             IdentFlag LocFlags,
@@ -385,13 +398,8 @@ Constant *OpenMPIRBuilder::getOrCreateIdent(Constant *SrcLocStr,
   Constant *&Ident =
       IdentMap[{SrcLocStr, uint64_t(LocFlags) << 31 | Reserve2Flags}];
   if (!Ident) {
-    Constant *I32Null = ConstantInt::getNullValue(Int32);
-    Constant *IdentData[] = {I32Null,
-                             ConstantInt::get(Int32, uint32_t(LocFlags)),
-                             ConstantInt::get(Int32, Reserve2Flags),
-                             ConstantInt::get(Int32, SrcLocStrSize), SrcLocStr};
-    Constant *Initializer =
-        ConstantStruct::get(OpenMPIRBuilder::Ident, IdentData);
+    Constant *Initializer = getOrCreateIdentInitializer(
+        SrcLocStr, SrcLocStrSize, LocFlags, Reserve2Flags);
 
     // Look for existing encoding of the location + flags, not needed but
     // minimizes the difference to the existing solution while we transition.
@@ -3204,27 +3212,47 @@ CallInst *OpenMPIRBuilder::createCachedThreadPrivate(
 }
 
 OpenMPIRBuilder::InsertPointTy
-OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
-                                  bool RequiresFullRuntime) {
+OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD) {
   if (!updateToLocation(Loc))
     return Loc.IP;
 
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
-  Constant *Ident = getOrCreateIdent(SrcLocStr, SrcLocStrSize);
-  ConstantInt *IsSPMDVal = ConstantInt::getSigned(
-      IntegerType::getInt8Ty(Int8->getContext()),
-      IsSPMD ? OMP_TGT_EXEC_MODE_SPMD : OMP_TGT_EXEC_MODE_GENERIC);
-  ConstantInt *UseGenericStateMachine =
-      ConstantInt::getBool(Int32->getContext(), !IsSPMD);
-  ConstantInt *RequiresFullRuntimeVal =
-      ConstantInt::getBool(Int32->getContext(), RequiresFullRuntime);
+  Constant *Initializer = getOrCreateIdentInitializer(SrcLocStr, SrcLocStrSize);
+  Constant *IsSPMDVal = ConstantInt::get(
+      Int8, IsSPMD ? OMP_TGT_EXEC_MODE_SPMD : OMP_TGT_EXEC_MODE_GENERIC);
+  Constant *UseGenericStateMachine = ConstantInt::getSigned(Int8, !IsSPMD);
 
   Function *Fn = getOrCreateRuntimeFunctionPtr(
       omp::RuntimeFunction::OMPRTL___kmpc_target_init);
 
-  CallInst *ThreadKind = Builder.CreateCall(
-      Fn, {Ident, IsSPMDVal, UseGenericStateMachine, RequiresFullRuntimeVal});
+  Function *Kernel = Builder.GetInsertBlock()->getParent();
+  const DataLayout &DL = Fn->getParent()->getDataLayout();
+  Constant *ConfigurationEnvironmentInitializer = ConstantStruct::get(
+      ConfigurationEnvironmentTy, {
+                                      UseGenericStateMachine,
+                                      IsSPMDVal,
+                                  });
+  Constant *KernelEnvironmentInitializer = ConstantStruct::get(
+      KernelEnvironmentTy, {
+                               Initializer,
+                               ConfigurationEnvironmentInitializer,
+                               ConstantInt::getNullValue(Int16),
+                           });
+  std::string KernelEnvironmentName =
+      (Kernel->getName() + "_kernel_info").str();
+  GlobalVariable *KernelEnvironment = new GlobalVariable(
+      M, KernelEnvironmentTy, /*IsConstant*/ true,
+      llvm::GlobalValue::ExternalLinkage, KernelEnvironmentInitializer,
+      KernelEnvironmentName,
+      /*InsertBefore=*/nullptr, llvm::GlobalValue::NotThreadLocal,
+      DL.getDefaultGlobalsAddressSpace());
+  auto *KernelEnvironmentCasted =
+      ConstantExpr::getPointerBitCastOrAddrSpaceCast(KernelEnvironment,
+                                                     KernelEnvironmentTyPtr);
+
+  CallInst *ThreadKind =
+      Builder.CreateCall(Fn, {KernelEnvironmentCasted});
 
   Value *ExecUserCode = Builder.CreateICmpEQ(
       ThreadKind, ConstantInt::get(ThreadKind->getType(), -1),
@@ -3258,24 +3286,14 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
 }
 
 void OpenMPIRBuilder::createTargetDeinit(const LocationDescription &Loc,
-                                         bool IsSPMD,
-                                         bool RequiresFullRuntime) {
+                                         bool IsSPMD) {
   if (!updateToLocation(Loc))
     return;
-
-  uint32_t SrcLocStrSize;
-  Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
-  Value *Ident = getOrCreateIdent(SrcLocStr, SrcLocStrSize);
-  ConstantInt *IsSPMDVal = ConstantInt::getSigned(
-      IntegerType::getInt8Ty(Int8->getContext()),
-      IsSPMD ? OMP_TGT_EXEC_MODE_SPMD : OMP_TGT_EXEC_MODE_GENERIC);
-  ConstantInt *RequiresFullRuntimeVal =
-      ConstantInt::getBool(Int32->getContext(), RequiresFullRuntime);
 
   Function *Fn = getOrCreateRuntimeFunctionPtr(
       omp::RuntimeFunction::OMPRTL___kmpc_target_deinit);
 
-  Builder.CreateCall(Fn, {Ident, IsSPMDVal, RequiresFullRuntimeVal});
+  Builder.CreateCall(Fn, {});
 }
 
 std::string OpenMPIRBuilder::getNameWithSeparators(ArrayRef<StringRef> Parts,
