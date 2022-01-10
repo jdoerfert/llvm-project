@@ -14,6 +14,7 @@
 
 #include "Debug.h"
 #include "Types.h"
+#include "llvm/Frontend/OpenMP/KernelEnvironment.h"
 
 #pragma omp declare target
 
@@ -24,7 +25,10 @@ namespace state {
 inline constexpr uint32_t SharedScratchpadSize = SHARED_SCRATCHPAD_SIZE;
 
 /// Initialize the state machinery. Must be called by all threads.
-void init(bool IsSPMD);
+void init(bool IsSPMD, KernelEnvironmentTy &KernelEnv);
+
+/// Return the kernel environment associated with the current kernel.
+KernelEnvironmentTy &getKernelEnvironment();
 
 /// TODO
 enum ValueKind {

@@ -14,6 +14,7 @@
 #include "State.h"
 #include "Types.h"
 #include "Utils.h"
+#include "llvm/Frontend/OpenMP/OMPConstants.h"
 
 #pragma omp declare target
 
@@ -213,8 +214,8 @@ uint32_t mapping::getThreadIdInBlock() {
 uint32_t mapping::getWarpSize() { return impl::getWarpSize(); }
 
 uint32_t mapping::getBlockSize(bool IsSPMD) {
-  uint32_t BlockSize = mapping::getNumberOfProcessorElements() -
-                       (!IsSPMD * impl::getWarpSize());
+  uint32_t BlockSize =
+      mapping::getNumberOfProcessorElements() - (!IsSPMD * impl::getWarpSize());
   return BlockSize;
 }
 uint32_t mapping::getBlockSize() {
@@ -259,16 +260,15 @@ uint32_t mapping::getNumberOfProcessorElements() {
 ///
 ///{
 
-// TODO: This is a workaround for initialization coming from kernels outside of
-//       the TU. We will need to solve this more correctly in the future.
-int __attribute__((used, retain, weak)) SHARED(IsSPMDMode);
-
 void mapping::init(bool IsSPMD) {
-  if (mapping::isInitialThreadInLevel0(IsSPMD))
-    IsSPMDMode = IsSPMD;
+  ASSERT(IsSPMD == isSPMDMode() &&
+         "Kernel environment and SPMD-mode flag differ!");
 }
 
-bool mapping::isSPMDMode() { return IsSPMDMode; }
+bool mapping::isSPMDMode() {
+  return state::getKernelEnvironment().Configuration.ExecMode &
+         llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
+}
 
 bool mapping::isGenericMode() { return !isSPMDMode(); }
 ///}
