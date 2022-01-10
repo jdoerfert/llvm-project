@@ -22,7 +22,6 @@
 #include <vector>
 
 #include "Debug.h"
-#include "DeviceEnvironment.h"
 #include "omptarget.h"
 #include "omptargetplugin.h"
 
@@ -31,6 +30,7 @@
 
 #include "MemoryManager.h"
 
+#include "llvm/Frontend/OpenMP/DeviceEnvironment.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 
 // Utility for retrieving and printing CUDA error string.

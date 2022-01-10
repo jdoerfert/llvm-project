@@ -26,6 +26,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "${tmachine}$")
 
       include_directories(${LIBOMPTARGET_DEP_LIBFFI_INCLUDE_DIR})
       include_directories(${LIBOMPTARGET_DEP_LIBELF_INCLUDE_DIR})
+      include_directories(${LIBOMPTARGET_LLVM_INCLUDE_DIRS})
 
       # Define macro to be used as prefix of the runtime messages for this target.
       add_definitions("-DTARGET_NAME=${tmachine_name}")

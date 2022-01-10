@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _SOURCE_INFO_H_
-#define _SOURCE_INFO_H_
+#ifndef LLVM_FRONTEND_OPENMP_SOURCE_INFO_H
+#define LLVM_FRONTEND_OPENMP_SOURCE_INFO_H
 
 #include <string>
 
@@ -50,15 +50,13 @@ class SourceInfo {
   std::string initStr(const void *Name) {
     if (!Name)
       return ";unknown;unknown;0;0;;";
-    else
-      return std::string(reinterpret_cast<const char *>(Name));
+    return std::string(reinterpret_cast<const char *>(Name));
   }
 
   std::string initStr(const ident_t *Loc) {
     if (!Loc)
       return ";unknown;unknown;0;0;;";
-    else
-      return std::string(reinterpret_cast<const char *>(Loc->psource));
+    return std::string(reinterpret_cast<const char *>(Loc->psource));
   }
 
   /// Get n-th substring in an expression separated by ;.
