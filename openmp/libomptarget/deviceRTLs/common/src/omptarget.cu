@@ -208,10 +208,10 @@ static void __kmpc_target_region_state_machine(ident_t *Ident) {
 }
 
 EXTERN
-int32_t __kmpc_target_init(ident_t *Ident, int8_t Mode,
-                           bool UseGenericStateMachine,
+int32_t __kmpc_target_init(KernelEnvironmentTy& KernelEnv,
                            bool RequiresFullRuntime) {
-  const bool IsSPMD = Mode & llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
+  bool IsSPMD = KernelEnv.Configuration.ExecMode & llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
+  bool UseGenericStateMachine = KernelEnv.Configuration.UseGenericStateMachine;
   int TId = __kmpc_get_hardware_thread_id_in_block();
   if (IsSPMD)
     __kmpc_spmd_kernel_init(RequiresFullRuntime);
@@ -219,7 +219,7 @@ int32_t __kmpc_target_init(ident_t *Ident, int8_t Mode,
     __kmpc_generic_kernel_init();
 
   if (IsSPMD) {
-    __kmpc_barrier_simple_spmd(Ident, TId);
+    __kmpc_barrier_simple_spmd(&KernelEnv.Ident, TId);
     return -1;
   }
 
@@ -242,15 +242,14 @@ int32_t __kmpc_target_init(ident_t *Ident, int8_t Mode,
   // main thread's warp, so none of its threads can ever be active worker
   // threads.
   if (UseGenericStateMachine && TId < GetNumberOfWorkersInTeam())
-    __kmpc_target_region_state_machine(Ident);
+    __kmpc_target_region_state_machine(&KernelEnv.Ident);
 
   return TId;
 }
 
 EXTERN
-void __kmpc_target_deinit(ident_t *Ident, int8_t Mode,
-                          bool RequiresFullRuntime) {
-  const bool IsSPMD = Mode & llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
+void __kmpc_target_deinit(bool RequiresFullRuntime) {
+  const bool IsSPMD = __kmpc_is_spmd_exec_mode();
   if (IsSPMD)
     __kmpc_spmd_kernel_deinit(RequiresFullRuntime);
   else
