@@ -178,17 +178,16 @@ NOINLINE EXTERN int8_t __kmpc_is_generic_main_thread_id(kmp_int32 Tid) {
   return GetMasterThreadID() == Tid;
 }
 
-EXTERN bool __kmpc_kernel_parallel(void**WorkFn);
+EXTERN bool __kmpc_kernel_parallel(void **WorkFn);
 
 static void __kmpc_target_region_state_machine(ident_t *Ident) {
 
   int TId = __kmpc_get_hardware_thread_id_in_block();
   do {
-    void* WorkFn = 0;
+    void *WorkFn = 0;
 
     // Wait for the signal that we have a new work function.
     __kmpc_barrier_simple_spmd(Ident, TId);
-
 
     // Retrieve the work function from the runtime.
     bool IsActive = __kmpc_kernel_parallel(&WorkFn);
@@ -199,7 +198,7 @@ static void __kmpc_target_region_state_machine(ident_t *Ident) {
       return;
 
     if (IsActive) {
-      ((void(*)(uint32_t,uint32_t))WorkFn)(0, TId);
+      ((void (*)(uint32_t, uint32_t))WorkFn)(0, TId);
       __kmpc_kernel_end_parallel();
     }
 
@@ -219,13 +218,13 @@ int32_t __kmpc_target_init(ident_t *Ident, int8_t Mode,
   else
     __kmpc_generic_kernel_init();
 
-   if (IsSPMD) {
+  if (IsSPMD) {
     __kmpc_barrier_simple_spmd(Ident, TId);
-     return -1;
-   }
+    return -1;
+  }
 
-   if (TId == GetMasterThreadID())
-     return -1;
+  if (TId == GetMasterThreadID())
+    return -1;
 
   // Enter the generic state machine if enabled and if this thread can possibly
   // be an active worker thread.
