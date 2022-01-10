@@ -37,7 +37,9 @@ target triple = "nvptx64"
 ;;   }
 ;; }
 
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
 @0 = private unnamed_addr constant [103 x i8] c";llvm/test/Transforms/OpenMP/spmdization_remarks.c;__omp_offloading_2a_d80d3d_test_fallback_l11;11;1;;\00", align 1
 @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([103 x i8], [103 x i8]* @0, i32 0, i32 0) }, align 8
@@ -46,6 +48,7 @@ target triple = "nvptx64"
 @4 = private unnamed_addr constant [104 x i8] c";llvm/test/Transforms/OpenMP/spmdization_remarks.c;__omp_offloading_2a_d80d3d_test_fallback_l11;11;25;;\00", align 1
 @5 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([104 x i8], [104 x i8]* @4, i32 0, i32 0) }, align 8
 @__omp_offloading_2a_d80d3d_test_fallback_l11_exec_mode = weak constant i8 1
+@__omp_offloading_2a_d80d3d_test_fallback_l11_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([103 x i8], [103 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 @6 = private unnamed_addr constant [106 x i8] c";llvm/test/Transforms/OpenMP/spmdization_remarks.c;__omp_offloading_2a_d80d3d_test_no_fallback_l20;20;1;;\00", align 1
 @7 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([106 x i8], [106 x i8]* @6, i32 0, i32 0) }, align 8
 @8 = private unnamed_addr constant [75 x i8] c";llvm/test/Transforms/OpenMP/spmdization_remarks.c;test_no_fallback;20;1;;\00", align 1
@@ -53,6 +56,7 @@ target triple = "nvptx64"
 @10 = private unnamed_addr constant [107 x i8] c";llvm/test/Transforms/OpenMP/spmdization_remarks.c;__omp_offloading_2a_d80d3d_test_no_fallback_l20;20;25;;\00", align 1
 @11 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([107 x i8], [107 x i8]* @10, i32 0, i32 0) }, align 8
 @__omp_offloading_2a_d80d3d_test_no_fallback_l20_exec_mode = weak constant i8 1
+@__omp_offloading_2a_d80d3d_test_no_fallback_l20_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([106 x i8], [106 x i8]* @6, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 @12 = private unnamed_addr constant [63 x i8] c";llvm/test/Transforms/OpenMP/spmdization_remarks.c;known;4;1;;\00", align 1
 @13 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 2, i32 0, i8* getelementptr inbounds ([63 x i8], [63 x i8]* @12, i32 0, i32 0) }, align 8
 @G = external global i32
@@ -62,7 +66,7 @@ target triple = "nvptx64"
 define weak void @__omp_offloading_2a_d80d3d_test_fallback_l11() local_unnamed_addr #0 !dbg !15 {
 entry:
   %captured_vars_addrs.i.i = alloca [0 x i8*], align 8
-  %0 = call i32 @__kmpc_target_init(%struct.ident_t* nonnull @1, i8 1, i1 true, i1 true) #3, !dbg !18
+  %0 = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @__omp_offloading_2a_d80d3d_test_fallback_l11_kernel_info, i1 true) #3, !dbg !18
   %exec_user_code = icmp eq i32 %0, -1, !dbg !18
   br i1 %exec_user_code, label %user_code.entry, label %common.ret, !dbg !18
 
@@ -79,11 +83,9 @@ user_code.entry:                                  ; preds = %entry
   call void @__kmpc_parallel_51(%struct.ident_t* noundef nonnull @13, i32 %3, i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__2 to i8*), i8* noundef bitcast (void (i16, i32)* @__omp_outlined__2_wrapper to i8*), i8** noundef nonnull %4, i64 noundef 0) #3, !dbg !23
   call void @llvm.lifetime.end.p0i8(i64 0, i8* nonnull %2) #3, !dbg !26
   call void @unknown() #6, !dbg !27
-  call void @__kmpc_target_deinit(%struct.ident_t* nonnull @5, i8 1, i1 true) #3, !dbg !28
+  call void @__kmpc_target_deinit(i1 true) #3, !dbg !28
   br label %common.ret
 }
-
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1) local_unnamed_addr
 
 ; Function Attrs: convergent
 declare void @unknown() local_unnamed_addr #1
@@ -101,13 +103,14 @@ entry:
 ; Function Attrs: nounwind
 declare i32 @__kmpc_global_thread_num(%struct.ident_t*) local_unnamed_addr #3
 
-declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1) local_unnamed_addr
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 
 ; Function Attrs: norecurse nounwind
 define weak void @__omp_offloading_2a_d80d3d_test_no_fallback_l20() local_unnamed_addr #4 !dbg !32 {
 entry:
   %captured_vars_addrs.i2.i = alloca [0 x i8*], align 8
-  %0 = call i32 @__kmpc_target_init(%struct.ident_t* nonnull @7, i8 1, i1 true, i1 true) #3, !dbg !33
+  %0 = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @__omp_offloading_2a_d80d3d_test_no_fallback_l20_kernel_info, i1 true) #3, !dbg !33
   %exec_user_code = icmp eq i32 %0, -1, !dbg !33
   br i1 %exec_user_code, label %user_code.entry, label %common.ret, !dbg !33
 
@@ -131,7 +134,7 @@ user_code.entry:                                  ; preds = %entry
   call void @__kmpc_parallel_51(%struct.ident_t* noundef nonnull @13, i32 %6, i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__2 to i8*), i8* noundef bitcast (void (i16, i32)* @__omp_outlined__2_wrapper to i8*), i8** noundef nonnull %4, i64 noundef 0) #3, !dbg !43
   call void @llvm.lifetime.end.p0i8(i64 0, i8* nonnull %2) #3, !dbg !45
   call void @spmd_amenable()
-  call void @__kmpc_target_deinit(%struct.ident_t* nonnull @11, i8 1, i1 true) #3, !dbg !46
+  call void @__kmpc_target_deinit(i1 true) #3, !dbg !46
   br label %common.ret
 }
 

@@ -3,36 +3,48 @@
 target triple = "nvptx64"
 
 %struct.ident_t = type { i32, i32, i32, i32, i8* }
+%"struct._OMP::KernelEnvironmentTy" = type { %struct.ident_t, %"struct._OMP::ConfigurationEnvironmentTy", i16 }
+%"struct._OMP::ConfigurationEnvironmentTy" = type { i8, i8 }
 
-@is_spmd_exec_mode = weak constant i8 0
+@0 = private unnamed_addr constant [1 x i8] c"\00", align 1
+@is_spmd_exec_mode = weak constant i8 2
+@is_spmd_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 2 }, i16 0 }
 @will_be_spmd_exec_mode = weak constant i8 1
+@will_be_spmd_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 @non_spmd_exec_mode = weak constant i8 1
+@non_spmd_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 @will_not_be_spmd_exec_mode = weak constant i8 1
+@will_not_be_spmd_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 @G = external global i8
 @llvm.compiler.used = appending global [4 x i8*] [i8* @is_spmd_exec_mode, i8* @will_be_spmd_exec_mode, i8* @non_spmd_exec_mode, i8* @will_not_be_spmd_exec_mode ], section "llvm.metadata"
 
 ;.
-; CHECK: @[[IS_SPMD_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 0
+; CHECK: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+; CHECK: @[[IS_SPMD_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 2
+; CHECK: @[[IS_SPMD_KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 2 }, i16 0 }
 ; CHECK: @[[WILL_BE_SPMD_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 3
+; CHECK: @[[WILL_BE_SPMD_KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 3 }, i16 0 }
 ; CHECK: @[[NON_SPMD_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 1
+; CHECK: @[[NON_SPMD_KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 1 }, i16 0 }
 ; CHECK: @[[WILL_NOT_BE_SPMD_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 1
+; CHECK: @[[WILL_NOT_BE_SPMD_KERNEL_INFO:[a-zA-Z0-9_$"\\.-]+]] = global %"struct._OMP::KernelEnvironmentTy" { [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @[[GLOB0]], i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 0, i8 1 }, i16 0 }
 ; CHECK: @[[G:[a-zA-Z0-9_$"\\.-]+]] = external global i8
 ; CHECK: @[[LLVM_COMPILER_USED:[a-zA-Z0-9_$"\\.-]+]] = appending global [4 x i8*] [i8* @is_spmd_exec_mode, i8* @will_be_spmd_exec_mode, i8* @non_spmd_exec_mode, i8* @will_not_be_spmd_exec_mode], section "llvm.metadata"
 ;.
 define weak void @is_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@is_spmd() {
-; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
+; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @is_spmd_kernel_info, i1 false)
 ; CHECK-NEXT:    call void @is_spmd_helper1()
 ; CHECK-NEXT:    call void @is_spmd_helper2()
 ; CHECK-NEXT:    call void @is_mixed_helper()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* null, i8 2, i1 false)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false)
 ; CHECK-NEXT:    ret void
 ;
-  %i = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
+  %i = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @is_spmd_kernel_info, i1 false)
   call void @is_spmd_helper1()
   call void @is_spmd_helper2()
   call void @is_mixed_helper()
-  call void @__kmpc_target_deinit(%struct.ident_t* null, i8 2, i1 false)
+  call void @__kmpc_target_deinit(i1 false)
   ret void
 }
 
@@ -40,7 +52,7 @@ define weak void @will_be_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@will_be_spmd() {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
-; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
+; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @will_be_spmd_kernel_info, i1 false)
 ; CHECK-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[I]], -1
 ; CHECK-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[COMMON_RET:%.*]]
 ; CHECK:       common.ret:
@@ -50,12 +62,12 @@ define weak void @will_be_spmd() {
 ; CHECK-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; CHECK-NEXT:    call void @is_spmd_helper2()
 ; CHECK-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* null, i32 [[TMP0]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*)* @__omp_outlined__ to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined___wrapper to i8*), i8** [[TMP1]], i64 0)
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* null, i8 2, i1 false)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false)
 ; CHECK-NEXT:    ret void
 ;
 entry:
   %captured_vars_addrs = alloca [0 x i8*], align 8
-  %i = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 true, i1 true)
+  %i = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @will_be_spmd_kernel_info, i1 false)
   %exec_user_code = icmp eq i32 %i, -1
   br i1 %exec_user_code, label %user_code.entry, label %common.ret
 
@@ -67,41 +79,89 @@ user_code.entry:
   %1 = bitcast [0 x i8*]* %captured_vars_addrs to i8**
   call void @is_spmd_helper2()
   call void @__kmpc_parallel_51(%struct.ident_t* null, i32 %0, i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*)* @__omp_outlined__ to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined___wrapper to i8*), i8** %1, i64 0)
-  call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 true)
+  call void @__kmpc_target_deinit(i1 false)
   ret void
 }
 
 define weak void @non_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@non_spmd() {
-; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
+; CHECK-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca i8*, align 8
+; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @non_spmd_kernel_info, i1 false)
+; CHECK-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 undef, -1
+; CHECK-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; CHECK:       worker_state_machine.begin:
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @non_spmd_kernel_info, i32 0, i32 0), i32 undef)
+; CHECK-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(i8** [[WORKER_WORK_FN_ADDR]])
+; CHECK-NEXT:    [[WORKER_WORK_FN:%.*]] = load i8*, i8** [[WORKER_WORK_FN_ADDR]], align 8
+; CHECK-NEXT:    [[WORKER_WORK_FN_ADDR_CAST:%.*]] = bitcast i8* [[WORKER_WORK_FN]] to void (i16, i32)*
+; CHECK-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq i8* [[WORKER_WORK_FN]], null
+; CHECK-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; CHECK:       worker_state_machine.finished:
+; CHECK-NEXT:    ret void
+; CHECK:       worker_state_machine.is_active.check:
+; CHECK-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_FALLBACK_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; CHECK:       worker_state_machine.parallel_region.fallback.execute:
+; CHECK-NEXT:    call void [[WORKER_WORK_FN_ADDR_CAST]](i16 0, i32 undef)
+; CHECK-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; CHECK:       worker_state_machine.parallel_region.end:
+; CHECK-NEXT:    call void @__kmpc_kernel_end_parallel()
+; CHECK-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; CHECK:       worker_state_machine.done.barrier:
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @non_spmd_kernel_info, i32 0, i32 0), i32 undef)
+; CHECK-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; CHECK:       thread.user_code.check:
 ; CHECK-NEXT:    call void @is_generic_helper1()
 ; CHECK-NEXT:    call void @is_generic_helper2()
 ; CHECK-NEXT:    call void @is_mixed_helper()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 false)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false)
 ; CHECK-NEXT:    ret void
 ;
-  %i = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
+  %i = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @non_spmd_kernel_info, i1 false)
   call void @is_generic_helper1()
   call void @is_generic_helper2()
   call void @is_mixed_helper()
-  call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 false)
+  call void @__kmpc_target_deinit(i1 false)
   ret void
 }
 
 define weak void @will_not_be_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@will_not_be_spmd() {
-; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
+; CHECK-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca i8*, align 8
+; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @will_not_be_spmd_kernel_info, i1 false)
+; CHECK-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 undef, -1
+; CHECK-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; CHECK:       worker_state_machine.begin:
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @will_not_be_spmd_kernel_info, i32 0, i32 0), i32 undef)
+; CHECK-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(i8** [[WORKER_WORK_FN_ADDR]])
+; CHECK-NEXT:    [[WORKER_WORK_FN:%.*]] = load i8*, i8** [[WORKER_WORK_FN_ADDR]], align 8
+; CHECK-NEXT:    [[WORKER_WORK_FN_ADDR_CAST:%.*]] = bitcast i8* [[WORKER_WORK_FN]] to void (i16, i32)*
+; CHECK-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq i8* [[WORKER_WORK_FN]], null
+; CHECK-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; CHECK:       worker_state_machine.finished:
+; CHECK-NEXT:    ret void
+; CHECK:       worker_state_machine.is_active.check:
+; CHECK-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_FALLBACK_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; CHECK:       worker_state_machine.parallel_region.fallback.execute:
+; CHECK-NEXT:    call void [[WORKER_WORK_FN_ADDR_CAST]](i16 0, i32 undef)
+; CHECK-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; CHECK:       worker_state_machine.parallel_region.end:
+; CHECK-NEXT:    call void @__kmpc_kernel_end_parallel()
+; CHECK-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; CHECK:       worker_state_machine.done.barrier:
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @will_not_be_spmd_kernel_info, i32 0, i32 0), i32 undef)
+; CHECK-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; CHECK:       thread.user_code.check:
 ; CHECK-NEXT:    call void @is_generic_helper1()
 ; CHECK-NEXT:    call void @is_generic_helper2()
 ; CHECK-NEXT:    call void @is_mixed_helper()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 false)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 false)
 ; CHECK-NEXT:    ret void
 ;
-  %i = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
+  %i = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @will_not_be_spmd_kernel_info, i1 false)
   call void @is_generic_helper1()
   call void @is_generic_helper2()
   call void @is_mixed_helper()
-  call void @__kmpc_target_deinit(%struct.ident_t* null, i8 1, i1 false)
+  call void @__kmpc_target_deinit(i1 false)
   ret void
 }
 
@@ -197,8 +257,8 @@ entry:
 
 declare void @spmd_compatible() "llvm.assume"="ompx_spmd_amenable"
 declare i8 @__kmpc_is_spmd_exec_mode()
-declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1 zeroext, i1 zeroext)
-declare void @__kmpc_target_deinit(%struct.ident_t* nocapture readnone, i8, i1 zeroext)
+declare i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* %KernelEnv, i1)
+declare void @__kmpc_target_deinit(i1)
 declare void @__kmpc_parallel_51(%struct.ident_t*, i32, i32, i32, i32, i8*, i8*, i8**, i64)
 declare i32 @__kmpc_global_thread_num(%struct.ident_t*)
 declare void @foo()
@@ -217,6 +277,7 @@ declare void @bar()
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { "llvm.assume"="ompx_spmd_amenable" }
 ; CHECK: attributes #[[ATTR1:[0-9]+]] = { alwaysinline }
 ; CHECK: attributes #[[ATTR2]] = { nounwind }
+; CHECK: attributes #[[ATTR3:[0-9]+]] = { convergent nounwind }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{i32 7, !"openmp", i32 50}
 ; CHECK: [[META1:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
