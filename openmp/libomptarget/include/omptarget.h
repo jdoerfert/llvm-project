@@ -18,7 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <SourceInfo.h>
+#include "llvm/Frontend/OpenMP/SourceInfo.h"
 
 #define OFFLOAD_SUCCESS (0)
 #define OFFLOAD_FAIL (~0)

@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _SOURCE_INFO_H_
-#define _SOURCE_INFO_H_
+#ifndef LLVM_FRONTEND_OPENMP_SOURCE_INFO_H
+#define LLVM_FRONTEND_OPENMP_SOURCE_INFO_H
 
 #include <string>
 

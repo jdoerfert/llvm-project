@@ -38,7 +38,8 @@ static void __kmpc_generic_kernel_init() {
   if (threadIdInBlock != GetMasterThreadID())
     return;
 
-  setExecutionParameters(OMP_TGT_EXEC_MODE_GENERIC, OMP_TGT_RUNTIME_INITIALIZED);
+  setExecutionParameters(llvm::omp::OMP_TGT_EXEC_MODE_GENERIC,
+                         OMP_TGT_RUNTIME_INITIALIZED);
   ASSERT0(LT_FUSSY, threadIdInBlock == GetMasterThreadID(),
           "__kmpc_kernel_init() must be called by team master warp only!");
   PRINT0(LD_IO, "call to __kmpc_kernel_init for master\n");
@@ -85,7 +86,7 @@ static void __kmpc_generic_kernel_deinit() {
 static void __kmpc_spmd_kernel_init(bool RequiresFullRuntime) {
   PRINT0(LD_IO, "call to __kmpc_spmd_kernel_init\n");
 
-  setExecutionParameters(OMP_TGT_EXEC_MODE_SPMD,
+  setExecutionParameters(llvm::omp::OMP_TGT_EXEC_MODE_SPMD,
                          RequiresFullRuntime ? OMP_TGT_RUNTIME_INITIALIZED
                                              : OMP_TGT_RUNTIME_UNINITIALIZED);
   int threadId = __kmpc_get_hardware_thread_id_in_block();
@@ -165,7 +166,8 @@ static void __kmpc_spmd_kernel_deinit(bool RequiresFullRuntime) {
 // by comparision between the parallel level and the return value of this
 // function.
 EXTERN int8_t __kmpc_is_spmd_exec_mode() {
-  return (execution_param & OMP_TGT_EXEC_MODE_SPMD) == OMP_TGT_EXEC_MODE_SPMD;
+  return (execution_param & llvm::omp::OMP_TGT_EXEC_MODE_SPMD) ==
+         llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
 }
 
 EXTERN int8_t __kmpc_is_generic_main_thread(kmp_int32 Tid) {
@@ -210,7 +212,7 @@ EXTERN
 int32_t __kmpc_target_init(ident_t *Ident, int8_t Mode,
                            bool UseGenericStateMachine,
                            bool RequiresFullRuntime) {
-  const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
+  const bool IsSPMD = Mode & llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
   int TId = __kmpc_get_hardware_thread_id_in_block();
   if (IsSPMD)
     __kmpc_spmd_kernel_init(RequiresFullRuntime);
@@ -249,7 +251,7 @@ int32_t __kmpc_target_init(ident_t *Ident, int8_t Mode,
 EXTERN
 void __kmpc_target_deinit(ident_t *Ident, int8_t Mode,
                           bool RequiresFullRuntime) {
-  const bool IsSPMD = Mode & OMP_TGT_EXEC_MODE_SPMD;
+  const bool IsSPMD = Mode & llvm::omp::OMP_TGT_EXEC_MODE_SPMD;
   if (IsSPMD)
     __kmpc_spmd_kernel_deinit(RequiresFullRuntime);
   else
