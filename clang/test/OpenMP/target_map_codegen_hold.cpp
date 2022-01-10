@@ -83,33 +83,81 @@
 // MEMBER_OF_5  = 0x5000000000000
 
 //.
+// CHECK-USE-PPC64LE: @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678.region_id = weak constant i8 0
 // CHECK-USE-PPC64LE: @.offload_sizes = private unnamed_addr constant [7 x i64] [i64 0, i64 4, i64 4, i64 4, i64 0, i64 4, i64 4]
-// CHECK-USE-PPC64LE: @.offload_maptypes = private unnamed_addr constant [7 x i64] [i64 [[#0x2020]], i64 [[#0x1000000002003]], i64 [[#0x1000000002003]], i64 [[#0x2023]], i64 [[#0x2020]], i64 [[#0x5000000002003]], i64 [[#0x5000000002003]]]
+// CHECK-USE-PPC64LE: @.offload_maptypes = private unnamed_addr constant [7 x i64] [i64 8224, i64 281474976718851, i64 281474976718851, i64 8227, i64 8224, i64 1407374883561475, i64 1407374883561475]
+// CHECK-USE-PPC64LE: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK-USE-PPC64LE: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK-USE-PPC64LE: @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692.region_id = weak constant i8 0
 // CHECK-USE-PPC64LE: @.offload_sizes.1 = private unnamed_addr constant [1 x i64] [i64 4]
-// CHECK-USE-PPC64LE: @.offload_maptypes.2 = private unnamed_addr constant [1 x i64] [i64 [[#0x2427]]]
+// CHECK-USE-PPC64LE: @.offload_maptypes.2 = private unnamed_addr constant [1 x i64] [i64 9255]
+// CHECK-USE-PPC64LE: @.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935.region_id = weak constant i8 0
 // CHECK-USE-PPC64LE: @.offload_sizes.3 = private unnamed_addr constant [3 x i64] [i64 0, i64 4, i64 4]
-// CHECK-USE-PPC64LE: @.offload_maptypes.4 = private unnamed_addr constant [3 x i64] [i64 [[#0x2020]], i64 [[#0x1000000002003]], i64 [[#0x1000000002003]]]
+// CHECK-USE-PPC64LE: @.offload_maptypes.4 = private unnamed_addr constant [3 x i64] [i64 8224, i64 281474976718851, i64 281474976718851]
+// CHECK-USE-PPC64LE: @.omp_offloading.entry_name = internal unnamed_addr constant [59 x i8] c"__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678\00"
+// CHECK-USE-PPC64LE: @.omp_offloading.entry.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678.region_id, i8* getelementptr inbounds ([59 x i8], [59 x i8]* @.omp_offloading.entry_name, i32 0, i32 0), i64 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-USE-PPC64LE: @.omp_offloading.entry_name.5 = internal unnamed_addr constant [59 x i8] c"__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692\00"
+// CHECK-USE-PPC64LE: @.omp_offloading.entry.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692.region_id, i8* getelementptr inbounds ([59 x i8], [59 x i8]* @.omp_offloading.entry_name.5, i32 0, i32 0), i64 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-USE-PPC64LE: @.omp_offloading.entry_name.6 = internal unnamed_addr constant [64 x i8] c"__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935\00"
+// CHECK-USE-PPC64LE: @.omp_offloading.entry.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935.region_id, i8* getelementptr inbounds ([64 x i8], [64 x i8]* @.omp_offloading.entry_name.6, i32 0, i32 0), i64 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-USE-PPC64LE: @llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 0, void ()* @.omp_offloading.requires_reg, i8* null }]
 //.
+// CHECK-USE-I386: @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678.region_id = weak constant i8 0
 // CHECK-USE-I386: @.offload_sizes = private unnamed_addr constant [7 x i64] [i64 0, i64 4, i64 4, i64 4, i64 0, i64 4, i64 4]
-// CHECK-USE-I386: @.offload_maptypes = private unnamed_addr constant [7 x i64] [i64 [[#0x2020]], i64 [[#0x1000000002003]], i64 [[#0x1000000002003]], i64 [[#0x2023]], i64 [[#0x2020]], i64 [[#0x5000000002003]], i64 [[#0x5000000002003]]]
+// CHECK-USE-I386: @.offload_maptypes = private unnamed_addr constant [7 x i64] [i64 8224, i64 281474976718851, i64 281474976718851, i64 8227, i64 8224, i64 1407374883561475, i64 1407374883561475]
+// CHECK-USE-I386: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK-USE-I386: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK-USE-I386: @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692.region_id = weak constant i8 0
 // CHECK-USE-I386: @.offload_sizes.1 = private unnamed_addr constant [1 x i64] [i64 4]
-// CHECK-USE-I386: @.offload_maptypes.2 = private unnamed_addr constant [1 x i64] [i64 [[#0x2427]]]
+// CHECK-USE-I386: @.offload_maptypes.2 = private unnamed_addr constant [1 x i64] [i64 9255]
+// CHECK-USE-I386: @.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935.region_id = weak constant i8 0
 // CHECK-USE-I386: @.offload_sizes.3 = private unnamed_addr constant [3 x i64] [i64 0, i64 4, i64 4]
-// CHECK-USE-I386: @.offload_maptypes.4 = private unnamed_addr constant [3 x i64] [i64 [[#0x2020]], i64 [[#0x1000000002003]], i64 [[#0x1000000002003]]]
+// CHECK-USE-I386: @.offload_maptypes.4 = private unnamed_addr constant [3 x i64] [i64 8224, i64 281474976718851, i64 281474976718851]
+// CHECK-USE-I386: @.omp_offloading.entry_name = internal unnamed_addr constant [59 x i8] c"__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678\00"
+// CHECK-USE-I386: @.omp_offloading.entry.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678.region_id, i8* getelementptr inbounds ([59 x i8], [59 x i8]* @.omp_offloading.entry_name, i32 0, i32 0), i32 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-USE-I386: @.omp_offloading.entry_name.5 = internal unnamed_addr constant [59 x i8] c"__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692\00"
+// CHECK-USE-I386: @.omp_offloading.entry.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692.region_id, i8* getelementptr inbounds ([59 x i8], [59 x i8]* @.omp_offloading.entry_name.5, i32 0, i32 0), i32 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-USE-I386: @.omp_offloading.entry_name.6 = internal unnamed_addr constant [64 x i8] c"__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935\00"
+// CHECK-USE-I386: @.omp_offloading.entry.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935.region_id, i8* getelementptr inbounds ([64 x i8], [64 x i8]* @.omp_offloading.entry_name.6, i32 0, i32 0), i32 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-USE-I386: @llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 0, void ()* @.omp_offloading.requires_reg, i8* null }]
 //.
+// CHECK-NOUSE-PPC64LE: @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678.region_id = weak constant i8 0
 // CHECK-NOUSE-PPC64LE: @.offload_sizes = private unnamed_addr constant [7 x i64] [i64 0, i64 4, i64 4, i64 4, i64 0, i64 4, i64 4]
-// CHECK-NOUSE-PPC64LE: @.offload_maptypes = private unnamed_addr constant [7 x i64] [i64 [[#0x2000]], i64 [[#0x1000000002003]], i64 [[#0x1000000002003]], i64 [[#0x2003]], i64 [[#0x2000]], i64 [[#0x5000000002003]], i64 [[#0x5000000002003]]]
+// CHECK-NOUSE-PPC64LE: @.offload_maptypes = private unnamed_addr constant [7 x i64] [i64 8192, i64 281474976718851, i64 281474976718851, i64 8195, i64 8192, i64 1407374883561475, i64 1407374883561475]
+// CHECK-NOUSE-PPC64LE: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK-NOUSE-PPC64LE: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK-NOUSE-PPC64LE: @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692.region_id = weak constant i8 0
 // CHECK-NOUSE-PPC64LE: @.offload_sizes.1 = private unnamed_addr constant [1 x i64] [i64 4]
-// CHECK-NOUSE-PPC64LE: @.offload_maptypes.2 = private unnamed_addr constant [1 x i64] [i64 [[#0x2407]]]
+// CHECK-NOUSE-PPC64LE: @.offload_maptypes.2 = private unnamed_addr constant [1 x i64] [i64 9223]
+// CHECK-NOUSE-PPC64LE: @.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935.region_id = weak constant i8 0
 // CHECK-NOUSE-PPC64LE: @.offload_sizes.3 = private unnamed_addr constant [3 x i64] [i64 0, i64 4, i64 4]
-// CHECK-NOUSE-PPC64LE: @.offload_maptypes.4 = private unnamed_addr constant [3 x i64] [i64 [[#0x2000]], i64 [[#0x1000000002003]], i64 [[#0x1000000002003]]]
+// CHECK-NOUSE-PPC64LE: @.offload_maptypes.4 = private unnamed_addr constant [3 x i64] [i64 8192, i64 281474976718851, i64 281474976718851]
+// CHECK-NOUSE-PPC64LE: @.omp_offloading.entry_name = internal unnamed_addr constant [59 x i8] c"__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678\00"
+// CHECK-NOUSE-PPC64LE: @.omp_offloading.entry.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678.region_id, i8* getelementptr inbounds ([59 x i8], [59 x i8]* @.omp_offloading.entry_name, i32 0, i32 0), i64 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-NOUSE-PPC64LE: @.omp_offloading.entry_name.5 = internal unnamed_addr constant [59 x i8] c"__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692\00"
+// CHECK-NOUSE-PPC64LE: @.omp_offloading.entry.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692.region_id, i8* getelementptr inbounds ([59 x i8], [59 x i8]* @.omp_offloading.entry_name.5, i32 0, i32 0), i64 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-NOUSE-PPC64LE: @.omp_offloading.entry_name.6 = internal unnamed_addr constant [64 x i8] c"__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935\00"
+// CHECK-NOUSE-PPC64LE: @.omp_offloading.entry.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935.region_id, i8* getelementptr inbounds ([64 x i8], [64 x i8]* @.omp_offloading.entry_name.6, i32 0, i32 0), i64 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-NOUSE-PPC64LE: @llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 0, void ()* @.omp_offloading.requires_reg, i8* null }]
 //.
+// CHECK-NOUSE-I386: @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678.region_id = weak constant i8 0
 // CHECK-NOUSE-I386: @.offload_sizes = private unnamed_addr constant [7 x i64] [i64 0, i64 4, i64 4, i64 4, i64 0, i64 4, i64 4]
-// CHECK-NOUSE-I386: @.offload_maptypes = private unnamed_addr constant [7 x i64] [i64 [[#0x2000]], i64 [[#0x1000000002003]], i64 [[#0x1000000002003]], i64 [[#0x2003]], i64 [[#0x2000]], i64 [[#0x5000000002003]], i64 [[#0x5000000002003]]]
+// CHECK-NOUSE-I386: @.offload_maptypes = private unnamed_addr constant [7 x i64] [i64 8192, i64 281474976718851, i64 281474976718851, i64 8195, i64 8192, i64 1407374883561475, i64 1407374883561475]
+// CHECK-NOUSE-I386: @0 = private unnamed_addr constant [23 x i8] c"
+// CHECK-NOUSE-I386: @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
+// CHECK-NOUSE-I386: @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692.region_id = weak constant i8 0
 // CHECK-NOUSE-I386: @.offload_sizes.1 = private unnamed_addr constant [1 x i64] [i64 4]
-// CHECK-NOUSE-I386: @.offload_maptypes.2 = private unnamed_addr constant [1 x i64] [i64 [[#0x2407]]]
+// CHECK-NOUSE-I386: @.offload_maptypes.2 = private unnamed_addr constant [1 x i64] [i64 9223]
+// CHECK-NOUSE-I386: @.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935.region_id = weak constant i8 0
 // CHECK-NOUSE-I386: @.offload_sizes.3 = private unnamed_addr constant [3 x i64] [i64 0, i64 4, i64 4]
-// CHECK-NOUSE-I386: @.offload_maptypes.4 = private unnamed_addr constant [3 x i64] [i64 [[#0x2000]], i64 [[#0x1000000002003]], i64 [[#0x1000000002003]]]
+// CHECK-NOUSE-I386: @.offload_maptypes.4 = private unnamed_addr constant [3 x i64] [i64 8192, i64 281474976718851, i64 281474976718851]
+// CHECK-NOUSE-I386: @.omp_offloading.entry_name = internal unnamed_addr constant [59 x i8] c"__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678\00"
+// CHECK-NOUSE-I386: @.omp_offloading.entry.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l678.region_id, i8* getelementptr inbounds ([59 x i8], [59 x i8]* @.omp_offloading.entry_name, i32 0, i32 0), i32 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-NOUSE-I386: @.omp_offloading.entry_name.5 = internal unnamed_addr constant [59 x i8] c"__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692\00"
+// CHECK-NOUSE-I386: @.omp_offloading.entry.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__Z20explicit_maps_singlei_l692.region_id, i8* getelementptr inbounds ([59 x i8], [59 x i8]* @.omp_offloading.entry_name.5, i32 0, i32 0), i32 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-NOUSE-I386: @.omp_offloading.entry_name.6 = internal unnamed_addr constant [64 x i8] c"__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935\00"
+// CHECK-NOUSE-I386: @.omp_offloading.entry.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935 = weak constant %struct.__tgt_offload_entry { i8* @.__omp_offloading_20_11798c8__ZN2ST20test_present_membersEv_l935.region_id, i8* getelementptr inbounds ([64 x i8], [64 x i8]* @.omp_offloading.entry_name.6, i32 0, i32 0), i32 0, i32 0, i32 0 }, section "omp_offloading_entries", align 1
+// CHECK-NOUSE-I386: @llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 0, void ()* @.omp_offloading.requires_reg, i8* null }]
 //.
 struct ST {
   int i;
@@ -216,11 +264,11 @@ struct ST {
 // CHECK-USE-PPC64LE-NEXT:    [[TMP53:%.*]] = getelementptr inbounds [7 x i8*], [7 x i8*]* [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-USE-PPC64LE-NEXT:    [[TMP54:%.*]] = getelementptr inbounds [7 x i8*], [7 x i8*]* [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-USE-PPC64LE-NEXT:    [[TMP55:%.*]] = getelementptr inbounds [7 x i64], [7 x i64]* [[DOTOFFLOAD_SIZES]], i32 0, i32 0
-// CHECK-USE-PPC64LE-NEXT:    [[TMP56:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1:[0-9]+]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l630.region_id, i32 7, i8** [[TMP53]], i8** [[TMP54]], i64* [[TMP55]], i64* getelementptr inbounds ([7 x i64], [7 x i64]* @.offload_maptypes, i32 0, i32 0), i8** null, i8** null)
+// CHECK-USE-PPC64LE-NEXT:    [[TMP56:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1:[0-9]+]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l678.region_id, i32 7, i8** [[TMP53]], i8** [[TMP54]], i64* [[TMP55]], i64* getelementptr inbounds ([7 x i64], [7 x i64]* @.offload_maptypes, i32 0, i32 0), i8** null, i8** null)
 // CHECK-USE-PPC64LE-NEXT:    [[TMP57:%.*]] = icmp ne i32 [[TMP56]], 0
 // CHECK-USE-PPC64LE-NEXT:    br i1 [[TMP57]], label [[OMP_OFFLOAD_FAILED:%.*]], label [[OMP_OFFLOAD_CONT:%.*]]
 // CHECK-USE-PPC64LE:       omp_offload.failed:
-// CHECK-USE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l630(%struct.ST* [[ST1]], i32* [[A]], %struct.ST* [[ST2]]) #[[ATTR3:[0-9]+]]
+// CHECK-USE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l678(%struct.ST* [[ST1]], i32* [[A]], %struct.ST* [[ST2]]) #[[ATTR3:[0-9]+]]
 // CHECK-USE-PPC64LE-NEXT:    br label [[OMP_OFFLOAD_CONT]]
 // CHECK-USE-PPC64LE:       omp_offload.cont:
 // CHECK-USE-PPC64LE-NEXT:    [[TMP58:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
@@ -233,11 +281,11 @@ struct ST {
 // CHECK-USE-PPC64LE-NEXT:    store i8* null, i8** [[TMP62]], align 8
 // CHECK-USE-PPC64LE-NEXT:    [[TMP63:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
 // CHECK-USE-PPC64LE-NEXT:    [[TMP64:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_PTRS4]], i32 0, i32 0
-// CHECK-USE-PPC64LE-NEXT:    [[TMP65:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l644.region_id, i32 1, i8** [[TMP63]], i8** [[TMP64]], i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_sizes.1, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_maptypes.2, i32 0, i32 0), i8** null, i8** null)
+// CHECK-USE-PPC64LE-NEXT:    [[TMP65:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l692.region_id, i32 1, i8** [[TMP63]], i8** [[TMP64]], i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_sizes.1, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_maptypes.2, i32 0, i32 0), i8** null, i8** null)
 // CHECK-USE-PPC64LE-NEXT:    [[TMP66:%.*]] = icmp ne i32 [[TMP65]], 0
 // CHECK-USE-PPC64LE-NEXT:    br i1 [[TMP66]], label [[OMP_OFFLOAD_FAILED6:%.*]], label [[OMP_OFFLOAD_CONT7:%.*]]
 // CHECK-USE-PPC64LE:       omp_offload.failed6:
-// CHECK-USE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l644(i32* [[A]]) #[[ATTR3]]
+// CHECK-USE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l692(i32* [[A]]) #[[ATTR3]]
 // CHECK-USE-PPC64LE-NEXT:    br label [[OMP_OFFLOAD_CONT7]]
 // CHECK-USE-PPC64LE:       omp_offload.cont7:
 // CHECK-USE-PPC64LE-NEXT:    ret void
@@ -341,11 +389,11 @@ struct ST {
 // CHECK-USE-I386-NEXT:    [[TMP53:%.*]] = getelementptr inbounds [7 x i8*], [7 x i8*]* [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-USE-I386-NEXT:    [[TMP54:%.*]] = getelementptr inbounds [7 x i8*], [7 x i8*]* [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-USE-I386-NEXT:    [[TMP55:%.*]] = getelementptr inbounds [7 x i64], [7 x i64]* [[DOTOFFLOAD_SIZES]], i32 0, i32 0
-// CHECK-USE-I386-NEXT:    [[TMP56:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1:[0-9]+]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l630.region_id, i32 7, i8** [[TMP53]], i8** [[TMP54]], i64* [[TMP55]], i64* getelementptr inbounds ([7 x i64], [7 x i64]* @.offload_maptypes, i32 0, i32 0), i8** null, i8** null)
+// CHECK-USE-I386-NEXT:    [[TMP56:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1:[0-9]+]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l678.region_id, i32 7, i8** [[TMP53]], i8** [[TMP54]], i64* [[TMP55]], i64* getelementptr inbounds ([7 x i64], [7 x i64]* @.offload_maptypes, i32 0, i32 0), i8** null, i8** null)
 // CHECK-USE-I386-NEXT:    [[TMP57:%.*]] = icmp ne i32 [[TMP56]], 0
 // CHECK-USE-I386-NEXT:    br i1 [[TMP57]], label [[OMP_OFFLOAD_FAILED:%.*]], label [[OMP_OFFLOAD_CONT:%.*]]
 // CHECK-USE-I386:       omp_offload.failed:
-// CHECK-USE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l630(%struct.ST* [[ST1]], i32* [[A]], %struct.ST* [[ST2]]) #[[ATTR3:[0-9]+]]
+// CHECK-USE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l678(%struct.ST* [[ST1]], i32* [[A]], %struct.ST* [[ST2]]) #[[ATTR3:[0-9]+]]
 // CHECK-USE-I386-NEXT:    br label [[OMP_OFFLOAD_CONT]]
 // CHECK-USE-I386:       omp_offload.cont:
 // CHECK-USE-I386-NEXT:    [[TMP58:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
@@ -358,11 +406,11 @@ struct ST {
 // CHECK-USE-I386-NEXT:    store i8* null, i8** [[TMP62]], align 4
 // CHECK-USE-I386-NEXT:    [[TMP63:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
 // CHECK-USE-I386-NEXT:    [[TMP64:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_PTRS4]], i32 0, i32 0
-// CHECK-USE-I386-NEXT:    [[TMP65:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l644.region_id, i32 1, i8** [[TMP63]], i8** [[TMP64]], i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_sizes.1, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_maptypes.2, i32 0, i32 0), i8** null, i8** null)
+// CHECK-USE-I386-NEXT:    [[TMP65:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l692.region_id, i32 1, i8** [[TMP63]], i8** [[TMP64]], i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_sizes.1, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_maptypes.2, i32 0, i32 0), i8** null, i8** null)
 // CHECK-USE-I386-NEXT:    [[TMP66:%.*]] = icmp ne i32 [[TMP65]], 0
 // CHECK-USE-I386-NEXT:    br i1 [[TMP66]], label [[OMP_OFFLOAD_FAILED6:%.*]], label [[OMP_OFFLOAD_CONT7:%.*]]
 // CHECK-USE-I386:       omp_offload.failed6:
-// CHECK-USE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l644(i32* [[A]]) #[[ATTR3]]
+// CHECK-USE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l692(i32* [[A]]) #[[ATTR3]]
 // CHECK-USE-I386-NEXT:    br label [[OMP_OFFLOAD_CONT7]]
 // CHECK-USE-I386:       omp_offload.cont7:
 // CHECK-USE-I386-NEXT:    ret void
@@ -466,11 +514,11 @@ struct ST {
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP53:%.*]] = getelementptr inbounds [7 x i8*], [7 x i8*]* [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP54:%.*]] = getelementptr inbounds [7 x i8*], [7 x i8*]* [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP55:%.*]] = getelementptr inbounds [7 x i64], [7 x i64]* [[DOTOFFLOAD_SIZES]], i32 0, i32 0
-// CHECK-NOUSE-PPC64LE-NEXT:    [[TMP56:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1:[0-9]+]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l630.region_id, i32 7, i8** [[TMP53]], i8** [[TMP54]], i64* [[TMP55]], i64* getelementptr inbounds ([7 x i64], [7 x i64]* @.offload_maptypes, i32 0, i32 0), i8** null, i8** null)
+// CHECK-NOUSE-PPC64LE-NEXT:    [[TMP56:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1:[0-9]+]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l678.region_id, i32 7, i8** [[TMP53]], i8** [[TMP54]], i64* [[TMP55]], i64* getelementptr inbounds ([7 x i64], [7 x i64]* @.offload_maptypes, i32 0, i32 0), i8** null, i8** null)
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP57:%.*]] = icmp ne i32 [[TMP56]], 0
 // CHECK-NOUSE-PPC64LE-NEXT:    br i1 [[TMP57]], label [[OMP_OFFLOAD_FAILED:%.*]], label [[OMP_OFFLOAD_CONT:%.*]]
 // CHECK-NOUSE-PPC64LE:       omp_offload.failed:
-// CHECK-NOUSE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l630() #[[ATTR3:[0-9]+]]
+// CHECK-NOUSE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l678() #[[ATTR3:[0-9]+]]
 // CHECK-NOUSE-PPC64LE-NEXT:    br label [[OMP_OFFLOAD_CONT]]
 // CHECK-NOUSE-PPC64LE:       omp_offload.cont:
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP58:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
@@ -483,11 +531,11 @@ struct ST {
 // CHECK-NOUSE-PPC64LE-NEXT:    store i8* null, i8** [[TMP62]], align 8
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP63:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP64:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_PTRS4]], i32 0, i32 0
-// CHECK-NOUSE-PPC64LE-NEXT:    [[TMP65:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l644.region_id, i32 1, i8** [[TMP63]], i8** [[TMP64]], i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_sizes.1, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_maptypes.2, i32 0, i32 0), i8** null, i8** null)
+// CHECK-NOUSE-PPC64LE-NEXT:    [[TMP65:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l692.region_id, i32 1, i8** [[TMP63]], i8** [[TMP64]], i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_sizes.1, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_maptypes.2, i32 0, i32 0), i8** null, i8** null)
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP66:%.*]] = icmp ne i32 [[TMP65]], 0
 // CHECK-NOUSE-PPC64LE-NEXT:    br i1 [[TMP66]], label [[OMP_OFFLOAD_FAILED6:%.*]], label [[OMP_OFFLOAD_CONT7:%.*]]
 // CHECK-NOUSE-PPC64LE:       omp_offload.failed6:
-// CHECK-NOUSE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l644() #[[ATTR3]]
+// CHECK-NOUSE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l692() #[[ATTR3]]
 // CHECK-NOUSE-PPC64LE-NEXT:    br label [[OMP_OFFLOAD_CONT7]]
 // CHECK-NOUSE-PPC64LE:       omp_offload.cont7:
 // CHECK-NOUSE-PPC64LE-NEXT:    ret void
@@ -591,11 +639,11 @@ struct ST {
 // CHECK-NOUSE-I386-NEXT:    [[TMP53:%.*]] = getelementptr inbounds [7 x i8*], [7 x i8*]* [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-NOUSE-I386-NEXT:    [[TMP54:%.*]] = getelementptr inbounds [7 x i8*], [7 x i8*]* [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-NOUSE-I386-NEXT:    [[TMP55:%.*]] = getelementptr inbounds [7 x i64], [7 x i64]* [[DOTOFFLOAD_SIZES]], i32 0, i32 0
-// CHECK-NOUSE-I386-NEXT:    [[TMP56:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1:[0-9]+]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l630.region_id, i32 7, i8** [[TMP53]], i8** [[TMP54]], i64* [[TMP55]], i64* getelementptr inbounds ([7 x i64], [7 x i64]* @.offload_maptypes, i32 0, i32 0), i8** null, i8** null)
+// CHECK-NOUSE-I386-NEXT:    [[TMP56:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1:[0-9]+]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l678.region_id, i32 7, i8** [[TMP53]], i8** [[TMP54]], i64* [[TMP55]], i64* getelementptr inbounds ([7 x i64], [7 x i64]* @.offload_maptypes, i32 0, i32 0), i8** null, i8** null)
 // CHECK-NOUSE-I386-NEXT:    [[TMP57:%.*]] = icmp ne i32 [[TMP56]], 0
 // CHECK-NOUSE-I386-NEXT:    br i1 [[TMP57]], label [[OMP_OFFLOAD_FAILED:%.*]], label [[OMP_OFFLOAD_CONT:%.*]]
 // CHECK-NOUSE-I386:       omp_offload.failed:
-// CHECK-NOUSE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l630() #[[ATTR3:[0-9]+]]
+// CHECK-NOUSE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l678() #[[ATTR3:[0-9]+]]
 // CHECK-NOUSE-I386-NEXT:    br label [[OMP_OFFLOAD_CONT]]
 // CHECK-NOUSE-I386:       omp_offload.cont:
 // CHECK-NOUSE-I386-NEXT:    [[TMP58:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
@@ -608,11 +656,11 @@ struct ST {
 // CHECK-NOUSE-I386-NEXT:    store i8* null, i8** [[TMP62]], align 4
 // CHECK-NOUSE-I386-NEXT:    [[TMP63:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_BASEPTRS3]], i32 0, i32 0
 // CHECK-NOUSE-I386-NEXT:    [[TMP64:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOFFLOAD_PTRS4]], i32 0, i32 0
-// CHECK-NOUSE-I386-NEXT:    [[TMP65:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l644.region_id, i32 1, i8** [[TMP63]], i8** [[TMP64]], i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_sizes.1, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_maptypes.2, i32 0, i32 0), i8** null, i8** null)
+// CHECK-NOUSE-I386-NEXT:    [[TMP65:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l692.region_id, i32 1, i8** [[TMP63]], i8** [[TMP64]], i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_sizes.1, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64], [1 x i64]* @.offload_maptypes.2, i32 0, i32 0), i8** null, i8** null)
 // CHECK-NOUSE-I386-NEXT:    [[TMP66:%.*]] = icmp ne i32 [[TMP65]], 0
 // CHECK-NOUSE-I386-NEXT:    br i1 [[TMP66]], label [[OMP_OFFLOAD_FAILED6:%.*]], label [[OMP_OFFLOAD_CONT7:%.*]]
 // CHECK-NOUSE-I386:       omp_offload.failed6:
-// CHECK-NOUSE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l644() #[[ATTR3]]
+// CHECK-NOUSE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z20explicit_maps_singlei_l692() #[[ATTR3]]
 // CHECK-NOUSE-I386-NEXT:    br label [[OMP_OFFLOAD_CONT7]]
 // CHECK-NOUSE-I386:       omp_offload.cont7:
 // CHECK-NOUSE-I386-NEXT:    ret void
@@ -698,11 +746,11 @@ void explicit_maps_single(int ii) {
 // CHECK-USE-PPC64LE-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [3 x i8*], [3 x i8*]* [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-USE-PPC64LE-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [3 x i8*], [3 x i8*]* [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-USE-PPC64LE-NEXT:    [[TMP26:%.*]] = getelementptr inbounds [3 x i64], [3 x i64]* [[DOTOFFLOAD_SIZES]], i32 0, i32 0
-// CHECK-USE-PPC64LE-NEXT:    [[TMP27:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l887.region_id, i32 3, i8** [[TMP24]], i8** [[TMP25]], i64* [[TMP26]], i64* getelementptr inbounds ([3 x i64], [3 x i64]* @.offload_maptypes.4, i32 0, i32 0), i8** null, i8** null)
+// CHECK-USE-PPC64LE-NEXT:    [[TMP27:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l935.region_id, i32 3, i8** [[TMP24]], i8** [[TMP25]], i64* [[TMP26]], i64* getelementptr inbounds ([3 x i64], [3 x i64]* @.offload_maptypes.4, i32 0, i32 0), i8** null, i8** null)
 // CHECK-USE-PPC64LE-NEXT:    [[TMP28:%.*]] = icmp ne i32 [[TMP27]], 0
 // CHECK-USE-PPC64LE-NEXT:    br i1 [[TMP28]], label [[OMP_OFFLOAD_FAILED:%.*]], label [[OMP_OFFLOAD_CONT:%.*]]
 // CHECK-USE-PPC64LE:       omp_offload.failed:
-// CHECK-USE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l887(%struct.ST* [[THIS1]]) #[[ATTR3]]
+// CHECK-USE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l935(%struct.ST* [[THIS1]]) #[[ATTR3]]
 // CHECK-USE-PPC64LE-NEXT:    br label [[OMP_OFFLOAD_CONT]]
 // CHECK-USE-PPC64LE:       omp_offload.cont:
 // CHECK-USE-PPC64LE-NEXT:    ret void
@@ -756,11 +804,11 @@ void explicit_maps_single(int ii) {
 // CHECK-USE-I386-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [3 x i8*], [3 x i8*]* [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-USE-I386-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [3 x i8*], [3 x i8*]* [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-USE-I386-NEXT:    [[TMP26:%.*]] = getelementptr inbounds [3 x i64], [3 x i64]* [[DOTOFFLOAD_SIZES]], i32 0, i32 0
-// CHECK-USE-I386-NEXT:    [[TMP27:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l887.region_id, i32 3, i8** [[TMP24]], i8** [[TMP25]], i64* [[TMP26]], i64* getelementptr inbounds ([3 x i64], [3 x i64]* @.offload_maptypes.4, i32 0, i32 0), i8** null, i8** null)
+// CHECK-USE-I386-NEXT:    [[TMP27:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l935.region_id, i32 3, i8** [[TMP24]], i8** [[TMP25]], i64* [[TMP26]], i64* getelementptr inbounds ([3 x i64], [3 x i64]* @.offload_maptypes.4, i32 0, i32 0), i8** null, i8** null)
 // CHECK-USE-I386-NEXT:    [[TMP28:%.*]] = icmp ne i32 [[TMP27]], 0
 // CHECK-USE-I386-NEXT:    br i1 [[TMP28]], label [[OMP_OFFLOAD_FAILED:%.*]], label [[OMP_OFFLOAD_CONT:%.*]]
 // CHECK-USE-I386:       omp_offload.failed:
-// CHECK-USE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l887(%struct.ST* [[THIS1]]) #[[ATTR3]]
+// CHECK-USE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l935(%struct.ST* [[THIS1]]) #[[ATTR3]]
 // CHECK-USE-I386-NEXT:    br label [[OMP_OFFLOAD_CONT]]
 // CHECK-USE-I386:       omp_offload.cont:
 // CHECK-USE-I386-NEXT:    ret void
@@ -814,11 +862,11 @@ void explicit_maps_single(int ii) {
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [3 x i8*], [3 x i8*]* [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [3 x i8*], [3 x i8*]* [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP26:%.*]] = getelementptr inbounds [3 x i64], [3 x i64]* [[DOTOFFLOAD_SIZES]], i32 0, i32 0
-// CHECK-NOUSE-PPC64LE-NEXT:    [[TMP27:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l887.region_id, i32 3, i8** [[TMP24]], i8** [[TMP25]], i64* [[TMP26]], i64* getelementptr inbounds ([3 x i64], [3 x i64]* @.offload_maptypes.4, i32 0, i32 0), i8** null, i8** null)
+// CHECK-NOUSE-PPC64LE-NEXT:    [[TMP27:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l935.region_id, i32 3, i8** [[TMP24]], i8** [[TMP25]], i64* [[TMP26]], i64* getelementptr inbounds ([3 x i64], [3 x i64]* @.offload_maptypes.4, i32 0, i32 0), i8** null, i8** null)
 // CHECK-NOUSE-PPC64LE-NEXT:    [[TMP28:%.*]] = icmp ne i32 [[TMP27]], 0
 // CHECK-NOUSE-PPC64LE-NEXT:    br i1 [[TMP28]], label [[OMP_OFFLOAD_FAILED:%.*]], label [[OMP_OFFLOAD_CONT:%.*]]
 // CHECK-NOUSE-PPC64LE:       omp_offload.failed:
-// CHECK-NOUSE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l887() #[[ATTR3]]
+// CHECK-NOUSE-PPC64LE-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l935() #[[ATTR3]]
 // CHECK-NOUSE-PPC64LE-NEXT:    br label [[OMP_OFFLOAD_CONT]]
 // CHECK-NOUSE-PPC64LE:       omp_offload.cont:
 // CHECK-NOUSE-PPC64LE-NEXT:    ret void
@@ -872,11 +920,11 @@ void explicit_maps_single(int ii) {
 // CHECK-NOUSE-I386-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [3 x i8*], [3 x i8*]* [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-NOUSE-I386-NEXT:    [[TMP25:%.*]] = getelementptr inbounds [3 x i8*], [3 x i8*]* [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-NOUSE-I386-NEXT:    [[TMP26:%.*]] = getelementptr inbounds [3 x i64], [3 x i64]* [[DOTOFFLOAD_SIZES]], i32 0, i32 0
-// CHECK-NOUSE-I386-NEXT:    [[TMP27:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l887.region_id, i32 3, i8** [[TMP24]], i8** [[TMP25]], i64* [[TMP26]], i64* getelementptr inbounds ([3 x i64], [3 x i64]* @.offload_maptypes.4, i32 0, i32 0), i8** null, i8** null)
+// CHECK-NOUSE-I386-NEXT:    [[TMP27:%.*]] = call i32 @__tgt_target_mapper(%struct.ident_t* @[[GLOB1]], i64 -1, i8* @.{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l935.region_id, i32 3, i8** [[TMP24]], i8** [[TMP25]], i64* [[TMP26]], i64* getelementptr inbounds ([3 x i64], [3 x i64]* @.offload_maptypes.4, i32 0, i32 0), i8** null, i8** null)
 // CHECK-NOUSE-I386-NEXT:    [[TMP28:%.*]] = icmp ne i32 [[TMP27]], 0
 // CHECK-NOUSE-I386-NEXT:    br i1 [[TMP28]], label [[OMP_OFFLOAD_FAILED:%.*]], label [[OMP_OFFLOAD_CONT:%.*]]
 // CHECK-NOUSE-I386:       omp_offload.failed:
-// CHECK-NOUSE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l887() #[[ATTR3]]
+// CHECK-NOUSE-I386-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__ZN2ST20test_present_membersEv_l935() #[[ATTR3]]
 // CHECK-NOUSE-I386-NEXT:    br label [[OMP_OFFLOAD_CONT]]
 // CHECK-NOUSE-I386:       omp_offload.cont:
 // CHECK-NOUSE-I386-NEXT:    ret void
@@ -894,3 +942,58 @@ void ST::test_present_members() {
 }
 
 #endif
+//.
+// CHECK-USE-PPC64LE: attributes #0 = { mustprogress noinline nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="-altivec,-bpermd,-crypto,-direct-move,-extdiv,-htm,-isa-v206-instructions,-isa-v207-instructions,-isa-v30-instructions,-power8-vector,-power9-vector,-privileged,-rop-protect,-spe,-vsx" }
+// CHECK-USE-PPC64LE: attributes #1 = { noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="-altivec,-bpermd,-crypto,-direct-move,-extdiv,-htm,-isa-v206-instructions,-isa-v207-instructions,-isa-v30-instructions,-power8-vector,-power9-vector,-privileged,-rop-protect,-spe,-vsx" }
+// CHECK-USE-PPC64LE: attributes #2 = { argmemonly nofree nounwind willreturn }
+// CHECK-USE-PPC64LE: attributes #3 = { nounwind }
+// CHECK-USE-PPC64LE: attributes #4 = { noinline nounwind "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="-altivec,-bpermd,-crypto,-direct-move,-extdiv,-htm,-isa-v206-instructions,-isa-v207-instructions,-isa-v30-instructions,-power8-vector,-power9-vector,-privileged,-rop-protect,-spe,-vsx" }
+//.
+// CHECK-USE-I386: attributes #0 = { mustprogress noinline nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+cx8,+x87" }
+// CHECK-USE-I386: attributes #1 = { noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+cx8,+x87" }
+// CHECK-USE-I386: attributes #2 = { argmemonly nofree nounwind willreturn }
+// CHECK-USE-I386: attributes #3 = { nounwind }
+// CHECK-USE-I386: attributes #4 = { noinline nounwind "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+cx8,+x87" }
+//.
+// CHECK-NOUSE-PPC64LE: attributes #0 = { mustprogress noinline nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="-altivec,-bpermd,-crypto,-direct-move,-extdiv,-htm,-isa-v206-instructions,-isa-v207-instructions,-isa-v30-instructions,-power8-vector,-power9-vector,-privileged,-rop-protect,-spe,-vsx" }
+// CHECK-NOUSE-PPC64LE: attributes #1 = { noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="-altivec,-bpermd,-crypto,-direct-move,-extdiv,-htm,-isa-v206-instructions,-isa-v207-instructions,-isa-v30-instructions,-power8-vector,-power9-vector,-privileged,-rop-protect,-spe,-vsx" }
+// CHECK-NOUSE-PPC64LE: attributes #2 = { argmemonly nofree nounwind willreturn }
+// CHECK-NOUSE-PPC64LE: attributes #3 = { nounwind }
+// CHECK-NOUSE-PPC64LE: attributes #4 = { noinline nounwind "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="-altivec,-bpermd,-crypto,-direct-move,-extdiv,-htm,-isa-v206-instructions,-isa-v207-instructions,-isa-v30-instructions,-power8-vector,-power9-vector,-privileged,-rop-protect,-spe,-vsx" }
+//.
+// CHECK-NOUSE-I386: attributes #0 = { mustprogress noinline nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+cx8,+x87" }
+// CHECK-NOUSE-I386: attributes #1 = { noinline norecurse nounwind optnone "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+cx8,+x87" }
+// CHECK-NOUSE-I386: attributes #2 = { argmemonly nofree nounwind willreturn }
+// CHECK-NOUSE-I386: attributes #3 = { nounwind }
+// CHECK-NOUSE-I386: attributes #4 = { noinline nounwind "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+cx8,+x87" }
+//.
+// CHECK-USE-PPC64LE: !0 = !{i32 0, i32 32, i32 18323656, !"_Z20explicit_maps_singlei", i32 692, i32 1}
+// CHECK-USE-PPC64LE: !1 = !{i32 0, i32 32, i32 18323656, !"_Z20explicit_maps_singlei", i32 678, i32 0}
+// CHECK-USE-PPC64LE: !2 = !{i32 0, i32 32, i32 18323656, !"_ZN2ST20test_present_membersEv", i32 935, i32 2}
+// CHECK-USE-PPC64LE: !3 = !{i32 1, !"wchar_size", i32 4}
+// CHECK-USE-PPC64LE: !4 = !{i32 7, !"openmp", i32 50}
+// CHECK-USE-PPC64LE: !5 = !{!"clang version 15.0.0"}
+//.
+// CHECK-USE-I386: !0 = !{i32 0, i32 32, i32 18323656, !"_Z20explicit_maps_singlei", i32 692, i32 1}
+// CHECK-USE-I386: !1 = !{i32 0, i32 32, i32 18323656, !"_Z20explicit_maps_singlei", i32 678, i32 0}
+// CHECK-USE-I386: !2 = !{i32 0, i32 32, i32 18323656, !"_ZN2ST20test_present_membersEv", i32 935, i32 2}
+// CHECK-USE-I386: !3 = !{i32 1, !"NumRegisterParameters", i32 0}
+// CHECK-USE-I386: !4 = !{i32 1, !"wchar_size", i32 4}
+// CHECK-USE-I386: !5 = !{i32 7, !"openmp", i32 50}
+// CHECK-USE-I386: !6 = !{!"clang version 15.0.0"}
+//.
+// CHECK-NOUSE-PPC64LE: !0 = !{i32 0, i32 32, i32 18323656, !"_Z20explicit_maps_singlei", i32 692, i32 1}
+// CHECK-NOUSE-PPC64LE: !1 = !{i32 0, i32 32, i32 18323656, !"_Z20explicit_maps_singlei", i32 678, i32 0}
+// CHECK-NOUSE-PPC64LE: !2 = !{i32 0, i32 32, i32 18323656, !"_ZN2ST20test_present_membersEv", i32 935, i32 2}
+// CHECK-NOUSE-PPC64LE: !3 = !{i32 1, !"wchar_size", i32 4}
+// CHECK-NOUSE-PPC64LE: !4 = !{i32 7, !"openmp", i32 50}
+// CHECK-NOUSE-PPC64LE: !5 = !{!"clang version 15.0.0"}
+//.
+// CHECK-NOUSE-I386: !0 = !{i32 0, i32 32, i32 18323656, !"_Z20explicit_maps_singlei", i32 692, i32 1}
+// CHECK-NOUSE-I386: !1 = !{i32 0, i32 32, i32 18323656, !"_Z20explicit_maps_singlei", i32 678, i32 0}
+// CHECK-NOUSE-I386: !2 = !{i32 0, i32 32, i32 18323656, !"_ZN2ST20test_present_membersEv", i32 935, i32 2}
+// CHECK-NOUSE-I386: !3 = !{i32 1, !"NumRegisterParameters", i32 0}
+// CHECK-NOUSE-I386: !4 = !{i32 1, !"wchar_size", i32 4}
+// CHECK-NOUSE-I386: !5 = !{i32 7, !"openmp", i32 50}
+// CHECK-NOUSE-I386: !6 = !{!"clang version 15.0.0"}
+//.

@@ -3338,42 +3338,6 @@ struct AAKernelInfoFunction : AAKernelInfo {
         IRPosition::value(*KernelEnvGV->getInitializer()),
         KernelConfigurationSimplifyCB);
 
-    // TODO: These are only needed for the old runtime and should be removed
-    // with it:
-    //{
-    Attributor::SimplifictionCallbackTy IsGenericModeSimplifyCB =
-        [&](const IRPosition &IRP, const AbstractAttribute *AA,
-            bool &UsedAssumedInformation) -> Optional<Value *> {
-      // IRP represents the "RequiresFullRuntime" argument of an
-      // __kmpc_target_init or __kmpc_target_deinit call. We will answer this
-      // one with the internal state of the SPMDCompatibilityTracker, so if
-      // generic then true, if SPMD then false.
-      if (!SPMDCompatibilityTracker.isValidState())
-        return nullptr;
-      if (!SPMDCompatibilityTracker.isAtFixpoint()) {
-        if (AA)
-          A.recordDependence(*this, *AA, DepClassTy::OPTIONAL);
-        UsedAssumedInformation = true;
-      } else {
-        UsedAssumedInformation = false;
-      }
-      auto *Val = ConstantInt::getBool(IRP.getAnchorValue().getContext(),
-                                       !SPMDCompatibilityTracker.isAssumed());
-      return Val;
-    };
-
-    constexpr const int InitRequiresFullRuntimeArgNo = 1;
-    constexpr const int DeinitRequiresFullRuntimeArgNo = 0;
-    A.registerSimplificationCallback(
-        IRPosition::callsite_argument(*KernelInitCB,
-                                      InitRequiresFullRuntimeArgNo),
-        IsGenericModeSimplifyCB);
-    A.registerSimplificationCallback(
-        IRPosition::callsite_argument(*KernelDeinitCB,
-                                      DeinitRequiresFullRuntimeArgNo),
-        IsGenericModeSimplifyCB);
-    //}
-
     // Check if we know we are in SPMD-mode already.
     if (ExecModeC->getSExtValue() & OMP_TGT_EXEC_MODE_SPMD)
       SPMDCompatibilityTracker.indicateOptimisticFixpoint();
@@ -3699,20 +3663,6 @@ struct AAKernelInfoFunction : AAKernelInfo {
     // Next rewrite the kernel configuration to indicate we use SPMD-mode now.
     GlobalVariable *KernelEnvGV = getKernelEnvironementGlobalVariable();
     KernelEnvGV->setInitializer(KernelEnvC);
-
-    // TODO: These are only needed for the old runtime and should be removed
-    // with it:
-    //{
-    const int InitRequiresFullRuntimeArgNo = 1;
-    const int DeinitRequiresFullRuntimeArgNo = 0;
-    auto &Ctx = getAnchorValue().getContext();
-    A.changeUseAfterManifest(
-        KernelInitCB->getArgOperandUse(InitRequiresFullRuntimeArgNo),
-        *ConstantInt::getBool(Ctx, false));
-    A.changeUseAfterManifest(
-        KernelDeinitCB->getArgOperandUse(DeinitRequiresFullRuntimeArgNo),
-        *ConstantInt::getBool(Ctx, 0));
-    //}
 
     ++NumOpenMPTargetRegionKernelsSPMD;
 

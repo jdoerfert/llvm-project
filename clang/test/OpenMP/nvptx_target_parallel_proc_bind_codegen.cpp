@@ -53,5 +53,4 @@ int bar(int n){
   return a;
 }
 
-// CHECK-NOT: call void @__kmpc_push_proc_bind
 #endif

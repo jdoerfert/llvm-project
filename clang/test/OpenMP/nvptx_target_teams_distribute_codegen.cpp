@@ -579,15 +579,15 @@ int bar(int n){
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK1-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 1, i1 true, i1 true)
+// CHECK1-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z9ftemplateIcET_i_l16_kernel_info)
 // CHECK1-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK1-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK1:       user_code.entry:
-// CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2:[0-9]+]])
 // CHECK1-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK1-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK1-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR5:[0-9]+]]
-// CHECK1-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK1-NEXT:    call void @__kmpc_target_deinit()
 // CHECK1-NEXT:    ret void
 // CHECK1:       worker.exit:
 // CHECK1-NEXT:    ret void
@@ -615,7 +615,7 @@ int bar(int n){
 // CHECK1-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
 // CHECK1-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
-// CHECK1-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP1]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK1-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1:[0-9]+]], i32 [[TMP1]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK1-NEXT:    [[TMP2:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4
 // CHECK1-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP2]], 9
 // CHECK1-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -644,7 +644,7 @@ int bar(int n){
 // CHECK1-NEXT:    [[TMP9:%.*]] = bitcast i32* [[I_ON_STACK]] to i8*
 // CHECK1-NEXT:    store i8* [[TMP9]], i8** [[TMP8]], align 8
 // CHECK1-NEXT:    [[TMP10:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP10]], i64 1)
+// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP10]], i64 1)
 // CHECK1-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK1:       omp.body.continue:
 // CHECK1-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -656,7 +656,7 @@ int bar(int n){
 // CHECK1:       omp.inner.for.end:
 // CHECK1-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK1:       omp.loop.exit:
-// CHECK1-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]])
+// CHECK1-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]])
 // CHECK1-NEXT:    call void @__kmpc_free_shared(i8* [[I]], i64 4)
 // CHECK1-NEXT:    ret void
 //
@@ -701,15 +701,15 @@ int bar(int n){
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK2-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 1, i1 true, i1 true)
+// CHECK2-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z9ftemplateIcET_i_l16_kernel_info)
 // CHECK2-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK2-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK2:       user_code.entry:
-// CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2:[0-9]+]])
 // CHECK2-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK2-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK2-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR5:[0-9]+]]
-// CHECK2-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK2-NEXT:    call void @__kmpc_target_deinit()
 // CHECK2-NEXT:    ret void
 // CHECK2:       worker.exit:
 // CHECK2-NEXT:    ret void
@@ -737,7 +737,7 @@ int bar(int n){
 // CHECK2-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
 // CHECK2-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 4
 // CHECK2-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
-// CHECK2-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP1]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK2-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1:[0-9]+]], i32 [[TMP1]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK2-NEXT:    [[TMP2:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4
 // CHECK2-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP2]], 9
 // CHECK2-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -766,7 +766,7 @@ int bar(int n){
 // CHECK2-NEXT:    [[TMP9:%.*]] = bitcast i32* [[I_ON_STACK]] to i8*
 // CHECK2-NEXT:    store i8* [[TMP9]], i8** [[TMP8]], align 4
 // CHECK2-NEXT:    [[TMP10:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP10]], i32 1)
+// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP10]], i32 1)
 // CHECK2-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK2:       omp.body.continue:
 // CHECK2-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -778,7 +778,7 @@ int bar(int n){
 // CHECK2:       omp.inner.for.end:
 // CHECK2-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK2:       omp.loop.exit:
-// CHECK2-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]])
+// CHECK2-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]])
 // CHECK2-NEXT:    call void @__kmpc_free_shared(i8* [[I]], i32 4)
 // CHECK2-NEXT:    ret void
 //
@@ -823,15 +823,15 @@ int bar(int n){
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 1, i1 true, i1 true)
+// CHECK3-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z9ftemplateIcET_i_l16_kernel_info)
 // CHECK3-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK3-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK3:       user_code.entry:
-// CHECK3-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK3-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2:[0-9]+]])
 // CHECK3-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4
 // CHECK3-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR5:[0-9]+]]
-// CHECK3-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK3-NEXT:    call void @__kmpc_target_deinit()
 // CHECK3-NEXT:    ret void
 // CHECK3:       worker.exit:
 // CHECK3-NEXT:    ret void
@@ -859,7 +859,7 @@ int bar(int n){
 // CHECK3-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
 // CHECK3-NEXT:    [[TMP0:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 4
 // CHECK3-NEXT:    [[TMP1:%.*]] = load i32, i32* [[TMP0]], align 4
-// CHECK3-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP1]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK3-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1:[0-9]+]], i32 [[TMP1]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK3-NEXT:    [[TMP2:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4
 // CHECK3-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP2]], 9
 // CHECK3-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -888,7 +888,7 @@ int bar(int n){
 // CHECK3-NEXT:    [[TMP9:%.*]] = bitcast i32* [[I_ON_STACK]] to i8*
 // CHECK3-NEXT:    store i8* [[TMP9]], i8** [[TMP8]], align 4
 // CHECK3-NEXT:    [[TMP10:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP10]], i32 1)
+// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP10]], i32 1)
 // CHECK3-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK3:       omp.body.continue:
 // CHECK3-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -900,7 +900,7 @@ int bar(int n){
 // CHECK3:       omp.inner.for.end:
 // CHECK3-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK3:       omp.loop.exit:
-// CHECK3-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]])
+// CHECK3-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]])
 // CHECK3-NEXT:    call void @__kmpc_free_shared(i8* [[I]], i32 4)
 // CHECK3-NEXT:    ret void
 //

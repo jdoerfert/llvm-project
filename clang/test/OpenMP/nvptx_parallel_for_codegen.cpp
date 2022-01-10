@@ -465,13 +465,13 @@ int bar(int n){
 // CHECK-NEXT:    store [10 x i32]* [[B]], [10 x i32]** [[B_ADDR]], align 8
 // CHECK-NEXT:    [[CONV:%.*]] = bitcast i64* [[N_ADDR]] to i32*
 // CHECK-NEXT:    [[TMP0:%.*]] = load [10 x i32]*, [10 x i32]** [[B_ADDR]], align 8
-// CHECK-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 1, i1 true, i1 true)
+// CHECK-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z9ftemplateIiET_i_l13_kernel_info)
 // CHECK-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP1]], -1
 // CHECK-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK:       user_code.entry:
 // CHECK-NEXT:    [[D:%.*]] = call align 8 i8* @__kmpc_alloc_shared(i64 4)
 // CHECK-NEXT:    [[D_ON_STACK:%.*]] = bitcast i8* [[D]] to i32*
-// CHECK-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2:[0-9]+]])
 // CHECK-NEXT:    [[TMP3:%.*]] = load i32, i32* [[CONV]], align 4
 // CHECK-NEXT:    store i32 [[TMP3]], i32* [[D_ON_STACK]], align 4
 // CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [2 x i8*], [2 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 0
@@ -481,13 +481,13 @@ int bar(int n){
 // CHECK-NEXT:    [[TMP7:%.*]] = bitcast i32* [[D_ON_STACK]] to i8*
 // CHECK-NEXT:    store i8* [[TMP7]], i8** [[TMP6]], align 8
 // CHECK-NEXT:    [[TMP8:%.*]] = bitcast [2 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP2]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, [10 x i32]*, i32*)* @__omp_outlined__ to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined___wrapper to i8*), i8** [[TMP8]], i64 2)
+// CHECK-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, [10 x i32]*, i32*)* @__omp_outlined__ to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined___wrapper to i8*), i8** [[TMP8]], i64 2)
 // CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds [10 x i32], [10 x i32]* [[TMP0]], i64 0, i64 3
 // CHECK-NEXT:    [[TMP9:%.*]] = load i32, i32* [[ARRAYIDX]], align 4
 // CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP9]], 1
 // CHECK-NEXT:    store i32 [[ADD]], i32* [[ARRAYIDX]], align 4
 // CHECK-NEXT:    call void @__kmpc_free_shared(i8* [[D]], i64 4)
-// CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK-NEXT:    call void @__kmpc_target_deinit()
 // CHECK-NEXT:    ret void
 // CHECK:       worker.exit:
 // CHECK-NEXT:    ret void
@@ -519,7 +519,7 @@ int bar(int n){
 // CHECK-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
 // CHECK-NEXT:    [[TMP2:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
-// CHECK-NEXT:    call void @__kmpc_for_static_init_4(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP3]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK-NEXT:    call void @__kmpc_for_static_init_4(%struct.ident_t* @[[GLOB1:[0-9]+]], i32 [[TMP3]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK-NEXT:    br label [[OMP_DISPATCH_COND:%.*]]
 // CHECK:       omp.dispatch.cond:
 // CHECK-NEXT:    [[TMP4:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4
@@ -579,7 +579,7 @@ int bar(int n){
 // CHECK-NEXT:    store i32 [[ADD6]], i32* [[DOTOMP_UB]], align 4
 // CHECK-NEXT:    br label [[OMP_DISPATCH_COND]]
 // CHECK:       omp.dispatch.end:
-// CHECK-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP3]])
+// CHECK-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP3]])
 // CHECK-NEXT:    ret void
 //
 //

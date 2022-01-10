@@ -103,18 +103,18 @@ int main()
 // CHECK-NEXT:    [[E_ADDR:%.*]] = alloca double*, align 8
 // CHECK-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [1 x i8*], align 8
 // CHECK-NEXT:    store double* [[E]], double** [[E_ADDR]], align 8
-// CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 2, i1 false, i1 true)
+// CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z3fooi_l32_kernel_info)
 // CHECK-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK:       user_code.entry:
-// CHECK-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2:[0-9]+]])
+// CHECK-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1:[0-9]+]])
 // CHECK-NEXT:    [[TMP2:%.*]] = load double*, double** [[E_ADDR]], align 8
 // CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[CAPTURED_VARS_ADDRS]], i64 0, i64 0
 // CHECK-NEXT:    [[TMP4:%.*]] = bitcast double* [[TMP2]] to i8*
 // CHECK-NEXT:    store i8* [[TMP4]], i8** [[TMP3]], align 8
 // CHECK-NEXT:    [[TMP5:%.*]] = bitcast [1 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB2]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, double*)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP5]], i64 1)
-// CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 2, i1 true)
+// CHECK-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP1]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, double*)* @__omp_outlined__ to i8*), i8* null, i8** [[TMP5]], i64 1)
+// CHECK-NEXT:    call void @__kmpc_target_deinit()
 // CHECK-NEXT:    ret void
 // CHECK:       worker.exit:
 // CHECK-NEXT:    ret void
@@ -152,7 +152,7 @@ int main()
 // CHECK-NEXT:    [[TMP12:%.*]] = bitcast double* [[E2]] to i8*
 // CHECK-NEXT:    store i8* [[TMP12]], i8** [[TMP11]], align 8
 // CHECK-NEXT:    [[TMP13:%.*]] = bitcast [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]] to i8*
-// CHECK-NEXT:    [[TMP14:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB2]], i32 [[TMP10]], i32 1, i64 8, i8* [[TMP13]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func)
+// CHECK-NEXT:    [[TMP14:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB1]], i32 [[TMP10]], i32 1, i64 8, i8* [[TMP13]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func)
 // CHECK-NEXT:    [[TMP15:%.*]] = icmp eq i32 [[TMP14]], 1
 // CHECK-NEXT:    br i1 [[TMP15]], label [[DOTOMP_REDUCTION_THEN:%.*]], label [[DOTOMP_REDUCTION_DONE:%.*]]
 // CHECK:       .omp.reduction.then:
@@ -248,7 +248,7 @@ int main()
 // CHECK-NEXT:    [[DOTADDR:%.*]] = alloca i8*, align 8
 // CHECK-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 // CHECK-NEXT:    [[DOTCNT_ADDR:%.*]] = alloca i32, align 4
-// CHECK-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB2]])
+// CHECK-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
 // CHECK-NEXT:    store i8* [[TMP0]], i8** [[DOTADDR]], align 8
 // CHECK-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4
 // CHECK-NEXT:    [[TMP3:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
@@ -265,7 +265,7 @@ int main()
 // CHECK-NEXT:    [[TMP9:%.*]] = icmp ult i32 [[TMP8]], 2
 // CHECK-NEXT:    br i1 [[TMP9]], label [[BODY:%.*]], label [[EXIT:%.*]]
 // CHECK:       body:
-// CHECK-NEXT:    call void @__kmpc_barrier(%struct.ident_t* @[[GLOB3:[0-9]+]], i32 [[TMP2]])
+// CHECK-NEXT:    call void @__kmpc_barrier(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP2]])
 // CHECK-NEXT:    [[WARP_MASTER:%.*]] = icmp eq i32 [[NVPTX_LANE_ID]], 0
 // CHECK-NEXT:    br i1 [[WARP_MASTER]], label [[THEN:%.*]], label [[ELSE:%.*]]
 // CHECK:       then:
@@ -280,7 +280,7 @@ int main()
 // CHECK:       else:
 // CHECK-NEXT:    br label [[IFCONT]]
 // CHECK:       ifcont:
-// CHECK-NEXT:    call void @__kmpc_barrier(%struct.ident_t* @[[GLOB3]], i32 [[TMP2]])
+// CHECK-NEXT:    call void @__kmpc_barrier(%struct.ident_t* @[[GLOB2]], i32 [[TMP2]])
 // CHECK-NEXT:    [[TMP16:%.*]] = load i32, i32* [[DOTADDR1]], align 4
 // CHECK-NEXT:    [[IS_ACTIVE_THREAD:%.*]] = icmp ult i32 [[TMP3]], [[TMP16]]
 // CHECK-NEXT:    br i1 [[IS_ACTIVE_THREAD]], label [[THEN2:%.*]], label [[ELSE3:%.*]]

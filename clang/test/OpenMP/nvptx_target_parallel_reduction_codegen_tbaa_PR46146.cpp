@@ -35,15 +35,15 @@ void test() {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK1-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 1, i1 true, i1 true)
+// CHECK1-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIfEvv_l16_kernel_info)
 // CHECK1-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK1-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK1:       user_code.entry:
-// CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3:[0-9]+]])
 // CHECK1-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK1-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4, !tbaa [[TBAA8:![0-9]+]]
 // CHECK1-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR6:[0-9]+]]
-// CHECK1-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK1-NEXT:    call void @__kmpc_target_deinit()
 // CHECK1-NEXT:    ret void
 // CHECK1:       worker.exit:
 // CHECK1-NEXT:    ret void
@@ -90,7 +90,7 @@ void test() {
 // CHECK1-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP5]]) #[[ATTR6]]
 // CHECK1-NEXT:    [[TMP6:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP7:%.*]] = load i32, i32* [[TMP6]], align 4, !tbaa [[TBAA8]]
-// CHECK1-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK1-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1:[0-9]+]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK1-NEXT:    [[TMP8:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
 // CHECK1-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP8]], 99
 // CHECK1-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -145,7 +145,7 @@ void test() {
 // CHECK1-NEXT:    [[TMP25:%.*]] = bitcast %"class.std::complex"* [[PARTIAL_SUM_ON_STACK]] to i8*
 // CHECK1-NEXT:    store i8* [[TMP25]], i8** [[TMP24]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    [[TMP26:%.*]] = bitcast [3 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex"*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP26]], i64 3)
+// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex"*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP26]], i64 3)
 // CHECK1-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK1:       omp.body.continue:
 // CHECK1-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -157,7 +157,7 @@ void test() {
 // CHECK1:       omp.inner.for.end:
 // CHECK1-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK1:       omp.loop.exit:
-// CHECK1-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]])
+// CHECK1-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]])
 // CHECK1-NEXT:    [[TMP28:%.*]] = bitcast i32* [[IB]] to i8*
 // CHECK1-NEXT:    call void @llvm.lifetime.end.p0i8(i64 4, i8* [[TMP28]]) #[[ATTR6]]
 // CHECK1-NEXT:    [[TMP29:%.*]] = bitcast i32* [[DOTOMP_IS_LAST]] to i8*
@@ -287,7 +287,7 @@ void test() {
 // CHECK1-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP26]]) #[[ATTR6]]
 // CHECK1-NEXT:    [[TMP27:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP28:%.*]] = load i32, i32* [[TMP27]], align 4, !tbaa [[TBAA8]]
-// CHECK1-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB3:[0-9]+]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK1-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK1-NEXT:    br label [[OMP_DISPATCH_COND:%.*]]
 // CHECK1:       omp.dispatch.cond:
 // CHECK1-NEXT:    [[TMP29:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
@@ -371,14 +371,14 @@ void test() {
 // CHECK1:       omp.dispatch.end:
 // CHECK1-NEXT:    [[TMP53:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP54:%.*]] = load i32, i32* [[TMP53]], align 4, !tbaa [[TBAA8]]
-// CHECK1-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB3]], i32 [[TMP54]])
+// CHECK1-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP54]])
 // CHECK1-NEXT:    [[TMP55:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP56:%.*]] = load i32, i32* [[TMP55]], align 4, !tbaa [[TBAA8]]
 // CHECK1-NEXT:    [[TMP57:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]], i64 0, i64 0
 // CHECK1-NEXT:    [[TMP58:%.*]] = bitcast %"class.std::complex"* [[PARTIAL_SUM5]] to i8*
 // CHECK1-NEXT:    store i8* [[TMP58]], i8** [[TMP57]], align 8
 // CHECK1-NEXT:    [[TMP59:%.*]] = bitcast [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]] to i8*
-// CHECK1-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB1]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func)
+// CHECK1-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB3]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func)
 // CHECK1-NEXT:    [[TMP61:%.*]] = icmp eq i32 [[TMP60]], 1
 // CHECK1-NEXT:    br i1 [[TMP61]], label [[DOTOMP_REDUCTION_THEN:%.*]], label [[DOTOMP_REDUCTION_DONE:%.*]]
 // CHECK1:       .omp.reduction.then:
@@ -517,7 +517,7 @@ void test() {
 // CHECK1-NEXT:    [[DOTADDR:%.*]] = alloca i8*, align 8
 // CHECK1-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTCNT_ADDR:%.*]] = alloca i32, align 4
-// CHECK1-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK1-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK1-NEXT:    store i8* [[TMP0]], i8** [[DOTADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4, !tbaa [[TBAA8]]
 // CHECK1-NEXT:    [[TMP3:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
@@ -602,15 +602,15 @@ void test() {
 // CHECK1-NEXT:  entry:
 // CHECK1-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK1-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 1, i1 true, i1 true)
+// CHECK1-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIdEvv_l16_kernel_info)
 // CHECK1-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK1-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK1:       user_code.entry:
-// CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK1-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK1-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK1-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4, !tbaa [[TBAA8]]
 // CHECK1-NEXT:    call void @__omp_outlined__2(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR6]]
-// CHECK1-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK1-NEXT:    call void @__kmpc_target_deinit()
 // CHECK1-NEXT:    ret void
 // CHECK1:       worker.exit:
 // CHECK1-NEXT:    ret void
@@ -657,7 +657,7 @@ void test() {
 // CHECK1-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP5]]) #[[ATTR6]]
 // CHECK1-NEXT:    [[TMP6:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP7:%.*]] = load i32, i32* [[TMP6]], align 4, !tbaa [[TBAA8]]
-// CHECK1-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK1-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK1-NEXT:    [[TMP8:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
 // CHECK1-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP8]], 99
 // CHECK1-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -712,7 +712,7 @@ void test() {
 // CHECK1-NEXT:    [[TMP25:%.*]] = bitcast %"class.std::complex.0"* [[PARTIAL_SUM_ON_STACK]] to i8*
 // CHECK1-NEXT:    store i8* [[TMP25]], i8** [[TMP24]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    [[TMP26:%.*]] = bitcast [3 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex.0"*)* @__omp_outlined__3 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__3_wrapper to i8*), i8** [[TMP26]], i64 3)
+// CHECK1-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex.0"*)* @__omp_outlined__3 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__3_wrapper to i8*), i8** [[TMP26]], i64 3)
 // CHECK1-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK1:       omp.body.continue:
 // CHECK1-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -724,7 +724,7 @@ void test() {
 // CHECK1:       omp.inner.for.end:
 // CHECK1-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK1:       omp.loop.exit:
-// CHECK1-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]])
+// CHECK1-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]])
 // CHECK1-NEXT:    [[TMP28:%.*]] = bitcast i32* [[IB]] to i8*
 // CHECK1-NEXT:    call void @llvm.lifetime.end.p0i8(i64 4, i8* [[TMP28]]) #[[ATTR6]]
 // CHECK1-NEXT:    [[TMP29:%.*]] = bitcast i32* [[DOTOMP_IS_LAST]] to i8*
@@ -854,7 +854,7 @@ void test() {
 // CHECK1-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP26]]) #[[ATTR6]]
 // CHECK1-NEXT:    [[TMP27:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP28:%.*]] = load i32, i32* [[TMP27]], align 4, !tbaa [[TBAA8]]
-// CHECK1-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB3]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK1-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB2]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK1-NEXT:    br label [[OMP_DISPATCH_COND:%.*]]
 // CHECK1:       omp.dispatch.cond:
 // CHECK1-NEXT:    [[TMP29:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
@@ -938,14 +938,14 @@ void test() {
 // CHECK1:       omp.dispatch.end:
 // CHECK1-NEXT:    [[TMP53:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP54:%.*]] = load i32, i32* [[TMP53]], align 4, !tbaa [[TBAA8]]
-// CHECK1-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB3]], i32 [[TMP54]])
+// CHECK1-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP54]])
 // CHECK1-NEXT:    [[TMP55:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK1-NEXT:    [[TMP56:%.*]] = load i32, i32* [[TMP55]], align 4, !tbaa [[TBAA8]]
 // CHECK1-NEXT:    [[TMP57:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]], i64 0, i64 0
 // CHECK1-NEXT:    [[TMP58:%.*]] = bitcast %"class.std::complex.0"* [[PARTIAL_SUM5]] to i8*
 // CHECK1-NEXT:    store i8* [[TMP58]], i8** [[TMP57]], align 8
 // CHECK1-NEXT:    [[TMP59:%.*]] = bitcast [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]] to i8*
-// CHECK1-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB1]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func5, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func6)
+// CHECK1-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB3]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func5, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func6)
 // CHECK1-NEXT:    [[TMP61:%.*]] = icmp eq i32 [[TMP60]], 1
 // CHECK1-NEXT:    br i1 [[TMP61]], label [[DOTOMP_REDUCTION_THEN:%.*]], label [[DOTOMP_REDUCTION_DONE:%.*]]
 // CHECK1:       .omp.reduction.then:
@@ -1098,7 +1098,7 @@ void test() {
 // CHECK1-NEXT:    [[DOTADDR:%.*]] = alloca i8*, align 8
 // CHECK1-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 // CHECK1-NEXT:    [[DOTCNT_ADDR:%.*]] = alloca i32, align 4
-// CHECK1-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK1-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK1-NEXT:    store i8* [[TMP0]], i8** [[DOTADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK1-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4, !tbaa [[TBAA8]]
 // CHECK1-NEXT:    [[TMP3:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
@@ -1269,15 +1269,15 @@ void test() {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK2-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 1, i1 true, i1 true)
+// CHECK2-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIfEvv_l16_kernel_info)
 // CHECK2-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK2-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK2:       user_code.entry:
-// CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3:[0-9]+]])
 // CHECK2-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK2-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4, !tbaa [[TBAA8:![0-9]+]]
 // CHECK2-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR6:[0-9]+]]
-// CHECK2-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK2-NEXT:    call void @__kmpc_target_deinit()
 // CHECK2-NEXT:    ret void
 // CHECK2:       worker.exit:
 // CHECK2-NEXT:    ret void
@@ -1324,7 +1324,7 @@ void test() {
 // CHECK2-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP5]]) #[[ATTR6]]
 // CHECK2-NEXT:    [[TMP6:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK2-NEXT:    [[TMP7:%.*]] = load i32, i32* [[TMP6]], align 4, !tbaa [[TBAA8]]
-// CHECK2-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK2-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1:[0-9]+]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK2-NEXT:    [[TMP8:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
 // CHECK2-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP8]], 99
 // CHECK2-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -1379,7 +1379,7 @@ void test() {
 // CHECK2-NEXT:    [[TMP25:%.*]] = bitcast %"class.std::complex"* [[PARTIAL_SUM_ON_STACK]] to i8*
 // CHECK2-NEXT:    store i8* [[TMP25]], i8** [[TMP24]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    [[TMP26:%.*]] = bitcast [3 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex"*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP26]], i64 3)
+// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex"*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP26]], i64 3)
 // CHECK2-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK2:       omp.body.continue:
 // CHECK2-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -1391,7 +1391,7 @@ void test() {
 // CHECK2:       omp.inner.for.end:
 // CHECK2-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK2:       omp.loop.exit:
-// CHECK2-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]])
+// CHECK2-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]])
 // CHECK2-NEXT:    [[TMP28:%.*]] = bitcast i32* [[IB]] to i8*
 // CHECK2-NEXT:    call void @llvm.lifetime.end.p0i8(i64 4, i8* [[TMP28]]) #[[ATTR6]]
 // CHECK2-NEXT:    [[TMP29:%.*]] = bitcast i32* [[DOTOMP_IS_LAST]] to i8*
@@ -1521,7 +1521,7 @@ void test() {
 // CHECK2-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP26]]) #[[ATTR6]]
 // CHECK2-NEXT:    [[TMP27:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK2-NEXT:    [[TMP28:%.*]] = load i32, i32* [[TMP27]], align 4, !tbaa [[TBAA8]]
-// CHECK2-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB3:[0-9]+]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK2-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK2-NEXT:    br label [[OMP_DISPATCH_COND:%.*]]
 // CHECK2:       omp.dispatch.cond:
 // CHECK2-NEXT:    [[TMP29:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
@@ -1605,14 +1605,14 @@ void test() {
 // CHECK2:       omp.dispatch.end:
 // CHECK2-NEXT:    [[TMP53:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK2-NEXT:    [[TMP54:%.*]] = load i32, i32* [[TMP53]], align 4, !tbaa [[TBAA8]]
-// CHECK2-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB3]], i32 [[TMP54]])
+// CHECK2-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP54]])
 // CHECK2-NEXT:    [[TMP55:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK2-NEXT:    [[TMP56:%.*]] = load i32, i32* [[TMP55]], align 4, !tbaa [[TBAA8]]
 // CHECK2-NEXT:    [[TMP57:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]], i64 0, i64 0
 // CHECK2-NEXT:    [[TMP58:%.*]] = bitcast %"class.std::complex"* [[PARTIAL_SUM5]] to i8*
 // CHECK2-NEXT:    store i8* [[TMP58]], i8** [[TMP57]], align 8
 // CHECK2-NEXT:    [[TMP59:%.*]] = bitcast [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]] to i8*
-// CHECK2-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB1]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func)
+// CHECK2-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB3]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func)
 // CHECK2-NEXT:    [[TMP61:%.*]] = icmp eq i32 [[TMP60]], 1
 // CHECK2-NEXT:    br i1 [[TMP61]], label [[DOTOMP_REDUCTION_THEN:%.*]], label [[DOTOMP_REDUCTION_DONE:%.*]]
 // CHECK2:       .omp.reduction.then:
@@ -1751,7 +1751,7 @@ void test() {
 // CHECK2-NEXT:    [[DOTADDR:%.*]] = alloca i8*, align 8
 // CHECK2-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTCNT_ADDR:%.*]] = alloca i32, align 4
-// CHECK2-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK2-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK2-NEXT:    store i8* [[TMP0]], i8** [[DOTADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4, !tbaa [[TBAA8]]
 // CHECK2-NEXT:    [[TMP3:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
@@ -1836,15 +1836,15 @@ void test() {
 // CHECK2-NEXT:  entry:
 // CHECK2-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK2-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 1, i1 true, i1 true)
+// CHECK2-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIdEvv_l16_kernel_info)
 // CHECK2-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK2-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK2:       user_code.entry:
-// CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK2-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK2-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK2-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4, !tbaa [[TBAA8]]
 // CHECK2-NEXT:    call void @__omp_outlined__2(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR6]]
-// CHECK2-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK2-NEXT:    call void @__kmpc_target_deinit()
 // CHECK2-NEXT:    ret void
 // CHECK2:       worker.exit:
 // CHECK2-NEXT:    ret void
@@ -1891,7 +1891,7 @@ void test() {
 // CHECK2-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP5]]) #[[ATTR6]]
 // CHECK2-NEXT:    [[TMP6:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK2-NEXT:    [[TMP7:%.*]] = load i32, i32* [[TMP6]], align 4, !tbaa [[TBAA8]]
-// CHECK2-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK2-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK2-NEXT:    [[TMP8:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
 // CHECK2-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP8]], 99
 // CHECK2-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -1946,7 +1946,7 @@ void test() {
 // CHECK2-NEXT:    [[TMP25:%.*]] = bitcast %"class.std::complex.0"* [[PARTIAL_SUM_ON_STACK]] to i8*
 // CHECK2-NEXT:    store i8* [[TMP25]], i8** [[TMP24]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    [[TMP26:%.*]] = bitcast [3 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex.0"*)* @__omp_outlined__3 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__3_wrapper to i8*), i8** [[TMP26]], i64 3)
+// CHECK2-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex.0"*)* @__omp_outlined__3 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__3_wrapper to i8*), i8** [[TMP26]], i64 3)
 // CHECK2-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK2:       omp.body.continue:
 // CHECK2-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -1958,7 +1958,7 @@ void test() {
 // CHECK2:       omp.inner.for.end:
 // CHECK2-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK2:       omp.loop.exit:
-// CHECK2-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]])
+// CHECK2-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]])
 // CHECK2-NEXT:    [[TMP28:%.*]] = bitcast i32* [[IB]] to i8*
 // CHECK2-NEXT:    call void @llvm.lifetime.end.p0i8(i64 4, i8* [[TMP28]]) #[[ATTR6]]
 // CHECK2-NEXT:    [[TMP29:%.*]] = bitcast i32* [[DOTOMP_IS_LAST]] to i8*
@@ -2088,7 +2088,7 @@ void test() {
 // CHECK2-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP26]]) #[[ATTR6]]
 // CHECK2-NEXT:    [[TMP27:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK2-NEXT:    [[TMP28:%.*]] = load i32, i32* [[TMP27]], align 4, !tbaa [[TBAA8]]
-// CHECK2-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB3]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK2-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB2]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK2-NEXT:    br label [[OMP_DISPATCH_COND:%.*]]
 // CHECK2:       omp.dispatch.cond:
 // CHECK2-NEXT:    [[TMP29:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
@@ -2172,14 +2172,14 @@ void test() {
 // CHECK2:       omp.dispatch.end:
 // CHECK2-NEXT:    [[TMP53:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK2-NEXT:    [[TMP54:%.*]] = load i32, i32* [[TMP53]], align 4, !tbaa [[TBAA8]]
-// CHECK2-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB3]], i32 [[TMP54]])
+// CHECK2-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP54]])
 // CHECK2-NEXT:    [[TMP55:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK2-NEXT:    [[TMP56:%.*]] = load i32, i32* [[TMP55]], align 4, !tbaa [[TBAA8]]
 // CHECK2-NEXT:    [[TMP57:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]], i64 0, i64 0
 // CHECK2-NEXT:    [[TMP58:%.*]] = bitcast %"class.std::complex.0"* [[PARTIAL_SUM5]] to i8*
 // CHECK2-NEXT:    store i8* [[TMP58]], i8** [[TMP57]], align 8
 // CHECK2-NEXT:    [[TMP59:%.*]] = bitcast [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]] to i8*
-// CHECK2-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB1]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func5, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func6)
+// CHECK2-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB3]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func5, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func6)
 // CHECK2-NEXT:    [[TMP61:%.*]] = icmp eq i32 [[TMP60]], 1
 // CHECK2-NEXT:    br i1 [[TMP61]], label [[DOTOMP_REDUCTION_THEN:%.*]], label [[DOTOMP_REDUCTION_DONE:%.*]]
 // CHECK2:       .omp.reduction.then:
@@ -2332,7 +2332,7 @@ void test() {
 // CHECK2-NEXT:    [[DOTADDR:%.*]] = alloca i8*, align 8
 // CHECK2-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 // CHECK2-NEXT:    [[DOTCNT_ADDR:%.*]] = alloca i32, align 4
-// CHECK2-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK2-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK2-NEXT:    store i8* [[TMP0]], i8** [[DOTADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK2-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4, !tbaa [[TBAA8]]
 // CHECK2-NEXT:    [[TMP3:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
@@ -2503,15 +2503,15 @@ void test() {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1:[0-9]+]], i8 1, i1 true, i1 true)
+// CHECK3-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIfEvv_l16_kernel_info)
 // CHECK3-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK3-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK3:       user_code.entry:
-// CHECK3-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK3-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3:[0-9]+]])
 // CHECK3-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4, !tbaa [[TBAA8:![0-9]+]]
 // CHECK3-NEXT:    call void @__omp_outlined__(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR6:[0-9]+]]
-// CHECK3-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK3-NEXT:    call void @__kmpc_target_deinit()
 // CHECK3-NEXT:    ret void
 // CHECK3:       worker.exit:
 // CHECK3-NEXT:    ret void
@@ -2558,7 +2558,7 @@ void test() {
 // CHECK3-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP5]]) #[[ATTR6]]
 // CHECK3-NEXT:    [[TMP6:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK3-NEXT:    [[TMP7:%.*]] = load i32, i32* [[TMP6]], align 4, !tbaa [[TBAA8]]
-// CHECK3-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK3-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1:[0-9]+]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK3-NEXT:    [[TMP8:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
 // CHECK3-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP8]], 99
 // CHECK3-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -2613,7 +2613,7 @@ void test() {
 // CHECK3-NEXT:    [[TMP25:%.*]] = bitcast %"class.std::complex"* [[PARTIAL_SUM_ON_STACK]] to i8*
 // CHECK3-NEXT:    store i8* [[TMP25]], i8** [[TMP24]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    [[TMP26:%.*]] = bitcast [3 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex"*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP26]], i64 3)
+// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex"*)* @__omp_outlined__1 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__1_wrapper to i8*), i8** [[TMP26]], i64 3)
 // CHECK3-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK3:       omp.body.continue:
 // CHECK3-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -2625,7 +2625,7 @@ void test() {
 // CHECK3:       omp.inner.for.end:
 // CHECK3-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK3:       omp.loop.exit:
-// CHECK3-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]])
+// CHECK3-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]])
 // CHECK3-NEXT:    [[TMP28:%.*]] = bitcast i32* [[IB]] to i8*
 // CHECK3-NEXT:    call void @llvm.lifetime.end.p0i8(i64 4, i8* [[TMP28]]) #[[ATTR6]]
 // CHECK3-NEXT:    [[TMP29:%.*]] = bitcast i32* [[DOTOMP_IS_LAST]] to i8*
@@ -2755,7 +2755,7 @@ void test() {
 // CHECK3-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP26]]) #[[ATTR6]]
 // CHECK3-NEXT:    [[TMP27:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK3-NEXT:    [[TMP28:%.*]] = load i32, i32* [[TMP27]], align 4, !tbaa [[TBAA8]]
-// CHECK3-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB3:[0-9]+]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK3-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB2:[0-9]+]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK3-NEXT:    br label [[OMP_DISPATCH_COND:%.*]]
 // CHECK3:       omp.dispatch.cond:
 // CHECK3-NEXT:    [[TMP29:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
@@ -2839,14 +2839,14 @@ void test() {
 // CHECK3:       omp.dispatch.end:
 // CHECK3-NEXT:    [[TMP53:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK3-NEXT:    [[TMP54:%.*]] = load i32, i32* [[TMP53]], align 4, !tbaa [[TBAA8]]
-// CHECK3-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB3]], i32 [[TMP54]])
+// CHECK3-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP54]])
 // CHECK3-NEXT:    [[TMP55:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK3-NEXT:    [[TMP56:%.*]] = load i32, i32* [[TMP55]], align 4, !tbaa [[TBAA8]]
 // CHECK3-NEXT:    [[TMP57:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]], i64 0, i64 0
 // CHECK3-NEXT:    [[TMP58:%.*]] = bitcast %"class.std::complex"* [[PARTIAL_SUM5]] to i8*
 // CHECK3-NEXT:    store i8* [[TMP58]], i8** [[TMP57]], align 8
 // CHECK3-NEXT:    [[TMP59:%.*]] = bitcast [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]] to i8*
-// CHECK3-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB1]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func)
+// CHECK3-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB3]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func)
 // CHECK3-NEXT:    [[TMP61:%.*]] = icmp eq i32 [[TMP60]], 1
 // CHECK3-NEXT:    br i1 [[TMP61]], label [[DOTOMP_REDUCTION_THEN:%.*]], label [[DOTOMP_REDUCTION_DONE:%.*]]
 // CHECK3:       .omp.reduction.then:
@@ -2985,7 +2985,7 @@ void test() {
 // CHECK3-NEXT:    [[DOTADDR:%.*]] = alloca i8*, align 8
 // CHECK3-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTCNT_ADDR:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK3-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK3-NEXT:    store i8* [[TMP0]], i8** [[DOTADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4, !tbaa [[TBAA8]]
 // CHECK3-NEXT:    [[TMP3:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
@@ -3070,15 +3070,15 @@ void test() {
 // CHECK3-NEXT:  entry:
 // CHECK3-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* @[[GLOB1]], i8 1, i1 true, i1 true)
+// CHECK3-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}__Z17complex_reductionIdEvv_l16_kernel_info)
 // CHECK3-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 // CHECK3-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK3:       user_code.entry:
-// CHECK3-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK3-NEXT:    [[TMP1:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK3-NEXT:    store i32 0, i32* [[DOTZERO_ADDR]], align 4
 // CHECK3-NEXT:    store i32 [[TMP1]], i32* [[DOTTHREADID_TEMP_]], align 4, !tbaa [[TBAA8]]
 // CHECK3-NEXT:    call void @__omp_outlined__2(i32* [[DOTTHREADID_TEMP_]], i32* [[DOTZERO_ADDR]]) #[[ATTR6]]
-// CHECK3-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* @[[GLOB1]], i8 1, i1 true)
+// CHECK3-NEXT:    call void @__kmpc_target_deinit()
 // CHECK3-NEXT:    ret void
 // CHECK3:       worker.exit:
 // CHECK3-NEXT:    ret void
@@ -3125,7 +3125,7 @@ void test() {
 // CHECK3-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP5]]) #[[ATTR6]]
 // CHECK3-NEXT:    [[TMP6:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK3-NEXT:    [[TMP7:%.*]] = load i32, i32* [[TMP6]], align 4, !tbaa [[TBAA8]]
-// CHECK3-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK3-NEXT:    call void @__kmpc_distribute_static_init_4(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 92, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK3-NEXT:    [[TMP8:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
 // CHECK3-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP8]], 99
 // CHECK3-NEXT:    br i1 [[CMP]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
@@ -3180,7 +3180,7 @@ void test() {
 // CHECK3-NEXT:    [[TMP25:%.*]] = bitcast %"class.std::complex.0"* [[PARTIAL_SUM_ON_STACK]] to i8*
 // CHECK3-NEXT:    store i8* [[TMP25]], i8** [[TMP24]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    [[TMP26:%.*]] = bitcast [3 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
-// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex.0"*)* @__omp_outlined__3 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__3_wrapper to i8*), i8** [[TMP26]], i64 3)
+// CHECK3-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* @[[GLOB3]], i32 [[TMP7]], i32 1, i32 -1, i32 -1, i8* bitcast (void (i32*, i32*, i32*, i32*, %"class.std::complex.0"*)* @__omp_outlined__3 to i8*), i8* bitcast (void (i16, i32)* @__omp_outlined__3_wrapper to i8*), i8** [[TMP26]], i64 3)
 // CHECK3-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
 // CHECK3:       omp.body.continue:
 // CHECK3-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
@@ -3192,7 +3192,7 @@ void test() {
 // CHECK3:       omp.inner.for.end:
 // CHECK3-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK3:       omp.loop.exit:
-// CHECK3-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP7]])
+// CHECK3-NEXT:    call void @__kmpc_distribute_static_fini(%struct.ident_t* @[[GLOB1]], i32 [[TMP7]])
 // CHECK3-NEXT:    [[TMP28:%.*]] = bitcast i32* [[IB]] to i8*
 // CHECK3-NEXT:    call void @llvm.lifetime.end.p0i8(i64 4, i8* [[TMP28]]) #[[ATTR6]]
 // CHECK3-NEXT:    [[TMP29:%.*]] = bitcast i32* [[DOTOMP_IS_LAST]] to i8*
@@ -3322,7 +3322,7 @@ void test() {
 // CHECK3-NEXT:    call void @llvm.lifetime.start.p0i8(i64 4, i8* [[TMP26]]) #[[ATTR6]]
 // CHECK3-NEXT:    [[TMP27:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK3-NEXT:    [[TMP28:%.*]] = load i32, i32* [[TMP27]], align 4, !tbaa [[TBAA8]]
-// CHECK3-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB3]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
+// CHECK3-NEXT:    call void @__kmpc_for_static_init_4u(%struct.ident_t* @[[GLOB2]], i32 [[TMP28]], i32 33, i32* [[DOTOMP_IS_LAST]], i32* [[DOTOMP_LB]], i32* [[DOTOMP_UB]], i32* [[DOTOMP_STRIDE]], i32 1, i32 1)
 // CHECK3-NEXT:    br label [[OMP_DISPATCH_COND:%.*]]
 // CHECK3:       omp.dispatch.cond:
 // CHECK3-NEXT:    [[TMP29:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4, !tbaa [[TBAA8]]
@@ -3406,14 +3406,14 @@ void test() {
 // CHECK3:       omp.dispatch.end:
 // CHECK3-NEXT:    [[TMP53:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK3-NEXT:    [[TMP54:%.*]] = load i32, i32* [[TMP53]], align 4, !tbaa [[TBAA8]]
-// CHECK3-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB3]], i32 [[TMP54]])
+// CHECK3-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* @[[GLOB2]], i32 [[TMP54]])
 // CHECK3-NEXT:    [[TMP55:%.*]] = load i32*, i32** [[DOTGLOBAL_TID__ADDR]], align 8
 // CHECK3-NEXT:    [[TMP56:%.*]] = load i32, i32* [[TMP55]], align 4, !tbaa [[TBAA8]]
 // CHECK3-NEXT:    [[TMP57:%.*]] = getelementptr inbounds [1 x i8*], [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]], i64 0, i64 0
 // CHECK3-NEXT:    [[TMP58:%.*]] = bitcast %"class.std::complex.0"* [[PARTIAL_SUM5]] to i8*
 // CHECK3-NEXT:    store i8* [[TMP58]], i8** [[TMP57]], align 8
 // CHECK3-NEXT:    [[TMP59:%.*]] = bitcast [1 x i8*]* [[DOTOMP_REDUCTION_RED_LIST]] to i8*
-// CHECK3-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB1]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func5, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func6)
+// CHECK3-NEXT:    [[TMP60:%.*]] = call i32 @__kmpc_nvptx_parallel_reduce_nowait_v2(%struct.ident_t* @[[GLOB3]], i32 [[TMP56]], i32 1, i64 8, i8* [[TMP59]], void (i8*, i16, i16, i16)* @_omp_reduction_shuffle_and_reduce_func5, void (i8*, i32)* @_omp_reduction_inter_warp_copy_func6)
 // CHECK3-NEXT:    [[TMP61:%.*]] = icmp eq i32 [[TMP60]], 1
 // CHECK3-NEXT:    br i1 [[TMP61]], label [[DOTOMP_REDUCTION_THEN:%.*]], label [[DOTOMP_REDUCTION_DONE:%.*]]
 // CHECK3:       .omp.reduction.then:
@@ -3566,7 +3566,7 @@ void test() {
 // CHECK3-NEXT:    [[DOTADDR:%.*]] = alloca i8*, align 8
 // CHECK3-NEXT:    [[DOTADDR1:%.*]] = alloca i32, align 4
 // CHECK3-NEXT:    [[DOTCNT_ADDR:%.*]] = alloca i32, align 4
-// CHECK3-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB1]])
+// CHECK3-NEXT:    [[TMP2:%.*]] = call i32 @__kmpc_global_thread_num(%struct.ident_t* @[[GLOB3]])
 // CHECK3-NEXT:    store i8* [[TMP0]], i8** [[DOTADDR]], align 8, !tbaa [[TBAA12]]
 // CHECK3-NEXT:    store i32 [[TMP1]], i32* [[DOTADDR1]], align 4, !tbaa [[TBAA8]]
 // CHECK3-NEXT:    [[TMP3:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
