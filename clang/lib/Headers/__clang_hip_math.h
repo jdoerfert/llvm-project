@@ -26,10 +26,12 @@
 
 #pragma push_macro("__DEVICE__")
 
+#ifndef __DEVICE__
 #ifdef __OPENMP_AMDGCN__
 #define __DEVICE__ static inline __attribute__((always_inline, nothrow))
 #else
 #define __DEVICE__ static __device__ inline __attribute__((always_inline))
+#endif
 #endif
 
 // A few functions return bool type starting only in C++11.
