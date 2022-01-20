@@ -21,6 +21,7 @@
 // __DEVICE__ is a helper macro with common set of attributes for the wrappers
 // we implement in this file. We need static in order to avoid emitting unused
 // functions and __forceinline__ helps inlining these wrappers at -O1.
+#ifndef __DEVICE__
 #pragma push_macro("__DEVICE__")
 #ifdef __OPENMP_NVPTX__
 #if defined(__cplusplus)
@@ -30,6 +31,7 @@
 #endif
 #else
 #define __DEVICE__ static __device__ __forceinline__
+#endif
 #endif
 
 // Specialized version of __DEVICE__ for functions with void return type. Needed
@@ -341,7 +343,9 @@ __DEVICE__ float y1f(float __a) { return __nv_y1f(__a); }
 __DEVICE__ double yn(int __a, double __b) { return __nv_yn(__a, __b); }
 __DEVICE__ float ynf(int __a, float __b) { return __nv_ynf(__a, __b); }
 
+#ifndef __DEVICE__
 #pragma pop_macro("__DEVICE__")
+#endif
 #pragma pop_macro("__DEVICE_VOID__")
 #pragma pop_macro("__FAST_OR_SLOW")
 

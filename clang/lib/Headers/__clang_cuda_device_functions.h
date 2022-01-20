@@ -19,11 +19,13 @@
 // __DEVICE__ is a helper macro with common set of attributes for the wrappers
 // we implement in this file. We need static in order to avoid emitting unused
 // functions and __forceinline__ helps inlining these wrappers at -O1.
+#ifndef __DEVICE__
 #pragma push_macro("__DEVICE__")
 #ifdef __OPENMP_NVPTX__
 #define __DEVICE__ static __attribute__((always_inline, nothrow))
 #else
 #define __DEVICE__ static __device__ __forceinline__
+#endif
 #endif
 
 __DEVICE__ int __all(int __a) { return __nvvm_vote_all(__a); }
@@ -1554,5 +1556,7 @@ __DEVICE__ void *memset(void *__a, int __b, size_t __c) {
 }
 #endif
 
+#ifndef __DEVICE__
 #pragma pop_macro("__DEVICE__")
+#endif
 #endif // __CLANG_CUDA_DEVICE_FUNCTIONS_H__
