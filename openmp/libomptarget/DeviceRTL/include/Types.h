@@ -133,17 +133,19 @@ enum : LaneMaskTy { All = ~(LaneMaskTy)0 };
 
 /// The ident structure that describes a source location. The struct is
 /// identical to the one in the kmp.h file. We maintain the same data structure
-/// for compatibility.
+/// for compatibility but we interpret the fields different.
 struct IdentTy {
-  int32_t reserved_1;  /**<  might be used in Fortran; see above  */
-  int32_t flags;       /**<  also f.flags; KMP_IDENT_xxx flags; KMP_IDENT_KMPC
-                            identifies this union member  */
-  int32_t reserved_2;  /**<  not really used in Fortran any more; see above */
-  int32_t reserved_3;  /**<  source[4] in Fortran, do not use for C++  */
-  char const *psource; /**<  String describing the source location.
-                       The string is composed of semi-colon separated fields
-                       which describe the source file, the function and a pair
-                       of line numbers that delimit the construct. */
+  int32_t unused0;
+  int32_t Flags;
+  int32_t unused1;
+
+  /// Size of the `SourceLocation` string member.
+  int32_t SourceLocationSize;
+
+  /// String describing the source location. The string is composed of
+  /// semi-colon separated fields which describe the source file, the function
+  /// and a pair of line numbers that delimit the construct.
+  char const *SourceLocation;
 };
 
 using __kmpc_impl_lanemask_t = LaneMaskTy;
