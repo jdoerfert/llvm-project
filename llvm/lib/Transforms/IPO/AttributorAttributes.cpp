@@ -1766,7 +1766,11 @@ struct AANoSyncImpl : AANoSync {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override;
+
+  static const KnownAssumptionString NoSyncAssumptionString;
 };
+const KnownAssumptionString AANoSyncImpl::NoSyncAssumptionString =
+    KnownAssumptionString("ompx_nosync");
 
 bool AANoSync::isNonRelaxedAtomic(const Instruction *I) {
   if (!I->isAtomic())
@@ -1812,6 +1816,11 @@ bool AANoSync::isNoSyncIntrinsic(const Instruction *I) {
 
 ChangeStatus AANoSyncImpl::updateImpl(Attributor &A) {
 
+  const auto &AssumptionAA = A.getAAFor<AAAssumptionInfo>(
+      *this, getIRPosition(), DepClassTy::OPTIONAL);
+  if (AssumptionAA.hasAssumption(NoSyncAssumptionString))
+    return ChangeStatus::UNCHANGED;
+
   auto CheckRWInstForNoSync = [&](Instruction &I) {
     return AA::isNoSyncInst(A, I, *this);
   };
@@ -1840,6 +1849,12 @@ struct AANoSyncFunction final : public AANoSyncImpl {
   AANoSyncFunction(const IRPosition &IRP, Attributor &A)
       : AANoSyncImpl(IRP, A) {}
 
+  void initialize(Attributor &A) override {
+    if (hasAssumption(*getAnchorScope(), NoSyncAssumptionString))
+      indicateOptimisticFixpoint();
+    AANoSyncImpl::initialize(A);
+  }
+
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_FN_ATTR(nosync) }
 };
@@ -1851,6 +1866,9 @@ struct AANoSyncCallSite final : AANoSyncImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
+    if (hasAssumption(cast<CallBase>(getAssociatedValue()),
+                      NoSyncAssumptionString))
+      indicateOptimisticFixpoint();
     AANoSyncImpl::initialize(A);
     Function *F = getAssociatedFunction();
     if (!F || F->isDeclaration())

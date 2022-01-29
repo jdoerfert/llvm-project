@@ -46,7 +46,7 @@ define void @kernel() {
 ; CHECK-DISABLED-NEXT:    ret void
 ;
 entry:
-  %0 = call i32 @__kmpc_target_init(%struct.ident_t* nonnull null, i8 1, i1 true, i1 true)
+  %Q = call i32 @__kmpc_target_init(%struct.ident_t* nonnull null, i8 1, i1 true, i1 true)
   call void @foo()
   call void @bar()
   call void @unknown_no_openmp()

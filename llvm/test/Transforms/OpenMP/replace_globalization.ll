@@ -30,50 +30,6 @@ entry:
   ret void
 }
 
-define void @bar() {
-  %c = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 1, i1 true, i1 true)
-  call void @unknown_no_openmp()
-  %cmp = icmp eq i32 %c, -1
-  br i1 %cmp, label %master1, label %exit
-master1:
-  %x = call align 4 i8* @__kmpc_alloc_shared(i64 16), !dbg !11
-  %x_on_stack = bitcast i8* %x to [4 x i32]*
-  %a0 = bitcast [4 x i32]* %x_on_stack to i8*
-  call void @use(i8* %a0)
-  call void @__kmpc_free_shared(i8* %x, i64 16)
-  br label %next
-next:
-  call void @unknown_no_openmp()
-  %b0 = icmp eq i32 %c, -1
-  br i1 %b0, label %master2, label %exit
-master2:
-  %y = call align 4 i8* @__kmpc_alloc_shared(i64 4), !dbg !12
-  %y_on_stack = bitcast i8* %y to [4 x i32]*
-  %b1 = bitcast [4 x i32]* %y_on_stack to i8*
-  call void @use(i8* %b1)
-  call void @__kmpc_free_shared(i8* %y, i64 4)
-  br label %exit
-exit:
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 1, i1 true)
-  ret void
-}
-
-define void @baz_spmd() {
-  %c = call i32 @__kmpc_target_init(%struct.ident_t* @1, i8 2, i1 true, i1 true)
-  call void @unknown_no_openmp()
-  %c0 = icmp eq i32 %c, -1
-  br i1 %c0, label %master3, label %exit
-master3:
-  %z = call align 4 i8* @__kmpc_alloc_shared(i64 24), !dbg !12
-  %z_on_stack = bitcast i8* %z to [6 x i32]*
-  %c1 = bitcast [6 x i32]* %z_on_stack to i8*
-  call void @use(i8* %c1)
-  call void @__kmpc_free_shared(i8* %z, i64 24)
-  br label %exit
-exit:
-  call void @__kmpc_target_deinit(%struct.ident_t* @1, i8 2, i1 true)
-  ret void
-}
 
 define void @use(i8* %x) {
 entry:
@@ -109,8 +65,8 @@ declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 !5 = !{i32 7, !"openmp", i32 50}
 !6 = !{i32 7, !"openmp-device", i32 50}
 !7 = !{void ()* @foo, !"kernel", i32 1}
-!8 = !{void ()* @bar, !"kernel", i32 1}
-!13 = !{void ()* @baz_spmd, !"kernel", i32 1}
+!8 = !{void ()* @foo, !"kernel", i32 1}
+!13 = !{void ()* @foo, !"kernel", i32 1}
 !9 = distinct !DISubprogram(name: "bar", scope: !1, file: !1, line: 1, type: !10, scopeLine: 1, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !2)
 !10 = !DISubroutineType(types: !2)
 !11 = !DILocation(line: 5, column: 7, scope: !9)

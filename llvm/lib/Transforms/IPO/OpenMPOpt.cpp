@@ -22,6 +22,7 @@
 #include "llvm/ADT/EnumeratedArray.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/CallGraph.h"
@@ -32,6 +33,8 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
@@ -43,8 +46,10 @@
 #include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Support/Alignment.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -182,6 +187,33 @@ struct OMPInformationCache : public InformationCache {
     OMPBuilder.initialize();
     initializeRuntimeFunctions();
     initializeInternalControlVars();
+  }
+
+  bool isNonAlignedBarrier(const Instruction &I) {
+    const auto *CB = dyn_cast<CallBase>(&I);
+    if (!CB)
+      return false;
+    const auto &It = RuntimeFunctionIDMap.find(CB->getCalledFunction());
+    if (It == RuntimeFunctionIDMap.end())
+      return false;
+    return It->second == OMPRTL___kmpc_barrier;
+  }
+
+  bool isAlignedBarrier(const Instruction &I) {
+    const auto *CB = dyn_cast<CallBase>(&I);
+    if (!CB)
+      return false;
+    switch (CB->getIntrinsicID()) {
+    case Intrinsic::nvvm_barrier0:
+    case Intrinsic::nvvm_barrier0_and:
+    case Intrinsic::nvvm_barrier0_or:
+    case Intrinsic::nvvm_barrier0_popc:
+    case Intrinsic::amdgcn_s_barrier:
+      return true;
+    default:
+      break;
+    }
+    return hasAssumption(*CB, KnownAssumptionString("ompx_aligned_barrier"));
   }
 
   /// Generic information that describes an internal control variable.
@@ -1452,22 +1484,7 @@ private:
           if (!CB)
             continue;
 
-          auto IsAlignBarrierCB = [&](CallBase &CB) {
-            switch (CB.getIntrinsicID()) {
-            case Intrinsic::nvvm_barrier0:
-            case Intrinsic::nvvm_barrier0_and:
-            case Intrinsic::nvvm_barrier0_or:
-            case Intrinsic::nvvm_barrier0_popc:
-            case Intrinsic::amdgcn_s_barrier:
-              return true;
-            default:
-              break;
-            }
-            return hasAssumption(CB,
-                                 KnownAssumptionString("ompx_aligned_barrier"));
-          };
-
-          if (IsAlignBarrierCB(*CB)) {
+          if (OMPInfoCache.isAlignedBarrier(*CB)) {
             // Add an explicit aligned barrier.
             BarriersInBlock.push_back(I);
           }
@@ -2746,13 +2763,25 @@ struct AAICVTrackerCallSiteReturned : AAICVTracker {
   }
 };
 
-struct AAExecutionDomainFunction : public AAExecutionDomain {
-  AAExecutionDomainFunction(const IRPosition &IRP, Attributor &A)
+struct AAExecutionDomainImpl : public AAExecutionDomain {
+  AAExecutionDomainImpl(const IRPosition &IRP, Attributor &A)
       : AAExecutionDomain(IRP, A) {}
 
+  //bool isQueryAA() const override { return true; }
+};
+
+struct AAExecutionDomainFunction : public AAExecutionDomainImpl {
+  AAExecutionDomainFunction(const IRPosition &IRP, Attributor &A)
+      : AAExecutionDomainImpl(IRP, A) {}
+
   const std::string getAsStr() const override {
-    return "[AAExecutionDomain] " + std::to_string(SingleThreadedBBs.size()) +
-           "/" + std::to_string(NumBBs) + " BBs thread 0 only.";
+    const auto &It = ThreadExecutionStateMap.find(getAnchorScope());
+    if (It == ThreadExecutionStateMap.end())
+      return "<none>";
+    std::string Str;
+    raw_string_ostream OS(Str);
+    OS << *It->getSecond();
+    return Str;
   }
 
   /// See AbstractAttribute::trackStatistics().
@@ -2760,70 +2789,90 @@ struct AAExecutionDomainFunction : public AAExecutionDomain {
 
   void initialize(Attributor &A) override {
     Function *F = getAnchorScope();
-    for (const auto &BB : *F)
-      SingleThreadedBBs.insert(&BB);
-    NumBBs = SingleThreadedBBs.size();
+    ThreadExecutionState &TES = getOrCreateThreadExecutionState(A, *F);
+
+    auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+    if (OMPInfoCache.Kernels.count(F)) {
+      TES.EntryThreadSet = ThreadExecutionState::ThreadSet::ALL_ALIGNED;
+      TES.EntryInfoIsFix = true;
+    }
   }
 
   ChangeStatus manifest(Attributor &A) override {
     LLVM_DEBUG({
-      for (const BasicBlock *BB : SingleThreadedBBs)
-        dbgs() << TAG << " Basic block @" << getAnchorScope()->getName() << " "
-               << BB->getName() << " is executed by a single thread.\n";
+      for (const Value *V : QueriedValueVector) {
+        ThreadExecutionState *TES = ThreadExecutionStateMap[V];
+        assert(TES);
+        if (auto *I = dyn_cast<Instruction>(V))
+          errs() << "I: " << *I << ": " << *TES << "\n";
+        if (auto *BB = dyn_cast<BasicBlock>(V))
+          errs() << "BB: " << BB->getName() << ": " << *TES << "\n";
+        if (auto *F = dyn_cast<Function>(V))
+          errs() << "F: " << F->getName() << ": " << *TES << "\n";
+      }
     });
     return ChangeStatus::UNCHANGED;
   }
 
+  ThreadExecutionState &getOrCreateThreadExecutionState(Attributor &A,
+                                                        const Value &V) {
+    ThreadExecutionState *&TES = ThreadExecutionStateMap[&V];
+    if (!TES) {
+      TES = new (A.Allocator) ThreadExecutionState();
+      QueriedValueVector.push_back(&V);
+    }
+    SelfDependence = true;
+    return *TES;
+  }
+
+  const ThreadExecutionState &
+  getThreadExecutionState(Attributor &A) const override {
+    return const_cast<AAExecutionDomainFunction *>(this)
+        ->getOrCreateThreadExecutionState(A, *getAnchorScope());
+  }
+
+  const ThreadExecutionState &
+  getThreadExecutionStateForInst(Attributor &A,
+                                 const Instruction &I) const override {
+    return const_cast<AAExecutionDomainFunction *>(this)
+        ->getOrCreateThreadExecutionState(A, I);
+  }
+
+  const ThreadExecutionState &
+  getThreadExecutionStateForBlock(Attributor &A,
+                                  const BasicBlock &BB) const override {
+    return const_cast<AAExecutionDomainFunction *>(this)
+        ->getOrCreateThreadExecutionState(A, BB);
+  }
+
   ChangeStatus updateImpl(Attributor &A) override;
+  ChangeStatus updateThreadExecutionState(Attributor &A, const Value &V,
+                                          ThreadExecutionState &TES);
+  void updateEntryInfo(Attributor &A, ThreadExecutionState &TES);
+  void updateExitInfo(Attributor &A, ThreadExecutionState &TES);
 
-  /// Check if an instruction is executed by a single thread.
-  bool isExecutedByInitialThreadOnly(const Instruction &I) const override {
-    return isExecutedByInitialThreadOnly(*I.getParent());
-  }
+  void updateExitInfoForEdge(Attributor &A, const BasicBlock &PredBB,
+                             const BasicBlock &BB, ThreadExecutionState &TES);
+  void updateEntryInfo(Attributor &A, const BasicBlock &BB,
+                       ThreadExecutionState &TES);
+  void updateExitInfo(Attributor &A, const BasicBlock &BB,
+                      ThreadExecutionState &TES);
 
-  bool isExecutedByInitialThreadOnly(const BasicBlock &BB) const override {
-    return isValidState() && SingleThreadedBBs.contains(&BB);
-  }
+  void updateEntryInfo(Attributor &A, const Instruction &I,
+                       ThreadExecutionState &TES);
+  void updateExitInfo(Attributor &A, const Instruction &I,
+                      ThreadExecutionState &TES);
 
-  /// Set of basic blocks that are executed by a single thread.
-  SmallSetVector<const BasicBlock *, 16> SingleThreadedBBs;
-
-  /// Total number of basic blocks in this function.
-  long unsigned NumBBs;
-};
-
-ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
-  Function *F = getAnchorScope();
-  ReversePostOrderTraversal<Function *> RPOT(F);
-  auto NumSingleThreadedBBs = SingleThreadedBBs.size();
-
-  bool AllCallSitesKnown;
-  auto PredForCallSite = [&](AbstractCallSite ACS) {
-    const auto &ExecutionDomainAA = A.getAAFor<AAExecutionDomain>(
-        *this, IRPosition::function(*ACS.getInstruction()->getFunction()),
-        DepClassTy::REQUIRED);
-    return ACS.isDirectCall() &&
-           ExecutionDomainAA.isExecutedByInitialThreadOnly(
-               *ACS.getInstruction());
-  };
-
-  if (!A.checkForAllCallSites(PredForCallSite, *this,
-                              /* RequiresAllCallSites */ true,
-                              AllCallSitesKnown))
-    SingleThreadedBBs.remove(&F->getEntryBlock());
-
-  auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
-  auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_target_init];
-
-  // Check if the edge into the successor block contains a condition that only
-  // lets the main thread execute it.
-  auto IsInitialThreadOnly = [&](BranchInst *Edge, BasicBlock *SuccessorBB) {
-    if (!Edge || !Edge->isConditional())
-      return false;
-    if (Edge->getSuccessor(0) != SuccessorBB)
+  /// Check if the edge into the successor block contains a condition that
+  /// only lets the main thread execute it.
+  bool isInitialThreadOnly(Attributor &A, const BranchInst &Edge,
+                           const BasicBlock &SuccessorBB) {
+    assert(Edge.isConditional() && "Expected conditional edge");
+    return false;
+    if (Edge.getSuccessor(0) != &SuccessorBB)
       return false;
 
-    auto *Cmp = dyn_cast<CmpInst>(Edge->getCondition());
+    auto *Cmp = dyn_cast<CmpInst>(Edge.getCondition());
     if (!Cmp || !Cmp->isTrueWhenEqual() || !Cmp->isEquality())
       return false;
 
@@ -2834,6 +2883,8 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     // Match: -1 == __kmpc_target_init (for non-SPMD kernels only!)
     if (C->isAllOnesValue()) {
       auto *CB = dyn_cast<CallBase>(Cmp->getOperand(0));
+      auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+      auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_target_init];
       CB = CB ? OpenMPOpt::getCallIfRegularCall(*CB, &RFI) : nullptr;
       if (!CB)
         return false;
@@ -2855,33 +2906,751 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
     }
 
     return false;
-  };
-
-  // Merge all the predecessor states into the current basic block. A basic
-  // block is executed by a single thread if all of its predecessors are.
-  auto MergePredecessorStates = [&](BasicBlock *BB) {
-    if (pred_empty(BB))
-      return SingleThreadedBBs.contains(BB);
-
-    bool IsInitialThread = true;
-    for (BasicBlock *PredBB : predecessors(BB)) {
-      if (!IsInitialThreadOnly(dyn_cast<BranchInst>(PredBB->getTerminator()),
-                               BB))
-        IsInitialThread &= SingleThreadedBBs.contains(PredBB);
-    }
-
-    return IsInitialThread;
-  };
-
-  for (auto *BB : RPOT) {
-    if (!MergePredecessorStates(BB))
-      SingleThreadedBBs.remove(BB);
   }
 
-  return (NumSingleThreadedBBs == SingleThreadedBBs.size())
-             ? ChangeStatus::UNCHANGED
-             : ChangeStatus::CHANGED;
+  bool isUniform(Value &V, const Instruction *Ctx) { return false; }
+
+  bool requiresUpdate(const Value &V) {
+    // Check all used AAs for changes, no vector means we never updated before
+    // and need to now.
+    DepAAsTy *DepAAs = DependencyMap[&V];
+    errs() << V << " : " << DepAAs << "\n";
+
+    if (!DepAAs)
+      return true;
+    errs() << V << " : " << DepAAs->size() << "\n";
+    return any_of(*DepAAs, [](const AbstractAttribute *AA) {
+      AA->dump();
+      errs() << " :::: " << AA->hasChanged() << "\n";
+      return AA->hasChanged();
+    });
+  }
+
+  ///
+  DenseMap<const Value *, ThreadExecutionState *> ThreadExecutionStateMap;
+
+  ///
+  using DepAAsTy = SmallVector<const AbstractAttribute *>;
+  DenseMap<const Value *, DepAAsTy *> DependencyMap;
+
+  bool SelfDependence;
+
+  DepAAsTy *getDepAAsFor(Attributor &A, const Value &V, bool CreateIfMissing) {
+    auto *&DepAAs = DependencyMap[&V];
+    if (!DepAAs && CreateIfMissing)
+      DepAAs = new (A.Allocator) DepAAsTy();
+    return DepAAs;
+  }
+
+  /// Vector of instructions we are interested in, used to keep their order
+  /// fixed as we update the state.
+  SmallVector<const Value *> QueriedValueVector;
+};
+
+ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
+  const Attributor::DependenceVector &AllDeps = A.getOwnDependences();
+  assert(AllDeps.empty() && "Assumed an empty initial dependence vector!");
+  unsigned NumDepsBefore = 0;
+
+  auto AddDepAAs = [&](const Value &V, DepAAsTy *DepAAs) {
+    unsigned NumDepsAfter = AllDeps.size();
+    errs() << "V: " << SelfDependence << " T: " << NumDepsAfter
+           << " C: " << NumDepsBefore << "\n";
+    if (!SelfDependence && NumDepsAfter == NumDepsBefore)
+      return;
+    if (!DepAAs)
+      DepAAs = getDepAAsFor(A, V, /* CreateIfMissing */ true);
+    if (SelfDependence)
+      DepAAs->push_back(*this);
+    while (NumDepsBefore < NumDepsAfter)
+      DepAAs->push_back(AllDeps[NumDepsBefore++].FromAA);
+  };
+
+  ChangeStatus Changed = ChangeStatus::UNCHANGED;
+  for (const Value *V : QueriedValueVector) {
+    errs() << "V: " << *V << " : " << requiresUpdate(*V) << "\n";
+    if (!requiresUpdate(*V))
+      continue;
+
+    // Clear the dependences for this value.
+    NumDepsBefore = AllDeps.size();
+    SelfDependence = false;
+    DepAAsTy *DepAAs = getDepAAsFor(A, *V, /* CreateIfMissing */ false);
+    if (DepAAs)
+      DepAAs->clear();
+
+    ThreadExecutionState *TES = ThreadExecutionStateMap[V];
+    assert(TES && "Update run without thread execution state!");
+
+    errs() << "V: " << *V << " : " << *TES << "\n";
+    if (!TES->isAtFixpoint()) {
+      Changed |= updateThreadExecutionState(A, *V, *TES);
+
+      // Record dependences if necessary.
+      if (!TES->isAtFixpoint())
+        AddDepAAs(*V, DepAAs);
+    }
+    errs() << "V: " << *V << " : " << *TES << "\n";
+  }
+  manifest(A);
+  return Changed;
 }
+
+ChangeStatus AAExecutionDomainFunction::updateThreadExecutionState(
+    Attributor &A, const Value &V, ThreadExecutionState &TES) {
+
+  ThreadExecutionState InitialTES = TES;
+
+#define Update(Orientation, Reverse)                                           \
+  if (!TES.Orientation##InfoIsFix) {                                           \
+    errs() << " Update " << TES << "\n";                                       \
+    if (auto *I = dyn_cast<Instruction>(&V))                                   \
+      update##Orientation##Info(A, *I, TES);                                   \
+    else if (auto *BB = dyn_cast<BasicBlock>(&V))                              \
+      update##Orientation##Info(A, *BB, TES);                                  \
+    else {                                                                     \
+      assert(isa<Function>(V) &&                                               \
+             "Expected an instruction, block, or function!");                  \
+      update##Orientation##Info(A, TES);                                       \
+    }                                                                          \
+  }
+
+  Update(Entry, Exit);
+  Update(Exit, Entry);
+#undef Update
+
+  return TES == InitialTES ? ChangeStatus::UNCHANGED : ChangeStatus::CHANGED;
+}
+
+void AAExecutionDomainFunction::updateEntryInfo(Attributor &A,
+                                                ThreadExecutionState &TES) {
+  // Helper to translate information from the call site to the entry of the
+  // associated function.
+  auto PredForCallSite = [&](AbstractCallSite ACS) {
+    if (!ACS.isDirectCall())
+      return false;
+    const CallBase &CB = *cast<CallBase>(ACS.getInstruction());
+    const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
+        *this, IRPosition::callsite_function(CB), DepClassTy::OPTIONAL);
+    TES.mergeEntryIntoEntry(ExecDomAA.getThreadExecutionState(A),
+                            /* MergeMustHappen */ false);
+    return true;
+  };
+
+  bool AllCallSitesKnown = true;
+  if (!A.checkForAllCallSites(PredForCallSite, *this,
+                              /* RequiresAllCallSites */ true,
+                              AllCallSitesKnown)) {
+    // Something went wrong visiting all call sites, conservatively assume the
+    // worst for the function entry.
+    TES.indicatePessimisticFixpoint(ThreadExecutionState::Orientation::Entry);
+  }
+}
+
+void AAExecutionDomainFunction::updateExitInfoForEdge(
+    Attributor &A, const BasicBlock &PredBB, const BasicBlock &BB,
+    ThreadExecutionState &TES) {
+
+  const Instruction *TI = PredBB.getTerminator();
+  if (const BranchInst *BI = dyn_cast<BranchInst>(TI)) {
+    if (BI->isUnconditional())
+      return;
+    if (isUniform(*BI->getCondition(), BI))
+      return;
+    if (isInitialThreadOnly(A, *BI, BB)) {
+      if (ThreadExecutionState::constainsMainThread(TES.ExitThreadSet))
+        TES.ExitThreadSet = ThreadExecutionState::ThreadSet::MAIN_THREAD;
+      else
+        TES.ExitThreadSet = ThreadExecutionState::ThreadSet::NONE;
+      return;
+    }
+    BasicBlock *OtherSuccBB =
+        BI->getSuccessor(0) == &BB ? BI->getSuccessor(1) : BI->getSuccessor(0);
+    if (isInitialThreadOnly(A, *BI, *OtherSuccBB)) {
+      if (TES.ExitThreadSet == ThreadExecutionState::ThreadSet::NONE ||
+          TES.ExitThreadSet == ThreadExecutionState::ThreadSet::MAIN_THREAD)
+        TES.ExitThreadSet = ThreadExecutionState::ThreadSet::NONE;
+      else if (TES.ExitThreadSet ==
+                   ThreadExecutionState::ThreadSet::ALL_ALIGNED ||
+               TES.ExitThreadSet ==
+                   ThreadExecutionState::ThreadSet::ALL_BUT_MAIN_THREAD_ALIGNED)
+        TES.ExitThreadSet =
+            ThreadExecutionState::ThreadSet::ALL_BUT_MAIN_THREAD_ALIGNED;
+      else
+        TES.ExitThreadSet =
+            ThreadExecutionState::ThreadSet::ALL_BUT_MAIN_THREAD;
+      return;
+    }
+  }
+
+  TES.indicatePessimisticFixpoint(Orientation::Exit);
+}
+
+void AAExecutionDomainFunction::updateEntryInfo(Attributor &A,
+                                                const BasicBlock &BB,
+                                                ThreadExecutionState &TES) {
+  if (BB.isEntryBlock()) {
+    TES.mergeEntryIntoEntry(getThreadExecutionState(A),
+                            /* MergeMustHappen */ true);
+    return;
+  }
+  errs() << "Update BB: " << BB.getName() << "\n";
+
+  const auto &LivenessAA = A.getAAFor<AAIsDead>(
+      *this, IRPosition::function(*getAnchorScope()), DepClassTy::OPTIONAL);
+  for (const BasicBlock *PredBB : predecessors(&BB)) {
+    if (LivenessAA.isEdgeDead(PredBB, &BB))
+      continue;
+    ThreadExecutionState PredTES = getThreadExecutionStateForBlock(A, *PredBB);
+    updateExitInfoForEdge(A, *PredBB, BB, PredTES);
+    TES.mergeExitIntoEntry(PredTES,
+                           /* MergeMustHappen */ true);
+  }
+}
+
+void AAExecutionDomainFunction::updateEntryInfo(Attributor &A,
+                                                const Instruction &I,
+                                                ThreadExecutionState &TES) {
+
+  // Helper to deal with all interesting instructions we might encounter in a
+  // block. Interesting means a ThreadExecutionState is available or created.
+  auto GetExitInfoHelper =
+      [this, &A](const Instruction &CurI) -> const ThreadExecutionState * {
+    // We always use an AAExecutionDomainCallSite object to deal with call
+    // sites. The exit thread execution state is what we are looking for.
+    if (auto *CB = dyn_cast<CallBase>(&CurI)) {
+      const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
+          *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
+      ExecDomAA.dump();
+      return &ExecDomAA.getThreadExecutionState(A);
+    }
+
+    ThreadExecutionState *TES = nullptr;
+    // If the instruction might not transfer execution it could disrupt the
+    // thread execution state. However, this is a safeguard but should not
+    // trigger for any code we are interested in and as such we do not try
+    // to be clever but instead give up.
+    if (!isGuaranteedToTransferExecutionToSuccessor(&CurI)) {
+      // TODO: Issue a remark if the user code contains a volatile store.
+      TES = &getOrCreateThreadExecutionState(A, CurI);
+      TES->indicatePessimisticFixpoint();
+    }
+    return TES;
+  };
+
+  // Regular instruction inside a block. We scan upwards until we find something
+  // that has a exit information or end up at the block beginning.
+  const Instruction *CurI = I.getPrevNonDebugInstruction();
+  errs() << "CurI " << CurI << "\n";
+  while (CurI) {
+    errs() << "CurI " << *CurI << "\n";
+    // Check if we have, or should create, a ThreadExecutionState for CurI. If
+    // so, the exit information in there will become the entry information of I.
+    if (const ThreadExecutionState *CurITES = GetExitInfoHelper(*CurI)) {
+      errs() << "Merge Exit into entry " << TES << "\n";
+      errs() << *CurITES << "\n";
+      TES.mergeExitIntoEntry(*CurITES,
+                             /* MergeMustHappen */ true);
+      errs() << "Merge Exit into entry " << TES << "\n";
+      return;
+    }
+    CurI = CurI->getPrevNonDebugInstruction();
+  }
+
+  // Nothing executed prior to I in the same block modified the block entry
+  // information, hence we will get (or create) that one and use it as entry
+  // information for I.
+  TES.mergeEntryIntoEntry(getThreadExecutionStateForBlock(A, *I.getParent()),
+                          /* MergeMustHappen */ true);
+}
+
+void AAExecutionDomainFunction::updateExitInfo(Attributor &A,
+                                               ThreadExecutionState &TES) {
+  const auto &NoUnwindAA =
+      A.getAAFor<AANoUnwind>(*this, getIRPosition(), DepClassTy::OPTIONAL);
+  if (!NoUnwindAA.isAssumedNoUnwind()) {
+    // For now we give up on potentially unwinding functions.
+    TES.indicatePessimisticFixpoint(Orientation::Exit);
+    return;
+  }
+
+  // If we know we will return and we will not unwind, all threads will exit
+  // the function. As such we can treat the exit as a CFG merge allowing us
+  // to combine aligned MAIN_THREAD and aligned ALL_BUT_MAIN_THREAD into an
+  // aligned ALL threads.
+  const auto &WillReturnAA =
+      A.getAAFor<AAWillReturn>(*this, getIRPosition(), DepClassTy::OPTIONAL);
+  bool MergeMustHappen = WillReturnAA.isAssumedWillReturn();
+
+  // Helper to handle a single return instruction.
+  auto RetPredCB = [&](Instruction &I) {
+    assert(isa<ReturnInst>(I) && "Expected return instruction!");
+    TES.mergeExitIntoEntry(getThreadExecutionStateForInst(A, I),
+                           MergeMustHappen);
+    return true;
+  };
+
+  bool UsedAssumedInformation = false;
+  if (!A.checkForAllInstructions(RetPredCB, *this, {Instruction::Ret},
+                                 UsedAssumedInformation,
+                                 /* CheckBBLivenessOnly */ true)) {
+    // Give up if we could not check all return instructions.
+    TES.indicatePessimisticFixpoint(Orientation::Exit);
+  }
+}
+
+void AAExecutionDomainFunction::updateExitInfo(Attributor &A,
+                                               const BasicBlock &BB,
+                                               ThreadExecutionState &TES) {
+  TES.mergeExitIntoExit(getThreadExecutionStateForInst(A, *BB.getTerminator()),
+                        /* MergeMustHappen */ true);
+}
+
+void AAExecutionDomainFunction::updateExitInfo(Attributor &A,
+                                               const Instruction &I,
+                                               ThreadExecutionState &TES) {
+
+  // We always use an AAExecutionDomainCallSite object to deal with call
+  // sites. The exit thread execution state is what we are looking for.
+  if (auto *CB = dyn_cast<CallBase>(&I)) {
+    const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
+        *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
+    TES.mergeExitIntoExit(ExecDomAA.getThreadExecutionState(A),
+                          /* MergeMustHappen */ true);
+    return;
+  }
+
+  // If the instruction might not transfer execution it could disrupt the
+  // thread execution state. However, this is a safeguard but should not
+  // trigger for any code we are interested in and as such we do not try
+  // to be clever but instead give up.
+  if (!isGuaranteedToTransferExecutionToSuccessor(&I)) {
+    // TODO: Issue a remark if the user code contains a volatile store.
+    TES.indicatePessimisticFixpoint();
+    return;
+  }
+
+  // A regular instruction which does not disrupt the execution flow.
+  TES.mergeEntryIntoExit(TES, /* MergeMustHappen */ true);
+}
+
+#if 0
+{
+
+  struct ThreadExecutionUpdate {
+    Instruction *I;
+    ThreadExecutionState TES;
+    enum ModeKind { MK_FORWARD, MK_BACKWARD } Mode;
+  };
+  SmallVector<ThreadExecutionUpdate, 16> Worklist;
+
+  // Helper to translate information from the call site to the entry of the
+  // function.
+  ThreadExecutionState EntryTES;
+  auto PredForCallSite = [&](AbstractCallSite ACS) {
+    if (!ACS.isDirectCall())
+      return false;
+    const Instruction &I = *ACS.getInstruction();
+    const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
+        *this, IRPosition::function(*I.getFunction()), DepClassTy::REQUIRED);
+    EntryTES.mergeInEntry(ExecDomAA.getThreadExecutionStateForInst(I),
+                          /* MergeMustHappen */ false);
+    return true;
+  };
+
+  bool AllCallSitesKnown = true;
+  if (!A.checkForAllCallSites(PredForCallSite, *this,
+                              /* RequiresAllCallSites */ true,
+                              AllCallSitesKnown)) {
+    // Something went wrong visiting all call sites, conservatively assume the
+    // worst for the function entry.
+    EntryTES.indicatePessimisticFixpoint();
+  }
+
+  const auto &LivenessAA = A.getAAFor<AAIsDead>(*this, IRPosition::function(F),
+                                                DepClassTy::OPTIONAL);
+  auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+
+  ReversePostOrderTraversal<Function *> RPOT(&F);
+  for (auto *BB : RPOT) {
+    ThreadExecutionState BlockTES;
+    if (BB->isEntryBlock()) {
+      BlockTES = EntryTES;
+    } else {
+      for (BasicBlock *PredBB : predecessors(BB)) {
+        if (LivenessAA.isEdgeDead(PredBB, BB))
+          continue;
+        Instruction *PredTI = PredBB->getTerminator();
+        const ThreadExecutionState &PredTITES =
+            getThreadExecutionStateForInst(*PredTI);
+        if (PredTITES == ThreadExecutionState::getBestState())
+          continue;
+        BlockTES.mergeInEntry(PredTITES.getAfterEdge(*PredTI),
+                              /* MergeMustHappen */ true);
+      }
+    }
+
+    Instruction *I = &BB->front();
+    if (ThreadExecutionInfoMap[I].mergeInEntry(
+            BlockTES, /* MergeMustHappen */ true) == ChangeStatus::UNCHANGED)
+      continue;
+
+    Instruction *LastSeenNonBarrierSyncInst = nullptr;
+
+    Instruction *TI = BB->getTerminator();
+    for (; I != TI; I = I->getNextNode()) {
+      bool UsedAssumedInformation = false;
+      if (AA::isNoSyncInst(A, *I, *this, UsedAssumedInformation)) {
+        if (UsedAssumedInformation) {
+          AssumedNoSyncInsts.insert(I);
+        }
+        continue;
+      }
+      KnownSyncInsts.insert(I);
+      if (CallBase *CB = dyn_cast<CallBase>(I)) {
+#if 0
+         if (TEU.BlockTES.TAKindEntry != ThreadExecutionInfo::TA_ALIGNED) {
+         if (Function *Callee = CB->getCalledFunction()) {
+         if (!Callee->isDeclaration()) {
+         ThreadExecutionUpdate CalleeTEU{
+        &Callee->getEntryBlock().front(), TEU.BlockTES,
+         ThreadExecutionUpdate::MK_FORWARD};
+         Worklist.push_back(CalleeTEU);
+        }
+        }
+        }
+#endif
+
+        if (OMPInfoCache.isNonAlignedBarrier(*I)) {
+          if (BlockTES.AlignedEntry &&
+              BlockTES.EntryThreadSet == ThreadSet::ALL)
+            NonAlignedBarriersAssumedAligned.insert(I);
+          else
+            NonAlignedBarriersAssumedAligned.erase(I);
+          continue;
+        }
+        if (OMPInfoCache.isAlignedBarrier(*I)) {
+          if (LastSeenNonBarrierSyncInst) {
+            ThreadExecutionInfoMap[LastSeenNonBarrierSyncInst]
+                .fixAllAlignedExit();
+          } else {
+            ThreadExecutionInfoMap[&BB->front()].fixAllAlignedExit();
+          }
+          // Update the entry kind for successor instructions.
+          BlockTES.EntryThreadSet = ThreadSet::ALL;
+          BlockTES.AlignedEntry = true;
+          continue;
+        }
+      }
+
+      LastSeenNonBarrierSyncInst = I;
+
+      // Update the entry kind for successor instructions.
+      BlockTES.EntryThreadSet = ThreadSet::UNKNOWN;
+      BlockTES.AlignedEntry = false;
+    }
+    assert(I == TI && "Expected to traverse the entire block");
+  }
+
+#if 0
+  auto NumSingleThreadedBBs = SingleThreadedBBs.size();
+  auto NumSameEpochBBs = SameEpochBBs.size();
+  auto NumAlignedBBs = AlignedBBs.size();
+  if (NumSingleThreadedBBs + NumSameEpochBBs + NumAlignedBBs == 0)
+    return indicatePessimisticFixpoint();
+
+  bool AllCallSitesKnown;
+  Function *F = getAnchorScope();
+  BasicBlock &EntryBB = F->getEntryBlock();
+
+  // Helper to translate information from the call site to the entry of the
+  // function.
+  auto PredForCallSite = [&](AbstractCallSite ACS) {
+    const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
+        *this, IRPosition::function(*ACS.getInstruction()->getFunction()),
+        DepClassTy::REQUIRED);
+    const Instruction &I = *ACS.getInstruction();
+    if (!ACS.isDirectCall() || !ExecDomAA.isExecutedByInitialThreadOnly(I))
+      SingleThreadedBBs.remove(&EntryBB);
+    if (!ExecDomAA.isExecutedByAllThreadsInTheSameEpoch(I))
+      SameEpochBBs.remove(&EntryBB);
+    if (!ExecDomAA.isExecutedAligned(I))
+      AlignedBBs.remove(&EntryBB);
+    return true;
+  };
+
+  // If we have any optimistic information about the function entry we need to
+  // visit call sites. Kernels are handled explicitly during initalization.
+  if (!IsKernel &&
+      (SingleThreadedBBs.contains(&EntryBB) ||
+       SameEpochBBs.contains(&EntryBB) || AlignedBBs.contains(&EntryBB))) {
+    if (!A.checkForAllCallSites(PredForCallSite, *this,
+                                /* RequiresAllCallSites */ true,
+                                AllCallSitesKnown)) {
+      // Something went wrong visiting all call sites, conservatively assume the
+      // worst.
+      SingleThreadedBBs.remove(&F->getEntryBlock());
+      SameEpochBBs.remove(&F->getEntryBlock());
+      AlignedBBs.remove(&F->getEntryBlock());
+    }
+  }
+
+  auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+  auto &RFI = OMPInfoCache.RFIs[OMPRTL___kmpc_target_init];
+
+  // Map to cache the result *per update*. This way we we don't scan blocks
+  // with multiple successors multiple times.
+  struct ExecutionInfo {
+    Optional<bool> StartsWithAlignedExecution = llvm::None;
+    Optional<bool> EndsWithAlignedExecution = llvm::None;
+    bool ContainsNonAlignedSync = false;
+    bool IsDead = false;
+  };
+  DenseMap<const BasicBlock *, ExecutionInfo> ExecutionInfoMap;
+
+  const auto &LivenessAA = A.getAAFor<AAIsDead>(*this, IRPosition::function(*F),
+                                                DepClassTy::OPTIONAL);
+
+  // Scan the block for non-aligned synchronization and initialize the
+  // ExecutionInfoMap.
+  auto ScanBlockForNonAlignedSync = [&](BasicBlock &BB) {
+    ExecutionInfo &EI = ExecutionInfoMap[&BB];
+    // Filter (and remember) assumed dead blocks.
+    EI.IsDead = A.isAssumedDead(BB, this, &LivenessAA, DepClassTy::OPTIONAL);
+    if (EI.IsDead)
+      return;
+
+    auto IsAlignedAfterInst = [&](Instruction &I,
+                                  bool IsAlignedBeforeInst) -> bool {
+      auto *CB = dyn_cast<CallBase>(&I);
+      if (!CB)
+        return false;
+
+      if (OMPInfoCache.isAlignedBarrier(*CB) ||
+          (IsAlignedBeforeInst && OMPInfoCache.isNonAlignedBarrier(*CB)))
+        return true;
+
+      if (!CB->getCalledFunction())
+        return false;
+
+      const auto &ExecDomAA = A.getAAFor<AAExecutionDomain>(
+          *this, IRPosition::function(*CB->getCalledFunction()),
+          DepClassTy::REQUIRED);
+      return ExecDomAA.isExitedAligned();
+    };
+
+    bool InstIsAligned = AlignedBBs.contains(&BB);
+    // Scan the block to see if we have any non-aligned synchronization as those
+    // need to be accounted for.
+    for (Instruction &I : BB) {
+      // Non-sync instruction can be skipped.
+      if (AA::isNoSyncInst(A, I, *this))
+        continue;
+
+      // Update the "aligned-state" from before to after the instruction.
+      InstIsAligned = IsAlignedAfterInst(I, InstIsAligned);
+
+      // Keep record in the EI for later deductions, especially involbing
+      // predecessors and successors.
+      if (!EI.StartsWithAlignedExecution.hasValue())
+        EI.StartsWithAlignedExecution = InstIsAligned;
+      EI.EndsWithAlignedExecution = InstIsAligned;
+
+      // We track on basic block granularity so if any part of the block is not
+      // executed aligned we cannot pretend the block is.
+      if (!InstIsAligned) {
+        EI.ContainsNonAlignedSync = true;
+        SameEpochBBs.remove(&BB);
+        AlignedBBs.remove(&BB);
+      }
+    }
+  };
+
+  // Step 1:
+  ReversePostOrderTraversal<Function *> RPOT(F);
+  for (auto *BB : RPOT)
+    ScanBlockForNonAlignedSync(*BB);
+
+  // Merge all the predecessor states into the current basic block. A basic
+  // block is executed by a single thread if all of its predecessors are or
+  // the other threads are separated by the CFG edge. Also, if a predecessor
+  // does not end with aligned execution the block does not begin with it.
+  auto MergePredecessorStates = [&](BasicBlock &BB) {
+    if (ExecutionInfoMap[&BB].IsDead)
+      return;
+
+    for (BasicBlock *PredBB : predecessors(&BB)) {
+      ExecutionInfo &PredEI = ExecutionInfoMap[PredBB];
+      if (PredEI.IsDead)
+        continue;
+
+      // Check if the edge into the successor block contains a condition that
+      // only lets the main thread execute it.
+      auto IsInitialThreadOnly = [&](BranchInst *Edge,
+                                     BasicBlock *SuccessorBB) {
+        if (!Edge || !Edge->isConditional())
+          return false;
+        if (Edge->getSuccessor(0) != SuccessorBB)
+          return false;
+
+        auto *Cmp = dyn_cast<CmpInst>(Edge->getCondition());
+        if (!Cmp || !Cmp->isTrueWhenEqual() || !Cmp->isEquality())
+          return false;
+
+        ConstantInt *C = dyn_cast<ConstantInt>(Cmp->getOperand(1));
+        if (!C)
+          return false;
+
+        // Match: -1 == __kmpc_target_init (for non-SPMD kernels only!)
+        if (C->isAllOnesValue()) {
+          auto *CB = dyn_cast<CallBase>(Cmp->getOperand(0));
+          CB = CB ? OpenMPOpt::getCallIfRegularCall(*CB, &RFI) : nullptr;
+          if (!CB)
+            return false;
+          const int InitModeArgNo = 1;
+          auto *ModeCI = dyn_cast<ConstantInt>(CB->getOperand(InitModeArgNo));
+          return ModeCI && (ModeCI->getSExtValue() & OMP_TGT_EXEC_MODE_GENERIC);
+        }
+
+        if (C->isZero()) {
+          // Match: 0 == llvm.nvvm.read.ptx.sreg.tid.x()
+          if (auto *II = dyn_cast<IntrinsicInst>(Cmp->getOperand(0)))
+            if (II->getIntrinsicID() == Intrinsic::nvvm_read_ptx_sreg_tid_x)
+              return true;
+
+          // Match: 0 == llvm.amdgcn.workitem.id.x()
+          if (auto *II = dyn_cast<IntrinsicInst>(Cmp->getOperand(0)))
+            if (II->getIntrinsicID() == Intrinsic::amdgcn_workitem_id_x)
+              return true;
+        }
+
+        return false;
+      };
+
+      auto *BI = dyn_cast<BranchInst>(PredBB->getTerminator());
+      if (SingleThreadedBBs.contains(&BB) &&
+          !SingleThreadedBBs.contains(PredBB) && !IsInitialThreadOnly(BI, &BB))
+        SingleThreadedBBs.remove(&BB);
+
+      if (!PredEI.EndsWithAlignedExecution.hasValue() ||
+          PredEI.EndsWithAlignedExecution.getValue())
+        continue;
+
+      SameEpochBBs.remove(&BB);
+      AlignedBBs.remove(&BB);
+    }
+  };
+
+  // Step 2:
+  for (auto *BB : RPOT)
+    MergePredecessorStates(*BB);
+
+  // Merge all the successor states into the current basic block to determine
+  // what is in the same epoch and aligned. If any successor would start with
+  // a non-aligned synchronization we are not in the same epoch for the block.
+  auto MergeSuccessorStates = [&](BasicBlock &BB) {
+    if (ExecutionInfoMap[&BB].IsDead)
+      return;
+
+    for (BasicBlock *SuccBB : successors(&BB)) {
+      ExecutionInfo &EI = ExecutionInfoMap[SuccBB];
+      if (EI.IsDead)
+        continue;
+
+      bool StartWithAligned = EI.StartsWithAlignedExecution.hasValue() &&
+                              EI.StartsWithAlignedExecution.getValue();
+      if (StartWithAligned)
+        continue;
+      if (!EI.ContainsNonAlignedSync && SameEpochBBs.contains(SuccBB))
+        continue;
+      SameEpochBBs.remove(&BB);
+      return;
+    }
+  };
+
+  // Step 3:
+  for (auto &BB : reverse(*F))
+    MergeSuccessorStates(BB);
+
+  ChangeStatus Changed = ChangeStatus::UNCHANGED;
+  SmallVector<StateUpdateInfo, 8> Worklist;
+  return Changed;
+#endif
+}
+#endif
+
+struct AAExecutionDomainCallSite : public AAExecutionDomainImpl {
+  AAExecutionDomainCallSite(const IRPosition &IRP, Attributor &A)
+      : AAExecutionDomainImpl(IRP, A) {}
+
+  const std::string getAsStr() const override {
+    std::string Str;
+    raw_string_ostream OS(Str);
+    OS << TES;
+    return Str;
+  }
+
+  /// See AbstractAttribute::trackStatistics().
+  void trackStatistics() const override {}
+
+  const ThreadExecutionState &
+  getThreadExecutionState(Attributor &A) const override {
+    return TES;
+  }
+
+  const ThreadExecutionState &
+  getThreadExecutionStateForInst(Attributor &A,
+                                 const Instruction &I) const override {
+    assert(&I == &getAssociatedValue() &&
+           "Call site has no information about other instructions!");
+    return getThreadExecutionState(A);
+  }
+
+  const ThreadExecutionState &
+  getThreadExecutionStateForBlock(Attributor &A,
+                                  const BasicBlock &BB) const override {
+    llvm_unreachable("Call site has no information about blocks!");
+  }
+
+  void initialize(Attributor &A) override {
+    auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+    CallBase &CB = cast<CallBase>(getAssociatedValue());
+
+    Function *Callee = getAssociatedFunction();
+    if (!Callee) {
+      TES.indicatePessimisticFixpoint();
+      return;
+    }
+
+    // Aligned barriers are easy, they require all threads to executed them in
+    // an aligned fashion, so entry and exit are ALL + aligned.
+    if (OMPInfoCache.isAlignedBarrier(CB)) {
+      TES.indicateOptimisticFixpoint();
+      return;
+    }
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override;
+
+  ChangeStatus manifest(Attributor &A) override {
+    auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+    CallBase &CB = cast<CallBase>(getAssociatedValue());
+    if (TES.EntryThreadSet == ThreadExecutionState::ThreadSet::ALL_ALIGNED &&
+        OMPInfoCache.isNonAlignedBarrier(CB)) {
+      auto &AlignedBarrierRFI =
+          OMPInfoCache.RFIs[OMPRTL___kmpc_barrier_simple_spmd];
+      if (AlignedBarrierRFI.Declaration) {
+        CB.setCalledFunction(AlignedBarrierRFI.Declaration);
+        return ChangeStatus::CHANGED;
+      }
+    }
+    return ChangeStatus::UNCHANGED;
+  }
+
+private:
+  /// The state of the call site.
+  ThreadExecutionState TES;
+};
 
 /// Try to replace memory allocation calls called by a single thread with a
 /// static buffer of shared memory.
@@ -3053,7 +3822,7 @@ struct AAHeapToSharedFunction : public AAHeapToShared {
           *this, IRPosition::function(*F), DepClassTy::REQUIRED);
       if (CallBase *CB = dyn_cast<CallBase>(U))
         if (!isa<ConstantInt>(CB->getArgOperand(0)) ||
-            !ED.isExecutedByInitialThreadOnly(*CB))
+            !ED.isExecutedByInitialThreadOnly(A, *CB))
           MallocCalls.remove(CB);
     }
 
@@ -4569,7 +5338,7 @@ private:
       return indicatePessimisticFixpoint();
 
     auto &Ctx = getAnchorValue().getContext();
-    if (ExecutionDomainAA.isExecutedByInitialThreadOnly(CB))
+    if (ExecutionDomainAA.isExecutedByInitialThreadOnly(A, CB))
       SimplifiedValue = ConstantInt::get(Type::getInt8Ty(Ctx), true);
     else
       return indicatePessimisticFixpoint();
@@ -4680,6 +5449,92 @@ private:
   /// The runtime function kind of the callee of the associated call site.
   RuntimeFunction RFKind;
 };
+
+ChangeStatus AAExecutionDomainCallSite::updateImpl(Attributor &A) {
+  CallBase &CB = cast<CallBase>(getAssociatedValue());
+  Function &Callee = *CB.getCalledFunction();
+
+  const auto &ScopeExecDomAA = A.getAAFor<AAExecutionDomain>(
+      *this, IRPosition::function(*CB.getCaller()), DepClassTy::REQUIRED);
+  TES.mergeEntryIntoEntry(ScopeExecDomAA.getThreadExecutionStateForInst(A, CB),
+                          /* MergeMustHappen */ true);
+  if (TES.EntryThreadSet == ThreadExecutionState::ThreadSet::NONE)
+    return ChangeStatus::UNCHANGED;
+
+  auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+  const auto &It = OMPInfoCache.RuntimeFunctionIDMap.find(&Callee);
+  if (It != OMPInfoCache.RuntimeFunctionIDMap.end()) {
+    switch (It->getSecond()) {
+    case OMPRTL___kmpc_target_init: {
+                                      errs() << "HANDLE INIT\n";
+      assert(TES.EntryThreadSet ==
+             ThreadExecutionState::ThreadSet::ALL_ALIGNED);
+      constexpr const int InitModeArgNo = 1;
+      bool UsedAssumedInformation = false;
+      Optional<Constant *> C = A.getAssumedConstant(
+          *CB.getArgOperand(InitModeArgNo), *this, UsedAssumedInformation);
+      if (C.hasValue() && (!C.getValue() || !isa<ConstantInt>(C.getValue()) ||
+                           cast<ConstantInt>(C.getValue())->getSExtValue() ==
+                               OMP_TGT_EXEC_MODE_GENERIC)) {
+        errs() << "GENERIC\n";
+        ChangeStatus Changed =
+            TES.ExitThreadSet == ThreadExecutionState::ThreadSet::ALL
+                ? ChangeStatus::UNCHANGED
+                : ChangeStatus::CHANGED;
+        TES.ExitThreadSet = ThreadExecutionState::ThreadSet::ALL;
+        return Changed;
+      }
+    }
+                                    errs() << "ASSUMED SPMD\n";
+      LLVM_FALLTHROUGH;
+    default:
+      return TES.mergeEntryIntoExit(TES, /* MergeMustHappen */ true);
+    }
+  }
+
+  const auto &CalleeExecDomAA = A.getAAFor<AAExecutionDomain>(
+      *this, IRPosition::function(Callee), DepClassTy::REQUIRED);
+  const ThreadExecutionState &CalleeTES =
+      CalleeExecDomAA.getThreadExecutionState(A);
+  if (CalleeTES.isExitAsGoodAsExit(TES))
+    return ChangeStatus::UNCHANGED;
+
+  auto TakeCalleeExitInfo = [&]() {
+    TES.mergeExitIntoExit(CalleeTES, /* MergeMustHappen */ true);
+    return ChangeStatus::CHANGED;
+  };
+
+  // Further down we try to improve the exit through the entry information,
+  // this is useless if entry information is the worst possible.
+  if (ThreadExecutionState::getWorstState().isEntryAsGoodAsEntry(TES))
+    return TakeCalleeExitInfo();
+
+  // If we synchronize in the function some threads might block on a signal.
+  // TODO: Track if a function is pass through or not.
+  const auto &NoSyncAA =
+      A.getAAFor<AANoSync>(*this, getIRPosition(), DepClassTy::REQUIRED);
+  if (!NoSyncAA.isAssumedNoSync())
+    return TakeCalleeExitInfo();
+
+  // If all threads that go in come out, or none does, the entry information
+  // is propagated. Single threaded execution means that endless loops and
+  // unwinds will cause no thread to return, otherwise we require willreturn
+  // and nounwind to guarantee all will.
+  if (!TES.isSingleThread(ThreadExecutionState::Orientation::Entry)) {
+    const auto &WillReturnAA =
+        A.getAAFor<AAWillReturn>(*this, getIRPosition(), DepClassTy::REQUIRED);
+    if (!WillReturnAA.isAssumedWillReturn())
+      return TakeCalleeExitInfo();
+
+    const auto &NoUnwindAA =
+        A.getAAFor<AANoUnwind>(*this, getIRPosition(), DepClassTy::REQUIRED);
+    if (!NoUnwindAA.isAssumedNoUnwind())
+      return TakeCalleeExitInfo();
+  }
+
+  TES.mergeEntryIntoExit(TES, /* MergeMustHappen */ true);
+  return ChangeStatus::CHANGED;
+}
 
 } // namespace
 
@@ -4807,7 +5662,7 @@ AAICVTracker &AAICVTracker::createForPosition(const IRPosition &IRP,
 
 AAExecutionDomain &AAExecutionDomain::createForPosition(const IRPosition &IRP,
                                                         Attributor &A) {
-  AAExecutionDomainFunction *AA = nullptr;
+  AAExecutionDomain *AA = nullptr;
   switch (IRP.getPositionKind()) {
   case IRPosition::IRP_INVALID:
   case IRPosition::IRP_FLOAT:
@@ -4815,9 +5670,11 @@ AAExecutionDomain &AAExecutionDomain::createForPosition(const IRPosition &IRP,
   case IRPosition::IRP_CALL_SITE_ARGUMENT:
   case IRPosition::IRP_RETURNED:
   case IRPosition::IRP_CALL_SITE_RETURNED:
+    llvm_unreachable("AAExecutionDomain can only be created for function and "
+                     "call site positions!");
   case IRPosition::IRP_CALL_SITE:
-    llvm_unreachable(
-        "AAExecutionDomain can only be created for function position!");
+    AA = new (A.Allocator) AAExecutionDomainCallSite(IRP, A);
+    break;
   case IRPosition::IRP_FUNCTION:
     AA = new (A.Allocator) AAExecutionDomainFunction(IRP, A);
     break;

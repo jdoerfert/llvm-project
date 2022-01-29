@@ -184,7 +184,8 @@ ChangeStatus &llvm::operator&=(ChangeStatus &L, ChangeStatus R) {
 ///}
 
 bool AA::isNoSyncInst(Attributor &A, const Instruction &I,
-                      const AbstractAttribute &QueryingAA) {
+                      const AbstractAttribute &QueryingAA,
+                      bool *UsedAssumedInformation) {
   // We are looking for volatile instructions or non-relaxed atomics.
   if (const auto *CB = dyn_cast<CallBase>(&I)) {
     if (CB->hasFnAttr(Attribute::NoSync))
@@ -199,6 +200,8 @@ bool AA::isNoSyncInst(Attributor &A, const Instruction &I,
 
     const auto &NoSyncAA = A.getAAFor<AANoSync>(
         QueryingAA, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
+    if (UsedAssumedInformation)
+      *UsedAssumedInformation = !NoSyncAA.isKnownNoSync();
     return NoSyncAA.isAssumedNoSync();
   }
 
@@ -497,9 +500,8 @@ Argument *IRPosition::getAssociatedArgument() const {
 }
 
 ChangeStatus AbstractAttribute::update(Attributor &A) {
-  ChangeStatus HasChanged = ChangeStatus::UNCHANGED;
   if (getState().isAtFixpoint())
-    return HasChanged;
+    return HasChanged = ChangeStatus::UNCHANGED;
 
   LLVM_DEBUG(dbgs() << "[Attributor] Update: " << *this << "\n");
 
@@ -1385,7 +1387,10 @@ void Attributor::runTillFixpoint() {
   SetVector<AbstractAttribute *> Worklist, InvalidAAs;
   Worklist.insert(DG.SyntheticRoot.begin(), DG.SyntheticRoot.end());
 
+  SmallVector<AbstractAttribute*> QueryAAs;
+
   do {
+
     // Remember the size to determine new attributes.
     size_t NumAAs = DG.SyntheticRoot.Deps.size();
     LLVM_DEBUG(dbgs() << "\n\n[Attributor] #Iteration: " << IterationCounter
@@ -1439,9 +1444,12 @@ void Attributor::runTillFixpoint() {
     // changed.
     for (AbstractAttribute *AA : Worklist) {
       const auto &AAState = AA->getState();
-      if (!AAState.isAtFixpoint())
+      if (!AAState.isAtFixpoint()) {
         if (updateAA(*AA) == ChangeStatus::CHANGED)
           ChangedAAs.push_back(AA);
+        else if (AA->isQueryAA())
+          QueryAAs.push_back(AA);
+      }
 
       // Use the InvalidAAs vector to propagate invalid states fast transitively
       // without requiring updates.
@@ -1457,9 +1465,11 @@ void Attributor::runTillFixpoint() {
     // Reset the work list and repopulate with the changed abstract attributes.
     // Note that dependent ones are added above.
     Worklist.clear();
+    Worklist.insert(QueryAAs.begin(), QueryAAs.end());
     Worklist.insert(ChangedAAs.begin(), ChangedAAs.end());
+    QueryAAs.clear();
 
-  } while (!Worklist.empty() && (IterationCounter++ < MaxFixedPointIterations ||
+  } while (!ChangedAAs.empty() && (IterationCounter++ < MaxFixedPointIterations ||
                                  VerifyMaxFixpointIterations));
 
   if (IterationCounter > MaxFixedPointIterations && !Worklist.empty()) {
@@ -1918,11 +1928,13 @@ ChangeStatus Attributor::updateAA(AbstractAttribute &AA) {
   auto &AAState = AA.getState();
   ChangeStatus CS = ChangeStatus::UNCHANGED;
   bool UsedAssumedInformation = false;
-  if (!isAssumedDead(AA, nullptr, UsedAssumedInformation,
-                     /* CheckBBLivenessOnly */ true))
+  bool IsQueryAA = AA.isQueryAA();
+
+  if (IsQueryAA || !isAssumedDead(AA, nullptr, UsedAssumedInformation,
+                                  /* CheckBBLivenessOnly */ true))
     CS = AA.update(*this);
 
-  if (DV.empty()) {
+  if (!IsQueryAA && DV.empty()) {
     // If the attribute did not query any non-fix information, the state
     // will not change and we can indicate that right away.
     AAState.indicateOptimisticFixpoint();

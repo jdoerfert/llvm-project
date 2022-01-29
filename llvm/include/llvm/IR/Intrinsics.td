@@ -1308,7 +1308,7 @@ def int_coro_subfn_addr : Intrinsic<[llvm_ptr_ty], [llvm_ptr_ty, llvm_i8_ty],
 
 ///===-------------------------- Other Intrinsics --------------------------===//
 //
-def int_trap : Intrinsic<[], [], [IntrNoReturn, IntrCold]>,
+def int_trap : Intrinsic<[], [], [IntrNoReturn, IntrCold, IntrNoSync]>,
                GCCBuiltin<"__builtin_trap">;
 def int_debugtrap : Intrinsic<[]>,
                     GCCBuiltin<"__builtin_debugtrap">;

@@ -116,6 +116,7 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/ConstantRange.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Casting.h"
@@ -142,7 +143,8 @@ namespace AA {
 /// Return true if \p I is a `nosync` instruction. Use generic reasoning and
 /// potentially the corresponding AANoSync.
 bool isNoSyncInst(Attributor &A, const Instruction &I,
-                  const AbstractAttribute &QueryingAA);
+                  const AbstractAttribute &QueryingAA,
+                  bool *UsedAssumedInformation = nullptr);
 
 /// Return true if \p V is dynamically unique, that is, there are no two
 /// "instances" of \p V at runtime with different values.
@@ -1990,6 +1992,7 @@ private:
   /// impact the call graph.
   SmallPtrSet<Function *, 8> CGModifiedFunctions;
 
+public:
   /// Information about a dependence. If FromAA is changed ToAA needs to be
   /// updated as well.
   struct DepInfo {
@@ -1997,7 +2000,13 @@ private:
     const AbstractAttribute *ToAA;
     DepClassTy DepClass;
   };
+  using DependenceVector = SmallVector<DepInfo, 8>;
 
+  const DependenceVector &getOwnDependences() const {
+    return *DependenceStack.back();
+  }
+
+private:
   /// The dependence stack is used to track dependences during an
   /// `AbstractAttribute::update` call. As `AbstractAttribute::update` can be
   /// recursive we might have multiple vectors of dependences in here. The stack
@@ -2005,7 +2014,6 @@ private:
   /// inner dependence vector size to the expected number of dependences per
   /// abstract attribute. Since the inner vectors are actually allocated on the
   /// stack we can be generous with their size.
-  using DependenceVector = SmallVector<DepInfo, 8>;
   SmallVector<DependenceVector *, 16> DependenceStack;
 
   /// If not null, a set limiting the attribute opportunities.
@@ -2798,6 +2806,8 @@ struct AbstractAttribute : public IRPosition, public AADepGraphNode {
   ///    in the `updateImpl` method.
   virtual void initialize(Attributor &A) {}
 
+  virtual bool isQueryAA() const { return false; }
+
   /// Return the internal abstract state for inspection.
   virtual StateType &getState() = 0;
   virtual const StateType &getState() const = 0;
@@ -2821,6 +2831,9 @@ struct AbstractAttribute : public IRPosition, public AADepGraphNode {
   /// This function should return the address of the ID of the AbstractAttribute
   virtual const char *getIdAddr() const = 0;
   ///}
+
+  /// Return true if the last update changed the state of this AA.
+  bool hasChanged() const { return HasChanged == ChangeStatus::CHANGED; }
 
   /// Allow the Attributor access to the protected methods.
   friend struct Attributor;
@@ -2857,6 +2870,10 @@ protected:
   ///
   /// \Return CHANGED if the internal state changed, otherwise UNCHANGED.
   virtual ChangeStatus updateImpl(Attributor &A) = 0;
+
+  /// Flag to indicate if this AA has changed as part of the last updateImpl
+  /// call.
+  ChangeStatus HasChanged;
 };
 
 /// Forward declarations of output streams for debug purposes.
@@ -4567,9 +4584,222 @@ struct DOTGraphTraits<AttributorCallGraph *> : public DefaultDOTGraphTraits {
   }
 };
 
+struct ThreadExecutionState : public AbstractState {
+  enum class ThreadSet : uint8_t {
+    NONE,
+    ALL_ALIGNED,
+    ALL,
+    ALL_BUT_MAIN_THREAD_ALIGNED,
+    ALL_BUT_MAIN_THREAD,
+    MAIN_THREAD,
+    UNKNOWN,
+  };
+
+  ThreadExecutionState(ThreadSet EntryThreadSet = ThreadSet::NONE,
+                       ThreadSet ExitThreadSet = ThreadSet::NONE)
+      : EntryThreadSet(EntryThreadSet), ExitThreadSet(ExitThreadSet) {}
+
+  /// Return the best possible representable state.
+  static ThreadExecutionState getBestState() { return ThreadExecutionState(); }
+  static ThreadExecutionState getBestState(const ThreadExecutionState &) {
+    return getBestState();
+  }
+
+  /// Return the worst possible representable state.
+  static ThreadExecutionState getWorstState() {
+    return ThreadExecutionState(ThreadSet::UNKNOWN, ThreadSet::UNKNOWN);
+  }
+  static ThreadExecutionState getWorstState(const ThreadExecutionState &) {
+    return getWorstState();
+  }
+
+  bool operator==(const ThreadExecutionState &R) const {
+    return EntryThreadSet == R.EntryThreadSet &&
+           ExitThreadSet == R.ExitThreadSet;
+  }
+
+  bool operator!=(const ThreadExecutionState &R) const { return !(*this == R); }
+
+  /// See AbstractState::isValidState(...)
+  bool isValidState() const override { return *this != getWorstState(); }
+
+  /// See AbstractState::isAtFixpoint(...)
+  bool isAtFixpoint() const override { return EntryInfoIsFix && ExitInfoIsFix; }
+
+  static bool constainsMainThread(ThreadSet TS) {
+    switch (TS) {
+    case ThreadSet::ALL_ALIGNED:
+    case ThreadSet::ALL:
+    case ThreadSet::MAIN_THREAD:
+    case ThreadSet::UNKNOWN:
+      return true;
+    default:
+      return false;
+    };
+  }
+
+/// Macro to generate  methods that merge entry/exit
+/// information ot a state into entry/exit information of this one.
+#define TakeBetter(O1, O2)
+
+/// Macro to generate the merge_X_Into_Y methods that merge entry/exit
+/// information ot a state into entry/exit information of this one.
+#define MergeInto(O1, O2)                                                      \
+  ChangeStatus merge##O1##Into##O2(const ThreadExecutionState &Other,          \
+                                   bool MergeMustHappen) {                     \
+    return mergeInto(O2##ThreadSet, Other.O1##ThreadSet, MergeMustHappen);     \
+  }
+
+  MergeInto(Entry, Entry);
+  MergeInto(Entry, Exit);
+  MergeInto(Exit, Entry);
+  MergeInto(Exit, Exit);
+#undef MergeInto
+
+  /// Macro to generate the is_X_AsGoodAs_Y methods that compare entry/exit
+  /// information of two states.
+#define IsAsGoodAs(O1, O2)                                                     \
+  bool is##O1##AsGoodAs##O2(const ThreadExecutionState &Other) const {         \
+    if (O1##ThreadSet == ThreadSet::NONE ||                                    \
+        O1##ThreadSet == Other.O2##ThreadSet ||                                \
+        (Other.O2##ThreadSet != ThreadSet::NONE &&                             \
+         O1##ThreadSet == ThreadSet::ALL))                                     \
+      return true;                                                             \
+    return false;                                                              \
+  }
+
+  IsAsGoodAs(Entry, Entry);
+  IsAsGoodAs(Entry, Exit);
+  IsAsGoodAs(Exit, Entry);
+  IsAsGoodAs(Exit, Exit);
+#undef IsAsGoodAs
+
+  enum class Orientation {
+    Entry,
+    Exit,
+  };
+
+  bool isSingleThread(Orientation O) {
+    return EntryThreadSet == ThreadSet::MAIN_THREAD;
+  }
+
+  ChangeStatus indicatePessimisticFixpoint(Orientation O) {
+    if (O == Orientation::Entry && !EntryInfoIsFix) {
+      EntryThreadSet = ThreadSet::UNKNOWN;
+      EntryInfoIsFix = true;
+      return ChangeStatus::CHANGED;
+    }
+    if (!ExitInfoIsFix) {
+      ExitThreadSet = ThreadSet::UNKNOWN;
+      ExitInfoIsFix = true;
+      return ChangeStatus::CHANGED;
+    }
+    return ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractState::indicatePessimisticFixpoint(...)
+  ChangeStatus indicatePessimisticFixpoint() override {
+    indicatePessimisticFixpoint(Orientation::Entry);
+    indicatePessimisticFixpoint(Orientation::Exit);
+    return ChangeStatus::CHANGED;
+  }
+
+  ChangeStatus indicateOptimisticFixpoint(Orientation O) {
+    if (O == Orientation::Entry)
+      EntryInfoIsFix = true;
+    else
+      ExitInfoIsFix = true;
+    return ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractState::indicateOptimisticFixpoint(...)
+  ChangeStatus indicateOptimisticFixpoint() override {
+    indicateOptimisticFixpoint(Orientation::Entry);
+    indicateOptimisticFixpoint(Orientation::Exit);
+    return ChangeStatus::UNCHANGED;
+  }
+
+  ThreadSet EntryThreadSet = ThreadSet::NONE;
+  ThreadSet ExitThreadSet = ThreadSet::NONE;
+
+  bool EntryInfoIsFix = false;
+  bool ExitInfoIsFix = false;
+
+private:
+  static ChangeStatus mergeInto(ThreadSet &ThisThreadSet,
+                                ThreadSet OtherThreadSet,
+                                bool MergeMustHappen) {
+    ChangeStatus Changed = ChangeStatus ::UNCHANGED;
+    if (ThisThreadSet == OtherThreadSet)
+      return Changed;
+
+    if ((ThisThreadSet == ThreadSet::MAIN_THREAD &&
+         OtherThreadSet == ThreadSet::ALL_BUT_MAIN_THREAD_ALIGNED) ||
+        (ThisThreadSet == ThreadSet::NONE &&
+         OtherThreadSet == ThreadSet::ALL_BUT_MAIN_THREAD_ALIGNED) ||
+        (ThisThreadSet == ThreadSet::NONE &&
+         OtherThreadSet == ThreadSet::MAIN_THREAD) ||
+        (ThisThreadSet == ThreadSet::ALL_BUT_MAIN_THREAD_ALIGNED &&
+         OtherThreadSet == ThreadSet::MAIN_THREAD)) {
+      ThisThreadSet = ThreadSet::ALL_ALIGNED;
+      return ChangeStatus::CHANGED;
+    }
+    if ((ThisThreadSet == ThreadSet::MAIN_THREAD &&
+         OtherThreadSet == ThreadSet::ALL_BUT_MAIN_THREAD) ||
+        (ThisThreadSet == ThreadSet::NONE &&
+         OtherThreadSet == ThreadSet::ALL_BUT_MAIN_THREAD) ||
+        (ThisThreadSet == ThreadSet::ALL_BUT_MAIN_THREAD &&
+         OtherThreadSet == ThreadSet::MAIN_THREAD)) {
+      ThisThreadSet = ThreadSet::ALL;
+      return ChangeStatus::CHANGED;
+    }
+
+    if (ThisThreadSet == ThreadSet::NONE) {
+      assert(OtherThreadSet != ThreadSet::NONE && "Invalid merge state");
+      ThisThreadSet = OtherThreadSet;
+      return ChangeStatus::CHANGED;
+    }
+
+    if (ThisThreadSet == ThreadSet::UNKNOWN)
+      return Changed;
+
+    ThisThreadSet = ThreadSet::UNKNOWN;
+    return ChangeStatus::CHANGED;
+  }
+};
+
+inline raw_ostream &operator<<(raw_ostream &OS,
+                               ThreadExecutionState::ThreadSet TS) {
+  switch (TS) {
+  case ThreadExecutionState::ThreadSet::NONE:
+    return OS << "none";
+  case ThreadExecutionState::ThreadSet::ALL_ALIGNED:
+    return OS << "all aligned";
+  case ThreadExecutionState::ThreadSet::ALL:
+    return OS << "all";
+  case ThreadExecutionState::ThreadSet::MAIN_THREAD:
+    return OS << "main thread";
+  case ThreadExecutionState::ThreadSet::ALL_BUT_MAIN_THREAD_ALIGNED:
+    return OS << "all but main thread aligned";
+  case ThreadExecutionState::ThreadSet::ALL_BUT_MAIN_THREAD:
+    return OS << "all but main thread";
+  case ThreadExecutionState::ThreadSet::UNKNOWN:
+    return OS << "unknown";
+  }
+  llvm_unreachable("Unknown thread set");
+}
+
+inline raw_ostream &operator<<(raw_ostream &OS,
+                               const ThreadExecutionState &TES) {
+  return OS << "[In: " << TES.EntryThreadSet << (TES.EntryInfoIsFix ? ":F" : "")
+            << "]"
+            << "[Out: " << TES.ExitThreadSet << (TES.ExitInfoIsFix ? ":F" : "")
+            << "]";
+}
+
 struct AAExecutionDomain
-    : public StateWrapper<BooleanState, AbstractAttribute> {
-  using Base = StateWrapper<BooleanState, AbstractAttribute>;
+    : public StateWrapper<ThreadExecutionState, AbstractAttribute> {
+  using Base = StateWrapper<ThreadExecutionState, AbstractAttribute>;
   AAExecutionDomain(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
   /// Create an abstract attribute view for the position \p IRP.
@@ -4583,10 +4813,32 @@ struct AAExecutionDomain
   const char *getIdAddr() const override { return &ID; }
 
   /// Check if an instruction is executed only by the initial thread.
-  virtual bool isExecutedByInitialThreadOnly(const Instruction &) const = 0;
+  bool isExecutedByInitialThreadOnly(Attributor &A,
+                                     const Instruction &I) const {
+    ThreadExecutionState::ThreadSet TS =
+        getThreadExecutionStateForInst(A, I).EntryThreadSet;
+    return TS == ThreadExecutionState::ThreadSet::MAIN_THREAD ||
+           TS == ThreadExecutionState::ThreadSet::NONE;
+  }
 
   /// Check if a basic block is executed only by the initial thread.
-  virtual bool isExecutedByInitialThreadOnly(const BasicBlock &) const = 0;
+  bool isExecutedByInitialThreadOnly(Attributor &A,
+                                     const BasicBlock &BB) const {
+    ThreadExecutionState::ThreadSet TS =
+        getThreadExecutionStateForBlock(A, BB).EntryThreadSet;
+    return TS == ThreadExecutionState::ThreadSet::MAIN_THREAD ||
+           TS == ThreadExecutionState::ThreadSet::NONE;
+  }
+
+  virtual const ThreadExecutionState &
+  getThreadExecutionState(Attributor &A) const = 0;
+
+  virtual const ThreadExecutionState &
+  getThreadExecutionStateForInst(Attributor &A, const Instruction &I) const = 0;
+
+  virtual const ThreadExecutionState &
+  getThreadExecutionStateForBlock(Attributor &A,
+                                  const BasicBlock &BB) const = 0;
 
   /// This function should return true if the type of the \p AA is
   /// AAExecutionDomain.
