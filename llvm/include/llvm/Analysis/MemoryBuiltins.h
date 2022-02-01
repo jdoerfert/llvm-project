@@ -221,6 +221,7 @@ public:
   SizeOffsetType visitInstruction(Instruction &I);
 
 private:
+  SizeOffsetType computeImpl(Value *V);
   bool CheckedZextOrTrunc(APInt &I);
 };
 

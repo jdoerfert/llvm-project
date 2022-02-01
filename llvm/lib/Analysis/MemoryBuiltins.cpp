@@ -573,10 +573,34 @@ ObjectSizeOffsetVisitor::ObjectSizeOffsetVisitor(const DataLayout &DL,
 }
 
 SizeOffsetType ObjectSizeOffsetVisitor::compute(Value *V) {
+  unsigned InitialIntTyBits = DL.getIndexTypeSizeInBits(V->getType());
+
+  // Stripping pointer casts can strip address space casts which can change the
+  // index type size. The invariant is that we use the value type to determine
+  // the index type size. If we stripped address space casts we "repair" the
+  // APInt as we pass it upwards. For the caller, the APInt matches the type of
+  // the argument value V (or better the type of it).
+  V = V->stripPointerCasts();
+
+  // Later we use the index type size and zero but it will match the type of the
+  // value that is passed to computeImpl.
   IntTyBits = DL.getIndexTypeSizeInBits(V->getType());
   Zero = APInt::getZero(IntTyBits);
 
-  V = V->stripPointerCasts();
+  if (InitialIntTyBits == IntTyBits)
+    return computeImpl(V);
+
+  // We stripped an address space cast that changed the index type size.
+  // Readjust it to match the argument's index type size.
+  SizeOffsetType SOT = computeImpl(V);
+  if (knownSize(SOT) && !::CheckedZextOrTrunc(SOT.first, InitialIntTyBits))
+    return unknown();
+  if (knownOffset(SOT) && !::CheckedZextOrTrunc(SOT.second, InitialIntTyBits))
+    return unknown();
+  return SOT;
+}
+
+SizeOffsetType ObjectSizeOffsetVisitor::computeImpl(Value *V) {
   if (Instruction *I = dyn_cast<Instruction>(V)) {
     // If we have already seen this instruction, bail out. Cycles can happen in
     // unreachable code after constant propagation.
