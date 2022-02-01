@@ -924,7 +924,7 @@ declare void @llvm.assume(i1)
 ; IS__TUNIT_OPM: attributes #[[ATTR3]] = { argmemonly nofree norecurse nosync nounwind writeonly }
 ; IS__TUNIT_OPM: attributes #[[ATTR4]] = { argmemonly nofree norecurse nosync nounwind }
 ; IS__TUNIT_OPM: attributes #[[ATTR5]] = { argmemonly nofree nosync nounwind writeonly }
-; IS__TUNIT_OPM: attributes #[[ATTR6:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
+; IS__TUNIT_OPM: attributes #[[ATTR6:[0-9]+]] = { inaccessiblememonly nocallback nofree nosync nounwind willreturn }
 ; IS__TUNIT_OPM: attributes #[[ATTR7]] = { nofree nosync nounwind writeonly }
 ; IS__TUNIT_OPM: attributes #[[ATTR8]] = { willreturn }
 ; IS__TUNIT_OPM: attributes #[[ATTR9]] = { nounwind }
@@ -934,7 +934,7 @@ declare void @llvm.assume(i1)
 ; IS__TUNIT_NPM: attributes #[[ATTR2]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__TUNIT_NPM: attributes #[[ATTR3]] = { argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__TUNIT_NPM: attributes #[[ATTR4]] = { argmemonly nofree nosync nounwind writeonly }
-; IS__TUNIT_NPM: attributes #[[ATTR5:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
+; IS__TUNIT_NPM: attributes #[[ATTR5:[0-9]+]] = { inaccessiblememonly nocallback nofree nosync nounwind willreturn }
 ; IS__TUNIT_NPM: attributes #[[ATTR6]] = { nofree nosync nounwind willreturn writeonly }
 ; IS__TUNIT_NPM: attributes #[[ATTR7]] = { nofree nosync nounwind writeonly }
 ; IS__TUNIT_NPM: attributes #[[ATTR8]] = { willreturn }
@@ -946,7 +946,7 @@ declare void @llvm.assume(i1)
 ; IS__CGSCC_OPM: attributes #[[ATTR3]] = { argmemonly nofree norecurse nosync nounwind writeonly }
 ; IS__CGSCC_OPM: attributes #[[ATTR4]] = { argmemonly nofree norecurse nosync nounwind }
 ; IS__CGSCC_OPM: attributes #[[ATTR5]] = { argmemonly nofree nosync nounwind writeonly }
-; IS__CGSCC_OPM: attributes #[[ATTR6:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
+; IS__CGSCC_OPM: attributes #[[ATTR6:[0-9]+]] = { inaccessiblememonly nocallback nofree nosync nounwind willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR7]] = { nosync nounwind writeonly }
 ; IS__CGSCC_OPM: attributes #[[ATTR8]] = { nofree nosync nounwind writeonly }
 ; IS__CGSCC_OPM: attributes #[[ATTR9]] = { willreturn }
@@ -957,7 +957,7 @@ declare void @llvm.assume(i1)
 ; IS__CGSCC_NPM: attributes #[[ATTR2]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC_NPM: attributes #[[ATTR3]] = { argmemonly nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR4]] = { argmemonly nofree nosync nounwind writeonly }
-; IS__CGSCC_NPM: attributes #[[ATTR5:[0-9]+]] = { inaccessiblememonly nofree nosync nounwind willreturn }
+; IS__CGSCC_NPM: attributes #[[ATTR5:[0-9]+]] = { inaccessiblememonly nocallback nofree nosync nounwind willreturn }
 ; IS__CGSCC_NPM: attributes #[[ATTR6]] = { nosync nounwind willreturn writeonly }
 ; IS__CGSCC_NPM: attributes #[[ATTR7]] = { nofree nosync nounwind writeonly }
 ; IS__CGSCC_NPM: attributes #[[ATTR8]] = { willreturn }

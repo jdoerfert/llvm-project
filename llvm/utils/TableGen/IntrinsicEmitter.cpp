@@ -599,6 +599,9 @@ struct AttributeComparator {
     if (L->isNoReturn != R->isNoReturn)
       return R->isNoReturn;
 
+    if (L->isNoCallback != R->isNoCallback)
+      return R->isNoCallback;
+
     if (L->isNoSync != R->isNoSync)
       return R->isNoSync;
 
@@ -748,7 +751,7 @@ void IntrinsicEmitter::EmitAttributes(const CodeGenIntrinsicTable &Ints,
     if (!Intrinsic.canThrow ||
         (Intrinsic.ModRef != CodeGenIntrinsic::ReadWriteMem &&
          !Intrinsic.hasSideEffects) ||
-        Intrinsic.isNoReturn || Intrinsic.isNoSync || Intrinsic.isNoFree ||
+        Intrinsic.isNoReturn || Intrinsic.isNoCallback || Intrinsic.isNoSync || Intrinsic.isNoFree ||
         Intrinsic.isWillReturn || Intrinsic.isCold || Intrinsic.isNoDuplicate ||
         Intrinsic.isNoMerge || Intrinsic.isConvergent ||
         Intrinsic.isSpeculatable) {
@@ -758,6 +761,8 @@ void IntrinsicEmitter::EmitAttributes(const CodeGenIntrinsicTable &Ints,
         OS << LS << "Attribute::NoUnwind";
       if (Intrinsic.isNoReturn)
         OS << LS << "Attribute::NoReturn";
+      if (Intrinsic.isNoCallback)
+        OS << LS << "Attribute::NoCallback";
       if (Intrinsic.isNoSync)
         OS << LS << "Attribute::NoSync";
       if (Intrinsic.isNoFree)

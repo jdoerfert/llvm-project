@@ -31,15 +31,15 @@ define i8* @test2(i8* nonnull %p) {
 }
 
 define i8* @test2A(i1 %c, i8* %ret) {
-; CHECK: Function Attrs: inaccessiblememonly nofree nosync nounwind willreturn
+; CHECK: Function Attrs: inaccessiblememonly nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@test2A
-; CHECK-SAME: (i1 [[C:%.*]], i8* nofree nonnull readnone returned "no-capture-maybe-returned" [[RET:%.*]]) #[[ATTR0:[0-9]+]] {
+; CHECK-SAME: (i1 [[C:%.*]], i8* nofree nonnull readnone returned "no-capture-maybe-returned" [[RET:%.*]]) #[[ATTR2:[0-9]+]] {
 ; CHECK-NEXT:    br i1 [[C]], label [[A:%.*]], label [[B:%.*]]
 ; CHECK:       A:
-; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR11:[0-9]+]] [ "nonnull"(i8* [[RET]]) ]
+; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR12:[0-9]+]] [ "nonnull"(i8* [[RET]]) ]
 ; CHECK-NEXT:    ret i8* [[RET]]
 ; CHECK:       B:
-; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR11]] [ "nonnull"(i8* [[RET]]) ]
+; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR12]] [ "nonnull"(i8* [[RET]]) ]
 ; CHECK-NEXT:    ret i8* [[RET]]
 ;
   br i1 %c, label %A, label %B
@@ -52,15 +52,15 @@ B:
 }
 
 define i8* @test2B(i1 %c, i8* %ret) {
-; CHECK: Function Attrs: inaccessiblememonly nofree nosync nounwind willreturn
+; CHECK: Function Attrs: inaccessiblememonly nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@test2B
-; CHECK-SAME: (i1 [[C:%.*]], i8* nofree nonnull readnone returned dereferenceable(4) "no-capture-maybe-returned" [[RET:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (i1 [[C:%.*]], i8* nofree nonnull readnone returned dereferenceable(4) "no-capture-maybe-returned" [[RET:%.*]]) #[[ATTR2]] {
 ; CHECK-NEXT:    br i1 [[C]], label [[A:%.*]], label [[B:%.*]]
 ; CHECK:       A:
-; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR11]] [ "dereferenceable"(i8* [[RET]], i32 4) ]
+; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR12]] [ "dereferenceable"(i8* [[RET]], i32 4) ]
 ; CHECK-NEXT:    ret i8* [[RET]]
 ; CHECK:       B:
-; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR11]] [ "dereferenceable"(i8* [[RET]], i32 4) ]
+; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR12]] [ "dereferenceable"(i8* [[RET]], i32 4) ]
 ; CHECK-NEXT:    ret i8* [[RET]]
 ;
   br i1 %c, label %A, label %B
@@ -171,7 +171,7 @@ define i8* @test6a() {
 ;
 ; CHECK: Function Attrs: noreturn
 ; CHECK-LABEL: define {{[^@]+}}@test6a
-; CHECK-SAME: () #[[ATTR2:[0-9]+]] {
+; CHECK-SAME: () #[[ATTR3:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[RET:%.*]] = call i8* @ret_nonnull()
 ; CHECK-NEXT:    br label [[LOOP:%.*]]
@@ -247,10 +247,10 @@ define i8* @test9(i8* %a, i64 %n) {
 ; ATTRIBUTOR_OPM: define i8* @test10
 ; ATTRIBUTOR_NPM: define nonnull i8* @test10
 define i8* @test10(i8* %a, i64 %n) {
-; CHECK: Function Attrs: inaccessiblememonly nofree nosync nounwind willreturn
+; CHECK: Function Attrs: inaccessiblememonly nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@test10
-; CHECK-SAME: (i8* nofree readnone "no-capture-maybe-returned" [[A:%.*]], i64 [[N:%.*]]) #[[ATTR0]] {
-; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR11]]
+; CHECK-SAME: (i8* nofree readnone "no-capture-maybe-returned" [[A:%.*]], i64 [[N:%.*]]) #[[ATTR2]] {
+; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR12]]
 ; CHECK-NEXT:    [[B:%.*]] = getelementptr inbounds i8, i8* [[A]], i64 [[N]]
 ; CHECK-NEXT:    ret i8* [[B]]
 ;
@@ -309,8 +309,8 @@ define void @test13_helper() {
 ; CHECK-LABEL: define {{[^@]+}}@test13_helper() {
 ; CHECK-NEXT:    [[NONNULLPTR:%.*]] = tail call nonnull i8* @ret_nonnull()
 ; CHECK-NEXT:    [[MAYBENULLPTR:%.*]] = tail call i8* @unknown()
-; CHECK-NEXT:    tail call void @test13(i8* noalias nocapture nofree nonnull readnone [[NONNULLPTR]], i8* noalias nocapture nofree nonnull readnone [[NONNULLPTR]], i8* noalias nocapture nofree readnone [[MAYBENULLPTR]]) #[[ATTR3:[0-9]+]]
-; CHECK-NEXT:    tail call void @test13(i8* noalias nocapture nofree nonnull readnone [[NONNULLPTR]], i8* noalias nocapture nofree readnone [[MAYBENULLPTR]], i8* noalias nocapture nofree nonnull readnone [[NONNULLPTR]]) #[[ATTR3]]
+; CHECK-NEXT:    tail call void @test13(i8* noalias nocapture nofree nonnull readnone [[NONNULLPTR]], i8* noalias nocapture nofree nonnull readnone [[NONNULLPTR]], i8* noalias nocapture nofree readnone [[MAYBENULLPTR]]) #[[ATTR4:[0-9]+]]
+; CHECK-NEXT:    tail call void @test13(i8* noalias nocapture nofree nonnull readnone [[NONNULLPTR]], i8* noalias nocapture nofree readnone [[MAYBENULLPTR]], i8* noalias nocapture nofree nonnull readnone [[NONNULLPTR]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret void
 ;
   %nonnullptr = tail call i8* @ret_nonnull()
@@ -323,10 +323,10 @@ define internal void @test13(i8* %a, i8* %b, i8* %c) {
 ;
 ; CHECK: Function Attrs: nounwind
 ; CHECK-LABEL: define {{[^@]+}}@test13
-; CHECK-SAME: (i8* noalias nocapture nofree nonnull readnone [[A:%.*]], i8* noalias nocapture nofree readnone [[B:%.*]], i8* noalias nocapture nofree readnone [[C:%.*]]) #[[ATTR3]] {
-; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree nonnull readnone [[A]]) #[[ATTR3]]
-; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree readnone [[B]]) #[[ATTR3]]
-; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree readnone [[C]]) #[[ATTR3]]
+; CHECK-SAME: (i8* noalias nocapture nofree nonnull readnone [[A:%.*]], i8* noalias nocapture nofree readnone [[B:%.*]], i8* noalias nocapture nofree readnone [[C:%.*]]) #[[ATTR4]] {
+; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree nonnull readnone [[A]]) #[[ATTR4]]
+; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree readnone [[B]]) #[[ATTR4]]
+; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree readnone [[C]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret void
 ;
   call void @use_i8_ptr(i8* %a)
@@ -353,7 +353,7 @@ define internal i32* @f1(i32* %arg) {
 ; FIXME: missing nonnull It should be nonnull @f1(i32* nonnull readonly %arg)
 ; CHECK: Function Attrs: argmemonly nofree nosync nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@f1
-; CHECK-SAME: (i32* nofree readonly [[ARG:%.*]]) #[[ATTR4:[0-9]+]] {
+; CHECK-SAME: (i32* nofree readonly [[ARG:%.*]]) #[[ATTR5:[0-9]+]] {
 ; CHECK-NEXT:  bb:
 ; CHECK-NEXT:    [[TMP:%.*]] = icmp eq i32* [[ARG]], null
 ; CHECK-NEXT:    br i1 [[TMP]], label [[BB9:%.*]], label [[BB1:%.*]]
@@ -363,11 +363,11 @@ define internal i32* @f1(i32* %arg) {
 ; CHECK-NEXT:    br i1 [[TMP3]], label [[BB6:%.*]], label [[BB4:%.*]]
 ; CHECK:       bb4:
 ; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr inbounds i32, i32* [[ARG]], i64 1
-; CHECK-NEXT:    [[TMP5B:%.*]] = tail call i32* @f3(i32* nofree nonnull readonly [[TMP5]]) #[[ATTR12:[0-9]+]]
+; CHECK-NEXT:    [[TMP5B:%.*]] = tail call i32* @f3(i32* nofree nonnull readonly [[TMP5]]) #[[ATTR13:[0-9]+]]
 ; CHECK-NEXT:    [[TMP5C:%.*]] = getelementptr inbounds i32, i32* [[TMP5B]], i64 -1
 ; CHECK-NEXT:    br label [[BB9]]
 ; CHECK:       bb6:
-; CHECK-NEXT:    [[TMP7:%.*]] = tail call i32* @f2(i32* nofree nonnull readonly align 4 dereferenceable(4) [[ARG]]) #[[ATTR12]]
+; CHECK-NEXT:    [[TMP7:%.*]] = tail call i32* @f2(i32* nofree nonnull readonly align 4 dereferenceable(4) [[ARG]]) #[[ATTR13]]
 ; CHECK-NEXT:    ret i32* [[TMP7]]
 ; CHECK:       bb9:
 ; CHECK-NEXT:    [[TMP10:%.*]] = phi i32* [ [[TMP5C]], [[BB4]] ], [ inttoptr (i64 4 to i32*), [[BB:%.*]] ]
@@ -401,9 +401,9 @@ bb9:                                              ; preds = %bb4, %bb
 define internal i32* @f2(i32* %arg) {
 ; CHECK: Function Attrs: argmemonly nofree nosync nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@f2
-; CHECK-SAME: (i32* nofree nonnull readonly align 4 dereferenceable(4) [[ARG:%.*]]) #[[ATTR4]] {
+; CHECK-SAME: (i32* nofree nonnull readonly align 4 dereferenceable(4) [[ARG:%.*]]) #[[ATTR5]] {
 ; CHECK-NEXT:  bb:
-; CHECK-NEXT:    [[TMP:%.*]] = tail call i32* @f1(i32* nofree readonly [[ARG]]) #[[ATTR12]]
+; CHECK-NEXT:    [[TMP:%.*]] = tail call i32* @f1(i32* nofree readonly [[ARG]]) #[[ATTR13]]
 ; CHECK-NEXT:    ret i32* [[TMP]]
 ;
 bb:
@@ -415,9 +415,9 @@ define dso_local noalias i32* @f3(i32* %arg) {
 ; FIXME: missing nonnull. It should be nonnull @f3(i32* nonnull readonly %arg)
 ; CHECK: Function Attrs: argmemonly nofree nosync nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@f3
-; CHECK-SAME: (i32* nofree readonly [[ARG:%.*]]) #[[ATTR4]] {
+; CHECK-SAME: (i32* nofree readonly [[ARG:%.*]]) #[[ATTR5]] {
 ; CHECK-NEXT:  bb:
-; CHECK-NEXT:    [[TMP:%.*]] = call i32* @f1(i32* nofree readonly [[ARG]]) #[[ATTR12]]
+; CHECK-NEXT:    [[TMP:%.*]] = call i32* @f1(i32* nofree readonly [[ARG]]) #[[ATTR13]]
 ; CHECK-NEXT:    ret i32* [[TMP]]
 ;
 bb:
@@ -451,14 +451,14 @@ declare void @fun3(i8*, i8*, i8*) #1
 define void @f16(i8* %a, i8 * %b, i8 %c) {
 ; CHECK: Function Attrs: nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@f16
-; CHECK-SAME: (i8* nonnull [[A:%.*]], i8* [[B:%.*]], i8 [[C:%.*]]) #[[ATTR5:[0-9]+]] {
+; CHECK-SAME: (i8* nonnull [[A:%.*]], i8* [[B:%.*]], i8 [[C:%.*]]) #[[ATTR6:[0-9]+]] {
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[C]], 0
 ; CHECK-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @fun2(i8* nonnull [[A]], i8* nonnull [[B]]) #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun2(i8* nonnull [[A]], i8* nonnull [[B]]) #[[ATTR6]]
 ; CHECK-NEXT:    ret void
 ; CHECK:       if.else:
-; CHECK-NEXT:    tail call void @fun2(i8* nonnull [[A]], i8* [[B]]) #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun2(i8* nonnull [[A]], i8* [[B]]) #[[ATTR6]]
 ; CHECK-NEXT:    ret void
 ;
   %cmp = icmp eq i8 %c, 0
@@ -481,17 +481,17 @@ define void @f17(i8* %a, i8 %c) {
 ;
 ; CHECK: Function Attrs: nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@f17
-; CHECK-SAME: (i8* nonnull [[A:%.*]], i8 [[C:%.*]]) #[[ATTR5]] {
+; CHECK-SAME: (i8* nonnull [[A:%.*]], i8 [[C:%.*]]) #[[ATTR6]] {
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[C]], 0
 ; CHECK-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @fun0() #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun0() #[[ATTR6]]
 ; CHECK-NEXT:    br label [[CONT:%.*]]
 ; CHECK:       if.else:
-; CHECK-NEXT:    tail call void @fun0() #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun0() #[[ATTR6]]
 ; CHECK-NEXT:    br label [[CONT]]
 ; CHECK:       cont:
-; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[A]]) #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[A]]) #[[ATTR6]]
 ; CHECK-NEXT:    ret void
 ;
   %cmp = icmp eq i8 %c, 0
@@ -520,26 +520,26 @@ cont:
 define void @f18(i8* %a, i8* %b, i8 %c) {
 ; CHECK: Function Attrs: nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@f18
-; CHECK-SAME: (i8* nonnull [[A:%.*]], i8* [[B:%.*]], i8 [[C:%.*]]) #[[ATTR5]] {
+; CHECK-SAME: (i8* nonnull [[A:%.*]], i8* [[B:%.*]], i8 [[C:%.*]]) #[[ATTR6]] {
 ; CHECK-NEXT:    [[CMP1:%.*]] = icmp eq i8 [[C]], 0
 ; CHECK-NEXT:    br i1 [[CMP1]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    tail call void @fun0() #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun0() #[[ATTR6]]
 ; CHECK-NEXT:    br label [[CONT:%.*]]
 ; CHECK:       if.else:
-; CHECK-NEXT:    tail call void @fun0() #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun0() #[[ATTR6]]
 ; CHECK-NEXT:    br label [[CONT]]
 ; CHECK:       cont:
 ; CHECK-NEXT:    [[CMP2:%.*]] = icmp eq i8 [[C]], 1
 ; CHECK-NEXT:    br i1 [[CMP2]], label [[CONT_THEN:%.*]], label [[CONT_ELSE:%.*]]
 ; CHECK:       cont.then:
-; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[B]]) #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[B]]) #[[ATTR6]]
 ; CHECK-NEXT:    br label [[CONT2:%.*]]
 ; CHECK:       cont.else:
-; CHECK-NEXT:    tail call void @fun0() #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun0() #[[ATTR6]]
 ; CHECK-NEXT:    br label [[CONT2]]
 ; CHECK:       cont2:
-; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[A]]) #[[ATTR5]]
+; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[A]]) #[[ATTR6]]
 ; CHECK-NEXT:    ret void
 ;
   %cmp1 = icmp eq i8 %c, 0
@@ -569,17 +569,17 @@ cont2:
 define void @f19(i8* %a, i8* %b, i8 %c) {
 ; CHECK: Function Attrs: nounwind
 ; CHECK-LABEL: define {{[^@]+}}@f19
-; CHECK-SAME: (i8* [[A:%.*]], i8* nonnull [[B:%.*]], i8 [[C:%.*]]) #[[ATTR3]] {
+; CHECK-SAME: (i8* [[A:%.*]], i8* nonnull [[B:%.*]], i8 [[C:%.*]]) #[[ATTR4]] {
 ; CHECK-NEXT:    br label [[LOOP_HEADER:%.*]]
 ; CHECK:       loop.header:
 ; CHECK-NEXT:    [[CMP2:%.*]] = icmp eq i8 [[C]], 0
 ; CHECK-NEXT:    br i1 [[CMP2]], label [[LOOP_BODY:%.*]], label [[LOOP_EXIT:%.*]]
 ; CHECK:       loop.body:
-; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[B]]) #[[ATTR3]]
-; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[A]]) #[[ATTR3]]
+; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[B]]) #[[ATTR4]]
+; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    br label [[LOOP_HEADER]]
 ; CHECK:       loop.exit:
-; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[B]]) #[[ATTR3]]
+; CHECK-NEXT:    tail call void @fun1(i8* nonnull [[B]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret void
 ;
   br label %loop.header
@@ -715,7 +715,7 @@ define i8 @parent6(i8* %a, i8* %b) {
 define i8 @parent7(i8* %a) {
 ; CHECK-LABEL: define {{[^@]+}}@parent7
 ; CHECK-SAME: (i8* nonnull [[A:%.*]]) {
-; CHECK-NEXT:    [[RET:%.*]] = call i8 @use1safecall(i8* nonnull readonly [[A]]) #[[ATTR13:[0-9]+]]
+; CHECK-NEXT:    [[RET:%.*]] = call i8 @use1safecall(i8* nonnull readonly [[A]]) #[[ATTR14:[0-9]+]]
 ; CHECK-NEXT:    call void @use1nonnull(i8* nonnull [[A]])
 ; CHECK-NEXT:    ret i8 [[RET]]
 ;
@@ -733,7 +733,7 @@ declare i32 @esfp(...)
 define i1 @parent8(i8* %a, i8* %bogus1, i8* %b) personality i8* bitcast (i32 (...)* @esfp to i8*){
 ; CHECK: Function Attrs: nounwind
 ; CHECK-LABEL: define {{[^@]+}}@parent8
-; CHECK-SAME: (i8* nonnull [[A:%.*]], i8* nocapture nofree readnone [[BOGUS1:%.*]], i8* nonnull [[B:%.*]]) #[[ATTR3]] personality i8* bitcast (i32 (...)* @esfp to i8*) {
+; CHECK-SAME: (i8* nonnull [[A:%.*]], i8* nocapture nofree readnone [[BOGUS1:%.*]], i8* nonnull [[B:%.*]]) #[[ATTR4]] personality i8* bitcast (i32 (...)* @esfp to i8*) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    invoke void @use2nonnull(i8* nonnull [[A]], i8* nonnull [[B]])
 ; CHECK-NEXT:    to label [[CONT:%.*]] unwind label [[EXC:%.*]]
@@ -774,7 +774,7 @@ define i32* @gep1_no_null_opt(i32* %p) #0 {
 ; Should't be able to derive nonnull based on gep.
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind null_pointer_is_valid readnone willreturn
 ; CHECK-LABEL: define {{[^@]+}}@gep1_no_null_opt
-; CHECK-SAME: (i32* nofree readnone "no-capture-maybe-returned" [[P:%.*]]) #[[ATTR7:[0-9]+]] {
+; CHECK-SAME: (i32* nofree readnone "no-capture-maybe-returned" [[P:%.*]]) #[[ATTR8:[0-9]+]] {
 ; CHECK-NEXT:    [[Q:%.*]] = getelementptr inbounds i32, i32* [[P]], i32 1
 ; CHECK-NEXT:    ret i32* [[Q]]
 ;
@@ -827,8 +827,8 @@ declare void @use_i32_ptr(i32* readnone nocapture) nounwind
 define internal void @called_by_weak(i32* %a) {
 ; CHECK: Function Attrs: nounwind
 ; CHECK-LABEL: define {{[^@]+}}@called_by_weak
-; CHECK-SAME: (i32* noalias nocapture nonnull readnone [[A:%.*]]) #[[ATTR3]] {
-; CHECK-NEXT:    call void @use_i32_ptr(i32* noalias nocapture nonnull readnone [[A]]) #[[ATTR3]]
+; CHECK-SAME: (i32* noalias nocapture nonnull readnone [[A:%.*]]) #[[ATTR4]] {
+; CHECK-NEXT:    call void @use_i32_ptr(i32* noalias nocapture nonnull readnone [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret void
 ;
   call void @use_i32_ptr(i32* %a)
@@ -840,7 +840,7 @@ define weak_odr void @weak_caller(i32* nonnull %a) {
 ;
 ; CHECK-LABEL: define {{[^@]+}}@weak_caller
 ; CHECK-SAME: (i32* nonnull [[A:%.*]]) {
-; CHECK-NEXT:    call void @called_by_weak(i32* noalias nocapture nonnull readnone [[A]]) #[[ATTR3]]
+; CHECK-NEXT:    call void @called_by_weak(i32* noalias nocapture nonnull readnone [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret void
 ;
   call void @called_by_weak(i32* %a)
@@ -851,8 +851,8 @@ define weak_odr void @weak_caller(i32* nonnull %a) {
 define internal void @control(i32* dereferenceable(4) %a) {
 ; CHECK: Function Attrs: nounwind
 ; CHECK-LABEL: define {{[^@]+}}@control
-; CHECK-SAME: (i32* noalias nocapture noundef nonnull readnone align 16 dereferenceable(8) [[A:%.*]]) #[[ATTR3]] {
-; CHECK-NEXT:    call void @use_i32_ptr(i32* noalias nocapture noundef nonnull readnone align 16 dereferenceable(8) [[A]]) #[[ATTR3]]
+; CHECK-SAME: (i32* noalias nocapture noundef nonnull readnone align 16 dereferenceable(8) [[A:%.*]]) #[[ATTR4]] {
+; CHECK-NEXT:    call void @use_i32_ptr(i32* noalias nocapture noundef nonnull readnone align 16 dereferenceable(8) [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret void
 ;
   call void @use_i32_ptr(i32* %a)
@@ -862,7 +862,7 @@ define internal void @control(i32* dereferenceable(4) %a) {
 define internal void @naked(i32* dereferenceable(4) %a) naked {
 ; CHECK: Function Attrs: naked
 ; CHECK-LABEL: define {{[^@]+}}@naked
-; CHECK-SAME: (i32* dereferenceable(4) [[A:%.*]]) #[[ATTR8:[0-9]+]] {
+; CHECK-SAME: (i32* dereferenceable(4) [[A:%.*]]) #[[ATTR9:[0-9]+]] {
 ; CHECK-NEXT:    call void @use_i32_ptr(i32* [[A]])
 ; CHECK-NEXT:    ret void
 ;
@@ -874,7 +874,7 @@ define internal void @optnone(i32* dereferenceable(4) %a) optnone noinline {
 ;
 ; CHECK: Function Attrs: noinline optnone
 ; CHECK-LABEL: define {{[^@]+}}@optnone
-; CHECK-SAME: (i32* dereferenceable(4) [[A:%.*]]) #[[ATTR9:[0-9]+]] {
+; CHECK-SAME: (i32* dereferenceable(4) [[A:%.*]]) #[[ATTR10:[0-9]+]] {
 ; CHECK-NEXT:    call void @use_i32_ptr(i32* [[A]])
 ; CHECK-NEXT:    ret void
 ;
@@ -885,7 +885,7 @@ define void @make_live(i32* nonnull dereferenceable(8) %a) {
 ; CHECK-LABEL: define {{[^@]+}}@make_live
 ; CHECK-SAME: (i32* noundef nonnull align 16 dereferenceable(8) [[A:%.*]]) {
 ; CHECK-NEXT:    call void @naked(i32* noundef nonnull align 16 dereferenceable(8) [[A]])
-; CHECK-NEXT:    call void @control(i32* noalias nocapture noundef nonnull readnone align 16 dereferenceable(8) [[A]]) #[[ATTR3]]
+; CHECK-NEXT:    call void @control(i32* noalias nocapture noundef nonnull readnone align 16 dereferenceable(8) [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    call void @optnone(i32* noundef nonnull align 16 dereferenceable(8) [[A]])
 ; CHECK-NEXT:    ret void
 ;
@@ -908,32 +908,32 @@ define i32 @nonnull_exec_ctx_1(i32* %a, i32 %b) {
 ;
 ; IS________OPM: Function Attrs: nounwind
 ; IS________OPM-LABEL: define {{[^@]+}}@nonnull_exec_ctx_1
-; IS________OPM-SAME: (i32* [[A:%.*]], i32 [[B:%.*]]) #[[ATTR3]] {
+; IS________OPM-SAME: (i32* [[A:%.*]], i32 [[B:%.*]]) #[[ATTR4]] {
 ; IS________OPM-NEXT:  en:
 ; IS________OPM-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[B]], 0
 ; IS________OPM-NEXT:    br i1 [[TMP3]], label [[EX:%.*]], label [[HD:%.*]]
 ; IS________OPM:       ex:
-; IS________OPM-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR3]]
+; IS________OPM-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR4]]
 ; IS________OPM-NEXT:    ret i32 [[TMP5]]
 ; IS________OPM:       hd:
 ; IS________OPM-NEXT:    [[TMP7:%.*]] = phi i32 [ [[TMP8:%.*]], [[HD]] ], [ 0, [[EN:%.*]] ]
-; IS________OPM-NEXT:    tail call void @h(i32* [[A]]) #[[ATTR3]]
+; IS________OPM-NEXT:    tail call void @h(i32* [[A]]) #[[ATTR4]]
 ; IS________OPM-NEXT:    [[TMP8]] = add nuw i32 [[TMP7]], 1
 ; IS________OPM-NEXT:    [[TMP9:%.*]] = icmp eq i32 [[TMP8]], [[B]]
 ; IS________OPM-NEXT:    br i1 [[TMP9]], label [[EX]], label [[HD]]
 ;
 ; IS________NPM: Function Attrs: nounwind willreturn
 ; IS________NPM-LABEL: define {{[^@]+}}@nonnull_exec_ctx_1
-; IS________NPM-SAME: (i32* [[A:%.*]], i32 [[B:%.*]]) #[[ATTR5]] {
+; IS________NPM-SAME: (i32* [[A:%.*]], i32 [[B:%.*]]) #[[ATTR6]] {
 ; IS________NPM-NEXT:  en:
 ; IS________NPM-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[B]], 0
 ; IS________NPM-NEXT:    br i1 [[TMP3]], label [[EX:%.*]], label [[HD:%.*]]
 ; IS________NPM:       ex:
-; IS________NPM-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR5]]
+; IS________NPM-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR6]]
 ; IS________NPM-NEXT:    ret i32 [[TMP5]]
 ; IS________NPM:       hd:
 ; IS________NPM-NEXT:    [[TMP7:%.*]] = phi i32 [ [[TMP8:%.*]], [[HD]] ], [ 0, [[EN:%.*]] ]
-; IS________NPM-NEXT:    tail call void @h(i32* [[A]]) #[[ATTR5]]
+; IS________NPM-NEXT:    tail call void @h(i32* [[A]]) #[[ATTR6]]
 ; IS________NPM-NEXT:    [[TMP8]] = add nuw i32 [[TMP7]], 1
 ; IS________NPM-NEXT:    [[TMP9:%.*]] = icmp eq i32 [[TMP8]], [[B]]
 ; IS________NPM-NEXT:    br i1 [[TMP9]], label [[EX]], label [[HD]]
@@ -958,16 +958,16 @@ define i32 @nonnull_exec_ctx_1b(i32* %a, i32 %b) {
 ;
 ; IS________OPM: Function Attrs: nounwind
 ; IS________OPM-LABEL: define {{[^@]+}}@nonnull_exec_ctx_1b
-; IS________OPM-SAME: (i32* [[A:%.*]], i32 [[B:%.*]]) #[[ATTR3]] {
+; IS________OPM-SAME: (i32* [[A:%.*]], i32 [[B:%.*]]) #[[ATTR4]] {
 ; IS________OPM-NEXT:  en:
 ; IS________OPM-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[B]], 0
 ; IS________OPM-NEXT:    br i1 [[TMP3]], label [[EX:%.*]], label [[HD:%.*]]
 ; IS________OPM:       ex:
-; IS________OPM-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR3]]
+; IS________OPM-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR4]]
 ; IS________OPM-NEXT:    ret i32 [[TMP5]]
 ; IS________OPM:       hd:
 ; IS________OPM-NEXT:    [[TMP7:%.*]] = phi i32 [ [[TMP8:%.*]], [[HD2:%.*]] ], [ 0, [[EN:%.*]] ]
-; IS________OPM-NEXT:    tail call void @h(i32* [[A]]) #[[ATTR3]]
+; IS________OPM-NEXT:    tail call void @h(i32* [[A]]) #[[ATTR4]]
 ; IS________OPM-NEXT:    br label [[HD2]]
 ; IS________OPM:       hd2:
 ; IS________OPM-NEXT:    [[TMP8]] = add nuw i32 [[TMP7]], 1
@@ -976,16 +976,16 @@ define i32 @nonnull_exec_ctx_1b(i32* %a, i32 %b) {
 ;
 ; IS________NPM: Function Attrs: nounwind willreturn
 ; IS________NPM-LABEL: define {{[^@]+}}@nonnull_exec_ctx_1b
-; IS________NPM-SAME: (i32* [[A:%.*]], i32 [[B:%.*]]) #[[ATTR5]] {
+; IS________NPM-SAME: (i32* [[A:%.*]], i32 [[B:%.*]]) #[[ATTR6]] {
 ; IS________NPM-NEXT:  en:
 ; IS________NPM-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[B]], 0
 ; IS________NPM-NEXT:    br i1 [[TMP3]], label [[EX:%.*]], label [[HD:%.*]]
 ; IS________NPM:       ex:
-; IS________NPM-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR5]]
+; IS________NPM-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR6]]
 ; IS________NPM-NEXT:    ret i32 [[TMP5]]
 ; IS________NPM:       hd:
 ; IS________NPM-NEXT:    [[TMP7:%.*]] = phi i32 [ [[TMP8:%.*]], [[HD2:%.*]] ], [ 0, [[EN:%.*]] ]
-; IS________NPM-NEXT:    tail call void @h(i32* [[A]]) #[[ATTR5]]
+; IS________NPM-NEXT:    tail call void @h(i32* [[A]]) #[[ATTR6]]
 ; IS________NPM-NEXT:    br label [[HD2]]
 ; IS________NPM:       hd2:
 ; IS________NPM-NEXT:    [[TMP8]] = add nuw i32 [[TMP7]], 1
@@ -1015,16 +1015,16 @@ define i32 @nonnull_exec_ctx_2(i32* %a, i32 %b) willreturn nounwind {
 ;
 ; CHECK: Function Attrs: nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@nonnull_exec_ctx_2
-; CHECK-SAME: (i32* nonnull [[A:%.*]], i32 [[B:%.*]]) #[[ATTR5]] {
+; CHECK-SAME: (i32* nonnull [[A:%.*]], i32 [[B:%.*]]) #[[ATTR6]] {
 ; CHECK-NEXT:  en:
 ; CHECK-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[B]], 0
 ; CHECK-NEXT:    br i1 [[TMP3]], label [[EX:%.*]], label [[HD:%.*]]
 ; CHECK:       ex:
-; CHECK-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR3]]
+; CHECK-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret i32 [[TMP5]]
 ; CHECK:       hd:
 ; CHECK-NEXT:    [[TMP7:%.*]] = phi i32 [ [[TMP8:%.*]], [[HD]] ], [ 0, [[EN:%.*]] ]
-; CHECK-NEXT:    tail call void @h(i32* nonnull [[A]]) #[[ATTR3]]
+; CHECK-NEXT:    tail call void @h(i32* nonnull [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    [[TMP8]] = add nuw i32 [[TMP7]], 1
 ; CHECK-NEXT:    [[TMP9:%.*]] = icmp eq i32 [[TMP8]], [[B]]
 ; CHECK-NEXT:    br i1 [[TMP9]], label [[EX]], label [[HD]]
@@ -1049,16 +1049,16 @@ define i32 @nonnull_exec_ctx_2b(i32* %a, i32 %b) willreturn nounwind {
 ;
 ; CHECK: Function Attrs: nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@nonnull_exec_ctx_2b
-; CHECK-SAME: (i32* nonnull [[A:%.*]], i32 [[B:%.*]]) #[[ATTR5]] {
+; CHECK-SAME: (i32* nonnull [[A:%.*]], i32 [[B:%.*]]) #[[ATTR6]] {
 ; CHECK-NEXT:  en:
 ; CHECK-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[B]], 0
 ; CHECK-NEXT:    br i1 [[TMP3]], label [[EX:%.*]], label [[HD:%.*]]
 ; CHECK:       ex:
-; CHECK-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR3]]
+; CHECK-NEXT:    [[TMP5:%.*]] = tail call i32 @g(i32* nonnull [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret i32 [[TMP5]]
 ; CHECK:       hd:
 ; CHECK-NEXT:    [[TMP7:%.*]] = phi i32 [ [[TMP8:%.*]], [[HD2:%.*]] ], [ 0, [[EN:%.*]] ]
-; CHECK-NEXT:    tail call void @h(i32* nonnull [[A]]) #[[ATTR3]]
+; CHECK-NEXT:    tail call void @h(i32* nonnull [[A]]) #[[ATTR4]]
 ; CHECK-NEXT:    br label [[HD2]]
 ; CHECK:       hd2:
 ; CHECK-NEXT:    [[TMP8]] = add nuw i32 [[TMP7]], 1
@@ -1202,8 +1202,8 @@ declare i8* @strrchr(i8* %0, i32 %1) nofree nounwind readonly willreturn
 define i8* @mybasename(i8* nofree readonly %str) {
 ; CHECK: Function Attrs: nofree nounwind readonly willreturn
 ; CHECK-LABEL: define {{[^@]+}}@mybasename
-; CHECK-SAME: (i8* nofree readonly [[STR:%.*]]) #[[ATTR10:[0-9]+]] {
-; CHECK-NEXT:    [[CALL:%.*]] = call i8* @strrchr(i8* nofree readonly [[STR]], i32 noundef 47) #[[ATTR13]]
+; CHECK-SAME: (i8* nofree readonly [[STR:%.*]]) #[[ATTR11:[0-9]+]] {
+; CHECK-NEXT:    [[CALL:%.*]] = call i8* @strrchr(i8* nofree readonly [[STR]], i32 noundef 47) #[[ATTR14]]
 ; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i8* [[CALL]], null
 ; CHECK-NEXT:    [[ADD_PTR:%.*]] = getelementptr inbounds i8, i8* [[CALL]], i64 1
 ; CHECK-NEXT:    [[COND:%.*]] = select i1 [[TOBOOL]], i8* [[ADD_PTR]], i8* [[STR]]
@@ -1226,8 +1226,8 @@ define void @nonnull_assume_pos(i8* %arg) {
 ;
 ; CHECK-LABEL: define {{[^@]+}}@nonnull_assume_pos
 ; CHECK-SAME: (i8* nocapture nofree nonnull readnone [[ARG:%.*]]) {
-; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR11]] [ "nonnull"(i8* [[ARG]]) ]
-; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree nonnull readnone [[ARG]]) #[[ATTR3]]
+; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR12]] [ "nonnull"(i8* [[ARG]]) ]
+; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree nonnull readnone [[ARG]]) #[[ATTR4]]
 ; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @unknown()
 ; CHECK-NEXT:    ret void
 ;
@@ -1253,13 +1253,13 @@ define void @nonnull_assume_neg(i8* %arg) {
 ; CHECK-LABEL: define {{[^@]+}}@nonnull_assume_neg
 ; CHECK-SAME: (i8* nocapture nofree readnone [[ARG:%.*]]) {
 ; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @unknown()
-; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree readnone [[ARG]]) #[[ATTR3]]
+; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree readnone [[ARG]]) #[[ATTR4]]
 ; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) [ "nonnull"(i8* [[ARG]]) ]
-; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree nonnull readnone [[ARG]]) #[[ATTR3]]
+; CHECK-NEXT:    call void @use_i8_ptr(i8* noalias nocapture nofree nonnull readnone [[ARG]]) #[[ATTR4]]
 ; CHECK-NEXT:    [[TMP2:%.*]] = call i8* @unknown()
-; CHECK-NEXT:    call void @use_i8_ptr_ret(i8* noalias nocapture nofree nonnull readnone [[ARG]]) #[[ATTR3]]
+; CHECK-NEXT:    call void @use_i8_ptr_ret(i8* noalias nocapture nofree nonnull readnone [[ARG]]) #[[ATTR4]]
 ; CHECK-NEXT:    call void @llvm.assume(i1 noundef true) [ "nonnull"(i8* [[ARG]]) ]
-; CHECK-NEXT:    call void @use_i8_ptr_ret(i8* noalias nocapture nofree nonnull readnone [[ARG]]) #[[ATTR3]]
+; CHECK-NEXT:    call void @use_i8_ptr_ret(i8* noalias nocapture nofree nonnull readnone [[ARG]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret void
 ;
   call i8* @unknown()
@@ -1312,18 +1312,19 @@ declare void @nonnull_callee(i8* nonnull %p)
 attributes #0 = { null_pointer_is_valid }
 attributes #1 = { nounwind willreturn}
 ;.
-; CHECK: attributes #[[ATTR0]] = { inaccessiblememonly nofree nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR0:[0-9]+]] = { inaccessiblememonly nocallback nofree nosync nounwind willreturn }
 ; CHECK: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
-; CHECK: attributes #[[ATTR2]] = { noreturn }
-; CHECK: attributes #[[ATTR3]] = { nounwind }
-; CHECK: attributes #[[ATTR4]] = { argmemonly nofree nosync nounwind readonly }
-; CHECK: attributes #[[ATTR5]] = { nounwind willreturn }
-; CHECK: attributes #[[ATTR6:[0-9]+]] = { nounwind readonly willreturn }
-; CHECK: attributes #[[ATTR7]] = { nofree norecurse nosync nounwind null_pointer_is_valid readnone willreturn }
-; CHECK: attributes #[[ATTR8]] = { naked }
-; CHECK: attributes #[[ATTR9]] = { noinline optnone }
-; CHECK: attributes #[[ATTR10]] = { nofree nounwind readonly willreturn }
-; CHECK: attributes #[[ATTR11]] = { willreturn }
-; CHECK: attributes #[[ATTR12]] = { nofree nosync nounwind readonly }
-; CHECK: attributes #[[ATTR13]] = { readonly willreturn }
+; CHECK: attributes #[[ATTR2]] = { inaccessiblememonly nofree norecurse nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR3]] = { noreturn }
+; CHECK: attributes #[[ATTR4]] = { nounwind }
+; CHECK: attributes #[[ATTR5]] = { argmemonly nofree nosync nounwind readonly }
+; CHECK: attributes #[[ATTR6]] = { nounwind willreturn }
+; CHECK: attributes #[[ATTR7:[0-9]+]] = { nounwind readonly willreturn }
+; CHECK: attributes #[[ATTR8]] = { nofree norecurse nosync nounwind null_pointer_is_valid readnone willreturn }
+; CHECK: attributes #[[ATTR9]] = { naked }
+; CHECK: attributes #[[ATTR10]] = { noinline optnone }
+; CHECK: attributes #[[ATTR11]] = { nofree nounwind readonly willreturn }
+; CHECK: attributes #[[ATTR12]] = { willreturn }
+; CHECK: attributes #[[ATTR13]] = { nofree nosync nounwind readonly }
+; CHECK: attributes #[[ATTR14]] = { readonly willreturn }
 ;.

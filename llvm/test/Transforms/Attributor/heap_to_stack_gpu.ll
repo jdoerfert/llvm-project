@@ -668,6 +668,6 @@ define void @test16d(i8 %v, i8** %P) {
 ; CHECK: attributes #[[ATTR1:[0-9]+]] = { nofree nosync willreturn }
 ; CHECK: attributes #[[ATTR2:[0-9]+]] = { nofree nounwind }
 ; CHECK: attributes #[[ATTR3]] = { noreturn }
-; CHECK: attributes #[[ATTR4:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR4:[0-9]+]] = { argmemonly nocallback nofree nosync nounwind willreturn }
 ; CHECK: attributes #[[ATTR5]] = { nounwind }
 ;.
