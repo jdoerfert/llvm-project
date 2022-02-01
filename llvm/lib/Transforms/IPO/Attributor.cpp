@@ -20,6 +20,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/TinyPtrVector.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/LazyValueInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
@@ -214,7 +215,7 @@ bool AA::isDynamicallyUnique(Attributor &A, const AbstractAttribute &QueryingAA,
     return !C->isThreadDependent();
   // TODO: Inspect and cache more complex instructions.
   if (auto *CB = dyn_cast<CallBase>(&V))
-    return CB->getNumOperands() == 0 && !CB->mayHaveSideEffects() &&
+    return CB->arg_size() == 0 && !CB->mayHaveSideEffects() &&
            !CB->mayReadFromMemory();
   const Function *Scope = nullptr;
   if (auto *I = dyn_cast<Instruction>(&V))
@@ -314,21 +315,31 @@ AA::combineOptionalValuesInAAValueLatice(const Optional<Value *> &A,
   return nullptr;
 }
 
-bool AA::getPotentialCopiesOfStoredValue(
-    Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
-    const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation) {
+template <bool IsLoad, typename Ty>
+static bool
+getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
+                                SmallSetVector<Value *, 4> &PotentialCopies,
+                                const AbstractAttribute &QueryingAA,
+                                bool &UsedAssumedInformation, bool OnlyExact) {
+  LLVM_DEBUG(dbgs() << "Trying to determine the potential copies of " << I
+                    << " (only exact: " << OnlyExact << ")\n";);
 
-  Value &Ptr = *SI.getPointerOperand();
+  Value &Ptr = *I.getPointerOperand();
   SmallVector<Value *, 8> Objects;
-  if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &SI)) {
+  if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &I)) {
     LLVM_DEBUG(
         dbgs() << "Underlying objects stored into could not be determined\n";);
     return false;
   }
 
+  // Containers to remember the pointer infos and new copies while we are not
+  // sure that we can find all of them. If we abort we want to avoid spurious
+  // dependences and potential copies in the provided container.
   SmallVector<const AAPointerInfo *> PIs;
   SmallVector<Value *> NewCopies;
 
+  const auto *TLI =
+      A.getInfoCache().getTargetLibraryInfoForFunction(*I.getFunction());
   for (Value *Obj : Objects) {
     LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
     if (isa<UndefValue>(Obj))
@@ -336,7 +347,7 @@ bool AA::getPotentialCopiesOfStoredValue(
     if (isa<ConstantPointerNull>(Obj)) {
       // A null pointer access can be undefined but any offset from null may
       // be OK. We do not try to optimize the latter.
-      if (!NullPointerIsDefined(SI.getFunction(),
+      if (!NullPointerIsDefined(I.getFunction(),
                                 Ptr.getType()->getPointerAddressSpace()) &&
           A.getAssumedSimplified(Ptr, QueryingAA, UsedAssumedInformation) ==
               Obj)
@@ -345,8 +356,9 @@ bool AA::getPotentialCopiesOfStoredValue(
           dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
       return false;
     }
+    // TODO: Use assumed noalias return.
     if (!isa<AllocaInst>(Obj) && !isa<GlobalVariable>(Obj) &&
-        !isNoAliasCall(Obj)) {
+        !(IsLoad ? isAllocationFn(Obj, TLI) : isNoAliasCall(Obj))) {
       LLVM_DEBUG(dbgs() << "Underlying object is not supported yet: " << *Obj
                         << "\n";);
       return false;
@@ -359,32 +371,79 @@ bool AA::getPotentialCopiesOfStoredValue(
         return false;
       }
 
+    if (IsLoad) {
+      Value *InitialValue = AA::getInitialValueForObj(*Obj, *I.getType(), TLI);
+      if (!InitialValue)
+        return false;
+      NewCopies.push_back(InitialValue);
+    }
+
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
-      if (!Acc.isRead())
-        return true;
-      auto *LI = dyn_cast<LoadInst>(Acc.getRemoteInst());
-      if (!LI) {
-        LLVM_DEBUG(dbgs() << "Underlying object read through a non-load "
-                             "instruction not supported yet: "
-                          << *Acc.getRemoteInst() << "\n";);
+      if (OnlyExact && !IsExact) {
+        LLVM_DEBUG(dbgs() << "Non exact access " << *Acc.getRemoteInst()
+                          << ", abort!\n");
         return false;
       }
-      NewCopies.push_back(LI);
+      if (IsLoad) {
+        assert(isa<LoadInst>(I) && "Expected load or store instruction only!");
+        if (Acc.isWrite()) {
+          auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst());
+          if (!SI) {
+            LLVM_DEBUG(dbgs()
+                           << "Underlying object written through a non-store "
+                              "instruction not supported yet: "
+                           << *Acc.getRemoteInst() << "\n";);
+            return false;
+          }
+          if (auto *L = dyn_cast<LoadInst>(SI->getValueOperand()))
+            if (auto *L2 = dyn_cast<LoadInst>(
+                    L->getPointerOperand()->stripInBoundsOffsets()))
+              if (L2->getPointerOperand() == SI->getPointerOperand())
+                return true;
+          NewCopies.push_back(SI->getValueOperand());
+        }
+      } else {
+        assert(isa<StoreInst>(I) && "Expected load or store instruction only!");
+        if (Acc.isRead()) {
+          auto *LI = dyn_cast<LoadInst>(Acc.getRemoteInst());
+          if (!LI && OnlyExact) {
+            LLVM_DEBUG(dbgs() << "Underlying object read through a non-load "
+                                 "instruction not supported yet: "
+                              << *Acc.getRemoteInst() << "\n";);
+            return false;
+          }
+          NewCopies.push_back(Acc.getRemoteInst());
+        }
+      }
       return true;
     };
 
     auto &PI = A.getAAFor<AAPointerInfo>(QueryingAA, IRPosition::value(*Obj),
                                          DepClassTy::NONE);
-    if (!PI.forallInterferingAccesses(SI, CheckAccess)) {
-      LLVM_DEBUG(
-          dbgs()
-          << "Failed to verify all interfering accesses for underlying object: "
-          << *Obj << "\n");
-      return false;
+    if (IsLoad) {
+      if (!PI.forallInterferingWrites(A, QueryingAA, cast<LoadInst>(I),
+                                      CheckAccess)) {
+        LLVM_DEBUG(
+            dbgs() << "Failed to verify all interfering write accesses for "
+                      "underlying object: "
+                   << *Obj << "\n");
+        return false;
+      }
+    } else {
+      if (!PI.forallInterferingAccesses(I, CheckAccess)) {
+        LLVM_DEBUG(
+            dbgs() << "Failed to verify all interfering read accesses for "
+                      "underlying object: "
+                   << *Obj << "\n");
+        return false;
+      }
     }
     PIs.push_back(&PI);
   }
 
+  // Only if we were successful collection all potential copies we record
+  // dependences (on non-fix AAPointerInfo AAs). We also only then modify the
+  // given PotentialCopies container.
   for (auto *PI : PIs) {
     if (!PI->getState().isAtFixpoint())
       UsedAssumedInformation = true;
@@ -393,6 +452,23 @@ bool AA::getPotentialCopiesOfStoredValue(
   PotentialCopies.insert(NewCopies.begin(), NewCopies.end());
 
   return true;
+}
+
+bool AA::getPotentiallyLoadedValues(Attributor &A, LoadInst &LI,
+                                    SmallSetVector<Value *, 4> &PotentialValues,
+                                    const AbstractAttribute &QueryingAA,
+                                    bool &UsedAssumedInformation,
+                                    bool OnlyExact) {
+  return getPotentialCopiesOfMemoryValue</* IsLoad */ true>(
+      A, LI, PotentialValues, QueryingAA, UsedAssumedInformation, OnlyExact);
+}
+
+bool AA::getPotentialCopiesOfStoredValue(
+    Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
+    const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
+    bool OnlyExact) {
+  return getPotentialCopiesOfMemoryValue</* IsLoad */ false>(
+      A, SI, PotentialCopies, QueryingAA, UsedAssumedInformation, OnlyExact);
 }
 
 static bool isAssumedReadOnlyOrReadNone(Attributor &A, const IRPosition &IRP,

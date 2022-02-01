@@ -609,7 +609,7 @@ define i8 @readnone_caller(i1 %c) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@readnone_caller
 ; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR9:[0-9]+]] {
 ; IS__TUNIT____-NEXT:    [[A:%.*]] = alloca i8, align 1
-; IS__TUNIT____-NEXT:    [[R:%.*]] = call i8 @recursive_not_readnone_internal(i8* noalias nocapture nofree noundef nonnull writeonly dereferenceable(1) [[A]], i1 [[C]]) #[[ATTR11]], !range [[RNG0]]
+; IS__TUNIT____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_not_readnone_internal(i8* noalias nocapture nofree noundef nonnull writeonly dereferenceable(1) [[A]], i1 [[C]]) #[[ATTR11]], !range [[RNG0]]
 ; IS__TUNIT____-NEXT:    ret i8 [[R]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -661,7 +661,7 @@ define i8 @readnone_caller2(i1 %c) {
 ; IS__TUNIT____: Function Attrs: nofree norecurse nosync nounwind readnone
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@readnone_caller2
 ; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR9]] {
-; IS__TUNIT____-NEXT:    [[R:%.*]] = call i8 @recursive_readnone_internal2(i8* undef, i1 [[C]]) #[[ATTR11]], !range [[RNG0]]
+; IS__TUNIT____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_readnone_internal2(i8* undef, i1 [[C]]) #[[ATTR11]], !range [[RNG0]]
 ; IS__TUNIT____-NEXT:    ret i8 [[R]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
@@ -713,7 +713,7 @@ define i8 @readnone_caller3(i1 %c) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@readnone_caller3
 ; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR9]] {
 ; IS__TUNIT____-NEXT:    [[ALLOC:%.*]] = alloca i8, align 1
-; IS__TUNIT____-NEXT:    [[R:%.*]] = call i8 @recursive_not_readnone_internal3(i8* noalias nocapture nofree noundef nonnull writeonly dereferenceable(1) [[ALLOC]], i1 [[C]]) #[[ATTR11]], !range [[RNG0]]
+; IS__TUNIT____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_not_readnone_internal3(i8* noalias nocapture nofree noundef nonnull writeonly dereferenceable(1) [[ALLOC]], i1 [[C]]) #[[ATTR11]], !range [[RNG0]]
 ; IS__TUNIT____-NEXT:    ret i8 [[R]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
