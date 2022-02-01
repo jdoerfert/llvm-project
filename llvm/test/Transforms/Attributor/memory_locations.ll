@@ -579,7 +579,7 @@ define i8 @readnone_caller(i1 %c) {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@readnone_caller
 ; IS__TUNIT____-SAME: (i1 [[C:%.*]]) #[[ATTR9:[0-9]+]] {
 ; IS__TUNIT____-NEXT:    [[A:%.*]] = alloca i8, align 1
-; IS__TUNIT____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_not_readnone_internal(i8* noalias nocapture nofree noundef nonnull writeonly dereferenceable(1) [[A]], i1 [[C]]) #[[ATTR11]], !range [[RNG0:![0-9]+]]
+; IS__TUNIT____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_not_readnone_internal(i8* noalias nocapture nofree noundef nonnull writeonly dereferenceable(1) [[A]], i1 [[C]]) #[[ATTR11]], !range [[RNG0]]
 ; IS__TUNIT____-NEXT:    ret i8 [[R]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone
