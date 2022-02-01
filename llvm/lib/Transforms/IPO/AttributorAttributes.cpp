@@ -391,6 +391,31 @@ static bool genericValueTraversal(
       }
     }
 
+    if (auto *LI = dyn_cast<LoadInst>(V)) {
+      bool UsedAssumedInformation = false;
+      SmallSetVector<Value *, 4> PotentialCopies;
+      if (AA::getPotentiallyLoadedValues(A, *LI, PotentialCopies, QueryingAA,
+                                         UsedAssumedInformation,
+                                         /* OnlyExact */ true)) {
+        // Values have to be dynamically unique or we loose the fact that a
+        // single llvm::Value might represent two runtime values (e.g., stack
+        // locations in different recursive calls).
+        bool DynamicallyUnique =
+            llvm::all_of(PotentialCopies, [&A, &QueryingAA](Value *PC) {
+              return AA::isDynamicallyUnique(A, QueryingAA, *PC);
+            });
+        if (DynamicallyUnique &&
+            (!Intraprocedural || !CtxI ||
+             llvm::all_of(PotentialCopies, [CtxI](Value *PC) {
+               return AA::isValidInScope(*PC, CtxI->getFunction());
+             }))) {
+          for (auto *PotentialCopy : PotentialCopies)
+            Worklist.push_back({PotentialCopy, CtxI});
+          continue;
+        }
+      }
+    }
+
     // Once a leaf is reached we inform the user through the callback.
     if (!VisitValueCB(*V, CtxI, State, Iteration > 1)) {
       LLVM_DEBUG(dbgs() << "Generic value traversal visit callback failed for: "
@@ -1026,8 +1051,12 @@ protected:
   bool forallInterferingAccesses(
       Instruction &I,
       function_ref<bool(const AAPointerInfo::Access &, bool)> CB) const {
-    if (!isValidState())
+    if (!isValidState()) {
+      LLVM_DEBUG(dbgs() << "AAPointerInfo is in invalid state, cannot "
+                           "determine interfering accesses for "
+                        << I << "\n");
       return false;
+    }
     // First find the offset and size of I.
     OffsetAndSize OAS(-1, -1);
     for (auto &It : AccessBins) {
