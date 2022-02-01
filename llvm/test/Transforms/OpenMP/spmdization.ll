@@ -2393,7 +2393,7 @@ attributes #11 = { convergent }
 ; AMDGPU: attributes #[[ATTR4:[0-9]+]] = { nofree nosync nounwind }
 ; AMDGPU: attributes #[[ATTR5]] = { convergent "llvm.assume"="ompx_spmd_amenable" }
 ; AMDGPU: attributes #[[ATTR6]] = { convergent }
-; AMDGPU: attributes #[[ATTR7:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
+; AMDGPU: attributes #[[ATTR7:[0-9]+]] = { argmemonly nocallback nofree nosync nounwind willreturn }
 ; AMDGPU: attributes #[[ATTR8:[0-9]+]] = { alwaysinline }
 ; AMDGPU: attributes #[[ATTR9:[0-9]+]] = { convergent nounwind }
 ;.
@@ -2404,7 +2404,7 @@ attributes #11 = { convergent }
 ; NVPTX: attributes #[[ATTR4:[0-9]+]] = { nofree nosync nounwind }
 ; NVPTX: attributes #[[ATTR5]] = { convergent "llvm.assume"="ompx_spmd_amenable" }
 ; NVPTX: attributes #[[ATTR6]] = { convergent }
-; NVPTX: attributes #[[ATTR7:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
+; NVPTX: attributes #[[ATTR7:[0-9]+]] = { argmemonly nocallback nofree nosync nounwind willreturn }
 ; NVPTX: attributes #[[ATTR8:[0-9]+]] = { alwaysinline }
 ; NVPTX: attributes #[[ATTR9:[0-9]+]] = { convergent nounwind }
 ;.
@@ -2415,7 +2415,7 @@ attributes #11 = { convergent }
 ; AMDGPU-DISABLED: attributes #[[ATTR4:[0-9]+]] = { nofree nosync nounwind }
 ; AMDGPU-DISABLED: attributes #[[ATTR5]] = { convergent "llvm.assume"="ompx_spmd_amenable" }
 ; AMDGPU-DISABLED: attributes #[[ATTR6]] = { convergent }
-; AMDGPU-DISABLED: attributes #[[ATTR7:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
+; AMDGPU-DISABLED: attributes #[[ATTR7:[0-9]+]] = { argmemonly nocallback nofree nosync nounwind willreturn }
 ; AMDGPU-DISABLED: attributes #[[ATTR8:[0-9]+]] = { alwaysinline }
 ; AMDGPU-DISABLED: attributes #[[ATTR9:[0-9]+]] = { convergent nounwind }
 ;.
@@ -2426,7 +2426,7 @@ attributes #11 = { convergent }
 ; NVPTX-DISABLED: attributes #[[ATTR4:[0-9]+]] = { nofree nosync nounwind }
 ; NVPTX-DISABLED: attributes #[[ATTR5]] = { convergent "llvm.assume"="ompx_spmd_amenable" }
 ; NVPTX-DISABLED: attributes #[[ATTR6]] = { convergent }
-; NVPTX-DISABLED: attributes #[[ATTR7:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
+; NVPTX-DISABLED: attributes #[[ATTR7:[0-9]+]] = { argmemonly nocallback nofree nosync nounwind willreturn }
 ; NVPTX-DISABLED: attributes #[[ATTR8:[0-9]+]] = { alwaysinline }
 ; NVPTX-DISABLED: attributes #[[ATTR9:[0-9]+]] = { convergent nounwind }
 ;.

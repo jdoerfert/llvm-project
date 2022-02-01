@@ -752,7 +752,7 @@ define void @argmemonky_caller() {
 ; IS__TUNIT____: attributes #[[ATTR1]] = { inaccessiblemem_or_argmemonly }
 ; IS__TUNIT____: attributes #[[ATTR2]] = { readnone }
 ; IS__TUNIT____: attributes #[[ATTR3]] = { argmemonly }
-; IS__TUNIT____: attributes #[[ATTR4:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
+; IS__TUNIT____: attributes #[[ATTR4:[0-9]+]] = { argmemonly nocallback nofree nosync nounwind willreturn }
 ; IS__TUNIT____: attributes #[[ATTR5]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__TUNIT____: attributes #[[ATTR6]] = { nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__TUNIT____: attributes #[[ATTR7]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
@@ -765,7 +765,7 @@ define void @argmemonky_caller() {
 ; IS__CGSCC____: attributes #[[ATTR1]] = { inaccessiblemem_or_argmemonly }
 ; IS__CGSCC____: attributes #[[ATTR2]] = { readnone }
 ; IS__CGSCC____: attributes #[[ATTR3]] = { argmemonly }
-; IS__CGSCC____: attributes #[[ATTR4:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn }
+; IS__CGSCC____: attributes #[[ATTR4:[0-9]+]] = { argmemonly nocallback nofree nosync nounwind willreturn }
 ; IS__CGSCC____: attributes #[[ATTR5]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC____: attributes #[[ATTR6]] = { nofree norecurse nosync nounwind willreturn writeonly }
 ; IS__CGSCC____: attributes #[[ATTR7]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
