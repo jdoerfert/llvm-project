@@ -42,13 +42,16 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Value.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/CodeExtractor.h"
 
 #include <algorithm>
@@ -801,6 +804,8 @@ struct OpenMPOpt {
 
       // Recollect uses, in case Attributor deleted any.
       OMPInfoCache.recollectUses();
+
+      Changed |= removeUnusedForkCallArgs();
 
       // TODO: This should be folded into buildCustomStateMachine.
       Changed |= rewriteDeviceCodeStateMachine();
@@ -2130,6 +2135,36 @@ private:
                       << " functions, result: " << Changed << ".\n");
 
     return Changed == ChangeStatus::CHANGED;
+  }
+
+  bool removeUnusedForkCallArgs() {
+    bool Changed = false;
+    auto &ForkCallRFI = OMPInfoCache.RFIs[OMPRTL___kmpc_fork_call];
+    auto ForkCallCB = [&](Use &U, Function &F) {
+      CallInst *CI = OpenMPOpt::getCallIfRegularCall(U, &ForkCallRFI);
+      if (!CI)
+        return false;
+      const unsigned CallbackCalleeOperand = 2;
+      Function *ParBodyFn = dyn_cast<Function>(
+          CI->getArgOperand(CallbackCalleeOperand)->stripPointerCasts());
+      if (!ParBodyFn)
+        return false;
+      const unsigned CallSiteOffset = 3;
+      const unsigned CalleeOffset = 2;
+      unsigned NumArgs = ParBodyFn->arg_size() - CalleeOffset;
+      for (unsigned ArgNo = 0; ArgNo < NumArgs; ++ArgNo) {
+        if (!ParBodyFn->getArg(ArgNo + CalleeOffset)->use_empty())
+          continue;
+        unsigned CallSiteIdx = ArgNo + CallSiteOffset;
+        CI->setArgOperand(
+            CallSiteIdx,
+            UndefValue::get(CI->getArgOperand(CallSiteIdx)->getType()));
+        Changed = true;
+      }
+      return false;
+    };
+    ForkCallRFI.foreachUse(SCC, ForkCallCB);
+    return Changed;
   }
 
   void registerFoldRuntimeCall(RuntimeFunction RF);
@@ -4681,6 +4716,264 @@ private:
   RuntimeFunction RFKind;
 };
 
+struct AAParallelRegionHoist
+    : public StateWrapper<BooleanState, AbstractAttribute> {
+  using Base = StateWrapper<BooleanState, AbstractAttribute>;
+
+  AAParallelRegionHoist(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
+
+  /// Statistics are tracked as part of manifest for now.
+  void trackStatistics() const override {}
+
+  /// Create an abstract attribute biew for the position \p IRP.
+  static AAParallelRegionHoist &createForPosition(const IRPosition &IRP,
+                                                  Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AAParallelRegionHoist"; }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is
+  /// AAParallelRegionHoist
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  static const char ID;
+};
+
+struct AAParallelRegionHoistFunction : public AAParallelRegionHoist {
+  using Base = AAParallelRegionHoist;
+  AAParallelRegionHoistFunction(const IRPosition &IRP, Attributor &A)
+      : Base(IRP, A) {}
+
+  const std::string getAsStr() const override { return ""; }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+
+    auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+    auto &ForkCallRFI = OMPInfoCache.RFIs[OMPRTL___kmpc_fork_call];
+    LLVM_DEBUG(
+        dbgs() << getAnchorScope()->getName() << ": "
+               << ForkCallRFI.getOrCreateUseVector(getAnchorScope()).size()
+               << "\n");
+    auto ForkCallCB = [&](Use &U, Function &F) {
+      CallInst *CI = OpenMPOpt::getCallIfRegularCall(U, &ForkCallRFI);
+      if (!CI)
+        return false;
+      Changed |= analyzeForkCall(A, *CI);
+      return false;
+    };
+    ForkCallRFI.foreachUse(ForkCallCB, getAnchorScope());
+    return Changed;
+  }
+
+  ChangeStatus manifest(Attributor &A) override {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    for (auto &It : ForkCallInfoMap) {
+      if (It.second->InstReplaceMap.empty() && It.second->GlobalUseMap.empty())
+        continue;
+      rewriteForkCall(A, *It.first, *It.second);
+      Changed = ChangeStatus::CHANGED;
+    }
+    return Changed;
+  }
+
+private:
+  struct ForkInfoTy {
+    DenseMap<Instruction *, Value *> InstReplaceMap;
+    DenseMap<Instruction *, GlobalVariable *> GlobalUseMap;
+  };
+  DenseMap<CallInst *, ForkInfoTy *> ForkCallInfoMap;
+
+  ChangeStatus analyzeForkCall(Attributor &A, CallInst &ForkCall) {
+    const unsigned CallbackCalleeOperand = 2;
+    Function *ParBodyFn = dyn_cast<Function>(
+        ForkCall.getArgOperand(CallbackCalleeOperand)->stripPointerCasts());
+    if (!ParBodyFn)
+      return ChangeStatus::UNCHANGED;
+
+    ForkInfoTy *&FI = ForkCallInfoMap[&ForkCall];
+    if (!FI)
+      FI = new (A.Allocator) ForkInfoTy();
+
+    return analyzeParBodyFn(A, *ParBodyFn, *ForkCall.getCaller(), *FI);
+  }
+
+  template <typename KeyTy, typename MapTy>
+  ChangeStatus insertMapping(LoadInst &LI, KeyTy &OuterValue, MapTy &Map) {
+    auto *&MappedValue = Map[&LI];
+    if (MappedValue == &OuterValue)
+      return ChangeStatus::UNCHANGED;
+    errs() << "Inserted " << LI << " -> " << OuterValue << "\n";
+    MappedValue = &OuterValue;
+    return ChangeStatus::CHANGED;
+  }
+
+  ChangeStatus analyzeParBodyFn(Attributor &A, Function &ParBodyFn,
+                                Function &OuterFn, ForkInfoTy &FI) {
+    LLVM_DEBUG(dbgs() << "Analyze " << ParBodyFn.getName() << " called from "
+                      << OuterFn.getName() << "\n");
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+
+    auto LoadCB = [&](LoadInst &LI) {
+      auto EraseLI = [&]() {
+        if (FI.InstReplaceMap.erase(&LI)) {
+          Changed = ChangeStatus::CHANGED;
+          errs() << "Removed1 " << LI << "\n";
+        }
+        if (FI.GlobalUseMap.erase(&LI)) {
+          Changed = ChangeStatus::CHANGED;
+          errs() << "Removed2 " << LI << "\n";
+        }
+        return true;
+      };
+
+      if (auto *GV = dyn_cast<GlobalVariable>(
+              LI.getPointerOperand()->stripPointerCasts())) {
+        // Check that there is no capturing shenanigans are going on.
+        if (!llvm::all_of(GV->users(), [](User *Usr) {
+              return isa<LoadInst>(Usr) || isa<StoreInst>(Usr);
+            }))
+          return true;
+
+        // Check that all writes are no reachable from the parallel fn.
+        const auto &PointerInfoAA = A.getAAFor<AAPointerInfo>(
+            *this, IRPosition::value(*GV), DepClassTy::OPTIONAL);
+        auto AccessCB = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
+          if (!Acc.isWrite())
+            return true;
+          return !AA::isPotentiallyReachable(
+              A, ParBodyFn.getEntryBlock().front(), *Acc.getLocalInst(), *this,
+              [](const Function &) { return false; });
+        };
+        if (!PointerInfoAA.forallInterferingAccesses(LI, AccessCB))
+          return EraseLI();
+
+        // pre-load is safe
+        Changed |= insertMapping(LI, *GV, FI.GlobalUseMap);
+        return true;
+      }
+
+      bool UsedAssumedInformation = false;
+      Optional<Value *> SimplifiedValue =
+          A.getAssumedSimplified(LI, *this, UsedAssumedInformation);
+      if (!SimplifiedValue)
+        return EraseLI();
+      if (auto *Inst = dyn_cast_or_null<Instruction>(*SimplifiedValue)) {
+        Function *Scope = Inst->getFunction();
+        if (Scope == &OuterFn) {
+          Changed |= insertMapping(LI, *Inst, FI.InstReplaceMap);
+          return true;
+        }
+      }
+      if (auto *Arg = dyn_cast_or_null<Argument>(*SimplifiedValue)) {
+        Function *Scope = Arg->getParent();
+        if (Scope == &OuterFn) {
+          Changed |= insertMapping(LI, *Arg, FI.InstReplaceMap);
+          return true;
+        }
+      }
+      return EraseLI();
+    };
+
+    for (auto &I : instructions(ParBodyFn))
+      if (auto *LI = dyn_cast<LoadInst>(&I))
+        LoadCB(*LI);
+
+    return Changed;
+  }
+
+  void rewriteForkCall(Attributor &A, CallInst &ForkCall, ForkInfoTy &FI) {
+    const unsigned NumArgsOperand = 1;
+    const unsigned CallbackCalleeOperand = 2;
+    Function &ParBodyFn = *cast<Function>(
+        ForkCall.getArgOperand(CallbackCalleeOperand)->stripPointerCasts());
+
+    SmallVector<Value *> NewForkCallArgs;
+    NewForkCallArgs.append(ForkCall.arg_begin(), ForkCall.arg_end());
+    unsigned NumForkCallArgsBefore = NewForkCallArgs.size();
+
+    FunctionType *ParBodyFnTy = ParBodyFn.getFunctionType();
+    SmallVector<Type *> NewParFnArgTypes;
+    NewParFnArgTypes.append(ParBodyFnTy->param_begin(),
+                            ParBodyFnTy->param_end());
+    unsigned NumArgsBefore = NewParFnArgTypes.size();
+
+    LLVMContext &Ctx = ForkCall.getContext();
+    auto *Int32Ty = Type::getInt32Ty(Ctx);
+    auto *Int64Ty = Type::getInt64Ty(Ctx);
+
+    // Add new arguments
+    auto AddNewArg = [&](Value &NewArg, Value &SeenKey) {
+      LLVM_DEBUG({
+        if (&NewArg == &SeenKey)
+          errs() << "Replace " << SeenKey << "\n";
+        else
+          errs() << "Replace load of " << SeenKey << " with " << NewArg << "\n";
+      });
+
+      Value *PassedValue = &NewArg;
+      if (PassedValue->getType()->isFloatTy())
+        PassedValue = new BitCastInst(PassedValue, Int32Ty, "", &ForkCall);
+      else if (PassedValue->getType()->isDoubleTy())
+        PassedValue = new BitCastInst(PassedValue, Int64Ty, "", &ForkCall);
+      else {
+        assert(!PassedValue->getType()->isFloatingPointTy());
+      }
+      NewForkCallArgs.push_back(PassedValue);
+      NewParFnArgTypes.push_back(PassedValue->getType());
+    };
+    for (auto &It : FI.InstReplaceMap)
+      AddNewArg(*It.second, *It.second);
+    for (auto &It : FI.GlobalUseMap) {
+      Value *NewArg =
+          new LoadInst(It.first->getType(), It.second, "", &ForkCall);
+      AddNewArg(*NewArg, *It.second);
+    }
+
+    FunctionType *NewParBodyFnTy = FunctionType::get(
+        ParBodyFnTy->getReturnType(), NewParFnArgTypes, /* isVarArg */ false);
+    Function *NewParBodyFn = Function::Create(
+        NewParBodyFnTy, ParBodyFn.getLinkage(), "", ParBodyFn.getParent());
+    NewParBodyFn->takeName(&ParBodyFn);
+    // ValueToValueMapTy VMap;
+    // Function *ParBodyFnClone = CloneFunction(&ParBodyFn, VMap);
+    auto &NewBlockList = NewParBodyFn->getBasicBlockList();
+    NewBlockList.splice(NewBlockList.begin(), ParBodyFn.getBasicBlockList());
+    NewParBodyFn->setAttributes(ParBodyFn.getAttributes());
+    for (unsigned ArgNo = 0; ArgNo < NumArgsBefore; ++ArgNo)
+      ParBodyFn.getArg(ArgNo)->replaceAllUsesWith(NewParBodyFn->getArg(ArgNo));
+
+    NewForkCallArgs[NumArgsOperand] = ConstantInt::get(
+        NewForkCallArgs[NumArgsOperand]->getType(), NewParFnArgTypes.size() - 2);
+    NewForkCallArgs[CallbackCalleeOperand] = ConstantExpr::getBitCast(
+        NewParBodyFn, NewForkCallArgs[CallbackCalleeOperand]->getType());
+
+    CallInst *NewForkCall =
+        CallInst::Create(ForkCall.getCalledFunction(), NewForkCallArgs,
+                         /*NameStr=*/"", &ForkCall);
+    NewForkCall->setDebugLoc(ForkCall.getDebugLoc());
+    A.deleteAfterManifest(ForkCall);
+
+    auto Replace = [&](Instruction &I, Argument *Arg) {
+      assert(Arg);
+      Value *ReplVal = Arg;
+      if (I.getType() != ReplVal->getType())
+        ReplVal = new BitCastInst(ReplVal, I.getType(), "", &I);
+      A.changeValueAfterManifest(I, *ReplVal);
+    };
+    unsigned ArgNo = NumArgsBefore;
+    for (auto &It : FI.InstReplaceMap)
+      Replace(*It.first, NewParBodyFn->getArg(ArgNo++));
+    for (auto &It : FI.GlobalUseMap)
+      Replace(*It.first, NewParBodyFn->getArg(ArgNo++));
+  }
+};
+
 } // namespace
 
 /// Register folding callsite
@@ -4748,6 +5041,13 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
   if (!DisableOpenMPOptDeglobalization)
     GlobalizationRFI.foreachUse(SCC, CreateAA);
 
+  auto &ForkCallRFI = OMPInfoCache.RFIs[OMPRTL___kmpc_fork_call];
+  auto CreateParallelHoistAA = [&](Use &U, Function &F) {
+    A.getOrCreateAAFor<AAParallelRegionHoist>(IRPosition::function(F));
+    return false;
+  };
+  ForkCallRFI.foreachUse(SCC, CreateParallelHoistAA);
+
   // Create an ExecutionDomain AA for every function and a HeapToStack AA for
   // every function if there is a device kernel.
   if (!isOpenMPDevice(M))
@@ -4778,6 +5078,7 @@ const char AAKernelInfo::ID = 0;
 const char AAExecutionDomain::ID = 0;
 const char AAHeapToShared::ID = 0;
 const char AAFoldRuntimeCall::ID = 0;
+const char AAParallelRegionHoist::ID = 0;
 
 AAICVTracker &AAICVTracker::createForPosition(const IRPosition &IRP,
                                               Attributor &A) {
@@ -4883,6 +5184,26 @@ AAFoldRuntimeCall &AAFoldRuntimeCall::createForPosition(const IRPosition &IRP,
     llvm_unreachable("KernelInfo can only be created for call site position!");
   case IRPosition::IRP_CALL_SITE_RETURNED:
     AA = new (A.Allocator) AAFoldRuntimeCallCallSiteReturned(IRP, A);
+    break;
+  }
+
+  return *AA;
+}
+
+AAParallelRegionHoist &
+AAParallelRegionHoist::createForPosition(const IRPosition &IRP, Attributor &A) {
+  AAParallelRegionHoist *AA = nullptr;
+  switch (IRP.getPositionKind()) {
+  case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_FLOAT:
+  case IRPosition::IRP_ARGUMENT:
+  case IRPosition::IRP_RETURNED:
+  case IRPosition::IRP_CALL_SITE:
+  case IRPosition::IRP_CALL_SITE_ARGUMENT:
+  case IRPosition::IRP_CALL_SITE_RETURNED:
+    llvm_unreachable("Parallel region hoist is a function AA!");
+  case IRPosition::IRP_FUNCTION:
+    AA = new (A.Allocator) AAParallelRegionHoistFunction(IRP, A);
     break;
   }
 
