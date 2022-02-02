@@ -983,6 +983,9 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
     MPM.addPass(ModuleMemProfilerPass());
   }
 
+  if (Level != OptimizationLevel::O0)
+    MPM.addPass(OpenMPOptPass());
+
   return MPM;
 }
 
