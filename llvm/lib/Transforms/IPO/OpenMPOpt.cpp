@@ -4813,7 +4813,6 @@ struct AASingleThreadedLoadIdentifierFunction
       A.getAAFor<AANoCapture>(*this, ArgIRP, DepClassTy::OPTIONAL);
       A.getAAFor<AAAlign>(*this, ArgIRP, DepClassTy::OPTIONAL);
       A.getAAFor<AAMemoryBehavior>(*this, ArgIRP, DepClassTy::OPTIONAL);
-      A.getAAFor<AAMemoryLocation>(*this, ArgIRP, DepClassTy::OPTIONAL);
     };
 
     auto ReadWriteInstCB = [&](Instruction &I) {
