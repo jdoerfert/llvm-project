@@ -4751,6 +4751,96 @@ private:
   RuntimeFunction RFKind;
 };
 
+struct AASingleThreadedLoadIdentifier
+    : public StateWrapper<BooleanState, AbstractAttribute> {
+  using Base = StateWrapper<BooleanState, AbstractAttribute>;
+
+  AASingleThreadedLoadIdentifier(const IRPosition &IRP, Attributor &A)
+      : Base(IRP) {}
+
+  /// Statistics are tracked as part of manifest for now.
+  void trackStatistics() const override {}
+
+  /// Create an abstract attribute biew for the position \p IRP.
+  static AASingleThreadedLoadIdentifier &
+  createForPosition(const IRPosition &IRP, Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override {
+    return "AASingleThreadedLoadIdentifier";
+  }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is
+  /// AASingleThreadedLoadIdentifier
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  static const char ID;
+};
+
+struct AASingleThreadedLoadIdentifierFunction
+    : public AASingleThreadedLoadIdentifier {
+  using Base = AASingleThreadedLoadIdentifier;
+  AASingleThreadedLoadIdentifierFunction(const IRPosition &IRP, Attributor &A)
+      : Base(IRP, A) {}
+
+  const std::string getAsStr() const override { return ""; }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+
+    auto RequestPtrArgInfo = [&](Value *Ptr) {
+      Argument *Arg = dyn_cast<Argument>(getUnderlyingObject(Ptr));
+      if (!Arg)
+        return;
+      IRPosition ArgIRP = IRPosition::argument(*Arg);
+      A.getAAFor<AANoAlias>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      A.getAAFor<AANoCapture>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      A.getAAFor<AAAlign>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      A.getAAFor<AAMemoryBehavior>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      A.getAAFor<AAMemoryLocation>(*this, ArgIRP, DepClassTy::OPTIONAL);
+    };
+
+    auto ReadWriteInstCB = [&](Instruction &I) {
+      for (Value *Op : I.operand_values())
+        if (Op->getType()->isPointerTy())
+          RequestPtrArgInfo(Op);
+      LoadInst *LI = dyn_cast<LoadInst>(&I);
+      if (LI)
+        Changed |= analyzeLoad(A, *LI);
+      return true;
+    };
+
+    bool UsedAssumedInformation = false;
+    A.checkForAllReadWriteInstructions(ReadWriteInstCB, *this,
+                                       UsedAssumedInformation);
+    return Changed;
+  }
+
+  ChangeStatus manifest(Attributor &A) override {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    return Changed;
+  }
+
+private:
+  ChangeStatus analyzeLoad(Attributor &A, LoadInst &LI) {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    if (LI.getMetadata(MetadataName))
+      return Changed;
+
+    //Value *Ptr = LI.getPointerOperand();
+
+
+    return Changed;
+  }
+
+  static constexpr StringLiteral MetadataName= "thread_private";
+};
+
 struct AAParallelRegionHoist
     : public StateWrapper<BooleanState, AbstractAttribute> {
   using Base = StateWrapper<BooleanState, AbstractAttribute>;
@@ -5089,6 +5179,11 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
   };
   ForkCallRFI.foreachUse(SCC, CreateParallelHoistAA);
 
+  for (auto *F : SCC)
+    if (!F->isDeclaration())
+      A.getOrCreateAAFor<AASingleThreadedLoadIdentifier>(
+          IRPosition::function(*F));
+
   // Create an ExecutionDomain AA for every function and a HeapToStack AA for
   // every function if there is a device kernel.
   if (!isOpenMPDevice(M))
@@ -5120,6 +5215,7 @@ const char AAExecutionDomain::ID = 0;
 const char AAHeapToShared::ID = 0;
 const char AAFoldRuntimeCall::ID = 0;
 const char AAParallelRegionHoist::ID = 0;
+const char AASingleThreadedLoadIdentifier::ID = 0;
 
 AAICVTracker &AAICVTracker::createForPosition(const IRPosition &IRP,
                                               Attributor &A) {
@@ -5225,6 +5321,27 @@ AAFoldRuntimeCall &AAFoldRuntimeCall::createForPosition(const IRPosition &IRP,
     llvm_unreachable("KernelInfo can only be created for call site position!");
   case IRPosition::IRP_CALL_SITE_RETURNED:
     AA = new (A.Allocator) AAFoldRuntimeCallCallSiteReturned(IRP, A);
+    break;
+  }
+
+  return *AA;
+}
+
+AASingleThreadedLoadIdentifier &
+AASingleThreadedLoadIdentifier::createForPosition(const IRPosition &IRP,
+                                                  Attributor &A) {
+  AASingleThreadedLoadIdentifier *AA = nullptr;
+  switch (IRP.getPositionKind()) {
+  case IRPosition::IRP_INVALID:
+  case IRPosition::IRP_FLOAT:
+  case IRPosition::IRP_ARGUMENT:
+  case IRPosition::IRP_RETURNED:
+  case IRPosition::IRP_CALL_SITE:
+  case IRPosition::IRP_CALL_SITE_ARGUMENT:
+  case IRPosition::IRP_CALL_SITE_RETURNED:
+    llvm_unreachable("Parallel region hoist is a function AA!");
+  case IRPosition::IRP_FUNCTION:
+    AA = new (A.Allocator) AASingleThreadedLoadIdentifierFunction(IRP, A);
     break;
   }
 
