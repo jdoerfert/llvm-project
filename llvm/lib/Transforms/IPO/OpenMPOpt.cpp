@@ -2138,6 +2138,22 @@ private:
   }
 
   bool removeUnusedForkCallArgs() {
+    auto IsUsed = [](Argument &Arg) {
+      SmallPtrSet<Value *, 8> Visited;
+      SmallVector<Value *> Worklist;
+      Worklist.push_back(&Arg);
+      while (!Worklist.empty()) {
+        Value *V = Worklist.pop_back_val();
+        if (!Visited.insert(V).second)
+          continue;
+        auto *I = dyn_cast<Instruction>(V);
+        if (I && (I->mayHaveSideEffects() || I->isTerminator()))
+          return true;
+        for (auto *Usr : V->users())
+          Worklist.push_back(Usr);
+      }
+      return false;
+    };
     bool Changed = false;
     auto &ForkCallRFI = OMPInfoCache.RFIs[OMPRTL___kmpc_fork_call];
     auto ForkCallCB = [&](Use &U, Function &F) {
@@ -2153,7 +2169,7 @@ private:
       const unsigned CalleeOffset = 2;
       unsigned NumArgs = ParBodyFn->arg_size() - CalleeOffset;
       for (unsigned ArgNo = 0; ArgNo < NumArgs; ++ArgNo) {
-        if (!ParBodyFn->getArg(ArgNo + CalleeOffset)->use_empty())
+        if (IsUsed(*ParBodyFn->getArg(ArgNo + CalleeOffset)))
           continue;
         unsigned CallSiteIdx = ArgNo + CallSiteOffset;
         CI->setArgOperand(
@@ -4895,7 +4911,6 @@ private:
 
     SmallVector<Value *> NewForkCallArgs;
     NewForkCallArgs.append(ForkCall.arg_begin(), ForkCall.arg_end());
-    unsigned NumForkCallArgsBefore = NewForkCallArgs.size();
 
     FunctionType *ParBodyFnTy = ParBodyFn.getFunctionType();
     SmallVector<Type *> NewParFnArgTypes;
