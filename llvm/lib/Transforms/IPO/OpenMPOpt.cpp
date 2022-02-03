@@ -4836,14 +4836,10 @@ private:
 
     auto LoadCB = [&](LoadInst &LI) {
       auto EraseLI = [&]() {
-        if (FI.InstReplaceMap.erase(&LI)) {
+        if (FI.InstReplaceMap.erase(&LI))
           Changed = ChangeStatus::CHANGED;
-          errs() << "Removed1 " << LI << "\n";
-        }
-        if (FI.GlobalUseMap.erase(&LI)) {
+        if (FI.GlobalUseMap.erase(&LI))
           Changed = ChangeStatus::CHANGED;
-          errs() << "Removed2 " << LI << "\n";
-        }
         return true;
       };
 
@@ -4922,7 +4918,11 @@ private:
     auto *Int64Ty = Type::getInt64Ty(Ctx);
 
     // Add new arguments
+    DenseMap<Value *, unsigned> ArgNoMap;
     auto AddNewArg = [&](Value &NewArg, Value &SeenKey) {
+      unsigned &ArgNo = ArgNoMap[&SeenKey];
+      if (ArgNo > 0)
+        return;
       LLVM_DEBUG({
         if (&NewArg == &SeenKey)
           errs() << "Replace " << SeenKey << "\n";
@@ -4938,6 +4938,7 @@ private:
       else {
         assert(!PassedValue->getType()->isFloatingPointTy());
       }
+      ArgNo = NewParFnArgTypes.size();
       NewForkCallArgs.push_back(PassedValue);
       NewParFnArgTypes.push_back(PassedValue->getType());
     };
@@ -4980,11 +4981,10 @@ private:
         ReplVal = new BitCastInst(ReplVal, I.getType(), "", &I);
       A.changeValueAfterManifest(I, *ReplVal);
     };
-    unsigned ArgNo = NumArgsBefore;
     for (auto &It : FI.InstReplaceMap)
-      Replace(*It.first, NewParBodyFn->getArg(ArgNo++));
+      Replace(*It.first, NewParBodyFn->getArg(ArgNoMap[It.second]));
     for (auto &It : FI.GlobalUseMap)
-      Replace(*It.first, NewParBodyFn->getArg(ArgNo++));
+      Replace(*It.first, NewParBodyFn->getArg(ArgNoMap[It.second]));
   }
 };
 
