@@ -4774,6 +4774,8 @@ struct AASingleThreadedLoadIdentifier
   static const char ID;
 };
 
+static constexpr StringLiteral SingleThreadedLoadMetadataName= "thread_private";
+
 struct AASingleThreadedLoadIdentifierFunction
     : public AASingleThreadedLoadIdentifier {
   using Base = AASingleThreadedLoadIdentifier;
@@ -4821,7 +4823,7 @@ struct AASingleThreadedLoadIdentifierFunction
 private:
   ChangeStatus analyzeLoad(Attributor &A, LoadInst &LI) {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
-    if (LI.getMetadata(MetadataName))
+    if (LI.hasMetadata(SingleThreadedLoadMetadataName))
       return Changed;
 
     //Value *Ptr = LI.getPointerOperand();
@@ -4829,8 +4831,6 @@ private:
 
     return Changed;
   }
-
-  static constexpr StringLiteral MetadataName= "thread_private";
 };
 
 struct AAParallelRegionHoist
