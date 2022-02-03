@@ -2160,9 +2160,17 @@ private:
         for (auto *Usr : V->users())
           Worklist.push_back(Usr);
       }
+      // Remove all users transitively.
+      for (auto *V : Visited) {
+        V->replaceAllUsesWith(UndefValue::get(V->getType()));
+        if (auto *I = dyn_cast<Instruction>(V))
+          I->eraseFromParent();
+      }
       return false;
     };
+
     bool Changed = false;
+    auto UBImplyingAttributes = AttributeFuncs::getUBImplyingAttributes();
     auto &ForkCallRFI = OMPInfoCache.RFIs[OMPRTL___kmpc_fork_call];
     auto ForkCallCB = [&](Use &U, Function &F) {
       CallInst *CI = OpenMPOpt::getCallIfRegularCall(U, &ForkCallRFI);
@@ -2183,6 +2191,7 @@ private:
         CI->setArgOperand(
             CallSiteIdx,
             UndefValue::get(CI->getArgOperand(CallSiteIdx)->getType()));
+        ParBodyFn->removeParamAttrs(ArgNo, UBImplyingAttributes);
         Changed = true;
       }
       return false;
