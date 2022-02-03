@@ -312,6 +312,8 @@ struct OMPInformationCache : public InformationCache {
     decltype(UsesMap)::iterator end() { return UsesMap.end(); }
   };
 
+  DenseMap<Function *, Function *> NewParBodyFnMap;
+
   /// An OpenMP-IR-Builder instance
   OpenMPIRBuilder OMPBuilder;
 
@@ -4950,21 +4952,26 @@ private:
       AddNewArg(*NewArg, *It.second);
     }
 
-    FunctionType *NewParBodyFnTy = FunctionType::get(
-        ParBodyFnTy->getReturnType(), NewParFnArgTypes, /* isVarArg */ false);
-    Function *NewParBodyFn = Function::Create(
-        NewParBodyFnTy, ParBodyFn.getLinkage(), "", ParBodyFn.getParent());
-    NewParBodyFn->takeName(&ParBodyFn);
-    // ValueToValueMapTy VMap;
-    // Function *ParBodyFnClone = CloneFunction(&ParBodyFn, VMap);
-    auto &NewBlockList = NewParBodyFn->getBasicBlockList();
-    NewBlockList.splice(NewBlockList.begin(), ParBodyFn.getBasicBlockList());
-    NewParBodyFn->setAttributes(ParBodyFn.getAttributes());
-    for (unsigned ArgNo = 0; ArgNo < NumArgsBefore; ++ArgNo)
-      ParBodyFn.getArg(ArgNo)->replaceAllUsesWith(NewParBodyFn->getArg(ArgNo));
+    auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
+    Function *&NewParBodyFn = OMPInfoCache.NewParBodyFnMap[&ParBodyFn];
+    bool IsNewParBodyFn = NewParBodyFn == nullptr;
+    if (IsNewParBodyFn) {
+      FunctionType *NewParBodyFnTy = FunctionType::get(
+          ParBodyFnTy->getReturnType(), NewParFnArgTypes, /* isVarArg */ false);
+      NewParBodyFn = Function::Create(NewParBodyFnTy, ParBodyFn.getLinkage(),
+                                      "", ParBodyFn.getParent());
+      NewParBodyFn->takeName(&ParBodyFn);
+      auto &NewBlockList = NewParBodyFn->getBasicBlockList();
+      NewBlockList.splice(NewBlockList.begin(), ParBodyFn.getBasicBlockList());
+      NewParBodyFn->setAttributes(ParBodyFn.getAttributes());
+      for (unsigned ArgNo = 0; ArgNo < NumArgsBefore; ++ArgNo)
+        ParBodyFn.getArg(ArgNo)->replaceAllUsesWith(
+            NewParBodyFn->getArg(ArgNo));
+    }
 
-    NewForkCallArgs[NumArgsOperand] = ConstantInt::get(
-        NewForkCallArgs[NumArgsOperand]->getType(), NewParFnArgTypes.size() - 2);
+    NewForkCallArgs[NumArgsOperand] =
+        ConstantInt::get(NewForkCallArgs[NumArgsOperand]->getType(),
+                         NewParFnArgTypes.size() - 2);
     NewForkCallArgs[CallbackCalleeOperand] = ConstantExpr::getBitCast(
         NewParBodyFn, NewForkCallArgs[CallbackCalleeOperand]->getType());
 
@@ -4973,6 +4980,9 @@ private:
                          /*NameStr=*/"", &ForkCall);
     NewForkCall->setDebugLoc(ForkCall.getDebugLoc());
     A.deleteAfterManifest(ForkCall);
+
+    if (!IsNewParBodyFn)
+      return;
 
     auto Replace = [&](Instruction &I, Argument *Arg) {
       assert(Arg);
