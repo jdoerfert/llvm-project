@@ -4841,7 +4841,6 @@ private:
     auto *&MappedValue = Map[&LI];
     if (MappedValue == &OuterValue)
       return ChangeStatus::UNCHANGED;
-    errs() << "Inserted " << LI << " -> " << OuterValue << "\n";
     MappedValue = &OuterValue;
     return ChangeStatus::CHANGED;
   }
