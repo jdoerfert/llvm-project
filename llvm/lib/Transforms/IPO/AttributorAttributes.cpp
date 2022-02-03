@@ -7602,9 +7602,9 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
     // attributes for the anchor function we even remove the attribute in
     // addition to ignoring it.
     bool UseArgMemOnly = true;
-    Function *AnchorFn = IRP.getAnchorScope();
-    if (AnchorFn && A.isRunOn(*AnchorFn))
-      UseArgMemOnly = !AnchorFn->hasLocalLinkage();
+    Function *AssociatedFn = IRP.getAssociatedFunction();
+    if (AssociatedFn && A.isRunOn(*AssociatedFn))
+      UseArgMemOnly = !AssociatedFn->hasLocalLinkage();
 
     SmallVector<Attribute, 2> Attrs;
     IRP.getAttrs(AttrKinds, Attrs, IgnoreSubsumingPositions);
@@ -9741,6 +9741,8 @@ private:
         for (Function *Edge : Edges) {
           // Functions that do not call back into the module can be ignored.
           if (Edge->hasFnAttribute(Attribute::NoCallback))
+            continue;
+          if (Edge->getName() == "__kmpc_fork_call")
             continue;
 
           // We don't need a dependency if the result is reachable.

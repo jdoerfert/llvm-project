@@ -22,6 +22,7 @@
 #include "llvm/ADT/EnumeratedArray.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/CallGraph.h"
@@ -31,6 +32,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
+#include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/Assumptions.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticInfo.h"
@@ -44,6 +46,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Value.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -4791,7 +4794,8 @@ struct AASingleThreadedLoadIdentifier
   static const char ID;
 };
 
-static constexpr StringLiteral SingleThreadedLoadMetadataName= "thread_private";
+static constexpr StringLiteral SingleThreadedLoadMetadataName =
+    "thread_private";
 
 struct AASingleThreadedLoadIdentifierFunction
     : public AASingleThreadedLoadIdentifier {
@@ -4804,21 +4808,7 @@ struct AASingleThreadedLoadIdentifierFunction
   ChangeStatus updateImpl(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
-    auto RequestPtrArgInfo = [&](Value *Ptr) {
-      Argument *Arg = dyn_cast<Argument>(getUnderlyingObject(Ptr));
-      if (!Arg)
-        return;
-      IRPosition ArgIRP = IRPosition::argument(*Arg);
-      A.getAAFor<AANoAlias>(*this, ArgIRP, DepClassTy::OPTIONAL);
-      A.getAAFor<AANoCapture>(*this, ArgIRP, DepClassTy::OPTIONAL);
-      A.getAAFor<AAAlign>(*this, ArgIRP, DepClassTy::OPTIONAL);
-      A.getAAFor<AAMemoryBehavior>(*this, ArgIRP, DepClassTy::OPTIONAL);
-    };
-
     auto ReadWriteInstCB = [&](Instruction &I) {
-      for (Value *Op : I.operand_values())
-        if (Op->getType()->isPointerTy())
-          RequestPtrArgInfo(Op);
       LoadInst *LI = dyn_cast<LoadInst>(&I);
       if (LI)
         Changed |= analyzeLoad(A, *LI);
@@ -4842,8 +4832,7 @@ private:
     if (LI.hasMetadata(SingleThreadedLoadMetadataName))
       return Changed;
 
-    //Value *Ptr = LI.getPointerOperand();
-
+    // Value *Ptr = LI.getPointerOperand();
 
     return Changed;
   }
@@ -4907,7 +4896,7 @@ struct AAParallelRegionHoistFunction : public AAParallelRegionHoist {
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     for (auto &It : ForkCallInfoMap) {
-      if (It.second->InstReplaceMap.empty() && It.second->GlobalUseMap.empty())
+      if (It.second->InstReplaceMap.empty() && It.second->GlobalUseMap.empty() && It.second->PassByValueMap.empty())
         continue;
       rewriteForkCall(A, *It.first, *It.second);
       Changed = ChangeStatus::CHANGED;
@@ -4919,6 +4908,7 @@ private:
   struct ForkInfoTy {
     DenseMap<Instruction *, Value *> InstReplaceMap;
     DenseMap<Instruction *, GlobalVariable *> GlobalUseMap;
+    DenseMap<unsigned, AllocaInst *> PassByValueMap;
   };
   DenseMap<CallInst *, ForkInfoTy *> ForkCallInfoMap;
 
@@ -4933,7 +4923,54 @@ private:
     if (!FI)
       FI = new (A.Allocator) ForkInfoTy();
 
-    return analyzeParBodyFn(A, *ParBodyFn, *ForkCall.getCaller(), *FI);
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+
+    Changed |= analyzeParBodyFn(A, *ParBodyFn, *ForkCall.getCaller(), *FI);
+
+    unsigned PBVSizeBefore = FI->PassByValueMap.size();
+    FI->PassByValueMap.clear();
+
+    SmallVector<Argument *> ReadOnlyArgs;
+    for (unsigned ArgNo = 2, NumArgs = ParBodyFn->arg_size(); ArgNo < NumArgs;
+         ++ArgNo) {
+      Argument &Arg = *ParBodyFn->getArg(ArgNo);
+      IRPosition ArgIRP = IRPosition::argument(Arg);
+      auto &MemAA = A.getAAFor<AAMemoryBehavior>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      auto &NoAliasAA = A.getAAFor<AANoAlias>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      A.getAAFor<AANoCapture>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      A.getAAFor<AAAlign>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      if (MemAA.isAssumedReadOnly() && NoAliasAA.isAssumedNoAlias())
+        ReadOnlyArgs.push_back(&Arg);
+    }
+
+    if (ReadOnlyArgs.empty())
+      return Changed;
+
+    auto CallSiteCB = [&](AbstractCallSite ACS) {
+      for (auto *Arg : ReadOnlyArgs) {
+        Value *CallArgOp = ACS.getCallArgOperand(*Arg);
+        if (!CallArgOp)
+          continue;
+        auto *AI = dyn_cast<AllocaInst>(CallArgOp->stripPointerCasts());
+        if (!AI || AI->isArrayAllocation())
+          continue;
+        auto *Ty = AI->getAllocatedType();
+        if (!(Ty->isIntOrPtrTy() || Ty->isFloatingPointTy()))
+          continue;
+        if (ACS.getInstruction() == &ForkCall)
+          FI->PassByValueMap[Arg->getArgNo()] = AI;
+      }
+      return true;
+    };
+
+    bool AllCallSitesKnown = true;
+    if (!A.checkForAllCallSites(CallSiteCB, *ParBodyFn, /* RequiresAllCallSites */ true, this, AllCallSitesKnown))
+      FI->PassByValueMap.clear();
+
+    if (FI->PassByValueMap.size() != PBVSizeBefore)
+      Changed = ChangeStatus::CHANGED;
+
+    return Changed;
   }
 
   template <typename KeyTy, typename MapTy>
@@ -5066,6 +5103,11 @@ private:
           new LoadInst(It.first->getType(), It.second, "", &ForkCall);
       AddNewArg(*NewArg, *It.second);
     }
+    for (auto &It : FI.PassByValueMap) {
+      Value *NewArg =
+          new LoadInst(It.second->getAllocatedType(), It.second, "", &ForkCall);
+      AddNewArg(*NewArg, *It.second);
+    }
 
     auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
     Function *&NewParBodyFn = OMPInfoCache.NewParBodyFnMap[&ParBodyFn];
@@ -5099,17 +5141,21 @@ private:
     if (!IsNewParBodyFn)
       return;
 
-    auto Replace = [&](Instruction &I, Argument *Arg) {
+    Instruction *CtxI = NewParBodyFn->getEntryBlock().getFirstNonPHI();
+    auto Replace = [&](Value &V, Argument *Arg) {
       assert(Arg);
       Value *ReplVal = Arg;
-      if (I.getType() != ReplVal->getType())
-        ReplVal = new BitCastInst(ReplVal, I.getType(), "", &I);
-      A.changeValueAfterManifest(I, *ReplVal);
+      if (V.getType() != ReplVal->getType()) {
+        ReplVal = new BitCastInst(ReplVal, V.getType(), "", CtxI);
+      }
+      A.changeValueAfterManifest(V, *ReplVal);
     };
     for (auto &It : FI.InstReplaceMap)
       Replace(*It.first, NewParBodyFn->getArg(ArgNoMap[It.second]));
     for (auto &It : FI.GlobalUseMap)
       Replace(*It.first, NewParBodyFn->getArg(ArgNoMap[It.second]));
+    for (auto &It : FI.PassByValueMap)
+      Replace(*NewParBodyFn->getArg(It.first), NewParBodyFn->getArg(ArgNoMap[It.second]));
   }
 };
 
@@ -5188,9 +5234,12 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
   ForkCallRFI.foreachUse(SCC, CreateParallelHoistAA);
 
   for (auto *F : SCC)
-    if (!F->isDeclaration())
+    if (!F->isDeclaration()) {
       A.getOrCreateAAFor<AASingleThreadedLoadIdentifier>(
           IRPosition::function(*F));
+      A.getOrCreateAAFor<AAMemoryLocation>(
+          IRPosition::function(*F));
+    }
 
   // Create an ExecutionDomain AA for every function and a HeapToStack AA for
   // every function if there is a device kernel.

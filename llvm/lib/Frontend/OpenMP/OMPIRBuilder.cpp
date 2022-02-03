@@ -52,7 +52,7 @@ static cl::opt<bool>
     OptimisticAttributes("openmp-ir-builder-optimistic-attributes", cl::Hidden,
                          cl::desc("Use optimistic attributes describing "
                                   "'as-if' properties of runtime calls."),
-                         cl::init(false));
+                         cl::init(true));
 
 static cl::opt<double> UnrollThresholdFactor(
     "openmp-ir-builder-unroll-threshold-factor", cl::Hidden,
