@@ -827,8 +827,8 @@ void PassManagerBuilder::populateModulePassManager(
 
   // Try to perform OpenMP specific optimizations. This is a (quick!) no-op if
   // there are no OpenMP runtime calls present in the module.
-  if (OptLevel > 1)
-    MPM.add(createOpenMPOptCGSCCLegacyPass());
+  //if (OptLevel > 1)
+  //  MPM.add(createOpenMPOptCGSCCLegacyPass());
 
   MPM.add(createPostOrderFunctionAttrsLegacyPass());
   if (OptLevel > 2)
@@ -1112,8 +1112,8 @@ void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {
 
   // Try to perform OpenMP specific optimizations. This is a (quick!) no-op if
   // there are no OpenMP runtime calls present in the module.
-  if (OptLevel > 1)
-    PM.add(createOpenMPOptCGSCCLegacyPass());
+  //if (OptLevel > 1)
+  //  PM.add(createOpenMPOptCGSCCLegacyPass());
 
   // Optimize globals again if we ran the inliner.
   if (RunInliner)
