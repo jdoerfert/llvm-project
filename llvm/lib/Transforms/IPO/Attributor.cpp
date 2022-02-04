@@ -1446,12 +1446,15 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
     for (unsigned u = 0; u < MinArgsParams; ++u) {
       Value *CSArgOp = ACS.getCallArgOperand(u);
       if (CSArgOp && Fn.getArg(u)->getType() != CSArgOp->getType()) {
-        LLVM_DEBUG(
-            dbgs() << "[Attributor] Call site / callee argument type mismatch ["
-                   << u << "@" << Fn.getName() << ": "
-                   << *Fn.getArg(u)->getType() << " vs. "
-                   << *ACS.getCallArgOperand(u)->getType() << "\n");
-        return false;
+        if (Fn.getArg(u)->getType()->isPointerTy() !=
+            CSArgOp->getType()->isPointerTy()) {
+          LLVM_DEBUG(
+              dbgs()
+              << "[Attributor] Call site / callee argument type mismatch [" << u
+              << "@" << Fn.getName() << ": " << *Fn.getArg(u)->getType()
+              << " vs. " << *ACS.getCallArgOperand(u)->getType() << "\n");
+          return false;
+        }
       }
     }
 
