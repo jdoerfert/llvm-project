@@ -40,6 +40,7 @@
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
@@ -50,6 +51,7 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "attributor"
+#define VERBOSE_DEBUG_TYPE "attributor-verbose"
 
 static cl::opt<bool> ManifestInternal(
     "attributor-manifest-internal", cl::Hidden,
@@ -1392,8 +1394,6 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
     auto UsePred = [&](const Use &U, bool &Follow) -> bool {
       Value *CurPtr = U.get();
       User *Usr = U.getUser();
-      LLVM_DEBUG(dbgs() << "[AAPointerInfo] Analyze " << *CurPtr << " in "
-                        << *Usr << "\n");
       assert(OffsetInfoMap.count(CurPtr) &&
              "The current pointer offset should have been seeded!");
 
@@ -5284,9 +5284,16 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
     LLVM_DEBUG({
-      errs() << "SAV: " << SimplifiedAssociatedValue << " ";
-      if (SimplifiedAssociatedValue && *SimplifiedAssociatedValue)
-        errs() << "SAV: " << **SimplifiedAssociatedValue << " ";
+      if (!SimplifiedAssociatedValue)
+        dbgs() << "SAV: " << SimplifiedAssociatedValue << " ";
+      else if (*SimplifiedAssociatedValue == nullptr)
+        dbgs() << "SAV: <nullptr> ";
+      else if (SimplifiedAssociatedValue &&
+               isa<Function>(*SimplifiedAssociatedValue))
+        dbgs() << "SAV: @"
+               << cast<Function>(*SimplifiedAssociatedValue)->getName() << " ";
+      else if (SimplifiedAssociatedValue && *SimplifiedAssociatedValue)
+        dbgs() << "SAV: " << **SimplifiedAssociatedValue << " ";
     });
     return isValidState() ? (isAtFixpoint() ? "simplified" : "maybe-simple")
                           : "not-simple";
@@ -5786,8 +5793,9 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
         }
         // TODO: Look the instruction and check recursively.
 
-        LLVM_DEBUG(dbgs() << "[ValueSimplify] Can't be stripped more : " << V
-                          << "\n");
+        DEBUG_WITH_TYPE(
+            VERBOSE_DEBUG_TYPE,
+            dbgs() << "[ValueSimplify] Can't be stripped more : " << V << "\n");
         return false;
       }
       return checkAndUpdate(A, *this,
