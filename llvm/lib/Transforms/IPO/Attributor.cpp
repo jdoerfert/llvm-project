@@ -57,6 +57,7 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "attributor"
+#define VERBOSE_DEBUG_TYPE "attributor-verbose"
 
 DEBUG_COUNTER(ManifestDBGCounter, "attributor-manifest",
               "Determine what attributes are manifested in the IR");
@@ -1538,8 +1539,9 @@ static bool checkForAllInstructionsImpl(
       if (A && !CheckPotentiallyDead &&
           A->isAssumedDead(IRPosition::inst(*I), QueryingAA, LivenessAA,
                            UsedAssumedInformation, CheckBBLivenessOnly)) {
-        LLVM_DEBUG(dbgs() << "[Attributor] Instruction " << *I
-                          << " is potentially dead, skip!\n";);
+        DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE,
+                        dbgs() << "[Attributor] Instruction " << *I
+                               << " is potentially dead, skip!\n";);
         continue;
       }
 
@@ -1644,19 +1646,22 @@ void Attributor::runTillFixpoint() {
       AbstractAttribute *InvalidAA = InvalidAAs[u];
 
       // Check the dependences to fast track invalidation.
-      LLVM_DEBUG(dbgs() << "[Attributor] InvalidAA: " << *InvalidAA << " has "
-                        << InvalidAA->Deps.size()
-                        << " required & optional dependences\n");
+      DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE,
+                      dbgs() << "[Attributor] InvalidAA: " << *InvalidAA
+                             << " has " << InvalidAA->Deps.size()
+                             << " required & optional dependences\n");
       while (!InvalidAA->Deps.empty()) {
         const auto &Dep = InvalidAA->Deps.back();
         InvalidAA->Deps.pop_back();
         AbstractAttribute *DepAA = cast<AbstractAttribute>(Dep.getPointer());
         if (Dep.getInt() == unsigned(DepClassTy::OPTIONAL)) {
-          LLVM_DEBUG(dbgs() << " - recompute: " << *DepAA);
+          DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE,
+                          dbgs() << " - recompute: " << *DepAA);
           Worklist.insert(DepAA);
           continue;
         }
-        LLVM_DEBUG(dbgs() << " - invalidate: " << *DepAA);
+        DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE, dbgs()
+                                                << " - invalidate: " << *DepAA);
         DepAA->getState().indicatePessimisticFixpoint();
         assert(DepAA->getState().isAtFixpoint() && "Expected fixpoint state!");
         if (!DepAA->getState().isValidState())
@@ -1675,9 +1680,10 @@ void Attributor::runTillFixpoint() {
         ChangedAA->Deps.pop_back();
       }
 
-    LLVM_DEBUG(dbgs() << "[Attributor] #Iteration: " << IterationCounter
-                      << ", Worklist+Dependent size: " << Worklist.size()
-                      << "\n");
+    DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE,
+                    dbgs() << "[Attributor] #Iteration: " << IterationCounter
+                           << ", Worklist+Dependent size: " << Worklist.size()
+                           << "\n");
 
     // Reset the changed and invalid set.
     ChangedAAs.clear();
