@@ -5545,8 +5545,7 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
   SetVector<Function *> Functions(SCC.begin(), SCC.end());
   OMPInformationCache InfoCache(M, AG, Allocator, /*CGSCC*/ Functions, Kernels);
 
-  unsigned MaxFixpointIterations =
-      (isOpenMPDevice(M)) ? SetFixpointIterations : 32;
+  unsigned MaxFixpointIterations = SetFixpointIterations;
   Attributor A(Functions, InfoCache, CGUpdater, nullptr, true, false,
                MaxFixpointIterations, OREGetter, DEBUG_TYPE);
 
@@ -5609,8 +5608,7 @@ PreservedAnalyses OpenMPOptCGSCCPass::run(LazyCallGraph::SCC &C,
   OMPInformationCache InfoCache(*(Functions.back()->getParent()), AG, Allocator,
                                 /*CGSCC*/ Functions, Kernels);
 
-  unsigned MaxFixpointIterations =
-      (isOpenMPDevice(M)) ? SetFixpointIterations : 32;
+  unsigned MaxFixpointIterations = SetFixpointIterations;
   Attributor A(Functions, InfoCache, CGUpdater, nullptr, false, true,
                MaxFixpointIterations, OREGetter, DEBUG_TYPE);
 
@@ -5680,8 +5678,7 @@ struct OpenMPOptCGSCCLegacyPass : public CallGraphSCCPass {
                                   Allocator,
                                   /*CGSCC*/ Functions, Kernels);
 
-    unsigned MaxFixpointIterations =
-        (isOpenMPDevice(M)) ? SetFixpointIterations : 32;
+    unsigned MaxFixpointIterations = SetFixpointIterations;
     Attributor A(Functions, InfoCache, CGUpdater, nullptr, false, true,
                  MaxFixpointIterations, OREGetter, DEBUG_TYPE);
 
