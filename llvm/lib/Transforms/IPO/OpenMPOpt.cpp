@@ -21,6 +21,7 @@
 
 #include "llvm/ADT/EnumeratedArray.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
@@ -35,6 +36,7 @@
 #include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/Assumptions.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -4879,7 +4881,8 @@ struct AAParallelRegionHoistFunction : public AAParallelRegionHoist {
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     for (auto &It : ForkCallInfoMap) {
-      if (It.second->InstReplaceMap.empty() && It.second->GlobalUseMap.empty() && It.second->PassByValueMap.empty())
+      if (It.second->InstReplaceMap.empty() &&
+          It.second->GlobalUseMap.empty() && It.second->PassByValueMap.empty())
         continue;
       rewriteForkCall(A, *It.first, *It.second);
       Changed = ChangeStatus::CHANGED;
@@ -4918,8 +4921,10 @@ private:
          ++ArgNo) {
       Argument &Arg = *ParBodyFn->getArg(ArgNo);
       IRPosition ArgIRP = IRPosition::argument(Arg);
-      auto &MemAA = A.getAAFor<AAMemoryBehavior>(*this, ArgIRP, DepClassTy::OPTIONAL);
-      auto &NoAliasAA = A.getAAFor<AANoAlias>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      auto &MemAA =
+          A.getAAFor<AAMemoryBehavior>(*this, ArgIRP, DepClassTy::OPTIONAL);
+      auto &NoAliasAA =
+          A.getAAFor<AANoAlias>(*this, ArgIRP, DepClassTy::OPTIONAL);
       A.getAAFor<AANoCapture>(*this, ArgIRP, DepClassTy::OPTIONAL);
       A.getAAFor<AAAlign>(*this, ArgIRP, DepClassTy::OPTIONAL);
       if (MemAA.isAssumedReadOnly() && NoAliasAA.isAssumedNoAlias())
@@ -4928,6 +4933,22 @@ private:
 
     if (ReadOnlyArgs.empty())
       return Changed;
+
+    auto CheckType = [](Type &InitTy) -> bool {
+      SmallVector<Type *> Worklist;
+      Worklist.push_back(&InitTy);
+      while (!Worklist.empty()) {
+        Type &Ty = *Worklist.pop_back_val();
+        if (Ty.isIntOrPtrTy() || Ty.isFloatingPointTy())
+          continue;
+        if (auto *ST = dyn_cast<StructType>(&Ty)) {
+          Worklist.append(ST->element_begin(), ST->element_end());
+          continue;
+        }
+        return false;
+      }
+      return true;
+    };
 
     auto CallSiteCB = [&](AbstractCallSite ACS) {
       for (auto *Arg : ReadOnlyArgs) {
@@ -4938,7 +4959,7 @@ private:
         if (!AI || AI->isArrayAllocation())
           continue;
         auto *Ty = AI->getAllocatedType();
-        if (!(Ty->isIntOrPtrTy() || Ty->isFloatingPointTy()))
+        if (!CheckType(*Ty))
           continue;
         if (ACS.getInstruction() == &ForkCall)
           FI->PassByValueMap[Arg->getArgNo()] = AI;
@@ -4947,7 +4968,9 @@ private:
     };
 
     bool AllCallSitesKnown = true;
-    if (!A.checkForAllCallSites(CallSiteCB, *ParBodyFn, /* RequiresAllCallSites */ true, this, AllCallSitesKnown))
+    if (!A.checkForAllCallSites(CallSiteCB, *ParBodyFn,
+                                /* RequiresAllCallSites */ true, this,
+                                AllCallSitesKnown))
       FI->PassByValueMap.clear();
 
     if (FI->PassByValueMap.size() != PBVSizeBefore)
@@ -5054,6 +5077,30 @@ private:
     auto *Int32Ty = Type::getInt32Ty(Ctx);
     auto *Int64Ty = Type::getInt64Ty(Ctx);
 
+    auto TraverseValue = [&](Value &InitV, Type &InitTy, Instruction *IP,
+                             function_ref<void(Value &, Type &)> CB) {
+      SmallVector<std::pair<Value *, Type *>> Worklist;
+      Worklist.emplace_back(&InitV, &InitTy);
+      while (!Worklist.empty()) {
+        const auto &It = Worklist.pop_back_val();
+        Value *V = It.first;
+        Type *Ty = It.second;
+        if (Ty->isIntOrPtrTy() || Ty->isFloatingPointTy()) {
+          CB(*V, *Ty);
+          continue;
+        }
+        auto *ST = cast<StructType>(Ty);
+        auto *Zero = ConstantInt::getNullValue(Int32Ty);
+        for (int i = ST->getNumElements() - 1; i >= 0; --i) {
+          Type *ETy = ST->getElementType(i);
+          auto *Idx = ConstantInt::get(Int32Ty, i);
+          Value *EV = GetElementPtrInst::CreateInBounds(ST, V, {Zero, Idx}, "",
+                                                        IP);
+          Worklist.emplace_back(EV, ETy);
+        }
+      }
+    };
+
     // Add new arguments
     DenseMap<Value *, unsigned> ArgNoMap;
     auto AddNewArg = [&](Value &NewArg, Value &SeenKey) {
@@ -5087,9 +5134,12 @@ private:
       AddNewArg(*NewArg, *It.second);
     }
     for (auto &It : FI.PassByValueMap) {
-      Value *NewArg =
-          new LoadInst(It.second->getAllocatedType(), It.second, "", &ForkCall);
-      AddNewArg(*NewArg, *It.second);
+      ArgNoMap[It.second] = NewParFnArgTypes.size();
+      TraverseValue(*It.second, *It.second->getAllocatedType(), &ForkCall,
+                    [&](Value &V, Type &Ty) {
+                      Value *NewArg = new LoadInst(&Ty, &V, "", &ForkCall);
+                      return AddNewArg(*NewArg, *NewArg);
+                    });
     }
 
     auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
@@ -5124,12 +5174,12 @@ private:
     if (!IsNewParBodyFn)
       return;
 
-    Instruction *CtxI = NewParBodyFn->getEntryBlock().getFirstNonPHI();
-    auto Replace = [&](Value &V, Argument *Arg) {
-      assert(Arg);
-      Value *ReplVal = Arg;
+    auto Replace = [&](Value &V, Value *NewV) {
+      assert(NewV);
+      Value *ReplVal = NewV;
       if (V.getType() != ReplVal->getType()) {
-        ReplVal = new BitCastInst(ReplVal, V.getType(), "", CtxI);
+        auto *IP = cast<Instruction>(&V);
+        ReplVal = new BitCastInst(ReplVal, V.getType(), "", IP);
       }
       A.changeValueAfterManifest(V, *ReplVal);
     };
@@ -5137,8 +5187,29 @@ private:
       Replace(*It.first, NewParBodyFn->getArg(ArgNoMap[It.second]));
     for (auto &It : FI.GlobalUseMap)
       Replace(*It.first, NewParBodyFn->getArg(ArgNoMap[It.second]));
-    for (auto &It : FI.PassByValueMap)
-      Replace(*NewParBodyFn->getArg(It.first), NewParBodyFn->getArg(ArgNoMap[It.second]));
+
+    NewParBodyFn->dump();
+    Instruction *AllocaIP = NewParBodyFn->getEntryBlock().getFirstNonPHI();
+    Instruction *CodeIP = AllocaIP;
+    while (isa<AllocaInst>(CodeIP))
+      CodeIP = CodeIP->getNextNode();
+
+    for (auto &It : FI.PassByValueMap) {
+      auto *AI = cast<AllocaInst>(It.second->clone());
+      AI->insertBefore(AllocaIP);
+
+      unsigned NewArgNo = ArgNoMap[It.second];
+      TraverseValue(*AI, *AI->getAllocatedType(), CodeIP, [&](Value &V, Type &Ty) {
+        Value *PassedValue = &V;
+        if (Ty.isFloatTy())
+          PassedValue = new BitCastInst(PassedValue, Int32Ty, "", &ForkCall);
+        else if (Ty.isDoubleTy())
+          PassedValue = new BitCastInst(PassedValue, Int64Ty, "", &ForkCall);
+        new StoreInst(NewParBodyFn->getArg(NewArgNo++), PassedValue, CodeIP);
+      });
+
+      Replace(*NewParBodyFn->getArg(It.first), AI);
+    }
   }
 };
 
@@ -5220,8 +5291,7 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
     if (!F->isDeclaration()) {
       A.getOrCreateAAFor<AASingleThreadedLoadIdentifier>(
           IRPosition::function(*F));
-      A.getOrCreateAAFor<AAMemoryLocation>(
-          IRPosition::function(*F));
+      A.getOrCreateAAFor<AAMemoryLocation>(IRPosition::function(*F));
     }
 
   // Create an ExecutionDomain AA for every function and a HeapToStack AA for
