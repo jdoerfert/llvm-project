@@ -2023,9 +2023,10 @@ private:
   DenseMap<Function *, SmallVector<std::unique_ptr<ArgumentReplacementInfo>, 8>>
       ArgumentReplacementMap;
 
+public:
   /// The set of functions we are deriving attributes for.
   SetVector<Function *> &Functions;
-
+private:
   /// The information cache that holds pre-processed (LLVM-IR) information.
   InformationCache &InfoCache;
 

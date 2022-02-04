@@ -5176,6 +5176,7 @@ private:
       for (unsigned ArgNo = 0; ArgNo < NumArgsBefore; ++ArgNo)
         ParBodyFn.getArg(ArgNo)->replaceAllUsesWith(
             NewParBodyFn->getArg(ArgNo));
+      A.Functions.insert(NewParBodyFn);
     }
 
     NewForkCallArgs[NumArgsOperand] =
