@@ -4920,6 +4920,8 @@ private:
     for (unsigned ArgNo = 2, NumArgs = ParBodyFn->arg_size(); ArgNo < NumArgs;
          ++ArgNo) {
       Argument &Arg = *ParBodyFn->getArg(ArgNo);
+      if (!Arg.getType()->isPointerTy())
+        continue;
       IRPosition ArgIRP = IRPosition::argument(Arg);
       auto &MemAA =
           A.getAAFor<AAMemoryBehavior>(*this, ArgIRP, DepClassTy::OPTIONAL);
@@ -5094,8 +5096,8 @@ private:
         for (int i = ST->getNumElements() - 1; i >= 0; --i) {
           Type *ETy = ST->getElementType(i);
           auto *Idx = ConstantInt::get(Int32Ty, i);
-          Value *EV = GetElementPtrInst::CreateInBounds(ST, V, {Zero, Idx}, "",
-                                                        IP);
+          Value *EV =
+              GetElementPtrInst::CreateInBounds(ST, V, {Zero, Idx}, "", IP);
           Worklist.emplace_back(EV, ETy);
         }
       }
@@ -5188,7 +5190,6 @@ private:
     for (auto &It : FI.GlobalUseMap)
       Replace(*It.first, NewParBodyFn->getArg(ArgNoMap[It.second]));
 
-    NewParBodyFn->dump();
     Instruction *AllocaIP = NewParBodyFn->getEntryBlock().getFirstNonPHI();
     Instruction *CodeIP = AllocaIP;
     while (isa<AllocaInst>(CodeIP))
@@ -5199,14 +5200,13 @@ private:
       AI->insertBefore(AllocaIP);
 
       unsigned NewArgNo = ArgNoMap[It.second];
-      TraverseValue(*AI, *AI->getAllocatedType(), CodeIP, [&](Value &V, Type &Ty) {
-        Value *PassedValue = &V;
-        if (Ty.isFloatTy())
-          PassedValue = new BitCastInst(PassedValue, Int32Ty, "", &ForkCall);
-        else if (Ty.isDoubleTy())
-          PassedValue = new BitCastInst(PassedValue, Int64Ty, "", &ForkCall);
-        new StoreInst(NewParBodyFn->getArg(NewArgNo++), PassedValue, CodeIP);
-      });
+      TraverseValue(*AI, *AI->getAllocatedType(), CodeIP,
+                    [&](Value &Ptr, Type &Ty) {
+                      Value *NewV = NewParBodyFn->getArg(NewArgNo++);
+                      if (NewV->getType() != &Ty)
+                        NewV = new BitCastInst(NewV, &Ty, "", AI);
+                      new StoreInst(NewV, &Ptr, CodeIP);
+                    });
 
       Replace(*NewParBodyFn->getArg(It.first), AI);
     }
