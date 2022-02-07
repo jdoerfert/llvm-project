@@ -200,7 +200,7 @@ define i8* @test6b(i1 %c) {
 ; IS________OPM-NEXT:    [[PHI:%.*]] = phi i8* [ [[RET]], [[ENTRY:%.*]] ], [ [[PHI]], [[LOOP]] ]
 ; IS________OPM-NEXT:    br i1 [[C]], label [[LOOP]], label [[EXIT:%.*]]
 ; IS________OPM:       exit:
-; IS________OPM-NEXT:    ret i8* [[RET]]
+; IS________OPM-NEXT:    ret i8* [[PHI]]
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@test6b
 ; IS________NPM-SAME: (i1 [[C:%.*]]) {
@@ -211,7 +211,7 @@ define i8* @test6b(i1 %c) {
 ; IS________NPM-NEXT:    [[PHI:%.*]] = phi i8* [ [[RET]], [[ENTRY:%.*]] ], [ [[PHI]], [[LOOP]] ]
 ; IS________NPM-NEXT:    br i1 [[C]], label [[LOOP]], label [[EXIT:%.*]]
 ; IS________NPM:       exit:
-; IS________NPM-NEXT:    ret i8* [[PHI]]
+; IS________NPM-NEXT:    ret i8* [[RET]]
 ;
 entry:
   %ret = call i8* @ret_nonnull()
