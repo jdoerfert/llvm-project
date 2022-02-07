@@ -1486,7 +1486,11 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         // TODO: Allow some call uses
         return false;
       }
-
+      OffsetInfo &PtrOI = OffsetInfoMap[CurPtr];
+      PtrOI.Offset = OffsetAndSize::Unknown;
+      if (auto *UI = dyn_cast<Instruction>(Usr))
+        return handleAccess(A, *UI, *CurPtr, nullptr, AccessKind::AK_READ_WRITE,
+                            PtrOI.Offset, Changed, nullptr);
       LLVM_DEBUG(dbgs() << "[AAPointerInfo] User not handled " << *Usr << "\n");
       return false;
     };
