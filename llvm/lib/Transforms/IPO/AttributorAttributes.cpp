@@ -5453,7 +5453,9 @@ struct AAValueSimplifyImpl : AAValueSimplify {
         return Union(V);
       if (!AA::isDynamicallyUnique(A, AA, V))
         return false;
-      if (!AA::isValidAtPosition(V, L, A.getInfoCache()))
+      ValueToValueMapTy VMap;
+      if (!reproduceValue(A, AA, V, *L.getType(), &L, /* CheckOnly */ true,
+                          VMap))
         return false;
       return Union(V);
     };
