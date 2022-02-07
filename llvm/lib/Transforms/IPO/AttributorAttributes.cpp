@@ -3234,6 +3234,14 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     return IsAliasing;
   }
 
+  bool isKnownNoAliasDueToAbsenceOfOtherMemory(Attributor &A, AAResults *&AAR) {
+    CallBase &CB = cast<CallBase>(*getCtxI());
+    auto &MemLocationAA = A.getAAFor<AAMemoryLocation>(
+        *this, IRPosition::callsite_function(CB), DepClassTy::NONE);
+    //MemLocationAA.f
+    return false;
+  }
+
   bool
   isKnownNoAliasDueToNoAliasPreservation(Attributor &A, AAResults *&AAR,
                                          const AAMemoryBehavior &MemBehaviorAA,
@@ -3344,6 +3352,13 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
                                                NoAliasAA)) {
       LLVM_DEBUG(
           dbgs() << "[AANoAlias] No-Alias deduced via no-alias preservation\n");
+      return ChangeStatus::UNCHANGED;
+    }
+
+    if (isKnownNoAliasDueToAbsenceOfOtherMemory(A, AAR)) {
+      LLVM_DEBUG(
+          dbgs()
+          << "[AANoAlias] No-Alias deduced via absence of other memory\n");
       return ChangeStatus::UNCHANGED;
     }
 
