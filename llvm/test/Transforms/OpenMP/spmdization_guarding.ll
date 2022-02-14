@@ -23,7 +23,11 @@
 ;        for (int i = 2; i < N - 1; ++i)
 ;          x[i] = i - 1;
 ;        #pragma omp parallel
-;        {}
+;        {
+;          char thread_local;
+;          store_to_arg(&thread_local, omp_get_thread_num());
+;          no_openmp2(thread_local);
+;        }
 ;        int r1 = no_openmp(x);
 ;        x[r1] = r1;
 ;        int r2 = no_openmp(x);
@@ -345,34 +349,67 @@ worker.exit:                                      ; preds = %entry
 define internal void @__omp_outlined__1(i32* noalias %.global_tid., i32* noalias %.bound_tid.) {
 ; CHECK-LABEL: define {{[^@]+}}@__omp_outlined__1
 ; CHECK-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]]) {
+; CHECK-NEXT:    [[THREAD_LOCAL:%.*]] = alloca i8, align 1
+; CHECK-NEXT:    [[TID:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
+; CHECK-NEXT:    [[T:%.*]] = trunc i32 [[TID]] to i8
+; CHECK-NEXT:    call void @store_to_arg(i8* [[THREAD_LOCAL]], i8 [[T]]) #[[ATTR12:[0-9]+]]
+; CHECK-NEXT:    [[V:%.*]] = load i8, i8* [[THREAD_LOCAL]], align 1
+; CHECK-NEXT:    call void @no_openmp2(i8 [[V]]) #[[ATTR10]]
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__1
 ; CHECK-DISABLED-SAME: (i32* noalias [[DOTGLOBAL_TID_:%.*]], i32* noalias [[DOTBOUND_TID_:%.*]]) {
+; CHECK-DISABLED-NEXT:    [[THREAD_LOCAL:%.*]] = alloca i8, align 1
+; CHECK-DISABLED-NEXT:    [[TID:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
+; CHECK-DISABLED-NEXT:    [[T:%.*]] = trunc i32 [[TID]] to i8
+; CHECK-DISABLED-NEXT:    call void @store_to_arg(i8* [[THREAD_LOCAL]], i8 [[T]]) #[[ATTR12:[0-9]+]]
+; CHECK-DISABLED-NEXT:    [[V:%.*]] = load i8, i8* [[THREAD_LOCAL]], align 1
+; CHECK-DISABLED-NEXT:    call void @no_openmp2(i8 [[V]]) #[[ATTR10]]
 ; CHECK-DISABLED-NEXT:    ret void
 ;
+  %thread_local = alloca i8
+  %tid = load i32, i32* %.global_tid.
+  %t = trunc i32 %tid to i8
+  call void @store_to_arg(i8* %thread_local, i8 %t)
+  %v = load i8, i8* %thread_local
+  call void @no_openmp2(i8 %v)
   ret void
 }
 define internal void @__omp_outlined__1_wrapper(i16 zeroext %0, i32 %1) {
 ; CHECK-LABEL: define {{[^@]+}}@__omp_outlined__1_wrapper
 ; CHECK-SAME: (i16 zeroext [[TMP0:%.*]], i32 [[TMP1:%.*]]) {
+; CHECK-NEXT:    [[THREAD_LOCAL:%.*]] = alloca i8, align 1
+; CHECK-NEXT:    [[T:%.*]] = trunc i16 [[TMP0]] to i8
+; CHECK-NEXT:    call void @store_to_arg(i8* [[THREAD_LOCAL]], i8 [[T]]) #[[ATTR12]]
+; CHECK-NEXT:    [[V:%.*]] = load i8, i8* [[THREAD_LOCAL]], align 1
+; CHECK-NEXT:    call void @no_openmp2(i8 [[V]]) #[[ATTR10]]
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__1_wrapper
 ; CHECK-DISABLED-SAME: (i16 zeroext [[TMP0:%.*]], i32 [[TMP1:%.*]]) {
+; CHECK-DISABLED-NEXT:    [[THREAD_LOCAL:%.*]] = alloca i8, align 1
+; CHECK-DISABLED-NEXT:    [[T:%.*]] = trunc i16 [[TMP0]] to i8
+; CHECK-DISABLED-NEXT:    call void @store_to_arg(i8* [[THREAD_LOCAL]], i8 [[T]]) #[[ATTR12]]
+; CHECK-DISABLED-NEXT:    [[V:%.*]] = load i8, i8* [[THREAD_LOCAL]], align 1
+; CHECK-DISABLED-NEXT:    call void @no_openmp2(i8 [[V]]) #[[ATTR10]]
 ; CHECK-DISABLED-NEXT:    ret void
 ;
+  %thread_local = alloca i8
+  %t = trunc i16 %0 to i8
+  call void @store_to_arg(i8* %thread_local, i8 %t)
+  %v = load i8, i8* %thread_local
+  call void @no_openmp2(i8 %v)
   ret void
 }
 
 define internal void @store_to_arg(i8* %p, i8 %v) {
 ; CHECK-LABEL: define {{[^@]+}}@store_to_arg
-; CHECK-SAME: (i8* nocapture nofree noundef nonnull writeonly dereferenceable(1) [[P:%.*]], i8 noundef [[V:%.*]]) #[[ATTR1:[0-9]+]] {
+; CHECK-SAME: (i8* nocapture nofree noundef nonnull writeonly dereferenceable(1) [[P:%.*]], i8 [[V:%.*]]) #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:    store i8 [[V]], i8* [[P]], align 1
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@store_to_arg
-; CHECK-DISABLED-SAME: (i8* nocapture nofree noundef nonnull writeonly dereferenceable(1) [[P:%.*]], i8 noundef [[V:%.*]]) #[[ATTR1:[0-9]+]] {
+; CHECK-DISABLED-SAME: (i8* nocapture nofree noundef nonnull writeonly dereferenceable(1) [[P:%.*]], i8 [[V:%.*]]) #[[ATTR1:[0-9]+]] {
 ; CHECK-DISABLED-NEXT:    store i8 [[V]], i8* [[P]], align 1
 ; CHECK-DISABLED-NEXT:    ret void
 ;
@@ -441,6 +478,7 @@ attributes #5 = { convergent nounwind "llvm.assume"="omp_no_openmp,ompx_spmd_ame
 ; CHECK: attributes #[[ATTR9]] = { nounwind writeonly }
 ; CHECK: attributes #[[ATTR10]] = { "llvm.assume"="ompx_spmd_amenable,omp_no_openmp" }
 ; CHECK: attributes #[[ATTR11]] = { convergent nounwind "llvm.assume"="omp_no_openmp,ompx_spmd_amenable" }
+; CHECK: attributes #[[ATTR12]] = { nosync nounwind writeonly }
 ;.
 ; CHECK-DISABLED: attributes #[[ATTR0]] = { convergent norecurse nounwind "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
 ; CHECK-DISABLED: attributes #[[ATTR1]] = { argmemonly nofree norecurse nosync nounwind willreturn writeonly }
@@ -454,6 +492,7 @@ attributes #5 = { convergent nounwind "llvm.assume"="omp_no_openmp,ompx_spmd_ame
 ; CHECK-DISABLED: attributes #[[ATTR9]] = { nounwind writeonly }
 ; CHECK-DISABLED: attributes #[[ATTR10]] = { "llvm.assume"="ompx_spmd_amenable,omp_no_openmp" }
 ; CHECK-DISABLED: attributes #[[ATTR11]] = { convergent nounwind "llvm.assume"="omp_no_openmp,ompx_spmd_amenable" }
+; CHECK-DISABLED: attributes #[[ATTR12]] = { nosync nounwind writeonly }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{i32 0, i32 42, i32 16513658, !"sequential_loop", i32 6, i32 0}
 ; CHECK: [[META1:![0-9]+]] = !{void (i32*, i64)* @__omp_offloading_2a_fbfa7a_sequential_loop_l6, !"kernel", i32 1}

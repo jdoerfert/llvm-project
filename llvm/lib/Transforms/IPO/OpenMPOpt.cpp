@@ -3994,28 +3994,35 @@ struct AAKernelInfoFunction : AAKernelInfo {
       updateReachingKernelEntries(A, AllReachingKernelsKnown);
       UsedAssumedInformationFromReachingKernels = !AllReachingKernelsKnown;
 
-      if (!ParallelLevels.isValidState())
-        SPMDCompatibilityTracker.indicatePessimisticFixpoint();
-      else if (!ReachingKernelEntries.isValidState())
-        SPMDCompatibilityTracker.indicatePessimisticFixpoint();
-      else if (!SPMDCompatibilityTracker.empty()) {
-        // Check if all reaching kernels agree on the mode as we can otherwise
-        // not guard instructions. We might not be sure about the mode so we
-        // we cannot fix the internal spmd-zation state either.
-        int SPMD = 0, Generic = 0;
-        for (auto *Kernel : ReachingKernelEntries) {
-          auto &CBAA = A.getAAFor<AAKernelInfo>(
-              *this, IRPosition::function(*Kernel), DepClassTy::OPTIONAL);
-          if (CBAA.SPMDCompatibilityTracker.isValidState() &&
-              CBAA.SPMDCompatibilityTracker.isAssumed())
-            ++SPMD;
-          else
-            ++Generic;
-          if (!CBAA.SPMDCompatibilityTracker.isAtFixpoint())
-            UsedAssumedInformationFromReachingKernels = true;
-        }
-        if (SPMD != 0 && Generic != 0)
+      // If we have instructions that require guarding we need to ensure our
+      // scheme can handle them. This requires the reaching kernels to be in the
+      // same mode and the parallel level to be known (and 0). However, if we
+      // don't have guarded instructions this is not necessary since we do not
+      // modify the function at all (for the purpose of spmd-zation).
+      if (!SPMDCompatibilityTracker.empty()) {
+        if (!ParallelLevels.isValidState())
           SPMDCompatibilityTracker.indicatePessimisticFixpoint();
+        else if (!ReachingKernelEntries.isValidState())
+          SPMDCompatibilityTracker.indicatePessimisticFixpoint();
+        else if (!SPMDCompatibilityTracker.empty()) {
+          // Check if all reaching kernels agree on the mode as we can otherwise
+          // not guard instructions. We might not be sure about the mode so we
+          // we cannot fix the internal spmd-zation state either.
+          int SPMD = 0, Generic = 0;
+          for (auto *Kernel : ReachingKernelEntries) {
+            auto &CBAA = A.getAAFor<AAKernelInfo>(
+                *this, IRPosition::function(*Kernel), DepClassTy::OPTIONAL);
+            if (CBAA.SPMDCompatibilityTracker.isValidState() &&
+                CBAA.SPMDCompatibilityTracker.isAssumed())
+              ++SPMD;
+            else
+              ++Generic;
+            if (!CBAA.SPMDCompatibilityTracker.isAtFixpoint())
+              UsedAssumedInformationFromReachingKernels = true;
+          }
+          if (SPMD != 0 && Generic != 0)
+            SPMDCompatibilityTracker.indicatePessimisticFixpoint();
+        }
       }
     }
 
