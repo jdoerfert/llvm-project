@@ -3064,12 +3064,9 @@ bool InstCombinerImpl::transformConstExprCastCall(CallBase &Call) {
     if (!CastInst::isBitOrNoopPointerCastable(ActTy, ParamTy, DL))
       return false;   // Cannot transform this parameter value.
 
-    if (AttrBuilder(FT->getContext(), CallerPAL.getParamAttrs(i))
-            .overlaps(AttributeFuncs::typeIncompatible(ParamTy)))
-      return false;   // Attribute not compatible with transformed value.
-
-    if (Call.isInAllocaArgument(i))
-      return false;   // Cannot transform to and from inalloca.
+    if (Call.isInAllocaArgument(i) ||
+        CallerPAL.hasParamAttr(i, Attribute::Preallocated))
+      return false; // Cannot transform to and from inalloca/preallocated.
 
     if (CallerPAL.hasParamAttr(i, Attribute::SwiftError))
       return false;
@@ -3142,13 +3139,19 @@ bool InstCombinerImpl::transformConstExprCastCall(CallBase &Call) {
       NewArg = Builder.CreateBitOrPointerCast(*AI, ParamTy);
     Args.push_back(NewArg);
 
-    // Add any parameter attributes.
+    // Add any parameter attributes except the ones incompatible with the new
+    // type.
     if (CallerPAL.hasParamAttr(i, Attribute::ByVal)) {
-      AttrBuilder AB(FT->getContext(), CallerPAL.getParamAttrs(i));
+      AttrBuilder AB(
+          FT->getContext(),
+          CallerPAL.getParamAttrs(i).removeAttributes(
+              FT->getContext(), AttributeFuncs::typeIncompatible(ParamTy)));
       AB.addByValAttr(NewArg->getType()->getPointerElementType());
       ArgAttrs.push_back(AttributeSet::get(Ctx, AB));
-    } else
-      ArgAttrs.push_back(CallerPAL.getParamAttrs(i));
+    } else {
+      ArgAttrs.push_back(CallerPAL.getParamAttrs(i).removeAttributes(
+          FT->getContext(), AttributeFuncs::typeIncompatible(ParamTy)));
+    }
   }
 
   // If the function takes more arguments than the call was taking, add them
