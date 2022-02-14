@@ -3946,6 +3946,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
   ChangeStatus updateImpl(Attributor &A) override {
     KernelInfoState StateBefore = getState();
 
+    bool UsedAssumedInformationInCheckRWInst = false;
     // Callback to check a read/write instruction.
     auto CheckRWInst = [&](Instruction &I) {
       // We handle calls later.
@@ -3955,19 +3956,20 @@ struct AAKernelInfoFunction : AAKernelInfo {
       if (!I.mayWriteToMemory())
         return true;
       if (auto *SI = dyn_cast<StoreInst>(&I)) {
-        SmallVector<const Value *> Objects;
-        getUnderlyingObjects(SI->getPointerOperand(), Objects);
-        if (llvm::all_of(Objects,
-                         [](const Value *Obj) { return isa<AllocaInst>(Obj); }))
-          return true;
+        SmallVector<Value *> Objects;
+        bool Success = AA::getAssumedUnderlyingObjects(
+            A, *SI->getPointerOperand(), Objects, *this, &I,
+            UsedAssumedInformationInCheckRWInst);
         // Check for AAHeapToStack moved objects which must not be guarded.
-        auto &HS = A.getAAFor<AAHeapToStack>(
-            *this, IRPosition::function(*I.getFunction()),
-            DepClassTy::OPTIONAL);
-        if (llvm::all_of(Objects, [&HS](const Value *Obj) {
+        if (Success && llvm::all_of(Objects, [&](const Value *Obj) {
+              if (isa<AllocaInst>(Obj))
+                return true;
               auto *CB = dyn_cast<CallBase>(Obj);
               if (!CB)
                 return false;
+              auto &HS = A.getAAFor<AAHeapToStack>(
+                  *this, IRPosition::function(*CB->getFunction()),
+                  DepClassTy::OPTIONAL);
               return HS.isAssumedHeapToStack(*CB);
             })) {
           return true;
@@ -3979,7 +3981,6 @@ struct AAKernelInfoFunction : AAKernelInfo {
       return true;
     };
 
-    bool UsedAssumedInformationInCheckRWInst = false;
     if (!SPMDCompatibilityTracker.isAtFixpoint())
       if (!A.checkForAllReadWriteInstructions(
               CheckRWInst, *this, UsedAssumedInformationInCheckRWInst))
