@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cuda.h>
@@ -22,6 +23,7 @@
 
 #include "Debug.h"
 #include "DeviceEnvironment.h"
+#include "omptarget.h"
 #include "omptargetplugin.h"
 
 #define TARGET_NAME CUDA
@@ -339,6 +341,10 @@ class DeviceRTLTy {
   std::vector<DeviceDataTy> DeviceData;
   std::vector<CUmodule> Modules;
 
+  /// Vector of flags indicating the initalization status of all associated
+  /// devices.
+  std::vector<bool> InitializedFlags;
+
   /// A class responsible for interacting with device native runtime library to
   /// allocate and free memory.
   class CUDADeviceAllocatorTy : public DeviceAllocatorTy {
@@ -467,7 +473,6 @@ class DeviceRTLTy {
   }
 
 public:
-
   CUstream getStream(const int DeviceId, __tgt_async_info *AsyncInfo) const {
     assert(AsyncInfo && "AsyncInfo is nullptr");
 
@@ -555,36 +560,15 @@ public:
       for (int I = 0; I < NumberOfDevices; ++I)
         MemoryManagers.emplace_back(std::make_unique<MemoryManagerTy>(
             DeviceAllocators[I], MemoryManagerThreshold));
+
+    // We eagerly initialize all devices right now.
+    // TODO: Provide an option to do it lazily once we allow pause/restart.
+    InitializedFlags.assign(NumberOfDevices, true);
   }
 
   ~DeviceRTLTy() {
-    // We first destruct memory managers in case that its dependent data are
-    // destroyed before it.
-    for (auto &M : MemoryManagers)
-      M.release();
-
-    for (CUmodule &M : Modules)
-      // Close module
-      if (M)
-        checkResult(cuModuleUnload(M), "Error returned from cuModuleUnload\n");
-
-    for (auto &S : StreamPool)
-      S.reset();
-
-    EventPool.clear();
-
-    for (DeviceDataTy &D : DeviceData) {
-      // Destroy context
-      if (D.Context) {
-        checkResult(cuCtxSetCurrent(D.Context),
-                    "Error returned from cuCtxSetCurrent\n");
-        CUdevice Device;
-        checkResult(cuCtxGetDevice(&Device),
-                    "Error returned from cuCtxGetDevice\n");
-        checkResult(cuDevicePrimaryCtxRelease(Device),
-                    "Error returned from cuDevicePrimaryCtxRelease\n");
-      }
-    }
+    for (int DeviceId = 0; DeviceId < NumberOfDevices; ++DeviceId)
+      deinitDevice(DeviceId);
   }
 
   // Check whether a given DeviceId is valid
@@ -758,6 +742,41 @@ public:
       DeviceData[DeviceId].NumThreads = DeviceData[DeviceId].ThreadsPerBlock;
     }
 
+    return OFFLOAD_SUCCESS;
+  }
+
+  int deinitDevice(const int DeviceId) {
+    auto IsInitialized = InitializedFlags[DeviceId];
+    if (!IsInitialized)
+      return OFFLOAD_SUCCESS;
+    IsInitialized = false;
+
+    if (UseMemoryManager)
+      MemoryManagers[DeviceId].release();
+
+    // Close module
+    if (CUmodule &M = Modules[DeviceId])
+      checkResult(cuModuleUnload(M), "Error returned from cuModuleUnload\n");
+
+    StreamPool[DeviceId].reset();
+
+    // The event pool is shared, we initialize it once all devices have been
+    // deinitialized.
+    if (std::none_of(InitializedFlags.begin(), InitializedFlags.end(),
+                     [](bool IsInitialized) { return IsInitialized; }))
+      EventPool.clear();
+
+    // Destroy context
+    DeviceDataTy &D = DeviceData[DeviceId];
+    if (D.Context) {
+      checkResult(cuCtxSetCurrent(D.Context),
+                  "Error returned from cuCtxSetCurrent\n");
+      CUdevice Device;
+      checkResult(cuCtxGetDevice(&Device),
+                  "Error returned from cuCtxGetDevice\n");
+      checkResult(cuDevicePrimaryCtxRelease(Device),
+                  "Error returned from cuDevicePrimaryCtxRelease\n");
+    }
     return OFFLOAD_SUCCESS;
   }
 
@@ -1496,6 +1515,12 @@ int32_t __tgt_rtl_init_device(int32_t device_id) {
   return DeviceRTL.initDevice(device_id);
 }
 
+int32_t __tgt_rtl_deinit_device(int32_t device_id) {
+  assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
+
+  return DeviceRTL.deinitDevice(device_id);
+}
+
 __tgt_target_table *__tgt_rtl_load_binary(int32_t device_id,
                                           __tgt_device_image *image) {
   assert(DeviceRTL.isValidDeviceId(device_id) && "device_id is invalid");
@@ -1723,6 +1748,13 @@ int32_t __tgt_rtl_init_device_info(int32_t device_id,
   assert(device_info_ptr && "device_info_ptr is nullptr");
 
   return DeviceRTL.initDeviceInfo(device_id, device_info_ptr, err_str);
+}
+
+int32_t __tgt_rtl_unregister_lib(__tgt_bin_desc *) {
+  int32_t Ret = OFFLOAD_SUCCESS;
+  for (int i = 0, e = DeviceRTL.getNumOfDevices(); i < e; ++i)
+    Ret |= __tgt_rtl_deinit_device(i);
+  return Ret;
 }
 
 #ifdef __cplusplus
