@@ -164,23 +164,27 @@ struct DeviceDataTy {
 /// Resource allocator where \p T is the resource type.
 /// Functions \p create and \p destroy return OFFLOAD_SUCCESS and OFFLOAD_FAIL
 /// accordingly. The implementation should not raise any exception.
-template <typename T> class AllocatorTy {
-public:
+template <typename T> struct AllocatorTy {
+  AllocatorTy(CUcontext C) noexcept : Context(C) {}
+  using ElementTy = T;
+
+  virtual ~AllocatorTy() {}
+
   /// Create a resource and assign to R.
-  int create(T &R) noexcept;
+  virtual int create(T &R) noexcept = 0;
   /// Destroy the resource.
-  int destroy(T) noexcept;
+  virtual int destroy(T) noexcept = 0;
+
+protected:
+  CUcontext Context;
 };
 
 /// Allocator for CUstream.
-template <> class AllocatorTy<CUstream> {
-  CUcontext Context;
-
-public:
-  AllocatorTy(CUcontext C) noexcept : Context(C) {}
+struct StreamAllocatorTy : public AllocatorTy<CUstream> {
+  StreamAllocatorTy(CUcontext C) noexcept : AllocatorTy<CUstream>(C) {}
 
   /// See AllocatorTy<T>::create.
-  int create(CUstream &Stream) noexcept {
+  int create(CUstream &Stream) noexcept override {
     if (!checkResult(cuCtxSetCurrent(Context),
                      "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
@@ -193,7 +197,7 @@ public:
   }
 
   /// See AllocatorTy<T>::destroy.
-  int destroy(CUstream Stream) noexcept {
+  int destroy(CUstream Stream) noexcept override {
     if (!checkResult(cuCtxSetCurrent(Context),
                      "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
@@ -206,10 +210,11 @@ public:
 };
 
 /// Allocator for CUevent.
-template <> class AllocatorTy<CUevent> {
-public:
+struct EventAllocatorTy final : public AllocatorTy<CUevent> {
+  EventAllocatorTy(CUcontext C) noexcept : AllocatorTy<CUevent>(C) {}
+
   /// See AllocatorTy<T>::create.
-  int create(CUevent &Event) noexcept {
+  int create(CUevent &Event) noexcept override {
     if (!checkResult(cuEventCreate(&Event, CU_EVENT_DEFAULT),
                      "Error returned from cuEventCreate\n"))
       return OFFLOAD_FAIL;
@@ -218,7 +223,7 @@ public:
   }
 
   /// See AllocatorTy<T>::destroy.
-  int destroy(CUevent Event) noexcept {
+  int destroy(CUevent Event) noexcept override {
     if (!checkResult(cuEventDestroy(Event),
                      "Error returned from cuEventDestroy\n"))
       return OFFLOAD_FAIL;
@@ -229,15 +234,16 @@ public:
 
 /// A generic pool of resources where \p T is the resource type.
 /// \p T should be copyable as the object is stored in \p std::vector .
-template <typename T> class ResourcePoolTy {
+template <typename AllocTy> class ResourcePoolTy {
+  using ElementTy = typename AllocTy::ElementTy;
   /// Index of the next available resource.
   size_t Next = 0;
   /// Mutex to guard the pool.
   std::mutex Mutex;
   /// Pool of resources.
-  std::vector<T> Resources;
+  std::vector<ElementTy> Resources;
   /// A reference to the corresponding allocator.
-  AllocatorTy<T> Allocator;
+  AllocTy Allocator;
 
   /// If `Resources` is used up, we will fill in more resources. It assumes that
   /// the new size `Size` should be always larger than the current size.
@@ -246,7 +252,7 @@ template <typename T> class ResourcePoolTy {
     assert(Size > CurSize && "Unexpected smaller size");
     Resources.reserve(Size);
     for (auto I = CurSize; I < Size; ++I) {
-      T NewItem;
+      ElementTy NewItem;
       int Ret = Allocator.create(NewItem);
       if (Ret != OFFLOAD_SUCCESS)
         return false;
@@ -256,7 +262,7 @@ template <typename T> class ResourcePoolTy {
   }
 
 public:
-  ResourcePoolTy(AllocatorTy<T> &&A, size_t Size = 0) noexcept
+  ResourcePoolTy(AllocTy &&A, size_t Size = 0) noexcept
       : Allocator(std::move(A)) {
     if (Size)
       (void)resize(Size);
@@ -275,7 +281,7 @@ public:
   /// xxxxxs+++++++++
   ///       ^
   ///       Next
-  int acquire(T &R) noexcept {
+  int acquire(ElementTy &R) noexcept {
     std::lock_guard<std::mutex> LG(Mutex);
     if (Next == Resources.size()) {
       auto NewSize = Resources.size() ? Resources.size() * 2 : 1;
@@ -302,7 +308,7 @@ public:
   /// `Next`. The left one will in the end be overwritten by another resource.
   /// Therefore, after several execution, the order of pool might be different
   /// from its initial state.
-  void release(T R) noexcept {
+  void release(ElementTy R) noexcept {
     std::lock_guard<std::mutex> LG(Mutex);
     Resources[--Next] = R;
   }
@@ -326,17 +332,22 @@ class DeviceRTLTy {
   int64_t RequiresFlags;
   // Amount of dynamic shared memory to use at launch.
   uint64_t DynamicMemorySize;
-  // Number of initial streams for each device.
+
+  /// Number of initial streams for each device.
   int NumInitialStreams = 32;
+
+  /// Number of initial events for each device.
+  int NumInitialEvents = 8;
 
   static constexpr const int32_t HardThreadLimit = 1024;
   static constexpr const int32_t DefaultNumTeams = 128;
   static constexpr const int32_t DefaultNumThreads = 128;
 
-  using StreamPoolTy = ResourcePoolTy<CUstream>;
+  using StreamPoolTy = ResourcePoolTy<StreamAllocatorTy>;
   std::vector<std::unique_ptr<StreamPoolTy>> StreamPool;
 
-  ResourcePoolTy<CUevent> EventPool;
+  using EventPoolTy = ResourcePoolTy<EventAllocatorTy>;
+  std::vector<std::unique_ptr<EventPoolTy>> EventPool;
 
   std::vector<DeviceDataTy> DeviceData;
   std::vector<CUmodule> Modules;
@@ -494,7 +505,7 @@ public:
   DeviceRTLTy()
       : NumberOfDevices(0), EnvNumTeams(-1), EnvTeamLimit(-1),
         EnvTeamThreadLimit(-1), RequiresFlags(OMP_REQ_UNDEFINED),
-        DynamicMemorySize(0), EventPool(AllocatorTy<CUevent>()) {
+        DynamicMemorySize(0) {
 
     DP("Start initializing CUDA\n");
 
@@ -519,6 +530,7 @@ public:
 
     DeviceData.resize(NumberOfDevices);
     StreamPool.resize(NumberOfDevices);
+    EventPool.resize(NumberOfDevices);
 
     // Get environment variables regarding teams
     if (const char *EnvStr = getenv("OMP_TEAM_LIMIT")) {
@@ -620,11 +632,17 @@ public:
     if (!checkResult(Err, "Error returned from cuCtxSetCurrent\n"))
       return OFFLOAD_FAIL;
 
-    // Initialize stream pool
+    // Initialize the stream pool.
     if (!StreamPool[DeviceId])
       StreamPool[DeviceId] = std::make_unique<StreamPoolTy>(
-          AllocatorTy<CUstream>(DeviceData[DeviceId].Context),
+          StreamAllocatorTy(DeviceData[DeviceId].Context),
           NumInitialStreams);
+
+    // Initialize the event pool.
+    if (!EventPool[DeviceId])
+      EventPool[DeviceId] = std::make_unique<EventPoolTy>(
+          EventAllocatorTy(DeviceData[DeviceId].Context),
+          NumInitialEvents);
 
     // Query attributes to determine number of threads/block and blocks/grid.
     int MaxGridDimX;
@@ -759,12 +777,7 @@ public:
       checkResult(cuModuleUnload(M), "Error returned from cuModuleUnload\n");
 
     StreamPool[DeviceId].reset();
-
-    // The event pool is shared, we initialize it once all devices have been
-    // deinitialized.
-    if (std::none_of(InitializedFlags.begin(), InitializedFlags.end(),
-                     [](bool IsInitialized) { return IsInitialized; }))
-      EventPool.clear();
+    EventPool[DeviceId].reset();
 
     // Destroy context
     DeviceDataTy &D = DeviceData[DeviceId];
@@ -1409,16 +1422,16 @@ public:
     printf("    Compute Capabilities: \t\t%d%d \n", TmpInt, TmpInt2);
   }
 
-  int createEvent(void **P) {
+  int createEvent(int DeviceId, void **P) {
     CUevent Event = nullptr;
-    if (EventPool.acquire(Event) != OFFLOAD_SUCCESS)
+    if (EventPool[DeviceId]->acquire(Event) != OFFLOAD_SUCCESS)
       return OFFLOAD_FAIL;
     *P = Event;
     return OFFLOAD_SUCCESS;
   }
 
-  int destroyEvent(void *EventPtr) {
-    EventPool.release(reinterpret_cast<CUevent>(EventPtr));
+  int destroyEvent(int DeviceId, void *EventPtr) {
+    EventPool[DeviceId]->release(reinterpret_cast<CUevent>(EventPtr));
     return OFFLOAD_SUCCESS;
   }
 
@@ -1692,7 +1705,7 @@ void __tgt_rtl_print_device_info(int32_t device_id) {
 
 int32_t __tgt_rtl_create_event(int32_t device_id, void **event) {
   assert(event && "event is nullptr");
-  return DeviceRTL.createEvent(event);
+  return DeviceRTL.createEvent(device_id, event);
 }
 
 int32_t __tgt_rtl_record_event(int32_t device_id, void *event_ptr,
@@ -1722,7 +1735,7 @@ int32_t __tgt_rtl_sync_event(int32_t device_id, void *event_ptr) {
 int32_t __tgt_rtl_destroy_event(int32_t device_id, void *event_ptr) {
   assert(event_ptr && "event is nullptr");
 
-  return DeviceRTL.destroyEvent(event_ptr);
+  return DeviceRTL.destroyEvent(device_id, event_ptr);
 }
 
 int32_t __tgt_rtl_release_async_info(int32_t device_id,
