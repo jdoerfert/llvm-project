@@ -114,11 +114,17 @@ define internal i32 @test2b(%T* %p, i32 %p2) {
 }
 
 define i32 @caller2b(%T* %g) {
-; CHECK: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
-; CHECK-LABEL: define {{[^@]+}}@caller2b
-; CHECK-SAME: (%T* nocapture nofree readonly [[G:%.*]]) #[[ATTR3]] {
-; CHECK-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 undef) #[[ATTR6:[0-9]+]]
-; CHECK-NEXT:    ret i32 0
+; IS__TUNIT____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@caller2b
+; IS__TUNIT____-SAME: (%T* nocapture nofree readonly [[G:%.*]]) #[[ATTR3]] {
+; IS__TUNIT____-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 0) #[[ATTR6:[0-9]+]]
+; IS__TUNIT____-NEXT:    ret i32 0
+;
+; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@caller2b
+; IS__CGSCC____-SAME: (%T* nocapture nofree readonly [[G:%.*]]) #[[ATTR3]] {
+; IS__CGSCC____-NEXT:    [[V:%.*]] = call i32 @test2b(%T* nocapture nofree readonly [[G]], i32 noundef 0) #[[ATTR6:[0-9]+]]
+; IS__CGSCC____-NEXT:    ret i32 0
 ;
   %v = call i32 @test2b(%T* %g, i32 0)
   ret i32 %v

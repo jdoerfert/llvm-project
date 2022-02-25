@@ -47,7 +47,7 @@ entry:
 define dso_local void @caller() {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@caller() {
 ; IS__TUNIT____-NEXT:  entry:
-; IS__TUNIT____-NEXT:    call void @broker(i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) @gtl, i32 (i32*, i32*)* noundef nonnull @callee, i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) undef)
+; IS__TUNIT____-NEXT:    call void @broker(i32* nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) @gtl, i32 (i32*, i32*)* noundef nonnull @callee, i32* nocapture nofree nonnull readonly align 4 dereferenceable(4) @gsh)
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@caller() {

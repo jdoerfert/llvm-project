@@ -53,7 +53,6 @@ define i32 @callercaller() {
 ; IS__TUNIT____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@callercaller
 ; IS__TUNIT____-SAME: () #[[ATTR0:[0-9]+]] {
-; IS__TUNIT____-NEXT:    [[B:%.*]] = alloca i32, align 4
 ; IS__TUNIT____-NEXT:    ret i32 0
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn

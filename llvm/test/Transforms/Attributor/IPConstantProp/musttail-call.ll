@@ -10,69 +10,37 @@ declare i32 @external()
 
 define i8* @start(i8 %v) {
 ;
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@start
-; IS__TUNIT_OPM-SAME: (i8 [[V:%.*]]) {
-; IS__TUNIT_OPM-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
-; IS__TUNIT_OPM-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
-; IS__TUNIT_OPM:       true:
-; IS__TUNIT_OPM-NEXT:    [[CA:%.*]] = musttail call i8* @side_effects(i8 [[V]])
-; IS__TUNIT_OPM-NEXT:    ret i8* [[CA]]
-; IS__TUNIT_OPM:       false:
-; IS__TUNIT_OPM-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
-; IS__TUNIT_OPM-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
-; IS__TUNIT_OPM:       c2_true:
-; IS__TUNIT_OPM-NEXT:    ret i8* null
-; IS__TUNIT_OPM:       c2_false:
-; IS__TUNIT_OPM-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 undef)
-; IS__TUNIT_OPM-NEXT:    ret i8* [[CA2]]
+; IS__TUNIT____-LABEL: define {{[^@]+}}@start
+; IS__TUNIT____-SAME: (i8 [[V:%.*]]) {
+; IS__TUNIT____-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
+; IS__TUNIT____-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
+; IS__TUNIT____:       true:
+; IS__TUNIT____-NEXT:    [[CA:%.*]] = musttail call i8* @side_effects(i8 [[V]])
+; IS__TUNIT____-NEXT:    ret i8* [[CA]]
+; IS__TUNIT____:       false:
+; IS__TUNIT____-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
+; IS__TUNIT____-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
+; IS__TUNIT____:       c2_true:
+; IS__TUNIT____-NEXT:    ret i8* null
+; IS__TUNIT____:       c2_false:
+; IS__TUNIT____-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 [[V]])
+; IS__TUNIT____-NEXT:    ret i8* [[CA2]]
 ;
-; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@start
-; IS__TUNIT_NPM-SAME: (i8 [[V:%.*]]) {
-; IS__TUNIT_NPM-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
-; IS__TUNIT_NPM-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
-; IS__TUNIT_NPM:       true:
-; IS__TUNIT_NPM-NEXT:    [[CA:%.*]] = musttail call i8* @side_effects(i8 undef)
-; IS__TUNIT_NPM-NEXT:    ret i8* [[CA]]
-; IS__TUNIT_NPM:       false:
-; IS__TUNIT_NPM-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
-; IS__TUNIT_NPM-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
-; IS__TUNIT_NPM:       c2_true:
-; IS__TUNIT_NPM-NEXT:    ret i8* null
-; IS__TUNIT_NPM:       c2_false:
-; IS__TUNIT_NPM-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 undef)
-; IS__TUNIT_NPM-NEXT:    ret i8* [[CA2]]
-;
-; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@start
-; IS__CGSCC_OPM-SAME: (i8 [[V:%.*]]) {
-; IS__CGSCC_OPM-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
-; IS__CGSCC_OPM-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
-; IS__CGSCC_OPM:       true:
-; IS__CGSCC_OPM-NEXT:    [[CA:%.*]] = musttail call i8* @side_effects(i8 [[V]])
-; IS__CGSCC_OPM-NEXT:    ret i8* [[CA]]
-; IS__CGSCC_OPM:       false:
-; IS__CGSCC_OPM-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
-; IS__CGSCC_OPM-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
-; IS__CGSCC_OPM:       c2_true:
-; IS__CGSCC_OPM-NEXT:    ret i8* undef
-; IS__CGSCC_OPM:       c2_false:
-; IS__CGSCC_OPM-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 undef)
-; IS__CGSCC_OPM-NEXT:    ret i8* [[CA2]]
-;
-; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@start
-; IS__CGSCC_NPM-SAME: (i8 [[V:%.*]]) {
-; IS__CGSCC_NPM-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
-; IS__CGSCC_NPM-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
-; IS__CGSCC_NPM:       true:
-; IS__CGSCC_NPM-NEXT:    [[CA:%.*]] = musttail call i8* @side_effects(i8 undef)
-; IS__CGSCC_NPM-NEXT:    ret i8* [[CA]]
-; IS__CGSCC_NPM:       false:
-; IS__CGSCC_NPM-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
-; IS__CGSCC_NPM-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
-; IS__CGSCC_NPM:       c2_true:
-; IS__CGSCC_NPM-NEXT:    ret i8* undef
-; IS__CGSCC_NPM:       c2_false:
-; IS__CGSCC_NPM-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 undef)
-; IS__CGSCC_NPM-NEXT:    ret i8* [[CA2]]
+; IS__CGSCC____-LABEL: define {{[^@]+}}@start
+; IS__CGSCC____-SAME: (i8 [[V:%.*]]) {
+; IS__CGSCC____-NEXT:    [[C1:%.*]] = icmp eq i8 [[V]], 0
+; IS__CGSCC____-NEXT:    br i1 [[C1]], label [[TRUE:%.*]], label [[FALSE:%.*]]
+; IS__CGSCC____:       true:
+; IS__CGSCC____-NEXT:    [[CA:%.*]] = musttail call i8* @side_effects(i8 [[V]])
+; IS__CGSCC____-NEXT:    ret i8* [[CA]]
+; IS__CGSCC____:       false:
+; IS__CGSCC____-NEXT:    [[C2:%.*]] = icmp eq i8 [[V]], 1
+; IS__CGSCC____-NEXT:    br i1 [[C2]], label [[C2_TRUE:%.*]], label [[C2_FALSE:%.*]]
+; IS__CGSCC____:       c2_true:
+; IS__CGSCC____-NEXT:    ret i8* undef
+; IS__CGSCC____:       c2_false:
+; IS__CGSCC____-NEXT:    [[CA2:%.*]] = musttail call i8* @dont_zap_me(i8 [[V]])
+; IS__CGSCC____-NEXT:    ret i8* [[CA2]]
 ;
   %c1 = icmp eq i8 %v, 0
   br i1 %c1, label %true, label %false

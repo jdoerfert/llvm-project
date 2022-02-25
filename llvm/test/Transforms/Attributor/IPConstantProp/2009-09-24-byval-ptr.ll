@@ -113,9 +113,7 @@ define internal i32 @vfu2(%struct.MYstr* byval(%struct.MYstr) align 4 %u) nounwi
 ; IS__CGSCC_NPM-NEXT:  entry:
 ; IS__CGSCC_NPM-NEXT:    [[U_PRIV:%.*]] = alloca [[STRUCT_MYSTR:%.*]], align 8
 ; IS__CGSCC_NPM-NEXT:    [[U_PRIV_CAST:%.*]] = bitcast %struct.MYstr* [[U_PRIV]] to i8*
-; IS__CGSCC_NPM-NEXT:    store i8 [[TMP0]], i8* [[U_PRIV_CAST]], align 8
 ; IS__CGSCC_NPM-NEXT:    [[U_PRIV_0_1:%.*]] = getelementptr [[STRUCT_MYSTR]], %struct.MYstr* [[U_PRIV]], i64 0, i32 1
-; IS__CGSCC_NPM-NEXT:    store i32 [[TMP1]], i32* [[U_PRIV_0_1]], align 4
 ; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = getelementptr [[STRUCT_MYSTR]], %struct.MYstr* [[U_PRIV]], i32 0, i32 1
 ; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = load i32, i32* [[TMP2]], align 4
 ; IS__CGSCC_NPM-NEXT:    [[TMP4:%.*]] = getelementptr [[STRUCT_MYSTR]], %struct.MYstr* [[U_PRIV]], i32 0, i32 0
@@ -284,7 +282,7 @@ define i32 @unions_v2() nounwind {
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@unions_v2
 ; IS__CGSCC_NPM-SAME: () #[[ATTR0]] {
 ; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    call void @vfu1(i8 noundef 0, i32 undef) #[[ATTR0]]
+; IS__CGSCC_NPM-NEXT:    call void @vfu1(i8 noundef 0, i32 0) #[[ATTR0]]
 ; IS__CGSCC_NPM-NEXT:    ret i32 99
 ;
 entry:

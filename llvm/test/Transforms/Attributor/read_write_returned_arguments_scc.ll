@@ -66,7 +66,7 @@ entry:
 define internal i32* @internal_ret0_nw(i32* %n0, i32* %w0) {
 ; IS__TUNIT____: Function Attrs: argmemonly nofree nosync nounwind
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@internal_ret0_nw
-; IS__TUNIT____-SAME: (i32* nofree returned [[N0:%.*]], i32* nofree [[W0:%.*]]) #[[ATTR0]] {
+; IS__TUNIT____-SAME: (i32* nofree [[N0:%.*]], i32* nofree [[W0:%.*]]) #[[ATTR0]] {
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    [[R0:%.*]] = alloca i32, align 4
 ; IS__TUNIT____-NEXT:    [[R1:%.*]] = alloca i32, align 4
@@ -87,11 +87,11 @@ define internal i32* @internal_ret0_nw(i32* %n0, i32* %w0) {
 ; IS__TUNIT____-NEXT:    br label [[RETURN]]
 ; IS__TUNIT____:       return:
 ; IS__TUNIT____-NEXT:    [[RETVAL_0:%.*]] = phi i32* [ [[N0]], [[IF_END]] ], [ [[N0]], [[IF_THEN]] ]
-; IS__TUNIT____-NEXT:    ret i32* [[RETVAL_0]]
+; IS__TUNIT____-NEXT:    ret i32* undef
 ;
 ; IS__CGSCC____: Function Attrs: argmemonly nofree nosync nounwind
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@internal_ret0_nw
-; IS__CGSCC____-SAME: (i32* nofree returned [[N0:%.*]], i32* nofree [[W0:%.*]]) #[[ATTR0]] {
+; IS__CGSCC____-SAME: (i32* nofree [[N0:%.*]], i32* nofree [[W0:%.*]]) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    [[R0:%.*]] = alloca i32, align 4
 ; IS__CGSCC____-NEXT:    [[R1:%.*]] = alloca i32, align 4
@@ -112,7 +112,7 @@ define internal i32* @internal_ret0_nw(i32* %n0, i32* %w0) {
 ; IS__CGSCC____-NEXT:    br label [[RETURN]]
 ; IS__CGSCC____:       return:
 ; IS__CGSCC____-NEXT:    [[RETVAL_0:%.*]] = phi i32* [ [[N0]], [[IF_END]] ], [ [[N0]], [[IF_THEN]] ]
-; IS__CGSCC____-NEXT:    ret i32* [[RETVAL_0]]
+; IS__CGSCC____-NEXT:    ret i32* undef
 ;
 entry:
   %r0 = alloca i32, align 4

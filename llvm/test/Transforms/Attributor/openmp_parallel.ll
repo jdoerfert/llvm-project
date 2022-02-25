@@ -30,7 +30,7 @@ define dso_local void @func(float* nocapture %a, float* %b, i32 %N) local_unname
 ; IS__TUNIT_OPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
 ; IS__TUNIT_OPM-NEXT:    store float* [[A]], float** [[A_ADDR]], align 8
 ; IS__TUNIT_OPM-NEXT:    store float* [[B]], float** [[B_ADDR]], align 8
-; IS__TUNIT_OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB2]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float**, float**)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef, float** nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A_ADDR]], float** nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[B_ADDR]])
+; IS__TUNIT_OPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB2]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float**, float**)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[N_ADDR]], float** nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A_ADDR]], float** nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[B_ADDR]])
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM: Function Attrs: nounwind uwtable
@@ -42,7 +42,7 @@ define dso_local void @func(float* nocapture %a, float* %b, i32 %N) local_unname
 ; IS__TUNIT_NPM-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
 ; IS__TUNIT_NPM-NEXT:    store float* [[A]], float** [[A_ADDR]], align 8
 ; IS__TUNIT_NPM-NEXT:    store float* [[B]], float** [[B_ADDR]], align 8
-; IS__TUNIT_NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB2]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float**, float**)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef, float** noalias nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A_ADDR]], float** noalias nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[B_ADDR]])
+; IS__TUNIT_NPM-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB2]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float**, float**)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[N_ADDR]], float** noalias nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A_ADDR]], float** noalias nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[B_ADDR]])
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_OPM: Function Attrs: nounwind uwtable

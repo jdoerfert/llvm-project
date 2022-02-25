@@ -968,11 +968,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_outlined__1
 ; AMDGPU-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
-; AMDGPU-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; AMDGPU-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
@@ -1099,10 +1097,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_outlined__4
 ; AMDGPU-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
-; AMDGPU-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; AMDGPU-NEXT:    call void @simple_state_machine_interprocedural_before.internalized() #[[ATTR8]]
 ; AMDGPU-NEXT:    call void @no_parallel_region_in_here.internalized() #[[ATTR8]]
@@ -1246,11 +1242,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_outlined__6
 ; AMDGPU-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
-; AMDGPU-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; AMDGPU-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; AMDGPU-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* noundef @[[GLOB1]], i32 [[TMP0]], i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__7 to i8*), i8* noundef @__omp_outlined__7_wrapper.ID, i8** noundef [[TMP1]], i64 noundef 0)
@@ -1370,11 +1364,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_outlined__9
 ; AMDGPU-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
-; AMDGPU-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; AMDGPU-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; AMDGPU-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* noundef @[[GLOB1]], i32 [[TMP0]], i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__10 to i8*), i8* noundef @__omp_outlined__10_wrapper.ID, i8** noundef [[TMP1]], i64 noundef 0)
@@ -1494,11 +1486,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_outlined__12
 ; AMDGPU-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
-; AMDGPU-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; AMDGPU-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
@@ -1624,8 +1614,6 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@simple_state_machine_interprocedural_nested_recursive_after.internalized
 ; AMDGPU-SAME: (i32 [[A:%.*]]) #[[ATTR1]] {
 ; AMDGPU-NEXT:  entry:
-; AMDGPU-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
-; AMDGPU-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 ; AMDGPU-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
 ; AMDGPU-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; AMDGPU:       if.then:
@@ -1943,11 +1931,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_outlined__1
 ; NVPTX-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
-; NVPTX-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; NVPTX-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; NVPTX-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
@@ -2073,10 +2059,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_outlined__4
 ; NVPTX-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
-; NVPTX-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; NVPTX-NEXT:    call void @simple_state_machine_interprocedural_before.internalized() #[[ATTR8]]
 ; NVPTX-NEXT:    call void @no_parallel_region_in_here.internalized() #[[ATTR8]]
@@ -2219,11 +2203,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_outlined__6
 ; NVPTX-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
-; NVPTX-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; NVPTX-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; NVPTX-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* noundef @[[GLOB1]], i32 [[TMP0]], i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__7 to i8*), i8* noundef @__omp_outlined__7_wrapper.ID, i8** noundef [[TMP1]], i64 noundef 0)
@@ -2342,11 +2324,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_outlined__9
 ; NVPTX-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
-; NVPTX-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; NVPTX-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; NVPTX-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* noundef @[[GLOB1]], i32 [[TMP0]], i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__10 to i8*), i8* noundef @__omp_outlined__10_wrapper.ID, i8** noundef [[TMP1]], i64 noundef 0)
@@ -2465,11 +2445,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_outlined__12
 ; NVPTX-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
-; NVPTX-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; NVPTX-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; NVPTX-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
@@ -2594,8 +2572,6 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@simple_state_machine_interprocedural_nested_recursive_after.internalized
 ; NVPTX-SAME: (i32 [[A:%.*]]) #[[ATTR1]] {
 ; NVPTX-NEXT:  entry:
-; NVPTX-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
-; NVPTX-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 ; NVPTX-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
 ; NVPTX-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; NVPTX:       if.then:
@@ -2872,11 +2848,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__1
 ; AMDGPU-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-DISABLED-NEXT:  entry:
-; AMDGPU-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-DISABLED-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; AMDGPU-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; AMDGPU-DISABLED-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
@@ -2956,10 +2930,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__4
 ; AMDGPU-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-DISABLED-NEXT:  entry:
-; AMDGPU-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-DISABLED-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; AMDGPU-DISABLED-NEXT:    call void @simple_state_machine_interprocedural_before.internalized() #[[ATTR8]]
 ; AMDGPU-DISABLED-NEXT:    call void @no_parallel_region_in_here.internalized() #[[ATTR8]]
@@ -3060,11 +3032,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__6
 ; AMDGPU-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-DISABLED-NEXT:  entry:
-; AMDGPU-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; AMDGPU-DISABLED-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; AMDGPU-DISABLED-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* noundef @[[GLOB1]], i32 [[TMP0]], i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__7 to i8*), i8* noundef bitcast (void (i16, i32)* @__omp_outlined__7_wrapper to i8*), i8** noundef [[TMP1]], i64 noundef 0)
@@ -3143,11 +3113,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__9
 ; AMDGPU-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-DISABLED-NEXT:  entry:
-; AMDGPU-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; AMDGPU-DISABLED-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; AMDGPU-DISABLED-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* noundef @[[GLOB1]], i32 [[TMP0]], i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__10 to i8*), i8* noundef bitcast (void (i16, i32)* @__omp_outlined__10_wrapper to i8*), i8** noundef [[TMP1]], i64 noundef 0)
@@ -3226,11 +3194,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__12
 ; AMDGPU-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; AMDGPU-DISABLED-NEXT:  entry:
-; AMDGPU-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; AMDGPU-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; AMDGPU-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; AMDGPU-DISABLED-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; AMDGPU-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; AMDGPU-DISABLED-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
@@ -3319,8 +3285,6 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED-LABEL: define {{[^@]+}}@simple_state_machine_interprocedural_nested_recursive_after.internalized
 ; AMDGPU-DISABLED-SAME: (i32 [[A:%.*]]) #[[ATTR1]] {
 ; AMDGPU-DISABLED-NEXT:  entry:
-; AMDGPU-DISABLED-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
-; AMDGPU-DISABLED-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 ; AMDGPU-DISABLED-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
 ; AMDGPU-DISABLED-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; AMDGPU-DISABLED:       if.then:
@@ -3567,11 +3531,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__1
 ; NVPTX-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-DISABLED-NEXT:  entry:
-; NVPTX-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-DISABLED-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; NVPTX-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; NVPTX-DISABLED-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
@@ -3651,10 +3613,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__4
 ; NVPTX-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-DISABLED-NEXT:  entry:
-; NVPTX-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-DISABLED-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; NVPTX-DISABLED-NEXT:    call void @simple_state_machine_interprocedural_before.internalized() #[[ATTR8]]
 ; NVPTX-DISABLED-NEXT:    call void @no_parallel_region_in_here.internalized() #[[ATTR8]]
@@ -3755,11 +3715,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__6
 ; NVPTX-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-DISABLED-NEXT:  entry:
-; NVPTX-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; NVPTX-DISABLED-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; NVPTX-DISABLED-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* noundef @[[GLOB1]], i32 [[TMP0]], i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__7 to i8*), i8* noundef bitcast (void (i16, i32)* @__omp_outlined__7_wrapper to i8*), i8** noundef [[TMP1]], i64 noundef 0)
@@ -3838,11 +3796,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__9
 ; NVPTX-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-DISABLED-NEXT:  entry:
-; NVPTX-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; NVPTX-DISABLED-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
 ; NVPTX-DISABLED-NEXT:    call void @__kmpc_parallel_51(%struct.ident_t* noundef @[[GLOB1]], i32 [[TMP0]], i32 noundef 1, i32 noundef -1, i32 noundef -1, i8* noundef bitcast (void (i32*, i32*)* @__omp_outlined__10 to i8*), i8* noundef bitcast (void (i16, i32)* @__omp_outlined__10_wrapper to i8*), i8** noundef [[TMP1]], i64 noundef 0)
@@ -3921,11 +3877,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED-LABEL: define {{[^@]+}}@__omp_outlined__12
 ; NVPTX-DISABLED-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[DOTBOUND_TID_:%.*]]) #[[ATTR0]] {
 ; NVPTX-DISABLED-NEXT:  entry:
-; NVPTX-DISABLED-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca i32*, align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
 ; NVPTX-DISABLED-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x i8*], align 8
-; NVPTX-DISABLED-NEXT:    store i32* [[DOTGLOBAL_TID_]], i32** [[DOTGLOBAL_TID__ADDR]], align 8
 ; NVPTX-DISABLED-NEXT:    call void @unknown_no_openmp() #[[ATTR9]]
 ; NVPTX-DISABLED-NEXT:    [[TMP0:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; NVPTX-DISABLED-NEXT:    [[TMP1:%.*]] = bitcast [0 x i8*]* [[CAPTURED_VARS_ADDRS]] to i8**
@@ -4014,8 +3968,6 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED-LABEL: define {{[^@]+}}@simple_state_machine_interprocedural_nested_recursive_after.internalized
 ; NVPTX-DISABLED-SAME: (i32 [[A:%.*]]) #[[ATTR1]] {
 ; NVPTX-DISABLED-NEXT:  entry:
-; NVPTX-DISABLED-NEXT:    [[A_ADDR:%.*]] = alloca i32, align 4
-; NVPTX-DISABLED-NEXT:    store i32 [[A]], i32* [[A_ADDR]], align 4
 ; NVPTX-DISABLED-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
 ; NVPTX-DISABLED-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; NVPTX-DISABLED:       if.then:

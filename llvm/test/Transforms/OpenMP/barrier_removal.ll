@@ -159,9 +159,7 @@ define void @neg_loads() {
 define void @pos_priv_mem() {
 ; CHECK-LABEL: define {{[^@]+}}@pos_priv_mem() {
 ; CHECK-NEXT:    [[ARG:%.*]] = load i32 addrspace(5)*, i32 addrspace(5)** @GPtr5, align 8
-; CHECK-NEXT:    [[LOC:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    [[A:%.*]] = load i32, i32* @PG1, align 4
-; CHECK-NEXT:    store i32 [[A]], i32* [[LOC]], align 4
 ; CHECK-NEXT:    [[B:%.*]] = load i32, i32* addrspacecast (i32 addrspace(5)* @PG2 to i32*), align 4
 ; CHECK-NEXT:    call void @aligned_barrier()
 ; CHECK-NEXT:    [[ARGC:%.*]] = addrspacecast i32 addrspace(5)* [[ARG]] to i32*

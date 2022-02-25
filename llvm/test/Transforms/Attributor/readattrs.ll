@@ -333,7 +333,7 @@ define void @ptr_uses(i8* %ptr) {
 
 define void @ptr_use_chain(i8* %ptr) {
 ; CHECK-LABEL: define {{[^@]+}}@ptr_use_chain
-; CHECK-SAME: (i8* [[PTR:%.*]]) {
+; CHECK-SAME: (i8* nocapture nofree readnone [[PTR:%.*]]) {
 ; CHECK-NEXT:    call void @escape_i8(i8* [[PTR]])
 ; CHECK-NEXT:    ret void
 ;

@@ -187,7 +187,7 @@ define i1 @c7(i32* %q, i32 %bitno) {
 define i32 @nc1(i32* %q, i32* %p, i1 %b) {
 ; IS__TUNIT____: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@nc1
-; IS__TUNIT____-SAME: (i32* nofree [[Q:%.*]], i32* nocapture nofree [[P:%.*]], i1 [[B:%.*]]) #[[ATTR5:[0-9]+]] {
+; IS__TUNIT____-SAME: (i32* nofree [[Q:%.*]], i32* nocapture nofree readnone [[P:%.*]], i1 [[B:%.*]]) #[[ATTR5:[0-9]+]] {
 ; IS__TUNIT____-NEXT:  e:
 ; IS__TUNIT____-NEXT:    br label [[L:%.*]]
 ; IS__TUNIT____:       l:
@@ -200,7 +200,7 @@ define i32 @nc1(i32* %q, i32* %p, i1 %b) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@nc1
-; IS__CGSCC____-SAME: (i32* nofree [[Q:%.*]], i32* nocapture nofree align 4 [[P:%.*]], i1 [[B:%.*]]) #[[ATTR5:[0-9]+]] {
+; IS__CGSCC____-SAME: (i32* nofree [[Q:%.*]], i32* nocapture nofree readnone align 4 [[P:%.*]], i1 [[B:%.*]]) #[[ATTR5:[0-9]+]] {
 ; IS__CGSCC____-NEXT:  e:
 ; IS__CGSCC____-NEXT:    br label [[L:%.*]]
 ; IS__CGSCC____:       l:
@@ -256,14 +256,14 @@ l:
 define void @nc2(i32* %p, i32* %q) {
 ; IS__TUNIT____: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@nc2
-; IS__TUNIT____-SAME: (i32* nocapture nofree [[P:%.*]], i32* nofree [[Q:%.*]]) #[[ATTR5]] {
-; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = call i32 @nc1(i32* nofree [[Q]], i32* nocapture nofree [[P]], i1 noundef false) #[[ATTR10:[0-9]+]]
+; IS__TUNIT____-SAME: (i32* nocapture nofree readnone [[P:%.*]], i32* nofree [[Q:%.*]]) #[[ATTR5]] {
+; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = call i32 @nc1(i32* nofree [[Q]], i32* noalias nocapture nofree readnone [[P]], i1 noundef false) #[[ATTR10:[0-9]+]]
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@nc2
-; IS__CGSCC____-SAME: (i32* nocapture nofree align 4 [[P:%.*]], i32* nofree [[Q:%.*]]) #[[ATTR5]] {
-; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i32 @nc1(i32* nofree [[Q]], i32* nocapture nofree align 4 [[P]], i1 noundef false) #[[ATTR15:[0-9]+]]
+; IS__CGSCC____-SAME: (i32* nocapture nofree readnone align 4 [[P:%.*]], i32* nofree [[Q:%.*]]) #[[ATTR5]] {
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i32 @nc1(i32* nofree [[Q]], i32* noalias nocapture nofree readnone align 4 [[P]], i1 noundef false) #[[ATTR15:[0-9]+]]
 ; IS__CGSCC____-NEXT:    ret void
 ;
   %1 = call i32 @nc1(i32* %q, i32* %p, i1 0)		; <i32> [#uses=0]
@@ -317,7 +317,7 @@ define void @test1_1(i8* %x1_1, i8* %y1_1, i1 %c) {
 ; CHECK: Function Attrs: nofree nosync nounwind writeonly
 ; CHECK-LABEL: define {{[^@]+}}@test1_1
 ; CHECK-SAME: (i8* nocapture nofree readnone [[X1_1:%.*]], i8* nocapture nofree readnone [[Y1_1:%.*]], i1 [[C:%.*]]) #[[ATTR7:[0-9]+]] {
-; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @test1_2(i8* noalias nocapture nofree readnone undef, i8* noalias nofree readnone "no-capture-maybe-returned" [[Y1_1]], i1 [[C]]) #[[ATTR7]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @test1_2(i8* noalias nocapture nofree readnone [[X1_1]], i8* noalias nofree readnone "no-capture-maybe-returned" [[Y1_1]], i1 [[C]]) #[[ATTR7]]
 ; CHECK-NEXT:    store i32* null, i32** @g, align 8
 ; CHECK-NEXT:    ret void
 ;
@@ -332,7 +332,7 @@ define i8* @test1_2(i8* %x1_2, i8* %y1_2, i1 %c) {
 ; IS________OPM-SAME: (i8* nocapture nofree readnone [[X1_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y1_2:%.*]], i1 [[C:%.*]]) #[[ATTR7]] {
 ; IS________OPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS________OPM:       t:
-; IS________OPM-NEXT:    call void @test1_1(i8* noalias nocapture nofree readnone undef, i8* noalias nocapture nofree readnone [[Y1_2]], i1 [[C]]) #[[ATTR7]]
+; IS________OPM-NEXT:    call void @test1_1(i8* noalias nocapture nofree readnone [[X1_2]], i8* noalias nocapture nofree readnone [[Y1_2]], i1 [[C]]) #[[ATTR7]]
 ; IS________OPM-NEXT:    store i32* null, i32** @g, align 8
 ; IS________OPM-NEXT:    br label [[F]]
 ; IS________OPM:       f:
@@ -343,7 +343,7 @@ define i8* @test1_2(i8* %x1_2, i8* %y1_2, i1 %c) {
 ; IS________NPM-SAME: (i8* nocapture nofree readnone [[X1_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y1_2:%.*]], i1 [[C:%.*]]) #[[ATTR7]] {
 ; IS________NPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS________NPM:       t:
-; IS________NPM-NEXT:    call void @test1_1(i8* noalias nocapture nofree readnone undef, i8* noalias nocapture nofree readnone [[Y1_2]], i1 noundef [[C]]) #[[ATTR7]]
+; IS________NPM-NEXT:    call void @test1_1(i8* noalias nocapture nofree readnone [[X1_2]], i8* noalias nocapture nofree readnone [[Y1_2]], i1 noundef [[C]]) #[[ATTR7]]
 ; IS________NPM-NEXT:    store i32* null, i32** @g, align 8
 ; IS________NPM-NEXT:    br label [[F]]
 ; IS________NPM:       f:
@@ -362,7 +362,7 @@ define void @test2(i8* %x2) {
 ; CHECK: Function Attrs: nofree nosync nounwind writeonly
 ; CHECK-LABEL: define {{[^@]+}}@test2
 ; CHECK-SAME: (i8* nocapture nofree readnone [[X2:%.*]]) #[[ATTR7]] {
-; CHECK-NEXT:    call void @test2(i8* noalias nocapture nofree readnone undef) #[[ATTR7]]
+; CHECK-NEXT:    call void @test2(i8* noalias nocapture nofree readnone [[X2]]) #[[ATTR7]]
 ; CHECK-NEXT:    store i32* null, i32** @g, align 8
 ; CHECK-NEXT:    ret void
 ;
@@ -375,7 +375,7 @@ define void @test3(i8* %x3, i8* %y3, i8* %z3) {
 ; CHECK: Function Attrs: nofree nosync nounwind writeonly
 ; CHECK-LABEL: define {{[^@]+}}@test3
 ; CHECK-SAME: (i8* nocapture nofree readnone [[X3:%.*]], i8* nocapture nofree readnone [[Y3:%.*]], i8* nocapture nofree readnone [[Z3:%.*]]) #[[ATTR7]] {
-; CHECK-NEXT:    call void @test3(i8* noalias nocapture nofree readnone undef, i8* noalias nocapture nofree readnone undef, i8* noalias nocapture nofree readnone undef) #[[ATTR7]]
+; CHECK-NEXT:    call void @test3(i8* noalias nocapture nofree readnone [[Z3]], i8* noalias nocapture nofree readnone [[Y3]], i8* noalias nocapture nofree readnone [[X3]]) #[[ATTR7]]
 ; CHECK-NEXT:    store i32* null, i32** @g, align 8
 ; CHECK-NEXT:    ret void
 ;
@@ -388,7 +388,7 @@ define void @test4_1(i8* %x4_1, i1 %c) {
 ; CHECK: Function Attrs: nofree nosync nounwind writeonly
 ; CHECK-LABEL: define {{[^@]+}}@test4_1
 ; CHECK-SAME: (i8* nocapture nofree readnone [[X4_1:%.*]], i1 [[C:%.*]]) #[[ATTR7]] {
-; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @test4_2(i8* noalias nocapture nofree readnone undef, i8* noalias nofree readnone "no-capture-maybe-returned" [[X4_1]], i8* noalias nocapture nofree readnone undef, i1 [[C]]) #[[ATTR7]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @test4_2(i8* noalias nocapture nofree readnone [[X4_1]], i8* noalias nofree readnone "no-capture-maybe-returned" [[X4_1]], i8* noalias nocapture nofree readnone [[X4_1]], i1 [[C]]) #[[ATTR7]]
 ; CHECK-NEXT:    store i32* null, i32** @g, align 8
 ; CHECK-NEXT:    ret void
 ;

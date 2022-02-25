@@ -51,7 +51,7 @@ define internal void @argument_dead_callback_callee(i8* %c) {
 
 define void @callback_caller() {
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@callback_caller() {
-; IS__TUNIT____-NEXT:    call void @callback_broker(void (i8*)* noundef @argument_dead_callback_callee, i8* noalias nocapture nofree readnone align 4294967296 undef)
+; IS__TUNIT____-NEXT:    call void @callback_broker(void (i8*)* noundef @argument_dead_callback_callee, i8* noalias nocapture nofree readnone align 4294967296 null)
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@callback_caller() {
@@ -68,7 +68,7 @@ define void @callback_caller() {
 ; signature rewriting is not happening.
 define internal void @callee_with_dead_noundef_arg(i1 noundef %create, ...) {
 ; CHECK-LABEL: define {{[^@]+}}@callee_with_dead_noundef_arg
-; CHECK-SAME: (i1 [[CREATE:%.*]], ...) {
+; CHECK-SAME: (i1 noundef [[CREATE:%.*]], ...) {
 ; CHECK-NEXT:    call void @unknown()
 ; CHECK-NEXT:    ret void
 ;
@@ -79,7 +79,7 @@ define internal void @callee_with_dead_noundef_arg(i1 noundef %create, ...) {
 define void @caller_with_unused_arg(i1 %c) {
 ; CHECK-LABEL: define {{[^@]+}}@caller_with_unused_arg
 ; CHECK-SAME: (i1 [[C:%.*]]) {
-; CHECK-NEXT:    call void (i1, ...) @callee_with_dead_noundef_arg(i1 undef)
+; CHECK-NEXT:    call void (i1, ...) @callee_with_dead_noundef_arg(i1 [[C]])
 ; CHECK-NEXT:    ret void
 ;
   call void (i1, ...) @callee_with_dead_noundef_arg(i1 %c)
@@ -116,7 +116,7 @@ if.then3:                                         ; preds = %entry
 define void @caller_with_noundef_arg() {
 ;
 ; CHECK-LABEL: define {{[^@]+}}@caller_with_noundef_arg() {
-; CHECK-NEXT:    call void (i1, ...) @callee_with_dead_arg(i1 undef)
+; CHECK-NEXT:    call void (i1, ...) @callee_with_dead_arg(i1 noundef true)
 ; CHECK-NEXT:    ret void
 ;
   call void (i1, ...) @callee_with_dead_arg(i1 noundef true)

@@ -88,6 +88,7 @@ private:
     /// movement has been issued. This mutex *must* be locked right before
     /// releasing the mapping table lock.
     std::mutex UpdateMtx;
+
     /// Pointer to the event corresponding to the data update of this map.
     /// Note: At present this event is created when the first data transfer from
     /// host to device is issued, and only being used for H2D. It is not used

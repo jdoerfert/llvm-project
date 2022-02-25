@@ -283,7 +283,7 @@ exit:
 define i8* @test7(i8* %a) {
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; CHECK-LABEL: define {{[^@]+}}@test7
-; CHECK-SAME: (i8* nofree readnone returned "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR1]] {
+; CHECK-SAME: (i8* nocapture nofree readnone returned [[A:%.*]]) #[[ATTR1]] {
 ; CHECK-NEXT:    ret i8* [[A]]
 ;
   %b = getelementptr inbounds i8, i8* %a, i64 0

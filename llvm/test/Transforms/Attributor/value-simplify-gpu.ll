@@ -226,17 +226,17 @@ define internal void @level1(i32 %C) {
 ; IS__CGSCC_OPM-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC_OPM-NEXT:  entry:
 ; IS__CGSCC_OPM-NEXT:    [[LOCAL:%.*]] = alloca i32, align 4
-; IS__CGSCC_OPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef) #[[ATTR5]]
+; IS__CGSCC_OPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR5]]
 ; IS__CGSCC_OPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[C]], 0
 ; IS__CGSCC_OPM-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; IS__CGSCC_OPM:       if.then:
-; IS__CGSCC_OPM-NEXT:    call void @level2a(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef) #[[ATTR4]]
+; IS__CGSCC_OPM-NEXT:    call void @level2a(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR4]]
 ; IS__CGSCC_OPM-NEXT:    br label [[IF_END:%.*]]
 ; IS__CGSCC_OPM:       if.else:
-; IS__CGSCC_OPM-NEXT:    call void @level2b(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef) #[[ATTR4]]
+; IS__CGSCC_OPM-NEXT:    call void @level2b(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR4]]
 ; IS__CGSCC_OPM-NEXT:    br label [[IF_END]]
 ; IS__CGSCC_OPM:       if.end:
-; IS__CGSCC_OPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef) #[[ATTR7:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR7:[0-9]+]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM: Function Attrs: norecurse nosync nounwind
@@ -244,17 +244,17 @@ define internal void @level1(i32 %C) {
 ; IS__CGSCC_NPM-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC_NPM-NEXT:  entry:
 ; IS__CGSCC_NPM-NEXT:    [[LOCAL:%.*]] = alloca i32, align 4
-; IS__CGSCC_NPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef) #[[ATTR5]]
+; IS__CGSCC_NPM-NEXT:    call void @level2all_early(i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR5]]
 ; IS__CGSCC_NPM-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[C]], 0
 ; IS__CGSCC_NPM-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; IS__CGSCC_NPM:       if.then:
-; IS__CGSCC_NPM-NEXT:    call void @level2a(i32 undef) #[[ATTR4]]
+; IS__CGSCC_NPM-NEXT:    call void @level2a(i32 17) #[[ATTR4]]
 ; IS__CGSCC_NPM-NEXT:    br label [[IF_END:%.*]]
 ; IS__CGSCC_NPM:       if.else:
-; IS__CGSCC_NPM-NEXT:    call void @level2b(i32 undef) #[[ATTR7:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    call void @level2b(i32 17) #[[ATTR7:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    br label [[IF_END]]
 ; IS__CGSCC_NPM:       if.end:
-; IS__CGSCC_NPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef) #[[ATTR8:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    call void @level2all_late(i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[LOCAL]]) #[[ATTR8:[0-9]+]]
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
 entry:
@@ -286,7 +286,7 @@ define internal void @level2all_early(i32* %addr) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@level2all_early
-; IS__CGSCC____-SAME: (i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[ADDR:%.*]]) #[[ATTR2]] {
+; IS__CGSCC____-SAME: (i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[ADDR:%.*]]) #[[ATTR2]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    store i32 1, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__CGSCC____-NEXT:    ret void
@@ -309,11 +309,11 @@ define internal void @level2a(i32* %addr) {
 ;
 ; IS__CGSCC_OPM: Function Attrs: norecurse nosync nounwind
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@level2a
-; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[ADDR:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[ADDR:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC_OPM-NEXT:  entry:
 ; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
-; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* undef, align 4
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ADDR]], align 4
 ; IS__CGSCC_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 17) #[[ATTR4]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
@@ -348,11 +348,11 @@ define internal void @level2b(i32* %addr) {
 ;
 ; IS__CGSCC_OPM: Function Attrs: norecurse nosync nounwind
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@level2b
-; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[ADDR:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[ADDR:%.*]]) #[[ATTR1]] {
 ; IS__CGSCC_OPM-NEXT:  entry:
 ; IS__CGSCC_OPM-NEXT:    [[TMP0:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @ReachableNonKernel to i32*), align 4
 ; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = load i32, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
-; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* undef, align 4
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[ADDR]], align 4
 ; IS__CGSCC_OPM-NEXT:    call void @use(i32 [[TMP0]], i32 [[TMP1]], i32 17) #[[ATTR4]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
@@ -385,7 +385,7 @@ define internal void @level2all_late(i32* %addr) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@level2all_late
-; IS__CGSCC____-SAME: (i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[ADDR:%.*]]) #[[ATTR2]] {
+; IS__CGSCC____-SAME: (i32* noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[ADDR:%.*]]) #[[ATTR2]] {
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    store i32 1, i32* addrspacecast (i32 addrspace(3)* @UnreachableNonKernel to i32*), align 4
 ; IS__CGSCC____-NEXT:    ret void

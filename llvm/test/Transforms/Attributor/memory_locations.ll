@@ -554,11 +554,11 @@ define internal i8 @recursive_not_readnone_internal(i8* %ptr, i1 %c) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@recursive_not_readnone_internal
-; IS__CGSCC____-SAME: (i8* noalias nocapture nofree nonnull readnone dereferenceable(1) [[PTR:%.*]], i1 [[C:%.*]]) #[[ATTR5]] {
+; IS__CGSCC____-SAME: (i8* noalias nocapture nofree noundef nonnull readnone dereferenceable(1) [[PTR:%.*]], i1 [[C:%.*]]) #[[ATTR5]] {
 ; IS__CGSCC____-NEXT:    [[ALLOC:%.*]] = alloca i8, align 1
 ; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__CGSCC____:       t:
-; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8 @recursive_not_readnone_internal(i8* noalias nocapture nofree nonnull readnone dereferenceable(1) undef, i1 noundef false) #[[ATTR12:[0-9]+]], !range [[RNG0:![0-9]+]]
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8 @recursive_not_readnone_internal(i8* noalias nocapture nofree noundef nonnull readnone dereferenceable(1) [[ALLOC]], i1 noundef false) #[[ATTR12:[0-9]+]], !range [[RNG0:![0-9]+]]
 ; IS__CGSCC____-NEXT:    ret i8 1
 ; IS__CGSCC____:       f:
 ; IS__CGSCC____-NEXT:    ret i8 0
@@ -585,7 +585,8 @@ define i8 @readnone_caller(i1 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@readnone_caller
 ; IS__CGSCC____-SAME: (i1 [[C:%.*]]) #[[ATTR9:[0-9]+]] {
-; IS__CGSCC____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_not_readnone_internal(i8* noalias nocapture nofree nonnull readnone dereferenceable(1) undef, i1 [[C]]) #[[ATTR13:[0-9]+]], !range [[RNG0]]
+; IS__CGSCC____-NEXT:    [[A:%.*]] = alloca i8, align 1
+; IS__CGSCC____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_not_readnone_internal(i8* noalias nocapture nofree noundef nonnull readnone dereferenceable(1) [[A]], i1 [[C]]) #[[ATTR13:[0-9]+]], !range [[RNG0]]
 ; IS__CGSCC____-NEXT:    ret i8 [[R]]
 ;
   %a = alloca i8
@@ -611,7 +612,7 @@ define internal i8 @recursive_readnone_internal2(i8* %ptr, i1 %c) {
 ; IS__CGSCC____-NEXT:    [[ALLOC:%.*]] = alloca i8, align 1
 ; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__CGSCC____:       t:
-; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8 @recursive_readnone_internal2(i8* noalias nocapture nofree nonnull readnone dereferenceable(1) undef, i1 noundef false) #[[ATTR12]], !range [[RNG0]]
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8 @recursive_readnone_internal2(i8* noalias nocapture nofree noundef nonnull readnone dereferenceable(1) [[ALLOC]], i1 noundef false) #[[ATTR12]], !range [[RNG0]]
 ; IS__CGSCC____-NEXT:    ret i8 1
 ; IS__CGSCC____:       f:
 ; IS__CGSCC____-NEXT:    ret i8 0
@@ -658,11 +659,11 @@ define internal i8 @recursive_not_readnone_internal3(i8* %ptr, i1 %c) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@recursive_not_readnone_internal3
-; IS__CGSCC____-SAME: (i8* noalias nocapture nofree nonnull readnone dereferenceable(1) [[PTR:%.*]], i1 [[C:%.*]]) #[[ATTR5]] {
+; IS__CGSCC____-SAME: (i8* noalias nocapture nofree noundef nonnull readnone dereferenceable(1) [[PTR:%.*]], i1 [[C:%.*]]) #[[ATTR5]] {
 ; IS__CGSCC____-NEXT:    [[ALLOC:%.*]] = alloca i8, align 1
 ; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS__CGSCC____:       t:
-; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8 @recursive_not_readnone_internal3(i8* noalias nocapture nofree nonnull readnone dereferenceable(1) undef, i1 noundef false) #[[ATTR12]], !range [[RNG0]]
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = call i8 @recursive_not_readnone_internal3(i8* noalias nocapture nofree noundef nonnull readnone dereferenceable(1) [[ALLOC]], i1 noundef false) #[[ATTR12]], !range [[RNG0]]
 ; IS__CGSCC____-NEXT:    ret i8 1
 ; IS__CGSCC____:       f:
 ; IS__CGSCC____-NEXT:    ret i8 0
@@ -689,7 +690,8 @@ define i8 @readnone_caller3(i1 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@readnone_caller3
 ; IS__CGSCC____-SAME: (i1 [[C:%.*]]) #[[ATTR9]] {
-; IS__CGSCC____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_not_readnone_internal3(i8* noalias nocapture nofree nonnull readnone dereferenceable(1) undef, i1 [[C]]) #[[ATTR13]], !range [[RNG0]]
+; IS__CGSCC____-NEXT:    [[ALLOC:%.*]] = alloca i8, align 1
+; IS__CGSCC____-NEXT:    [[R:%.*]] = call noundef i8 @recursive_not_readnone_internal3(i8* noalias nocapture nofree noundef nonnull readnone dereferenceable(1) [[ALLOC]], i1 [[C]]) #[[ATTR13]], !range [[RNG0]]
 ; IS__CGSCC____-NEXT:    ret i8 [[R]]
 ;
   %alloc = alloca i8

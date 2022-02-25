@@ -219,7 +219,7 @@ exit:
 define void @volatile_is_not_dereferenceable(i16* %ptr) {
 ; CHECK: Function Attrs: argmemonly nofree norecurse nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@volatile_is_not_dereferenceable
-; CHECK-SAME: (i16* nofree align 2 [[PTR:%.*]]) #[[ATTR3:[0-9]+]] {
+; CHECK-SAME: (i16* nocapture nofree readnone align 2 [[PTR:%.*]]) #[[ATTR3:[0-9]+]] {
 ; CHECK-NEXT:    [[T0:%.*]] = load volatile i16, i16* [[PTR]], align 2
 ; CHECK-NEXT:    ret void
 ;

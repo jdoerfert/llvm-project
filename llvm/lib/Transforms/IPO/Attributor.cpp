@@ -346,8 +346,8 @@ bool AA::getPotentialCopiesOfStoredValue(
       // be OK. We do not try to optimize the latter.
       if (!NullPointerIsDefined(SI.getFunction(),
                                 Ptr.getType()->getPointerAddressSpace()) &&
-          A.getAssumedSimplified(Ptr, QueryingAA, UsedAssumedInformation) ==
-              Obj)
+          A.getAssumedSimplified(Ptr, QueryingAA, &SI,
+                                 UsedAssumedInformation) == Obj)
         continue;
       LLVM_DEBUG(
           dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
@@ -966,10 +966,14 @@ Attributor::getAssumedConstant(const IRPosition &IRP,
       return cast<Constant>(*SimplifiedV);
     return nullptr;
   }
+  // Constants are assumed constant.
+  if (auto *C = dyn_cast<Constant>(&IRP.getAssociatedValue()))
+    return C;
+
   const auto &ValueSimplifyAA =
       getAAFor<AAValueSimplify>(AA, IRP, DepClassTy::NONE);
   Optional<Value *> SimplifiedV =
-      ValueSimplifyAA.getAssumedSimplifiedValue(*this);
+      ValueSimplifyAA.getAssumedSimplifiedValue(*this, nullptr);
   bool IsKnown = ValueSimplifyAA.isAtFixpoint();
   UsedAssumedInformation |= !IsKnown;
   if (!SimplifiedV.hasValue()) {
@@ -989,10 +993,11 @@ Attributor::getAssumedConstant(const IRPosition &IRP,
   return CI;
 }
 
-Optional<Value *>
-Attributor::getAssumedSimplified(const IRPosition &IRP,
-                                 const AbstractAttribute *AA,
-                                 bool &UsedAssumedInformation) {
+Optional<Value *> Attributor::getAssumedSimplified(const IRPosition &IRP,
+                                                   const AbstractAttribute *AA,
+                                                   const Instruction *CtxI,
+                                                   bool &UsedAssumedInformation,
+                                                   bool *CanBeReproduced) {
   // First check all callbacks provided by outside AAs. If any of them returns
   // a non-null value that is different from the associated value, or None, we
   // assume it's simpliied.
@@ -1003,7 +1008,7 @@ Attributor::getAssumedSimplified(const IRPosition &IRP,
   const auto &ValueSimplifyAA =
       getOrCreateAAFor<AAValueSimplify>(IRP, AA, DepClassTy::NONE);
   Optional<Value *> SimplifiedV =
-      ValueSimplifyAA.getAssumedSimplifiedValue(*this);
+      ValueSimplifyAA.getAssumedSimplifiedValue(*this, CtxI, CanBeReproduced);
   bool IsKnown = ValueSimplifyAA.isAtFixpoint();
   UsedAssumedInformation |= !IsKnown;
   if (!SimplifiedV.hasValue()) {
@@ -1022,6 +1027,12 @@ Attributor::getAssumedSimplified(const IRPosition &IRP,
   return const_cast<Value *>(&IRP.getAssociatedValue());
 }
 
+void Attributor::registerRequiredValue(Value &V) {
+  if (AbstractAttribute *AA = lookupAAFor<AAIsDead>(IRPosition::value(V),
+                                                    /* QueryingAA */ nullptr))
+    AA->getState().indicatePessimisticFixpoint();
+}
+
 Optional<Value *> Attributor::translateArgumentToCallSiteContent(
     Optional<Value *> V, CallBase &CB, const AbstractAttribute &AA,
     bool &UsedAssumedInformation) {
@@ -1033,7 +1044,7 @@ Optional<Value *> Attributor::translateArgumentToCallSiteContent(
     if (CB.getCalledFunction() == Arg->getParent())
       if (!Arg->hasPointeeInMemoryValueAttr())
         return getAssumedSimplified(
-            IRPosition::callsite_argument(CB, Arg->getArgNo()), AA,
+            IRPosition::callsite_argument(CB, Arg->getArgNo()), AA, &CB,
             UsedAssumedInformation);
   return nullptr;
 }
@@ -2530,6 +2541,9 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
               ARIs[OldArgNum]) {
         if (ARI->CalleeRepairCB)
           ARI->CalleeRepairCB(*ARI, *NewFn, NewFnArgIt);
+        if (ARI->ReplacementTypes.empty())
+          OldFnArgIt->replaceAllUsesWith(
+              PoisonValue::get(OldFnArgIt->getType()));
         NewFnArgIt += ARI->ReplacementTypes.size();
       } else {
         NewFnArgIt->takeName(&*OldFnArgIt);
@@ -2772,7 +2786,8 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     // interface though as outside AAs can register custom simplification
     // callbacks.
     bool UsedAssumedInformation = false;
-    getAssumedSimplified(ArgPos, /* AA */ nullptr, UsedAssumedInformation);
+    getAssumedSimplified(ArgPos, /* AA */ nullptr, /* CtxI */ nullptr,
+                         UsedAssumedInformation);
 
     // Every argument might be dead.
     getOrCreateAAFor<AAIsDead>(ArgPos);
@@ -2849,7 +2864,8 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       // Attributor interface though as outside AAs can register custom
       // simplification callbacks.
       bool UsedAssumedInformation = false;
-      getAssumedSimplified(CBArgPos, /* AA */ nullptr, UsedAssumedInformation);
+      getAssumedSimplified(CBArgPos, /* AA */ nullptr, /* CtxI */ nullptr,
+                           UsedAssumedInformation);
 
       // Every call site argument might be marked "noundef".
       getOrCreateAAFor<AANoUndef>(CBArgPos);

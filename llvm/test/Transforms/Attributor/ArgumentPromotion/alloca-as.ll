@@ -29,8 +29,6 @@ define i32 @bar(i32 %arg) {
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@bar
 ; IS__CGSCC_NPM-SAME: (i32 returned [[ARG:%.*]]) {
 ; IS__CGSCC_NPM-NEXT:  entry:
-; IS__CGSCC_NPM-NEXT:    [[STACK:%.*]] = alloca i32, align 4
-; IS__CGSCC_NPM-NEXT:    store i32 [[ARG]], i32* [[STACK]], align 4
 ; IS__CGSCC_NPM-NEXT:    [[CALL:%.*]] = call i32 @foo(i32 [[ARG]])
 ; IS__CGSCC_NPM-NEXT:    ret i32 [[ARG]]
 ;
@@ -60,14 +58,13 @@ define internal i32 @foo(i32* %arg) {
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[L]]
 ;
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@foo
-; IS__CGSCC_NPM-SAME: (i32 returned [[TMP0:%.*]]) {
+; IS__CGSCC_NPM-SAME: (i32 [[TMP0:%.*]]) {
 ; IS__CGSCC_NPM-NEXT:  entry:
 ; IS__CGSCC_NPM-NEXT:    [[ARG_PRIV:%.*]] = alloca i32, align 4, addrspace(7)
-; IS__CGSCC_NPM-NEXT:    store i32 [[TMP0]], i32 addrspace(7)* [[ARG_PRIV]], align 4
 ; IS__CGSCC_NPM-NEXT:    [[TMP1:%.*]] = addrspacecast i32 addrspace(7)* [[ARG_PRIV]] to i32*
 ; IS__CGSCC_NPM-NEXT:    [[L:%.*]] = load i32, i32* [[TMP1]], align 4
 ; IS__CGSCC_NPM-NEXT:    call void @use(i32 [[TMP0]])
-; IS__CGSCC_NPM-NEXT:    ret i32 [[TMP0]]
+; IS__CGSCC_NPM-NEXT:    ret i32 undef
 ;
 entry:
   %l = load i32, i32* %arg

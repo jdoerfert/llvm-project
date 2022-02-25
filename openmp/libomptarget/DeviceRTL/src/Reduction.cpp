@@ -167,8 +167,10 @@ uint32_t roundToWarpsize(uint32_t s) {
 
 uint32_t kmpcMin(uint32_t x, uint32_t y) { return x < y ? x : y; }
 
-static volatile uint32_t IterCnt = 0;
-static volatile uint32_t Cnt = 0;
+
+static uint32_t IterCnt[8] = {0};
+static uint32_t Cnt[8] = {0};
+static uint32_t KernelCnt = 0;
 
 } // namespace
 

@@ -3193,6 +3193,7 @@ define dso_local i32 @round_trip_malloc(i32 %x) {
 ; IS________NPM-NEXT:    [[TMP1:%.*]] = bitcast i8* [[TMP0]] to i32*
 ; IS________NPM-NEXT:    store i32 [[X]], i32* [[TMP1]], align 4
 ; IS________NPM-NEXT:    [[TMP2:%.*]] = load i32, i32* [[TMP1]], align 4
+; IS________NPM-NEXT:    [[TMP3:%.*]] = bitcast i32* [[TMP1]] to i8*
 ; IS________NPM-NEXT:    ret i32 [[TMP2]]
 ;
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@round_trip_malloc
@@ -3227,6 +3228,9 @@ define dso_local i32 @round_trip_malloc_constant() {
 ;
 ; IS________NPM-LABEL: define {{[^@]+}}@round_trip_malloc_constant() {
 ; IS________NPM-NEXT:  entry:
+; IS________NPM-NEXT:    [[TMP0:%.*]] = alloca i8, i64 4, align 1
+; IS________NPM-NEXT:    [[TMP1:%.*]] = bitcast i8* [[TMP0]] to i32*
+; IS________NPM-NEXT:    [[TMP2:%.*]] = bitcast i32* [[TMP1]] to i8*
 ; IS________NPM-NEXT:    ret i32 7
 ;
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@round_trip_malloc_constant() {

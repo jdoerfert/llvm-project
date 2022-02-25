@@ -58,13 +58,11 @@ define internal void @foo() {
 ; CHECK-LABEL: define {{[^@]+}}@foo
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[TMP0:%.*]] = alloca i8, i64 4, align 1
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@foo
 ; CHECK-DISABLED-SAME: () #[[ATTR0:[0-9]+]] {
 ; CHECK-DISABLED-NEXT:  entry:
-; CHECK-DISABLED-NEXT:    [[TMP0:%.*]] = alloca i8, i64 4, align 1
 ; CHECK-DISABLED-NEXT:    ret void
 ;
 entry:
@@ -135,7 +133,7 @@ define void @unused() {
 ; CHECK-LABEL: define {{[^@]+}}@unused() {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = alloca i8, i64 4, align 1
-; CHECK-NEXT:    call void @use(i8* noalias readnone undef)
+; CHECK-NEXT:    call void @use(i8* noalias readnone [[TMP0]])
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@unused() {

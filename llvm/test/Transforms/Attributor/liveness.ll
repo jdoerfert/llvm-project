@@ -73,13 +73,13 @@ define internal i32 @dead_internal_func(i32 %0) {
 define i32 @volatile_load(i32*) norecurse nounwind uwtable {
 ; NOT_CGSCC_NPM: Function Attrs: argmemonly nofree norecurse nounwind willreturn uwtable
 ; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@volatile_load
-; NOT_CGSCC_NPM-SAME: (i32* nofree align 4 [[TMP0:%.*]]) #[[ATTR6:[0-9]+]] {
+; NOT_CGSCC_NPM-SAME: (i32* nofree noundef align 4 [[TMP0:%.*]]) #[[ATTR6:[0-9]+]] {
 ; NOT_CGSCC_NPM-NEXT:    [[TMP2:%.*]] = load volatile i32, i32* [[TMP0]], align 4
 ; NOT_CGSCC_NPM-NEXT:    ret i32 [[TMP2]]
 ;
 ; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nounwind willreturn uwtable
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@volatile_load
-; IS__CGSCC____-SAME: (i32* nofree align 4 [[TMP0:%.*]]) #[[ATTR7:[0-9]+]] {
+; IS__CGSCC____-SAME: (i32* nofree noundef align 4 [[TMP0:%.*]]) #[[ATTR7:[0-9]+]] {
 ; IS__CGSCC____-NEXT:    [[TMP2:%.*]] = load volatile i32, i32* [[TMP0]], align 4
 ; IS__CGSCC____-NEXT:    ret i32 [[TMP2]]
 ;
@@ -503,7 +503,7 @@ cleanup:
 define void @ub(i32* %0) {
 ; IS________OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn writeonly
 ; IS________OPM-LABEL: define {{[^@]+}}@ub
-; IS________OPM-SAME: (i32* nocapture nofree writeonly [[TMP0:%.*]]) #[[ATTR7:[0-9]+]] {
+; IS________OPM-SAME: (i32* nocapture nofree readnone [[TMP0:%.*]]) #[[ATTR7:[0-9]+]] {
 ; IS________OPM-NEXT:    store i32 0, i32* [[TMP0]], align 4
 ; IS________OPM-NEXT:    ret void
 ;

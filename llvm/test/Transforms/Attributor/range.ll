@@ -1111,7 +1111,7 @@ define internal i32 @less_than_65536(i32 %arg) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@less_than_65536
 ; IS__CGSCC____-SAME: (i32 [[ARG:%.*]]) #[[ATTR1]] {
-; IS__CGSCC____-NEXT:    [[SHRINKED:%.*]] = udiv i32 undef, 65536
+; IS__CGSCC____-NEXT:    [[SHRINKED:%.*]] = udiv i32 [[ARG]], 65536
 ; IS__CGSCC____-NEXT:    ret i32 undef
 ;
   %shrinked = udiv i32 %arg, 65536
@@ -1122,7 +1122,7 @@ define internal i1 @is_less_than_65536(i32 %arg) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@is_less_than_65536
 ; IS__CGSCC____-SAME: (i32 [[ARG:%.*]]) #[[ATTR1]] {
-; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp ult i32 undef, 65536
+; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp ult i32 [[ARG]], 65536
 ; IS__CGSCC____-NEXT:    ret i1 undef
 ;
   %cmp = icmp ult i32 %arg, 65536
@@ -1148,7 +1148,7 @@ define internal i32 @cast_and_return(i1 %c) {
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@cast_and_return
 ; IS__CGSCC____-SAME: (i1 [[C:%.*]]) #[[ATTR1]] {
-; IS__CGSCC____-NEXT:    [[RET:%.*]] = zext i1 undef to i32
+; IS__CGSCC____-NEXT:    [[RET:%.*]] = zext i1 [[C]] to i32
 ; IS__CGSCC____-NEXT:    ret i32 undef
 ;
   %ret = zext i1 %c to i32
@@ -1314,8 +1314,8 @@ define internal i1 @is_less_than_100_2(i32 %c) {
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@is_less_than_100_2
-; IS__CGSCC____-SAME: (i32 [[C:%.*]]) #[[ATTR1]] {
-; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp slt i32 undef, 100
+; IS__CGSCC____-SAME: (i32 noundef [[C:%.*]]) #[[ATTR1]] {
+; IS__CGSCC____-NEXT:    [[CMP:%.*]] = icmp slt i32 [[C]], 100
 ; IS__CGSCC____-NEXT:    ret i1 undef
 ;
   %cmp = icmp slt i32 %c, 100

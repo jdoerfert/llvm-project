@@ -31,11 +31,16 @@ define internal i32 @caller(i32* %B) {
 }
 
 define i32 @callercaller() {
-; CHECK: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; CHECK-LABEL: define {{[^@]+}}@callercaller
-; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
-; CHECK-NEXT:    [[B:%.*]] = alloca i32, align 4
-; CHECK-NEXT:    ret i32 3
+; IS__TUNIT____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@callercaller
+; IS__TUNIT____-SAME: () #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-NEXT:    ret i32 3
+;
+; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@callercaller
+; IS__CGSCC____-SAME: () #[[ATTR0]] {
+; IS__CGSCC____-NEXT:    [[B:%.*]] = alloca i32, align 4
+; IS__CGSCC____-NEXT:    ret i32 3
 ;
   %B = alloca i32
   store i32 2, i32* %B
@@ -44,5 +49,5 @@ define i32 @callercaller() {
 }
 
 ;.
-; CHECK: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
+; CHECK: attributes #[[ATTR0:[0-9]+]] = { nofree norecurse nosync nounwind readnone willreturn }
 ;.
