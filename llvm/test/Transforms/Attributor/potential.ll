@@ -483,7 +483,7 @@ define i32 @optimize_poison_1(i1 %c) {
 ; IS________NPM:       t:
 ; IS________NPM-NEXT:    ret i32 0
 ; IS________NPM:       f:
-; IS________NPM-NEXT:    ret i32 undef
+; IS________NPM-NEXT:    ret i32 poison
 ;
   br i1 %c, label %t, label %f
 t:

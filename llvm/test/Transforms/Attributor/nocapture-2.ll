@@ -130,7 +130,7 @@ define i32* @srec16(i32* %a) #0 {
 ; CHECK-LABEL: define {{[^@]+}}@srec16
 ; CHECK-SAME: (i32* nocapture nofree readnone [[A:%.*]]) #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    ret i32* undef
+; CHECK-NEXT:    ret i32* poison
 ;
 entry:
   %call = call i32* @srec16(i32* %a)

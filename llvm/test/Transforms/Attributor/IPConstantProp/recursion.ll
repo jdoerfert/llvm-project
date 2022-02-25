@@ -10,7 +10,7 @@ define internal i32 @foo(i32 %X) {
 ; IS__CGSCC____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@foo
 ; IS__CGSCC____-SAME: () #[[ATTR0:[0-9]+]] {
-; IS__CGSCC____-NEXT:    ret i32 undef
+; IS__CGSCC____-NEXT:    ret i32 poison
 ;
   %Y = call i32 @foo( i32 %X )            ; <i32> [#uses=1]
   %Z = add i32 %Y, 1              ; <i32> [#uses=1]

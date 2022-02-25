@@ -95,7 +95,7 @@ define void @fn_no_null_opt(i32* %P, i1 %C) null_pointer_is_valid {
 ; IS__CGSCC____-NEXT:    br i1 [[C]], label [[IF_END]], label [[EXIT:%.*]]
 ; IS__CGSCC____:       if.end:
 ; IS__CGSCC____-NEXT:    [[E_2:%.*]] = phi i32* [ undef, [[ENTRY:%.*]] ], [ null, [[FOR_COND1:%.*]] ]
-; IS__CGSCC____-NEXT:    store i32 undef, i32* [[P]], align 4
+; IS__CGSCC____-NEXT:    store i32 poison, i32* [[P]], align 4
 ; IS__CGSCC____-NEXT:    br label [[FOR_COND1]]
 ; IS__CGSCC____:       exit:
 ; IS__CGSCC____-NEXT:    ret void

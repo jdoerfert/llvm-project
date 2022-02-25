@@ -27,12 +27,12 @@ define i32 @indirect_rec() {
 ; NOT_CGSCC_NPM: Function Attrs: nofree nosync nounwind readnone willreturn
 ; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@indirect_rec
 ; NOT_CGSCC_NPM-SAME: () #[[ATTR1]] {
-; NOT_CGSCC_NPM-NEXT:    ret i32 undef
+; NOT_CGSCC_NPM-NEXT:    ret i32 poison
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@indirect_rec
 ; IS__CGSCC_NPM-SAME: () #[[ATTR0]] {
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 poison
 ;
   %a = call i32 @indirect_rec2()
   ret i32 %a
@@ -41,12 +41,12 @@ define i32 @indirect_rec2() {
 ; NOT_CGSCC_NPM: Function Attrs: nofree nosync nounwind readnone willreturn
 ; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@indirect_rec2
 ; NOT_CGSCC_NPM-SAME: () #[[ATTR1]] {
-; NOT_CGSCC_NPM-NEXT:    ret i32 undef
+; NOT_CGSCC_NPM-NEXT:    ret i32 poison
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@indirect_rec2
 ; IS__CGSCC_NPM-SAME: () #[[ATTR0]] {
-; IS__CGSCC_NPM-NEXT:    ret i32 undef
+; IS__CGSCC_NPM-NEXT:    ret i32 poison
 ;
   %a = call i32 @indirect_rec()
   ret i32 %a

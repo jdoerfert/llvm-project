@@ -90,12 +90,12 @@ define i32* @test6_1() #0 {
 ; NOT_CGSCC_NPM: Function Attrs: nofree noinline nosync nounwind readnone willreturn uwtable
 ; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@test6_1
 ; NOT_CGSCC_NPM-SAME: () #[[ATTR1:[0-9]+]] {
-; NOT_CGSCC_NPM-NEXT:    ret i32* undef
+; NOT_CGSCC_NPM-NEXT:    ret i32* poison
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree noinline norecurse nosync nounwind readnone willreturn uwtable
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test6_1
 ; IS__CGSCC_NPM-SAME: () #[[ATTR0]] {
-; IS__CGSCC_NPM-NEXT:    ret i32* undef
+; IS__CGSCC_NPM-NEXT:    ret i32* poison
 ;
   %ret = tail call i32* @test6_2()
   ret i32* %ret
@@ -105,12 +105,12 @@ define i32* @test6_2() #0 {
 ; NOT_CGSCC_NPM: Function Attrs: nofree noinline nosync nounwind readnone willreturn uwtable
 ; NOT_CGSCC_NPM-LABEL: define {{[^@]+}}@test6_2
 ; NOT_CGSCC_NPM-SAME: () #[[ATTR1]] {
-; NOT_CGSCC_NPM-NEXT:    ret i32* undef
+; NOT_CGSCC_NPM-NEXT:    ret i32* poison
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree noinline norecurse nosync nounwind readnone willreturn uwtable
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test6_2
 ; IS__CGSCC_NPM-SAME: () #[[ATTR0]] {
-; IS__CGSCC_NPM-NEXT:    ret i32* undef
+; IS__CGSCC_NPM-NEXT:    ret i32* poison
 ;
   %ret = tail call i32* @test6_1()
   ret i32* %ret
@@ -303,7 +303,7 @@ define internal i8* @f2b(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__CGSCC_OPM-NEXT:    [[TMP5:%.*]] = tail call i8* @f3b(i8* nonnull @a2)
 ; IS__CGSCC_OPM-NEXT:    br label [[TMP6]]
 ; IS__CGSCC_OPM:       6:
-; IS__CGSCC_OPM-NEXT:    [[TMP7:%.*]] = phi i8* [ undef, [[TMP3]] ], [ [[TMP5]], [[TMP4]] ]
+; IS__CGSCC_OPM-NEXT:    [[TMP7:%.*]] = phi i8* [ poison, [[TMP3]] ], [ [[TMP5]], [[TMP4]] ]
 ; IS__CGSCC_OPM-NEXT:    ret i8* [[TMP7]]
 ;
 ; IS__CGSCC_NPM: Function Attrs: noinline nounwind uwtable
@@ -317,7 +317,7 @@ define internal i8* @f2b(i8* readnone %0) local_unnamed_addr #0 {
 ; IS__CGSCC_NPM-NEXT:    [[TMP5:%.*]] = tail call i8* @f3b()
 ; IS__CGSCC_NPM-NEXT:    br label [[TMP6]]
 ; IS__CGSCC_NPM:       6:
-; IS__CGSCC_NPM-NEXT:    [[TMP7:%.*]] = phi i8* [ undef, [[TMP3]] ], [ [[TMP5]], [[TMP4]] ]
+; IS__CGSCC_NPM-NEXT:    [[TMP7:%.*]] = phi i8* [ poison, [[TMP3]] ], [ [[TMP5]], [[TMP4]] ]
 ; IS__CGSCC_NPM-NEXT:    ret i8* [[TMP7]]
 ;
   %2 = icmp eq i8* %0, null
