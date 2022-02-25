@@ -4797,7 +4797,7 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
     for (auto &I : instructions(*F)) {
       if (auto *LI = dyn_cast<LoadInst>(&I)) {
         bool UsedAssumedInformation = false;
-        A.getAssumedSimplified(IRPosition::value(*LI), /* AA */ nullptr,
+        A.getAssumedSimplified(IRPosition::value(*LI), /* AA */ nullptr, LI,
                                UsedAssumedInformation);
       } else if (auto *SI = dyn_cast<StoreInst>(&I)) {
         A.getOrCreateAAFor<AAIsDead>(IRPosition::value(*SI));

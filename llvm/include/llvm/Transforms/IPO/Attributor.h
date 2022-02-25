@@ -1568,6 +1568,10 @@ struct Attributor {
     ManifestAddedBlocks.insert(&BB);
   }
 
+  /// Record that \p V is required by some pass and should not be considered
+  /// dead.
+  void registerRequiredValue(Value &V);
+
   /// Record that \p F is deleted after information was manifested.
   void deleteAfterManifest(Function &F) {
     if (DeleteFns)
@@ -1589,22 +1593,31 @@ struct Attributor {
   /// return None, otherwise return `nullptr`.
   Optional<Value *> getAssumedSimplified(const IRPosition &IRP,
                                          const AbstractAttribute &AA,
-                                         bool &UsedAssumedInformation) {
-    return getAssumedSimplified(IRP, &AA, UsedAssumedInformation);
+                                         const Instruction *CtxI,
+                                         bool &UsedAssumedInformation,
+                                         bool *CanBeReproduced = nullptr) {
+    return getAssumedSimplified(IRP, &AA, CtxI, UsedAssumedInformation,
+                                CanBeReproduced);
   }
   Optional<Value *> getAssumedSimplified(const Value &V,
                                          const AbstractAttribute &AA,
-                                         bool &UsedAssumedInformation) {
-    return getAssumedSimplified(IRPosition::value(V), AA,
-                                UsedAssumedInformation);
+                                         const Instruction *CtxI,
+                                         bool &UsedAssumedInformation,
+                                         bool *CanBeReproduced = nullptr) {
+    return getAssumedSimplified(IRPosition::value(V), AA, CtxI,
+                                UsedAssumedInformation, CanBeReproduced);
   }
 
   /// If \p V is assumed simplified, return it, if it is unclear yet,
   /// return None, otherwise return `nullptr`. Same as the public version
   /// except that it can be used without recording dependences on any \p AA.
-  Optional<Value *> getAssumedSimplified(const IRPosition &V,
+  /// \p CanBeReproduced will be set to true if the returned value can be
+  /// reproduced at the context position of \p IRP.
+  Optional<Value *> getAssumedSimplified(const IRPosition &IRP,
                                          const AbstractAttribute *AA,
-                                         bool &UsedAssumedInformation);
+                                         const Instruction *CtxI,
+                                         bool &UsedAssumedInformation,
+                                         bool *CanBeReproduced = nullptr);
 
   /// Register \p CB as a simplification callback.
   /// `Attributor::getAssumedSimplified` will use these callbacks before
@@ -3842,7 +3855,12 @@ private:
   /// the Optional::NoneType.
   ///
   /// Use `Attributor::getAssumedSimplified` for value simplification.
-  virtual Optional<Value *> getAssumedSimplifiedValue(Attributor &A) const = 0;
+  ///
+  /// \p CanBeReproduced will be set to true if the returned value can be
+  /// reproduced at \p CtxI.
+  virtual Optional<Value *>
+  getAssumedSimplifiedValue(Attributor &A, const Instruction *CtxI,
+                            bool *CanBeReproduced = nullptr) const = 0;
 
   friend struct Attributor;
 };
