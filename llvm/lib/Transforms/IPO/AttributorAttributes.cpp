@@ -48,6 +48,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/ArgumentPromotion.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <cassert>
 
@@ -4915,22 +4916,96 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     return SV;
   }
 
+  /// Ensure the return value is \p V with type \p Ty, if not possible return
+  /// nullptr. If \p Check is true we will only verify such an operation would
+  /// suceed and return a non-nullptr value if that is the case. No IR is
+  /// generated or modified.
+  static Value *ensureType(Attributor &A, Value &V, Type &Ty, Instruction *CtxI,
+                           bool Check) {
+    if (auto *TypedV = AA::getWithType(V, Ty))
+      return TypedV;
+    if (CtxI && V.getType()->canLosslesslyBitCastTo(&Ty))
+      return Check ? &V
+                   : BitCastInst::CreatePointerBitCastOrAddrSpaceCast(&V, &Ty,
+                                                                      "", CtxI);
+    return nullptr;
+  }
+
+  /// Reproduce \p I with type \p Ty or return nullptr if that is not posisble.
+  /// If \p Check is true we will only verify such an operation would suceed and
+  /// return a non-nullptr value if that is the case. No IR is generated or
+  /// modified.
+  static Value *reproduceInst(Attributor &A,
+                              const AbstractAttribute &QueryingAA,
+                              Instruction &I, Type &Ty, Instruction *CtxI,
+                              bool Check, ValueToValueMapTy &VMap) {
+    assert(CtxI && "Cannot reproduce an instruction without context!");
+    if (Check && (I.mayReadFromMemory() ||
+                  !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
+                                                /* TLI */ nullptr)))
+      return nullptr;
+    for (Value *Op : I.operands()) {
+      Value *NewOp = reproduceValue(A, QueryingAA, *Op, Ty, CtxI, Check, VMap);
+      if (!NewOp) {
+        assert(Check && "Manifest of new value unexpectedly failed!");
+        return nullptr;
+      }
+      if (!Check)
+        VMap[Op] = NewOp;
+    }
+    if (Check)
+      return &I;
+
+    Instruction *CloneI = I.clone();
+    VMap[&I] = CloneI;
+    CloneI->insertBefore(CtxI);
+    RemapInstruction(CloneI, VMap);
+    return CloneI;
+  }
+
+  /// Reproduce \p V with type \p Ty or return nullptr if that is not posisble.
+  /// If \p Check is true we will only verify such an operation would suceed and
+  /// return a non-nullptr value if that is the case. No IR is generated or
+  /// modified.
+  static Value *reproduceValue(Attributor &A,
+                               const AbstractAttribute &QueryingAA, Value &V,
+                               Type &Ty, Instruction *CtxI, bool Check,
+                               ValueToValueMapTy &VMap) {
+    if (const auto &NewV = VMap.lookup(&V))
+      return NewV;
+    bool UsedAssumedInformation = false;
+    Optional<Value *> SimpleV =
+        A.getAssumedSimplified(V, QueryingAA, UsedAssumedInformation);
+    if (!SimpleV.hasValue())
+      return PoisonValue::get(&Ty);
+    Value *EffectiveV = &V;
+    if (SimpleV.getValue())
+      EffectiveV = SimpleV.getValue();
+    if (auto *C = dyn_cast<Constant>(EffectiveV))
+      if (!C->canTrap())
+        return C;
+    if (CtxI && AA::isValidAtPosition(*EffectiveV, *CtxI, A.getInfoCache()))
+      return ensureType(A, *EffectiveV, Ty, CtxI, Check);
+    if (auto *I = dyn_cast<Instruction>(EffectiveV))
+      if (Value *NewV = reproduceInst(A, QueryingAA, *I, Ty, CtxI, Check, VMap))
+        return ensureType(A, *NewV, Ty, CtxI, Check);
+    return nullptr;
+  }
+
   /// Return a value we can use as replacement for the associated one, or
   /// nullptr if we don't have one that makes sense.
-  Value *getReplacementValue(Attributor &A) const {
+  Value *manifestReplacementValue(Attributor &A, Instruction *CtxI) const {
     for (auto S : {SimplifiedValueScope::Intra, SimplifiedValueScope::Inter}) {
       Value *NewV = SV.get(S).getValueOr(UndefValue::get(getAssociatedType()));
-      if (!NewV)
-        continue;
-      NewV = AA::getWithType(*NewV, *getAssociatedType());
-      if (!NewV || NewV == &getAssociatedValue())
-        continue;
-      const Instruction *CtxI = getCtxI();
-      if (CtxI && !AA::isValidAtPosition(*NewV, *CtxI, A.getInfoCache()))
-        continue;
-      if (!CtxI && !AA::isValidInScope(*NewV, getAnchorScope()))
-        continue;
-      return NewV;
+      if (NewV && NewV != &getAssociatedValue()) {
+        ValueToValueMapTy VMap;
+        // First verify we can reprduce the value with the required type at the
+        // context location before we actually start modifying the IR.
+        if (reproduceValue(A, *this, *NewV, *getAssociatedType(), CtxI,
+                           /* CheckOnly */ true, VMap))
+          return reproduceValue(A, *this, *NewV, *getAssociatedType(), CtxI,
+                                /* CheckOnly */ false, VMap);
+      }
     }
     return nullptr;
   }
@@ -4982,14 +5057,18 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
-    if (getAssociatedValue().user_empty())
-      return Changed;
-
-    if (auto *NewV = getReplacementValue(A)) {
-      LLVM_DEBUG(dbgs() << "[ValueSimplify] " << getAssociatedValue() << " -> "
-                        << *NewV << " :: " << *this << "\n");
-      if (A.changeValueAfterManifest(getAssociatedValue(), *NewV))
-        Changed = ChangeStatus::CHANGED;
+    for (auto &U : getAssociatedValue().uses()) {
+      // Check if we need to adjust the insertion point to make sure the IR is
+      // valid.
+      Instruction *IP = dyn_cast<Instruction>(U.getUser());
+      if (auto *PHI = dyn_cast_or_null<PHINode>(IP))
+        IP = PHI->getIncomingBlock(U)->getTerminator();
+      if (auto *NewV = manifestReplacementValue(A, IP)) {
+        LLVM_DEBUG(dbgs() << "[ValueSimplify] " << getAssociatedValue()
+                          << " -> " << *NewV << " :: " << *this << "\n");
+        if (A.changeUseAfterManifest(U, *NewV))
+          Changed = ChangeStatus::CHANGED;
+      }
     }
 
     return Changed | AAValueSimplify::manifest(A);
@@ -5002,7 +5081,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   }
 
   static bool handleLoad(Attributor &A, const AbstractAttribute &AA,
-                         LoadInst &L, function_ref<bool(const SimplifiedValueTy &)> Union) {
+                         LoadInst &L,
+                         function_ref<bool(const SimplifiedValueTy &)> Union) {
     auto UnionWrapper = [&](const SimplifiedValueTy &Other, Value &Obj) {
       return Union(Other.getDynamicallyUnique(A, AA));
     };
@@ -5025,7 +5105,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
         // be OK. We do not try to optimize the latter.
         if (!NullPointerIsDefined(L.getFunction(),
                                   Ptr.getType()->getPointerAddressSpace()) &&
-            A.getAssumedSimplified(Ptr, AA, SimplifiedValueScope::Inter, UsedAssumedInformation) == Obj)
+            A.getAssumedSimplified(Ptr, AA, SimplifiedValueScope::Inter,
+                                   UsedAssumedInformation) == Obj)
           continue;
         return false;
       }
@@ -5040,7 +5121,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
         LLVM_DEBUG(dbgs() << " - visit access " << Acc << "\n");
         if (Acc.isWrittenValueYetUndetermined())
           return true;
-        SimplifiedValueTy Content = Acc.getContent().getWithType(*AA.getAssociatedType());
+        SimplifiedValueTy Content =
+            Acc.getContent().getWithType(*AA.getAssociatedType());
         if (!Content)
           return false;
         if (IsExact)
@@ -5454,7 +5536,7 @@ struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
-    if (auto *NewV = getReplacementValue(A)) {
+    if (auto *NewV = manifestReplacementValue(A, getCtxI())) {
       Use &U = cast<CallBase>(&getAnchorValue())
                    ->getArgOperandUse(getCallSiteArgNo());
       if (A.changeUseAfterManifest(U, *NewV))
