@@ -5562,12 +5562,16 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
   ChangeStatus updateImpl(Attributor &A) override {
     auto Before = SimplifiedAssociatedValue;
 
-    auto PredForReturned = [&](Value &V) {
-      return checkAndUpdate(A, *this,
-                            IRPosition::value(V, getCallBaseContext()));
+    auto ReturnInstCB = [&](Instruction &I) {
+      auto &RI = cast<ReturnInst>(I);
+      return checkAndUpdate(
+          A, *this,
+          IRPosition::value(*RI.getReturnValue(), getCallBaseContext()));
     };
 
-    if (!A.checkForAllReturnedValues(PredForReturned, *this))
+    bool UsedAssumedInformation = false;
+    if (!A.checkForAllInstructions(ReturnInstCB, *this, {Instruction::Ret},
+                                   UsedAssumedInformation))
       if (!askSimplifiedValueForOtherAAs(A))
         return indicatePessimisticFixpoint();
 
@@ -5577,31 +5581,9 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
   }
 
   ChangeStatus manifest(Attributor &A) override {
-    ChangeStatus Changed = ChangeStatus::UNCHANGED;
-    assert(!hasCallBaseContext() && "Should never manifest a simplified "
-                                    "function return with call base context!");
-
-    if (auto *NewV = getReplacementValue(A)) {
-      auto PredForReturned =
-          [&](Value &, const SmallSetVector<ReturnInst *, 4> &RetInsts) {
-            for (ReturnInst *RI : RetInsts) {
-              Value *ReturnedVal = RI->getReturnValue();
-              if (ReturnedVal == NewV || isa<UndefValue>(ReturnedVal))
-                return true;
-              assert(RI->getFunction() == getAnchorScope() &&
-                     "ReturnInst in wrong function!");
-              LLVM_DEBUG(dbgs()
-                         << "[ValueSimplify] " << *ReturnedVal << " -> "
-                         << *NewV << " in " << *RI << " :: " << *this << "\n");
-              if (A.changeUseAfterManifest(RI->getOperandUse(0), *NewV))
-                Changed = ChangeStatus::CHANGED;
-            }
-            return true;
-          };
-      A.checkForAllReturnedValuesAndReturnInsts(PredForReturned, *this);
-    }
-
-    return Changed | AAValueSimplify::manifest(A);
+    // We queried AAValueSimplify for the returned values so they will be
+    // replaced if a simplified form was found. Nothing to do here.
+    return ChangeStatus::UNCHANGED;
   }
 
   /// See AbstractAttribute::trackStatistics()

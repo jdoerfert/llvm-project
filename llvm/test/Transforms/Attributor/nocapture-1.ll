@@ -672,7 +672,7 @@ define i8* @test_returned1(i8* %A, i8* returned %B) nounwind readonly {
 ; CHECK-SAME: (i8* nocapture readonly [[A:%.*]], i8* readonly returned [[B:%.*]]) #[[ATTR4]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[P:%.*]] = call i8* @unknownpi8pi8(i8* [[A]], i8* [[B]])
-; CHECK-NEXT:    ret i8* [[B]]
+; CHECK-NEXT:    ret i8* [[P]]
 ;
 entry:
   %p = call i8* @unknownpi8pi8(i8* %A, i8* %B)
@@ -685,7 +685,7 @@ define i8* @test_returned2(i8* %A, i8* %B) {
 ; CHECK-SAME: (i8* nocapture readonly [[A:%.*]], i8* readonly returned [[B:%.*]]) #[[ATTR4]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[P:%.*]] = call i8* @unknownpi8pi8(i8* readonly [[A]], i8* readonly [[B]]) #[[ATTR4]]
-; CHECK-NEXT:    ret i8* [[B]]
+; CHECK-NEXT:    ret i8* [[P]]
 ;
 entry:
   %p = call i8* @unknownpi8pi8(i8* %A, i8* %B) nounwind readonly
