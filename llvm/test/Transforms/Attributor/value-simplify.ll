@@ -1175,6 +1175,105 @@ define void @dead_ret_caller() {
   ret void
 }
 
+declare i32 @speculatable() speculatable readnone
+
+define i32 @test_speculatable_expr() {
+; IS__TUNIT_OPM: Function Attrs: nosync readnone
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@test_speculatable_expr
+; IS__TUNIT_OPM-SAME: () #[[ATTR6:[0-9]+]] {
+; IS__TUNIT_OPM-NEXT:    [[STACK:%.*]] = alloca i32, align 4
+; IS__TUNIT_OPM-NEXT:    [[SPEC_RESULT:%.*]] = call i32 @speculatable()
+; IS__TUNIT_OPM-NEXT:    [[PLUS1:%.*]] = add i32 [[SPEC_RESULT]], 1
+; IS__TUNIT_OPM-NEXT:    store i32 [[PLUS1]], i32* [[STACK]], align 4
+; IS__TUNIT_OPM-NEXT:    [[RSPEC:%.*]] = call i32 @ret_speculatable_expr(i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[STACK]]) #[[ATTR11:[0-9]+]]
+; IS__TUNIT_OPM-NEXT:    ret i32 [[RSPEC]]
+;
+; IS__TUNIT_NPM: Function Attrs: nosync readnone
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@test_speculatable_expr
+; IS__TUNIT_NPM-SAME: () #[[ATTR5:[0-9]+]] {
+; IS__TUNIT_NPM-NEXT:    [[STACK:%.*]] = alloca i32, align 4
+; IS__TUNIT_NPM-NEXT:    [[SPEC_RESULT:%.*]] = call i32 @speculatable()
+; IS__TUNIT_NPM-NEXT:    [[PLUS1:%.*]] = add i32 [[SPEC_RESULT]], 1
+; IS__TUNIT_NPM-NEXT:    store i32 [[PLUS1]], i32* [[STACK]], align 4
+; IS__TUNIT_NPM-NEXT:    [[TMP1:%.*]] = load i32, i32* [[STACK]], align 4
+; IS__TUNIT_NPM-NEXT:    [[RSPEC:%.*]] = call i32 @ret_speculatable_expr(i32 [[TMP1]]) #[[ATTR10:[0-9]+]]
+; IS__TUNIT_NPM-NEXT:    ret i32 [[RSPEC]]
+;
+; IS__CGSCC_OPM: Function Attrs: nosync readnone
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@test_speculatable_expr
+; IS__CGSCC_OPM-SAME: () #[[ATTR6:[0-9]+]] {
+; IS__CGSCC_OPM-NEXT:    [[STACK:%.*]] = alloca i32, align 4
+; IS__CGSCC_OPM-NEXT:    [[SPEC_RESULT:%.*]] = call i32 @speculatable()
+; IS__CGSCC_OPM-NEXT:    [[PLUS1:%.*]] = add i32 [[SPEC_RESULT]], 1
+; IS__CGSCC_OPM-NEXT:    store i32 [[PLUS1]], i32* [[STACK]], align 4
+; IS__CGSCC_OPM-NEXT:    [[RSPEC:%.*]] = call i32 @ret_speculatable_expr(i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef) #[[ATTR11:[0-9]+]]
+; IS__CGSCC_OPM-NEXT:    ret i32 [[RSPEC]]
+;
+; IS__CGSCC_NPM: Function Attrs: nosync readnone
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@test_speculatable_expr
+; IS__CGSCC_NPM-SAME: () #[[ATTR5:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:    [[STACK:%.*]] = alloca i32, align 4
+; IS__CGSCC_NPM-NEXT:    [[SPEC_RESULT:%.*]] = call i32 @speculatable()
+; IS__CGSCC_NPM-NEXT:    [[PLUS1:%.*]] = add i32 [[SPEC_RESULT]], 1
+; IS__CGSCC_NPM-NEXT:    store i32 [[PLUS1]], i32* [[STACK]], align 4
+; IS__CGSCC_NPM-NEXT:    [[RSPEC:%.*]] = call i32 @ret_speculatable_expr(i32 undef) #[[ATTR9:[0-9]+]]
+; IS__CGSCC_NPM-NEXT:    ret i32 [[RSPEC]]
+;
+  %stack = alloca i32
+  %spec_result = call i32 @speculatable()
+  %plus1 = add i32 %spec_result, 1
+  store i32 %plus1, i32* %stack
+  %rspec = call i32 @ret_speculatable_expr(i32* %stack, i32 13)
+  ret i32 %rspec
+}
+
+define internal i32 @ret_speculatable_expr(i32* %mem, i32 %a2) {
+; IS__TUNIT_OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@ret_speculatable_expr
+; IS__TUNIT_OPM-SAME: (i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[MEM:%.*]]) #[[ATTR7:[0-9]+]] {
+; IS__TUNIT_OPM-NEXT:    [[TMP1:%.*]] = call i32 @speculatable()
+; IS__TUNIT_OPM-NEXT:    [[TMP2:%.*]] = add i32 [[TMP1]], 1
+; IS__TUNIT_OPM-NEXT:    [[MUL:%.*]] = mul i32 [[TMP2]], 13
+; IS__TUNIT_OPM-NEXT:    [[ADD:%.*]] = add i32 [[MUL]], 7
+; IS__TUNIT_OPM-NEXT:    ret i32 [[ADD]]
+;
+; IS__TUNIT_NPM: Function Attrs: argmemonly nofree norecurse nosync nounwind readonly willreturn
+; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@ret_speculatable_expr
+; IS__TUNIT_NPM-SAME: (i32 [[TMP0:%.*]]) #[[ATTR6:[0-9]+]] {
+; IS__TUNIT_NPM-NEXT:    [[MEM_PRIV:%.*]] = alloca i32, align 4
+; IS__TUNIT_NPM-NEXT:    store i32 [[TMP0]], i32* [[MEM_PRIV]], align 4
+; IS__TUNIT_NPM-NEXT:    [[TMP2:%.*]] = call i32 @speculatable()
+; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = add i32 [[TMP2]], 1
+; IS__TUNIT_NPM-NEXT:    [[MUL:%.*]] = mul i32 [[TMP3]], 13
+; IS__TUNIT_NPM-NEXT:    [[ADD:%.*]] = add i32 [[MUL]], 7
+; IS__TUNIT_NPM-NEXT:    ret i32 [[ADD]]
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@ret_speculatable_expr
+; IS__CGSCC_OPM-SAME: (i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[MEM:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_OPM-NEXT:    [[TMP1:%.*]] = call i32 @speculatable()
+; IS__CGSCC_OPM-NEXT:    [[TMP2:%.*]] = add i32 [[TMP1]], 1
+; IS__CGSCC_OPM-NEXT:    [[MUL:%.*]] = mul i32 [[TMP2]], 13
+; IS__CGSCC_OPM-NEXT:    [[ADD:%.*]] = add i32 [[MUL]], 7
+; IS__CGSCC_OPM-NEXT:    ret i32 [[ADD]]
+;
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@ret_speculatable_expr
+; IS__CGSCC_NPM-SAME: (i32 [[TMP0:%.*]]) #[[ATTR1]] {
+; IS__CGSCC_NPM-NEXT:    [[MEM_PRIV:%.*]] = alloca i32, align 4
+; IS__CGSCC_NPM-NEXT:    [[TMP2:%.*]] = call i32 @speculatable()
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = add i32 [[TMP2]], 1
+; IS__CGSCC_NPM-NEXT:    [[MUL:%.*]] = mul i32 [[TMP3]], 13
+; IS__CGSCC_NPM-NEXT:    [[ADD:%.*]] = add i32 [[MUL]], 7
+; IS__CGSCC_NPM-NEXT:    ret i32 [[ADD]]
+;
+  %l = load i32, i32* %mem
+  %mul = mul i32 %l, %a2
+  %add = add i32 %mul, 7
+  ret i32 %add
+}
+
+
 ;.
 ; IS__TUNIT_OPM: attributes #[[ATTR0]] = { nofree nosync nounwind willreturn }
 ; IS__TUNIT_OPM: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
