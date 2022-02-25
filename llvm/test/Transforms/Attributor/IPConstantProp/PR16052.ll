@@ -74,6 +74,8 @@ define internal i64 @fn1(i64 %p1) {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@fn1
 ; IS__CGSCC____-SAME: (i64 [[P1:%.*]]) #[[ATTR0]] {
 ; IS__CGSCC____-NEXT:  entry:
+; IS__CGSCC____-NEXT:    [[TOBOOL:%.*]] = icmp ne i64 42, 0
+; IS__CGSCC____-NEXT:    [[COND:%.*]] = select i1 true, i64 42, i64 42
 ; IS__CGSCC____-NEXT:    ret i64 undef
 ;
 entry:

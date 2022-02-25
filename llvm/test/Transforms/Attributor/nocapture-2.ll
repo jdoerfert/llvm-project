@@ -638,13 +638,14 @@ entry:
 ;
 ; Make sure the returned flag on %r is strong enough to justify nocapture on %b but **not** on %r.
 ;
+; FIXME: Technically we could replace %call in the return with %r.
 define i32* @not_captured_by_readonly_call_not_returned_either1(i32* %b, i32* returned %r) {
 ; CHECK: Function Attrs: nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@not_captured_by_readonly_call_not_returned_either1
 ; CHECK-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR8:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR8]]
-; CHECK-NEXT:    ret i32* [[R]]
+; CHECK-NEXT:    ret i32* [[CALL]]
 ;
 entry:
   %call = call i32* @readonly_unknown(i32* %b, i32* %r) nounwind
@@ -652,13 +653,14 @@ entry:
 }
 
 declare i32* @readonly_unknown_r1a(i32*, i32* returned) readonly
+; FIXME: Technically we could replace %call in the return with %r.
 define i32* @not_captured_by_readonly_call_not_returned_either2(i32* %b, i32* %r) {
 ; CHECK: Function Attrs: nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@not_captured_by_readonly_call_not_returned_either2
 ; CHECK-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR8]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1a(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR8]]
-; CHECK-NEXT:    ret i32* [[R]]
+; CHECK-NEXT:    ret i32* [[CALL]]
 ;
 entry:
   %call = call i32* @readonly_unknown_r1a(i32* %b, i32* %r) nounwind
@@ -666,26 +668,28 @@ entry:
 }
 
 declare i32* @readonly_unknown_r1b(i32*, i32* returned) readonly nounwind
+; FIXME: Technically we could replace %call in the return with %r.
 define i32* @not_captured_by_readonly_call_not_returned_either3(i32* %b, i32* %r) {
 ; CHECK: Function Attrs: nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@not_captured_by_readonly_call_not_returned_either3
 ; CHECK-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR8]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1b(i32* nocapture readonly [[B]], i32* readonly [[R]]) #[[ATTR8]]
-; CHECK-NEXT:    ret i32* [[R]]
+; CHECK-NEXT:    ret i32* [[CALL]]
 ;
 entry:
   %call = call i32* @readonly_unknown_r1b(i32* %b, i32* %r)
   ret i32* %call
 }
 
+; FIXME: Technically we could replace %call in the return with %r.
 define i32* @not_captured_by_readonly_call_not_returned_either4(i32* %b, i32* %r) nounwind {
 ; CHECK: Function Attrs: nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@not_captured_by_readonly_call_not_returned_either4
 ; CHECK-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR8]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1a(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR6]]
-; CHECK-NEXT:    ret i32* [[R]]
+; CHECK-NEXT:    ret i32* [[CALL]]
 ;
 entry:
   %call = call i32* @readonly_unknown_r1a(i32* %b, i32* %r)

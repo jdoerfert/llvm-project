@@ -679,26 +679,28 @@ entry:
 }
 
 declare i8* @unknownpi8pi8(i8*,i8* returned)
+; FIXME: Technically we could replace %P in the return with %B.
 define i8* @test_returned1(i8* %A, i8* returned %B) nounwind readonly {
 ; CHECK: Function Attrs: nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@test_returned1
 ; CHECK-SAME: (i8* nocapture readonly [[A:%.*]], i8* readonly returned [[B:%.*]]) #[[ATTR4]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[P:%.*]] = call i8* @unknownpi8pi8(i8* [[A]], i8* [[B]])
-; CHECK-NEXT:    ret i8* [[B]]
+; CHECK-NEXT:    ret i8* [[P]]
 ;
 entry:
   %p = call i8* @unknownpi8pi8(i8* %A, i8* %B)
   ret i8* %p
 }
 
+; FIXME: Technically we could replace %P in the return with %B.
 define i8* @test_returned2(i8* %A, i8* %B) {
 ; CHECK: Function Attrs: nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@test_returned2
 ; CHECK-SAME: (i8* nocapture readonly [[A:%.*]], i8* readonly returned [[B:%.*]]) #[[ATTR4]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[P:%.*]] = call i8* @unknownpi8pi8(i8* readonly [[A]], i8* readonly [[B]]) #[[ATTR4]]
-; CHECK-NEXT:    ret i8* [[B]]
+; CHECK-NEXT:    ret i8* [[P]]
 ;
 entry:
   %p = call i8* @unknownpi8pi8(i8* %A, i8* %B) nounwind readonly
