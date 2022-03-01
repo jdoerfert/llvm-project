@@ -56,6 +56,23 @@ using namespace llvm;
 
 #define DEBUG_TYPE "attributor"
 
+static cl::opt<bool> DisableSection4B1(
+    "disable-section4B1", cl::Hidden,
+    cl::desc("Disable optimization of section 4.B.1."),
+    cl::init(false));
+static cl::opt<bool> DisableSection4B2(
+    "disable-section4B2", cl::Hidden,
+    cl::desc("Disable optimization of section 4.B.2."),
+    cl::init(false));
+static cl::opt<bool> DisableSection4B3(
+    "disable-section4B3", cl::Hidden,
+    cl::desc("Disable optimization of section 4.B.3."),
+    cl::init(false));
+static cl::opt<bool> DisableSection4B4(
+    "disable-section4B4", cl::Hidden,
+    cl::desc("Disable optimization of section 4.B.4."),
+    cl::init(false));
+
 static cl::opt<bool> ManifestInternal(
     "attributor-manifest-internal", cl::Hidden,
     cl::desc("Manifest Attributor internal string attributes."),
@@ -1077,7 +1094,10 @@ struct AAPointerInfoImpl
   AAPointerInfoImpl(const IRPosition &IRP, Attributor &A) : BaseTy(IRP) {}
 
   /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override { AAPointerInfo::initialize(A); }
+  void initialize(Attributor &A) override {
+    if (DisableSection4B1)
+      indicatePessimisticFixpoint();
+    AAPointerInfo::initialize(A); }
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
@@ -1524,7 +1544,8 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
             }
           }
         };
-        llvm::for_each(LoadI->users(), GetAssumeCmpUsers);
+        if (!DisableSection4B3)
+          llvm::for_each(LoadI->users(), GetAssumeCmpUsers);
 
         for (const auto &It : Assumes) {
           Value *LHS = It.second->getOperand(0);
@@ -5403,6 +5424,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
                               const AbstractAttribute &QueryingAA,
                               Instruction &I, Type &Ty, Instruction *CtxI,
                               bool Check, ValueToValueMapTy &VMap) {
+    if (DisableSection4B4)
+      return nullptr;
     assert(CtxI && "Cannot reproduce an instruction without context!");
     if (Check && (I.mayReadFromMemory() ||
                   !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
@@ -10065,6 +10088,8 @@ public:
       Attributor &A, const BasicBlock &BB0, const BasicBlock &BB1,
       const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
+    if (DisableSection4B2)
+      return false;
     LLVM_DEBUG(dbgs() << "[AADominance] " << BB0.getName() << " dominates "
                       << BB1.getName() << " : " << Ctx << "?\n");
     const Function *BB0Fn = BB0.getParent();
@@ -10085,6 +10110,8 @@ public:
       Attributor &A, const Instruction &I0, const Instruction &I1,
       const Instruction *Ctx = nullptr,
       const ContinueToCallerCBTy &ContinueToCallerCB = nullptr) const override {
+    if (DisableSection4B2)
+      return false;
     LLVM_DEBUG({
       if (Ctx)
         dbgs() << "[AADominance] " << I0 << " dominates " << I1 << " wrt. "
@@ -10117,6 +10144,8 @@ public:
   template <typename SourceTy>
   bool determineIntraProceduralDominance(Attributor &A,
                                          QueryKeyTy<SourceTy> &Key) const {
+    if (DisableSection4B2)
+      return false;
     InformationCache &InfoCache = A.getInfoCache();
 
     const Function *Fn = Key.SourceI->getFunction();
@@ -10155,6 +10184,8 @@ public:
   bool determineInterProceduralDominance(
       Attributor &A, QueryKeyTy<Function> &Key,
       const ContinueToCallerCBTy &ContinueToCallerCB) const {
+    if (DisableSection4B2)
+      return false;
     auto NotDominating = []() { return false; };
 
     DenseMap<const Function *, SmallVector<const Instruction *, 2>>

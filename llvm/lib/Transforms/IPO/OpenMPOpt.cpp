@@ -58,6 +58,15 @@ using namespace omp;
 
 #define DEBUG_TYPE "openmp-opt"
 
+static cl::opt<bool> DisableSection4C(
+    "disable-section4C", cl::Hidden,
+    cl::desc("Disable optimization of section 4.C."),
+    cl::init(false));
+static cl::opt<bool> DisableSection4D(
+    "disable-section4D", cl::Hidden,
+    cl::desc("Disable optimization of section 4.D."),
+    cl::init(false));
+
 static cl::opt<bool> DisableOpenMPOptimizations(
     "openmp-opt-disable", cl::ZeroOrMore,
     cl::desc("Disable OpenMP specific optimizations."), cl::Hidden,
@@ -1701,6 +1710,8 @@ private:
 
     if (DisableOpenMPOptBarrierElimination)
       return /*Changed=*/false;
+    if (DisableSection4D)
+      return /*Changed=*/false;
 
     if (OMPInfoCache.Kernels.empty())
       return /*Changed=*/false;
@@ -3063,23 +3074,33 @@ struct AAExecutionDomainFunction : public AAExecutionDomain {
 
   bool
   isExecutedByAllThreadsInTheSameEpoch(const Instruction &I) const override {
+    if (DisableSection4C)
+      return false;
     return isExecutedByAllThreadsInTheSameEpoch(*I.getParent());
   }
 
   bool isExecutedAligned(const Instruction &I) const override {
+    if (DisableSection4C)
+      return false;
     return isValidState() && AlignedBBs.count(I.getParent());
   }
 
   bool isExecutedAligned(const BasicBlock &BB) const override {
+    if (DisableSection4C)
+      return false;
     return isValidState() && AlignedBBs.count(&BB);
   }
 
   bool isExitedAligned() const override {
+    if (DisableSection4C)
+      return false;
     return isValidState() && IsExitedAligned;
   }
 
   bool
   isExecutedByAllThreadsInTheSameEpoch(const BasicBlock &BB) const override {
+    if (DisableSection4C)
+      return false;
     return isValidState() && SameEpochBBs.count(&BB);
   }
 
