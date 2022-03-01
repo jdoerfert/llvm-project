@@ -5480,7 +5480,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   /// See AbstractState::indicatePessimisticFixpoint(...).
   ChangeStatus indicatePessimisticFixpoint() override {
     SimplifiedAssociatedValue = &getAssociatedValue();
-    return AAValueSimplify::indicatePessimisticFixpoint();
+    AAValueSimplify::indicateOptimisticFixpoint();
+    return ChangeStatus::CHANGED;
   }
 
   static bool handleLoad(Attributor &A, const AbstractAttribute &AA,
