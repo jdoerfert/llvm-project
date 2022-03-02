@@ -141,9 +141,13 @@ public:
   /// Get the event bound to this data map.
   void *getEvent() const { return States->Event; }
 
-  /// Add a new event, if necessary.
+  /// Add a new event, if necessary, and record it.
   /// Returns OFFLOAD_FAIL if something went wrong, OFFLOAD_SUCCESS otherwise.
-  int addEventIfNecessary(DeviceTy &Device, AsyncInfoTy &AsyncInfo) const;
+  int recordEventIfNecessary(DeviceTy &Device, AsyncInfoTy &AsyncInfo) const;
+
+  /// Add a new event, if necessary, and wait for it.
+  /// Returns OFFLOAD_FAIL if something went wrong, OFFLOAD_SUCCESS otherwise.
+  int waitEventIfNecessary(DeviceTy &Device, AsyncInfoTy &AsyncInfo) const;
 
   /// Set the event bound to this data map.
   void setEvent(void *Event) const { States->Event = Event; }

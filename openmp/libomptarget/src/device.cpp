@@ -20,13 +20,15 @@
 #include <cstdio>
 #include <string>
 
-int HostDataToTargetTy::addEventIfNecessary(
-    DeviceTy &Device, AsyncInfoTy &AsyncInfo) const {
+static int recordOrWaitForEventIfNecessary(const HostDataToTargetTy &HDTT,
+                                           DeviceTy &Device,
+                                           AsyncInfoTy &AsyncInfo,
+                                           bool Record) {
   // First, check if the user disabled atomic map transfer/malloc/dealloc.
   if (!PM->UseEventsForAtomicTransfers)
     return OFFLOAD_SUCCESS;
 
-  void *Event = getEvent();
+  void *Event = HDTT.getEvent();
   bool NeedNewEvent = Event == nullptr;
   if (NeedNewEvent && Device.createEvent(&Event) != OFFLOAD_SUCCESS) {
     REPORT("Failed to create event\n");
@@ -35,16 +37,30 @@ int HostDataToTargetTy::addEventIfNecessary(
 
   // We cannot assume the event should not be nullptr because we don't
   // know if the target support event. But if a target doesn't,
-  // recordEvent should always return success.
-  if (Device.recordEvent(Event, AsyncInfo) != OFFLOAD_SUCCESS) {
-    REPORT("Failed to set dependence on event " DPxMOD "\n", DPxPTR(Event));
+  // recordEvent and waitEvent should always return success.
+  if (Record && Device.recordEvent(Event, AsyncInfo) != OFFLOAD_SUCCESS) {
+    REPORT("Failed to record event " DPxMOD "\n", DPxPTR(Event));
+    return OFFLOAD_FAIL;
+  }
+  if (!Record && Device.waitEvent(Event, AsyncInfo) != OFFLOAD_SUCCESS) {
+    REPORT("Failed to wait on event " DPxMOD "\n", DPxPTR(Event));
     return OFFLOAD_FAIL;
   }
 
   if (NeedNewEvent)
-    setEvent(Event);
+    HDTT.setEvent(Event);
 
   return OFFLOAD_SUCCESS;
+}
+int HostDataToTargetTy::recordEventIfNecessary(DeviceTy &Device,
+                                               AsyncInfoTy &AsyncInfo) const {
+  return recordOrWaitForEventIfNecessary(*this, Device, AsyncInfo,
+                                         /* Record */ true);
+}
+int HostDataToTargetTy::waitEventIfNecessary(DeviceTy &Device,
+                                             AsyncInfoTy &AsyncInfo) const {
+  return recordOrWaitForEventIfNecessary(*this, Device, AsyncInfo,
+                                         /* Record */ false);
 }
 
 DeviceTy::DeviceTy(RTLInfoTy *RTL)
@@ -296,8 +312,8 @@ DeviceTy::getTargetPointer(void *HstPtrBegin, void *HstPtrBase, int64_t Size,
       // pointer points to a corrupted memory region so it doesn't make any
       // sense to continue to use it.
       TargetPointer = nullptr;
-    } else if (Entry->addEventIfNecessary(*this, AsyncInfo) !=
-        OFFLOAD_SUCCESS)
+    } else if (Entry->recordEventIfNecessary(*this, AsyncInfo) !=
+               OFFLOAD_SUCCESS)
       return {{false /* IsNewEntry */, false /* IsHostPointer */},
               {} /* MapTableEntry */,
               nullptr /* TargetPointer */};

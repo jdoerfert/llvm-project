@@ -590,8 +590,8 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
           REPORT("Copying data to device failed.\n");
           return OFFLOAD_FAIL;
         }
-        if (Pointer_TPR.MapTableEntry->addEventIfNecessary(Device, AsyncInfo) !=
-            OFFLOAD_SUCCESS)
+        if (Pointer_TPR.MapTableEntry->recordEventIfNecessary(
+                Device, AsyncInfo) != OFFLOAD_SUCCESS)
           return OFFLOAD_FAIL;
       } else
         Device.ShadowMtx.unlock();
