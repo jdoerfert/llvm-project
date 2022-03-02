@@ -40,6 +40,14 @@ enum kmp_target_offload_kind {
 };
 typedef enum kmp_target_offload_kind kmp_target_offload_kind_t;
 
+/// Helper to make sure the entry is locked in a scope.
+template <class T> struct LockGuard {
+  const T &Entry;
+public:
+  LockGuard(const T &Entry) : Entry(Entry) { Entry.lock(); }
+  ~LockGuard() { Entry.unlock(); }
+};
+
 /// Map between host data and target data.
 struct HostDataToTargetTy {
   const uintptr_t HstPtrBase; // host info.
@@ -209,17 +217,6 @@ public:
   bool getMayContainAttachedPointers() const {
     return States->MayContainAttachedPointers;
   }
-
-  /// Helper to make sure the entry is locked in a scope.
-  /// TODO: We should generalize this and use it for all our objects that use
-  /// lock/unlock methods.
-  struct LockGuard {
-    const HostDataToTargetTy &Entry;
-
-  public:
-    LockGuard(const HostDataToTargetTy &Entry) : Entry(Entry) { Entry.lock(); }
-    ~LockGuard() { Entry.unlock(); }
-  };
 
 private:
   void lock() const { States->UpdateMtx.lock(); }
