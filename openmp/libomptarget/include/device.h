@@ -42,10 +42,11 @@ typedef enum kmp_target_offload_kind kmp_target_offload_kind_t;
 
 /// Helper to make sure the entry is locked in a scope.
 template <class T> struct LockGuard {
-  const T &Entry;
+  T &Mtx;
 public:
-  LockGuard(const T &Entry) : Entry(Entry) { Entry.lock(); }
-  ~LockGuard() { Entry.unlock(); }
+  LockGuard(T &Entry) : Mtx(Entry) { Mtx.lock(); }
+  LockGuard(const T &Entry) : Mtx(const_cast<T &>(Entry)) { Mtx.lock(); }
+  ~LockGuard() { Mtx.unlock(); }
 };
 
 /// Map between host data and target data.
@@ -222,7 +223,6 @@ public:
     return States->MayContainAttachedPointers;
   }
 
-private:
   void lock() const { States->UpdateMtx.lock(); }
 
   void unlock() const { States->UpdateMtx.unlock(); }
