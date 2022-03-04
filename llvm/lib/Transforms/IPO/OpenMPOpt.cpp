@@ -3739,15 +3739,15 @@ struct AAKernelInfoFunction : AAKernelInfo {
 
     // Create all the blocks:
     //
-    //                       InitCB = __kmpc_target_init(...)
-    //                       BlockHwSize =
-    //                         __kmpc_get_hardware_num_threads_in_block();
-    //                       WarpSize = __kmpc_get_warp_size();
-    //                       BlockSize = BlockHwSize - WarpSize;
-    // IsWorkerCheckBB:      bool IsWorker = InitCB != -1;
-    //                       if (IsWorker) {
-    //                         if (InitCB >= BlockSize) return;
-    // SMBeginBB:               __kmpc_barrier_simple_generic(...);
+    // InitBB:               InitCB = __kmpc_target_init(...)
+    //                       bool IsWorker = InitCB != -1;
+    // IsWorkerCheckBB:        BlockHwSize =
+    //                           __kmpc_get_hardware_num_threads_in_block();
+    //                         WarpSize = __kmpc_get_warp_size();
+    //                         BlockSize = BlockHwSize - WarpSize;
+    //                         if (InitCB >= BlockSize)
+    //                           return;
+    // SMBeginBB:              __kmpc_barrier_simple_generic(...);
     //                         void *WorkFn;
     //                         bool Active = __kmpc_kernel_parallel(&WorkFn);
     //                         if (!WorkFn) return;
