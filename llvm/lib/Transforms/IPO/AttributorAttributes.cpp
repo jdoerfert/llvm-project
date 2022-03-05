@@ -1101,40 +1101,6 @@ struct AAPointerInfoImpl
         IRPosition::function(Scope), &QueryingAA, DepClassTy::OPTIONAL);
     const bool NoSync = NoSyncAA.isAssumedNoSync();
 
-    // Helper to determine if we need to consider threading, which we cannot
-    // right now. However, if the function is (assumed) nosync or the thread
-    // executing all instructions is the main thread only we can ignore
-    // threading.
-    auto CanIgnoreThreading = [&](const Instruction &I) -> bool {
-      if (NoSync)
-        return true;
-      if (ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(I))
-        return true;
-      return false;
-    };
-
-    // Helper to determine if the access is executed by the same thread as the
-    // load, for now it is sufficient to avoid any potential threading effects
-    // as we cannot deal with them anyway.
-    auto IsSameThreadAsLoad = [&](const Access &Acc) -> bool {
-      return CanIgnoreThreading(*Acc.getLocalInst());
-    };
-
-    // TODO: Use inter-procedural reachability and dominance.
-    const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
-        QueryingAA, IRPosition::function(Scope), DepClassTy::OPTIONAL);
-
-    const bool FindInterferingWrites = I.mayReadFromMemory();
-    const bool FindInterferingReads = I.mayWriteToMemory();
-    const bool UseDominanceReasoning = FindInterferingWrites;
-    const bool CanUseCFGResoning = CanIgnoreThreading(I);
-    InformationCache &InfoCache = A.getInfoCache();
-    const DominatorTree *DT =
-        NoRecurseAA.isKnownNoRecurse() && UseDominanceReasoning
-            ? InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(
-                  Scope)
-            : nullptr;
-
     enum GPUAddressSpace : unsigned {
       Generic = 0,
       Global = 1,
@@ -1185,13 +1151,59 @@ struct AAPointerInfoImpl
         };
     }
 
+    // Helper to determine if we need to consider threading, which we cannot
+    // right now. However, if the function is (assumed) nosync or the thread
+    // executing all instructions is the main thread only we can ignore
+    // threading.
+    auto CanIgnoreThreading = [&](const Instruction &I) -> bool {
+      if (NoSync)
+        return true;
+      if (ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(I))
+        return true;
+      return false;
+    };
+
+    // Helper to determine if the access is executed by the same thread as the
+    // load, for now it is sufficient to avoid any potential threading effects
+    // as we cannot deal with them anyway.
+    auto IsSameThreadAsLoad = [&](const Access &Acc) -> bool {
+      return CanIgnoreThreading(*Acc.getLocalInst());
+    };
+
+    // TODO: Use inter-procedural dominance.
+    const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
+        QueryingAA, IRPosition::function(Scope), DepClassTy::OPTIONAL);
+
+    const bool FindInterferingWrites = I.mayReadFromMemory();
+    const bool FindInterferingReads = I.mayWriteToMemory();
+    const bool UseDominanceReasoning = FindInterferingWrites;
+    const bool CanUseCFGResoning = CanIgnoreThreading(I);
+    const bool CanUseLifetimeReachability =
+        IsLiveInCalleeCB && Scope.hasFnAttribute("kernel");
+    InformationCache &InfoCache = A.getInfoCache();
+    const DominatorTree *DT =
+        NoRecurseAA.isKnownNoRecurse() && UseDominanceReasoning
+            ? InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(
+                  Scope)
+            : nullptr;
+
+    Instruction &LifetimeBeginI = Scope.getEntryBlock().front();
+
     auto AccessCB = [&](const Access &Acc, bool Exact) {
       if ((!FindInterferingWrites || !Acc.isWrite()) &&
           (!FindInterferingReads || !Acc.isRead()))
         return true;
 
-      // For now we only filter accesses based on CFG reasoning which does not
-      // work yet if we have threading effects, or the access is complicated.
+      // For now we only filter accesses based on lifetime reachability and CFG
+      // reasoning. The former simply checks if an access is reachable from the
+      // beginning of the surrounding GPU kernel. In contrast to the latter it
+      // does work if we have threading effects and for any kind of access.
+      if (CanUseLifetimeReachability) {
+        if (!AA::isPotentiallyReachable(A, LifetimeBeginI, *Acc.getLocalInst(),
+                                        QueryingAA, IsLiveInCalleeCB))
+          return true;
+      }
+
       if (CanUseCFGResoning) {
         if ((!Acc.isWrite() ||
              !AA::isPotentiallyReachable(A, *Acc.getLocalInst(), I, QueryingAA,
