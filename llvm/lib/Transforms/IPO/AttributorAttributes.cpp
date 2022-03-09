@@ -5227,8 +5227,16 @@ struct AAValueSimplifyImpl : AAValueSimplify {
           reproduceValue(A, *this, **SimplifiedAssociatedValue,
                          *getAssociatedType(), const_cast<Instruction *>(CtxI),
                          /* CheckOnly */ true, UsedVals, VMap);
-      for (Value *UsedV : UsedVals)
-        A.registerRequiredValue(*UsedV);
+      if (*CanBeReproduced) {
+        if (UsedVals.size() == 1 &&
+            (*UsedVals.begin()) == *SimplifiedAssociatedValue) {
+          A.registerRequiredValue(**SimplifiedAssociatedValue, *this,
+                                  &getAssociatedValue());
+        } else {
+          for (Value *UsedV : UsedVals)
+            A.registerRequiredValue(*UsedV, *this, nullptr);
+        }
+      }
     }
 
     return SimplifiedAssociatedValue;
@@ -5552,6 +5560,9 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
       if (!askSimplifiedValueForOtherAAs(A))
         return indicatePessimisticFixpoint();
 
+    bool CanBeReproduced;
+    getAssumedSimplifiedValue(A, getCtxI(), &CanBeReproduced);
+
     // If a candicate was found in this update, return CHANGED.
     return Before == SimplifiedAssociatedValue ? ChangeStatus::UNCHANGED
                                                : ChangeStatus ::CHANGED;
@@ -5583,6 +5594,9 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
                                    UsedAssumedInformation))
       if (!askSimplifiedValueForOtherAAs(A))
         return indicatePessimisticFixpoint();
+
+    bool CanBeReproduced;
+    getAssumedSimplifiedValue(A, getCtxI(), &CanBeReproduced);
 
     // If a candicate was found in this update, return CHANGED.
     return Before == SimplifiedAssociatedValue ? ChangeStatus::UNCHANGED
@@ -5801,6 +5815,9 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
       if (!askSimplifiedValueForOtherAAs(A))
         return indicatePessimisticFixpoint();
 
+    bool CanBeReproduced;
+    getAssumedSimplifiedValue(A, getCtxI(), &CanBeReproduced);
+
     // If a candicate was found in this update, return CHANGED.
     return Before == SimplifiedAssociatedValue ? ChangeStatus::UNCHANGED
                                                : ChangeStatus ::CHANGED;
@@ -5870,6 +5887,10 @@ struct AAValueSimplifyCallSiteReturned : AAValueSimplifyImpl {
     if (!RetAA.checkForAllReturnedValuesAndReturnInsts(PredForReturned))
       if (!askSimplifiedValueForOtherAAs(A))
         return indicatePessimisticFixpoint();
+
+    bool CanBeReproduced;
+    getAssumedSimplifiedValue(A, getCtxI(), &CanBeReproduced);
+
     return Before == SimplifiedAssociatedValue ? ChangeStatus::UNCHANGED
                                                : ChangeStatus ::CHANGED;
   }

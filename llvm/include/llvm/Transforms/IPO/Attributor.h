@@ -1568,9 +1568,14 @@ struct Attributor {
     ManifestAddedBlocks.insert(&BB);
   }
 
-  /// Record that \p V is required by some pass and should not be considered
-  /// dead.
-  void registerRequiredValue(Value &V);
+  /// Record that \p V is required by \p AA.
+  ///
+  /// If \p AssumedValue is not null it indicates uses of \p AssumedValue should
+  /// be assumed as used of \p V during a use traversal. If it is null, all AAs
+  /// interested in users of \p V should be informed that not all uses are
+  /// known.
+  void registerRequiredValue(const Value &V, const AbstractAttribute &AA,
+                             const Value *AssumedValue);
 
   /// Record that \p F is deleted after information was manifested.
   void deleteAfterManifest(Function &F) {
@@ -1640,6 +1645,12 @@ private:
   /// The vector with all simplification callbacks registered by outside AAs.
   DenseMap<IRPosition, SmallVector<SimplifictionCallbackTy, 1>>
       SimplificationCallbacks;
+
+  using UseTraversalAAsTy = SmallSetVector<const AbstractAttribute *, 8>;
+  MapVector<const Value *, UseTraversalAAsTy *> UseTraversalsMap;
+
+  using AssumedValuesForUseTraversalTy = SmallSetVector<const Value *, 4>;
+  DenseMap<const Value *, AssumedValuesForUseTraversalTy *> AssumedUsesMap;
 
 public:
   /// Translate \p V from the callee context into the call site context.

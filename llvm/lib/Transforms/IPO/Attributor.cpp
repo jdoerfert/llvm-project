@@ -1090,10 +1090,21 @@ Optional<Value *> Attributor::getAssumedSimplified(const IRPosition &IRP,
   return const_cast<Value *>(&IRP.getAssociatedValue());
 }
 
-void Attributor::registerRequiredValue(Value &V) {
-  if (AbstractAttribute *AA = lookupAAFor<AAIsDead>(IRPosition::value(V),
-                                                    /* QueryingAA */ nullptr))
-    AA->getState().indicatePessimisticFixpoint();
+void Attributor::registerRequiredValue(const Value &V,
+                                       const AbstractAttribute &AA,
+                                       const Value *AssumedValue) {
+  AssumedValuesForUseTraversalTy *&AssumedValuesForUseTraversal =
+      AssumedUsesMap[&V];
+  if (!AssumedValuesForUseTraversal)
+    AssumedValuesForUseTraversal =
+        new (Allocator) AssumedValuesForUseTraversalTy;
+  AssumedValuesForUseTraversal->insert(AssumedValue);
+
+  auto *UseTraversalAAs = UseTraversalsMap.lookup(&V);
+  if (!UseTraversalAAs)
+    return;
+  for (const AbstractAttribute *UseTraversalAA : *UseTraversalAAs)
+    recordDependence(AA, *UseTraversalAA, DepClassTy::OPTIONAL);
 }
 
 Optional<Value *> Attributor::translateArgumentToCallSiteContent(
@@ -1275,19 +1286,39 @@ bool Attributor::checkForAllUses(
     bool CheckBBLivenessOnly, DepClassTy LivenessDepClass,
     function_ref<bool(const Use &OldU, const Use &NewU)> EquivalentUseCB) {
 
-  bool UsedAssumedInformation = false;
-  if (isAssumedDead(IRPosition::value(V), &QueryingAA, nullptr,
-                    UsedAssumedInformation, CheckBBLivenessOnly,
-                    LivenessDepClass))
-    return true;
-
   // Check the trivial case first as it catches void values.
   if (V.use_empty())
     return true;
 
+  auto *&UseTraversalAAs = UseTraversalsMap[&V];
+  if (!UseTraversalAAs)
+    UseTraversalAAs = new (Allocator) UseTraversalAAsTy;
+  UseTraversalAAs->insert(&QueryingAA);
+
   const IRPosition &IRP = QueryingAA.getIRPosition();
   SmallVector<const Use *, 16> Worklist;
   SmallPtrSet<const Use *, 16> Visited;
+
+  // First add assumed uses, if any. If an assumed use is unknown we need to
+  // give up.
+  if (AssumedValuesForUseTraversalTy *AssumedValuesForUseTraversal =
+          AssumedUsesMap.lookup(&V)) {
+    for (const Value *AV : *AssumedValuesForUseTraversal) {
+      if (!AV) {
+        dbgs() << "[Attributor] Unknown assumed uses cannot be checked!\n";
+        return false;
+      }
+      for (const Use &U : AV->uses()) {
+        if (EquivalentUseCB && !EquivalentUseCB(*V.use_begin(), U)) {
+          LLVM_DEBUG(dbgs() << "[Attributor] Potential assumed copy was "
+                               "rejected by the equivalence call back: "
+                            << *U << "!\n");
+          return false;
+        }
+        Worklist.push_back(&U);
+      }
+    }
+  }
 
   for (const Use &U : V.uses())
     Worklist.push_back(&U);
@@ -1314,6 +1345,7 @@ bool Attributor::checkForAllUses(
                << "\n";
     });
 
+    bool UsedAssumedInformation = false;
     if (isAssumedDead(*U, &QueryingAA, LivenessAA, UsedAssumedInformation,
                       CheckBBLivenessOnly, LivenessDepClass)) {
       LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");
