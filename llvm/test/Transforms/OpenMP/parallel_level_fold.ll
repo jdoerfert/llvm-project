@@ -17,7 +17,7 @@ target triple = "nvptx64"
 ; CHECK: @[[G:[a-zA-Z0-9_$"\\.-]+]] = external global i8
 ; CHECK: @[[LLVM_COMPILER_USED:[a-zA-Z0-9_$"\\.-]+]] = appending global [3 x i8*] [i8* @no_spmd_exec_mode, i8* @spmd_exec_mode, i8* @parallel_exec_mode], section "llvm.metadata"
 ;.
-define weak void @none_spmd() {
+define void @none_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@none_spmd() {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
 ; CHECK-NEXT:    call void @none_spmd_helper()
@@ -32,7 +32,7 @@ define weak void @none_spmd() {
   ret void
 }
 
-define weak void @spmd() {
+define void @spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@spmd() {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
 ; CHECK-NEXT:    call void @spmd_helper()
@@ -47,7 +47,7 @@ define weak void @spmd() {
   ret void
 }
 
-define weak void @parallel() {
+define void @parallel() {
 ; CHECK-LABEL: define {{[^@]+}}@parallel() {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
 ; CHECK-NEXT:    call void @spmd_helper()

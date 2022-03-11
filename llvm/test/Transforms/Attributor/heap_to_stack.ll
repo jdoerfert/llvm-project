@@ -64,9 +64,11 @@ define void @h2s_value_simplify_interaction(i1 %c, i8* %A) {
 ; IS________NPM:       f:
 ; IS________NPM-NEXT:    br label [[J:%.*]]
 ; IS________NPM:       f2:
-; IS________NPM-NEXT:    [[L:%.*]] = load i8, i8* [[TMP0]], align 16
+; IS________NPM-NEXT:    [[C1:%.*]] = bitcast i8* [[TMP0]] to i32*
+; IS________NPM-NEXT:    [[C2:%.*]] = bitcast i32* [[C1]] to i8*
+; IS________NPM-NEXT:    [[L:%.*]] = load i8, i8* [[C2]], align 16
 ; IS________NPM-NEXT:    call void @usei8(i8 [[L]])
-; IS________NPM-NEXT:    call void @no_sync_func(i8* nocapture nofree noundef align 16 [[TMP0]]) #[[ATTR6:[0-9]+]]
+; IS________NPM-NEXT:    call void @no_sync_func(i8* nocapture nofree noundef align 16 [[C2]]) #[[ATTR6:[0-9]+]]
 ; IS________NPM-NEXT:    br label [[J]]
 ; IS________NPM:       dead:
 ; IS________NPM-NEXT:    unreachable

@@ -136,7 +136,7 @@
 @3 = private unnamed_addr constant %struct.ident_t { i32 0, i32 322, i32 2, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
 @llvm.compiler.used = appending global [8 x i8*] [i8* @__omp_offloading_14_a36502b_no_state_machine_needed_l14_exec_mode, i8* @__omp_offloading_14_a36502b_simple_state_machine_l22_exec_mode, i8* @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39_exec_mode, i8* @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55_exec_mode, i8* @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66_exec_mode, i8* @__omp_offloading_14_a36502b_simple_state_machine_pure_l77_exec_mode, i8* @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92_exec_mode, i8* @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112_exec_mode], section "llvm.metadata"
 
-define weak void @__omp_offloading_14_a36502b_no_state_machine_needed_l14() #0 {
+define void @__omp_offloading_14_a36502b_no_state_machine_needed_l14() #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -192,7 +192,7 @@ declare i32 @__kmpc_global_thread_num(%struct.ident_t*) #3
 
 declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1)
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_l22() #0 {
+define void @__omp_offloading_14_a36502b_simple_state_machine_l22() #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -287,7 +287,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39() #0 {
+define void @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39() #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -367,7 +367,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55() #0 {
+define void @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55() #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -455,7 +455,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66() #0 {
+define void @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66() #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -541,7 +541,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_pure_l77() #0 {
+define void @__omp_offloading_14_a36502b_simple_state_machine_pure_l77() #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -630,7 +630,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92() #0 {
+define void @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92() #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -685,7 +685,7 @@ return:                                           ; preds = %if.end, %if.then
 
 declare i32 @omp_get_thread_num(...) #4
 
-define weak void @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112() #0 {
+define void @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112() #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -1637,7 +1637,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU:       if.then:
 ; AMDGPU-NEXT:    br label [[RETURN:%.*]]
 ; AMDGPU:       if.end:
-; AMDGPU-NEXT:    [[SUB:%.*]] = sub nsw i32 [[A]], 1
+; AMDGPU-NEXT:    [[TMP1:%.*]] = load i32, i32* [[A_ADDR]], align 4
+; AMDGPU-NEXT:    [[SUB:%.*]] = sub nsw i32 [[TMP1]], 1
 ; AMDGPU-NEXT:    call void @simple_state_machine_interprocedural_nested_recursive_after.internalized(i32 [[SUB]]) #[[ATTR8]]
 ; AMDGPU-NEXT:    call void @simple_state_machine_interprocedural_nested_recursive_after_after.internalized() #[[ATTR8]]
 ; AMDGPU-NEXT:    br label [[RETURN]]
@@ -2613,7 +2614,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX:       if.then:
 ; NVPTX-NEXT:    br label [[RETURN:%.*]]
 ; NVPTX:       if.end:
-; NVPTX-NEXT:    [[SUB:%.*]] = sub nsw i32 [[A]], 1
+; NVPTX-NEXT:    [[TMP1:%.*]] = load i32, i32* [[A_ADDR]], align 4
+; NVPTX-NEXT:    [[SUB:%.*]] = sub nsw i32 [[TMP1]], 1
 ; NVPTX-NEXT:    call void @simple_state_machine_interprocedural_nested_recursive_after.internalized(i32 [[SUB]]) #[[ATTR8]]
 ; NVPTX-NEXT:    call void @simple_state_machine_interprocedural_nested_recursive_after_after.internalized() #[[ATTR8]]
 ; NVPTX-NEXT:    br label [[RETURN]]
@@ -3344,7 +3346,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED:       if.then:
 ; AMDGPU-DISABLED-NEXT:    br label [[RETURN:%.*]]
 ; AMDGPU-DISABLED:       if.end:
-; AMDGPU-DISABLED-NEXT:    [[SUB:%.*]] = sub nsw i32 [[A]], 1
+; AMDGPU-DISABLED-NEXT:    [[TMP1:%.*]] = load i32, i32* [[A_ADDR]], align 4
+; AMDGPU-DISABLED-NEXT:    [[SUB:%.*]] = sub nsw i32 [[TMP1]], 1
 ; AMDGPU-DISABLED-NEXT:    call void @simple_state_machine_interprocedural_nested_recursive_after.internalized(i32 [[SUB]]) #[[ATTR8]]
 ; AMDGPU-DISABLED-NEXT:    call void @simple_state_machine_interprocedural_nested_recursive_after_after.internalized() #[[ATTR8]]
 ; AMDGPU-DISABLED-NEXT:    br label [[RETURN]]
@@ -4045,7 +4048,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED:       if.then:
 ; NVPTX-DISABLED-NEXT:    br label [[RETURN:%.*]]
 ; NVPTX-DISABLED:       if.end:
-; NVPTX-DISABLED-NEXT:    [[SUB:%.*]] = sub nsw i32 [[A]], 1
+; NVPTX-DISABLED-NEXT:    [[TMP1:%.*]] = load i32, i32* [[A_ADDR]], align 4
+; NVPTX-DISABLED-NEXT:    [[SUB:%.*]] = sub nsw i32 [[TMP1]], 1
 ; NVPTX-DISABLED-NEXT:    call void @simple_state_machine_interprocedural_nested_recursive_after.internalized(i32 [[SUB]]) #[[ATTR8]]
 ; NVPTX-DISABLED-NEXT:    call void @simple_state_machine_interprocedural_nested_recursive_after_after.internalized() #[[ATTR8]]
 ; NVPTX-DISABLED-NEXT:    br label [[RETURN]]

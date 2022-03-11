@@ -334,7 +334,25 @@ define void @ptr_uses(i8* %ptr) {
 define void @ptr_use_chain(i8* %ptr) {
 ; CHECK-LABEL: define {{[^@]+}}@ptr_use_chain
 ; CHECK-SAME: (i8* [[PTR:%.*]]) {
-; CHECK-NEXT:    call void @escape_i8(i8* [[PTR]])
+; CHECK-NEXT:    [[BC0:%.*]] = bitcast i8* [[PTR]] to i32*
+; CHECK-NEXT:    [[BC1:%.*]] = bitcast i32* [[BC0]] to i8*
+; CHECK-NEXT:    [[BC2:%.*]] = bitcast i8* [[BC1]] to i32*
+; CHECK-NEXT:    [[BC3:%.*]] = bitcast i32* [[BC2]] to i8*
+; CHECK-NEXT:    [[BC4:%.*]] = bitcast i8* [[BC3]] to i32*
+; CHECK-NEXT:    [[BC5:%.*]] = bitcast i32* [[BC4]] to i8*
+; CHECK-NEXT:    [[BC6:%.*]] = bitcast i8* [[BC5]] to i32*
+; CHECK-NEXT:    [[BC7:%.*]] = bitcast i32* [[BC6]] to i8*
+; CHECK-NEXT:    [[BC8:%.*]] = bitcast i8* [[BC7]] to i32*
+; CHECK-NEXT:    [[BC9:%.*]] = bitcast i32* [[BC8]] to i8*
+; CHECK-NEXT:    [[ABC2:%.*]] = bitcast i8* [[BC9]] to i32*
+; CHECK-NEXT:    [[ABC3:%.*]] = bitcast i32* [[ABC2]] to i8*
+; CHECK-NEXT:    [[ABC4:%.*]] = bitcast i8* [[ABC3]] to i32*
+; CHECK-NEXT:    [[ABC5:%.*]] = bitcast i32* [[ABC4]] to i8*
+; CHECK-NEXT:    [[ABC6:%.*]] = bitcast i8* [[ABC5]] to i32*
+; CHECK-NEXT:    [[ABC7:%.*]] = bitcast i32* [[ABC6]] to i8*
+; CHECK-NEXT:    [[ABC8:%.*]] = bitcast i8* [[ABC7]] to i32*
+; CHECK-NEXT:    [[ABC9:%.*]] = bitcast i32* [[ABC8]] to i8*
+; CHECK-NEXT:    call void @escape_i8(i8* [[ABC9]])
 ; CHECK-NEXT:    ret void
 ;
   %bc0 = bitcast i8* %ptr to i32*

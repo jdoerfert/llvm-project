@@ -43,7 +43,7 @@
 @2 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 2, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @0, i32 0, i32 0) }, align 8
 @llvm.compiler.used = appending global [1 x i8*] [i8* @__omp_offloading_10301_87b2c_foo_l7_exec_mode], section "llvm.metadata"
 
-define weak void @__omp_offloading_10301_87b2c_foo_l7() {
+define void @__omp_offloading_10301_87b2c_foo_l7() {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4

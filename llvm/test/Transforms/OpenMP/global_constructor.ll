@@ -8,7 +8,7 @@
 @_ZL6Device = internal global double 0.000000e+00, align 8
 @__omp_offloading_fd02_85283c04_main_l11_exec_mode = weak constant i8 0
 
-define weak void @__omp_offloading_fd02_85283c04_main_l11(double* nonnull align 8 dereferenceable(8) %X) local_unnamed_addr {
+define void @__omp_offloading_fd02_85283c04_main_l11(double* nonnull align 8 dereferenceable(8) %X) local_unnamed_addr {
 entry:
   %0 = tail call i32 @__kmpc_target_init(%struct.ident_t* nonnull @1, i8 2, i1 false, i1 false) #0
   %exec_user_code = icmp eq i32 %0, -1

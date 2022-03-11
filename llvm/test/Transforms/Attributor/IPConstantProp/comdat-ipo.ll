@@ -28,9 +28,7 @@ define linkonce_odr i32 @foo() {
 }
 
 define i32 @bar() {
-; CHECK: Function Attrs: norecurse
-; CHECK-LABEL: define {{[^@]+}}@bar
-; CHECK-SAME: () #[[ATTR1:[0-9]+]] {
+; CHECK-LABEL: define {{[^@]+}}@bar() {
 ; CHECK-NEXT:    [[VAL:%.*]] = call i32 @foo()
 ; CHECK-NEXT:    ret i32 [[VAL]]
 ;
@@ -40,5 +38,4 @@ define i32 @bar() {
 }
 ;.
 ; CHECK: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
-; CHECK: attributes #[[ATTR1]] = { norecurse }
 ;.

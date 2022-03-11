@@ -330,7 +330,7 @@ define i8* @test1_2(i8* %x1_2, i8* %y1_2, i1 %c) {
 ; IS________NPM-SAME: (i8* nocapture nofree readnone [[X1_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y1_2:%.*]], i1 [[C:%.*]]) #[[ATTR7]] {
 ; IS________NPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS________NPM:       t:
-; IS________NPM-NEXT:    call void @test1_1(i8* noalias nocapture nofree readnone undef, i8* noalias nocapture nofree readnone [[Y1_2]], i1 noundef [[C]]) #[[ATTR7]]
+; IS________NPM-NEXT:    call void @test1_1(i8* noalias nocapture nofree readnone undef, i8* noalias nocapture nofree readnone [[Y1_2]], i1 noundef true) #[[ATTR7]]
 ; IS________NPM-NEXT:    store i32* null, i32** @g, align 8
 ; IS________NPM-NEXT:    br label [[F]]
 ; IS________NPM:       f:
@@ -401,7 +401,7 @@ define i8* @test4_2(i8* %x4_2, i8* %y4_2, i8* %z4_2, i1 %c) {
 ; IS________NPM-SAME: (i8* nocapture nofree readnone [[X4_2:%.*]], i8* nofree readnone returned "no-capture-maybe-returned" [[Y4_2:%.*]], i8* nocapture nofree readnone [[Z4_2:%.*]], i1 [[C:%.*]]) #[[ATTR7]] {
 ; IS________NPM-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; IS________NPM:       t:
-; IS________NPM-NEXT:    call void @test4_1(i8* noalias nocapture nofree noundef readnone align 4294967296 null, i1 noundef [[C]]) #[[ATTR7]]
+; IS________NPM-NEXT:    call void @test4_1(i8* noalias nocapture nofree noundef readnone align 4294967296 null, i1 noundef true) #[[ATTR7]]
 ; IS________NPM-NEXT:    store i32* null, i32** @g, align 8
 ; IS________NPM-NEXT:    br label [[F]]
 ; IS________NPM:       f:
@@ -682,7 +682,7 @@ entry:
 define i8* @test_returned2(i8* %A, i8* %B) {
 ; CHECK: Function Attrs: nounwind readonly
 ; CHECK-LABEL: define {{[^@]+}}@test_returned2
-; CHECK-SAME: (i8* nocapture readonly [[A:%.*]], i8* readonly returned [[B:%.*]]) #[[ATTR4]] {
+; CHECK-SAME: (i8* nocapture readonly [[A:%.*]], i8* readonly [[B:%.*]]) #[[ATTR4]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[P:%.*]] = call i8* @unknownpi8pi8(i8* readonly [[A]], i8* readonly [[B]]) #[[ATTR4]]
 ; CHECK-NEXT:    ret i8* [[P]]

@@ -6,19 +6,33 @@
 
 ;; This function returns its second argument on all return statements
 define internal i32* @incdec(i1 %C, i32* %V) {
-; CHECK: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
-; CHECK-LABEL: define {{[^@]+}}@incdec
-; CHECK-SAME: (i1 [[C:%.*]], i32* noalias nofree noundef nonnull returned align 4 dereferenceable(4) "no-capture-maybe-returned" [[V:%.*]]) #[[ATTR0:[0-9]+]] {
-; CHECK-NEXT:    [[X:%.*]] = load i32, i32* [[V]], align 4
-; CHECK-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
-; CHECK:       T:
-; CHECK-NEXT:    [[X1:%.*]] = add i32 [[X]], 1
-; CHECK-NEXT:    store i32 [[X1]], i32* [[V]], align 4
-; CHECK-NEXT:    ret i32* [[V]]
-; CHECK:       F:
-; CHECK-NEXT:    [[X2:%.*]] = sub i32 [[X]], 1
-; CHECK-NEXT:    store i32 [[X2]], i32* [[V]], align 4
-; CHECK-NEXT:    ret i32* [[V]]
+; IS__TUNIT____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@incdec
+; IS__TUNIT____-SAME: (i1 [[C:%.*]], i32* noalias nofree noundef nonnull align 4 dereferenceable(4) "no-capture-maybe-returned" [[V:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__TUNIT____-NEXT:    [[X:%.*]] = load i32, i32* [[V]], align 4
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__TUNIT____:       T:
+; IS__TUNIT____-NEXT:    [[X1:%.*]] = add i32 [[X]], 1
+; IS__TUNIT____-NEXT:    store i32 [[X1]], i32* [[V]], align 4
+; IS__TUNIT____-NEXT:    ret i32* [[V]]
+; IS__TUNIT____:       F:
+; IS__TUNIT____-NEXT:    [[X2:%.*]] = sub i32 [[X]], 1
+; IS__TUNIT____-NEXT:    store i32 [[X2]], i32* [[V]], align 4
+; IS__TUNIT____-NEXT:    ret i32* [[V]]
+;
+; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@incdec
+; IS__CGSCC____-SAME: (i1 [[C:%.*]], i32* noalias nofree noundef nonnull returned align 4 dereferenceable(4) "no-capture-maybe-returned" [[V:%.*]]) #[[ATTR0:[0-9]+]] {
+; IS__CGSCC____-NEXT:    [[X:%.*]] = load i32, i32* [[V]], align 4
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__CGSCC____:       T:
+; IS__CGSCC____-NEXT:    [[X1:%.*]] = add i32 [[X]], 1
+; IS__CGSCC____-NEXT:    store i32 [[X1]], i32* [[V]], align 4
+; IS__CGSCC____-NEXT:    ret i32* [[V]]
+; IS__CGSCC____:       F:
+; IS__CGSCC____-NEXT:    [[X2:%.*]] = sub i32 [[X]], 1
+; IS__CGSCC____-NEXT:    store i32 [[X2]], i32* [[V]], align 4
+; IS__CGSCC____-NEXT:    ret i32* [[V]]
 ;
   %X = load i32, i32* %V
   br i1 %C, label %T, label %F

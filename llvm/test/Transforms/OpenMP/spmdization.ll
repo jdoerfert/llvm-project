@@ -166,7 +166,7 @@
 ; NVPTX-DISABLED: @[[__OMP_OUTLINED__7_WRAPPER_ID:[a-zA-Z0-9_$"\\.-]+]] = private constant i8 undef
 ; NVPTX-DISABLED: @[[__OMP_OUTLINED__9_WRAPPER_ID:[a-zA-Z0-9_$"\\.-]+]] = private constant i8 undef
 ;.
-define weak void @__omp_offloading_fd02_2044372e_sequential_loop_l5() #0 {
+define void @__omp_offloading_fd02_2044372e_sequential_loop_l5() #0 {
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_fd02_2044372e_sequential_loop_l5
 ; AMDGPU-SAME: () #[[ATTR0:[0-9]+]] {
 ; AMDGPU-NEXT:  entry:
@@ -511,7 +511,7 @@ entry:
 }
 
 ; Function Attrs: alwaysinline convergent norecurse nounwind
-define weak void @__omp_offloading_fd02_2044372e_sequential_loop_to_stack_var_l20() #0 {
+define void @__omp_offloading_fd02_2044372e_sequential_loop_to_stack_var_l20() #0 {
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_fd02_2044372e_sequential_loop_to_stack_var_l20
 ; AMDGPU-SAME: () #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
@@ -874,7 +874,7 @@ entry:
 
 
 ; Function Attrs: alwaysinline convergent norecurse nounwind
-define weak void @__omp_offloading_fd02_2044372e_sequential_loop_to_shared_var_l35() #0 {
+define void @__omp_offloading_fd02_2044372e_sequential_loop_to_shared_var_l35() #0 {
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_fd02_2044372e_sequential_loop_to_shared_var_l35
 ; AMDGPU-SAME: () #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
@@ -1262,7 +1262,7 @@ entry:
 }
 
 ; Function Attrs: alwaysinline convergent norecurse nounwind
-define weak void @__omp_offloading_fd02_2044372e_sequential_loop_to_shared_var_guarded_l50() #0 {
+define void @__omp_offloading_fd02_2044372e_sequential_loop_to_shared_var_guarded_l50() #0 {
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_fd02_2044372e_sequential_loop_to_shared_var_guarded_l50
 ; AMDGPU-SAME: () #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
@@ -1685,7 +1685,7 @@ entry:
 }
 
 ; Function Attrs: alwaysinline convergent norecurse nounwind
-define weak void @__omp_offloading_fd02_2044372e_do_not_spmdize_target_l65() #0 {
+define void @__omp_offloading_fd02_2044372e_do_not_spmdize_target_l65() #0 {
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_fd02_2044372e_do_not_spmdize_target_l65
 ; AMDGPU-SAME: () #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
@@ -1923,7 +1923,7 @@ entry:
 }
 
 ; Function Attrs: alwaysinline convergent norecurse nounwind
-define weak void @__omp_offloading_fd02_2044372e_do_not_spmdize_task_l74() #0 {
+define void @__omp_offloading_fd02_2044372e_do_not_spmdize_task_l74() #0 {
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_fd02_2044372e_do_not_spmdize_task_l74
 ; AMDGPU-SAME: () #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:

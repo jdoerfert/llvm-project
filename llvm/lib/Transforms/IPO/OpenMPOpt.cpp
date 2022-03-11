@@ -2328,7 +2328,7 @@ struct AAICVTracker : public StateWrapper<BooleanState, AbstractAttribute> {
 
   void initialize(Attributor &A) override {
     Function *F = getAnchorScope();
-    if (!F || !A.isFunctionIPOAmendable(*F))
+    if (!F || !A.isFunctionIPOAmendable(*F, /* AllowDeclaration */ false))
       indicatePessimisticFixpoint();
   }
 
@@ -2639,7 +2639,7 @@ struct AAICVTrackerCallSite : AAICVTracker {
 
   void initialize(Attributor &A) override {
     Function *F = getAnchorScope();
-    if (!F || !A.isFunctionIPOAmendable(*F))
+    if (!F || !A.isFunctionIPOAmendable(*F, /* AllowDeclaration */ false))
       indicatePessimisticFixpoint();
 
     // We only initialize this AA for getters, so we need to know which ICV it
@@ -4216,7 +4216,7 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     const auto &It = OMPInfoCache.RuntimeFunctionIDMap.find(Callee);
     if (It == OMPInfoCache.RuntimeFunctionIDMap.end()) {
       // Unknown caller or declarations are not analyzable, we give up.
-      if (!Callee || !A.isFunctionIPOAmendable(*Callee)) {
+      if (!Callee || !A.isFunctionIPOAmendable(*Callee, /* AllowDeclaration */ false)) {
 
         // Unknown callees might contain parallel regions, except if they have
         // an appropriate assumption attached.

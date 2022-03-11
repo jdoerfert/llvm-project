@@ -55,7 +55,7 @@ target triple = "nvptx64"
 ; CHECK-DISABLED: @[[LLVM_COMPILER_USED:[a-zA-Z0-9_$"\\.-]+]] = appending global [1 x i8*] [i8* @__omp_offloading_2a_fbfa7a_sequential_loop_l6_exec_mode], section "llvm.metadata"
 ; CHECK-DISABLED: @[[__OMP_OUTLINED__1_WRAPPER_ID:[a-zA-Z0-9_$"\\.-]+]] = private constant i8 undef
 ;.
-define weak void @__omp_offloading_2a_fbfa7a_sequential_loop_l6(i32* %x, i64 %N) #0 {
+define void @__omp_offloading_2a_fbfa7a_sequential_loop_l6(i32* %x, i64 %N) #0 {
 ; CHECK-LABEL: define {{[^@]+}}@__omp_offloading_2a_fbfa7a_sequential_loop_l6
 ; CHECK-SAME: (i32* [[X:%.*]], i64 [[N:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:

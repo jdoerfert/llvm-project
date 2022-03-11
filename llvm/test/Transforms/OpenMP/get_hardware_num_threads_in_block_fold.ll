@@ -15,7 +15,7 @@ target triple = "nvptx64"
 ; CHECK: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [23 x i8] c"
 ; CHECK: @[[GLOB1:[0-9]+]] = private unnamed_addr constant [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @[[GLOB0]], i32 0, i32 0) }, align 8
 ;.
-define weak void @kernel0() #0 {
+define void @kernel0() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel0
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
@@ -35,7 +35,7 @@ define weak void @kernel0() #0 {
 
 @kernel1_exec_mode = weak constant i8 1
 
-define weak void @kernel1() #0 {
+define void @kernel1() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel1
 ; CHECK-SAME: () #[[ATTR0]] {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
@@ -51,7 +51,7 @@ define weak void @kernel1() #0 {
 
 @kernel2_exec_mode = weak constant i8 1
 
-define weak void @kernel2() #0 {
+define void @kernel2() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel2
 ; CHECK-SAME: () #[[ATTR0]] {
 ; CHECK-NEXT:  entry:

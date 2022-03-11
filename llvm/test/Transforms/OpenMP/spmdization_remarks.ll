@@ -59,7 +59,7 @@ target triple = "nvptx64"
 @llvm.compiler.used = appending global [2 x i8*] [i8* @__omp_offloading_2a_d80d3d_test_fallback_l11_exec_mode, i8* @__omp_offloading_2a_d80d3d_test_no_fallback_l20_exec_mode], section "llvm.metadata"
 
 ; Function Attrs: convergent norecurse nounwind
-define weak void @__omp_offloading_2a_d80d3d_test_fallback_l11() local_unnamed_addr #0 !dbg !15 {
+define void @__omp_offloading_2a_d80d3d_test_fallback_l11() local_unnamed_addr #0 !dbg !15 {
 entry:
   %captured_vars_addrs.i.i = alloca [0 x i8*], align 8
   %0 = call i32 @__kmpc_target_init(%struct.ident_t* nonnull @1, i8 1, i1 true, i1 true) #3, !dbg !18
@@ -104,7 +104,7 @@ declare i32 @__kmpc_global_thread_num(%struct.ident_t*) local_unnamed_addr #3
 declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1) local_unnamed_addr
 
 ; Function Attrs: norecurse nounwind
-define weak void @__omp_offloading_2a_d80d3d_test_no_fallback_l20() local_unnamed_addr #4 !dbg !32 {
+define void @__omp_offloading_2a_d80d3d_test_no_fallback_l20() local_unnamed_addr #4 !dbg !32 {
 entry:
   %captured_vars_addrs.i2.i = alloca [0 x i8*], align 8
   %0 = call i32 @__kmpc_target_init(%struct.ident_t* nonnull @7, i8 1, i1 true, i1 true) #3, !dbg !33

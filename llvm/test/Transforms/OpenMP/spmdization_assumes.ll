@@ -27,7 +27,7 @@ target triple = "nvptx64"
 ; CHECK: @[[LLVM_COMPILER_USED:[a-zA-Z0-9_$"\\.-]+]] = appending global [1 x i8*] [i8* @__omp_offloading_fd02_404433c2_main_l5_exec_mode], section "llvm.metadata"
 ; CHECK: @[[GLOB2:[0-9]+]] = private unnamed_addr constant [[STRUCT_IDENT_T:%.*]] { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([23 x i8], [23 x i8]* @[[GLOB0]], i32 0, i32 0) }, align 8
 ;.
-define weak void @__omp_offloading_fd02_404433c2_main_l5(double* nonnull align 8 dereferenceable(8) %x) local_unnamed_addr #0 {
+define void @__omp_offloading_fd02_404433c2_main_l5(double* nonnull align 8 dereferenceable(8) %x) local_unnamed_addr #0 {
 ; CHECK-LABEL: define {{[^@]+}}@__omp_offloading_fd02_404433c2_main_l5
 ; CHECK-SAME: (double* nonnull align 8 dereferenceable(8) [[X:%.*]]) local_unnamed_addr #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:

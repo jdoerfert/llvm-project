@@ -1763,9 +1763,6 @@ public:
         return;
       }
     }
-
-    if (!A.isFunctionIPOAmendable(*F))
-      indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -1797,11 +1794,6 @@ public:
   /// there cannot be one, return a nullptr. If it is not clear yet, return the
   /// Optional::NoneType.
   Optional<Value *> getAssumedUniqueReturnValue(Attributor &A) const;
-
-  /// See AbstractState::checkForAllReturnedValues(...).
-  bool checkForAllReturnedValuesAndReturnInsts(
-      function_ref<bool(Value &, const SmallSetVector<ReturnInst *, 4> &)> Pred)
-      const override;
 
   /// Pretty print the attribute similar to the IR representation.
   const std::string getAsStr() const override;
@@ -1877,23 +1869,6 @@ AAReturnedValuesImpl::getAssumedUniqueReturnValue(Attributor &A) const {
     UniqueRV = nullptr;
 
   return UniqueRV;
-}
-
-bool AAReturnedValuesImpl::checkForAllReturnedValuesAndReturnInsts(
-    function_ref<bool(Value &, const SmallSetVector<ReturnInst *, 4> &)> Pred)
-    const {
-  if (!isValidState())
-    return false;
-
-  // Check all returned values but ignore call sites as long as we have not
-  // encountered an overdefined one during an update.
-  for (auto &It : ReturnedValues) {
-    Value *RV = It.first;
-    if (!Pred(*RV, It.second))
-      return false;
-  }
-
-  return true;
 }
 
 ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
@@ -3026,7 +3001,7 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
   void initialize(Attributor &A) override {
     AAWillReturnImpl::initialize(A);
     Function *F = getAssociatedFunction();
-    if (!F || !A.isFunctionIPOAmendable(*F))
+    if (!F)
       indicatePessimisticFixpoint();
   }
 
@@ -3637,13 +3612,6 @@ struct AAIsDeadArgument : public AAIsDeadFloating {
   AAIsDeadArgument(const IRPosition &IRP, Attributor &A)
       : AAIsDeadFloating(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AAIsDeadFloating::initialize(A);
-    if (!A.isFunctionIPOAmendable(*getAnchorScope()))
-      indicatePessimisticFixpoint();
-  }
-
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
     Argument &Arg = *getAssociatedArgument();
@@ -4210,13 +4178,6 @@ struct AADereferenceableImpl : AADereferenceable {
         IRP.getAssociatedValue().getPointerDereferenceableBytes(
             A.getDataLayout(), CanBeNull, CanBeFreed));
 
-    bool IsFnInterface = IRP.isFnInterfaceKind();
-    Function *FnScope = IRP.getAnchorScope();
-    if (IsFnInterface && (!FnScope || !A.isFunctionIPOAmendable(*FnScope))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
-
     if (Instruction *CtxI = getCtxI())
       followUsesInMBEC(*this, A, getState(), *CtxI);
   }
@@ -4501,13 +4462,6 @@ struct AAAlignImpl : AAAlign {
 
     Value &V = getAssociatedValue();
     takeKnownMaximum(V.getPointerAlignment(A.getDataLayout()).value());
-
-    if (getIRPosition().isFnInterfaceKind() &&
-        (!getAnchorScope() ||
-         !A.isFunctionIPOAmendable(*getAssociatedFunction()))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
 
     if (Instruction *CtxI = getCtxI())
       followUsesInMBEC(*this, A, getState(), *CtxI);
@@ -4818,12 +4772,6 @@ struct AANoCaptureImpl : public AANoCapture {
       indicateOptimisticFixpoint();
       return;
     }
-    Function *AnchorScope = getAnchorScope();
-    if (isFnInterfaceKind() &&
-        (!AnchorScope || !A.isFunctionIPOAmendable(*AnchorScope))) {
-      indicatePessimisticFixpoint();
-      return;
-    }
 
     // You cannot "capture" null in the default address space.
     if (isa<ConstantPointerNull>(getAssociatedValue()) &&
@@ -4833,7 +4781,7 @@ struct AANoCaptureImpl : public AANoCapture {
     }
 
     const Function *F =
-        isArgumentPosition() ? getAssociatedFunction() : AnchorScope;
+        isArgumentPosition() ? getAssociatedFunction() : getAnchorScope();
 
     // Check what state the associated function can actually capture.
     if (F)
@@ -5111,6 +5059,7 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
   //       AAReturnedValues, e.g., track all values that escape through returns
   //       directly somehow.
   auto CheckReturnedArgs = [&](const AAReturnedValues &RVAA) {
+    // return false;
     bool SeenConstant = false;
     for (auto &It : RVAA.returned_values()) {
       if (isa<Constant>(It.first)) {
@@ -5334,15 +5283,15 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   }
 
   /// Helper function for querying AAValueSimplify and updating candicate.
-  /// \param IRP The value position we are trying to unify with SimplifiedValue
+  /// \param OV The value position we are trying to unify with SimplifiedValue
   bool checkAndUpdate(Attributor &A, const AbstractAttribute &QueryingAA,
-                      const IRPosition &IRP, bool Simplify = true) {
+                      Optional<Value *> OV) {
     bool UsedAssumedInformation = false;
-    Optional<Value *> QueryingValueSimplified = &IRP.getAssociatedValue();
-    if (Simplify)
-      QueryingValueSimplified =
-          A.getAssumedSimplified(IRP, QueryingAA, UsedAssumedInformation);
-    return unionAssumed(QueryingValueSimplified);
+    if (OV && *OV)
+      OV = A.getAssumedSimplified(**OV, QueryingAA, UsedAssumedInformation);
+    if (OV && *OV && !AA::isDynamicallyUnique(A, *this, **OV))
+      return false;
+    return unionAssumed(OV);
   }
 
   /// Returns a candidate is found or not
@@ -5505,20 +5454,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
       if (ACSArgPos.getPositionKind() == IRPosition::IRP_INVALID)
         return false;
 
-      // Simplify the argument operand explicitly and check if the result is
-      // valid in the current scope. This avoids refering to simplified values
-      // in other functions, e.g., we don't want to say a an argument in a
-      // static function is actually an argument in a different function.
-      bool UsedAssumedInformation = false;
-      Optional<Constant *> SimpleArgOp =
-          A.getAssumedConstant(ACSArgPos, *this, UsedAssumedInformation);
-      if (!SimpleArgOp.hasValue())
-        return true;
-      if (!SimpleArgOp.getValue())
-        return false;
-      if (!AA::isDynamicallyUnique(A, *this, **SimpleArgOp))
-        return false;
-      return unionAssumed(*SimpleArgOp);
+      return checkAndUpdate(A, *this, &ACSArgPos.getAssociatedValue());
     };
 
     // Generate a answer specific to a call site context.
@@ -5551,6 +5487,23 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
   AAValueSimplifyReturned(const IRPosition &IRP, Attributor &A)
       : AAValueSimplifyImpl(IRP, A) {}
 
+  void initialize(Attributor &A) override {
+    AAValueSimplifyImpl::initialize(A);
+    Function *Fn = getAssociatedFunction();
+    for (Argument &Arg : Fn->args()) {
+      if (Arg.hasReturnedAttr()) {
+        unionAssumed(&Arg);
+        indicateOptimisticFixpoint();
+        return;
+      }
+    }
+  }
+
+  /// See AbstractState::indicatePessimisticFixpoint(...).
+  ChangeStatus indicatePessimisticFixpoint() override {
+    return AAValueSimplify::indicatePessimisticFixpoint();
+  }
+
   /// See AAValueSimplify::getAssumedSimplifiedValue()
   Optional<Value *> getAssumedSimplifiedValue(Attributor &A) const override {
     if (!isValidState())
@@ -5564,9 +5517,7 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
 
     auto ReturnInstCB = [&](Instruction &I) {
       auto &RI = cast<ReturnInst>(I);
-      return checkAndUpdate(
-          A, *this,
-          IRPosition::value(*RI.getReturnValue(), getCallBaseContext()));
+      return checkAndUpdate(A, *this, RI.getReturnValue());
     };
 
     bool UsedAssumedInformation = false;
@@ -5613,12 +5564,6 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   /// operand. Return true if successful, in that case SimplifiedAssociatedValue
   /// will be updated.
   bool handleCmp(Attributor &A, CmpInst &Cmp) {
-    auto Union = [&](Value &V) {
-      SimplifiedAssociatedValue = AA::combineOptionalValuesInAAValueLatice(
-          SimplifiedAssociatedValue, &V, V.getType());
-      return SimplifiedAssociatedValue != Optional<Value *>(nullptr);
-    };
-
     Value *LHS = Cmp.getOperand(0);
     Value *RHS = Cmp.getOperand(1);
 
@@ -5648,7 +5593,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (LHS == RHS && (Cmp.isTrueWhenEqual() || Cmp.isFalseWhenEqual())) {
       Constant *NewVal =
           ConstantInt::get(Type::getInt1Ty(Ctx), Cmp.isTrueWhenEqual());
-      if (!Union(*NewVal))
+      if (!checkAndUpdate(A, *this, NewVal))
         return false;
       if (!UsedAssumedInformation)
         indicateOptimisticFixpoint();
@@ -5683,7 +5628,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     // The new value depends on the predicate, true for != and false for ==.
     Constant *NewVal = ConstantInt::get(
         Type::getInt1Ty(Ctx), ICmp->getPredicate() == CmpInst::ICMP_NE);
-    if (!Union(*NewVal))
+    if (!checkAndUpdate(A, *this, NewVal))
       return false;
 
     if (!UsedAssumedInformation)
@@ -5693,11 +5638,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   }
 
   bool updateWithLoad(Attributor &A, LoadInst &L) {
-    auto Union = [&](Value &V) {
-      SimplifiedAssociatedValue = AA::combineOptionalValuesInAAValueLatice(
-          SimplifiedAssociatedValue, &V, L.getType());
-      return SimplifiedAssociatedValue != Optional<Value *>(nullptr);
-    };
+    auto Union = [&](Value &V) { return checkAndUpdate(A, *this, &V); };
     return handleLoad(A, *this, L, Union);
   }
 
@@ -5744,11 +5685,8 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     const DataLayout &DL = I.getModule()->getDataLayout();
     SimplifyQuery Q(DL, TLI, DT, AC, &I);
     if (Value *SimplifiedI =
-            SimplifyInstructionWithOperands(&I, NewOps, Q, ORE)) {
-      SimplifiedAssociatedValue = AA::combineOptionalValuesInAAValueLatice(
-          SimplifiedAssociatedValue, SimplifiedI, I.getType());
-      return SimplifiedAssociatedValue != Optional<Value *>(nullptr);
-    }
+            SimplifyInstructionWithOperands(&I, NewOps, Q, ORE))
+      return checkAndUpdate(A, *this, SimplifiedI);
     return false;
   }
 
@@ -5779,8 +5717,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
                           << "\n");
         return false;
       }
-      return checkAndUpdate(A, *this,
-                            IRPosition::value(V, getCallBaseContext()));
+      return checkAndUpdate(A, *this, &V);
     };
 
     bool Dummy = false;
@@ -5838,27 +5775,29 @@ struct AAValueSimplifyCallSiteReturned : AAValueSimplifyImpl {
 
   void initialize(Attributor &A) override {
     AAValueSimplifyImpl::initialize(A);
-    if (!getAssociatedFunction())
+    Function *Fn = getAssociatedFunction();
+    if (!Fn)
       indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     auto Before = SimplifiedAssociatedValue;
-    auto &RetAA = A.getAAFor<AAReturnedValues>(
-        *this, IRPosition::function(*getAssociatedFunction()),
-        DepClassTy::REQUIRED);
-    auto PredForReturned =
-        [&](Value &RetVal, const SmallSetVector<ReturnInst *, 4> &RetInsts) {
-          bool UsedAssumedInformation = false;
-          Optional<Value *> CSRetVal = A.translateArgumentToCallSiteContent(
-              &RetVal, *cast<CallBase>(getCtxI()), *this,
-              UsedAssumedInformation);
-          SimplifiedAssociatedValue = AA::combineOptionalValuesInAAValueLatice(
-              SimplifiedAssociatedValue, CSRetVal, getAssociatedType());
-          return SimplifiedAssociatedValue != Optional<Value *>(nullptr);
-        };
-    if (!RetAA.checkForAllReturnedValuesAndReturnInsts(PredForReturned))
+    bool Success = true;
+    bool UsedAssumedInformation = false;
+    Optional<Value *> SimplifiedRV =
+        A.getAssumedSimplified(IRPosition::returned(*getAssociatedFunction()),
+                               *this, UsedAssumedInformation);
+    if (SimplifiedRV && *SimplifiedRV &&
+        AA::isValidAtPosition(**SimplifiedRV, *getCtxI(), A.getInfoCache())) {
+      Success = checkAndUpdate(A, *this, SimplifiedRV);
+    } else {
+      Optional<Value *> CSRetVal = A.translateArgumentToCallSiteContent(
+          SimplifiedRV, *cast<CallBase>(getCtxI()), *this,
+          UsedAssumedInformation);
+      Success = checkAndUpdate(A, *this, CSRetVal);
+    }
+    if (!Success)
       if (!askSimplifiedValueForOtherAAs(A))
         return indicatePessimisticFixpoint();
     return Before == SimplifiedAssociatedValue ? ChangeStatus::UNCHANGED
@@ -7202,7 +7141,7 @@ struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
 
     // Initialize the use vector with all direct uses of the associated value.
     Argument *Arg = getAssociatedArgument();
-    if (!Arg || !A.isFunctionIPOAmendable(*(Arg->getParent())))
+    if (!Arg)
       indicatePessimisticFixpoint();
   }
 

@@ -49,7 +49,7 @@ target triple = "nvptx64"
 ; CHECK: @[[LLVM_COMPILER_USED:[a-zA-Z0-9_$"\\.-]+]] = appending global [2 x i8*] [i8* @__omp_offloading_2b_10393b5_spmd_l12_exec_mode, i8* @__omp_offloading_2b_10393b5_generic_l20_exec_mode], section "llvm.metadata"
 ; CHECK: @[[__OMP_OUTLINED___WRAPPER_ID:[a-zA-Z0-9_$"\\.-]+]] = private constant i8 undef
 ;.
-define weak void @__omp_offloading_2b_10393b5_spmd_l12() #0 {
+define void @__omp_offloading_2b_10393b5_spmd_l12() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@__omp_offloading_2b_10393b5_spmd_l12
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
@@ -116,7 +116,7 @@ declare i32 @__kmpc_target_init(%struct.ident_t*, i8, i1, i1)
 declare void @__kmpc_target_deinit(%struct.ident_t*, i8, i1)
 
 ; Function Attrs: convergent noinline norecurse nounwind
-define weak void @__omp_offloading_2b_10393b5_generic_l20() #0 {
+define void @__omp_offloading_2b_10393b5_generic_l20() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@__omp_offloading_2b_10393b5_generic_l20
 ; CHECK-SAME: () #[[ATTR0]] {
 ; CHECK-NEXT:  entry:

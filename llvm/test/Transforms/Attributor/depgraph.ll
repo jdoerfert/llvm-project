@@ -22,7 +22,7 @@ define i32* @checkAndAdvance(i32* align 16 %0) {
 ; CHECK-NEXT:    br i1 [[TMP3]], label [[TMP4:%.*]], label [[TMP7:%.*]]
 ; CHECK:       4:
 ; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr inbounds i32, i32* [[TMP0]], i64 4
-; CHECK-NEXT:    [[TMP6:%.*]] = call nonnull align 16 i32* @checkAndAdvance(i32* nofree nonnull readonly align 16 [[TMP5]]) #[[ATTR1:[0-9]+]]
+; CHECK-NEXT:    [[TMP6:%.*]] = call noundef nonnull align 16 dereferenceable(4) i32* @checkAndAdvance(i32* nofree nonnull readonly align 16 [[TMP5]]) #[[ATTR1:[0-9]+]]
 ; CHECK-NEXT:    br label [[TMP8:%.*]]
 ; CHECK:       7:
 ; CHECK-NEXT:    br label [[TMP8]]

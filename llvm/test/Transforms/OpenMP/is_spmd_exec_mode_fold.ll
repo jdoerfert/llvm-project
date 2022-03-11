@@ -19,7 +19,7 @@ target triple = "nvptx64"
 ; CHECK: @[[G:[a-zA-Z0-9_$"\\.-]+]] = external global i8
 ; CHECK: @[[LLVM_COMPILER_USED:[a-zA-Z0-9_$"\\.-]+]] = appending global [4 x i8*] [i8* @is_spmd_exec_mode, i8* @will_be_spmd_exec_mode, i8* @non_spmd_exec_mode, i8* @will_not_be_spmd_exec_mode], section "llvm.metadata"
 ;.
-define weak void @is_spmd() {
+define void @is_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@is_spmd() {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 2, i1 false, i1 false)
 ; CHECK-NEXT:    call void @is_spmd_helper1()
@@ -36,7 +36,7 @@ define weak void @is_spmd() {
   ret void
 }
 
-define weak void @will_be_spmd() {
+define void @will_be_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@will_be_spmd() {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x i8*], align 8
@@ -71,7 +71,7 @@ user_code.entry:
   ret void
 }
 
-define weak void @non_spmd() {
+define void @non_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@non_spmd() {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
 ; CHECK-NEXT:    call void @is_generic_helper1()
@@ -88,7 +88,7 @@ define weak void @non_spmd() {
   ret void
 }
 
-define weak void @will_not_be_spmd() {
+define void @will_not_be_spmd() {
 ; CHECK-LABEL: define {{[^@]+}}@will_not_be_spmd() {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i8 1, i1 false, i1 false)
 ; CHECK-NEXT:    call void @is_generic_helper1()

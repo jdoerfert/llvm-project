@@ -13,7 +13,7 @@ target triple = "nvptx64"
 ; CHECK: @[[KERNEL1_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 1
 ; CHECK: @[[KERNEL2_EXEC_MODE:[a-zA-Z0-9_$"\\.-]+]] = weak constant i8 1
 ;.
-define weak void @kernel0() #0 {
+define void @kernel0() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel0
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i1 true, i1 false, i1 false)
@@ -33,7 +33,7 @@ define weak void @kernel0() #0 {
 
 @kernel1_exec_mode = weak constant i8 1
 
-define weak void @kernel1() #0 {
+define void @kernel1() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel1
 ; CHECK-SAME: () #[[ATTR0]] {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i1 true, i1 false, i1 false)
@@ -49,7 +49,7 @@ define weak void @kernel1() #0 {
 
 @kernel2_exec_mode = weak constant i8 1
 
-define weak void @kernel2() #0 {
+define void @kernel2() #0 {
 ; CHECK-LABEL: define {{[^@]+}}@kernel2
 ; CHECK-SAME: () #[[ATTR0]] {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* null, i1 false, i1 false, i1 false)

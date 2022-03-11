@@ -21,11 +21,17 @@ entry:
 }
 
 define void @outer1() {
-; CHECK: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; CHECK-LABEL: define {{[^@]+}}@outer1
-; CHECK-SAME: () #[[ATTR1:[0-9]+]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    ret void
+; IS__TUNIT____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@outer1
+; IS__TUNIT____-SAME: () #[[ATTR1:[0-9]+]] {
+; IS__TUNIT____-NEXT:  entry:
+; IS__TUNIT____-NEXT:    ret void
+;
+; IS__CGSCC____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@outer1
+; IS__CGSCC____-SAME: () #[[ATTR1:[0-9]+]] {
+; IS__CGSCC____-NEXT:  entry:
+; IS__CGSCC____-NEXT:    ret void
 ;
 entry:
   call void @inner1()
@@ -45,11 +51,9 @@ entry:
 
 ; CHECK-NOT: Function Attrs
 define i32 @outer2() {
-; CHECK: Function Attrs: norecurse
-; CHECK-LABEL: define {{[^@]+}}@outer2
-; CHECK-SAME: () #[[ATTR2:[0-9]+]] {
+; CHECK-LABEL: define {{[^@]+}}@outer2() {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[R:%.*]] = call i32 @inner2() #[[ATTR3:[0-9]+]]
+; CHECK-NEXT:    [[R:%.*]] = call i32 @inner2() #[[ATTR2:[0-9]+]]
 ; CHECK-NEXT:    ret i32 [[R]]
 ;
 entry:
@@ -63,7 +67,7 @@ entry:
 define linkonce i32 @inner3(i8* %addr) alwaysinline {
 ; CHECK: Function Attrs: alwaysinline
 ; CHECK-LABEL: define {{[^@]+}}@inner3
-; CHECK-SAME: (i8* [[ADDR:%.*]]) #[[ATTR3]] {
+; CHECK-SAME: (i8* [[ADDR:%.*]]) #[[ATTR2]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    indirectbr i8* [[ADDR]], [label [[ONE:%.*]], label %two]
 ; CHECK:       one:
@@ -82,9 +86,8 @@ two:
 }
 
 define i32 @outer3(i32 %x) {
-; CHECK: Function Attrs: norecurse
 ; CHECK-LABEL: define {{[^@]+}}@outer3
-; CHECK-SAME: (i32 [[X:%.*]]) #[[ATTR2]] {
+; CHECK-SAME: (i32 [[X:%.*]]) {
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[X]], 42
 ; CHECK-NEXT:    [[ADDR:%.*]] = select i1 [[CMP]], i8* blockaddress(@inner3, [[ONE:%.*]]), i8* blockaddress(@inner3, [[TWO:%.*]])
 ; CHECK-NEXT:    [[CALL:%.*]] = call i32 @inner3(i8* [[ADDR]])
@@ -96,8 +99,11 @@ define i32 @outer3(i32 %x) {
   ret i32 %call
 }
 ;.
-; CHECK: attributes #[[ATTR0]] = { alwaysinline nofree norecurse nosync nounwind readnone willreturn }
-; CHECK: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
-; CHECK: attributes #[[ATTR2]] = { norecurse }
-; CHECK: attributes #[[ATTR3]] = { alwaysinline }
+; IS__TUNIT____: attributes #[[ATTR0]] = { alwaysinline nofree norecurse nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR1]] = { nofree norecurse nosync nounwind readnone willreturn }
+; IS__TUNIT____: attributes #[[ATTR2]] = { alwaysinline }
+;.
+; IS__CGSCC____: attributes #[[ATTR0]] = { alwaysinline nofree norecurse nosync nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR1]] = { nofree nosync nounwind readnone willreturn }
+; IS__CGSCC____: attributes #[[ATTR2]] = { alwaysinline }
 ;.

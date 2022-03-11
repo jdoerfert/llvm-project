@@ -1328,9 +1328,17 @@ struct Attributor {
     // For now we ignore naked and optnone functions.
     bool Invalidate = Allowed && !Allowed->count(&AAType::ID);
     const Function *FnScope = IRP.getAnchorScope();
-    if (FnScope)
-      Invalidate |= FnScope->hasFnAttribute(Attribute::Naked) ||
-                    FnScope->hasFnAttribute(Attribute::OptimizeNone);
+    bool IsFnInterface = IRP.isFnInterfaceKind();
+    // TODO: Not all attributes require an exact definition. Find a way to
+    //       enable deduction for some but not all attributes in case the
+    //       definition might be changed at runtime, see also
+    //       http://lists.llvm.org/pipermail/llvm-dev/2018-February/121275.html.
+    // TODO: We could always determine abstract attributes and if sufficient
+    //       information was found we could duplicate the functions that do not
+    //       have an exact definition.
+    Invalidate = (IsFnInterface &&
+                  (!FnScope || !isFunctionIPOAmendable(
+                                   *FnScope, /*AllowDeclaration*/ true)));
 
     // Avoid too many nested initializations to prevent a stack overflow.
     Invalidate |= InitializationChainLength > MaxInitializationChainLength;
@@ -1348,6 +1356,13 @@ struct Attributor {
       ++InitializationChainLength;
       AA.initialize(*this);
       --InitializationChainLength;
+    }
+
+    // We initialize AAs for declarations but do never run update on them.
+    if (IsFnInterface &&
+        !isFunctionIPOAmendable(*FnScope, /* AllowDeclaration */ false)) {
+      AA.getState().indicatePessimisticFixpoint();
+      return AA;
     }
 
     // Initialize and update is allowed for code outside of the current function
@@ -1491,9 +1506,14 @@ struct Attributor {
   /// Determine whether the function \p F is IPO amendable
   ///
   /// If a function is exactly defined or it has alwaysinline attribute
-  /// and is viable to be inlined, we say it is IPO amendable
-  bool isFunctionIPOAmendable(const Function &F) {
-    return F.hasExactDefinition() || InfoCache.InlineableFunctions.count(&F);
+  /// and is viable to be inlined, we say it is IPO amendable. We also avoid
+  /// naked and optnone functions. If \p AllowDeclaration is true we allow
+  /// declarations, otherwise we do not.
+  bool isFunctionIPOAmendable(const Function &F, bool AllowDeclaration) {
+    return !F.hasFnAttribute(Attribute::Naked) &&
+           !F.hasFnAttribute(Attribute::OptimizeNone) &&
+           ((AllowDeclaration && F.isDeclaration()) || F.hasExactDefinition() ||
+            InfoCache.InlineableFunctions.count(&F));
   }
 
   /// Mark the internal function \p F as live.
@@ -1866,16 +1886,6 @@ public:
                             const Function &Fn, bool RequireAllCallSites,
                             const AbstractAttribute *QueryingAA,
                             bool &UsedAssumedInformation);
-
-  /// Check \p Pred on all values potentially returned by \p F.
-  ///
-  /// This method will evaluate \p Pred on all values potentially returned by
-  /// the function associated with \p QueryingAA. The returned values are
-  /// matched with their respective return instructions. Returns true if \p Pred
-  /// holds on all of them.
-  bool checkForAllReturnedValuesAndReturnInsts(
-      function_ref<bool(Value &, const SmallSetVector<ReturnInst *, 4> &)> Pred,
-      const AbstractAttribute &QueryingAA);
 
   /// Check \p Pred on all values potentially returned by the function
   /// associated with \p QueryingAA.
@@ -2775,18 +2785,6 @@ struct IRAttribute : public BaseType {
       this->getState().indicateOptimisticFixpoint();
       return;
     }
-
-    bool IsFnInterface = IRP.isFnInterfaceKind();
-    const Function *FnScope = IRP.getAnchorScope();
-    // TODO: Not all attributes require an exact definition. Find a way to
-    //       enable deduction for some but not all attributes in case the
-    //       definition might be changed at runtime, see also
-    //       http://lists.llvm.org/pipermail/llvm-dev/2018-February/121275.html.
-    // TODO: We could always determine abstract attributes and if sufficient
-    //       information was found we could duplicate the functions that do not
-    //       have an exact definition.
-    if (IsFnInterface && (!FnScope || !A.isFunctionIPOAmendable(*FnScope)))
-      this->getState().indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -3000,18 +2998,6 @@ struct AAReturnedValues
   /// there cannot be one, return a nullptr. If it is not clear yet, return the
   /// Optional::NoneType.
   Optional<Value *> getAssumedUniqueReturnValue(Attributor &A) const;
-
-  /// Check \p Pred on all returned values.
-  ///
-  /// This method will evaluate \p Pred on returned values and return
-  /// true if (1) all returned values are known, and (2) \p Pred returned true
-  /// for all returned values.
-  ///
-  /// Note: Unlike the Attributor::checkForAllReturnedValuesAndReturnInsts
-  /// method, this one will not filter dead return instructions.
-  virtual bool checkForAllReturnedValuesAndReturnInsts(
-      function_ref<bool(Value &, const SmallSetVector<ReturnInst *, 4> &)> Pred)
-      const = 0;
 
   using iterator =
       MapVector<Value *, SmallSetVector<ReturnInst *, 4>>::iterator;

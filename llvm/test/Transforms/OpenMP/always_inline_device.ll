@@ -9,7 +9,7 @@
 @G = external global i8
 
 ; Function Attrs: convergent norecurse nounwind
-define weak void @__omp_offloading_fd02_c0934fc2_foo_l4() #0 {
+define void @__omp_offloading_fd02_c0934fc2_foo_l4() #0 {
 ; CHECK: Function Attrs: convergent norecurse nounwind
 ; CHECK-LABEL: @__omp_offloading_fd02_c0934fc2_foo_l4(
 ; CHECK-NEXT:  entry:

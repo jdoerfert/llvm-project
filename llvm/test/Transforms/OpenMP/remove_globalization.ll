@@ -30,19 +30,6 @@ define void @kernel() {
 ; CHECK-LABEL: define {{[^@]+}}@kernel() {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* nonnull null, i8 1, i1 false, i1 true)
-; CHECK-NEXT:    call void @foo() #[[ATTR0:[0-9]+]]
-; CHECK-NEXT:    call void @bar() #[[ATTR0]]
-; CHECK-NEXT:    call void @unknown_no_openmp() #[[ATTR5:[0-9]+]]
-; CHECK-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* nonnull null, i8 1, i1 true)
-; CHECK-NEXT:    ret void
-;
-; CHECK-DISABLED-LABEL: define {{[^@]+}}@kernel() {
-; CHECK-DISABLED-NEXT:  entry:
-; CHECK-DISABLED-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(%struct.ident_t* nonnull null, i8 1, i1 false, i1 true)
-; CHECK-DISABLED-NEXT:    call void @foo() #[[ATTR0:[0-9]+]]
-; CHECK-DISABLED-NEXT:    call void @bar() #[[ATTR0]]
-; CHECK-DISABLED-NEXT:    call void @unknown_no_openmp() #[[ATTR5:[0-9]+]]
-; CHECK-DISABLED-NEXT:    call void @__kmpc_target_deinit(%struct.ident_t* nonnull null, i8 1, i1 true)
 ; CHECK-DISABLED-NEXT:    ret void
 ;
 entry:
@@ -78,18 +65,6 @@ define internal void @bar() {
 ; CHECK-LABEL: define {{[^@]+}}@bar
 ; CHECK-SAME: () #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[TMP0:%.*]] = call i8* @__kmpc_alloc_shared(i64 4) #[[ATTR0]], !dbg [[DBG8:![0-9]+]]
-; CHECK-NEXT:    call void @share(i8* nofree [[TMP0]]) #[[ATTR6:[0-9]+]], !dbg [[DBG8]]
-; CHECK-NEXT:    call void @__kmpc_free_shared(i8* [[TMP0]], i64 4) #[[ATTR0]]
-; CHECK-NEXT:    ret void
-;
-; CHECK-DISABLED-LABEL: define {{[^@]+}}@bar
-; CHECK-DISABLED-SAME: () #[[ATTR1:[0-9]+]] {
-; CHECK-DISABLED-NEXT:  entry:
-; CHECK-DISABLED-NEXT:    [[TMP0:%.*]] = call i8* @__kmpc_alloc_shared(i64 4) #[[ATTR0]], !dbg [[DBG8:![0-9]+]]
-; CHECK-DISABLED-NEXT:    call void @share(i8* nofree [[TMP0]]) #[[ATTR6:[0-9]+]], !dbg [[DBG8]]
-; CHECK-DISABLED-NEXT:    call void @__kmpc_free_shared(i8* [[TMP0]], i64 4) #[[ATTR0]]
-; CHECK-DISABLED-NEXT:    ret void
 ;
 entry:
   %0 = call i8* @__kmpc_alloc_shared(i64 4), !dbg !13
@@ -180,41 +155,6 @@ declare void @unknown_no_openmp() "llvm.assume"="omp_no_openmp"
 !13 = !DILocation(line: 4, column: 2, scope: !9)
 !14 = !DILocation(line: 6, column: 2, scope: !9)
 ;.
-; CHECK: attributes #[[ATTR0]] = { nounwind }
-; CHECK: attributes #[[ATTR1]] = { nosync nounwind }
-; CHECK: attributes #[[ATTR2]] = { nounwind readnone }
-; CHECK: attributes #[[ATTR3]] = { nofree nosync nounwind writeonly }
-; CHECK: attributes #[[ATTR4:[0-9]+]] = { nosync nounwind allocsize(0) }
-; CHECK: attributes #[[ATTR5]] = { "llvm.assume"="omp_no_openmp" }
-; CHECK: attributes #[[ATTR6]] = { nosync nounwind writeonly }
-;.
-; CHECK-DISABLED: attributes #[[ATTR0]] = { nounwind }
-; CHECK-DISABLED: attributes #[[ATTR1]] = { nosync nounwind }
-; CHECK-DISABLED: attributes #[[ATTR2]] = { nounwind readnone }
-; CHECK-DISABLED: attributes #[[ATTR3]] = { nofree nosync nounwind writeonly }
-; CHECK-DISABLED: attributes #[[ATTR4:[0-9]+]] = { nosync nounwind allocsize(0) }
-; CHECK-DISABLED: attributes #[[ATTR5]] = { "llvm.assume"="omp_no_openmp" }
-; CHECK-DISABLED: attributes #[[ATTR6]] = { nosync nounwind writeonly }
-;.
-; CHECK: [[META0:![0-9]+]] = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, producer: "clang version 13.0.0", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug, enums: !2, splitDebugInlining: false, nameTableKind: None)
-; CHECK: [[META1:![0-9]+]] = !DIFile(filename: "remove_globalization.c", directory: "/tmp/remove_globalization.c")
-; CHECK: [[META2:![0-9]+]] = !{}
-; CHECK: [[META3:![0-9]+]] = !{i32 2, !"Debug Info Version", i32 3}
-; CHECK: [[META4:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
-; CHECK: [[META5:![0-9]+]] = !{i32 7, !"openmp", i32 50}
-; CHECK: [[META6:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
-; CHECK: [[META7:![0-9]+]] = !{void ()* @kernel, !"kernel", i32 1}
-; CHECK: [[DBG8]] = !DILocation(line: 4, column: 2, scope: !9)
-; CHECK: [[META9:![0-9]+]] = distinct !DISubprogram(name: "bar", scope: !1, file: !1, line: 1, type: !10, scopeLine: 1, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !2)
-; CHECK: [[META10:![0-9]+]] = !DISubroutineType(types: !2)
-;.
-; CHECK-DISABLED: [[META0:![0-9]+]] = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, producer: "clang version 13.0.0", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug, enums: !2, splitDebugInlining: false, nameTableKind: None)
-; CHECK-DISABLED: [[META1:![0-9]+]] = !DIFile(filename: "remove_globalization.c", directory: "/tmp/remove_globalization.c")
-; CHECK-DISABLED: [[META2:![0-9]+]] = !{}
-; CHECK-DISABLED: [[META3:![0-9]+]] = !{i32 2, !"Debug Info Version", i32 3}
-; CHECK-DISABLED: [[META4:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
-; CHECK-DISABLED: [[META5:![0-9]+]] = !{i32 7, !"openmp", i32 50}
-; CHECK-DISABLED: [[META6:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
 ; CHECK-DISABLED: [[META7:![0-9]+]] = !{void ()* @kernel, !"kernel", i32 1}
 ; CHECK-DISABLED: [[DBG8]] = !DILocation(line: 4, column: 2, scope: !9)
 ; CHECK-DISABLED: [[META9:![0-9]+]] = distinct !DISubprogram(name: "bar", scope: !1, file: !1, line: 1, type: !10, scopeLine: 1, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !2)

@@ -93,9 +93,7 @@ entry:
 ;  copied one
 ;
 define i32 @outer1() {
-; CHECK_DISABLED: Function Attrs: norecurse
-; CHECK_DISABLED-LABEL: define {{[^@]+}}@outer1
-; CHECK_DISABLED-SAME: () #[[ATTR0:[0-9]+]] {
+; CHECK_DISABLED-LABEL: define {{[^@]+}}@outer1() {
 ; CHECK_DISABLED-NEXT:  entry:
 ; CHECK_DISABLED-NEXT:    [[RET1:%.*]] = call i32 @inner1(i32 noundef 1, i32 noundef 2)
 ; CHECK_DISABLED-NEXT:    [[RET2:%.*]] = call i32 @inner2(i32 noundef 1, i32 noundef 2)
@@ -103,9 +101,7 @@ define i32 @outer1() {
 ; CHECK_DISABLED-NEXT:    [[RET4:%.*]] = call i32 @inner4(i32 [[RET3]], i32 [[RET3]])
 ; CHECK_DISABLED-NEXT:    ret i32 [[RET4]]
 ;
-; CHECK_ENABLED: Function Attrs: norecurse
-; CHECK_ENABLED-LABEL: define {{[^@]+}}@outer1
-; CHECK_ENABLED-SAME: () #[[ATTR1:[0-9]+]] {
+; CHECK_ENABLED-LABEL: define {{[^@]+}}@outer1() {
 ; CHECK_ENABLED-NEXT:  entry:
 ; CHECK_ENABLED-NEXT:    [[RET1:%.*]] = call i32 @inner1(i32 noundef 1, i32 noundef 2)
 ; CHECK_ENABLED-NEXT:    [[RET2:%.*]] = call i32 @inner2(i32 noundef 1, i32 noundef 2)
@@ -131,9 +127,7 @@ define linkonce_odr void @unused_arg(i8) {
 }
 
 define void @unused_arg_caller() {
-; CHECK_DISABLED: Function Attrs: norecurse
-; CHECK_DISABLED-LABEL: define {{[^@]+}}@unused_arg_caller
-; CHECK_DISABLED-SAME: () #[[ATTR0]] {
+; CHECK_DISABLED-LABEL: define {{[^@]+}}@unused_arg_caller() {
 ; CHECK_DISABLED-NEXT:    call void @unused_arg(i8 noundef 0)
 ; CHECK_DISABLED-NEXT:    ret void
 ;
@@ -164,9 +158,6 @@ define linkonce_odr hidden void @__clang_call_terminate() {
 ; IS__CGSCC_____ENABLED: attributes #[[ATTR1:[0-9]+]] = { nofree noreturn nosync nounwind readnone willreturn }
 ; IS__CGSCC_____ENABLED: attributes #[[ATTR2]] = { nofree norecurse noreturn nosync nounwind readnone willreturn }
 ;.
-; CHECK_DISABLED: attributes #[[ATTR0]] = { norecurse }
-;.
 ; CHECK_ENABLED: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind readnone willreturn }
-; CHECK_ENABLED: attributes #[[ATTR1]] = { norecurse }
-; CHECK_ENABLED: attributes #[[ATTR2:[0-9]+]] = { nounwind readnone }
+; CHECK_ENABLED: attributes #[[ATTR1:[0-9]+]] = { nounwind readnone }
 ;.
