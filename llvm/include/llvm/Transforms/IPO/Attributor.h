@@ -100,6 +100,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SetVector.h"
@@ -119,6 +120,7 @@
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/Value.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/GraphWriter.h"
@@ -272,6 +274,34 @@ ChangeStatus operator|(ChangeStatus l, ChangeStatus r);
 ChangeStatus &operator|=(ChangeStatus &l, ChangeStatus r);
 ChangeStatus operator&(ChangeStatus l, ChangeStatus r);
 ChangeStatus &operator&=(ChangeStatus &l, ChangeStatus r);
+
+enum class SimplifiedValueScope {
+  Intra,
+  Inter,
+};
+
+struct SimplifiedValueTy {
+  SimplifiedValueTy() : IntraSV(llvm::None), InterSV(llvm::None){};
+  SimplifiedValueTy(Optional<Value *> SV) : IntraSV(nullptr), InterSV(SV){};
+  SimplifiedValueTy(Optional<Value *> IntraSV, Optional<Value *> InterSV)
+      : IntraSV(IntraSV), InterSV(InterSV){};
+  Optional<Value *> IntraSV;
+  Optional<Value *> InterSV;
+
+  const Optional<Value *> &get(SimplifiedValueScope S) const {
+    return S == SimplifiedValueScope::Intra ? IntraSV : InterSV;
+  }
+  bool hasValue() const { return IntraSV.hasValue() | InterSV.hasValue(); }
+  operator bool() const { return *this != SimplifiedValueTy(nullptr, nullptr); }
+  bool operator==(const SimplifiedValueTy &Other) const {
+    return IntraSV == Other.IntraSV && InterSV == Other.InterSV;
+  }
+  bool operator!=(const SimplifiedValueTy &Other) const {
+    return !(*this == Other);
+  }
+
+  static SimplifiedValueTy getWithType(Type &Ty);
+};
 
 enum class DepClassTy {
   REQUIRED, ///< The target cannot be valid if the source is not.
@@ -1614,13 +1644,16 @@ struct Attributor {
   /// return None, otherwise return `nullptr`.
   Optional<Value *> getAssumedSimplified(const IRPosition &IRP,
                                          const AbstractAttribute &AA,
+                                         SimplifiedValueScope S,
                                          bool &UsedAssumedInformation) {
-    return getAssumedSimplified(IRP, &AA, UsedAssumedInformation);
+    return getAssumedSimplified(IRP, &AA, S, UsedAssumedInformation);
   }
+
   Optional<Value *> getAssumedSimplified(const Value &V,
                                          const AbstractAttribute &AA,
+                                         SimplifiedValueScope S,
                                          bool &UsedAssumedInformation) {
-    return getAssumedSimplified(IRPosition::value(V), AA,
+    return getAssumedSimplified(IRPosition::value(V), AA, S,
                                 UsedAssumedInformation);
   }
 
@@ -1628,6 +1661,16 @@ struct Attributor {
   /// return None, otherwise return `nullptr`. Same as the public version
   /// except that it can be used without recording dependences on any \p AA.
   Optional<Value *> getAssumedSimplified(const IRPosition &V,
+                                         const AbstractAttribute *AA,
+                                         SimplifiedValueScope S,
+                                         bool &UsedAssumedInformation) {
+    return getAssumedSimplified(V, AA, UsedAssumedInformation).get(S);
+  }
+
+  /// If \p V is assumed simplified, return it, if it is unclear yet,
+  /// return None, otherwise return `nullptr`. Same as the public version
+  /// except that it can be used without recording dependences on any \p AA.
+  SimplifiedValueTy getAssumedSimplified(const IRPosition &V,
                                          const AbstractAttribute *AA,
                                          bool &UsedAssumedInformation);
 
@@ -1655,10 +1698,9 @@ private:
 
 public:
   /// Translate \p V from the callee context into the call site context.
-  Optional<Value *>
-  translateArgumentToCallSiteContent(Optional<Value *> V, CallBase &CB,
-                                     const AbstractAttribute &AA,
-                                     bool &UsedAssumedInformation);
+  Optional<Value *> translateArgumentToCallSiteContent(
+      Optional<Value *> V, CallBase &CB, const AbstractAttribute &AA,
+      SimplifiedValueScope S, bool &UsedAssumedInformation);
 
   /// Return true if \p AA (or its context instruction) is assumed dead.
   ///
@@ -1892,6 +1934,7 @@ public:
   ///
   /// This is the context insensitive version of the method above.
   bool checkForAllReturnedValues(function_ref<bool(Value &)> Pred,
+                                 SimplifiedValueScope S,
                                  const AbstractAttribute &QueryingAA);
 
   /// Check \p Pred on all instructions in \p Fn with an opcode present in
@@ -2989,45 +3032,6 @@ ChangeStatus clampStateAndIndicateChange(StateType &S, const StateType &R) {
 ///                       Abstract Attribute Classes
 /// ----------------------------------------------------------------------------
 
-/// An abstract attribute for the returned values of a function.
-struct AAReturnedValues
-    : public IRAttribute<Attribute::Returned, AbstractAttribute> {
-  AAReturnedValues(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
-
-  /// Return an assumed unique return value if a single candidate is found. If
-  /// there cannot be one, return a nullptr. If it is not clear yet, return the
-  /// Optional::NoneType.
-  Optional<Value *> getAssumedUniqueReturnValue(Attributor &A) const;
-
-  using iterator =
-      MapVector<Value *, SmallSetVector<ReturnInst *, 4>>::iterator;
-  using const_iterator =
-      MapVector<Value *, SmallSetVector<ReturnInst *, 4>>::const_iterator;
-  virtual llvm::iterator_range<iterator> returned_values() = 0;
-  virtual llvm::iterator_range<const_iterator> returned_values() const = 0;
-
-  virtual size_t getNumReturnValues() const = 0;
-
-  /// Create an abstract attribute view for the position \p IRP.
-  static AAReturnedValues &createForPosition(const IRPosition &IRP,
-                                             Attributor &A);
-
-  /// See AbstractAttribute::getName()
-  const std::string getName() const override { return "AAReturnedValues"; }
-
-  /// See AbstractAttribute::getIdAddr()
-  const char *getIdAddr() const override { return &ID; }
-
-  /// This function should return true if the type of the \p AA is
-  /// AAReturnedValues
-  static bool classof(const AbstractAttribute *AA) {
-    return (AA->getIdAddr() == &ID);
-  }
-
-  /// Unique ID (due to the unique address)
-  static const char ID;
-};
-
 struct AANoUnwind
     : public IRAttribute<Attribute::NoUnwind,
                          StateWrapper<BooleanState, AbstractAttribute>> {
@@ -3779,7 +3783,7 @@ struct ValueSimplifyStateType : public AbstractState {
   /// "Clamp" this state with \p PVS.
   ValueSimplifyStateType operator^=(const ValueSimplifyStateType &VS) {
     BS ^= VS.BS;
-    unionAssumed(VS.SimplifiedAssociatedValue);
+    unionAssumed(VS.SV);
     return *this;
   }
 
@@ -3788,7 +3792,7 @@ struct ValueSimplifyStateType : public AbstractState {
       return false;
     if (!isValidState() && !RHS.isValidState())
       return true;
-    return SimplifiedAssociatedValue == RHS.SimplifiedAssociatedValue;
+    return SV == RHS.SV;
   }
 
 protected:
@@ -3796,16 +3800,17 @@ protected:
   Type *Ty;
 
   /// Merge \p Other into the currently assumed simplified value
-  bool unionAssumed(Optional<Value *> Other);
+  bool unionAssumed(const SimplifiedValueTy &Other);
 
   /// Helper to track validity and fixpoint
   BooleanState BS;
 
-  /// An assumed simplified value. Initially, it is set to Optional::None, which
+  /// The assumed simplified values (one for a function local simplification one
+  /// for a "global" one). Initially, they are set to Optional::None, which
   /// means that the value is not clear under current assumption. If in the
   /// pessimistic state, getAssumedSimplifiedValue doesn't return this value but
   /// returns orignal associated value.
-  Optional<Value *> SimplifiedAssociatedValue;
+  SimplifiedValueTy SV;
 };
 
 /// An abstract interface for value simplify abstract attribute.
@@ -3840,7 +3845,12 @@ private:
   /// the Optional::NoneType.
   ///
   /// Use `Attributor::getAssumedSimplified` for value simplification.
-  virtual Optional<Value *> getAssumedSimplifiedValue(Attributor &A) const = 0;
+  virtual Optional<Value *>
+  getAssumedSimplifiedValue(Attributor &A, SimplifiedValueScope S) const {
+    return getAssumedSimplifiedValue(A).get(S);
+  }
+
+  virtual SimplifiedValueTy getAssumedSimplifiedValue(Attributor &A) const = 0;
 
   friend struct Attributor;
 };
@@ -4732,7 +4742,8 @@ struct AAPointerInfo : public AbstractAttribute {
 
   /// An access description.
   struct Access {
-    Access(Instruction *I, Optional<Value *> Content, AccessKind Kind, Type *Ty)
+    Access(Instruction *I, const SimplifiedValueTy &Content, AccessKind Kind,
+           Type *Ty)
         : LocalI(I), RemoteI(I), Content(Content), Kind(Kind), Ty(Ty) {}
     Access(Instruction *LocalI, Instruction *RemoteI, Optional<Value *> Content,
            AccessKind Kind, Type *Ty)
@@ -4752,8 +4763,10 @@ struct AAPointerInfo : public AbstractAttribute {
 
     Access &operator&=(const Access &R) {
       assert(RemoteI == R.RemoteI && "Expected same instruction!");
-      Content =
-          AA::combineOptionalValuesInAAValueLatice(Content, R.Content, Ty);
+      Content.IntraSV = AA::combineOptionalValuesInAAValueLatice(
+          Content.IntraSV, R.Content.IntraSV, Ty);
+      Content.InterSV = AA::combineOptionalValuesInAAValueLatice(
+          Content.InterSV, R.Content.InterSV, Ty);
       Kind = AccessKind(Kind | R.Kind);
       return *this;
     }
@@ -4778,21 +4791,16 @@ struct AAPointerInfo : public AbstractAttribute {
     bool isWrittenValueYetUndetermined() const { return !Content.hasValue(); }
 
     /// Return true if the value written cannot be determined at all.
-    bool isWrittenValueUnknown() const {
-      return Content.hasValue() && !*Content;
-    }
+    bool isWrittenValueUnknown() const { return Content.hasValue() && Content; }
 
     /// Return the type associated with the access, if known.
     Type *getType() const { return Ty; }
 
-    /// Return the value writen, if any. As long as
-    /// isWrittenValueYetUndetermined return true this function shall not be
-    /// called.
-    Value *getWrittenValue() const { return *Content; }
-
     /// Return the written value which can be `llvm::null` if it is not yet
     /// determined.
-    Optional<Value *> getContent() const { return Content; }
+    SimplifiedValueTy getContent() const {
+      return Content;
+    }
 
   private:
     /// The instruction responsible for the access with respect to the local
@@ -4804,7 +4812,7 @@ struct AAPointerInfo : public AbstractAttribute {
 
     /// The value written, if any. `llvm::none` means "not known yet", `nullptr`
     /// cannot be determined.
-    Optional<Value *> Content;
+    SimplifiedValueTy Content;
 
     /// The access kind, e.g., READ, as bitset (could be more than one).
     AccessKind Kind;

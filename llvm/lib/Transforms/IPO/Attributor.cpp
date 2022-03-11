@@ -357,8 +357,8 @@ getPotentialCopiesOfMemoryValue(Attributor &A, Ty &I,
       // be OK. We do not try to optimize the latter.
       if (!NullPointerIsDefined(I.getFunction(),
                                 Ptr.getType()->getPointerAddressSpace()) &&
-          A.getAssumedSimplified(Ptr, QueryingAA, UsedAssumedInformation) ==
-              Obj)
+          A.getAssumedSimplified(Ptr, QueryingAA, SimplifiedValueScope::Inter,
+                                 UsedAssumedInformation) == Obj)
         continue;
       LLVM_DEBUG(
           dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
@@ -1031,8 +1031,8 @@ Attributor::getAssumedConstant(const IRPosition &IRP,
   }
   const auto &ValueSimplifyAA =
       getAAFor<AAValueSimplify>(AA, IRP, DepClassTy::NONE);
-  Optional<Value *> SimplifiedV =
-      ValueSimplifyAA.getAssumedSimplifiedValue(*this);
+  Optional<Value *> SimplifiedV = ValueSimplifyAA.getAssumedSimplifiedValue(
+      *this, SimplifiedValueScope::Inter);
   bool IsKnown = ValueSimplifyAA.isAtFixpoint();
   UsedAssumedInformation |= !IsKnown;
   if (!SimplifiedV.hasValue()) {
@@ -1052,42 +1052,38 @@ Attributor::getAssumedConstant(const IRPosition &IRP,
   return CI;
 }
 
-Optional<Value *>
+SimplifiedValueTy
 Attributor::getAssumedSimplified(const IRPosition &IRP,
                                  const AbstractAttribute *AA,
                                  bool &UsedAssumedInformation) {
   // First check all callbacks provided by outside AAs. If any of them returns
   // a non-null value that is different from the associated value, or None, we
   // assume it's simpliied.
-  for (auto &CB : SimplificationCallbacks.lookup(IRP))
+  for (auto &CB : SimplificationCallbacks.lookup(IRP)) {
     return CB(IRP, AA, UsedAssumedInformation);
+  }
 
   // If no high-level/outside simplification occurred, use AAValueSimplify.
   const auto &ValueSimplifyAA =
       getOrCreateAAFor<AAValueSimplify>(IRP, AA, DepClassTy::NONE);
-  Optional<Value *> SimplifiedV =
+  SimplifiedValueTy SimplifiedV =
       ValueSimplifyAA.getAssumedSimplifiedValue(*this);
   bool IsKnown = ValueSimplifyAA.isAtFixpoint();
   UsedAssumedInformation |= !IsKnown;
   if (!SimplifiedV.hasValue()) {
     if (AA)
       recordDependence(ValueSimplifyAA, *AA, DepClassTy::OPTIONAL);
-    return llvm::None;
+    return SimplifiedV;
   }
-  if (*SimplifiedV == nullptr)
-    return const_cast<Value *>(&IRP.getAssociatedValue());
-  if (Value *SimpleV =
-          AA::getWithType(**SimplifiedV, *IRP.getAssociatedType())) {
-    if (AA)
-      recordDependence(ValueSimplifyAA, *AA, DepClassTy::OPTIONAL);
-    return SimpleV;
-  }
-  return const_cast<Value *>(&IRP.getAssociatedValue());
+  SimplifiedV = SimplifiedV.getWithType(*IRP.getAssociatedType());
+  if (SimplifiedV && AA)
+    recordDependence(ValueSimplifyAA, *AA, DepClassTy::OPTIONAL);
+  return SimplifiedV;
 }
 
 Optional<Value *> Attributor::translateArgumentToCallSiteContent(
     Optional<Value *> V, CallBase &CB, const AbstractAttribute &AA,
-    bool &UsedAssumedInformation) {
+    SimplifiedValueScope S, bool &UsedAssumedInformation) {
   if (!V.hasValue())
     return V;
   if (*V == nullptr || isa<Constant>(*V))
@@ -1096,7 +1092,7 @@ Optional<Value *> Attributor::translateArgumentToCallSiteContent(
     if (CB.getCalledFunction() == Arg->getParent())
       if (!Arg->hasPointeeInMemoryValueAttr())
         return getAssumedSimplified(
-            IRPosition::callsite_argument(CB, Arg->getArgNo()), AA,
+            IRPosition::callsite_argument(CB, Arg->getArgNo()), AA, S,
             UsedAssumedInformation);
   return nullptr;
 }
@@ -1490,25 +1486,22 @@ bool Attributor::checkForAllReturnedValuesAndReturnInsts(
 }
 
 bool Attributor::checkForAllReturnedValues(
-    function_ref<bool(Value &)> Pred, const AbstractAttribute &QueryingAA) {
+    function_ref<bool(Value &)> Pred, SimplifiedValueScope S,
+    const AbstractAttribute &QueryingAA) {
 
-  const IRPosition &IRP = QueryingAA.getIRPosition();
-  const Function *AssociatedFunction = IRP.getAssociatedFunction();
-  if (!AssociatedFunction)
-    return false;
-
-  // TODO: use the function scope once we have call site AAReturnedValues.
-  const IRPosition &QueryIRP = IRPosition::function(
-      *AssociatedFunction, QueryingAA.getCallBaseContext());
-  const auto &AARetVal =
-      getAAFor<AAReturnedValues>(QueryingAA, QueryIRP, DepClassTy::REQUIRED);
-  if (!AARetVal.getState().isValidState())
-    return false;
-
-  return AARetVal.checkForAllReturnedValuesAndReturnInsts(
-      [&](Value &RV, const SmallSetVector<ReturnInst *, 4> &) {
-        return Pred(RV);
-      });
+  bool UsedAssumedInformation = false;
+  auto ReturnInstCB = [&](Instruction &I) {
+    auto &RI = cast<ReturnInst>(I);
+    Optional<Value *> SimplifiedRV = getAssumedSimplified(
+        *RI.getReturnValue(), QueryingAA, S, UsedAssumedInformation);
+    if (!SimplifiedRV)
+      return true;
+    if (*SimplifiedRV == nullptr)
+      return false;
+    return Pred(**SimplifiedRV);
+  };
+  return checkForAllInstructions(ReturnInstCB, QueryingAA, {Instruction::Ret},
+                                 UsedAssumedInformation);
 }
 
 static bool checkForAllInstructionsImpl(
@@ -2809,10 +2802,6 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   // Return attributes are only appropriate if the return type is non void.
   Type *ReturnType = F.getReturnType();
   if (!ReturnType->isVoidTy()) {
-    // Argument attribute "returned" --- Create only one per function even
-    // though it is an argument attribute.
-    getOrCreateAAFor<AAReturnedValues>(FPos);
-
     IRPosition RetPos = IRPosition::returned(F);
 
     // Every returned value might be dead.
