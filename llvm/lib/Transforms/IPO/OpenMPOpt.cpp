@@ -5198,7 +5198,8 @@ private:
       assert(NewV);
       Value *ReplVal = NewV;
       if (V.getType() != ReplVal->getType()) {
-        auto *IP = cast<Instruction>(&V);
+        Instruction *IP = dyn_cast<Instruction>(&V);
+	if (!IP) IP = &*cast<Argument>(&V)->getParent()->getEntryBlock().begin();
         ReplVal = new BitCastInst(ReplVal, V.getType(), "", IP);
       }
       A.changeValueAfterManifest(V, *ReplVal);
