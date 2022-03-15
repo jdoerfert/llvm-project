@@ -337,10 +337,11 @@ define void @local_alloca_simplifiable_2() {
 ; IS__TUNIT_OPM:       for.body:
 ; IS__TUNIT_OPM-NEXT:    [[I15:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], 10
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 [[I15]]
+; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX]], align 2, !tbaa [[TBAA15:![0-9]+]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC]]
 ; IS__TUNIT_OPM:       for.inc:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP15:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP16:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2:%.*]]
 ; IS__TUNIT_OPM:       for.cond2:
@@ -354,10 +355,11 @@ define void @local_alloca_simplifiable_2() {
 ; IS__TUNIT_OPM-NEXT:    [[I17:%.*]] = mul nuw nsw i64 [[INDVARS_IV2]], 10
 ; IS__TUNIT_OPM-NEXT:    [[I18:%.*]] = or i64 [[I17]], 1
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX8:%.*]] = getelementptr inbounds float, float* [[I16]], i64 [[I18]]
+; IS__TUNIT_OPM-NEXT:    store float 0.000000e+00, float* [[ARRAYIDX8]], align 4, !tbaa [[TBAA18:![0-9]+]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC9]]
 ; IS__TUNIT_OPM:       for.inc9:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT3]] = add nuw nsw i64 [[INDVARS_IV2]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP17:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP19:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end11:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND13:%.*]]
 ; IS__TUNIT_OPM:       for.cond13:
@@ -371,12 +373,14 @@ define void @local_alloca_simplifiable_2() {
 ; IS__TUNIT_OPM-NEXT:    [[I20:%.*]] = mul nuw nsw i64 [[INDVARS_IV7]], 10
 ; IS__TUNIT_OPM-NEXT:    [[I21:%.*]] = add nuw nsw i64 [[I20]], 2
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX21:%.*]] = getelementptr inbounds i64, i64* [[I19]], i64 [[I21]]
+; IS__TUNIT_OPM-NEXT:    store i64 0, i64* [[ARRAYIDX21]], align 16, !tbaa [[TBAA20:![0-9]+]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC22]]
 ; IS__TUNIT_OPM:       for.inc22:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT8]] = add nuw nsw i64 [[INDVARS_IV7]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP18:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP22:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end24:
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX25:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 1023
+; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX25]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX26:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 500
 ; IS__TUNIT_OPM-NEXT:    [[I22:%.*]] = bitcast i8* [[ARRAYIDX26]] to i32*
 ; IS__TUNIT_OPM-NEXT:    call void @write_arg(i32* nocapture nofree nonnull writeonly align 4 dereferenceable(524) [[I22]], i32 noundef 0) #[[ATTR16:[0-9]+]]
@@ -388,12 +392,14 @@ define void @local_alloca_simplifiable_2() {
 ; IS__TUNIT_OPM:       for.cond.cleanup30:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_END38:%.*]]
 ; IS__TUNIT_OPM:       for.body31:
+; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX33:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 [[INDVARS_IV12]]
+; IS__TUNIT_OPM-NEXT:    [[I23:%.*]] = load i8, i8* [[ARRAYIDX33]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX35:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @globalBytes, i64 0, i64 [[INDVARS_IV12]]
-; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX35]], align 1, !tbaa [[TBAA19:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    store i8 [[I23]], i8* [[ARRAYIDX35]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC36]]
 ; IS__TUNIT_OPM:       for.inc36:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT13]] = add nuw nsw i64 [[INDVARS_IV12]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND28]], !llvm.loop [[LOOP20:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND28]], !llvm.loop [[LOOP23:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end38:
 ; IS__TUNIT_OPM-NEXT:    [[I24:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 0
 ; IS__TUNIT_OPM-NEXT:    call void @llvm.lifetime.end.p0i8(i64 noundef 1024, i8* nocapture nofree noundef nonnull align 16 dereferenceable(1024) [[I24]])
@@ -416,10 +422,11 @@ define void @local_alloca_simplifiable_2() {
 ; IS__TUNIT_NPM:       for.body:
 ; IS__TUNIT_NPM-NEXT:    [[I15:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], 10
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 [[I15]]
+; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX]], align 2, !tbaa [[TBAA15:![0-9]+]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC]]
 ; IS__TUNIT_NPM:       for.inc:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP15:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP16:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2:%.*]]
 ; IS__TUNIT_NPM:       for.cond2:
@@ -433,10 +440,11 @@ define void @local_alloca_simplifiable_2() {
 ; IS__TUNIT_NPM-NEXT:    [[I17:%.*]] = mul nuw nsw i64 [[INDVARS_IV2]], 10
 ; IS__TUNIT_NPM-NEXT:    [[I18:%.*]] = or i64 [[I17]], 1
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX8:%.*]] = getelementptr inbounds float, float* [[I16]], i64 [[I18]]
+; IS__TUNIT_NPM-NEXT:    store float 0.000000e+00, float* [[ARRAYIDX8]], align 4, !tbaa [[TBAA18:![0-9]+]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC9]]
 ; IS__TUNIT_NPM:       for.inc9:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT3]] = add nuw nsw i64 [[INDVARS_IV2]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP17:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP19:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end11:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND13:%.*]]
 ; IS__TUNIT_NPM:       for.cond13:
@@ -450,12 +458,14 @@ define void @local_alloca_simplifiable_2() {
 ; IS__TUNIT_NPM-NEXT:    [[I20:%.*]] = mul nuw nsw i64 [[INDVARS_IV7]], 10
 ; IS__TUNIT_NPM-NEXT:    [[I21:%.*]] = add nuw nsw i64 [[I20]], 2
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX21:%.*]] = getelementptr inbounds i64, i64* [[I19]], i64 [[I21]]
+; IS__TUNIT_NPM-NEXT:    store i64 0, i64* [[ARRAYIDX21]], align 16, !tbaa [[TBAA20:![0-9]+]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC22]]
 ; IS__TUNIT_NPM:       for.inc22:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT8]] = add nuw nsw i64 [[INDVARS_IV7]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP18:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP22:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end24:
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX25:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 1023
+; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX25]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX26:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 500
 ; IS__TUNIT_NPM-NEXT:    [[I22:%.*]] = bitcast i8* [[ARRAYIDX26]] to i32*
 ; IS__TUNIT_NPM-NEXT:    call void @write_arg(i32* nocapture nofree nonnull writeonly align 4 dereferenceable(524) [[I22]], i32 noundef 0) #[[ATTR12]]
@@ -467,12 +477,14 @@ define void @local_alloca_simplifiable_2() {
 ; IS__TUNIT_NPM:       for.cond.cleanup30:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_END38:%.*]]
 ; IS__TUNIT_NPM:       for.body31:
+; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX33:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 [[INDVARS_IV12]]
+; IS__TUNIT_NPM-NEXT:    [[I23:%.*]] = load i8, i8* [[ARRAYIDX33]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX35:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @globalBytes, i64 0, i64 [[INDVARS_IV12]]
-; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX35]], align 1, !tbaa [[TBAA19:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    store i8 [[I23]], i8* [[ARRAYIDX35]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC36]]
 ; IS__TUNIT_NPM:       for.inc36:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT13]] = add nuw nsw i64 [[INDVARS_IV12]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND28]], !llvm.loop [[LOOP20:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND28]], !llvm.loop [[LOOP23:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end38:
 ; IS__TUNIT_NPM-NEXT:    [[I24:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* [[BYTES]], i64 0, i64 0
 ; IS__TUNIT_NPM-NEXT:    call void @llvm.lifetime.end.p0i8(i64 noundef 1024, i8* nocapture nofree noundef nonnull align 16 dereferenceable(1024) [[I24]]) #[[ATTR11]]
@@ -1180,7 +1192,7 @@ entry:
 ;    }
 ;
 define void @static_global_simplifiable_2() {
-; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind writeonly
+; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@static_global_simplifiable_2
 ; IS__TUNIT_OPM-SAME: () #[[ATTR6:[0-9]+]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
@@ -1194,10 +1206,11 @@ define void @static_global_simplifiable_2() {
 ; IS__TUNIT_OPM:       for.body:
 ; IS__TUNIT_OPM-NEXT:    [[I:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], 10
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @GBytes, i64 0, i64 [[I]]
+; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX]], align 2, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC]]
 ; IS__TUNIT_OPM:       for.inc:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP21:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP24:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2:%.*]]
 ; IS__TUNIT_OPM:       for.cond2:
@@ -1210,10 +1223,11 @@ define void @static_global_simplifiable_2() {
 ; IS__TUNIT_OPM-NEXT:    [[I15:%.*]] = mul nuw nsw i64 [[INDVARS_IV2]], 10
 ; IS__TUNIT_OPM-NEXT:    [[I16:%.*]] = or i64 [[I15]], 1
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX8:%.*]] = getelementptr inbounds float, float* bitcast ([1024 x i8]* @GBytes to float*), i64 [[I16]]
+; IS__TUNIT_OPM-NEXT:    store float 0.000000e+00, float* [[ARRAYIDX8]], align 4, !tbaa [[TBAA18]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC9]]
 ; IS__TUNIT_OPM:       for.inc9:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT3]] = add nuw nsw i64 [[INDVARS_IV2]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP22:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP25:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end11:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND13:%.*]]
 ; IS__TUNIT_OPM:       for.cond13:
@@ -1226,11 +1240,13 @@ define void @static_global_simplifiable_2() {
 ; IS__TUNIT_OPM-NEXT:    [[I17:%.*]] = mul nuw nsw i64 [[INDVARS_IV7]], 10
 ; IS__TUNIT_OPM-NEXT:    [[I18:%.*]] = add nuw nsw i64 [[I17]], 2
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX20:%.*]] = getelementptr inbounds i64, i64* bitcast ([1024 x i8]* @GBytes to i64*), i64 [[I18]]
+; IS__TUNIT_OPM-NEXT:    store i64 0, i64* [[ARRAYIDX20]], align 16, !tbaa [[TBAA20]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC21]]
 ; IS__TUNIT_OPM:       for.inc21:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT8]] = add nuw nsw i64 [[INDVARS_IV7]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP23:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP26:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end23:
+; IS__TUNIT_OPM-NEXT:    store i8 0, i8* getelementptr inbounds ([1024 x i8], [1024 x i8]* @GBytes, i64 0, i64 1023), align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    call void @write_arg(i32* nocapture nofree writeonly align 4 dereferenceable_or_null(524) bitcast (i8* getelementptr inbounds ([1024 x i8], [1024 x i8]* @GBytes, i64 0, i64 500) to i32*), i32 noundef 0) #[[ATTR16]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND25:%.*]]
 ; IS__TUNIT_OPM:       for.cond25:
@@ -1240,18 +1256,20 @@ define void @static_global_simplifiable_2() {
 ; IS__TUNIT_OPM:       for.cond.cleanup27:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_END35:%.*]]
 ; IS__TUNIT_OPM:       for.body28:
+; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX30:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @GBytes, i64 0, i64 [[INDVARS_IV12]]
+; IS__TUNIT_OPM-NEXT:    [[I19:%.*]] = load i8, i8* [[ARRAYIDX30]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX32:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @globalBytes, i64 0, i64 [[INDVARS_IV12]]
-; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX32]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_OPM-NEXT:    store i8 [[I19]], i8* [[ARRAYIDX32]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC33]]
 ; IS__TUNIT_OPM:       for.inc33:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT13]] = add nuw nsw i64 [[INDVARS_IV12]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND25]], !llvm.loop [[LOOP24:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND25]], !llvm.loop [[LOOP27:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end35:
 ; IS__TUNIT_OPM-NEXT:    ret void
 ;
-; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
+; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@static_global_simplifiable_2
-; IS__TUNIT_NPM-SAME: () #[[ATTR4]] {
+; IS__TUNIT_NPM-SAME: () #[[ATTR5:[0-9]+]] {
 ; IS__TUNIT_NPM-NEXT:  entry:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND:%.*]]
 ; IS__TUNIT_NPM:       for.cond:
@@ -1263,10 +1281,11 @@ define void @static_global_simplifiable_2() {
 ; IS__TUNIT_NPM:       for.body:
 ; IS__TUNIT_NPM-NEXT:    [[I:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], 10
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @GBytes, i64 0, i64 [[I]]
+; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX]], align 2, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC]]
 ; IS__TUNIT_NPM:       for.inc:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP21:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP24:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2:%.*]]
 ; IS__TUNIT_NPM:       for.cond2:
@@ -1279,10 +1298,11 @@ define void @static_global_simplifiable_2() {
 ; IS__TUNIT_NPM-NEXT:    [[I15:%.*]] = mul nuw nsw i64 [[INDVARS_IV2]], 10
 ; IS__TUNIT_NPM-NEXT:    [[I16:%.*]] = or i64 [[I15]], 1
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX8:%.*]] = getelementptr inbounds float, float* bitcast ([1024 x i8]* @GBytes to float*), i64 [[I16]]
+; IS__TUNIT_NPM-NEXT:    store float 0.000000e+00, float* [[ARRAYIDX8]], align 4, !tbaa [[TBAA18]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC9]]
 ; IS__TUNIT_NPM:       for.inc9:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT3]] = add nuw nsw i64 [[INDVARS_IV2]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP22:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP25:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end11:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND13:%.*]]
 ; IS__TUNIT_NPM:       for.cond13:
@@ -1295,11 +1315,13 @@ define void @static_global_simplifiable_2() {
 ; IS__TUNIT_NPM-NEXT:    [[I17:%.*]] = mul nuw nsw i64 [[INDVARS_IV7]], 10
 ; IS__TUNIT_NPM-NEXT:    [[I18:%.*]] = add nuw nsw i64 [[I17]], 2
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX20:%.*]] = getelementptr inbounds i64, i64* bitcast ([1024 x i8]* @GBytes to i64*), i64 [[I18]]
+; IS__TUNIT_NPM-NEXT:    store i64 0, i64* [[ARRAYIDX20]], align 16, !tbaa [[TBAA20]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC21]]
 ; IS__TUNIT_NPM:       for.inc21:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT8]] = add nuw nsw i64 [[INDVARS_IV7]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP23:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP26:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end23:
+; IS__TUNIT_NPM-NEXT:    store i8 0, i8* getelementptr inbounds ([1024 x i8], [1024 x i8]* @GBytes, i64 0, i64 1023), align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    call void @write_arg(i32* nocapture nofree writeonly align 4 dereferenceable_or_null(524) bitcast (i8* getelementptr inbounds ([1024 x i8], [1024 x i8]* @GBytes, i64 0, i64 500) to i32*), i32 noundef 0) #[[ATTR12]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND25:%.*]]
 ; IS__TUNIT_NPM:       for.cond25:
@@ -1309,12 +1331,14 @@ define void @static_global_simplifiable_2() {
 ; IS__TUNIT_NPM:       for.cond.cleanup27:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_END35:%.*]]
 ; IS__TUNIT_NPM:       for.body28:
+; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX30:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @GBytes, i64 0, i64 [[INDVARS_IV12]]
+; IS__TUNIT_NPM-NEXT:    [[I19:%.*]] = load i8, i8* [[ARRAYIDX30]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX32:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @globalBytes, i64 0, i64 [[INDVARS_IV12]]
-; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX32]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_NPM-NEXT:    store i8 [[I19]], i8* [[ARRAYIDX32]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC33]]
 ; IS__TUNIT_NPM:       for.inc33:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT13]] = add nuw nsw i64 [[INDVARS_IV12]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND25]], !llvm.loop [[LOOP24:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND25]], !llvm.loop [[LOOP27:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end35:
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
@@ -1865,7 +1889,7 @@ entry:
 define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@noalias_arg_simplifiable_2
-; IS__TUNIT_OPM-SAME: (i8* nocapture nofree [[BYTES:%.*]]) #[[ATTR9:[0-9]+]] {
+; IS__TUNIT_OPM-SAME: (i8* nocapture nofree [[BYTES:%.*]]) #[[ATTR6]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND:%.*]]
 ; IS__TUNIT_OPM:       for.cond:
@@ -1877,11 +1901,11 @@ define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_OPM:       for.body:
 ; IS__TUNIT_OPM-NEXT:    [[I:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], 10
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds i8, i8* [[BYTES]], i64 [[I]]
-; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC]]
 ; IS__TUNIT_OPM:       for.inc:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP25:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP28:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2:%.*]]
 ; IS__TUNIT_OPM:       for.cond2:
@@ -1895,11 +1919,11 @@ define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_OPM-NEXT:    [[I16:%.*]] = mul nuw nsw i64 [[INDVARS_IV2]], 10
 ; IS__TUNIT_OPM-NEXT:    [[I17:%.*]] = or i64 [[I16]], 1
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX8:%.*]] = getelementptr inbounds float, float* [[I15]], i64 [[I17]]
-; IS__TUNIT_OPM-NEXT:    store float 0.000000e+00, float* [[ARRAYIDX8]], align 4, !tbaa [[TBAA26:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    store float 0.000000e+00, float* [[ARRAYIDX8]], align 4, !tbaa [[TBAA18]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC9]]
 ; IS__TUNIT_OPM:       for.inc9:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT3]] = add nuw nsw i64 [[INDVARS_IV2]], 1
-; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP27:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP29:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end11:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND13:%.*]]
 ; IS__TUNIT_OPM:       for.cond13:
@@ -1913,14 +1937,14 @@ define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_OPM-NEXT:    [[I19:%.*]] = mul nuw nsw i64 [[INDVARS_IV7]], 10
 ; IS__TUNIT_OPM-NEXT:    [[I20:%.*]] = add nuw nsw i64 [[I19]], 2
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX20:%.*]] = getelementptr inbounds i64, i64* [[I18]], i64 [[I20]]
-; IS__TUNIT_OPM-NEXT:    store i64 0, i64* [[ARRAYIDX20]], align 8, !tbaa [[TBAA28:![0-9]+]]
+; IS__TUNIT_OPM-NEXT:    store i64 0, i64* [[ARRAYIDX20]], align 8, !tbaa [[TBAA20]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC21]]
 ; IS__TUNIT_OPM:       for.inc21:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT8]] = add nuw nsw i64 [[INDVARS_IV7]], 1
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP30:![0-9]+]]
 ; IS__TUNIT_OPM:       for.end23:
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX24:%.*]] = getelementptr inbounds i8, i8* [[BYTES]], i64 1023
-; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX24]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_OPM-NEXT:    store i8 0, i8* [[ARRAYIDX24]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX25:%.*]] = getelementptr inbounds i8, i8* [[BYTES]], i64 500
 ; IS__TUNIT_OPM-NEXT:    [[I21:%.*]] = bitcast i8* [[ARRAYIDX25]] to i32*
 ; IS__TUNIT_OPM-NEXT:    call void @write_arg(i32* nocapture nofree nonnull writeonly align 4 [[I21]], i32 noundef 0) #[[ATTR16]]
@@ -1933,9 +1957,9 @@ define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_END37:%.*]]
 ; IS__TUNIT_OPM:       for.body30:
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX32:%.*]] = getelementptr inbounds i8, i8* [[BYTES]], i64 [[INDVARS_IV12]]
-; IS__TUNIT_OPM-NEXT:    [[I22:%.*]] = load i8, i8* [[ARRAYIDX32]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_OPM-NEXT:    [[I22:%.*]] = load i8, i8* [[ARRAYIDX32]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    [[ARRAYIDX34:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @globalBytes, i64 0, i64 [[INDVARS_IV12]]
-; IS__TUNIT_OPM-NEXT:    store i8 [[I22]], i8* [[ARRAYIDX34]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_OPM-NEXT:    store i8 [[I22]], i8* [[ARRAYIDX34]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_INC35]]
 ; IS__TUNIT_OPM:       for.inc35:
 ; IS__TUNIT_OPM-NEXT:    [[INDVARS_IV_NEXT13]] = add nuw nsw i64 [[INDVARS_IV12]], 1
@@ -1957,11 +1981,11 @@ define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_NPM:       for.body:
 ; IS__TUNIT_NPM-NEXT:    [[I:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], 10
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds i8, i8* [[BYTES]], i64 [[I]]
-; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC]]
 ; IS__TUNIT_NPM:       for.inc:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP25:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP28:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2:%.*]]
 ; IS__TUNIT_NPM:       for.cond2:
@@ -1975,11 +1999,11 @@ define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_NPM-NEXT:    [[I16:%.*]] = mul nuw nsw i64 [[INDVARS_IV2]], 10
 ; IS__TUNIT_NPM-NEXT:    [[I17:%.*]] = or i64 [[I16]], 1
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX8:%.*]] = getelementptr inbounds float, float* [[I15]], i64 [[I17]]
-; IS__TUNIT_NPM-NEXT:    store float 0.000000e+00, float* [[ARRAYIDX8]], align 4, !tbaa [[TBAA26:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    store float 0.000000e+00, float* [[ARRAYIDX8]], align 4, !tbaa [[TBAA18]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC9]]
 ; IS__TUNIT_NPM:       for.inc9:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT3]] = add nuw nsw i64 [[INDVARS_IV2]], 1
-; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP27:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND2]], !llvm.loop [[LOOP29:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end11:
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND13:%.*]]
 ; IS__TUNIT_NPM:       for.cond13:
@@ -1993,14 +2017,14 @@ define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_NPM-NEXT:    [[I19:%.*]] = mul nuw nsw i64 [[INDVARS_IV7]], 10
 ; IS__TUNIT_NPM-NEXT:    [[I20:%.*]] = add nuw nsw i64 [[I19]], 2
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX20:%.*]] = getelementptr inbounds i64, i64* [[I18]], i64 [[I20]]
-; IS__TUNIT_NPM-NEXT:    store i64 0, i64* [[ARRAYIDX20]], align 8, !tbaa [[TBAA28:![0-9]+]]
+; IS__TUNIT_NPM-NEXT:    store i64 0, i64* [[ARRAYIDX20]], align 8, !tbaa [[TBAA20]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC21]]
 ; IS__TUNIT_NPM:       for.inc21:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT8]] = add nuw nsw i64 [[INDVARS_IV7]], 1
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_COND13]], !llvm.loop [[LOOP30:![0-9]+]]
 ; IS__TUNIT_NPM:       for.end23:
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX24:%.*]] = getelementptr inbounds i8, i8* [[BYTES]], i64 1023
-; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX24]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_NPM-NEXT:    store i8 0, i8* [[ARRAYIDX24]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX25:%.*]] = getelementptr inbounds i8, i8* [[BYTES]], i64 500
 ; IS__TUNIT_NPM-NEXT:    [[I21:%.*]] = bitcast i8* [[ARRAYIDX25]] to i32*
 ; IS__TUNIT_NPM-NEXT:    call void @write_arg(i32* nocapture nofree nonnull writeonly align 4 [[I21]], i32 noundef 0) #[[ATTR12]]
@@ -2013,9 +2037,9 @@ define void @noalias_arg_simplifiable_2(i8* %Bytes) {
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_END37:%.*]]
 ; IS__TUNIT_NPM:       for.body30:
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX32:%.*]] = getelementptr inbounds i8, i8* [[BYTES]], i64 [[INDVARS_IV12]]
-; IS__TUNIT_NPM-NEXT:    [[I22:%.*]] = load i8, i8* [[ARRAYIDX32]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_NPM-NEXT:    [[I22:%.*]] = load i8, i8* [[ARRAYIDX32]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    [[ARRAYIDX34:%.*]] = getelementptr inbounds [1024 x i8], [1024 x i8]* @globalBytes, i64 0, i64 [[INDVARS_IV12]]
-; IS__TUNIT_NPM-NEXT:    store i8 [[I22]], i8* [[ARRAYIDX34]], align 1, !tbaa [[TBAA19]]
+; IS__TUNIT_NPM-NEXT:    store i8 [[I22]], i8* [[ARRAYIDX34]], align 1, !tbaa [[TBAA15]]
 ; IS__TUNIT_NPM-NEXT:    br label [[FOR_INC35]]
 ; IS__TUNIT_NPM:       for.inc35:
 ; IS__TUNIT_NPM-NEXT:    [[INDVARS_IV_NEXT13]] = add nuw nsw i64 [[INDVARS_IV12]], 1
@@ -2531,7 +2555,7 @@ declare void @escape(i8*)
 define i32 @global_not_simplifiable_1(i32 %cnd) {
 ; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@global_not_simplifiable_1
-; IS__TUNIT_OPM-SAME: (i32 [[CND:%.*]]) #[[ATTR10:[0-9]+]] {
+; IS__TUNIT_OPM-SAME: (i32 [[CND:%.*]]) #[[ATTR9:[0-9]+]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    [[I:%.*]] = load i32, i32* @Flag0, align 4, !tbaa [[TBAA3]]
 ; IS__TUNIT_OPM-NEXT:    ret i32 [[I]]
@@ -2662,7 +2686,7 @@ define void @write_global() {
 define i32 @read_global() {
 ; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@read_global
-; IS__TUNIT_OPM-SAME: () #[[ATTR10]] {
+; IS__TUNIT_OPM-SAME: () #[[ATTR9]] {
 ; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = load i32, i32* @Gint2, align 4
 ; IS__TUNIT_OPM-NEXT:    ret i32 [[L]]
 ;
@@ -2714,7 +2738,7 @@ define void @write_static_global() {
 define i32 @read_static_global() {
 ; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@read_static_global
-; IS__TUNIT_OPM-SAME: () #[[ATTR10]] {
+; IS__TUNIT_OPM-SAME: () #[[ATTR9]] {
 ; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = load i32, i32* @Gstatic_int2, align 4
 ; IS__TUNIT_OPM-NEXT:    ret i32 [[L]]
 ;
@@ -2795,7 +2819,7 @@ define i32 @single_read_of_static_global() {
 define i8 @phi_store() {
 ; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind readnone
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@phi_store
-; IS__TUNIT_OPM-SAME: () #[[ATTR11:[0-9]+]] {
+; IS__TUNIT_OPM-SAME: () #[[ATTR10:[0-9]+]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    [[A:%.*]] = alloca i16, align 2
 ; IS__TUNIT_OPM-NEXT:    [[B:%.*]] = bitcast i16* [[A]] to i8*
@@ -2889,23 +2913,23 @@ end:
 
 ; FIXME: This function returns 1.
 define i8 @phi_no_store_1() {
-; IS________OPM: Function Attrs: nofree norecurse nosync nounwind
-; IS________OPM-LABEL: define {{[^@]+}}@phi_no_store_1
-; IS________OPM-SAME: () #[[ATTR9:[0-9]+]] {
-; IS________OPM-NEXT:  entry:
-; IS________OPM-NEXT:    br label [[LOOP:%.*]]
-; IS________OPM:       loop:
-; IS________OPM-NEXT:    [[P:%.*]] = phi i8* [ bitcast (i32* @a1 to i8*), [[ENTRY:%.*]] ], [ [[G:%.*]], [[LOOP]] ]
-; IS________OPM-NEXT:    [[I:%.*]] = phi i8 [ 0, [[ENTRY]] ], [ [[O:%.*]], [[LOOP]] ]
-; IS________OPM-NEXT:    [[G]] = getelementptr i8, i8* [[P]], i64 1
-; IS________OPM-NEXT:    [[O]] = add nsw i8 [[I]], 1
-; IS________OPM-NEXT:    [[C:%.*]] = icmp eq i8 [[O]], 3
-; IS________OPM-NEXT:    br i1 [[C]], label [[END:%.*]], label [[LOOP]]
-; IS________OPM:       end:
-; IS________OPM-NEXT:    [[L11:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a1 to i8*), i64 2), align 2
-; IS________OPM-NEXT:    [[L12:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a1 to i8*), i64 3), align 1
-; IS________OPM-NEXT:    [[ADD:%.*]] = add i8 [[L11]], [[L12]]
-; IS________OPM-NEXT:    ret i8 [[ADD]]
+; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@phi_no_store_1
+; IS__TUNIT_OPM-SAME: () #[[ATTR6]] {
+; IS__TUNIT_OPM-NEXT:  entry:
+; IS__TUNIT_OPM-NEXT:    br label [[LOOP:%.*]]
+; IS__TUNIT_OPM:       loop:
+; IS__TUNIT_OPM-NEXT:    [[P:%.*]] = phi i8* [ bitcast (i32* @a1 to i8*), [[ENTRY:%.*]] ], [ [[G:%.*]], [[LOOP]] ]
+; IS__TUNIT_OPM-NEXT:    [[I:%.*]] = phi i8 [ 0, [[ENTRY]] ], [ [[O:%.*]], [[LOOP]] ]
+; IS__TUNIT_OPM-NEXT:    [[G]] = getelementptr i8, i8* [[P]], i64 1
+; IS__TUNIT_OPM-NEXT:    [[O]] = add nsw i8 [[I]], 1
+; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = icmp eq i8 [[O]], 3
+; IS__TUNIT_OPM-NEXT:    br i1 [[C]], label [[END:%.*]], label [[LOOP]]
+; IS__TUNIT_OPM:       end:
+; IS__TUNIT_OPM-NEXT:    [[L11:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a1 to i8*), i64 2), align 2
+; IS__TUNIT_OPM-NEXT:    [[L12:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a1 to i8*), i64 3), align 1
+; IS__TUNIT_OPM-NEXT:    [[ADD:%.*]] = add i8 [[L11]], [[L12]]
+; IS__TUNIT_OPM-NEXT:    ret i8 [[ADD]]
 ;
 ; IS________NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS________NPM-LABEL: define {{[^@]+}}@phi_no_store_1
@@ -2924,6 +2948,24 @@ define i8 @phi_no_store_1() {
 ; IS________NPM-NEXT:    [[L12:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a1 to i8*), i64 3), align 1
 ; IS________NPM-NEXT:    [[ADD:%.*]] = add i8 [[L11]], [[L12]]
 ; IS________NPM-NEXT:    ret i8 [[ADD]]
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@phi_no_store_1
+; IS__CGSCC_OPM-SAME: () #[[ATTR9:[0-9]+]] {
+; IS__CGSCC_OPM-NEXT:  entry:
+; IS__CGSCC_OPM-NEXT:    br label [[LOOP:%.*]]
+; IS__CGSCC_OPM:       loop:
+; IS__CGSCC_OPM-NEXT:    [[P:%.*]] = phi i8* [ bitcast (i32* @a1 to i8*), [[ENTRY:%.*]] ], [ [[G:%.*]], [[LOOP]] ]
+; IS__CGSCC_OPM-NEXT:    [[I:%.*]] = phi i8 [ 0, [[ENTRY]] ], [ [[O:%.*]], [[LOOP]] ]
+; IS__CGSCC_OPM-NEXT:    [[G]] = getelementptr i8, i8* [[P]], i64 1
+; IS__CGSCC_OPM-NEXT:    [[O]] = add nsw i8 [[I]], 1
+; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = icmp eq i8 [[O]], 3
+; IS__CGSCC_OPM-NEXT:    br i1 [[C]], label [[END:%.*]], label [[LOOP]]
+; IS__CGSCC_OPM:       end:
+; IS__CGSCC_OPM-NEXT:    [[L11:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a1 to i8*), i64 2), align 2
+; IS__CGSCC_OPM-NEXT:    [[L12:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a1 to i8*), i64 3), align 1
+; IS__CGSCC_OPM-NEXT:    [[ADD:%.*]] = add i8 [[L11]], [[L12]]
+; IS__CGSCC_OPM-NEXT:    ret i8 [[ADD]]
 ;
 entry:
   %b = bitcast i32* @a1 to i8*
@@ -2947,22 +2989,22 @@ end:
 
 ; FIXME: This function returns 1.
 define i8 @phi_no_store_2() {
-; IS________OPM: Function Attrs: nofree norecurse nosync nounwind
-; IS________OPM-LABEL: define {{[^@]+}}@phi_no_store_2
-; IS________OPM-SAME: () #[[ATTR9]] {
-; IS________OPM-NEXT:  entry:
-; IS________OPM-NEXT:    br label [[LOOP:%.*]]
-; IS________OPM:       loop:
-; IS________OPM-NEXT:    [[P:%.*]] = phi i8* [ bitcast (i32* @a2 to i8*), [[ENTRY:%.*]] ], [ getelementptr (i8, i8* bitcast (i32* @a2 to i8*), i64 2), [[LOOP]] ]
-; IS________OPM-NEXT:    [[I:%.*]] = phi i8 [ 0, [[ENTRY]] ], [ [[O:%.*]], [[LOOP]] ]
-; IS________OPM-NEXT:    store i8 1, i8* [[P]], align 2
-; IS________OPM-NEXT:    [[O]] = add nsw i8 [[I]], 1
-; IS________OPM-NEXT:    [[C:%.*]] = icmp eq i8 [[O]], 7
-; IS________OPM-NEXT:    br i1 [[C]], label [[END:%.*]], label [[LOOP]]
-; IS________OPM:       end:
-; IS________OPM-NEXT:    [[L21:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a2 to i8*), i64 2), align 2
-; IS________OPM-NEXT:    [[ADD:%.*]] = add i8 [[L21]], 0
-; IS________OPM-NEXT:    ret i8 [[ADD]]
+; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@phi_no_store_2
+; IS__TUNIT_OPM-SAME: () #[[ATTR6]] {
+; IS__TUNIT_OPM-NEXT:  entry:
+; IS__TUNIT_OPM-NEXT:    br label [[LOOP:%.*]]
+; IS__TUNIT_OPM:       loop:
+; IS__TUNIT_OPM-NEXT:    [[P:%.*]] = phi i8* [ bitcast (i32* @a2 to i8*), [[ENTRY:%.*]] ], [ getelementptr (i8, i8* bitcast (i32* @a2 to i8*), i64 2), [[LOOP]] ]
+; IS__TUNIT_OPM-NEXT:    [[I:%.*]] = phi i8 [ 0, [[ENTRY]] ], [ [[O:%.*]], [[LOOP]] ]
+; IS__TUNIT_OPM-NEXT:    store i8 1, i8* [[P]], align 2
+; IS__TUNIT_OPM-NEXT:    [[O]] = add nsw i8 [[I]], 1
+; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = icmp eq i8 [[O]], 7
+; IS__TUNIT_OPM-NEXT:    br i1 [[C]], label [[END:%.*]], label [[LOOP]]
+; IS__TUNIT_OPM:       end:
+; IS__TUNIT_OPM-NEXT:    [[L21:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a2 to i8*), i64 2), align 2
+; IS__TUNIT_OPM-NEXT:    [[ADD:%.*]] = add i8 [[L21]], 0
+; IS__TUNIT_OPM-NEXT:    ret i8 [[ADD]]
 ;
 ; IS________NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS________NPM-LABEL: define {{[^@]+}}@phi_no_store_2
@@ -2980,6 +3022,23 @@ define i8 @phi_no_store_2() {
 ; IS________NPM-NEXT:    [[L21:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a2 to i8*), i64 2), align 2
 ; IS________NPM-NEXT:    [[ADD:%.*]] = add i8 [[L21]], 0
 ; IS________NPM-NEXT:    ret i8 [[ADD]]
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@phi_no_store_2
+; IS__CGSCC_OPM-SAME: () #[[ATTR9]] {
+; IS__CGSCC_OPM-NEXT:  entry:
+; IS__CGSCC_OPM-NEXT:    br label [[LOOP:%.*]]
+; IS__CGSCC_OPM:       loop:
+; IS__CGSCC_OPM-NEXT:    [[P:%.*]] = phi i8* [ bitcast (i32* @a2 to i8*), [[ENTRY:%.*]] ], [ getelementptr (i8, i8* bitcast (i32* @a2 to i8*), i64 2), [[LOOP]] ]
+; IS__CGSCC_OPM-NEXT:    [[I:%.*]] = phi i8 [ 0, [[ENTRY]] ], [ [[O:%.*]], [[LOOP]] ]
+; IS__CGSCC_OPM-NEXT:    store i8 1, i8* [[P]], align 2
+; IS__CGSCC_OPM-NEXT:    [[O]] = add nsw i8 [[I]], 1
+; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = icmp eq i8 [[O]], 7
+; IS__CGSCC_OPM-NEXT:    br i1 [[C]], label [[END:%.*]], label [[LOOP]]
+; IS__CGSCC_OPM:       end:
+; IS__CGSCC_OPM-NEXT:    [[L21:%.*]] = load i8, i8* getelementptr (i8, i8* bitcast (i32* @a2 to i8*), i64 2), align 2
+; IS__CGSCC_OPM-NEXT:    [[ADD:%.*]] = add i8 [[L21]], 0
+; IS__CGSCC_OPM-NEXT:    ret i8 [[ADD]]
 ;
 entry:
   %b = bitcast i32* @a2 to i8*
@@ -3004,7 +3063,7 @@ end:
 define i8 @phi_no_store_3() {
 ; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind writeonly
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@phi_no_store_3
-; IS__TUNIT_OPM-SAME: () #[[ATTR6]] {
+; IS__TUNIT_OPM-SAME: () #[[ATTR11:[0-9]+]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    br label [[LOOP:%.*]]
 ; IS__TUNIT_OPM:       loop:
@@ -3111,7 +3170,7 @@ define i64 @cast_and_load_2() {
 define void @recursive_load_store(i64 %N, i32 %v) {
 ; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind writeonly
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@recursive_load_store
-; IS__TUNIT_OPM-SAME: (i64 [[N:%.*]], i32 [[V:%.*]]) #[[ATTR6]] {
+; IS__TUNIT_OPM-SAME: (i64 [[N:%.*]], i32 [[V:%.*]]) #[[ATTR11]] {
 ; IS__TUNIT_OPM-NEXT:  entry:
 ; IS__TUNIT_OPM-NEXT:    br label [[FOR_COND:%.*]]
 ; IS__TUNIT_OPM:       for.cond:
@@ -4093,12 +4152,12 @@ for.body7:                                        ; preds = %for.cond4
 ; IS__TUNIT_OPM: attributes #[[ATTR3]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__TUNIT_OPM: attributes #[[ATTR4]] = { nofree nosync nounwind willreturn }
 ; IS__TUNIT_OPM: attributes #[[ATTR5]] = { nofree norecurse nosync nounwind willreturn writeonly }
-; IS__TUNIT_OPM: attributes #[[ATTR6]] = { nofree norecurse nosync nounwind writeonly }
+; IS__TUNIT_OPM: attributes #[[ATTR6]] = { nofree norecurse nosync nounwind }
 ; IS__TUNIT_OPM: attributes #[[ATTR7]] = { nofree norecurse nosync nounwind willreturn }
 ; IS__TUNIT_OPM: attributes #[[ATTR8]] = { argmemonly nofree norecurse nosync nounwind willreturn }
-; IS__TUNIT_OPM: attributes #[[ATTR9]] = { nofree norecurse nosync nounwind }
-; IS__TUNIT_OPM: attributes #[[ATTR10]] = { nofree norecurse nosync nounwind readonly willreturn }
-; IS__TUNIT_OPM: attributes #[[ATTR11]] = { nofree norecurse nosync nounwind readnone }
+; IS__TUNIT_OPM: attributes #[[ATTR9]] = { nofree norecurse nosync nounwind readonly willreturn }
+; IS__TUNIT_OPM: attributes #[[ATTR10]] = { nofree norecurse nosync nounwind readnone }
+; IS__TUNIT_OPM: attributes #[[ATTR11]] = { nofree norecurse nosync nounwind writeonly }
 ; IS__TUNIT_OPM: attributes #[[ATTR12]] = { nofree norecurse nosync nounwind willreturn uwtable }
 ; IS__TUNIT_OPM: attributes #[[ATTR13]] = { argmemonly nofree nosync nounwind }
 ; IS__TUNIT_OPM: attributes #[[ATTR14]] = { willreturn }
@@ -4157,69 +4216,36 @@ for.body7:                                        ; preds = %for.cond4
 ; IS__CGSCC_NPM: attributes #[[ATTR13]] = { nounwind }
 ; IS__CGSCC_NPM: attributes #[[ATTR14]] = { norecurse }
 ;.
-; IS__TUNIT____: [[META0:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
-; IS__TUNIT____: [[META1:![0-9]+]] = !{i32 7, !"uwtable", i32 1}
-; IS__TUNIT____: [[META2:![0-9]+]] = !{!"clang version 13.0.0"}
-; IS__TUNIT____: [[TBAA3]] = !{!4, !4, i64 0}
-; IS__TUNIT____: [[META4:![0-9]+]] = !{!"int", !5, i64 0}
-; IS__TUNIT____: [[META5:![0-9]+]] = !{!"omnipotent char", !6, i64 0}
-; IS__TUNIT____: [[META6:![0-9]+]] = !{!"Simple C/C++ TBAA"}
-; IS__TUNIT____: [[META7:![0-9]+]] = !{!8, !9, i64 12}
-; IS__TUNIT____: [[META8:![0-9]+]] = !{!"S", !4, i64 0, !4, i64 4, !4, i64 8, !9, i64 12, !9, i64 16, !9, i64 20}
-; IS__TUNIT____: [[META9:![0-9]+]] = !{!"float", !5, i64 0}
-; IS__TUNIT____: [[META10:![0-9]+]] = !{!8, !9, i64 16}
-; IS__TUNIT____: [[META11:![0-9]+]] = !{!8, !9, i64 20}
-; IS__TUNIT____: [[META12:![0-9]+]] = !{!8, !4, i64 0}
-; IS__TUNIT____: [[META13:![0-9]+]] = !{!8, !4, i64 4}
-; IS__TUNIT____: [[META14:![0-9]+]] = !{!8, !4, i64 8}
-; IS__TUNIT____: [[META15:![0-9]+]] = distinct !{!15, !16}
-; IS__TUNIT____: [[META16:![0-9]+]] = !{!"llvm.loop.mustprogress"}
-; IS__TUNIT____: [[META17:![0-9]+]] = distinct !{!17, !16}
-; IS__TUNIT____: [[META18:![0-9]+]] = distinct !{!18, !16}
-; IS__TUNIT____: [[META19:![0-9]+]] = !{!5, !5, i64 0}
-; IS__TUNIT____: [[META20:![0-9]+]] = distinct !{!20, !16}
-; IS__TUNIT____: [[META21:![0-9]+]] = distinct !{!21, !16}
-; IS__TUNIT____: [[META22:![0-9]+]] = distinct !{!22, !16}
-; IS__TUNIT____: [[META23:![0-9]+]] = distinct !{!23, !16}
-; IS__TUNIT____: [[META24:![0-9]+]] = distinct !{!24, !16}
-; IS__TUNIT____: [[META25:![0-9]+]] = distinct !{!25, !16}
-; IS__TUNIT____: [[META26:![0-9]+]] = !{!9, !9, i64 0}
-; IS__TUNIT____: [[META27:![0-9]+]] = distinct !{!27, !16}
-; IS__TUNIT____: [[META28:![0-9]+]] = !{!29, !29, i64 0}
-; IS__TUNIT____: [[META29:![0-9]+]] = !{!"long long", !5, i64 0}
-; IS__TUNIT____: [[META30:![0-9]+]] = distinct !{!30, !16}
-; IS__TUNIT____: [[META31:![0-9]+]] = distinct !{!31, !16}
-;.
-; IS__CGSCC____: [[META0:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
-; IS__CGSCC____: [[META1:![0-9]+]] = !{i32 7, !"uwtable", i32 1}
-; IS__CGSCC____: [[META2:![0-9]+]] = !{!"clang version 13.0.0"}
-; IS__CGSCC____: [[TBAA3]] = !{!4, !4, i64 0}
-; IS__CGSCC____: [[META4:![0-9]+]] = !{!"int", !5, i64 0}
-; IS__CGSCC____: [[META5:![0-9]+]] = !{!"omnipotent char", !6, i64 0}
-; IS__CGSCC____: [[META6:![0-9]+]] = !{!"Simple C/C++ TBAA"}
-; IS__CGSCC____: [[META7:![0-9]+]] = !{!8, !9, i64 12}
-; IS__CGSCC____: [[META8:![0-9]+]] = !{!"S", !4, i64 0, !4, i64 4, !4, i64 8, !9, i64 12, !9, i64 16, !9, i64 20}
-; IS__CGSCC____: [[META9:![0-9]+]] = !{!"float", !5, i64 0}
-; IS__CGSCC____: [[META10:![0-9]+]] = !{!8, !9, i64 16}
-; IS__CGSCC____: [[META11:![0-9]+]] = !{!8, !9, i64 20}
-; IS__CGSCC____: [[META12:![0-9]+]] = !{!8, !4, i64 0}
-; IS__CGSCC____: [[META13:![0-9]+]] = !{!8, !4, i64 4}
-; IS__CGSCC____: [[META14:![0-9]+]] = !{!8, !4, i64 8}
-; IS__CGSCC____: [[META15:![0-9]+]] = !{!5, !5, i64 0}
-; IS__CGSCC____: [[META16:![0-9]+]] = distinct !{!16, !17}
-; IS__CGSCC____: [[META17:![0-9]+]] = !{!"llvm.loop.mustprogress"}
-; IS__CGSCC____: [[META18:![0-9]+]] = !{!9, !9, i64 0}
-; IS__CGSCC____: [[META19:![0-9]+]] = distinct !{!19, !17}
-; IS__CGSCC____: [[META20:![0-9]+]] = !{!21, !21, i64 0}
-; IS__CGSCC____: [[META21:![0-9]+]] = !{!"long long", !5, i64 0}
-; IS__CGSCC____: [[META22:![0-9]+]] = distinct !{!22, !17}
-; IS__CGSCC____: [[META23:![0-9]+]] = distinct !{!23, !17}
-; IS__CGSCC____: [[META24:![0-9]+]] = distinct !{!24, !17}
-; IS__CGSCC____: [[META25:![0-9]+]] = distinct !{!25, !17}
-; IS__CGSCC____: [[META26:![0-9]+]] = distinct !{!26, !17}
-; IS__CGSCC____: [[META27:![0-9]+]] = distinct !{!27, !17}
-; IS__CGSCC____: [[META28:![0-9]+]] = distinct !{!28, !17}
-; IS__CGSCC____: [[META29:![0-9]+]] = distinct !{!29, !17}
-; IS__CGSCC____: [[META30:![0-9]+]] = distinct !{!30, !17}
-; IS__CGSCC____: [[META31:![0-9]+]] = distinct !{!31, !17}
+; CHECK: [[META0:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
+; CHECK: [[META1:![0-9]+]] = !{i32 7, !"uwtable", i32 1}
+; CHECK: [[META2:![0-9]+]] = !{!"clang version 13.0.0"}
+; CHECK: [[TBAA3]] = !{!4, !4, i64 0}
+; CHECK: [[META4:![0-9]+]] = !{!"int", !5, i64 0}
+; CHECK: [[META5:![0-9]+]] = !{!"omnipotent char", !6, i64 0}
+; CHECK: [[META6:![0-9]+]] = !{!"Simple C/C++ TBAA"}
+; CHECK: [[META7:![0-9]+]] = !{!8, !9, i64 12}
+; CHECK: [[META8:![0-9]+]] = !{!"S", !4, i64 0, !4, i64 4, !4, i64 8, !9, i64 12, !9, i64 16, !9, i64 20}
+; CHECK: [[META9:![0-9]+]] = !{!"float", !5, i64 0}
+; CHECK: [[META10:![0-9]+]] = !{!8, !9, i64 16}
+; CHECK: [[META11:![0-9]+]] = !{!8, !9, i64 20}
+; CHECK: [[META12:![0-9]+]] = !{!8, !4, i64 0}
+; CHECK: [[META13:![0-9]+]] = !{!8, !4, i64 4}
+; CHECK: [[META14:![0-9]+]] = !{!8, !4, i64 8}
+; CHECK: [[META15:![0-9]+]] = !{!5, !5, i64 0}
+; CHECK: [[META16:![0-9]+]] = distinct !{!16, !17}
+; CHECK: [[META17:![0-9]+]] = !{!"llvm.loop.mustprogress"}
+; CHECK: [[META18:![0-9]+]] = !{!9, !9, i64 0}
+; CHECK: [[META19:![0-9]+]] = distinct !{!19, !17}
+; CHECK: [[META20:![0-9]+]] = !{!21, !21, i64 0}
+; CHECK: [[META21:![0-9]+]] = !{!"long long", !5, i64 0}
+; CHECK: [[META22:![0-9]+]] = distinct !{!22, !17}
+; CHECK: [[META23:![0-9]+]] = distinct !{!23, !17}
+; CHECK: [[META24:![0-9]+]] = distinct !{!24, !17}
+; CHECK: [[META25:![0-9]+]] = distinct !{!25, !17}
+; CHECK: [[META26:![0-9]+]] = distinct !{!26, !17}
+; CHECK: [[META27:![0-9]+]] = distinct !{!27, !17}
+; CHECK: [[META28:![0-9]+]] = distinct !{!28, !17}
+; CHECK: [[META29:![0-9]+]] = distinct !{!29, !17}
+; CHECK: [[META30:![0-9]+]] = distinct !{!30, !17}
+; CHECK: [[META31:![0-9]+]] = distinct !{!31, !17}
 ;.
