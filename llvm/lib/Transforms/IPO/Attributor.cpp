@@ -1262,6 +1262,7 @@ bool Attributor::checkForAllUses(
     function_ref<bool(const Use &, bool &)> Pred,
     const AbstractAttribute &QueryingAA, const Value &V,
     bool CheckBBLivenessOnly, DepClassTy LivenessDepClass,
+    bool IgnoreDroppableUses,
     function_ref<bool(const Use &OldU, const Use &NewU)> EquivalentUseCB) {
 
   // Check the trivial case first as it catches void values.
@@ -1302,7 +1303,7 @@ bool Attributor::checkForAllUses(
       LLVM_DEBUG(dbgs() << "[Attributor] Dead use, skip!\n");
       continue;
     }
-    if (U->getUser()->isDroppable()) {
+    if (IgnoreDroppableUses && U->getUser()->isDroppable()) {
       LLVM_DEBUG(dbgs() << "[Attributor] Droppable user, skip!\n");
       continue;
     }
