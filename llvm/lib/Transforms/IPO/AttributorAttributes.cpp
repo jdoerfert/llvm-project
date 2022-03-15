@@ -3065,10 +3065,6 @@ struct AAReachabilityImpl : AAReachability {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
-        *this, IRPosition::function(*getAnchorScope()), DepClassTy::REQUIRED);
-    if (!NoRecurseAA.isAssumedNoRecurse())
-      return indicatePessimisticFixpoint();
     return ChangeStatus::UNCHANGED;
   }
 };

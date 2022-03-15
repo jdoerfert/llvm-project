@@ -370,8 +370,8 @@ define void @test12_1() {
 define void @test12_2(){
 ; CHECK-LABEL: define {{[^@]+}}@test12_2() {
 ; CHECK-NEXT:    [[A:%.*]] = tail call noalias i8* @malloc(i64 noundef 4)
-; CHECK-NEXT:    tail call void @use_nocapture(i8* nocapture [[A]])
-; CHECK-NEXT:    tail call void @use_nocapture(i8* nocapture [[A]])
+; CHECK-NEXT:    tail call void @use_nocapture(i8* noalias nocapture [[A]])
+; CHECK-NEXT:    tail call void @use_nocapture(i8* noalias nocapture [[A]])
 ; CHECK-NEXT:    tail call void @use(i8* [[A]])
 ; CHECK-NEXT:    tail call void @use_nocapture(i8* nocapture [[A]])
 ; CHECK-NEXT:    ret void
