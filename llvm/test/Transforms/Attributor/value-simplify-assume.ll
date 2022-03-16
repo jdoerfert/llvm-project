@@ -606,12 +606,11 @@ define i1 @keep_assume_1(i1 %arg) {
 define i1 @drop_assume_1(i1 %arg) {
 ; CHECK: Function Attrs: inaccessiblememonly nofree nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@drop_assume_1
-; CHECK-SAME: (i1 [[ARG:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (i1 returned [[ARG:%.*]]) #[[ATTR0]] {
 ; CHECK-NEXT:    [[STACK:%.*]] = alloca i1, align 1
 ; CHECK-NEXT:    store i1 [[ARG]], i1* [[STACK]], align 1
-; CHECK-NEXT:    [[L:%.*]] = load i1, i1* [[STACK]], align 1
-; CHECK-NEXT:    call void @llvm.assume(i1 noundef [[L]]) #[[ATTR4]]
-; CHECK-NEXT:    ret i1 [[L]]
+; CHECK-NEXT:    call void @llvm.assume(i1 noundef [[ARG]]) #[[ATTR4]]
+; CHECK-NEXT:    ret i1 [[ARG]]
 ;
   %stack = alloca i1
   store i1 %arg, i1* %stack
