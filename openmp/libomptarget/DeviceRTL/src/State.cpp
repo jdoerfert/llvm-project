@@ -384,10 +384,6 @@ void state::init(bool IsSPMD, KernelEnvironmentTy &KernelEnv) {
   ThreadStates[mapping::getThreadIdInBlock()] = nullptr;
 }
 
-KernelEnvironmentTy &state::getKernelEnvironment() {
-  return *KernelEnvironmentPtr;
-}
-
 void state::enterDataEnvironment(IdentTy *Ident) {
   ASSERT(config::mayUseThreadStates() &&
          "Thread state modified while explicitly disabled!");
@@ -576,5 +572,15 @@ void __kmpc_get_shared_variables(void ***GlobalArgs) {
   FunctionTracingRAII();
   *GlobalArgs = SharedMemVariableSharingSpacePtr;
 }
+
+__attribute__((noinline)) KernelEnvironmentTy *__kmpc_get_kernel_environment() {
+  FunctionTracingRAII();
+  return KernelEnvironmentPtr;
 }
+}
+
+KernelEnvironmentTy &state::getKernelEnvironment() {
+  return *__kmpc_get_kernel_environment();
+}
+
 #pragma omp end declare target

@@ -9,12 +9,12 @@
 
 @0 = private unnamed_addr constant [1 x i8] c"\00", align 1
 @1 = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, align 8
-@kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
+@kernel_kernel_info = global %"struct._OMP::KernelEnvironmentTy" { %struct.ident_t { i32 0, i32 2, i32 0, i32 22, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @0, i32 0, i32 0) }, %"struct._OMP::ConfigurationEnvironmentTy" { i8 1, i8 1 }, i16 0 }
 
 define void @kernel() {
 ; CHECK-LABEL: define {{[^@]+}}@kernel() {
 ; CHECK-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca i8*, align 8
-; CHECK-NEXT:    [[CALL:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
+; CHECK-NEXT:    [[CALL:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info, i1 true)
 ; CHECK-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[CALL]], -1
 ; CHECK-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
 ; CHECK:       is_worker_check:
@@ -24,7 +24,7 @@ define void @kernel() {
 ; CHECK-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[CALL]], [[BLOCK_SIZE]]
 ; CHECK-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
 ; CHECK:       worker_state_machine.begin:
-; CHECK-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @kernel_info, i32 0, i32 0), i32 [[CALL]])
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info, i32 0, i32 0), i32 [[CALL]])
 ; CHECK-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(i8** [[WORKER_WORK_FN_ADDR]])
 ; CHECK-NEXT:    [[WORKER_WORK_FN:%.*]] = load i8*, i8** [[WORKER_WORK_FN_ADDR]], align 8
 ; CHECK-NEXT:    [[WORKER_WORK_FN_ADDR_CAST:%.*]] = bitcast i8* [[WORKER_WORK_FN]] to void (i16, i32)*
@@ -41,7 +41,7 @@ define void @kernel() {
 ; CHECK-NEXT:    call void @__kmpc_kernel_end_parallel()
 ; CHECK-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
 ; CHECK:       worker_state_machine.done.barrier:
-; CHECK-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @kernel_info, i32 0, i32 0), i32 [[CALL]])
+; CHECK-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info, i32 0, i32 0), i32 [[CALL]])
 ; CHECK-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
 ; CHECK:       thread.user_code.check:
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[CALL]], -1
@@ -53,12 +53,13 @@ define void @kernel() {
 ; CHECK-NEXT:    call void @bar()
 ; CHECK-NEXT:    br label [[IF_END]]
 ; CHECK:       if.end:
+; CHECK-NEXT:    call void @foobar.internalized()
 ; CHECK-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLED-LABEL: define {{[^@]+}}@kernel() {
 ; CHECK-DISABLED-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca i8*, align 8
-; CHECK-DISABLED-NEXT:    [[CALL:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
+; CHECK-DISABLED-NEXT:    [[CALL:%.*]] = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info, i1 true)
 ; CHECK-DISABLED-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[CALL]], -1
 ; CHECK-DISABLED-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
 ; CHECK-DISABLED:       is_worker_check:
@@ -68,7 +69,7 @@ define void @kernel() {
 ; CHECK-DISABLED-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[CALL]], [[BLOCK_SIZE]]
 ; CHECK-DISABLED-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
 ; CHECK-DISABLED:       worker_state_machine.begin:
-; CHECK-DISABLED-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @kernel_info, i32 0, i32 0), i32 [[CALL]])
+; CHECK-DISABLED-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info, i32 0, i32 0), i32 [[CALL]])
 ; CHECK-DISABLED-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(i8** [[WORKER_WORK_FN_ADDR]])
 ; CHECK-DISABLED-NEXT:    [[WORKER_WORK_FN:%.*]] = load i8*, i8** [[WORKER_WORK_FN_ADDR]], align 8
 ; CHECK-DISABLED-NEXT:    [[WORKER_WORK_FN_ADDR_CAST:%.*]] = bitcast i8* [[WORKER_WORK_FN]] to void (i16, i32)*
@@ -85,7 +86,7 @@ define void @kernel() {
 ; CHECK-DISABLED-NEXT:    call void @__kmpc_kernel_end_parallel()
 ; CHECK-DISABLED-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
 ; CHECK-DISABLED:       worker_state_machine.done.barrier:
-; CHECK-DISABLED-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @kernel_info, i32 0, i32 0), i32 [[CALL]])
+; CHECK-DISABLED-NEXT:    call void @__kmpc_barrier_simple_generic(%struct.ident_t* getelementptr inbounds (%"struct._OMP::KernelEnvironmentTy", %"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info, i32 0, i32 0), i32 [[CALL]])
 ; CHECK-DISABLED-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
 ; CHECK-DISABLED:       thread.user_code.check:
 ; CHECK-DISABLED-NEXT:    [[CMP:%.*]] = icmp eq i32 [[CALL]], -1
@@ -97,10 +98,11 @@ define void @kernel() {
 ; CHECK-DISABLED-NEXT:    call void @bar()
 ; CHECK-DISABLED-NEXT:    br label [[IF_END]]
 ; CHECK-DISABLED:       if.end:
+; CHECK-DISABLED-NEXT:    call void @foobar.internalized()
 ; CHECK-DISABLED-NEXT:    call void @__kmpc_target_deinit(i1 true)
 ; CHECK-DISABLED-NEXT:    ret void
 ;
-  %call = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_info, i1 true)
+  %call = call i32 @__kmpc_target_init(%"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info, i1 true)
   %cmp = icmp eq i32 %call, -1
   br i1 %cmp, label %if.then, label %if.else
 if.then:
@@ -110,6 +112,7 @@ if.else:
   call void @bar()
   br label %if.end
 if.end:
+  call void @foobar()
   call void @__kmpc_target_deinit(i1 true)
   ret void
 }
@@ -121,7 +124,8 @@ define internal void @foo() {
 ; CHECK-NEXT:    [[TID:%.*]] = call i32 @__kmpc_get_hardware_thread_id()
 ; CHECK-NEXT:    br label [[IF_THEN:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    call void @baz()
+; CHECK-NEXT:    [[BC:%.*]] = bitcast %"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info to i8*
+; CHECK-NEXT:    call void @baz(i8* [[BC]])
 ; CHECK-NEXT:    br label [[IF_END:%.*]]
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void
@@ -133,7 +137,9 @@ define internal void @foo() {
 ; CHECK-DISABLED-NEXT:    [[PRED:%.*]] = icmp eq i8 [[ISMAIN]], 1
 ; CHECK-DISABLED-NEXT:    br i1 [[PRED]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK-DISABLED:       if.then:
-; CHECK-DISABLED-NEXT:    call void @baz()
+; CHECK-DISABLED-NEXT:    [[KI:%.*]] = call %"struct._OMP::KernelEnvironmentTy"* @__kmpc_get_kernel_environment()
+; CHECK-DISABLED-NEXT:    [[BC:%.*]] = bitcast %"struct._OMP::KernelEnvironmentTy"* [[KI]] to i8*
+; CHECK-DISABLED-NEXT:    call void @baz(i8* [[BC]])
 ; CHECK-DISABLED-NEXT:    br label [[IF_END]]
 ; CHECK-DISABLED:       if.end:
 ; CHECK-DISABLED-NEXT:    ret void
@@ -145,7 +151,9 @@ entry:
   br i1 %pred, label %if.then, label %if.end
 
 if.then:
-  call void @baz()
+  %ki = call %"struct._OMP::KernelEnvironmentTy"* @__kmpc_get_kernel_environment()
+  %bc = bitcast %"struct._OMP::KernelEnvironmentTy"* %ki to i8*
+  call void @baz(i8* %bc)
   br label %if.end
 
 if.end:
@@ -161,7 +169,8 @@ define internal void @bar() {
 ; CHECK-NEXT:    [[PRED:%.*]] = icmp eq i8 [[ISMAIN]], 1
 ; CHECK-NEXT:    br i1 [[PRED]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    call void @baz()
+; CHECK-NEXT:    [[BC:%.*]] = bitcast %"struct._OMP::KernelEnvironmentTy"* @kernel_kernel_info to i8*
+; CHECK-NEXT:    call void @baz(i8* [[BC]])
 ; CHECK-NEXT:    br label [[IF_END]]
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret void
@@ -173,7 +182,9 @@ define internal void @bar() {
 ; CHECK-DISABLED-NEXT:    [[PRED:%.*]] = icmp eq i8 [[ISMAIN]], 1
 ; CHECK-DISABLED-NEXT:    br i1 [[PRED]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK-DISABLED:       if.then:
-; CHECK-DISABLED-NEXT:    call void @baz()
+; CHECK-DISABLED-NEXT:    [[KI:%.*]] = call %"struct._OMP::KernelEnvironmentTy"* @__kmpc_get_kernel_environment()
+; CHECK-DISABLED-NEXT:    [[BC:%.*]] = bitcast %"struct._OMP::KernelEnvironmentTy"* [[KI]] to i8*
+; CHECK-DISABLED-NEXT:    call void @baz(i8* [[BC]])
 ; CHECK-DISABLED-NEXT:    br label [[IF_END]]
 ; CHECK-DISABLED:       if.end:
 ; CHECK-DISABLED-NEXT:    ret void
@@ -185,16 +196,64 @@ entry:
   br i1 %pred, label %if.then, label %if.end
 
 if.then:
-  call void @baz()
+  %ki = call %"struct._OMP::KernelEnvironmentTy"* @__kmpc_get_kernel_environment()
+  %bc = bitcast %"struct._OMP::KernelEnvironmentTy"* %ki to i8*
+  call void @baz(i8* %bc)
   br label %if.end
 
 if.end:
   ret void
 }
 
-declare void @baz()
+define void @foobar() {
+; CHECK-LABEL: define {{[^@]+}}@foobar() {
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[TID:%.*]] = call i32 @__kmpc_get_hardware_thread_id()
+; CHECK-NEXT:    [[ISMAIN:%.*]] = call signext i8 @__kmpc_is_generic_main_thread_id(i32 [[TID]])
+; CHECK-NEXT:    [[PRED:%.*]] = icmp eq i8 [[ISMAIN]], 1
+; CHECK-NEXT:    br i1 [[PRED]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
+; CHECK:       if.then:
+; CHECK-NEXT:    [[KI:%.*]] = call %"struct._OMP::KernelEnvironmentTy"* @__kmpc_get_kernel_environment()
+; CHECK-NEXT:    [[BC:%.*]] = bitcast %"struct._OMP::KernelEnvironmentTy"* [[KI]] to i8*
+; CHECK-NEXT:    call void @baz(i8* [[BC]])
+; CHECK-NEXT:    br label [[IF_END]]
+; CHECK:       if.end:
+; CHECK-NEXT:    ret void
+;
+; CHECK-DISABLED-LABEL: define {{[^@]+}}@foobar() {
+; CHECK-DISABLED-NEXT:  entry:
+; CHECK-DISABLED-NEXT:    [[TID:%.*]] = call i32 @__kmpc_get_hardware_thread_id()
+; CHECK-DISABLED-NEXT:    [[ISMAIN:%.*]] = call signext i8 @__kmpc_is_generic_main_thread_id(i32 [[TID]])
+; CHECK-DISABLED-NEXT:    [[PRED:%.*]] = icmp eq i8 [[ISMAIN]], 1
+; CHECK-DISABLED-NEXT:    br i1 [[PRED]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
+; CHECK-DISABLED:       if.then:
+; CHECK-DISABLED-NEXT:    [[KI:%.*]] = call %"struct._OMP::KernelEnvironmentTy"* @__kmpc_get_kernel_environment()
+; CHECK-DISABLED-NEXT:    [[BC:%.*]] = bitcast %"struct._OMP::KernelEnvironmentTy"* [[KI]] to i8*
+; CHECK-DISABLED-NEXT:    call void @baz(i8* [[BC]])
+; CHECK-DISABLED-NEXT:    br label [[IF_END]]
+; CHECK-DISABLED:       if.end:
+; CHECK-DISABLED-NEXT:    ret void
+;
+entry:
+  %tid = call i32 @__kmpc_get_hardware_thread_id();
+  %ismain = call signext i8 @__kmpc_is_generic_main_thread_id(i32 %tid)
+  %pred = icmp eq i8 %ismain, 1
+  br i1 %pred, label %if.then, label %if.end
+
+if.then:
+  %ki = call %"struct._OMP::KernelEnvironmentTy"* @__kmpc_get_kernel_environment()
+  %bc = bitcast %"struct._OMP::KernelEnvironmentTy"* %ki to i8*
+  call void @baz(i8* %bc)
+  br label %if.end
+
+if.end:
+  ret void
+}
+
+declare void @baz(i8*)
 
 declare i8 @__kmpc_is_generic_main_thread_id(i32)
+declare %"struct._OMP::KernelEnvironmentTy"* @__kmpc_get_kernel_environment()
 
 declare i32 @__kmpc_get_hardware_thread_id()
 

@@ -4283,6 +4283,7 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     case OMPRTL___kmpc_global_thread_num:
     case OMPRTL___kmpc_get_hardware_num_threads_in_block:
     case OMPRTL___kmpc_get_hardware_num_blocks:
+    case OMPRTL___kmpc_get_kernel_environment:
     case OMPRTL___kmpc_single:
     case OMPRTL___kmpc_end_single:
     case OMPRTL___kmpc_master:
@@ -4512,10 +4513,13 @@ struct AAFoldRuntimeCallCallSiteReturned : AAFoldRuntimeCall {
       Changed |= foldParallelLevel(A);
       break;
     case OMPRTL___kmpc_get_hardware_num_threads_in_block:
-      Changed = Changed | foldKernelFnAttribute(A, "omp_target_thread_limit");
+      Changed |= foldKernelFnAttribute(A, "omp_target_thread_limit");
       break;
     case OMPRTL___kmpc_get_hardware_num_blocks:
-      Changed = Changed | foldKernelFnAttribute(A, "omp_target_num_teams");
+      Changed |= foldKernelFnAttribute(A, "omp_target_num_teams");
+      break;
+    case OMPRTL___kmpc_get_kernel_environment:
+      Changed |= foldKernelEnvironment(A);
       break;
     default:
       llvm_unreachable("Unhandled OpenMP runtime function!");
@@ -4705,6 +4709,37 @@ private:
                                                     : ChangeStatus::CHANGED;
   }
 
+  ChangeStatus foldKernelEnvironment(Attributor &A) {
+    auto &CallerKernelInfoAA = A.getAAFor<AAKernelInfo>(
+        *this, IRPosition::function(*getAnchorScope()), DepClassTy::REQUIRED);
+
+    if (!CallerKernelInfoAA.ReachingKernelEntries.isValidState())
+      return indicatePessimisticFixpoint();
+
+    if (CallerKernelInfoAA.ReachingKernelEntries.empty()) {
+      assert(!SimplifiedValue.hasValue() &&
+             "Simplified value should be none at this point");
+      return ChangeStatus::UNCHANGED;
+    }
+    if (CallerKernelInfoAA.ReachingKernelEntries.size() > 1)
+      return indicatePessimisticFixpoint();
+
+    Function *Kernel = (*CallerKernelInfoAA.ReachingKernelEntries.begin());
+    Module &M = *Kernel->getParent();
+    StringRef KernelName =Kernel->getName();
+    auto *KernelEnvironmentPtr = M.getGlobalVariable((KernelName + "_kernel_info").str());
+    assert(KernelEnvironmentPtr && "Kernel without kernel info!");
+
+    if (SimplifiedValue.hasValue()) {
+      assert(SimplifiedValue.getValue() == KernelEnvironmentPtr &&
+             "Reaching kernels unexpectedly dropped a kernel!");
+      return ChangeStatus::UNCHANGED;
+    }
+
+    SimplifiedValue = KernelEnvironmentPtr;
+    return ChangeStatus::CHANGED;
+  }
+
   ChangeStatus foldKernelFnAttribute(Attributor &A, llvm::StringRef Attr) {
     // Specialize only if all the calls agree with the attribute constant value
     int32_t CurrentAttrValue = -1;
@@ -4789,6 +4824,7 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
     registerFoldRuntimeCall(OMPRTL___kmpc_parallel_level);
     registerFoldRuntimeCall(OMPRTL___kmpc_get_hardware_num_threads_in_block);
     registerFoldRuntimeCall(OMPRTL___kmpc_get_hardware_num_blocks);
+    registerFoldRuntimeCall(OMPRTL___kmpc_get_kernel_environment);
   }
 
   // Create CallSite AA for all Getters.
