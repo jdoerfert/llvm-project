@@ -85,13 +85,13 @@ __OMP_ARRAY_TYPE(KmpCriticalName, Int32, 8)
 #define __OMP_STRUCT_TYPE(VarName, Name, ...)                                  \
   OMP_STRUCT_TYPE(VarName, "struct." #Name, __VA_ARGS__)
 
-__OMP_STRUCT_TYPE(Ident, ident_t, Int32, Int32, Int32, Int32, Int8Ptr)
+__OMP_STRUCT_TYPE(IdentTy, IdentTy, Int32, Int32, Int32, Int32, Int8Ptr)
 __OMP_STRUCT_TYPE(AsyncInfo, __tgt_async_info, Int8Ptr)
 __OMP_STRUCT_TYPE(ConfigurationEnvironmentTy, _OMP::ConfigurationEnvironmentTy,\
                   Int8,                                                        \
                   Int8)
 __OMP_STRUCT_TYPE(KernelEnvironmentTy, _OMP::KernelEnvironmentTy,              \
-                  Ident,                                                       \
+                  IdentTy,                                                       \
                   ConfigurationEnvironmentTy,                                  \
                   Int16)
 
@@ -196,19 +196,19 @@ __ICV_RT_GET(proc_bind, omp_get_proc_bind)
 
 
 
-__OMP_RTL(__kmpc_barrier, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_cancel, false, Int32, IdentPtr, Int32, Int32)
-__OMP_RTL(__kmpc_cancel_barrier, false, Int32, IdentPtr, Int32)
-__OMP_RTL(__kmpc_flush, false, Void, IdentPtr)
-__OMP_RTL(__kmpc_global_thread_num, false, Int32, IdentPtr)
+__OMP_RTL(__kmpc_barrier, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_cancel, false, Int32, IdentTyPtr, Int32, Int32)
+__OMP_RTL(__kmpc_cancel_barrier, false, Int32, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_flush, false, Void, IdentTyPtr)
+__OMP_RTL(__kmpc_global_thread_num, false, Int32, IdentTyPtr)
 __OMP_RTL(__kmpc_get_hardware_thread_id_in_block, false, Int32, )
-__OMP_RTL(__kmpc_fork_call, true, Void, IdentPtr, Int32, ParallelTaskPtr)
-__OMP_RTL(__kmpc_omp_taskwait, false, Int32, IdentPtr, Int32)
-__OMP_RTL(__kmpc_omp_taskyield, false, Int32, IdentPtr, Int32, /* Int */ Int32)
-__OMP_RTL(__kmpc_push_num_threads, false, Void, IdentPtr, Int32,
+__OMP_RTL(__kmpc_fork_call, true, Void, IdentTyPtr, Int32, ParallelTaskPtr)
+__OMP_RTL(__kmpc_omp_taskwait, false, Int32, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_omp_taskyield, false, Int32, IdentTyPtr, Int32, /* Int */ Int32)
+__OMP_RTL(__kmpc_push_num_threads, false, Void, IdentTyPtr, Int32,
           /* Int */ Int32)
-__OMP_RTL(__kmpc_push_proc_bind, false, Void, IdentPtr, Int32, /* Int */ Int32)
-__OMP_RTL(__kmpc_omp_reg_task_with_affinity, false, Int32, IdentPtr, Int32,
+__OMP_RTL(__kmpc_push_proc_bind, false, Void, IdentTyPtr, Int32, /* Int */ Int32)
+__OMP_RTL(__kmpc_omp_reg_task_with_affinity, false, Int32, IdentTyPtr, Int32,
           /* kmp_task_t */ VoidPtr, Int32,
           /* kmp_task_affinity_info_t */ VoidPtr)
 
@@ -246,120 +246,120 @@ __OMP_RTL(omp_set_nested, false, Void, Int32)
 __OMP_RTL(omp_set_schedule, false, Void, Int32, Int32)
 __OMP_RTL(omp_set_max_active_levels, false, Void, Int32)
 
-__OMP_RTL(__kmpc_master, false, Int32, IdentPtr, Int32)
-__OMP_RTL(__kmpc_end_master, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_masked, false, Int32, IdentPtr, Int32, Int32)
-__OMP_RTL(__kmpc_end_masked, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_critical, false, Void, IdentPtr, Int32, KmpCriticalNamePtrTy)
-__OMP_RTL(__kmpc_critical_with_hint, false, Void, IdentPtr, Int32,
+__OMP_RTL(__kmpc_master, false, Int32, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_end_master, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_masked, false, Int32, IdentTyPtr, Int32, Int32)
+__OMP_RTL(__kmpc_end_masked, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_critical, false, Void, IdentTyPtr, Int32, KmpCriticalNamePtrTy)
+__OMP_RTL(__kmpc_critical_with_hint, false, Void, IdentTyPtr, Int32,
           KmpCriticalNamePtrTy, Int32)
-__OMP_RTL(__kmpc_end_critical, false, Void, IdentPtr, Int32,
+__OMP_RTL(__kmpc_end_critical, false, Void, IdentTyPtr, Int32,
           KmpCriticalNamePtrTy)
 
-__OMP_RTL(__kmpc_begin, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_end, false, Void, IdentPtr)
+__OMP_RTL(__kmpc_begin, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_end, false, Void, IdentTyPtr)
 
-__OMP_RTL(__kmpc_reduce, false, Int32, IdentPtr, Int32, Int32, SizeTy, VoidPtr,
+__OMP_RTL(__kmpc_reduce, false, Int32, IdentTyPtr, Int32, Int32, SizeTy, VoidPtr,
           ReduceFunctionPtr, KmpCriticalNamePtrTy)
-__OMP_RTL(__kmpc_reduce_nowait, false, Int32, IdentPtr, Int32, Int32, SizeTy,
+__OMP_RTL(__kmpc_reduce_nowait, false, Int32, IdentTyPtr, Int32, Int32, SizeTy,
           VoidPtr, ReduceFunctionPtr, KmpCriticalNamePtrTy)
-__OMP_RTL(__kmpc_end_reduce, false, Void, IdentPtr, Int32, KmpCriticalNamePtrTy)
-__OMP_RTL(__kmpc_end_reduce_nowait, false, Void, IdentPtr, Int32,
+__OMP_RTL(__kmpc_end_reduce, false, Void, IdentTyPtr, Int32, KmpCriticalNamePtrTy)
+__OMP_RTL(__kmpc_end_reduce_nowait, false, Void, IdentTyPtr, Int32,
           KmpCriticalNamePtrTy)
 
-__OMP_RTL(__kmpc_ordered, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_end_ordered, false, Void, IdentPtr, Int32)
+__OMP_RTL(__kmpc_ordered, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_end_ordered, false, Void, IdentTyPtr, Int32)
 
-__OMP_RTL(__kmpc_for_static_init_4, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_for_static_init_4, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
-__OMP_RTL(__kmpc_for_static_init_4u, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_for_static_init_4u, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
-__OMP_RTL(__kmpc_for_static_init_8, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_for_static_init_8, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
-__OMP_RTL(__kmpc_for_static_init_8u, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_for_static_init_8u, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
-__OMP_RTL(__kmpc_for_static_fini, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_distribute_static_init_4, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_for_static_fini, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_distribute_static_init_4, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
-__OMP_RTL(__kmpc_distribute_static_init_4u, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_distribute_static_init_4u, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
-__OMP_RTL(__kmpc_distribute_static_init_8, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_distribute_static_init_8, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
-__OMP_RTL(__kmpc_distribute_static_init_8u, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_distribute_static_init_8u, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
-__OMP_RTL(__kmpc_distribute_static_fini, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_dist_dispatch_init_4, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_distribute_static_fini, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_dist_dispatch_init_4, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int32, Int32, Int32, Int32)
-__OMP_RTL(__kmpc_dist_dispatch_init_4u, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_dist_dispatch_init_4u, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int32, Int32, Int32, Int32)
-__OMP_RTL(__kmpc_dist_dispatch_init_8, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_dist_dispatch_init_8, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int64, Int64, Int64, Int64)
-__OMP_RTL(__kmpc_dist_dispatch_init_8u, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_dist_dispatch_init_8u, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int64, Int64, Int64, Int64)
-__OMP_RTL(__kmpc_dispatch_init_4, false, Void, IdentPtr, Int32, Int32, Int32,
+__OMP_RTL(__kmpc_dispatch_init_4, false, Void, IdentTyPtr, Int32, Int32, Int32,
           Int32, Int32, Int32)
-__OMP_RTL(__kmpc_dispatch_init_4u, false, Void, IdentPtr, Int32, Int32, Int32,
+__OMP_RTL(__kmpc_dispatch_init_4u, false, Void, IdentTyPtr, Int32, Int32, Int32,
           Int32, Int32, Int32)
-__OMP_RTL(__kmpc_dispatch_init_8, false, Void, IdentPtr, Int32, Int32, Int64,
+__OMP_RTL(__kmpc_dispatch_init_8, false, Void, IdentTyPtr, Int32, Int32, Int64,
           Int64, Int64, Int64)
-__OMP_RTL(__kmpc_dispatch_init_8u, false, Void, IdentPtr, Int32, Int32, Int64,
+__OMP_RTL(__kmpc_dispatch_init_8u, false, Void, IdentTyPtr, Int32, Int32, Int64,
           Int64, Int64, Int64)
-__OMP_RTL(__kmpc_dispatch_next_4, false, Int32, IdentPtr, Int32, Int32Ptr,
+__OMP_RTL(__kmpc_dispatch_next_4, false, Int32, IdentTyPtr, Int32, Int32Ptr,
           Int32Ptr, Int32Ptr, Int32Ptr)
-__OMP_RTL(__kmpc_dispatch_next_4u, false, Int32, IdentPtr, Int32, Int32Ptr,
+__OMP_RTL(__kmpc_dispatch_next_4u, false, Int32, IdentTyPtr, Int32, Int32Ptr,
           Int32Ptr, Int32Ptr, Int32Ptr)
-__OMP_RTL(__kmpc_dispatch_next_8, false, Int32, IdentPtr, Int32, Int32Ptr,
+__OMP_RTL(__kmpc_dispatch_next_8, false, Int32, IdentTyPtr, Int32, Int32Ptr,
           Int64Ptr, Int64Ptr, Int64Ptr)
-__OMP_RTL(__kmpc_dispatch_next_8u, false, Int32, IdentPtr, Int32, Int32Ptr,
+__OMP_RTL(__kmpc_dispatch_next_8u, false, Int32, IdentTyPtr, Int32, Int32Ptr,
           Int64Ptr, Int64Ptr, Int64Ptr)
-__OMP_RTL(__kmpc_dispatch_fini_4, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_dispatch_fini_4u, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_dispatch_fini_8, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_dispatch_fini_8u, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_team_static_init_4, false, Void, IdentPtr, Int32, Int32Ptr,
+__OMP_RTL(__kmpc_dispatch_fini_4, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_dispatch_fini_4u, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_dispatch_fini_8, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_dispatch_fini_8u, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_team_static_init_4, false, Void, IdentTyPtr, Int32, Int32Ptr,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
-__OMP_RTL(__kmpc_team_static_init_4u, false, Void, IdentPtr, Int32, Int32Ptr,
+__OMP_RTL(__kmpc_team_static_init_4u, false, Void, IdentTyPtr, Int32, Int32Ptr,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
-__OMP_RTL(__kmpc_team_static_init_8, false, Void, IdentPtr, Int32, Int32Ptr,
+__OMP_RTL(__kmpc_team_static_init_8, false, Void, IdentTyPtr, Int32, Int32Ptr,
           Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
-__OMP_RTL(__kmpc_team_static_init_8u, false, Void, IdentPtr, Int32, Int32Ptr,
+__OMP_RTL(__kmpc_team_static_init_8u, false, Void, IdentTyPtr, Int32, Int32Ptr,
           Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
-__OMP_RTL(__kmpc_dist_for_static_init_4, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_dist_for_static_init_4, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
-__OMP_RTL(__kmpc_dist_for_static_init_4u, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_dist_for_static_init_4u, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
-__OMP_RTL(__kmpc_dist_for_static_init_8, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_dist_for_static_init_8, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
-__OMP_RTL(__kmpc_dist_for_static_init_8u, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_dist_for_static_init_8u, false, Void, IdentTyPtr, Int32, Int32,
           Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
 
-__OMP_RTL(__kmpc_single, false, Int32, IdentPtr, Int32)
-__OMP_RTL(__kmpc_end_single, false, Void, IdentPtr, Int32)
+__OMP_RTL(__kmpc_single, false, Int32, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_end_single, false, Void, IdentTyPtr, Int32)
 
-__OMP_RTL(__kmpc_omp_task_alloc, false, /* kmp_task_t */ VoidPtr, IdentPtr,
+__OMP_RTL(__kmpc_omp_task_alloc, false, /* kmp_task_t */ VoidPtr, IdentTyPtr,
           Int32, Int32, SizeTy, SizeTy, TaskRoutineEntryPtr)
-__OMP_RTL(__kmpc_omp_task, false, Int32, IdentPtr, Int32,
+__OMP_RTL(__kmpc_omp_task, false, Int32, IdentTyPtr, Int32,
           /* kmp_task_t */ VoidPtr)
-__OMP_RTL(__kmpc_end_taskgroup, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_taskgroup, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_omp_task_begin_if0, false, Void, IdentPtr, Int32,
+__OMP_RTL(__kmpc_end_taskgroup, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_taskgroup, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_omp_task_begin_if0, false, Void, IdentTyPtr, Int32,
           /* kmp_task_t */ VoidPtr)
-__OMP_RTL(__kmpc_omp_task_complete_if0, false, Void, IdentPtr, Int32,
+__OMP_RTL(__kmpc_omp_task_complete_if0, false, Void, IdentTyPtr, Int32,
           /* kmp_tasK_t */ VoidPtr)
-__OMP_RTL(__kmpc_omp_task_with_deps, false, Int32, IdentPtr, Int32,
+__OMP_RTL(__kmpc_omp_task_with_deps, false, Int32, IdentTyPtr, Int32,
           /* kmp_task_t */ VoidPtr, Int32,
           /* kmp_depend_info_t */ VoidPtr, Int32,
           /* kmp_depend_info_t */ VoidPtr)
-__OMP_RTL(__kmpc_taskloop, false, Void, IdentPtr, /* Int */ Int32, VoidPtr,
+__OMP_RTL(__kmpc_taskloop, false, Void, IdentTyPtr, /* Int */ Int32, VoidPtr,
           /* Int */ Int32, Int64Ptr, Int64Ptr, Int64, /* Int */ Int32,
           /* Int */ Int32, Int64, VoidPtr)
 __OMP_RTL(__kmpc_omp_target_task_alloc, false, /* kmp_task_t */ VoidPtr,
-          IdentPtr, Int32, Int32, SizeTy, SizeTy, TaskRoutineEntryPtr, Int64)
+          IdentTyPtr, Int32, Int32, SizeTy, SizeTy, TaskRoutineEntryPtr, Int64)
 __OMP_RTL(__kmpc_taskred_modifier_init, false, /* kmp_taskgroup */ VoidPtr,
-          IdentPtr, /* Int */ Int32, /* Int */ Int32, /* Int */ Int32, VoidPtr)
+          IdentTyPtr, /* Int */ Int32, /* Int */ Int32, /* Int */ Int32, VoidPtr)
 __OMP_RTL(__kmpc_taskred_init, false, /* kmp_taskgroup */ VoidPtr,
           /* Int */ Int32, /* Int */ Int32, VoidPtr)
-__OMP_RTL(__kmpc_task_reduction_modifier_fini, false, Void, IdentPtr,
+__OMP_RTL(__kmpc_task_reduction_modifier_fini, false, Void, IdentTyPtr,
           /* Int */ Int32, /* Int */ Int32)
 __OMP_RTL(__kmpc_task_reduction_get_th_data, false, VoidPtr, Int32, VoidPtr,
           VoidPtr)
@@ -368,36 +368,36 @@ __OMP_RTL(__kmpc_task_reduction_modifier_init, false, VoidPtr, VoidPtr, Int32,
           Int32, Int32, VoidPtr)
 __OMP_RTL(__kmpc_proxy_task_completed_ooo, false, Void, VoidPtr)
 
-__OMP_RTL(__kmpc_omp_wait_deps, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_omp_wait_deps, false, Void, IdentTyPtr, Int32, Int32,
           /* kmp_depend_info_t */ VoidPtr, Int32, VoidPtr)
-__OMP_RTL(__kmpc_cancellationpoint, false, Int32, IdentPtr, Int32, Int32)
+__OMP_RTL(__kmpc_cancellationpoint, false, Int32, IdentTyPtr, Int32, Int32)
 
-__OMP_RTL(__kmpc_fork_teams, true, Void, IdentPtr, Int32, ParallelTaskPtr)
-__OMP_RTL(__kmpc_push_num_teams, false, Void, IdentPtr, Int32, Int32, Int32)
+__OMP_RTL(__kmpc_fork_teams, true, Void, IdentTyPtr, Int32, ParallelTaskPtr)
+__OMP_RTL(__kmpc_push_num_teams, false, Void, IdentTyPtr, Int32, Int32, Int32)
 
-__OMP_RTL(__kmpc_copyprivate, false, Void, IdentPtr, Int32, SizeTy, VoidPtr,
+__OMP_RTL(__kmpc_copyprivate, false, Void, IdentTyPtr, Int32, SizeTy, VoidPtr,
           CopyFunctionPtr, Int32)
-__OMP_RTL(__kmpc_threadprivate_cached, false, VoidPtr, IdentPtr, Int32, VoidPtr,
+__OMP_RTL(__kmpc_threadprivate_cached, false, VoidPtr, IdentTyPtr, Int32, VoidPtr,
           SizeTy, VoidPtrPtrPtr)
-__OMP_RTL(__kmpc_threadprivate_register, false, Void, IdentPtr, VoidPtr,
+__OMP_RTL(__kmpc_threadprivate_register, false, Void, IdentTyPtr, VoidPtr,
           KmpcCtorPtr, KmpcCopyCtorPtr, KmpcDtorPtr)
 
-__OMP_RTL(__kmpc_doacross_init, false, Void, IdentPtr, Int32, Int32,
+__OMP_RTL(__kmpc_doacross_init, false, Void, IdentTyPtr, Int32, Int32,
           /* kmp_dim */ VoidPtr)
-__OMP_RTL(__kmpc_doacross_post, false, Void, IdentPtr, Int32, Int64Ptr)
-__OMP_RTL(__kmpc_doacross_wait, false, Void, IdentPtr, Int32, Int64Ptr)
-__OMP_RTL(__kmpc_doacross_fini, false, Void, IdentPtr, Int32)
+__OMP_RTL(__kmpc_doacross_post, false, Void, IdentTyPtr, Int32, Int64Ptr)
+__OMP_RTL(__kmpc_doacross_wait, false, Void, IdentTyPtr, Int32, Int64Ptr)
+__OMP_RTL(__kmpc_doacross_fini, false, Void, IdentTyPtr, Int32)
 
 __OMP_RTL(__kmpc_alloc, false, VoidPtr, /* Int */ Int32, SizeTy, VoidPtr)
 __OMP_RTL(__kmpc_aligned_alloc, false, VoidPtr, /* Int */ Int32, SizeTy, SizeTy,
           VoidPtr)
 __OMP_RTL(__kmpc_free, false, Void, /* Int */ Int32, VoidPtr, VoidPtr)
 
-__OMP_RTL(__tgt_interop_init, false, Void, IdentPtr, Int32, VoidPtrPtr, Int64,
+__OMP_RTL(__tgt_interop_init, false, Void, IdentTyPtr, Int32, VoidPtrPtr, Int64,
           Int32, Int32, VoidPtr, Int32)
-__OMP_RTL(__tgt_interop_destroy, false, Void, IdentPtr, Int32, VoidPtrPtr,
+__OMP_RTL(__tgt_interop_destroy, false, Void, IdentTyPtr, Int32, VoidPtrPtr,
           Int32, Int32, VoidPtr, Int32)
-__OMP_RTL(__tgt_interop_use, false, Void, IdentPtr, Int32, VoidPtrPtr, Int32,
+__OMP_RTL(__tgt_interop_use, false, Void, IdentTyPtr, Int32, VoidPtrPtr, Int32,
           Int32, VoidPtr, Int32)
 
 __OMP_RTL(__kmpc_init_allocator, false, /* omp_allocator_handle_t */ VoidPtr,
@@ -406,54 +406,54 @@ __OMP_RTL(__kmpc_init_allocator, false, /* omp_allocator_handle_t */ VoidPtr,
 __OMP_RTL(__kmpc_destroy_allocator, false, Void, /* Int */ Int32,
           /* omp_allocator_handle_t */ VoidPtr)
 
-__OMP_RTL(__kmpc_push_target_tripcount_mapper, false, Void, IdentPtr, Int64, Int64)
-__OMP_RTL(__tgt_target_mapper, false, Int32, IdentPtr, Int64, VoidPtr, Int32, VoidPtrPtr,
+__OMP_RTL(__kmpc_push_target_tripcount_mapper, false, Void, IdentTyPtr, Int64, Int64)
+__OMP_RTL(__tgt_target_mapper, false, Int32, IdentTyPtr, Int64, VoidPtr, Int32, VoidPtrPtr,
           VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr)
-__OMP_RTL(__tgt_target_nowait_mapper, false, Int32, IdentPtr, Int64, VoidPtr,
+__OMP_RTL(__tgt_target_nowait_mapper, false, Int32, IdentTyPtr, Int64, VoidPtr,
           Int32, VoidPtrPtr, VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr,
           VoidPtrPtr, Int32, VoidPtr, Int32, VoidPtr)
-__OMP_RTL(__tgt_target_teams_mapper, false, Int32, IdentPtr, Int64, VoidPtr, Int32,
+__OMP_RTL(__tgt_target_teams_mapper, false, Int32, IdentTyPtr, Int64, VoidPtr, Int32,
           VoidPtrPtr, VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr, Int32, Int32)
-__OMP_RTL(__tgt_target_teams_nowait_mapper, false, Int32, IdentPtr, Int64,
+__OMP_RTL(__tgt_target_teams_nowait_mapper, false, Int32, IdentTyPtr, Int64,
           VoidPtr, Int32, VoidPtrPtr, VoidPtrPtr, Int64Ptr, Int64Ptr,
           VoidPtrPtr, VoidPtrPtr, Int32, Int32, Int32, VoidPtr, Int32, VoidPtr)
 __OMP_RTL(__tgt_register_requires, false, Void, Int64)
-__OMP_RTL(__tgt_target_data_begin_mapper, false, Void, IdentPtr, Int64, Int32, VoidPtrPtr,
+__OMP_RTL(__tgt_target_data_begin_mapper, false, Void, IdentTyPtr, Int64, Int32, VoidPtrPtr,
           VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr)
-__OMP_RTL(__tgt_target_data_begin_nowait_mapper, false, Void, IdentPtr, Int64, Int32,
+__OMP_RTL(__tgt_target_data_begin_nowait_mapper, false, Void, IdentTyPtr, Int64, Int32,
           VoidPtrPtr, VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr)
-__OMP_RTL(__tgt_target_data_begin_mapper_issue, false, Void, IdentPtr, Int64, Int32,
+__OMP_RTL(__tgt_target_data_begin_mapper_issue, false, Void, IdentTyPtr, Int64, Int32,
           VoidPtrPtr, VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr, AsyncInfoPtr)
 __OMP_RTL(__tgt_target_data_begin_mapper_wait, false, Void, Int64, AsyncInfoPtr)
-__OMP_RTL(__tgt_target_data_end_mapper, false, Void, IdentPtr, Int64, Int32, VoidPtrPtr,
+__OMP_RTL(__tgt_target_data_end_mapper, false, Void, IdentTyPtr, Int64, Int32, VoidPtrPtr,
           VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr)
-__OMP_RTL(__tgt_target_data_end_nowait_mapper, false, Void, IdentPtr, Int64, Int32,
+__OMP_RTL(__tgt_target_data_end_nowait_mapper, false, Void, IdentTyPtr, Int64, Int32,
           VoidPtrPtr, VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr)
-__OMP_RTL(__tgt_target_data_update_mapper, false, Void, IdentPtr, Int64, Int32,
+__OMP_RTL(__tgt_target_data_update_mapper, false, Void, IdentTyPtr, Int64, Int32,
           VoidPtrPtr, VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr)
-__OMP_RTL(__tgt_target_data_update_nowait_mapper, false, Void, IdentPtr, Int64, Int32,
+__OMP_RTL(__tgt_target_data_update_nowait_mapper, false, Void, IdentTyPtr, Int64, Int32,
           VoidPtrPtr, VoidPtrPtr, Int64Ptr, Int64Ptr, VoidPtrPtr, VoidPtrPtr)
 __OMP_RTL(__tgt_mapper_num_components, false, Int64, VoidPtr)
 __OMP_RTL(__tgt_push_mapper_component, false, Void, VoidPtr, VoidPtr, VoidPtr,
           Int64, Int64, VoidPtr)
-__OMP_RTL(__kmpc_task_allow_completion_event, false, VoidPtr, IdentPtr,
+__OMP_RTL(__kmpc_task_allow_completion_event, false, VoidPtr, IdentTyPtr,
           /* Int */ Int32, /* kmp_task_t */ VoidPtr)
 
 /// OpenMP Device runtime functions
 __OMP_RTL(__kmpc_target_init, false, Int32, KernelEnvironmentTyPtr)
 __OMP_RTL(__kmpc_target_deinit, false, Void, )
 __OMP_RTL(__kmpc_kernel_prepare_parallel, false, Void, VoidPtr)
-__OMP_RTL(__kmpc_parallel_51, false, Void, IdentPtr, Int32, Int32, Int32, Int32,
+__OMP_RTL(__kmpc_parallel_51, false, Void, IdentTyPtr, Int32, Int32, Int32, Int32,
           VoidPtr, VoidPtr, VoidPtrPtr, SizeTy)
 __OMP_RTL(__kmpc_kernel_parallel, false, Int1, VoidPtrPtr)
 __OMP_RTL(__kmpc_kernel_end_parallel, false, Void, )
-__OMP_RTL(__kmpc_serialized_parallel, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_end_serialized_parallel, false, Void, IdentPtr, Int32)
+__OMP_RTL(__kmpc_serialized_parallel, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_end_serialized_parallel, false, Void, IdentTyPtr, Int32)
 __OMP_RTL(__kmpc_shuffle_int32, false, Int32, Int32, Int16, Int16)
-__OMP_RTL(__kmpc_nvptx_parallel_reduce_nowait_v2, false, Int32, IdentPtr, Int32,
+__OMP_RTL(__kmpc_nvptx_parallel_reduce_nowait_v2, false, Int32, IdentTyPtr, Int32,
           Int32, SizeTy, VoidPtr, ShuffleReducePtr, InterWarpCopyPtr)
 __OMP_RTL(__kmpc_nvptx_end_reduce_nowait, false, Void, Int32)
-__OMP_RTL(__kmpc_nvptx_teams_reduce_nowait_v2, false, Int32, IdentPtr, Int32,
+__OMP_RTL(__kmpc_nvptx_teams_reduce_nowait_v2, false, Int32, IdentTyPtr, Int32,
           VoidPtr, Int32, VoidPtr, ShuffleReducePtr, InterWarpCopyPtr,
           GlobalListPtr, GlobalListPtr, GlobalListPtr, GlobalListPtr)
 
@@ -467,8 +467,8 @@ __OMP_RTL(__kmpc_get_shared_variables, false, Void, VoidPtrPtrPtr)
 __OMP_RTL(__kmpc_get_kernel_environment, false, KernelEnvironmentTyPtr, )
 __OMP_RTL(__kmpc_parallel_level, false, Int8, )
 __OMP_RTL(__kmpc_is_spmd_exec_mode, false, Int8, )
-__OMP_RTL(__kmpc_barrier_simple_spmd, false, Void, IdentPtr, Int32)
-__OMP_RTL(__kmpc_barrier_simple_generic, false, Void, IdentPtr, Int32)
+__OMP_RTL(__kmpc_barrier_simple_spmd, false, Void, IdentTyPtr, Int32)
+__OMP_RTL(__kmpc_barrier_simple_generic, false, Void, IdentTyPtr, Int32)
 
 __OMP_RTL(__kmpc_warp_active_thread_mask, false, Int64,)
 __OMP_RTL(__kmpc_syncwarp, false, Void, Int64)

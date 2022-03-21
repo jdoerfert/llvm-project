@@ -385,7 +385,7 @@ Constant *OpenMPIRBuilder::getOrCreateIdentInitializer(Constant *SrcLocStr,
   Constant *IdentData[] = {I32Null, ConstantInt::get(Int32, uint32_t(LocFlags)),
                            ConstantInt::get(Int32, Reserve2Flags),
                            ConstantInt::get(Int32, SrcLocStrSize), SrcLocStr};
-  return ConstantStruct::get(OpenMPIRBuilder::Ident, IdentData);
+  return ConstantStruct::get(OpenMPIRBuilder::IdentTy, IdentData);
 }
 
 Constant *OpenMPIRBuilder::getOrCreateIdent(Constant *SrcLocStr,
@@ -404,13 +404,13 @@ Constant *OpenMPIRBuilder::getOrCreateIdent(Constant *SrcLocStr,
     // Look for existing encoding of the location + flags, not needed but
     // minimizes the difference to the existing solution while we transition.
     for (GlobalVariable &GV : M.getGlobalList())
-      if (GV.getValueType() == OpenMPIRBuilder::Ident && GV.hasInitializer())
+      if (GV.getValueType() == OpenMPIRBuilder::IdentTy && GV.hasInitializer())
         if (GV.getInitializer() == Initializer)
           Ident = &GV;
 
     if (!Ident) {
       auto *GV = new GlobalVariable(
-          M, OpenMPIRBuilder::Ident,
+          M, OpenMPIRBuilder::IdentTy,
           /* isConstant = */ true, GlobalValue::PrivateLinkage, Initializer, "",
           nullptr, GlobalValue::NotThreadLocal,
           M.getDataLayout().getDefaultGlobalsAddressSpace());
@@ -420,7 +420,7 @@ Constant *OpenMPIRBuilder::getOrCreateIdent(Constant *SrcLocStr,
     }
   }
 
-  return ConstantExpr::getPointerBitCastOrAddrSpaceCast(Ident, IdentPtr);
+  return ConstantExpr::getPointerBitCastOrAddrSpaceCast(Ident, IdentTyPtr);
 }
 
 Constant *OpenMPIRBuilder::getOrCreateSrcLocStr(StringRef LocStr,

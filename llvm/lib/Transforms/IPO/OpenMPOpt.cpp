@@ -1944,7 +1944,7 @@ private:
       unsigned NumArgs = CB.arg_size();
       if (NumArgs == 0)
         return true;
-      if (CB.getArgOperand(0)->getType() != OMPInfoCache.OMPBuilder.IdentPtr)
+      if (CB.getArgOperand(0)->getType() != OMPInfoCache.OMPBuilder.IdentTyPtr)
         return false;
       for (unsigned U = 1; U < NumArgs; ++U)
         if (isa<Instruction>(CB.getArgOperand(U)))
@@ -1991,7 +1991,7 @@ private:
     // existing and used by one of the calls, or created from scratch.
     if (CallBase *CI = dyn_cast<CallBase>(ReplVal)) {
       if (!CI->arg_empty() &&
-          CI->getArgOperand(0)->getType() == OMPInfoCache.OMPBuilder.IdentPtr) {
+          CI->getArgOperand(0)->getType() == OMPInfoCache.OMPBuilder.IdentTyPtr) {
         Value *Ident = getCombinedIdentFromCallUsesIn(RFI, F,
                                                       /* GlobalOnly */ true);
         CI->setArgOperand(0, Ident);
