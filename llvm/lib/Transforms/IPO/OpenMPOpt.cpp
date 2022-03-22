@@ -20,6 +20,7 @@
 #include "llvm/Transforms/IPO/OpenMPOpt.h"
 
 #include "llvm/ADT/EnumeratedArray.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/Statistic.h"
@@ -34,6 +35,7 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
@@ -1990,8 +1992,8 @@ private:
     // valid at the new location. For now we just pick a global one, either
     // existing and used by one of the calls, or created from scratch.
     if (CallBase *CI = dyn_cast<CallBase>(ReplVal)) {
-      if (!CI->arg_empty() &&
-          CI->getArgOperand(0)->getType() == OMPInfoCache.OMPBuilder.IdentTyPtr) {
+      if (!CI->arg_empty() && CI->getArgOperand(0)->getType() ==
+                                  OMPInfoCache.OMPBuilder.IdentTyPtr) {
         Value *Ident = getCombinedIdentFromCallUsesIn(RFI, F,
                                                       /* GlobalOnly */ true);
         CI->setArgOperand(0, Ident);
@@ -4418,6 +4420,31 @@ struct AAKernelInfoCallSite : AAKernelInfo {
   }
 };
 
+static Optional<Constant *>
+getKernelEnvironmentValue(Attributor &A, const AbstractAttribute &AA) {
+  auto &CallerKernelInfoAA = A.getAAFor<AAKernelInfo>(
+      AA, IRPosition::function(*AA.getIRPosition().getAnchorScope()),
+      DepClassTy::REQUIRED);
+
+  if (!CallerKernelInfoAA.ReachingKernelEntries.isValidState())
+    return nullptr;
+
+  if (CallerKernelInfoAA.ReachingKernelEntries.empty())
+    return llvm::None;
+
+  if (CallerKernelInfoAA.ReachingKernelEntries.size() > 1)
+    return nullptr;
+
+  Function *Kernel = (*CallerKernelInfoAA.ReachingKernelEntries.begin());
+  Module &M = *Kernel->getParent();
+  StringRef KernelName = Kernel->getName();
+  auto *KernelEnvironmentPtr =
+      M.getGlobalVariable((KernelName + "_kernel_info").str());
+  assert(KernelEnvironmentPtr && "Kernel without kernel info!");
+
+  return KernelEnvironmentPtr;
+}
+
 struct AAFoldRuntimeCall
     : public StateWrapper<BooleanState, AbstractAttribute> {
   using Base = StateWrapper<BooleanState, AbstractAttribute>;
@@ -4710,33 +4737,23 @@ private:
   }
 
   ChangeStatus foldKernelEnvironment(Attributor &A) {
-    auto &CallerKernelInfoAA = A.getAAFor<AAKernelInfo>(
-        *this, IRPosition::function(*getAnchorScope()), DepClassTy::REQUIRED);
-
-    if (!CallerKernelInfoAA.ReachingKernelEntries.isValidState())
-      return indicatePessimisticFixpoint();
-
-    if (CallerKernelInfoAA.ReachingKernelEntries.empty()) {
+    Optional<Constant *> KernelEnvironment =
+        getKernelEnvironmentValue(A, *this);
+    if (!KernelEnvironment.hasValue()) {
       assert(!SimplifiedValue.hasValue() &&
              "Simplified value should be none at this point");
       return ChangeStatus::UNCHANGED;
     }
-    if (CallerKernelInfoAA.ReachingKernelEntries.size() > 1)
+    if (!KernelEnvironment.getValue())
       return indicatePessimisticFixpoint();
 
-    Function *Kernel = (*CallerKernelInfoAA.ReachingKernelEntries.begin());
-    Module &M = *Kernel->getParent();
-    StringRef KernelName =Kernel->getName();
-    auto *KernelEnvironmentPtr = M.getGlobalVariable((KernelName + "_kernel_info").str());
-    assert(KernelEnvironmentPtr && "Kernel without kernel info!");
-
     if (SimplifiedValue.hasValue()) {
-      assert(SimplifiedValue.getValue() == KernelEnvironmentPtr &&
+      assert(SimplifiedValue.getValue() == KernelEnvironment.getValue() &&
              "Reaching kernels unexpectedly dropped a kernel!");
       return ChangeStatus::UNCHANGED;
     }
 
-    SimplifiedValue = KernelEnvironmentPtr;
+    SimplifiedValue = KernelEnvironment.getValue();
     return ChangeStatus::CHANGED;
   }
 
@@ -4860,6 +4877,45 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
   if (!isOpenMPDevice(M))
     return;
 
+  Attributor::SimplifictionCallbackTy KernelInfoPtrLoadCB =
+      [&](const IRPosition &, const AbstractAttribute *AA,
+          bool &) -> Optional<Value *> {
+    if (!AA)
+      return nullptr;
+    Optional<Constant *> KernelEnvironment = getKernelEnvironmentValue(A, *AA);
+    if (KernelEnvironment.hasValue()) {
+      return KernelEnvironment.getValue();
+    }
+    return llvm::None;
+  };
+
+  auto SimplifyLoad = [&](LoadInst &LI) {
+    // As long as we cannot do dominance reasoning properly we use this
+    // special logic to simplify our kernel environment loads.
+    // TODO: This can be removed, together with the
+    // __kmpc_get_kernel_environment call folding, as soon as we handle
+    // dominance properly in the load simplification.
+    if (auto *GV = dyn_cast<GlobalVariable>(
+            LI.getPointerOperand()->stripPointerCasts()))
+      if (!DisableOpenMPOptFolding &&
+          GV->getType()->getPointerElementType() ==
+              OMPInfoCache.OMPBuilder.KernelEnvironmentTyPtr &&
+          GV->getName().equals("__kmpc_kernel_environment")) {
+        A.registerSimplificationCallback(IRPosition::inst(LI),
+                                         KernelInfoPtrLoadCB);
+        for (auto *Usr : LI.users()) {
+          bool UsedAssumedInformation = false;
+          A.getAssumedSimplified(IRPosition::value(*Usr), /* AA */ nullptr,
+                                 UsedAssumedInformation);
+        }
+        return;
+      }
+
+    bool UsedAssumedInformation = false;
+    A.getAssumedSimplified(IRPosition::inst(LI), /* AA */ nullptr,
+                           UsedAssumedInformation);
+  };
+
   for (auto *F : SCC) {
     if (F->isDeclaration())
       continue;
@@ -4870,9 +4926,7 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
 
     for (auto &I : instructions(*F)) {
       if (auto *LI = dyn_cast<LoadInst>(&I)) {
-        bool UsedAssumedInformation = false;
-        A.getAssumedSimplified(IRPosition::value(*LI), /* AA */ nullptr,
-                               UsedAssumedInformation);
+        SimplifyLoad(*LI);
       } else if (auto *SI = dyn_cast<StoreInst>(&I)) {
         A.getOrCreateAAFor<AAIsDead>(IRPosition::value(*SI));
       }

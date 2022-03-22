@@ -16,6 +16,7 @@
 #include "Synchronization.h"
 #include "Types.h"
 #include "Utils.h"
+#include "llvm/Frontend/OpenMP/KernelEnvironment.h"
 
 using namespace _OMP;
 
@@ -35,8 +36,8 @@ extern unsigned char DynamicSharedBuffer[] __attribute__((aligned(Alignment)));
 #pragma omp allocate(DynamicSharedBuffer) allocator(omp_pteam_mem_alloc)
 
 /// The kernel environment passed to the init method by the compiler.
-extern KernelEnvironmentTy *KernelEnvironmentPtr;
-#pragma omp allocate(KernelEnvironmentPtr) allocator(omp_pteam_mem_alloc)
+KernelEnvironmentTy *__attribute__((used, retain, weak))
+SHARED(__kmpc_kernel_environment);
 
 namespace {
 
@@ -378,7 +379,7 @@ void state::init(bool IsSPMD, KernelEnvironmentTy &KernelEnv) {
   SharedMemorySmartStack.init(IsSPMD);
   if (mapping::isInitialThreadInLevel0(IsSPMD)) {
     TeamState.init(IsSPMD);
-    KernelEnvironmentPtr = &KernelEnv;
+    __kmpc_kernel_environment = &KernelEnv;
   }
 
   ThreadStates[mapping::getThreadIdInBlock()] = nullptr;
@@ -575,7 +576,7 @@ void __kmpc_get_shared_variables(void ***GlobalArgs) {
 
 __attribute__((noinline)) KernelEnvironmentTy *__kmpc_get_kernel_environment() {
   FunctionTracingRAII();
-  return KernelEnvironmentPtr;
+  return __kmpc_kernel_environment;
 }
 }
 
