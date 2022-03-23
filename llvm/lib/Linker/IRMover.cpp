@@ -328,7 +328,10 @@ Type *TypeMapTy::get(Type *Ty, SmallPtrSet<StructType *, 8> &Visited) {
 
     if (StructType *OldT =
             DstStructTypesSet.findNonOpaque(ElementTypes, IsPacked)) {
-      STy->setName("");
+      // We can endup with STy being in the destination module and in this case
+      // we should not remove the name. Just keep using the OldT == STy.
+      if (OldT != STy)
+         STy->setName("");
       return *Entry = OldT;
     }
 
