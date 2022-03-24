@@ -5468,6 +5468,23 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
   AAValueSimplifyReturned(const IRPosition &IRP, Attributor &A)
       : AAValueSimplifyImpl(IRP, A) {}
 
+  void initialize(Attributor &A) override {
+    AAValueSimplifyImpl::initialize(A);
+    Function *Fn = getAssociatedFunction();
+    for (Argument &Arg : Fn->args()) {
+      if (Arg.hasReturnedAttr()) {
+        unionAssumed(&Arg);
+        indicateOptimisticFixpoint();
+        return;
+      }
+    }
+  }
+
+  /// See AbstractState::indicatePessimisticFixpoint(...).
+  ChangeStatus indicatePessimisticFixpoint() override {
+    return AAValueSimplify::indicatePessimisticFixpoint();
+  }
+
   /// See AAValueSimplify::getAssumedSimplifiedValue()
   Optional<Value *> getAssumedSimplifiedValue(Attributor &A) const override {
     if (!isValidState())
