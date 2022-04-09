@@ -60,9 +60,7 @@ private:
 
   struct StatesTy {
     StatesTy(uint64_t DRC, uint64_t HRC)
-        : DynRefCount(DRC), HoldRefCount(HRC),
-          MayContainAttachedPointers(false), DeleteThreadId(std::thread::id()) {
-    }
+        : DynRefCount(DRC), HoldRefCount(HRC) {}
     /// The dynamic reference count is the standard reference count as of OpenMP
     /// 4.5.  The hold reference count is an OpenMP extension for the sake of
     /// OpenACC support.
@@ -101,13 +99,13 @@ private:
     /// should be written as <tt>void *Event[2]</tt>.
     void *Event = nullptr;
 
-    /// The id of the thread responsible for deleting this entry. This thread
-    /// set the reference count to zero *last*. Other threads might reuse the
-    /// entry while it is marked for deletion but not yet deleted (e.g., the
-    /// data is still being moved back). If another thread reuses the entry we
-    /// will have a non-zero reference count *or* the thread will have changed
-    /// this id, effectively taking over deletion responsibility.
-    std::thread::id DeleteThreadId;
+    /// Counter used to coordinate the deletion of an entry. Each target task
+    /// that decides the entry is to be deleted will increment the counter. As
+    /// there is a gap between deciding on deletion and actual deletion, e.g.,
+    /// to wait for the copy back, the task has to decrement the counter before
+    /// deletion is issued. Only if it is 0, and the ref count is 0 too, we
+    /// delete the entry.
+    unsigned short DeleteCount = 0;
   };
   // When HostDataToTargetTy is used by std::set, std::set::iterator is const
   // use unique_ptr to make States mutable.
@@ -147,14 +145,6 @@ public:
   /// Add a new event, if necessary.
   /// Returns OFFLOAD_FAIL if something went wrong, OFFLOAD_SUCCESS otherwise.
   int addEventIfNecessary(DeviceTy &Device, AsyncInfoTy &AsyncInfo) const;
-
-  /// Indicate that the current thread expected to delete this entry.
-  void setDeleteThreadId() const {
-    States->DeleteThreadId = std::this_thread::get_id();
-  }
-
-  /// Return the thread id of the thread expected to delete this entry.
-  std::thread::id getDeleteThreadId() const { return States->DeleteThreadId; }
 
   /// Set the event bound to this data map.
   void setEvent(void *Event) const { States->Event = Event; }
@@ -229,6 +219,14 @@ public:
     return States->MayContainAttachedPointers;
   }
 
+  /// Increment the delete counter indicating that this thread plans to delete
+  /// the entry.
+  void incDeleteCount() const { ++States->DeleteCount; }
+
+  /// Decrement the delete counter prior to deletion. If the return value is 0
+  /// deletion should take place, otherwise the entry is still needed.
+  unsigned decDeleteCount() const { return --States->DeleteCount; }
+
   void lock() const { States->UpdateMtx.lock(); }
 
   void unlock() const { States->UpdateMtx.unlock(); }
@@ -298,8 +296,7 @@ public:
 
   TargetPointerResultTy(FlagTy Flags, HostDataToTargetTy *Entry,
                         void *TargetPointer)
-      : Flags(Flags), Entry(Entry), TargetPointer(TargetPointer) {
-  }
+      : Flags(Flags), Entry(Entry), TargetPointer(TargetPointer) {}
 
   bool isHostPtr() const { return Flags.IsHostPointer; }
   void setIsHostPtr(bool IHP) { Flags.IsHostPointer = IHP; }
