@@ -43,6 +43,14 @@ enum kmp_target_offload_kind {
 };
 typedef enum kmp_target_offload_kind kmp_target_offload_kind_t;
 
+/// Information about shadow pointers.
+struct ShadowPtrInfoTy {
+  void **HstPtrAddr = nullptr;
+  void *HstPtrVal = nullptr;
+  void **TgtPtrAddr = nullptr;
+  void *TgtPtrVal = nullptr;
+};
+
 /// Map between host data and target data.
 struct HostDataToTargetTy {
   const uintptr_t HstPtrBase; // host info.
@@ -79,9 +87,9 @@ private:
     uint64_t DynRefCount;
     uint64_t HoldRefCount;
 
-    /// Boolean flag to remember if any subpart of the mapped region might be
-    /// an attached pointer.
-    bool MayContainAttachedPointers;
+    /// A map of shadow pointers associated with this entry, the keys are host
+    /// pointer addresses to identify stale entries.
+    std::map<void **, ShadowPtrInfoTy> ShadowPtrInfos;
 
     /// This mutex will be locked when data movement is issued. For targets that
     /// doesn't support async data movement, this mutex can guarantee that after
@@ -212,11 +220,28 @@ public:
     return ThisRefCount == 1;
   }
 
-  void setMayContainAttachedPointers() const {
-    States->MayContainAttachedPointers = true;
+  /// Add the shadow pointer info \p ShadowPtrInfo to this entry but only if the
+  /// the target ptr value was not already present in the existing set of shadow
+  /// pointers. Return true if something was added.
+  bool addShadowPointer(const ShadowPtrInfoTy &ShadowPtrInfo) const {
+    auto Pair =
+        States->ShadowPtrInfos.emplace(ShadowPtrInfo.HstPtrAddr, ShadowPtrInfo);
+    if (Pair.second)
+      return true;
+    if (Pair.first->second.TgtPtrVal == ShadowPtrInfo.TgtPtrVal)
+      return false;
+    Pair.first->second = ShadowPtrInfo;
+    return true;
   }
-  bool getMayContainAttachedPointers() const {
-    return States->MayContainAttachedPointers;
+
+  /// Apply \p CB to all shadow pointers of this entry. Returns OFFLOAD_FAIL if
+  /// \p CB returned OFFLOAD_FAIL for any of them, otherwise this returns
+  /// OFFLOAD_SUCCESS. The entry is locked for this operation.
+  template <typename CBTy> int foreachShadowPointerInfo(CBTy CB) const {
+    for (auto &It : States->ShadowPtrInfos)
+      if (CB(It.second) == OFFLOAD_FAIL)
+        return OFFLOAD_FAIL;
+    return OFFLOAD_SUCCESS;
   }
 
   /// Increment the delete counter indicating that this thread plans to delete
@@ -241,6 +266,7 @@ struct HostDataToTargetMapKeyTy {
   uintptr_t KeyValue;
 
   HostDataToTargetMapKeyTy(void *Key) : KeyValue(uintptr_t(Key)) {}
+  HostDataToTargetMapKeyTy(uintptr_t Key) : KeyValue(Key) {}
   HostDataToTargetMapKeyTy(HostDataToTargetTy *HDTT)
       : KeyValue(HDTT->HstPtrBegin), HDTT(HDTT) {}
   HostDataToTargetTy *HDTT;
@@ -290,7 +316,6 @@ class TargetPointerResultTy {
 
   /// The corresponding target pointer
   void *TargetPointer = nullptr;
-};
 
 public:
   TargetPointerResultTy() {}
@@ -298,6 +323,27 @@ public:
   TargetPointerResultTy(FlagTy Flags, HostDataToTargetTy *Entry,
                         void *TargetPointer)
       : Flags(Flags), Entry(Entry), TargetPointer(TargetPointer) {
+    if (Entry)
+      Entry->lock();
+  }
+
+  TargetPointerResultTy(TargetPointerResultTy &&TPR)
+      : Flags(TPR.Flags), Entry(TPR.Entry), TargetPointer(TPR.TargetPointer) {
+    TPR.Entry = nullptr;
+  }
+
+  TargetPointerResultTy &operator=(TargetPointerResultTy &&TPR) {
+    if (&TPR != this) {
+      std::swap(Flags, TPR.Flags);
+      std::swap(Entry, TPR.Entry);
+      std::swap(TargetPointer, TPR.TargetPointer);
+    }
+    return *this;
+  }
+
+  ~TargetPointerResultTy() {
+    if (Entry)
+      Entry->unlock();
   }
 
   bool isHostPtr() const { return Flags.IsHostPointer; }
@@ -313,7 +359,15 @@ public:
   void setTargetPointer(void *TP) { TargetPointer = TP; }
 
   HostDataToTargetTy *getEntry() const { return Entry; }
-  void setEntry(HostDataToTargetTy *HDTTT) { Entry = HDTTT; }
+  void setEntry(HostDataToTargetTy *HDTTT, bool Lock = true) {
+    if (Entry)
+      Entry->unlock();
+    Entry = HDTTT;
+    if (Entry && Lock)
+      Entry->lock();
+  }
+
+  void reset() { *this = TargetPointerResultTy(); }
 };
 
 ///
@@ -348,9 +402,7 @@ struct DeviceTy {
 
   PendingCtorsDtorsPerLibrary PendingCtorsDtors;
 
-  ShadowPtrListTy ShadowPtrMap;
-
-  std::mutex PendingGlobalsMtx, ShadowMtx;
+  std::mutex PendingGlobalsMtx;
 
   // NOTE: Once libomp gains full target-task support, this state should be
   // moved into the target task in libomp.
@@ -381,13 +433,13 @@ struct DeviceTy {
   /// - Data allocation failed;
   /// - The user tried to do an illegal mapping;
   /// - Data transfer issue fails.
-  TargetPointerResultTy
-  getTargetPointer(HDTTMapAccessorTy &HDTTMap, void *HstPtrBegin,
-                   void *HstPtrBase, int64_t Size, map_var_info_t HstPtrName,
-                   bool HasFlagTo, bool HasFlagAlways, bool IsImplicit,
-                   bool UpdateRefCount, bool HasCloseModifier,
-                   bool HasPresentModifier, bool HasHoldModifier,
-                   AsyncInfoTy &AsyncInfo);
+  TargetPointerResultTy getTargetPointer(
+      HDTTMapAccessorTy &HDTTMap, void *HstPtrBegin, void *HstPtrBase,
+      int64_t Size, map_var_info_t HstPtrName, bool HasFlagTo,
+      bool HasFlagAlways, bool IsImplicit, bool UpdateRefCount,
+      bool HasCloseModifier, bool HasPresentModifier, bool HasHoldModifier,
+      AsyncInfoTy &AsyncInfo, HostDataToTargetTy *OwnedTPR = nullptr,
+      bool ReleaseHDTTMap = true);
 
   /// Return the target pointer for \p HstPtrBegin in \p HDTTMap. The accessor
   /// ensures exclusive access to the HDTT map.
@@ -435,10 +487,12 @@ struct DeviceTy {
   // synchronous.
   // Copy data from host to device
   int32_t submitData(void *TgtPtrBegin, void *HstPtrBegin, int64_t Size,
-                     AsyncInfoTy &AsyncInfo);
+                     AsyncInfoTy &AsyncInfo,
+                     HostDataToTargetTy *Entry = nullptr);
   // Copy data from device back to host
   int32_t retrieveData(void *HstPtrBegin, void *TgtPtrBegin, int64_t Size,
-                       AsyncInfoTy &AsyncInfo);
+                       AsyncInfoTy &AsyncInfo,
+                       HostDataToTargetTy *Entry = nullptr);
   // Copy data from current device to destination device directly
   int32_t dataExchange(void *SrcPtr, DeviceTy &DstDev, void *DstPtr,
                        int64_t Size, AsyncInfoTy &AsyncInfo);
