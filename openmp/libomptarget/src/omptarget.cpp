@@ -503,7 +503,8 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
           HDTTMap, HstPtrBase, HstPtrBase, sizeof(void *),
           /*HstPtrName=*/nullptr,
           /*HasFlagTo=*/false, /*HasFlagAlways=*/false, IsImplicit, UpdateRef,
-          HasCloseModifier, HasPresentModifier, HasHoldModifier, AsyncInfo);
+          HasCloseModifier, HasPresentModifier, HasHoldModifier, AsyncInfo,
+          /* OwnedTPR */ nullptr, /* ReleaseHDTTMap */ false);
       PointerTgtPtrBegin = (void **)Pointer_TPR.getTargetPointer();
       if (!PointerTgtPtrBegin) {
         REPORT("Call to getTargetPointer returned null pointer (%s).\n",
@@ -526,10 +527,11 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
 
     const bool HasFlagTo = arg_types[i] & OMP_TGT_MAPTYPE_TO;
     const bool HasFlagAlways = arg_types[i] & OMP_TGT_MAPTYPE_ALWAYS;
+    // Note that HDTTMap will be released in getTargetPointer.
     auto TPR = Device.getTargetPointer(
         HDTTMap, HstPtrBegin, HstPtrBase, data_size, HstPtrName, HasFlagTo,
         HasFlagAlways, IsImplicit, UpdateRef, HasCloseModifier,
-        HasPresentModifier, HasHoldModifier, AsyncInfo);
+        HasPresentModifier, HasHoldModifier, AsyncInfo, Pointer_TPR.getEntry());
 
     void *TgtPtrBegin = TPR.getTargetPointer();
     // If data_size==0, then the argument could be a zero-length pointer to
@@ -552,39 +554,12 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
     }
 
     if (arg_types[i] & OMP_TGT_MAPTYPE_PTR_AND_OBJ && !TPR.isHostPtr()) {
-      // Check whether we need to update the pointer on the device
-      bool UpdateDevPtr = false;
-
       uint64_t Delta = (uint64_t)HstPtrBegin - (uint64_t)HstPtrBase;
       void *ExpectedTgtPtrBase = (void *)((uint64_t)TgtPtrBegin - Delta);
 
-      Device.ShadowMtx.lock();
-      auto Entry = Device.ShadowPtrMap.find(PointerHstPtrBegin);
-      // If this pointer is not in the map we need to insert it. If the map
-      // contains a stale entry, we need to update it (e.g. if the pointee was
-      // deallocated and later on is reallocated at another device address). The
-      // latter scenario is the subject of LIT test env/base_ptr_ref_count.c. An
-      // entry is removed from ShadowPtrMap only when the PTR of a PTR_AND_OBJ
-      // pair is deallocated, not when the OBJ is deallocated. In
-      // env/base_ptr_ref_count.c the PTR is a global "declare target" pointer,
-      // so it stays in the map for the lifetime of the application. When the
-      // OBJ is deallocated and later on allocated again (at a different device
-      // address), ShadowPtrMap still contains an entry for PointerHstPtrBegin
-      // which is stale, pointing to the old ExpectedTgtPtrBase of the OBJ.
-      if (Entry == Device.ShadowPtrMap.end() ||
-          Entry->second.TgtPtrVal != ExpectedTgtPtrBase) {
-        // create or update shadow pointers for this entry
-        Device.ShadowPtrMap[PointerHstPtrBegin] = {
-            HstPtrBase, PointerTgtPtrBegin, ExpectedTgtPtrBase};
-        Pointer_TPR.getEntry()->setMayContainAttachedPointers();
-        UpdateDevPtr = true;
-      }
-
-      if (UpdateDevPtr) {
-        std::lock_guard<decltype(*Pointer_TPR.getEntry())> LG(
-            *Pointer_TPR.getEntry());
-        Device.ShadowMtx.unlock();
-
+      if (Pointer_TPR.getEntry()->addShadowPointer(
+              ShadowPtrInfoTy{PointerHstPtrBegin, HstPtrBase,
+                              PointerTgtPtrBegin, ExpectedTgtPtrBase})) {
         DP("Update pointer (" DPxMOD ") -> [" DPxMOD "]\n",
            DPxPTR(PointerTgtPtrBegin), DPxPTR(TgtPtrBegin));
 
@@ -592,7 +567,7 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
         TgtPtrBase = ExpectedTgtPtrBase;
 
         int Ret = Device.submitData(PointerTgtPtrBegin, &TgtPtrBase,
-                                    sizeof(void *), AsyncInfo);
+                                    sizeof(void *), AsyncInfo, TPR.getEntry());
         if (Ret != OFFLOAD_SUCCESS) {
           REPORT("Copying data to device failed.\n");
           return OFFLOAD_FAIL;
@@ -600,8 +575,7 @@ int targetDataBegin(ident_t *loc, DeviceTy &Device, int32_t arg_num,
         if (Pointer_TPR.getEntry()->addEventIfNecessary(Device, AsyncInfo) !=
             OFFLOAD_SUCCESS)
           return OFFLOAD_FAIL;
-      } else
-        Device.ShadowMtx.unlock();
+      }
     }
   }
 
@@ -634,45 +608,6 @@ struct PostProcessingInfo {
       : HstPtrBegin(HstPtr), DataSize(Size), ArgType(ArgType),
         DelEntry(DelEntry), Entry(Entry) {}
 };
-
-/// Apply \p CB to the shadow map pointer entries in the range \p Begin, to
-/// \p Begin + \p Size. \p CB is called with a locked shadow pointer map and the
-/// passed iterator can be updated. If the callback returns OFFLOAD_FAIL the
-/// rest of the map is not checked anymore.
-template <typename CBTy>
-static void applyToShadowMapEntries(DeviceTy &Device, CBTy CB, void *Begin,
-                                    uintptr_t Size, HostDataToTargetTy *Entry) {
-  // If we have an object that is too small to hold a pointer subobject, no need
-  // to do any checking.
-  if (Size < sizeof(void *))
-    return;
-
-  // If the map entry for the object was never marked as containing attached
-  // pointers, no need to do any checking.
-  if (!Entry || !Entry->getMayContainAttachedPointers())
-    return;
-
-  uintptr_t LB = (uintptr_t)Begin;
-  uintptr_t UB = LB + Size;
-  // Now we are looking into the shadow map so we need to lock it.
-  std::lock_guard<decltype(Device.ShadowMtx)> LG(Device.ShadowMtx);
-  for (ShadowPtrListTy::iterator Itr = Device.ShadowPtrMap.begin();
-       Itr != Device.ShadowPtrMap.end();) {
-    uintptr_t ShadowHstPtrAddr = (uintptr_t)Itr->first;
-
-    // An STL map is sorted on its keys; use this property
-    // to quickly determine when to break out of the loop.
-    if (ShadowHstPtrAddr < LB) {
-      ++Itr;
-      continue;
-    }
-    if (ShadowHstPtrAddr >= UB)
-      break;
-
-    if (CB(Itr) == OFFLOAD_FAIL)
-      break;
-  }
-}
 
 } // namespace
 
@@ -809,7 +744,7 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
           }
 
           Ret = Device.retrieveData(HstPtrBegin, TgtPtrBegin, DataSize,
-                                    AsyncInfo);
+                                    AsyncInfo, TPR.getEntry());
           if (Ret != OFFLOAD_SUCCESS) {
             REPORT("Copying data from device failed.\n");
             return OFFLOAD_FAIL;
@@ -856,11 +791,13 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
     // If we marked the entry to be deleted we need to verify no other thread
     // reused it by now. If deletion is still supposed to happen by this thread
     // LR will be set and exclusive access to the HDTT map will avoid another
-    // thread reusing the entry now. Note that we do not request (exclusive)
-    // access to the HDTT map if Info.DelEntry is not set.
-    LookupResult LR;
+    // thread reusing the entry now.
     DeviceTy::HDTTMapAccessorTy HDTTMap =
-        Device.HostDataToTargetMap.getExclusiveAccessor(!Info.DelEntry);
+        Device.HostDataToTargetMap.getExclusiveAccessor();
+    LookupResult LR;
+
+    // We cannot use a lock guard because we may end up delete the mutex.
+    Info.Entry->lock();
 
     if (Info.DelEntry) {
       LR = Device.lookupMapping(HDTTMap, Info.HstPtrBegin, Info.DataSize);
@@ -878,31 +815,23 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
     // need to restore the original host pointer values from their shadow
     // copies. If the struct is going to be deallocated, remove any remaining
     // shadow pointer entries for this struct.
-    auto CB = [&](ShadowPtrListTy::iterator &Itr) {
+    if (Info.ArgType & OMP_TGT_MAPTYPE_FROM) {
       // If we copied the struct to the host, we need to restore the pointer.
-      if (Info.ArgType & OMP_TGT_MAPTYPE_FROM) {
-        void **ShadowHstPtrAddr = (void **)Itr->first;
-        *ShadowHstPtrAddr = Itr->second.HstPtrVal;
-        DP("Restoring original host pointer value " DPxMOD " for host "
-           "pointer " DPxMOD "\n",
-           DPxPTR(Itr->second.HstPtrVal), DPxPTR(ShadowHstPtrAddr));
-      }
-      // If the struct is to be deallocated, remove the shadow entry.
-      if (Info.DelEntry) {
-        DP("Removing shadow pointer " DPxMOD "\n", DPxPTR((void **)Itr->first));
-        Itr = Device.ShadowPtrMap.erase(Itr);
-      } else {
-        ++Itr;
-      }
-      return OFFLOAD_SUCCESS;
-    };
-    applyToShadowMapEntries(Device, CB, Info.HstPtrBegin, Info.DataSize,
-                            Info.Entry);
+      Info.Entry->foreachShadowPointerInfo(
+          [&](const ShadowPtrInfoTy &ShadowPtr) {
+            *ShadowPtr.HstPtrAddr = ShadowPtr.HstPtrVal;
+            DP("Restoring original host pointer value " DPxMOD " for host "
+               "pointer " DPxMOD "\n",
+               DPxPTR(ShadowPtr.HstPtrVal), DPxPTR(ShadowPtr.HstPtrAddr));
+            return OFFLOAD_SUCCESS;
+          });
+    }
 
     // If we are deleting the entry the DataMapMtx is locked and we own the
     // entry.
     if (!Info.DelEntry ||
         (FromMapperBase && FromMapperBase == Info.HstPtrBegin)) {
+      Info.Entry->unlock();
       continue;
     }
 
@@ -948,49 +877,63 @@ static int targetDataContiguous(ident_t *loc, DeviceTy &Device, void *ArgsBase,
   if (ArgType & OMP_TGT_MAPTYPE_FROM) {
     DP("Moving %" PRId64 " bytes (tgt:" DPxMOD ") -> (hst:" DPxMOD ")\n",
        ArgSize, DPxPTR(TgtPtrBegin), DPxPTR(HstPtrBegin));
-    int Ret = Device.retrieveData(HstPtrBegin, TgtPtrBegin, ArgSize, AsyncInfo);
+    int Ret = Device.retrieveData(HstPtrBegin, TgtPtrBegin, ArgSize, AsyncInfo,
+                                  TPR.getEntry());
     if (Ret != OFFLOAD_SUCCESS) {
       REPORT("Copying data from device failed.\n");
       return OFFLOAD_FAIL;
     }
 
-    auto CB = [&](ShadowPtrListTy::iterator &Itr) {
-      void **ShadowHstPtrAddr = (void **)Itr->first;
-      // Wait for device-to-host memcopies for whole struct to complete,
-      // before restoring the correct host pointer.
-      if (AsyncInfo.synchronize() != OFFLOAD_SUCCESS)
-        return OFFLOAD_FAIL;
-      *ShadowHstPtrAddr = Itr->second.HstPtrVal;
-      DP("Restoring original host pointer value " DPxMOD
-         " for host pointer " DPxMOD "\n",
-         DPxPTR(Itr->second.HstPtrVal), DPxPTR(ShadowHstPtrAddr));
-      ++Itr;
-      return OFFLOAD_SUCCESS;
-    };
-    applyToShadowMapEntries(Device, CB, HstPtrBegin, ArgSize, TPR.getEntry());
+    if (TPR.getEntry()) {
+      int Ret = TPR.getEntry()->foreachShadowPointerInfo(
+          [&](const ShadowPtrInfoTy &ShadowPtr) {
+            // Wait for device-to-host memcopies for whole struct to complete,
+            // before restoring the correct host pointer.
+            if (AsyncInfo.synchronize() != OFFLOAD_SUCCESS)
+              return OFFLOAD_FAIL;
+            *ShadowPtr.HstPtrAddr = ShadowPtr.HstPtrVal;
+            DP("Restoring original host pointer value " DPxMOD
+               " for host pointer " DPxMOD "\n",
+               DPxPTR(ShadowPtr.HstPtrVal), DPxPTR(ShadowPtr.HstPtrAddr));
+            return OFFLOAD_SUCCESS;
+          });
+      if (Ret != OFFLOAD_SUCCESS) {
+        DP("Updating shadow map failed\n");
+        return Ret;
+      }
+    }
   }
 
   if (ArgType & OMP_TGT_MAPTYPE_TO) {
     DP("Moving %" PRId64 " bytes (hst:" DPxMOD ") -> (tgt:" DPxMOD ")\n",
        ArgSize, DPxPTR(HstPtrBegin), DPxPTR(TgtPtrBegin));
-    int Ret = Device.submitData(TgtPtrBegin, HstPtrBegin, ArgSize, AsyncInfo);
+    int Ret = Device.submitData(TgtPtrBegin, HstPtrBegin, ArgSize, AsyncInfo,
+                                TPR.getEntry());
     if (Ret != OFFLOAD_SUCCESS) {
       REPORT("Copying data to device failed.\n");
       return OFFLOAD_FAIL;
     }
 
-    auto CB = [&](ShadowPtrListTy::iterator &Itr) {
-      DP("Restoring original target pointer value " DPxMOD " for target "
-         "pointer " DPxMOD "\n",
-         DPxPTR(Itr->second.TgtPtrVal), DPxPTR(Itr->second.TgtPtrAddr));
-      Ret = Device.submitData(Itr->second.TgtPtrAddr, &Itr->second.TgtPtrVal,
-                              sizeof(void *), AsyncInfo);
-      if (Ret != OFFLOAD_SUCCESS)
-        REPORT("Copying data to device failed.\n");
-      ++Itr;
-      return Ret;
-    };
-    applyToShadowMapEntries(Device, CB, HstPtrBegin, ArgSize, TPR.getEntry());
+    if (TPR.getEntry()) {
+      int Ret = TPR.getEntry()->foreachShadowPointerInfo(
+          [&](const ShadowPtrInfoTy &ShadowPtr) {
+            DP("Restoring original target pointer value " DPxMOD " for target "
+               "pointer " DPxMOD "\n",
+               DPxPTR(ShadowPtr.TgtPtrVal), DPxPTR(ShadowPtr.TgtPtrAddr));
+            Ret = Device.submitData(ShadowPtr.TgtPtrAddr,
+                                    (void *)&ShadowPtr.TgtPtrVal,
+                                    sizeof(void *), AsyncInfo, TPR.getEntry());
+            if (Ret != OFFLOAD_SUCCESS) {
+              REPORT("Copying data to device failed.\n");
+              return OFFLOAD_FAIL;
+            }
+            return OFFLOAD_SUCCESS;
+          });
+      if (Ret != OFFLOAD_SUCCESS) {
+        DP("Updating shadow map failed\n");
+        return Ret;
+      }
+    }
   }
   return OFFLOAD_SUCCESS;
 }
@@ -1390,7 +1333,7 @@ static int processDataBefore(ident_t *loc, int64_t DeviceId, void *HostPtr,
         DP("Update lambda reference (" DPxMOD ") -> [" DPxMOD "]\n",
            DPxPTR(PointerTgtPtrBegin), DPxPTR(TgtPtrBegin));
         Ret = Device.submitData(TgtPtrBegin, &PointerTgtPtrBegin,
-                                sizeof(void *), AsyncInfo);
+                                sizeof(void *), AsyncInfo, TPR.getEntry());
         if (Ret != OFFLOAD_SUCCESS) {
           REPORT("Copying data to device failed.\n");
           return OFFLOAD_FAIL;

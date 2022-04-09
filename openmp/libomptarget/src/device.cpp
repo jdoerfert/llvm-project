@@ -19,6 +19,7 @@
 #include <climits>
 #include <cstdint>
 #include <cstdio>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -51,8 +52,7 @@ int HostDataToTargetTy::addEventIfNecessary(DeviceTy &Device,
 
 DeviceTy::DeviceTy(RTLInfoTy *RTL)
     : DeviceID(-1), RTL(RTL), RTLDeviceID(-1), IsInit(false), InitFlag(),
-      HasPendingGlobals(false), PendingCtorsDtors(), ShadowPtrMap(),
-      PendingGlobalsMtx(), ShadowMtx() {}
+      HasPendingGlobals(false), PendingCtorsDtors(), PendingGlobalsMtx() {}
 
 DeviceTy::~DeviceTy() {
   if (DeviceID == -1 || !(getInfoLevel() & OMP_INFOTYPE_DUMP_TABLE))
@@ -109,32 +109,35 @@ int DeviceTy::disassociatePtr(void *HstPtrBegin) {
   HDTTMapAccessorTy HDTTMap = HostDataToTargetMap.getExclusiveAccessor();
 
   auto It = HDTTMap->find(HstPtrBegin);
-  if (It != HDTTMap->end()) {
-    HostDataToTargetTy &HDTT = *It->HDTT;
-    // Mapping exists
-    if (HDTT.getHoldRefCount()) {
-      // This is based on OpenACC 3.1, sec 3.2.33 "acc_unmap_data", L3656-3657:
-      // "It is an error to call acc_unmap_data if the structured reference
-      // count for the pointer is not zero."
-      REPORT("Trying to disassociate a pointer with a non-zero hold reference "
-             "count\n");
-    } else if (HDTT.isDynRefCountInf()) {
-      DP("Association found, removing it\n");
-      void *Event = HDTT.getEvent();
-      delete &HDTT;
-      if (Event)
-        destroyEvent(Event);
-      HDTTMap->erase(It);
-      return OFFLOAD_SUCCESS;
-    } else {
-      REPORT("Trying to disassociate a pointer which was not mapped via "
-             "omp_target_associate_ptr\n");
-    }
-  } else {
+  if (It == HDTTMap->end()) {
     REPORT("Association not found\n");
+    return OFFLOAD_FAIL;
+  }
+  // Mapping exists
+  HostDataToTargetTy &HDTT = *It->HDTT;
+  std::lock_guard<HostDataToTargetTy> LG(HDTT);
+
+  if (HDTT.getHoldRefCount()) {
+    // This is based on OpenACC 3.1, sec 3.2.33 "acc_unmap_data", L3656-3657:
+    // "It is an error to call acc_unmap_data if the structured reference
+    // count for the pointer is not zero."
+    REPORT("Trying to disassociate a pointer with a non-zero hold reference "
+           "count\n");
+    return OFFLOAD_FAIL;
   }
 
-  // Mapping not found
+  if (HDTT.isDynRefCountInf()) {
+    DP("Association found, removing it\n");
+    void *Event = HDTT.getEvent();
+    delete &HDTT;
+    if (Event)
+      destroyEvent(Event);
+    HDTTMap->erase(It);
+    return OFFLOAD_SUCCESS;
+  }
+
+  REPORT("Trying to disassociate a pointer which was not mapped via "
+         "omp_target_associate_ptr\n");
   return OFFLOAD_FAIL;
 }
 
@@ -212,12 +215,17 @@ TargetPointerResultTy DeviceTy::getTargetPointer(
     HDTTMapAccessorTy &HDTTMap, void *HstPtrBegin, void *HstPtrBase,
     int64_t Size, map_var_info_t HstPtrName, bool HasFlagTo, bool HasFlagAlways,
     bool IsImplicit, bool UpdateRefCount, bool HasCloseModifier,
-    bool HasPresentModifier, bool HasHoldModifier, AsyncInfoTy &AsyncInfo) {
+    bool HasPresentModifier, bool HasHoldModifier, AsyncInfoTy &AsyncInfo,
+    HostDataToTargetTy *OwnedTPR, bool ReleaseHDTTMap) {
   TargetPointerResultTy TPR;
 
   LookupResult LR = lookupMapping(HDTTMap, HstPtrBegin, Size);
 
-  TPR.setEntry(LR.Entry);
+  // Release the mapping table lock only after the entry is locked by
+  // attaching it to TPR. Once TPR is destroyed it will release the lock
+  // on entry. If it is returned the lock will move to the returned object.
+  // If LR.Entry is already owned/locked we avoid trying to lock it again.
+  TPR.setEntry(LR.Entry, /* Lock */ LR.Entry != OwnedTPR);
 
   // Not that the entry can be null.
   HostDataToTargetTy *Entry = TPR.getEntry();
@@ -296,6 +304,8 @@ TargetPointerResultTy DeviceTy::getTargetPointer(
                     (uintptr_t)HstPtrBegin + Size, Ptr, HasHoldModifier,
                     HstPtrName))
                 .first->HDTT;
+    // Release the mapping table lock only after the entry is locked by
+    // attaching it to TPR.
     TPR.setEntry(Entry);
 
     INFO(OMP_INFOTYPE_MAPPING_CHANGED, DeviceID,
@@ -307,6 +317,11 @@ TargetPointerResultTy DeviceTy::getTargetPointer(
          (HstPtrName) ? getNameFromMapping(HstPtrName).c_str() : "unknown");
     TPR.setTargetPointer((void *)Ptr);
   }
+
+  // All mapping table modifications have been made. If the user requested it we
+  // give up the lock.
+  if (ReleaseHDTTMap)
+    HDTTMap.destroy();
 
   // If the target pointer is valid, and we need to transfer data, issue the
   // data transfer.
@@ -434,31 +449,33 @@ void *DeviceTy::getTgtPtrBegin(HDTTMapAccessorTy &HDTTMap, void *HstPtrBegin,
 
 int DeviceTy::deallocTgtPtr(HDTTMapAccessorTy &HDTTMap, LookupResult LR,
                             int64_t Size) {
+  HostDataToTargetTy &HT = *LR.Entry;
+
   // Check if the pointer is contained in any sub-nodes.
   if (!(LR.Flags.IsContained || LR.Flags.ExtendsBefore ||
         LR.Flags.ExtendsAfter)) {
     REPORT("Section to delete (hst addr " DPxMOD ") does not exist in the"
            " allocated memory\n",
-           DPxPTR(LR.Entry->HstPtrBegin));
+           DPxPTR(HT.HstPtrBegin));
     return OFFLOAD_FAIL;
   }
 
-  auto &HT = *LR.Entry;
-  // Verify this thread is still in charge of deleting the entry.
+  DP("Deleting tgt data " DPxMOD " of size %" PRId64 "\n",
+     DPxPTR(HT.TgtPtrBegin), Size);
+
   assert(HT.getTotalRefCount() == 0 &&
          "Trying to delete entry that is in use or owned by another thread.");
 
-  DP("Deleting tgt data " DPxMOD " of size %" PRId64 "\n",
-     DPxPTR(HT.TgtPtrBegin), Size);
   deleteData((void *)HT.TgtPtrBegin);
+
   INFO(OMP_INFOTYPE_MAPPING_CHANGED, DeviceID,
        "Removing map entry with HstPtrBegin=" DPxMOD ", TgtPtrBegin=" DPxMOD
        ", Size=%" PRId64 ", Name=%s\n",
        DPxPTR(HT.HstPtrBegin), DPxPTR(HT.TgtPtrBegin), Size,
        (HT.HstPtrName) ? getNameFromMapping(HT.HstPtrName).c_str() : "unknown");
-  void *Event = LR.Entry->getEvent();
+  void *Event = HT.getEvent();
   HDTTMap->erase(LR.Entry);
-  delete LR.Entry;
+  delete &HT;
 
   int Ret = OFFLOAD_SUCCESS;
   if (Event && destroyEvent(Event) != OFFLOAD_SUCCESS) {
@@ -517,49 +534,56 @@ int32_t DeviceTy::deleteData(void *TgtPtrBegin) {
   return RTL->data_delete(RTLDeviceID, TgtPtrBegin);
 }
 
+static void printCopyInfo(int DeviceId, bool H2D, void *SrcPtrBegin,
+                          void *DstPtrBegin, int64_t Size,
+                          HostDataToTargetTy *HT) {
+
+  INFO(OMP_INFOTYPE_DATA_TRANSFER, DeviceId,
+       "Copying data from %s to %s, %sPtr=" DPxMOD ", %sPtr=" DPxMOD
+       ", Size=%" PRId64 ", Name=%s\n",
+       H2D ? "host" : "device", H2D ? "device" : "host", H2D ? "Hst" : "Tgt",
+       DPxPTR(SrcPtrBegin), H2D ? "Tgt" : "Hst", DPxPTR(DstPtrBegin), Size,
+       (HT && HT->HstPtrName) ? getNameFromMapping(HT->HstPtrName).c_str()
+                              : "unknown");
+}
+
 // Submit data to device
 int32_t DeviceTy::submitData(void *TgtPtrBegin, void *HstPtrBegin, int64_t Size,
-                             AsyncInfoTy &AsyncInfo) {
+                             AsyncInfoTy &AsyncInfo,
+                             HostDataToTargetTy *Entry) {
   if (getInfoLevel() & OMP_INFOTYPE_DATA_TRANSFER) {
-    HDTTMapAccessorTy HDTTMap = HostDataToTargetMap.getExclusiveAccessor();
-    LookupResult LR = lookupMapping(HDTTMap, HstPtrBegin, Size);
-    auto *HT = &*LR.Entry;
-
-    INFO(OMP_INFOTYPE_DATA_TRANSFER, DeviceID,
-         "Copying data from host to device, HstPtr=" DPxMOD ", TgtPtr=" DPxMOD
-         ", Size=%" PRId64 ", Name=%s\n",
-         DPxPTR(HstPtrBegin), DPxPTR(TgtPtrBegin), Size,
-         (HT && HT->HstPtrName) ? getNameFromMapping(HT->HstPtrName).c_str()
-                                : "unknown");
+    if (!Entry) {
+      HDTTMapAccessorTy HDTTMap = HostDataToTargetMap.getExclusiveAccessor();
+      LookupResult LR = lookupMapping(HDTTMap, HstPtrBegin, Size);
+      Entry = LR.Entry;
+    }
+    printCopyInfo(DeviceID, /* H2D */ true, TgtPtrBegin, HstPtrBegin, Size,
+                  Entry);
   }
 
   if (!AsyncInfo || !RTL->data_submit_async || !RTL->synchronize)
     return RTL->data_submit(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size);
-  else
-    return RTL->data_submit_async(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size,
-                                  AsyncInfo);
+  return RTL->data_submit_async(RTLDeviceID, TgtPtrBegin, HstPtrBegin, Size,
+                                AsyncInfo);
 }
 
 // Retrieve data from device
 int32_t DeviceTy::retrieveData(void *HstPtrBegin, void *TgtPtrBegin,
-                               int64_t Size, AsyncInfoTy &AsyncInfo) {
+                               int64_t Size, AsyncInfoTy &AsyncInfo,
+                               HostDataToTargetTy *Entry) {
   if (getInfoLevel() & OMP_INFOTYPE_DATA_TRANSFER) {
-    HDTTMapAccessorTy HDTTMap = HostDataToTargetMap.getExclusiveAccessor();
-    LookupResult LR = lookupMapping(HDTTMap, HstPtrBegin, Size);
-    auto *HT = &*LR.Entry;
-    INFO(OMP_INFOTYPE_DATA_TRANSFER, DeviceID,
-         "Copying data from device to host, TgtPtr=" DPxMOD ", HstPtr=" DPxMOD
-         ", Size=%" PRId64 ", Name=%s\n",
-         DPxPTR(TgtPtrBegin), DPxPTR(HstPtrBegin), Size,
-         (HT && HT->HstPtrName) ? getNameFromMapping(HT->HstPtrName).c_str()
-                                : "unknown");
+    if (!Entry) {
+      HDTTMapAccessorTy HDTTMap = HostDataToTargetMap.getExclusiveAccessor();
+      LookupResult LR = lookupMapping(HDTTMap, HstPtrBegin, Size);
+      Entry = LR.Entry;
+    }
+    printCopyInfo(DeviceID, /* H2D */ false, TgtPtrBegin, HstPtrBegin, Size,
+                  Entry);
   }
-
   if (!RTL->data_retrieve_async || !RTL->synchronize)
     return RTL->data_retrieve(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size);
-  else
-    return RTL->data_retrieve_async(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size,
-                                    AsyncInfo);
+  return RTL->data_retrieve_async(RTLDeviceID, HstPtrBegin, TgtPtrBegin, Size,
+                                  AsyncInfo);
 }
 
 // Copy data from current device to destination device directly
@@ -569,9 +593,9 @@ int32_t DeviceTy::dataExchange(void *SrcPtr, DeviceTy &DstDev, void *DstPtr,
     assert(RTL->data_exchange && "RTL->data_exchange is nullptr");
     return RTL->data_exchange(RTLDeviceID, SrcPtr, DstDev.RTLDeviceID, DstPtr,
                               Size);
-  } else
-    return RTL->data_exchange_async(RTLDeviceID, SrcPtr, DstDev.RTLDeviceID,
-                                    DstPtr, Size, AsyncInfo);
+  }
+  return RTL->data_exchange_async(RTLDeviceID, SrcPtr, DstDev.RTLDeviceID,
+                                  DstPtr, Size, AsyncInfo);
 }
 
 // Run region on device
