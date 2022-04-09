@@ -383,11 +383,7 @@ TargetPointerResultTy DeviceTy::getTgtPtrBegin(void *HstPtrBegin, int64_t Size,
     if (!UpdateRefCount) {
       RefCountAction = " (update suppressed)";
     } else if (TPR.isLast()) {
-      // Mark the entry as to be deleted by this thread. Another thread might
-      // reuse the entry and take "ownership" for the deletion while this thread
-      // is waiting for data transfers. That is fine and the current thread will
-      // simply skip the deletion step then.
-      HT.setDeleteThreadId();
+      HT.incDeleteCount();
       HT.decRefCount(UseHoldRefCount);
       assert(HT.getTotalRefCount() == 0 &&
              "Expected zero reference count when deletion is scheduled");
@@ -450,7 +446,6 @@ int DeviceTy::deallocTgtPtr(HDTTMapAccessorTy &HDTTMap, LookupResult LR,
   auto &HT = *LR.Entry;
   // Verify this thread is still in charge of deleting the entry.
   assert(HT.getTotalRefCount() == 0 &&
-         HT.getDeleteThreadId() == std::this_thread::get_id() &&
          "Trying to delete entry that is in use or owned by another thread.");
 
   DP("Deleting tgt data " DPxMOD " of size %" PRId64 "\n",
