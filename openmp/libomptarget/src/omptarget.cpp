@@ -618,17 +618,17 @@ struct PostProcessingInfo {
   /// The mapping type (bitfield).
   int64_t ArgType;
 
-  /// The target pointer information.
-  TargetPointerResultTy TPR;
-
   /// Are we expecting to delete this entry or not. Even if set, we might not
   /// delete the entry if another thread reused the entry in the meantime.
   bool DelEntry;
 
+  /// The entry we currently copy back and which we might delete.
+  HostDataToTargetTy *Entry;
+
   PostProcessingInfo(void *HstPtr, int64_t Size, int64_t ArgType, bool DelEntry,
-                     TargetPointerResultTy TPR)
-      : HstPtrBegin(HstPtr), DataSize(Size), ArgType(ArgType), TPR(TPR),
-        DelEntry(DelEntry) {}
+                     HostDataToTargetTy *Entry)
+      : HstPtrBegin(HstPtr), DataSize(Size), ArgType(ArgType),
+        DelEntry(DelEntry), Entry(Entry) {}
 };
 
 /// Apply \p CB to the shadow map pointer entries in the range \p Begin, to
@@ -830,8 +830,9 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
       }
 
       // Add pointer to the buffer for post-synchronize processing.
-      PostProcessingPtrs.emplace_back(HstPtrBegin, DataSize, ArgTypes[I],
-                                      DelEntry && !IsHostPtr, TPR);
+      if (auto *Entry = TPR.getEntry())
+        PostProcessingPtrs.emplace_back(HstPtrBegin, DataSize, ArgTypes[I],
+                                        DelEntry && !TPR.isHostPtr(), Entry);
     }
   }
 
@@ -844,7 +845,11 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
     return OFFLOAD_FAIL;
 
   // Deallocate target pointer
+  std::set<HostDataToTargetTy *> DeletedEntries;
   for (PostProcessingInfo &Info : PostProcessingPtrs) {
+    if (DeletedEntries.count(Info.Entry))
+      continue;
+
     // If we marked the entry to be deleted we need to verify no other thread
     // reused it by now. If deletion is still supposed to happen by this thread
     // LR will be set and exclusive access to the HDTT map will avoid another
@@ -856,8 +861,9 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
 
     if (Info.DelEntry) {
       LR = Device.lookupMapping(HDTTMap, Info.HstPtrBegin, Info.DataSize);
+      assert(LR.Entry == Info.Entry && "Entry disappeared unexpectedly");
       if (LR.Entry->getTotalRefCount() != 0 ||
-          LR.Entry->getDeleteThreadId() != std::this_thread::get_id()) {
+          LR.Entry->decDeleteCount() != 0) {
         // The thread is not in charge of deletion anymore. Give up access to
         // the HDTT map and unset the deletion flag.
         HDTTMap.destroy();
@@ -892,14 +898,19 @@ int targetDataEnd(ident_t *loc, DeviceTy &Device, int32_t ArgNum,
 
     // If we are deleting the entry the DataMapMtx is locked and we own the
     // entry.
-    if (Info.DelEntry) {
-      if (!FromMapperBase || FromMapperBase != Info.HstPtrBegin)
-        Ret = Device.deallocTgtPtr(HDTTMap, LR, Info.DataSize);
+    if (!Info.DelEntry ||
+        (FromMapperBase && FromMapperBase == Info.HstPtrBegin)) {
+      continue;
+    }
 
-      if (Ret != OFFLOAD_SUCCESS) {
-        REPORT("Deallocating data from device failed.\n");
-        break;
-      }
+    // Remember we deleted the entry in case it shows up in the
+    // PostProcessingPtrs again.
+    DeletedEntries.insert(Info.Entry);
+    auto Ret = Device.deallocTgtPtr(HDTTMap, LR, Info.DataSize);
+
+    if (Ret != OFFLOAD_SUCCESS) {
+      REPORT("Deallocating data from device failed.\n");
+      break;
     }
   }
 
