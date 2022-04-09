@@ -275,19 +275,46 @@ struct LookupResult {
 
 /// This struct will be returned by \p DeviceTy::getTargetPointer which provides
 /// more data than just a target pointer.
-struct TargetPointerResultTy {
-  struct {
-    /// If the map table entry is just created
+class TargetPointerResultTy {
+  struct FlagTy {
+    /// Flag indicating that the map table entry was just created.
     unsigned IsNewEntry : 1;
-    /// If the pointer is actually a host pointer (when unified memory enabled)
+    /// Flag indicating that the pointer is actually a host pointer, used when
+    /// unified memory enabled.
     unsigned IsHostPointer : 1;
-  } Flags = {0, 0};
+    /// Flag indicating that this was the last user of the entry and the ref
+    /// count is now 0.
+    unsigned IsLast : 1;
+  } Flags = {0, 0, 0};
 
   /// The corresponding map table entry which is stable.
   HostDataToTargetTy *Entry = nullptr;
 
   /// The corresponding target pointer
   void *TargetPointer = nullptr;
+
+public:
+  TargetPointerResultTy() {}
+
+  TargetPointerResultTy(FlagTy Flags, HostDataToTargetTy *Entry,
+                        void *TargetPointer)
+      : Flags(Flags), Entry(Entry), TargetPointer(TargetPointer) {
+  }
+
+  bool isHostPtr() const { return Flags.IsHostPointer; }
+  void setIsHostPtr(bool IHP) { Flags.IsHostPointer = IHP; }
+
+  bool isNew() const { return Flags.IsNewEntry; }
+  void setIsNew(bool IN) { Flags.IsNewEntry = IN; }
+
+  bool isLast() const { return Flags.IsLast; }
+  void setIsLast(bool IL) { Flags.IsLast = IL; }
+
+  void *getTargetPointer() const { return TargetPointer; }
+  void setTargetPointer(void *TP) { TargetPointer = TP; }
+
+  HostDataToTargetTy *getEntry() const { return Entry; }
+  void setEntry(HostDataToTargetTy *HDTTT) { Entry = HDTTT; }
 };
 
 /// Map for shadow pointers
@@ -364,11 +391,12 @@ struct DeviceTy {
   /// - The user tried to do an illegal mapping;
   /// - Data transfer issue fails.
   TargetPointerResultTy
-  getTargetPointer(void *HstPtrBegin, void *HstPtrBase, int64_t Size,
-                   map_var_info_t HstPtrName, bool HasFlagTo,
-                   bool HasFlagAlways, bool IsImplicit, bool UpdateRefCount,
-                   bool HasCloseModifier, bool HasPresentModifier,
-                   bool HasHoldModifier, AsyncInfoTy &AsyncInfo);
+  getTargetPointer(HDTTMapAccessorTy &HDTTMap, void *HstPtrBegin,
+                   void *HstPtrBase, int64_t Size, map_var_info_t HstPtrName,
+                   bool HasFlagTo, bool HasFlagAlways, bool IsImplicit,
+                   bool UpdateRefCount, bool HasCloseModifier,
+                   bool HasPresentModifier, bool HasHoldModifier,
+                   AsyncInfoTy &AsyncInfo);
 
   /// Return the target pointer for \p HstPtrBegin in \p HDTTMap. The accessor
   /// ensures exclusive access to the HDTT map.
@@ -376,8 +404,8 @@ struct DeviceTy {
                        int64_t Size);
 
   TargetPointerResultTy getTgtPtrBegin(void *HstPtrBegin, int64_t Size,
-                                       bool &IsLast, bool UpdateRefCount,
-                                       bool UseHoldRefCount, bool &IsHostPtr,
+                                       bool UpdateRefCount,
+                                       bool UseHoldRefCount,
                                        bool MustContain = false,
                                        bool ForceDelete = false);
 
