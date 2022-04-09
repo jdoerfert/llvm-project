@@ -106,23 +106,20 @@ EXTERN int omp_target_is_present(const void *ptr, int device_num) {
   }
 
   DeviceTy &Device = *PM->Devices[device_num];
-  bool IsLast; // not used
-  bool IsHostPtr;
   // omp_target_is_present tests whether a host pointer refers to storage that
   // is mapped to a given device. However, due to the lack of the storage size,
   // only check 1 byte. Cannot set size 0 which checks whether the pointer (zero
   // lengh array) is mapped instead of the referred storage.
-  TargetPointerResultTy TPR =
-      Device.getTgtPtrBegin(const_cast<void *>(ptr), 1, IsLast,
-                            /*UpdateRefCount=*/false,
-                            /*UseHoldRefCount=*/false, IsHostPtr);
-  int rc = (TPR.TargetPointer != NULL);
+  TargetPointerResultTy TPR = Device.getTgtPtrBegin(const_cast<void *>(ptr), 1,
+                                                    /*UpdateRefCount=*/false,
+                                                    /*UseHoldRefCount=*/false);
+  int rc = (TPR.getTargetPointer() != NULL);
   // Under unified memory the host pointer can be returned by the
   // getTgtPtrBegin() function which means that there is no device
   // corresponding point for ptr. This function should return false
   // in that situation.
   if (PM->RTLs.RequiresFlags & OMP_REQ_UNIFIED_SHARED_MEMORY)
-    rc = !IsHostPtr;
+    rc = !TPR.isHostPtr();
   DP("Call to omp_target_is_present returns %d\n", rc);
   return rc;
 }
