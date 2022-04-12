@@ -321,7 +321,7 @@ static bool getPotentialCopiesOfMemoryValue(
                     << " (only exact: " << OnlyExact << ")\n";);
 
   Value &Ptr = *I.getPointerOperand();
-  SmallVector<Value *, 8> Objects;
+  SmallSetVector<Value *, 8> Objects;
   if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &I,
                                        UsedAssumedInformation)) {
     LLVM_DEBUG(
@@ -1019,6 +1019,8 @@ Optional<Constant *>
 Attributor::getAssumedConstant(const IRPosition &IRP,
                                const AbstractAttribute &AA,
                                bool &UsedAssumedInformation) {
+  if (auto *C = dyn_cast<Constant>(&IRP.getAssociatedValue()))
+    return C;
   // First check all callbacks provided by outside AAs. If any of them returns
   // a non-null value that is different from the associated value, or None, we
   // assume it's simpliied.
@@ -1029,6 +1031,18 @@ Attributor::getAssumedConstant(const IRPosition &IRP,
     if (isa_and_nonnull<Constant>(*SimplifiedV))
       return cast<Constant>(*SimplifiedV);
     return nullptr;
+  }
+  SmallVector<AA::ValueAndContext> Values;
+  if (getAssumedSimplifiedValues(IRP, &AA, Values, AA::Scope::Interprocedural,
+                                 UsedAssumedInformation)) {
+    if (Values.empty())
+      return llvm::None;
+    if (Values.size() == 1 && isa<Constant>(Values.back().getValue())) {
+      Value *NewC =
+          AA::getWithType(*Values.back().getValue(), *IRP.getAssociatedType());
+      if (isa_and_nonnull<Constant>(NewC))
+        return cast<Constant>(NewC);
+    }
   }
   const auto &ValueSimplifyAA =
       getAAFor<AAValueSimplify>(AA, IRP, DepClassTy::NONE);
@@ -1063,11 +1077,23 @@ Attributor::getAssumedSimplified(const IRPosition &IRP,
   for (auto &CB : SimplificationCallbacks.lookup(IRP))
     return CB(IRP, AA, UsedAssumedInformation);
 
+  SmallVector<AA::ValueAndContext> Values;
+  if (getAssumedSimplifiedValues(IRP, AA, Values, AA::Scope::Interprocedural,
+                                 UsedAssumedInformation)) {
+    if (Values.empty())
+      return llvm::None;
+    if (Values.size() == 1 &&
+        Values.back().getValue() != &IRP.getAssociatedValue())
+      return Values.back().getValue();
+  }
+
   // If no high-level/outside simplification occurred, use AAValueSimplify.
   const auto &ValueSimplifyAA =
       getOrCreateAAFor<AAValueSimplify>(IRP, AA, DepClassTy::NONE);
   Optional<Value *> SimplifiedV =
       ValueSimplifyAA.getAssumedSimplifiedValue(*this);
+  errs() << "VSAA: " << static_cast<const AbstractAttribute &>(ValueSimplifyAA)
+         << " : " << SimplifiedV << "\n";
   bool IsKnown = ValueSimplifyAA.isAtFixpoint();
   UsedAssumedInformation |= !IsKnown;
   if (!SimplifiedV.hasValue()) {
@@ -1084,6 +1110,38 @@ Attributor::getAssumedSimplified(const IRPosition &IRP,
     return SimpleV;
   }
   return const_cast<Value *>(&IRP.getAssociatedValue());
+}
+
+bool Attributor::getAssumedSimplifiedValues(
+    const IRPosition &IRP, const AbstractAttribute *AA,
+    SmallVectorImpl<AA::ValueAndContext> &Values, AA::Scope S,
+    bool &UsedAssumedInformation) {
+  // First check all callbacks provided by outside AAs. If any of them returns
+  // a non-null value that is different from the associated value, or None, we
+  // assume it's simpliied.
+  const auto &SimplificationCBs = SimplificationCallbacks.lookup(IRP);
+  for (auto &CB : SimplificationCBs) {
+    Optional<Value *> CBResult = CB(IRP, AA, UsedAssumedInformation);
+    if (Value *V = CBResult.getValueOr(nullptr)) {
+      if ((S & AA::Scope::Interprocedural) ||
+          AA::isValidInScope(*V, IRP.getAnchorScope()))
+        Values.push_back(AA::ValueAndContext{V, nullptr});
+      else
+        return false;
+    }
+  }
+  if (!SimplificationCBs.empty())
+    return true;
+
+  // If no high-level/outside simplification occurred, use AAValueSimplify.
+  const auto &PotentialValuesAA =
+      getOrCreateAAFor<AAPotentialValues>(IRP, AA, DepClassTy::OPTIONAL);
+  errs() << "PVAA: "
+         << static_cast<const AbstractAttribute &>(PotentialValuesAA) << "\n";
+  if (!PotentialValuesAA.getAssumedSimplifiedValues(*this, Values, S))
+    return false;
+  UsedAssumedInformation |= !PotentialValuesAA.isAtFixpoint();
+  return true;
 }
 
 Optional<Value *> Attributor::translateArgumentToCallSiteContent(
@@ -1180,10 +1238,10 @@ bool Attributor::isAssumedDead(const Instruction &I,
   if (ManifestAddedBlocks.contains(I.getParent()))
     return false;
 
-  if (!FnLivenessAA)
-    FnLivenessAA =
-        lookupAAFor<AAIsDead>(IRPosition::function(*I.getFunction(), CBCtx),
-                              QueryingAA, DepClassTy::NONE);
+  if (!FnLivenessAA || FnLivenessAA->getAnchorScope() != I.getFunction())
+    FnLivenessAA = &getOrCreateAAFor<AAIsDead>(
+        IRPosition::function(*I.getFunction(), CBCtx), QueryingAA,
+        DepClassTy::NONE);
 
   // If we have a context instruction and a liveness AA we use it.
   if (FnLivenessAA &&
@@ -1928,8 +1986,11 @@ ChangeStatus Attributor::cleanupIR() {
     } while (true);
 
     Instruction *I = dyn_cast<Instruction>(U->getUser());
+    errs() << *OldV << " : " << I << " : " << *NewV << "\n";
+    if (I)
+      I->dump();
     assert((!I || isRunOn(*I->getFunction())) &&
-           "Cannot replace an invoke outside the current SCC!");
+           "Cannot replace an instruction outside the current SCC!");
 
     // Do not replace uses in returns if the value is a must-tail call we will
     // not delete.
@@ -1979,12 +2040,14 @@ ChangeStatus Attributor::cleanupIR() {
     }
   };
 
+  errs() << "TBCU\n";
   for (auto &It : ToBeChangedUses) {
     Use *U = It.first;
     Value *NewV = It.second;
     ReplaceUse(U, NewV);
   }
 
+  errs() << "TBCV\n";
   SmallVector<Use *, 4> Uses;
   for (auto &It : ToBeChangedValues) {
     Value *OldV = It.first;
@@ -1998,6 +2061,7 @@ ChangeStatus Attributor::cleanupIR() {
       ReplaceUse(U, NewV);
   }
 
+  errs() << "---\n";
   for (auto &V : InvokeWithDeadSuccessor)
     if (InvokeInst *II = dyn_cast_or_null<InvokeInst>(V)) {
       assert(isRunOn(*II->getFunction()) &&
@@ -2853,7 +2917,8 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     getOrCreateAAFor<AAIsDead>(RetPos);
 
     // Every function might be simplified.
-    getOrCreateAAFor<AAValueSimplify>(RetPos);
+    bool UsedAssumedInformation = false;
+    getAssumedSimplified(RetPos, nullptr, UsedAssumedInformation);
 
     // Every returned value might be marked noundef.
     getOrCreateAAFor<AANoUndef>(RetPos);
@@ -2945,7 +3010,8 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     if (!Callee->getReturnType()->isVoidTy() && !CB.use_empty()) {
 
       IRPosition CBRetPos = IRPosition::callsite_returned(CB);
-      getOrCreateAAFor<AAValueSimplify>(CBRetPos);
+      bool UsedAssumedInformation = false;
+      getAssumedSimplified(CBRetPos, nullptr, UsedAssumedInformation);
     }
 
     for (int I = 0, E = CB.arg_size(); I < E; ++I) {
@@ -3008,10 +3074,15 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       getOrCreateAAFor<AAAlign>(
           IRPosition::value(*cast<LoadInst>(I).getPointerOperand()));
       if (SimplifyAllLoads)
-        getOrCreateAAFor<AAValueSimplify>(IRPosition::value(I));
-    } else
-      getOrCreateAAFor<AAAlign>(
-          IRPosition::value(*cast<StoreInst>(I).getPointerOperand()));
+        getAssumedSimplified(IRPosition::value(I), nullptr,
+                             UsedAssumedInformation);
+    } else {
+      auto &SI = cast<StoreInst>(I);
+      getOrCreateAAFor<AAIsDead>(IRPosition::inst(I));
+      getAssumedSimplified(IRPosition::value(*SI.getValueOperand()), nullptr,
+                           UsedAssumedInformation);
+      getOrCreateAAFor<AAAlign>(IRPosition::value(*SI.getPointerOperand()));
+    }
     return true;
   };
   Success = checkForAllInstructionsImpl(
@@ -3086,8 +3157,24 @@ raw_ostream &llvm::operator<<(raw_ostream &OS,
   if (!S.isValidState())
     OS << "full-set";
   else {
-    for (auto &it : S.getAssumedSet())
-      OS << it << ", ";
+    for (auto &It : S.getAssumedSet())
+      OS << It << ", ";
+    if (S.undefIsContained())
+      OS << "undef ";
+  }
+  OS << "} >)";
+
+  return OS;
+}
+
+raw_ostream &llvm::operator<<(raw_ostream &OS,
+                              const PotentialLLVMValuesState &S) {
+  OS << "set-state(< {";
+  if (!S.isValidState())
+    OS << "full-set";
+  else {
+    for (auto &It : S.getAssumedSet())
+      OS << *It.first.getValue() << "[" << int(It.second) << "], ";
     if (S.undefIsContained())
       OS << "undef ";
   }
