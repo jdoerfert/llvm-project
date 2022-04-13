@@ -5451,6 +5451,8 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       return &I;
 
     Instruction *CloneI = I.clone();
+    // TODO: Try to salvage debug information here.
+    CloneI->setDebugLoc(DebugLoc());
     VMap[&I] = CloneI;
     CloneI->insertBefore(CtxI);
     RemapInstruction(CloneI, VMap);
