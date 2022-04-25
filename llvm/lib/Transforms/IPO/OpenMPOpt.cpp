@@ -1342,6 +1342,8 @@ private:
         OMPRTL_omp_get_proc_bind,
         OMPRTL_omp_get_num_places,
         OMPRTL_omp_get_num_procs,
+        OMPRTL_omp_get_num_devices,
+        OMPRTL_omp_get_initial_device,
         OMPRTL_omp_get_place_num,
         OMPRTL_omp_get_partition_num_places,
         OMPRTL_omp_get_partition_place_nums};
