@@ -341,8 +341,12 @@ static bool getPotentialCopiesOfMemoryValue(
   SmallVector<Value *> NewCopies;
   SmallVector<Instruction *> NewCopyOrigins;
 
-  const auto *TLI =
-      A.getInfoCache().getTargetLibraryInfoForFunction(*I.getFunction());
+  Function &Scope = *I.getFunction();
+  InformationCache &InfoCache = A.getInfoCache();
+
+  const DominatorTree *DT =
+      InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
+  const auto *TLI = InfoCache.getTargetLibraryInfoForFunction(Scope);
   for (Value *Obj : Objects) {
     LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
     if (isa<UndefValue>(Obj))
@@ -375,6 +379,10 @@ static bool getPotentialCopiesOfMemoryValue(
         return false;
       }
 
+    // Remember if we saw a dominating write, if so, we don't need the initial
+    // value of the object.
+    bool HasDominatingWrite = false;
+
     bool NullOnly = true;
     bool NullRequired = false;
     auto CheckForNullOnlyAndUndef = [&](Optional<Value *> V) {
@@ -388,18 +396,12 @@ static bool getPotentialCopiesOfMemoryValue(
         NullOnly = false;
     };
 
-    if (IsLoad) {
-      Value *InitialValue = AA::getInitialValueForObj(*Obj, *I.getType(), TLI);
-      if (!InitialValue)
-        return false;
-      CheckForNullOnlyAndUndef(InitialValue);
-      NewCopies.push_back(InitialValue);
-      NewCopyOrigins.push_back(nullptr);
-    }
-
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
       if ((IsLoad && !Acc.isWrite()) || (!IsLoad && !Acc.isRead()))
         return true;
+      if (DT && IsLoad && Acc.getRemoteInst()->getFunction() == &Scope &&
+          DT->dominates(Acc.getRemoteInst(), &I) && Acc.isMustAccess())
+        HasDominatingWrite = true;
       if (IsLoad && Acc.isWrittenValueYetUndetermined())
         return true;
       CheckForNullOnlyAndUndef(Acc.getContent());
@@ -454,6 +456,22 @@ static bool getPotentialCopiesOfMemoryValue(
           << *Obj << "\n");
       return false;
     }
+
+    if (IsLoad && !HasDominatingWrite) {
+      Value *InitialValue = AA::getInitialValueForObj(*Obj, *I.getType(), TLI);
+      if (!InitialValue)
+        return false;
+      CheckForNullOnlyAndUndef(InitialValue);
+      if (NullRequired && !NullOnly) {
+        LLVM_DEBUG(dbgs() << "Non exact access but initial value that is not "
+                             "null or undef, abort!\n");
+        return false;
+      }
+
+      NewCopies.push_back(InitialValue);
+      NewCopyOrigins.push_back(nullptr);
+    }
+
     PIs.push_back(&PI);
   }
 

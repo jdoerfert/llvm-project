@@ -1116,9 +1116,9 @@ struct AAPointerInfoImpl
         bool UsedAssumedInformation = false;
         Optional<Value *> Content = A.translateArgumentToCallSiteContent(
             RAcc.getContent(), CB, *this, UsedAssumedInformation);
-        AccessKind AK =
-            AccessKind(RAcc.getKind() & (IsByval ? AccessKind::AK_READ
-                                                 : AccessKind::AK_READ_WRITE));
+        AccessKind AK = AccessKind(
+            RAcc.getKind() & (IsByval ? AccessKind::AK_R : AccessKind::AK_RW));
+        AK = AccessKind(AK | (RAcc.isMayAccess() ? AK_MAY : AK_MUST));
         Changed =
             Changed | addAccess(A, OAS.getOffset(), OAS.getSize(), CB, Content,
                                 AK, RAcc.getType(), RAcc.getRemoteInst(), Bin);
@@ -1286,21 +1286,37 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         return true;
       }
 
-      if (auto *LoadI = dyn_cast<LoadInst>(Usr))
-        return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr,
-                            AccessKind::AK_READ, OffsetInfoMap[CurPtr].Offset,
-                            Changed, LoadI->getType());
+      if (auto *LoadI = dyn_cast<LoadInst>(Usr)) {
+        // If the access is to a pointer that may or may not be the associated
+        // value, e.g. due to a PHI, we cannot assume it will be read.
+        AccessKind AK = AccessKind::AK_R;
+        if (getUnderlyingObject(CurPtr) == &AssociatedValue)
+          AK = AccessKind(AK | AccessKind::AK_MUST);
+        else
+          AK = AccessKind(AK | AccessKind::AK_MAY);
+        return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr, AK,
+                            OffsetInfoMap[CurPtr].Offset, Changed,
+                            LoadI->getType());
+      }
+
       if (auto *StoreI = dyn_cast<StoreInst>(Usr)) {
         if (StoreI->getValueOperand() == CurPtr) {
           LLVM_DEBUG(dbgs() << "[AAPointerInfo] Escaping use in store "
                             << *StoreI << "\n");
           return false;
         }
+        // If the access is to a pointer that may or may not be the associated
+        // value, e.g. due to a PHI, we cannot assume it will be written.
+        AccessKind AK = AccessKind::AK_W;
+        if (getUnderlyingObject(CurPtr) == &AssociatedValue)
+          AK = AccessKind(AK | AccessKind::AK_MUST);
+        else
+          AK = AccessKind(AK | AccessKind::AK_MAY);
         bool UsedAssumedInformation = false;
         Optional<Value *> Content =
             A.getAssumedSimplified(*StoreI->getValueOperand(), *this,
                                    UsedAssumedInformation, AA::Interprocedural);
-        return handleAccess(A, *StoreI, *CurPtr, Content, AccessKind::AK_WRITE,
+        return handleAccess(A, *StoreI, *CurPtr, Content, AK,
                             OffsetInfoMap[CurPtr].Offset, Changed,
                             StoreI->getValueOperand()->getType());
       }
@@ -1421,10 +1437,10 @@ struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
       unsigned ArgNo = getIRPosition().getCallSiteArgNo();
       ChangeStatus Changed = ChangeStatus::UNCHANGED;
       if (ArgNo == 0) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_WRITE, 0, Changed,
-                     nullptr, LengthVal);
+        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_MUST_WRITE, 0,
+                     Changed, nullptr, LengthVal);
       } else if (ArgNo == 1) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_READ, 0, Changed,
+        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_MUST_READ, 0, Changed,
                      nullptr, LengthVal);
       } else {
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled memory intrinsic "
