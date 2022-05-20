@@ -2469,7 +2469,7 @@ struct AAICVTrackerFunction : public AAICVTracker {
       return nullptr;
 
     const auto &ICVTrackingAA = A.getAAFor<AAICVTracker>(
-        *this, IRPosition::callsite_returned(*CB), DepClassTy::REQUIRED);
+        *this, IRPosition::callsite_returned(*CB), AA::DepClassTy::REQUIRED);
 
     if (ICVTrackingAA.isAssumedTracked()) {
       Optional<Value *> URV = ICVTrackingAA.getUniqueReplacementValue(ICV);
@@ -2589,7 +2589,7 @@ struct AAICVTrackerFunctionReturned : AAICVTracker {
   ChangeStatus updateImpl(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     const auto &ICVTrackingAA = A.getAAFor<AAICVTracker>(
-        *this, IRPosition::function(*getAnchorScope()), DepClassTy::REQUIRED);
+        *this, IRPosition::function(*getAnchorScope()), AA::DepClassTy::REQUIRED);
 
     if (!ICVTrackingAA.isAssumedTracked())
       return indicatePessimisticFixpoint();
@@ -2674,7 +2674,7 @@ struct AAICVTrackerCallSite : AAICVTracker {
 
   ChangeStatus updateImpl(Attributor &A) override {
     const auto &ICVTrackingAA = A.getAAFor<AAICVTracker>(
-        *this, IRPosition::function(*getAnchorScope()), DepClassTy::REQUIRED);
+        *this, IRPosition::function(*getAnchorScope()), AA::DepClassTy::REQUIRED);
 
     // We don't have any information, so we assume it changes the ICV.
     if (!ICVTrackingAA.isAssumedTracked())
@@ -2731,7 +2731,7 @@ struct AAICVTrackerCallSiteReturned : AAICVTracker {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     const auto &ICVTrackingAA = A.getAAFor<AAICVTracker>(
         *this, IRPosition::returned(*getAssociatedFunction()),
-        DepClassTy::REQUIRED);
+        AA::DepClassTy::REQUIRED);
 
     // We don't have any information, so we assume it changes the ICV.
     if (!ICVTrackingAA.isAssumedTracked())
@@ -2807,7 +2807,7 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
   auto PredForCallSite = [&](AbstractCallSite ACS) {
     const auto &ExecutionDomainAA = A.getAAFor<AAExecutionDomain>(
         *this, IRPosition::function(*ACS.getInstruction()->getFunction()),
-        DepClassTy::REQUIRED);
+        AA::DepClassTy::REQUIRED);
     return ACS.isDirectCall() &&
            ExecutionDomainAA.isExecutedByInitialThreadOnly(
                *ACS.getInstruction());
@@ -2996,7 +2996,7 @@ struct AAHeapToSharedFunction : public AAHeapToShared {
 
     Function *F = getAnchorScope();
     auto *HS = A.lookupAAFor<AAHeapToStack>(IRPosition::function(*F), this,
-                                            DepClassTy::OPTIONAL);
+                                            AA::DepClassTy::OPTIONAL);
 
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     for (CallBase *CB : MallocCalls) {
@@ -3076,7 +3076,7 @@ struct AAHeapToSharedFunction : public AAHeapToShared {
     // Only consider malloc calls executed by a single thread with a constant.
     for (User *U : RFI.Declaration->users()) {
       const auto &ED = A.getAAFor<AAExecutionDomain>(
-          *this, IRPosition::function(*F), DepClassTy::REQUIRED);
+          *this, IRPosition::function(*F), AA::DepClassTy::REQUIRED);
       if (CallBase *CB = dyn_cast<CallBase>(U))
         if (!isa<ConstantInt>(CB->getArgOperand(0)) ||
             !ED.isExecutedByInitialThreadOnly(*CB))
@@ -3224,7 +3224,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       if (DisableOpenMPOptStateMachineRewrite)
         return nullptr;
       if (AA)
-        A.recordDependence(*this, *AA, DepClassTy::OPTIONAL);
+        A.recordDependence(*this, *AA, AA::DepClassTy::OPTIONAL);
       UsedAssumedInformation = !isAtFixpoint();
       auto *FalseVal =
           ConstantInt::getBool(IRP.getAnchorValue().getContext(), false);
@@ -3242,7 +3242,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         return nullptr;
       if (!SPMDCompatibilityTracker.isAtFixpoint()) {
         if (AA)
-          A.recordDependence(*this, *AA, DepClassTy::OPTIONAL);
+          A.recordDependence(*this, *AA, AA::DepClassTy::OPTIONAL);
         UsedAssumedInformation = true;
       } else {
         UsedAssumedInformation = false;
@@ -3265,7 +3265,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         return nullptr;
       if (!SPMDCompatibilityTracker.isAtFixpoint()) {
         if (AA)
-          A.recordDependence(*this, *AA, DepClassTy::OPTIONAL);
+          A.recordDependence(*this, *AA, AA::DepClassTy::OPTIONAL);
         UsedAssumedInformation = true;
       } else {
         UsedAssumedInformation = false;
@@ -3578,7 +3578,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
       BasicBlock *BB = GuardedI->getParent();
       auto *CalleeAA = A.lookupAAFor<AAKernelInfo>(
           IRPosition::function(*GuardedI->getFunction()), nullptr,
-          DepClassTy::NONE);
+          AA::DepClassTy::NONE);
       assert(CalleeAA != nullptr && "Expected Callee AAKernelInfo");
       auto &CalleeAAFunction = *cast<AAKernelInfoFunction>(CalleeAA);
       // Continue if instruction is already guarded.
@@ -3997,7 +3997,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         // Check for AAHeapToStack moved objects which must not be guarded.
         auto &HS = A.getAAFor<AAHeapToStack>(
             *this, IRPosition::function(*I.getFunction()),
-            DepClassTy::OPTIONAL);
+            AA::DepClassTy::OPTIONAL);
         if (llvm::all_of(Objects, [&HS](const Value *Obj) {
               auto *CB = dyn_cast<CallBase>(Obj);
               if (!CB)
@@ -4038,7 +4038,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         int SPMD = 0, Generic = 0;
         for (auto *Kernel : ReachingKernelEntries) {
           auto &CBAA = A.getAAFor<AAKernelInfo>(
-              *this, IRPosition::function(*Kernel), DepClassTy::OPTIONAL);
+              *this, IRPosition::function(*Kernel), AA::DepClassTy::OPTIONAL);
           if (CBAA.SPMDCompatibilityTracker.isValidState() &&
               CBAA.SPMDCompatibilityTracker.isAssumed())
             ++SPMD;
@@ -4058,7 +4058,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
     auto CheckCallInst = [&](Instruction &I) {
       auto &CB = cast<CallBase>(I);
       auto &CBAA = A.getAAFor<AAKernelInfo>(
-          *this, IRPosition::callsite_function(CB), DepClassTy::OPTIONAL);
+          *this, IRPosition::callsite_function(CB), AA::DepClassTy::OPTIONAL);
       getState() ^= CBAA.getState();
       AllSPMDStatesWereFixed &= CBAA.SPMDCompatibilityTracker.isAtFixpoint();
       AllParallelRegionStatesWereFixed &=
@@ -4114,7 +4114,7 @@ private:
       assert(Caller && "Caller is nullptr");
 
       auto &CAA = A.getOrCreateAAFor<AAKernelInfo>(
-          IRPosition::function(*Caller), this, DepClassTy::REQUIRED);
+          IRPosition::function(*Caller), this, AA::DepClassTy::REQUIRED);
       if (CAA.ReachingKernelEntries.isValidState()) {
         ReachingKernelEntries ^= CAA.ReachingKernelEntries;
         return true;
@@ -4192,7 +4192,7 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     Function *Callee = getAssociatedFunction();
 
     auto &AssumptionAA = A.getAAFor<AAAssumptionInfo>(
-        *this, IRPosition::callsite_function(CB), DepClassTy::OPTIONAL);
+        *this, IRPosition::callsite_function(CB), AA::DepClassTy::OPTIONAL);
 
     // Check for SPMD-mode assumptions.
     if (AssumptionAA.hasAssumption("ompx_spmd_amenable")) {
@@ -4338,7 +4338,7 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     // If F is not a runtime function, propagate the AAKernelInfo of the callee.
     if (It == OMPInfoCache.RuntimeFunctionIDMap.end()) {
       const IRPosition &FnPos = IRPosition::function(*F);
-      auto &FnAA = A.getAAFor<AAKernelInfo>(*this, FnPos, DepClassTy::REQUIRED);
+      auto &FnAA = A.getAAFor<AAKernelInfo>(*this, FnPos, AA::DepClassTy::REQUIRED);
       if (getState() == FnAA.getState())
         return ChangeStatus::UNCHANGED;
       getState() = FnAA.getState();
@@ -4355,9 +4355,9 @@ struct AAKernelInfoCallSite : AAKernelInfo {
     CallBase &CB = cast<CallBase>(getAssociatedValue());
 
     auto &HeapToStackAA = A.getAAFor<AAHeapToStack>(
-        *this, IRPosition::function(*CB.getCaller()), DepClassTy::OPTIONAL);
+        *this, IRPosition::function(*CB.getCaller()), AA::DepClassTy::OPTIONAL);
     auto &HeapToSharedAA = A.getAAFor<AAHeapToShared>(
-        *this, IRPosition::function(*CB.getCaller()), DepClassTy::OPTIONAL);
+        *this, IRPosition::function(*CB.getCaller()), AA::DepClassTy::OPTIONAL);
 
     RuntimeFunction RF = It->getSecond();
 
@@ -4460,7 +4460,7 @@ struct AAFoldRuntimeCallCallSiteReturned : AAFoldRuntimeCall {
           if (!isAtFixpoint()) {
             UsedAssumedInformation = true;
             if (AA)
-              A.recordDependence(*this, *AA, DepClassTy::OPTIONAL);
+              A.recordDependence(*this, *AA, AA::DepClassTy::OPTIONAL);
           }
           return SimplifiedValue;
         });
@@ -4534,14 +4534,14 @@ private:
     unsigned AssumedSPMDCount = 0, KnownSPMDCount = 0;
     unsigned AssumedNonSPMDCount = 0, KnownNonSPMDCount = 0;
     auto &CallerKernelInfoAA = A.getAAFor<AAKernelInfo>(
-        *this, IRPosition::function(*getAnchorScope()), DepClassTy::REQUIRED);
+        *this, IRPosition::function(*getAnchorScope()), AA::DepClassTy::REQUIRED);
 
     if (!CallerKernelInfoAA.ReachingKernelEntries.isValidState())
       return indicatePessimisticFixpoint();
 
     for (Kernel K : CallerKernelInfoAA.ReachingKernelEntries) {
       auto &AA = A.getAAFor<AAKernelInfo>(*this, IRPosition::function(*K),
-                                          DepClassTy::REQUIRED);
+                                          AA::DepClassTy::REQUIRED);
 
       if (!AA.isValidState()) {
         SimplifiedValue = nullptr;
@@ -4596,7 +4596,7 @@ private:
     CallBase &CB = cast<CallBase>(getAssociatedValue());
     Function *F = CB.getFunction();
     const auto &ExecutionDomainAA = A.getAAFor<AAExecutionDomain>(
-        *this, IRPosition::function(*F), DepClassTy::REQUIRED);
+        *this, IRPosition::function(*F), AA::DepClassTy::REQUIRED);
 
     if (!ExecutionDomainAA.isValidState())
       return indicatePessimisticFixpoint();
@@ -4616,7 +4616,7 @@ private:
     Optional<Value *> SimplifiedValueBefore = SimplifiedValue;
 
     auto &CallerKernelInfoAA = A.getAAFor<AAKernelInfo>(
-        *this, IRPosition::function(*getAnchorScope()), DepClassTy::REQUIRED);
+        *this, IRPosition::function(*getAnchorScope()), AA::DepClassTy::REQUIRED);
 
     if (!CallerKernelInfoAA.ParallelLevels.isValidState())
       return indicatePessimisticFixpoint();
@@ -4634,7 +4634,7 @@ private:
     unsigned AssumedNonSPMDCount = 0, KnownNonSPMDCount = 0;
     for (Kernel K : CallerKernelInfoAA.ReachingKernelEntries) {
       auto &AA = A.getAAFor<AAKernelInfo>(*this, IRPosition::function(*K),
-                                          DepClassTy::REQUIRED);
+                                          AA::DepClassTy::REQUIRED);
       if (!AA.SPMDCompatibilityTracker.isValidState())
         return indicatePessimisticFixpoint();
 
@@ -4678,7 +4678,7 @@ private:
     Optional<Value *> SimplifiedValueBefore = SimplifiedValue;
 
     auto &CallerKernelInfoAA = A.getAAFor<AAKernelInfo>(
-        *this, IRPosition::function(*getAnchorScope()), DepClassTy::REQUIRED);
+        *this, IRPosition::function(*getAnchorScope()), AA::DepClassTy::REQUIRED);
 
     if (!CallerKernelInfoAA.ReachingKernelEntries.isValidState())
       return indicatePessimisticFixpoint();
@@ -4725,7 +4725,7 @@ void OpenMPOpt::registerFoldRuntimeCall(RuntimeFunction RF) {
       return false;
     A.getOrCreateAAFor<AAFoldRuntimeCall>(
         IRPosition::callsite_returned(*CI), /* QueryingAA */ nullptr,
-        DepClassTy::NONE, /* ForceUpdate */ false,
+        AA::DepClassTy::NONE, /* ForceUpdate */ false,
         /* UpdateAfterInit */ false);
     return false;
   });
@@ -4743,7 +4743,7 @@ void OpenMPOpt::registerAAs(bool IsModulePass) {
     auto CreateKernelInfoCB = [&](Use &, Function &Kernel) {
       A.getOrCreateAAFor<AAKernelInfo>(
           IRPosition::function(Kernel), /* QueryingAA */ nullptr,
-          DepClassTy::NONE, /* ForceUpdate */ false,
+          AA::DepClassTy::NONE, /* ForceUpdate */ false,
           /* UpdateAfterInit */ false);
       return false;
     };

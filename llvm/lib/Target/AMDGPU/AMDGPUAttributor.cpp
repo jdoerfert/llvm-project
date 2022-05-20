@@ -304,7 +304,7 @@ struct AAUniformWorkGroupSizeFunction : public AAUniformWorkGroupSize {
                         << "->" << getAssociatedFunction()->getName() << "\n");
 
       const auto &CallerInfo = A.getAAFor<AAUniformWorkGroupSize>(
-          *this, IRPosition::function(*Caller), DepClassTy::REQUIRED);
+          *this, IRPosition::function(*Caller), AA::DepClassTy::REQUIRED);
 
       Change = Change | clampStateAndIndicateChange(this->getState(),
                                                     CallerInfo.getState());
@@ -393,7 +393,7 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
 
     // Check for Intrinsics and propagate attributes.
     const AACallEdges &AAEdges = A.getAAFor<AACallEdges>(
-        *this, this->getIRPosition(), DepClassTy::REQUIRED);
+        *this, this->getIRPosition(), AA::DepClassTy::REQUIRED);
     if (AAEdges.hasNonAsmUnknownCallee())
       return indicatePessimisticFixpoint();
 
@@ -408,7 +408,7 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
       Intrinsic::ID IID = Callee->getIntrinsicID();
       if (IID == Intrinsic::not_intrinsic) {
         const AAAMDAttributes &AAAMD = A.getAAFor<AAAMDAttributes>(
-          *this, IRPosition::function(*Callee), DepClassTy::REQUIRED);
+          *this, IRPosition::function(*Callee), AA::DepClassTy::REQUIRED);
         *this &= AAAMD;
         continue;
       }
@@ -579,7 +579,7 @@ private:
         return true;
 
       const auto &PointerInfoAA = A.getAAFor<AAPointerInfo>(
-          *this, IRPosition::callsite_returned(Call), DepClassTy::REQUIRED);
+          *this, IRPosition::callsite_returned(Call), AA::DepClassTy::REQUIRED);
 
       return PointerInfoAA.forallInterferingAccesses(
           OAS, [](const AAPointerInfo::Access &Acc, bool IsExact) {
@@ -632,7 +632,7 @@ struct AAAMDFlatWorkGroupSize
                         << "->" << getAssociatedFunction()->getName() << '\n');
 
       const auto &CallerInfo = A.getAAFor<AAAMDFlatWorkGroupSize>(
-          *this, IRPosition::function(*Caller), DepClassTy::REQUIRED);
+          *this, IRPosition::function(*Caller), AA::DepClassTy::REQUIRED);
 
       Change |=
           clampStateAndIndicateChange(this->getState(), CallerInfo.getState());

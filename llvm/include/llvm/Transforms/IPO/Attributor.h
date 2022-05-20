@@ -97,6 +97,7 @@
 #ifndef LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 #define LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 
+#include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/MapVector.h"
@@ -127,6 +128,7 @@
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
 
+#include <functional>
 #include <map>
 
 namespace llvm {
@@ -284,7 +286,42 @@ bool isPotentiallyReachable(
     const AbstractAttribute &QueryingAA,
     std::function<bool(const Function &F)> GoBackwardsCB);
 
+enum class DepClassTy {
+  REQUIRED, ///< The target cannot be valid if the source is not.
+  OPTIONAL, ///< The target may be valid if the source is not.
+  NONE,     ///< Do not track a dependence between source and target.
+};
+
+/// Information about a dependence. If FromAA is changed ToAA needs to be
+/// updated as well.
+struct DepInfo {
+  const AbstractAttribute *FromAA;
+  const AbstractAttribute *ToAA;
+  DepClassTy DepClass;
+};
+
 } // namespace AA
+
+template <> struct DenseMapInfo<AA::DepInfo> {
+  using Base = DenseMapInfo<AA::DepInfo>;
+  static inline AA::DepInfo getEmptyKey() {
+    return AA::DepInfo{nullptr, nullptr, AA::DepClassTy::REQUIRED};
+  }
+  static inline AA::DepInfo getTombstoneKey() {
+    return AA::DepInfo{nullptr, nullptr, AA::DepClassTy::OPTIONAL};
+  }
+  static unsigned getHashValue(const AA::DepInfo &DI) {
+    return detail::combineHashValue(
+               DenseMapInfo<void *>::getHashValue(DI.FromAA),
+               DenseMapInfo<void *>::getHashValue(DI.ToAA)) +
+           unsigned(DI.DepClass);
+  }
+
+  static bool isEqual(const AA::DepInfo &LHS, const AA::DepInfo &RHS) {
+    return LHS.FromAA == RHS.FromAA && LHS.ToAA == RHS.ToAA &&
+           LHS.DepClass == RHS.DepClass;
+  }
+};
 
 template <>
 struct DenseMapInfo<AA::ValueAndContext>
@@ -339,11 +376,6 @@ ChangeStatus &operator|=(ChangeStatus &l, ChangeStatus r);
 ChangeStatus operator&(ChangeStatus l, ChangeStatus r);
 ChangeStatus &operator&=(ChangeStatus &l, ChangeStatus r);
 
-enum class DepClassTy {
-  REQUIRED, ///< The target cannot be valid if the source is not.
-  OPTIONAL, ///< The target may be valid if the source is not.
-  NONE,     ///< Do not track a dependence between source and target.
-};
 ///}
 
 /// The data structure for the nodes of a dependency graph
@@ -1349,7 +1381,7 @@ struct Attributor {
   /// the one reasoning about the "captured" state for the argument or the one
   /// reasoning on the memory access behavior of the function as a whole.
   ///
-  /// If the DepClass enum is set to `DepClassTy::None` the dependence from
+  /// If the DepClass enum is set to `AA::DepClassTy::None` the dependence from
   /// \p QueryingAA to the return abstract attribute is not automatically
   /// recorded. This should only be used if the caller will record the
   /// dependence explicitly if necessary, thus if it the returned abstract
@@ -1357,7 +1389,7 @@ struct Attributor {
   /// the `Attributor::recordDependence` method.
   template <typename AAType>
   const AAType &getAAFor(const AbstractAttribute &QueryingAA,
-                         const IRPosition &IRP, DepClassTy DepClass) {
+                         const IRPosition &IRP, AA::DepClassTy DepClass) {
     return getOrCreateAAFor<AAType>(IRP, &QueryingAA, DepClass,
                                     /* ForceUpdate */ false);
   }
@@ -1369,7 +1401,7 @@ struct Attributor {
   /// was assumed dead.
   template <typename AAType>
   const AAType &getAndUpdateAAFor(const AbstractAttribute &QueryingAA,
-                                  const IRPosition &IRP, DepClassTy DepClass) {
+                                  const IRPosition &IRP, AA::DepClassTy DepClass) {
     return getOrCreateAAFor<AAType>(IRP, &QueryingAA, DepClass,
                                     /* ForceUpdate */ true);
   }
@@ -1382,7 +1414,7 @@ struct Attributor {
   template <typename AAType>
   const AAType &getOrCreateAAFor(IRPosition IRP,
                                  const AbstractAttribute *QueryingAA,
-                                 DepClassTy DepClass, bool ForceUpdate = false,
+                                 AA::DepClassTy DepClass, bool ForceUpdate = false,
                                  bool UpdateAfterInit = true) {
     if (!shouldPropagateCallBaseContext(IRP))
       IRP = IRP.stripCallBaseContext();
@@ -1469,7 +1501,7 @@ struct Attributor {
   template <typename AAType>
   const AAType &getOrCreateAAFor(const IRPosition &IRP) {
     return getOrCreateAAFor<AAType>(IRP, /* QueryingAA */ nullptr,
-                                    DepClassTy::NONE);
+                                    AA::DepClassTy::NONE);
   }
 
   /// Return the attribute of \p AAType for \p IRP if existing and valid. This
@@ -1477,7 +1509,7 @@ struct Attributor {
   template <typename AAType>
   AAType *lookupAAFor(const IRPosition &IRP,
                       const AbstractAttribute *QueryingAA = nullptr,
-                      DepClassTy DepClass = DepClassTy::OPTIONAL,
+                      AA::DepClassTy DepClass = AA::DepClassTy::OPTIONAL,
                       bool AllowInvalidState = false) {
     static_assert(std::is_base_of<AbstractAttribute, AAType>::value,
                   "Cannot query an attribute with a type not derived from "
@@ -1491,7 +1523,7 @@ struct Attributor {
     AAType *AA = static_cast<AAType *>(AAPtr);
 
     // Do not register a dependence on an attribute with an invalid state.
-    if (DepClass != DepClassTy::NONE && QueryingAA &&
+    if (DepClass != AA::DepClassTy::NONE && QueryingAA &&
         AA->getState().isValidState())
       recordDependence(*AA, const_cast<AbstractAttribute &>(*QueryingAA),
                        DepClass);
@@ -1517,7 +1549,7 @@ struct Attributor {
   /// state, \p ToAA can be moved to a pessimistic fixpoint because it required
   /// information from \p FromAA but none are available anymore.
   void recordDependence(const AbstractAttribute &FromAA,
-                        const AbstractAttribute &ToAA, DepClassTy DepClass);
+                        const AbstractAttribute &ToAA, AA::DepClassTy DepClass);
 
   /// Introduce a new abstract attribute into the fixpoint analysis.
   ///
@@ -1541,7 +1573,7 @@ struct Attributor {
     // Register AA with the synthetic root only before the manifest stage.
     if (Phase == AttributorPhase::SEEDING || Phase == AttributorPhase::UPDATE)
       DG.SyntheticRoot.Deps.push_back(
-          AADepGraphNode::DepTy(&AA, unsigned(DepClassTy::REQUIRED)));
+          AADepGraphNode::DepTy(&AA, unsigned(AA::DepClassTy::REQUIRED)));
 
     return AA;
   }
@@ -1747,7 +1779,7 @@ public:
   bool isAssumedDead(const AbstractAttribute &AA, const AAIsDead *LivenessAA,
                      bool &UsedAssumedInformation,
                      bool CheckBBLivenessOnly = false,
-                     DepClassTy DepClass = DepClassTy::OPTIONAL);
+                     AA::DepClassTy DepClass = AA::DepClassTy::OPTIONAL);
 
   /// Return true if \p I is assumed dead.
   ///
@@ -1755,7 +1787,7 @@ public:
   bool isAssumedDead(const Instruction &I, const AbstractAttribute *QueryingAA,
                      const AAIsDead *LivenessAA, bool &UsedAssumedInformation,
                      bool CheckBBLivenessOnly = false,
-                     DepClassTy DepClass = DepClassTy::OPTIONAL);
+                     AA::DepClassTy DepClass = AA::DepClassTy::OPTIONAL);
 
   /// Return true if \p U is assumed dead.
   ///
@@ -1763,7 +1795,7 @@ public:
   bool isAssumedDead(const Use &U, const AbstractAttribute *QueryingAA,
                      const AAIsDead *FnLivenessAA, bool &UsedAssumedInformation,
                      bool CheckBBLivenessOnly = false,
-                     DepClassTy DepClass = DepClassTy::OPTIONAL);
+                     AA::DepClassTy DepClass = AA::DepClassTy::OPTIONAL);
 
   /// Return true if \p IRP is assumed dead.
   ///
@@ -1771,14 +1803,14 @@ public:
   bool isAssumedDead(const IRPosition &IRP, const AbstractAttribute *QueryingAA,
                      const AAIsDead *FnLivenessAA, bool &UsedAssumedInformation,
                      bool CheckBBLivenessOnly = false,
-                     DepClassTy DepClass = DepClassTy::OPTIONAL);
+                     AA::DepClassTy DepClass = AA::DepClassTy::OPTIONAL);
 
   /// Return true if \p BB is assumed dead.
   ///
   /// If \p LivenessAA is not provided it is queried.
   bool isAssumedDead(const BasicBlock &BB, const AbstractAttribute *QueryingAA,
                      const AAIsDead *FnLivenessAA,
-                     DepClassTy DepClass = DepClassTy::OPTIONAL);
+                     AA::DepClassTy DepClass = AA::DepClassTy::OPTIONAL);
 
   /// Check \p Pred on all (transitive) uses of \p V.
   ///
@@ -1792,7 +1824,7 @@ public:
   bool checkForAllUses(function_ref<bool(const Use &, bool &)> Pred,
                        const AbstractAttribute &QueryingAA, const Value &V,
                        bool CheckBBLivenessOnly = false,
-                       DepClassTy LivenessDepClass = DepClassTy::OPTIONAL,
+                       AA::DepClassTy LivenessDepClass = AA::DepClassTy::OPTIONAL,
                        bool IgnoreDroppableUses = true,
                        function_ref<bool(const Use &OldU, const Use &NewU)>
                            EquivalentUseCB = nullptr);
@@ -2162,14 +2194,6 @@ private:
   /// impact the call graph.
   SmallSetVector<Function *, 8> CGModifiedFunctions;
 
-  /// Information about a dependence. If FromAA is changed ToAA needs to be
-  /// updated as well.
-  struct DepInfo {
-    const AbstractAttribute *FromAA;
-    const AbstractAttribute *ToAA;
-    DepClassTy DepClass;
-  };
-
   /// The dependence stack is used to track dependences during an
   /// `AbstractAttribute::update` call. As `AbstractAttribute::update` can be
   /// recursive we might have multiple vectors of dependences in here. The stack
@@ -2177,7 +2201,7 @@ private:
   /// inner dependence vector size to the expected number of dependences per
   /// abstract attribute. Since the inner vectors are actually allocated on the
   /// stack we can be generous with their size.
-  using DependenceVector = SmallVector<DepInfo, 8>;
+  using DependenceVector = SmallSetVector<AA::DepInfo, 8>;
   SmallVector<DependenceVector *, 16> DependenceStack;
 
   /// A set to remember the functions we already assume to be live and visited.
