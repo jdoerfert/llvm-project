@@ -1136,8 +1136,10 @@ struct AAPointerInfoImpl
                                     int64_t Offset, CallBase &CB,
                                     bool FromCallee = false) {
     using namespace AA::PointerInfo;
-    if (!OtherAA.getState().isValidState() || !isValidState())
+    if (!OtherAA.getState().isValidState() || !isValidState()) {
+      errs() << "ERR translating " << OtherAA << " for " << CB << "\n";
       return indicatePessimisticFixpoint();
+    }
 
     const auto &OtherAAImpl = static_cast<const AAPointerInfoImpl &>(OtherAA);
     bool IsByval =
@@ -1245,7 +1247,7 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         if (CE->isCompare())
           return true;
         if (!isa<GEPOperator>(CE)) {
-          LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled constant user " << *CE
+          LLVM_DEBUG(dbgs() << "[AAPointerInfo]ERR Unhandled constant user " << *CE
                             << "\n");
           return false;
         }
@@ -1272,7 +1274,7 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
             continue;
           }
 
-          LLVM_DEBUG(dbgs() << "[AAPointerInfo] Non constant GEP index " << *GEP
+          LLVM_DEBUG(dbgs() << "[AAPointerInfo]ERR Non constant GEP index " << *GEP
                             << " : " << *Idx << "\n");
           return false;
         }
@@ -1314,7 +1316,7 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
                                     DL, Offset, /* AllowNonInbounds */ true)) {
           if (Offset != PtrOI.Offset) {
             LLVM_DEBUG(dbgs()
-                       << "[AAPointerInfo] PHI operand pointer offset mismatch "
+                       << "[AAPointerInfo]ERR PHI operand pointer offset mismatch "
                        << *CurPtr << " in " << *Usr << "\n");
             return false;
           }
@@ -1338,14 +1340,18 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
           AK = AccessKind(AK | AccessKind::AK_MUST);
         else
           AK = AccessKind(AK | AccessKind::AK_MAY);
-        return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr, AK,
+        if (handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr, AK,
                             OffsetInfoMap[CurPtr].Offset, Changed,
-                            LoadI->getType());
+                            LoadI->getType()))
+          return true;
+        LLVM_DEBUG(dbgs() << "[AAPointerInfo]ERR Couldn't add access load"
+                          << *LoadI << "\n");
+        return false;
       }
 
       if (auto *StoreI = dyn_cast<StoreInst>(Usr)) {
         if (StoreI->getValueOperand() == CurPtr) {
-          LLVM_DEBUG(dbgs() << "[AAPointerInfo] Escaping use in store "
+          LLVM_DEBUG(dbgs() << "[AAPointerInfo]ERR Escaping use in store "
                             << *StoreI << "\n");
           return false;
         }
@@ -1360,9 +1366,13 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         Optional<Value *> Content =
             A.getAssumedSimplified(*StoreI->getValueOperand(), *this,
                                    UsedAssumedInformation, AA::Interprocedural);
-        return handleAccess(A, *StoreI, *CurPtr, Content, AK,
+        if (handleAccess(A, *StoreI, *CurPtr, Content, AK,
                             OffsetInfoMap[CurPtr].Offset, Changed,
-                            StoreI->getValueOperand()->getType());
+                            StoreI->getValueOperand()->getType()))
+          return true;
+        LLVM_DEBUG(dbgs() << "[AAPointerInfo]ERR Couldn't add access load"
+                          << *StoreI << "\n");
+        return false;
       }
       if (auto *CB = dyn_cast<CallBase>(Usr)) {
         if (CB->isLifetimeStartOrEnd())
@@ -1379,18 +1389,21 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
                     Changed;
           return true;
         }
-        LLVM_DEBUG(dbgs() << "[AAPointerInfo] Call user not handled " << *CB
+        LLVM_DEBUG(dbgs() << "[AAPointerInfo]ERR Call user not handled " << *CB
                           << "\n");
         // TODO: Allow some call uses
         return false;
       }
 
-      LLVM_DEBUG(dbgs() << "[AAPointerInfo] User not handled " << *Usr << "\n");
+      LLVM_DEBUG(dbgs() << "[AAPointerInfo]ERR User not handled " << *Usr << "\n");
       return false;
     };
     auto EquivalentUseCB = [&](const Use &OldU, const Use &NewU) {
-      if (OffsetInfoMap.count(NewU))
+      if (OffsetInfoMap.count(NewU)) {
+        if (!(OffsetInfoMap[NewU] == OffsetInfoMap[OldU]))
+          dbgs() <<" ERR " << OffsetInfoMap[NewU].Offset << " : " << OffsetInfoMap[OldU].Offset <<"\n";
         return OffsetInfoMap[NewU] == OffsetInfoMap[OldU];
+      }
       OffsetInfoMap[NewU] = OffsetInfoMap[OldU];
       return true;
     };

@@ -25,14 +25,20 @@
 #include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MustExecute.h"
+#include "llvm/IR/Assumptions.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/IntrinsicsAMDGPU.h"
+#include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Casting.h"
@@ -322,15 +328,14 @@ static bool getPotentialCopiesOfMemoryValue(
     SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
     bool OnlyExact) {
-  LLVM_DEBUG(dbgs() << "Trying to determine the potential copies of " << I
-                    << " (only exact: " << OnlyExact << ")\n";);
+  dbgs() << "Trying to determine the potential copies of " << I
+         << " (only exact: " << OnlyExact << ")\n";
 
   Value &Ptr = *I.getPointerOperand();
   SmallSetVector<Value *, 8> Objects;
   if (!AA::getAssumedUnderlyingObjects(A, Ptr, Objects, QueryingAA, &I,
                                        UsedAssumedInformation)) {
-    LLVM_DEBUG(
-        dbgs() << "Underlying objects stored into could not be determined\n";);
+    dbgs() << "Underlying objects stored into could not be determined\n";
     return false;
   }
 
@@ -338,8 +343,9 @@ static bool getPotentialCopiesOfMemoryValue(
   // sure that we can find all of them. If we abort we want to avoid spurious
   // dependences and potential copies in the provided container.
   SmallVector<const AAPointerInfo *> PIs;
-  SmallVector<Value *> NewCopies;
-  SmallVector<Instruction *> NewCopyOrigins;
+  SmallPtrSet<Value *, 8> NewCopies;
+  SmallPtrSet<Instruction *, 8> ProblematicInsts;
+  DenseMap<Instruction *, Value *> OriginCopyMap;
 
   Function &Scope = *I.getFunction();
   InformationCache &InfoCache = A.getInfoCache();
@@ -347,8 +353,9 @@ static bool getPotentialCopiesOfMemoryValue(
   const DominatorTree *DT =
       InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
   const auto *TLI = InfoCache.getTargetLibraryInfoForFunction(Scope);
+  Value *GGV = nullptr;
   for (Value *Obj : Objects) {
-    LLVM_DEBUG(dbgs() << "Visit underlying object " << *Obj << "\n");
+    dbgs() << "Visit underlying object " << *Obj << "\n";
     if (isa<UndefValue>(Obj))
       continue;
     if (isa<ConstantPointerNull>(Obj)) {
@@ -359,25 +366,26 @@ static bool getPotentialCopiesOfMemoryValue(
           A.getAssumedSimplified(Ptr, QueryingAA, UsedAssumedInformation,
                                  AA::Interprocedural) == Obj)
         continue;
-      LLVM_DEBUG(
-          dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
+      dbgs() << "Underlying object is a valid nullptr, giving up.\n";
       return false;
     }
     // TODO: Use assumed noalias return.
     if (!isa<AllocaInst>(Obj) && !isa<GlobalVariable>(Obj) &&
         !(IsLoad ? isAllocationFn(Obj, TLI) : isNoAliasCall(Obj))) {
-      LLVM_DEBUG(dbgs() << "Underlying object is not supported yet: " << *Obj
-                        << "\n";);
+      dbgs() << "Underlying object is not supported yet: " << *Obj << "\n";
       return false;
     }
-    if (auto *GV = dyn_cast<GlobalVariable>(Obj))
+    if (auto *GV = dyn_cast<GlobalVariable>(Obj)) {
+      if (Objects.size() == 1)
+        GGV = GV;
       if (!GV->hasLocalLinkage() &&
           !(GV->isConstant() && GV->hasInitializer())) {
-        LLVM_DEBUG(dbgs() << "Underlying object is global with external "
-                             "linkage, not supported yet: "
-                          << *Obj << "\n";);
+        dbgs() << "Underlying object is global with external "
+                  "linkage, not supported yet: "
+               << *Obj << "\n";
         return false;
       }
+    }
 
     // Remember if we saw a dominating write, if so, we don't need the initial
     // value of the object.
@@ -407,53 +415,58 @@ static bool getPotentialCopiesOfMemoryValue(
       CheckForNullOnlyAndUndef(Acc.getContent());
       if (OnlyExact && !IsExact && !NullOnly &&
           !isa_and_nonnull<UndefValue>(Acc.getWrittenValue())) {
-        LLVM_DEBUG(dbgs() << "Non exact access " << *Acc.getRemoteInst()
-                          << ", abort!\n");
-        return false;
+        dbgs() << "Non exact access " << *Acc.getRemoteInst()
+               << ", needs to be filtered!\n";
+        if (!IsLoad)
+          return false;
+        ProblematicInsts.insert(Acc.getLocalInst());
+        return true;
       }
       if (NullRequired && !NullOnly) {
-        LLVM_DEBUG(dbgs() << "Required all `null` accesses due to non exact "
-                             "one, however found non-null one: "
-                          << *Acc.getRemoteInst() << ", abort!\n");
-        return false;
+        assert(IsLoad && "Did not expect store query");
+        dbgs() << "Required all `null` accesses due to non exact "
+                  "one, however found non-null one: "
+               << *Acc.getRemoteInst() << ", needs to be filtered!\n";
+        ProblematicInsts.insert(Acc.getLocalInst());
+        return true;
       }
       if (IsLoad) {
         assert(isa<LoadInst>(I) && "Expected load or store instruction only!");
         if (!Acc.isWrittenValueUnknown()) {
-          NewCopies.push_back(Acc.getWrittenValue());
-          NewCopyOrigins.push_back(Acc.getRemoteInst());
+          NewCopies.insert(Acc.getWrittenValue());
+          OriginCopyMap[Acc.getRemoteInst()] = Acc.getWrittenValue();
           return true;
         }
         auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst());
         if (!SI) {
-          LLVM_DEBUG(dbgs() << "Underlying object written through a non-store "
-                               "instruction not supported yet: "
-                            << *Acc.getRemoteInst() << "\n";);
+          dbgs() << "Underlying object written through a non-store "
+                    "instruction not supported yet: "
+                 << *Acc.getRemoteInst() << *Acc.getRemoteInst() << "\n";
           return false;
         }
-        NewCopies.push_back(SI->getValueOperand());
-        NewCopyOrigins.push_back(SI);
-      } else {
-        assert(isa<StoreInst>(I) && "Expected load or store instruction only!");
-        auto *LI = dyn_cast<LoadInst>(Acc.getRemoteInst());
-        if (!LI && OnlyExact) {
-          LLVM_DEBUG(dbgs() << "Underlying object read through a non-load "
-                               "instruction not supported yet: "
-                            << *Acc.getRemoteInst() << "\n";);
-          return false;
-        }
-        NewCopies.push_back(Acc.getRemoteInst());
+        NewCopies.insert(SI->getValueOperand());
+        OriginCopyMap[SI] = SI->getValueOperand();
+        return true;
       }
+
+      assert(isa<StoreInst>(I) && "Expected load or store instruction only!");
+      auto *LI = dyn_cast<LoadInst>(Acc.getRemoteInst());
+      if (!LI && OnlyExact) {
+        dbgs() << "Underlying object read through a non-load "
+                  "instruction not supported yet: "
+               << *Acc.getRemoteInst() << "\n";
+        return false;
+      }
+      NewCopies.insert(Acc.getRemoteInst());
       return true;
     };
 
     auto &PI = A.getAAFor<AAPointerInfo>(QueryingAA, IRPosition::value(*Obj),
                                          DepClassTy::NONE);
     if (!PI.forallInterferingAccesses(A, QueryingAA, I, CheckAccess)) {
-      LLVM_DEBUG(
-          dbgs()
+      dbgs()
           << "Failed to verify all interfering accesses for underlying object: "
-          << *Obj << "\n");
+          << *Obj << "\n";
       return false;
     }
 
@@ -463,13 +476,12 @@ static bool getPotentialCopiesOfMemoryValue(
         return false;
       CheckForNullOnlyAndUndef(InitialValue);
       if (NullRequired && !NullOnly) {
-        LLVM_DEBUG(dbgs() << "Non exact access but initial value that is not "
-                             "null or undef, abort!\n");
+        dbgs() << "Non exact access but initial value that is not "
+                  "null or undef, abort!\n";
         return false;
       }
 
-      NewCopies.push_back(InitialValue);
-      NewCopyOrigins.push_back(nullptr);
+      NewCopies.insert(InitialValue);
     }
 
     PIs.push_back(&PI);
@@ -483,8 +495,116 @@ static bool getPotentialCopiesOfMemoryValue(
       UsedAssumedInformation = true;
     A.recordDependence(*PI, QueryingAA, DepClassTy::OPTIONAL);
   }
+
+  auto IsAlignBarrierCB = [&](Instruction &I) {
+    if (!isa<CallBase>(I))
+      return false;
+    switch (cast<CallBase>(I).getIntrinsicID()) {
+    case Intrinsic::nvvm_barrier0:
+    case Intrinsic::nvvm_barrier0_and:
+    case Intrinsic::nvvm_barrier0_or:
+    case Intrinsic::nvvm_barrier0_popc:
+      return true;
+    default:
+      break;
+    }
+    return hasAssumption(cast<CallBase>(I),
+                         KnownAssumptionString("ompx_aligned_barrier"));
+  };
+
+  enum GPUAddressSpace : unsigned {
+    Generic = 0,
+    Global = 1,
+    Shared = 3,
+    Constant = 4,
+    Local = 5,
+  };
+
+  // Helper to check if a value has "kernel lifetime", that is it will not
+  // outlive a GPU kernel. This is true for shared, constant, and local
+  // globals on AMD and NVIDIA GPUs.
+  auto HasKernelLifetime = [&](Value *V, Module &M) {
+    Triple T(M.getTargetTriple());
+    if (!(T.isAMDGPU() || T.isNVPTX()))
+      return false;
+    switch (V->getType()->getPointerAddressSpace()) {
+    case GPUAddressSpace::Shared:
+    case GPUAddressSpace::Constant:
+    case GPUAddressSpace::Local:
+      return true;
+    default:
+      return false;
+    };
+  };
+
+  // Try to
+  assert((ProblematicInsts.empty() || IsLoad) &&
+         "Problematic instructions are only supported for load querries.");
+  dbgs() << "III " << I << " : " << NewCopies.size() << " : "
+         << ProblematicInsts.size() << "\n";
+  if (IsLoad && (NewCopies.size() > 1 || !ProblematicInsts.empty())) {
+    DenseMap<Instruction *, Value *> NewOriginCopyMap;
+    SmallPtrSet<Value *, 8> NewNewCopies;
+    SmallVector<Instruction *> Worklist;
+    SmallPtrSet<Instruction *, 32> Visited;
+
+    bool UseNewValues = true;
+    Worklist.push_back(&I);
+    while (!Worklist.empty()) {
+      Instruction *CurI = Worklist.pop_back_val();
+      if (!Visited.insert(CurI).second)
+        continue;
+      if (Visited.size() > 32) {
+        errs() << "too many\n";
+        UseNewValues = false;
+        break;
+      }
+      if (ProblematicInsts.count(CurI)) {
+        errs() << "problematic " << *CurI << "\n";
+        UseNewValues = false;
+        break;
+      }
+      if (CurI->isAtomic() && !IsAlignBarrierCB(*CurI)) {
+        errs() << "atomic " << *CurI << "\n";
+        UseNewValues = false;
+        break;
+      }
+      if (Value *CopyV = OriginCopyMap.lookup(CurI)) {
+        NewNewCopies.insert(CopyV);
+        NewOriginCopyMap[CurI] = CopyV;
+        continue;
+      }
+      BasicBlock *CurBB = CurI->getParent();
+      if (CurI != &CurBB->front()) {
+        Worklist.push_back(CurI->getPrevNonDebugInstruction());
+        continue;
+      }
+      if (CurBB == &CurBB->getParent()->getEntryBlock()) {
+        if (GGV && HasKernelLifetime(GGV, *CurBB->getModule()) &&
+            CurBB->getParent()->hasFnAttribute("kernel"))
+          continue;
+        errs() << "entry " << *CurI << " : " << GGV << "\n";
+        if (GGV)
+          errs() << "- " << HasKernelLifetime(GGV, *CurBB->getModule()) << " : "
+                 << CurBB->getParent()->hasFnAttribute("kernel") << " :: " << CurBB->getParent()->getName() <<"\n";
+        UseNewValues = false;
+        break;
+      }
+      for (BasicBlock *PredBB : predecessors(CurBB))
+        Worklist.push_back(&PredBB->back());
+    }
+
+    if (UseNewValues) {
+      NewCopies = std::move(NewNewCopies);
+      OriginCopyMap = std::move(NewOriginCopyMap);
+    } else if (!ProblematicInsts.empty()) {
+      return false;
+    }
+  }
+
   PotentialCopies.insert(NewCopies.begin(), NewCopies.end());
-  PotentialValueOrigins.insert(NewCopyOrigins.begin(), NewCopyOrigins.end());
+  for (const auto &It : OriginCopyMap)
+    PotentialValueOrigins.insert(It.first);
 
   return true;
 }
@@ -1410,8 +1530,10 @@ bool Attributor::checkForAllUses(
     }
 
     bool Follow = false;
-    if (!Pred(*U, Follow))
+    if (!Pred(*U, Follow)) {
+      errs() << "ERR for " << **U << "\n";
       return false;
+    }
     if (!Follow)
       continue;
     for (const Use &UU : U->getUser()->uses())
