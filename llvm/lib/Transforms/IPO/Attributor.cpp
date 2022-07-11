@@ -414,7 +414,7 @@ static bool getPotentialCopiesOfMemoryValue(
     };
 
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
-      if ((IsLoad && !Acc.isWrite()) || (!IsLoad && !Acc.isRead()))
+      if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))
         return true;
       if (IsLoad && Acc.isWrittenValueYetUndetermined())
         return true;
