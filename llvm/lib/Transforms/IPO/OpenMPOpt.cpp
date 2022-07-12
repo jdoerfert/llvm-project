@@ -1459,21 +1459,7 @@ private:
           if (!CB)
             continue;
 
-          auto IsAlignBarrierCB = [&](CallBase &CB) {
-            switch (CB.getIntrinsicID()) {
-            case Intrinsic::nvvm_barrier0:
-            case Intrinsic::nvvm_barrier0_and:
-            case Intrinsic::nvvm_barrier0_or:
-            case Intrinsic::nvvm_barrier0_popc:
-              return true;
-            default:
-              break;
-            }
-            return hasAssumption(CB,
-                                 KnownAssumptionString("ompx_aligned_barrier"));
-          };
-
-          if (IsAlignBarrierCB(*CB)) {
+          if (AA::isAlignedBarrier(*CB)) {
             // Add an explicit aligned barrier.
             BarriersInBlock.push_back(I);
           }

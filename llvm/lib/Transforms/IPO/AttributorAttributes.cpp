@@ -11,12 +11,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SCCIterator.h"
@@ -33,6 +33,7 @@
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LazyValueInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
+#include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -40,16 +41,19 @@
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Assumptions.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/NoFolder.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueHandle.h"
@@ -99,7 +103,7 @@ static cl::opt<unsigned> MaxInterferingAccesses(
     "attributor-max-interfering-accesses", cl::Hidden,
     cl::desc("Maximum number of interfering accesses to "
              "check before assuming all might interfere."),
-    cl::init(6));
+    cl::init(16));
 
 STATISTIC(NumAAs, "Number of abstract attributes created");
 
@@ -1002,25 +1006,19 @@ struct AAPointerInfoImpl
       return CanIgnoreThreading(*Acc.getLocalInst());
     };
 
-    // TODO: Use inter-procedural reachability and dominance.
-    const auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
-        QueryingAA, IRPosition::function(Scope), DepClassTy::OPTIONAL);
-
     const bool FindInterferingWrites = I.mayReadFromMemory();
     const bool FindInterferingReads = I.mayWriteToMemory();
-    const bool UseDominanceReasoning =
-        FindInterferingWrites && NoRecurseAA.isKnownNoRecurse();
     const bool CanUseCFGResoning = CanIgnoreThreading(I);
     InformationCache &InfoCache = A.getInfoCache();
     const DominatorTree *DT =
         InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
 
     enum GPUAddressSpace : unsigned {
-      Generic = 0,
-      Global = 1,
-      Shared = 3,
-      Constant = 4,
-      Local = 5,
+      AS_Generic = 0,
+      AS_Global = 1,
+      AS_Shared = 3,
+      AS_Constant = 4,
+      AS_Local = 5,
     };
 
     // Helper to check if a value has "kernel lifetime", that is it will not
@@ -1031,9 +1029,9 @@ struct AAPointerInfoImpl
       if (!(T.isAMDGPU() || T.isNVPTX()))
         return false;
       switch (V->getType()->getPointerAddressSpace()) {
-      case GPUAddressSpace::Shared:
-      case GPUAddressSpace::Constant:
-      case GPUAddressSpace::Local:
+      case GPUAddressSpace::AS_Shared:
+      case GPUAddressSpace::AS_Constant:
+      case GPUAddressSpace::AS_Local:
         return true;
       default:
         return false;
@@ -1067,10 +1065,19 @@ struct AAPointerInfoImpl
 
     SmallPtrSet<Instruction *, 16> ExactWrites;
     AA::BlockExclusionSetTy ExclusionSet;
+
+    DenseMap<Instruction *, Optional<const Access *>> InstValueTrackingMap;
+
     auto AccessCB = [&](const Access &Acc, bool Exact) {
       if ((!FindInterferingWrites || !Acc.isWriteOrAssumption()) &&
           (!FindInterferingReads || !Acc.isRead()))
         return true;
+
+      if (!A.isRunOn(*Acc.getRemoteInst()->getFunction()))
+        return false;
+
+      if (FindInterferingWrites && Exact)
+        ExclusionSet.insert(Acc.getRemoteInst()->getParent());
 
       bool Dominates = DT && Exact && Acc.isMustAccess() &&
                        (Acc.getRemoteInst()->getFunction() == &Scope) &&
@@ -1086,15 +1093,193 @@ struct AAPointerInfoImpl
 
       // For now we only filter accesses based on CFG reasoning which does not
       // work yet if we have threading effects, or the access is complicated.
-      if (CanUseCFGResoning && Dominates && UseDominanceReasoning &&
+      if (Dominates && CanUseCFGResoning && FindInterferingWrites &&
           IsSameThreadAsLoad(Acc))
         DominatingWrites.insert(&Acc);
+
+      if (FindInterferingWrites) {
+        // errs() << *Acc.getRemoteInst() << "\n";
+        // errs() << *Acc.getLocalInst() << "\n";
+        // errs() << Acc.getContent() << "\n";
+        // assert(Acc.getContent().has_value() && "Expected a value.");
+        auto IsNoneUndefOrNull = [](const Optional<Value *> V) {
+          if (!V.has_value())
+            return true;
+          if (*V == nullptr)
+            return false;
+          if (isa<UndefValue>(*V))
+            return true;
+          if (auto *C = dyn_cast<Constant>(*V))
+            return C->isNullValue();
+          return false;
+        };
+        Optional<const Access *> &TrackedAcc =
+            InstValueTrackingMap[Acc.getRemoteInst()];
+        if ((Exact || IsNoneUndefOrNull(Acc.getContent())) &&
+            !TrackedAcc.has_value())
+          TrackedAcc = &Acc;
+        else
+          TrackedAcc = nullptr;
+      }
 
       InterferingAccesses.push_back({&Acc, Exact});
       return true;
     };
     if (!State::forallInterferingAccesses(I, AccessCB))
       return false;
+
+    errs() << "#IA: " << InterferingAccesses.size() << "\n";
+
+    SmallPtrSet<const Access *, 8> UsedAccesses;
+    if (false && isa<LoadInst>(I)) {
+      SmallVector<BasicBlock *, 16> Worklist;
+      SmallPtrSet<BasicBlock *, 16> Visited;
+
+      MemoryLocation ML = MemoryLocation::get(&cast<LoadInst>(I));
+      errs() << "ML: ";
+      ML.print(errs());
+      errs() << "\n";
+      Function *Scope = I.getFunction();
+      const auto &LivenessAA = A.getAAFor<AAIsDead>(
+          *this, IRPosition::function(*Scope), DepClassTy::OPTIONAL);
+      AAResults *AAR = A.getInfoCache().getAAResultsForFunction(*Scope);
+      BasicBlock &EntryBB = Scope->getEntryBlock();
+      Optional<Value *> CombinedValue;
+      Type *Ty = I.getType();
+      auto AddInst = [&](Instruction *IP) -> Function * {
+        BasicBlock *BB = IP->getParent();
+        do {
+          errs() << "1 Check " << *IP << "\n";
+          if (auto *CB = dyn_cast<CallBase>(IP))
+            if (AA::isAlignedBarrier(*CB))
+              continue;
+          errs() << "2 Check " << *IP << "\n";
+          if (AANoSync::isNonRelaxedAtomic(IP)) {
+            CombinedValue = nullptr;
+            return nullptr;
+          }
+          errs() << "2b Check " << *IP << "\n";
+
+          Optional<const Access *> TrackedAcc = InstValueTrackingMap.lookup(IP);
+          if (TrackedAcc.has_value()) {
+            if (TrackedAcc.value() == nullptr) {
+              errs() << "ERRR No Value\n";
+              CombinedValue = nullptr;
+              return nullptr;
+            }
+            CombinedValue = AA::combineOptionalValuesInAAValueLatice(
+                CombinedValue,
+                (*TrackedAcc)->getContent().value_or(UndefValue::get(Ty)), Ty);
+            errs() << "New combined Value: " << CombinedValue << "\n";
+            if (CombinedValue) {
+              errs() << "New combined Value: " << *CombinedValue << "\n";
+              if (*CombinedValue)
+                errs() << "New combined Value: " << **CombinedValue << "\n";
+            }
+            UsedAccesses.insert(*TrackedAcc);
+            return nullptr;
+          }
+          errs() << "3 Check " << *IP << "\n";
+
+          if (isAssumeLikeIntrinsic(IP) || !IP->mayWriteToMemory())
+            continue;
+
+          if (AAR) {
+            errs() << "4 Check " << *IP << " :: " << AAR << "\n";
+            if (IP->getFunction() == I.getFunction())
+              errs() << "4 Check " << *IP
+                     << " :: " << (int)AAR->isNoAlias(IP, &I) << "\n";
+            if (IP->getFunction() == I.getFunction()) {
+              if (AAR->isNoAlias(IP, &I))
+                continue;
+            } else {
+              auto *Ptr = &getAssociatedValue();
+              if (!getAnchorScope() && isIdentifiedObject(Ptr)) {
+                AAResults *IPAAR = A.getInfoCache().getAAResultsForFunction(
+                    *IP->getFunction());
+                errs() << "Check " << *IP << "  VS " << *Ptr << "\n";
+                if (IPAAR->isNoAlias(IP, Ptr))
+                  continue;
+              }
+            }
+            errs() << "5 Check " << *IP << "\n";
+          }
+
+          CombinedValue = nullptr;
+          return nullptr;
+
+        } while ((IP = IP->getPrevNode()));
+
+        if (BB == &EntryBB) {
+          errs() << "Got to the entry block\n";
+          return Scope;
+        }
+
+        const auto &LivenessAA =
+            A.getAAFor<AAIsDead>(*this, IRPosition::function(*BB->getParent()),
+                                 DepClassTy::OPTIONAL);
+        for (BasicBlock *PredBB : predecessors(BB)) {
+          if (!LivenessAA.isEdgeDead(PredBB, BB))
+            Worklist.push_back(PredBB);
+        }
+        return nullptr;
+      };
+
+      auto AddCallees = [&](Function &Fn) {
+        bool UsedAssumedInformation = false;
+        auto CallSiteCB = [&](AbstractCallSite ACS) {
+          BasicBlock *BB = ACS.getInstruction()->getParent();
+          if (auto *IP = ACS.getInstruction()->getPrevNonDebugInstruction())
+            AddInst(IP);
+          else {
+            const auto &LivenessAA = A.getAAFor<AAIsDead>(
+                *this, IRPosition::function(*BB->getParent()),
+                DepClassTy::OPTIONAL);
+            for (BasicBlock *PredBB : predecessors(BB))
+              if (!LivenessAA.isEdgeDead(PredBB, BB))
+                Worklist.push_back(PredBB);
+          }
+          return true;
+        };
+        if (!A.checkForAllCallSites(CallSiteCB, Fn,
+                                    /* RequireAllCallSites */ true, this,
+                                    UsedAssumedInformation)) {
+          CombinedValue = nullptr;
+        }
+      };
+
+      if (Function *ReqCalleeFn = AddInst(&I))
+        AddCallees(*ReqCalleeFn);
+
+      while (!Worklist.empty()) {
+        if (CombinedValue.has_value() && *CombinedValue == nullptr)
+          break;
+
+        BasicBlock *BB = Worklist.pop_back_val();
+        if (!Visited.insert(BB).second)
+          continue;
+
+        if (Function *ReqCalleeFn = AddInst(BB->getTerminator()))
+          AddCallees(*ReqCalleeFn);
+      }
+
+      errs() << "Worklist: " << Worklist.size() << " : #V: " << Visited.size()
+             << " : " << CombinedValue << "\n";
+      if (CombinedValue.getValueOr(nullptr))
+        errs() << "Worklist: " << Worklist.size() << " : #V: " << Visited.size()
+               << " : " << **CombinedValue << "\n";
+
+      if (CombinedValue.getValueOr(nullptr)) {
+        HasBeenWrittenTo = true;
+
+        errs() << "#IA: " << InterferingAccesses.size() << "\n";
+        auto *It = llvm::remove_if(InterferingAccesses, [&](const auto &It) {
+          return !UsedAccesses.count(It.first);
+        });
+        InterferingAccesses.erase(It, InterferingAccesses.end());
+        errs() << "#IA: " << InterferingAccesses.size() << "\n";
+      }
+    }
 
     if (HasBeenWrittenTo) {
       const Function *ScopePtr = &Scope;
@@ -1137,22 +1322,25 @@ struct AAPointerInfoImpl
         return true;
       }
 
-      if (!DT || !UseDominanceReasoning)
+      if (!DT)
         return false;
       if (!IsSameThreadAsLoad(Acc))
         return false;
       if (!DominatingWrites.count(&Acc))
         return false;
       for (const Access *DomAcc : DominatingWrites) {
-        assert(Acc.getLocalInst()->getFunction() ==
-                   DomAcc->getLocalInst()->getFunction() &&
+        assert(Acc.getRemoteInst()->getFunction() ==
+                   DomAcc->getRemoteInst()->getFunction() &&
                "Expected dominating writes to be in the same function!");
 
         if (DomAcc != &Acc &&
-            DT->dominates(Acc.getLocalInst(), DomAcc->getLocalInst())) {
+            DT->dominates(Acc.getRemoteInst(), DomAcc->getRemoteInst())) {
+          errs() << "4Can skip " << *Acc.getRemoteInst() << " : " << Exact
+                 << "\n";
           return true;
         }
       }
+      errs() << "5Can skip " << *Acc.getRemoteInst() << " : " << Exact << "\n";
       return false;
     };
 
@@ -3807,9 +3995,15 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     bool UsedAssumedInformation = false;
     SmallSetVector<Value *, 4> PotentialCopies;
     if (!AA::getPotentialCopiesOfStoredValue(A, SI, PotentialCopies, *this,
-                                             UsedAssumedInformation))
+                                             UsedAssumedInformation)) {
+      errs() << "FAIL\n";
       return false;
+    }
     return llvm::all_of(PotentialCopies, [&](Value *V) {
+      errs() << "VV " << *V << " :: "
+             << A.isAssumedDead(IRPosition::value(*V), this, nullptr,
+                                UsedAssumedInformation)
+             << "\n";
       return A.isAssumedDead(IRPosition::value(*V), this, nullptr,
                              UsedAssumedInformation);
     });
@@ -10426,6 +10620,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       if (!llvm::all_of(PotentialValueOrigins, [&](Instruction *I) {
             if (!I || isAssumeLikeIntrinsic(I))
               return true;
+            errs() << "Checking " << *I << "\n";
             if (auto *SI = dyn_cast<StoreInst>(I))
               return A.isAssumedDead(SI->getOperandUse(0), this,
                                      /* LivenessAA */ nullptr,
@@ -10435,7 +10630,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
                                    UsedAssumedInformation,
                                    /* CheckBBLivenessOnly */ false);
           })) {
-        LLVM_DEBUG(dbgs() << "[AAPotentialValues] Load is onl used by assumes "
+        LLVM_DEBUG(dbgs() << "[AAPotentialValues] Load is only used by assumes "
                              "and we cannot delete all the stores: "
                           << LI << "\n");
         return false;

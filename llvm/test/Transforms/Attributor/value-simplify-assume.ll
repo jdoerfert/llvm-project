@@ -1378,12 +1378,9 @@ define i32 @assume_read_global_good() {
 ; IS__TUNIT_OPM-NEXT:    [[LGS1:%.*]] = load i32, i32* @Gstatic_int1, align 4
 ; IS__TUNIT_OPM-NEXT:    [[C:%.*]] = icmp eq i32 [[LGS1]], 42
 ; IS__TUNIT_OPM-NEXT:    call void @llvm.assume(i1 noundef [[C]]) #[[ATTR6]]
-; IS__TUNIT_OPM-NEXT:    [[LGS2:%.*]] = load i32, i32* @Gstatic_int1, align 4
 ; IS__TUNIT_OPM-NEXT:    store i32 13, i32* @Gstatic_int1, align 4
 ; IS__TUNIT_OPM-NEXT:    store i32 17, i32* @Gstatic_int1, align 4
-; IS__TUNIT_OPM-NEXT:    [[LGS3:%.*]] = load i32, i32* @Gstatic_int1, align 4
-; IS__TUNIT_OPM-NEXT:    [[ADD:%.*]] = add i32 [[LGS2]], [[LGS3]]
-; IS__TUNIT_OPM-NEXT:    ret i32 [[ADD]]
+; IS__TUNIT_OPM-NEXT:    ret i32 59
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@assume_read_global_good
@@ -1391,11 +1388,7 @@ define i32 @assume_read_global_good() {
 ; IS__TUNIT_NPM-NEXT:    [[LGS1:%.*]] = load i32, i32* @Gstatic_int1, align 4
 ; IS__TUNIT_NPM-NEXT:    [[C:%.*]] = icmp eq i32 [[LGS1]], 42
 ; IS__TUNIT_NPM-NEXT:    call void @llvm.assume(i1 noundef [[C]]) #[[ATTR6]]
-; IS__TUNIT_NPM-NEXT:    store i32 13, i32* @Gstatic_int1, align 4
-; IS__TUNIT_NPM-NEXT:    store i32 17, i32* @Gstatic_int1, align 4
-; IS__TUNIT_NPM-NEXT:    [[LGS3:%.*]] = load i32, i32* @Gstatic_int1, align 4
-; IS__TUNIT_NPM-NEXT:    [[ADD:%.*]] = add i32 42, [[LGS3]]
-; IS__TUNIT_NPM-NEXT:    ret i32 [[ADD]]
+; IS__TUNIT_NPM-NEXT:    ret i32 59
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@assume_read_global_good
@@ -1403,12 +1396,9 @@ define i32 @assume_read_global_good() {
 ; IS__CGSCC_OPM-NEXT:    [[LGS1:%.*]] = load i32, i32* @Gstatic_int1, align 4
 ; IS__CGSCC_OPM-NEXT:    [[C:%.*]] = icmp eq i32 [[LGS1]], 42
 ; IS__CGSCC_OPM-NEXT:    call void @llvm.assume(i1 noundef [[C]]) #[[ATTR7]]
-; IS__CGSCC_OPM-NEXT:    [[LGS2:%.*]] = load i32, i32* @Gstatic_int1, align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 13, i32* @Gstatic_int1, align 4
 ; IS__CGSCC_OPM-NEXT:    store i32 17, i32* @Gstatic_int1, align 4
-; IS__CGSCC_OPM-NEXT:    [[LGS3:%.*]] = load i32, i32* @Gstatic_int1, align 4
-; IS__CGSCC_OPM-NEXT:    [[ADD:%.*]] = add i32 [[LGS2]], [[LGS3]]
-; IS__CGSCC_OPM-NEXT:    ret i32 [[ADD]]
+; IS__CGSCC_OPM-NEXT:    ret i32 59
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@assume_read_global_good
@@ -1416,11 +1406,7 @@ define i32 @assume_read_global_good() {
 ; IS__CGSCC_NPM-NEXT:    [[LGS1:%.*]] = load i32, i32* @Gstatic_int1, align 4
 ; IS__CGSCC_NPM-NEXT:    [[C:%.*]] = icmp eq i32 [[LGS1]], 42
 ; IS__CGSCC_NPM-NEXT:    call void @llvm.assume(i1 noundef [[C]]) #[[ATTR7]]
-; IS__CGSCC_NPM-NEXT:    store i32 13, i32* @Gstatic_int1, align 4
-; IS__CGSCC_NPM-NEXT:    store i32 17, i32* @Gstatic_int1, align 4
-; IS__CGSCC_NPM-NEXT:    [[LGS3:%.*]] = load i32, i32* @Gstatic_int1, align 4
-; IS__CGSCC_NPM-NEXT:    [[ADD:%.*]] = add i32 42, [[LGS3]]
-; IS__CGSCC_NPM-NEXT:    ret i32 [[ADD]]
+; IS__CGSCC_NPM-NEXT:    ret i32 59
 ;
   %lgs1 = load i32, i32* @Gstatic_int1
   %c = icmp eq i32 %lgs1, 42

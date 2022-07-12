@@ -172,6 +172,8 @@ struct ValueAndContext : public std::pair<Value *, const Instruction *> {
   const Instruction *getCtxI() const { return this->second; }
 };
 
+bool isAlignedBarrier(CallBase &CB);
+
 /// Return true if \p I is a `nosync` instruction. Use generic reasoning and
 /// potentially the corresponding AANoSync.
 bool isNoSyncInst(Attributor &A, const Instruction &I,

@@ -17,6 +17,7 @@
 
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -25,6 +26,7 @@
 #include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MustExecute.h"
+#include "llvm/IR/Assumptions.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -34,6 +36,8 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/IntrinsicsAMDGPU.h"
+#include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Casting.h"
@@ -183,6 +187,19 @@ ChangeStatus &llvm::operator&=(ChangeStatus &L, ChangeStatus R) {
   return L;
 }
 ///}
+
+bool AA::isAlignedBarrier(CallBase &CB) {
+  switch (CB.getIntrinsicID()) {
+  case Intrinsic::nvvm_barrier0:
+  case Intrinsic::nvvm_barrier0_and:
+  case Intrinsic::nvvm_barrier0_or:
+  case Intrinsic::nvvm_barrier0_popc:
+    return true;
+  default:
+    break;
+  }
+  return hasAssumption(CB, KnownAssumptionString("ompx_aligned_barrier"));
+}
 
 bool AA::isNoSyncInst(Attributor &A, const Instruction &I,
                       const AbstractAttribute &QueryingAA) {
@@ -352,6 +369,19 @@ static bool getPotentialCopiesOfMemoryValue(
     if (isa<ConstantPointerNull>(Obj)) {
       // A null pointer access can be undefined but any offset from null may
       // be OK. We do not try to optimize the latter.
+      errs() << NullPointerIsDefined(I.getFunction(),
+                                     Ptr.getType()->getPointerAddressSpace())
+             << " : "
+             << A.getAssumedSimplified(Ptr, QueryingAA, UsedAssumedInformation,
+                                       AA::Interprocedural)
+             << "\n";
+      errs() << NullPointerIsDefined(I.getFunction(),
+                                     Ptr.getType()->getPointerAddressSpace())
+             << " : "
+             << **A.getAssumedSimplified(Ptr, QueryingAA,
+                                         UsedAssumedInformation,
+                                         AA::Interprocedural)
+             << "\n";
       if (!NullPointerIsDefined(I.getFunction(),
                                 Ptr.getType()->getPointerAddressSpace()) &&
           A.getAssumedSimplified(Ptr, QueryingAA, UsedAssumedInformation,
@@ -1233,10 +1263,14 @@ bool Attributor::isAssumedDead(const Use &U,
     return isAssumedDead(*IncomingBB->getTerminator(), QueryingAA, FnLivenessAA,
                          UsedAssumedInformation, CheckBBLivenessOnly, DepClass);
   } else if (StoreInst *SI = dyn_cast<StoreInst>(UserI)) {
+    errs() << ": " << *SI << " : " << (!CheckBBLivenessOnly) << " : "
+           << (SI->getPointerOperand() != U.get()) << "\n";
     if (!CheckBBLivenessOnly && SI->getPointerOperand() != U.get()) {
       const IRPosition IRP = IRPosition::inst(*SI);
       const AAIsDead &IsDeadAA =
           getOrCreateAAFor<AAIsDead>(IRP, QueryingAA, DepClassTy::NONE);
+      errs() << "IsDeadStore: ";
+      IsDeadAA.dump();
       if (IsDeadAA.isRemovableStore()) {
         if (QueryingAA)
           recordDependence(IsDeadAA, *QueryingAA, DepClass);
@@ -1262,10 +1296,12 @@ bool Attributor::isAssumedDead(const Instruction &I,
   if (ManifestAddedBlocks.contains(I.getParent()))
     return false;
 
-  if (!FnLivenessAA)
-    FnLivenessAA =
-        lookupAAFor<AAIsDead>(IRPosition::function(*I.getFunction(), CBCtx),
-                              QueryingAA, DepClassTy::NONE);
+  if (QueryingAA &&
+      (!FnLivenessAA ||
+       FnLivenessAA->getIRPosition().getAnchorScope() != I.getFunction()))
+    FnLivenessAA = &getOrCreateAAFor<AAIsDead>(
+        IRPosition::function(*I.getFunction(), CBCtx), QueryingAA,
+        DepClassTy::NONE);
 
   // If we have a context instruction and a liveness AA we use it.
   if (FnLivenessAA &&
@@ -1342,9 +1378,12 @@ bool Attributor::isAssumedDead(const BasicBlock &BB,
                                const AbstractAttribute *QueryingAA,
                                const AAIsDead *FnLivenessAA,
                                DepClassTy DepClass) {
-  if (!FnLivenessAA)
-    FnLivenessAA = lookupAAFor<AAIsDead>(IRPosition::function(*BB.getParent()),
-                                         QueryingAA, DepClassTy::NONE);
+  if (QueryingAA &&
+      (!FnLivenessAA ||
+       FnLivenessAA->getIRPosition().getAnchorScope() != BB.getParent()))
+    FnLivenessAA = &getOrCreateAAFor<AAIsDead>(
+        IRPosition::function(*BB.getParent()), QueryingAA, DepClassTy::NONE);
+
   if (FnLivenessAA->isAssumedDead(&BB)) {
     if (QueryingAA)
       recordDependence(*FnLivenessAA, *QueryingAA, DepClass);
@@ -2800,6 +2839,7 @@ void InformationCache::initializeInformationCache(const Function &CF,
       NumUses = NumUses.value() - /* this assume */ 1;
       if (NumUses.value() != 0)
         continue;
+      errs() << "ONLY USED BY ASSUMED: " << *I << "\n";
       AssumeOnlyValues.insert(I);
       for (const Value *Op : I->operands())
         if (auto *OpI = dyn_cast<Instruction>(Op))

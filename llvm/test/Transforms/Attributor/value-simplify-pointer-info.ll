@@ -794,13 +794,9 @@ define i32 @local_alloca_simplifiable_3() {
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; CHECK-LABEL: define {{[^@]+}}@local_alloca_simplifiable_3
 ; CHECK-SAME: () #[[ATTR4:[0-9]+]] {
-; CHECK-NEXT:    [[A:%.*]] = alloca i32, align 4
-; CHECK-NEXT:    store i32 1, i32* [[A]], align 4
 ; CHECK-NEXT:    br label [[SPLIT:%.*]]
 ; CHECK:       split:
-; CHECK-NEXT:    store i32 2, i32* [[A]], align 4
-; CHECK-NEXT:    [[L:%.*]] = load i32, i32* [[A]], align 4
-; CHECK-NEXT:    ret i32 [[L]]
+; CHECK-NEXT:    ret i32 2
 ;
   %A = alloca i32, align 4
   store i32 1, i32* %A
@@ -1601,18 +1597,21 @@ for.end35:                                        ; preds = %for.cond.cleanup27
 ;      return Flag3;
 ;    }
 define i32 @static_global_simplifiable_3() {
-; IS________OPM: Function Attrs: nofree norecurse nosync nounwind willreturn
-; IS________OPM-LABEL: define {{[^@]+}}@static_global_simplifiable_3
-; IS________OPM-SAME: () #[[ATTR5:[0-9]+]] {
-; IS________OPM-NEXT:    store i32 1, i32* @Flag3, align 4, !tbaa [[TBAA3]]
-; IS________OPM-NEXT:    [[I:%.*]] = load i32, i32* @Flag3, align 4, !tbaa [[TBAA3]]
-; IS________OPM-NEXT:    ret i32 [[I]]
+; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@static_global_simplifiable_3
+; IS__TUNIT_OPM-SAME: () #[[ATTR6]] {
+; IS__TUNIT_OPM-NEXT:    ret i32 1
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@static_global_simplifiable_3
 ; IS__TUNIT_NPM-SAME: () #[[ATTR5]] {
-; IS__TUNIT_NPM-NEXT:    store i32 1, i32* @Flag3, align 4, !tbaa [[TBAA3]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 1
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@static_global_simplifiable_3
+; IS__CGSCC_OPM-SAME: () #[[ATTR7:[0-9]+]] {
+; IS__CGSCC_OPM-NEXT:    store i32 1, i32* @Flag3, align 4, !tbaa [[TBAA3]]
+; IS__CGSCC_OPM-NEXT:    ret i32 1
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@static_global_simplifiable_3
@@ -2555,12 +2554,12 @@ declare void @escape(i8*)
 ;    }
 ;
 define i32 @global_not_simplifiable_1(i32 %cnd) {
-; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@global_not_simplifiable_1
-; IS__TUNIT_OPM-SAME: (i32 [[CND:%.*]]) #[[ATTR8:[0-9]+]] {
-; IS__TUNIT_OPM-NEXT:  entry:
-; IS__TUNIT_OPM-NEXT:    [[I:%.*]] = load i32, i32* @Flag0, align 4, !tbaa [[TBAA3]]
-; IS__TUNIT_OPM-NEXT:    ret i32 [[I]]
+; IS________OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
+; IS________OPM-LABEL: define {{[^@]+}}@global_not_simplifiable_1
+; IS________OPM-SAME: (i32 [[CND:%.*]]) #[[ATTR8:[0-9]+]] {
+; IS________OPM-NEXT:  entry:
+; IS________OPM-NEXT:    [[I:%.*]] = load i32, i32* @Flag0, align 4, !tbaa [[TBAA3]]
+; IS________OPM-NEXT:    ret i32 [[I]]
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@global_not_simplifiable_1
@@ -2569,12 +2568,12 @@ define i32 @global_not_simplifiable_1(i32 %cnd) {
 ; IS__TUNIT_NPM-NEXT:    [[I:%.*]] = load i32, i32* @Flag0, align 4, !tbaa [[TBAA3]]
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[I]]
 ;
-; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@global_not_simplifiable_1
-; IS__CGSCC____-SAME: (i32 [[CND:%.*]]) #[[ATTR7:[0-9]+]] {
-; IS__CGSCC____-NEXT:  entry:
-; IS__CGSCC____-NEXT:    [[I:%.*]] = load i32, i32* @Flag0, align 4, !tbaa [[TBAA3]]
-; IS__CGSCC____-NEXT:    ret i32 [[I]]
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@global_not_simplifiable_1
+; IS__CGSCC_NPM-SAME: (i32 [[CND:%.*]]) #[[ATTR7:[0-9]+]] {
+; IS__CGSCC_NPM-NEXT:  entry:
+; IS__CGSCC_NPM-NEXT:    [[I:%.*]] = load i32, i32* @Flag0, align 4, !tbaa [[TBAA3]]
+; IS__CGSCC_NPM-NEXT:    ret i32 [[I]]
 ;
 entry:
   %i = load i32, i32* @Flag0, align 4, !tbaa !3
@@ -2720,8 +2719,6 @@ define void @static_global_not_simplifiable_2_helper() {
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@static_global_not_simplifiable_2_helper
-; IS__CGSCC_OPM-SAME: () #[[ATTR8:[0-9]+]] {
-; IS__CGSCC_OPM-NEXT:    store i32 3, i32* @Flag4, align 4, !tbaa [[TBAA3]]
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
@@ -2736,21 +2733,33 @@ define void @static_global_not_simplifiable_2_helper() {
 
 ; Similiar to static_global_simplifiable_3 but with a may-store.
 define i32 @static_global_not_simplifiable_3(i1 %c, i32* %p) {
-; NOT_TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
-; NOT_TUNIT_NPM-LABEL: define {{[^@]+}}@static_global_not_simplifiable_3
-; NOT_TUNIT_NPM-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly [[P:%.*]]) #[[ATTR5:[0-9]+]] {
-; NOT_TUNIT_NPM-NEXT:    [[SEL:%.*]] = select i1 [[C]], i32* @Flag3, i32* [[P]]
-; NOT_TUNIT_NPM-NEXT:    store i32 1, i32* [[SEL]], align 4, !tbaa [[TBAA3]]
-; NOT_TUNIT_NPM-NEXT:    [[I:%.*]] = load i32, i32* @Flag3, align 4, !tbaa [[TBAA3]]
-; NOT_TUNIT_NPM-NEXT:    ret i32 [[I]]
+; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@static_global_not_simplifiable_3
+; IS__TUNIT_OPM-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly [[P:%.*]]) #[[ATTR6]] {
+; IS__TUNIT_OPM-NEXT:    [[SEL:%.*]] = select i1 [[C]], i32* @Flag3, i32* [[P]]
+; IS__TUNIT_OPM-NEXT:    store i32 1, i32* [[SEL]], align 4, !tbaa [[TBAA3]]
+; IS__TUNIT_OPM-NEXT:    ret i32 1
 ;
-; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
+; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@static_global_not_simplifiable_3
-; IS__TUNIT_NPM-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly [[P:%.*]]) #[[ATTR3]] {
+; IS__TUNIT_NPM-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly [[P:%.*]]) #[[ATTR5]] {
 ; IS__TUNIT_NPM-NEXT:    [[SEL:%.*]] = select i1 [[C]], i32* @Flag3, i32* [[P]]
 ; IS__TUNIT_NPM-NEXT:    store i32 1, i32* [[SEL]], align 4, !tbaa [[TBAA3]]
-; IS__TUNIT_NPM-NEXT:    [[I:%.*]] = load i32, i32* @Flag3, align 4, !tbaa [[TBAA3]]
-; IS__TUNIT_NPM-NEXT:    ret i32 [[I]]
+; IS__TUNIT_NPM-NEXT:    ret i32 1
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@static_global_not_simplifiable_3
+; IS__CGSCC_OPM-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly [[P:%.*]]) #[[ATTR7]] {
+; IS__CGSCC_OPM-NEXT:    [[SEL:%.*]] = select i1 [[C]], i32* @Flag3, i32* [[P]]
+; IS__CGSCC_OPM-NEXT:    store i32 1, i32* [[SEL]], align 4, !tbaa [[TBAA3]]
+; IS__CGSCC_OPM-NEXT:    ret i32 1
+;
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@static_global_not_simplifiable_3
+; IS__CGSCC_NPM-SAME: (i1 [[C:%.*]], i32* nocapture nofree writeonly [[P:%.*]]) #[[ATTR6]] {
+; IS__CGSCC_NPM-NEXT:    [[SEL:%.*]] = select i1 [[C]], i32* @Flag3, i32* [[P]]
+; IS__CGSCC_NPM-NEXT:    store i32 1, i32* [[SEL]], align 4, !tbaa [[TBAA3]]
+; IS__CGSCC_NPM-NEXT:    ret i32 1
 ;
   %sel = select i1 %c, i32* @Flag3, i32* %p
   store i32 1, i32* %sel, align 4, !tbaa !3
@@ -2774,7 +2783,7 @@ define i32 @static_global_not_simplifiable_3(i1 %c, i32* %p) {
 define i32 @write_read_global() {
 ; NOT_TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn
 ; NOT_TUNIT_NPM-LABEL: define {{[^@]+}}@write_read_global
-; NOT_TUNIT_NPM-SAME: () #[[ATTR5]] {
+; NOT_TUNIT_NPM-SAME: () #[[ATTR5:[0-9]+]] {
 ; NOT_TUNIT_NPM-NEXT:    store i32 7, i32* @Gint1, align 4
 ; NOT_TUNIT_NPM-NEXT:    [[L:%.*]] = load i32, i32* @Gint1, align 4
 ; NOT_TUNIT_NPM-NEXT:    ret i32 [[L]]
@@ -2805,7 +2814,7 @@ define void @write_global() {
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@write_global
-; IS__CGSCC_OPM-SAME: () #[[ATTR8]] {
+; IS__CGSCC_OPM-SAME: () #[[ATTR7]] {
 ; IS__CGSCC_OPM-NEXT:    store i32 7, i32* @Gint2, align 4
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
@@ -2819,11 +2828,11 @@ define void @write_global() {
   ret void
 }
 define i32 @read_global() {
-; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@read_global
-; IS__TUNIT_OPM-SAME: () #[[ATTR8]] {
-; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = load i32, i32* @Gint2, align 4
-; IS__TUNIT_OPM-NEXT:    ret i32 [[L]]
+; IS________OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
+; IS________OPM-LABEL: define {{[^@]+}}@read_global
+; IS________OPM-SAME: () #[[ATTR8]] {
+; IS________OPM-NEXT:    [[L:%.*]] = load i32, i32* @Gint2, align 4
+; IS________OPM-NEXT:    ret i32 [[L]]
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@read_global
@@ -2831,27 +2840,30 @@ define i32 @read_global() {
 ; IS__TUNIT_NPM-NEXT:    [[L:%.*]] = load i32, i32* @Gint2, align 4
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[L]]
 ;
-; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@read_global
-; IS__CGSCC____-SAME: () #[[ATTR7]] {
-; IS__CGSCC____-NEXT:    [[L:%.*]] = load i32, i32* @Gint2, align 4
-; IS__CGSCC____-NEXT:    ret i32 [[L]]
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@read_global
+; IS__CGSCC_NPM-SAME: () #[[ATTR7]] {
+; IS__CGSCC_NPM-NEXT:    [[L:%.*]] = load i32, i32* @Gint2, align 4
+; IS__CGSCC_NPM-NEXT:    ret i32 [[L]]
 ;
   %l = load i32, i32* @Gint2
   ret i32 %l
 }
 define i32 @write_read_static_global() {
-; IS________OPM: Function Attrs: nofree norecurse nosync nounwind willreturn
-; IS________OPM-LABEL: define {{[^@]+}}@write_read_static_global
-; IS________OPM-SAME: () #[[ATTR5]] {
-; IS________OPM-NEXT:    store i32 7, i32* @Gstatic_int1, align 4
-; IS________OPM-NEXT:    [[L:%.*]] = load i32, i32* @Gstatic_int1, align 4
-; IS________OPM-NEXT:    ret i32 [[L]]
+; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
+; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@write_read_static_global
+; IS__TUNIT_OPM-SAME: () #[[ATTR6]] {
+; IS__TUNIT_OPM-NEXT:    ret i32 7
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@write_read_static_global
 ; IS__TUNIT_NPM-SAME: () #[[ATTR5]] {
 ; IS__TUNIT_NPM-NEXT:    ret i32 7
+;
+; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
+; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@write_read_static_global
+; IS__CGSCC_OPM-SAME: () #[[ATTR7]] {
+; IS__CGSCC_OPM-NEXT:    ret i32 7
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@write_read_static_global
@@ -2877,7 +2889,7 @@ define void @write_static_global() {
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@write_static_global
-; IS__CGSCC_OPM-SAME: () #[[ATTR8]] {
+; IS__CGSCC_OPM-SAME: () #[[ATTR7]] {
 ; IS__CGSCC_OPM-NEXT:    store i32 7, i32* @Gstatic_int2, align 4
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
@@ -2891,11 +2903,11 @@ define void @write_static_global() {
   ret void
 }
 define i32 @read_static_global() {
-; IS__TUNIT_OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@read_static_global
-; IS__TUNIT_OPM-SAME: () #[[ATTR8]] {
-; IS__TUNIT_OPM-NEXT:    [[L:%.*]] = load i32, i32* @Gstatic_int2, align 4
-; IS__TUNIT_OPM-NEXT:    ret i32 [[L]]
+; IS________OPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
+; IS________OPM-LABEL: define {{[^@]+}}@read_static_global
+; IS________OPM-SAME: () #[[ATTR8]] {
+; IS________OPM-NEXT:    [[L:%.*]] = load i32, i32* @Gstatic_int2, align 4
+; IS________OPM-NEXT:    ret i32 [[L]]
 ;
 ; IS__TUNIT_NPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@read_static_global
@@ -2903,11 +2915,11 @@ define i32 @read_static_global() {
 ; IS__TUNIT_NPM-NEXT:    [[L:%.*]] = load i32, i32* @Gstatic_int2, align 4
 ; IS__TUNIT_NPM-NEXT:    ret i32 [[L]]
 ;
-; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@read_static_global
-; IS__CGSCC____-SAME: () #[[ATTR7]] {
-; IS__CGSCC____-NEXT:    [[L:%.*]] = load i32, i32* @Gstatic_int2, align 4
-; IS__CGSCC____-NEXT:    ret i32 [[L]]
+; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind readonly willreturn
+; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@read_static_global
+; IS__CGSCC_NPM-SAME: () #[[ATTR7]] {
+; IS__CGSCC_NPM-NEXT:    [[L:%.*]] = load i32, i32* @Gstatic_int2, align 4
+; IS__CGSCC_NPM-NEXT:    ret i32 [[L]]
 ;
   %l = load i32, i32* @Gstatic_int2
   ret i32 %l
@@ -2925,7 +2937,7 @@ define i32 @write_read_static_undef_global() {
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@write_read_static_undef_global
-; IS__CGSCC_OPM-SAME: () #[[ATTR8]] {
+; IS__CGSCC_OPM-SAME: () #[[ATTR7]] {
 ; IS__CGSCC_OPM-NEXT:    ret i32 7
 ;
 ; IS__CGSCC_NPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
@@ -2950,7 +2962,7 @@ define void @write_static_undef_global() {
 ;
 ; IS__CGSCC_OPM: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@write_static_undef_global
-; IS__CGSCC_OPM-SAME: () #[[ATTR8]] {
+; IS__CGSCC_OPM-SAME: () #[[ATTR7]] {
 ; IS__CGSCC_OPM-NEXT:    store i32 7, i32* @Gstatic_undef_int2, align 4
 ; IS__CGSCC_OPM-NEXT:    ret void
 ;
@@ -4850,8 +4862,8 @@ loop.end:
 ; IS__CGSCC_OPM: attributes #[[ATTR4]] = { nofree norecurse nosync nounwind readnone willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR5]] = { nofree norecurse nosync nounwind willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR6]] = { nofree nosync nounwind willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR7]] = { nofree norecurse nosync nounwind readonly willreturn }
-; IS__CGSCC_OPM: attributes #[[ATTR8]] = { nofree norecurse nosync nounwind willreturn writeonly }
+; IS__CGSCC_OPM: attributes #[[ATTR7]] = { nofree norecurse nosync nounwind willreturn writeonly }
+; IS__CGSCC_OPM: attributes #[[ATTR8]] = { nofree norecurse nosync nounwind readonly willreturn }
 ; IS__CGSCC_OPM: attributes #[[ATTR9]] = { nofree norecurse nosync nounwind }
 ; IS__CGSCC_OPM: attributes #[[ATTR10]] = { nofree norecurse nosync nounwind writeonly }
 ; IS__CGSCC_OPM: attributes #[[ATTR11]] = { nofree norecurse nosync nounwind willreturn uwtable }
