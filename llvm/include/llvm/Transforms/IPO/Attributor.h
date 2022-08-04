@@ -4951,41 +4951,19 @@ struct AAPointerInfo : public AbstractAttribute {
   AAPointerInfo(const IRPosition &IRP) : AbstractAttribute(IRP) {}
 
   enum AccessKind {
-    // First two bits to distinguish may and must accesses.
-    AK_MUST = 1 << 0,
-    AK_MAY = 1 << 1,
-
-    // Then two bits for read and write. These are not exclusive.
-    AK_R = 1 << 2,
-    AK_W = 1 << 3,
-    AK_RW = AK_R | AK_W,
-
-    // One special case for assumptions about memory content. These
-    // are neither reads nor writes. They are however always modeled
-    // as read to avoid using them for write removal.
-    AK_ASSUMPTION = (1 << 4) | AK_MUST,
-
-    // Helper for easy access.
-    AK_MAY_READ = AK_MAY | AK_R,
-    AK_MAY_WRITE = AK_MAY | AK_W,
-    AK_MAY_READ_WRITE = AK_MAY | AK_R | AK_W,
-    AK_MUST_READ = AK_MUST | AK_R,
-    AK_MUST_WRITE = AK_MUST | AK_W,
-    AK_MUST_READ_WRITE = AK_MUST | AK_R | AK_W,
+    AK_READ = 1 << 0,
+    AK_WRITE = 1 << 1,
+    AK_READ_WRITE = AK_READ | AK_WRITE,
   };
 
   /// An access description.
   struct Access {
     Access(Instruction *I, Optional<Value *> Content, AccessKind Kind, Type *Ty)
-        : LocalI(I), RemoteI(I), Content(Content), Kind(Kind), Ty(Ty) {
-      verify();
-    }
+        : LocalI(I), RemoteI(I), Content(Content), Kind(Kind), Ty(Ty) {}
     Access(Instruction *LocalI, Instruction *RemoteI, Optional<Value *> Content,
            AccessKind Kind, Type *Ty)
         : LocalI(LocalI), RemoteI(RemoteI), Content(Content), Kind(Kind),
-          Ty(Ty) {
-      verify();
-    }
+          Ty(Ty) {}
     Access(const Access &Other) = default;
     Access(const Access &&Other)
         : LocalI(Other.LocalI), RemoteI(Other.RemoteI), Content(Other.Content),
@@ -5006,30 +4984,14 @@ struct AAPointerInfo : public AbstractAttribute {
       return *this;
     }
 
-    void verify() {
-      assert(isMustAccess() + isMayAccess() == 1 &&
-             "Expect must or may access, not both.");
-      assert(isAssumption() + isWrite() <= 1 &&
-             "Expect assumption access or write access, never both.");
-    }
-
     /// Return the access kind.
     AccessKind getKind() const { return Kind; }
 
     /// Return true if this is a read access.
-    bool isRead() const { return Kind & AK_R; }
+    bool isRead() const { return Kind & AK_READ; }
 
     /// Return true if this is a write access.
-    bool isWrite() const { return Kind & AK_W; }
-
-    /// Return true if this is a write access.
-    bool isWriteOrAssumption() const { return isWrite() | isAssumption(); }
-
-    /// Return true if this is an assumption access.
-    bool isAssumption() const { return Kind == AK_ASSUMPTION; }
-
-    bool isMustAccess() const { return Kind & AK_MUST; }
-    bool isMayAccess() const { return Kind & AK_MAY; }
+    bool isWrite() const { return Kind & AK_WRITE; }
 
     /// Return the instruction that causes the access with respect to the local
     /// scope of the associated attribute.
@@ -5133,14 +5095,10 @@ struct AAPointerInfo : public AbstractAttribute {
   /// return true if all such accesses were known and the callback returned true
   /// for all of them, false otherwise. In contrast to forallInterferingAccesses
   /// this function will perform reasoning to exclude write accesses that cannot
-  /// affect the load even if they on the surface look as if they would. The
-  /// flag \p HasBeenWrittenTo will be set to true if we know that \p I does not
-  /// read the intial value of the underlying memory.
-  virtual bool
-  forallInterferingAccesses(Attributor &A, const AbstractAttribute &QueryingAA,
-                            Instruction &I,
-                            function_ref<bool(const Access &, bool)> CB,
-                            bool &HasBeenWrittenTo) const = 0;
+  /// affect the load even if they on the surface look as if they would.
+  virtual bool forallInterferingAccesses(
+      Attributor &A, const AbstractAttribute &QueryingAA, Instruction &I,
+      function_ref<bool(const Access &, bool)> CB) const = 0;
 
   /// This function should return true if the type of the \p AA is AAPointerInfo
   static bool classof(const AbstractAttribute *AA) {

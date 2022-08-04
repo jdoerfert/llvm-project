@@ -969,14 +969,9 @@ struct AAPointerInfoImpl
       const override {
     return State::forallInterferingAccesses(OAS, CB);
   }
-
-  bool
-  forallInterferingAccesses(Attributor &A, const AbstractAttribute &QueryingAA,
-                            Instruction &I,
-                            function_ref<bool(const Access &, bool)> UserCB,
-                            bool &HasBeenWrittenTo) const override {
-    HasBeenWrittenTo = false;
-
+  bool forallInterferingAccesses(
+      Attributor &A, const AbstractAttribute &QueryingAA, Instruction &I,
+      function_ref<bool(const Access &, bool)> UserCB) const override {
     SmallPtrSet<const Access *, 8> DominatingWrites;
     SmallVector<std::pair<const Access *, bool>, 8> InterferingAccesses;
 
@@ -1008,10 +1003,14 @@ struct AAPointerInfoImpl
 
     const bool FindInterferingWrites = I.mayReadFromMemory();
     const bool FindInterferingReads = I.mayWriteToMemory();
+    const bool UseDominanceReasoning = FindInterferingWrites;
     const bool CanUseCFGResoning = CanIgnoreThreading(I);
     InformationCache &InfoCache = A.getInfoCache();
     const DominatorTree *DT =
-        InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
+        NoRecurseAA.isKnownNoRecurse() && UseDominanceReasoning
+            ? InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(
+                  Scope)
+            : nullptr;
 
     enum GPUAddressSpace : unsigned {
       AS_Generic = 0,
@@ -1073,53 +1072,21 @@ struct AAPointerInfoImpl
           (!FindInterferingReads || !Acc.isRead()))
         return true;
 
-      if (!A.isRunOn(*Acc.getRemoteInst()->getFunction()))
-        return false;
-
-      if (FindInterferingWrites && Exact)
-        ExclusionSet.insert(Acc.getRemoteInst()->getParent());
-
-      bool Dominates = DT && Exact && Acc.isMustAccess() &&
-                       (Acc.getRemoteInst()->getFunction() == &Scope) &&
-                       DT->dominates(Acc.getRemoteInst(), &I);
-      if (FindInterferingWrites) {
-        if (Dominates)
-          HasBeenWrittenTo = true;
-        if (Exact) {
-          ExclusionSet.insert(Acc.getRemoteInst()->getParent());
-          ExactWrites.insert(Acc.getRemoteInst());
-        }
-      }
-
       // For now we only filter accesses based on CFG reasoning which does not
       // work yet if we have threading effects, or the access is complicated.
-      if (Dominates && CanUseCFGResoning && FindInterferingWrites &&
-          IsSameThreadAsLoad(Acc))
-        DominatingWrites.insert(&Acc);
-
-      if (FindInterferingWrites) {
-        // errs() << *Acc.getRemoteInst() << "\n";
-        // errs() << *Acc.getLocalInst() << "\n";
-        // errs() << Acc.getContent() << "\n";
-        // assert(Acc.getContent().has_value() && "Expected a value.");
-        auto IsNoneUndefOrNull = [](const Optional<Value *> V) {
-          if (!V.has_value())
-            return true;
-          if (*V == nullptr)
-            return false;
-          if (isa<UndefValue>(*V))
-            return true;
-          if (auto *C = dyn_cast<Constant>(*V))
-            return C->isNullValue();
-          return false;
-        };
-        Optional<const Access *> &TrackedAcc =
-            InstValueTrackingMap[Acc.getRemoteInst()];
-        if ((Exact || IsNoneUndefOrNull(Acc.getContent())) &&
-            !TrackedAcc.has_value())
-          TrackedAcc = &Acc;
-        else
-          TrackedAcc = nullptr;
+      if (CanUseCFGResoning) {
+        if ((!Acc.isWrite() ||
+             !AA::isPotentiallyReachable(A, *Acc.getLocalInst(), I, QueryingAA,
+                                         IsLiveInCalleeCB)) &&
+            (!Acc.isRead() ||
+             !AA::isPotentiallyReachable(A, I, *Acc.getLocalInst(), QueryingAA,
+                                         IsLiveInCalleeCB)))
+          return true;
+        if (DT && Exact && (Acc.getLocalInst()->getFunction() == &Scope) &&
+            IsSameThreadAsLoad(Acc)) {
+          if (DT->dominates(Acc.getLocalInst(), &I))
+            DominatingWrites.insert(&Acc);
+        }
       }
 
       InterferingAccesses.push_back({&Acc, Exact});
@@ -1348,7 +1315,7 @@ struct AAPointerInfoImpl
     // succeeded for all or not.
     unsigned NumInterferingAccesses = InterferingAccesses.size();
     for (auto &It : InterferingAccesses) {
-      if (NumInterferingAccesses > MaxInterferingAccesses ||
+      if (!DT || NumInterferingAccesses > MaxInterferingAccesses ||
           !CanSkipAccess(*It.first, It.second)) {
         if (!UserCB(*It.first, It.second))
           return false;
@@ -1384,9 +1351,8 @@ struct AAPointerInfoImpl
         if (FromCallee) {
           Content = A.translateArgumentToCallSiteContent(
               RAcc.getContent(), CB, *this, UsedAssumedInformation);
-          AK =
-              AccessKind(AK & (IsByval ? AccessKind::AK_R : AccessKind::AK_RW));
-          AK = AccessKind(AK | (RAcc.isMayAccess() ? AK_MAY : AK_MUST));
+          AK = AccessKind(
+              AK & (IsByval ? AccessKind::AK_READ : AccessKind::AK_READ_WRITE));
         }
         Changed =
             Changed | addAccess(A, OAS.getOffset(), OAS.getSize(), CB, Content,
@@ -1574,117 +1540,21 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
         return true;
       }
 
-      if (auto *LoadI = dyn_cast<LoadInst>(Usr)) {
-        // If the access is to a pointer that may or may not be the associated
-        // value, e.g. due to a PHI, we cannot assume it will be read.
-        AccessKind AK = AccessKind::AK_R;
-        if (getUnderlyingObject(CurPtr) == &AssociatedValue)
-          AK = AccessKind(AK | AccessKind::AK_MUST);
-        else
-          AK = AccessKind(AK | AccessKind::AK_MAY);
-        if (!handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr, AK,
-                          OffsetInfoMap[CurPtr].Offset, Changed,
-                          LoadI->getType()))
-          return false;
-
-        auto IsAssumption = [](Instruction &I) {
-          if (auto *II = dyn_cast<IntrinsicInst>(&I))
-            return II->isAssumeLikeIntrinsic();
-          return false;
-        };
-
-        auto IsImpactedInRange = [&](Instruction *FromI, Instruction *ToI) {
-          // Check if the assumption and the load are executed together without
-          // memory modification.
-          do {
-            if (FromI->mayWriteToMemory() && !IsAssumption(*FromI))
-              return true;
-            FromI = FromI->getNextNonDebugInstruction();
-          } while (FromI && FromI != ToI);
-          return false;
-        };
-
-        BasicBlock *BB = LoadI->getParent();
-        auto IsValidAssume = [&](IntrinsicInst &IntrI) {
-          if (IntrI.getIntrinsicID() != Intrinsic::assume)
-            return false;
-          BasicBlock *IntrBB = IntrI.getParent();
-          if (IntrI.getParent() == BB) {
-            if (IsImpactedInRange(LoadI->getNextNonDebugInstruction(), &IntrI))
-              return false;
-          } else {
-            auto PredIt = pred_begin(IntrBB);
-            if ((*PredIt) != BB)
-              return false;
-            if (++PredIt != pred_end(IntrBB))
-              return false;
-            for (auto *SuccBB : successors(BB)) {
-              if (SuccBB == IntrBB)
-                continue;
-              if (isa<UnreachableInst>(SuccBB->getTerminator()))
-                continue;
-              return false;
-            }
-            if (IsImpactedInRange(LoadI->getNextNonDebugInstruction(),
-                                  BB->getTerminator()))
-              return false;
-            if (IsImpactedInRange(&IntrBB->front(), &IntrI))
-              return false;
-          }
-          return true;
-        };
-
-        std::pair<Value *, IntrinsicInst *> Assumption;
-        for (const Use &LoadU : LoadI->uses()) {
-          if (auto *CmpI = dyn_cast<CmpInst>(LoadU.getUser())) {
-            if (!CmpI->isEquality() || !CmpI->isTrueWhenEqual())
-              continue;
-            for (const Use &CmpU : CmpI->uses()) {
-              if (auto *IntrI = dyn_cast<IntrinsicInst>(CmpU.getUser())) {
-                if (!IsValidAssume(*IntrI))
-                  continue;
-                int Idx = CmpI->getOperandUse(0) == LoadU;
-                Assumption = {CmpI->getOperand(Idx), IntrI};
-                break;
-              }
-            }
-          }
-          if (Assumption.first)
-            break;
-        }
-
-        // Check if we found an assumption associated with this load.
-        if (!Assumption.first || !Assumption.second)
-          return true;
-
-        LLVM_DEBUG(dbgs() << "[AAPointerInfo] Assumption found "
-                          << *Assumption.second << ": " << *LoadI
-                          << " == " << *Assumption.first << "\n");
-
-        return handleAccess(A, *Assumption.second, *CurPtr, Assumption.first,
-                            AccessKind::AK_ASSUMPTION,
-                            OffsetInfoMap[CurPtr].Offset, Changed,
-                            LoadI->getType());
-      }
-
+      if (auto *LoadI = dyn_cast<LoadInst>(Usr))
+        return handleAccess(A, *LoadI, *CurPtr, /* Content */ nullptr,
+                            AccessKind::AK_READ, OffsetInfoMap[CurPtr].Offset,
+                            Changed, LoadI->getType());
       if (auto *StoreI = dyn_cast<StoreInst>(Usr)) {
         if (StoreI->getValueOperand() == CurPtr) {
           LLVM_DEBUG(dbgs() << "[AAPointerInfo] Escaping use in store "
                             << *StoreI << "\n");
           return false;
         }
-        // If the access is to a pointer that may or may not be the associated
-        // value, e.g. due to a PHI, we cannot assume it will be written.
-        AccessKind AK = AccessKind::AK_W;
-        if (getUnderlyingObject(CurPtr) == &AssociatedValue)
-          AK = AccessKind(AK | AccessKind::AK_MUST);
-        else
-          AK = AccessKind(AK | AccessKind::AK_MAY);
         bool UsedAssumedInformation = false;
         Optional<Value *> Content =
             A.getAssumedSimplified(*StoreI->getValueOperand(), *this,
                                    UsedAssumedInformation, AA::Interprocedural);
-        return handleAccess(A, *StoreI, *CurPtr, Content, AK,
+        return handleAccess(A, *StoreI, *CurPtr, Content, AccessKind::AK_WRITE,
                             OffsetInfoMap[CurPtr].Offset, Changed,
                             StoreI->getValueOperand()->getType());
       }
@@ -1800,10 +1670,10 @@ struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
       unsigned ArgNo = getIRPosition().getCallSiteArgNo();
       ChangeStatus Changed = ChangeStatus::UNCHANGED;
       if (ArgNo == 0) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_MUST_WRITE, 0,
-                     Changed, nullptr, LengthVal);
+        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_WRITE, 0, Changed,
+                     nullptr, LengthVal);
       } else if (ArgNo == 1) {
-        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_MUST_READ, 0, Changed,
+        handleAccess(A, *MI, Ptr, nullptr, AccessKind::AK_READ, 0, Changed,
                      nullptr, LengthVal);
       } else {
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled memory intrinsic "
