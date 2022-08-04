@@ -11,10 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
@@ -59,6 +62,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
+#include <algorithm>
 #include <cassert>
 
 using namespace llvm;
@@ -1061,16 +1065,24 @@ struct AAPointerInfoImpl
         };
     }
 
+    SmallPtrSet<Instruction *, 16> ExactWrites;
+    AA::BlockExclusionSetTy ExclusionSet;
     auto AccessCB = [&](const Access &Acc, bool Exact) {
       if ((!FindInterferingWrites || !Acc.isWriteOrAssumption()) &&
           (!FindInterferingReads || !Acc.isRead()))
         return true;
 
       bool Dominates = DT && Exact && Acc.isMustAccess() &&
-                       (Acc.getLocalInst()->getFunction() == &Scope) &&
+                       (Acc.getRemoteInst()->getFunction() == &Scope) &&
                        DT->dominates(Acc.getRemoteInst(), &I);
-      if (FindInterferingWrites && Dominates)
-        HasBeenWrittenTo = true;
+      if (FindInterferingWrites) {
+        if (Dominates)
+          HasBeenWrittenTo = true;
+        if (Exact) {
+          ExclusionSet.insert(Acc.getRemoteInst()->getParent());
+          ExactWrites.insert(Acc.getRemoteInst());
+        }
+      }
 
       // For now we only filter accesses based on CFG reasoning which does not
       // work yet if we have threading effects, or the access is complicated.
@@ -1095,13 +1107,35 @@ struct AAPointerInfoImpl
     // the worst case quadratic as we are looking for another write that will
     // hide the effect of this one.
     auto CanSkipAccess = [&](const Access &Acc, bool Exact) {
+      const BasicBlock *AllowBlock = nullptr;
+
+      // Check if we should allow the block this access happens in. This is the
+      // case if it was excluded only because of this access or accesses *after*
+      // this access.
+      if (ExclusionSet.contains(Acc.getRemoteInst()->getParent())) {
+        AllowBlock = Acc.getRemoteInst()->getParent();
+        const Instruction *IP = &AllowBlock->front();
+        while (IP) {
+          if (IP == Acc.getRemoteInst())
+            break;
+          if (ExactWrites.count(IP)) {
+            AllowBlock = nullptr;
+            break;
+          }
+          IP = IP->getNextNode();
+        }
+      }
+
       if ((!Acc.isWriteOrAssumption() ||
            !AA::isPotentiallyReachable(A, *Acc.getLocalInst(), I, QueryingAA,
+                                       &ExclusionSet, AllowBlock,
                                        IsLiveInCalleeCB)) &&
-          (!Acc.isRead() ||
-           !AA::isPotentiallyReachable(A, I, *Acc.getLocalInst(), QueryingAA,
-                                       IsLiveInCalleeCB)))
+          (!Acc.isRead() || !AA::isPotentiallyReachable(
+                                A, I, *Acc.getLocalInst(), QueryingAA,
+                                /* ExclusionSet */ nullptr,
+                                /* AllowBlock */ nullptr, IsLiveInCalleeCB))) {
         return true;
+      }
 
       if (!DT || !UseDominanceReasoning)
         return false;
@@ -3058,28 +3092,208 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
 
 /// -------------------AAReachability Attribute--------------------------
 
+namespace llvm {
+template <> struct DenseMapInfo<const AA::BlockExclusionSetTy *>;
+} // namespace llvm
+
+/// All information associated with a reachability query.
+struct ReachabilityQueryInfo {
+  /// Start here,
+  const Instruction *From;
+  /// reach this place,
+  const Instruction *To;
+  /// without going through any of these blocks,
+  const AA::BlockExclusionSetTy *ExclusionSet;
+  /// except this one.
+  const BasicBlock *AllowBlock;
+
+  /// Constructor replacement to ensure unique and stable sets are used for the
+  /// cache.
+  static ReachabilityQueryInfo get(Attributor &A, const Instruction &From,
+                                   const Instruction &To,
+                                   const AA::BlockExclusionSetTy *ExclusionSet,
+                                   const BasicBlock *AllowBlock) {
+
+    ReachabilityQueryInfo RQI;
+    RQI.From = &From;
+    RQI.To = &To;
+    RQI.ExclusionSet = ExclusionSet;
+    RQI.AllowBlock = AllowBlock;
+
+    if (!ExclusionSet || ExclusionSet->empty()) {
+      RQI.ExclusionSet = nullptr;
+      return RQI;
+    }
+
+    RQI.ExclusionSet =
+        A.getInfoCache().getOrCreateUniqueBlockExecutionSet(ExclusionSet);
+
+    return RQI;
+  }
+
+private:
+  ReachabilityQueryInfo() = default;
+};
+
+namespace llvm {
+template <>
+struct DenseMapInfo<const AA::BlockExclusionSetTy *>
+    : public DenseMapInfo<void *> {
+  using super = DenseMapInfo<void *>;
+  static inline const AA::BlockExclusionSetTy *getEmptyKey() {
+    return static_cast<const AA::BlockExclusionSetTy *>(super::getEmptyKey());
+  }
+  static inline const AA::BlockExclusionSetTy *getTombstoneKey() {
+    return static_cast<const AA::BlockExclusionSetTy *>(
+        super::getTombstoneKey());
+  }
+  static unsigned getHashValue(const AA::BlockExclusionSetTy *BES) {
+    unsigned H = 0;
+    if (BES)
+      for (const auto *BB : *BES)
+        H += DenseMapInfo<const BasicBlock *>::getHashValue(BB);
+    return H;
+  }
+  static bool isEqual(const AA::BlockExclusionSetTy *LHS,
+                      const AA::BlockExclusionSetTy *RHS) {
+    if (LHS == RHS)
+      return true;
+    if (LHS == getEmptyKey() || RHS == getEmptyKey() ||
+        LHS == getTombstoneKey() || RHS == getTombstoneKey())
+      return false;
+    if (!LHS || !RHS)
+      return ((LHS && LHS->empty()) || (RHS && RHS->empty()));
+    if (LHS->size() != RHS->size())
+      return false;
+    return llvm::set_is_subset(*LHS, *RHS);
+  }
+};
+
+template <> struct DenseMapInfo<ReachabilityQueryInfo> {
+  using BlockDMI = DenseMapInfo<const BasicBlock *>;
+  using BlockSetDMI = DenseMapInfo<const AA::BlockExclusionSetTy *>;
+  using InstDMI = DenseMapInfo<const Instruction *>;
+  using PairDMI =
+      DenseMapInfo<std::pair<const Instruction *, const Instruction *>>;
+
+  static inline ReachabilityQueryInfo getEmptyKey() {
+    const Instruction *IEK = InstDMI::getEmptyKey();
+    return {IEK, IEK, nullptr, nullptr};
+  }
+  static inline ReachabilityQueryInfo getTombstoneKey() {
+    const Instruction *ITK = InstDMI::getTombstoneKey();
+    return {ITK, ITK, nullptr, nullptr};
+  }
+  static unsigned getHashValue(const ReachabilityQueryInfo &RQI) {
+    unsigned H = PairDMI ::getHashValue({RQI.From, RQI.To});
+    H += BlockSetDMI::getHashValue(RQI.ExclusionSet);
+    H += BlockDMI::getHashValue(RQI.AllowBlock);
+    return H;
+  }
+  static bool isEqual(const ReachabilityQueryInfo &LHS,
+                      const ReachabilityQueryInfo &RHS) {
+    if (!PairDMI::isEqual({LHS.From, LHS.To}, {RHS.From, RHS.To}))
+      return false;
+    if (!BlockDMI::isEqual(LHS.AllowBlock, RHS.AllowBlock))
+      return false;
+    return BlockSetDMI::isEqual(LHS.ExclusionSet, RHS.ExclusionSet);
+  }
+};
+} // namespace llvm
+
 namespace {
 struct AAReachabilityImpl : AAReachability {
   AAReachabilityImpl(const IRPosition &IRP, Attributor &A)
       : AAReachability(IRP, A) {}
-
-  const std::string getAsStr() const override {
-    // TODO: Return the number of reachable queries.
-    return "reachable";
-  }
-
-  /// See AbstractAttribute::updateImpl(...).
-  ChangeStatus updateImpl(Attributor &A) override {
-    return ChangeStatus::UNCHANGED;
-  }
 };
 
 struct AAReachabilityFunction final : public AAReachabilityImpl {
   AAReachabilityFunction(const IRPosition &IRP, Attributor &A)
       : AAReachabilityImpl(IRP, A) {}
 
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    A.getAAFor<AAIsDead>(*this, getIRPosition(), DepClassTy::OPTIONAL);
+
+    QueryCacheTy OldQueryCache = std::move(QueryCache);
+    QueryCache = QueryCacheTy();
+
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    for (const auto &It : OldQueryCache) {
+      if (isAssumedReachable(A, It.first) != It.second)
+        Changed = ChangeStatus::CHANGED;
+    }
+
+    return Changed;
+  }
+
+  bool isAssumedReachable(Attributor &A, const Instruction &From,
+                          const Instruction &To,
+                          const AA::BlockExclusionSetTy *ExclusionSet,
+                          const BasicBlock *AllowBlock) const override {
+    return const_cast<AAReachabilityFunction *>(this)->isAssumedReachable(
+        A, ReachabilityQueryInfo::get(A, From, To, ExclusionSet, AllowBlock));
+  }
+
+  bool isAssumedReachable(Attributor &A, const ReachabilityQueryInfo &RQI) {
+    if (!getState().isValidState())
+      return true;
+
+    auto It = QueryCache.find(RQI);
+    if (It != QueryCache.end())
+      return It->second;
+
+    auto RememberResult = [&](bool Result) {
+      QueryCache.insert({RQI, Result});
+      return Result;
+    };
+
+    const BasicBlock *FromBB = RQI.From->getParent();
+    const BasicBlock *ToBB = RQI.To->getParent();
+    if (FromBB == ToBB) {
+      auto *IP = RQI.From;
+      while (IP && IP != RQI.To)
+        IP = IP->getNextNode();
+      if (IP == RQI.To)
+        return RememberResult(true);
+    }
+
+    SmallPtrSet<const BasicBlock *, 16> Visited;
+    SmallVector<const BasicBlock *, 16> Worklist;
+    Worklist.push_back(FromBB);
+
+    auto &LivenessAA =
+        A.getAAFor<AAIsDead>(*this, getIRPosition(), DepClassTy::OPTIONAL);
+    while (!Worklist.empty()) {
+      const BasicBlock *BB = Worklist.pop_back_val();
+      if (BB != RQI.AllowBlock && RQI.ExclusionSet &&
+          RQI.ExclusionSet->count(BB))
+        continue;
+      if (!Visited.insert(BB).second)
+        continue;
+      for (const BasicBlock *SuccBB : successors(BB)) {
+        if (LivenessAA.isEdgeDead(BB, SuccBB))
+          continue;
+        if (SuccBB == ToBB)
+          return RememberResult(true);
+        Worklist.push_back(SuccBB);
+      }
+    }
+
+    return RememberResult(false);
+  }
+
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_FN_ATTR(reachable); }
+
+  const std::string getAsStr() const override {
+    // TODO: Return the number of reachable queries.
+    return "#queries(" + std::to_string(QueryCache.size()) + ")";
+  }
+
+private:
+  using QueryCacheTy = DenseMap<ReachabilityQueryInfo, bool>;
+  QueryCacheTy QueryCache;
 };
 } // namespace
 
@@ -3322,7 +3536,8 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
         }
 
         if (!AA::isPotentiallyReachable(
-                A, *UserI, *getCtxI(), *this,
+                A, *UserI, *getCtxI(), *this, /* ExclusionSet */ nullptr,
+                /* AllowBlock */ nullptr,
                 [ScopeFn](const Function &Fn) { return &Fn != ScopeFn; }))
           return true;
       }
@@ -4915,7 +5130,8 @@ struct AAInstanceInfoImpl : public AAInstanceInfo {
         // If this call base might reach the scope again we might forward the
         // argument back here. This is very conservative.
         if (AA::isPotentiallyReachable(
-                A, *CB, *Scope, *this,
+                A, *CB, *Scope, *this, /* ExclusionSet */ nullptr,
+                /* AllowBlock */ nullptr,
                 [Scope](const Function &Fn) { return &Fn != Scope; }))
           return false;
         return true;
@@ -9683,12 +9899,16 @@ private:
   };
 
   /// Get call edges that can be reached by this instruction.
-  bool getReachableCallEdges(Attributor &A, const AAReachability &Reachability,
-                             const Instruction &Inst,
-                             SmallVector<const AACallEdges *> &Result) const {
+  bool
+  getReachableCallEdges(Attributor &A, const AAReachability &Reachability,
+                        const Instruction &Inst,
+                        SmallVector<const AACallEdges *> &Result,
+                        const AA::BlockExclusionSetTy *ExclusionSet = nullptr,
+                        const BasicBlock *AllowBlock = nullptr) const {
     // Determine call like instructions that we can reach from the inst.
     auto CheckCallBase = [&](Instruction &CBInst) {
-      if (!Reachability.isAssumedReachable(A, Inst, CBInst))
+      if (!Reachability.isAssumedReachable(A, Inst, CBInst, ExclusionSet,
+                                           AllowBlock))
         return true;
 
       auto &CB = cast<CallBase>(CBInst);
@@ -9749,7 +9969,9 @@ public:
   }
 
   bool instructionCanReach(Attributor &A, const Instruction &Inst,
-                           const Function &Fn) const override {
+                           const Function &Fn,
+                           const AA::BlockExclusionSetTy *ExclusionSet,
+                           const BasicBlock *AllowBlock) const override {
     if (!isValidState())
       return true;
 
@@ -9758,7 +9980,8 @@ public:
         DepClassTy::REQUIRED);
 
     SmallVector<const AACallEdges *> CallEdges;
-    bool AllKnown = getReachableCallEdges(A, Reachability, Inst, CallEdges);
+    bool AllKnown = getReachableCallEdges(A, Reachability, Inst, CallEdges,
+                                          ExclusionSet, AllowBlock);
     // Attributor returns attributes as const, so this function has to be
     // const for users of this attribute to use it without having to do
     // a const_cast.
@@ -10147,7 +10370,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     auto &PtrNonNullAA = A.getAAFor<AANonNull>(
         *this, IRPosition::value(*ICmp->getOperand(PtrIdx)),
         DepClassTy::REQUIRED);
-    if (!PtrNonNullAA.isAssumedNonNull())
+    if (!PtrNonNullAA.isKnownNonNull())
       return false;
 
     // The new value depends on the predicate, true for != and false for ==.
@@ -10201,7 +10424,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     InformationCache &InfoCache = A.getInfoCache();
     if (InfoCache.isOnlyUsedByAssume(LI)) {
       if (!llvm::all_of(PotentialValueOrigins, [&](Instruction *I) {
-            if (!I)
+            if (!I || isAssumeLikeIntrinsic(I))
               return true;
             if (auto *SI = dyn_cast<StoreInst>(I))
               return A.isAssumedDead(SI->getOperandUse(0), this,

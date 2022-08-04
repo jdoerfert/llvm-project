@@ -115,6 +115,7 @@
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/AbstractCallSite.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/InstIterator.h"
@@ -150,6 +151,7 @@ class Function;
 
 /// Abstract Attribute helper functions.
 namespace AA {
+using BlockExclusionSetTy = SmallPtrSet<BasicBlock *, 4>;
 
 /// Flags to distinguish intra-procedural queries from *potentially*
 /// inter-procedural queries. Not that information can be valid for both and
@@ -277,13 +279,17 @@ bool isAssumedReadNone(Attributor &A, const IRPosition &IRP,
 bool isPotentiallyReachable(
     Attributor &A, const Instruction &FromI, const Instruction &ToI,
     const AbstractAttribute &QueryingAA,
+    const AA::BlockExclusionSetTy *ExclusionSet = nullptr,
+    const BasicBlock *AllowBlock = nullptr,
     std::function<bool(const Function &F)> GoBackwardsCB = nullptr);
 
 /// Same as above but it is sufficient to reach any instruction in \p ToFn.
 bool isPotentiallyReachable(
     Attributor &A, const Instruction &FromI, const Function &ToFn,
     const AbstractAttribute &QueryingAA,
-    std::function<bool(const Function &F)> GoBackwardsCB);
+    const AA::BlockExclusionSetTy *ExclusionSet = nullptr,
+    const BasicBlock *AllowBlock = nullptr,
+    std::function<bool(const Function &F)> GoBackwardsCB = nullptr);
 
 } // namespace AA
 
@@ -1139,19 +1145,45 @@ struct InformationCache {
 
   /// Return if \p To is potentially reachable form \p From or not
   /// If the same query was answered, return cached result
-  bool getPotentiallyReachable(const Instruction &From, const Instruction &To) {
+  bool
+  getPotentiallyReachable(const Instruction &From, const Instruction &To,
+                          const AA::BlockExclusionSetTy *ExclusionSet = nullptr,
+                          const BasicBlock *AllowBlock = nullptr) {
     auto KeyPair = std::make_pair(&From, &To);
-    auto Iter = PotentiallyReachableMap.find(KeyPair);
-    if (Iter != PotentiallyReachableMap.end())
-      return Iter->second;
+    if (!ExclusionSet) {
+      auto Iter = PotentiallyReachableMap.find(KeyPair);
+      if (Iter != PotentiallyReachableMap.end())
+        return Iter->second;
+    }
     const Function &F = *From.getFunction();
     bool Result = true;
-    if (From.getFunction() == To.getFunction())
-      Result = isPotentiallyReachable(&From, &To, nullptr,
+    if (From.getFunction() == To.getFunction()) {
+      bool Removed = false;
+      if (ExclusionSet)
+        Removed = const_cast<AA::BlockExclusionSetTy *>(ExclusionSet)
+                      ->erase(const_cast<BasicBlock *>(AllowBlock));
+      Result = isPotentiallyReachable(&From, &To, ExclusionSet,
                                       AG.getAnalysis<DominatorTreeAnalysis>(F),
                                       AG.getAnalysis<LoopAnalysis>(F));
-    PotentiallyReachableMap.insert(std::make_pair(KeyPair, Result));
+      if (Removed)
+        const_cast<AA::BlockExclusionSetTy *>(ExclusionSet)
+            ->insert(const_cast<BasicBlock *>(AllowBlock));
+    }
+    if (!ExclusionSet)
+      PotentiallyReachableMap.insert(std::make_pair(KeyPair, Result));
     return Result;
+  }
+
+  /// Given \p BES, return a uniqued version. \p BES is destroyed in the
+  /// process.
+  const AA::BlockExclusionSetTy *
+  getOrCreateUniqueBlockExecutionSet(const AA::BlockExclusionSetTy *BES) {
+    auto It = BESets.find(BES);
+    if (It != BESets.end())
+      return *It;
+    auto *UniqueBES = new (Allocator) AA::BlockExclusionSetTy(std::move(*BES));
+    BESets.insert(UniqueBES);
+    return UniqueBES;
   }
 
   /// Check whether \p F is part of module slice.
@@ -1219,6 +1251,9 @@ private:
 
   /// A container for all instructions that are only used by `llvm.assume`.
   SetVector<const Instruction *> AssumeOnlyValues;
+
+  /// Cache for block sets to allow reuse.
+  DenseSet<const AA::BlockExclusionSetTy *> BESets;
 
   /// Getters for analysis.
   AnalysisGetter &AG;
@@ -3314,12 +3349,11 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// Returns true if 'From' instruction is assumed to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
-  bool isAssumedReachable(Attributor &A, const Instruction &From,
-                          const Instruction &To) const {
-    if (!getState().isValidState())
-      return true;
-    return A.getInfoCache().getPotentiallyReachable(From, To);
-  }
+  virtual bool
+  isAssumedReachable(Attributor &A, const Instruction &From,
+                     const Instruction &To,
+                     const AA::BlockExclusionSetTy *ExclusionSet = nullptr,
+                     const BasicBlock *AllowBlock = nullptr) const;
 
   /// Returns true if 'From' instruction is known to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
@@ -4879,8 +4913,11 @@ struct AAFunctionReachability
 
   /// Can  \p Inst reach \p Fn.
   /// See also AA::isPotentiallyReachable.
-  virtual bool instructionCanReach(Attributor &A, const Instruction &Inst,
-                                   const Function &Fn) const = 0;
+  virtual bool
+  instructionCanReach(Attributor &A, const Instruction &Inst,
+                      const Function &Fn,
+                      const AA::BlockExclusionSetTy *ExclusionSet = nullptr,
+                      const BasicBlock *AllowBlock = nullptr) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAFunctionReachability &createForPosition(const IRPosition &IRP,

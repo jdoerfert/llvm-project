@@ -859,7 +859,7 @@ define void @test17_caller(i32* noalias %p, i32 %c) {
 ; NOT_CGSCC_NPM-NEXT:    tail call void @make_alias(i32* nofree writeonly [[P]]) #[[ATTR12]]
 ; NOT_CGSCC_NPM-NEXT:    br label [[L3:%.*]]
 ; NOT_CGSCC_NPM:       l2:
-; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* nocapture nofree writeonly align 4 [[P]]) #[[ATTR12]]
+; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* noalias nocapture nofree writeonly align 4 [[P]]) #[[ATTR12]]
 ; NOT_CGSCC_NPM-NEXT:    br label [[L3]]
 ; NOT_CGSCC_NPM:       l3:
 ; NOT_CGSCC_NPM-NEXT:    ret void
