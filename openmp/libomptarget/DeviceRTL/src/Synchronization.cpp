@@ -118,7 +118,7 @@ uint32_t atomicExchange(uint32_t *Address, uint32_t Val,
 // Forward declarations defined to be defined for AMDGCN and NVPTX.
 uint32_t atomicInc(uint32_t *A, uint32_t V, atomic::OrderingTy Ordering);
 void namedBarrierInit();
-void namedBarrier();
+void namedBarrier(uint32_t);
 void fenceTeam(atomic::OrderingTy Ordering);
 void fenceKernel(atomic::OrderingTy Ordering);
 void fenceSystem(atomic::OrderingTy Ordering);
@@ -162,8 +162,7 @@ void namedBarrierInit() {
   atomic::store(&namedBarrierTracker, 0u, atomic::release);
 }
 
-void namedBarrier() {
-  uint32_t NumThreads = omp_get_num_threads();
+void namedBarrier(uint32_t NumThreads) {
   // assert(NumThreads % 32 == 0);
 
   uint32_t WarpSize = mapping::getWarpSize();
@@ -285,10 +284,7 @@ uint32_t atomicInc(uint32_t *Address, uint32_t Val,
 
 void namedBarrierInit() {}
 
-void namedBarrier() {
-  uint32_t NumThreads = omp_get_num_threads();
-  ASSERT(NumThreads % 32 == 0);
-
+void namedBarrier(uint32_t NumThreads) {
   // The named barrier for active parallel threads of a team in an L1 parallel
   // region to synchronize with each other.
   constexpr int BarrierNo = 7;
@@ -361,6 +357,10 @@ void synchronize::init(bool IsSPMD) {
 void synchronize::warp(LaneMaskTy Mask) { impl::syncWarp(Mask); }
 
 void synchronize::threads() { impl::syncThreads(); }
+
+void synchronize::threadsPartial(uint32_t NumThreads) {
+  impl::namedBarrier(NumThreads);
+}
 
 void synchronize::threadsAligned() { impl::syncThreadsAligned(); }
 
@@ -469,7 +469,7 @@ void __kmpc_barrier(IdentTy *Loc, int32_t TId) {
   if (mapping::isSPMDMode())
     return __kmpc_barrier_simple_spmd(Loc, TId);
 
-  impl::namedBarrier();
+  impl::namedBarrier(omp_get_num_threads());
 }
 
 __attribute__((noinline)) void __kmpc_barrier_simple_spmd(IdentTy *Loc,

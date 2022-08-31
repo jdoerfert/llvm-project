@@ -11883,6 +11883,8 @@ public:
     DeclarationNameInfo ReductionOrMapperId;
     int ExtraModifier = -1; ///< Additional modifier for linear, map, depend or
                             ///< lastprivate clause.
+    SmallVector<OpenMPReductionClauseModifier, NumberOfOMPReductionModifiers>
+      ReductionTypeModifiers;
     SmallVector<OpenMPMapModifierKind, NumberOfOMPMapClauseModifiers>
         MapTypeModifiers;
     SmallVector<SourceLocation, NumberOfOMPMapClauseModifiers>
@@ -11941,6 +11943,7 @@ public:
       SourceLocation ModifierLoc, SourceLocation ColonLoc,
       SourceLocation EndLoc, CXXScopeSpec &ReductionIdScopeSpec,
       const DeclarationNameInfo &ReductionId,
+      ArrayRef<OpenMPReductionClauseModifier> Modifiers,
       ArrayRef<Expr *> UnresolvedReductions = std::nullopt);
   /// Called on well-formed 'task_reduction' clause.
   OMPClause *ActOnOpenMPTaskReductionClause(

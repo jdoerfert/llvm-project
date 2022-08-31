@@ -2723,7 +2723,7 @@ void Sema::finalizeOpenMPDelayedAnalysis(const FunctionDecl *Caller,
     // Diagnose nohost function called during host codegen.
     StringRef NoHostDevTy = getOpenMPSimpleClauseTypeName(
         OMPC_device_type, OMPC_DEVICE_TYPE_nohost);
-    Diag(Loc, diag::err_omp_wrong_device_function_call) << NoHostDevTy << 1;
+    // Diag(Loc, diag::err_omp_wrong_device_function_call) << NoHostDevTy << 1;
     Diag(*OMPDeclareTargetDeclAttr::getLocation(FD),
          diag::note_omp_marked_device_type_here)
         << NoHostDevTy;
@@ -17725,7 +17725,8 @@ OMPClause *Sema::ActOnOpenMPVarListClause(OpenMPClauseKind Kind,
     Res = ActOnOpenMPReductionClause(
         VarList, static_cast<OpenMPReductionClauseModifier>(ExtraModifier),
         StartLoc, LParenLoc, ExtraModifierLoc, ColonLoc, EndLoc,
-        Data.ReductionOrMapperIdScopeSpec, Data.ReductionOrMapperId);
+        Data.ReductionOrMapperIdScopeSpec, Data.ReductionOrMapperId,
+        Data.ReductionTypeModifiers);
     break;
   case OMPC_task_reduction:
     Res = ActOnOpenMPTaskReductionClause(
@@ -18854,6 +18855,7 @@ struct ReductionData {
   SmallVector<Expr *, 8> RHSs;
   /// Reduction operation expression.
   SmallVector<Expr *, 8> ReductionOps;
+  /// Reduction operation kind
   /// inscan copy operation expressions.
   SmallVector<Expr *, 8> InscanCopyOps;
   /// inscan copy temp array expressions for prefix sums.
@@ -18869,6 +18871,7 @@ struct ReductionData {
   SmallVector<Expr *, 4> ExprPostUpdates;
   /// Reduction modifier.
   unsigned RedModifier = 0;
+  llvm::omp::target::reduction::Operation ReductionOpKind;
   ReductionData() = delete;
   /// Reserves required memory for the reduction data.
   ReductionData(unsigned Size, unsigned Modifier = 0) : RedModifier(Modifier) {
@@ -18886,6 +18889,11 @@ struct ReductionData {
     ExprCaptures.reserve(Size);
     ExprPostUpdates.reserve(Size);
   }
+
+  void setBinaryOperator(llvm::omp::target::reduction::Operation RO){
+    ReductionOpKind = RO;
+  }
+
   /// Stores reduction item and reduction operation only (required for dependent
   /// reduction item).
   void push(Expr *Item, Expr *ReductionOp) {
@@ -19014,6 +19022,7 @@ static bool actOnOMPReductionKindClause(
   DeclarationName DN = ReductionId.getName();
   OverloadedOperatorKind OOK = DN.getCXXOverloadedOperator();
   BinaryOperatorKind BOK = BO_Comma;
+  target::reduction::Operation ROP = target::reduction::Operation::CUSTOM_OP; 
 
   ASTContext &Context = S.Context;
   // OpenMP [2.14.3.6, reduction clause]
@@ -19025,25 +19034,35 @@ static bool actOnOMPReductionKindClause(
   // operators: +, -, *, &, |, ^, && and ||
   switch (OOK) {
   case OO_Plus:
+    ROP = target::reduction::Operation::ADD; 
+    BOK = BO_Add;
+    break;
   case OO_Minus:
+    ROP = target::reduction::Operation::SUB; 
     BOK = BO_Add;
     break;
   case OO_Star:
+    ROP = target::reduction::Operation::MUL; 
     BOK = BO_Mul;
     break;
   case OO_Amp:
+    ROP = target::reduction::Operation::BIT_AND; 
     BOK = BO_And;
     break;
   case OO_Pipe:
+    ROP = target::reduction::Operation::BIT_OR; 
     BOK = BO_Or;
     break;
   case OO_Caret:
+    ROP = target::reduction::Operation::BIT_XOR; 
     BOK = BO_Xor;
     break;
   case OO_AmpAmp:
+    ROP = target::reduction::Operation::LOGIC_AND; 
     BOK = BO_LAnd;
     break;
   case OO_PipePipe:
+    ROP = target::reduction::Operation::LOGIC_OR; 
     BOK = BO_LOr;
     break;
   case OO_New:
@@ -19087,10 +19106,14 @@ static bool actOnOMPReductionKindClause(
     llvm_unreachable("Unexpected reduction identifier");
   case OO_None:
     if (IdentifierInfo *II = DN.getAsIdentifierInfo()) {
-      if (II->isStr("max"))
+      if (II->isStr("max")){
+        ROP = target::reduction::Operation::MAX; 
         BOK = BO_GT;
-      else if (II->isStr("min"))
+      }
+      else if (II->isStr("min")){
+        ROP = target::reduction::Operation::MIN; 
         BOK = BO_LT;
+      }
     }
     break;
   }
@@ -19260,8 +19283,7 @@ static bool actOnOMPReductionKindClause(
       RD.push(RefExpr, DeclareReductionRef.get());
       continue;
     }
-    if (BOK == BO_Comma && DeclareReductionRef.isUnset()) {
-      // Not allowed reduction identifier is found.
+    if (BOK == BO_Comma && DeclareReductionRef.isUnset()) { // Not allowed reduction identifier is found.
       S.Diag(ReductionId.getBeginLoc(),
              diag::err_omp_unknown_reduction_identifier)
           << Type << ReductionIdRange;
@@ -19714,6 +19736,7 @@ static bool actOnOMPReductionKindClause(
             TaskgroupDescriptor, CopyOpRes.get(), TempArrayRes.get(),
             TempArrayElem.get());
   }
+  RD.setBinaryOperator(ROP);
   return RD.Vars.empty();
 }
 
@@ -19722,7 +19745,8 @@ OMPClause *Sema::ActOnOpenMPReductionClause(
     SourceLocation StartLoc, SourceLocation LParenLoc,
     SourceLocation ModifierLoc, SourceLocation ColonLoc, SourceLocation EndLoc,
     CXXScopeSpec &ReductionIdScopeSpec, const DeclarationNameInfo &ReductionId,
-    ArrayRef<Expr *> UnresolvedReductions) {
+    ArrayRef<OpenMPReductionClauseModifier> Modifiers,
+    ArrayRef<Expr *> UnresolvedReductions) { 
   if (ModifierLoc.isValid() && Modifier == OMPC_REDUCTION_unknown) {
     Diag(LParenLoc, diag::err_omp_unexpected_clause_value)
         << getListOfPossibleValues(OMPC_reduction, /*First=*/0,
@@ -19746,6 +19770,23 @@ OMPClause *Sema::ActOnOpenMPReductionClause(
   }
 
   ReductionData RD(VarList.size(), Modifier);
+
+  int ReductionPolicy = 0;
+  for ( auto RT : Modifiers ){
+    if ( RT >= DeviceReductionModifierStart){ 
+      ReductionPolicy |= (1<<(RT - DeviceReductionModifierStart));
+    }
+  }
+
+#if 0
+  llvm::dbgs() << "Reduction Type is " << ReductionPolicy << "\n";
+
+  for ( auto *E : RD.ReductionOps ){
+    llvm::dbgs() << "Expression is:\n";
+    E->dump();
+  }
+#endif
+
   if (actOnOMPReductionKindClause(*this, DSAStack, OMPC_reduction, VarList,
                                   StartLoc, LParenLoc, ColonLoc, EndLoc,
                                   ReductionIdScopeSpec, ReductionId,
@@ -19758,7 +19799,8 @@ OMPClause *Sema::ActOnOpenMPReductionClause(
       RD.Privates, RD.LHSs, RD.RHSs, RD.ReductionOps, RD.InscanCopyOps,
       RD.InscanCopyArrayTemps, RD.InscanCopyArrayElems,
       buildPreInits(Context, RD.ExprCaptures),
-      buildPostUpdate(*this, RD.ExprPostUpdates));
+      buildPostUpdate(*this, RD.ExprPostUpdates),
+      RD.ReductionOpKind, ReductionPolicy);
 }
 
 OMPClause *Sema::ActOnOpenMPTaskReductionClause(
