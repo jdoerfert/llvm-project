@@ -41,6 +41,12 @@ template <typename Ty1, typename Ty2> inline Ty1 *advance(Ty1 Ptr, Ty2 Bytes) {
   return reinterpret_cast<Ty1 *>(reinterpret_cast<char *>(Ptr) + Bytes);
 }
 
+/// Return the
+inline uint32_t clz(uint32_t V) {
+  static_assert(sizeof(int) == sizeof(uint32_t), "type size mismatch");
+  return __builtin_clz(V);
+}
+
 /// Return the first bit set in \p V.
 inline uint32_t ffs(uint32_t V) {
   static_assert(sizeof(int) == sizeof(uint32_t), "type size mismatch");
