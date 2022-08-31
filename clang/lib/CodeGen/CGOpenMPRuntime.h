@@ -1209,6 +1209,8 @@ public:
     bool WithNowait;
     bool SimpleReduction;
     OpenMPDirectiveKind ReductionKind;
+    int ReductionPolicy;
+    llvm::omp::target::reduction::Operation rop;
   };
   /// Emit a code for reduction clause. Next code should be emitted for
   /// reduction:

@@ -38,6 +38,7 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/CodeExtractor.h"
 #include "llvm/Transforms/Utils/LoopPeel.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/UnrollLoop.h"
 
 #include <cstdint>
@@ -48,6 +49,9 @@
 using namespace llvm;
 using namespace omp;
 
+static cl::opt<bool>
+    TwoKernelReduction("openmp-ir-builder-two-kernel-reduction", cl::Hidden,
+                       cl::desc(""), cl::init(false));
 static cl::opt<bool>
     OptimisticAttributes("openmp-ir-builder-optimistic-attributes", cl::Hidden,
                          cl::desc("Use optimistic attributes describing "
@@ -429,6 +433,7 @@ Function *OpenMPIRBuilder::getOrCreateRuntimeFunctionPtr(RuntimeFunction FnID) {
 void OpenMPIRBuilder::initialize() { initializeTypes(M); }
 
 void OpenMPIRBuilder::finalize(Function *Fn) {
+  errs() << "Finalize " << Fn->getName() << "\n";
   SmallPtrSet<BasicBlock *, 32> ParallelRegionBlockSet;
   SmallVector<BasicBlock *, 32> Blocks;
   SmallVector<OutlineInfo, 16> DeferredOutlines;
@@ -515,6 +520,46 @@ void OpenMPIRBuilder::finalize(Function *Fn) {
 
   // Remove work items that have been completed.
   OutlineInfos = std::move(DeferredOutlines);
+
+  for (auto &It : KernelReplacements) {
+    Function *OldFn = It.first;
+    Function *NewFn = It.second;
+    NewFn->setLinkage(OldFn->getLinkage());
+    OldFn->getParent()->getFunctionList().insert(OldFn->getIterator(), NewFn);
+    NewFn->takeName(OldFn);
+    NewFn->copyAttributesFrom(OldFn);
+
+    // Patch the pointer to LLVM function in debug info descriptor.
+    NewFn->setSubprogram(OldFn->getSubprogram());
+    OldFn->setSubprogram(nullptr);
+
+    // Recompute the parameter attributes list based on the new arguments for
+    // the function.
+    AttributeList OldFnAttributeList = OldFn->getAttributes();
+    NewFn->setAttributes(OldFnAttributeList);
+    auto NumArgs = NewFn->arg_size();
+    NewFn->addParamAttr(NumArgs - 2, Attribute::NoAlias);
+    NewFn->addParamAttr(NumArgs - 1, Attribute::NoAlias);
+
+    // Since we have now created the new function, splice the body of the old
+    // function right into the new function, leaving the old rotting hulk of the
+    // function empty.
+
+    NewFn->splice(NewFn->begin(), OldFn);
+
+    Argument *NewFnArgIt = NewFn->arg_begin();
+    for (Argument &OldArg : OldFn->args()) {
+      NewFnArgIt->takeName(&OldArg);
+      OldArg.replaceAllUsesWith(NewFnArgIt);
+      ++NewFnArgIt;
+    }
+
+    OldFn->replaceAllUsesWith(NewFn);
+    errs() << "Repl kernels\n";
+    NewFn->getParent()->dump();
+    NewFn->dump();
+    OldFn->eraseFromParent();
+  }
 }
 
 OpenMPIRBuilder::~OpenMPIRBuilder() {
@@ -3853,10 +3898,30 @@ CallInst *OpenMPIRBuilder::createCachedThreadPrivate(
   return Builder.CreateCall(Fn, Args);
 }
 
+// Create a unique global variable to indicate the execution mode of this target
+// region. The execution mode is either 'generic', or 'spmd' depending on the
+// target directive. This variable is picked up by the offload library to setup
+// the device appropriately before kernel launch. If the execution mode is
+// 'generic', the runtime reserves one warp for the master, otherwise, all
+// warps participate in parallel work.
+static void setPropertyExecutionMode(Module &M, StringRef Name, bool Mode) {
+  Type *Int8Ty = Type::getInt8Ty(M.getContext());
+  auto *GVMode = new llvm::GlobalVariable(
+      M, Int8Ty, /*isConstant=*/true, GlobalValue::WeakAnyLinkage,
+      ConstantInt::get(Int8Ty, Mode ? OMP_TGT_EXEC_MODE_SPMD
+                                    : OMP_TGT_EXEC_MODE_GENERIC),
+      Twine(Name, "_exec_mode"));
+  GVMode->setVisibility(GlobalVariable::ProtectedVisibility);
+  appendToCompilerUsed(M, {GVMode});
+}
+
 OpenMPIRBuilder::InsertPointTy
 OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD) {
   if (!updateToLocation(Loc))
     return Loc.IP;
+
+  LastKernel = Builder.GetInsertBlock()->getParent();
+  setPropertyExecutionMode(M, LastKernel->getName(), IsSPMD);
 
   uint32_t SrcLocStrSize;
   Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
@@ -3872,6 +3937,7 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD) {
 
   CallInst *ThreadKind = Builder.CreateCall(
       Fn, {Ident, IsSPMDVal, UseGenericStateMachine});
+
 
   Value *ExecUserCode = Builder.CreateICmpEQ(
       ThreadKind, ConstantInt::get(ThreadKind->getType(), -1),
@@ -4004,7 +4070,222 @@ Constant *OpenMPIRBuilder::registerTargetRegionFunction(
   InfoManager.registerTargetRegionEntryInfo(
       EntryInfo, EntryAddr, OutlinedFnID,
       OffloadEntriesInfoManager::OMPTargetRegionEntryTargetRegion);
+
   return OutlinedFnID;
+}
+
+static Function *addPointerArguments(Function &OldFn) {
+  FunctionType *OldFnTy = OldFn.getFunctionType();
+  Type *RetTy = OldFnTy->getReturnType();
+  SmallVector<Type *> NewArgumentTypes(OldFnTy->params());
+
+  LLVMContext &Ctx = OldFn.getContext();
+  NewArgumentTypes.push_back(Type::getInt8PtrTy(Ctx));
+  NewArgumentTypes.push_back(Type::getInt8PtrTy(Ctx));
+
+  FunctionType *NewFnTy = FunctionType::get(RetTy, NewArgumentTypes, false);
+  Function *NewFn = Function::Create(NewFnTy, OldFn.getLinkage(),
+                                     OldFn.getAddressSpace(), "");
+  return NewFn;
+}
+
+void OpenMPIRBuilder::createTargetReduction(
+    const LocationDescription &Loc, 
+    InsertPointTy AllocaIP,
+    ArrayRef<TargetReductionValueInfo> TRVI,
+    target::reduction::Level Level,
+    bool Nowait) {
+
+  if (!updateToLocation(Loc))
+    return;
+  // errs() << "\n\n\n----------\n";
+  // assert(LastKernel);
+  // LastKernel->dump();
+
+  AllocaInst *SharedRedInfo, *PrivateRedInfo;
+  {
+    IRBuilder<>::InsertPointGuard IPG(Builder);
+    Builder.restoreIP(AllocaIP);
+    SharedRedInfo = Builder.CreateAlloca(OMPDefaultReduction, nullptr, "omp.shared.red.info");
+    PrivateRedInfo = Builder.CreateAlloca(OMPDefaultReduction, nullptr, "omp.private.red.info");
+  }
+
+  auto *PlainSharedRedInfo = Builder.CreatePointerBitCastOrAddrSpaceCast(SharedRedInfo, OMPDefaultReductionPtr);
+  auto *PlainPrivateRedInfo = Builder.CreatePointerBitCastOrAddrSpaceCast(PrivateRedInfo, OMPDefaultReductionPtr);
+
+  BasicBlock *CurBB = Builder.GetInsertBlock();
+
+  bool IsTwoKernelReduction =
+      TwoKernelReduction && Level == target::reduction::Level::LEAGUE;
+
+  Constant *Choices = ConstantInt::get(
+      Int32, IsTwoKernelReduction
+                 ? target::reduction::Choices::REDUCE_LEAGUE_VIA_SECOND_KERNEL
+                 : 0);
+  Constant *I32Null = ConstantInt::getNullValue(Int32);
+  Constant *I32One = ConstantInt::get(Int32, 1);
+  Constant *ConfigData[] = {
+      ConstantInt::get(Int8, Level),
+      ConstantInt::get(
+          Int8, target::reduction::AllocationConfig::PREALLOCATED_IN_PLACE |
+                    target::reduction::AllocationConfig::PRE_INITIALIZED),
+      ConstantInt::get(Int8, TRVI.front().Op),
+      ConstantInt::get(Int8, TRVI.front().ElementTy),
+      Choices,
+      ConstantInt::get(Int32, TRVI.front().ItemSize),
+      ConstantInt::get(Int32, TRVI.front().NumItems),
+      /* BatchSize */ I32One,
+      /* NumParticipants */ I32Null,
+      /* BufferPtr */ Constant::getNullValue(VoidPtr),
+      /* CounterPtr */ Constant::getNullValue(Int32Ptr),
+      /* AllocatorFnPtr */ Constant::getNullValue(VoidPtr),
+      /* InitializerFnPtr */ Constant::getNullValue(VoidPtr),
+  };
+
+  Constant *Initializer = 
+  ConstantStruct::get(OMPDefaultReductionConfig, ConfigData);
+
+  auto *ConfigPtrGV = new GlobalVariable(
+    M, OMPDefaultReductionConfig,
+    /* isConstant = */ true, GlobalValue::PrivateLinkage, Initializer, "omp.red.config",
+    nullptr, GlobalValue::NotThreadLocal,
+    M.getDataLayout().getDefaultGlobalsAddressSpace());
+  ConfigPtrGV->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+  ConfigPtrGV->setAlignment(Align(8));
+  auto *PlainConfigPtrGV = ConstantExpr::getPointerBitCastOrAddrSpaceCast(ConfigPtrGV, OMPDefaultReductionConfigPtr);
+
+  auto *PrivateRedInfoConfigGEP = 
+      Builder.CreateInBoundsGEP(OMPDefaultReduction, PlainPrivateRedInfo,
+                                {Builder.getInt32(0), Builder.getInt32(0)});
+  auto *PrivateRedInfoPrivPtrGEP = 
+      Builder.CreateInBoundsGEP(OMPDefaultReduction, PlainPrivateRedInfo,
+                                {Builder.getInt32(0), Builder.getInt32(1)});
+  Builder.CreateStore(PlainConfigPtrGV, PrivateRedInfoConfigGEP);
+  Builder.CreateStore(TRVI.front().Priv, PrivateRedInfoPrivPtrGEP);
+
+  Function *InitFn = getOrCreateRuntimeFunctionPtr(
+      omp::RuntimeFunction::OMPRTL___llvm_omp_default_reduction_init);
+  Builder.CreateCall(InitFn, {PlainPrivateRedInfo, Constant::getNullValue(OMPDefaultReductionConfigPtr)});
+
+  auto *SharedRedInfoConfigGEP = 
+      Builder.CreateInBoundsGEP(OMPDefaultReduction, PlainSharedRedInfo,
+                                {Builder.getInt32(0), Builder.getInt32(0)});
+  auto *SharedRedInfoPrivPtrGEP = 
+      Builder.CreateInBoundsGEP(OMPDefaultReduction, PlainSharedRedInfo,
+                                {Builder.getInt32(0), Builder.getInt32(1)});
+  Builder.CreateStore(PlainConfigPtrGV, SharedRedInfoConfigGEP);
+
+  GlobalVariable *RedBufferPtrGV = nullptr;
+  GlobalVariable *RedOutputPtrGV = nullptr;
+  if (!IsTwoKernelReduction) {
+    Builder.CreateStore(TRVI.front().LHS, SharedRedInfoPrivPtrGEP);
+  } else {
+    RedBufferPtrGV = new GlobalVariable(
+        M, Int8Ptr, /*isConstant=*/false, GlobalValue::PrivateLinkage,
+        UndefValue::get(Int8Ptr), "red_config_ptr", nullptr,
+        GlobalValue::NotThreadLocal, (int)AddressSpace::Shared);
+    RedOutputPtrGV = new GlobalVariable(
+        M, Int8Ptr, /*isConstant=*/false, GlobalValue::PrivateLinkage,
+        UndefValue::get(Int8Ptr), "red_output_ptr", nullptr,
+        GlobalValue::NotThreadLocal, (int)AddressSpace::Shared);
+    Value *RedBuffer = Builder.CreateLoad(Int8Ptr, RedBufferPtrGV);
+    Builder.CreateStore(RedBuffer, SharedRedInfoPrivPtrGEP);
+    Value *RedOutput = Builder.CreateLoad(Int8Ptr, RedOutputPtrGV);
+    Builder.CreateStore(TRVI.front().LHS, RedOutput);
+  }
+
+  Function *CombineFn = getOrCreateRuntimeFunctionPtr(
+      omp::RuntimeFunction::OMPRTL___llvm_omp_default_reduction_combine);
+  Builder.CreateCall(CombineFn, {PlainSharedRedInfo, PlainPrivateRedInfo});
+
+  if (!IsTwoKernelReduction)
+    return;
+
+  assert(LastKernel);
+  createOffloadEntry(nullptr, LastKernel,
+                     /*Size=*/0, 0, GlobalValue::WeakAnyLinkage);
+  Function *NewKernelFn = addPointerArguments(*LastKernel);
+  KernelReplacements[LastKernel] = NewKernelFn;
+
+  Function *Fn = CurBB->getParent();
+  FunctionType *SetFnTy = FunctionType::get(Void, {VoidPtr, VoidPtr}, false);
+  Function *SetFn = Function::Create(SetFnTy, GlobalVariable::PrivateLinkage,
+                                     Fn->getAddressSpace(), "red_set_fn", &M);
+  {
+    auto *EntryBB = BasicBlock::Create(M.getContext(), "entry", SetFn);
+
+    FunctionCallee HardwareTidFn = getOrCreateRuntimeFunction(
+        M, OMPRTL___kmpc_get_hardware_thread_id_in_block);
+    Builder.SetInsertPoint(EntryBB);
+    Instruction *IP = Builder.CreateRetVoid();
+    Builder.SetInsertPoint(IP);
+
+    CallInst *TId = Builder.CreateCall(HardwareTidFn, {});
+    Value *Cond = Builder.CreateIsNull(TId);
+    Instruction *ThenTI = SplitBlockAndInsertIfThen(Cond, IP, false);
+
+    Builder.SetInsertPoint(ThenTI);
+    Builder.CreateStore(SetFn->getArg(0), RedOutputPtrGV);
+    Builder.CreateStore(SetFn->getArg(1), RedBufferPtrGV);
+  }
+
+  Builder.SetInsertPoint(
+      &*LastKernel->getEntryBlock().getFirstNonPHIOrDbgOrAlloca());
+  Builder.CreateCall(SetFn,
+                     {NewKernelFn->arg_end() - 2, NewKernelFn->arg_end() - 1});
+
+  FunctionType *RedFnTy =
+      FunctionType::get(Void, {Int64, VoidPtr, VoidPtr}, false);
+  Function *RedFn =
+      Function::Create(RedFnTy, GlobalVariable::WeakODRLinkage,
+                       Fn->getAddressSpace(), LastKernel->getName() + "__red", &M);
+
+  auto *EntryBB = BasicBlock::Create(M.getContext(), "entry", RedFn);
+  Function *StandaloneCombineFn = getOrCreateRuntimeFunctionPtr(
+      omp::RuntimeFunction::OMPRTL___llvm_omp_default_reduction_combine_level2);
+
+  Builder.SetInsertPoint(EntryBB);
+  SharedRedInfo =
+      Builder.CreateAlloca(OMPDefaultReduction, nullptr, "omp.shared.red.info");
+  PrivateRedInfo = Builder.CreateAlloca(OMPDefaultReduction, nullptr,
+                                        "omp.private.red.info");
+  PlainSharedRedInfo = Builder.CreatePointerBitCastOrAddrSpaceCast(SharedRedInfo, OMPDefaultReductionPtr);
+  PlainPrivateRedInfo = Builder.CreatePointerBitCastOrAddrSpaceCast(PrivateRedInfo, OMPDefaultReductionPtr);
+
+  PrivateRedInfoConfigGEP =
+      Builder.CreateInBoundsGEP(OMPDefaultReduction, PlainPrivateRedInfo,
+                                {Builder.getInt32(0), Builder.getInt32(0)});
+  PrivateRedInfoPrivPtrGEP =
+      Builder.CreateInBoundsGEP(OMPDefaultReduction, PlainPrivateRedInfo,
+                                {Builder.getInt32(0), Builder.getInt32(1)});
+  Builder.CreateStore(PlainConfigPtrGV, PrivateRedInfoConfigGEP);
+  Builder.CreateStore(RedFn->getArg(2), PrivateRedInfoPrivPtrGEP);
+
+  SharedRedInfoConfigGEP =
+      Builder.CreateInBoundsGEP(OMPDefaultReduction, PlainSharedRedInfo,
+                                {Builder.getInt32(0), Builder.getInt32(0)});
+  SharedRedInfoPrivPtrGEP =
+      Builder.CreateInBoundsGEP(OMPDefaultReduction, PlainSharedRedInfo,
+                                {Builder.getInt32(0), Builder.getInt32(1)});
+  Builder.CreateStore(PlainConfigPtrGV, SharedRedInfoConfigGEP);
+  Value *RedOutput = Builder.CreateLoad(Int8Ptr, RedFn->getArg(1));
+  Builder.CreateStore(RedOutput, SharedRedInfoPrivPtrGEP);
+
+  Function *RealKernel = LastKernel;
+  Builder.restoreIP(createTargetInit(Builder, /* IsSPMD */ true));
+  LastKernel = RealKernel;
+
+  Builder.CreateCall(StandaloneCombineFn,
+                     {PlainSharedRedInfo, PlainPrivateRedInfo, RedFn->getArg(0)});
+  Builder.CreateRetVoid();
+  RedFn->setAttributes(AttributeList::get(RedFn->getContext(), LastKernel->getAttributes().getFnAttrs(), AttributeSet(), {}));
+
+  RedFn->addParamAttr(1, Attribute::NoAlias);
+  RedFn->addParamAttr(2, Attribute::NoAlias);
+
+  assert(Config.isTargetCodegen());
+  createOffloadEntry(nullptr, RedFn,
+                     /*Size=*/0, 0, GlobalValue::WeakAnyLinkage);
 }
 
 std::string OpenMPIRBuilder::getNameWithSeparators(ArrayRef<StringRef> Parts,

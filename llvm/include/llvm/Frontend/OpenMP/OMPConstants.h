@@ -220,6 +220,67 @@ enum class RTLDependenceKindTy {
   DepOmpAllMem = 0x80,
 };
 
+namespace target {
+namespace reduction {
+
+enum Level : uint8_t {
+  WARP = 1,
+  TEAM = 2,
+  LEAGUE = 4,
+};
+
+enum AllocationConfig : unsigned char {
+  PREALLOCATED_IN_PLACE = 1 << 0,
+  PRE_INITIALIZED = 1 << 1,
+};
+
+enum Operation : uint8_t {
+  /// Uses 0 initializer
+  ADD,
+  SUB,
+  BIT_OR,
+  BIT_XOR,
+  LOGIC_OR,
+
+  /// Uses ~0 initializer
+  BIT_AND,
+
+  /// Uses 1 initializer
+  MUL,
+  LOGIC_AND,
+
+  /// Usesmin/max value initializer
+  MAX,
+  MIN,
+
+  /// Uses custom initializer function.
+  CUSTOM_OP,
+};
+
+enum ElementType : uint8_t {
+  INT8,
+  INT16,
+  INT32,
+  INT64,
+  FLOAT,
+  DOUBLE,
+  CUSTOM_TYPE,
+};
+
+enum Choices : uint32_t {
+  REDUCE_WARP_FIRST = 1 << 0,
+  REDUCE_ATOMICALLY_AFTER_WARP = 1 << 1,
+  REDUCE_ATOMICALLY_AFTER_TEAM = 1 << 2,
+  REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET = 1 << 3,
+  REDUCE_LEAGUE_VIA_LARGE_BUFFER = 1 << 4,
+  REDUCE_LEAGUE_VIA_SYNCHRONIZED_SMALL_BUFFER = 1 << 5,
+  REDUCE_LEAGUE_VIA_SECOND_KERNEL = 1 << 10,
+
+  PRIVATE_BUFFER_IS_SHARED = 1 << 25,
+};
+
+} // end namespace reduction
+} // end namespace target
 } // end namespace omp
 
 } // end namespace llvm

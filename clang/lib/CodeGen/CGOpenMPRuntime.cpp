@@ -6118,8 +6118,10 @@ void CGOpenMPRuntime::emitTargetOutlinedFunctionHelper(
                                       DefaultValThreads, IsOffloadEntry,
                                       OutlinedFn, OutlinedFnID);
 
-  if (OutlinedFn != nullptr)
+  if (OutlinedFn != nullptr) {
     CGM.getTargetCodeGenInfo().setTargetAttributes(nullptr, OutlinedFn, CGM);
+    OMPBuilder.finalize(OutlinedFn);
+  }
 }
 
 /// Checks if the expression is constant or does not have non-trivial function

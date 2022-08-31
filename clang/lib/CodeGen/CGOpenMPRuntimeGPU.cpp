@@ -834,24 +834,6 @@ void CGOpenMPRuntimeGPU::emitSPMDKernel(const OMPExecutableDirective &D,
   IsInTTDRegion = false;
 }
 
-// Create a unique global variable to indicate the execution mode of this target
-// region. The execution mode is either 'generic', or 'spmd' depending on the
-// target directive. This variable is picked up by the offload library to setup
-// the device appropriately before kernel launch. If the execution mode is
-// 'generic', the runtime reserves one warp for the master, otherwise, all
-// warps participate in parallel work.
-static void setPropertyExecutionMode(CodeGenModule &CGM, StringRef Name,
-                                     bool Mode) {
-  auto *GVMode = new llvm::GlobalVariable(
-      CGM.getModule(), CGM.Int8Ty, /*isConstant=*/true,
-      llvm::GlobalValue::WeakAnyLinkage,
-      llvm::ConstantInt::get(CGM.Int8Ty, Mode ? OMP_TGT_EXEC_MODE_SPMD
-                                              : OMP_TGT_EXEC_MODE_GENERIC),
-      Twine(Name, "_exec_mode"));
-  GVMode->setVisibility(llvm::GlobalVariable::ProtectedVisibility);
-  CGM.addCompilerUsedGlobal(GVMode);
-}
-
 void CGOpenMPRuntimeGPU::emitTargetOutlinedFunction(
     const OMPExecutableDirective &D, StringRef ParentName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
@@ -868,8 +850,6 @@ void CGOpenMPRuntimeGPU::emitTargetOutlinedFunction(
   else
     emitNonSPMDKernel(D, ParentName, OutlinedFn, OutlinedFnID, IsOffloadEntry,
                       CodeGen);
-
-  setPropertyExecutionMode(CGM, OutlinedFn->getName(), Mode);
 }
 
 CGOpenMPRuntimeGPU::CGOpenMPRuntimeGPU(CodeGenModule &CGM)
@@ -1517,18 +1497,13 @@ enum CopyAction : unsigned {
   RemoteLaneToThread,
   // ThreadCopy: Make a copy of a Reduce list on the thread's stack.
   ThreadCopy,
-  // ThreadToScratchpad: Copy a team-reduced array to the scratchpad.
-  ThreadToScratchpad,
-  // ScratchpadToThread: Copy from a scratchpad array in global memory
-  // containing team-reduced data to a thread's stack.
-  ScratchpadToThread,
 };
 } // namespace
 
 struct CopyOptionsTy {
   llvm::Value *RemoteLaneOffset;
-  llvm::Value *ScratchpadIndex;
-  llvm::Value *ScratchpadWidth;
+  llvm::Value *A;
+  llvm::Value *B;
 };
 
 /// Emit instructions to copy a Reduce list, which contains partially
@@ -1543,8 +1518,6 @@ static void emitReductionListCopy(
   CGBuilderTy &Bld = CGF.Builder;
 
   llvm::Value *RemoteLaneOffset = CopyOptions.RemoteLaneOffset;
-  llvm::Value *ScratchpadIndex = CopyOptions.ScratchpadIndex;
-  llvm::Value *ScratchpadWidth = CopyOptions.ScratchpadWidth;
 
   // Iterates, element-by-element, through the source Reduce list and
   // make a copy.
@@ -1561,8 +1534,6 @@ static void emitReductionListCopy(
     bool UpdateDestListPtr = false;
     // Increment the src or dest pointer to the scratchpad, for each
     // new element.
-    bool IncrScratchpadSrc = false;
-    bool IncrScratchpadDest = false;
     QualType PrivatePtrType = C.getPointerType(Private->getType());
     llvm::Type *PrivateLlvmPtrType = CGF.ConvertType(PrivatePtrType);
 
@@ -1599,50 +1570,6 @@ static void emitReductionListCopy(
           CGF.EmitLoadOfPointer(CGF.Builder.CreateElementBitCast(
                                     DestElementPtrAddr, PrivateLlvmPtrType),
                                 PrivatePtrType->castAs<PointerType>());
-      break;
-    }
-    case ThreadToScratchpad: {
-      // Step 1.1: Get the address for the src element in the Reduce list.
-      Address SrcElementPtrAddr = Bld.CreateConstArrayGEP(SrcBase, Idx);
-      SrcElementAddr =
-          CGF.EmitLoadOfPointer(CGF.Builder.CreateElementBitCast(
-                                    SrcElementPtrAddr, PrivateLlvmPtrType),
-                                PrivatePtrType->castAs<PointerType>());
-
-      // Step 1.2: Get the address for dest element:
-      // address = base + index * ElementSizeInChars.
-      llvm::Value *ElementSizeInChars = CGF.getTypeSize(Private->getType());
-      llvm::Value *CurrentOffset =
-          Bld.CreateNUWMul(ElementSizeInChars, ScratchpadIndex);
-      llvm::Value *ScratchPadElemAbsolutePtrVal =
-          Bld.CreateNUWAdd(DestBase.getPointer(), CurrentOffset);
-      ScratchPadElemAbsolutePtrVal =
-          Bld.CreateIntToPtr(ScratchPadElemAbsolutePtrVal, CGF.VoidPtrTy);
-      DestElementAddr = Address(ScratchPadElemAbsolutePtrVal, CGF.Int8Ty,
-                                C.getTypeAlignInChars(Private->getType()));
-      IncrScratchpadDest = true;
-      break;
-    }
-    case ScratchpadToThread: {
-      // Step 1.1: Get the address for the src element in the scratchpad.
-      // address = base + index * ElementSizeInChars.
-      llvm::Value *ElementSizeInChars = CGF.getTypeSize(Private->getType());
-      llvm::Value *CurrentOffset =
-          Bld.CreateNUWMul(ElementSizeInChars, ScratchpadIndex);
-      llvm::Value *ScratchPadElemAbsolutePtrVal =
-          Bld.CreateNUWAdd(SrcBase.getPointer(), CurrentOffset);
-      ScratchPadElemAbsolutePtrVal =
-          Bld.CreateIntToPtr(ScratchPadElemAbsolutePtrVal, CGF.VoidPtrTy);
-      SrcElementAddr = Address(ScratchPadElemAbsolutePtrVal, CGF.Int8Ty,
-                               C.getTypeAlignInChars(Private->getType()));
-      IncrScratchpadSrc = true;
-
-      // Step 1.2: Create a temporary to store the element in the destination
-      // Reduce list.
-      DestElementPtrAddr = Bld.CreateConstArrayGEP(DestBase, Idx);
-      DestElementAddr =
-          CGF.CreateMemTemp(Private->getType(), ".omp.reduction.element");
-      UpdateDestListPtr = true;
       break;
     }
     }
@@ -1701,40 +1628,6 @@ static void emitReductionListCopy(
                             DestElementPtrAddr, /*Volatile=*/false,
                             C.VoidPtrTy);
     }
-
-    // Step 4.1: Increment SrcBase/DestBase so that it points to the starting
-    // address of the next element in scratchpad memory, unless we're currently
-    // processing the last one.  Memory alignment is also taken care of here.
-    if ((IncrScratchpadDest || IncrScratchpadSrc) && (Idx + 1 < Size)) {
-      // FIXME: This code doesn't make any sense, it's trying to perform
-      // integer arithmetic on pointers.
-      llvm::Value *ScratchpadBasePtr =
-          IncrScratchpadDest ? DestBase.getPointer() : SrcBase.getPointer();
-      llvm::Value *ElementSizeInChars = CGF.getTypeSize(Private->getType());
-      ScratchpadBasePtr = Bld.CreateNUWAdd(
-          ScratchpadBasePtr,
-          Bld.CreateNUWMul(ScratchpadWidth, ElementSizeInChars));
-
-      // Take care of global memory alignment for performance
-      ScratchpadBasePtr = Bld.CreateNUWSub(
-          ScratchpadBasePtr, llvm::ConstantInt::get(CGM.SizeTy, 1));
-      ScratchpadBasePtr = Bld.CreateUDiv(
-          ScratchpadBasePtr,
-          llvm::ConstantInt::get(CGM.SizeTy, GlobalMemoryAlignment));
-      ScratchpadBasePtr = Bld.CreateNUWAdd(
-          ScratchpadBasePtr, llvm::ConstantInt::get(CGM.SizeTy, 1));
-      ScratchpadBasePtr = Bld.CreateNUWMul(
-          ScratchpadBasePtr,
-          llvm::ConstantInt::get(CGM.SizeTy, GlobalMemoryAlignment));
-
-      if (IncrScratchpadDest)
-        DestBase =
-            Address(ScratchpadBasePtr, CGF.VoidPtrTy, CGF.getPointerAlign());
-      else /* IncrScratchpadSrc = true */
-        SrcBase =
-            Address(ScratchpadBasePtr, CGF.VoidPtrTy, CGF.getPointerAlign());
-    }
-
     ++Idx;
   }
 }
@@ -2122,9 +2015,7 @@ static llvm::Function *emitShuffleAndReduceFunction(
   // hosted on the thread's stack.
   emitReductionListCopy(RemoteLaneToThread, CGF, ReductionArrayTy, Privates,
                         LocalReduceList, RemoteReduceList,
-                        {/*RemoteLaneOffset=*/RemoteLaneOffsetArgVal,
-                         /*ScratchpadIndex=*/nullptr,
-                         /*ScratchpadWidth=*/nullptr});
+                        {/*RemoteLaneOffset=*/RemoteLaneOffsetArgVal});
 
   // The actions to be performed on the Remote Reduce list is dependent
   // on the algorithm version.
@@ -2626,248 +2517,64 @@ static llvm::Value *emitGlobalToListReduceFunction(
   return Fn;
 }
 
-///
-/// Design of OpenMP reductions on the GPU
-///
-/// Consider a typical OpenMP program with one or more reduction
-/// clauses:
-///
-/// float foo;
-/// double bar;
-/// #pragma omp target teams distribute parallel for \
-///             reduction(+:foo) reduction(*:bar)
-/// for (int i = 0; i < N; i++) {
-///   foo += A[i]; bar *= B[i];
-/// }
-///
-/// where 'foo' and 'bar' are reduced across all OpenMP threads in
-/// all teams.  In our OpenMP implementation on the NVPTX device an
-/// OpenMP team is mapped to a CUDA threadblock and OpenMP threads
-/// within a team are mapped to CUDA threads within a threadblock.
-/// Our goal is to efficiently aggregate values across all OpenMP
-/// threads such that:
-///
-///   - the compiler and runtime are logically concise, and
-///   - the reduction is performed efficiently in a hierarchical
-///     manner as follows: within OpenMP threads in the same warp,
-///     across warps in a threadblock, and finally across teams on
-///     the NVPTX device.
-///
-/// Introduction to Decoupling
-///
-/// We would like to decouple the compiler and the runtime so that the
-/// latter is ignorant of the reduction variables (number, data types)
-/// and the reduction operators.  This allows a simpler interface
-/// and implementation while still attaining good performance.
-///
-/// Pseudocode for the aforementioned OpenMP program generated by the
-/// compiler is as follows:
-///
-/// 1. Create private copies of reduction variables on each OpenMP
-///    thread: 'foo_private', 'bar_private'
-/// 2. Each OpenMP thread reduces the chunk of 'A' and 'B' assigned
-///    to it and writes the result in 'foo_private' and 'bar_private'
-///    respectively.
-/// 3. Call the OpenMP runtime on the GPU to reduce within a team
-///    and store the result on the team master:
-///
-///     __kmpc_nvptx_parallel_reduce_nowait_v2(...,
-///        reduceData, shuffleReduceFn, interWarpCpyFn)
-///
-///     where:
-///       struct ReduceData {
-///         double *foo;
-///         double *bar;
-///       } reduceData
-///       reduceData.foo = &foo_private
-///       reduceData.bar = &bar_private
-///
-///     'shuffleReduceFn' and 'interWarpCpyFn' are pointers to two
-///     auxiliary functions generated by the compiler that operate on
-///     variables of type 'ReduceData'.  They aid the runtime perform
-///     algorithmic steps in a data agnostic manner.
-///
-///     'shuffleReduceFn' is a pointer to a function that reduces data
-///     of type 'ReduceData' across two OpenMP threads (lanes) in the
-///     same warp.  It takes the following arguments as input:
-///
-///     a. variable of type 'ReduceData' on the calling lane,
-///     b. its lane_id,
-///     c. an offset relative to the current lane_id to generate a
-///        remote_lane_id.  The remote lane contains the second
-///        variable of type 'ReduceData' that is to be reduced.
-///     d. an algorithm version parameter determining which reduction
-///        algorithm to use.
-///
-///     'shuffleReduceFn' retrieves data from the remote lane using
-///     efficient GPU shuffle intrinsics and reduces, using the
-///     algorithm specified by the 4th parameter, the two operands
-///     element-wise.  The result is written to the first operand.
-///
-///     Different reduction algorithms are implemented in different
-///     runtime functions, all calling 'shuffleReduceFn' to perform
-///     the essential reduction step.  Therefore, based on the 4th
-///     parameter, this function behaves slightly differently to
-///     cooperate with the runtime to ensure correctness under
-///     different circumstances.
-///
-///     'InterWarpCpyFn' is a pointer to a function that transfers
-///     reduced variables across warps.  It tunnels, through CUDA
-///     shared memory, the thread-private data of type 'ReduceData'
-///     from lane 0 of each warp to a lane in the first warp.
-/// 4. Call the OpenMP runtime on the GPU to reduce across teams.
-///    The last team writes the global reduced value to memory.
-///
-///     ret = __kmpc_nvptx_teams_reduce_nowait(...,
-///             reduceData, shuffleReduceFn, interWarpCpyFn,
-///             scratchpadCopyFn, loadAndReduceFn)
-///
-///     'scratchpadCopyFn' is a helper that stores reduced
-///     data from the team master to a scratchpad array in
-///     global memory.
-///
-///     'loadAndReduceFn' is a helper that loads data from
-///     the scratchpad array and reduces it with the input
-///     operand.
-///
-///     These compiler generated functions hide address
-///     calculation and alignment information from the runtime.
-/// 5. if ret == 1:
-///     The team master of the last team stores the reduced
-///     result to the globals in memory.
-///     foo += reduceData.foo; bar *= reduceData.bar
-///
-///
-/// Warp Reduction Algorithms
-///
-/// On the warp level, we have three algorithms implemented in the
-/// OpenMP runtime depending on the number of active lanes:
-///
-/// Full Warp Reduction
-///
-/// The reduce algorithm within a warp where all lanes are active
-/// is implemented in the runtime as follows:
-///
-/// full_warp_reduce(void *reduce_data,
-///                  kmp_ShuffleReductFctPtr ShuffleReduceFn) {
-///   for (int offset = WARPSIZE/2; offset > 0; offset /= 2)
-///     ShuffleReduceFn(reduce_data, 0, offset, 0);
-/// }
-///
-/// The algorithm completes in log(2, WARPSIZE) steps.
-///
-/// 'ShuffleReduceFn' is used here with lane_id set to 0 because it is
-/// not used therefore we save instructions by not retrieving lane_id
-/// from the corresponding special registers.  The 4th parameter, which
-/// represents the version of the algorithm being used, is set to 0 to
-/// signify full warp reduction.
-///
-/// In this version, 'ShuffleReduceFn' behaves, per element, as follows:
-///
-/// #reduce_elem refers to an element in the local lane's data structure
-/// #remote_elem is retrieved from a remote lane
-/// remote_elem = shuffle_down(reduce_elem, offset, WARPSIZE);
-/// reduce_elem = reduce_elem REDUCE_OP remote_elem;
-///
-/// Contiguous Partial Warp Reduction
-///
-/// This reduce algorithm is used within a warp where only the first
-/// 'n' (n <= WARPSIZE) lanes are active.  It is typically used when the
-/// number of OpenMP threads in a parallel region is not a multiple of
-/// WARPSIZE.  The algorithm is implemented in the runtime as follows:
-///
-/// void
-/// contiguous_partial_reduce(void *reduce_data,
-///                           kmp_ShuffleReductFctPtr ShuffleReduceFn,
-///                           int size, int lane_id) {
-///   int curr_size;
-///   int offset;
-///   curr_size = size;
-///   mask = curr_size/2;
-///   while (offset>0) {
-///     ShuffleReduceFn(reduce_data, lane_id, offset, 1);
-///     curr_size = (curr_size+1)/2;
-///     offset = curr_size/2;
-///   }
-/// }
-///
-/// In this version, 'ShuffleReduceFn' behaves, per element, as follows:
-///
-/// remote_elem = shuffle_down(reduce_elem, offset, WARPSIZE);
-/// if (lane_id < offset)
-///     reduce_elem = reduce_elem REDUCE_OP remote_elem
-/// else
-///     reduce_elem = remote_elem
-///
-/// This algorithm assumes that the data to be reduced are located in a
-/// contiguous subset of lanes starting from the first.  When there is
-/// an odd number of active lanes, the data in the last lane is not
-/// aggregated with any other lane's dat but is instead copied over.
-///
-/// Dispersed Partial Warp Reduction
-///
-/// This algorithm is used within a warp when any discontiguous subset of
-/// lanes are active.  It is used to implement the reduction operation
-/// across lanes in an OpenMP simd region or in a nested parallel region.
-///
-/// void
-/// dispersed_partial_reduce(void *reduce_data,
-///                          kmp_ShuffleReductFctPtr ShuffleReduceFn) {
-///   int size, remote_id;
-///   int logical_lane_id = number_of_active_lanes_before_me() * 2;
-///   do {
-///       remote_id = next_active_lane_id_right_after_me();
-///       # the above function returns 0 of no active lane
-///       # is present right after the current lane.
-///       size = number_of_active_lanes_in_this_warp();
-///       logical_lane_id /= 2;
-///       ShuffleReduceFn(reduce_data, logical_lane_id,
-///                       remote_id-1-threadIdx.x, 2);
-///   } while (logical_lane_id % 2 == 0 && size > 1);
-/// }
-///
-/// There is no assumption made about the initial state of the reduction.
-/// Any number of lanes (>=1) could be active at any position.  The reduction
-/// result is returned in the first active lane.
-///
-/// In this version, 'ShuffleReduceFn' behaves, per element, as follows:
-///
-/// remote_elem = shuffle_down(reduce_elem, offset, WARPSIZE);
-/// if (lane_id % 2 == 0 && offset > 0)
-///     reduce_elem = reduce_elem REDUCE_OP remote_elem
-/// else
-///     reduce_elem = remote_elem
-///
-///
-/// Intra-Team Reduction
-///
-/// This function, as implemented in the runtime call
-/// '__kmpc_nvptx_parallel_reduce_nowait_v2', aggregates data across OpenMP
-/// threads in a team.  It first reduces within a warp using the
-/// aforementioned algorithms.  We then proceed to gather all such
-/// reduced values at the first warp.
-///
-/// The runtime makes use of the function 'InterWarpCpyFn', which copies
-/// data from each of the "warp master" (zeroth lane of each warp, where
-/// warp-reduced data is held) to the zeroth warp.  This step reduces (in
-/// a mathematical sense) the problem of reduction across warp masters in
-/// a block to the problem of warp reduction.
-///
-///
-/// Inter-Team Reduction
-///
-/// Once a team has reduced its data to a single value, it is stored in
-/// a global scratchpad array.  Since each team has a distinct slot, this
-/// can be done without locking.
-///
-/// The last team to write to the scratchpad array proceeds to reduce the
-/// scratchpad array.  One or more workers in the last team use the helper
-/// 'loadAndReduceDataFn' to load and reduce values from the array, i.e.,
-/// the k'th worker reduces every k'th element.
-///
-/// Finally, a call is made to '__kmpc_nvptx_parallel_reduce_nowait_v2' to
-/// reduce across workers and compute a globally reduced value.
-///
+static target::reduction::ElementType convertToReductionType(QualType RTy) {
+  target::reduction::ElementType rType = target::reduction::ElementType::CUSTOM_TYPE;
+  if ( const BuiltinType *BRTy = RTy->getAs<BuiltinType>() ) {
+    switch (BRTy->getKind() ){
+      case BuiltinType::Kind::Char_S:
+      case BuiltinType::Kind::SChar:
+      case BuiltinType::Kind::WChar_S:
+        rType = target::reduction::ElementType::INT8;
+        break;
+      case BuiltinType::Kind::Short:
+        rType = target::reduction::ElementType::INT16;
+        break;
+      case BuiltinType::Kind::Int:
+        rType = target::reduction::ElementType::INT32;
+        break;
+      case BuiltinType::Kind::Long:
+        rType = target::reduction::ElementType::INT64;
+        break;
+      case BuiltinType::Kind::Float:
+        rType = target::reduction::ElementType::FLOAT;
+        break;
+      case BuiltinType::Kind::Double:
+        rType = target::reduction::ElementType::DOUBLE;
+        break;
+      default:
+        break;
+    }
+  }
+  return rType;
+}
+
+static uint32_t getReductionTypeSize(target::reduction::ElementType Type){
+  uint32_t Size;
+  switch ( Type ){
+    case target::reduction::ElementType::INT8:
+      Size = 1;
+      break;
+    case target::reduction::ElementType::INT16:
+      Size = 2;
+      break;
+    case target::reduction::ElementType::INT32:
+      Size = 4;
+      break;
+    case target::reduction::ElementType::INT64:
+      Size = 8;
+      break;
+    case target::reduction::ElementType::FLOAT:
+      Size = 4;
+      break;
+    case target::reduction::ElementType::DOUBLE:
+      Size = 8;
+      break;
+    default:
+      Size = 4;
+  }
+  return Size;
+}
+
 void CGOpenMPRuntimeGPU::emitReduction(
     CodeGenFunction &CGF, SourceLocation Loc, ArrayRef<const Expr *> Privates,
     ArrayRef<const Expr *> LHSExprs, ArrayRef<const Expr *> RHSExprs,
@@ -2875,182 +2582,36 @@ void CGOpenMPRuntimeGPU::emitReduction(
   if (!CGF.HaveInsertPoint())
     return;
 
+  SmallVector<llvm::OpenMPIRBuilder::TargetReductionValueInfo> ValueInfoVec;
+  target::reduction::ElementType rType; 
+  for (unsigned I = 0, E = RHSExprs.size(); I < E; ++I) {
+    llvm::Value *Priv = CGF.EmitLValue(Privates[I]).getPointer(CGF);
+    rType = convertToReductionType(Privates[I]->getType());
+    llvm::Value *LHS = CGF.EmitLValue(LHSExprs[I]).getPointer(CGF);
+    llvm::Value *RHS = CGF.EmitLValue(RHSExprs[I]).getPointer(CGF);
+    ValueInfoVec.push_back({Priv, 
+       LHS, RHS, 
+       Options.rop, 
+       rType, 
+       Options.ReductionPolicy, 
+       getReductionTypeSize(rType), 
+       1}); 
+  }
+  CGBuilderTy &Bld = CGF.Builder;
+
   bool ParallelReduction = isOpenMPParallelDirective(Options.ReductionKind);
 #ifndef NDEBUG
   bool TeamsReduction = isOpenMPTeamsDirective(Options.ReductionKind);
 #endif
 
-  if (Options.SimpleReduction) {
-    assert(!TeamsReduction && !ParallelReduction &&
-           "Invalid reduction selection in emitReduction.");
-    CGOpenMPRuntime::emitReduction(CGF, Loc, Privates, LHSExprs, RHSExprs,
-                                   ReductionOps, Options);
-    return;
-  }
-
   assert((TeamsReduction || ParallelReduction) &&
          "Invalid reduction selection in emitReduction.");
+  target::reduction::Level Level = ParallelReduction? target::reduction::Level::TEAM : target::reduction::Level::LEAGUE;
 
-  // Build res = __kmpc_reduce{_nowait}(<gtid>, <n>, sizeof(RedList),
-  // RedList, shuffle_reduce_func, interwarp_copy_func);
-  // or
-  // Build res = __kmpc_reduce_teams_nowait_simple(<loc>, <gtid>, <lck>);
-  llvm::Value *RTLoc = emitUpdateLocation(CGF, Loc);
-  llvm::Value *ThreadId = getThreadID(CGF, Loc);
+    llvm::OpenMPIRBuilder::InsertPointTy AllocaIP(
+        CGF.AllocaInsertPt->getParent(), CGF.AllocaInsertPt->getIterator());
+   OMPBuilder.createTargetReduction(Bld, AllocaIP, ValueInfoVec, Level, Options.WithNowait);
 
-  llvm::Value *Res;
-  ASTContext &C = CGM.getContext();
-  // 1. Build a list of reduction variables.
-  // void *RedList[<n>] = {<ReductionVars>[0], ..., <ReductionVars>[<n>-1]};
-  auto Size = RHSExprs.size();
-  for (const Expr *E : Privates) {
-    if (E->getType()->isVariablyModifiedType())
-      // Reserve place for array size.
-      ++Size;
-  }
-  llvm::APInt ArraySize(/*unsigned int numBits=*/32, Size);
-  QualType ReductionArrayTy =
-      C.getConstantArrayType(C.VoidPtrTy, ArraySize, nullptr, ArrayType::Normal,
-                             /*IndexTypeQuals=*/0);
-  Address ReductionList =
-      CGF.CreateMemTemp(ReductionArrayTy, ".omp.reduction.red_list");
-  auto IPriv = Privates.begin();
-  unsigned Idx = 0;
-  for (unsigned I = 0, E = RHSExprs.size(); I < E; ++I, ++IPriv, ++Idx) {
-    Address Elem = CGF.Builder.CreateConstArrayGEP(ReductionList, Idx);
-    CGF.Builder.CreateStore(
-        CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-            CGF.EmitLValue(RHSExprs[I]).getPointer(CGF), CGF.VoidPtrTy),
-        Elem);
-    if ((*IPriv)->getType()->isVariablyModifiedType()) {
-      // Store array size.
-      ++Idx;
-      Elem = CGF.Builder.CreateConstArrayGEP(ReductionList, Idx);
-      llvm::Value *Size = CGF.Builder.CreateIntCast(
-          CGF.getVLASize(
-                 CGF.getContext().getAsVariableArrayType((*IPriv)->getType()))
-              .NumElts,
-          CGF.SizeTy, /*isSigned=*/false);
-      CGF.Builder.CreateStore(CGF.Builder.CreateIntToPtr(Size, CGF.VoidPtrTy),
-                              Elem);
-    }
-  }
-
-  llvm::Value *RL = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-      ReductionList.getPointer(), CGF.VoidPtrTy);
-  llvm::Function *ReductionFn =
-      emitReductionFunction(Loc, CGF.ConvertTypeForMem(ReductionArrayTy),
-                            Privates, LHSExprs, RHSExprs, ReductionOps);
-  llvm::Value *ReductionArrayTySize = CGF.getTypeSize(ReductionArrayTy);
-  llvm::Function *ShuffleAndReduceFn = emitShuffleAndReduceFunction(
-      CGM, Privates, ReductionArrayTy, ReductionFn, Loc);
-  llvm::Value *InterWarpCopyFn =
-      emitInterWarpCopyFunction(CGM, Privates, ReductionArrayTy, Loc);
-
-  if (ParallelReduction) {
-    llvm::Value *Args[] = {RTLoc,
-                           ThreadId,
-                           CGF.Builder.getInt32(RHSExprs.size()),
-                           ReductionArrayTySize,
-                           RL,
-                           ShuffleAndReduceFn,
-                           InterWarpCopyFn};
-
-    Res = CGF.EmitRuntimeCall(
-        OMPBuilder.getOrCreateRuntimeFunction(
-            CGM.getModule(), OMPRTL___kmpc_nvptx_parallel_reduce_nowait_v2),
-        Args);
-  } else {
-    assert(TeamsReduction && "expected teams reduction.");
-    llvm::SmallDenseMap<const ValueDecl *, const FieldDecl *> VarFieldMap;
-    llvm::SmallVector<const ValueDecl *, 4> PrivatesReductions(Privates.size());
-    int Cnt = 0;
-    for (const Expr *DRE : Privates) {
-      PrivatesReductions[Cnt] = cast<DeclRefExpr>(DRE)->getDecl();
-      ++Cnt;
-    }
-    const RecordDecl *TeamReductionRec = ::buildRecordForGlobalizedVars(
-        CGM.getContext(), PrivatesReductions, std::nullopt, VarFieldMap,
-        C.getLangOpts().OpenMPCUDAReductionBufNum);
-    TeamsReductions.push_back(TeamReductionRec);
-    if (!KernelTeamsReductionPtr) {
-      KernelTeamsReductionPtr = new llvm::GlobalVariable(
-          CGM.getModule(), CGM.VoidPtrTy, /*isConstant=*/true,
-          llvm::GlobalValue::InternalLinkage, nullptr,
-          "_openmp_teams_reductions_buffer_$_$ptr");
-    }
-    llvm::Value *GlobalBufferPtr = CGF.EmitLoadOfScalar(
-        Address(KernelTeamsReductionPtr, CGF.VoidPtrTy, CGM.getPointerAlign()),
-        /*Volatile=*/false, C.getPointerType(C.VoidPtrTy), Loc);
-    llvm::Value *GlobalToBufferCpyFn = ::emitListToGlobalCopyFunction(
-        CGM, Privates, ReductionArrayTy, Loc, TeamReductionRec, VarFieldMap);
-    llvm::Value *GlobalToBufferRedFn = ::emitListToGlobalReduceFunction(
-        CGM, Privates, ReductionArrayTy, Loc, TeamReductionRec, VarFieldMap,
-        ReductionFn);
-    llvm::Value *BufferToGlobalCpyFn = ::emitGlobalToListCopyFunction(
-        CGM, Privates, ReductionArrayTy, Loc, TeamReductionRec, VarFieldMap);
-    llvm::Value *BufferToGlobalRedFn = ::emitGlobalToListReduceFunction(
-        CGM, Privates, ReductionArrayTy, Loc, TeamReductionRec, VarFieldMap,
-        ReductionFn);
-
-    llvm::Value *Args[] = {
-        RTLoc,
-        ThreadId,
-        GlobalBufferPtr,
-        CGF.Builder.getInt32(C.getLangOpts().OpenMPCUDAReductionBufNum),
-        RL,
-        ShuffleAndReduceFn,
-        InterWarpCopyFn,
-        GlobalToBufferCpyFn,
-        GlobalToBufferRedFn,
-        BufferToGlobalCpyFn,
-        BufferToGlobalRedFn};
-
-    Res = CGF.EmitRuntimeCall(
-        OMPBuilder.getOrCreateRuntimeFunction(
-            CGM.getModule(), OMPRTL___kmpc_nvptx_teams_reduce_nowait_v2),
-        Args);
-  }
-
-  // 5. Build if (res == 1)
-  llvm::BasicBlock *ExitBB = CGF.createBasicBlock(".omp.reduction.done");
-  llvm::BasicBlock *ThenBB = CGF.createBasicBlock(".omp.reduction.then");
-  llvm::Value *Cond = CGF.Builder.CreateICmpEQ(
-      Res, llvm::ConstantInt::get(CGM.Int32Ty, /*V=*/1));
-  CGF.Builder.CreateCondBr(Cond, ThenBB, ExitBB);
-
-  // 6. Build then branch: where we have reduced values in the master
-  //    thread in each team.
-  //    __kmpc_end_reduce{_nowait}(<gtid>);
-  //    break;
-  CGF.EmitBlock(ThenBB);
-
-  // Add emission of __kmpc_end_reduce{_nowait}(<gtid>);
-  auto &&CodeGen = [Privates, LHSExprs, RHSExprs, ReductionOps,
-                    this](CodeGenFunction &CGF, PrePostActionTy &Action) {
-    auto IPriv = Privates.begin();
-    auto ILHS = LHSExprs.begin();
-    auto IRHS = RHSExprs.begin();
-    for (const Expr *E : ReductionOps) {
-      emitSingleReductionCombiner(CGF, E, *IPriv, cast<DeclRefExpr>(*ILHS),
-                                  cast<DeclRefExpr>(*IRHS));
-      ++IPriv;
-      ++ILHS;
-      ++IRHS;
-    }
-  };
-  llvm::Value *EndArgs[] = {ThreadId};
-  RegionCodeGenTy RCG(CodeGen);
-  NVPTXActionTy Action(
-      nullptr, std::nullopt,
-      OMPBuilder.getOrCreateRuntimeFunction(
-          CGM.getModule(), OMPRTL___kmpc_nvptx_end_reduce_nowait),
-      EndArgs);
-  RCG.setAction(Action);
-  RCG(CGF);
-  // There is no need to emit line number for unconditional branch.
-  (void)ApplyDebugLocation::CreateEmpty(CGF);
-  CGF.EmitBlock(ExitBB, /*IsFinished=*/true);
 }
 
 const VarDecl *

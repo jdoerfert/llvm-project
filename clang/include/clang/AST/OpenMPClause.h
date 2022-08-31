@@ -3089,6 +3089,11 @@ class OMPReductionClause final
   /// Reduction modifier.
   OpenMPReductionClauseModifier Modifier = OMPC_REDUCTION_unknown;
 
+  // Reduction Type
+  int ReductionType = 0;
+
+  llvm::omp::target::reduction::Operation ROP;
+
   /// Reduction modifier location.
   SourceLocation ModifierLoc;
 
@@ -3151,6 +3156,14 @@ class OMPReductionClause final
   /// clause. These expressions represent private copy of the reduction
   /// variable.
   void setPrivates(ArrayRef<Expr *> Privates);
+
+  void setReductionType(int RT){
+    ReductionType = RT;
+  }
+
+  void setReductionOperator(llvm::omp::target::reduction::Operation _ROP){
+    ROP = _ROP;
+  }
 
   /// Get the list of helper privates.
   MutableArrayRef<Expr *> getPrivates() {
@@ -3286,7 +3299,9 @@ public:
          ArrayRef<Expr *> LHSExprs, ArrayRef<Expr *> RHSExprs,
          ArrayRef<Expr *> ReductionOps, ArrayRef<Expr *> CopyOps,
          ArrayRef<Expr *> CopyArrayTemps, ArrayRef<Expr *> CopyArrayElems,
-         Stmt *PreInit, Expr *PostUpdate);
+         Stmt *PreInit, Expr *PostUpdate, 
+         llvm::omp::target::reduction::Operation ROP,
+         int RT = 0);
 
   /// Creates an empty clause with the place for \a N variables.
   ///
@@ -3305,6 +3320,12 @@ public:
 
   /// Gets location of ':' symbol in clause.
   SourceLocation getColonLoc() const { return ColonLoc; }
+
+  int getReductionType() const{ return ReductionType; }
+
+  llvm::omp::target::reduction::Operation getReductionOperation() const {
+    return ROP;
+  }
 
   /// Gets the name info for specified reduction identifier.
   const DeclarationNameInfo &getNameInfo() const { return NameInfo; }

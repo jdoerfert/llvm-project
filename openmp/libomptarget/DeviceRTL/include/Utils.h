@@ -21,9 +21,33 @@ namespace utils {
 
 /// Return the value \p Var from thread Id \p SrcLane in the warp if the thread
 /// is identified by \p Mask.
-int32_t shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane);
+uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane);
 
+uint64_t ballotSync(uint64_t Mask, uint32_t Predicate);
+uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t Delta,
+                     int32_t Width);
+int64_t shuffleDown(uint64_t Mask, int64_t Var, uint32_t Delta, int32_t Width);
+uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta,
+                     int32_t Width);
 int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t Delta, int32_t Width);
+
+inline uint8_t shuffleDown(uint64_t Mask, uint8_t Var, uint32_t Delta,
+                           int32_t Width) {
+  return shuffleDown(Mask, uint32_t(Var), Delta, Width);
+}
+inline uint16_t shuffleDown(uint64_t Mask, uint16_t Var, uint32_t Delta,
+                            int32_t Width) {
+  return shuffleDown(Mask, uint32_t(Var), Delta, Width);
+}
+
+inline int8_t shuffleDown(uint64_t Mask, int8_t Var, uint32_t Delta,
+                          int32_t Width) {
+  return static_cast<int8_t>(shuffleDown(Mask, uint32_t(Var), Delta, Width));
+}
+inline int16_t shuffleDown(uint64_t Mask, int16_t Var, uint32_t Delta,
+                           int32_t Width) {
+  return static_cast<int32_t>(shuffleDown(Mask, uint32_t(Var), Delta, Width));
+}
 
 /// Return \p LowBits and \p HighBits packed into a single 64 bit value.
 uint64_t pack(uint32_t LowBits, uint32_t HighBits);
@@ -39,6 +63,12 @@ template <typename Ty> inline Ty roundUp(Ty V, Ty Boundary) {
 /// Advance \p Ptr by \p Bytes bytes.
 template <typename Ty1, typename Ty2> inline Ty1 *advance(Ty1 Ptr, Ty2 Bytes) {
   return reinterpret_cast<Ty1 *>(reinterpret_cast<char *>(Ptr) + Bytes);
+}
+
+/// Return the
+inline uint32_t clz(uint32_t V) {
+  static_assert(sizeof(int) == sizeof(uint32_t), "type size mismatch");
+  return __builtin_clz(V);
 }
 
 /// Return the first bit set in \p V.

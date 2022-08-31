@@ -1415,10 +1415,16 @@ void CodeGenFunction::EmitOMPReductionClauseFinal(
   llvm::SmallVector<const Expr *, 8> ReductionOps;
   bool HasAtLeastOneReduction = false;
   bool IsReductionWithTaskMod = false;
+  int ReductionPolicy;
+  target::reduction::Operation ROP;
   for (const auto *C : D.getClausesOfKind<OMPReductionClause>()) {
     // Do not emit for inscan reductions.
     if (C->getModifier() == OMPC_REDUCTION_inscan)
       continue;
+    // TODO: We assume that there is a single reduction clause
+    // which may not be the case
+    ReductionPolicy = C->getReductionType();
+    ROP = C->getReductionOperation();
     HasAtLeastOneReduction = true;
     Privates.append(C->privates().begin(), C->privates().end());
     LHSExprs.append(C->lhs_exprs().begin(), C->lhs_exprs().end());
@@ -1441,7 +1447,7 @@ void CodeGenFunction::EmitOMPReductionClauseFinal(
     // parallel directive (it always has implicit barrier).
     CGM.getOpenMPRuntime().emitReduction(
         *this, D.getEndLoc(), Privates, LHSExprs, RHSExprs, ReductionOps,
-        {WithNowait, SimpleReduction, ReductionKind});
+        {WithNowait, SimpleReduction, ReductionKind, ReductionPolicy, ROP});
   }
 }
 

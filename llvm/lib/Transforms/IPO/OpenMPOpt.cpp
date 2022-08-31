@@ -2127,18 +2127,18 @@ private:
 
     // Temporarily make these function have external linkage so the Attributor
     // doesn't remove them when we try to look them up later.
-    ExternalizationRAII Parallel(OMPInfoCache, OMPRTL___kmpc_kernel_parallel);
-    ExternalizationRAII EndParallel(OMPInfoCache,
-                                    OMPRTL___kmpc_kernel_end_parallel);
-    ExternalizationRAII BarrierSPMD(OMPInfoCache,
-                                    OMPRTL___kmpc_barrier_simple_spmd);
-    ExternalizationRAII BarrierGeneric(OMPInfoCache,
-                                       OMPRTL___kmpc_barrier_simple_generic);
-    ExternalizationRAII ThreadId(OMPInfoCache,
-                                 OMPRTL___kmpc_get_hardware_thread_id_in_block);
-    ExternalizationRAII NumThreads(
-        OMPInfoCache, OMPRTL___kmpc_get_hardware_num_threads_in_block);
-    ExternalizationRAII WarpSize(OMPInfoCache, OMPRTL___kmpc_get_warp_size);
+    //ExternalizationRAII Parallel(OMPInfoCache, OMPRTL___kmpc_kernel_parallel);
+    //ExternalizationRAII EndParallel(OMPInfoCache,
+    //                                OMPRTL___kmpc_kernel_end_parallel);
+    //ExternalizationRAII BarrierSPMD(OMPInfoCache,
+    //                                OMPRTL___kmpc_barrier_simple_spmd);
+    //ExternalizationRAII BarrierGeneric(OMPInfoCache,
+    //                                   OMPRTL___kmpc_barrier_simple_generic);
+    //ExternalizationRAII ThreadId(OMPInfoCache,
+    //                             OMPRTL___kmpc_get_hardware_thread_id_in_block);
+    //ExternalizationRAII NumThreads(
+    //    OMPInfoCache, OMPRTL___kmpc_get_hardware_num_threads_in_block);
+    //ExternalizationRAII WarpSize(OMPInfoCache, OMPRTL___kmpc_get_warp_size);
 
     registerAAs(IsModulePass);
 
@@ -3650,6 +3650,10 @@ struct AAKernelInfoFunction : AAKernelInfo {
     // a debug wrapper.
     Function *Kernel = getAnchorScope();
     if (Kernel->hasLocalLinkage()) {
+      if (!Kernel->hasOneUse()) {
+        Kernel->getParent()->dump();
+        errs() << Kernel->getName() << "\n";
+      }
       assert(Kernel->hasOneUse() && "Unexpected use of debug kernel wrapper.");
       auto *CB = cast<CallBase>(Kernel->user_back());
       Kernel = CB->getCaller();

@@ -1076,6 +1076,8 @@ public:
   /// Collection of regions that need to be outlined during finalization.
   SmallVector<OutlineInfo, 16> OutlineInfos;
 
+  DenseMap<Function *, Function *> KernelReplacements;
+
   /// Collection of owned canonical loop objects that eventually need to be
   /// free'd.
   std::forward_list<CanonicalLoopInfo> LoopInfos;
@@ -1466,6 +1468,25 @@ public:
   /// \param IsSPMD Flag to indicate if the kernel is an SPMD kernel or not.
   void createTargetDeinit(const LocationDescription &Loc, bool IsSPMD);
 
+  struct TargetReductionValueInfo {
+    Value *Priv;
+    Value *LHS;
+    Value *RHS;
+    omp::target::reduction::Operation Op;
+    omp::target::reduction::ElementType ElementTy;
+    int32_t Policy;
+    uint32_t ItemSize;
+    uint32_t NumItems;
+  };
+
+  /// TODO
+  void createTargetReduction(
+    const LocationDescription &Loc, 
+    InsertPointTy AllocaIP,
+    ArrayRef<TargetReductionValueInfo> TRVI,
+omp::target::reduction::Level Level,
+    bool Nowait);
+
   ///}
 
 private:
@@ -1483,6 +1504,8 @@ private:
   // Creates the region entry address for the outlined function
   Constant *createTargetRegionEntryAddr(Function *OutlinedFunction,
                                         StringRef EntryFnName);
+
+  Function *LastKernel = nullptr;
 
 public:
   /// Functions used to generate a function with the given name.
