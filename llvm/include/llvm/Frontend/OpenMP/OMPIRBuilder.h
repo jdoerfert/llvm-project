@@ -1464,6 +1464,38 @@ public:
   /// \param IsSPMD Flag to indicate if the kernel is an SPMD kernel or not.
   void createTargetDeinit(const LocationDescription &Loc, bool IsSPMD);
 
+  struct TargetReductionVariableInfo {
+    Value *Priv;
+    Value *LHS;
+    Value *RHS;
+    uint32_t ItemSize;
+    uint32_t NumItems;
+    omp::target::reduction::Operation Op;
+    omp::target::reduction::ElementType ElementTy;
+  };
+
+  Value *combinedPrivatizationAndReductionVariables(
+      InsertPointTy AllocaIP, SmallVector<TargetReductionVariableInfo> &TRVIs);
+
+  Value *createDefaultReductionLeagueInfo(omp::target::reduction::Level Level);
+
+  Value *createDefaultReductionPrivateInfo(InsertPointTy AllocaIP,
+                                           Value *ConfigPtrGV, Value *PrivPtr);
+
+  Constant *createDefaultReductionVariableConfigs(
+      ArrayRef<TargetReductionVariableInfo> TRVIs);
+
+  Constant *createDefaultReductionConfig(
+      omp::target::reduction::Level Level,
+      omp::target::reduction::AllocationConfig AllocationConfig,
+      uint64_t Policy, ArrayRef<TargetReductionVariableInfo> TRVIs);
+
+  /// TODO
+  void createTargetReduction(const LocationDescription &Loc,
+                             InsertPointTy AllocaIP, uint64_t Policy,
+                             ArrayRef<TargetReductionVariableInfo> TRVIs,
+                             omp::target::reduction::Level Level, bool Nowait);
+
   ///}
 
 private:

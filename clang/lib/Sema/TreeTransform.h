@@ -1846,7 +1846,7 @@ public:
       ArrayRef<Expr *> UnresolvedReductions) {
     return getSema().ActOnOpenMPReductionClause(
         VarList, Modifier, StartLoc, LParenLoc, ModifierLoc, ColonLoc, EndLoc,
-        ReductionIdScopeSpec, ReductionId, UnresolvedReductions);
+        ReductionIdScopeSpec, ReductionId, {Modifier}, UnresolvedReductions);
   }
 
   /// Build a new OpenMP 'task_reduction' clause.

@@ -24,6 +24,7 @@
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
@@ -428,7 +429,8 @@ static llvm::Function *emitOutlinedFunctionPrologue(
         &LocalAddrs,
     llvm::DenseMap<const Decl *, std::pair<const Expr *, llvm::Value *>>
         &VLASizes,
-    llvm::Value *&CXXThisValue, const FunctionOptions &FO) {
+    llvm::Value *&CXXThisValue, const FunctionOptions &FO,
+    bool LeagueReduction) {
   const CapturedDecl *CD = FO.S->getCapturedDecl();
   const RecordDecl *RD = FO.S->getCapturedRecordDecl();
   assert(CD->hasBody() && "missing CapturedDecl body");
@@ -509,6 +511,12 @@ static llvm::Function *emitOutlinedFunctionPrologue(
   TargetArgs.append(
       std::next(CD->param_begin(), CD->getContextParamPosition() + 1),
       CD->param_end());
+
+  if (LeagueReduction)
+    TargetArgs.push_back(
+        ImplicitParamDecl::Create(Ctx, /*DC=*/nullptr, SourceLocation(),
+                                  &Ctx.Idents.get("omp_red_config"),
+                                  Ctx.VoidPtrTy, ImplicitParamDecl::Other));
 
   // Create the function declaration.
   const CGFunctionInfo &FuncInfo =
@@ -606,9 +614,8 @@ static llvm::Function *emitOutlinedFunctionPrologue(
   return F;
 }
 
-llvm::Function *
-CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
-                                                    SourceLocation Loc) {
+llvm::Function *CodeGenFunction::GenerateOpenMPCapturedStmtFunction(
+    const CapturedStmt &S, SourceLocation Loc, bool LeagueReduction) {
   assert(
       CapturedStmtInfo &&
       "CapturedStmtInfo should be set when generating the captured function");
@@ -626,8 +633,8 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
     Out << "_debug__";
   FunctionOptions FO(&S, !NeedWrapperFunction, /*RegisterCastedArgsOnly=*/false,
                      Out.str(), Loc);
-  llvm::Function *F = emitOutlinedFunctionPrologue(*this, Args, LocalAddrs,
-                                                   VLASizes, CXXThisValue, FO);
+  llvm::Function *F = emitOutlinedFunctionPrologue(
+      *this, Args, LocalAddrs, VLASizes, CXXThisValue, FO, LeagueReduction);
   CodeGenFunction::OMPPrivateScope LocalScope(*this);
   for (const auto &LocalAddrPair : LocalAddrs) {
     if (LocalAddrPair.second.first) {
@@ -653,9 +660,9 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
   Args.clear();
   LocalAddrs.clear();
   VLASizes.clear();
-  llvm::Function *WrapperF =
-      emitOutlinedFunctionPrologue(WrapperCGF, Args, LocalAddrs, VLASizes,
-                                   WrapperCGF.CXXThisValue, WrapperFO);
+  llvm::Function *WrapperF = emitOutlinedFunctionPrologue(
+      WrapperCGF, Args, LocalAddrs, VLASizes, WrapperCGF.CXXThisValue,
+      WrapperFO, LeagueReduction);
   llvm::SmallVector<llvm::Value *, 4> CallArgs;
   auto *PI = F->arg_begin();
   for (const auto *Arg : Args) {
@@ -1417,10 +1424,16 @@ void CodeGenFunction::EmitOMPReductionClauseFinal(
   llvm::SmallVector<const Expr *, 8> ReductionOps;
   bool HasAtLeastOneReduction = false;
   bool IsReductionWithTaskMod = false;
+  int ReductionPolicy;
+  target::reduction::Operation ROP;
   for (const auto *C : D.getClausesOfKind<OMPReductionClause>()) {
     // Do not emit for inscan reductions.
     if (C->getModifier() == OMPC_REDUCTION_inscan)
       continue;
+    // TODO: We assume that there is a single reduction clause
+    // which may not be the case
+    ReductionPolicy = C->getReductionType();
+    ROP = C->getReductionOperation();
     HasAtLeastOneReduction = true;
     Privates.append(C->privates().begin(), C->privates().end());
     LHSExprs.append(C->lhs_exprs().begin(), C->lhs_exprs().end());
@@ -1443,7 +1456,7 @@ void CodeGenFunction::EmitOMPReductionClauseFinal(
     // parallel directive (it always has implicit barrier).
     CGM.getOpenMPRuntime().emitReduction(
         *this, D.getEndLoc(), Privates, LHSExprs, RHSExprs, ReductionOps,
-        {WithNowait, SimpleReduction, ReductionKind});
+        {WithNowait, SimpleReduction, ReductionKind, ReductionPolicy, ROP});
   }
 }
 
@@ -6671,6 +6684,12 @@ static void emitCommonOMPTeamsDirective(CodeGenFunction &CGF,
   OMPTeamsScope Scope(CGF, S);
   llvm::SmallVector<llvm::Value *, 16> CapturedVars;
   CGF.GenerateOpenMPCapturedVars(*CS, CapturedVars);
+
+  bool LeagueReduction = CGF.getLangOpts().OpenMPIsDevice &&
+                         isOpenMPTeamsDirective(S.getDirectiveKind()) &&
+                         S.hasClausesOfKind<OMPReductionClause>();
+  if (LeagueReduction)
+    CapturedVars.push_back(CGF.CurFn->getArg(CGF.CurFn->arg_size() - 1));
   CGF.CGM.getOpenMPRuntime().emitTeamsCall(CGF, S, S.getBeginLoc(), OutlinedFn,
                                            CapturedVars);
 }

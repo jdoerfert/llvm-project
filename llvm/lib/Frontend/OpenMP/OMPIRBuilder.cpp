@@ -21,6 +21,7 @@
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -31,6 +32,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Value.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/Alignment.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
@@ -4019,6 +4021,206 @@ Constant *OpenMPIRBuilder::registerTargetRegionFunction(
       EntryInfo, EntryAddr, OutlinedFnID,
       OffloadEntriesInfoManager::OMPTargetRegionEntryTargetRegion);
   return OutlinedFnID;
+}
+
+Constant *OpenMPIRBuilder::createDefaultReductionVariableConfigs(
+    ArrayRef<TargetReductionVariableInfo> TRVIs) {
+
+  SmallVector<Constant *> VarConfigs;
+  for (auto &TRVI : TRVIs) {
+
+    Constant *VarData[] = {
+        /* DstPtr */ PoisonValue::get(VoidPtr),
+        ConstantInt::get(Int32, TRVI.ItemSize),
+        ConstantInt::get(Int32, TRVI.NumItems),
+        /* BatchSize */ ConstantInt::get(Int32, std::min(8u, TRVI.NumItems)),
+        ConstantInt::get(Int8, TRVI.Op),
+        ConstantInt::get(Int8, TRVI.ElementTy),
+        /* ReducerFn */ Constant::getNullValue(VoidPtr),
+        /* InitializerFnPtr */ Constant::getNullValue(VoidPtr),
+    };
+
+    VarConfigs.push_back(
+        ConstantStruct::get(OMPDefaultReductionVarConfig, VarData));
+  }
+
+  Constant *ReductionVarsInitializer = ConstantArray::get(
+      ArrayType::get(OMPDefaultReductionVarConfig, TRVIs.size()), VarConfigs);
+  Type *ReductionVarsType = ReductionVarsInitializer->getType();
+
+  auto *RedutionVarsPtr =
+      new GlobalVariable(M, ReductionVarsType,
+                         /* isConstant = */ false, GlobalValue::PrivateLinkage,
+                         ReductionVarsInitializer, "omp.red.vars.config",
+                         nullptr, GlobalValue::NotThreadLocal,
+                         M.getDataLayout().getDefaultGlobalsAddressSpace());
+
+  RedutionVarsPtr->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+  RedutionVarsPtr->setAlignment(Align(8));
+
+  auto *ReductionVarsPlainPtr = ConstantExpr::getPointerBitCastOrAddrSpaceCast(
+      RedutionVarsPtr, OMPDefaultReductionVarConfigPtr);
+
+  int Idx = 0;
+  for (auto &TRVI : TRVIs) {
+    auto *DstPtrGEP = Builder.CreateInBoundsGEP(
+        OMPDefaultReductionVarConfig, ReductionVarsPlainPtr,
+        {Builder.getInt32(Idx++), Builder.getInt32(0)});
+    Builder.CreateStore(
+        Builder.CreatePointerBitCastOrAddrSpaceCast(TRVI.LHS, Int8Ptr),
+        DstPtrGEP);
+  }
+
+  return ReductionVarsPlainPtr;
+}
+
+Constant *OpenMPIRBuilder::createDefaultReductionConfig(
+    target::reduction::Level Level,
+    target::reduction::AllocationConfig AllocationConfig, uint64_t Policy,
+    ArrayRef<TargetReductionVariableInfo> TRVIs) {
+
+  // TODO:
+  Constant *I32Null = ConstantInt::getNullValue(Int32);
+  Constant *ReductionVarsPtr = createDefaultReductionVariableConfigs(TRVIs);
+
+  Constant *ConfigData[] = {
+      ConstantInt::get(Int8, Level),
+      ConstantInt::get(Int8, AllocationConfig),
+      ConstantInt::get(Int64, Policy),
+      /* AllocatorFnPtr */ Constant::getNullValue(VoidPtr),
+      /* NumParticipants */ I32Null,
+      ConstantInt::get(Int32, TRVIs.size()),
+      ReductionVarsPtr};
+
+  Constant *Initializer = 
+  ConstantStruct::get(OMPDefaultReductionConfig, ConfigData);
+
+  auto *ConfigPtrGV = new GlobalVariable(
+    M, OMPDefaultReductionConfig,
+    /* isConstant = */ true, GlobalValue::PrivateLinkage, Initializer, "omp.red.config",
+    nullptr, GlobalValue::NotThreadLocal,
+    M.getDataLayout().getDefaultGlobalsAddressSpace());
+  ConfigPtrGV->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+  ConfigPtrGV->setAlignment(Align(8));
+
+  return ConstantExpr::getPointerBitCastOrAddrSpaceCast(
+      ConfigPtrGV, OMPDefaultReductionConfigPtr);
+}
+
+Value *OpenMPIRBuilder::createDefaultReductionPrivateInfo(
+    InsertPointTy AllocaIP, Value *ConfigPtrGV, Value *PrivPtr) {
+  AllocaInst *PrivateRedInfo;
+  {
+    IRBuilder<>::InsertPointGuard IPG(Builder);
+    Builder.restoreIP(AllocaIP);
+    PrivateRedInfo = Builder.CreateAlloca(OMPDefaultReductionPrivateInfo,
+                                          nullptr, "omp.private.red.info");
+  }
+
+  auto *PlainPrivateRedInfo = Builder.CreatePointerBitCastOrAddrSpaceCast(
+      PrivateRedInfo, OMPDefaultReductionPrivateInfoPtr);
+
+  auto *PrivateRedInfoConfigGEP = Builder.CreateInBoundsGEP(
+      OMPDefaultReductionPrivateInfo, PlainPrivateRedInfo,
+      {Builder.getInt32(0), Builder.getInt32(0)});
+  auto *PrivateRedInfoPrivPtrGEP = Builder.CreateInBoundsGEP(
+      OMPDefaultReductionPrivateInfo, PlainPrivateRedInfo,
+      {Builder.getInt32(0), Builder.getInt32(1)});
+  Builder.CreateStore(ConfigPtrGV, PrivateRedInfoConfigGEP);
+  Builder.CreateStore(PrivPtr, PrivateRedInfoPrivPtrGEP);
+
+  return PlainPrivateRedInfo;
+}
+
+Value *OpenMPIRBuilder::createDefaultReductionLeagueInfo(
+    target::reduction::Level Level) {
+  if (Level != target::reduction::LEAGUE)
+    return Constant::getNullValue(OMPDefaultReductionLeagueConfigPtr);
+
+  Function *Fn = Builder.GetInsertBlock()->getParent();
+  assert(Fn->arg_size() &&
+         Fn->getArg(Fn->arg_size() - 1)->getType()->isPointerTy() &&
+         "Unexpected last argument for league reduction function");
+  return Builder.CreatePointerBitCastOrAddrSpaceCast(
+      Fn->getArg(Fn->arg_size() - 1), OMPDefaultReductionLeagueConfigPtr);
+}
+
+Value *OpenMPIRBuilder::combinedPrivatizationAndReductionVariables(
+    InsertPointTy AllocaIP, SmallVector<TargetReductionVariableInfo> &TRVIs) {
+  if (TRVIs.size() == 1)
+    return Builder.CreatePointerBitCastOrAddrSpaceCast(TRVIs.front().Priv,
+                                                       Int8Ptr);
+
+  int32_t Size = 0;
+  for (auto &TRVI : TRVIs)
+    Size += TRVI.ItemSize * TRVI.NumItems;
+
+  AllocaInst *CombinedStorage;
+  {
+    IRBuilder<>::InsertPointGuard IPG(Builder);
+    Builder.restoreIP(AllocaIP);
+    CombinedStorage = Builder.CreateAlloca(ArrayType::get(Int8, Size), nullptr,
+                                           "omp.combined.red.priv");
+    CombinedStorage->setAlignment(Align(16));
+  }
+
+  Value *CombinedPrivPtr =
+      Builder.CreatePointerBitCastOrAddrSpaceCast(CombinedStorage, Int8Ptr);
+
+  Value *CurrentPtr = CombinedPrivPtr;
+  for (auto &TRVI : TRVIs) {
+    Value *Size = Builder.getInt64(TRVI.ItemSize * TRVI.NumItems);
+    Builder.CreateMemCpy(CurrentPtr, Align(1), TRVI.Priv, MaybeAlign(), Size);
+    CurrentPtr = Builder.CreateInBoundsGEP(Int8, CurrentPtr, {Size});
+  }
+
+  return CombinedPrivPtr;
+}
+
+void OpenMPIRBuilder::createTargetReduction(
+    const LocationDescription &Loc, InsertPointTy AllocaIP, uint64_t Policy,
+    ArrayRef<TargetReductionVariableInfo> InitialTRVIs,
+    target::reduction::Level Level, bool Nowait) {
+
+  if (!updateToLocation(Loc))
+    return;
+
+  SmallVector<TargetReductionVariableInfo> TRVIs(InitialTRVIs);
+  Value *PrivPtr = combinedPrivatizationAndReductionVariables(AllocaIP, TRVIs);
+
+  target::reduction::AllocationConfig AllocationConfig =
+      target::reduction::AllocationConfig(
+          target::reduction::AllocationConfig::PREALLOCATED |
+          target::reduction::AllocationConfig::PRE_INITIALIZED);
+
+  Constant *ConfigPtrGV =
+      createDefaultReductionConfig(Level, AllocationConfig, Policy, TRVIs);
+  Value *PrivateRedInfo =
+      createDefaultReductionPrivateInfo(AllocaIP, ConfigPtrGV, PrivPtr);
+  Value *LeagueInfo = createDefaultReductionLeagueInfo(Level);
+
+  Function *InitFn = getOrCreateRuntimeFunctionPtr(
+      omp::RuntimeFunction::OMPRTL___llvm_omp_default_reduction_init);
+  Builder.CreateCall(InitFn, {PrivateRedInfo, LeagueInfo});
+
+  Function *CombineFn;
+  switch (Level) {
+  case target::reduction::LEAGUE:
+    CombineFn = getOrCreateRuntimeFunctionPtr(
+        omp::RuntimeFunction::OMPRTL___llvm_omp_default_reduction_league);
+    Builder.CreateCall(CombineFn, {PrivateRedInfo, LeagueInfo});
+    break;
+  case target::reduction::TEAM:
+    CombineFn = getOrCreateRuntimeFunctionPtr(
+        omp::RuntimeFunction::OMPRTL___llvm_omp_default_reduction_team);
+    Builder.CreateCall(CombineFn, {PrivateRedInfo});
+    break;
+  case target::reduction::WARP:
+    CombineFn = getOrCreateRuntimeFunctionPtr(
+        omp::RuntimeFunction::OMPRTL___llvm_omp_default_reduction_warp);
+    Builder.CreateCall(CombineFn, {PrivateRedInfo});
+    break;
+  }
 }
 
 std::string OpenMPIRBuilder::getNameWithSeparators(ArrayRef<StringRef> Parts,

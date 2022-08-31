@@ -145,7 +145,7 @@ struct S1 {
     int b = n+1;
     short int c[2][n];
 
-#pragma omp target reduction(max:b,c)
+#pragma omp target reduction(max:b, c)
     {
       this->a = (double)b + 1.5;
       c[1][1] = ++a;

@@ -18,6 +18,7 @@
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Frontend/OpenMP/OMP.h.inc"
+#include <cstdint>
 
 namespace llvm {
 namespace omp {
@@ -276,6 +277,74 @@ enum class RTLDependenceKindTy {
   DepOmpAllMem = 0x80,
 };
 
+namespace target {
+namespace reduction {
+
+/// TODO
+enum Level : uint8_t {
+  WARP = 1 << 0,
+  TEAM = 1 << 1,
+  LEAGUE = 1 << 2,
+};
+
+enum ElementType : int8_t {
+  INT8,
+  INT16,
+  INT32,
+  INT64,
+  FLOAT,
+  DOUBLE,
+  CUSTOM_TYPE,
+};
+
+enum Operation : uint8_t {
+  /// Uses 0 initializer
+  ADD,
+  SUB,
+  BIT_OR,
+  BIT_XOR,
+  LOGIC_OR,
+
+  /// Uses ~0 initializer
+  BIT_AND,
+
+  /// Uses 1 initializer
+  MUL,
+  LOGIC_AND,
+
+  /// Usesmin/max value initializer
+  MAX,
+  MIN,
+
+  /// Uses custom initializer function.
+  CUSTOM_OP,
+};
+
+/// TODO
+enum AllocationConfig : uint8_t {
+  PREALLOCATED = 1 << 0,
+  PRE_INITIALIZED = 1 << 1,
+};
+
+enum Choices : uint64_t {
+  /// By default we will reduce a batch of elements completely before we move on
+  /// to the next batch. If the REDUCE_WARP_FIRST bit is set we will instead
+  /// first reduce all warps and then move on to reduce warp results further.
+  REDUCE_WARP_FIRST = 1 << 0,
+
+  REDUCE_ATOMICALLY_AFTER_WARP = 1 << 1,
+
+  REDUCE_TEAM_AS_PART_OF_LEAGUE = 1 << 3,
+
+  REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET = 1 << 5,
+
+  REDUCE_LEAGUE_VIA_SECOND_KERNEL = 1 << 15,
+
+  PRIVATE_BUFFER_IS_SHARED = 1 << 25,
+};
+
+} // end namespace reduction
+} // end namespace target
 } // end namespace omp
 
 } // end namespace llvm
