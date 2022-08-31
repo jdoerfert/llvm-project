@@ -108,7 +108,8 @@ namespace {
     KEYMSCOMPAT   = 0x400000,
     KEYSYCL       = 0x800000,
     KEYCUDA       = 0x1000000,
-    KEYMAX        = KEYCUDA, // The maximum key
+    KEYOPENMP_TGT = 0x2000000,
+    KEYMAX        = KEYOPENMP_TGT, // The maximum key
     KEYALLCXX = KEYCXX | KEYCXX11 | KEYCXX20,
     KEYALL = (KEYMAX | (KEYMAX-1)) & ~KEYNOMS18 &
              ~KEYNOOPENCL // KEYNOMS18 and KEYNOOPENCL are used to exclude.
@@ -199,6 +200,8 @@ static KeywordStatus getKeywordStatusHelper(const LangOptions &LangOpts,
     return LangOpts.isSYCL() ? KS_Enabled : KS_Unknown;
   case KEYCUDA:
     return LangOpts.CUDA ? KS_Enabled : KS_Unknown;
+  case KEYOPENMP_TGT:
+    return LangOpts.OpenMP ? KS_Enabled : KS_Unknown;
   case KEYNOCXX:
     // This is enabled in all non-C++ modes, but might be enabled for other
     // reasons as well.
