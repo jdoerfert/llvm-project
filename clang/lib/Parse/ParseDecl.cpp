@@ -898,6 +898,16 @@ void Parser::ParseOpenCLKernelAttributes(ParsedAttributes &attrs) {
   }
 }
 
+void Parser::ParseOpenMPKernelAttributes(ParsedAttributes &attrs) {
+  // Treat these like attributes
+  while (Tok.is(tok::kw___omp_kernel)) {
+    IdentifierInfo *AttrName = Tok.getIdentifierInfo();
+    SourceLocation AttrNameLoc = ConsumeToken();
+    attrs.addNew(AttrName, AttrNameLoc, nullptr, AttrNameLoc, nullptr, 0,
+                 ParsedAttr::AS_Keyword);
+  }
+}
+
 void Parser::ParseCUDAFunctionAttributes(ParsedAttributes &attrs) {
   while (Tok.is(tok::kw___noinline__)) {
     IdentifierInfo *AttrName = Tok.getIdentifierInfo();
@@ -3748,6 +3758,10 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
     // CUDA/HIP single token adornments.
     case tok::kw___noinline__:
       ParseCUDAFunctionAttributes(DS.getAttributes());
+      continue;
+
+    case tok::kw___omp_kernel:
+      ParseOpenMPKernelAttributes(DS.getAttributes());
       continue;
 
     // Nullability type specifiers.

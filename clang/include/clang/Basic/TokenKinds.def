@@ -607,6 +607,10 @@ KEYWORD(__noinline__                , KEYCUDA)
 // OpenMP Type Traits
 UNARY_EXPR_OR_TYPE_TRAIT(__builtin_omp_required_simd_align, OpenMPRequiredSimdAlign, KEYALL)
 
+// Standalone OpenMP target kernels
+KEYWORD(__omp_kernel                  , KEYOPENMP_TGT)
+ALIAS("op_kernel", __omp_kernel       , KEYOPENMP_TGT)
+
 // Borland Extensions.
 KEYWORD(__pascal                    , KEYALL)
 
