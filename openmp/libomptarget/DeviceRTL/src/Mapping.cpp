@@ -37,6 +37,8 @@ uint32_t getBlockId();
 uint32_t getNumberOfBlocks();
 uint32_t getWarpId();
 uint32_t getNumberOfWarpsInBlock();
+uint32_t getProcessorId();
+uint32_t getNumProcessors();
 
 /// AMDGCN Implementation
 ///
@@ -87,6 +89,14 @@ uint32_t getWarpId() {
 
 uint32_t getNumberOfWarpsInBlock() {
   return mapping::getBlockSize() / mapping::getWarpSize();
+}
+
+uint32_t getProcessorId() {
+  __builtin_trap();
+}
+
+uint32_t getNumProcessors() {
+  __builtin_trap();
 }
 
 #pragma omp end declare variant
@@ -144,6 +154,14 @@ uint32_t getWarpId() {
 uint32_t getNumberOfWarpsInBlock() {
   return (mapping::getBlockSize() + mapping::getWarpSize() - 1) /
          mapping::getWarpSize();
+}
+
+uint32_t getProcessorId() {
+  return __nvvm_read_ptx_sreg_smid();
+}
+
+uint32_t getNumProcessors() {
+  return __nvvm_read_ptx_sreg_nsmid();
 }
 
 #pragma omp end declare variant
@@ -241,6 +259,14 @@ uint32_t mapping::getNumberOfBlocks() {
   uint32_t NumberOfBlocks = impl::getNumberOfBlocks();
   ASSERT(impl::getBlockId() < NumberOfBlocks);
   return NumberOfBlocks;
+}
+
+uint32_t mapping::getProcessorId() {
+  return impl::getProcessorId();
+}
+
+uint32_t mapping::getNumProcessors() {
+  return impl::getNumProcessors();
 }
 
 uint32_t mapping::getNumberOfProcessorElements() {

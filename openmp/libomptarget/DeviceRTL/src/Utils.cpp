@@ -34,6 +34,16 @@ __keep_alive() {
 namespace impl {
 
 bool isSharedMemPtr(const void *Ptr) { return false; }
+
+uint64_t ballotSync(uint64_t Mask, uint32_t Predicate);
+
+uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane);
+
+uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t LaneDelta,
+                     int32_t Width);
+uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t LaneDelta,
+                     int32_t Width);
+
 void Unpack(uint64_t Val, uint32_t *LowBits, uint32_t *HighBits);
 uint64_t Pack(uint32_t LowBits, uint32_t HighBits);
 
@@ -79,24 +89,27 @@ uint64_t Pack(uint32_t LowBits, uint32_t HighBits) {
 #pragma omp end declare variant
 ///}
 
-int32_t shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane);
-int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t LaneDelta,
-                    int32_t Width);
-
 /// AMDGCN Implementation
 ///
 ///{
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
 
-int32_t shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane) {
+uint64_t ballotSync(uint64_t Mask, uint32_t Predicate) {
+  // TODO: See https://reviews.llvm.org/D82087
+  __builtin_trap();
+}
+
+uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
   int Width = mapping::getWarpSize();
   int Self = mapping::getThreadIdInWarp();
   int Index = SrcLane + (Self & ~(Width - 1));
   return __builtin_amdgcn_ds_bpermute(Index << 2, Var);
 }
 
-int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t LaneDelta,
-                    int32_t Width) {
+uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t LaneDelta,
+                     int32_t Width) {
+  if (!Mask)
+    return Var;
   int Self = mapping::getThreadIdInWarp();
   int Index = Self + LaneDelta;
   Index = (int)(LaneDelta + (Self & (Width - 1))) >= Width ? Self : Index;
@@ -115,11 +128,16 @@ bool isSharedMemPtr(const void * Ptr) {
 #pragma omp begin declare variant match(                                       \
     device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
 
-int32_t shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane) {
+uint64_t ballotSync(uint64_t Mask, uint32_t Predicate) {
+  return __nvvm_vote_ballot_sync(Mask, Predicate);
+}
+
+uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
   return __nvvm_shfl_sync_idx_i32(Mask, Var, SrcLane, 0x1f);
 }
 
-int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t Delta, int32_t Width) {
+uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta,
+                     int32_t Width) {
   int32_t T = ((mapping::getWarpSize() - Width) << 8) | 0x1f;
   return __nvvm_shfl_sync_down_i32(Mask, Var, Delta, T);
 }
@@ -128,6 +146,16 @@ bool isSharedMemPtr(const void *Ptr) { return __nvvm_isspacep_shared(Ptr); }
 
 #pragma omp end declare variant
 ///}
+
+uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t LaneDelta,
+                     int32_t Width) {
+  uint32_t lo, hi;
+  utils::unpack(Var, lo, hi);
+  hi = shuffleDown(Mask, hi, LaneDelta, Width);
+  lo = shuffleDown(Mask, lo, LaneDelta, Width);
+  return utils::pack(lo, hi);
+}
+
 } // namespace impl
 
 uint64_t utils::pack(uint32_t LowBits, uint32_t HighBits) {
@@ -138,30 +166,47 @@ void utils::unpack(uint64_t Val, uint32_t &LowBits, uint32_t &HighBits) {
   impl::Unpack(Val, &LowBits, &HighBits);
 }
 
-int32_t utils::shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane) {
+uint64_t utils::ballotSync(uint64_t Mask, uint32_t Predicate) {
+  return impl::ballotSync(Mask, Predicate);
+}
+
+uint32_t utils::shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
   return impl::shuffle(Mask, Var, SrcLane);
+}
+
+uint32_t utils::shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta,
+                            int32_t Width) {
+  return impl::shuffleDown(Mask, Var, Delta, Width);
 }
 
 int32_t utils::shuffleDown(uint64_t Mask, int32_t Var, uint32_t Delta,
                            int32_t Width) {
+  return static_cast<int32_t>(
+      impl::shuffleDown(Mask, static_cast<uint32_t>(Var), Delta, Width));
+}
+
+uint64_t utils::shuffleDown(uint64_t Mask, uint64_t Var, uint32_t Delta,
+                            int32_t Width) {
   return impl::shuffleDown(Mask, Var, Delta, Width);
+}
+
+int64_t utils::shuffleDown(uint64_t Mask, int64_t Var, uint32_t Delta,
+                           int32_t Width) {
+  return static_cast<int64_t>(
+      impl::shuffleDown(Mask, static_cast<uint64_t>(Var), Delta, Width));
 }
 
 bool utils::isSharedMemPtr(void *Ptr) { return impl::isSharedMemPtr(Ptr); }
 
 extern "C" {
-int32_t __kmpc_shuffle_int32(int32_t Val, int16_t Delta, int16_t SrcLane) {
+uint32_t __kmpc_shuffle_int32(uint32_t Val, int16_t Delta, int16_t SrcLane) {
   FunctionTracingRAII();
   return impl::shuffleDown(lanes::All, Val, Delta, SrcLane);
 }
 
-int64_t __kmpc_shuffle_int64(int64_t Val, int16_t Delta, int16_t Width) {
+uint64_t __kmpc_shuffle_int64(uint64_t Val, int16_t Delta, int16_t Width) {
   FunctionTracingRAII();
-  uint32_t lo, hi;
-  utils::unpack(Val, lo, hi);
-  hi = impl::shuffleDown(lanes::All, hi, Delta, Width);
-  lo = impl::shuffleDown(lanes::All, lo, Delta, Width);
-  return utils::pack(lo, hi);
+  return impl::shuffleDown(lanes::All, Val, Delta, Width);
 }
 }
 
