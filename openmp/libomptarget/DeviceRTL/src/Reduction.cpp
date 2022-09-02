@@ -482,7 +482,7 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
     if (WarpId == 0) {
       // Accumulate the shared memory results through shuffles.
       __llvm_omp_tgt_reduce_warp_typed_impl<Ty>(
-          &SharedMem[TId * RI->BatchSize], RI->Op, NumParticipants / mapping::getWarpSize(), RI->BatchSize);
+          &SharedMem[0], RI->Op, NumParticipants / mapping::getWarpSize(), RI->BatchSize);
 
       //  Only the final result is needed.
       if (TId == 0) {
@@ -501,7 +501,7 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
       break;
 
     Idx += RI->BatchSize;
-  printf("New Idx %i,  %i\n", Idx, RI->NumElements);
+  //printf("New Idx %i,  %i\n", Idx, RI->NumElements);
   } while (Idx < RI->NumElements);
 }
 
@@ -517,7 +517,7 @@ static void __llvm_omp_tgt_reduce_team_typed(IdentTy *Loc, ReductionInfo *RI,
 
   if (RI->RC & RedChoice::RED_ITEMS_PARTIALLY)
     return;
-printf("ERROR\n");
+
   for (int32_t i = RI->BatchSize; i < RI->NumElements; i += RI->BatchSize)
     __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseOutput>(Loc, RI, &TypedInput[i],
                                                          &TypedOutput[i]);
