@@ -338,8 +338,8 @@ enum class RedWidth : int8_t {
 };
 
 enum RedChoice : int8_t {
-  RED_ITEMS_FULLY = 0,
-  RED_ITEMS_PARTIALLY = 1,
+  RED_ITEMS_FULLY = 1,
+  RED_ITEMS_PARTIALLY = 2,
 };
 
 struct ReductionInfo {
@@ -353,6 +353,27 @@ struct ReductionInfo {
   void *CopyConstWrapper = nullptr;
 };
 
+template <typename Ty, int32_t InitDelta>
+static void __llvm_omp_tgt_reduce_warp_typed_impl_specialized(Ty *Values, enum RedOp ROp,
+                                                  int32_t BatchSize) {
+  int32_t Delta = InitDelta;
+  do {
+    Delta /= 2;
+    for (int32_t i = 0; i < BatchSize; ++i) {
+      switch (ROp) {
+      case RedOp::ADD:
+        Values[i] += utils::shuffleDown(-1, Values[i], Delta, InitDelta);
+        break;
+      case RedOp::MUL:
+        Values[i] *= utils::shuffleDown(-1, Values[i], Delta, InitDelta);
+        break;
+      default:
+        __builtin_unreachable();
+      };
+    }
+  } while (Delta > 1);
+}
+
 template <typename Ty>
 static void __llvm_omp_tgt_reduce_warp_typed_impl(Ty *Values, enum RedOp ROp,
                                                   int32_t Width,
@@ -360,22 +381,20 @@ static void __llvm_omp_tgt_reduce_warp_typed_impl(Ty *Values, enum RedOp ROp,
   // We use the Width to prevent us from shuffling dead values into the result.
   // To simplify the code we will always do 5-6 shuffles though even if the
   // width could be checked.
-  int32_t Delta = mapping::getWarpSize();
-  do {
-    Delta /= 2;
-    for (int32_t i = 0; i < BatchSize; ++i) {
-      switch (ROp) {
-      case RedOp::ADD:
-        Values[i] += utils::shuffleDown(-1, Values[i], Delta, Width);
-        break;
-      case RedOp::MUL:
-        Values[i] *= utils::shuffleDown(-1, Values[i], Delta, Width);
-        break;
-      default:
-        __builtin_unreachable();
-      };
-    }
-  } while (Delta > 1);
+  //printf("WR: W %i : BS %i\n", Width, BatchSize);
+  int32_t Delta = mapping::getWarpSize() > Width ? Width : mapping::getWarpSize();
+  //printf("WR: D %i : W %i : BS %i\n", Delta, Width, BatchSize);
+  switch (Delta) {
+    case 64: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 64>(Values, ROp, BatchSize);
+    case 32: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 32>(Values, ROp, BatchSize);
+    case 16: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 16>(Values, ROp, BatchSize);
+    case 8: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 8>(Values, ROp, BatchSize);
+    case 4: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 4>(Values, ROp, BatchSize);
+    case 2: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 2>(Values, ROp, BatchSize);
+    case 1: return;
+    default:
+    __builtin_unreachable();
+  };
 }
 
 template <typename Ty>
@@ -410,34 +429,31 @@ static void __llvm_omp_tgt_reduce_warp(IdentTy *Loc, ReductionInfo *RI,
   };
 };
 
-template <typename Ty, bool UseInput>
+template <typename Ty, bool UseOutput>
 static void
 __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
                                       Ty *TypedInput, Ty *TypedOutput) {
+  //printf("%s\n", __PRETTY_FUNCTION__);
   // TODO: Verify the "Width" of the shuffles using tests with < WarpSize
   // threads and others that have less than 32 Warps in use.
   int32_t NumParticipants =
       RI->NumParticipants ? RI->NumParticipants : mapping::getBlockSize();
-
-  Ty Accumulator;
-
-  Accumulator = *TypedInput;
+  //printf("PART %i, FULL %i, NP %i, In %i, Out %i\n",(RI->RC & RedChoice::RED_ITEMS_PARTIALLY),(RI->RC & RedChoice::RED_ITEMS_FULLY), NumParticipants, *TypedInput, *TypedOutput);
 
   // First reduce the values per warp.
-  __llvm_omp_tgt_reduce_warp_typed_impl<Ty>(&Accumulator, RI->Op,
+  __llvm_omp_tgt_reduce_warp_typed_impl<Ty>(TypedInput, RI->Op,
                                             NumParticipants, RI->BatchSize);
 
   if (RI->RC & RedChoice::RED_ITEMS_PARTIALLY) {
-    *TypedInput = Accumulator;
 
-    for (int32_t i = 1; i < RI->NumElements; i += RI->BatchSize) {
+    for (int32_t i = RI->BatchSize; i < RI->NumElements; i += RI->BatchSize) {
       __llvm_omp_tgt_reduce_warp_typed_impl<Ty>(&TypedInput[i], RI->Op,
                                                 NumParticipants, RI->BatchSize);
     }
   }
 
-  if (OMP_UNLIKELY(NumParticipants <= mapping::getWarpSize()))
-    return;
+  //if (OMP_UNLIKELY(NumParticipants <= mapping::getWarpSize()))
+    //return;
 
   [[clang::loader_uninitialized]] static Ty
       TeamReductionScratchpad[32 * (64 / sizeof(Ty))]
@@ -449,14 +465,15 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
 
   int32_t TId = mapping::getThreadIdInWarp();
 
-  if (RI->RC & RedChoice::RED_ITEMS_PARTIALLY)
-    Accumulator = *TypedInput;
-
-  int32_t i = 0;
+  int32_t Idx = 0;
   do {
     // Warp leaders store away their result.
-    if (TId == 0)
-      SharedMem[WarpId] = Accumulator;
+    if (TId == 0) {
+      for (int32_t i = 0; i < RI->BatchSize; ++i) {
+        //printf("SM: %i = %i\n", WarpId * RI->BatchSize + i , TypedInput[i]);
+        SharedMem[WarpId * RI->BatchSize + i] = TypedInput[Idx + i];
+      }
+    }
 
     // Wait for all shared memory updates.
     synchronize::threads();
@@ -465,43 +482,50 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
     if (WarpId == 0) {
       // Accumulate the shared memory results through shuffles.
       __llvm_omp_tgt_reduce_warp_typed_impl<Ty>(
-          &SharedMem[WarpId], RI->Op, NumParticipants / 32, RI->BatchSize);
+          &SharedMem[TId * RI->BatchSize], RI->Op, NumParticipants / mapping::getWarpSize(), RI->BatchSize);
 
       //  Only the final result is needed.
       if (TId == 0) {
-        if (UseInput)
-          TypedInput[i] = Accumulator;
-        else
-          TypedOutput[i] += Accumulator;
+        for (int32_t i = 0; i < RI->BatchSize; ++i) {
+          //printf("TO: %i = %i = %i\n", i , SharedMem[i], TypedOutput[i]);
+          if (UseOutput)
+            TypedOutput[Idx + i] += SharedMem[i];
+          else
+            TypedInput[Idx + i] = SharedMem[i];
+          //printf("TO: %i = %i = %i\n", i , TypedInput[i], TypedOutput[i]);
+        }
       }
     }
 
     if (!(RI->RC & RedChoice::RED_ITEMS_PARTIALLY))
       break;
 
-    i += RI->BatchSize;
-  } while (i < RI->NumElements);
+    Idx += RI->BatchSize;
+  printf("New Idx %i,  %i\n", Idx, RI->NumElements);
+  } while (Idx < RI->NumElements);
 }
 
-template <typename Ty, bool UseInput>
+template <typename Ty, bool UseOutput>
 static void __llvm_omp_tgt_reduce_team_typed(IdentTy *Loc, ReductionInfo *RI,
                                              char *Input, char *Output) {
+  //printf("%s\n", __PRETTY_FUNCTION__);
   Ty *TypedInput = reinterpret_cast<Ty *>(Input);
   Ty *TypedOutput = reinterpret_cast<Ty *>(Output);
 
-  __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseInput>(Loc, RI, TypedInput,
+  __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseOutput>(Loc, RI, TypedInput,
                                                       TypedOutput);
 
   if (RI->RC & RedChoice::RED_ITEMS_PARTIALLY)
     return;
-
+printf("ERROR\n");
   for (int32_t i = RI->BatchSize; i < RI->NumElements; i += RI->BatchSize)
-    __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseInput>(Loc, RI, ++TypedInput,
-                                                        ++TypedOutput);
+    __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseOutput>(Loc, RI, &TypedInput[i],
+                                                         &TypedOutput[i]);
 }
 
 static void __llvm_omp_tgt_reduce_team(IdentTy *Loc, ReductionInfo *RI,
                                        char *Input, char *Output) {
+  //printf("%s\n", __PRETTY_FUNCTION__);
   switch (RI->DT) {
   case RedDataType::INT8:
     return __llvm_omp_tgt_reduce_team_typed<int8_t, true>(Loc, RI, Input,
@@ -569,9 +593,10 @@ static void __llvm_omp_tgt_reduce_league(IdentTy *Loc, ReductionInfo *RI,
   };
 }
 
-__attribute__((flatten)) void __llvm_omp_tgt_reduce(IdentTy *Loc,
+__attribute__((flatten, always_inline)) void __llvm_omp_tgt_reduce(IdentTy *Loc,
                                                     ReductionInfo *RI,
                                                     char *Input, char *Output) {
+  //printf("%s\n", __PRETTY_FUNCTION__);
   switch (RI->Width) {
   case RedWidth::WARP:
     return __llvm_omp_tgt_reduce_warp(Loc, RI, Input);

@@ -39,8 +39,8 @@ enum class RedWidth : int8_t {
 };
 
 enum RedChoice : int8_t {
-  RED_ITEMS_FULLY = 0,
-  RED_ITEMS_PARTIALLY = 1,
+  RED_ITEMS_FULLY = 1,
+  RED_ITEMS_PARTIALLY = 2,
 };
 
 struct ReductionInfo {
@@ -60,30 +60,40 @@ struct Timer {
   Timer(const char *Name) : start(omp_get_wtime()), Name(Name) {}
   ~Timer() {
     double end = omp_get_wtime();
-    printf("Time: %s : %lfs\n", Name, end - start);
+    printf("Time: %70s : %lfs\n", Name, end - start);
   }
 };
+
 
 void __llvm_omp_tgt_reduce(IdentTy *Loc, ReductionInfo *RI, char *Location,
                            char *Output);
 
-template <int NE> void reduce_old(int *A, int *r, int *lr, int NumThreads) {
+void reduce_host(int *A, int *r, int *lr, int NumThreads, int NE) {
   {
     Timer T(__PRETTY_FUNCTION__);
-#pragma omp target teams num_teams(1) thread_limit(NumThreads) map(tofrom      \
-                                                                   : r[:NE])
     {
 #pragma omp parallel for reduction(+ : r[:NE])
+      for (int t = 0; t < NumThreads; ++t) {
       for (int i = 0; i < NE; ++i) {
         r[i] += A[i];
       }
+      }
     }
   }
-  unsigned long s = 0;
-  for (int i = 0; i < NE; ++i) {
-    s += r[i];
+}
+template <int NE> void reduce_old(int *A, int *r, int *lr, int NumThreads) {
+  {
+    Timer T(__PRETTY_FUNCTION__);
+#pragma omp target teams num_teams(1) thread_limit(NumThreads)
+    {
+#pragma omp parallel for reduction(+ : r[:NE])
+      for (int t = 0; t < NumThreads; ++t) {
+        for (int i = 0; i < NE; ++i) {
+          r[i] += A[i];
+        }
+      }
+    }
   }
-  printf("S: %lu\n", s);
 }
 void reduce_old(int *A, int *r, int *lr, int NumThreads, int NE) {
   switch (NE) {
@@ -130,29 +140,27 @@ void reduce_old(int *A, int *r, int *lr, int NumThreads, int NE) {
       void reduce_new_##RC##_##BS##_##NE(int *A, int *r, int *lr, int NT) {    \
     {                                                                          \
       Timer T(__PRETTY_FUNCTION__);                                            \
-      int ne = NE;                                                             \
-      _Pragma("omp target map(tofrom:r[:ne])");                                \
-      _Pragma("omp teams num_teams(1) thread_limit(NT)");                      \
-                                                                               \
-      {                                                                        \
-        _Pragma("omp parallel for") for (int i = 0; i < NE; ++i) {             \
-          lr[i] += A[i];                                                       \
+      _Pragma("omp target teams num_teams(1) thread_limit(NT)")                              \
+      { \
+_Pragma("omp parallel") \
+        {  \
+      int tid = omp_get_thread_num(); \
+_Pragma("omp for") \
+          for (int t = 0; t < NT; ++t) {             \
+          for (int i = 0; i < NE; ++i) {             \
+          lr[tid * NE + i] += A[i];                                                       \
         }                                                                      \
+        } \
         __llvm_omp_tgt_reduce(nullptr, &RITeamAddI32_##RC##_##BS##_##NE,       \
-                              (char *)&lr, (char *)&r);                        \
+                              (char *)&lr[tid * NE], (char *)&r[0]);                        \
+        } \
         /*asm volatile("exit;");*/                                             \
-      }                                                                        \
+      }\
     }                                                                          \
-                                                                               \
-    unsigned long s = 0;                                                       \
-    for (int i = 0; i < NE; ++i) {                                             \
-      s += r[i];                                                               \
-    }                                                                          \
-                                                                               \
-    printf("S: %lu, RC: %i, BS: %i, NE: %i\n", s, RC, BS, NE);                 \
   }
 
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 1)
+  #if 1
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 2)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 4)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 8)
@@ -259,17 +267,23 @@ REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 1024)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 2048)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 4096)
+  #endif
 
 void init(unsigned *A, unsigned *rold, unsigned *rnew, unsigned *lr,
           unsigned NE, unsigned MAXNE) {
   for (unsigned i = 0; i < NE; ++i) {
-    A[i] = i;
+    A[i] = i + 1;
     rold[i] = rnew[i] = 3 * i;
+  }
+  for (unsigned i = 0; i < NE * 512; ++i) {
     lr[i] = 0;
   }
 
   for (unsigned i = NE; i < MAXNE; ++i) {
-    A[i] = rold[i] = rnew[i] = lr[i] = -1;
+    A[i] = rold[i] = rnew[i] = -1;
+  }
+  for (unsigned i = NE*512; i < MAXNE*512; ++i) {
+    lr[i] = -1;
   }
 }
 void compare(int *A, int *rold, int *rnew, int NE,
@@ -297,7 +311,7 @@ void test() {
   int *A = (int*) malloc(sizeof(int) * MAXNE);
   int *rold = (int*) malloc(sizeof(int) * MAXNE);
   int *rnew = (int*) malloc(sizeof(int) * MAXNE);
-  int *lr = (int*) malloc(sizeof(int) * MAXNE);
+  int *lr = (int*) malloc(sizeof(int) * MAXNE*512);
 
 #define REDUCE(RC, BS, NE)                                                     \
   {                                                                            \
@@ -305,15 +319,16 @@ void test() {
     init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew, (unsigned *)lr,    \
          NE, MAXNE);                                                           \
     _Pragma(                                                                   \
-        "omp target data map(tofrom : A[:N], rold[:N], rnew[:N], lr[:N])");    \
-    {                                                                          \
-      if (RC == RED_ITEMS_FULLY && BS == 1)                                    \
-        reduce_old<NE>(A, rold, lr, NT);                                       \
+        "omp target enter data map(to : A[:N], rold[:N], rnew[:N], lr[:N*512])");    \
       reduce_new_##RC##_##BS##_##NE(A, rnew, lr, NT);                          \
+      if (BS == 1) reduce_old<NE>(A, rold, lr, NT);                                       \
+    _Pragma(                                                                   \
+        "omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512])");    \
+      /*reduce_host(A, rold, lr, NT, NE);*/                                       \
       compare(A, rold, rnew, NE, MAXNE);                                       \
-    }                                                                          \
   }
 
+#if 0
   REDUCE(RED_ITEMS_FULLY, 1, 1)
   REDUCE(RED_ITEMS_FULLY, 1, 2)
   REDUCE(RED_ITEMS_FULLY, 1, 4)
@@ -328,7 +343,11 @@ void test() {
   REDUCE(RED_ITEMS_FULLY, 1, 2048)
   REDUCE(RED_ITEMS_FULLY, 1, 4096)
   REDUCE(RED_ITEMS_PARTIALLY, 1, 1)
+#endif
+#if 1
   REDUCE(RED_ITEMS_PARTIALLY, 1, 2)
+#endif
+#if 0
   REDUCE(RED_ITEMS_PARTIALLY, 1, 4)
   REDUCE(RED_ITEMS_PARTIALLY, 1, 8)
   REDUCE(RED_ITEMS_PARTIALLY, 1, 16)
@@ -340,7 +359,8 @@ void test() {
   REDUCE(RED_ITEMS_PARTIALLY, 1, 1024)
   REDUCE(RED_ITEMS_PARTIALLY, 1, 2048)
   REDUCE(RED_ITEMS_PARTIALLY, 1, 4096)
-
+#endif
+#if 0
   REDUCE(RED_ITEMS_FULLY, 2, 1)
   REDUCE(RED_ITEMS_FULLY, 2, 2)
   REDUCE(RED_ITEMS_FULLY, 2, 4)
@@ -354,6 +374,8 @@ void test() {
   REDUCE(RED_ITEMS_FULLY, 2, 1024)
   REDUCE(RED_ITEMS_FULLY, 2, 2048)
   REDUCE(RED_ITEMS_FULLY, 2, 4096)
+#endif
+#if 0
   REDUCE(RED_ITEMS_PARTIALLY, 2, 1)
   REDUCE(RED_ITEMS_PARTIALLY, 2, 2)
   REDUCE(RED_ITEMS_PARTIALLY, 2, 4)
@@ -367,7 +389,8 @@ void test() {
   REDUCE(RED_ITEMS_PARTIALLY, 2, 1024)
   REDUCE(RED_ITEMS_PARTIALLY, 2, 2048)
   REDUCE(RED_ITEMS_PARTIALLY, 2, 4096)
-
+#endif
+#if 0
   REDUCE(RED_ITEMS_FULLY, 4, 1)
   REDUCE(RED_ITEMS_FULLY, 4, 2)
   REDUCE(RED_ITEMS_FULLY, 4, 4)
@@ -381,6 +404,8 @@ void test() {
   REDUCE(RED_ITEMS_FULLY, 4, 1024)
   REDUCE(RED_ITEMS_FULLY, 4, 2048)
   REDUCE(RED_ITEMS_FULLY, 4, 4096)
+#endif
+#if 0
   REDUCE(RED_ITEMS_PARTIALLY, 4, 1)
   REDUCE(RED_ITEMS_PARTIALLY, 4, 2)
   REDUCE(RED_ITEMS_PARTIALLY, 4, 4)
@@ -394,7 +419,8 @@ void test() {
   REDUCE(RED_ITEMS_PARTIALLY, 4, 1024)
   REDUCE(RED_ITEMS_PARTIALLY, 4, 2048)
   REDUCE(RED_ITEMS_PARTIALLY, 4, 4096)
-
+#endif
+#if 0
   REDUCE(RED_ITEMS_FULLY, 8, 1)
   REDUCE(RED_ITEMS_FULLY, 8, 2)
   REDUCE(RED_ITEMS_FULLY, 8, 4)
@@ -408,6 +434,8 @@ void test() {
   REDUCE(RED_ITEMS_FULLY, 8, 1024)
   REDUCE(RED_ITEMS_FULLY, 8, 2048)
   REDUCE(RED_ITEMS_FULLY, 8, 4096)
+#endif
+#if 0
   REDUCE(RED_ITEMS_PARTIALLY, 8, 1)
   REDUCE(RED_ITEMS_PARTIALLY, 8, 2)
   REDUCE(RED_ITEMS_PARTIALLY, 8, 4)
@@ -421,6 +449,7 @@ void test() {
   REDUCE(RED_ITEMS_PARTIALLY, 8, 1024)
   REDUCE(RED_ITEMS_PARTIALLY, 8, 2048)
   REDUCE(RED_ITEMS_PARTIALLY, 8, 4096)
+  #endif
 }
 
 int main() {
