@@ -41,6 +41,9 @@ enum class RedWidth : int8_t {
 enum RedChoice : int8_t {
   RED_ITEMS_FULLY = 1,
   RED_ITEMS_PARTIALLY = 2,
+  RED_ATOMIC_WITH_OFFSET = 4,
+  RED_ATOMIC_AFTER_TEAM = 8,
+  RED_ATOMIC_AFTER_WARP = 16,
 };
 
 struct ReductionInfo {
@@ -49,8 +52,8 @@ struct ReductionInfo {
   RedWidth Width;
   RedChoice RC;
   int8_t BatchSize;
-  int16_t NumParticipants;
-  int16_t NumElements;
+  int32_t NumParticipants;
+  int32_t NumElements;
   void *CopyConstWrapper = nullptr;
 };
 
@@ -81,48 +84,51 @@ void reduce_host(int *A, int *r, int *lr, int NumThreads, int NE) {
     }
   }
 }
-template <int NE> void reduce_old(int *A, int *r, int *lr, int NumThreads) {
+template <int NE> void reduce_old(int *A, int *r, int *lr, int NumThreads, int Teams) {
   {
     Timer T(__PRETTY_FUNCTION__);
-#pragma omp target teams num_teams(1) thread_limit(NumThreads)
-    {
-#pragma omp parallel for reduction(+ : r[:NE])
-      for (int t = 0; t < NumThreads; ++t) {
+#pragma omp target teams distribute parallel for reduction(+ : r[:NE]) num_teams(Teams) thread_limit(NumThreads)
+      for (int t = 0; t < NumThreads * Teams; ++t) {
         for (int i = 0; i < NE; ++i) {
           r[i] += A[i];
         }
       }
-    }
   }
 }
-void reduce_old(int *A, int *r, int *lr, int NumThreads, int NE) {
+void reduce_old(int *A, int *r, int *lr, int NumThreads, int NE, int Teams) {
   switch (NE) {
   case 1:
-    return reduce_old<1>(A, r, lr, NumThreads);
+    return reduce_old<1>(A, r, lr, NumThreads, Teams);
   case 2:
-    return reduce_old<2>(A, r, lr, NumThreads);
+    return reduce_old<2>(A, r, lr, NumThreads, Teams);
   case 4:
-    return reduce_old<4>(A, r, lr, NumThreads);
+    return reduce_old<4>(A, r, lr, NumThreads, Teams);
   case 8:
-    return reduce_old<8>(A, r, lr, NumThreads);
+    return reduce_old<8>(A, r, lr, NumThreads, Teams);
   case 16:
-    return reduce_old<16>(A, r, lr, NumThreads);
+    return reduce_old<16>(A, r, lr, NumThreads, Teams);
   case 32:
-    return reduce_old<32>(A, r, lr, NumThreads);
+    return reduce_old<32>(A, r, lr, NumThreads, Teams);
   case 64:
-    return reduce_old<64>(A, r, lr, NumThreads);
+    return reduce_old<64>(A, r, lr, NumThreads, Teams);
   case 128:
-    return reduce_old<128>(A, r, lr, NumThreads);
+    return reduce_old<128>(A, r, lr, NumThreads, Teams);
   case 256:
-    return reduce_old<256>(A, r, lr, NumThreads);
+    return reduce_old<256>(A, r, lr, NumThreads, Teams);
   case 512:
-    return reduce_old<512>(A, r, lr, NumThreads);
+    return reduce_old<512>(A, r, lr, NumThreads, Teams);
   case 1024:
-    return reduce_old<1024>(A, r, lr, NumThreads);
+    return reduce_old<1024>(A, r, lr, NumThreads, Teams);
   case 2048:
-    return reduce_old<2048>(A, r, lr, NumThreads);
+    return reduce_old<2048>(A, r, lr, NumThreads, Teams);
   case 4096:
-    return reduce_old<4096>(A, r, lr, NumThreads);
+    return reduce_old<4096>(A, r, lr, NumThreads, Teams);
+  case 8192:
+    return reduce_old<8192>(A, r, lr, NumThreads, Teams);
+  case 16384:
+    return reduce_old<16384>(A, r, lr, NumThreads, Teams);
+  case 32768:
+    return reduce_old<32768>(A, r, lr, NumThreads, Teams);
   default:
     printf("Size %i not specialized\n", NE);
     exit(1);
@@ -133,140 +139,143 @@ void reduce_old(int *A, int *r, int *lr, int NumThreads, int NE) {
   _Pragma("omp begin declare target device_type(nohost)")                      \
                                                                                \
       static ReductionInfo RITeamAddI32_##RC##_##BS##_##NE{                    \
-          RedOp::ADD, RedDataType::INT32, RedWidth::TEAM, RC, BS, 0, NE,       \
+          RedOp::ADD, RedDataType::INT32, RedWidth::LEAGUE, (RedChoice)(RC | RedChoice::RED_ATOMIC_AFTER_WARP), BS, 0, NE,       \
           nullptr};                                                            \
   _Pragma("omp end declare target")                                            \
                                                                                \
-      void reduce_new_##RC##_##BS##_##NE(int *A, int *r, int *lr, int NT) {    \
+      void reduce_new_##RC##_##BS##_##NE(int *A, int *r, int *lr, int NT, int Teams) {    \
     {                                                                          \
       Timer T(__PRETTY_FUNCTION__);                                            \
-      _Pragma("omp target teams num_teams(1) thread_limit(NT)")                              \
+      _Pragma("omp target teams num_teams(Teams) thread_limit(NT)")                              \
       { \
 _Pragma("omp parallel") \
         {  \
       int tid = omp_get_thread_num(); \
+      int bid = omp_get_team_num(); \
+        for (int i = 0; i < NE; ++i)             \
+          lr[bid * NT * NE + tid * NE + i] = 0; \
 _Pragma("omp for") \
           for (int t = 0; t < NT; ++t) {             \
             for (int i = 0; i < NE; ++i) {             \
-              lr[tid * NE + i] += A[i];                                                       \
+              lr[bid * NT * NE + tid * NE + i] += A[i];                                                       \
           }                                                                      \
         } \
         __llvm_omp_tgt_reduce(nullptr, &RITeamAddI32_##RC##_##BS##_##NE,       \
-                              (char *)&lr[tid * NE], (char *)&r[0]);                        \
+                              (char *)&lr[tid * NE + bid * NT * NE], (char *)&r[0]);                        \
         } \
         /*asm volatile("exit;");*/                                             \
       }\
     }                                                                          \
   }
 
+#if 1
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 1)
-  #if 1
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 2)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 4)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 8)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 16)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 32)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 64)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 128)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 256)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 4)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 8)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 16)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 32)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 64)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 128)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 256)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 1024)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 2048)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 4096)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 1)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 2)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 4)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 8)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 16)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 32)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 64)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 128)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 256)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 4)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 8)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 16)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 32)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 64)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 128)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 256)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 1024)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 2048)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 4096)
 
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 1)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 2)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 4)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 8)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 16)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 32)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 64)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 128)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 256)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 512)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 1024)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 2048)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 4096)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 1)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 2)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 4)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 8)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 16)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 32)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 64)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 128)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 256)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 512)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 1024)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 2048)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 1)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 2)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 4)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 8)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 16)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 32)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 64)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 128)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 256)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 512)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 1024)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 2048)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 1)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 2)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 4)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 8)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 16)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 32)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 64)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 128)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 256)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 512)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 1024)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 2048)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 2, 4096)
 
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 1)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 2)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 4)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 8)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 16)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 32)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 64)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 128)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 256)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 512)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 1024)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 2048)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 4096)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 1)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 2)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 4)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 8)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 16)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 32)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 64)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 128)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 256)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 512)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 1024)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 2048)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 1)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 2)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 4)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 8)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 16)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 32)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 64)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 128)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 256)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 512)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 1024)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 2048)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 4, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 1)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 2)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 4)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 8)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 16)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 32)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 64)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 128)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 256)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 512)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 1024)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 2048)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 4, 4096)
 
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 1)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 2)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 4)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 8)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 16)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 32)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 64)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 128)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 256)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 512)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 1024)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 2048)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 4096)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 1)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 2)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 4)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 8)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 16)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 32)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 64)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 128)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 256)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 512)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 1024)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 2048)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 1)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 2)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 4)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 8)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 16)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 32)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 64)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 128)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 256)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 512)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 1024)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 2048)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 8, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 1)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 2)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 4)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 8)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 16)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 32)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 64)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 128)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 256)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 512)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 1024)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 2048)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 8, 4096)
 
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 1)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 2)
@@ -279,8 +288,11 @@ REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 128)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 256)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 1024)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 2048)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 2048)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 8192)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 16384)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 32768)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 1)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 2)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 4)
@@ -292,26 +304,29 @@ REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 128)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 256)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 1024)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 2048)
-REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 2048)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 4096)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 8192)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 16384)
+//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 32768)
   #endif
 
 void init(unsigned *A, unsigned *rold, unsigned *rnew, unsigned *lr,
-          unsigned NE, unsigned MAXNE) {
+          unsigned NE, unsigned MAXNE, unsigned Teams) {
   for (unsigned i = 0; i < NE; ++i) {
     A[i] = i + 1;
     rold[i] = rnew[i] = 3 * i;
   }
-  for (unsigned i = 0; i < NE * 512; ++i) {
-    lr[i] = 0;
-  }
+  //for (unsigned i = 0; i < NE * 512*Teams; ++i) {
+    //lr[i] = 0;
+  //}
 
   for (unsigned i = NE; i < MAXNE; ++i) {
     A[i] = rold[i] = rnew[i] = -1;
   }
-  for (unsigned i = NE*512; i < MAXNE*512; ++i) {
-    lr[i] = -1;
-  }
+  //for (unsigned i = NE*512*Teams; i < MAXNE*512*Teams; ++i) {
+    //lr[i] = -1;
+  //}
 }
 void compare(int *A, int *rold, int *rnew, int NE,
              int MAXNE) {
@@ -333,23 +348,24 @@ void compare(int *A, int *rold, int *rnew, int NE,
 
 void test() {
   int NT = 512;
+  int Teams = 1024;
 
   int MAXNE = 4096;
   int *A = (int*) malloc(sizeof(int) * MAXNE);
   int *rold = (int*) malloc(sizeof(int) * MAXNE);
   int *rnew = (int*) malloc(sizeof(int) * MAXNE);
-  int *lr = (int*) malloc(sizeof(int) * MAXNE*512);
+  int *lr = (int*) malloc(sizeof(int) * MAXNE*512*Teams);
 
 #define REDUCEOLD(BS, NE)                                                     \
   if (BS == 1) {                                                                            \
     int N = NE;                                                                \
     init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew, (unsigned *)lr,    \
-         NE, MAXNE);                                                           \
+         NE, MAXNE, Teams);                                                           \
     _Pragma(                                                                   \
-        "omp target enter data map(to : A[:N], rold[:N], rnew[:N], lr[:N*512])");    \
-      reduce_old<NE>(A, rold, lr, NT);                                       \
+        "omp target enter data map(to : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");    \
+      reduce_old<NE>(A, rold, lr, NT, Teams);                                       \
     _Pragma(                                                                   \
-        "omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512])");    \
+        "omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");    \
       /*reduce_host(A, rold, lr, NT, NE);*/                                       \
       /*compare(A, rold, rnew, NE, MAXNE);*/                                     \
   }
@@ -358,12 +374,12 @@ void test() {
   {                                                                            \
     int N = NE;                                                                \
     init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew, (unsigned *)lr,    \
-         NE, MAXNE);                                                           \
+         NE, MAXNE, Teams);                                                           \
     _Pragma(                                                                   \
-        "omp target enter data map(to : A[:N], rold[:N], rnew[:N], lr[:N*512])");    \
-      reduce_new_##RC##_##BS##_##NE(A, rnew, lr, NT);                          \
+        "omp target enter data map(to : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");    \
+      reduce_new_##RC##_##BS##_##NE(A, rnew, lr, NT, Teams);                          \
     _Pragma(                                                                   \
-        "omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512])");    \
+        "omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");    \
       /*reduce_host(A, rold, lr, NT, NE);*/                                       \
       /*compare(A, rold, rnew, NE, MAXNE);*/                                     \
   }
@@ -372,13 +388,13 @@ void test() {
   {                                                                            \
     int N = NE;                                                                \
     init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew, (unsigned *)lr,    \
-         NE, MAXNE);                                                           \
+         NE, MAXNE, Teams);                                                           \
     _Pragma(                                                                   \
-        "omp target enter data map(to : A[:N], rold[:N], rnew[:N], lr[:N*512])");    \
-      reduce_old<NE>(A, rold, lr, NT);                                       \
-      reduce_new_##RC##_##BS##_##NE(A, rnew, lr, NT);                          \
+        "omp target enter data map(to : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");    \
+      reduce_old<NE>(A, rold, lr, NT, Teams);                                       \
+      reduce_new_##RC##_##BS##_##NE(A, rnew, lr, NT, Teams);                          \
     _Pragma(                                                                   \
-        "omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512])");    \
+        "omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");    \
       /*reduce_host(A, rold, lr, NT, NE);*/                                       \
       compare(A, rold, rnew, NE, MAXNE);                                     \
   }
@@ -406,23 +422,23 @@ void test() {
 #define REDUCE(BS, NE)                                                     \
   REDUCEVERIFY(RED_ITEMS_FULLY, BS, NE) \
   REDUCEVERIFY(RED_ITEMS_PARTIALLY, BS, NE) \
-  REDUCE16(BS, NE) \
-  REDUCE16(BS, NE)
+  //REDUCE16(BS, NE) \
+  //REDUCE16(BS, NE)
 
 #if 1
   REDUCE(1, 1)
   REDUCE(1, 2)
-  REDUCE(1, 4)
-  REDUCE(1, 8)
-  REDUCE(1, 16)
-  REDUCE(1, 32)
-  REDUCE(1, 64)
-  REDUCE(1, 128)
-  REDUCE(1, 256)
+  //REDUCE(1, 4)
+  //REDUCE(1, 8)
+  //REDUCE(1, 16)
+  //REDUCE(1, 32)
+  //REDUCE(1, 64)
+  //REDUCE(1, 128)
+  //REDUCE(1, 256)
   REDUCE(1, 512)
   REDUCE(1, 1024)
-  REDUCE(1, 2048)
-  REDUCE(1, 4096)
+  //REDUCE(1, 2048)
+  //REDUCE(1, 4096)
 #endif
 #if 0
   REDUCE(2, 1)
@@ -521,14 +537,18 @@ void test() {
   REDUCE(16, 8)
   #endif
 #if 1
-  REDUCE(16, 16)
-  REDUCE(16, 32)
-  REDUCE(16, 64)
-  REDUCE(16, 128)
+  //REDUCE(16, 16)
+  //REDUCE(16, 32)
+  //REDUCE(16, 64)
+  //REDUCE(16, 128)
   REDUCE(16, 512)
   REDUCE(16, 1024)
-  REDUCE(16, 2048)
-  REDUCE(16, 4096)
+
+  //REDUCE(16, 2048)
+  //REDUCE(16, 4096)
+  //REDUCE(16, 8192)
+  //REDUCE(16, 16384)
+  //REDUCE(16, 32768)
   #endif
 }
 

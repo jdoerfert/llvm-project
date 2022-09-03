@@ -340,6 +340,9 @@ enum class RedWidth : int8_t {
 enum RedChoice : int8_t {
   RED_ITEMS_FULLY = 1,
   RED_ITEMS_PARTIALLY = 2,
+  RED_ATOMIC_WITH_OFFSET = 4,
+  RED_ATOMIC_AFTER_TEAM = 8,
+  RED_ATOMIC_AFTER_WARP = 16,
 };
 
 struct ReductionInfo {
@@ -348,28 +351,33 @@ struct ReductionInfo {
   RedWidth Width;
   RedChoice RC;
   int8_t BatchSize;
-  int16_t NumParticipants;
-  int16_t NumElements;
+  int32_t NumParticipants;
+  int32_t NumElements;
   void *CopyConstWrapper = nullptr;
 };
 
 template <typename Ty, int32_t InitDelta>
 static void __llvm_omp_tgt_reduce_warp_typed_impl_specialized(Ty *Values, enum RedOp ROp,
-                                                  int32_t BatchSize) {
+                                                  int32_t BatchSize, Ty *Out = nullptr) {
   int32_t Delta = InitDelta;
   do {
     Delta /= 2;
     for (int32_t i = 0; i < BatchSize; ++i) {
+      Ty Acc = Values[i];
       switch (ROp) {
       case RedOp::ADD:
-        Values[i] += utils::shuffleDown(-1, Values[i], Delta, InitDelta);
+        Acc += utils::shuffleDown(-1, Acc, Delta, InitDelta);
         break;
       case RedOp::MUL:
-        Values[i] *= utils::shuffleDown(-1, Values[i], Delta, InitDelta);
+        Acc *= utils::shuffleDown(-1, Acc, Delta, InitDelta);
         break;
       default:
         __builtin_unreachable();
       };
+      if (Out)
+        atomic::add((uint32_t *)&Out[i], Acc, __ATOMIC_SEQ_CST);
+      else
+        Values[i] = Acc;
     }
   } while (Delta > 1);
 }
@@ -377,7 +385,7 @@ static void __llvm_omp_tgt_reduce_warp_typed_impl_specialized(Ty *Values, enum R
 template <typename Ty>
 static void __llvm_omp_tgt_reduce_warp_typed_impl(Ty *Values, enum RedOp ROp,
                                                   int32_t Width,
-                                                  int32_t BatchSize) {
+                                                  int32_t BatchSize, Ty *Out = nullptr) {
   // We use the Width to prevent us from shuffling dead values into the result.
   // To simplify the code we will always do 5-6 shuffles though even if the
   // width could be checked.
@@ -385,12 +393,12 @@ static void __llvm_omp_tgt_reduce_warp_typed_impl(Ty *Values, enum RedOp ROp,
   int32_t Delta = mapping::getWarpSize() > Width ? Width : mapping::getWarpSize();
   //printf("WR: D %i : W %i : BS %i\n", Delta, Width, BatchSize);
   switch (Delta) {
-    case 64: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 64>(Values, ROp, BatchSize);
-    case 32: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 32>(Values, ROp, BatchSize);
-    case 16: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 16>(Values, ROp, BatchSize);
-    case 8: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 8>(Values, ROp, BatchSize);
-    case 4: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 4>(Values, ROp, BatchSize);
-    case 2: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 2>(Values, ROp, BatchSize);
+    case 64: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 64>(Values, ROp, BatchSize, Out);
+    case 32: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 32>(Values, ROp, BatchSize, Out);
+    case 16: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 16>(Values, ROp, BatchSize, Out);
+    case 8: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 8>(Values, ROp, BatchSize, Out);
+    case 4: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 4>(Values, ROp, BatchSize, Out);
+    case 2: return __llvm_omp_tgt_reduce_warp_typed_impl_specialized<Ty, 2>(Values, ROp, BatchSize, Out);
     case 1: return;
     default:
     __builtin_unreachable();
@@ -429,7 +437,7 @@ static void __llvm_omp_tgt_reduce_warp(IdentTy *Loc, ReductionInfo *RI,
   };
 };
 
-template <typename Ty, bool UseOutput>
+template <typename Ty, bool UseOutput, bool UseAtomic>
 static void
 __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
                                       Ty *TypedInput, Ty *TypedOutput) {
@@ -440,17 +448,24 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
       RI->NumParticipants ? RI->NumParticipants : mapping::getBlockSize();
   //printf("PART %i, FULL %i, NP %i, In %i, Out %i\n",(RI->RC & RedChoice::RED_ITEMS_PARTIALLY),(RI->RC & RedChoice::RED_ITEMS_FULLY), NumParticipants, *TypedInput, *TypedOutput);
 
+  Ty *Out = nullptr;
+  if (RI->RC & RedChoice::RED_ATOMIC_AFTER_WARP)
+    Out = TypedOutput;
+
   // First reduce the values per warp.
   __llvm_omp_tgt_reduce_warp_typed_impl<Ty>(TypedInput, RI->Op,
-                                            NumParticipants, RI->BatchSize);
+                                            NumParticipants, RI->BatchSize, Out);
 
   if (RI->RC & RedChoice::RED_ITEMS_PARTIALLY) {
 
     for (int32_t i = RI->BatchSize; i < RI->NumElements; i += RI->BatchSize) {
       __llvm_omp_tgt_reduce_warp_typed_impl<Ty>(&TypedInput[i], RI->Op,
-                                                NumParticipants, RI->BatchSize);
+                                                NumParticipants, RI->BatchSize, Out ? &Out[i] : nullptr);
     }
   }
+
+  if (RI->RC & RedChoice::RED_ATOMIC_AFTER_WARP)
+    return;
 
   //if (OMP_UNLIKELY(NumParticipants <= mapping::getWarpSize()))
     //return;
@@ -488,8 +503,12 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
       if (TId == 0) {
         for (int32_t i = 0; i < RI->BatchSize; ++i) {
           //printf("TO: %i = %i = %i\n", i , SharedMem[i], TypedOutput[i]);
-          if (UseOutput)
-            TypedOutput[Idx + i] += SharedMem[i];
+          if (UseOutput) {
+            if (UseAtomic)
+              atomic::add((uint32_t *)&TypedOutput[Idx + i], SharedMem[i], __ATOMIC_SEQ_CST);
+            else
+              TypedOutput[Idx + i] += SharedMem[i];
+          }
           else
             TypedInput[Idx + i] = SharedMem[i];
           //printf("TO: %i = %i = %i\n", i , TypedInput[i], TypedOutput[i]);
@@ -505,21 +524,21 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
   } while (Idx < RI->NumElements);
 }
 
-template <typename Ty, bool UseOutput>
+template <typename Ty, bool UseOutput, bool UseAtomic = false>
 static void __llvm_omp_tgt_reduce_team_typed(IdentTy *Loc, ReductionInfo *RI,
                                              char *Input, char *Output) {
   //printf("%s\n", __PRETTY_FUNCTION__);
   Ty *TypedInput = reinterpret_cast<Ty *>(Input);
   Ty *TypedOutput = reinterpret_cast<Ty *>(Output);
 
-  __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseOutput>(Loc, RI, TypedInput,
+  __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseOutput, UseAtomic>(Loc, RI, TypedInput,
                                                       TypedOutput);
 
   if (RI->RC & RedChoice::RED_ITEMS_PARTIALLY)
     return;
 
   for (int32_t i = RI->BatchSize; i < RI->NumElements; i += RI->BatchSize)
-    __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseOutput>(Loc, RI, &TypedInput[i],
+    __llvm_omp_tgt_reduce_team_typed_impl<Ty, UseOutput, UseAtomic>(Loc, RI, &TypedInput[i],
                                                          &TypedOutput[i]);
 }
 
@@ -557,13 +576,23 @@ static void __llvm_omp_tgt_reduce_league_typed(IdentTy *Loc, ReductionInfo *RI,
   Ty *TypedInput = reinterpret_cast<Ty *>(Input);
   Ty *TypedOutput = reinterpret_cast<Ty *>(Output);
 
-  __llvm_omp_tgt_reduce_team_typed<Ty, false>(Loc, RI, Input, nullptr);
+  if (RI->RC & RedChoice::RED_ATOMIC_AFTER_TEAM || RI->RC & RedChoice::RED_ATOMIC_AFTER_WARP) {
+    __llvm_omp_tgt_reduce_team_typed<Ty, true, true>(Loc, RI, Input, Output);
+    return;
+  } else {
+    __llvm_omp_tgt_reduce_team_typed<Ty, false>(Loc, RI, Input, nullptr);
+  }
 
-  if (mapping::getThreadIdInBlock())
+  int32_t TId = mapping::getThreadIdInBlock();
+  if (TId)
     return;
 
   int32_t BlockId = mapping::getBlockId();
-  int32_t StartIdx = BlockId % RI->NumElements;
+  int32_t StartIdx = 0;
+  if (RI->RC & RedChoice::RED_ATOMIC_WITH_OFFSET)
+    StartIdx = BlockId % RI->NumElements;
+
+  //printf("TID %i BID %i S %i E %i, I %i, O %i\n", TId, BlockId, StartIdx, RI->NumElements, *TypedInput, *TypedOutput);
   for (int32_t i = StartIdx; i < RI->NumElements; ++i) {
     atomic::add((uint32_t *)&TypedOutput[i], TypedInput[i], __ATOMIC_SEQ_CST);
   }
