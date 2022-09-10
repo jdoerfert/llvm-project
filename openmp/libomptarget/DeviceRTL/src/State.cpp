@@ -249,12 +249,15 @@ void state::init(bool IsSPMD) {
     DebugEntryRAII::init();
   }
 
-  ThreadStates[mapping::getThreadIdInBlock()] = nullptr;
+  if (config::mayUseThreadStates())
+    ThreadStates[mapping::getThreadIdInBlock()] = nullptr;
 }
 
 void state::enterDataEnvironment(IdentTy *Ident) {
   ASSERT(config::mayUseThreadStates() &&
          "Thread state modified while explicitly disabled!");
+  if (!config::mayUseThreadStates())
+    return;
 
   unsigned TId = mapping::getThreadIdInBlock();
   ThreadStateTy *NewThreadState =
@@ -273,6 +276,8 @@ void state::exitDataEnvironment() {
 }
 
 void state::resetStateForThread(uint32_t TId) {
+  if (!config::mayUseThreadStates())
+    return;
   if (OMP_LIKELY(!TeamState.HasThreadState || !ThreadStates[TId]))
     return;
 
@@ -294,7 +299,8 @@ void state::assumeInitialState(bool IsSPMD) {
   TeamStateTy InitialTeamState;
   InitialTeamState.init(IsSPMD);
   InitialTeamState.assertEqual(TeamState);
-  ASSERT(!ThreadStates[mapping::getThreadIdInBlock()]);
+  if (config::mayUseThreadStates())
+    ASSERT(!ThreadStates[mapping::getThreadIdInBlock()]);
   ASSERT(mapping::isSPMDMode() == IsSPMD);
 }
 
