@@ -38,7 +38,7 @@ enum class RedWidth : int8_t {
   LEAGUE,
 };
 
-enum RedChoice : int8_t {
+enum RedChoice : int16_t {
   RED_ITEMS_FULLY = 1,
   RED_ITEMS_PARTIALLY = 2,
   RED_ATOMIC_WITH_OFFSET = 4,
@@ -46,7 +46,7 @@ enum RedChoice : int8_t {
   RED_ATOMIC_AFTER_WARP = 16,
   RED_LEAGUE_BUFFERED_DIRECT = 32,
   RED_LEAGUE_BUFFERED_ATOMIC = 64,
-  RED_LEAGUE_BUFFERED_SYNCHRONIZED = 124,
+  RED_LEAGUE_BUFFERED_SYNCHRONIZED = 128,
 };
 
 struct ReductionInfo {
@@ -75,7 +75,7 @@ struct Timer {
 void __llvm_omp_tgt_reduce(IdentTy *Loc, ReductionInfo *RI, char *Location,
                            char *Output);
 
-void reduce_host(int *A, int *r, int *lr, int NumThreads, int NE) {
+void reduce_host(int *A, int *r, int NumThreads, int NE) {
   {
     Timer T(__PRETTY_FUNCTION__);
     {
@@ -89,7 +89,7 @@ void reduce_host(int *A, int *r, int *lr, int NumThreads, int NE) {
   }
 }
 template <int NE>
-void reduce_old(int *A, int *r, int *lr, int NumThreads, int Teams) {
+void reduce_old(int *A, int *r, int NumThreads, int Teams) {
   {
     Timer T(__PRETTY_FUNCTION__);
 #pragma omp target teams distribute parallel for reduction(+ : r[:NE]) num_teams(Teams) thread_limit(NumThreads)
@@ -100,40 +100,40 @@ void reduce_old(int *A, int *r, int *lr, int NumThreads, int Teams) {
     }
   }
 }
-void reduce_old(int *A, int *r, int *lr, int NumThreads, int NE, int Teams) {
+void reduce_old(int *A, int *r, int NumThreads, int NE, int Teams) {
   switch (NE) {
   case 1:
-    return reduce_old<1>(A, r, lr, NumThreads, Teams);
+    return reduce_old<1>(A, r, NumThreads, Teams);
   //case 2:
-    //return reduce_old<2>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<2>(A, r, NumThreads, Teams);
   //case 4:
-    //return reduce_old<4>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<4>(A, r, NumThreads, Teams);
   //case 8:
-    //return reduce_old<8>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<8>(A, r, NumThreads, Teams);
   //case 16:
-    //return reduce_old<16>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<16>(A, r, NumThreads, Teams);
   //case 32:
-    //return reduce_old<32>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<32>(A, r, NumThreads, Teams);
   //case 64:
-    //return reduce_old<64>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<64>(A, r, NumThreads, Teams);
   //case 128:
-    //return reduce_old<128>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<128>(A, r, NumThreads, Teams);
   //case 256:
-    //return reduce_old<256>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<256>(A, r, NumThreads, Teams);
   //case 512:
-    //return reduce_old<512>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<512>(A, r, NumThreads, Teams);
   case 1024:
-    return reduce_old<1024>(A, r, lr, NumThreads, Teams);
+    return reduce_old<1024>(A, r, NumThreads, Teams);
   //case 2048:
-    //return reduce_old<2048>(A, r, lr, NumThreads, Teams);
-  //case 4096:
-    //return reduce_old<4096>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<2048>(A, r, NumThreads, Teams);
+  case 4096:
+    return reduce_old<4096>(A, r, NumThreads, Teams);
   //case 8192:
-    //return reduce_old<8192>(A, r, lr, NumThreads, Teams);
-  //case 16384:
-    //return reduce_old<16384>(A, r, lr, NumThreads, Teams);
-  //case 32768:
-    //return reduce_old<32768>(A, r, lr, NumThreads, Teams);
+    //return reduce_old<8192>(A, r, NumThreads, Teams);
+  case 16384:
+    return reduce_old<16384>(A, r, NumThreads, Teams);
+  case 32768:
+    return reduce_old<32768>(A, r, NumThreads, Teams);
   default:
     printf("Size %i not specialized\n", NE);
     exit(1);
@@ -142,11 +142,9 @@ void reduce_old(int *A, int *r, int *lr, int NumThreads, int NE, int Teams) {
 
 #pragma omp begin declare target device_type(nohost)
 static uint32_t LeagueCounter = 0;
-static char LeagueBuffer[1024 * 1024 * 4];
+static char LeagueBuffer[1024 * 4 * 1024 * 16 * 8];
 #pragma omp end declare target
 
-#if 0
-
 #define REDUCTION_TEAM_ADD_I32(RC, BS, NE)                                     \
   _Pragma("omp begin declare target device_type(nohost)")                      \
                                                                                \
@@ -154,7 +152,7 @@ static char LeagueBuffer[1024 * 1024 * 4];
       RedOp::ADD,                                                              \
       RedDataType::INT32,                                                      \
       RedWidth::LEAGUE,                                                        \
-      (RedChoice)(RC | RedChoice::RED_LEAGUE_BUFFERED_DIRECT),                 \
+      (RedChoice)(RC),                 \
       BS,                                                                      \
       0,                                                                       \
       NE,                                                                      \
@@ -163,49 +161,7 @@ static char LeagueBuffer[1024 * 1024 * 4];
       nullptr};                                                                \
   _Pragma("omp end declare target")                                            \
                                                                                \
-      void reduce_new_##RC##_##BS##_##NE(int *A, int *r, int *lr2, int NT,      \
-                                         int Teams) {                          \
-    {                                                                          \
-      Timer T(__PRETTY_FUNCTION__);                                            \
-      _Pragma("omp target teams num_teams(Teams) thread_limit(NT)") {          \
-        _Pragma("omp parallel") {                                              \
-          int tid = omp_get_thread_num();                                      \
-          int bid = omp_get_team_num();                                        \
-          int *lr = (int*) malloc(NE * 4); \
-          for (int i = 0; i < NE; ++i)                                         \
-            lr[bid * NT * NE + tid * NE + i] = 0;                              \
-          _Pragma("omp for") for (int t = 0; t < NT; ++t) {                    \
-            for (int i = 0; i < NE; ++i) {                                     \
-              lr[bid * NT * NE + tid * NE + i] += A[i];                        \
-            }                                                                  \
-          }                                                                    \
-          __llvm_omp_tgt_reduce(nullptr, &RITeamAddI32_##RC##_##BS##_##NE,     \
-                                (char *)&lr[tid * NE + bid * NT * NE],         \
-                                (char *)&r[0]);                                \
-        }                                                                      \
-        /*asm volatile("exit;");*/                                             \
-      }                                                                        \
-    }                                                                          \
-  }
-#endif
-
-#define REDUCTION_TEAM_ADD_I32(RC, BS, NE)                                     \
-  _Pragma("omp begin declare target device_type(nohost)")                      \
-                                                                               \
-  static ReductionInfo RITeamAddI32_##RC##_##BS##_##NE{                        \
-      RedOp::ADD,                                                              \
-      RedDataType::INT32,                                                      \
-      RedWidth::LEAGUE,                                                        \
-      (RedChoice)(RC | RedChoice::RED_LEAGUE_BUFFERED_DIRECT),                 \
-      BS,                                                                      \
-      0,                                                                       \
-      NE,                                                                      \
-      &LeagueCounter,                                                                       \
-      &LeagueBuffer[0],                                                           \
-      nullptr};                                                                \
-  _Pragma("omp end declare target")                                            \
-                                                                               \
-      void reduce_new_##RC##_##BS##_##NE(int *A, int *r, int *lr2, int NT,      \
+      void reduce_new_##RC##_##BS##_##NE(int *A, int *r, int NT,      \
                                          int Teams) {                          \
     {                                                                          \
       Timer T(__PRETTY_FUNCTION__);                                            \
@@ -243,7 +199,9 @@ REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 2)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 1024)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 2048)
-//REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 4096)
+REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 4096)
+REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 16384)
+REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 1, 32768)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 1)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 2)
  //REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 4)
@@ -256,7 +214,9 @@ REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 2)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 1024)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 2048)
-//REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 4096)
+REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 4096)
+REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 16384)
+REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 32768)
 
  REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 2)
  //REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 2, 4)
@@ -335,10 +295,10 @@ REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 1, 1024)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 1024)
 // REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 2048)
-// REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 4096)
+ REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 4096)
 // REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 8192)
-// REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 16384)
-// REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 32768)
+ REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 16384)
+ REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 32768)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 16)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 32)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 64)
@@ -347,28 +307,25 @@ REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 16, 1024)
 //REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 512)
 REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 1024)
 // REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 2048)
-// REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 4096)
+ REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 4096)
 // REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 8192)
-// REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 16384)
-// REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 32768)
+ REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 16384)
+ REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 16, 32768)
+
+ REDUCTION_TEAM_ADD_I32(RED_ITEMS_FULLY, 32, 4096)
+ REDUCTION_TEAM_ADD_I32(RED_ITEMS_PARTIALLY, 32, 4096)
 #endif
 
-void init(unsigned *A, unsigned *rold, unsigned *rnew, unsigned *lr,
+void init(unsigned *A, unsigned *rold, unsigned *rnew,
           unsigned NE, unsigned MAXNE, unsigned Teams) {
   for (unsigned i = 0; i < NE; ++i) {
     A[i] = i + 1;
     rold[i] = rnew[i] = 0 * i;
   }
-  // for (unsigned i = 0; i < NE * 512*Teams; ++i) {
-  // lr[i] = 0;
-  //}
 
   for (unsigned i = NE; i < MAXNE; ++i) {
     A[i] = rold[i] = rnew[i] = -1;
   }
-  // for (unsigned i = NE*512*Teams; i < MAXNE*512*Teams; ++i) {
-  // lr[i] = -1;
-  //}
 }
 void compare(int *A, int *rold, int *rnew, int NE, int MAXNE) {
   for (int i = 0; i < NE; ++i) {
@@ -387,50 +344,49 @@ void compare(int *A, int *rold, int *rnew, int NE, int MAXNE) {
   }
 }
 
-void test() {
+void test(int argc, char **argv) {
   int NT = 512;
-  int Teams = 1024;
+  int Teams = argc > 1 ? atoi(argv[1]) : 1024;
 
-  int MAXNE = 4096;
+  int MAXNE = 32768;
   int *A = (int *)malloc(sizeof(int) * MAXNE);
   int *rold = (int *)malloc(sizeof(int) * MAXNE);
   int *rnew = (int *)malloc(sizeof(int) * MAXNE);
-  int *lr = (int *)malloc(sizeof(int) * MAXNE * 512 * Teams);
 
 #define REDUCEOLD(BS, NE)                                                      \
   if (BS == 1) {                                                               \
     int N = NE;                                                                \
-    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew, (unsigned *)lr,    \
+    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew,    \
          NE, MAXNE, Teams);                                                    \
-    _Pragma("omp target enter data map(to : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");                                              \
-    reduce_old<NE>(A, rold, lr, NT, Teams);                                    \
-    _Pragma("omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");                                              \
-    /*reduce_host(A, rold, lr, NT, NE);*/                                      \
+    _Pragma("omp target enter data map(to : A[:N], rold[:N])");                                              \
+    reduce_old<NE>(A, rold, NT, Teams);                                    \
+    _Pragma("omp target exit data map(from : A[:N], rold[:N])");                                              \
+    /*reduce_host(A, rold, NT, NE);*/                                      \
     /*compare(A, rold, rnew, NE, MAXNE);*/                                     \
   }
 
 #define REDUCENEW(RC, BS, NE)                                                  \
   {                                                                            \
     int N = NE;                                                                \
-    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew, (unsigned *)lr,    \
+    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew,    \
          NE, MAXNE, Teams);                                                    \
-    _Pragma("omp target enter data map(to : A[:N], rold[:N], rnew[:N],lr[:N*512*Teams])");                                              \
-    reduce_new_##RC##_##BS##_##NE(A, rnew, lr, NT, Teams);                     \
-    _Pragma("omp target exit data map(from : A[:N], rold[:N], rnew[:N], lr[:N*512*Teams])");                                              \
-    /*reduce_host(A, rold, lr, NT, NE);*/                                      \
+    _Pragma("omp target enter data map(to : A[:N],  rnew[:N])");                                              \
+    reduce_new_##RC##_##BS##_##NE(A, rnew, NT, Teams);                     \
+    _Pragma("omp target exit data map(from : A[:N],rnew[:N])");                                              \
+    /*reduce_host(A, rold, NT, NE);*/                                      \
     /*compare(A, rold, rnew, NE, MAXNE);*/                                     \
   }
 
 #define REDUCEVERIFY(RC, BS, NE)                                               \
   {                                                                            \
     int N = NE;                                                                \
-    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew, (unsigned *)lr,    \
+    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew,    \
          NE, MAXNE, Teams);                                                    \
-    _Pragma("omp target enter data map(to : A[:N], rold[:N], rnew[:N],lr[:N*512*Teams])");                                              \
-    reduce_old<NE>(A, rold, lr, NT, Teams);                                    \
-    reduce_new_##RC##_##BS##_##NE(A, rnew, lr, NT, Teams);                     \
-    _Pragma("omp target exit data map(from : A[:N], rold[:N], rnew[:N],lr[:N*512*Teams])");                                              \
-    /*reduce_host(A, rold, lr, NT, NE);*/                                      \
+    _Pragma("omp target enter data map(to : A[:N], rold[:N], rnew[:N])");                                              \
+    reduce_old<NE>(A, rold, NT, Teams);                                    \
+    reduce_new_##RC##_##BS##_##NE(A, rnew, NT, Teams);                     \
+    _Pragma("omp target exit data map(from : A[:N], rold[:N], rnew[:N])");                                              \
+    /*reduce_host(A, rold, NT, NE);*/                                      \
     compare(A, rold, rnew, NE, MAXNE);                                         \
   }
 
@@ -455,13 +411,13 @@ void test() {
   REDUCE4(BS, NE)
 
 #define REDUCE(BS, NE)                                                         \
-  REDUCEVERIFY(RED_ITEMS_PARTIALLY, BS, NE)                                    \
-  REDUCEVERIFY(RED_ITEMS_FULLY, BS, NE)                                        \
-  //REDUCE16(BS, NE) \
-  //REDUCE16(BS, NE) \
+  REDUCE16(BS, NE) \
+  REDUCE16(BS, NE) \
+  //REDUCEVERIFY(RED_ITEMS_PARTIALLY, BS, NE)                                    \
+  //REDUCEVERIFY(RED_ITEMS_FULLY, BS, NE)                                        \
 
 #if 1
-  //REDUCE(1, 1)
+  REDUCE(1, 1)
   //REDUCE(1, 2)
   //REDUCE(1, 4)
   //REDUCE(1, 8)
@@ -473,7 +429,9 @@ void test() {
   //REDUCE(1, 512)
   //REDUCE(1, 1024)
   // REDUCE(1, 2048)
-  // REDUCE(1, 4096)
+   //REDUCE(1, 4096)
+   //REDUCE(1, 16384)
+   //REDUCE(1, 32768)
 #endif
   //REDUCE(2, 2)
   //REDUCE(2, 4)
@@ -501,7 +459,7 @@ void test() {
   REDUCE(4, 256)
   REDUCE(4, 512)
 #endif
-  REDUCE(4, 1024)
+  //REDUCE(4, 1024)
 #if 0
   REDUCE(4, 2048)
   REDUCE(4, 4096)
@@ -515,7 +473,7 @@ void test() {
   REDUCE(8, 256)
   REDUCE(8, 512)
 #endif
-  REDUCE(8, 1024)
+  //REDUCE(8, 1024)
 #if 0
   REDUCE(8, 2048)
   REDUCE(8, 4096)
@@ -528,23 +486,24 @@ void test() {
   // REDUCE(16, 64)
   // REDUCE(16, 128)
   //REDUCE(16, 512)
-  REDUCE(16, 1024)
+  //REDUCE(16, 1024)
 
 // REDUCE(16, 2048)
-// REDUCE(16, 4096)
+ //REDUCE(16, 4096)
 // REDUCE(16, 8192)
-// REDUCE(16, 16384)
-// REDUCE(16, 32768)
+ //REDUCE(16, 16384)
+ //REDUCE(16, 32768)
 #endif
+ //REDUCE(32, 4096)
 }
 
-int main() {
+int main(int argc, char **argv) {
 
 #pragma omp target teams num_teams(1)
   {
 #pragma omp parallel
     {}
   }
-  test();
+  test(argc, argv);
   return 0;
 }

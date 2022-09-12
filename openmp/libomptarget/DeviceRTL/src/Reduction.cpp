@@ -337,7 +337,7 @@ enum class RedWidth : int8_t {
   LEAGUE,
 };
 
-enum RedChoice : int8_t {
+enum RedChoice : int16_t {
   RED_ITEMS_FULLY = 1,
   RED_ITEMS_PARTIALLY = 2,
   RED_ATOMIC_WITH_OFFSET = 4,
@@ -345,7 +345,7 @@ enum RedChoice : int8_t {
   RED_ATOMIC_AFTER_WARP = 16,
   RED_LEAGUE_BUFFERED_DIRECT = 32,
   RED_LEAGUE_BUFFERED_ATOMIC = 64,
-  RED_LEAGUE_BUFFERED_SYNCHRONIZED = 124,
+  RED_LEAGUE_BUFFERED_SYNCHRONIZED = 128,
 };
 
 struct ReductionInfo {
@@ -415,8 +415,8 @@ __llvm_omp_tgt_reduce_warp_typed_impl(Ty *Values, enum RedOp ROp, int32_t Width,
   // printf("WR: W %i : BS %i\n", Width, BatchSize);
   int32_t Delta =
       mapping::getWarpSize() > Width ? Width : mapping::getWarpSize();
-  //if (!Partial)
-    //Delta = mapping::getWarpSize();
+  if (!Partial)
+    Delta = mapping::getWarpSize();
   // printf("WR: D %i : W %i : BS %i\n", Delta, Width, BatchSize);
   switch (Delta) {
   case 64:
@@ -688,10 +688,10 @@ __llvm_omp_tgt_reduce_league_typed_accumulate(IdentTy *Loc, ReductionInfo *RI,
     static uint32_t SHARED(TeamLeagueCounter);
 
     if (TId == 0) {
-      printf("TLC: %i\n", BlockId);
+      //printf("TLC: %i\n", BlockId);
       TeamLeagueCounter =
           atomic::inc(RI->LeagueCounterPtr, NumBlocks - 1, __ATOMIC_SEQ_CST);
-      printf("TLC: %i, %i\n", TeamLeagueCounter , BlockId);
+      //printf("TLC: %i, %i\n", TeamLeagueCounter , BlockId);
     }
 
     synchronize::threads();
@@ -706,10 +706,10 @@ __llvm_omp_tgt_reduce_league_typed_accumulate(IdentTy *Loc, ReductionInfo *RI,
     int32_t DstIdx = TId;
     int32_t SrcIdx = NumThreads * RI->NumElements + TId;
     while (SrcIdx < NumBlocks * RI->NumElements) {
-      printf("1Acc %i -> %i :: %i\n" , SrcIdx, DstIdx, TypedBuffer[SrcIdx]);
+      //printf("1Acc %i -> %i :: %i\n" , SrcIdx, DstIdx, TypedBuffer[SrcIdx]);
       __llvm_omp_tgt_reduce_update_with_value<Ty>(
          &TypedBuffer[DstIdx], TypedBuffer[SrcIdx], RI->Op, false);
-      printf("2Acc %i -> %i :: %i\n" , SrcIdx, DstIdx, TypedBuffer[DstIdx]);
+      //printf("2Acc %i -> %i :: %i\n" , SrcIdx, DstIdx, TypedBuffer[DstIdx]);
       DstIdx = (DstIdx + NumThreads) % (NumThreads * RI->NumElements);
       SrcIdx += NumThreads;
     }
@@ -718,8 +718,8 @@ __llvm_omp_tgt_reduce_league_typed_accumulate(IdentTy *Loc, ReductionInfo *RI,
 
     ReductionInfo RI2 = *RI;
     RI2.NumParticipants = NumBlocks < NumThreads ? NumBlocks : NumThreads;
-    if (TId < 10 || TId > 501)
-      printf("BID %i TID %i : TB %i : NP %i\n", BlockId, TId, TypedBuffer[TId * RI->NumElements], RI->NumParticipants);
+    //if (TId < 10 || TId > 501)
+      //printf("BID %i TID %i : TB %i : NP %i\n", BlockId, TId, TypedBuffer[TId * RI->NumElements], RI->NumParticipants);
 
     if (RI->RC & RedChoice::RED_ATOMIC_AFTER_TEAM ||
         RI->RC & RedChoice::RED_ATOMIC_AFTER_WARP) {
