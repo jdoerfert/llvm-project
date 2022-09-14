@@ -68,11 +68,35 @@ void store(uint32_t *Addr, uint32_t V, int Ordering);
 /// Atomically increment \p *Addr and wrap at \p V with \p Ordering semantics.
 uint32_t inc(uint32_t *Addr, uint32_t V, int Ordering);
 
-/// Atomically add \p V to \p *Addr with \p Ordering semantics.
-uint32_t add(uint32_t *Addr, uint32_t V, int Ordering);
+/// Atomically perform <op> on \p V and \p *Addr with \p Ordering semantics. The
+/// result is stored in \p *Addr;
+/// {
 
-/// Atomically add \p V to \p *Addr with \p Ordering semantics.
-uint64_t add(uint64_t *Addr, uint64_t V, int Ordering);
+#define ATOMIC_FP_OP(TY) TY add(TY *Addr, TY V, int Ordering);
+
+#define ATOMIC_OP(TY)                                                          \
+  ATOMIC_FP_OP(TY)                                                             \
+  TY bit_or(TY *Addr, TY V, int Ordering);                                     \
+  TY bit_and(TY *Addr, TY V, int Ordering);                                    \
+  TY bit_xor(TY *Addr, TY V, int Ordering);                                    \
+  TY min(TY *Addr, TY V, int Ordering);                                        \
+  TY max(TY *Addr, TY V, int Ordering);
+
+ATOMIC_OP(int8_t)
+ATOMIC_OP(int16_t)
+ATOMIC_OP(int32_t)
+ATOMIC_OP(int64_t)
+ATOMIC_OP(uint8_t)
+ATOMIC_OP(uint16_t)
+ATOMIC_OP(uint32_t)
+ATOMIC_OP(uint64_t)
+ATOMIC_FP_OP(float)
+ATOMIC_FP_OP(double)
+
+#undef ATOMIC_FP_OP
+#undef ATOMIC_OP
+
+///}
 
 } // namespace atomic
 

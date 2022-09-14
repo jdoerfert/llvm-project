@@ -356,7 +356,7 @@ struct ReductionInfo {
   int8_t BatchSize;
   int32_t NumParticipants;
   int32_t NumElements;
-  uint32_t* LeagueCounterPtr;
+  uint32_t *LeagueCounterPtr;
   char *LeagueBuffer = nullptr;
   void *CopyConstWrapper = nullptr;
 };
@@ -379,10 +379,10 @@ static void __llvm_omp_tgt_reduce_update_with_value(Ty *TypedOutput, Ty Value,
   }
 }
 
-template <typename Ty, int32_t InitDelta>
+template <typename Ty>
 static void __llvm_omp_tgt_reduce_warp_typed_impl_specialized(
     Ty *Values, enum RedOp ROp, int32_t BatchSize, Ty *Out = nullptr) {
-  int32_t Delta = InitDelta;
+  int32_t Delta = mapping::getWarpSize();
   do {
     Delta /= 2;
     for (int32_t i = 0; i < BatchSize; ++i) {
@@ -476,15 +476,11 @@ static void __llvm_omp_tgt_reduce_warp(IdentTy *Loc, ReductionInfo *RI,
   };
 };
 
-[[clang::loader_uninitialized]] static char TeamReductionScratchpad[64 * 16 * 8]
-    __attribute__((aligned(32)));
-#pragma omp allocate(TeamReductionScratchpad) allocator(omp_pteam_mem_alloc)
-
 template <typename Ty, bool UseOutput, bool UseAtomic>
 static void
 __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
                                       Ty *TypedInput, Ty *TypedOutput) {
-   //printf("%s\n", __PRETTY_FUNCTION__);
+  // printf("%s\n", __PRETTY_FUNCTION__);
   //  TODO: Verify the "Width" of the shuffles using tests with < WarpSize
   //  threads and others that have less than 32 Warps in use.
   int32_t NumParticipants =
@@ -527,22 +523,26 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
   int32_t Idx = 0;
   do {
     if (/* UseLeaderInput */ false) {
-      Ty* TypedLeaderInput = &TypedInput[-1 * (WarpTId * RI->NumElements)];
-      for (int32_t i = WarpTId; i < RI->BatchSize;  i += mapping::getWarpSize()) {
-        //if (BlockId == 0)
-          //printf("SM: %i = %i\n", WarpId * RI->BatchSize + i , TypedInput[Idx + i]);
+      Ty *TypedLeaderInput = &TypedInput[-1 * (WarpTId * RI->NumElements)];
+      for (int32_t i = WarpTId; i < RI->BatchSize;
+           i += mapping::getWarpSize()) {
+        // if (BlockId == 0)
+        // printf("SM: %i = %i\n", WarpId * RI->BatchSize + i , TypedInput[Idx +
+        // i]);
         SharedMem[WarpId * RI->BatchSize + i] = TypedLeaderInput[Idx + i];
       }
     } else if (IsWarpLead) {
-      for (int32_t i = 0; i < RI->BatchSize;  ++i) {
-        //if (BlockId == 0)
-          //printf("SM: %i = %i\n", WarpId * RI->BatchSize + i , TypedInput[Idx + i]);
+      for (int32_t i = 0; i < RI->BatchSize; ++i) {
+        // if (BlockId == 0)
+        // printf("SM: %i = %i\n", WarpId * RI->BatchSize + i , TypedInput[Idx +
+        // i]);
         SharedMem[WarpId * RI->BatchSize + i] = TypedInput[Idx + i];
       }
     }
 
-    //for (int32_t i = NumWarps + WarpId; i < mapping::getWarpSize(); i += NumWarps) {
-    //}
+    // for (int32_t i = NumWarps + WarpId; i < mapping::getWarpSize(); i +=
+    // NumWarps) {
+    // }
 
     // Wait for all shared memory updates.
     synchronize::threads();
@@ -550,31 +550,34 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
     // The first warp performs the final reduction and stores away the result.
     if (WarpId == 0) {
       // Accumulate the shared memory results through shuffles.
-      //printf("Sync   warp %i NP %i\n", WarpTId, NumParticipants / mapping::getWarpSize());
+      // printf("Sync   warp %i NP %i\n", WarpTId, NumParticipants /
+      // mapping::getWarpSize());
       __llvm_omp_tgt_reduce_warp_typed_impl<Ty, /* Partial */ true>(
           &SharedMem[0], RI->Op, mapping::getNumberOfWarpsInBlock(),
           RI->BatchSize);
-      //printf("Synced warp %i NP %i\n", WarpTId, NumParticipants / mapping::getWarpSize());
+      // printf("Synced warp %i NP %i\n", WarpTId, NumParticipants /
+      // mapping::getWarpSize());
 
       //  Only the final result is needed.
 
       if (/* UseLeaderInput */ false) {
-        Ty* TypedLeaderInput = &TypedInput[-1 * (WarpTId * RI->NumElements)];
-        for (int32_t i = WarpTId; i < RI->BatchSize; i+=mapping::getWarpSize()) {
+        Ty *TypedLeaderInput = &TypedInput[-1 * (WarpTId * RI->NumElements)];
+        for (int32_t i = WarpTId; i < RI->BatchSize;
+             i += mapping::getWarpSize()) {
           if (UseOutput)
             __llvm_omp_tgt_reduce_update_with_value<Ty>(
                 &TypedOutput[Idx + i], SharedMem[i], RI->Op, UseAtomic);
           else
-              TypedLeaderInput[Idx + i] = SharedMem[i];
+            TypedLeaderInput[Idx + i] = SharedMem[i];
         }
       } else if (IsWarpLead) {
         for (int32_t i = 0; i < RI->BatchSize; ++i) {
-          //printf("TI/O: %i = %i\n", Idx +i , SharedMem[i]);
+          // printf("TI/O: %i = %i\n", Idx +i , SharedMem[i]);
           if (UseOutput)
             __llvm_omp_tgt_reduce_update_with_value<Ty>(
                 &TypedOutput[Idx + i], SharedMem[i], RI->Op, UseAtomic);
           else
-              TypedInput[Idx + i] = SharedMem[i];
+            TypedInput[Idx + i] = SharedMem[i];
         }
       }
     }
@@ -592,7 +595,7 @@ __llvm_omp_tgt_reduce_team_typed_impl(IdentTy *Loc, ReductionInfo *RI,
 template <typename Ty, bool UseOutput, bool UseAtomic = false>
 static void __llvm_omp_tgt_reduce_team_typed(IdentTy *Loc, ReductionInfo *RI,
                                              char *Input, char *Output) {
-   //printf("%s\n", __PRETTY_FUNCTION__);
+  // printf("%s\n", __PRETTY_FUNCTION__);
   Ty *TypedInput = reinterpret_cast<Ty *>(Input);
   Ty *TypedOutput = reinterpret_cast<Ty *>(Output);
 
@@ -609,7 +612,7 @@ static void __llvm_omp_tgt_reduce_team_typed(IdentTy *Loc, ReductionInfo *RI,
 
 static void __llvm_omp_tgt_reduce_team(IdentTy *Loc, ReductionInfo *RI,
                                        char *Input, char *Output) {
-   //printf("%s\n", __PRETTY_FUNCTION__);
+  // printf("%s\n", __PRETTY_FUNCTION__);
   switch (RI->DT) {
   case RedDataType::INT8:
     return __llvm_omp_tgt_reduce_team_typed<int8_t, true>(Loc, RI, Input,
@@ -654,30 +657,37 @@ __llvm_omp_tgt_reduce_league_typed_accumulate(IdentTy *Loc, ReductionInfo *RI,
     bool UseAtomic = RI->RC & RedChoice::RED_LEAGUE_BUFFERED_ATOMIC;
 
     if (/* UseLeaderInput */ false) {
-      Ty* TypedLeaderInput = &TypedInput[-1 * (TId * RI->NumElements)];
+      Ty *TypedLeaderInput = &TypedInput[-1 * (TId * RI->NumElements)];
       for (int32_t Idx = TId; Idx < RI->NumElements; Idx += NumThreads) {
         if (UseAtomic)
           __llvm_omp_tgt_reduce_update_with_value<Ty>(
-              &TypedBuffer[BlockId * RI->NumElements + Idx], TypedLeaderInput[Idx],
-              RI->Op, UseAtomic);
+              &TypedBuffer[BlockId * RI->NumElements + Idx],
+              TypedLeaderInput[Idx], RI->Op, UseAtomic);
         else
           TypedBuffer[BlockId * RI->NumElements + Idx] = TypedLeaderInput[Idx];
 
-        //if (BlockId == 0)
-          //printf("%i : %i : %i :: %i (%i) --- %i (%p/%p)\n", TId, Idx, BlockId * RI->NumElements + Idx, TypedBuffer[BlockId * RI->NumElements + Idx], UseAtomic, TypedLeaderInput[Idx], &TypedLeaderInput[0], &TypedLeaderInput[Idx]);
+        // if (BlockId == 0)
+        // printf("%i : %i : %i :: %i (%i) --- %i (%p/%p)\n", TId, Idx, BlockId
+        // * RI->NumElements + Idx, TypedBuffer[BlockId * RI->NumElements +
+        // Idx], UseAtomic, TypedLeaderInput[Idx], &TypedLeaderInput[0],
+        // &TypedLeaderInput[Idx]);
       }
     } else if (TId == 0) {
       for (int32_t i = 0; i < RI->NumElements; ++i) {
-        //if (BlockId == 0)
-          //printf("%i : %i : %i :: %i (%i) --- %i (%p/%p)\n", TId, i, BlockId * RI->NumElements + i, TypedBuffer[BlockId * RI->NumElements + i], UseAtomic, TypedInput[i], &TypedInput[0], &TypedInput[i]);
+        // if (BlockId == 0)
+        // printf("%i : %i : %i :: %i (%i) --- %i (%p/%p)\n", TId, i, BlockId *
+        // RI->NumElements + i, TypedBuffer[BlockId * RI->NumElements + i],
+        // UseAtomic, TypedInput[i], &TypedInput[0], &TypedInput[i]);
         if (UseAtomic)
           __llvm_omp_tgt_reduce_update_with_value<Ty>(
               &TypedBuffer[BlockId * RI->NumElements + i], TypedInput[i],
               RI->Op, UseAtomic);
         else
           TypedBuffer[BlockId * RI->NumElements + i] = TypedInput[i];
-        //if (BlockId == 0)
-          //printf("%i : %i : %i :: %i (%i) --- %i (%p/%p)\n", TId, i, BlockId * RI->NumElements + i, TypedBuffer[BlockId * RI->NumElements + i], UseAtomic, TypedInput[i], &TypedInput[0], &TypedInput[i]);
+        // if (BlockId == 0)
+        // printf("%i : %i : %i :: %i (%i) --- %i (%p/%p)\n", TId, i, BlockId *
+        // RI->NumElements + i, TypedBuffer[BlockId * RI->NumElements + i],
+        // UseAtomic, TypedInput[i], &TypedInput[0], &TypedInput[i]);
       }
     }
 
@@ -688,10 +698,10 @@ __llvm_omp_tgt_reduce_league_typed_accumulate(IdentTy *Loc, ReductionInfo *RI,
     static uint32_t SHARED(TeamLeagueCounter);
 
     if (TId == 0) {
-      //printf("TLC: %i\n", BlockId);
+      // printf("TLC: %i\n", BlockId);
       TeamLeagueCounter =
           atomic::inc(RI->LeagueCounterPtr, NumBlocks - 1, __ATOMIC_SEQ_CST);
-      //printf("TLC: %i, %i\n", TeamLeagueCounter , BlockId);
+      // printf("TLC: %i, %i\n", TeamLeagueCounter , BlockId);
     }
 
     synchronize::threads();
@@ -699,17 +709,17 @@ __llvm_omp_tgt_reduce_league_typed_accumulate(IdentTy *Loc, ReductionInfo *RI,
     if (TeamLeagueCounter != NumBlocks - 1)
       return;
 
-    //Ty *SharedMem = reinterpret_cast<Ty *>(&TeamReductionScratchpad[0]);
-    //for (int32_t i = 0; i < RI->NumElements; ++i)
-      //SharedMem[TId + i] = TypedBuffer[TId * RI->NumElements + i];
+    // Ty *SharedMem = reinterpret_cast<Ty *>(&TeamReductionScratchpad[0]);
+    // for (int32_t i = 0; i < RI->NumElements; ++i)
+    // SharedMem[TId + i] = TypedBuffer[TId * RI->NumElements + i];
 
     int32_t DstIdx = TId;
     int32_t SrcIdx = NumThreads * RI->NumElements + TId;
     while (SrcIdx < NumBlocks * RI->NumElements) {
-      //printf("1Acc %i -> %i :: %i\n" , SrcIdx, DstIdx, TypedBuffer[SrcIdx]);
+      // printf("1Acc %i -> %i :: %i\n" , SrcIdx, DstIdx, TypedBuffer[SrcIdx]);
       __llvm_omp_tgt_reduce_update_with_value<Ty>(
-         &TypedBuffer[DstIdx], TypedBuffer[SrcIdx], RI->Op, false);
-      //printf("2Acc %i -> %i :: %i\n" , SrcIdx, DstIdx, TypedBuffer[DstIdx]);
+          &TypedBuffer[DstIdx], TypedBuffer[SrcIdx], RI->Op, false);
+      // printf("2Acc %i -> %i :: %i\n" , SrcIdx, DstIdx, TypedBuffer[DstIdx]);
       DstIdx = (DstIdx + NumThreads) % (NumThreads * RI->NumElements);
       SrcIdx += NumThreads;
     }
@@ -718,14 +728,19 @@ __llvm_omp_tgt_reduce_league_typed_accumulate(IdentTy *Loc, ReductionInfo *RI,
 
     ReductionInfo RI2 = *RI;
     RI2.NumParticipants = NumBlocks < NumThreads ? NumBlocks : NumThreads;
-    //if (TId < 10 || TId > 501)
-      //printf("BID %i TID %i : TB %i : NP %i\n", BlockId, TId, TypedBuffer[TId * RI->NumElements], RI->NumParticipants);
+    // if (TId < 10 || TId > 501)
+    // printf("BID %i TID %i : TB %i : NP %i\n", BlockId, TId, TypedBuffer[TId *
+    // RI->NumElements], RI->NumParticipants);
 
     if (RI->RC & RedChoice::RED_ATOMIC_AFTER_TEAM ||
         RI->RC & RedChoice::RED_ATOMIC_AFTER_WARP) {
-      __llvm_omp_tgt_reduce_team_typed<Ty, true, true>(Loc, &RI2, (char*)&TypedBuffer[TId * RI->NumElements], (char*)TypedOutput);
+      __llvm_omp_tgt_reduce_team_typed<Ty, true, true>(
+          Loc, &RI2, (char *)&TypedBuffer[TId * RI->NumElements],
+          (char *)TypedOutput);
     } else {
-      __llvm_omp_tgt_reduce_team_typed<Ty, true, false>(Loc, &RI2, (char*)&TypedBuffer[TId * RI->NumElements], (char*)TypedOutput);
+      __llvm_omp_tgt_reduce_team_typed<Ty, true, false>(
+          Loc, &RI2, (char *)&TypedBuffer[TId * RI->NumElements],
+          (char *)TypedOutput);
     }
 
   } else if (RI->RC & RedChoice::RED_LEAGUE_BUFFERED_SYNCHRONIZED) {
@@ -791,7 +806,7 @@ static void __llvm_omp_tgt_reduce_league(IdentTy *Loc, ReductionInfo *RI,
 __attribute__((flatten, always_inline)) void
 __llvm_omp_tgt_reduce(IdentTy *Loc, ReductionInfo *RI, char *Input,
                       char *Output) {
-   //printf("%s\n", __PRETTY_FUNCTION__);
+  // printf("%s\n", __PRETTY_FUNCTION__);
   switch (RI->Width) {
   case RedWidth::WARP:
     return __llvm_omp_tgt_reduce_warp(Loc, RI, Input);

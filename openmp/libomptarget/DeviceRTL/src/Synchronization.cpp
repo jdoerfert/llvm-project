@@ -39,12 +39,42 @@ void atomicStore(uint32_t *Address, uint32_t Val, int Ordering) {
   __atomic_store_n(Address, Val, Ordering);
 }
 
-uint32_t atomicAdd(uint32_t *Address, uint32_t Val, int Ordering) {
-  return __atomic_fetch_add(Address, Val, Ordering);
-}
-uint32_t atomicMax(uint32_t *Address, uint32_t Val, int Ordering) {
-  return __atomic_fetch_max(Address, Val, Ordering);
-}
+#define ATOMIC_FP_OP(TY)                                                       \
+  TY atomicAdd(TY *Address, TY Val, int Ordering) {                            \
+    return __atomic_fetch_add(Address, Val, Ordering);                         \
+  }
+
+#define ATOMIC_OP(TY)                                                          \
+  ATOMIC_FP_OP(TY)                                                             \
+  TY atomicOr(TY *Address, TY Val, int Ordering) {                             \
+    return __atomic_fetch_or(Address, Val, Ordering);                          \
+  }                                                                            \
+  TY atomicAnd(TY *Address, TY Val, int Ordering) {                            \
+    return __atomic_fetch_and(Address, Val, Ordering);                         \
+  }                                                                            \
+  TY atomicXOr(TY *Address, TY Val, int Ordering) {                            \
+    return __atomic_fetch_xor(Address, Val, Ordering);                         \
+  }                                                                            \
+  TY atomicMin(TY *Address, TY Val, int Ordering) {                            \
+    return __atomic_fetch_min(Address, Val, Ordering);                         \
+  }                                                                            \
+  TY atomicMax(TY *Address, TY Val, int Ordering) {                            \
+    return __atomic_fetch_max(Address, Val, Ordering);                         \
+  }
+
+ATOMIC_OP(int8_t)
+ATOMIC_OP(int16_t)
+ATOMIC_OP(int32_t)
+ATOMIC_OP(int64_t)
+ATOMIC_OP(uint8_t)
+ATOMIC_OP(uint16_t)
+ATOMIC_OP(uint32_t)
+ATOMIC_OP(uint64_t)
+ATOMIC_FP_OP(float)
+ATOMIC_FP_OP(double)
+
+#undef ATOMIC_FP_OP
+#undef ATOMIC_OP
 
 uint32_t atomicExchange(uint32_t *Address, uint32_t Val, int Ordering) {
   uint32_t R;
@@ -58,9 +88,6 @@ uint32_t atomicCAS(uint32_t *Address, uint32_t Compare, uint32_t Val,
   return Compare;
 }
 
-uint64_t atomicAdd(uint64_t *Address, uint64_t Val, int Ordering) {
-  return __atomic_fetch_add(Address, Val, Ordering);
-}
 ///}
 
 // Forward declarations defined to be defined for AMDGCN and NVPTX.
@@ -328,13 +355,42 @@ uint32_t atomic::inc(uint32_t *Addr, uint32_t V, int Ordering) {
   return impl::atomicInc(Addr, V, Ordering);
 }
 
-uint32_t atomic::add(uint32_t *Addr, uint32_t V, int Ordering) {
+#define ATOMIC_FP_OP(TY)
+TY atomic::add(TY *Addr, TY V, int Ordering) {
   return impl::atomicAdd(Addr, V, Ordering);
 }
 
-uint64_t atomic::add(uint64_t *Addr, uint64_t V, int Ordering) {
-  return impl::atomicAdd(Addr, V, Ordering);
+#define ATOMIC_OP(TY)
+ATOMIC_FP_OP(TY)
+TY atomic::bit_or(TY *Addr, TY V, int Ordering) {
+  return impl::atomicOr(Addr, V, Ordering);
 }
+TY atomic : bit_and(TY *Addr, TY V, int Ordering) {
+  return impl::atomicAnd(Addr, V, Ordering);
+}
+TY atomic::bit_xor(TY *Addr, TY V, int Ordering) {
+  return impl::atomicXOr(Addr, V, Ordering);
+}
+TY atomic::min(TY *Addr, TY V, int Ordering) {
+  return impl::atomicAin(Addr, V, Ordering);
+}
+TY atomic::max(TY *Addr, TY V, int Ordering) {
+  return impl::atomicMax(Addr, V, Ordering);
+}
+
+ATOMIC_OP(int8_t)
+ATOMIC_OP(int16_t)
+ATOMIC_OP(int32_t)
+ATOMIC_OP(int64_t)
+ATOMIC_OP(uint8_t)
+ATOMIC_OP(uint16_t)
+ATOMIC_OP(uint32_t)
+ATOMIC_OP(uint64_t)
+ATOMIC_FP_OP(float)
+ATOMIC_FP_OP(double)
+
+#undef ATOMIC_FP_OP
+#undef ATOMIC_OP
 
 extern "C" {
 void __kmpc_ordered(IdentTy *Loc, int32_t TId) { FunctionTracingRAII(); }
