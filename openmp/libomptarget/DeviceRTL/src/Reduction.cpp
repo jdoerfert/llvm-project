@@ -1109,71 +1109,6 @@ void __llvm_omp_default_reduction_combine_warp(
 
 /// --------------------
 
-/// TODO
-extern "C" void __llvm_omp_default_reduction_init(
-    __llvm_omp_default_reduction *__restrict__ __private_copy,
-    __llvm_omp_default_reduction *const __restrict__ __original_copy) {
-
-  __llvm_omp_default_reduction_configuration_ty *__restrict__ __config =
-      __private_copy->__config;
-
-  int32_t __private_copy_size = __config->__item_size * __config->__num_items;
-
-  // Set the pointer to the private default data, potentially after allocating
-  // the required memory.
-  if (__config->__alloc_config &
-      __llvm_omp_reduction_allocation_configuration::_PREALLOCATED_IN_PLACE) {
-    // assert(__private_copy->__private_default_data == &__private_copy[1]);
-  } else if (__config->__allocator_fn) {
-    __private_copy->__private_default_data =
-        __config->__allocator_fn(__private_copy_size);
-  } else {
-    __private_copy->__private_default_data =
-        memory::allocGlobal(__private_copy_size, "Privatized reduction memory");
-  }
-
-  if (__config->__alloc_config &
-      __llvm_omp_reduction_allocation_configuration::_PRE_INITIALIZED)
-    return;
-
-  // Initialize the memory with the neutral element.
-  char *__restrict__ __private_default_data =
-      (char *)__private_copy->__private_default_data;
-
-  __llvm_omp_reduction_initializer_fn_ty *__init_fn = nullptr;
-
-  switch (__config->__op) {
-  case _ADD:
-  case _SUB:
-  case _BIT_OR:
-  case _BIT_XOR:
-  case _LOGIC_OR:
-    __builtin_memset(__private_default_data, 0, __private_copy_size);
-    return;
-  case _BIT_AND:
-    __builtin_memset(__private_default_data, ~0, __private_copy_size);
-    return;
-  case _MUL:
-  case _LOGIC_AND:
-  case _MAX:
-  case _MIN:
-    __init_fn = __llvm_omp_reduction_get_initializer_fn(
-        _VALUE_ONE, __config->__element_type);
-    break;
-  case _CUSTOM_OP:
-    __init_fn = __config->__initializer_fn;
-    break;
-  };
-
-    // TODO asserts
-    //  ASSERT(__init_fn);
-
-#pragma clang loop vectorize(assume_safety)
-  for (int32_t __i = 0; __i < __config->__num_items; ++__i) {
-    __init_fn(&__private_default_data[__i * __config->__item_size]);
-  }
-}
-
 namespace _OMP {
 namespace impl {
 
@@ -1638,6 +1573,71 @@ TYPE_DEDUCER(reduceLeague);
 
 } // namespace impl
 } // namespace _OMP
+
+/// TODO
+extern "C" void __llvm_omp_default_reduction_init(
+    __llvm_omp_default_reduction *__restrict__ __private_copy,
+    __llvm_omp_default_reduction *const __restrict__ __original_copy) {
+
+  __llvm_omp_default_reduction_configuration_ty *__restrict__ __config =
+      __private_copy->__config;
+
+  int32_t __private_copy_size = __config->__item_size * __config->__num_items;
+
+  // Set the pointer to the private default data, potentially after allocating
+  // the required memory.
+  if (__config->__alloc_config &
+      __llvm_omp_reduction_allocation_configuration::_PREALLOCATED_IN_PLACE) {
+    // assert(__private_copy->__private_default_data == &__private_copy[1]);
+  } else if (__config->__allocator_fn) {
+    __private_copy->__private_default_data =
+        __config->__allocator_fn(__private_copy_size);
+  } else {
+    __private_copy->__private_default_data =
+        memory::allocGlobal(__private_copy_size, "Privatized reduction memory");
+  }
+
+  if (__config->__alloc_config &
+      __llvm_omp_reduction_allocation_configuration::_PRE_INITIALIZED)
+    return;
+
+  // Initialize the memory with the neutral element.
+  char *__restrict__ __private_default_data =
+      (char *)__private_copy->__private_default_data;
+
+  __llvm_omp_reduction_initializer_fn_ty *__init_fn = nullptr;
+
+  switch (__config->__op) {
+  case _ADD:
+  case _SUB:
+  case _BIT_OR:
+  case _BIT_XOR:
+  case _LOGIC_OR:
+    __builtin_memset(__private_default_data, 0, __private_copy_size);
+    return;
+  case _BIT_AND:
+    __builtin_memset(__private_default_data, ~0, __private_copy_size);
+    return;
+  case _MUL:
+  case _LOGIC_AND:
+  case _MAX:
+  case _MIN:
+    __init_fn = __llvm_omp_reduction_get_initializer_fn(
+        _VALUE_ONE, __config->__element_type);
+    break;
+  case _CUSTOM_OP:
+    __init_fn = __config->__initializer_fn;
+    break;
+  };
+
+    // TODO asserts
+    //  ASSERT(__init_fn);
+
+#pragma clang loop vectorize(assume_safety)
+  for (int32_t __i = 0; __i < __config->__num_items; ++__i) {
+    __init_fn(&__private_default_data[__i * __config->__item_size]);
+  }
+}
 
 extern "C" void __llvm_omp_default_reduction_combine_warp(
     __llvm_omp_default_reduction *__restrict__ __shared_out_copy,
