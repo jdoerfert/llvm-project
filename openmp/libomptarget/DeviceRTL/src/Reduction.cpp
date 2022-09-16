@@ -1241,7 +1241,7 @@ template <typename Ty, typename IntTy>
 __attribute__((always_inline)) void
 reduceWarpImpl(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpTy Op,
                bool ReduceInto = true, bool Atomically = false,
-               int32_t Mask = -1, int32_t Width = -1) {
+               int32_t Mask = lanes::All, int32_t Width = -1) {
   static_assert(sizeof(Ty) == sizeof(IntTy),
                 "Type and integer type need to match in size!");
 
@@ -1254,11 +1254,12 @@ reduceWarpImpl(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpTy Op,
   Ty *TypedAcc = reinterpret_cast<Ty *>(&IntTypedAcc[0]);
 
   int32_t WarpSize = mapping::getWarpSize();
-  Mask = Mask == -1 ? WarpSize - 1 : Mask;
   Width = Width == -1 ? WarpSize : Width;
-  int32_t Delta = Mask == WarpSize ? WarpSize : Mask + 1;
+  int32_t Delta = WarpSize;
   int32_t WarpTId = mapping::getThreadIdInWarp();
 
+  //if (WarpTId == 0)
+    //printf("Mask: %i, Width: %i, Delta: %i\n", Mask, Width, Delta);
   do {
     Delta /= 2;
     for (int32_t i = 0; i < BatchSize; ++i) {
@@ -1366,6 +1367,8 @@ reduceTeamImplHelper(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpT
   int32_t IsWarpLead = WarpTId == 0;
 
   int32_t BatchStartIdx = 0;
+  int32_t Mask = utils::ballotSync(lanes::All, WarpTId < NumWarps);
+
   do {
     if (IsWarpLead) {
       for (int32_t i = 0; i < BatchSize; ++i)
@@ -1385,11 +1388,12 @@ reduceTeamImplHelper(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpT
         //printf("B %i, SM[%i] = %i (%i,%i)\n", BatchStartIdx, WarpTId, TypedSharedMem[WarpTId * BatchSize], BatchSize, NumItems);
 
       // Accumulate the shared memory results through shuffles.
-      int32_t Mask = NumWarps - 1;
-      reduceWarpImpl<Ty, IntTy>(&TypedDstPtr[BatchStartIdx],
-                                &TypedSharedMem[WarpTId * BatchSize], BatchSize,
-                                Op, ReduceInto, Atomically,
-                                Mask, /* Width */ -1);
+      if (WarpTId < NumWarps) {
+        reduceWarpImpl<Ty, IntTy>(&TypedDstPtr[BatchStartIdx],
+                                  &TypedSharedMem[WarpTId * BatchSize], BatchSize,
+                                  Op, ReduceInto, Atomically,
+                                  Mask, /* Width */ -1);
+      }
 
       //if (IsWarpLead)
       //printf("R %i\n", TypedDstPtr[BatchStartIdx]);
@@ -1466,7 +1470,7 @@ TYPE_DEDUCER(reduceTeam);
 
 template <typename Ty, typename IntTy>
 __attribute__((always_inline, flatten)) void
-reduceLeagueViaLargeBuffer(Ty *TypedDstPtr,
+reduceLeagueViaLargeBuffer(Ty *TypedDstPtr, Ty *TypedSrcPtr,
                            Ty *TypedLargeBuffer, uint32_t *CounterPtr,
                            int32_t BatchSize, RedOpTy Op,
                            ElementTypeTy ElementType, int32_t NumItems,
@@ -1477,15 +1481,13 @@ reduceLeagueViaLargeBuffer(Ty *TypedDstPtr,
   int32_t TId = mapping::getThreadIdInBlock();
   int32_t NumThreads = mapping::getBlockSize();
 
-#if 0
-  if (TId == 0 || TypedSrcPtrIsShared) {
+  if (TId == 0 && !TypedSrcPtrIsShared) {
     // Each team copies their result into the large buffer.
     int32_t NumThreads = mapping::getBlockSize();
-    int32_t Stride = TypedSrcPtrIsShared ? NumThreads : 1;
+    int32_t Stride = 1;
     for (int32_t i = TId; i < NumItems; i += Stride)
       TypedLargeBuffer[BlockId * NumItems + i] = TypedSrcPtr[i];
   }
-#endif
 
   // Ensure all update are done and visible to the other teams before we
   // increment the counter below.
@@ -1562,26 +1564,29 @@ reduceLeague(Ty *TypedDstPtr, Ty * TypedSrcPtr,
   int32_t NumParticipants = mapping::getBlockSize();
   bool ReduceWarpsFirst = Config.__choices & _REDUCE_WARP_FIRST;
 
+  bool UseSmallBuffer = Config.__choices & _REDUCE_LEAGUE_VIA_SYNCHRONIZED_SMALL_BUFFER;
+  bool UseLargeBuffer = Config.__choices & _REDUCE_LEAGUE_VIA_LARGE_BUFFER;
+
   // TODO: This is not setup yet.
   Ty *TypedTODO = reinterpret_cast<Ty *>(TODO);
-  Ty *TypedBuffer = NumItems == 1 ? TypedTODO : reinterpret_cast<Ty *>(Config.__buffer);
+  Ty *TypedBuffer = reinterpret_cast<Ty *>(Config.__buffer);
+  Ty *TypedIntermeditePtr = UseLargeBuffer ? (NumItems == 1 ? TypedTODO : TypedBuffer) : TypedSrcPtr;
 
-  reduceTeamImpl<Ty, IntTy>(TypedSrcPtr, TypedSrcPtr, BatchSize, Config.__op,
+  reduceTeamImpl<Ty, IntTy>(TypedIntermeditePtr, TypedSrcPtr, BatchSize, Config.__op,
                             Config.__element_type, NumItems, NumParticipants,
                             /* ReduceInto */ false,
                             /* Atomically */ false, ReduceWarpsFirst);
 
-  if (Config.__choices & _REDUCE_LEAGUE_VIA_SYNCHRONIZED_SMALL_BUFFER) {
+  if (UseSmallBuffer) {
     // assert(!(Config.__choices & _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET));
-  } else if (Config.__choices & _REDUCE_LEAGUE_VIA_LARGE_BUFFER) {
+  } else if (UseLargeBuffer) {
     // assert(!(Config.__choices & _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET));
-    __builtin_trap();
 
-    bool TypedSrcPtrIsShared = true; Config.__choices & _PRIVATE_BUFFER_IS_SHARED;
     uint32_t *CounterPtr = Config.__counter_ptr;
+    bool TypedSrcPtrIsShared = Config.__choices & _PRIVATE_BUFFER_IS_SHARED && NumItems > 1;
 
     reduceLeagueViaLargeBuffer<Ty, IntTy>(
-        TypedDstPtr, TypedBuffer, CounterPtr, BatchSize,
+        TypedDstPtr, TypedIntermeditePtr, TypedBuffer, CounterPtr, BatchSize,
         Config.__op, Config.__element_type, NumItems, TypedSrcPtrIsShared,
         ReduceWarpsFirst);
   } else {
@@ -1591,7 +1596,7 @@ reduceLeague(Ty *TypedDstPtr, Ty * TypedSrcPtr,
     if (Config.__choices & _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET)
       StartIdx = BlockId % NumItems;
 
-    reduceLeagueViaAtomics<Ty, IntTy>(TypedDstPtr, TypedSrcPtr, BatchSize,
+    reduceLeagueViaAtomics<Ty, IntTy>(TypedDstPtr, TypedIntermeditePtr, BatchSize,
                                       Config.__op, Config.__element_type,
                                       NumItems, StartIdx);
   }

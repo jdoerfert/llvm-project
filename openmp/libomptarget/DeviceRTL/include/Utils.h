@@ -23,6 +23,7 @@ namespace utils {
 /// is identified by \p Mask.
 uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane);
 
+uint64_t ballotSync(uint64_t Mask, uint32_t Predicate);
 uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t Delta, int32_t Width);
 uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta, int32_t Width);
 

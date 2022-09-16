@@ -32,6 +32,8 @@ __attribute__((weak, optnone, cold)) KEEP_ALIVE void keepAlive() {
 
 namespace impl {
 
+uint64_t ballotSync(uint64_t Mask, uint32_t Predicate);
+
 uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane);
 
 uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t LaneDelta,
@@ -87,6 +89,10 @@ uint64_t Pack(uint32_t LowBits, uint32_t HighBits) {
 ///{
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
 
+uint64_t ballotSync(uint64_t Mask, uint32_t Predicate){
+  __builtin_trap();
+}
+
 uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
   int Width = mapping::getWarpSize();
   int Self = mapping::getThreadIdInWarp();
@@ -119,6 +125,10 @@ uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t LaneDelta,
 #pragma omp begin declare variant match(                                       \
     device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
 
+uint64_t ballotSync(uint64_t Mask, uint32_t Predicate){
+  return __nvvm_vote_ballot_sync(Mask, Predicate);
+}
+
 uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
   return __nvvm_shfl_sync_idx_i32(Mask, Var, SrcLane, 0x1f);
 }
@@ -148,6 +158,10 @@ uint64_t utils::pack(uint32_t LowBits, uint32_t HighBits) {
 
 void utils::unpack(uint64_t Val, uint32_t &LowBits, uint32_t &HighBits) {
   impl::Unpack(Val, &LowBits, &HighBits);
+}
+
+uint64_t utils::ballotSync(uint64_t Mask, uint32_t Predicate) {
+  return impl::ballotSync(Mask, Predicate);
 }
 
 uint32_t utils::shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
