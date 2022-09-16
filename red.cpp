@@ -132,7 +132,7 @@ void reduce_host(int *A, int *r, int NumThreads, int NE, int Teams) {
   }
 }
 template <int NE>
-void reduce_old(int *A, int *r, int NumThreads, int Teams) {
+void reduce_old(double *A, double *r, int NumThreads, int Teams) {
   {
     Timer T(__PRETTY_FUNCTION__);
 #pragma omp target teams distribute parallel for reduction(+ : r[:NE]) num_teams(Teams) thread_limit(NumThreads)
@@ -143,7 +143,7 @@ void reduce_old(int *A, int *r, int NumThreads, int Teams) {
     }
   }
 }
-void reduce_old(int *A, int *r, int NumThreads, int NE, int Teams) {
+void reduce_old(double *A, double *r, int NumThreads, int NE, int Teams) {
   switch (NE) {
   case 1:
     return reduce_old<1>(A, r, NumThreads, Teams);
@@ -201,17 +201,17 @@ extern "C" void __llvm_omp_default_reduction_combine(
   _Pragma("omp begin declare target device_type(nohost)")                      \
                                                                                \
   static __llvm_omp_default_reduction_configuration_ty RITeamAddI32_##RC##_##BS##_##NE{                        \
-_LEAGUE, _PREALLOCATED_IN_PLACE, _ADD, _INT32,  __llvm_omp_default_reduction_choices(RC), 4, NE, BS, 0, &LeagueBuffer, &LeagueCounter, nullptr, nullptr};\
+_LEAGUE, _PREALLOCATED_IN_PLACE, _ADD, _DOUBLE,  __llvm_omp_default_reduction_choices(RC | _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET), 8, NE, BS, 0, &LeagueBuffer, &LeagueCounter, nullptr, nullptr};\
 \
   _Pragma("omp end declare target")                                            \
                                                                                \
-      void reduce_new_##RC##_##BS##_##NE(int *A, int *r, int NT,      \
+      void reduce_new_##RC##_##BS##_##NE(double *A, double *r, int NT,      \
                                          int Teams) {                          \
     {                                                                          \
       Timer T(__PRETTY_FUNCTION__);                                            \
       _Pragma("omp target teams num_teams(Teams) thread_limit(NT)") {          \
         _Pragma("omp parallel") {                                              \
-          int lr[NE]; \
+          double lr[NE]; \
           __llvm_omp_default_reduction sout { nullptr, r }; \
           __llvm_omp_default_reduction lodr { &RITeamAddI32_##RC##_##BS##_##NE, (void*)&lr[0] }; \
           __llvm_omp_default_reduction_init(&lodr, nullptr); \
@@ -361,10 +361,10 @@ REDUCTION_TEAM_ADD_I32(_REDUCE_WARP_FIRST, 16, 1024)
 #endif
 #endif
 
-void init(unsigned *A, unsigned *rold, unsigned *rnew,
+void init(double *A, double *rold, double *rnew,
           unsigned NE, unsigned MAXNE, unsigned Teams) {
   for (unsigned i = 0; i < NE; ++i) {
-    A[i] = i + 1;
+    A[i] = i + 1.3;
     rold[i] = rnew[i] = 0 * i;
   }
 
@@ -372,36 +372,36 @@ void init(unsigned *A, unsigned *rold, unsigned *rnew,
     A[i] = rold[i] = rnew[i] = -1;
   }
 }
-void compare(int *A, int *rold, int *rnew, int NE, int MAXNE) {
+void compare(double *A, double *rold, double *rnew, int NE, int MAXNE) {
   for (int i = 0; i < NE; ++i) {
     if (rold[i] != rnew[i])
-      printf("Unexpected difference rold[%i] = %i vs. rnew[%i] = %i\n", i,
+      printf("Unexpected difference rold[%i] = %f vs. rnew[%i] = %f\n", i,
              rold[i], i, rnew[i]);
   }
 
   for (int i = NE; i < MAXNE; ++i) {
     if (A[i] != -1)
-      printf("Unexpected value in suffix of A[%i] = %i\n", i, A[i]);
+      printf("Unexpected value in suffix of A[%i] = %f\n", i, A[i]);
     if (rold[i] != -1)
-      printf("Unexpected value in suffix of rold[%i] = %i\n", i, rold[i]);
+      printf("Unexpected value in suffix of rold[%i] = %f\n", i, rold[i]);
     if (rnew[i] != -1)
-      printf("Unexpected value in suffix of rnew[%i] = %i\n", i, rnew[i]);
+      printf("Unexpected value in suffix of rnew[%i] = %f\n", i, rnew[i]);
   }
 }
 
 void test(int argc, char **argv) {
-  int NT = 512;
+  int NT = 256;
   int Teams = argc > 1 ? atoi(argv[1]) : 1024;
 
   int MAXNE = 32768;
-  int *A = (int *)malloc(sizeof(int) * MAXNE);
-  int *rold = (int *)malloc(sizeof(int) * MAXNE);
-  int *rnew = (int *)malloc(sizeof(int) * MAXNE);
+  double *A = (double *)malloc(sizeof(double) * MAXNE);
+  double *rold = (double *)malloc(sizeof(double) * MAXNE);
+  double *rnew = (double *)malloc(sizeof(double) * MAXNE);
 
 #define REDUCEOLD(BS, NE)                                                      \
   if (BS == 1) {                                                               \
     int N = NE;                                                                \
-    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew,    \
+    init((double *)A, (double *)rold, (double *)rnew,    \
          NE, MAXNE, Teams);                                                    \
     _Pragma("omp target enter data map(to : A[:N], rold[:N])");                                              \
     reduce_old<NE>(A, rold, NT, Teams);                                    \
@@ -413,7 +413,7 @@ void test(int argc, char **argv) {
 #define REDUCENEW(RC, BS, NE)                                                  \
   {                                                                            \
     int N = NE;                                                                \
-    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew,    \
+    init((double *)A, (double *)rold, (double *)rnew,    \
          NE, MAXNE, Teams);                                                    \
     _Pragma("omp target enter data map(to : A[:N],  rnew[:N])");                                              \
     reduce_new_##RC##_##BS##_##NE(A, rnew, NT, Teams);                     \
@@ -425,7 +425,7 @@ void test(int argc, char **argv) {
 #define REDUCEVERIFY(RC, BS, NE)                                               \
   {                                                                            \
     int N = NE;                                                                \
-    init((unsigned *)A, (unsigned *)rold, (unsigned *)rnew,    \
+    init((double *)A, (double *)rold, (double *)rnew,    \
          NE, MAXNE, Teams);                                                    \
     _Pragma("omp target enter data map(to : A[:N], rold[:N], rnew[:N])");                                              \
     reduce_new_##RC##_##BS##_##NE(A, rnew, NT, Teams);                     \
@@ -472,9 +472,9 @@ void test(int argc, char **argv) {
   // REDUCE(1, 128)
   // REDUCE(1, 256)
   //REDUCE(1, 512)
-  REDUCE(1, 1024)
+  //REDUCE(1, 1024)
   // REDUCE(1, 2048)
-   REDUCE(1, 4096)
+   //REDUCE(1, 4096)
    //REDUCE(1, 16384)
    //REDUCE(1, 32768)
 #endif
@@ -531,10 +531,10 @@ void test(int argc, char **argv) {
   // REDUCE(16, 64)
   // REDUCE(16, 128)
   //REDUCE(16, 512)
-  REDUCE(16, 1024)
+  //REDUCE(16, 1024)
 
 // REDUCE(16, 2048)
- REDUCE(16, 4096)
+ //REDUCE(16, 4096)
 // REDUCE(16, 8192)
  //REDUCE(16, 16384)
  //REDUCE(16, 32768)

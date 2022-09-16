@@ -144,8 +144,8 @@ uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t LaneDelta,
                     int32_t Width) {
   uint32_t lo, hi;
   utils::unpack(Var, lo, hi);
-  hi = shuffleDown(lanes::All, hi, LaneDelta, Width);
-  lo = shuffleDown(lanes::All, lo, LaneDelta, Width);
+  hi = shuffleDown(Mask, hi, LaneDelta, Width);
+  lo = shuffleDown(Mask, lo, LaneDelta, Width);
   return utils::pack(lo, hi);
 }
 

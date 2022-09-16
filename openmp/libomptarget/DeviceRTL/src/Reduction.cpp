@@ -1241,7 +1241,7 @@ template <typename Ty, typename IntTy>
 __attribute__((always_inline)) void
 reduceWarpImpl(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpTy Op,
                bool ReduceInto = true, bool Atomically = false,
-               int32_t Mask = lanes::All, int32_t Width = -1) {
+               uint64_t Mask = lanes::All, int32_t Width = -1) {
   static_assert(sizeof(Ty) == sizeof(IntTy),
                 "Type and integer type need to match in size!");
 
@@ -1266,12 +1266,14 @@ reduceWarpImpl(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpTy Op,
       // First we treat the values as IntTy to do the shuffle.
       IntTy IntTypedShuffleVal =
           utils::shuffleDown(Mask, IntTypedAcc[i], Delta, Width);
+      //if (WarpTId == 0)
+        //printf("%i :: D %i :: %lf [%li]\n", WarpTId, Delta, TypedAcc[i], IntTypedShuffleVal);
 
       // Now we convert into Ty to do the reduce.
       Ty TypedShuffleVal = *reinterpret_cast<Ty *>(&IntTypedShuffleVal);
       reduceValues<Ty, IntTy>(&TypedAcc[i], TypedShuffleVal, Op);
       //if (WarpTId == 0)
-        //printf("%i :: D %i :: %i [%i]\n", WarpTId, Delta, TypedAcc[i], TypedShuffleVal);
+        //printf("%i :: D %i :: %lf [%lf]\n", WarpTId, Delta, TypedAcc[i], TypedShuffleVal);
     }
   } while (Delta > 1);
 
@@ -1367,7 +1369,7 @@ reduceTeamImplHelper(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpT
   int32_t IsWarpLead = WarpTId == 0;
 
   int32_t BatchStartIdx = 0;
-  int32_t Mask = utils::ballotSync(lanes::All, WarpTId < NumWarps);
+  uint64_t Mask = utils::ballotSync(lanes::All, WarpTId < NumWarps);
 
   do {
     if (IsWarpLead) {
@@ -1561,6 +1563,16 @@ reduceLeague(Ty *TypedDstPtr, Ty * TypedSrcPtr,
 
   int32_t NumItems = Config.__num_items;
   int32_t BatchSize = Config.__batch_size;
+
+  if (Config.__choices & _REDUCE_ATOMICALLY_AFTER_WARP) {
+    for (int32_t i = 0; i < NumItems; i += BatchSize)
+      reduceWarpImpl<Ty, IntTy>(&TypedDstPtr[i], &TypedSrcPtr[i],
+                                BatchSize, Config.__op,
+                                /* ReduceInto */ true,
+                                /* Atomically */ true);
+    return;
+  }
+
   int32_t NumParticipants = mapping::getBlockSize();
   bool ReduceWarpsFirst = Config.__choices & _REDUCE_WARP_FIRST;
 
