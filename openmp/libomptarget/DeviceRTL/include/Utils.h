@@ -21,10 +21,17 @@ namespace utils {
 
 /// Return the value \p Var from thread Id \p SrcLane in the warp if the thread
 /// is identified by \p Mask.
-int32_t shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane);
+uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane);
 
-int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t Delta, int32_t Width);
-int64_t shuffleDown(uint64_t Mask, int64_t Var, uint32_t Delta, int32_t Width);
+uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t Delta, int32_t Width);
+uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta, int32_t Width);
+
+inline uint8_t shuffleDown(uint64_t Mask, uint8_t Var, uint32_t Delta, int32_t Width) {
+  return shuffleDown(Mask, uint32_t(Var), Delta, Width);
+}
+inline uint16_t shuffleDown(uint64_t Mask, uint16_t Var, uint32_t Delta, int32_t Width) {
+  return shuffleDown(Mask, uint32_t(Var), Delta, Width);
+}
 
 /// Return \p LowBits and \p HighBits packed into a single 64 bit value.
 uint64_t pack(uint32_t LowBits, uint32_t HighBits);

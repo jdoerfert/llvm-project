@@ -32,6 +32,13 @@ __attribute__((weak, optnone, cold)) KEEP_ALIVE void keepAlive() {
 
 namespace impl {
 
+uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane);
+
+uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t LaneDelta,
+                    int32_t Width);
+uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t LaneDelta,
+                    int32_t Width);
+
 void Unpack(uint64_t Val, uint32_t *LowBits, uint32_t *HighBits);
 uint64_t Pack(uint32_t LowBits, uint32_t HighBits);
 
@@ -75,31 +82,19 @@ uint64_t Pack(uint32_t LowBits, uint32_t HighBits) {
 
 #pragma omp end declare variant
 
-int32_t shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane);
-int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t LaneDelta,
-                    int32_t Width);
-int64_t shuffleDown(uint64_t Mask, int64_t Var, uint32_t LaneDelta,
-                    int32_t Width) {
-  uint32_t lo, hi;
-  utils::unpack(Var, lo, hi);
-  hi = shuffleDown(lanes::All, hi, LaneDelta, Width);
-  lo = shuffleDown(lanes::All, lo, LaneDelta, Width);
-  return utils::pack(lo, hi);
-}
-
 /// AMDGCN Implementation
 ///
 ///{
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
 
-int32_t shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane) {
+uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
   int Width = mapping::getWarpSize();
   int Self = mapping::getThreadIdInWarp();
   int Index = SrcLane + (Self & ~(Width - 1));
   return __builtin_amdgcn_ds_bpermute(Index << 2, Var);
 }
 
-int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t LaneDelta,
+uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t LaneDelta,
                     int32_t Width) {
   int Self = mapping::getThreadIdInWarp();
   int Index = Self + LaneDelta;
@@ -107,7 +102,7 @@ int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t LaneDelta,
   return __builtin_amdgcn_ds_bpermute(Index << 2, Var);
 }
 
-int64_t shuffleDown(uint64_t Mask, int64_t Var, uint32_t LaneDelta,
+uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t LaneDelta,
                     int32_t Width) {
   int Self = mapping::getThreadIdInWarp();
   int Index = Self + LaneDelta;
@@ -124,16 +119,27 @@ int64_t shuffleDown(uint64_t Mask, int64_t Var, uint32_t LaneDelta,
 #pragma omp begin declare variant match(                                       \
     device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
 
-int32_t shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane) {
+uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
   return __nvvm_shfl_sync_idx_i32(Mask, Var, SrcLane, 0x1f);
 }
 
-int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t Delta, int32_t Width) {
+uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta, int32_t Width) {
   int32_t T = ((mapping::getWarpSize() - Width) << 8) | 0x1f;
   return __nvvm_shfl_sync_down_i32(Mask, Var, Delta, T);
 }
 
 #pragma omp end declare variant
+
+uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t LaneDelta,
+                    int32_t Width) {
+  uint32_t lo, hi;
+  utils::unpack(Var, lo, hi);
+  hi = shuffleDown(lanes::All, hi, LaneDelta, Width);
+  lo = shuffleDown(lanes::All, lo, LaneDelta, Width);
+  return utils::pack(lo, hi);
+}
+
+
 } // namespace impl
 
 uint64_t utils::pack(uint32_t LowBits, uint32_t HighBits) {
@@ -144,22 +150,27 @@ void utils::unpack(uint64_t Val, uint32_t &LowBits, uint32_t &HighBits) {
   impl::Unpack(Val, &LowBits, &HighBits);
 }
 
-int32_t utils::shuffle(uint64_t Mask, int32_t Var, int32_t SrcLane) {
+uint32_t utils::shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane) {
   return impl::shuffle(Mask, Var, SrcLane);
 }
 
-int32_t utils::shuffleDown(uint64_t Mask, int32_t Var, uint32_t Delta,
+uint32_t utils::shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta,
+                           int32_t Width) {
+  return impl::shuffleDown(Mask, Var, Delta, Width);
+}
+uint64_t utils::shuffleDown(uint64_t Mask, uint64_t Var, uint32_t Delta,
                            int32_t Width) {
   return impl::shuffleDown(Mask, Var, Delta, Width);
 }
 
+
 extern "C" {
-int32_t __kmpc_shuffle_int32(int32_t Val, int16_t Delta, int16_t SrcLane) {
+uint32_t __kmpc_shuffle_int32(uint32_t Val, int16_t Delta, int16_t SrcLane) {
   FunctionTracingRAII();
   return impl::shuffleDown(lanes::All, Val, Delta, SrcLane);
 }
 
-int64_t __kmpc_shuffle_int64(int64_t Val, int16_t Delta, int16_t Width) {
+uint64_t __kmpc_shuffle_int64(uint64_t Val, int16_t Delta, int16_t Width) {
   FunctionTracingRAII();
   return impl::shuffleDown(lanes::All, Val, Delta, Width);
 }

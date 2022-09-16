@@ -44,6 +44,30 @@ static_assert(sizeof(int64_t) == 8, "type size mismatch");
 static_assert(sizeof(uint64_t) == 8, "type size mismatch");
 ///}
 
+#define SCHAR_MAX (1<<7) -1
+#define SHRT_MAX  (1<<15) -1
+#define INT_MAX   (1L<<31) -1
+#define LONG_MAX  (1UL<<63) -1
+
+#define SCHAR_MIN (-__SCHAR_MAX__-1)
+#define SHRT_MIN  (-__SHRT_MAX__ -1)
+#define INT_MIN   (-__INT_MAX__  -1)
+#define LONG_MIN  (-__LONG_MAX__ -1L)
+
+#define UCHAR_MAX (__SCHAR_MAX__*2  +1)
+#define USHRT_MAX (__SHRT_MAX__ *2  +1)
+#define UINT_MAX  (__INT_MAX__  *2U +1U)
+#define ULONG_MAX (__LONG_MAX__ *2UL+1UL)
+
+#define FLT_MIN __FLT_MIN__
+#define DBL_MIN __DBL_MIN__
+#define LDBL_MIN __LDBL_MIN__
+
+#define FLT_MAX __FLT_MAX__
+#define DBL_MAX __DBL_MAX__
+#define LDBL_MAX __LDBL_MAX__
+
+
 enum omp_proc_bind_t {
   omp_proc_bind_false = 0,
   omp_proc_bind_true = 1,

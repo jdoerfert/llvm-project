@@ -355,27 +355,27 @@ uint32_t atomic::inc(uint32_t *Addr, uint32_t V, int Ordering) {
   return impl::atomicInc(Addr, V, Ordering);
 }
 
-#define ATOMIC_FP_OP(TY)
-TY atomic::add(TY *Addr, TY V, int Ordering) {
-  return impl::atomicAdd(Addr, V, Ordering);
+#define ATOMIC_FP_OP(TY)\
+TY atomic::add(TY *Addr, TY V, int Ordering) { \
+  return impl::atomicAdd(Addr, V, Ordering); \
 }
 
-#define ATOMIC_OP(TY)
-ATOMIC_FP_OP(TY)
-TY atomic::bit_or(TY *Addr, TY V, int Ordering) {
-  return impl::atomicOr(Addr, V, Ordering);
-}
-TY atomic : bit_and(TY *Addr, TY V, int Ordering) {
-  return impl::atomicAnd(Addr, V, Ordering);
-}
-TY atomic::bit_xor(TY *Addr, TY V, int Ordering) {
-  return impl::atomicXOr(Addr, V, Ordering);
-}
-TY atomic::min(TY *Addr, TY V, int Ordering) {
-  return impl::atomicAin(Addr, V, Ordering);
-}
-TY atomic::max(TY *Addr, TY V, int Ordering) {
-  return impl::atomicMax(Addr, V, Ordering);
+#define ATOMIC_OP(TY) \
+ATOMIC_FP_OP(TY)\
+TY atomic::bit_or(TY *Addr, TY V, int Ordering) {\
+  return impl::atomicOr(Addr, V, Ordering);\
+}\
+TY atomic::bit_and(TY *Addr, TY V, int Ordering) {\
+  return impl::atomicAnd(Addr, V, Ordering);\
+}\
+TY atomic::bit_xor(TY *Addr, TY V, int Ordering) {\
+  return impl::atomicXOr(Addr, V, Ordering);\
+}\
+TY atomic::min(TY *Addr, TY V, int Ordering) {\
+  return impl::atomicMin(Addr, V, Ordering);\
+}\
+TY atomic::max(TY *Addr, TY V, int Ordering) {\
+  return impl::atomicMax(Addr, V, Ordering);\
 }
 
 ATOMIC_OP(int8_t)
