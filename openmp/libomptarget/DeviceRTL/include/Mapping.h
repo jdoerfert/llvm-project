@@ -92,7 +92,14 @@ uint32_t getNumberOfBlocks();
 /// Return the kernel size, thus number of threads in the kernel.
 uint32_t getKernelSize();
 
+/// Return the processor Id, in [0, getNumProcessors()).
+uint32_t getProcessorId();
+
+/// Return the number of processors (e.g., SMs).
+uint32_t getNumProcessors();
+
 /// Return the number of processing elements on the device.
+/// TODO: We should rename this to avoid confusion with getProcessorId().
 uint32_t getNumberOfProcessorElements();
 
 } // namespace mapping

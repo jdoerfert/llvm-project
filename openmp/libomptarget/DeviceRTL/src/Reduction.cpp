@@ -975,8 +975,10 @@ enum __llvm_omp_default_reduction_choices : int32_t {
   _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET = 1 << 3,
   _REDUCE_LEAGUE_VIA_LARGE_BUFFER = 1 << 4,
   _REDUCE_LEAGUE_VIA_SYNCHRONIZED_SMALL_BUFFER = 1 << 5,
+  _REDUCE_LEAGUE_VIA_PROCESSOR_IDX = 1 << 6,
+  _REDUCE_LEAGUE_VIA_PROCESSOR_IDX_BATCHED = 1 << 7,
 
-  _PRIVATE_BUFFER_IS_SHARED = 1 << 6,
+  _PRIVATE_BUFFER_IS_SHARED = 1 << 7,
 };
 
 /// TODO
@@ -1009,12 +1011,12 @@ typedef void(__llvm_omp_reduction_initializer_fn_ty)(void *);
 // TODO: We tried to avoid including system headers in the device runtime.
 //       Rethink if we want to do that now.
 
-_INITIALIZERS(char   , int8   , 1   , SCHAR_MIN , SCHAR_MAX)
-_INITIALIZERS(short  , int16  , 1   , SHRT_MIN , SHRT_MAX)
-_INITIALIZERS(int    , int32  , 1   , INT_MIN  , INT_MAX)
-_INITIALIZERS(long   , int64  , 1   , LONG_MIN , LONG_MAX)
-_INITIALIZERS(float  , float  , 1.f , FLT_MIN  , FLT_MAX)
-_INITIALIZERS(double , double , 1.  , DBL_MIN  , DBL_MAX)
+_INITIALIZERS(char, int8, 1, SCHAR_MIN, SCHAR_MAX)
+_INITIALIZERS(short, int16, 1, SHRT_MIN, SHRT_MAX)
+_INITIALIZERS(int, int32, 1, INT_MIN, INT_MAX)
+_INITIALIZERS(long, int64, 1, LONG_MIN, LONG_MAX)
+_INITIALIZERS(float, float, 1.f, FLT_MIN, FLT_MAX)
+_INITIALIZERS(double, double, 1., DBL_MIN, DBL_MAX)
 
 #undef _INITIALIZERS
 
@@ -1073,7 +1075,10 @@ struct __llvm_omp_default_reduction_configuration_ty {
   int32_t __num_participants;
 
   void *__buffer;
-  uint32_t *__counter_ptr;
+
+  // Counters need to be initialized prior to the reduction to 0.
+  uint32_t *__counter1_ptr;
+  uint32_t *__counter2_ptr;
 
   __llvm_omp_reduction_allocator_fn_ty *__allocator_fn;
   __llvm_omp_reduction_initializer_fn_ty *__initializer_fn;
@@ -1123,6 +1128,7 @@ using ElementTypeTy = __llvm_omp_reduction_element_type;
                                                                                \
     switch (Config.__element_type) {                                           \
     case _INT8:                                                                \
+
       return FN_NAME<int8_t, int8_t>(reinterpret_cast<int8_t *>(DstPtr),       \
                                      reinterpret_cast<int8_t *>(SrcPtr),       \
                                      Config);                                  \
@@ -1146,6 +1152,10 @@ using ElementTypeTy = __llvm_omp_reduction_element_type;
       return FN_NAME<double, int64_t>(reinterpret_cast<double *>(DstPtr),      \
                                       reinterpret_cast<double *>(SrcPtr),      \
                                       Config);                                 \
+    case _DOUBLE:                                                              \
+      return FN_NAME<double, uint64_t>(reinterpret_cast<double *>(DstPtr),     \
+                                       reinterpret_cast<double *>(SrcPtr),     \
+                                       Config);                                \
     case _CUSTOM_TYPE:                                                         \
       __builtin_trap();                                                        \
       break;                                                                   \
@@ -1203,25 +1213,25 @@ __attribute__((always_inline)) void reduceAtomically(Ty *LHSPtr, Ty RHS,
     atomic::add(LHSPtr, -RHS, __ATOMIC_SEQ_CST);
     return;
   case _BIT_OR:
-    atomic::bit_or((IntTy*)LHSPtr, RHS, __ATOMIC_SEQ_CST);
+    atomic::bit_or((IntTy *)LHSPtr, RHS, __ATOMIC_SEQ_CST);
     return;
   case _BIT_XOR:
-    atomic::bit_xor((IntTy*)LHSPtr, RHS, __ATOMIC_SEQ_CST);
+    atomic::bit_xor((IntTy *)LHSPtr, RHS, __ATOMIC_SEQ_CST);
     return;
   case _LOGIC_OR:
     break;
   case _BIT_AND:
-    atomic::bit_and((IntTy*)LHSPtr, RHS, __ATOMIC_SEQ_CST);
+    atomic::bit_and((IntTy *)LHSPtr, RHS, __ATOMIC_SEQ_CST);
     return;
   case _MUL:
     break;
   case _LOGIC_AND:
     break;
   case _MAX:
-    atomic::max((IntTy*)LHSPtr, RHS, __ATOMIC_SEQ_CST);
+    atomic::max((IntTy *)LHSPtr, RHS, __ATOMIC_SEQ_CST);
     return;
   case _MIN:
-    atomic::min((IntTy*)LHSPtr, RHS, __ATOMIC_SEQ_CST);
+    atomic::min((IntTy *)LHSPtr, RHS, __ATOMIC_SEQ_CST);
     return;
   case _CUSTOM_OP:
     // return Config.__reducer_fn(LHSPtr, RHS);
@@ -1258,22 +1268,24 @@ reduceWarpImpl(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpTy Op,
   int32_t Delta = WarpSize;
   int32_t WarpTId = mapping::getThreadIdInWarp();
 
-  //if (WarpTId == 0)
-    //printf("Mask: %i, Width: %i, Delta: %i\n", Mask, Width, Delta);
+  // if (WarpTId == 0)
+  // printf("Mask: %i, Width: %i, Delta: %i\n", Mask, Width, Delta);
   do {
     Delta /= 2;
     for (int32_t i = 0; i < BatchSize; ++i) {
       // First we treat the values as IntTy to do the shuffle.
       IntTy IntTypedShuffleVal =
           utils::shuffleDown(Mask, IntTypedAcc[i], Delta, Width);
-      //if (WarpTId == 0)
-        //printf("%i :: D %i :: %lf [%li]\n", WarpTId, Delta, TypedAcc[i], IntTypedShuffleVal);
+      // if (WarpTId == 0)
+      // printf("%i :: D %i :: %lf [%li]\n", WarpTId, Delta, TypedAcc[i],
+      // IntTypedShuffleVal);
 
       // Now we convert into Ty to do the reduce.
       Ty TypedShuffleVal = *reinterpret_cast<Ty *>(&IntTypedShuffleVal);
       reduceValues<Ty, IntTy>(&TypedAcc[i], TypedShuffleVal, Op);
-      //if (WarpTId == 0)
-        //printf("%i :: D %i :: %lf [%lf]\n", WarpTId, Delta, TypedAcc[i], TypedShuffleVal);
+      // if (WarpTId == 0)
+      // printf("%i :: D %i :: %lf [%lf]\n", WarpTId, Delta, TypedAcc[i],
+      // TypedShuffleVal);
     }
   } while (Delta > 1);
 
@@ -1292,7 +1304,7 @@ reduceWarpImpl(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpTy Op,
       if (ReduceInto) {
         reduceValues<Ty, IntTy>(&TypedDstPtr[i], TypedAcc[i], Op);
       } else {
-        //printf("<- %i\n", TypedAcc[i]);
+        // printf("<- %i\n", TypedAcc[i]);
         TypedDstPtr[i] = TypedAcc[i];
       }
     }
@@ -1335,10 +1347,10 @@ static_assert(MaxDataTypeSize >= sizeof(double) &&
 ///
 template <typename Ty, typename IntTy>
 __attribute__((always_inline, flatten)) void
-reduceTeamImplHelper(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpTy Op,
-               ElementTypeTy ElementType, int32_t NumItems,
-               int32_t NumParticipants, bool ReduceInto = true,
-               bool Atomically = false, bool ReduceWarpsFirst = false) {
+reduceTeamImplHelper(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize,
+                     RedOpTy Op, ElementTypeTy ElementType, int32_t NumItems,
+                     int32_t NumParticipants, bool ReduceInto = true,
+                     bool Atomically = false, bool ReduceWarpsFirst = false) {
   // assert (!(Config.__choices & _REDUCE_ATOMICALLY_AFTER_WARP));
 
   if (ReduceWarpsFirst) {
@@ -1383,22 +1395,22 @@ reduceTeamImplHelper(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpT
     // The first warp performs the final reduction and stores away the result.
     if (WarpId == 0) {
 
-      //if (IsWarpLead)
-      //printf("R %i (RI %i)\n", TypedDstPtr[BatchStartIdx], ReduceInto);
-      // assert(NumWarps <= WarpSize);
-      //if (WarpTId < NumWarps)
-        //printf("B %i, SM[%i] = %i (%i,%i)\n", BatchStartIdx, WarpTId, TypedSharedMem[WarpTId * BatchSize], BatchSize, NumItems);
+      // if (IsWarpLead)
+      // printf("R %i (RI %i)\n", TypedDstPtr[BatchStartIdx], ReduceInto);
+      //  assert(NumWarps <= WarpSize);
+      // if (WarpTId < NumWarps)
+      // printf("B %i, SM[%i] = %i (%i,%i)\n", BatchStartIdx, WarpTId,
+      // TypedSharedMem[WarpTId * BatchSize], BatchSize, NumItems);
 
       // Accumulate the shared memory results through shuffles.
       if (WarpTId < NumWarps) {
-        reduceWarpImpl<Ty, IntTy>(&TypedDstPtr[BatchStartIdx],
-                                  &TypedSharedMem[WarpTId * BatchSize], BatchSize,
-                                  Op, ReduceInto, Atomically,
-                                  Mask, /* Width */ -1);
+        reduceWarpImpl<Ty, IntTy>(
+            &TypedDstPtr[BatchStartIdx], &TypedSharedMem[WarpTId * BatchSize],
+            BatchSize, Op, ReduceInto, Atomically, Mask, /* Width */ -1);
       }
 
-      //if (IsWarpLead)
-      //printf("R %i\n", TypedDstPtr[BatchStartIdx]);
+      // if (IsWarpLead)
+      // printf("R %i\n", TypedDstPtr[BatchStartIdx]);
     }
 
     if (!ReduceWarpsFirst)
@@ -1420,14 +1432,14 @@ reduceTeamImpl(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize, RedOpTy Op,
   // Warps first will reduce all waprs in a single call while we otherwise do
   // one warp at a time.
   if (ReduceWarpsFirst) {
-    reduceTeamImplHelper<Ty, IntTy>(
-        TypedDstPtr, TypedSrcPtr, BatchSize, Op, ElementType, NumItems, NumParticipants,
-        ReduceInto, Atomically, ReduceWarpsFirst);
+    reduceTeamImplHelper<Ty, IntTy>(TypedDstPtr, TypedSrcPtr, BatchSize, Op,
+                                    ElementType, NumItems, NumParticipants,
+                                    ReduceInto, Atomically, ReduceWarpsFirst);
   } else {
     for (int32_t i = 0; i < NumItems; i += BatchSize) {
       reduceTeamImplHelper<Ty, IntTy>(
-          &TypedDstPtr[i], &TypedSrcPtr[i], BatchSize, Op, ElementType, NumItems, NumParticipants,
-          ReduceInto, Atomically, ReduceWarpsFirst);
+          &TypedDstPtr[i], &TypedSrcPtr[i], BatchSize, Op, ElementType,
+          NumItems, NumParticipants, ReduceInto, Atomically, ReduceWarpsFirst);
     }
   }
 }
@@ -1469,6 +1481,117 @@ TYPE_DEDUCER(reduceTeam);
 /// LEAGUE methods
 ///{
 ///
+
+template <typename Ty, typename IntTy>
+__attribute__((always_inline, flatten)) void reduceLeagueViaSmallBuffer(
+    Ty *TypedDstPtr, Ty *TypedSrcPtr, Ty *TypedSmallBuffer,
+    uint32_t *ArrivalCounterPtr, uint32_t *DepartureCounterPtr,
+    int32_t BatchSize, RedOpTy Op, ElementTypeTy ElementType, int32_t NumItems,
+    bool TypedSrcPtrIsShared, bool ReduceWarpsFirst) {
+
+  int32_t NumBlocks = mapping::getNumberOfBlocks();
+  int32_t BlockId = mapping::getBlockId();
+  int32_t TId = mapping::getThreadIdInBlock();
+  int32_t NumThreads = mapping::getBlockSize();
+  int32_t ProcessorId = mapping::getProcessorId();
+  int32_t NumProcessors = mapping::getNumProcessors();
+
+  static uint32_t SHARED(ArrivalCounterValueForTeam);
+  static uint32_t SHARED(DepartureCounterValueForTeam);
+
+  //  TODO Init TypedBuffer in __llvm_omp_default_reduction_init
+
+  if (TId == 0)
+    ArrivalCounterValueForTeam =
+        atomic::inc(ArrivalCounterPtr, NumBlocks - 1, __ATOMIC_SEQ_CST);
+
+  synchronize::threads();
+
+  if (ArrivalCounterValueForTeam > ProcessorId) {
+    do {
+      DepartureCounterValueForTeam =
+          atomic::load(DepartureCounterPtr, __ATOMIC_SEQ_CST);
+
+      synchronize::threads();
+      if (DepartureCounterValueForTeam + NumProcessors <=
+          ArrivalCounterValueForTeam)
+        break;
+
+      // nanosleep/break
+
+    } while (true);
+  }
+
+  for (int i = TId; i < NumItems; ++i)
+    reduceValues<Ty, IntTy>(&TypedSmallBuffer[ProcessorId * NumItems + i],
+                            TypedSrcPtr[i], Op);
+
+  fence::system(__ATOMIC_SEQ_CST);
+
+  synchronize::threads();
+
+  if (ArrivalCounterValueForTeam != NumBlocks - 1) {
+    if (TId == 0)
+      atomic::inc(DepartureCounterPtr, NumBlocks - 1, __ATOMIC_SEQ_CST);
+    return;
+  }
+
+  uint64_t Mask = utils::ballotSync(lanes::All, TId < NumProcessors);
+  int32_t WarpStartIdx = 0;
+  do {
+
+    reduceWarpImpl<Ty, IntTy>(
+        &TypedDstPtr[WarpStartIdx],
+        &TypedSmallBuffer[ProcessorId * NumItems + WarpStartIdx], BatchSize, Op,
+        /* ReduceInto */ true, /* Atomically */ false, Mask);
+
+    WarpStartIdx += BatchSize;
+
+  } while (WarpStartIdx < NumItems);
+}
+
+template <typename Ty, typename IntTy>
+__attribute__((always_inline, flatten)) void reduceLeagueViaProcessorIdx(
+    Ty *TypedDstPtr, Ty *TypedSrcPtr, Ty *TypedBuffer, int32_t BatchSize,
+    RedOpTy Op, ElementTypeTy ElementType, int32_t NumItems, bool Batched) {
+
+  synchronize::threads();
+
+  uint32_t WarpId = mapping::getWarpId();
+  int32_t TId = mapping::getThreadIdInBlock();
+  int32_t NumThreads = mapping::getBlockSize();
+  int32_t ProcessorId = mapping::getProcessorId();
+  int32_t NumProcessors = mapping::getNumProcessors();
+  uint64_t Mask = utils::ballotSync(lanes::All, TId < NumProcessors);
+
+  // assert(NumProcessors < mapping::getWarpSize());
+  //  TODO Init TypedBuffer in __llvm_omp_default_reduction_init
+
+  int32_t GroupSize = Batched ? BatchSize : NumItems;
+  int32_t BatchStartIdx = 0;
+  do {
+    for (int i = TId; i < GroupSize; ++i)
+      reduceValues<Ty, IntTy>(&TypedBuffer[ProcessorId * GroupSize + i],
+                              TypedSrcPtr[BatchStartIdx + i], Op);
+
+    if (WarpId == 0) {
+      int32_t WarpStartIdx = 0;
+
+      do {
+
+        reduceWarpImpl<Ty, IntTy>(
+            &TypedDstPtr[WarpStartIdx],
+            &TypedBuffer[ProcessorId * GroupSize + WarpStartIdx], BatchSize, Op,
+            /* ReduceInto */ true, /* Atomically */ false, Mask);
+
+        WarpStartIdx += BatchSize;
+
+      } while (WarpStartIdx < GroupSize);
+    }
+
+    BatchStartIdx += GroupSize;
+  } while (BatchStartIdx < NumItems);
+}
 
 template <typename Ty, typename IntTy>
 __attribute__((always_inline, flatten)) void
@@ -1548,16 +1671,13 @@ reduceLeagueViaAtomics(Ty *TypedDstPtr, Ty *TypedSrcPtr, int32_t BatchSize,
   }
 }
 
-
-[[clang::loader_uninitialized]] static char
-    TODO[MaxBatchSize * MaxDataTypeSize]
+[[clang::loader_uninitialized]] static char TODO[MaxBatchSize * MaxDataTypeSize]
     __attribute__((aligned(64)));
 #pragma omp allocate(TODO) allocator(omp_pteam_mem_alloc)
 
 template <typename Ty, typename IntTy>
 __attribute__((always_inline, flatten)) void
-reduceLeague(Ty *TypedDstPtr, Ty * TypedSrcPtr,
-             RedConfigTy &Config) {
+reduceLeague(Ty *TypedDstPtr, Ty *TypedSrcPtr, RedConfigTy &Config) {
 
   // assert(Config.__num_participants == 0);
 
@@ -1566,8 +1686,8 @@ reduceLeague(Ty *TypedDstPtr, Ty * TypedSrcPtr,
 
   if (Config.__choices & _REDUCE_ATOMICALLY_AFTER_WARP) {
     for (int32_t i = 0; i < NumItems; i += BatchSize)
-      reduceWarpImpl<Ty, IntTy>(&TypedDstPtr[i], &TypedSrcPtr[i],
-                                BatchSize, Config.__op,
+      reduceWarpImpl<Ty, IntTy>(&TypedDstPtr[i], &TypedSrcPtr[i], BatchSize,
+                                Config.__op,
                                 /* ReduceInto */ true,
                                 /* Atomically */ true);
     return;
@@ -1576,26 +1696,51 @@ reduceLeague(Ty *TypedDstPtr, Ty * TypedSrcPtr,
   int32_t NumParticipants = mapping::getBlockSize();
   bool ReduceWarpsFirst = Config.__choices & _REDUCE_WARP_FIRST;
 
-  bool UseSmallBuffer = Config.__choices & _REDUCE_LEAGUE_VIA_SYNCHRONIZED_SMALL_BUFFER;
+  bool UseProcessorIdx =
+      Config.__choices & _REDUCE_LEAGUE_VIA_PROCESSOR_IDX ||
+      Config.__choices & _REDUCE_LEAGUE_VIA_PROCESSOR_IDX_BATCHED;
+  bool UseSmallBuffer =
+      Config.__choices & _REDUCE_LEAGUE_VIA_SYNCHRONIZED_SMALL_BUFFER;
   bool UseLargeBuffer = Config.__choices & _REDUCE_LEAGUE_VIA_LARGE_BUFFER;
 
   // TODO: This is not setup yet.
   Ty *TypedTODO = reinterpret_cast<Ty *>(TODO);
   Ty *TypedBuffer = reinterpret_cast<Ty *>(Config.__buffer);
-  Ty *TypedIntermeditePtr = UseLargeBuffer ? (NumItems == 1 ? TypedTODO : TypedBuffer) : TypedSrcPtr;
+  Ty *TypedIntermeditePtr =
+      UseLargeBuffer ? (NumItems == 1 ? TypedTODO : TypedBuffer) : TypedSrcPtr;
 
-  reduceTeamImpl<Ty, IntTy>(TypedIntermeditePtr, TypedSrcPtr, BatchSize, Config.__op,
-                            Config.__element_type, NumItems, NumParticipants,
+  reduceTeamImpl<Ty, IntTy>(TypedIntermeditePtr, TypedSrcPtr, BatchSize,
+                            Config.__op, Config.__element_type, NumItems,
+                            NumParticipants,
                             /* ReduceInto */ false,
                             /* Atomically */ false, ReduceWarpsFirst);
 
-  if (UseSmallBuffer) {
+  if (UseProcessorIdx) {
+
+    bool Batched = Config.__choices & _REDUCE_LEAGUE_VIA_PROCESSOR_IDX_BATCHED;
+    reduceLeagueViaProcessorIdx<Ty, IntTy>(
+        TypedDstPtr, TypedIntermeditePtr, TypedBuffer, BatchSize, Config.__op,
+        Config.__element_type, NumItems, Batched);
+
+  } else if (UseSmallBuffer) {
     // assert(!(Config.__choices & _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET));
+
+    uint32_t *ArrivalCounterPtr = Config.__counter1_ptr;
+    uint32_t *DepartureCounterPtr = Config.__counter2_ptr;
+    bool TypedSrcPtrIsShared =
+        Config.__choices & _PRIVATE_BUFFER_IS_SHARED && NumItems > 1;
+
+    reduceLeagueViaSmallBuffer<Ty, IntTy>(
+        TypedDstPtr, TypedIntermeditePtr, TypedBuffer, ArrivalCounterPtr,
+        DepartureCounterPtr, BatchSize, Config.__op, Config.__element_type,
+        NumItems, TypedSrcPtrIsShared, ReduceWarpsFirst);
+
   } else if (UseLargeBuffer) {
     // assert(!(Config.__choices & _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET));
 
-    uint32_t *CounterPtr = Config.__counter_ptr;
-    bool TypedSrcPtrIsShared = Config.__choices & _PRIVATE_BUFFER_IS_SHARED && NumItems > 1;
+    uint32_t *CounterPtr = Config.__counter1_ptr;
+    bool TypedSrcPtrIsShared =
+        Config.__choices & _PRIVATE_BUFFER_IS_SHARED && NumItems > 1;
 
     reduceLeagueViaLargeBuffer<Ty, IntTy>(
         TypedDstPtr, TypedIntermeditePtr, TypedBuffer, CounterPtr, BatchSize,
@@ -1608,9 +1753,9 @@ reduceLeague(Ty *TypedDstPtr, Ty * TypedSrcPtr,
     if (Config.__choices & _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET)
       StartIdx = BlockId % NumItems;
 
-    reduceLeagueViaAtomics<Ty, IntTy>(TypedDstPtr, TypedIntermeditePtr, BatchSize,
-                                      Config.__op, Config.__element_type,
-                                      NumItems, StartIdx);
+    reduceLeagueViaAtomics<Ty, IntTy>(
+        TypedDstPtr, TypedIntermeditePtr, BatchSize, Config.__op,
+        Config.__element_type, NumItems, StartIdx);
   }
 }
 
@@ -1624,8 +1769,8 @@ TYPE_DEDUCER(reduceLeague);
 } // namespace _OMP
 
 /// TODO
-__attribute__((flatten, always_inline))
-extern "C" void __llvm_omp_default_reduction_init(
+__attribute__((flatten, always_inline)) extern "C" void
+__llvm_omp_default_reduction_init(
     __llvm_omp_default_reduction *__restrict__ __private_copy,
     __llvm_omp_default_reduction *const __restrict__ __original_copy) {
 
@@ -1680,10 +1825,10 @@ extern "C" void __llvm_omp_default_reduction_init(
     break;
   };
 
-    // TODO asserts
-    //  ASSERT(__init_fn);
+  // TODO asserts
+  //  ASSERT(__init_fn);
 
-//#pragma clang loop vectorize(assume_safety)
+  //#pragma clang loop vectorize(assume_safety)
   for (int32_t __i = 0; __i < __config->__num_items; ++__i) {
     __init_fn(&__private_default_data[__i * __config->__item_size]);
   }
@@ -1728,8 +1873,8 @@ extern "C" void __llvm_omp_default_reduction_combine_league(
   _OMP::impl::reduceLeague(DstPtr, SrcPtr, *Config);
 }
 
-__attribute__((flatten, always_inline))
-extern "C" void __llvm_omp_default_reduction_combine(
+__attribute__((flatten, always_inline)) extern "C" void
+__llvm_omp_default_reduction_combine(
     __llvm_omp_default_reduction *__restrict__ __shared_out_copy,
     __llvm_omp_default_reduction *__restrict__ __private_copy) {
 

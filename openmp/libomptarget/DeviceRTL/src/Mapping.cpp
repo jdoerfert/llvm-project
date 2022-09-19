@@ -262,6 +262,12 @@ uint32_t mapping::getNumberOfBlocks() {
   return NumberOfBlocks;
 }
 
+uint32_t mapping::getProcessorId() {
+}
+
+uint32_t mapping::getNumProcessors() {
+}
+
 uint32_t mapping::getNumberOfProcessorElements() {
   uint32_t NumberOfProcessorElements = impl::getNumHardwareThreadsInBlock();
   ASSERT(impl::getThreadIdInBlock() < NumberOfProcessorElements);
