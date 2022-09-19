@@ -25,13 +25,22 @@ uint32_t shuffle(uint64_t Mask, uint32_t Var, int32_t SrcLane);
 
 uint64_t ballotSync(uint64_t Mask, uint32_t Predicate);
 uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t Delta, int32_t Width);
+int64_t shuffleDown(uint64_t Mask, int64_t Var, uint32_t Delta, int32_t Width);
 uint32_t shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta, int32_t Width);
+int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t Delta, int32_t Width);
 
 inline uint8_t shuffleDown(uint64_t Mask, uint8_t Var, uint32_t Delta, int32_t Width) {
   return shuffleDown(Mask, uint32_t(Var), Delta, Width);
 }
 inline uint16_t shuffleDown(uint64_t Mask, uint16_t Var, uint32_t Delta, int32_t Width) {
   return shuffleDown(Mask, uint32_t(Var), Delta, Width);
+}
+
+inline int8_t shuffleDown(uint64_t Mask, int8_t Var, uint32_t Delta, int32_t Width) {
+  return static_cast<int8_t>(shuffleDown(Mask, uint32_t(Var), Delta, Width));
+}
+inline int16_t shuffleDown(uint64_t Mask, int16_t Var, uint32_t Delta, int32_t Width) {
+  return static_cast<int32_t> (shuffleDown(Mask, uint32_t(Var), Delta, Width));
 }
 
 /// Return \p LowBits and \p HighBits packed into a single 64 bit value.

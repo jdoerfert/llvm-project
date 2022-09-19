@@ -1123,27 +1123,27 @@ using ElementTypeTy = __llvm_omp_reduction_element_type;
                                                                                \
     switch (Config.__element_type) {                                           \
     case _INT8:                                                                \
-      return FN_NAME<int8_t, uint8_t>(reinterpret_cast<int8_t *>(DstPtr),       \
+      return FN_NAME<int8_t, int8_t>(reinterpret_cast<int8_t *>(DstPtr),       \
                                      reinterpret_cast<int8_t *>(SrcPtr),       \
                                      Config);                                  \
     case _INT16:                                                               \
-      return FN_NAME<int16_t, uint16_t>(reinterpret_cast<int16_t *>(DstPtr),    \
+      return FN_NAME<int16_t, int16_t>(reinterpret_cast<int16_t *>(DstPtr),    \
                                        reinterpret_cast<int16_t *>(SrcPtr),    \
                                        Config);                                \
     case _INT32:                                                               \
-      return FN_NAME<int32_t, uint32_t>(reinterpret_cast<int32_t *>(DstPtr),    \
+      return FN_NAME<int32_t, int32_t>(reinterpret_cast<int32_t *>(DstPtr),    \
                                        reinterpret_cast<int32_t *>(SrcPtr),    \
                                        Config);                                \
     case _INT64:                                                               \
-      return FN_NAME<int64_t, uint64_t>(reinterpret_cast<int64_t *>(DstPtr),    \
+      return FN_NAME<int64_t, int64_t>(reinterpret_cast<int64_t *>(DstPtr),    \
                                        reinterpret_cast<int64_t *>(SrcPtr),    \
                                        Config);                                \
     case _FLOAT:                                                               \
-      return FN_NAME<float, uint32_t>(reinterpret_cast<float *>(DstPtr),        \
+      return FN_NAME<float, int32_t>(reinterpret_cast<float *>(DstPtr),        \
                                      reinterpret_cast<float *>(SrcPtr),        \
                                      Config);                                  \
     case _DOUBLE:                                                              \
-      return FN_NAME<double, uint64_t>(reinterpret_cast<double *>(DstPtr),      \
+      return FN_NAME<double, int64_t>(reinterpret_cast<double *>(DstPtr),      \
                                       reinterpret_cast<double *>(SrcPtr),      \
                                       Config);                                 \
     case _CUSTOM_TYPE:                                                         \

@@ -149,7 +149,6 @@ uint64_t shuffleDown(uint64_t Mask, uint64_t Var, uint32_t LaneDelta,
   return utils::pack(lo, hi);
 }
 
-
 } // namespace impl
 
 uint64_t utils::pack(uint32_t LowBits, uint32_t HighBits) {
@@ -172,11 +171,22 @@ uint32_t utils::shuffleDown(uint64_t Mask, uint32_t Var, uint32_t Delta,
                            int32_t Width) {
   return impl::shuffleDown(Mask, Var, Delta, Width);
 }
+
+int32_t utils::shuffleDown(uint64_t Mask, int32_t Var, uint32_t Delta,
+                           int32_t Width) {
+  return static_cast<int32_t> (impl::shuffleDown(Mask, static_cast<uint32_t>(Var), Delta, Width));
+}
+
+
 uint64_t utils::shuffleDown(uint64_t Mask, uint64_t Var, uint32_t Delta,
                            int32_t Width) {
   return impl::shuffleDown(Mask, Var, Delta, Width);
 }
 
+int64_t utils::shuffleDown(uint64_t Mask, int64_t Var, uint32_t Delta,
+                           int32_t Width) {
+  return static_cast<int64_t>(impl::shuffleDown(Mask, static_cast<uint64_t>(Var), Delta, Width));
+}
 
 extern "C" {
 uint32_t __kmpc_shuffle_int32(uint32_t Val, int16_t Delta, int16_t SrcLane) {

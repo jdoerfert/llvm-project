@@ -39,39 +39,40 @@ void atomicStore(uint32_t *Address, uint32_t Val, int Ordering) {
   __atomic_store_n(Address, Val, Ordering);
 }
 
-#define ATOMIC_FP_OP(TY)                                                       \
-  TY atomicAdd(TY *Address, TY Val, int Ordering) {                            \
+#define ATOMIC_FP_OP(AddrTY, ValTY)                                                       \
+  ValTY atomicAdd(AddrTY *Address, ValTY Val, int Ordering) {                            \
     return __atomic_fetch_add(Address, Val, Ordering);                         \
   }
 
-#define ATOMIC_OP(TY)                                                          \
-  ATOMIC_FP_OP(TY)                                                             \
-  TY atomicOr(TY *Address, TY Val, int Ordering) {                             \
+#define ATOMIC_OP(AddrTY, ValTY)                                                          \
+  ATOMIC_FP_OP(AddrTY, ValTY)                                                             \
+  ValTY atomicOr(AddrTY *Address, ValTY Val, int Ordering) {                             \
     return __atomic_fetch_or(Address, Val, Ordering);                          \
   }                                                                            \
-  TY atomicAnd(TY *Address, TY Val, int Ordering) {                            \
+  ValTY atomicAnd(AddrTY *Address, ValTY Val, int Ordering) {                            \
     return __atomic_fetch_and(Address, Val, Ordering);                         \
   }                                                                            \
-  TY atomicXOr(TY *Address, TY Val, int Ordering) {                            \
+  ValTY atomicXOr(AddrTY *Address, ValTY Val, int Ordering) {                            \
     return __atomic_fetch_xor(Address, Val, Ordering);                         \
   }                                                                            \
-  TY atomicMin(TY *Address, TY Val, int Ordering) {                            \
+  ValTY atomicMin(AddrTY *Address, ValTY Val, int Ordering) {                            \
     return __atomic_fetch_min(Address, Val, Ordering);                         \
   }                                                                            \
-  TY atomicMax(TY *Address, TY Val, int Ordering) {                            \
+  ValTY atomicMax(AddrTY *Address, ValTY Val, int Ordering) {                            \
     return __atomic_fetch_max(Address, Val, Ordering);                         \
   }
 
-ATOMIC_OP(int8_t)
-ATOMIC_OP(int16_t)
-ATOMIC_OP(int32_t)
-ATOMIC_OP(int64_t)
-ATOMIC_OP(uint8_t)
-ATOMIC_OP(uint16_t)
-ATOMIC_OP(uint32_t)
-ATOMIC_OP(uint64_t)
-ATOMIC_FP_OP(float)
-ATOMIC_FP_OP(double)
+//We probably dont need this anymore.
+ATOMIC_OP(int8_t, int8_t)
+ATOMIC_OP(int16_t, int16_t)
+ATOMIC_OP(int32_t, int32_t)
+ATOMIC_OP(int64_t, int64_t)
+ATOMIC_OP(uint8_t, uint8_t)
+ATOMIC_OP(uint16_t, uint16_t)
+ATOMIC_OP(uint32_t, uint32_t)
+ATOMIC_OP(uint64_t, uint64_t)
+ATOMIC_FP_OP(float, float)
+ATOMIC_FP_OP(double, double)
 
 #undef ATOMIC_FP_OP
 #undef ATOMIC_OP
