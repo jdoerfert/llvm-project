@@ -2170,6 +2170,23 @@ CheckConstexprFunctionStmt(Sema &SemaRef, const FunctionDecl *Dcl, Stmt *S,
       return false;
     return true;
 
+  case Stmt::OMPSimdDirectiveClass: {
+    if (!cast<OMPSimdDirective>(S)->clauses().empty()) {
+      if (Kind == Sema::CheckConstexprKind::Diagnose) {
+        SemaRef.Diag(
+            S->getBeginLoc(),
+            diag::err_constexpr_body_invalid_omp_simd_stmt_with_clauses)
+            << isa<CXXConstructorDecl>(Dcl) << Dcl->isConsteval();
+      }
+      return false;
+    }
+    Stmt *LoopStmt = cast<OMPSimdDirective>(S)->getAssociatedStmt();
+    if (auto *CS = dyn_cast<CapturedStmt>(LoopStmt))
+      LoopStmt = CS->getCapturedStmt();
+    return CheckConstexprFunctionStmt(SemaRef, Dcl, LoopStmt, ReturnStmts,
+                                      Cxx1yLoc, Cxx2aLoc, Cxx2bLoc, Kind);
+  }
+
   default:
     if (!isa<Expr>(S))
       break;

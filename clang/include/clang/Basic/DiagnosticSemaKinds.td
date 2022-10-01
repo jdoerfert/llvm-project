@@ -2719,6 +2719,8 @@ def warn_cxx20_compat_constexpr_body_invalid_stmt : Warning<
   "use of this statement in a constexpr %select{function|constructor}0 "
   "is incompatible with C++ standards before C++2b">,
   InGroup<CXXPre2bCompat>, DefaultIgnore;
+def err_constexpr_body_invalid_omp_simd_stmt_with_clauses : Error<
+  "OpenMP simd statement with clauses not allowed in %select{constexpr|consteval}1 %select{function|constructor}0">;
 def ext_constexpr_type_definition : ExtWarn<
   "type definition in a constexpr %select{function|constructor}0 "
   "is a C++14 extension">, InGroup<CXX14>;

@@ -5489,6 +5489,13 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
   case Stmt::CXXTryStmtClass:
     // Evaluate try blocks by evaluating all sub statements.
     return EvaluateStmt(Result, Info, cast<CXXTryStmt>(S)->getTryBlock(), Case);
+
+  case Stmt::OMPSimdDirectiveClass: {
+    const Stmt *LoopStmt = cast<OMPSimdDirective>(S)->getAssociatedStmt();
+    if (auto *CS = dyn_cast<CapturedStmt>(LoopStmt))
+      LoopStmt = CS->getCapturedStmt();
+    return EvaluateStmt(Result, Info, LoopStmt, Case);
+  }
   }
 }
 
@@ -8271,7 +8278,8 @@ bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
     // variable) or be ill-formed (and trigger an appropriate evaluation
     // diagnostic)).
     CallStackFrame *CurrFrame = Info.CurrentCall;
-    if (CurrFrame->Callee && CurrFrame->Callee->Equals(VD->getDeclContext())) {
+    if (CurrFrame->Callee &&
+        CurrFrame->Callee->Encloses(VD->getDeclContext())) {
       // Function parameters are stored in some caller's frame. (Usually the
       // immediate caller, but for an inherited constructor they may be more
       // distant.)
