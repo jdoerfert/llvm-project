@@ -1259,7 +1259,7 @@ exit:
   ; CHECK: select <2 x i1> <i1 true, i1 false>, <2 x i8> <i8 2, i8 3>, <2 x i8> <i8 3, i8 2>
 
   call void @f.nobuiltin() builtin
-  ; CHECK: call void @f.nobuiltin() #43
+  ; CHECK: call void @f.nobuiltin() #44
 
   ; When used in a non-strictfp function the strictfp callsite attribute
   ; should get translated to nobuiltin.
@@ -1629,10 +1629,10 @@ normal:
 
 
 declare void @f.writeonly() writeonly
-; CHECK: declare void @f.writeonly() #40
+; CHECK: declare void @f.writeonly() #41
 
 declare void @f.speculatable() speculatable
-; CHECK: declare void @f.speculatable() #41
+; CHECK: declare void @f.speculatable() #42
 
 ;; Constant Expressions
 
@@ -1680,11 +1680,12 @@ define i8** @constexpr() {
 ; CHECK: attributes #36 = { nocallback nofree nosync nounwind willreturn }
 ; CHECK: attributes #37 = { argmemonly nounwind readonly }
 ; CHECK: attributes #38 = { argmemonly nounwind }
-; CHECK: attributes #39 = { nounwind readonly }
-; CHECK: attributes #40 = { writeonly }
-; CHECK: attributes #41 = { speculatable }
-; CHECK: attributes #42 = { inaccessiblemem_or_argmemonly nocallback nofree nosync nounwind willreturn }
-; CHECK: attributes #43 = { builtin }
+; CHECK: attributes #39 = { nocallback nofree nosync nounwind readonly willreturn }
+; CHECK: attributes #40 = { nocallback nounwind }
+; CHECK: attributes #41 = { writeonly }
+; CHECK: attributes #42 = { speculatable }
+; CHECK: attributes #43 = { inaccessiblemem_or_argmemonly nocallback nofree nosync nounwind willreturn }
+; CHECK: attributes #44 = { builtin }
 
 ;; Metadata
 
