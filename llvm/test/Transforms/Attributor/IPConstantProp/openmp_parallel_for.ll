@@ -36,9 +36,7 @@ define dso_local void @foo(i32 %N) {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[N_ADDR:%.*]] = alloca i32, align 4
 ; TUNIT-NEXT:    [[P:%.*]] = alloca float, align 4
-; TUNIT-NEXT:    store i32 [[N]], i32* [[N_ADDR]], align 4
-; TUNIT-NEXT:    store i32 7, i32* [[N_ADDR]], align 4
-; TUNIT-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N_ADDR]], float* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef, i64 undef)
+; TUNIT-NEXT:    call void (%struct.ident_t*, i32, void (i32*, i32*, ...)*, ...) @__kmpc_fork_call(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB1]], i32 noundef 3, void (i32*, i32*, ...)* noundef bitcast (void (i32*, i32*, i32*, float*, i64)* @.omp_outlined. to void (i32*, i32*, ...)*), i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef, float* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) undef, i64 undef)
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@foo
@@ -64,7 +62,7 @@ entry:
 
 define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.bound_tid., i32* dereferenceable(4) %N, float* dereferenceable(4) %p, i64 %q) {
 ; TUNIT-LABEL: define {{[^@]+}}@.omp_outlined.
-; TUNIT-SAME: (i32* noalias nocapture nofree readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* noalias nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[N:%.*]], float* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[P:%.*]], i64 [[Q:%.*]]) {
+; TUNIT-SAME: (i32* noalias nocapture nofree readonly [[DOTGLOBAL_TID_:%.*]], i32* noalias nocapture nofree readnone [[DOTBOUND_TID_:%.*]], i32* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[N:%.*]], float* noalias nocapture nofree nonnull readnone align 4 dereferenceable(4) [[P:%.*]], i64 [[Q:%.*]]) {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[Q_ADDR:%.*]] = alloca i64, align 8
 ; TUNIT-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4
@@ -73,19 +71,16 @@ define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.
 ; TUNIT-NEXT:    [[DOTOMP_IS_LAST:%.*]] = alloca i32, align 4
 ; TUNIT-NEXT:    store i64 4617315517961601024, i64* [[Q_ADDR]], align 8
 ; TUNIT-NEXT:    [[CONV:%.*]] = bitcast i64* [[Q_ADDR]] to double*
-; TUNIT-NEXT:    [[TMP:%.*]] = load i32, i32* [[N]], align 4
-; TUNIT-NEXT:    [[SUB3:%.*]] = add nsw i32 [[TMP]], -3
-; TUNIT-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP]], 2
-; TUNIT-NEXT:    br i1 [[CMP]], label [[OMP_PRECOND_THEN:%.*]], label [[OMP_PRECOND_END:%.*]]
+; TUNIT-NEXT:    br label [[OMP_PRECOND_THEN:%.*]]
 ; TUNIT:       omp.precond.then:
 ; TUNIT-NEXT:    store i32 0, i32* [[DOTOMP_LB]], align 4
-; TUNIT-NEXT:    store i32 [[SUB3]], i32* [[DOTOMP_UB]], align 4
+; TUNIT-NEXT:    store i32 4, i32* [[DOTOMP_UB]], align 4
 ; TUNIT-NEXT:    store i32 1, i32* [[DOTOMP_STRIDE]], align 4
 ; TUNIT-NEXT:    store i32 0, i32* [[DOTOMP_IS_LAST]], align 4
 ; TUNIT-NEXT:    [[TMP5:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; TUNIT-NEXT:    call void @__kmpc_for_static_init_4(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB0]], i32 [[TMP5]], i32 noundef 34, i32* noundef nonnull align 4 dereferenceable(4) [[DOTOMP_IS_LAST]], i32* noundef nonnull align 4 dereferenceable(4) [[DOTOMP_LB]], i32* noundef nonnull align 4 dereferenceable(4) [[DOTOMP_UB]], i32* noundef nonnull align 4 dereferenceable(4) [[DOTOMP_STRIDE]], i32 noundef 1, i32 noundef 1)
 ; TUNIT-NEXT:    [[TMP6:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4
-; TUNIT-NEXT:    [[CMP6:%.*]] = icmp sgt i32 [[TMP6]], [[SUB3]]
+; TUNIT-NEXT:    [[CMP6:%.*]] = icmp sgt i32 [[TMP6]], 4
 ; TUNIT-NEXT:    br i1 [[CMP6]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
 ; TUNIT:       cond.true:
 ; TUNIT-NEXT:    br label [[COND_END:%.*]]
@@ -93,7 +88,7 @@ define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.
 ; TUNIT-NEXT:    [[TMP7:%.*]] = load i32, i32* [[DOTOMP_UB]], align 4
 ; TUNIT-NEXT:    br label [[COND_END]]
 ; TUNIT:       cond.end:
-; TUNIT-NEXT:    [[COND:%.*]] = phi i32 [ [[SUB3]], [[COND_TRUE]] ], [ [[TMP7]], [[COND_FALSE]] ]
+; TUNIT-NEXT:    [[COND:%.*]] = phi i32 [ 4, [[COND_TRUE]] ], [ [[TMP7]], [[COND_FALSE]] ]
 ; TUNIT-NEXT:    store i32 [[COND]], i32* [[DOTOMP_UB]], align 4
 ; TUNIT-NEXT:    [[TMP8:%.*]] = load i32, i32* [[DOTOMP_LB]], align 4
 ; TUNIT-NEXT:    br label [[OMP_INNER_FOR_COND:%.*]]
@@ -119,7 +114,7 @@ define internal void @.omp_outlined.(i32* noalias %.global_tid., i32* noalias %.
 ; TUNIT:       omp.loop.exit:
 ; TUNIT-NEXT:    [[TMP12:%.*]] = load i32, i32* [[DOTGLOBAL_TID_]], align 4
 ; TUNIT-NEXT:    call void @__kmpc_for_static_fini(%struct.ident_t* noundef nonnull align 8 dereferenceable(24) @[[GLOB0]], i32 [[TMP12]])
-; TUNIT-NEXT:    br label [[OMP_PRECOND_END]]
+; TUNIT-NEXT:    br label [[OMP_PRECOND_END:%.*]]
 ; TUNIT:       omp.precond.end:
 ; TUNIT-NEXT:    ret void
 ;
