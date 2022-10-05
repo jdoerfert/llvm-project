@@ -199,6 +199,11 @@ bool isValidAtPosition(const ValueAndContext &VAC, InformationCache &InfoCache);
 /// how to cast various constants.
 Value *getWithType(Value &V, Type &Ty);
 
+bool canReproduceValueAt(Attributor &A, const AbstractAttribute &QueryingAA,
+                             Value &NewV, const Instruction *CtxI) ;
+Value *reproduceValueAt(Attributor &A, const AbstractAttribute &QueryingAA,
+                          Value &NewV, const Instruction *CtxI);
+
 /// Return the combination of \p A and \p B such that the result is a possible
 /// value of both. \p B is potentially casted to match the type \p Ty or the
 /// type of \p A if \p Ty is null.

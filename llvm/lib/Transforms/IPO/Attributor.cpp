@@ -25,6 +25,7 @@
 #include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MustExecute.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -36,6 +37,8 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/IntrinsicsAMDGPU.h"
+#include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Casting.h"
@@ -317,6 +320,117 @@ Value *AA::getWithType(Value &V, Type &Ty) {
   return nullptr;
 }
 
+/// Ensure the return value is \p V with type \p Ty, if not possible return
+/// nullptr. If \p Check is true we will only verify such an operation would
+/// suceed and return a non-nullptr value if that is the case. No IR is
+/// generated or modified.
+static Value *ensureType(Attributor &A, Value &V, Type &Ty,
+                         const Instruction *CtxI, bool Check) {
+  if (auto *TypedV = AA::getWithType(V, Ty))
+    return TypedV;
+  if (CtxI && V.getType()->canLosslesslyBitCastTo(&Ty))
+    return Check ? &V
+                 : BitCastInst::CreatePointerBitCastOrAddrSpaceCast(
+                       &V, &Ty, "", const_cast<Instruction *>(CtxI));
+  return nullptr;
+}
+
+static Value *reproduceValue(Attributor &A, const AbstractAttribute &QueryingAA,
+                             Value &V, Type &Ty, const Instruction *CtxI,
+                             bool Check, ValueToValueMapTy &VMap);
+
+/// Reproduce \p I with type \p Ty or return nullptr if that is not posisble.
+/// If \p Check is true we will only verify such an operation would suceed and
+/// return a non-nullptr value if that is the case. No IR is generated or
+/// modified.
+static Value *reproduceInst(Attributor &A, const AbstractAttribute &QueryingAA,
+                            Instruction &I, Type &Ty, const Instruction *CtxI,
+                            bool Check, ValueToValueMapTy &VMap) {
+  assert(CtxI && "Cannot reproduce an instruction without context!");
+  if (Check) {
+    if (auto *II = dyn_cast<IntrinsicInst>(&I)) {
+      if ((II->getIntrinsicID() == Intrinsic::nvvm_read_ptx_sreg_ntid_x))
+        // || (II->getIntrinsicID() == Intrinsic::amdgcn_workgroup_size_x))
+        return II;
+    }
+    if (I.mayReadFromMemory() ||
+        !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
+                                      /* TLI */ nullptr)) {
+      errs() << "Failed for I " << I << "\n";
+      return nullptr;
+    }
+  }
+  for (Value *Op : I.operands()) {
+    Value *NewOp =
+        reproduceValue(A, QueryingAA, *Op, *Op->getType(), CtxI, Check, VMap);
+    if (!NewOp) {
+      errs() << "Failed for op " << *Op << "\n";
+      assert(Check && "Manifest of new value unexpectedly failed!");
+      return nullptr;
+    }
+    if (!Check)
+      VMap[Op] = NewOp;
+  }
+  if (Check)
+    return &I;
+
+  Instruction *CloneI = I.clone();
+  // TODO: Try to salvage debug information here.
+  CloneI->setDebugLoc(DebugLoc());
+  VMap[&I] = CloneI;
+  CloneI->insertBefore(const_cast<Instruction *>(CtxI));
+  RemapInstruction(CloneI, VMap);
+  return CloneI;
+}
+
+/// Reproduce \p V with type \p Ty or return nullptr if that is not posisble.
+/// If \p Check is true we will only verify such an operation would suceed and
+/// return a non-nullptr value if that is the case. No IR is generated or
+/// modified.
+static Value *reproduceValue(Attributor &A, const AbstractAttribute &QueryingAA,
+                             Value &V, Type &Ty, const Instruction *CtxI,
+                             bool Check, ValueToValueMapTy &VMap) {
+  if (const auto &NewV = VMap.lookup(&V))
+    return NewV;
+  bool UsedAssumedInformation = false;
+  Optional<Value *> SimpleV = A.getAssumedSimplified(
+      V, QueryingAA, UsedAssumedInformation, AA::Interprocedural);
+  errs() << "SimpleV " << SimpleV << "\n";
+  if (!SimpleV.has_value())
+    return PoisonValue::get(&Ty);
+  errs() << "SimpleV " << *SimpleV << "\n";
+  Value *EffectiveV = &V;
+  if (SimpleV.value())
+    EffectiveV = SimpleV.value();
+  errs() << "EffectiveV " << *EffectiveV << "\n";
+  if (auto *C = dyn_cast<Constant>(EffectiveV))
+    if (auto *NewV = ensureType(A, *C, Ty, CtxI, Check))
+      return NewV;
+  if (CtxI && ensureType(A, *EffectiveV, Ty, CtxI, Check) &&
+      AA::isValidAtPosition(AA::ValueAndContext(*EffectiveV, *CtxI),
+                            A.getInfoCache()))
+    return EffectiveV;
+  if (auto *I = dyn_cast<Instruction>(EffectiveV))
+    if (Value *NewV = reproduceInst(A, QueryingAA, *I, Ty, CtxI, Check, VMap))
+      return NewV;
+  // return ensureType(A, *NewV, Ty, CtxI, Check);
+  errs() << V << " --> nullptr\n";
+  return nullptr;
+}
+
+bool AA::canReproduceValueAt(Attributor &A, const AbstractAttribute &QueryingAA,
+                             Value &V, const Instruction *CtxI) {
+  ValueToValueMapTy VMap;
+  return reproduceValue(A, QueryingAA, V, *V.getType(), CtxI,
+                        /* CheckOnly */ true, VMap);
+}
+Value *AA::reproduceValueAt(Attributor &A, const AbstractAttribute &QueryingAA,
+                            Value &V, const Instruction *CtxI) {
+  ValueToValueMapTy VMap;
+  return reproduceValue(A, QueryingAA, V, *V.getType(), CtxI,
+                        /* CheckOnly */ false, VMap);
+}
+
 Optional<Value *>
 AA::combineOptionalValuesInAAValueLatice(const Optional<Value *> &A,
                                          const Optional<Value *> &B, Type *Ty) {
@@ -586,7 +700,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
       dbgs() << "[AA] isPotentiallyReachable @" << ToFn.getName() << " from "
              << FromI << " [GBCB: " << bool(GoBackwardsCB) << "][#ExS: "
              << (ExclusionSet ? std::to_string(ExclusionSet->size()) : "none")
-             << "\n");
+             << "]\n");
 
   // If we can go arbitrarily backwards we will eventually reach an entry point
   // that can reach ToI. Only if a set of blocks through which we cannot go is
@@ -2264,6 +2378,12 @@ ChangeStatus Attributor::cleanupIR() {
   for (Function *Fn : ToBeDeletedFunctions) {
     if (!Functions.count(Fn))
       continue;
+    LibFunc LF;
+    auto *TLI = InfoCache.getTargetLibraryInfoForFunction(*Fn);
+    if (TLI->getLibFunc(*Fn, LF) || TLI->isKnownVectorFunctionInLibrary(Fn->getName()))
+      continue;
+    errs() << "DELE " << Fn->getName() << "\n";
+    Fn->dump();
     Configuration.CGUpdater.removeFunction(*Fn);
   }
 

@@ -1002,6 +1002,11 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   // and argument promotion.
   MPM.addPass(DeadArgumentEliminationPass());
 
+  // Try to perform OpenMP specific optimizations on the module. This is a
+  // (quick!) no-op if there are no OpenMP runtime calls present in the module.
+  if (Level != OptimizationLevel::O0)
+    MPM.addPass(OpenMPOptPass());
+
   MPM.addPass(CoroCleanupPass());
 
   if (EnableMemProfiler && Phase != ThinOrFullLTOPhase::ThinLTOPreLink) {
@@ -1752,6 +1757,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
 
   // Drop bodies of available eternally objects to improve GlobalDCE.
   MPM.addPass(EliminateAvailableExternallyPass());
+
+  MPM.addPass(OpenMPOptPass());
 
   // Now that we have optimized the program, discard unreachable functions.
   MPM.addPass(GlobalDCEPass());

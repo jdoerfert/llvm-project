@@ -1106,6 +1106,7 @@ struct AAPointerInfoImpl
       };
     }
 
+    unsigned NumInterferingAccesses = InterferingAccesses.size();
     // Helper to determine if we can skip a specific write access. This is in
     // the worst case quadratic as we are looking for another write that will
     // hide the effect of this one.
@@ -1118,6 +1119,8 @@ struct AAPointerInfoImpl
                                 /* ExclusionSet */ nullptr, IsLiveInCalleeCB)))
         return true;
 
+      if (NumInterferingAccesses > MaxInterferingAccesses)
+        return false;
       if (!DT || !UseDominanceReasoning)
         return false;
       if (!IsSameThreadAsLoad(Acc))
@@ -1139,10 +1142,8 @@ struct AAPointerInfoImpl
 
     // Run the user callback on all accesses we cannot skip and return if that
     // succeeded for all or not.
-    unsigned NumInterferingAccesses = InterferingAccesses.size();
     for (auto &It : InterferingAccesses) {
-      if (NumInterferingAccesses > MaxInterferingAccesses ||
-          !CanSkipAccess(*It.first, It.second)) {
+      if (!CanSkipAccess(*It.first, It.second)) {
         if (!UserCB(*It.first, It.second))
           return false;
       }
@@ -3319,6 +3320,15 @@ struct AAIntraFnReachabilityFunction final
 
     const BasicBlock *FromBB = RQI.From->getParent();
     const BasicBlock *ToBB = RQI.To->getParent();
+    SmallPtrSet<BasicBlock *, 16> ExcludedBlocks;
+    if (RQI.ExclusionSet) {
+      for (Instruction *I : *RQI.ExclusionSet) {
+        BasicBlock *BB = I->getParent();
+        if (BB != FromBB && BB != ToBB)
+          ExcludedBlocks.insert(BB);
+      }
+    }
+
     // errs() << "FromBB " << *RQI.From << " : " << FromBB->getName() << "\n";
     // errs() << "ToBB " << *RQI.To << " : " << ToBB->getName() << "\n";
     // errs() << "ES: " << RQI.ExclusionSet << " :: " <<  &RQI <<"\n";
@@ -3338,6 +3348,8 @@ struct AAIntraFnReachabilityFunction final
         continue;
       // errs() << "BB " << BB->getName() << "\n";
       for (const BasicBlock *SuccBB : successors(BB)) {
+        if (ExcludedBlocks.count(SuccBB))
+          continue;
         if (LivenessAA.isEdgeDead(BB, SuccBB))
           continue;
         if (SuccBB == ToBB &&
@@ -3796,9 +3808,11 @@ struct AAIsDeadValueImpl : public AAIsDead {
         if (!A.isRunOn(*I->getFunction()))
           return false;
       bool UsedAssumedInformation = false;
-      Optional<Constant *> C =
-          A.getAssumedConstant(V, *this, UsedAssumedInformation);
-      if (!C || *C)
+      Optional<Value *> NewV =
+          A.getAssumedSimplified(V, *this, UsedAssumedInformation, AA::AnyScope);
+      if (!NewV.has_value())
+        return true;
+      if (*NewV && AA::canReproduceValueAt(A, *this, **NewV, getCtxI()))
         return true;
     }
 
@@ -10091,8 +10105,18 @@ struct AAPotentialValuesImpl : AAPotentialValues {
 
     if (isa<ConstantInt>(VPtr))
       CtxI = nullptr;
-    if (!AA::isValidInScope(*VPtr, AnchorScope))
+    if (!AA::canReproduceValueAt(A, *this, *VPtr, CtxI)) {
+      errs() << "Cannot reproduce " << *VPtr << " @ " << CtxI
+             << " ::: " << getAssociatedValue() << " : " << getCtxI() << "\n";
+      if (CtxI)
+        errs() << "Cannot reproduce " << *VPtr << " @ " << *CtxI
+               << " ::: " << getAssociatedValue() << " : " << getCtxI() << "\n";
+      if (getCtxI())
+        errs() << "Cannot reproduce " << *VPtr << " @ " << CtxI
+               << " ::: " << getAssociatedValue() << " : " << *getCtxI()
+               << "\n";
       S = AA::ValueScope(S | AA::Interprocedural);
+    }
 
     State.unionAssumed({{*VPtr, CtxI}, S});
   }
@@ -10136,6 +10160,7 @@ struct AAPotentialValuesImpl : AAPotentialValues {
   }
 
   void giveUpOnIntraprocedural(Attributor &A) {
+    errs() << "giveUpOnIntraprocedural\n";
     auto NewS = StateType::getBestState(getState());
     for (const auto &It : getAssumedSet()) {
       if (It.second == AA::Intraprocedural)
@@ -10175,9 +10200,15 @@ struct AAPotentialValuesImpl : AAPotentialValues {
       Value *NewV = getSingleValue(A, *this, getIRPosition(), Values);
       if (!NewV || NewV == &OldV)
         continue;
-      if (getCtxI() &&
-          !AA::isValidAtPosition({*NewV, *getCtxI()}, A.getInfoCache()))
+      // First verify we can reproduce the value with the required type at the
+      // context location before we actually start modifying the IR.
+      if (!AA::canReproduceValueAt(A, *this, *NewV, getCtxI())) {
+        errs() << "Cant reproduce " << *NewV << "\n";
         continue;
+      }
+      errs() << "NEWV " << *NewV << "\n";
+      NewV = AA::reproduceValueAt(A, *this, *NewV, getCtxI());
+      errs() << "NEWV " << *NewV << "\n";
       if (A.changeAfterManifest(getIRPosition(), *NewV))
         return ChangeStatus::CHANGED;
     }
@@ -10250,12 +10281,16 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     LLVMContext &Ctx = Cmp.getContext();
     // Handle the trivial case first in which we don't even need to think about
     // null or non-null.
-    if (LHS == RHS && (Cmp.isTrueWhenEqual() || Cmp.isFalseWhenEqual())) {
-      Constant *NewV =
-          ConstantInt::get(Type::getInt1Ty(Ctx), Cmp.isTrueWhenEqual());
-      addValue(A, getState(), *NewV, /* CtxI */ nullptr, II.S,
-               getAnchorScope());
-      return true;
+    if (Cmp.isTrueWhenEqual() || Cmp.isFalseWhenEqual()) {
+      Optional<Value *> CombinedV =
+          AA::combineOptionalValuesInAAValueLatice(LHS, RHS, LHS->getType());
+      if (!CombinedV.has_value() || CombinedV.value()) {
+        Constant *NewV =
+            ConstantInt::get(Type::getInt1Ty(Ctx), Cmp.isTrueWhenEqual());
+        addValue(A, getState(), *NewV, /* CtxI */ nullptr, II.S,
+                 getAnchorScope());
+        return true;
+      }
     }
 
     // From now on we only handle equalities (==, !=).
@@ -10293,6 +10328,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
                         SmallVectorImpl<ItemInfo> &Worklist) {
     const Instruction *CtxI = II.I.getCtxI();
     bool UsedAssumedInformation = false;
+    errs() << "SI : " << SI << "\n";
 
     Optional<Constant *> C =
         A.getAssumedConstant(*SI.getCondition(), *this, UsedAssumedInformation);
@@ -10372,7 +10408,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     bool ScopeIsLocal = (II.S & AA::Intraprocedural);
     bool AllLocal = ScopeIsLocal;
     bool DynamicallyUnique = llvm::all_of(PotentialCopies, [&](Value *PC) {
-      AllLocal &= AA::isValidInScope(*PC, getAnchorScope());
+      AllLocal &= AA::canReproduceValueAt(A, *this, *PC, CtxI);
       return AA::isDynamicallyUnique(A, *this, *PC);
     });
     if (!DynamicallyUnique) {
@@ -10382,15 +10418,23 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       return false;
     }
 
+    static int X = 100;
+    if (!LI.hasName())
+      LI.setName("load" + std::to_string(X++));
     for (auto *PotentialCopy : PotentialCopies) {
+      errs() << "PotentialCopy " << *PotentialCopy << "\n";
+      dump();
       if (AllLocal) {
         Worklist.push_back({{*PotentialCopy, CtxI}, II.S});
       } else {
         Worklist.push_back({{*PotentialCopy, CtxI}, AA::Interprocedural});
       }
     }
+    errs() << "AL " << AllLocal << "  SIL " << ScopeIsLocal << "\n";
+    dump();
     if (!AllLocal && ScopeIsLocal)
       addValue(A, getState(), LI, CtxI, AA::Intraprocedural, getAnchorScope());
+    dump();
     return true;
   }
 
@@ -10525,6 +10569,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       // recursion keep a record of the values we followed!
       if (!Visited.insert(II).second)
         continue;
+      errs() << "I " << Iteration << " : " << *V << "\n";
 
       // Make sure we limit the compile time for complex expressions.
       if (Iteration++ >= MaxPotentialValuesIterations) {
@@ -10569,6 +10614,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
         return;
       }
 
+      errs() << "Add " << *V << " : " << S << "\n";
       addValue(A, getState(), *V, CtxI, S, getAnchorScope());
     } while (!Worklist.empty());
 
@@ -10753,7 +10799,7 @@ struct AAPotentialValuesCallSiteReturned : AAPotentialValuesImpl {
       }
       V = CallerV.value() ? CallerV.value() : V;
       if (AA::isDynamicallyUnique(A, *this, *V) &&
-          AA::isValidInScope(*V, Caller)) {
+          AA::canReproduceValueAt(A, *this, *V, CB)) {
         if (CallerV.value()) {
           SmallVector<AA::ValueAndContext> ArgValues;
           IRPosition IRP = IRPosition::value(*V);
@@ -10781,7 +10827,7 @@ struct AAPotentialValuesCallSiteReturned : AAPotentialValuesImpl {
         Value *V = It.getValue();
         if (!AA::isDynamicallyUnique(A, *this, *V))
           return indicatePessimisticFixpoint();
-        if (AA::isValidInScope(*V, Caller)) {
+        if (AA::canReproduceValueAt(A, *this, *V, CB)) {
           addValue(A, getState(), *V, CB, AA::AnyScope, getAnchorScope());
         } else {
           AnyNonLocal = true;
