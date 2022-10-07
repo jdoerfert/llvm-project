@@ -286,7 +286,7 @@ bool getAssumedUnderlyingObjects(
 /// instructions that might have put a potential value into \p PotentialValues.
 /// Dependences onto \p QueryingAA are properly tracked, \p
 /// UsedAssumedInformation will inform the caller if assumed information was
-/// used.
+/// used
 ///
 /// \returns True if the assumed potential copies are all in \p PotentialValues,
 ///          false if something went wrong and the copies could not be
@@ -1759,7 +1759,10 @@ struct Attributor {
 
   /// Try to simplify \p IRP and in the scope \p S. If successful, true is
   /// returned and all potential values \p IRP can take are put into \p Values.
-  /// If false is returned no other information is valid.
+  /// If the result in \p Values contains select or PHI instructions it means
+  /// those could not be simplified to a single value. Recursive calls with
+  /// these instructions will yield their respective potential values. If false
+  /// is returned no other information is valid.
   bool getAssumedSimplifiedValues(const IRPosition &IRP,
                                   const AbstractAttribute *AA,
                                   SmallVectorImpl<AA::ValueAndContext> &Values,
