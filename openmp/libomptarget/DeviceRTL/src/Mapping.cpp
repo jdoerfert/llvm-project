@@ -18,6 +18,8 @@
 
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
 
+extern "C" int32_t __teams_to_threads_ratio;
+
 using namespace _OMP;
 
 namespace _OMP {
@@ -189,15 +191,30 @@ LaneMaskTy mapping::lanemaskGT() { return impl::lanemaskGT(); }
 
 uint32_t mapping::getThreadIdInWarp() { return impl::getThreadIdInWarp(); }
 
-uint32_t mapping::getThreadIdInBlock() { return impl::getThreadIdInBlock(); }
+uint32_t mapping::getThreadIdInBlock() {
+  if (__teams_to_threads_ratio > 1)
+    return impl::getThreadIdInBlock() + (impl::getBlockId() % __teams_to_threads_ratio) * impl::getBlockSize();
+  return impl::getThreadIdInBlock(); }
 
-uint32_t mapping::getBlockSize() { return impl::getBlockSize(); }
+uint32_t mapping::getBlockSize() {
+  if (__teams_to_threads_ratio > 1)
+    return impl::getBlockSize() * __teams_to_threads_ratio;
+  return impl::getBlockSize(); }
 
-uint32_t mapping::getKernelSize() { return impl::getKernelSize(); }
+uint32_t mapping::getKernelSize() {
+  if (__teams_to_threads_ratio > 1)
+    return impl::getKernelSize() / __teams_to_threads_ratio;
+  return impl::getKernelSize(); }
 
-uint32_t mapping::getBlockId() { return impl::getBlockId(); }
+uint32_t mapping::getBlockId() { 
+  if (__teams_to_threads_ratio > 1)
+    return impl::getBlockId() / __teams_to_threads_ratio;
+  return impl::getBlockId(); }
 
-uint32_t mapping::getNumberOfBlocks() { return impl::getNumberOfBlocks(); }
+uint32_t mapping::getNumberOfBlocks() {
+  if (__teams_to_threads_ratio > 1)
+    return impl::getNumberOfBlocks() / __teams_to_threads_ratio;
+  return impl::getNumberOfBlocks(); }
 
 uint32_t mapping::getNumberOfProcessorElements() {
   return impl::getNumberOfProcessorElements();
