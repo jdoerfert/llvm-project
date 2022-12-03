@@ -1020,7 +1020,121 @@ struct AAPointerInfoImpl
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
-    return AAPointerInfo::manifest(A);
+
+    return ChangeStatus::UNCHANGED;
+
+    // TODO: WIP: Need to verify uses of the global and rewrite them.
+
+    Module *M = nullptr;
+    Value &Obj = getAssociatedValue();
+    if (auto *GV = dyn_cast<GlobalVariable>(&Obj)) {
+      if (!GV->hasLocalLinkage())
+        return ChangeStatus::UNCHANGED;
+      M = GV->getParent();
+    } else {
+      // TODO: Alloca
+      // if (!isa<AllocaInst>(Obj)) {
+      return ChangeStatus::UNCHANGED;
+    }
+
+    DenseMap<Instruction *, AA::RangeTy> Inst2OASMap;
+    SmallVector<std::pair<int64_t, int64_t>> Ranges;
+    using RangeItTy = decltype(Ranges)::iterator;
+
+    for (const auto &It : OffsetBins) {
+      AA::RangeTy ItOAS = It.getFirst();
+      if (ItOAS.offsetOrSizeAreUnknown())
+        return ChangeStatus::UNCHANGED;
+      Ranges.push_back({ItOAS.Offset, ItOAS.Offset + ItOAS.Size});
+      for (auto AccIndex : It.getSecond()) {
+        auto &Acc = AccessList[AccIndex];
+        auto *LocalInst = Acc.getLocalInst();
+        auto &MappedOAS = Inst2OASMap[LocalInst];
+        if (MappedOAS.Size && MappedOAS != ItOAS)
+          return ChangeStatus::UNCHANGED;
+        if (!(isa<LoadInst>(LocalInst) || isa<StoreInst>(LocalInst)))
+          return ChangeStatus::UNCHANGED;
+        MappedOAS = ItOAS;
+      }
+    }
+    if (Ranges.empty())
+      return ChangeStatus::UNCHANGED;
+
+    errs() << "GV: " << Obj << "\n";
+    errs() << "Ranges " << Ranges.size() << " : " << Inst2OASMap.size() << "\n";
+
+    Type *Int8Ty = Type::getInt8Ty(M->getContext());
+    auto AdjustPtr = [&](IRBuilder<NoFolder> &IRB, Value *Ptr, int64_t Offset) {
+      errs() << "OldPTr " << *Ptr << "\n";
+      auto PtrName = Ptr->getName();
+      Ptr = IRB.CreateBitCast(
+          Ptr, Type::getInt8PtrTy(M->getContext(),
+                                  Ptr->getType()->getPointerAddressSpace()));
+      Ptr = IRB.CreateGEP(Int8Ty, Ptr, IRB.getInt64(Offset),
+                          PtrName + ".b" + Twine(Offset));
+      errs() << "NewPTr " << *Ptr << "\n";
+      return Ptr;
+    };
+
+    unsigned SplitNo = 0;
+    auto CreateSplit = [&](RangeItTy FirstRange, RangeItTy LastRange) {
+      errs() << "Create split " << SplitNo << "  : " << (LastRange - FirstRange)
+             << "\n";
+      auto LastIncluded = LastRange - 1;
+      auto SplitSize = LastIncluded->second - FirstRange->first;
+      errs() << "Size: " << SplitSize << " : " << FirstRange->first << "\n";
+
+      Value *SplitPtr = nullptr;
+      Type *Int8ArrTy = ArrayType::get(Int8Ty, SplitSize);
+      if (auto *GV = dyn_cast<GlobalVariable>(&Obj)) {
+        auto *NewGV = new GlobalVariable(
+            *M, Int8ArrTy, GV->isConstant(), GV->getLinkage(),
+            UndefValue::get(Int8ArrTy),
+            GV->getName() + "." + std::to_string(SplitNo++), GV,
+            GV->getThreadLocalMode(), GV->getAddressSpace());
+
+        if (GV->hasMetadata(LLVMContext::MD_vcall_visibility))
+          NewGV->setVCallVisibilityMetadata(GV->getVCallVisibility());
+        SplitPtr = NewGV;
+      } else {
+        assert(0);
+      }
+
+      for (auto It = FirstRange; It != LastRange; ++It) {
+        AA::RangeTy OAS = {It->first, It->second - It->first};
+        for (auto AccIndex : OffsetBins[OAS]) {
+          auto &Acc = AccessList[AccIndex];
+          auto *LocalInst = Acc.getLocalInst();
+          errs() << "LI " << LocalInst << "\n";
+          errs() << "LI " << *LocalInst << "\n";
+          // AA::RangeTy AccOAS = Inst2OASMap[LocalInst];
+          IRBuilder<NoFolder> IRB(LocalInst);
+          if (auto *LI = dyn_cast<LoadInst>(LocalInst)) {
+            LI->setOperand(
+                0, AdjustPtr(IRB, LI->getPointerOperand(), -OAS.Offset));
+          } else if (auto *SI = dyn_cast<StoreInst>(LocalInst)) {
+            SI->setOperand(
+                1, AdjustPtr(IRB, SI->getPointerOperand(), -OAS.Offset));
+          }
+        }
+      }
+    };
+
+    llvm::sort(Ranges);
+    RangeItTy FirstInSplit = Ranges.begin();
+    for (auto It = FirstInSplit + 1, End = Ranges.end(); It != End; ++It) {
+      if (FirstInSplit->second > It->first)
+        continue;
+      CreateSplit(FirstInSplit, It);
+      FirstInSplit = It;
+    }
+    //    if (FirstInSplit->first == 0 Ranges.back().second == TotalSize)
+    //	    return ChangeStatus::UNCHANGED;
+
+    CreateSplit(FirstInSplit, Ranges.end());
+
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    return Changed;
   }
 
   bool forallInterferingAccesses(
