@@ -25,10 +25,24 @@ define weak_odr ptr @h(ptr %0) {
 ; CHECK: Function Attrs: norecurse nounwind memory(none)
 ; CHECK-LABEL: define {{[^@]+}}@f
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
-; CHECK-NEXT:    [[TMP1:%.*]] = alloca i64, align 8
 ; CHECK-NEXT:    ret void
 ;
 ;
+<<<<<<< HEAD
+=======
+; CHECK: Function Attrs: norecurse nounwind memory(none)
+; CHECK-LABEL: define {{[^@]+}}@g
+; CHECK-SAME: (ptr [[TMP0:%.*]]) #[[ATTR0]] {
+; CHECK-NEXT:    ret double 0.000000e+00
+;
+;
+; CHECK: Function Attrs: norecurse nosync nounwind memory(none)
+; CHECK-LABEL: define {{[^@]+}}@h.internalized
+; CHECK-SAME: (ptr [[TMP0:%.*]]) #[[ATTR1:[0-9]+]] {
+; CHECK-NEXT:    ret ptr undef
+;
+;
+>>>>>>> 15703e9748bd ([OpenMP] Merge barrier elimination into AAExecutionDomain)
 ; CHECK-LABEL: define {{[^@]+}}@h
 ; CHECK-SAME: (ptr [[TMP0:%.*]]) {
 ; CHECK-NEXT:    [[TMP2:%.*]] = load i64, ptr [[TMP0]], align 4
