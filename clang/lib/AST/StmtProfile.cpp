@@ -903,6 +903,7 @@ void OMPClauseProfiler::VisitOMPAffinityClause(const OMPAffinityClause *C) {
 }
 void OMPClauseProfiler::VisitOMPOrderClause(const OMPOrderClause *C) {}
 void OMPClauseProfiler::VisitOMPBindClause(const OMPBindClause *C) {}
+void OMPClauseProfiler::VisitOMPXBareClause(const OMPXBareClause *C) {}
 } // namespace
 
 void

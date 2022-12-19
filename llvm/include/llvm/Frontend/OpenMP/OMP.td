@@ -426,6 +426,10 @@ def OMPC_Bind : Clause<"bind"> {
   let clangClass = "OMPBindClause";
 }
 
+def OMPC_OMX_Bare : Clause<"ompx_bare"> {
+  let clangClass = "OMPXBareClause";
+}
+
 //===----------------------------------------------------------------------===//
 // Definition of OpenMP directives
 //===----------------------------------------------------------------------===//
@@ -626,7 +630,8 @@ def OMP_Target : Directive<"target"> {
   let allowedOnceClauses = [
     VersionedClause<OMPC_Device>,
     VersionedClause<OMPC_DefaultMap>,
-    VersionedClause<OMPC_NoWait>
+    VersionedClause<OMPC_NoWait>,
+    VersionedClause<OMPC_OMX_Bare>,
   ];
 }
 def OMP_Teams : Directive<"teams"> {

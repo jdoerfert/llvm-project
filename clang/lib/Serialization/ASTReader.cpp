@@ -10210,6 +10210,9 @@ OMPClause *OMPClauseReader::readClause() {
   case llvm::omp::OMPC_align:
     C = new (Context) OMPAlignClause();
     break;
+  case llvm::omp::OMPC_ompx_bare:
+    C = new (Context) OMPXBareClause();
+    break;
 #define OMP_CLAUSE_NO_CLASS(Enum, Str)                                         \
   case llvm::omp::Enum:                                                        \
     break;
@@ -11273,6 +11276,8 @@ void OMPClauseReader::VisitOMPAlignClause(OMPAlignClause *C) {
   C->setAlignment(Record.readExpr());
   C->setLParenLoc(Record.readSourceLocation());
 }
+
+void OMPClauseReader::VisitOMPXBareClause(OMPXBareClause *C) {}
 
 OMPTraitInfo *ASTRecordReader::readOMPTraitInfo() {
   OMPTraitInfo &TI = getContext().getNewOMPTraitInfo();

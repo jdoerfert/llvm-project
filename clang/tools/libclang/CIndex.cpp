@@ -2706,6 +2706,7 @@ void OMPClauseEnqueue::VisitOMPAffinityClause(const OMPAffinityClause *C) {
     Visitor->AddStmt(E);
 }
 void OMPClauseEnqueue::VisitOMPBindClause(const OMPBindClause *C) {}
+void OMPClauseEnqueue::VisitOMPXBareClause(const OMPXBareClause *C) {}
 
 } // namespace
 

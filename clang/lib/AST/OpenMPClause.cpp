@@ -167,6 +167,7 @@ const OMPClauseWithPreInit *OMPClauseWithPreInit::get(const OMPClause *C) {
   case OMPC_affinity:
   case OMPC_when:
   case OMPC_bind:
+  case OMPC_ompx_bare:
     break;
   default:
     break;
@@ -2438,6 +2439,10 @@ void OMPClausePrinter::VisitOMPBindClause(OMPBindClause *Node) {
   OS << "bind("
      << getOpenMPSimpleClauseTypeName(OMPC_bind, unsigned(Node->getBindKind()))
      << ")";
+}
+
+void OMPClausePrinter::VisitOMPXBareClause(OMPXBareClause *Node) {
+  OS << "bare()";
 }
 
 void OMPTraitInfo::getAsVariantMatchInfo(ASTContext &ASTCtx,
