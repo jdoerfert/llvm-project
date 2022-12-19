@@ -3398,6 +3398,17 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
           << getOpenMPClauseName(CKind) << getOpenMPDirectiveName(DKind);
     SkipUntil(tok::comma, tok::annot_pragma_openmp_end, StopBeforeMatch);
     break;
+  case OMPC_ompx_bare:
+    if (WrongDirective)
+      Diag(Tok, diag::note_ompx_bare_clause)
+          << getOpenMPClauseName(CKind) << "target";
+    if (!ErrorFound && !getLangOpts().OpenMPExtensions) {
+      Diag(Tok, diag::err_omp_unexpected_clause_extension_only)
+          << getOpenMPClauseName(CKind) << getOpenMPDirectiveName(DKind);
+      ErrorFound = true;
+    }
+    Clause = ParseOpenMPClause(CKind, WrongDirective);
+    break;
   default:
     break;
   }

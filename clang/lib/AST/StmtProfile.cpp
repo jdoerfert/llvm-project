@@ -909,6 +909,7 @@ void OMPClauseProfiler::VisitOMPXDynCGroupMemClause(
   if (Expr *Size = C->getSize())
     Profiler->VisitStmt(Size);
 }
+void OMPClauseProfiler::VisitOMPXBareClause(const OMPXBareClause *C) {}
 } // namespace
 
 void

@@ -9067,6 +9067,26 @@ public:
   Expr *getSize() const { return getStmtAs<Expr>(); }
 };
 
+/// This represents 'ompx_bare' clause in the '#pragma omp target ...'
+/// directive.
+///
+/// \code
+/// #pragma omp target ompx_bare
+/// \endcode
+/// In this example directive '#pragma omp target' has a 'ompx_bare' clause.
+class OMPXBareClause : public OMPNoChildClause<llvm::omp::OMPC_ompx_bare> {
+public:
+  /// Build 'ompx_bare' clause.
+  ///
+  /// \param StartLoc Starting location of the clause.
+  /// \param EndLoc Ending location of the clause.
+  OMPXBareClause(SourceLocation StartLoc, SourceLocation EndLoc)
+      : OMPNoChildClause(StartLoc, EndLoc) {}
+
+  /// Build an empty clause.
+  OMPXBareClause() : OMPNoChildClause() {}
+};
+
 } // namespace clang
 
 #endif // LLVM_CLANG_AST_OPENMPCLAUSE_H

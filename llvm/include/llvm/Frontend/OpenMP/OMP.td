@@ -441,6 +441,10 @@ def OMPC_OMPX_DynCGroupMem : Clause<"ompx_dyn_cgroup_mem"> {
   let flangClass = "ScalarIntExpr";
 }
 
+def OMPC_OMX_Bare : Clause<"ompx_bare"> {
+  let clangClass = "OMPXBareClause";
+}
+
 //===----------------------------------------------------------------------===//
 // Definition of OpenMP directives
 //===----------------------------------------------------------------------===//
@@ -644,6 +648,7 @@ def OMP_Target : Directive<"target"> {
     VersionedClause<OMPC_DefaultMap>,
     VersionedClause<OMPC_NoWait>,
     VersionedClause<OMPC_OMPX_DynCGroupMem>,
+    VersionedClause<OMPC_OMX_Bare>,
   ];
 }
 def OMP_Teams : Directive<"teams"> {
