@@ -1648,6 +1648,7 @@ int target_replay(ident_t *Loc, DeviceTy &Device, void *HostPtr,
                   void *DeviceMemory, int64_t DeviceMemorySize, void **TgtArgs,
                   ptrdiff_t *TgtOffsets, int32_t NumArgs, int32_t NumTeams,
                   int32_t ThreadLimit, uint64_t LoopTripCount,
+                  const void *GlobalsEncoding, int32_t GlobalsEncodingSize,
                   AsyncInfoTy &AsyncInfo) {
   int32_t DeviceId = Device.DeviceID;
   TableMap *TM = getTableMap(HostPtr);
@@ -1675,9 +1676,14 @@ int target_replay(ident_t *Loc, DeviceTy &Device, void *HostPtr,
   DP("Launching target execution %s with pointer " DPxMOD " (index=%d).\n",
      TargetTable->EntriesBegin[TM->Index].name, DPxPTR(TgtEntryPtr), TM->Index);
 
-  void *TgtPtr = Device.allocData(DeviceMemorySize, /* HstPtr */ nullptr,
-                                  TARGET_ALLOC_DEFAULT);
-  Device.submitData(TgtPtr, DeviceMemory, DeviceMemorySize, AsyncInfo);
+  if (GlobalsEncodingSize)
+    Device.initializeRecordedGlobals(GlobalsEncoding, GlobalsEncodingSize);
+
+  if (DeviceMemorySize) {
+    void *TgtPtr = Device.allocData(DeviceMemorySize, /* HstPtr */ nullptr,
+                                    TARGET_ALLOC_DEFAULT);
+    Device.submitData(TgtPtr, DeviceMemory, DeviceMemorySize, AsyncInfo);
+  }
 
   int Ret =
       Device.runTeamRegion(TgtEntryPtr, TgtArgs, TgtOffsets, NumArgs, NumTeams,

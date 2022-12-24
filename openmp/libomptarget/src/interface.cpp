@@ -287,7 +287,9 @@ EXTERN int __tgt_target_kernel_replay(ident_t *Loc, int64_t DeviceId,
                                       int64_t DeviceMemorySize, void **TgtArgs,
                                       ptrdiff_t *TgtOffsets, int32_t NumArgs,
                                       int32_t NumTeams, int32_t ThreadLimit,
-                                      uint64_t LoopTripCount) {
+                                      uint64_t LoopTripCount,
+                                      const void *UpdatedGlobals,
+                                      int64_t UpdatedGlobalsSize) {
 
   if (checkDeviceAndCtors(DeviceId, Loc)) {
     DP("Not offloading to device %" PRId64 "\n", DeviceId);
@@ -298,7 +300,8 @@ EXTERN int __tgt_target_kernel_replay(ident_t *Loc, int64_t DeviceId,
   AsyncInfoTy AsyncInfo(Device);
   int Rc = target_replay(Loc, Device, HostPtr, DeviceMemory, DeviceMemorySize,
                          TgtArgs, TgtOffsets, NumArgs, NumTeams, ThreadLimit,
-                         LoopTripCount, AsyncInfo);
+                         LoopTripCount, UpdatedGlobals, UpdatedGlobalsSize,
+                         AsyncInfo);
   if (Rc == OFFLOAD_SUCCESS)
     Rc = AsyncInfo.synchronize();
   handleTargetOutcome(Rc == OFFLOAD_SUCCESS, Loc);

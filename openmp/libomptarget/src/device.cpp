@@ -683,6 +683,12 @@ int32_t DeviceTy::destroyEvent(void *Event) {
   return OFFLOAD_SUCCESS;
 }
 
+int32_t DeviceTy::initializeRecordedGlobals(const void *Globals, int32_t Size) {
+  assert(RTL->initialize_recorded_globals &&
+         "Plugin does not support initialization of recorded globals.");
+  return RTL->initialize_recorded_globals(RTLDeviceID, Globals, Size);
+}
+
 /// Check whether a device has an associated RTL and initialize it if it's not
 /// already initialized.
 bool deviceIsReady(int DeviceNum) {

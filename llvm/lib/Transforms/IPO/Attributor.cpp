@@ -1854,6 +1854,7 @@ void Attributor::runTillFixpoint() {
       State.indicatePessimisticFixpoint();
 
       NumAttributesTimedOut++;
+      errs() << "TIMEOUT " << *ChangedAA << "\n";
     }
 
     while (!ChangedAA->Deps.empty()) {

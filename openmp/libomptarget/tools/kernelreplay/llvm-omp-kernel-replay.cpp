@@ -111,11 +111,17 @@ int main(int argc, char **argv) {
   Desc.HostEntriesEnd = &KernelEntry + 1;
   Desc.DeviceImages = &DeviceImage;
 
+  // Read in the entire file (hence the "as stream"), since we might lock the
+  // memory.
   ErrorOr<std::unique_ptr<MemoryBuffer>> DeviceMemoryMB =
-      MemoryBuffer::getFile(KernelEntryName + ".memory", /* isText */ false,
-                            /* RequiresNullTerminator */ false);
+      MemoryBuffer::getFileAsStream(KernelEntryName + ".memory");
   if (!DeviceMemoryMB)
     report_fatal_error("Error reading the kernel input device memory.");
+
+  ErrorOr<std::unique_ptr<MemoryBuffer>> GlobalsMB =
+      MemoryBuffer::getFileAsStream(KernelEntryName + ".globals");
+  if (!GlobalsMB)
+    report_fatal_error("Error reading the globals state file.");
 
   setenv("LIBOMPTARGET_REPLAY", "1", 1);
   if (VerifyOpt || SaveOutputOpt)
@@ -127,8 +133,8 @@ int main(int argc, char **argv) {
   uint64_t DeviceMemorySize =
       std::ceil(DeviceMemorySizeJson.value() / (1024.0 * 1024.0 * 1024.0));
 
-  setenv("LIBOMPTARGET_RR_DEVMEM_SIZE",
-         std::to_string(DeviceMemorySize).c_str(), 1);
+  //  setenv("LIBOMPTARGET_RR_DEVMEM_SIZE",
+  //         std::to_string(DeviceMemorySize).c_str(), 1);
 
   auto DeviceIdJson = JsonKernelInfo->getAsObject()->getInteger("DeviceId");
   // TODO: Print warning if the user overrides the device id in the json file.
@@ -146,7 +152,8 @@ int main(int argc, char **argv) {
       (void *)DeviceMemoryMB.get()->getBuffer().data(),
       DeviceMemoryMB.get()->getBufferSize(), TgtArgs.data(),
       TgtArgOffsets.data(), NumArgs.value(), NumTeams, NumThreads,
-      LoopTripCount.value());
+      LoopTripCount.value(), GlobalsMB.get()->getBufferStart(),
+      GlobalsMB.get()->getBufferSize());
 
   if (VerifyOpt) {
     ErrorOr<std::unique_ptr<MemoryBuffer>> OriginalOutputMB =

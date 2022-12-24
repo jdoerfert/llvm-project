@@ -468,6 +468,9 @@ struct DeviceTy {
 
   /// Destroy the event.
   int32_t destroyEvent(void *Event);
+
+  /// Update recorded globals to their values described in \p Globals.
+  int32_t initializeRecordedGlobals(const void *Globals, int32_t Size);
   /// }
 
 private:

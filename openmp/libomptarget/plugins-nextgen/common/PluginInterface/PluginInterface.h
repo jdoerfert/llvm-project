@@ -105,6 +105,11 @@ class DeviceImageTy {
   private:
     __tgt_target_table TTTablePtr;
     llvm::SmallVector<__tgt_offload_entry> Entries;
+
+  public:
+    using const_iterator = decltype(Entries)::const_iterator;
+    const_iterator begin() const { return Entries.begin(); }
+    const_iterator end() const { return Entries.end(); }
   };
 
   /// Image identifier within the corresponding device. Notice that this id is
@@ -154,6 +159,9 @@ public:
 
   /// Get a reference to the offload entry table for the image.
   OffloadEntryTableTy &getOffloadEntryTable() { return OffloadEntryTable; }
+  const OffloadEntryTableTy &getOffloadEntryTable() const {
+    return OffloadEntryTable;
+  }
 };
 
 /// Class implementing common functionalities of offload kernels. Each plugin
@@ -185,6 +193,12 @@ struct GenericKernelTy {
 
   /// Get the kernel name.
   const char *getName() const { return Name; }
+
+  /// Get the kernel name.
+  const DeviceImageTy &getImage() const {
+    assert(ImagePtr && "Kernel is not initialized!");
+    return *ImagePtr;
+  }
 
   /// Indicate whether an execution mode is valid.
   static bool isValidExecutionMode(OMPTgtExecModeFlags ExecutionMode) {
@@ -244,6 +258,9 @@ private:
 
   /// The execution flags of the kernel.
   OMPTgtExecModeFlags ExecutionMode;
+
+  /// The image that contains this kernel.
+  DeviceImageTy *ImagePtr = nullptr;
 
 protected:
   /// The dynamic memory size reserved for executing the kernel.
@@ -397,6 +414,9 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   doJITPostProcessing(std::unique_ptr<MemoryBuffer> MB) const {
     return MB;
   }
+
+  /// Initialize recorded globals encoded by \p GlobalEncoding.
+  Error initializeRecordedGlobals(const void *GlobalEncoding, int32_t Size);
 
 private:
   /// Register offload entry for global variable.

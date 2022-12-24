@@ -246,6 +246,8 @@ bool RTLsTy::attemptLoadRTL(const std::string &RTLName, RTLInfoTy &RTL) {
       DynLibrary->getAddressOfSymbol("__tgt_rtl_init_async_info");
   *((void **)&RTL.init_device_info) =
       DynLibrary->getAddressOfSymbol("__tgt_rtl_init_device_info");
+  *((void **)&RTL.initialize_recorded_globals) =
+      DynLibrary->getAddressOfSymbol("__tgt_rtl_initialize_recorded_globals");
 
   RTL.LibraryHandler = std::move(DynLibrary);
 

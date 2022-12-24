@@ -12,10 +12,12 @@
 #include "Debug.h"
 #include "GlobalHandler.h"
 #include "JIT.h"
+#include "Utilities.h"
 #include "elf_common.h"
 #include "omptarget.h"
 #include "omptargetplugin.h"
 
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/JSON.h"
@@ -34,11 +36,15 @@ GenericPluginTy *Plugin::SpecificPlugin = nullptr;
 // TODO: Fix any thread safety issues for multi-threaded kernel recording.
 struct RecordReplayTy {
 private:
+  static constexpr int ALIGN = 16;
+
   // Memory pointers for recording, replaying memory.
-  void *MemoryStart;
-  void *MemoryPtr;
-  size_t MemorySize;
-  GenericDeviceTy *Device;
+  void *MemoryStart = nullptr;
+  void *AlignedMemoryStart = nullptr;
+  void *MemoryPtr = nullptr;
+  size_t MemorySize = 0;
+  GenericDeviceTy *Device = nullptr;
+
   std::mutex AllocationLock;
 
   // Environment variables for record and replay.
@@ -59,37 +65,106 @@ private:
   Error preallocateDeviceMemory() {
     // Pre-allocate memory on device. Starts with 64GB and subtracts in steps
     // of 1GB until allocation succeeds.
-    const size_t MAX_MEMORY_ALLOCATION =
+    const size_t MaxMemoryAllocation =
         OMPX_DeviceMemorySize * 1024 * 1024 * 1024ULL;
     constexpr size_t STEP = 1024 * 1024 * 1024ULL;
     MemoryStart = nullptr;
-    for (size_t Try = MAX_MEMORY_ALLOCATION; Try > 0; Try -= STEP) {
+    size_t Size = MaxMemoryAllocation;
+    for (; Size > 0; Size -= STEP) {
       MemoryStart =
-          Device->allocate(Try, /* HstPtr */ nullptr, TARGET_ALLOC_DEFAULT);
+          Device->allocate(Size, /* HstPtr */ nullptr, TARGET_ALLOC_DEFAULT);
       if (MemoryStart)
         break;
     }
 
-    if (!MemoryStart)
+    if (!MemoryStart && MaxMemoryAllocation)
       return Plugin::error("Allocating record/replay memory");
 
-    MemoryPtr = MemoryStart;
+    // Align the memory at two times the step size to avoid mismatch in the
+    // beginning of the memory region.
+    AlignedMemoryStart = alignPtr(MemoryStart, (2 * STEP));
+
+    INFO(OMP_INFOTYPE_PLUGIN_KERNEL, Device->getDeviceId(),
+         "Allocated %" PRIu64
+         " bytes at %p for record and replay, aligned it to %p\n",
+         Size, MemoryStart, AlignedMemoryStart);
+
+    MemoryPtr = AlignedMemoryStart;
     MemorySize = 0;
 
     return Plugin::success();
   }
 
-  void dumpDeviceMemory(StringRef Filename,
-                        AsyncInfoWrapperTy &AsyncInfoWrapper) {
+  void dumpGlobals(StringRef Filename, const DeviceImageTy &Image) {
+    int32_t Size = 0;
+
+    for (auto &OffloadEntry : Image.getOffloadEntryTable()) {
+      if (!OffloadEntry.size)
+        continue;
+      Size += std::strlen(OffloadEntry.name) + /* '\0' */ 1 +
+              /* OffloadEntry.size value */ sizeof(uint32_t) +
+              OffloadEntry.size;
+    }
+
+    ErrorOr<std::unique_ptr<WritableMemoryBuffer>> GlobalsMB =
+        WritableMemoryBuffer::getNewUninitMemBuffer(Size);
+    if (!GlobalsMB)
+      report_fatal_error("Error creating MemoryBuffer for globals memory");
+
+    void *BufferPtr = GlobalsMB.get()->getBufferStart();
+    for (auto &OffloadEntry : Image.getOffloadEntryTable()) {
+      if (!OffloadEntry.size)
+        continue;
+
+      int32_t NameLength = std::strlen(OffloadEntry.name) + 1;
+      memcpy(BufferPtr, OffloadEntry.name, NameLength);
+      BufferPtr = advanceVoidPtr(BufferPtr, NameLength);
+
+      *((uint32_t *)(BufferPtr)) = OffloadEntry.size;
+      BufferPtr = advanceVoidPtr(BufferPtr, sizeof(uint32_t));
+
+      auto Err = Plugin::success();
+      {
+        AsyncInfoWrapperTy AsyncInfoWrapper(Err, *Device, nullptr);
+        if (auto Err =
+                Device->dataRetrieve(BufferPtr, OffloadEntry.addr,
+                                     OffloadEntry.size, AsyncInfoWrapper))
+          report_fatal_error("Error retrieving data for global");
+      }
+      if (Err)
+        report_fatal_error("Error retrieving data for global");
+      BufferPtr = advanceVoidPtr(BufferPtr, OffloadEntry.size);
+    }
+    assert(BufferPtr == GlobalsMB->get()->getBufferEnd() &&
+           "Buffer over/under-filled.");
+    assert(Size == getPtrDiff(BufferPtr, GlobalsMB->get()->getBufferStart()) &&
+           "Buffer size mismatch");
+
+    StringRef GlobalsMemory(GlobalsMB.get()->getBufferStart(), Size);
+    std::error_code EC;
+    raw_fd_ostream OS(Filename, EC);
+    OS << GlobalsMemory;
+    OS.close();
+  }
+
+  void dumpDeviceMemory(StringRef Filename) {
     ErrorOr<std::unique_ptr<WritableMemoryBuffer>> DeviceMemoryMB =
         WritableMemoryBuffer::getNewUninitMemBuffer(MemorySize);
     if (!DeviceMemoryMB)
       report_fatal_error("Error creating MemoryBuffer for device memory");
 
-    auto Err = Device->dataRetrieve(DeviceMemoryMB.get()->getBufferStart(),
-                                    MemoryStart, MemorySize, AsyncInfoWrapper);
-    if (Err)
-      report_fatal_error("Error retrieving data for target pointer");
+    if (MemorySize) {
+      auto Err = Plugin::success();
+      {
+        AsyncInfoWrapperTy AsyncInfoWrapper(Err, *Device, nullptr);
+        if (auto Err = Device->dataRetrieve(
+                DeviceMemoryMB.get()->getBufferStart(), AlignedMemoryStart,
+                MemorySize, AsyncInfoWrapper))
+          report_fatal_error("Error retrieving data for target pointer");
+      }
+      if (Err)
+        report_fatal_error("Error retrieving data for target pointer");
+    }
 
     StringRef DeviceMemory(DeviceMemoryMB.get()->getBufferStart(), MemorySize);
     std::error_code EC;
@@ -123,22 +198,21 @@ public:
     if (EC)
       report_fatal_error("Error saving image : " + StringRef(EC.message()));
     if (auto TgtImageBitcode = Image.getTgtImageBitcode()) {
-      size_t Size = (char *)TgtImageBitcode->ImageEnd -
-                    (char *)TgtImageBitcode->ImageStart;
+      size_t Size =
+          getPtrDiff(TgtImageBitcode->ImageEnd, TgtImageBitcode->ImageStart);
       MemoryBufferRef MBR = MemoryBufferRef(
           StringRef((const char *)TgtImageBitcode->ImageStart, Size), "");
       OS << MBR.getBuffer();
-    }
-    else
+    } else {
       OS << Image.getMemoryBuffer().getBuffer();
+    }
     OS.close();
   }
 
-  void saveKernelInputInfo(const char *Name, void **ArgPtrs,
-                           ptrdiff_t *ArgOffsets, int32_t NumArgs,
-                           uint64_t NumTeamsClause, uint32_t ThreadLimitClause,
-                           uint64_t LoopTripCount,
-                           AsyncInfoWrapperTy &AsyncInfoWrapper) {
+  void saveKernelInputInfo(const char *Name, const DeviceImageTy &Image,
+                           void **ArgPtrs, ptrdiff_t *ArgOffsets,
+                           int32_t NumArgs, uint64_t NumTeamsClause,
+                           uint32_t ThreadLimitClause, uint64_t LoopTripCount) {
     json::Object JsonKernelInfo;
     JsonKernelInfo["Name"] = Name;
     JsonKernelInfo["NumArgs"] = NumArgs;
@@ -160,7 +234,10 @@ public:
 
     Twine KernelName(Name);
     Twine MemoryFilename = KernelName + ".memory";
-    dumpDeviceMemory(MemoryFilename.str(), AsyncInfoWrapper);
+    dumpDeviceMemory(MemoryFilename.str());
+
+    Twine GlobalUpdatesFilename = KernelName + ".globals";
+    dumpGlobals(GlobalUpdatesFilename.str(), Image);
 
     Twine JsonFilename = KernelName + ".json";
     std::error_code EC;
@@ -172,22 +249,20 @@ public:
     JsonOS.close();
   }
 
-  void saveKernelOutputInfo(const char *Name,
-                            AsyncInfoWrapperTy &AsyncInfoWrapper) {
+  void saveKernelOutputInfo(const char *Name) {
     Twine OutputFilename =
         Twine(Name) + (isRecording() ? ".original.output" : ".replay.output");
-    dumpDeviceMemory(OutputFilename.str(), AsyncInfoWrapper);
+    dumpDeviceMemory(OutputFilename.str());
   }
 
   void *alloc(uint64_t Size) {
-    assert(MemoryStart && "Expected memory has been pre-allocated");
+    assert(Size && MemoryStart && "Expected memory has been pre-allocated");
     void *Alloc = nullptr;
-    constexpr int ALIGN = 16;
     // Assumes alignment is a power of 2.
     int64_t AlignedSize = Size + (ALIGN - 1) & (~(ALIGN - 1));
     std::lock_guard<std::mutex> LG(AllocationLock);
     Alloc = MemoryPtr;
-    MemoryPtr = (char *)MemoryPtr + AlignedSize;
+    MemoryPtr = advanceVoidPtr(MemoryPtr, AlignedSize);
     MemorySize += AlignedSize;
     return Alloc;
   }
@@ -195,6 +270,44 @@ public:
   Error init(GenericDeviceTy *Device) {
     this->Device = Device;
     return preallocateDeviceMemory();
+  }
+
+  Error initializeRecordedGlobals(DeviceImageTy &Image, const void *BufferPtr,
+                                  int32_t Size) {
+    StringMap<const __tgt_offload_entry *> OffloadEntryMap;
+    for (auto &OffloadEntry : Image.getOffloadEntryTable())
+      OffloadEntryMap[OffloadEntry.name] = &OffloadEntry;
+
+    GenericGlobalHandlerTy &GHandler = Plugin::get().getGlobalHandler();
+
+    const void *BufferEndPtr = advanceVoidPtr(BufferPtr, Size);
+    while (BufferPtr != BufferEndPtr) {
+      StringRef Name((const char *)BufferPtr);
+      BufferPtr = advanceVoidPtr(BufferPtr, Name.size() + 1);
+
+      uint32_t RecordedSize = *((const uint32_t *)(BufferPtr));
+      BufferPtr = advanceVoidPtr(BufferPtr, sizeof(uint32_t));
+
+      GlobalTy ImageGlobal(Name.str(), 0);
+      if (auto Err =
+              GHandler.getGlobalMetadataFromImage(*Device, Image, ImageGlobal))
+        return Err;
+
+      // Verify the global has the expected size to avoid memory corruption.
+      if (RecordedSize != ImageGlobal.getSize())
+        report_fatal_error(
+            "Recorded global " + Name +
+            " has unexpected size: " + std::to_string(ImageGlobal.getSize()) +
+            " vs " + std::to_string(RecordedSize));
+
+      // Set the host pointer of the global such that we read the value from the
+      // recording.
+      ImageGlobal.setPtr(const_cast<void *>(BufferPtr));
+      if (auto Err = GHandler.writeGlobalToDevice(*Device, Image, ImageGlobal))
+        return Err;
+      BufferPtr = advanceVoidPtr(BufferPtr, ImageGlobal.getSize());
+    }
+    return Plugin::success();
   }
 
   void deinit() { Device->free(MemoryStart); }
@@ -211,6 +324,7 @@ AsyncInfoWrapperTy::~AsyncInfoWrapperTy() {
 
 Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
                             DeviceImageTy &Image) {
+  ImagePtr = &Image;
   PreferredNumThreads = getDefaultNumThreads(GenericDevice);
 
   MaxNumThreads = GenericDevice.getThreadLimit();
@@ -706,25 +820,49 @@ Error GenericDeviceTy::runTargetTeamRegion(
     void *EntryPtr, void **ArgPtrs, ptrdiff_t *ArgOffsets, int32_t NumArgs,
     uint64_t NumTeamsClause, uint32_t ThreadLimitClause, uint64_t LoopTripCount,
     __tgt_async_info *AsyncInfo) {
-  auto Err = Plugin::success();
-  AsyncInfoWrapperTy AsyncInfoWrapper(Err, *this, AsyncInfo);
+
+  bool RecordKernelOutput = RecordReplay.isRecordingOrReplaying() &&
+                            RecordReplay.isSaveOutputEnabled();
 
   GenericKernelTy &GenericKernel =
       *reinterpret_cast<GenericKernelTy *>(EntryPtr);
 
-  if (RecordReplay.isRecording())
+  // Saving kernel input information in recording mode is synchronous as is the
+  // initialization of the device memory.
+  // TODO: If we delay the write of the files we could do this asynchronous:
+  //        - schedule the memory H2D transfers,
+  //        - schedule the kernel info D2H transfers,
+  //        - schedule the kernel,
+  //        - schedule the memory D2H transfers (iff the output is saved),
+  //        - synchronize,
+  //        - write all the files.
+  if (RecordReplay.isRecording()) {
+    // Ensure we are done transfering memory from the device before we issue D2H
+    // copies for the kernel info.
+    if (AsyncInfo && AsyncInfo->Queue)
+      if (auto Err = synchronize(AsyncInfo))
+        return Err;
     RecordReplay.saveKernelInputInfo(
-        GenericKernel.getName(), ArgPtrs, ArgOffsets, NumArgs, NumTeamsClause,
-        ThreadLimitClause, LoopTripCount, AsyncInfoWrapper);
+        GenericKernel.getName(), GenericKernel.getImage(), ArgPtrs, ArgOffsets,
+        NumArgs, NumTeamsClause, ThreadLimitClause, LoopTripCount);
+  }
 
-  Err =
-      GenericKernel.launch(*this, ArgPtrs, ArgOffsets, NumArgs, NumTeamsClause,
-                           ThreadLimitClause, LoopTripCount, AsyncInfoWrapper);
+  // Block to synchronize the launch iff the kernel output is recorded.
+  auto Err = Plugin::success();
+  {
+    AsyncInfoWrapperTy AsyncInfoWrapper(
+        Err, *this, RecordKernelOutput ? nullptr : AsyncInfo);
 
-  if (RecordReplay.isRecordingOrReplaying() &&
-      RecordReplay.isSaveOutputEnabled())
-    RecordReplay.saveKernelOutputInfo(GenericKernel.getName(),
-                                      AsyncInfoWrapper);
+    Err = GenericKernel.launch(*this, ArgPtrs, ArgOffsets, NumArgs,
+                               NumTeamsClause, ThreadLimitClause, LoopTripCount,
+                               AsyncInfoWrapper);
+  }
+
+  // If we are recording the output the kernel was already synchronized and is
+  // known to be done by now. If not, the AsyncInfoWrapper will not synchronize
+  // if AsyncInfo is a proper object.
+  if (RecordKernelOutput)
+    RecordReplay.saveKernelOutputInfo(GenericKernel.getName());
 
   return Err;
 }
@@ -744,6 +882,14 @@ Error GenericDeviceTy::initDeviceInfo(__tgt_device_info *DeviceInfo) {
   assert(DeviceInfo && "Invalid device info");
 
   return initDeviceInfoImpl(DeviceInfo);
+}
+
+Error GenericDeviceTy::initializeRecordedGlobals(const void *GlobalEncoding,
+                                                 int32_t Size) {
+  assert(GlobalEncoding && Size && "Expected encoded globals");
+  assert(LoadedImages.size() == 1);
+  return RecordReplay.initializeRecordedGlobals(*LoadedImages.back(),
+                                                GlobalEncoding, Size);
 }
 
 Error GenericDeviceTy::printInfo() {
@@ -1200,6 +1346,18 @@ int32_t __tgt_rtl_init_device_info(int32_t DeviceId,
   if (Err)
     REPORT("Failure to initialize device info at " DPxMOD " on device %d: %s\n",
            DPxPTR(DeviceInfo), DeviceId, toString(std::move(Err)).data());
+
+  return (bool)Err;
+}
+
+int32_t __tgt_rtl_initialize_recorded_globals(int32_t DeviceId,
+                                              const void *GlobalsEncoding,
+                                              int32_t Size) {
+  auto Err = Plugin::get().getDevice(DeviceId).initializeRecordedGlobals(
+      GlobalsEncoding, Size);
+  if (Err)
+    REPORT("Failure to initialize recorded globlas on device %d: %s\n",
+           DeviceId, toString(std::move(Err)).data());
 
   return (bool)Err;
 }
