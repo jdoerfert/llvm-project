@@ -2319,6 +2319,10 @@ struct AMDGPUPluginTy final : public GenericPluginTy {
 
   /// Deinitialize the plugin.
   Error deinitImpl() override {
+    // The plugin was instantiated but later on invalidated
+    if ( HostDevice == nullptr )
+      return Plugin::success();
+
     if (auto Err = HostDevice->deinit())
       return Err;
 
