@@ -782,6 +782,8 @@ __tgt_target_table *__tgt_rtl_load_binary(int32_t DeviceId,
 
 void *__tgt_rtl_data_alloc(int32_t DeviceId, int64_t Size, void *HostPtr,
                            int32_t Kind) {
+  assert(Size && "Zero-sized allocations are not supported");
+
   auto AllocOrErr = Plugin::get().getDevice(DeviceId).dataAlloc(
       Size, HostPtr, (TargetAllocTy)Kind);
   if (!AllocOrErr) {
@@ -814,6 +816,7 @@ int32_t __tgt_rtl_data_submit(int32_t DeviceId, void *TgtPtr, void *HstPtr,
 int32_t __tgt_rtl_data_submit_async(int32_t DeviceId, void *TgtPtr,
                                     void *HstPtr, int64_t Size,
                                     __tgt_async_info *AsyncInfoPtr) {
+  assert(Size && "Zero-sized transfers are not supported");
   auto Err = Plugin::get().getDevice(DeviceId).dataSubmit(TgtPtr, HstPtr, Size,
                                                           AsyncInfoPtr);
   if (Err)
@@ -834,6 +837,7 @@ int32_t __tgt_rtl_data_retrieve(int32_t DeviceId, void *HstPtr, void *TgtPtr,
 int32_t __tgt_rtl_data_retrieve_async(int32_t DeviceId, void *HstPtr,
                                       void *TgtPtr, int64_t Size,
                                       __tgt_async_info *AsyncInfoPtr) {
+  assert(Size && "Zero-sized transfers are not supported");
   auto Err = Plugin::get().getDevice(DeviceId).dataRetrieve(HstPtr, TgtPtr,
                                                             Size, AsyncInfoPtr);
   if (Err)
@@ -856,6 +860,7 @@ int32_t __tgt_rtl_data_exchange_async(int32_t SrcDeviceId, void *SrcPtr,
                                       int DstDeviceId, void *DstPtr,
                                       int64_t Size,
                                       __tgt_async_info *AsyncInfo) {
+  assert(Size && "Zero-sized transfers are not supported");
   GenericDeviceTy &SrcDevice = Plugin::get().getDevice(SrcDeviceId);
   GenericDeviceTy &DstDevice = Plugin::get().getDevice(DstDeviceId);
   auto Err = SrcDevice.dataExchange(SrcPtr, DstDevice, DstPtr, Size, AsyncInfo);
