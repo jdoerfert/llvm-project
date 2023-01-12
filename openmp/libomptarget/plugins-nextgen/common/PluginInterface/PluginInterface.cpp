@@ -25,6 +25,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <unordered_set>
 
 using namespace llvm;
 using namespace omp;
@@ -46,6 +47,8 @@ private:
   GenericDeviceTy *Device = nullptr;
 
   std::mutex AllocationLock;
+  std::unordered_set<const char *> RecordedKernels;
+  std::mutex RecordLock;
 
   // Environment variables for record and replay.
   // Enables recording kernels if set.
@@ -88,6 +91,7 @@ private:
          "Allocated %" PRIu64
          " bytes at %p for record and replay, aligned it to %p\n",
          Size, MemoryStart, AlignedMemoryStart);
+
 
     MemoryPtr = AlignedMemoryStart;
     MemorySize = 0;
@@ -178,6 +182,10 @@ private:
 
 public:
   bool isRecording() const { return OMPX_RecordKernel; }
+  bool isRecorded( const char *Kernel ) const
+              {  return RecordedKernels.count(Kernel); }
+  std::mutex& GetRecordLock() { return RecordLock; }
+  void RegisterKernel( const char *Kernel ) { RecordedKernels.insert(Kernel); }
   bool isReplaying() const { return OMPX_ReplayKernel; }
   bool isRecordingOrReplaying() const {
     return (OMPX_RecordKernel || OMPX_ReplayKernel);
@@ -191,7 +199,7 @@ public:
         OMPX_DeviceMemorySize("LIBOMPTARGET_RR_DEVMEM_SIZE",
                               /* Default in GB */ 64) {}
 
-  void saveImage(const char *Name, DeviceImageTy &Image) {
+  void saveImage(const char *Name, const DeviceImageTy &Image) {
     Twine ImageName = Twine(Name) + Twine(".image");
     std::error_code EC;
     raw_fd_ostream OS(ImageName.str(), EC);
@@ -221,6 +229,19 @@ public:
     JsonKernelInfo["LoopTripCount"] = LoopTripCount;
     JsonKernelInfo["DeviceMemorySize"] = MemorySize;
     JsonKernelInfo["DeviceId"] = Device->getDeviceId();
+
+    auto oEntryTable = Image.getOffloadEntryTable();
+
+//    json::Array JsonImageEntries;
+//    for ( auto E:  oEntryTable){
+//      json::Object JSONEntry;
+//      JSONEntry["Addr"] = (intptr_t) E.addr;
+//      JSONEntry["Name"] = E.name;
+//      JSONEntry["Size"] = E.size;
+//      JSONEntry["Flags"] = E.flags;
+//      JsonImageEntries.emplace_back(json::Value(std::move(JSONEntry)));
+//    }
+//    JsonKernelInfo["ImageKernels"] = json::Value(std::move(JsonImageEntries));
 
     json::Array JsonArgPtrs;
     for (int I = 0; I < NumArgs; ++I)
@@ -330,9 +351,6 @@ Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
   MaxNumThreads = GenericDevice.getThreadLimit();
 
   DynamicMemorySize = GenericDevice.getDynamicMemorySize();
-
-  if (RecordReplay.isRecording())
-    RecordReplay.saveImage(Name, Image);
 
   return initImpl(GenericDevice, Image);
 }
@@ -821,11 +839,14 @@ Error GenericDeviceTy::runTargetTeamRegion(
     uint64_t NumTeamsClause, uint32_t ThreadLimitClause, uint64_t LoopTripCount,
     __tgt_async_info *AsyncInfo) {
 
-  bool RecordKernelOutput = RecordReplay.isRecordingOrReplaying() &&
-                            RecordReplay.isSaveOutputEnabled();
+  std::lock_guard<std::mutex> RG(RecordReplay.GetRecordLock());
 
   GenericKernelTy &GenericKernel =
       *reinterpret_cast<GenericKernelTy *>(EntryPtr);
+
+  bool RecordKernelOutput = RecordReplay.isRecordingOrReplaying() &&
+                            RecordReplay.isSaveOutputEnabled() &&
+                            (! RecordReplay.isRecorded(GenericKernel.getName()));
 
   // Saving kernel input information in recording mode is synchronous as is the
   // initialization of the device memory.
@@ -837,6 +858,7 @@ Error GenericDeviceTy::runTargetTeamRegion(
   //        - synchronize,
   //        - write all the files.
   if (RecordReplay.isRecording()) {
+    if ( ! RecordReplay.isRecorded(GenericKernel.getName()) ) {
     // Ensure we are done transfering memory from the device before we issue D2H
     // copies for the kernel info.
     if (AsyncInfo && AsyncInfo->Queue)
@@ -845,6 +867,12 @@ Error GenericDeviceTy::runTargetTeamRegion(
     RecordReplay.saveKernelInputInfo(
         GenericKernel.getName(), GenericKernel.getImage(), ArgPtrs, ArgOffsets,
         NumArgs, NumTeamsClause, ThreadLimitClause, LoopTripCount);
+    }
+  }
+
+  if (RecordReplay.isRecording() &&
+      ( ! RecordReplay.isRecorded(GenericKernel.getName()) ) ) {
+    RecordReplay.saveImage(GenericKernel.getName(), GenericKernel.getImage());
   }
 
   // Block to synchronize the launch iff the kernel output is recorded.
@@ -864,6 +892,10 @@ Error GenericDeviceTy::runTargetTeamRegion(
   if (RecordKernelOutput)
     RecordReplay.saveKernelOutputInfo(GenericKernel.getName());
 
+  if (RecordReplay.isRecording() &&
+    ( ! RecordReplay.isRecorded(GenericKernel.getName()) ) ) {
+    RecordReplay.RegisterKernel(GenericKernel.getName());
+  }
   return Err;
 }
 
