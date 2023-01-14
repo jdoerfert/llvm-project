@@ -394,6 +394,16 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   Error printInfo();
   virtual Error printInfoImpl() = 0;
 
+  virtual bool implementsMemoryMap() { return false; }
+
+  virtual Error mMap(void **Addr, void *VAddr, size_t *RSize) {
+    *Addr = nullptr;
+    *RSize = 0;
+    return Error::success();
+  }
+
+  virtual Error munMap(void *VAddr, size_t Size) { return Error::success(); }
+
   /// Getters of the grid values.
   uint32_t getWarpSize() const { return GridValues.GV_Warp_Size; }
   uint32_t getThreadLimit() const { return GridValues.GV_Max_WG_Size; }

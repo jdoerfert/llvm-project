@@ -73,11 +73,22 @@ private:
     constexpr size_t STEP = 1024 * 1024 * 1024ULL;
     MemoryStart = nullptr;
     size_t Size = MaxMemoryAllocation;
-    for (; Size > 0; Size -= STEP) {
-      MemoryStart =
-          Device->allocate(Size, /* HstPtr */ nullptr, TARGET_ALLOC_DEFAULT);
-      if (MemoryStart)
-        break;
+
+    if ( Device->implementsMemoryMap() ){
+      // MAGIC NUMBER
+      // This address works in V100 + P9;
+      void *VAddr = reinterpret_cast<void *>(0x300000000000);
+      size_t ASize = MaxMemoryAllocation;
+      if ( auto Err = Device->mMap(&MemoryStart, VAddr, &ASize) )
+          report_fatal_error("Error retrieving data for global");
+      Size = ASize;
+    } else {
+      for (; Size > 0; Size -= STEP) {
+        MemoryStart =
+            Device->allocate(Size, /* HstPtr */ nullptr, TARGET_ALLOC_DEFAULT);
+        if (MemoryStart)
+          break;
+      }
     }
 
     if (!MemoryStart && MaxMemoryAllocation)
@@ -92,6 +103,7 @@ private:
          " bytes at %p for record and replay, aligned it to %p\n",
          Size, MemoryStart, AlignedMemoryStart);
 
+    printf("Allocated %" PRIu64 " bytes at %p for record and replay, aligned it to %p\n", Size, MemoryStart, AlignedMemoryStart);
 
     MemoryPtr = AlignedMemoryStart;
     MemorySize = 0;
@@ -231,17 +243,6 @@ public:
     JsonKernelInfo["DeviceId"] = Device->getDeviceId();
 
     auto oEntryTable = Image.getOffloadEntryTable();
-
-//    json::Array JsonImageEntries;
-//    for ( auto E:  oEntryTable){
-//      json::Object JSONEntry;
-//      JSONEntry["Addr"] = (intptr_t) E.addr;
-//      JSONEntry["Name"] = E.name;
-//      JSONEntry["Size"] = E.size;
-//      JSONEntry["Flags"] = E.flags;
-//      JsonImageEntries.emplace_back(json::Value(std::move(JSONEntry)));
-//    }
-//    JsonKernelInfo["ImageKernels"] = json::Value(std::move(JsonImageEntries));
 
     json::Array JsonArgPtrs;
     for (int I = 0; I < NumArgs; ++I)
