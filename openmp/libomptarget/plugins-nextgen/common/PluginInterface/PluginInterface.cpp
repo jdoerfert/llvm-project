@@ -44,6 +44,7 @@ private:
   void *AlignedMemoryStart = nullptr;
   void *MemoryPtr = nullptr;
   size_t MemorySize = 0;
+  size_t TotalSize = 0;
   GenericDeviceTy *Device = nullptr;
 
   std::mutex AllocationLock;
@@ -80,7 +81,7 @@ private:
       void *VAddr = reinterpret_cast<void *>(0x300000000000);
       size_t ASize = MaxMemoryAllocation;
       if ( auto Err = Device->mMap(&MemoryStart, VAddr, &ASize) )
-          report_fatal_error("Error retrieving data for global");
+          report_fatal_error("Error using MMAP");
       Size = ASize;
     } else {
       for (; Size > 0; Size -= STEP) {
@@ -103,10 +104,9 @@ private:
          " bytes at %p for record and replay, aligned it to %p\n",
          Size, MemoryStart, AlignedMemoryStart);
 
-    printf("Allocated %" PRIu64 " bytes at %p for record and replay, aligned it to %p\n", Size, MemoryStart, AlignedMemoryStart);
-
     MemoryPtr = AlignedMemoryStart;
     MemorySize = 0;
+    TotalSize = Size;
 
     return Plugin::success();
   }
@@ -332,7 +332,16 @@ public:
     return Plugin::success();
   }
 
-  void deinit() { Device->free(MemoryStart); }
+  void deinit() {
+    if ( Device->implementsMemoryMap() ){
+      if ( auto Err = Device->munMap(MemoryStart, TotalSize) ){
+          report_fatal_error("Error in UnMap");
+      }
+    }
+    else {
+      Device->free(MemoryStart);
+    }
+  }
 
 } RecordReplay;
 
