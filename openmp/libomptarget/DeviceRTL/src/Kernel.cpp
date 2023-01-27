@@ -83,6 +83,10 @@ int32_t __kmpc_target_init(IdentTy *Ident, int8_t Mode,
 
   if (IsSPMD) {
     state::assumeInitialState(IsSPMD);
+
+    // Synchronize to ensure the assertions above are in an aligned region.
+    // The barrier is eliminated later.
+    synchronize::threadsAligned();
     return -1;
   }
 
@@ -132,7 +136,11 @@ void __kmpc_target_deinit(IdentTy *Ident, int8_t Mode) {
   FunctionTracingRAII();
   const bool IsSPMD =
       Mode & llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD;
+
+  synchronize::threadsAligned();
   state::assumeInitialState(IsSPMD);
+  synchronize::threadsAligned();
+
   if (IsSPMD)
     return;
 

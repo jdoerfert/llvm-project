@@ -135,6 +135,10 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
       icv::ActiveLevel.assert_eq(1u, ident, /* ForceTeamState */ true);
       icv::Level.assert_eq(1u, ident, /* ForceTeamState */ true);
 
+      // Synchronize to ensure the assertions above are in an aligned region.
+      // The barrier is eliminated later.
+      synchronize::threadsAligned();
+
       if (TId < NumThreads)
         invokeMicrotask(TId, 0, fn, args, nargs);
 
@@ -150,6 +154,11 @@ void __kmpc_parallel_51(IdentTy *ident, int32_t, int32_t if_expr,
     state::ParallelTeamSize.assert_eq(1u, ident, /* ForceTeamState */ true);
     icv::ActiveLevel.assert_eq(0u, ident, /* ForceTeamState */ true);
     icv::Level.assert_eq(0u, ident, /* ForceTeamState */ true);
+
+    // Synchronize to ensure the assertions above are in an aligned region.
+    // The barrier is eliminated later.
+    synchronize::threadsAligned();
+
     return;
   }
 
