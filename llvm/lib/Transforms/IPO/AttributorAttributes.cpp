@@ -62,6 +62,7 @@
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <cassert>
@@ -10602,6 +10603,53 @@ struct AAPotentialValuesImpl : AAPotentialValues {
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
     SmallVector<AA::ValueAndContext> Values;
+
+    // Helper that will attempt to specialize indirect call sites which use \p
+    // OldV as callee.
+    auto TryToSpecializeCallSites = [&](Value &OldV) {
+      SmallVector<CallBase *> IndirectCBs;
+      for (const Use &U : OldV.uses()) {
+        // TODO: Handle CBs with users.
+        if (auto *CB = dyn_cast<CallInst>(U.getUser()))
+          if (CB->isIndirectCall() && CB->isCallee(&U) && CB->user_empty()) {
+            // Check if cwe can replace the call base completely.
+            // TODO: Handle partial specialization.
+            if (any_of(Values, [&](const AA::ValueAndContext &VAC) {
+                  if (!AA::isValidAtPosition(
+                          AA::ValueAndContext(*VAC.getValue(), *CB),
+                          A.getInfoCache()))
+                    return true;
+                  if (Function *F = dyn_cast<Function>(VAC.getValue()))
+                    if (F->arg_size() != CB->arg_size())
+                      return true;
+                  return false;
+                }))
+              continue;
+            IndirectCBs.push_back(CB);
+          }
+      }
+      if (IndirectCBs.empty())
+        return false;
+
+      for (auto *CB : IndirectCBs) {
+        FunctionType *FT = CB->getFunctionType();
+        SmallVector<Value *> Args(CB->arg_begin(), CB->arg_end());
+        // For each potential value we create a conditional
+        // if (ptr == value) value(args);
+        for (auto &VAC : Values) {
+          Value *Cond =
+              new ICmpInst(CB, llvm::CmpInst::ICMP_EQ, &OldV, VAC.getValue());
+          Instruction *ThenTI =
+              SplitBlockAndInsertIfThen(Cond, CB, /* Unreachable */ false);
+          CallInst::Create(FunctionCallee(FT, VAC.getValue()), Args,
+                           CB->getName(), ThenTI);
+        }
+        A.deleteAfterManifest(*CB);
+      }
+      return true;
+    };
+
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
     for (AA::ValueScope S : {AA::Interprocedural, AA::Intraprocedural}) {
       Values.clear();
       if (!getAssumedSimplifiedValues(A, Values, S))
@@ -10610,7 +10658,15 @@ struct AAPotentialValuesImpl : AAPotentialValues {
       if (isa<UndefValue>(OldV))
         continue;
       Value *NewV = getSingleValue(A, *this, getIRPosition(), Values);
-      if (!NewV || NewV == &OldV)
+      if (!NewV) {
+        // If we failed to find a single replacement value we might still be
+        // able to specialize an indirect call site (via an if-cascade).
+        if (OldV.getType()->isPointerTy() && A.isModulePass() &&
+            TryToSpecializeCallSites(OldV))
+          Changed = ChangeStatus::CHANGED;
+        continue;
+      }
+      if (NewV == &OldV)
         continue;
       if (getCtxI() &&
           !AA::isValidAtPosition({*NewV, *getCtxI()}, A.getInfoCache()))
@@ -10618,7 +10674,7 @@ struct AAPotentialValuesImpl : AAPotentialValues {
       if (A.changeAfterManifest(getIRPosition(), *NewV))
         return ChangeStatus::CHANGED;
     }
-    return ChangeStatus::UNCHANGED;
+    return Changed;
   }
 
   bool getAssumedSimplifiedValues(Attributor &A,
