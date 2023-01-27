@@ -1193,8 +1193,10 @@ struct AAPointerInfoImpl
 
     // Helper to determine if we can skip a specific write access.
     auto CanSkipAccess = [&](const Access &Acc, bool Exact) {
-      if (!CanIgnoreThreading(Acc))
+      if (!CanIgnoreThreading(Acc)) {
+        LLVM_DEBUG(dbgs() << "Cannot ignore threading " << Acc << "\n");
         return false;
+      }
 
       // Check read (RAW) dependences and write (WAR) dependences as necessary.
       // If we successfully excluded all effects we are interested in, the
