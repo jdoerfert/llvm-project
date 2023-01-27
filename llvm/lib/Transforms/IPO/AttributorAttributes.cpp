@@ -5483,6 +5483,15 @@ struct AAInstanceInfoImpl : public AAInstanceInfo {
   AAInstanceInfoImpl(const IRPosition &IRP, Attributor &A)
       : AAInstanceInfo(IRP, A) {}
 
+  Function *getScope() {
+    Value &V = getAssociatedValue();
+    if (auto *I = dyn_cast<Instruction>(&V))
+      return I->getFunction();
+    if (auto *A = dyn_cast<Argument>(&V))
+      return A->getParent();
+    return nullptr;
+  }
+
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     Value &V = getAssociatedValue();
@@ -5499,23 +5508,26 @@ struct AAInstanceInfoImpl : public AAInstanceInfo {
         indicateOptimisticFixpoint();
         return;
       }
+    const Function *Scope = getScope();
+    if (!Scope) {
+      indicateOptimisticFixpoint();
+      return;
+    }
+    auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
+        *this, IRPosition::function(*Scope), DepClassTy::OPTIONAL);
+    if (NoRecurseAA.isKnownNoRecurse()) {
+      indicateOptimisticFixpoint();
+      return;
+    }
   }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
-    Value &V = getAssociatedValue();
-    const Function *Scope = nullptr;
-    if (auto *I = dyn_cast<Instruction>(&V))
-      Scope = I->getFunction();
-    if (auto *A = dyn_cast<Argument>(&V)) {
-      Scope = A->getParent();
-      if (!Scope->hasLocalLinkage())
-        return Changed;
-    }
-    if (!Scope)
-      return indicateOptimisticFixpoint();
+    const Function *Scope = getScope();
+    if (isa<Argument>(getAssociatedValue()) && !Scope->hasLocalLinkage())
+      return Changed;
 
     auto &NoRecurseAA = A.getAAFor<AANoRecurse>(
         *this, IRPosition::function(*Scope), DepClassTy::OPTIONAL);
@@ -5567,6 +5579,7 @@ struct AAInstanceInfoImpl : public AAInstanceInfo {
       return false;
     };
 
+    Value &V = getAssociatedValue();
     if (!A.checkForAllUses(UsePred, *this, V, /* CheckBBLivenessOnly */ true,
                            DepClassTy::OPTIONAL,
                            /* IgnoreDroppableUses */ true, EquivalentUseCB))
