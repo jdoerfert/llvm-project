@@ -4586,7 +4586,7 @@ struct AAIsDeadFunction : public AAIsDead {
     // functions. It can however cause dead functions to be treated as live.
     for (const Instruction &I : BB)
       if (const auto *CB = dyn_cast<CallBase>(&I))
-        if (const Function *F = CB->getCalledFunction())
+        if (const Function *F = dyn_cast<Function>(CB->getCalledOperand()))
           if (F->hasLocalLinkage())
             A.markLiveInternalFunction(*F);
     return true;
@@ -5536,8 +5536,8 @@ struct AAInstanceInfoImpl : public AAInstanceInfo {
       if (auto *CB = dyn_cast<CallBase>(UserI)) {
         // This check is not guaranteeing uniqueness but for now that we cannot
         // end up with two versions of \p U thinking it was one.
-        if (!CB->getCalledFunction() ||
-            !CB->getCalledFunction()->hasLocalLinkage())
+        if (!isa<Function>(CB->getCalledOperand()) ||
+            !cast<Function>(CB->getCalledOperand())->hasLocalLinkage())
           return true;
         if (!CB->isArgOperand(&U))
           return false;
@@ -6288,7 +6288,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     bool Success;
     bool UsedAssumedInformation = false;
     if (hasCallBaseContext() &&
-        getCallBaseContext()->getCalledFunction() == Arg->getParent())
+        getCallBaseContext()->getCalledOperand() == Arg->getParent())
       Success = PredForCallSite(
           AbstractCallSite(&getCallBaseContext()->getCalledOperandUse()));
     else
@@ -10958,8 +10958,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
         NewV = AA::getWithType(*V->stripPointerCasts(), *V->getType());
       } else {
         auto *CB = dyn_cast<CallBase>(V);
-        if (CB && CB->getCalledFunction()) {
-          for (Argument &Arg : CB->getCalledFunction()->args())
+        if (CB && isa<Function>(CB->getCalledOperand())) {
+          for (Argument &Arg : cast<Function>(CB->getCalledOperand())->args())
             if (Arg.hasReturnedAttr()) {
               NewV = CB->getArgOperand(Arg.getArgNo());
               break;
@@ -11182,7 +11182,7 @@ struct AAPotentialValuesCallSiteReturned : AAPotentialValuesImpl {
           SmallVector<AA::ValueAndContext> ArgValues;
           IRPosition IRP = IRPosition::value(*V);
           if (auto *Arg = dyn_cast<Argument>(V))
-            if (Arg->getParent() == CB->getCalledFunction())
+            if (Arg->getParent() == CB->getCalledOperand())
               IRP = IRPosition::callsite_argument(*CB, Arg->getArgNo());
           if (recurseForValue(A, IRP, AA::AnyScope))
             continue;
