@@ -1278,10 +1278,8 @@ define i32 @test_speculatable_expr() norecurse {
 ; CGSCC: Function Attrs: norecurse nosync memory(none)
 ; CGSCC-LABEL: define {{[^@]+}}@test_speculatable_expr
 ; CGSCC-SAME: () #[[ATTR9:[0-9]+]] {
-; CGSCC-NEXT:    [[STACK:%.*]] = alloca i32, align 4
 ; CGSCC-NEXT:    [[SPEC_RESULT:%.*]] = call i32 @speculatable()
 ; CGSCC-NEXT:    [[PLUS1:%.*]] = add i32 [[SPEC_RESULT]], 1
-; CGSCC-NEXT:    store i32 [[PLUS1]], ptr [[STACK]], align 4
 ; CGSCC-NEXT:    [[RSPEC:%.*]] = call i32 @ret_speculatable_expr(i32 [[PLUS1]])
 ; CGSCC-NEXT:    ret i32 [[RSPEC]]
 ;
@@ -1386,11 +1384,18 @@ define internal void @indirect() {
 }
 
 define internal void @broker(void ()* %ptr) {
-; CHECK-LABEL: define {{[^@]+}}@broker() {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    call void @indirect()
-; CHECK-NEXT:    call void @unknown()
-; CHECK-NEXT:    ret void
+; TUNIT-LABEL: define {{[^@]+}}@broker() {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    call void @indirect()
+; TUNIT-NEXT:    call void @unknown()
+; TUNIT-NEXT:    ret void
+;
+; CGSCC-LABEL: define {{[^@]+}}@broker
+; CGSCC-SAME: (ptr nocapture nofree noundef nonnull [[PTR:%.*]]) {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    call void @indirect()
+; CGSCC-NEXT:    call void @unknown()
+; CGSCC-NEXT:    ret void
 ;
 entry:
   call void %ptr()
@@ -1399,10 +1404,15 @@ entry:
 }
 
 define void @entry() {
-; CHECK-LABEL: define {{[^@]+}}@entry() {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    call void @broker()
-; CHECK-NEXT:    ret void
+; TUNIT-LABEL: define {{[^@]+}}@entry() {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    call void @broker()
+; TUNIT-NEXT:    ret void
+;
+; CGSCC-LABEL: define {{[^@]+}}@entry() {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    call void @broker(ptr nocapture nofree noundef nonnull @indirect)
+; CGSCC-NEXT:    ret void
 ;
 entry:
   call void @broker(void ()* @indirect)

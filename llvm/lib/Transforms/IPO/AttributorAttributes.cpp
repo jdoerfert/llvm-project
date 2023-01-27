@@ -4082,14 +4082,18 @@ struct AAIsDeadValueImpl : public AAIsDead {
 
     // If we replace a value with a constant there are no uses left afterwards.
     if (!isa<Constant>(V)) {
-      if (auto *I = dyn_cast<Instruction>(&V))
-        if (!A.isRunOn(*I->getFunction()))
-          return false;
+      Instruction *CtxI = dyn_cast<Instruction>(&V);
+      if (CtxI && !A.isRunOn(*CtxI->getFunction()))
+        return false;
       bool UsedAssumedInformation = false;
-      std::optional<Constant *> C =
-          A.getAssumedConstant(V, *this, UsedAssumedInformation);
-      if (!C || *C)
+      std::optional<Value *> SV = A.getAssumedSimplified(
+          V, *this, UsedAssumedInformation, AA::Interprocedural);
+      if (!SV || (*SV && *SV != &V && AA::getWithType(**SV, *V.getType()) &&
+                  AA::isValidAtPosition(AA::ValueAndContext(**SV, CtxI),
+                                        A.getInfoCache()) &&
+                  AA::isDynamicallyUnique(A, *this, **SV))) {
         return true;
+      }
     }
 
     auto UsePred = [&](const Use &U, bool &Follow) { return false; };

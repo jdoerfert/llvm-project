@@ -2339,8 +2339,6 @@ define dso_local i32 @round_trip_malloc(i32 %x) {
 ; CHECK-LABEL: define {{[^@]+}}@round_trip_malloc
 ; CHECK-SAME: (i32 returned [[X:%.*]]) {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CALL_H2S:%.*]] = alloca i8, i64 4, align 1
-; CHECK-NEXT:    store i32 [[X]], ptr [[CALL_H2S]], align 4
 ; CHECK-NEXT:    ret i32 [[X]]
 ;
 entry:
@@ -2372,11 +2370,9 @@ define dso_local i32 @conditional_malloc(i32 %x) {
 ; CHECK-LABEL: define {{[^@]+}}@conditional_malloc
 ; CHECK-SAME: (i32 returned [[X:%.*]]) {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CALL_H2S:%.*]] = alloca i8, i64 4, align 1
 ; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[X]], 0
 ; CHECK-NEXT:    br i1 [[TOBOOL]], label [[IF_THEN:%.*]], label [[IF_END:%.*]]
 ; CHECK:       if.then:
-; CHECK-NEXT:    store i32 [[X]], ptr [[CALL_H2S]], align 4
 ; CHECK-NEXT:    br label [[IF_END]]
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret i32 [[X]]
@@ -2401,7 +2397,6 @@ define dso_local i32 @round_trip_calloc(i32 %x) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CALL_H2S:%.*]] = alloca i8, i64 4, align 1
 ; CHECK-NEXT:    call void @llvm.memset.p0.i64(ptr [[CALL_H2S]], i8 0, i64 4, i1 false)
-; CHECK-NEXT:    store i32 [[X]], ptr [[CALL_H2S]], align 4
 ; CHECK-NEXT:    ret i32 [[X]]
 ;
 entry:
