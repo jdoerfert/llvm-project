@@ -189,12 +189,12 @@ bool state::ICVStateTy::operator==(const ICVStateTy &Other) const {
 }
 
 void state::ICVStateTy::assertEqual(const ICVStateTy &Other) const {
-  ASSERT(NThreadsVar == Other.NThreadsVar);
-  ASSERT(LevelVar == Other.LevelVar);
-  ASSERT(ActiveLevelVar == Other.ActiveLevelVar);
-  ASSERT(MaxActiveLevelsVar == Other.MaxActiveLevelsVar);
-  ASSERT(RunSchedVar == Other.RunSchedVar);
-  ASSERT(RunSchedChunkVar == Other.RunSchedChunkVar);
+  __assert_assume(NThreadsVar == Other.NThreadsVar);
+  __assert_assume(LevelVar == Other.LevelVar);
+  __assert_assume(ActiveLevelVar == Other.ActiveLevelVar);
+  __assert_assume(MaxActiveLevelsVar == Other.MaxActiveLevelsVar);
+  __assert_assume(RunSchedVar == Other.RunSchedVar);
+  __assert_assume(RunSchedChunkVar == Other.RunSchedChunkVar);
 }
 
 void state::TeamStateTy::init(bool IsSPMD) {
@@ -217,8 +217,8 @@ bool state::TeamStateTy::operator==(const TeamStateTy &Other) const {
 
 void state::TeamStateTy::assertEqual(TeamStateTy &Other) const {
   ICVState.assertEqual(Other.ICVState);
-  ASSERT(ParallelTeamSize == Other.ParallelTeamSize);
-  ASSERT(HasThreadState == Other.HasThreadState);
+  __assert_assume(HasThreadState == Other.HasThreadState);
+  __assert_assume(ParallelTeamSize == Other.ParallelTeamSize);
 }
 
 state::TeamStateTy SHARED(ompx::state::TeamState);
@@ -309,7 +309,7 @@ void state::assumeInitialState(bool IsSPMD) {
   TeamStateTy InitialTeamState;
   InitialTeamState.init(IsSPMD);
   InitialTeamState.assertEqual(TeamState);
-  ASSERT(mapping::isSPMDMode() == IsSPMD);
+  __assert_assume(mapping::isSPMDMode() == IsSPMD);
 }
 
 extern "C" {
