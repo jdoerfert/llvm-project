@@ -10759,22 +10759,20 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       return false;
     }
 
-    // Do not simplify loads that are only used in llvm.assume if we cannot also
+    // Do not simplify loads that are used in llvm.assume's if we cannot also
     // remove all stores that may feed into the load. The reason is that the
     // assume is probably worth something as long as the stores are around.
     InformationCache &InfoCache = A.getInfoCache();
-    if (InfoCache.isOnlyUsedByAssume(LI)) {
+    if (InfoCache.hasAssumeUses(LI)) {
       if (!llvm::all_of(PotentialValueOrigins, [&](Instruction *I) {
-            if (!I)
+            if (!I || isa<AssumeInst>(I))
               return true;
-            if (auto *SI = dyn_cast<StoreInst>(I))
-              return A.isAssumedDead(SI->getOperandUse(0), this,
-                                     /* LivenessAA */ nullptr,
-                                     UsedAssumedInformation,
-                                     /* CheckBBLivenessOnly */ false);
-            return A.isAssumedDead(*I, this, /* LivenessAA */ nullptr,
-                                   UsedAssumedInformation,
-                                   /* CheckBBLivenessOnly */ false);
+            if (A.isAssumedDead(
+                    *I, this, /* LivenessAA */ nullptr, UsedAssumedInformation,
+                    /* CheckBBLivenessOnly */ false, DepClassTy::OPTIONAL,
+                    /* CheckForDeadStore */ true))
+              return true;
+            return false;
           })) {
         LLVM_DEBUG(dbgs() << "[AAPotentialValues] Load is onl used by assumes "
                              "and we cannot delete all the stores: "

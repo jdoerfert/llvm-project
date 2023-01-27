@@ -3010,6 +3010,7 @@ void InformationCache::initializeInformationCache(const Function &CF,
       if (!NumUses)
         NumUses = I->getNumUses();
       NumUses = *NumUses - /* this assume */ 1;
+      HasAssumeUses.insert(I);
       if (*NumUses != 0)
         continue;
       AssumeOnlyValues.insert(I);
@@ -3039,6 +3040,7 @@ void InformationCache::initializeInformationCache(const Function &CF,
       // For `must-tail` calls we remember the caller and callee.
       if (auto *Assume = dyn_cast<AssumeInst>(&I)) {
         AssumeOnlyValues.insert(Assume);
+        HasAssumeUses.insert(Assume);
         fillMapFromAssume(*Assume, KnowledgeMap);
         AddToAssumeUsesMap(*Assume->getArgOperand(0));
       } else if (cast<CallInst>(I).isMustTailCall()) {

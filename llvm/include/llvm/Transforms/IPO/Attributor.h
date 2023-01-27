@@ -1281,8 +1281,14 @@ struct InformationCache {
     return FI.CalledViaMustTail || FI.ContainsMustTailCall;
   }
 
+  /// Return true if \p I only has `llvm.assume` users.
   bool isOnlyUsedByAssume(const Instruction &I) const {
     return AssumeOnlyValues.contains(&I);
+  }
+
+  /// Return true if \p I has an `llvm.assume` user.
+  bool hasAssumeUses(const Instruction &I) const {
+    return HasAssumeUses.contains(&I);
   }
 
   /// Return the analysis result from a pass \p AP for function \p F.
@@ -1374,6 +1380,8 @@ private:
 
   /// A container for all instructions that are only used by `llvm.assume`.
   SetVector<const Instruction *> AssumeOnlyValues;
+  /// A container for all instructions that are directly used by `llvm.assume`.
+  SetVector<const Instruction *> HasAssumeUses;
 
   /// Cache for block sets to allow reuse.
   DenseSet<AA::InstExclusionSetTy *> BESets;
