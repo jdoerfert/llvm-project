@@ -1044,15 +1044,15 @@ struct AAPointerInfoImpl
     Function &Scope = *I.getFunction();
     const auto &NoSyncAA = A.getAAFor<AANoSync>(
         QueryingAA, IRPosition::function(Scope), DepClassTy::OPTIONAL);
-    const auto *ExecDomainAA = A.lookupAAFor<AAExecutionDomain>(
-        IRPosition::function(Scope), &QueryingAA, DepClassTy::NONE);
+    const auto &ExecDomainAA = A.getAAFor<AAExecutionDomain>(
+        QueryingAA, IRPosition::function(Scope), DepClassTy::OPTIONAL);
     bool AllInSameNoSyncFn = NoSyncAA.isAssumedNoSync();
     bool InstIsExecutedByInitialThreadOnly =
-        ExecDomainAA && ExecDomainAA->isExecutedByInitialThreadOnly(I);
+        ExecDomainAA.isExecutedByInitialThreadOnly(I);
     bool InstIsExecutedInAlignedRegion =
-        ExecDomainAA && ExecDomainAA->isExecutedInAlignedRegion(A, I);
+        ExecDomainAA.isExecutedInAlignedRegion(A, I);
     if (InstIsExecutedInAlignedRegion || InstIsExecutedByInitialThreadOnly)
-      A.recordDependence(*ExecDomainAA, QueryingAA, DepClassTy::OPTIONAL);
+      A.recordDependence(ExecDomainAA, QueryingAA, DepClassTy::OPTIONAL);
 
     InformationCache &InfoCache = A.getInfoCache();
     bool IsThreadLocalObj =
@@ -1069,9 +1069,9 @@ struct AAPointerInfoImpl
         return true;
       const auto *FnExecDomainAA =
           I.getFunction() == &Scope
-              ? ExecDomainAA
-              : A.lookupAAFor<AAExecutionDomain>(
-                    IRPosition::function(*I.getFunction()), &QueryingAA,
+              ? &ExecDomainAA
+              : &A.getAAFor<AAExecutionDomain>( QueryingAA,
+                    IRPosition::function(*I.getFunction()),
                     DepClassTy::NONE);
       if (!FnExecDomainAA)
         return false;
@@ -1264,8 +1264,7 @@ struct AAPointerInfoImpl
     // Run the user callback on all accesses we cannot skip and return if
     // that succeeded for all or not.
     for (auto &It : InterferingAccesses) {
-      if ((!AllInSameNoSyncFn && !IsThreadLocalObj && !ExecDomainAA) ||
-          !CanSkipAccess(*It.first, It.second)) {
+      if (!CanSkipAccess(*It.first, It.second)) {
         if (!UserCB(*It.first, It.second))
           return false;
       }
@@ -10612,17 +10611,15 @@ struct AAPotentialValuesImpl : AAPotentialValues {
         // TODO: Handle CBs with users.
         if (auto *CB = dyn_cast<CallInst>(U.getUser()))
           if (CB->isIndirectCall() && CB->isCallee(&U) && CB->user_empty()) {
+            bool UsedAssumedInformation = false;
+            if (A.isAssumedDead(*CB, *this, nullptr, UsedAssumedInformation))
+              continue;
             // Check if cwe can replace the call base completely.
             // TODO: Handle partial specialization.
             if (any_of(Values, [&](const AA::ValueAndContext &VAC) {
-                  if (!AA::isValidAtPosition(
-                          AA::ValueAndContext(*VAC.getValue(), *CB),
-                          A.getInfoCache()))
-                    return true;
-                  if (Function *F = dyn_cast<Function>(VAC.getValue()))
-                    if (F->arg_size() != CB->arg_size())
-                      return true;
-                  return false;
+                  return !AA::isValidAtPosition(
+                      AA::ValueAndContext(*VAC.getValue(), *CB),
+                      A.getInfoCache());
                 }))
               continue;
             IndirectCBs.push_back(CB);
@@ -10637,6 +10634,11 @@ struct AAPotentialValuesImpl : AAPotentialValues {
         // For each potential value we create a conditional
         // if (ptr == value) value(args);
         for (auto &VAC : Values) {
+          if (Function *F = dyn_cast<Function>(VAC.getValue()))
+            if (F->arg_size() != CB->arg_size())
+              continue;
+          // Avoid the conditional if there is only one function matching the
+          // argument count.
           Value *Cond =
               new ICmpInst(CB, llvm::CmpInst::ICMP_EQ, &OldV, VAC.getValue());
           Instruction *ThenTI =
