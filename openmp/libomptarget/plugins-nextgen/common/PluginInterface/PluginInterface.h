@@ -211,14 +211,6 @@ struct GenericKernelTy {
     return false;
   }
 
-private:
-  /// Prepare the arguments before launching the kernel.
-  void *prepareArgs(GenericDeviceTy &GenericDevice, void **ArgPtrs,
-                    ptrdiff_t *ArgOffsets, int32_t NumArgs,
-                    llvm::SmallVectorImpl<void *> &Args,
-                    llvm::SmallVectorImpl<void *> &Ptrs,
-                    AsyncInfoWrapperTy &AsyncInfoWrapper) const;
-
   /// Get the default number of threads and blocks for the kernel.
   virtual uint32_t getDefaultNumThreads(GenericDeviceTy &Device) const = 0;
   virtual uint64_t getDefaultNumBlocks(GenericDeviceTy &Device) const = 0;
@@ -230,6 +222,14 @@ private:
   uint64_t getNumBlocks(GenericDeviceTy &GenericDevice,
                         uint64_t BlockLimitClause, uint64_t LoopTripCount,
                         uint32_t NumThreads) const;
+
+private:
+  /// Prepare the arguments before launching the kernel.
+  void *prepareArgs(GenericDeviceTy &GenericDevice, void **ArgPtrs,
+                    ptrdiff_t *ArgOffsets, int32_t NumArgs,
+                    llvm::SmallVectorImpl<void *> &Args,
+                    llvm::SmallVectorImpl<void *> &Ptrs,
+                    AsyncInfoWrapperTy &AsyncInfoWrapper) const;
 
   /// Indicate if the kernel works in Generic SPMD, Generic or SPMD mode.
   bool isGenericSPMDMode() const {

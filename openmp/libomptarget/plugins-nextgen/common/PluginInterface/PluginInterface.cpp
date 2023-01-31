@@ -25,7 +25,7 @@
 
 #include <cstdint>
 #include <limits>
-#include <unordered_set>
+#include <unordered_map>
 
 using namespace llvm;
 using namespace omp;
@@ -48,7 +48,7 @@ private:
   GenericDeviceTy *Device = nullptr;
 
   std::mutex AllocationLock;
-  std::unordered_set<const char *> RecordedKernels;
+  std::unordered_map<const char *, uint64_t> RecordedKernels;
   std::mutex RecordLock;
 
   // Environment variables for record and replay.
@@ -194,10 +194,19 @@ private:
 
 public:
   bool isRecording() const { return OMPX_RecordKernel; }
-  bool isRecorded( const char *Kernel ) const
-              {  return RecordedKernels.count(Kernel); }
+  bool isRecorded( const char *Kernel, uint64_t NumBlocks ) const {
+    auto RBlocks = RecordedKernels.find(Kernel);
+    if ( RBlocks == RecordedKernels.end())
+      return false;
+    return NumBlocks <= RBlocks->second;
+  }
+
   std::mutex& GetRecordLock() { return RecordLock; }
-  void RegisterKernel( const char *Kernel ) { RecordedKernels.insert(Kernel); }
+
+  void RegisterKernel( const char *Kernel, uint64_t NumBlocks ) {
+    RecordedKernels[Kernel] =  NumBlocks;
+  }
+
   bool isReplaying() const { return OMPX_ReplayKernel; }
   bool isRecordingOrReplaying() const {
     return (OMPX_RecordKernel || OMPX_ReplayKernel);
@@ -854,9 +863,15 @@ Error GenericDeviceTy::runTargetTeamRegion(
   GenericKernelTy &GenericKernel =
       *reinterpret_cast<GenericKernelTy *>(EntryPtr);
 
+  uint32_t NumThreads = GenericKernel.getNumThreads(*this, ThreadLimitClause);
+  uint64_t NumBlocks =
+      GenericKernel.getNumBlocks(*this, NumTeamsClause, LoopTripCount, NumThreads);
+
+  bool Recorded = RecordReplay.isRecorded(GenericKernel.getName(), NumBlocks);
+
   bool RecordKernelOutput = RecordReplay.isRecordingOrReplaying() &&
                             RecordReplay.isSaveOutputEnabled() &&
-                            (! RecordReplay.isRecorded(GenericKernel.getName()));
+                            (! Recorded );
 
   // Saving kernel input information in recording mode is synchronous as is the
   // initialization of the device memory.
@@ -868,7 +883,7 @@ Error GenericDeviceTy::runTargetTeamRegion(
   //        - synchronize,
   //        - write all the files.
   if (RecordReplay.isRecording()) {
-    if ( ! RecordReplay.isRecorded(GenericKernel.getName()) ) {
+    if ( ! Recorded ) {
     // Ensure we are done transfering memory from the device before we issue D2H
     // copies for the kernel info.
     if (AsyncInfo && AsyncInfo->Queue)
@@ -880,8 +895,7 @@ Error GenericDeviceTy::runTargetTeamRegion(
     }
   }
 
-  if (RecordReplay.isRecording() &&
-      ( ! RecordReplay.isRecorded(GenericKernel.getName()) ) ) {
+  if (RecordReplay.isRecording() && ( !Recorded )) {
     RecordReplay.saveImage(GenericKernel.getName(), GenericKernel.getImage());
   }
 
@@ -902,9 +916,8 @@ Error GenericDeviceTy::runTargetTeamRegion(
   if (RecordKernelOutput)
     RecordReplay.saveKernelOutputInfo(GenericKernel.getName());
 
-  if (RecordReplay.isRecording() &&
-    ( ! RecordReplay.isRecorded(GenericKernel.getName()) ) ) {
-    RecordReplay.RegisterKernel(GenericKernel.getName());
+  if (RecordReplay.isRecording() &&( ! Recorded ) ) {
+    RecordReplay.RegisterKernel(GenericKernel.getName(), NumBlocks);
   }
   return Err;
 }
