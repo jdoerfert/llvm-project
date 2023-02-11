@@ -35,7 +35,7 @@ def verbose : Flag<["--"], "wrapper-verbose">,
   Flags<[WrapperOnlyOption]>, HelpText<"Verbose output from tools">;
 def embed_bitcode : Flag<["--"], "embed-bitcode">,
   Flags<[WrapperOnlyOption]>, HelpText<"Embed linked bitcode in the module">;
-def debug : Flag<["--"], "device-debug">, Flags<[WrapperOnlyOption]>, 
+def debug : Flag<["--"], "device-debug">, Flags<[WrapperOnlyOption]>,
   HelpText<"Use debugging">;
 def ptxas_arg : Joined<["--"], "ptxas-arg=">,
   Flags<[WrapperOnlyOption]>,
@@ -51,6 +51,10 @@ def print_wrapped_module : Flag<["--"], "print-wrapped-module">,
   HelpText<"Print the wrapped module's IR for testing">;
 def save_temps : Flag<["--"], "save-temps">,
   Flags<[WrapperOnlyOption]>, HelpText<"Save intermediate results">;
+
+def wrapper_extractor : Joined<["--"], "wrapper-extractor-config=">,
+  Flags<[WrapperOnlyOption]>, MetaVarName<"<file>">,
+  HelpText<"Extract the kernel names described in  <file> and assign specific registers to them">;
 
 def wrapper_time_trace_eq : Joined<["--"], "wrapper-time-trace=">,
   Flags<[WrapperOnlyOption]>, MetaVarName<"<file>">,

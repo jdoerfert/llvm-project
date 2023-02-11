@@ -45,6 +45,7 @@
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
@@ -136,6 +137,11 @@ static cl::opt<unsigned>
     SharedMemoryLimit("openmp-opt-shared-limit", cl::Hidden,
                       cl::desc("Maximum amount of shared memory to use."),
                       cl::init(std::numeric_limits<unsigned>::max()));
+
+static cl::opt<std::string> BOOmpTune("bo-omp-autotune",
+                                     cl::desc("Provide JSON file with optimized values of"
+                                       "number of threads and number of teams"),
+                                     cl::init(""));
 
 STATISTIC(NumOpenMPRuntimeCallsDeduplicated,
           "Number of OpenMP runtime calls deduplicated");
@@ -780,14 +786,28 @@ private:
 
 struct OpenMPOpt {
 
+  struct BOParams{
+    int64_t Threads;
+    int64_t Teams;
+    bool optimized;
+    BOParams(): Threads(-1), Teams(-1), optimized(false) {}
+    BOParams(int64_t Threads, int64_t Teams): Threads(Threads), Teams(Teams), optimized(false) {}
+    BOParams(int64_t Threads, int64_t Teams, bool optimized):
+      Threads(Threads), Teams(Teams), optimized(optimized) {}
+  };
+
+
   using OptimizationRemarkGetter =
       function_ref<OptimizationRemarkEmitter &(Function *)>;
+
+  std::unordered_map<std::string, BOParams> KernelOpts;
 
   OpenMPOpt(SmallVectorImpl<Function *> &SCC, CallGraphUpdater &CGUpdater,
             OptimizationRemarkGetter OREGetter,
             OMPInformationCache &OMPInfoCache, Attributor &A)
       : M(*(*SCC.begin())->getParent()), SCC(SCC), CGUpdater(CGUpdater),
-        OREGetter(OREGetter), OMPInfoCache(OMPInfoCache), A(A) {}
+        OREGetter(OREGetter), OMPInfoCache(OMPInfoCache), A(A) {
+        }
 
   /// Check if any remarks are enabled for openmp-opt
   bool remarksEnabled() {
@@ -795,8 +815,26 @@ struct OpenMPOpt {
     return Ctx.getDiagHandlerPtr()->isAnyRemarkEnabled(DEBUG_TYPE);
   }
 
+
   /// Run all OpenMP optimizations on the underlying SCC/ModuleSlice.
   bool run(bool IsModulePass) {
+
+    if ( BOOmpTune != ""  && KernelOpts.empty() ) {
+      llvm::ErrorOr<std::unique_ptr<MemoryBuffer>> KernelJOpt =
+      llvm::MemoryBuffer::getFile(BOOmpTune, /* isText */ true,
+                        /* RequiresNullTerminator */ true);
+      Expected<json::Value> JsonKernelInfo =
+        json::parse(KernelJOpt.get()->getBuffer());
+      auto *BOptions = JsonKernelInfo->getAsObject()->getArray("options");
+      for (auto It : *BOptions ){
+        std::string KernelName = It.getAsObject()
+          ->getString("Name").value().str();
+        int64_t Threads = It.getAsObject()->getInteger("threads").value();
+        int64_t Teams = It.getAsObject()->getInteger("teams").value();
+        KernelOpts[KernelName] = BOParams(Threads, Teams);
+      }
+    }
+
     if (SCC.empty())
       return false;
 
@@ -819,6 +857,9 @@ struct OpenMPOpt {
         analysisGlobalization();
 
       Changed |= eliminateBarriers();
+      if ( BOOmpTune != ""  && !KernelOpts.empty() )
+        Changed |= applyBoOpt();
+
     } else {
       if (PrintICVValues)
         printICVs();
@@ -1278,6 +1319,56 @@ private:
       OMPInfoCache.recollectUsesForFunction(OMPRTL___kmpc_master);
       OMPInfoCache.recollectUsesForFunction(OMPRTL___kmpc_end_master);
     }
+
+    return Changed;
+  }
+
+  bool applyBoOpt(){
+    OMPInformationCache::RuntimeFunctionInfo &RFI =
+        OMPInfoCache.RFIs[OMPRTL___tgt_target_kernel];
+
+    if (!RFI.Declaration)
+      return false;
+
+    if ( isOpenMPDevice(M) )
+      return false;
+
+    bool Changed = false;
+    auto ApplyBOConfig = [&](Use &U, Function &F){
+      CallInst *CI = getCallIfRegularCall(U, &RFI);
+
+      if ( !CI )
+        return false;
+
+      Value *RId = CI->getOperand(4);
+      if (auto *GV = dyn_cast<GlobalVariable>(RId)) {
+        std::string KName = GV->getGlobalIdentifier().substr(1);
+        std::string Region(".region_id");
+        std::string::size_type Pos = KName.find(Region);
+        // Remove ".region part"
+        if (Pos != std::string::npos)
+           KName.erase(Pos, Region.length());
+        llvm::dbgs() << "Kernel ID :" << KName << "\n";
+        auto Kernel = KernelOpts.find(KName);
+        if ( Kernel != KernelOpts.end() ){
+          int Teams = Kernel->second.Teams;
+          int Threads = Kernel->second.Threads;
+          if ( ! Kernel->second.optimized ){
+            ConstantInt *BOTeams =
+              ConstantInt::get( Type::getInt32Ty(M.getContext()), Teams);
+            CI->setArgOperand(2, BOTeams);
+            ConstantInt *BOThreads =
+              ConstantInt::get( Type::getInt32Ty(M.getContext()), Threads);
+            CI->setArgOperand(3, BOThreads );
+            Kernel->second.optimized = true;
+            Changed = true;
+          }
+        }
+      }
+      return  Changed;
+    };
+
+    RFI.foreachUse(SCC, ApplyBOConfig);
 
     return Changed;
   }

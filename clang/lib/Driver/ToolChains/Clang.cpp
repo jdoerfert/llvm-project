@@ -8397,6 +8397,11 @@ void LinkerWrapper::ConstructJob(Compilation &C, const JobAction &JA,
   for (const auto &A : Args.getAllArgValues(options::OPT_Xcuda_ptxas))
     CmdArgs.push_back(Args.MakeArgString("--ptxas-arg=" + A));
 
+  if ( const Arg *A = Args.getLastArg(options::OPT_Xwrapper_config)){
+    CmdArgs.push_back(Args.MakeArgString(
+        Twine("--wrapper-extractor-config=") + A->getValue()));
+  }
+
   // Forward remarks passes to the LLVM backend in the wrapper.
   if (const Arg *A = Args.getLastArg(options::OPT_Rpass_EQ))
     CmdArgs.push_back(Args.MakeArgString(Twine("--offload-opt=-pass-remarks=") +

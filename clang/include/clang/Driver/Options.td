@@ -827,6 +827,8 @@ def Xcuda_fatbinary : Separate<["-"], "Xcuda-fatbinary">,
   HelpText<"Pass <arg> to fatbinary invocation">, MetaVarName<"<arg>">;
 def Xcuda_ptxas : Separate<["-"], "Xcuda-ptxas">,
   HelpText<"Pass <arg> to the ptxas assembler">, MetaVarName<"<arg>">;
+def Xwrapper_config : Separate<["-"], "Xwrapper-config">,
+  HelpText<"Pass <arg> to the wrapper-linker">, MetaVarName<"<arg>">;
 def Xopenmp_target : Separate<["-"], "Xopenmp-target">, Group<CompileOnly_Group>,
   HelpText<"Pass <arg> to the target offloading toolchain.">, MetaVarName<"<arg>">;
 def Xopenmp_target_EQ : JoinedAndSeparate<["-"], "Xopenmp-target=">, Group<CompileOnly_Group>,

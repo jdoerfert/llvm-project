@@ -13,6 +13,7 @@
 // device linking job to create a final device image.
 //
 //===---------------------------------------------------------------------===//
+//
 
 #include "OffloadWrapper.h"
 #include "clang/Basic/Version.h"
@@ -39,6 +40,7 @@
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/FileOutputBuffer.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -54,6 +56,9 @@
 #include "llvm/Target/TargetMachine.h"
 #include <atomic>
 #include <optional>
+
+#include <iostream>
+#include <unordered_map>
 
 using namespace llvm;
 using namespace llvm::opt;
@@ -270,9 +275,102 @@ void printVersion(raw_ostream &OS) {
   OS << clang::getClangToolFullVersion("clang-linker-wrapper") << '\n';
 }
 
+namespace llvmSplit {
+Expected<StringRef> extract(StringRef KernelName, StringRef InputFile){
+  llvm::TimeTraceScope TimeScope("LLVM-Extract");
+  auto ExtractorPath = findProgram("llvm-extract", {getMainExecutable("llvm-extract")});
+
+  if ( !ExtractorPath )
+    return ExtractorPath.takeError();
+
+  auto ExtractedFileOrErr = createOutputFile(
+      sys::path::filename(KernelName), "bc");
+
+  if ( !ExtractedFileOrErr )
+    return ExtractedFileOrErr.takeError();
+
+  SmallVector<StringRef, 16> CmdArgs({*ExtractorPath});
+  CmdArgs.push_back(InputFile);
+  CmdArgs.push_back("--func");
+  CmdArgs.push_back(KernelName);
+  CmdArgs.push_back("--recursive");
+  CmdArgs.push_back("-o");
+  CmdArgs.push_back(*ExtractedFileOrErr);
+
+  if (Error Err = executeCommands(*ExtractorPath, CmdArgs))
+    return std::move(Err);
+
+  return ExtractedFileOrErr;
+}
+
+Expected<StringRef> subtract(StringRef KernelName, StringRef InputFile) {
+  llvm::TimeTraceScope TimeScope("LLVM-Delete");
+  auto ExtractorPath = findProgram("llvm-extract", {getMainExecutable("llvm-extract")});
+
+  if ( !ExtractorPath )
+    return ExtractorPath.takeError();
+
+  auto DeletedFileOrErr = createOutputFile(
+      sys::path::filename(KernelName) + "-delete", "bc");
+
+  if ( !DeletedFileOrErr )
+    return DeletedFileOrErr.takeError();
+
+  SmallVector<StringRef, 16> CmdArgs({*ExtractorPath});
+  CmdArgs.push_back(InputFile);
+  CmdArgs.push_back("--func");
+  CmdArgs.push_back(KernelName);
+  CmdArgs.push_back("--delete");
+  CmdArgs.push_back("-o");
+  CmdArgs.push_back(*DeletedFileOrErr);
+
+  if (Error Err = executeCommands(*ExtractorPath, CmdArgs))
+    return std::move(Err);
+
+  return DeletedFileOrErr;
+}
+
+
+Expected<StringRef> llvmlink(StringRef InputFile, const ArgList &Args,
+    const std::vector<std::string>& Features ){
+  llvm::TimeTraceScope TimeScope("LLVM-Link");
+  auto llcPath = findProgram("llc", {getMainExecutable("llc")});
+
+  if ( !llcPath )
+    return llcPath.takeError();
+
+  auto LLCFileOrErr = createOutputFile(
+      sys::path::filename(InputFile), "s");
+
+  if ( !LLCFileOrErr )
+    return LLCFileOrErr.takeError();
+
+
+  StringRef Arch = Args.getLastArgValue(OPT_arch_EQ);
+  StringRef OptLevel = Args.getLastArgValue(OPT_opt_level, "O2");
+  SmallVector<StringRef, 16> CmdArgs({*llcPath});
+  CmdArgs.push_back("-mcpu");
+  CmdArgs.push_back(Arch);
+  CmdArgs.push_back(Args.MakeArgString("-" + OptLevel));
+  CmdArgs.push_back("-mattr");
+  CmdArgs.push_back(llvm::join(Features, ","));
+
+  CmdArgs.push_back(InputFile);
+  CmdArgs.push_back("-o");
+  CmdArgs.push_back(*LLCFileOrErr);
+
+  if (Error Err = executeCommands(*llcPath, CmdArgs))
+    return std::move(Err);
+
+  return LLCFileOrErr;
+}
+
+} // namespace llvmSplit
+
+
 namespace nvptx {
 Expected<StringRef> assemble(StringRef InputFile, const ArgList &Args,
-                             bool RDC = true) {
+                             bool RDC = true, int regs =-1, int effort =-1) {
   llvm::TimeTraceScope TimeScope("NVPTX Assembler");
   // NVPTX uses the ptxas binary to create device object files.
   Expected<std::string> PtxasPath = findProgram("ptxas", {CudaBinaryPath});
@@ -289,7 +387,22 @@ Expected<StringRef> assemble(StringRef InputFile, const ArgList &Args,
 
   SmallVector<StringRef, 16> CmdArgs;
   StringRef OptLevel = Args.getLastArgValue(OPT_opt_level, "O2");
+
   CmdArgs.push_back(*PtxasPath);
+  std::string Regs = std::to_string(regs);
+  std::string Effort = std::to_string(regs);
+  if ( regs != -1 ){
+    std::cout << "Regs are " << regs << "\n";
+    CmdArgs.push_back("-maxrregcount");
+    CmdArgs.push_back(Regs);
+  }
+
+  if ( effort != -1 ){
+    std::cout << "Effort is " << effort << "\n";
+    CmdArgs.push_back("-regUsageLevel");
+    CmdArgs.push_back(Effort);
+  }
+
   CmdArgs.push_back(Triple.isArch64Bit() ? "-m64" : "-m32");
   if (Verbose)
     CmdArgs.push_back("-v");
@@ -775,7 +888,8 @@ Error linkBitcodeFiles(SmallVectorImpl<OffloadFile> &InputFiles,
 
   // We assume visibility of the whole program if every input file was bitcode.
   auto Features = getTargetFeatures(BitcodeInputFiles);
-  auto LTOBackend = Args.hasArg(OPT_embed_bitcode)
+  auto LTOBackend = (Args.hasArg(OPT_embed_bitcode) ||
+      Args.hasArg(OPT_wrapper_extractor))
                         ? createLTO(Args, Features, OutputBitcode)
                         : createLTO(Args, Features);
 
@@ -884,9 +998,78 @@ Error linkBitcodeFiles(SmallVectorImpl<OffloadFile> &InputFiles,
     return Error::success();
   }
 
-  // Is we are compiling for NVPTX we need to run the assembler first.
+  if ( Args.hasArg(OPT_wrapper_extractor ) && Triple.isNVPTX() ) {
+    if (BitcodeOutput.size() != 1 || !SingleOutput)
+      return createStringError(inconvertibleErrorCode(),
+                               "Cannot extract and optimize with multiple files.");
+
+    std::unordered_map<std::string, std::pair<int, int>> KernelOpts;
+
+    StringRef KernelOptFile = Args.getLastArgValue(OPT_wrapper_extractor, "");
+    llvm::ErrorOr<std::unique_ptr<MemoryBuffer>> KernelOpt =
+      llvm::MemoryBuffer::getFile(KernelOptFile, /* isText */ true,
+                            /* RequiresNullTerminator */ true);
+    if ( !KernelOpt )
+     report_fatal_error("Error reading the kernel info json file");
+
+    Expected<json::Value> JsonKernelInfo =
+      json::parse(KernelOpt.get()->getBuffer());
+
+    auto *options =
+      JsonKernelInfo->getAsObject()->getArray("options");
+    for (auto It : *options ){
+      std::string kernelName = It.getAsObject()
+        ->getString("Name").value().str();
+      int64_t registers = It.getAsObject()->getInteger("Reg").value();
+      int64_t effort = It.getAsObject()->getInteger("effort").value();
+      KernelOpts[kernelName] = std::make_pair(registers, effort);
+    }
+
+    // Extract kernels to separate files
+    SmallVector<StringRef, 16> exKernels;
+    for (auto &[Name, Opts] : KernelOpts ){
+      std::cout << "Extracting Kernel:" << Name << " Reg:"
+        << Opts.first << " Effort:" << Opts.second  << "\n";
+      auto kernelFile = llvmSplit::extract(Name, BitcodeOutput.front());
+      if ( !kernelFile )
+        return kernelFile.takeError();
+      auto llcFile = llvmSplit::llvmlink(*kernelFile, Args, Features);
+      if ( !llcFile )
+        return llcFile.takeError();
+      auto PTXFile = nvptx::assemble(*llcFile, Args, /*RDC (-c)*/ true, Opts.first, Opts.second);
+      if ( !PTXFile )
+        return PTXFile.takeError();
+      OutputFiles.push_back(*PTXFile);
+    }
+
+    // At the end BitcodeOutput.back() will have the bitcode without any
+    // of the kernels
+    for (auto &[Name, Opts] : KernelOpts ){
+      auto subtracted = llvmSplit::subtract(Name, BitcodeOutput.back());
+      if ( !subtracted )
+        return subtracted.takeError();
+      BitcodeOutput.push_back(*subtracted);
+    }
+
+    auto llcFile = llvmSplit::llvmlink(BitcodeOutput.back(), Args, Features);
+    if ( !llcFile )
+      return llcFile.takeError();
+    auto PTXFile = nvptx::assemble(*llcFile, Args, /*RDC (-c)*/ true);
+    if ( !PTXFile )
+      return PTXFile.takeError();
+    OutputFiles.push_back(*PTXFile);
+    // (Linking will take place later)
+//    auto FileOrErr = nvptx::link(OutputFiles, Args);
+//    if (!FileOrErr)
+//      return FileOrErr.takeError();
+
+//    OutputFiles.push_back(*FileOrErr);
+    return Error::success();
+  }
+
   if (Triple.isNVPTX()) {
     for (StringRef &File : Files) {
+      // Here we are done with LTO, we have a single bitcode file
       auto FileOrErr = nvptx::assemble(File, Args, !SingleOutput);
       if (!FileOrErr)
         return FileOrErr.takeError();
@@ -1185,6 +1368,7 @@ linkAndWrapDeviceFiles(SmallVectorImpl<OffloadFile> &LinkerInputFiles,
 
     // Store the offloading image for each linked output file.
     for (OffloadKind Kind : ActiveOffloadKinds) {
+      std::cout << "Active Offload Kind:" << Kind << "\n";
       llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
           llvm::MemoryBuffer::getFileOrSTDIN(*OutputOrErr);
       if (std::error_code EC = FileOrErr.getError())
