@@ -10429,9 +10429,17 @@ struct AAInterFnReachabilityFunction
         *this, IRPosition::function(*RQI.From->getFunction()),
         DepClassTy::OPTIONAL);
 
+    // Flag to avoid reachability queries for call sites we check if this query
+    // starts at the first instruction in a function. Without exclusion set this
+    // implies that each live call base in the function can be reached from this
+    // from instruction.
+    bool FromIsEntryWithoutExclusionSet =
+        !RQI.ExclusionSet &&
+        RQI.From == &RQI.From->getFunction()->getEntryBlock().front();
     // Determine call like instructions that we can reach from the inst.
     auto CheckCallBase = [&](Instruction &CBInst) {
-      if (!IntraFnReachability.isAssumedReachable(A, *RQI.From, CBInst,
+      if (!FromIsEntryWithoutExclusionSet &&
+          !IntraFnReachability.isAssumedReachable(A, *RQI.From, CBInst,
                                                   RQI.ExclusionSet))
         return true;
       return CheckReachableCallBase(cast<CallBase>(&CBInst));
