@@ -3680,8 +3680,6 @@ struct AAIntraFnReachabilityFunction final
         A.getAAFor<AAIsDead>(*this, getIRPosition(), DepClassTy::OPTIONAL);
     while (!Worklist.empty()) {
       const BasicBlock *BB = Worklist.pop_back_val();
-      if (!Visited.insert(BB).second)
-        continue;
       for (const BasicBlock *SuccBB : successors(BB)) {
         if (LivenessAA.isEdgeDead(BB, SuccBB)) {
           LocalDeadEdges.insert({BB, SuccBB});
@@ -3695,7 +3693,8 @@ struct AAIntraFnReachabilityFunction final
           UsedExclusionSet = true;
           continue;
         }
-        Worklist.push_back(SuccBB);
+        if (Visited.insert(SuccBB).second)
+          Worklist.push_back(SuccBB);
       }
     }
 
