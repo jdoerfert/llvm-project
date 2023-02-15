@@ -610,15 +610,22 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
     return true;
   }
 
-  SmallPtrSet<const Instruction *, 8> Visited;
-  SmallVector<const Instruction *> Worklist;
-  Worklist.push_back(&FromI);
+  bool ToIIsReachable = true;
+  if (!ToFn.isDeclaration() && ToI) {
+    const auto &ToReachabilityAA = A.getAAFor<AAIntraFnReachability>(
+        QueryingAA, IRPosition::function(ToFn), DepClassTy::OPTIONAL);
+    const Instruction &EntryI = ToFn.getEntryBlock().front();
+    ToIIsReachable =
+        ToReachabilityAA.isAssumedReachable(A, EntryI, *ToI, ExclusionSet);
+    LLVM_DEBUG(dbgs() << "[AA] Entry " << EntryI << " of @" << ToFn.getName()
+                      << " "
+                      << (ToIIsReachable ? "can potentially " : "cannot ")
+                      << "reach @" << *ToI << " [ToFn]\n");
+  }
 
-  while (!Worklist.empty()) {
-    const Instruction *CurFromI = Worklist.pop_back_val();
-    if (!Visited.insert(CurFromI).second)
-      continue;
-
+  SmallPtrSet<const Function *, 32> Visited;
+  SmallVector<const Function *, 32> Worklist;
+  auto CheckFromI = [&](const Instruction *CurFromI) {
     const Function *FromFn = CurFromI->getFunction();
     if (FromFn == &ToFn) {
       if (!ToI)
@@ -636,18 +643,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
         return true;
     }
 
-    bool Result = true;
-    if (!ToFn.isDeclaration() && ToI) {
-      const auto &ToReachabilityAA = A.getAAFor<AAIntraFnReachability>(
-          QueryingAA, IRPosition::function(ToFn), DepClassTy::OPTIONAL);
-      const Instruction &EntryI = ToFn.getEntryBlock().front();
-      Result =
-          ToReachabilityAA.isAssumedReachable(A, EntryI, *ToI, ExclusionSet);
-      LLVM_DEBUG(dbgs() << "[AA] Entry " << EntryI << " of @" << ToFn.getName()
-                        << " " << (Result ? "can potentially " : "cannot ")
-                        << "reach @" << *ToI << " [ToFn]\n");
-    }
-
+    bool Result = ToIIsReachable;
     if (Result) {
       // The entry of the ToFn can reach the instruction ToI. If the current
       // instruction is already known to reach the ToFn.
@@ -679,7 +675,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
     if (A.checkForAllInstructions(ReturnInstCB, FromFn, QueryingAA,
                                   {Instruction::Ret}, UsedAssumedInformation)) {
       LLVM_DEBUG(dbgs() << "[AA] No return is reachable, done\n");
-      continue;
+      return false;
     }
 
     if (!GoBackwardsCB) {
@@ -691,36 +687,45 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
     // If we do not go backwards from the FromFn we are done here and so far we
     // could not find a way to reach ToFn/ToI.
     if (!GoBackwardsCB(*FromFn))
-      continue;
+      return false;
 
     LLVM_DEBUG(dbgs() << "Stepping backwards to the call sites of @"
                       << FromFn->getName() << "\n");
+    if (Visited.insert(FromFn).second)
+      Worklist.push_back(FromFn);
+    return false;
+  };
 
-    auto CheckCallSite = [&](AbstractCallSite ACS) {
-      CallBase *CB = ACS.getInstruction();
-      if (!CB)
-        return false;
+  // Initial query.
+  if (CheckFromI(&FromI))
+    return true;
 
-      if (isa<InvokeInst>(CB))
-        return false;
+  auto CheckCallSite = [&](AbstractCallSite ACS) {
+    CallBase *CB = ACS.getInstruction();
+    if (!CB)
+      return false;
 
-      Instruction *Inst = CB->getNextNonDebugInstruction();
-      Worklist.push_back(Inst);
-      return true;
-    };
+    if (isa<InvokeInst>(CB))
+      return false;
 
-    Result = !A.checkForAllCallSites(CheckCallSite, *FromFn,
-                                     /* RequireAllCallSites */ true,
-                                     &QueryingAA, UsedAssumedInformation);
+    Instruction *Inst = CB->getNextNonDebugInstruction();
+    return !CheckFromI(Inst);
+  };
+
+  while (!Worklist.empty()) {
+    const Function *FromFn = Worklist.pop_back_val();
+    bool UsedAssumedInformation = false;
+    bool Result = !A.checkForAllCallSites(CheckCallSite, *FromFn,
+                                          /* RequireAllCallSites */ true,
+                                          &QueryingAA, UsedAssumedInformation);
     if (Result) {
-      LLVM_DEBUG(dbgs() << "[AA] stepping back to call sites from " << *CurFromI
-                        << " in @" << FromFn->getName()
-                        << " failed, give up\n");
+      LLVM_DEBUG(dbgs() << "[AA] stepping back to call sites of "
+                        << FromFn->getName() << " failed, give up\n");
       return true;
     }
 
-    LLVM_DEBUG(dbgs() << "[AA] stepped back to call sites from " << *CurFromI
-                      << " in @" << FromFn->getName()
+    LLVM_DEBUG(dbgs() << "[AA] stepped back to call sites of "
+                      << FromFn->getName()
                       << " worklist size is: " << Worklist.size() << "\n");
   }
   return false;
