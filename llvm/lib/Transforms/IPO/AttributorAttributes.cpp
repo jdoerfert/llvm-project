@@ -3675,7 +3675,7 @@ struct AAIntraFnReachabilityFunction final
     SmallVector<const BasicBlock *, 16> Worklist;
     Worklist.push_back(FromBB);
 
-    DenseSet<std::pair<const BasicBlock *, const BasicBlock *>> LocalDeadEdges;
+    DeadEdgesSetTy LocalDeadEdges;
     auto &LivenessAA =
         A.getAAFor<AAIsDead>(*this, getIRPosition(), DepClassTy::OPTIONAL);
     while (!Worklist.empty()) {
@@ -3707,9 +3707,11 @@ struct AAIntraFnReachabilityFunction final
   void trackStatistics() const override {}
 
 private:
+  using DeadEdgesSetTy =
+      SmallDenseSet<std::pair<const BasicBlock *, const BasicBlock *>>;
   // Set of assumed dead edges we used in the last query. If any changes we
   // update the state.
-  DenseSet<std::pair<const BasicBlock *, const BasicBlock *>> DeadEdges;
+  DeadEdgesSetTy DeadEdges;
 };
 } // namespace
 
