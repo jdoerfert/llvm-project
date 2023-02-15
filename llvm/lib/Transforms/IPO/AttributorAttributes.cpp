@@ -10437,7 +10437,7 @@ struct AAInterFnReachabilityFunction
       return CheckReachableCallBase(cast<CallBase>(&CBInst));
     };
 
-    bool UsedExclusionSet = /* conservative */ true;
+    bool UsedExclusionSet = RQI.ExclusionSet && !RQI.ExclusionSet->empty();
     bool UsedAssumedInformation = false;
     if (!A.checkForAllCallLikeInstructions(CheckCallBase, *this,
                                            UsedAssumedInformation,
