@@ -3736,14 +3736,14 @@ struct AAKernelInfoFunction : AAKernelInfo {
       // Find escaping outputs from the guarded region to outside users and
       // broadcast their values to them.
       for (Instruction &I : *RegionStartBB) {
-        SmallPtrSet<Instruction *, 4> OutsideUsers;
-        for (User *Usr : I.users()) {
-          Instruction &UsrI = *cast<Instruction>(Usr);
+        SmallVector<Use *, 4> OutsideUses;
+        for (Use &U : I.uses()) {
+          Instruction &UsrI = *cast<Instruction>(U.getUser());
           if (UsrI.getParent() != RegionStartBB)
-            OutsideUsers.insert(&UsrI);
+            OutsideUses.push_back(&U);
         }
 
-        if (OutsideUsers.empty())
+        if (OutsideUses.empty())
           continue;
 
         HasBroadcastValues = true;
@@ -3766,8 +3766,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
                                        RegionBarrierBB->getTerminator());
 
         // Emit a load instruction and replace uses of the output value.
-        for (Instruction *UsrI : OutsideUsers)
-          UsrI->replaceUsesOfWith(&I, LoadI);
+        for (Use *U : OutsideUses)
+          A.changeUseAfterManifest(*U, *LoadI);
       }
 
       auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
