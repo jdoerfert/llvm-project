@@ -566,7 +566,7 @@ struct CUDADeviceTy : public GenericDeviceTy {
     CUmemAllocationProp Prop = {};
     size_t Granularity = 0;
 
-    size_t Free, Total;
+    unsigned int Free, Total;
     CUresult Res = cuMemGetInfo(&Free, &Total);
     if (auto Err = Plugin::check(Res, "Error in cuMemGetInfo: %s"))
         return std::move(Err);

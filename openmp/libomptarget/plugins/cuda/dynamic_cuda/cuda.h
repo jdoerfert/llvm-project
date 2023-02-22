@@ -24,7 +24,94 @@ typedef struct CUfunc_st *CUfunction;
 typedef struct CUstream_st *CUstream;
 typedef struct CUevent_st *CUevent;
 
+typedef unsigned long long CUmemGenericAllocationHandle_v1;
+typedef CUmemGenericAllocationHandle_v1 CUmemGenericAllocationHandle;
+
 #define CU_DEVICE_INVALID ((CUdevice)-2)
+
+typedef enum CUmemAllocationGranularity_flags_enum {
+    CU_MEM_ALLOC_GRANULARITY_MINIMUM     = 0x0,     /**< Minimum required granularity for allocation */
+    CU_MEM_ALLOC_GRANULARITY_RECOMMENDED = 0x1      /**< Recommended granularity for allocation for best performance */
+} CUmemAllocationGranularity_flags;
+
+typedef enum CUmemAccess_flags_enum {
+    CU_MEM_ACCESS_FLAGS_PROT_NONE        = 0x0,  /**< Default, make the address range not accessible */
+    CU_MEM_ACCESS_FLAGS_PROT_READ        = 0x1,  /**< Make the address range read accessible */
+    CU_MEM_ACCESS_FLAGS_PROT_READWRITE   = 0x3,  /**< Make the address range read-write accessible */
+    CU_MEM_ACCESS_FLAGS_PROT_MAX         = 0x7FFFFFFF
+} CUmemAccess_flags;
+
+typedef enum CUmemLocationType_enum {
+    CU_MEM_LOCATION_TYPE_INVALID = 0x0,
+    CU_MEM_LOCATION_TYPE_DEVICE  = 0x1,  /**< Location is a device location, thus id is a device ordinal */
+    CU_MEM_LOCATION_TYPE_MAX     = 0x7FFFFFFF
+} CUmemLocationType;
+
+typedef struct CUmemLocation_st {
+    CUmemLocationType type; /**< Specifies the location type, which modifies the meaning of id. */
+    int id;                 /**< identifier for a given this location's ::CUmemLocationType. */
+} CUmemLocation_v1;
+typedef CUmemLocation_v1 CUmemLocation;
+
+typedef struct CUmemAccessDesc_st {
+    CUmemLocation location;        /**< Location on which the request is to change it's accessibility */
+    CUmemAccess_flags flags;       /**< ::CUmemProt accessibility flags to set on the request */
+} CUmemAccessDesc_v1;
+
+typedef CUmemAccessDesc_v1 CUmemAccessDesc;
+
+typedef enum CUmemAllocationType_enum {
+    CU_MEM_ALLOCATION_TYPE_INVALID = 0x0,
+
+    /** This allocation type is 'pinned', i.e. cannot migrate from its current
+      * location while the application is actively using it
+      */
+    CU_MEM_ALLOCATION_TYPE_PINNED  = 0x1,
+    CU_MEM_ALLOCATION_TYPE_MAX     = 0x7FFFFFFF
+} CUmemAllocationType;
+
+typedef enum CUmemAllocationHandleType_enum {
+    CU_MEM_HANDLE_TYPE_NONE                  = 0x0,  /**< Does not allow any export mechanism. > */
+    CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR = 0x1,  /**< Allows a file descriptor to be used for exporting. Permitted only on POSIX systems. (int) */
+    CU_MEM_HANDLE_TYPE_WIN32                 = 0x2,  /**< Allows a Win32 NT handle to be used for exporting. (HANDLE) */
+    CU_MEM_HANDLE_TYPE_WIN32_KMT             = 0x4,  /**< Allows a Win32 KMT handle to be used for exporting. (D3DKMT_HANDLE) */
+    CU_MEM_HANDLE_TYPE_MAX                   = 0x7FFFFFFF
+} CUmemAllocationHandleType;
+
+typedef struct CUmemAllocationProp_st {
+    /** Allocation type */
+    CUmemAllocationType type;
+    /** requested ::CUmemAllocationHandleType */
+    CUmemAllocationHandleType requestedHandleTypes;
+    /** Location of allocation */
+    CUmemLocation location;
+    /**
+     * Windows-specific POBJECT_ATTRIBUTES required when
+     * ::CU_MEM_HANDLE_TYPE_WIN32 is specified.  This object atributes structure
+     * includes security attributes that define
+     * the scope of which exported allocations may be tranferred to other
+     * processes.  In all other cases, this field is required to be zero.
+     */
+    void *win32HandleMetaData;
+    struct {
+         /**
+         * Allocation hint for requesting compressible memory.
+         * On devices that support Compute Data Compression, compressible
+         * memory can be used to accelerate accesses to data with unstructured
+         * sparsity and other compressible data patterns. Applications are 
+         * expected to query allocation property of the handle obtained with 
+         * ::cuMemCreate using ::cuMemGetAllocationPropertiesFromHandle to 
+         * validate if the obtained allocation is compressible or not. Note that 
+         * compressed memory may not be mappable on all devices.
+         */
+         unsigned char compressionType;
+         unsigned char gpuDirectRDMACapable;
+         /** Bitmask indicating intended usage for this allocation */
+         unsigned short usage;
+         unsigned char reserved[4];
+    } allocFlags;
+} CUmemAllocationProp_v1;
+typedef CUmemAllocationProp_v1 CUmemAllocationProp;
 
 typedef enum cudaError_enum {
   CUDA_SUCCESS = 0,
@@ -267,5 +354,15 @@ CUresult cuEventRecord(CUevent, CUstream);
 CUresult cuStreamWaitEvent(CUstream, CUevent, unsigned int);
 CUresult cuEventSynchronize(CUevent);
 CUresult cuEventDestroy(CUevent);
+
+CUresult cuMemUnmap(CUdeviceptr ptr, size_t size);
+CUresult cuMemRelease(CUmemGenericAllocationHandle handle);
+CUresult cuMemAddressFree(CUdeviceptr ptr, size_t size);
+CUresult cuMemGetInfo(unsigned int *free, unsigned int *total);
+CUresult cuMemAddressReserve(CUdeviceptr *ptr, size_t size, size_t alignment, CUdeviceptr addr, unsigned long long flags);
+CUresult cuMemMap(CUdeviceptr ptr, size_t size, size_t offset, CUmemGenericAllocationHandle handle, unsigned long long flags);
+CUresult cuMemCreate(CUmemGenericAllocationHandle *handle, size_t size, const CUmemAllocationProp *prop, unsigned long long flags);
+CUresult cuMemSetAccess(CUdeviceptr ptr, size_t size, const CUmemAccessDesc *desc, size_t count);
+CUresult cuMemGetAllocationGranularity(size_t *granularity, const CUmemAllocationProp *prop, CUmemAllocationGranularity_flags option);
 
 #endif
