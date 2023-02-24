@@ -138,10 +138,11 @@ static cl::opt<unsigned>
                       cl::desc("Maximum amount of shared memory to use."),
                       cl::init(std::numeric_limits<unsigned>::max()));
 
-static cl::opt<std::string> BOOmpTune("bo-omp-autotune",
-                                     cl::desc("Provide JSON file with optimized values of"
-                                       "number of threads and number of teams"),
-                                     cl::init(""));
+static cl::opt<std::string>
+    BOOmpTune("bo-omp-autotune",
+              cl::desc("Provide JSON file with optimized values of"
+                       "number of threads and number of teams"),
+              cl::init(""));
 
 STATISTIC(NumOpenMPRuntimeCallsDeduplicated,
           "Number of OpenMP runtime calls deduplicated");
@@ -786,16 +787,18 @@ private:
 
 struct OpenMPOpt {
 
-  struct BOParams{
+  struct BOParams {
     int64_t Threads;
     int64_t Teams;
+    int64_t MaxThreads;
+    int64_t MinBlocks;
     bool optimized;
-    BOParams(): Threads(-1), Teams(-1), optimized(false) {}
-    BOParams(int64_t Threads, int64_t Teams): Threads(Threads), Teams(Teams), optimized(false) {}
-    BOParams(int64_t Threads, int64_t Teams, bool optimized):
-      Threads(Threads), Teams(Teams), optimized(optimized) {}
+    BOParams() : Threads(-1), Teams(-1), MaxThreads(-1), MinBlocks(-1), optimized(false) {}
+    BOParams(int64_t Threads, int64_t Teams, int64_t MaxThreads,
+             int64_t MinBlocks, bool optimized)
+        : Threads(Threads), Teams(Teams), MaxThreads(MaxThreads),
+          MinBlocks(MinBlocks), optimized(optimized) {}
   };
-
 
   using OptimizationRemarkGetter =
       function_ref<OptimizationRemarkEmitter &(Function *)>;
@@ -806,8 +809,7 @@ struct OpenMPOpt {
             OptimizationRemarkGetter OREGetter,
             OMPInformationCache &OMPInfoCache, Attributor &A)
       : M(*(*SCC.begin())->getParent()), SCC(SCC), CGUpdater(CGUpdater),
-        OREGetter(OREGetter), OMPInfoCache(OMPInfoCache), A(A) {
-        }
+        OREGetter(OREGetter), OMPInfoCache(OMPInfoCache), A(A) {}
 
   /// Check if any remarks are enabled for openmp-opt
   bool remarksEnabled() {
@@ -815,23 +817,32 @@ struct OpenMPOpt {
     return Ctx.getDiagHandlerPtr()->isAnyRemarkEnabled(DEBUG_TYPE);
   }
 
-
   /// Run all OpenMP optimizations on the underlying SCC/ModuleSlice.
   bool run(bool IsModulePass) {
 
-    if ( BOOmpTune != ""  && KernelOpts.empty() ) {
+    if (BOOmpTune != "" && KernelOpts.empty()) {
       llvm::ErrorOr<std::unique_ptr<MemoryBuffer>> KernelJOpt =
-      llvm::MemoryBuffer::getFile(BOOmpTune, /* isText */ true,
-                        /* RequiresNullTerminator */ true);
+          llvm::MemoryBuffer::getFile(BOOmpTune, /* isText */ true,
+                                      /* RequiresNullTerminator */ true);
       Expected<json::Value> JsonKernelInfo =
-        json::parse(KernelJOpt.get()->getBuffer());
-      auto *BOptions = JsonKernelInfo->getAsObject()->getArray("options");
-      for (auto It : *BOptions ){
-        std::string KernelName = It.getAsObject()
-          ->getString("Name").value().str();
+          json::parse(KernelJOpt.get()->getBuffer());
+      if (auto Err = JsonKernelInfo.takeError())
+        report_fatal_error("Cannot parse the kernel info json file");
+      auto *KernelInfos = JsonKernelInfo->getAsArray();
+      for (auto &It : *KernelInfos) {
+        std::string KernelName =
+            It.getAsObject()->getString("kernel").value().str();
         int64_t Threads = It.getAsObject()->getInteger("threads").value();
         int64_t Teams = It.getAsObject()->getInteger("teams").value();
-        KernelOpts[KernelName] = BOParams(Threads, Teams);
+        int64_t MaxThreads = It.getAsObject()->getInteger("maxntidx").value();
+        int64_t MinBlocks = It.getAsObject()->getInteger("minctasm").value();
+        dbgs() << "Parsed kernel " << KernelName << "\n";
+        dbgs() << "Parsed Threads " << Threads << "\n";
+        dbgs() << "Parsed Teams " << Teams << "\n";
+        dbgs() << "Parsed MaxThreads " << MaxThreads << "\n";
+        dbgs() << "Parsed MinBlocks " << MinBlocks << "\n";
+        KernelOpts[KernelName] = BOParams(Threads, Teams, MaxThreads, MinBlocks,
+                                          /* optimized */ false);
       }
     }
 
@@ -857,7 +868,7 @@ struct OpenMPOpt {
         analysisGlobalization();
 
       Changed |= eliminateBarriers();
-      if ( BOOmpTune != ""  && !KernelOpts.empty() )
+      if (BOOmpTune != "" && !KernelOpts.empty())
         Changed |= applyBoOpt();
 
     } else {
@@ -1323,21 +1334,89 @@ private:
     return Changed;
   }
 
-  bool applyBoOpt(){
+  bool applyBoOpt() {
+    // This is device compilation, set launch bounds per kernel, depends
+    // on the specific GPU architecture (nvidia or amd).
+    if (isOpenMPDevice(M)) {
+      Triple TargetTriple(M.getTargetTriple());
+      if (TargetTriple.isNVPTX()) {
+        auto CheckAndSetMetadata = [&](Function *F,
+                                            int64_t ParamValue, StringRef ParamName) {
+          dbgs() << "Set Metadata " << ParamName << " => " << ParamValue
+                 << "\n";
+          llvm::LLVMContext &Ctx = M.getContext();
+          llvm::NamedMDNode *MD =
+              M.getOrInsertNamedMetadata("nvvm.annotations");
+          // Get "nvvm.annotations" metadata node
+          llvm::Metadata *MDVals[] = {
+              llvm::ConstantAsMetadata::get(F),
+              llvm::MDString::get(Ctx, ParamName),
+              llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+                  llvm::Type::getInt32Ty(Ctx), ParamValue))};
+          MD->addOperand(llvm::MDNode::get(Ctx, MDVals));
+        };
+
+        bool Changed = false;
+        for(Function *F : getDeviceKernels(M)) {
+          auto FName = F->getName().str();
+          outs() << "FName " << FName << "\n";
+          for (auto &KeyVal : KernelOpts) {
+            dbgs() << "Key " << KeyVal.first << "\n";
+          }
+          if (KernelOpts.count(FName)) {
+            dbgs() << "FOUND FName " << FName << " in KernelOpts\n";
+            CheckAndSetMetadata(F, KernelOpts[FName].MaxThreads, "maxntidx");
+            CheckAndSetMetadata(F, KernelOpts[FName].MinBlocks, "minctasm");
+            Changed = true;
+          }
+          else
+            dbgs() << "FName " << FName << " IS NOT in KernelOpts\n";
+        }
+
+        return Changed;
+      } else if (TargetTriple.isAMDGCN()) {
+        auto CheckAndSetAttribute = [](Function *F, StringRef ParamValue,
+                                       StringRef ParamName) {
+          outs() << "Set Attribute " << ParamName << " => " << ParamValue << "\n";
+          F->addFnAttr(ParamName, ParamValue);
+        };
+
+        bool Changed = false;
+        for (Function *F : getDeviceKernels(M)) {
+          auto FName = F->getName().str();
+          outs() << "FName " << FName << "\n";
+          for(auto &KeyVal : KernelOpts) {
+            dbgs() << "Key " << KeyVal.first << "\n";
+          }
+          if (KernelOpts.count(FName)) {
+            dbgs() << "FOUND FName " << FName << " in KernelOpts\n";
+            std::string FlatWorkGroupSize = "0," + std::to_string(KernelOpts[FName].MaxThreads);
+            CheckAndSetAttribute(F, FlatWorkGroupSize, "amdgpu-flat-work-group-size");
+            std::string WavesPerEU = std::to_string(KernelOpts[FName].MinBlocks);
+            CheckAndSetAttribute(F, WavesPerEU, "amdgpu-waves-per-eu");
+            Changed = true;
+          }
+          else
+            dbgs() << "FName " << FName << " IS NOT in KernelOpts\n";
+        }
+
+        return Changed;
+      } else
+        report_fatal_error(
+            "Unknown device triple to apply BO parameter configuration");
+    }
+
     OMPInformationCache::RuntimeFunctionInfo &RFI =
         OMPInfoCache.RFIs[OMPRTL___tgt_target_kernel];
 
     if (!RFI.Declaration)
       return false;
 
-    if ( isOpenMPDevice(M) )
-      return false;
-
     bool Changed = false;
-    auto ApplyBOConfig = [&](Use &U, Function &F){
+    auto ApplyBOConfig = [&](Use &U, Function &F) {
       CallInst *CI = getCallIfRegularCall(U, &RFI);
 
-      if ( !CI )
+      if (!CI)
         return false;
 
       Value *RId = CI->getOperand(4);
@@ -1347,25 +1426,25 @@ private:
         std::string::size_type Pos = KName.find(Region);
         // Remove ".region part"
         if (Pos != std::string::npos)
-           KName.erase(Pos, Region.length());
+          KName.erase(Pos, Region.length());
         llvm::dbgs() << "Kernel ID :" << KName << "\n";
         auto Kernel = KernelOpts.find(KName);
-        if ( Kernel != KernelOpts.end() ){
+        if (Kernel != KernelOpts.end()) {
           int Teams = Kernel->second.Teams;
           int Threads = Kernel->second.Threads;
-          if ( ! Kernel->second.optimized ){
+          if (!Kernel->second.optimized) {
             ConstantInt *BOTeams =
-              ConstantInt::get( Type::getInt32Ty(M.getContext()), Teams);
+                ConstantInt::get(Type::getInt32Ty(M.getContext()), Teams);
             CI->setArgOperand(2, BOTeams);
             ConstantInt *BOThreads =
-              ConstantInt::get( Type::getInt32Ty(M.getContext()), Threads);
-            CI->setArgOperand(3, BOThreads );
+                ConstantInt::get(Type::getInt32Ty(M.getContext()), Threads);
+            CI->setArgOperand(3, BOThreads);
             Kernel->second.optimized = true;
             Changed = true;
           }
         }
       }
-      return  Changed;
+      return Changed;
     };
 
     RFI.foreachUse(SCC, ApplyBOConfig);
@@ -2222,18 +2301,19 @@ private:
 
     // Temporarily make these function have external linkage so the Attributor
     // doesn't remove them when we try to look them up later.
-    //ExternalizationRAII Parallel(OMPInfoCache, OMPRTL___kmpc_kernel_parallel);
-    //ExternalizationRAII EndParallel(OMPInfoCache,
+    // ExternalizationRAII Parallel(OMPInfoCache,
+    // OMPRTL___kmpc_kernel_parallel); ExternalizationRAII
+    // EndParallel(OMPInfoCache,
     //                                OMPRTL___kmpc_kernel_end_parallel);
-    //ExternalizationRAII BarrierSPMD(OMPInfoCache,
+    // ExternalizationRAII BarrierSPMD(OMPInfoCache,
     //                                OMPRTL___kmpc_barrier_simple_spmd);
-    //ExternalizationRAII BarrierGeneric(OMPInfoCache,
+    // ExternalizationRAII BarrierGeneric(OMPInfoCache,
     //                                   OMPRTL___kmpc_barrier_simple_generic);
-    //ExternalizationRAII ThreadId(OMPInfoCache,
+    // ExternalizationRAII ThreadId(OMPInfoCache,
     //                             OMPRTL___kmpc_get_hardware_thread_id_in_block);
-    //ExternalizationRAII NumThreads(
+    // ExternalizationRAII NumThreads(
     //    OMPInfoCache, OMPRTL___kmpc_get_hardware_num_threads_in_block);
-    //ExternalizationRAII WarpSize(OMPInfoCache, OMPRTL___kmpc_get_warp_size);
+    // ExternalizationRAII WarpSize(OMPInfoCache, OMPRTL___kmpc_get_warp_size);
 
     registerAAs(IsModulePass);
 

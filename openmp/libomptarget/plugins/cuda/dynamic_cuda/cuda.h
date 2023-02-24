@@ -98,10 +98,10 @@ typedef struct CUmemAllocationProp_st {
          * Allocation hint for requesting compressible memory.
          * On devices that support Compute Data Compression, compressible
          * memory can be used to accelerate accesses to data with unstructured
-         * sparsity and other compressible data patterns. Applications are 
-         * expected to query allocation property of the handle obtained with 
-         * ::cuMemCreate using ::cuMemGetAllocationPropertiesFromHandle to 
-         * validate if the obtained allocation is compressible or not. Note that 
+         * sparsity and other compressible data patterns. Applications are
+         * expected to query allocation property of the handle obtained with
+         * ::cuMemCreate using ::cuMemGetAllocationPropertiesFromHandle to
+         * validate if the obtained allocation is compressible or not. Note that
          * compressed memory may not be mappable on all devices.
          */
          unsigned char compressionType;
@@ -358,7 +358,7 @@ CUresult cuEventDestroy(CUevent);
 CUresult cuMemUnmap(CUdeviceptr ptr, size_t size);
 CUresult cuMemRelease(CUmemGenericAllocationHandle handle);
 CUresult cuMemAddressFree(CUdeviceptr ptr, size_t size);
-CUresult cuMemGetInfo(unsigned int *free, unsigned int *total);
+CUresult cuMemGetInfo(size_t *free, size_t *total);
 CUresult cuMemAddressReserve(CUdeviceptr *ptr, size_t size, size_t alignment, CUdeviceptr addr, unsigned long long flags);
 CUresult cuMemMap(CUdeviceptr ptr, size_t size, size_t offset, CUmemGenericAllocationHandle handle, unsigned long long flags);
 CUresult cuMemCreate(CUmemGenericAllocationHandle *handle, size_t size, const CUmemAllocationProp *prop, unsigned long long flags);
