@@ -94,37 +94,6 @@ __OMP_STRUCT_TYPE(KernelArgs, __tgt_kernel_arguments, Int32, Int32, VoidPtrPtr,
 __OMP_STRUCT_TYPE(AsyncInfo, __tgt_async_info, Int8Ptr)
 __OMP_STRUCT_TYPE(DependInfo, kmp_dep_info, SizeTy, SizeTy, Int8)
 
-__OMP_STRUCT_TYPE(OMPDefaultReductionLeagueConfig, __llvm_omp_default_reduction_league_configuration,
-  VoidPtr /*__buffer*/,
-  Int32 /*__num_items*/
-)
-
-__OMP_STRUCT_TYPE(OMPDefaultReductionVarConfig, __llvm_omp_default_reduction_var_configuration,
-  VoidPtr /*__dst_ptr*/,
-  Int32 /*__item_size*/,
-  Int32 /*__num_items*/,
-  Int32 /*__batch_size*/,
-  Int8 /*__op */,
-  Int8 /*__element_type*/,
-  VoidPtr /*__reducer_fn*/,
-  VoidPtr /*__initializer_fn*/
-)
-
-__OMP_STRUCT_TYPE(OMPDefaultReductionConfig, __llvm_omp_default_reduction_configuration,
-  Int8 /* __level */,
-  Int8 /*__alloc_config */,
-  Int64 /*__policy*/,
-  VoidPtr /*__allocator_fn*/,
-  Int32 /*__num_participants*/,
-  Int32 /*__num_reduction_vars*/,
-  OMPDefaultReductionVarConfigPtr /* __reduction_vars[0] */
-)
-
-__OMP_STRUCT_TYPE(OMPDefaultReductionPrivateInfo, __llvm_omp_default_reduction_private_info,
- OMPDefaultReductionConfigPtr,
- VoidPtr
-)
-
 #undef __OMP_STRUCT_TYPE
 #undef OMP_STRUCT_TYPE
 
@@ -300,12 +269,6 @@ __OMP_RTL(__kmpc_reduce_nowait, false, Int32, IdentPtr, Int32, Int32, SizeTy,
 __OMP_RTL(__kmpc_end_reduce, false, Void, IdentPtr, Int32, KmpCriticalNamePtrTy)
 __OMP_RTL(__kmpc_end_reduce_nowait, false, Void, IdentPtr, Int32,
           KmpCriticalNamePtrTy)
-
-__OMP_RTL(__llvm_omp_default_reduction_init, false, Void, OMPDefaultReductionPrivateInfoPtr, OMPDefaultReductionLeagueConfigPtr)
-__OMP_RTL(__llvm_omp_default_reduction_warp, false, Void, OMPDefaultReductionPrivateInfoPtr)
-__OMP_RTL(__llvm_omp_default_reduction_team, false, Void, OMPDefaultReductionPrivateInfoPtr)
-__OMP_RTL(__llvm_omp_default_reduction_league, false, Void, OMPDefaultReductionPrivateInfoPtr, OMPDefaultReductionLeagueConfigPtr)
-__OMP_RTL(__llvm_omp_default_reduction_combine_league_lvl2, false, Void, OMPDefaultReductionPrivateInfoPtr, OMPDefaultReductionLeagueConfigPtr)
 
 __OMP_RTL(__kmpc_ordered, false, Void, IdentPtr, Int32)
 __OMP_RTL(__kmpc_end_ordered, false, Void, IdentPtr, Int32)

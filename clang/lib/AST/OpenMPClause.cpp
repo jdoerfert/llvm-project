@@ -790,9 +790,7 @@ OMPReductionClause *OMPReductionClause::Create(
     ArrayRef<Expr *> Privates, ArrayRef<Expr *> LHSExprs,
     ArrayRef<Expr *> RHSExprs, ArrayRef<Expr *> ReductionOps,
     ArrayRef<Expr *> CopyOps, ArrayRef<Expr *> CopyArrayTemps,
-    ArrayRef<Expr *> CopyArrayElems, Stmt *PreInit, Expr *PostUpdate,
-    target::reduction::Operation ROP,
-    int RT) {
+    ArrayRef<Expr *> CopyArrayElems, Stmt *PreInit, Expr *PostUpdate) {
   void *Mem = C.Allocate(totalSizeToAlloc<Expr *>(
       (Modifier == OMPC_REDUCTION_inscan ? 8 : 5) * VL.size()));
   auto *Clause = new (Mem)
@@ -805,8 +803,6 @@ OMPReductionClause *OMPReductionClause::Create(
   Clause->setReductionOps(ReductionOps);
   Clause->setPreInitStmt(PreInit);
   Clause->setPostUpdateExpr(PostUpdate);
-  Clause->setReductionType(RT);
-  Clause->setReductionOperator(ROP);
   if (Modifier == OMPC_REDUCTION_inscan) {
     Clause->setInscanCopyOps(CopyOps);
     Clause->setInscanCopyArrayTemps(CopyArrayTemps);

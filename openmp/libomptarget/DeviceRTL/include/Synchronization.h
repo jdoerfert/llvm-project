@@ -27,9 +27,6 @@ void warp(LaneMaskTy Mask);
 /// Synchronize all threads in a block.
 void threads();
 
-/// Synchronize \p NumThreads threads in a block.
-void threadsPartial(uint32_t NumThreads);
-
 /// Synchronizing threads is allowed even if they all hit different instances of
 /// `synchronize::threads()`. However, `synchronize::threadsAligned()` is more
 /// restrictive in that it requires all threads to hit the same instance. The

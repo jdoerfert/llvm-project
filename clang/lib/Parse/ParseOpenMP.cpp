@@ -4327,22 +4327,15 @@ bool Parser::ParseOpenMPVarList(OpenMPDirectiveKind DKind,
       Kind == OMPC_in_reduction) {
     Data.ExtraModifier = OMPC_REDUCTION_unknown;
     if (Kind == OMPC_reduction && getLangOpts().OpenMP >= 50 &&
-        (Tok.is(tok::identifier) || Tok.is(tok::kw_default))){
-      // Reduction now has multiple modifiers
-      // TODO: Check whether modifiers conflict
-      // TODO: Check whether modifiers can be applied
-      // on this scope (device, league etc)
-      while(NextToken().is(tok::comma)) {
-        // Parse optional reduction modifier.
-        Data.ExtraModifier =
-            getOpenMPSimpleClauseType(Kind, PP.getSpelling(Tok), getLangOpts());
-        Data.ReductionTypeModifiers.push_back(
-            static_cast<OpenMPReductionClauseModifier>(Data.ExtraModifier));
-        Data.ExtraModifierLoc = Tok.getLocation();
-        ConsumeToken();
-        assert(Tok.is(tok::comma) && "Expected comma.");
-        (void)ConsumeToken();
-      }
+        (Tok.is(tok::identifier) || Tok.is(tok::kw_default)) &&
+        NextToken().is(tok::comma)) {
+      // Parse optional reduction modifier.
+      Data.ExtraModifier =
+          getOpenMPSimpleClauseType(Kind, PP.getSpelling(Tok), getLangOpts());
+      Data.ExtraModifierLoc = Tok.getLocation();
+      ConsumeToken();
+      assert(Tok.is(tok::comma) && "Expected comma.");
+      (void)ConsumeToken();
     }
     ColonProtectionRAIIObject ColonRAII(*this);
     if (getLangOpts().CPlusPlus)
@@ -4352,7 +4345,6 @@ bool Parser::ParseOpenMPVarList(OpenMPDirectiveKind DKind,
                                      /*EnteringContext=*/false);
     InvalidReductionId = ParseReductionId(
         *this, Data.ReductionOrMapperIdScopeSpec, UnqualifiedReductionId);
-
     if (InvalidReductionId) {
       SkipUntil(tok::colon, tok::r_paren, tok::annot_pragma_openmp_end,
                 StopBeforeMatch);
@@ -4361,10 +4353,9 @@ bool Parser::ParseOpenMPVarList(OpenMPDirectiveKind DKind,
       Data.ColonLoc = ConsumeToken();
     else
       Diag(Tok, diag::warn_pragma_expected_colon) << "reduction identifier";
-    if (!InvalidReductionId){
+    if (!InvalidReductionId)
       Data.ReductionOrMapperId =
           Actions.GetNameFromUnqualifiedId(UnqualifiedReductionId);
-    }
   } else if (Kind == OMPC_depend) {
     if (getLangOpts().OpenMP >= 50) {
       if (Tok.is(tok::identifier) && PP.getSpelling(Tok) == "iterator") {

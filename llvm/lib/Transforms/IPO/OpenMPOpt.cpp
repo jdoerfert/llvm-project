@@ -3830,10 +3830,6 @@ struct AAKernelInfoFunction : AAKernelInfo {
     // a debug wrapper.
     Function *Kernel = getAnchorScope();
     if (Kernel->hasLocalLinkage()) {
-      if (!Kernel->hasOneUse()) {
-        Kernel->getParent()->dump();
-        errs() << Kernel->getName() << "\n";
-      }
       assert(Kernel->hasOneUse() && "Unexpected use of debug kernel wrapper.");
       auto *CB = cast<CallBase>(Kernel->user_back());
       Kernel = CB->getCaller();

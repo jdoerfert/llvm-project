@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Reduction.h"
 #include "Debug.h"
 #include "Interface.h"
 #include "Mapping.h"
@@ -21,736 +20,299 @@
 
 using namespace ompx;
 
-#pragma omp begin declare target device_type(nohost)
-
 namespace {
 
-constexpr int32_t BufferAlignment = 64;
-constexpr int32_t MaxWarpSize = 64;
-constexpr int32_t MaxBlockSize = 32;
-constexpr int32_t MaxWarpAndBlockSize = MaxWarpSize;
-static_assert(MaxWarpSize >= MaxBlockSize,
-              "Expected at least as meany warp threads as block threads.");
+#pragma omp begin declare target device_type(nohost)
 
-constexpr int32_t MaxBatchSize = 16;
-constexpr int32_t MaxDataTypeSize = 16;
-static_assert(MaxDataTypeSize >= sizeof(double) &&
-                  MaxDataTypeSize >= sizeof(int64_t),
-              "Max data type size is too small!");
-
-using RedVarTy = __llvm_omp_default_reduction_var_configuration_ty;
-using RedConfigTy = __llvm_omp_default_reduction_configuration_ty;
-using RedOpTy = __llvm_omp_reduction_operation;
-using ElementTypeTy = __llvm_omp_reduction_element_type;
-using ReducerFnTy = __llvm_omp_reduction_reducer_fn_ty;
-using RedPrivInfoTy = __llvm_omp_default_reduction_private_info_ty;
-using RedLeagueConfigTy = __llvm_omp_default_reduction_league_configuration_ty;
-
-template <typename Ty>
-static void foreachVar(void *SrcPtr, RedConfigTy &Config, Ty Fn) {
-  int32_t NumVars = Config.__num_reduction_vars;
-  RedVarTy &Var = Config.__reduction_vars[0][0];
-  Fn(SrcPtr, Var);
-  SrcPtr = utils::advance(SrcPtr, Var.__item_size * Var.__num_items);
-  if (NumVars > 1) {
-    RedVarTy &Var = Config.__reduction_vars[0][1];
-    Fn(SrcPtr, Var);
-    SrcPtr = utils::advance(SrcPtr, Var.__item_size * Var.__num_items);
-  }
-  for (int32_t i = 2; i < NumVars; ++i) {
-    RedVarTy &Var = Config.__reduction_vars[0][i];
-    Fn(SrcPtr, Var);
-    SrcPtr = utils::advance(SrcPtr, Var.__item_size * Var.__num_items);
+void gpu_regular_warp_reduce(void *reduce_data, ShuffleReductFnTy shflFct) {
+  for (uint32_t mask = mapping::getWarpSize() / 2; mask > 0; mask /= 2) {
+    shflFct(reduce_data, /*LaneId - not used= */ 0,
+            /*Offset = */ mask, /*AlgoVersion=*/0);
   }
 }
 
-template <typename Ty>
-static void forVarBatched(void *SrcPtr, RedConfigTy &Config, RedVarTy &Var,
-                          Ty Fn) {
-  int32_t NumItems = Var.__num_items;
-  int32_t ItemSize = Var.__item_size;
-  void *DstPtr = Var.__dst_ptr;
-  auto BatchFn = [&](int32_t BatchSize) {
-    while (NumItems >= BatchSize) {
-      Fn(SrcPtr, Config, Var, DstPtr);
-      SrcPtr = utils::advance(SrcPtr, BatchSize * ItemSize);
-      DstPtr = utils::advance(DstPtr, BatchSize * ItemSize);
-      NumItems -= BatchSize;
-    }
-  };
-  int32_t BatchSize = Var.__batch_size;
-  BatchFn(BatchSize);
-  if (BatchSize >= 1 && NumItems)
-    BatchFn(1);
-}
-
-template <typename Ty>
-static void foreachVarBatched(void *SrcPtr, RedConfigTy &Config, Ty Fn) {
-  auto VarFn = [&](void *SrcPtr, RedVarTy &Var) {
-    forVarBatched(SrcPtr, Config, Var, Fn);
-  };
-  foreachVar(SrcPtr, Config, VarFn);
-}
-
-/// Helper methods
-///{
-///
-#define TYPE_DEDUCER(FN_NAME)                                                  \
-  void FN_NAME(void *DstPtr, void *SrcPtr, RedConfigTy &Config, RedVarTy &Var, \
-               intptr_t Payload = 0) {                                         \
-    switch (Var.__element_type) {                                              \
-    case _INT8:                                                                \
-      return FN_NAME<int8_t, int8_t>(reinterpret_cast<int8_t *>(DstPtr),       \
-                                     reinterpret_cast<int8_t *>(SrcPtr),       \
-                                     Config, Var, Payload);                    \
-    case _INT16:                                                               \
-      return FN_NAME<int16_t, int16_t>(reinterpret_cast<int16_t *>(DstPtr),    \
-                                       reinterpret_cast<int16_t *>(SrcPtr),    \
-                                       Config, Var, Payload);                  \
-    case _INT32:                                                               \
-      return FN_NAME<int32_t, int32_t>(reinterpret_cast<int32_t *>(DstPtr),    \
-                                       reinterpret_cast<int32_t *>(SrcPtr),    \
-                                       Config, Var, Payload);                  \
-    case _INT64:                                                               \
-      return FN_NAME<int64_t, int64_t>(reinterpret_cast<int64_t *>(DstPtr),    \
-                                       reinterpret_cast<int64_t *>(SrcPtr),    \
-                                       Config, Var, Payload);                  \
-    case _FLOAT:                                                               \
-      return FN_NAME<float, int32_t>(reinterpret_cast<float *>(DstPtr),        \
-                                     reinterpret_cast<float *>(SrcPtr),        \
-                                     Config, Var, Payload);                    \
-    case _DOUBLE:                                                              \
-      return FN_NAME<double, int64_t>(reinterpret_cast<double *>(DstPtr),      \
-                                      reinterpret_cast<double *>(SrcPtr),      \
-                                      Config, Var, Payload);                   \
-    case _CUSTOM_TYPE:                                                         \
-      return FN_NAME<void, void>(reinterpret_cast<void *>(DstPtr),             \
-                                 reinterpret_cast<void *>(SrcPtr), Config,     \
-                                 Var, Payload);                                \
-    }                                                                          \
-    __builtin_unreachable();                                                   \
+void gpu_irregular_warp_reduce(void *reduce_data, ShuffleReductFnTy shflFct,
+                               uint32_t size, uint32_t tid) {
+  uint32_t curr_size;
+  uint32_t mask;
+  curr_size = size;
+  mask = curr_size / 2;
+  while (mask > 0) {
+    shflFct(reduce_data, /*LaneId = */ tid, /*Offset=*/mask, /*AlgoVersion=*/1);
+    curr_size = (curr_size + 1) / 2;
+    mask = curr_size / 2;
   }
-
-/// Non-atomically perform `*LHSPtr = *LHSPtr <op> RHS`.
-template <typename Ty, typename IntTy>
-void reduceValues(Ty *LHS, Ty RHS, RedOpTy Op, ReducerFnTy *ReducerFn) {
-  switch (Op) {
-  case _ADD:
-    *LHS = *LHS + RHS;
-    return;
-  case _SUB:
-    *LHS = *LHS - RHS;
-    return;
-  case _BIT_OR:
-    *(IntTy *)(LHS) = *(IntTy *)(LHS) | utils::convertViaPun<IntTy>(RHS);
-    return;
-  case _BIT_XOR:
-    *(IntTy *)(LHS) = *(IntTy *)(LHS) ^ utils::convertViaPun<IntTy>(RHS);
-    return;
-  case _LOGIC_OR:
-    *LHS =
-        utils::convertViaPun<IntTy>(*LHS) || utils::convertViaPun<IntTy>(RHS);
-    return;
-  case _BIT_AND:
-    *(IntTy *)(LHS) = *(IntTy *)(LHS)&utils::convertViaPun<IntTy>(RHS);
-    return;
-  case _MUL:
-    *LHS = *LHS * RHS;
-    return;
-  case _LOGIC_AND:
-    *LHS =
-        utils::convertViaPun<IntTy>(*LHS) && utils::convertViaPun<IntTy>(RHS);
-    return;
-  case _MAX:
-    *LHS = *LHS > RHS ? *LHS : RHS;
-    return;
-  case _MIN:
-    *LHS = *LHS > RHS ? RHS : *LHS;
-    return;
-  case _CUSTOM_OP:
-    ReducerFn(LHS, &RHS);
-    return;
-  }
-  __builtin_unreachable();
 }
 
-/// Atomically perform `*LHSPtr = *LHSPtr <op> RHS`.
-template <typename Ty, typename IntTy>
-void reduceValuesAtomically(Ty *LHSPtr, Ty RHS, RedOpTy Op,
-                            ReducerFnTy *ReducerFn) {
-  switch (Op) {
-  case _ADD:
-    atomic::add(LHSPtr, RHS, atomic::seq_cst);
-    return;
-  case _SUB:
-    atomic::add(LHSPtr, -RHS, atomic::seq_cst);
-    return;
-  case _BIT_OR:
-    atomic::bit_or((IntTy *)LHSPtr, *((IntTy *)&RHS), atomic::seq_cst);
-    return;
-  case _BIT_XOR:
-    atomic::bit_xor((IntTy *)LHSPtr, *((IntTy *)&RHS), atomic::seq_cst);
-    return;
-  case _LOGIC_OR:
-    break;
-  case _BIT_AND:
-    atomic::bit_and((IntTy *)LHSPtr, *((IntTy *)&RHS), atomic::seq_cst);
-    return;
-  case _MUL:
-    atomic::mul(LHSPtr, RHS, atomic::seq_cst);
-    return;
-  case _LOGIC_AND:
-    break;
-  case _MAX:
-    atomic::max(LHSPtr, RHS, atomic::seq_cst);
-    return;
-  case _MIN:
-    atomic::min(LHSPtr, RHS, atomic::seq_cst);
-    return;
-  case _CUSTOM_OP:
-    // The user enabled atomic reduction via a configuration flag. It's the
-    // users responsibility to ensure the reducer function will work in this
-    // way.
-    ReducerFn(LHSPtr, &RHS);
-    return;
-  }
-  __builtin_unreachable();
-}
-
-///}
-
-/// WARP methods
-///{
-
-/// The threads in \p Mask will reduce the \p BatchSize values in the array
-/// pointed to by \p TypedSrcPtr into \p TypedDstPtr.
-template <typename Ty, typename IntTy>
-void reduceWarp(Ty *__restrict__ TypedDstPtr, Ty *__restrict__ TypedSrcPtr,
-                RedConfigTy &Config, RedVarTy &Var, intptr_t Payload) {
-  static_assert(sizeof(Ty) == sizeof(IntTy),
-                "Type and integer type need to match in size!");
-
-  // Use a local buffer (accumulator) for ease of handling.
-  IntTy IntTypedAcc[MaxWarpSize];
-
-  RedOpTy Op = Var.__op;
-  ReducerFnTy *ReducerFn = Var.__reducer_fn;
-  int32_t BatchSize = Var.__batch_size;
-
-  ASSERT(BatchSize <= MaxWarpSize);
-  __builtin_memcpy(&IntTypedAcc[0], TypedSrcPtr, BatchSize * sizeof(Ty));
-
-  // View of the local buffer as typed pointer.
-  Ty *TypedAcc = reinterpret_cast<Ty *>(&IntTypedAcc[0]);
-
-  int32_t WarpSize = mapping::getWarpSize();
-  int32_t WarpTId = mapping::getThreadIdInWarp();
-  int32_t Delta = WarpSize;
-  int64_t Mask = Payload ? Payload : lanes::All;
-
-  // Iterate log(WarpSize) times, always dividing the shuffle distance (Delta)
-  // by 2. For each distance we work on the entire batch.
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 700
+static uint32_t gpu_irregular_simd_reduce(void *reduce_data,
+                                          ShuffleReductFnTy shflFct) {
+  uint32_t size, remote_id, physical_lane_id;
+  physical_lane_id = mapping::getThreadIdInBlock() % mapping::getWarpSize();
+  __kmpc_impl_lanemask_t lanemask_lt = mapping::lanemaskLT();
+  __kmpc_impl_lanemask_t Liveness = mapping::activemask();
+  uint32_t logical_lane_id = utils::popc(Liveness & lanemask_lt) * 2;
+  __kmpc_impl_lanemask_t lanemask_gt = mapping::lanemaskGT();
   do {
-    Delta /= 2;
-    for (int32_t i = 0; i < BatchSize; ++i) {
-      // First we treat the values as IntTy to do the shuffle.
-      IntTy IntTypedShuffleVal =
-          utils::shuffleDown(Mask, IntTypedAcc[i], Delta, WarpSize);
-
-      // Now we convert into Ty to do the reduce.
-      Ty TypedShuffleVal = utils::convertViaPun<Ty>(IntTypedShuffleVal);
-      reduceValues<Ty, IntTy>(&TypedAcc[i], TypedShuffleVal, Op, ReducerFn);
-    }
-  } while (Delta > 1);
-
-  // Perform the final copy (and potentially reduce) from the local buffer into
-  // the destination.
-  bool ReduceInto = TypedDstPtr != TypedSrcPtr;
-  bool Atomically = Config.__policy & _REDUCE_ATOMICALLY_AFTER_WARP;
-  for (int32_t i = WarpTId; i < BatchSize; i += WarpSize) {
-    if (Atomically) {
-      if (ReduceInto) {
-        reduceValuesAtomically<Ty, IntTy>(&TypedDstPtr[i], TypedAcc[i], Op,
-                                          ReducerFn);
-      } else {
-        // Not a supported combination.
-        __builtin_trap();
-      }
-    } else {
-      if (ReduceInto) {
-        reduceValues<Ty, IntTy>(&TypedDstPtr[i], TypedAcc[i], Op, ReducerFn);
-      } else {
-        TypedDstPtr[i] = TypedAcc[i];
-      }
-    }
-  }
+    Liveness = mapping::activemask();
+    remote_id = utils::ffs(Liveness & lanemask_gt);
+    size = utils::popc(Liveness);
+    logical_lane_id /= 2;
+    shflFct(reduce_data, /*LaneId =*/logical_lane_id,
+            /*Offset=*/remote_id - 1 - physical_lane_id, /*AlgoVersion=*/2);
+  } while (logical_lane_id % 2 == 0 && size > 1);
+  return (logical_lane_id == 0);
 }
-
-template <>
-void reduceWarp<void, void>(void *__restrict__ TypedDstPtr,
-                            void *__restrict__ TypedSrcPtr, RedConfigTy &Config,
-                            RedVarTy &Var, intptr_t) {
-  // TODO: User defined reductions.
-}
-
-/// Simple wrapper around the templated reduceWarp to determine the actual
-/// and corresponding integer type of the reduction.
-TYPE_DEDUCER(reduceWarp);
-
-void reduceWarpWrapper(void *SrcPtr, RedConfigTy &Config) {
-  foreachVar(SrcPtr, Config, [&](void *SrcPtr, RedVarTy &Var) {
-    reduceWarp(Var.__dst_ptr, SrcPtr, Config, Var);
-  });
-}
-
-void reduceVarWarp(void *DstPtr, void *SrcPtr, RedConfigTy &Config,
-                   RedVarTy &Var) {
-  forVarBatched(SrcPtr, Config, Var,
-                [](void *SrcPtr, RedConfigTy &Config, RedVarTy &Var,
-                   void *DstPtr) { reduceWarp(DstPtr, SrcPtr, Config, Var); });
-}
-///}
-
-/// TEAM methods
-///{
-
-/// Two shared memory buffers, one for batched and one for non-batched
-/// execution. TODO: We should either have more in different sizes or teach the
-/// optimizer to shrink them based on usage.
-[[clang::loader_uninitialized]] static char
-    SharedMemScratchpadBatched[MaxWarpAndBlockSize * MaxBatchSize *
-                               MaxDataTypeSize]
-    __attribute__((aligned(BufferAlignment)));
-#pragma omp allocate(SharedMemScratchpadBatched) allocator(omp_pteam_mem_alloc)
-
-[[clang::loader_uninitialized]] static char
-    SharedMemScratchpadScalar[MaxWarpAndBlockSize * MaxDataTypeSize]
-    __attribute__((aligned(BufferAlignment)));
-#pragma omp allocate(SharedMemScratchpadScalar) allocator(omp_pteam_mem_alloc)
-
-///
-void reduceTeamImplHelper(void *SrcPtr, RedConfigTy &Config,
-                          RedVarTy *Var = nullptr, void *DstPtr = nullptr) {
-  int32_t TId = mapping::getThreadIdInBlock();
-  int32_t NumParticipants = Config.__num_participants
-                                ? Config.__num_participants
-                                : mapping::getBlockSize();
-  uint64_t Mask = utils::ballotSync(lanes::All, TId < NumParticipants);
-  bool ReduceWarpsFirst = Config.__policy & _REDUCE_WARP_FIRST;
-
-  if (ReduceWarpsFirst) {
-    ASSERT(Var == 0);
-    foreachVar(SrcPtr, Config, [&](void *SrcPtr, RedVarTy &Var) {
-      reduceVarWarp(SrcPtr, SrcPtr, Config, Var);
-    });
-  } else {
-    reduceWarp(SrcPtr, SrcPtr, Config, *Var, Mask);
-  }
-
-  int32_t WarpSize = mapping::getWarpSize();
-  int32_t WarpId = mapping::getWarpId();
-
-#if 0
-  if (OMP_UNLIKELY(NumParticipants <= WarpSize)) {
-    if (TId == 0) {
-      for (int32_t i = 0; i < NumItems; i++)
-        reduceValues<Ty, IntTy>(&TypedDstPtr[i], TypedSrcPtr[i], Op, ReducerFn);
-    }
-    return;
-  }
 #endif
 
-  // assert(MaxWarpSize >= mapping::getWarpSize());
-  // assert(MaxBatchSize >= BatchSize);
+static int32_t nvptx_parallel_reduce_nowait(int32_t TId, int32_t num_vars,
+                                            uint64_t reduce_size,
+                                            void *reduce_data,
+                                            ShuffleReductFnTy shflFct,
+                                            InterWarpCopyFnTy cpyFct,
+                                            bool isSPMDExecutionMode, bool) {
+  uint32_t BlockThreadId = mapping::getThreadIdInBlock();
+  if (mapping::isMainThreadInGenericMode(/* IsSPMD */ false))
+    BlockThreadId = 0;
+  uint32_t NumThreads = omp_get_num_threads();
+  if (NumThreads == 1)
+    return 1;
+    /*
+     * This reduce function handles reduction within a team. It handles
+     * parallel regions in both L1 and L2 parallelism levels. It also
+     * supports Generic, SPMD, and NoOMP modes.
+     *
+     * 1. Reduce within a warp.
+     * 2. Warp master copies value to warp 0 via shared memory.
+     * 3. Warp 0 reduces to a single value.
+     * 4. The reduced value is available in the thread that returns 1.
+     */
 
-  DstPtr = DstPtr ? DstPtr : Var->__dst_ptr;
-  int32_t NumItems = Var->__num_items;
-  int32_t ItemSize = Var->__item_size;
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+  uint32_t WarpsNeeded =
+      (NumThreads + mapping::getWarpSize() - 1) / mapping::getWarpSize();
+  uint32_t WarpId = mapping::getWarpId();
 
-  int32_t BlockId = mapping::getBlockId();
+  // Volta execution model:
+  // For the Generic execution mode a parallel region either has 1 thread and
+  // beyond that, always a multiple of 32. For the SPMD execution mode we may
+  // have any number of threads.
+  if ((NumThreads % mapping::getWarpSize() == 0) || (WarpId < WarpsNeeded - 1))
+    gpu_regular_warp_reduce(reduce_data, shflFct);
+  else if (NumThreads > 1) // Only SPMD execution mode comes thru this case.
+    gpu_irregular_warp_reduce(reduce_data, shflFct,
+                              /*LaneCount=*/NumThreads % mapping::getWarpSize(),
+                              /*LaneId=*/mapping::getThreadIdInBlock() %
+                                  mapping::getWarpSize());
 
-  int32_t NumWarps = mapping::getNumberOfWarpsInBlock();
-  int32_t WarpTId = mapping::getThreadIdInWarp();
-  int32_t IsWarpLead = WarpTId == 0;
+  // When we have more than [mapping::getWarpSize()] number of threads
+  // a block reduction is performed here.
+  //
+  // Only L1 parallel region can enter this if condition.
+  if (NumThreads > mapping::getWarpSize()) {
+    // Gather all the reduced values from each warp
+    // to the first warp.
+    cpyFct(reduce_data, WarpsNeeded);
 
-  Mask = utils::ballotSync(lanes::All, WarpTId < NumWarps);
-
-  auto SyncThreads = [&]() {
-    if (mapping::isSPMDMode() || NumParticipants == mapping::getBlockSize())
-      synchronize::threadsAligned();
-    else
-      synchronize::threadsPartial(NumParticipants);
-  };
-
-  auto WarpResultsToDst = [&](int32_t BatchSize) {
-    void *SharedMem;
-    if (BatchSize > 1)
-      SharedMem = &SharedMemScratchpadBatched[0];
-    else
-      SharedMem = &SharedMemScratchpadScalar[0];
-
-    while (NumItems >= BatchSize) {
-      if (IsWarpLead) {
-        void *SharedMemWarpPtr =
-            utils::advance(SharedMem, WarpId * BatchSize * ItemSize);
-        __builtin_memcpy(SharedMemWarpPtr, SrcPtr, BatchSize * ItemSize);
-      }
-
-      // Wait for all shared memory updates.
-      SyncThreads();
-
-      // The first warp performs the final reduction and stores away the result.
-      if (WarpId == 0) {
-
-        // Accumulate the shared memory results through shuffles.
-        if (WarpTId < NumWarps) {
-          void *SharedMemWarpPtr =
-              utils::advance(SharedMem, WarpTId * BatchSize * ItemSize);
-          reduceWarp(DstPtr, SharedMemWarpPtr, Config, *Var, Mask);
-        }
-      }
-
-      if (!ReduceWarpsFirst)
-        break;
-
-      // Wait for all shared memory reads.
-      SyncThreads();
-
-      SrcPtr = utils::advance(SrcPtr, BatchSize * ItemSize);
-      DstPtr = utils::advance(DstPtr, BatchSize * ItemSize);
-      NumItems -= BatchSize;
-    }
-  };
-
-  int32_t BatchSize = Var->__batch_size;
-  WarpResultsToDst(BatchSize);
-  if (ReduceWarpsFirst && BatchSize > 1 && NumItems)
-    WarpResultsToDst(1);
-}
-
-void reduceTeamImpl(void *SrcPtr, RedConfigTy &Config) {
-  // Warps first will reduce all warps in a single call while we otherwise do
-  // one warp at a time.
-  if (Config.__policy & _REDUCE_WARP_FIRST) {
-    reduceTeamImplHelper(SrcPtr, Config);
-    return;
+    if (WarpId == 0)
+      gpu_irregular_warp_reduce(reduce_data, shflFct, WarpsNeeded,
+                                BlockThreadId);
+  }
+  return BlockThreadId == 0;
+#else
+  __kmpc_impl_lanemask_t Liveness = mapping::activemask();
+  if (Liveness == lanes::All) // Full warp
+    gpu_regular_warp_reduce(reduce_data, shflFct);
+  else if (!(Liveness & (Liveness + 1))) // Partial warp but contiguous lanes
+    gpu_irregular_warp_reduce(reduce_data, shflFct,
+                              /*LaneCount=*/utils::popc(Liveness),
+                              /*LaneId=*/mapping::getThreadIdInBlock() %
+                                  mapping::getWarpSize());
+  else { // Dispersed lanes. Only threads in L2
+         // parallel region may enter here; return
+         // early.
+    return gpu_irregular_simd_reduce(reduce_data, shflFct);
   }
 
-  foreachVarBatched(
-      SrcPtr, Config,
-      [](void *SrcPtr, RedConfigTy &Config, RedVarTy &Var, void *DstPtr) {
-        reduceTeamImplHelper(SrcPtr, Config, &Var, DstPtr);
-      });
-}
+  // When we have more than [mapping::getWarpSize()] number of threads
+  // a block reduction is performed here.
+  //
+  // Only L1 parallel region can enter this if condition.
+  if (NumThreads > mapping::getWarpSize()) {
+    uint32_t WarpsNeeded =
+        (NumThreads + mapping::getWarpSize() - 1) / mapping::getWarpSize();
+    // Gather all the reduced values from each warp
+    // to the first warp.
+    cpyFct(reduce_data, WarpsNeeded);
 
-void reduceTeam(void *__restrict__ SrcPtr, RedConfigTy &Config) {
+    uint32_t WarpId = BlockThreadId / mapping::getWarpSize();
+    if (WarpId == 0)
+      gpu_irregular_warp_reduce(reduce_data, shflFct, WarpsNeeded,
+                                BlockThreadId);
 
-  if (!(Config.__policy & _REDUCE_ATOMICALLY_AFTER_WARP)) {
-    reduceTeamImpl(SrcPtr, Config);
-    return;
+    return BlockThreadId == 0;
   }
 
-  foreachVar(SrcPtr, Config, [&](void *SrcPtr, RedVarTy &Var) {
-    reduceVarWarp(Var.__dst_ptr, SrcPtr, Config, Var);
-  });
+  // Get the OMP thread Id. This is different from BlockThreadId in the case of
+  // an L2 parallel region.
+  return TId == 0;
+#endif // __CUDA_ARCH__ >= 700
 }
 
-///}
-
-/// LEAGUE methods
-///{
-///
-
-template <typename Ty, typename IntTy>
-void reduceLeagueViaAtomicsTyped(Ty *__restrict__ TypedDstPtr,
-                                 Ty *__restrict__ TypedSrcPtr,
-                                 RedConfigTy &Config, RedVarTy &Var,
-                                 intptr_t StartIdx) {
-  RedOpTy Op = Var.__op;
-  ReducerFnTy *ReducerFn = Var.__reducer_fn;
-  int32_t NumItems = Var.__num_items;
-  for (int32_t i = StartIdx; i < NumItems; ++i) {
-    reduceValuesAtomically<Ty, IntTy>(&TypedDstPtr[i], TypedSrcPtr[i], Op,
-                                      ReducerFn);
-  }
-  for (int32_t i = 0; i < StartIdx; ++i) {
-    reduceValuesAtomically<Ty, IntTy>(&TypedDstPtr[i], TypedSrcPtr[i], Op,
-                                      ReducerFn);
-  }
+uint32_t roundToWarpsize(uint32_t s) {
+  if (s < mapping::getWarpSize())
+    return 1;
+  return (s & ~(unsigned)(mapping::getWarpSize() - 1));
 }
 
-template <>
-void reduceLeagueViaAtomicsTyped<void, void>(void *__restrict__ TypedDstPtr,
-                                             void *__restrict__ TypedSrcPtr,
-                                             RedConfigTy &Config, RedVarTy &Var,
-                                             intptr_t StartIdx) {
-  // TODO: user defined reductions
-}
+uint32_t kmpcMin(uint32_t x, uint32_t y) { return x < y ? x : y; }
 
-TYPE_DEDUCER(reduceLeagueViaAtomicsTyped);
-
-void reduceLeagueViaAtomics(void *SrcPtr, RedConfigTy &Config) {
-
-  int32_t TId = mapping::getThreadIdInBlock();
-  if (TId)
-    return;
-
-  int32_t BlockId = mapping::getBlockId();
-  foreachVar(SrcPtr, Config, [&](void *SrcPtr, RedVarTy &Var) {
-    int32_t NumItems = Var.__num_items;
-    int32_t StartIdx = 0;
-    if (Config.__policy & _REDUCE_LEAGUE_VIA_ATOMICS_WITH_OFFSET)
-      StartIdx = BlockId % NumItems;
-    reduceLeagueViaAtomicsTyped(Var.__dst_ptr, SrcPtr, Config, Var, StartIdx);
-  });
-}
-
-void reduceLeague(void *__restrict__ SrcPtr, RedConfigTy &Config,
-                  RedLeagueConfigTy *__restrict__ LeagueConfig) {
-
-  if (Config.__policy & _REDUCE_ATOMICALLY_AFTER_WARP) {
-    return reduceTeam(SrcPtr, Config);
-  }
-
-  if (Config.__policy & _REDUCE_TEAM_AS_PART_OF_LEAGUE) {
-    reduceTeamImpl(SrcPtr, Config);
-  }
-
-  if (Config.__policy & _REDUCE_LEAGUE_VIA_SECOND_KERNEL) {
-
-    int32_t TId = mapping::getThreadIdInBlock();
-    if (TId)
-      return;
-
-    foreachVar(SrcPtr, Config, [](void *SrcPtr, RedVarTy &Var) {
-      int32_t BlockId = mapping::getBlockId();
-      int32_t NumItems = Var.__num_items;
-      int32_t ItemSize = Var.__item_size;
-      void *DstPtr =
-          utils::advance(Var.__dst_ptr, ItemSize * NumItems * BlockId);
-      uint64_t *TypedDstPtr = reinterpret_cast<uint64_t *>(DstPtr);
-      uint64_t *TypedSrcPtr = reinterpret_cast<uint64_t *>(SrcPtr);
-      for (int32_t i = 0; i < NumItems; ++i) {
-        __builtin_nontemporal_store(TypedSrcPtr[i], &TypedDstPtr[i]);
-      }
-    });
-
-    return;
-  }
-
-  // Default scheme, atomics.
-  reduceLeagueViaAtomics(SrcPtr, Config);
-}
-
-template <typename Ty, typename IntTy>
-void reduceLeagueStandalone(Ty *TypedDstPtr, Ty *TypedSrcPtr,
-                            RedConfigTy &Config, RedVarTy &Var,
-                            intptr_t Payload) {
-  RedLeagueConfigTy *__restrict__ LeagueConfig =
-      reinterpret_cast<RedLeagueConfigTy *>(Payload);
-  int32_t BlockSize = mapping::getBlockSize(/* IsSPMD */ true);
-  int32_t TotalThreads = BlockSize * mapping::getNumberOfBlocks();
-  int32_t NumItems = LeagueConfig->__num_items;
-  int32_t BatchSize = Var.__batch_size;
-  auto Op = Var.__op;
-  auto ReducerFn = Var.__reducer_fn;
-
-  int32_t TId = mapping::getThreadIdInBlock();
-  if (TId >= NumItems)
-    return;
-
-  // Reduce till we have no more input items than threads.
-  {
-    int32_t It = TId + TotalThreads;
-    while (It < NumItems) {
-      reduceValues<Ty, IntTy>(&TypedSrcPtr[TId], TypedSrcPtr[It], Op,
-                              ReducerFn);
-      It += TotalThreads;
-    }
-  }
-
-  Ty *TypedSharedMem;
-  if (BatchSize > 1)
-    TypedSharedMem = reinterpret_cast<Ty *>(&SharedMemScratchpadBatched[0]);
-  else
-    TypedSharedMem = reinterpret_cast<Ty *>(&SharedMemScratchpadScalar[0]);
-
-  int32_t WarpId = mapping::getWarpId();
-  reduceWarp<Ty, IntTy>(&TypedSharedMem[WarpId], &TypedSrcPtr[TId], Config, Var,
-                        0);
-
-  if (WarpId)
-    return;
-
-  synchronize::threadsAligned();
-
-  int32_t NumWarps = mapping::getNumberOfWarpsInBlock();
-  uint64_t Mask = utils::ballotSync(lanes::All, TId < NumWarps);
-  if (TId < NumWarps)
-    reduceWarp<Ty, IntTy>(TypedDstPtr, &TypedSharedMem[TId], Config, Var, Mask);
-}
-
-template <>
-void reduceLeagueStandalone<void, void>(void *TypedDstPtr, void *TypedSrcPtr,
-                                        RedConfigTy &Config, RedVarTy &Var,
-                                        intptr_t) {}
-
-/// Simple wrapper around the templated reduceLeagueStandalone to determine the
-/// actual and corresponding integer type of the reduction.
-TYPE_DEDUCER(reduceLeagueStandalone);
-
-void reduceLeagueStandaloneWrapper(
-    void *SrcPtr, RedConfigTy &Config,
-    RedLeagueConfigTy *__restrict__ LeagueConfig) {
-  for (int32_t i = 0; i < Config.__num_reduction_vars; ++i) {
-    RedVarTy &Var = Config.__reduction_vars[0][i];
-    reduceLeagueStandalone(Var.__dst_ptr, SrcPtr, Config, Var,
-                           reinterpret_cast<intptr_t>(LeagueConfig));
-    SrcPtr = utils::advance(SrcPtr, Var.__item_size * Var.__num_items);
-  }
-}
-
-///}
+static uint32_t IterCnt = 0;
+static uint32_t Cnt = 0;
 
 } // namespace
 
-/// TODO
-extern "C" void __llvm_omp_default_reduction_init(
-    RedPrivInfoTy *__restrict__ PrivateConfig,
-    RedLeagueConfigTy *const __restrict__ LeagueConfig) {
+extern "C" {
+int32_t __kmpc_nvptx_parallel_reduce_nowait_v2(
+    IdentTy *Loc, int32_t TId, int32_t num_vars, uint64_t reduce_size,
+    void *reduce_data, ShuffleReductFnTy shflFct, InterWarpCopyFnTy cpyFct) {
+  FunctionTracingRAII();
+  return nvptx_parallel_reduce_nowait(TId, num_vars, reduce_size, reduce_data,
+                                      shflFct, cpyFct, mapping::isSPMDMode(),
+                                      false);
+}
 
-  RedConfigTy *__restrict__ Config = PrivateConfig->__config;
+int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
+    IdentTy *Loc, int32_t TId, void *GlobalBuffer, uint32_t num_of_records,
+    void *reduce_data, ShuffleReductFnTy shflFct, InterWarpCopyFnTy cpyFct,
+    ListGlobalFnTy lgcpyFct, ListGlobalFnTy lgredFct, ListGlobalFnTy glcpyFct,
+    ListGlobalFnTy glredFct) {
+  FunctionTracingRAII();
 
-  int32_t __private_copy_size = 0;
-  for (int32_t i = 0; i < Config->__num_reduction_vars; ++i)
-    __private_copy_size += Config->__reduction_vars[0][i].__item_size *
-                           Config->__reduction_vars[0][i].__num_items;
-
-  // Set the pointer to the private default data, potentially after allocating
-  // the required memory.
-  if (Config->__alloc_config &
-      __llvm_omp_reduction_allocation_configuration::_PREALLOCATED) {
-    // assert(PrivateConfig->__private_default_data == &PrivateCopy[1]);
-  } else if (Config->__allocator_fn) {
-    PrivateConfig->__private_default_data =
-        Config->__allocator_fn(__private_copy_size);
-  } else {
-    PrivateConfig->__private_default_data =
-        memory::allocGlobal(__private_copy_size, "Privatized reduction memory");
+  // Terminate all threads in non-SPMD mode except for the master thread.
+  uint32_t ThreadId = mapping::getThreadIdInBlock();
+  if (mapping::isGenericMode()) {
+    if (!mapping::isMainThreadInGenericMode())
+      return 0;
+    ThreadId = 0;
   }
 
-  if (Config->__alloc_config &
-      __llvm_omp_reduction_allocation_configuration::_PRE_INITIALIZED)
-    return;
+  // In non-generic mode all workers participate in the teams reduction.
+  // In generic mode only the team master participates in the teams
+  // reduction because the workers are waiting for parallel work.
+  uint32_t NumThreads = omp_get_num_threads();
+  uint32_t TeamId = omp_get_team_num();
+  uint32_t NumTeams = omp_get_num_teams();
+  static unsigned SHARED(Bound);
+  static unsigned SHARED(ChunkTeamCount);
 
-  // Initialize the memory with the neutral element.
-  char *__restrict__ __private_default_data =
-      reinterpret_cast<char *>(PrivateConfig->__private_default_data);
+  // Block progress for teams greater than the current upper
+  // limit. We always only allow a number of teams less or equal
+  // to the number of slots in the buffer.
+  bool IsMaster = (ThreadId == 0);
+  while (IsMaster) {
+    Bound = atomic::load(&IterCnt, atomic::seq_cst);
+    if (TeamId < Bound + num_of_records)
+      break;
+  }
 
-  __llvm_omp_reduction_initializer_fn_ty *__init_fn = nullptr;
+  if (IsMaster) {
+    int ModBockId = TeamId % num_of_records;
+    if (TeamId < num_of_records) {
+      lgcpyFct(GlobalBuffer, ModBockId, reduce_data);
+    } else
+      lgredFct(GlobalBuffer, ModBockId, reduce_data);
 
-  for (int32_t i = 0; i < Config->__num_reduction_vars; ++i) {
-    RedVarTy &Var = Config->__reduction_vars[0][i];
-    switch (Var.__op) {
-    case _ADD:
-    case _SUB:
-    case _BIT_OR:
-    case _BIT_XOR:
-    case _LOGIC_OR:
-      __init_fn = __llvm_omp_reduction_get_initializer_fn(_VALUE_ZERO,
-                                                          Var.__element_type);
-      break;
-    case _BIT_AND:
-      __init_fn = __llvm_omp_reduction_get_initializer_fn(_VALUE_MONE,
-                                                          Var.__element_type);
-      break;
-    case _MUL:
-    case _LOGIC_AND:
-      __init_fn = __llvm_omp_reduction_get_initializer_fn(_VALUE_ONE,
-                                                          Var.__element_type);
-      break;
-    case _MAX:
-      __init_fn = __llvm_omp_reduction_get_initializer_fn(_VALUE_MIN,
-                                                          Var.__element_type);
-      break;
-    case _MIN:
-      __init_fn = __llvm_omp_reduction_get_initializer_fn(_VALUE_MAX,
-                                                          Var.__element_type);
-      break;
-    case _CUSTOM_OP:
-      __init_fn = Var.__initializer_fn;
-      break;
-    default:
-      __builtin_unreachable();
-    };
+    fence::system(atomic::seq_cst);
 
-    ASSERT(__init_fn && "Init function expected.");
+    // Increment team counter.
+    // This counter is incremented by all teams in the current
+    // BUFFER_SIZE chunk.
+    ChunkTeamCount = atomic::inc(&Cnt, num_of_records - 1u, atomic::seq_cst);
+  }
+  // Synchronize
+  if (mapping::isSPMDMode())
+    __kmpc_barrier(Loc, TId);
 
-    // #pragma clang loop vectorize(assume_safety)
-    for (int32_t i = 0; i < Var.__num_items; ++i) {
-      __init_fn(&__private_default_data[i * Var.__item_size]);
+  // reduce_data is global or shared so before being reduced within the
+  // warp we need to bring it in local memory:
+  // local_reduce_data = reduce_data[i]
+  //
+  // Example for 3 reduction variables a, b, c (of potentially different
+  // types):
+  //
+  // buffer layout (struct of arrays):
+  // a, a, ..., a, b, b, ... b, c, c, ... c
+  // |__________|
+  //     num_of_records
+  //
+  // local_data_reduce layout (struct):
+  // a, b, c
+  //
+  // Each thread will have a local struct containing the values to be
+  // reduced:
+  //      1. do reduction within each warp.
+  //      2. do reduction across warps.
+  //      3. write the final result to the main reduction variable
+  //         by returning 1 in the thread holding the reduction result.
+
+  // Check if this is the very last team.
+  unsigned NumRecs = kmpcMin(NumTeams, uint32_t(num_of_records));
+  if (ChunkTeamCount == NumTeams - Bound - 1) {
+    //
+    // Last team processing.
+    //
+    if (ThreadId >= NumRecs)
+      return 0;
+    NumThreads = roundToWarpsize(kmpcMin(NumThreads, NumRecs));
+    if (ThreadId >= NumThreads)
+      return 0;
+
+    // Load from buffer and reduce.
+    glcpyFct(GlobalBuffer, ThreadId, reduce_data);
+    for (uint32_t i = NumThreads + ThreadId; i < NumRecs; i += NumThreads)
+      glredFct(GlobalBuffer, i, reduce_data);
+
+    // Reduce across warps to the warp master.
+    if (NumThreads > 1) {
+      gpu_regular_warp_reduce(reduce_data, shflFct);
+
+      // When we have more than [mapping::getWarpSize()] number of threads
+      // a block reduction is performed here.
+      uint32_t ActiveThreads = kmpcMin(NumRecs, NumThreads);
+      if (ActiveThreads > mapping::getWarpSize()) {
+        uint32_t WarpsNeeded = (ActiveThreads + mapping::getWarpSize() - 1) /
+                               mapping::getWarpSize();
+        // Gather all the reduced values from each warp
+        // to the first warp.
+        cpyFct(reduce_data, WarpsNeeded);
+
+        uint32_t WarpId = ThreadId / mapping::getWarpSize();
+        if (WarpId == 0)
+          gpu_irregular_warp_reduce(reduce_data, shflFct, WarpsNeeded,
+                                    ThreadId);
+      }
     }
+
+    if (IsMaster) {
+      Cnt = 0;
+      IterCnt = 0;
+      return 1;
+    }
+    return 0;
   }
-}
-
-__attribute__((always_inline)) extern "C" void
-__llvm_omp_default_reduction_warp(
-    __llvm_omp_default_reduction_private_info_ty *__restrict__ PrivateConfig) {
-  void *SrcPtr = PrivateConfig->__private_default_data;
-  RedConfigTy *__restrict__ Config = PrivateConfig->__config;
-  return reduceWarpWrapper(SrcPtr, *Config);
-}
-
-__attribute__((always_inline)) extern "C" void
-__llvm_omp_default_reduction_team(
-    __llvm_omp_default_reduction_private_info_ty *__restrict__ PrivateConfig) {
-  void *SrcPtr = PrivateConfig->__private_default_data;
-  RedConfigTy *__restrict__ Config = PrivateConfig->__config;
-  return reduceTeam(SrcPtr, *Config);
-}
-
-__attribute__((always_inline)) extern "C" void
-__llvm_omp_default_reduction_league(
-    __llvm_omp_default_reduction_private_info_ty *__restrict__ PrivateConfig,
-    __llvm_omp_default_reduction_league_configuration_ty
-        *const __restrict__ LeagueConfig) {
-  void *SrcPtr = PrivateConfig->__private_default_data;
-  RedConfigTy *__restrict__ Config = PrivateConfig->__config;
-  return reduceLeague(SrcPtr, *Config, LeagueConfig);
-}
-
-#if 0
-__attribute__((always_inline)) extern "C" void
-__llvm_omp_default_reduction_combine(
-    RedPrivInfoTy *__restrict__ PrivateConfig,
-    RedLeagueConfigTy *const __restrict__ LeagueConfig) {
-
-  void *SrcPtr = PrivateConfig->__private_default_data;
-  RedConfigTy *__restrict__ Config = PrivateConfig->__config;
-
-  switch (Config->__level) {
-  case _LEAGUE:
-    return reduceLeague(SrcPtr, *Config, LeagueConfig);
-  case _TEAM:
-    return reduceTeam(SrcPtr, *Config);
-  case _WARP:
-    return reduceWarpWrapper(SrcPtr, *Config);
+  if (IsMaster && ChunkTeamCount == num_of_records - 1) {
+    // Allow SIZE number of teams to proceed writing their
+    // intermediate results to the global buffer.
+    atomic::add(&IterCnt, uint32_t(num_of_records), atomic::seq_cst);
   }
-  __builtin_unreachable();
+
+  return 0;
 }
-#endif
 
-///
+void __kmpc_nvptx_end_reduce(int32_t TId) { FunctionTracingRAII(); }
 
-__attribute__((always_inline, flatten)) extern "C" void
-__llvm_omp_default_reduction_combine_league_lvl2(
-    RedPrivInfoTy *__restrict__ PrivateConfig,
-    RedLeagueConfigTy *const __restrict__ LeagueConfig) {
-  void *SrcPtr = PrivateConfig->__private_default_data;
-
-  RedConfigTy *__restrict__ Config = PrivateConfig->__config;
-
-  reduceLeagueStandaloneWrapper(SrcPtr, *Config, LeagueConfig);
+void __kmpc_nvptx_end_reduce_nowait(int32_t TId) { FunctionTracingRAII(); }
 }
 
 #pragma omp end declare target

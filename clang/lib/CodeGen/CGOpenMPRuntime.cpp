@@ -1251,9 +1251,6 @@ static llvm::Function *emitParallelOrTeamsOutlinedFunction(
                dyn_cast<OMPTargetTeamsDistributeParallelForDirective>(&D))
     HasCancel = OPFD->hasCancel();
 
-  bool LeagueReduction = CGF.getLangOpts().OpenMPIsDevice &&
-                         isOpenMPTeamsDirective(D.getDirectiveKind()) &&
-                         D.hasClausesOfKind<OMPReductionClause>();
   // TODO: Temporarily inform the OpenMPIRBuilder, if any, about the new
   //       parallel region to make cancellation barriers work properly.
   llvm::OpenMPIRBuilder &OMPBuilder = CGM.getOpenMPRuntime().getOMPBuilder();
@@ -1261,8 +1258,7 @@ static llvm::Function *emitParallelOrTeamsOutlinedFunction(
   CGOpenMPOutlinedRegionInfo CGInfo(*CS, ThreadIDVar, CodeGen, InnermostKind,
                                     HasCancel, OutlinedHelperName);
   CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGInfo);
-  return CGF.GenerateOpenMPCapturedStmtFunction(*CS, D.getBeginLoc(),
-                                                LeagueReduction);
+  return CGF.GenerateOpenMPCapturedStmtFunction(*CS, D.getBeginLoc());
 }
 
 llvm::Function *CGOpenMPRuntime::emitParallelOutlinedFunction(
@@ -6106,13 +6102,9 @@ void CGOpenMPRuntime::emitTargetOutlinedFunctionHelper(
       [&CGF, &D, &CodeGen](StringRef EntryFnName) {
         const CapturedStmt &CS = *D.getCapturedStmt(OMPD_target);
 
-        bool LeagueReduction = CGF.getLangOpts().OpenMPIsDevice &&
-                               isOpenMPTeamsDirective(D.getDirectiveKind()) &&
-                               D.hasClausesOfKind<OMPReductionClause>();
         CGOpenMPTargetRegionInfo CGInfo(CS, CodeGen, EntryFnName);
         CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGInfo);
-        return CGF.GenerateOpenMPCapturedStmtFunction(CS, D.getBeginLoc(),
-                                                      LeagueReduction);
+        return CGF.GenerateOpenMPCapturedStmtFunction(CS, D.getBeginLoc());
       };
 
   // Get NumTeams and ThreadLimit attributes
@@ -6126,10 +6118,8 @@ void CGOpenMPRuntime::emitTargetOutlinedFunctionHelper(
                                       DefaultValThreads, IsOffloadEntry,
                                       OutlinedFn, OutlinedFnID);
 
-  if (OutlinedFn != nullptr) {
+  if (OutlinedFn != nullptr)
     CGM.getTargetCodeGenInfo().setTargetAttributes(nullptr, OutlinedFn, CGM);
-    OMPBuilder.finalize(OutlinedFn);
-  }
 }
 
 /// Checks if the expression is constant or does not have non-trivial function

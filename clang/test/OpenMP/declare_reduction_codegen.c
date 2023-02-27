@@ -177,8 +177,6 @@ void bar(void) {
   // CHECK: [[IN_VAL:%.+]] = load i32, ptr [[INT_INIT]],
   // CHECK: store i32 [[IN_VAL]], ptr [[IN_PRIV]],
   // CHECK: call void @__kmpc_for_static_init_4(
-#pragma omp target
-{
 #pragma omp declare reduction(+            \
                               : struct SSS \
                               : omp_out = omp_in)
@@ -189,6 +187,5 @@ void bar(void) {
                           : ss, in)
   for (int i = 0; i < 10; ++i)
     ;
-}
 }
 #endif
