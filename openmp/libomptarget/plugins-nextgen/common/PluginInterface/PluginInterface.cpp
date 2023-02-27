@@ -221,9 +221,9 @@ public:
                               /* Default in GB */ 64) {}
 
   void saveImage(const char *Name, const DeviceImageTy &Image) {
-    Twine ImageName = Twine(Name) + Twine(".image");
+    std::string ImageName = getHashedKernelName(Name) + ".image";
     std::error_code EC;
-    raw_fd_ostream OS(ImageName.str(), EC);
+    raw_fd_ostream OS(ImageName, EC);
     if (EC)
       report_fatal_error("Error saving image : " + StringRef(EC.message()));
     if (auto TgtImageBitcode = Image.getTgtImageBitcode()) {
@@ -236,6 +236,27 @@ public:
       OS << Image.getMemoryBuffer().getBuffer();
     }
     OS.close();
+  }
+
+  std::string getHashedKernelName(std::string KernelName) {
+    std::string Header = "__omp_offloading_";
+    //outs() << "Header " << Header << "\n";
+    std::string Headless = KernelName.substr(Header.size());
+    //outs() << "Headless " << Headless << "\n";
+    size_t pos = Headless.find_last_of('_');
+    //outs() << "pos " << pos << "\n";
+    std::string MiddlePart = Headless.substr(0, pos);
+    //outs() << "MiddlePart " << MiddlePart << "\n";
+    auto HashVal = std::hash<std::string>{}(MiddlePart);
+    //outs() << "HashVal " << HashVal << "\n";
+    std::string Line = Headless.substr(pos);
+    //outs() << "Line " << Line << "\n";
+    std::stringstream ss;
+    ss << Header;
+    ss << std::hex << HashVal;
+    ss << Line;
+
+    return ss.str();
   }
 
   void saveKernelInputInfo(const char *Name, const DeviceImageTy &Image,
@@ -263,16 +284,19 @@ public:
       JsonArgOffsets.push_back(ArgOffsets[I]);
     JsonKernelInfo["ArgOffsets"] = json::Value(std::move(JsonArgOffsets));
 
-    Twine KernelName(Name);
-    Twine MemoryFilename = KernelName + ".memory";
-    dumpDeviceMemory(MemoryFilename.str());
+    std::string KernelName = getHashedKernelName(Name);
+    //outs() << "KernelName to record " << KernelName << "\n";
 
-    Twine GlobalUpdatesFilename = KernelName + ".globals";
-    dumpGlobals(GlobalUpdatesFilename.str(), Image);
+    std::string MemoryFilename = KernelName + ".memory";
+    //outs() << "MemoryFilename " << MemoryFilename << "\n";
+    dumpDeviceMemory(MemoryFilename);
 
-    Twine JsonFilename = KernelName + ".json";
+    std::string GlobalUpdatesFilename = KernelName + ".globals";
+    dumpGlobals(GlobalUpdatesFilename, Image);
+
+    std::string JsonFilename = KernelName + ".json";
     std::error_code EC;
-    raw_fd_ostream JsonOS(JsonFilename.str(), EC);
+    raw_fd_ostream JsonOS(JsonFilename, EC);
     if (EC)
       report_fatal_error("Error saving kernel json file : " +
                          StringRef(EC.message()));
@@ -281,9 +305,9 @@ public:
   }
 
   void saveKernelOutputInfo(const char *Name) {
-    Twine OutputFilename =
-        Twine(Name) + (isRecording() ? ".original.output" : ".replay.output");
-    dumpDeviceMemory(OutputFilename.str());
+    std::string OutputFilename =
+        getHashedKernelName(Name) + (isRecording() ? ".original.output" : ".replay.output");
+    dumpDeviceMemory(OutputFilename);
   }
 
   void *alloc(uint64_t Size) {

@@ -93,8 +93,10 @@ int main(int argc, char **argv) {
   // Anything non-zero works to uniquely identify the kernel.
   KernelEntry.addr = (void *)0x1;
 
+  std::string KernelHashName =
+      InputFilename.substr(0, InputFilename.find_last_of('.'));
   ErrorOr<std::unique_ptr<MemoryBuffer>> ImageMB =
-      MemoryBuffer::getFile(KernelEntryName + ".image", /* isText */ false,
+      MemoryBuffer::getFile(KernelHashName + ".image", /* isText */ false,
                             /* RequiresNullTerminator */ false);
   if (!ImageMB)
     report_fatal_error("Error reading the kernel image.");
@@ -114,12 +116,12 @@ int main(int argc, char **argv) {
   // Read in the entire file (hence the "as stream"), since we might lock the
   // memory.
   ErrorOr<std::unique_ptr<MemoryBuffer>> DeviceMemoryMB =
-      MemoryBuffer::getFileAsStream(KernelEntryName + ".memory");
+      MemoryBuffer::getFileAsStream(KernelHashName + ".memory");
   if (!DeviceMemoryMB)
     report_fatal_error("Error reading the kernel input device memory.");
 
   ErrorOr<std::unique_ptr<MemoryBuffer>> GlobalsMB =
-      MemoryBuffer::getFileAsStream(KernelEntryName + ".globals");
+      MemoryBuffer::getFileAsStream(KernelHashName + ".globals");
   if (!GlobalsMB)
     report_fatal_error("Error reading the globals state file.");
 
@@ -157,14 +159,14 @@ int main(int argc, char **argv) {
 
   if (VerifyOpt) {
     ErrorOr<std::unique_ptr<MemoryBuffer>> OriginalOutputMB =
-        MemoryBuffer::getFile(KernelEntryName + ".original.output",
+        MemoryBuffer::getFile(KernelHashName + ".original.output",
                               /* isText */ false,
                               /* RequiresNullTerminator */ false);
     if (!OriginalOutputMB)
       report_fatal_error("Error reading the kernel original output file, make "
                          "sure LIBOMPTARGET_SAVE_OUTPUT is set when recording");
     ErrorOr<std::unique_ptr<MemoryBuffer>> ReplayOutputMB =
-        MemoryBuffer::getFile(KernelEntryName + ".replay.output",
+        MemoryBuffer::getFile(KernelHashName + ".replay.output",
                               /* isText */ false,
                               /* RequiresNullTerminator */ false);
     if (!ReplayOutputMB)
