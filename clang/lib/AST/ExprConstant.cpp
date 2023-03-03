@@ -4939,7 +4939,7 @@ static bool EvaluateCond(EvalInfo &Info, const VarDecl *CondDecl,
 namespace {
 /// A location where the result (returned value) of evaluating a
 /// statement should be stored.
-struct StmtResult {
+struct StmtResultTy {
   /// The APValue that should be filled in with the returned value.
   APValue &Value;
   /// The location containing the result, if any (used to support RVO).
@@ -4960,12 +4960,12 @@ struct TempVersionRAII {
 
 }
 
-static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
+static EvalStmtResult EvaluateStmt(StmtResultTy &Result, EvalInfo &Info,
                                    const Stmt *S,
                                    const SwitchCase *SC = nullptr);
 
 /// Evaluate the body of a loop, and translate the result as appropriate.
-static EvalStmtResult EvaluateLoopBody(StmtResult &Result, EvalInfo &Info,
+static EvalStmtResult EvaluateLoopBody(StmtResultTy &Result, EvalInfo &Info,
                                        const Stmt *Body,
                                        const SwitchCase *Case = nullptr) {
   BlockScopeRAII Scope(Info);
@@ -4989,7 +4989,7 @@ static EvalStmtResult EvaluateLoopBody(StmtResult &Result, EvalInfo &Info,
 }
 
 /// Evaluate a switch statement.
-static EvalStmtResult EvaluateSwitch(StmtResult &Result, EvalInfo &Info,
+static EvalStmtResult EvaluateSwitch(StmtResultTy &Result, EvalInfo &Info,
                                      const SwitchStmt *SS) {
   BlockScopeRAII Scope(Info);
 
@@ -5082,7 +5082,7 @@ static bool CheckLocalVariableDeclaration(EvalInfo &Info, const VarDecl *VD) {
 }
 
 // Evaluate a statement.
-static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
+static EvalStmtResult EvaluateStmt(StmtResultTy &Result, EvalInfo &Info,
                                    const Stmt *S, const SwitchCase *Case) {
   if (!Info.nextStep(S))
     return ESR_Failed;
@@ -6230,7 +6230,7 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                                         Frame.LambdaThisCaptureField);
   }
 
-  StmtResult Ret = {Result, ResultSlot};
+  StmtResultTy Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
@@ -6264,7 +6264,7 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
   // FIXME: Creating an APValue just to hold a nonexistent return value is
   // wasteful.
   APValue RetVal;
-  StmtResult Ret = {RetVal, nullptr};
+  StmtResultTy Ret = {RetVal, nullptr};
 
   // If it's a delegating constructor, delegate.
   if (Definition->isDelegatingConstructor()) {
@@ -6582,7 +6582,7 @@ static bool HandleDestructionImpl(EvalInfo &Info, SourceLocation CallLoc,
   // FIXME: Creating an APValue just to hold a nonexistent return value is
   // wasteful.
   APValue RetVal;
-  StmtResult Ret = {RetVal, nullptr};
+  StmtResultTy Ret = {RetVal, nullptr};
   if (EvaluateStmt(Ret, Info, Definition->getBody()) == ESR_Failed)
     return false;
 
@@ -8012,7 +8012,7 @@ public:
       }
 
       APValue ReturnValue;
-      StmtResult Result = { ReturnValue, nullptr };
+      StmtResultTy Result = {ReturnValue, nullptr};
       EvalStmtResult ESR = EvaluateStmt(Result, Info, *BI);
       if (ESR != ESR_Succeeded) {
         // FIXME: If the statement-expression terminated due to 'return',

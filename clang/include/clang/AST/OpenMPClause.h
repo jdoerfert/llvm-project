@@ -26,6 +26,7 @@
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/SourceLocation.h"
+#include "clang/Sema/ParsedAttr.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/PointerIntPair.h"
@@ -9169,6 +9170,53 @@ public:
 
   static bool classof(const OMPClause *T) {
     return T->getClauseKind() == llvm::omp::OMPC_doacross;
+  }
+};
+
+/// This represents 'ompx_attribute' clause in a directive that might generate
+/// an outlined function. An example is given below.
+///
+/// \code
+/// #pragma omp target [...] ompx_attribute(flatten)
+/// \endcode
+class OMPXAttributeClause
+    : public OMPNoChildClause<llvm::omp::OMPC_ompx_attribute> {
+  friend class OMPClauseReader;
+
+  /// Location of '('.
+  SourceLocation LParenLoc;
+
+  /// The parsed attributes (clause arguments)
+  SmallVector<const Attr *> Attrs;
+
+public:
+  /// Build 'ompx_attribute' clause.
+  ///
+  /// \param Attrs The parsed attributes (clause arguments)
+  /// \param StartLoc Starting location of the clause.
+  /// \param LParenLoc Location of '('.
+  /// \param EndLoc Ending location of the clause.
+  OMPXAttributeClause(ArrayRef<const Attr *> Attrs, SourceLocation StartLoc,
+                      SourceLocation LParenLoc, SourceLocation EndLoc)
+      : OMPNoChildClause(StartLoc, EndLoc), LParenLoc(LParenLoc), Attrs(Attrs) {
+  }
+
+  /// Build an empty clause.
+  OMPXAttributeClause() : OMPNoChildClause() {}
+
+  /// Sets the location of '('.
+  void setLParenLoc(SourceLocation Loc) { LParenLoc = Loc; }
+
+  /// Returns the location of '('.
+  SourceLocation getLParenLoc() const { return LParenLoc; }
+
+  /// Returned the attributes parsed from this clause.
+  ArrayRef<const Attr *> getAttrs() const { return Attrs; }
+
+  /// Replace the attributes with \p NewAttrs.
+  void setAttrs(ArrayRef<Attr *> NewAttrs) {
+    Attrs.clear();
+    Attrs.append(NewAttrs.begin(), NewAttrs.end());
   }
 };
 
