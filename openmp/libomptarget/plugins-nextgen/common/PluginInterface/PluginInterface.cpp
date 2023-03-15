@@ -150,6 +150,9 @@ private:
       if (Err)
         report_fatal_error("Error retrieving data for global");
       BufferPtr = advanceVoidPtr(BufferPtr, OffloadEntry.size);
+
+      DP("Register Global %s Device Addr: %p Size %ld\n",
+          OffloadEntry.name, OffloadEntry.addr, OffloadEntry.size);
     }
     assert(BufferPtr == GlobalsMB->get()->getBufferEnd() &&
            "Buffer over/under-filled.");
@@ -285,10 +288,9 @@ public:
     JsonKernelInfo["ArgOffsets"] = json::Value(std::move(JsonArgOffsets));
 
     std::string KernelName = getHashedKernelName(Name);
-    //outs() << "KernelName to record " << KernelName << "\n";
+    DP("KernelName:%s Hashed to : %s\n", Name, KernelName.c_str());
 
     std::string MemoryFilename = KernelName + ".memory";
-    //outs() << "MemoryFilename " << MemoryFilename << "\n";
     dumpDeviceMemory(MemoryFilename);
 
     std::string GlobalUpdatesFilename = KernelName + ".globals";
@@ -304,10 +306,13 @@ public:
     JsonOS.close();
   }
 
-  void saveKernelOutputInfo(const char *Name) {
+  void saveKernelOutputInfo(const char *Name, const DeviceImageTy &Image) {
     std::string OutputFilename =
         getHashedKernelName(Name) + (isRecording() ? ".original.output" : ".replay.output");
     dumpDeviceMemory(OutputFilename);
+    std::string GOutputFilename =
+        getHashedKernelName(Name) + (isRecording() ? ".original.globals" : ".replay.globals");
+    dumpGlobals(GOutputFilename, Image);
   }
 
   void *alloc(uint64_t Size) {
@@ -581,6 +586,8 @@ GenericDeviceTy::loadBinary(GenericPluginTy &Plugin,
     return nullptr;
   }
 
+  DP("Successful JIT image %p on device %d\n", InputTgtImage, DeviceId); 
+
   // Load the binary and allocate the image object. Use the next available id
   // for the image id, which is the number of previously loaded images.
   auto ImageOrErr =
@@ -688,15 +695,19 @@ Error GenericDeviceTy::registerGlobalOffloadEntry(
   // can either be link or to. This means that once unified
   // memory is activated via the requires directive, the variable
   // can be used directly from the host in both cases.
+  GlobalTy HostGlobal(GlobalEntry);
   if (Plugin.getRequiresFlags() & OMP_REQ_UNIFIED_SHARED_MEMORY) {
     // If unified memory is present any target link or to variables
     // can access host addresses directly. There is no longer a
     // need for device copies.
-    GlobalTy HostGlobal(GlobalEntry);
     if (auto Err = GHandler.writeGlobalToDevice(*this, Image, HostGlobal,
                                                 DeviceGlobal))
       return Err;
   }
+
+  DP("Successful registering offload entry %s Size: %ld mapped at dev addr %p from host addr %p\n",
+      GlobalEntry.name, GlobalEntry.size, DeviceEntry.addr, HostGlobal.getPtr());
+
 
   // Add the device entry on the entry table.
   Image.getOffloadEntryTable().addEntry(DeviceEntry);
@@ -920,6 +931,7 @@ Error GenericDeviceTy::runTargetTeamRegion(
   }
 
   if (RecordReplay.isRecording() && ( !Recorded )) {
+    DP("Saving record image files %s\n", GenericKernel.getName());
     RecordReplay.saveImage(GenericKernel.getName(), GenericKernel.getImage());
   }
 
@@ -937,10 +949,13 @@ Error GenericDeviceTy::runTargetTeamRegion(
   // If we are recording the output the kernel was already synchronized and is
   // known to be done by now. If not, the AsyncInfoWrapper will not synchronize
   // if AsyncInfo is a proper object.
-  if (RecordKernelOutput)
-    RecordReplay.saveKernelOutputInfo(GenericKernel.getName());
+  if (RecordKernelOutput){
+    DP("Saving %s output files for kernel: %s\n",
+        RecordReplay.isRecording() ? "record" : "replay", GenericKernel.getName() );
+    RecordReplay.saveKernelOutputInfo(GenericKernel.getName(), GenericKernel.getImage());
+  }
 
-  if (RecordReplay.isRecording() &&( ! Recorded ) ) {
+  if (RecordReplay.isRecording() && (! Recorded ) ) {
     RecordReplay.RegisterKernel(GenericKernel.getName(), NumBlocks);
   }
   return Err;

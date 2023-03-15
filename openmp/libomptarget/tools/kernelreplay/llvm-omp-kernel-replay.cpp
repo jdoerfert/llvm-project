@@ -12,12 +12,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "omptargetplugin.h"
+#include "Utilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
+
 #include <cstdlib>
 
 using namespace llvm;
+using namespace llvm::omp::target;
 
 cl::OptionCategory ReplayOptions("llvm-omp-kernel-replay Options");
 
@@ -47,6 +50,53 @@ static cl::opt<unsigned> NumThreadsOpt("num-threads",
 
 static cl::opt<int32_t> DeviceIdOpt("device-id", cl::desc("Set the device id."),
                                     cl::init(-1), cl::cat(ReplayOptions));
+
+// Compares the contents of record/replay files with the defined suffix. Returns
+// true when those are identical.
+bool verifyMem(std::string &KernelHashName, const std::string Suffix) {
+  std::string RecordFileName(KernelHashName + ".original" + Suffix);
+  ErrorOr<std::unique_ptr<MemoryBuffer>> OriginalOutputMB =
+      MemoryBuffer::getFile( RecordFileName,
+                            /* isText */ false,
+                            /* RequiresNullTerminator */ false);
+  if (!OriginalOutputMB)
+    report_fatal_error("Error reading:" + StringRef(RecordFileName) + ".\n"
+        "make sure LIBOMPTARGET_RR_SAVE_OUTPUT is set when recording");
+
+  std::string ReplayFileName(KernelHashName + ".replay" + Suffix);
+  ErrorOr<std::unique_ptr<MemoryBuffer>> ReplayOutputMB =
+      MemoryBuffer::getFile(ReplayFileName,
+                            /* isText */ false,
+                            /* RequiresNullTerminator */ false);
+  if (!ReplayOutputMB)
+    report_fatal_error("Error reading:" + StringRef(ReplayFileName) + ".\n"
+        "make sure LIBOMPTARGET_RR_SAVE_OUTPUT is set when recording");
+
+  StringRef OriginalOutput = OriginalOutputMB.get()->getBuffer();
+  StringRef ReplayOutput = ReplayOutputMB.get()->getBuffer();
+
+  return (OriginalOutput == ReplayOutput);
+}
+
+void registerGlobalEntries(const void *BufferPtr, const void *BufferEndPtr,
+    SmallVector<__tgt_offload_entry>& KernelEntries) {
+  while (BufferPtr != BufferEndPtr) {
+    StringRef Name((const char *)BufferPtr);
+    BufferPtr = advanceVoidPtr(BufferPtr, Name.size() + 1);
+
+    uint32_t RecordedSize = *((const uint32_t *)(BufferPtr));
+    BufferPtr = advanceVoidPtr(BufferPtr, sizeof(uint32_t));
+
+    // Set the host pointer of the global such that
+    // we read the value from the recording.
+    // TODO: Delete code which reads global values, it is no
+    // longer needed
+    void *GPtr = const_cast<void *> (BufferPtr);
+    KernelEntries.push_back({GPtr, const_cast<char *>(Name.data()),
+        RecordedSize, 0, 0});
+    BufferPtr = advanceVoidPtr(BufferPtr, RecordedSize);
+  }
+}
 
 int main(int argc, char **argv) {
   cl::HideUnrelatedOptions(ReplayOptions);
@@ -87,14 +137,26 @@ int main(int argc, char **argv) {
     TgtArgOffsets.push_back(
         reinterpret_cast<ptrdiff_t>(It.getAsInteger().value()));
 
+  std::string KernelHashName =
+      InputFilename.substr(0, InputFilename.find_last_of('.'));
+  ErrorOr<std::unique_ptr<MemoryBuffer>> GlobalsMB =
+      MemoryBuffer::getFile(KernelHashName + ".globals", /* isText */ false,
+                            /* RequiresNullTerminator */ false);
+
+  if (!GlobalsMB)
+    report_fatal_error("Error reading the globals data.");
+
+  SmallVector<__tgt_offload_entry> KernelEntries;
+  registerGlobalEntries(GlobalsMB.get()->getBufferStart(),
+                        GlobalsMB->get()->getBufferEnd(), KernelEntries);
+
   __tgt_offload_entry KernelEntry = {nullptr, nullptr, 0, 0, 0};
   std::string KernelEntryName = KernelFunc.value().str();
   KernelEntry.name = const_cast<char *>(KernelEntryName.c_str());
   // Anything non-zero works to uniquely identify the kernel.
   KernelEntry.addr = (void *)0x1;
+  KernelEntries.push_back(KernelEntry);
 
-  std::string KernelHashName =
-      InputFilename.substr(0, InputFilename.find_last_of('.'));
   ErrorOr<std::unique_ptr<MemoryBuffer>> ImageMB =
       MemoryBuffer::getFile(KernelHashName + ".image", /* isText */ false,
                             /* RequiresNullTerminator */ false);
@@ -104,13 +166,13 @@ int main(int argc, char **argv) {
   __tgt_device_image DeviceImage;
   DeviceImage.ImageStart = (void *)ImageMB.get()->getBufferStart();
   DeviceImage.ImageEnd = (void *)ImageMB.get()->getBufferEnd();
-  DeviceImage.EntriesBegin = &KernelEntry;
-  DeviceImage.EntriesEnd = &KernelEntry + 1;
+  DeviceImage.EntriesBegin = KernelEntries.begin();
+  DeviceImage.EntriesEnd = KernelEntries.end();
 
   __tgt_bin_desc Desc;
   Desc.NumDeviceImages = 1;
-  Desc.HostEntriesBegin = &KernelEntry;
-  Desc.HostEntriesEnd = &KernelEntry + 1;
+  Desc.HostEntriesBegin = KernelEntries.begin();
+  Desc.HostEntriesEnd = KernelEntries.end();
   Desc.DeviceImages = &DeviceImage;
 
   // Read in the entire file (hence the "as stream"), since we might lock the
@@ -119,11 +181,6 @@ int main(int argc, char **argv) {
       MemoryBuffer::getFileAsStream(KernelHashName + ".memory");
   if (!DeviceMemoryMB)
     report_fatal_error("Error reading the kernel input device memory.");
-
-  ErrorOr<std::unique_ptr<MemoryBuffer>> GlobalsMB =
-      MemoryBuffer::getFileAsStream(KernelHashName + ".globals");
-  if (!GlobalsMB)
-    report_fatal_error("Error reading the globals state file.");
 
   setenv("LIBOMPTARGET_REPLAY", "1", 1);
   if (VerifyOpt || SaveOutputOpt)
@@ -157,32 +214,21 @@ int main(int argc, char **argv) {
       LoopTripCount.value(), GlobalsMB.get()->getBufferStart(),
       GlobalsMB.get()->getBufferSize());
 
-  if (VerifyOpt) {
-    ErrorOr<std::unique_ptr<MemoryBuffer>> OriginalOutputMB =
-        MemoryBuffer::getFile(KernelHashName + ".original.output",
-                              /* isText */ false,
-                              /* RequiresNullTerminator */ false);
-    if (!OriginalOutputMB)
-      report_fatal_error("Error reading the kernel original output file, make "
-                         "sure LIBOMPTARGET_SAVE_OUTPUT is set when recording");
-    ErrorOr<std::unique_ptr<MemoryBuffer>> ReplayOutputMB =
-        MemoryBuffer::getFile(KernelHashName + ".replay.output",
-                              /* isText */ false,
-                              /* RequiresNullTerminator */ false);
-    if (!ReplayOutputMB)
-      report_fatal_error("Error reading the kernel replay output file");
+  __tgt_unregister_lib(&Desc);
 
-    StringRef OriginalOutput = OriginalOutputMB.get()->getBuffer();
-    StringRef ReplayOutput = ReplayOutputMB.get()->getBuffer();
-    if (OriginalOutput == ReplayOutput)
+  if (VerifyOpt) {
+    if ( verifyMem(KernelHashName, ".output" ) )
       outs() << "[llvm-omp-kernel-replay] Replay device memory verified!\n";
     else
       outs() << "[llvm-omp-kernel-replay] Replay device memory failed to "
                 "verify!\n";
+
+    if ( verifyMem(KernelHashName, ".globals" ) )
+      outs() << "[llvm-omp-kernel-replay] Replay globals memory verified!\n";
+    else
+      outs() << "[llvm-omp-kernel-replay] Replay globals memory failed to "
+                "verify!\n";
   }
-  // TODO: calling unregister lib causes plugin deinit error for nextgen
-  // plugins.
-  //__tgt_unregister_lib(&Desc);
 
   return 0;
 }
