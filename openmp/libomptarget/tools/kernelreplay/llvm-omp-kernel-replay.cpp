@@ -137,6 +137,11 @@ int main(int argc, char **argv) {
     TgtArgOffsets.push_back(
         reinterpret_cast<ptrdiff_t>(It.getAsInteger().value()));
 
+  auto DevMemoryStartValue = JsonKernelInfo->getAsObject()->getInteger("DevMemoryStart");
+  if ( DevMemoryStartValue )
+    setenv("LIBOMPTARGET_DEVMEM_START",
+        std::to_string(reinterpret_cast<intptr_t>(*DevMemoryStartValue)).c_str(), 1);
+
   std::string KernelHashName =
       InputFilename.substr(0, InputFilename.find_last_of('.'));
   ErrorOr<std::unique_ptr<MemoryBuffer>> GlobalsMB =

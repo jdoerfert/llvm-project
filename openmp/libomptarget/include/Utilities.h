@@ -26,15 +26,92 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <fstream>      // std::ifstream
 #include <functional>
 #include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 
 namespace llvm {
 namespace omp {
 namespace target {
+
+struct MemState{
+  ptrdiff_t StartAddress;
+  ptrdiff_t EndAddress;
+  char Permisssions[4];
+  ptrdiff_t Offset;
+  int DevMajor, DevMinor;
+  unsigned long int INode;
+  static constexpr uint8_t MapsElems = 11;
+  std::string Name;
+  public:
+    MemState(const char* Line) : Name("") {
+        char tmpName[1024];
+        const int NumScanned = sscanf(
+            Line, "%16tx-%16tx %c%c%c%c %16tx %02x:%02x %lu  %s",
+              &StartAddress, &EndAddress, &Permisssions[0], &Permisssions[1],
+              &Permisssions[2], &Permisssions[3], &Offset, &DevMajor, &DevMinor,
+              &INode, tmpName);
+        if ( NumScanned != MapsElems && NumScanned != MapsElems -1)
+          report_fatal_error("Error Initialing Memory State Entry");
+
+        if ( NumScanned == MapsElems -1 )
+          return;
+
+        Name = std::string(tmpName);
+    }
+
+    static std::vector<MemState>
+      getProcState(const char *Fn){
+        std::ifstream SelfMap;
+        SelfMap.open(Fn);
+        std::string CurrLine;
+        std::vector<MemState> ProcState;
+        while (std::getline(SelfMap, CurrLine)){
+          ProcState.push_back(CurrLine.c_str());
+        }
+        return ProcState;
+      }
+
+    static void dumpProcState(const char *outFile){
+      std::ifstream SelfMap;
+      SelfMap.open("/proc/self/maps");
+      std::ofstream OutFD { outFile };
+      if (SelfMap && OutFD ) {
+        std::string CurrLine;
+        while (getline(SelfMap, CurrLine)) {
+            OutFD << CurrLine << "\n";
+        }
+      }
+      SelfMap.close();
+      OutFD.close();
+    }
+
+    static
+      std::pair<uintptr_t, uintptr_t>
+      getLHAddress(const char *Fn, const std::string& Pattern){
+        uintptr_t Low = std::numeric_limits<size_t>::max();
+        uintptr_t High = 0;
+        auto MemState = getProcState(Fn);
+        for ( auto &I : reverse(MemState)){
+          // MAGIC Logic: NON-PORTABLE. In my system
+          // ld.so is mapped on the highest address from that point
+          // the address decrease.
+          if ( I.Name.find(Pattern) !=  std::string::npos ){
+            High = I.EndAddress;
+          }
+
+          if ( High != 0  ){
+            Low = I.StartAddress;
+            High = I.EndAddress;
+          }
+       }
+        return std::make_pair(Low, High);
+     }
+};
 
 /// Utility class for parsing strings to other types.
 struct StringParser {

@@ -60,6 +60,8 @@ private:
   BoolEnvar OMPX_ReplaySaveOutput;
   // Sets the maximum to pre-allocate device memory.
   UInt32Envar OMPX_DeviceMemorySize;
+  // The starting address for the for the device allocations;
+  Int64Envar OMPX_DeviceMemoryStart;
 
   // Record/replay pre-allocates the largest possible device memory using the
   // default kind.
@@ -75,10 +77,9 @@ private:
     MemoryStart = nullptr;
     size_t Size = MaxMemoryAllocation;
 
-    if ( Device->implementsMemoryMap() ){
-      // MAGIC NUMBER
-      // This address works in V100 + P9;
-      void *VAddr = reinterpret_cast<void *>(0x300000000000);
+    if ( Device->implementsMemoryMap() && OMPX_DeviceMemoryStart != -1){
+      void *VAddr = reinterpret_cast<void *>(OMPX_DeviceMemoryStart.get());
+
       size_t ASize = MaxMemoryAllocation;
       if ( auto Err = Device->mMap(&MemoryStart, VAddr, &ASize) )
           report_fatal_error("Error using MMAP");
@@ -95,9 +96,23 @@ private:
     if (!MemoryStart && MaxMemoryAllocation)
       return Plugin::error("Allocating record/replay memory");
 
+    // We need to adjust memory to match requested address
+    if ( OMPX_DeviceMemoryStart != -1 ){
+      if ( OMPX_DeviceMemoryStart < reinterpret_cast<uintptr_t>(MemoryStart) ||
+          OMPX_DeviceMemoryStart > (reinterpret_cast<uintptr_t>(MemoryStart) + Size ) )
+          return Plugin::error("Cannot Replay requested address");
+
+      if ( OMPX_DeviceMemoryStart % ALIGN != 0 )
+          return Plugin::error("Replay: Requested address is not aligned");
+
+      Size -= (OMPX_DeviceMemoryStart.get() - reinterpret_cast<uintptr_t>(MemoryStart));
+      AlignedMemoryStart = reinterpret_cast<void *>(OMPX_DeviceMemoryStart.get());
+    }
+    else {
     // Align the memory at two times the step size to avoid mismatch in the
     // beginning of the memory region.
-    AlignedMemoryStart = alignPtr(MemoryStart, (2 * STEP));
+      AlignedMemoryStart = alignPtr(MemoryStart, (2 * STEP));
+    }
 
     INFO(OMP_INFOTYPE_PLUGIN_KERNEL, Device->getDeviceId(),
          "Allocated %" PRIu64
@@ -221,7 +236,8 @@ public:
         OMPX_ReplayKernel("LIBOMPTARGET_REPLAY"),
         OMPX_ReplaySaveOutput("LIBOMPTARGET_RR_SAVE_OUTPUT"),
         OMPX_DeviceMemorySize("LIBOMPTARGET_RR_DEVMEM_SIZE",
-                              /* Default in GB */ 64) {}
+                              /* Default in GB */ 64),
+        OMPX_DeviceMemoryStart("LIBOMPTARGET_DEVMEM_START", -1) {};
 
   void saveImage(const char *Name, const DeviceImageTy &Image) {
     std::string ImageName = getHashedKernelName(Name) + ".image";
@@ -274,6 +290,7 @@ public:
     JsonKernelInfo["LoopTripCount"] = LoopTripCount;
     JsonKernelInfo["DeviceMemorySize"] = MemorySize;
     JsonKernelInfo["DeviceId"] = Device->getDeviceId();
+    JsonKernelInfo["DevMemoryStart"] = (uint64_t) AlignedMemoryStart;
 
     auto oEntryTable = Image.getOffloadEntryTable();
 
