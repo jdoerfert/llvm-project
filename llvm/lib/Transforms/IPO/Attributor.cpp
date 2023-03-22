@@ -939,7 +939,8 @@ Argument *IRPosition::getAssociatedArgument() const {
   for (const Use *U : CallbackUses) {
     AbstractCallSite ACS(U);
     assert(ACS && ACS.isCallbackCall());
-    if (!ACS.getCalledFunction())
+    auto *ACSCallee = dyn_cast_if_present<Function>(ACS.getCalledOperand());
+    if (!ACSCallee)
       continue;
 
     for (unsigned u = 0, e = ACS.getNumArgOperands(); u < e; u++) {
@@ -949,13 +950,13 @@ Argument *IRPosition::getAssociatedArgument() const {
       if (ACS.getCallArgOperandNo(u) != ArgNo)
         continue;
 
-      assert(ACS.getCalledFunction()->arg_size() > u &&
+      assert(ACSCallee->arg_size() > u &&
              "ACS mapped into var-args arguments!");
       if (CBCandidateArg) {
         CBCandidateArg = nullptr;
         break;
       }
-      CBCandidateArg = ACS.getCalledFunction()->getArg(u);
+      CBCandidateArg = ACSCallee->getArg(u);
     }
   }
 
@@ -965,7 +966,7 @@ Argument *IRPosition::getAssociatedArgument() const {
 
   // If no callbacks were found, or none used the underlying call site operand
   // exclusively, use the direct callee argument if available.
-  const Function *Callee = CB.getCalledFunction();
+  auto *Callee = dyn_cast_if_present<Function>(CB.getCalledOperand());
   if (Callee && Callee->arg_size() > unsigned(ArgNo))
     return Callee->getArg(ArgNo);
 
@@ -1075,7 +1076,7 @@ SubsumingPositionIterator::SubsumingPositionIterator(const IRPosition &IRP) {
     // TODO: We need to look at the operand bundles similar to the redirection
     //       in CallBase.
     if (!CB->hasOperandBundles() || CanIgnoreOperandBundles(*CB))
-      if (const Function *Callee = CB->getCalledFunction())
+      if (auto *Callee = dyn_cast_if_present<Function>(CB->getCalledOperand()))
         IRPositions.emplace_back(IRPosition::function(*Callee));
     return;
   case IRPosition::IRP_CALL_SITE_RETURNED:
@@ -1083,7 +1084,8 @@ SubsumingPositionIterator::SubsumingPositionIterator(const IRPosition &IRP) {
     // TODO: We need to look at the operand bundles similar to the redirection
     //       in CallBase.
     if (!CB->hasOperandBundles() || CanIgnoreOperandBundles(*CB)) {
-      if (const Function *Callee = CB->getCalledFunction()) {
+      if (auto *Callee =
+              dyn_cast_if_present<Function>(CB->getCalledOperand())) {
         IRPositions.emplace_back(IRPosition::returned(*Callee));
         IRPositions.emplace_back(IRPosition::function(*Callee));
         for (const Argument &Arg : Callee->args())
@@ -1103,8 +1105,8 @@ SubsumingPositionIterator::SubsumingPositionIterator(const IRPosition &IRP) {
     // TODO: We need to look at the operand bundles similar to the redirection
     //       in CallBase.
     if (!CB->hasOperandBundles() || CanIgnoreOperandBundles(*CB)) {
-      const Function *Callee = CB->getCalledFunction();
-      if (Callee) {
+      if (auto *Callee =
+              dyn_cast_if_present<Function>(CB->getCalledOperand())) {
         if (Argument *Arg = IRP.getAssociatedArgument())
           IRPositions.emplace_back(IRPosition::argument(*Arg));
         IRPositions.emplace_back(IRPosition::function(*Callee));
@@ -1357,7 +1359,7 @@ std::optional<Value *> Attributor::translateArgumentToCallSiteContent(
   if (*V == nullptr || isa<Constant>(*V))
     return V;
   if (auto *Arg = dyn_cast<Argument>(*V))
-    if (CB.getCalledFunction() == Arg->getParent())
+    if (CB.getCalledOperand() == Arg->getParent())
       if (!Arg->hasPointeeInMemoryValueAttr())
         return getAssumedSimplified(
             IRPosition::callsite_argument(CB, Arg->getArgNo()), AA,
@@ -1776,7 +1778,7 @@ bool Attributor::checkForAllCallSites(function_ref<bool(AbstractCallSite)> Pred,
     // Make sure the arguments that can be matched between the call site and the
     // callee argee on their type. It is unlikely they do not and it doesn't
     // make sense for all attributes to know/care about this.
-    assert(&Fn == ACS.getCalledFunction() && "Expected known callee");
+    assert(&Fn == ACS.getCalledOperand() && "Expected known callee");
     unsigned MinArgsParams =
         std::min(size_t(ACS.getNumArgOperands()), Fn.arg_size());
     for (unsigned u = 0; u < MinArgsParams; ++u) {
@@ -2303,9 +2305,9 @@ ChangeStatus Attributor::cleanupIR() {
       if (CB->isArgOperand(U)) {
         unsigned Idx = CB->getArgOperandNo(U);
         CB->removeParamAttr(Idx, Attribute::NoUndef);
-        Function *Fn = CB->getCalledFunction();
-        if (Fn && Fn->arg_size() > Idx)
-          Fn->removeParamAttr(Idx, Attribute::NoUndef);
+        auto *Callee = dyn_cast_if_present<Function>(CB->getCalledOperand());
+        if (Callee && Callee->arg_size() > Idx)
+          Callee->removeParamAttr(Idx, Attribute::NoUndef);
       }
     }
     if (isa<Constant>(NewV) && isa<BranchInst>(U->getUser())) {
@@ -2700,11 +2702,10 @@ bool Attributor::isValidFunctionSignatureRewrite(
     // Forbid the call site to cast the function return type. If we need to
     // rewrite these functions we need to re-create a cast for the new call site
     // (if the old had uses).
-    if (!ACS.getCalledFunction() ||
-        ACS.getInstruction()->getType() !=
-            ACS.getCalledFunction()->getReturnType())
+    auto *Callee = dyn_cast_if_present<Function>(ACS.getCalledOperand());
+    if (!Callee || ACS.getInstruction()->getType() != Callee->getReturnType())
       return false;
-    if (ACS.getCalledOperand()->getType() != Fn->getType())
+    if (Callee->getType() != Fn->getType())
       return false;
     // Forbid must-tail calls for now.
     return !ACS.isCallbackCall() && !ACS.getInstruction()->isMustTailCall();
@@ -3073,7 +3074,8 @@ void InformationCache::initializeInformationCache(const Function &CF,
         AddToAssumeUsesMap(*Assume->getArgOperand(0));
       } else if (cast<CallInst>(I).isMustTailCall()) {
         FI.ContainsMustTailCall = true;
-        if (const Function *Callee = cast<CallInst>(I).getCalledFunction())
+        if (auto *Callee = dyn_cast_if_present<Function>(
+                cast<CallInst>(I).getCalledOperand()))
           getFunctionInfo(*Callee).CalledViaMustTail = true;
       }
       [[fallthrough]];
@@ -3304,7 +3306,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     // users. The return value might be dead if there are no live users.
     getOrCreateAAFor<AAIsDead>(CBInstPos);
 
-    Function *Callee = CB.getCalledFunction();
+    auto *Callee = dyn_cast_if_present<Function>(CB.getCalledOperand());
     // TODO: Even if the callee is not known now we might be able to simplify
     //       the call/callee.
     if (!Callee)
