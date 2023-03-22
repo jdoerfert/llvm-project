@@ -99,6 +99,7 @@ void registerGlobalEntries(const void *BufferPtr, const void *BufferEndPtr,
 }
 
 int main(int argc, char **argv) {
+
   cl::HideUnrelatedOptions(ReplayOptions);
   cl::ParseCommandLineOptions(argc, argv, "llvm-omp-kernel-replay\n");
 
@@ -142,6 +143,24 @@ int main(int argc, char **argv) {
     setenv("LIBOMPTARGET_DEVMEM_START",
         std::to_string(reinterpret_cast<intptr_t>(*DevMemoryStartValue)).c_str(), 1);
 
+  auto DeviceMemorySizeJson =
+      JsonKernelInfo->getAsObject()->getInteger("DeviceMemorySize");
+  // Set device memory size to the ceiling of GB granularity.
+
+  uint64_t DeviceMemorySize =
+      std::ceil(DeviceMemorySizeJson.value() / (1024.0 * 1024.0 * 1024.0));
+
+  auto DeviceIdJson = JsonKernelInfo->getAsObject()->getInteger("DeviceId");
+  // TODO: Print warning if the user overrides the device id in the json file.
+  int32_t DeviceId = (DeviceIdOpt > -1 ? DeviceIdOpt : DeviceIdJson.value());
+
+  setenv("LIBOMPTARGET_REPLAY", "1", 1);
+  if (VerifyOpt || SaveOutputOpt)
+    setenv("LIBOMPTARGET_RR_SAVE_OUTPUT", "1", 1);
+
+  // Initialize OMP runtime as early as possible.
+  __tgt_init_all_rtls();
+
   std::string KernelHashName =
       InputFilename.substr(0, InputFilename.find_last_of('.'));
   ErrorOr<std::unique_ptr<MemoryBuffer>> GlobalsMB =
@@ -180,6 +199,10 @@ int main(int argc, char **argv) {
   Desc.HostEntriesEnd = KernelEntries.end();
   Desc.DeviceImages = &DeviceImage;
 
+  // TODO: do we need requires?
+  //__tgt_register_requires(/* Flags */1);
+  __tgt_register_lib(&Desc);
+
   // Read in the entire file (hence the "as stream"), since we might lock the
   // memory.
   ErrorOr<std::unique_ptr<MemoryBuffer>> DeviceMemoryMB =
@@ -187,29 +210,6 @@ int main(int argc, char **argv) {
   if (!DeviceMemoryMB)
     report_fatal_error("Error reading the kernel input device memory.");
 
-  setenv("LIBOMPTARGET_REPLAY", "1", 1);
-  if (VerifyOpt || SaveOutputOpt)
-    setenv("LIBOMPTARGET_RR_SAVE_OUTPUT", "1", 1);
-
-  auto DeviceMemorySizeJson =
-      JsonKernelInfo->getAsObject()->getInteger("DeviceMemorySize");
-  // Set device memory size to the ceiling of GB granularity.
-  uint64_t DeviceMemorySize =
-      std::ceil(DeviceMemorySizeJson.value() / (1024.0 * 1024.0 * 1024.0));
-
-  //  setenv("LIBOMPTARGET_RR_DEVMEM_SIZE",
-  //         std::to_string(DeviceMemorySize).c_str(), 1);
-
-  auto DeviceIdJson = JsonKernelInfo->getAsObject()->getInteger("DeviceId");
-  // TODO: Print warning if the user overrides the device id in the json file.
-  int32_t DeviceId = (DeviceIdOpt > -1 ? DeviceIdOpt : DeviceIdJson.value());
-
-  // TODO: do we need requires?
-  //__tgt_register_requires(/* Flags */1);
-
-  __tgt_init_all_rtls();
-
-  __tgt_register_lib(&Desc);
 
   __tgt_target_kernel_replay(
       /* Loc */ nullptr, DeviceId, KernelEntry.addr,
