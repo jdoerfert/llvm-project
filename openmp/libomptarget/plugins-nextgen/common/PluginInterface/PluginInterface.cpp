@@ -26,6 +26,8 @@
 #include <cstdint>
 #include <limits>
 #include <unordered_map>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 using namespace llvm;
 using namespace omp;
@@ -63,6 +65,103 @@ private:
   // The starting address for the for the device allocations;
   Int64Envar OMPX_DeviceMemoryStart;
 
+  Error initMMapReplayMemory(size_t MaxMemoryAllocation){
+    void *VAddr = reinterpret_cast<void *>(OMPX_DeviceMemoryStart.get());
+    size_t ASize = MaxMemoryAllocation;
+    if ( auto Err = Device->mMap(&MemoryStart, VAddr, &ASize) )
+      return Err;
+
+    if ( VAddr != MemoryStart ){
+      return Plugin::error("Bump Allocator on replay cannot "
+          "allocate recorded address (%p, %p)", VAddr, MemoryStart);
+    }
+
+    INFO(OMP_INFOTYPE_PLUGIN_KERNEL, Device->getDeviceId(),
+       "Allocated %" PRIu64
+       " bytes at %p for replay. Record Used address %p\n",
+       ASize, MemoryStart, VAddr);
+
+    MemoryPtr = MemoryStart;
+    AlignedMemoryStart = MemoryStart;
+    MemorySize = 0;
+    TotalSize = ASize;
+    return Plugin::success();
+  }
+
+  Error initMMapRecordMemory(size_t Size){
+    struct rlimit RLim;
+    void* MaxAddr;
+    void* MinAddr;
+    if (getrlimit(RLIMIT_STACK, &RLim) != 0)
+      return Plugin::error("Cannot get stack limit");
+
+    MaxAddr  = (void*)RLim.rlim_cur;
+    MinAddr = malloc(1); // allocate 1 byte to get the lowest address
+    DP("Lower Address is %p  High Address is %p\n", MinAddr, MaxAddr);
+    free(MinAddr);
+    uint64_t offset = 16L*1024L*1024L*1024L;
+    MinAddr = (void *) ((((uintptr_t) MinAddr + (offset - 1)) / offset) * offset);
+
+    if ( auto Err = Device->mMap(&MemoryStart, MinAddr, &Size) )
+      return Err;
+
+    INFO(OMP_INFOTYPE_PLUGIN_KERNEL, Device->getDeviceId(),
+         "Allocated %" PRIu64
+         " bytes at %p for Record.",
+         Size, MemoryStart);
+
+    MemoryPtr = MemoryStart;
+    AlignedMemoryStart = MemoryStart;
+    MemorySize = 0;
+    TotalSize = Size;
+    return Plugin::success();
+  }
+
+  Error initMemoryHeuristic(size_t Size)
+  {
+    // We need to adjust memory to match requested address
+    constexpr size_t STEP = 1024 * 1024 * 1024ULL;
+    for (; Size > 0; Size -= STEP) {
+      MemoryStart =
+          Device->allocate(Size, /* HstPtr */ nullptr, TARGET_ALLOC_DEFAULT);
+      if (MemoryStart) break;
+    }
+
+    if (OMPX_DeviceMemoryStart != -1) {
+      if (OMPX_DeviceMemoryStart < reinterpret_cast<uintptr_t>(MemoryStart) ||
+          OMPX_DeviceMemoryStart >
+              (reinterpret_cast<uintptr_t>(MemoryStart) + Size))
+        return Plugin::error("Cannot Replay requested address");
+
+      Size -= (OMPX_DeviceMemoryStart.get() -
+               reinterpret_cast<uintptr_t>(MemoryStart));
+      AlignedMemoryStart = reinterpret_cast<void *>(OMPX_DeviceMemoryStart.get());
+    } else {
+      // Align the memory at two times the step size to avoid mismatch in the
+      // beginning of the memory region.
+      AlignedMemoryStart = alignPtr(MemoryStart, (2 * STEP));
+      Size -= ((uintptr_t) MemoryStart - (uintptr_t) AlignedMemoryStart);
+    }
+
+    if (!MemoryStart && !AlignedMemoryStart)
+      return Plugin::error("Allocating record/replay memory");
+
+
+    INFO(OMP_INFOTYPE_PLUGIN_KERNEL,
+         Device->getDeviceId(),
+         "Allocated %" PRIu64
+         " bytes at %p for record and replay, aligned it to %p\n",
+         Size,
+         MemoryStart,
+         AlignedMemoryStart);
+
+    MemoryPtr = AlignedMemoryStart;
+    MemorySize = 0;
+    TotalSize = Size;
+
+    return Plugin::success();
+  }
+
   // Record/replay pre-allocates the largest possible device memory using the
   // default kind.
   // TODO: Expand allocation to include other kinds (device, host, shared) and
@@ -73,57 +172,17 @@ private:
     // of 1GB until allocation succeeds.
     const size_t MaxMemoryAllocation =
         OMPX_DeviceMemorySize * 1024 * 1024 * 1024ULL;
-    constexpr size_t STEP = 1024 * 1024 * 1024ULL;
     MemoryStart = nullptr;
-    size_t Size = MaxMemoryAllocation;
 
-    if ( Device->implementsMemoryMap() && OMPX_DeviceMemoryStart != -1){
-      void *VAddr = reinterpret_cast<void *>(OMPX_DeviceMemoryStart.get());
+    // If we record and support device maping get the record
+    // address and replay with it. We do not need to align
+    if ( Device->implementsMemoryMap() && OMPX_ReplayKernel )
+      return initMMapReplayMemory(MaxMemoryAllocation);
 
-      size_t ASize = MaxMemoryAllocation;
-      if ( auto Err = Device->mMap(&MemoryStart, VAddr, &ASize) )
-          report_fatal_error("Error using MMAP");
-      Size = ASize;
-    } else {
-      for (; Size > 0; Size -= STEP) {
-        MemoryStart =
-            Device->allocate(Size, /* HstPtr */ nullptr, TARGET_ALLOC_DEFAULT);
-        if (MemoryStart)
-          break;
-      }
-    }
+    if ( Device->implementsMemoryMap() )  // Recording case
+      return initMMapRecordMemory(MaxMemoryAllocation);
 
-    if (!MemoryStart && MaxMemoryAllocation)
-      return Plugin::error("Allocating record/replay memory");
-
-    // We need to adjust memory to match requested address
-    if ( OMPX_DeviceMemoryStart != -1 ){
-      if ( OMPX_DeviceMemoryStart < reinterpret_cast<uintptr_t>(MemoryStart) ||
-          OMPX_DeviceMemoryStart > (reinterpret_cast<uintptr_t>(MemoryStart) + Size ) )
-          return Plugin::error("Cannot Replay requested address");
-
-      if ( OMPX_DeviceMemoryStart % ALIGN != 0 )
-          return Plugin::error("Replay: Requested address is not aligned");
-
-      Size -= (OMPX_DeviceMemoryStart.get() - reinterpret_cast<uintptr_t>(MemoryStart));
-      AlignedMemoryStart = reinterpret_cast<void *>(OMPX_DeviceMemoryStart.get());
-    }
-    else {
-    // Align the memory at two times the step size to avoid mismatch in the
-    // beginning of the memory region.
-      AlignedMemoryStart = alignPtr(MemoryStart, (2 * STEP));
-    }
-
-    INFO(OMP_INFOTYPE_PLUGIN_KERNEL, Device->getDeviceId(),
-         "Allocated %" PRIu64
-         " bytes at %p for record and replay, aligned it to %p\n",
-         Size, MemoryStart, AlignedMemoryStart);
-
-    MemoryPtr = AlignedMemoryStart;
-    MemorySize = 0;
-    TotalSize = Size;
-
-    return Plugin::success();
+    return initMemoryHeuristic(MaxMemoryAllocation);
   }
 
   void dumpGlobals(StringRef Filename, const DeviceImageTy &Image) {
@@ -388,7 +447,7 @@ public:
   }
 
   void deinit() {
-    if ( Device->implementsMemoryMap() ){
+    if ( Device->implementsMemoryMap()  ){
       if ( auto Err = Device->munMap(MemoryStart, TotalSize) ){
           report_fatal_error("Error in UnMap");
       }
