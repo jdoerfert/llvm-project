@@ -631,8 +631,9 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
     // then no argument is marked as TARGET_PARAM ("omp target data map" is not
     // associated with a target region, so there are no target parameters). This
     // may be considered a hack, we could revise the scheme in the future.
-    bool UpdateRef =
-        !(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF) && !(FromMapper && I == 0);
+    bool UpdateRef = (!(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF)) ||
+                     ((ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ) &&
+                      !(FromMapper && I == 0));
 
     DeviceTy::HDTTMapAccessorTy HDTTMap =
         Device.HostDataToTargetMap.getExclusiveAccessor();
@@ -654,7 +655,7 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
       PointerTpr = Device.getTargetPointer(
           HDTTMap, HstPtrBase, HstPtrBase, sizeof(void *),
           /*HstPtrName=*/nullptr,
-          /*HasFlagTo=*/false, /*HasFlagAlways=*/false, IsImplicit, UpdateRef,
+          /*HasFlagTo=*/false, /*HasFlagAlways=*/false, IsImplicit, false,
           HasCloseModifier, HasPresentModifier, HasHoldModifier, AsyncInfo,
           /* OwnedTPR */ nullptr, /* ReleaseHDTTMap */ false);
       PointerTgtPtrBegin = PointerTpr.TargetPointer;
@@ -900,9 +901,9 @@ int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
     }
 
     bool IsImplicit = ArgTypes[I] & OMP_TGT_MAPTYPE_IMPLICIT;
-    bool UpdateRef = (!(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF) ||
-                      (ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ)) &&
-                     !(FromMapper && I == 0);
+    bool UpdateRef = (!(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF)) ||
+                     ((ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ) &&
+                      !(FromMapper && I == 0));
     bool ForceDelete = ArgTypes[I] & OMP_TGT_MAPTYPE_DELETE;
     bool HasPresentModifier = ArgTypes[I] & OMP_TGT_MAPTYPE_PRESENT;
     bool HasHoldModifier = ArgTypes[I] & OMP_TGT_MAPTYPE_OMPX_HOLD;
