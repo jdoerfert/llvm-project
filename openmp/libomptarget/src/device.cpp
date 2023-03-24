@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "device.h"
+#include "Debug.h"
 #include "omptarget.h"
 #include "private.h"
 #include "rtl.h"
@@ -252,11 +253,14 @@ TargetPointerResultTy DeviceTy::getTargetPointer(
     uintptr_t Ptr = LR.TPR.getEntry()->TgtPtrBegin +
                     ((uintptr_t)HstPtrBegin - LR.TPR.getEntry()->HstPtrBegin);
     INFO(OMP_INFOTYPE_MAPPING_EXISTS, DeviceID,
-         "Mapping exists%s with HstPtrBegin=" DPxMOD ", TgtPtrBegin=" DPxMOD
-         ", Size=%" PRId64 ", DynRefCount=%s%s, HoldRefCount=%s%s, Name=%s\n",
-         (IsImplicit ? " (implicit)" : ""), DPxPTR(HstPtrBegin), DPxPTR(Ptr),
-         Size, LR.TPR.getEntry()->dynRefCountToStr().c_str(), DynRefCountAction,
-         LR.TPR.getEntry()->holdRefCountToStr().c_str(), HoldRefCountAction,
+         "Mapping exists%s with TgtPtrBegin=" DPxMOD ", HstPtrBegin=" DPxMOD
+         ", TgtPtrBegin=" DPxMOD ", Size=%" PRId64
+         ", DynRefCount=%s%s, HoldRefCount=%s%s, Name=%s\n",
+         (IsImplicit ? " (implicit)" : ""),
+         DPxPTR(LR.TPR.getEntry()->TgtPtrBegin), DPxPTR(HstPtrBegin),
+         DPxPTR(Ptr), Size, LR.TPR.getEntry()->dynRefCountToStr().c_str(),
+         DynRefCountAction, LR.TPR.getEntry()->holdRefCountToStr().c_str(),
+         HoldRefCountAction,
          (HstPtrName) ? getNameFromMapping(HstPtrName).c_str() : "unknown");
     LR.TPR.TargetPointer = (void *)Ptr;
   } else if ((LR.Flags.ExtendsBefore || LR.Flags.ExtendsAfter) && !IsImplicit) {
@@ -425,11 +429,13 @@ DeviceTy::getTgtPtrBegin(void *HstPtrBegin, int64_t Size, bool UpdateRefCount,
     uintptr_t TP = LR.TPR.getEntry()->TgtPtrBegin +
                    ((uintptr_t)HstPtrBegin - LR.TPR.getEntry()->HstPtrBegin);
     INFO(OMP_INFOTYPE_MAPPING_EXISTS, DeviceID,
-         "Mapping exists with HstPtrBegin=" DPxMOD ", TgtPtrBegin=" DPxMOD ", "
+         "Mapping exists with TgtPtrBegin=" DPxMOD ", HstPtrBegin=" DPxMOD
+         ", TgtPtrBegin=" DPxMOD ", "
          "Size=%" PRId64 ", DynRefCount=%s%s, HoldRefCount=%s%s\n",
-         DPxPTR(HstPtrBegin), DPxPTR(TP), Size,
-         LR.TPR.getEntry()->dynRefCountToStr().c_str(), DynRefCountAction,
-         LR.TPR.getEntry()->holdRefCountToStr().c_str(), HoldRefCountAction);
+         DPxPTR(LR.TPR.getEntry()->TgtPtrBegin), DPxPTR(HstPtrBegin),
+         DPxPTR(TP), Size, LR.TPR.getEntry()->dynRefCountToStr().c_str(),
+         DynRefCountAction, LR.TPR.getEntry()->holdRefCountToStr().c_str(),
+         HoldRefCountAction);
     LR.TPR.TargetPointer = (void *)TP;
   } else if (PM->RTLs.RequiresFlags & OMP_REQ_UNIFIED_SHARED_MEMORY) {
     // If the value isn't found in the mapping and unified shared memory

@@ -10,7 +10,7 @@ typedef struct {
 #pragma omp declare mapper(C1 s) map(to : s.a) map(from : s.b[0 : 2])
 
 typedef struct {
-  int a;
+  short a;
   double *b;
   C1 c;
 } C;
@@ -57,6 +57,7 @@ int main() {
     spp[0][0].f.c.a = 555;
     spp[0][0].f.b[1] = 40;
   }
+  printf("%p %p %p\n", &spp00fa, &spp00fca, &spp00fb_r);
   printf("%d %d %d\n", spp00fa, spp00fca, spp00fb_r);
   // CHECK: 222 777 0
   printf("%d %d %d %4.5f %d\n", spp[0][0].e, spp[0][0].f.a, spp[0][0].f.c.a,
