@@ -23,20 +23,17 @@
 extern int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                            void **ArgsBase, void **Args, int64_t *ArgSizes,
                            int64_t *ArgTypes, map_var_info_t *ArgNames,
-                           void **ArgMappers, AsyncInfoTy &AsyncInfo,
-                           bool FromMapper = false);
+                           void **ArgMappers, AsyncInfoTy &AsyncInfo);
 
 extern int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                          void **ArgBases, void **Args, int64_t *ArgSizes,
                          int64_t *ArgTypes, map_var_info_t *ArgNames,
-                         void **ArgMappers, AsyncInfoTy &AsyncInfo,
-                         bool FromMapper = false);
+                         void **ArgMappers, AsyncInfoTy &AsyncInfo);
 
 extern int targetDataUpdate(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                             void **ArgsBase, void **Args, int64_t *ArgSizes,
                             int64_t *ArgTypes, map_var_info_t *ArgNames,
-                            void **ArgMappers, AsyncInfoTy &AsyncInfo,
-                            bool FromMapper = false);
+                            void **ArgMappers, AsyncInfoTy &AsyncInfo);
 
 extern int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
                   KernelArgsTy &KernelArgs, AsyncInfoTy &AsyncInfo);
@@ -91,8 +88,7 @@ typedef void (*MapperFuncPtrTy)(void *, void *, void *, int64_t, int64_t,
 // targetDataEnd and targetDataUpdate).
 typedef int (*TargetDataFuncPtrTy)(ident_t *, DeviceTy &, int32_t, void **,
                                    void **, int64_t *, int64_t *,
-                                   map_var_info_t *, void **, AsyncInfoTy &,
-                                   bool);
+                                   map_var_info_t *, void **, AsyncInfoTy &);
 
 // Implemented in libomp, they are called from within __tgt_* functions.
 #ifdef __cplusplus

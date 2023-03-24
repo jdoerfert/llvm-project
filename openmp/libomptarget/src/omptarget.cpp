@@ -550,11 +550,10 @@ int targetDataMapper(ident_t *Loc, DeviceTy &Device, void *ArgBase, void *Arg,
     MapperArgNames[I] = C.Name;
   }
 
-  int Rc = TargetDataFunction(Loc, Device, MapperComponents.Components.size(),
-                              MapperArgsBase.data(), MapperArgs.data(),
-                              MapperArgSizes.data(), MapperArgTypes.data(),
-                              MapperArgNames.data(), /*arg_mappers*/ nullptr,
-                              AsyncInfo, /*FromMapper=*/true);
+  int Rc = TargetDataFunction(
+      Loc, Device, MapperComponents.Components.size(), MapperArgsBase.data(),
+      MapperArgs.data(), MapperArgSizes.data(), MapperArgTypes.data(),
+      MapperArgNames.data(), /*arg_mappers*/ nullptr, AsyncInfo);
 
   return Rc;
 }
@@ -563,8 +562,7 @@ int targetDataMapper(ident_t *Loc, DeviceTy &Device, void *ArgBase, void *Arg,
 int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                     void **ArgsBase, void **Args, int64_t *ArgSizes,
                     int64_t *ArgTypes, map_var_info_t *ArgNames,
-                    void **ArgMappers, AsyncInfoTy &AsyncInfo,
-                    bool FromMapper) {
+                    void **ArgMappers, AsyncInfoTy &AsyncInfo) {
   // process each input.
   for (int32_t I = 0; I < ArgNum; ++I) {
     // Ignore private variables and arrays - there is no mapping for them.
@@ -631,9 +629,8 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
     // then no argument is marked as TARGET_PARAM ("omp target data map" is not
     // associated with a target region, so there are no target parameters). This
     // may be considered a hack, we could revise the scheme in the future.
-    bool UpdateRef = (!(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF)) ||
-                     ((ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ) &&
-                      !(FromMapper && I == 0));
+    bool UpdateRef = ((!(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF)) ||
+                      ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ);
 
     DeviceTy::HDTTMapAccessorTy HDTTMap =
         Device.HostDataToTargetMap.getExclusiveAccessor();
@@ -673,10 +670,6 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
       PointerHstPtrBegin = HstPtrBase;
       // modify current entry.
       HstPtrBase = *(void **)HstPtrBase;
-      // No need to update pointee ref count for the first element of the
-      // subelement that comes from mapper.
-      UpdateRef =
-          (!FromMapper || I != 0); // subsequently update ref count of pointee
     }
 
     const bool HasFlagTo = ArgTypes[I] & OMP_TGT_MAPTYPE_TO;
@@ -848,7 +841,7 @@ postProcessingTargetDataEnd(DeviceTy *Device,
 int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                   void **ArgBases, void **Args, int64_t *ArgSizes,
                   int64_t *ArgTypes, map_var_info_t *ArgNames,
-                  void **ArgMappers, AsyncInfoTy &AsyncInfo, bool FromMapper) {
+                  void **ArgMappers, AsyncInfoTy &AsyncInfo) {
   int Ret = OFFLOAD_SUCCESS;
   auto *PostProcessingPtrs = new SmallVector<PostProcessingInfo>();
   // process each input.
@@ -901,9 +894,8 @@ int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
     }
 
     bool IsImplicit = ArgTypes[I] & OMP_TGT_MAPTYPE_IMPLICIT;
-    bool UpdateRef = (!(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF)) ||
-                     ((ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ) &&
-                      !(FromMapper && I == 0));
+    bool UpdateRef = ((!(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF)) ||
+                      ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ);
     bool ForceDelete = ArgTypes[I] & OMP_TGT_MAPTYPE_DELETE;
     bool HasPresentModifier = ArgTypes[I] & OMP_TGT_MAPTYPE_PRESENT;
     bool HasHoldModifier = ArgTypes[I] & OMP_TGT_MAPTYPE_OMPX_HOLD;
@@ -1143,7 +1135,7 @@ static int getNonContigMergedDimension(__tgt_target_non_contig *NonContig,
 int targetDataUpdate(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                      void **ArgsBase, void **Args, int64_t *ArgSizes,
                      int64_t *ArgTypes, map_var_info_t *ArgNames,
-                     void **ArgMappers, AsyncInfoTy &AsyncInfo, bool) {
+                     void **ArgMappers, AsyncInfoTy &AsyncInfo) {
   // process each input.
   for (int32_t I = 0; I < ArgNum; ++I) {
     if ((ArgTypes[I] & OMP_TGT_MAPTYPE_LITERAL) ||
