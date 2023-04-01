@@ -16,6 +16,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/TimeProfiler.h"
 
 #include <cstdlib>
 
@@ -99,6 +100,7 @@ void registerGlobalEntries(const void *BufferPtr, const void *BufferEndPtr,
 }
 
 int main(int argc, char **argv) {
+  TimeTraceScope TimeScope("Replay");
 
   cl::HideUnrelatedOptions(ReplayOptions);
   cl::ParseCommandLineOptions(argc, argv, "llvm-omp-kernel-replay\n");
@@ -158,7 +160,6 @@ int main(int argc, char **argv) {
   if (VerifyOpt || SaveOutputOpt)
     setenv("LIBOMPTARGET_RR_SAVE_OUTPUT", "1", 1);
 
-  // Initialize OMP runtime as early as possible.
   __tgt_init_all_rtls();
 
   std::string KernelHashName =

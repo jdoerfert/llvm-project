@@ -1390,11 +1390,17 @@ private:
           }
           if (KernelOpts.count(FName)) {
             dbgs() << "FOUND FName " << FName << " in KernelOpts\n";
-            std::string FlatWorkGroupSize = "0," + std::to_string(KernelOpts[FName].MaxThreads);
-            CheckAndSetAttribute(F, FlatWorkGroupSize, "amdgpu-flat-work-group-size");
-            std::string WavesPerEU = std::to_string(KernelOpts[FName].MinBlocks);
-            CheckAndSetAttribute(F, WavesPerEU, "amdgpu-waves-per-eu");
-            Changed = true;
+            if ( KernelOpts[FName].MaxThreads != -1 ) {
+              std::string FlatWorkGroupSize = "64," + std::to_string(KernelOpts[FName].MaxThreads);
+              CheckAndSetAttribute(F, FlatWorkGroupSize, "amdgpu-flat-work-group-size");
+              Changed = true;
+            }
+
+            if ( KernelOpts[FName].MinBlocks != -1 ) {
+              std::string WavesPerEU = std::to_string(KernelOpts[FName].MinBlocks);
+              CheckAndSetAttribute(F, WavesPerEU, "amdgpu-waves-per-eu");
+              Changed = true;
+            }
           }
           else
             dbgs() << "FName " << FName << " IS NOT in KernelOpts\n";

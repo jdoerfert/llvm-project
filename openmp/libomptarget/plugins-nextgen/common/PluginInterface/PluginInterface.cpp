@@ -627,15 +627,18 @@ Error GenericDeviceTy::init(GenericPluginTy &Plugin) {
   auto [ThresholdMM, EnableMM] = MemoryManagerTy::getSizeThresholdFromEnv();
   if (EnableMM)
     MemoryManager = new MemoryManagerTy(*this, ThresholdMM);
-
-  if (RecordReplay.isRecordingOrReplaying())
-    if (auto Err = RecordReplay.init(this))
-      return Err;
+  {
+    TimeTraceScope TimeScope("BumpAllocator::Allocate");
+    if (RecordReplay.isRecordingOrReplaying())
+      if (auto Err = RecordReplay.init(this))
+        return Err;
+  }
 
   return Plugin::success();
 }
 
 Error GenericDeviceTy::deinit() {
+  TimeTraceScope TimeScope("BumpAllocator::DeAllocate");
   // Delete the memory manager before deinitilizing the device. Otherwise,
   // we may delete device allocations after the device is deinitialized.
   if (MemoryManager)
@@ -653,28 +656,31 @@ GenericDeviceTy::loadBinary(GenericPluginTy &Plugin,
                             const __tgt_device_image *InputTgtImage) {
   assert(InputTgtImage && "Expected non-null target image");
   DP("Load data from image " DPxMOD "\n", DPxPTR(InputTgtImage->ImageStart));
+  DeviceImageTy *Image  = nullptr;
+  {
+    TimeTraceScope TimeScope("LoadBinary");
+    auto PostJITImageOrErr = Plugin.getJIT().process(*InputTgtImage, *this);
+    if (!PostJITImageOrErr) {
+      auto Err = PostJITImageOrErr.takeError();
+      REPORT("Failure to jit IR image %p on device %d: %s\n", InputTgtImage,
+             DeviceId, toString(std::move(Err)).data());
+      return nullptr;
+    }
 
-  auto PostJITImageOrErr = Plugin.getJIT().process(*InputTgtImage, *this);
-  if (!PostJITImageOrErr) {
-    auto Err = PostJITImageOrErr.takeError();
-    REPORT("Failure to jit IR image %p on device %d: %s\n", InputTgtImage,
-           DeviceId, toString(std::move(Err)).data());
-    return nullptr;
+    DP("Successful JIT image %p on device %d\n", InputTgtImage, DeviceId); 
+
+    // Load the binary and allocate the image object. Use the next available id
+    // for the image id, which is the number of previously loaded images.
+    auto ImageOrErr =
+        loadBinaryImpl(PostJITImageOrErr.get(), LoadedImages.size());
+    if (!ImageOrErr)
+      return ImageOrErr.takeError();
+
+    Image = *ImageOrErr;
+    assert(Image != nullptr && "Invalid image");
+    if (InputTgtImage != PostJITImageOrErr.get())
+      Image->setTgtImageBitcode(InputTgtImage);
   }
-
-  DP("Successful JIT image %p on device %d\n", InputTgtImage, DeviceId); 
-
-  // Load the binary and allocate the image object. Use the next available id
-  // for the image id, which is the number of previously loaded images.
-  auto ImageOrErr =
-      loadBinaryImpl(PostJITImageOrErr.get(), LoadedImages.size());
-  if (!ImageOrErr)
-    return ImageOrErr.takeError();
-
-  DeviceImageTy *Image = *ImageOrErr;
-  assert(Image != nullptr && "Invalid image");
-  if (InputTgtImage != PostJITImageOrErr.get())
-    Image->setTgtImageBitcode(InputTgtImage);
 
   // Add the image to list.
   LoadedImages.push_back(Image);
@@ -1014,8 +1020,9 @@ Error GenericDeviceTy::runTargetTeamRegion(
   // Block to synchronize the launch iff the kernel output is recorded.
   auto Err = Plugin::success();
   {
+    TimeTraceScope TimeScope("KernelExecution");
     AsyncInfoWrapperTy AsyncInfoWrapper(
-        Err, *this, RecordKernelOutput ? nullptr : AsyncInfo);
+        Err, *this, RecordKernelOutput? nullptr : AsyncInfo);
 
     Err = GenericKernel.launch(*this, ArgPtrs, ArgOffsets, NumArgs,
                                NumTeamsClause, ThreadLimitClause, LoopTripCount,
@@ -1316,9 +1323,12 @@ int32_t __tgt_rtl_data_submit(int32_t DeviceId, void *TgtPtr, void *HstPtr,
 int32_t __tgt_rtl_data_submit_async(int32_t DeviceId, void *TgtPtr,
                                     void *HstPtr, int64_t Size,
                                     __tgt_async_info *AsyncInfoPtr) {
+  TimeTraceScope TimeScope("DataSubmit");
   assert(Size && "Zero-sized transfers are not supported");
   auto Err = Plugin::get().getDevice(DeviceId).dataSubmit(TgtPtr, HstPtr, Size,
                                                           AsyncInfoPtr);
+  if ( AsyncInfoPtr->Queue )
+    __tgt_rtl_synchronize(DeviceId, AsyncInfoPtr);
   if (Err)
     REPORT("Failure to copy data from host to device. Pointers: host "
            "= " DPxMOD ", device = " DPxMOD ", size = %" PRId64 ": %s\n",
@@ -1337,9 +1347,12 @@ int32_t __tgt_rtl_data_retrieve(int32_t DeviceId, void *HstPtr, void *TgtPtr,
 int32_t __tgt_rtl_data_retrieve_async(int32_t DeviceId, void *HstPtr,
                                       void *TgtPtr, int64_t Size,
                                       __tgt_async_info *AsyncInfoPtr) {
+  TimeTraceScope TimeScope("DataRetrieve");
   assert(Size && "Zero-sized transfers are not supported");
   auto Err = Plugin::get().getDevice(DeviceId).dataRetrieve(HstPtr, TgtPtr,
-                                                            Size, AsyncInfoPtr);
+                                                           Size, AsyncInfoPtr);
+  if ( AsyncInfoPtr->Queue )
+    __tgt_rtl_synchronize(DeviceId, AsyncInfoPtr);
   if (Err)
     REPORT("Faliure to copy data from device to host. Pointers: host "
            "= " DPxMOD ", device = " DPxMOD ", size = %" PRId64 ": %s\n",
@@ -1388,12 +1401,17 @@ int32_t __tgt_rtl_run_target_team_region_async(
     int32_t DeviceId, void *TgtEntryPtr, void **TgtArgs, ptrdiff_t *TgtOffsets,
     int32_t NumArgs, int32_t NumTeams, int32_t ThreadLimit,
     uint64_t LoopTripCount, __tgt_async_info *AsyncInfoPtr) {
+  TimeTraceScope DeviceCompute("DeviceCompute");
+
   auto Err = Plugin::get().getDevice(DeviceId).runTargetTeamRegion(
       TgtEntryPtr, TgtArgs, TgtOffsets, NumArgs, NumTeams, ThreadLimit,
       LoopTripCount, AsyncInfoPtr);
   if (Err)
     REPORT("Failure to run target region " DPxMOD " in device %d: %s\n",
            DPxPTR(TgtEntryPtr), DeviceId, toString(std::move(Err)).data());
+
+  if ( AsyncInfoPtr->Queue )
+    __tgt_rtl_synchronize(DeviceId, AsyncInfoPtr);
 
   return (bool)Err;
 }

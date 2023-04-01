@@ -21,6 +21,7 @@
 #include <system_error>
 #include <unistd.h>
 #include <unordered_map>
+#include <sys/mman.h>
 
 #include "Debug.h"
 #include "DeviceEnvironment.h"
@@ -1727,14 +1728,25 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   /// Load the binary image into the device and allocate an image object.
   Expected<DeviceImageTy *> loadBinaryImpl(const __tgt_device_image *TgtImage,
                                            int32_t ImageId) override {
+    //llvm::omp::target::MemState::dumpProcState("BeforeLoadBinary.txt");
     // Allocate and initialize the image object.
     AMDGPUDeviceImageTy *AMDImage =
         Plugin::get().allocate<AMDGPUDeviceImageTy>();
     new (AMDImage) AMDGPUDeviceImageTy(ImageId, TgtImage);
 
+    // llvm::omp::target::MemState::dumpProcState("BeforeLoadDeviceBinary.txt");
+
+   long sz = sysconf(_SC_PAGESIZE);
+   void *ptr = nullptr;
+//   do {
+//     ptr = mmap(nullptr, sz, PROT_READ|PROT_WRITE, MAP_SHARED| MAP_ANONYMOUS, -1, 0);
+//   }while ( (uintptr_t) ptr > 0x153e00000000);
+
     // Load the HSA executable.
     if (Error Err = AMDImage->loadExecutable(*this))
       return std::move(Err);
+
+    // llvm::omp::target::MemState::dumpProcState("AfterLoadDeviceBinary.txt");
 
     return AMDImage;
   }
