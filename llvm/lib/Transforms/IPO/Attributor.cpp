@@ -365,12 +365,25 @@ static bool getPotentialCopiesOfMemoryValue(
           dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
       return false;
     }
-    // TODO: Use assumed noalias return.
-    if (!isa<AllocaInst>(&Obj) && !isa<GlobalVariable>(&Obj) &&
-        !(IsLoad ? isAllocationFn(&Obj, TLI) : isNoAliasCall(&Obj))) {
-      LLVM_DEBUG(dbgs() << "Underlying object is not supported yet: " << Obj
-                        << "\n";);
-      return false;
+    if (!isa<AllocaInst>(&Obj) && !isa<GlobalVariable>(&Obj)) {
+      auto *CB = dyn_cast<CallBase>(&Obj);
+      bool R = false;
+      if (CB) {
+        auto &AAN =
+            A.getOrCreateAAFor<AANoAlias>(IRPosition::callsite_returned(*CB),
+                                          &QueryingAA, DepClassTy::OPTIONAL);
+        if (AAN.isValidState())
+          R = AAN.isAssumedNoAlias();
+        else
+          R = isNoAliasCall(&Obj);
+        if (!R)
+          R = isAllocationFn(&Obj, TLI);
+      }
+      if (!R) {
+        LLVM_DEBUG(dbgs() << "Underlying object is not supported yet: " << Obj
+                          << "\n";);
+        return false;
+      }
     }
     if (auto *GV = dyn_cast<GlobalVariable>(&Obj))
       if (!GV->hasLocalLinkage() &&
@@ -2063,7 +2076,8 @@ void Attributor::runTillFixpoint() {
 
   LLVM_DEBUG(dbgs() << "\n[Attributor] Fixpoint iteration done after: "
                     << IterationCounter << "/" << MaxIterations
-                    << " iterations\n");
+                    << " iterations. #Changed AAs: " << ChangedAAs.size()
+                    << "\n");
 
   // Reset abstract arguments not settled in a sound fixpoint by now. This
   // happens when we stopped the fixpoint iteration early. Note that only the
@@ -2078,13 +2092,21 @@ void Attributor::runTillFixpoint() {
 
     AbstractState &State = ChangedAA->getState();
     if (!State.isAtFixpoint()) {
+      LLVM_DEBUG(
+          dbgs() << "\n[Attributor] Invalidate AA " << *ChangedAA
+                 << " as it is not at fix point after max iterations.\n");
+
       State.indicatePessimisticFixpoint();
 
       NumAttributesTimedOut++;
     }
 
-    for (auto &DepIt : ChangedAA->Deps)
+    for (auto &DepIt : ChangedAA->Deps) {
+      LLVM_DEBUG(dbgs() << "\n[Attributor] Invalidate dependent AA "
+                        << *(DepIt.getPointer()) << " of AA " << *ChangedAA
+                        << "\n");
       ChangedAAs.push_back(cast<AbstractAttribute>(DepIt.getPointer()));
+    }
     ChangedAA->Deps.clear();
   }
 

@@ -36,6 +36,7 @@ using size_t = decltype(sizeof(char));
 // TODO: Properly implement this
 using intptr_t = int64_t;
 using uintptr_t = uint64_t;
+using ptrdiff_t = intptr_t;
 
 static_assert(sizeof(int8_t) == 1, "type size mismatch");
 static_assert(sizeof(uint8_t) == 1, "type size mismatch");
@@ -82,6 +83,11 @@ enum kmp_sched_t {
   kmp_sched_distr_static_chunk = 91,
   kmp_sched_distr_static_nochunk = 92,
   kmp_sched_distr_static_chunk_sched_static_chunkone = 93,
+
+  // The following two are for direct GPU compilation where we don't have outer
+  // loop to distribute workload among teams but we still need to.
+  kmp_sched_distr_parallel_static_noloop_chunk = 100,
+  kmp_sched_distr_parallel_static_noloop_nochunk = 101,
 
   kmp_sched_default = kmp_sched_static_nochunk,
   kmp_sched_unordered_first = kmp_sched_static_chunk,

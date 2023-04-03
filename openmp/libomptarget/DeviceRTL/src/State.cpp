@@ -13,6 +13,7 @@
 #include "Debug.h"
 #include "Interface.h"
 #include "Mapping.h"
+#include "Memory.h"
 #include "Synchronization.h"
 #include "Types.h"
 #include "Utils.h"
@@ -35,36 +36,6 @@ extern unsigned char DynamicSharedBuffer[] __attribute__((aligned(Alignment)));
 #pragma omp allocate(DynamicSharedBuffer) allocator(omp_pteam_mem_alloc)
 
 namespace {
-
-/// Fallback implementations are missing to trigger a link time error.
-/// Implementations for new devices, including the host, should go into a
-/// dedicated begin/end declare variant.
-///
-///{
-
-extern "C" {
-__attribute__((leaf)) void *malloc(uint64_t Size);
-__attribute__((leaf)) void free(void *Ptr);
-}
-
-///}
-
-/// AMDGCN implementations of the shuffle sync idiom.
-///
-///{
-#pragma omp begin declare variant match(device = {arch(amdgcn)})
-
-extern "C" {
-void *malloc(uint64_t Size) {
-  // TODO: Use some preallocated space for dynamic malloc.
-  return nullptr;
-}
-
-void free(void *Ptr) {}
-}
-
-#pragma omp end declare variant
-///}
 
 /// A "smart" stack in shared memory.
 ///
@@ -261,7 +232,9 @@ void state::enterDataEnvironment(IdentTy *Ident) {
       static_cast<ThreadStateTy *>(__kmpc_alloc_shared(sizeof(ThreadStateTy)));
   uintptr_t *ThreadStatesBitsPtr = reinterpret_cast<uintptr_t *>(&ThreadStates);
   if (!atomic::load(ThreadStatesBitsPtr, atomic::seq_cst)) {
-    uint32_t Bytes = sizeof(ThreadStates[0]) * mapping::getBlockSize();
+    uint32_t Bytes =
+        sizeof(ThreadStates[0]) *
+        (mapping::getBlockSize() + (mapping::isSPMDMode() ? 0 : 1));
     void *ThreadStatesPtr =
         memory::allocGlobal(Bytes, "Thread state array allocation");
     if (!atomic::cas(ThreadStatesBitsPtr, uintptr_t(0),

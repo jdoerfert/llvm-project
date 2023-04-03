@@ -47,6 +47,9 @@ using namespace ompx;
 namespace {
 
 uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
+  if (NumThreadsClause != -1)
+    return NumThreadsClause;
+
   uint32_t NThreadsICV =
       NumThreadsClause != -1 ? NumThreadsClause : icv::NThreads;
   uint32_t NumThreads = mapping::getBlockSize();

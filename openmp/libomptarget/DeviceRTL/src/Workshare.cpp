@@ -111,6 +111,38 @@ template <typename T, typename ST> struct omptarget_nvptx_LoopSupport {
     stride = loopSize; // make sure we only do 1 chunk per warp
   }
 
+  static void ForStaticNoLoopNoTrunk(int &last, T &lb, T &ub, ST &stride,
+                                     ST &chunk, T entityId,
+                                     T numberOfEntities) {
+    T loopSize = ub - lb + 1;
+    chunk = loopSize / numberOfEntities;
+
+    // We have more entities than iterations.
+    if (chunk == 0) {
+      chunk = 1;
+      lb = lb + entityId * chunk;
+      T inputUb = ub;
+      ub = lb + chunk - 1;
+      last = lb <= inputUb && inputUb <= ub;
+      stride = loopSize; // make sure we only do 1 chunk per warp
+      return;
+    }
+
+    T leftOver = loopSize - chunk * numberOfEntities;
+
+    if (entityId < leftOver) {
+      chunk++;
+      lb = lb + entityId * chunk;
+    } else {
+      lb = lb + entityId * chunk + leftOver;
+    }
+
+    T inputUb = ub;
+    ub = lb + chunk - 1; // Clang uses i <= ub
+    last = lb <= inputUb && inputUb <= ub;
+    stride = loopSize; // make sure we only do 1 chunk per warp
+  }
+
   ////////////////////////////////////////////////////////////////////////////////
   // Support for Static Init
 
@@ -182,6 +214,19 @@ template <typename T, typename ST> struct omptarget_nvptx_LoopSupport {
       ForStaticChunk(lastiter, lb, ub, stride, chunk,
                      numberOfActiveOMPThreads * omp_get_team_num() + gtid,
                      omp_get_num_teams() * numberOfActiveOMPThreads);
+      break;
+    }
+    case kmp_sched_distr_parallel_static_noloop_chunk: {
+      ForStaticChunk(lastiter, lb, ub, stride, chunk,
+                     numberOfActiveOMPThreads * omp_get_team_num() + gtid,
+                     omp_get_num_teams() * numberOfActiveOMPThreads);
+      break;
+    }
+    case kmp_sched_distr_parallel_static_noloop_nochunk: {
+      ForStaticNoLoopNoTrunk(lastiter, lb, ub, stride, chunk,
+                             numberOfActiveOMPThreads * omp_get_team_num() +
+                                 gtid,
+                             omp_get_num_teams() * numberOfActiveOMPThreads);
       break;
     }
     default: {

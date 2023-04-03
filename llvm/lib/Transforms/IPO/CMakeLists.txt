@@ -19,6 +19,7 @@ add_llvm_component_library(LLVMipo
   GlobalDCE.cpp
   GlobalOpt.cpp
   GlobalSplit.cpp
+  HostRPC.cpp
   HotColdSplitting.cpp
   IPO.cpp
   IROutliner.cpp

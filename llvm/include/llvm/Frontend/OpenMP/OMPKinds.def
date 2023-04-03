@@ -471,6 +471,8 @@ __OMP_RTL(__kmpc_nvptx_teams_reduce_nowait_v2, false, Int32, IdentPtr, Int32,
 
 __OMP_RTL(__kmpc_shuffle_int64, false, Int64, Int64, Int16, Int16)
 
+__OMP_RTL(malloc, false, VoidPtr, SizeTy)
+__OMP_RTL(free, false, Void, VoidPtr)
 __OMP_RTL(__kmpc_alloc_shared, false, VoidPtr, SizeTy)
 __OMP_RTL(__kmpc_free_shared, false, Void, VoidPtr, SizeTy)
 __OMP_RTL(__kmpc_begin_sharing_variables, false, Void, VoidPtrPtrPtr, SizeTy)
@@ -483,6 +485,9 @@ __OMP_RTL(__kmpc_barrier_simple_generic, false, Void, IdentPtr, Int32)
 
 __OMP_RTL(__kmpc_warp_active_thread_mask, false, Int64,)
 __OMP_RTL(__kmpc_syncwarp, false, Void, Int64)
+
+__OMP_RTL(__kmpc_launch_parallel_51_kernel, false, Void, Int8Ptr, Int32, Int32,
+          Int32, VoidPtrPtr, Int64)
 
 __OMP_RTL(__last, false, Void, )
 

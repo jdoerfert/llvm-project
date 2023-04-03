@@ -11,19 +11,29 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/DynamicLibrary.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <cuda.h>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <type_traits>
+#include <unordered_map>
 #include <vector>
+
+#include <sys/stat.h>
+#include <sys/time.h>
 
 #include "Debug.h"
 #include "DeviceEnvironment.h"
+#include "HostRPC.h"
 #include "omptarget.h"
 #include "omptargetplugin.h"
 
@@ -39,6 +49,7 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 
 using namespace llvm;
+using namespace std::chrono_literals;
 
 // Utility for retrieving and printing CUDA error string.
 #ifdef OMPTARGET_DEBUG
@@ -98,6 +109,8 @@ struct KernelTy {
 };
 
 namespace {
+volatile bool IsHostRPCEnabled = false;
+
 bool checkResult(CUresult Err, const char *ErrMsg) {
   if (Err == CUDA_SUCCESS)
     return true;
@@ -105,6 +118,371 @@ bool checkResult(CUresult Err, const char *ErrMsg) {
   REPORT("%s", ErrMsg);
   CUDA_ERR_STRING(Err);
   return false;
+}
+
+class ArgumentExtractor {
+  hostrpc::Descriptor &D;
+
+public:
+  ArgumentExtractor(hostrpc::Descriptor &D) : D(D) {}
+
+  template <typename T> T getArg(unsigned Idx) {
+    assert(Idx < D.NumArgs && "unexpected argument index");
+    if constexpr (std::is_pointer<T>::value)
+      return reinterpret_cast<T>(D.Args[Idx].Value);
+    else
+      return static_cast<T>(D.Args[Idx].Value);
+  }
+};
+
+struct Parallel51KernelInfo {
+  std::string Name;
+  CUfunction Kernel;
+  int MaxNumThreads;
+};
+
+std::unordered_map<std::string, Parallel51KernelInfo> RPCKernelInfo;
+
+template <typename T> void *toVoidPtr(T Val) {
+  if constexpr (std::is_pointer<T>::value)
+    return reinterpret_cast<void *>(Val);
+  else
+    return reinterpret_cast<void *>(static_cast<intptr_t>(Val));
+}
+
+bool handle___kmpc_launch_parallel_51_kernel(hostrpc::Descriptor &D,
+                                             CUmodule Module, CUstream Stream) {
+  assert(D.NumArgs == 6);
+
+  ArgumentExtractor AE(D);
+
+  auto KernelName = AE.getArg<const char *>(0);
+  auto GTid = AE.getArg<int32_t>(1);
+  auto IfExpr = AE.getArg<int32_t>(2);
+  auto NumThreads = AE.getArg<int32_t>(3);
+  auto Args = AE.getArg<void **>(4);
+  auto NArgs = AE.getArg<int64_t>(5);
+
+  DP("[host-rpc] get a parallel_51 kernel %s.\n", KernelName);
+
+  CUresult Err;
+  CUfunction Func;
+  int MaxNumThreads;
+  auto Itr = RPCKernelInfo.find(KernelName);
+  if (Itr == RPCKernelInfo.end()) {
+    Err = cuModuleGetFunction(&Func, Module, KernelName);
+    if (Err != CUDA_SUCCESS) {
+      REPORT("Loading '%s' failed\n", KernelName);
+      CUDA_ERR_STRING(Err);
+      return false;
+    }
+    Err = cuFuncGetAttribute(&MaxNumThreads,
+                             CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK, Func);
+    if (Err != CUDA_SUCCESS) {
+      REPORT("Failed to get max threads per block for kernel '%s'\n",
+             KernelName);
+      CUDA_ERR_STRING(Err);
+      return false;
+    }
+    Parallel51KernelInfo Info{KernelName, Func, MaxNumThreads};
+    RPCKernelInfo[KernelName] = std::move(Info);
+  } else {
+    Func = Itr->second.Kernel;
+    MaxNumThreads = Itr->second.MaxNumThreads;
+  }
+
+  void *LaunchArgs[5] = {toVoidPtr(GTid), toVoidPtr(IfExpr),
+                         toVoidPtr(NumThreads), Args, toVoidPtr(NArgs)};
+  void *Params[5];
+  for (int I = 0; I < 5; ++I)
+    Params[I] = &LaunchArgs[I];
+
+  Err = cuLaunchKernel(Func, /* gridDimX */ 1024, /* gridDimY */ 1,
+                       /* gridDimZ */ 1, MaxNumThreads,
+                       /* blockDimY */ 1, /* blockDimZ */ 1, 0, Stream, Params,
+                       nullptr);
+  if (Err != CUDA_SUCCESS) {
+    REPORT("Failed to launch the new kernel %s\n", KernelName);
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  Err = cuStreamSynchronize(Stream);
+  if (Err != CUDA_SUCCESS) {
+    REPORT("Failed to synchronize the stream " DPxMOD "\n", DPxPTR(Stream));
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  DP("[host-rpc] successfully launch a new kernel %s.\n", KernelName);
+
+  return true;
+}
+
+const char *DescriptorVarName = "omptarget_hostrpc_descriptor";
+const char *FutexVarName = "omptarget_hostrpc_futex";
+const char *MemBufVarName = "omptarget_hostrpc_memory_buffer";
+const char *MemBufSizeVarName = "omptarget_hostrpc_memory_buffer_size";
+
+bool initHostRPCServer(CUmodule Module, CUcontext Context,
+                       CUdeviceptr &Descriptor, CUdeviceptr &Futex) {
+  DP("start to init host RPC server...\n");
+  CUresult Err = cuCtxSetCurrent(Context);
+  if (!checkResult(Err, "error returned from cuCtxSetCurrent"))
+    return false;
+
+  auto CheckGlobal = [Module](CUdeviceptr &Ptr, const char *Name, size_t Size) {
+    size_t CUSize;
+
+    CUresult Err = cuModuleGetGlobal(&Ptr, &CUSize, Module, Name);
+    if (Err != CUDA_SUCCESS)
+      return false;
+
+    if (CUSize != Size)
+      return false;
+
+    return true;
+  };
+
+  CUdeviceptr DescriptorVar;
+  CUdeviceptr FutexVar;
+  CUdeviceptr MemBufVar;
+  CUdeviceptr MemBufSizeVar;
+
+  if (!CheckGlobal(DescriptorVar, DescriptorVarName,
+                   sizeof(hostrpc::Descriptor *))) {
+    REPORT("Loading global '%s' failed\n", DescriptorVarName);
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+  if (!CheckGlobal(FutexVar, FutexVarName, sizeof(int32_t *))) {
+    REPORT("Loading global '%s' failed\n", FutexVarName);
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+  if (!CheckGlobal(MemBufVar, MemBufVarName, sizeof(char *))) {
+    REPORT("Loading global '%s' failed\n", MemBufVarName);
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+  if (!CheckGlobal(MemBufSizeVar, MemBufSizeVarName, sizeof(size_t))) {
+    REPORT("Loading global '%s' failed\n", MemBufSizeVarName);
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  Err = cuMemAllocManaged(&Descriptor, sizeof(hostrpc::Descriptor),
+                          CU_MEM_ATTACH_GLOBAL);
+  if (Err != CUDA_SUCCESS) {
+    DP("Failed to allocate USM for descriptor.\n");
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  Err = cuMemAllocManaged(&Futex, sizeof(int32_t), CU_MEM_ATTACH_GLOBAL);
+  if (Err != CUDA_SUCCESS) {
+    DP("Failed to allocate USM for futex.\n");
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  *reinterpret_cast<int32_t *>(Futex) = 0;
+
+  CUdeviceptr MemBuf;
+  // 128MB
+  const size_t Size = 134217728;
+  Err = cuMemAllocManaged(&MemBuf, Size, CU_MEM_ATTACH_GLOBAL);
+  if (Err != CUDA_SUCCESS) {
+    REPORT("Failed to allocate USM for host rpc buffer\n");
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  Err = cuMemcpyHtoD(DescriptorVar, &Descriptor, sizeof(hostrpc::Descriptor *));
+  if (Err != CUDA_SUCCESS) {
+    REPORT("Failed to set %s to " DPxMOD ".\n", DescriptorVarName,
+           DPxPTR(Descriptor));
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  Err = cuMemcpyHtoD(FutexVar, &Futex, sizeof(int32_t *));
+  if (Err != CUDA_SUCCESS) {
+    REPORT("Failed to set %s to " DPxMOD ".\n", FutexVarName, DPxPTR(Futex));
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  Err = cuMemcpyHtoD(MemBufVar, &MemBuf, sizeof(int32_t *));
+  if (Err != CUDA_SUCCESS) {
+    REPORT("Failed to set %s to " DPxMOD ".\n", MemBufVarName, DPxPTR(MemBuf));
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  Err = cuMemcpyHtoD(MemBufSizeVar, &Size, sizeof(size_t));
+  if (Err != CUDA_SUCCESS) {
+    REPORT("Failed to set %s to " DPxMOD ".\n", MemBufSizeVarName,
+           DPxPTR(MemBufSizeVar));
+    CUDA_ERR_STRING(Err);
+    return false;
+  }
+
+  return true;
+}
+
+class HostRPCInvokerWrapper {
+  void (*Invoker)(int32_t, void *) = nullptr;
+  std::unique_ptr<llvm::sys::DynamicLibrary> DL;
+  std::once_flag Flag;
+
+  void initInvoker() {
+    std::string ErrMsg;
+    DL = std::make_unique<sys::DynamicLibrary>(
+        sys::DynamicLibrary::getPermanentLibrary(nullptr, &ErrMsg));
+
+    assert(DL->isValid() && "invalid DL");
+    *((void **)&Invoker) =
+        DL->getAddressOfSymbol("__kmpc_host_rpc_invoke_host_wrapper");
+    assert(Invoker && "Invoker is nullptr");
+  }
+
+public:
+  void invoke(int32_t CallNo, void *Desc) {
+    std::call_once(Flag, &HostRPCInvokerWrapper::initInvoker, this);
+    Invoker(CallNo, Desc);
+  }
+};
+
+class HostRPCStatistics {
+  struct RecordTy {
+    std::chrono::nanoseconds Time;
+    uint32_t Count = 0;
+  };
+
+  RecordTy Total;
+  std::unordered_map<int32_t, RecordTy> Records;
+  friend class HostRPCStatisticsRAII;
+
+public:
+  ~HostRPCStatistics() {
+    if (!Records.empty()) {
+      printf("** Host RPC Total Statistics **\n");
+      printf("Total count: %d.\n", Total.Count);
+      printf("Total time (ns): %lu.\n", Total.Time.count());
+      printf("** Host RPC Splited Statistics **\n");
+      for (auto &R : Records)
+        printf("ID=%d, count: %d, time (ns): %lu.\n", R.first, R.second.Count,
+               R.second.Time.count());
+    }
+  }
+} StatisticsTracker;
+
+class HostRPCStatisticsRAII {
+  int32_t Id;
+  std::chrono::time_point<std::chrono::system_clock> Start;
+
+public:
+  HostRPCStatisticsRAII(hostrpc::Descriptor &D)
+      : Id(D.Id), Start(std::chrono::high_resolution_clock::now()) {}
+  ~HostRPCStatisticsRAII() {
+    auto End = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds Duration = End - Start;
+    StatisticsTracker.Records[Id].Count++;
+    StatisticsTracker.Records[Id].Time += Duration;
+    StatisticsTracker.Total.Count++;
+    StatisticsTracker.Total.Time += Duration;
+  }
+};
+
+void runHostRPCServer(CUmodule Module, CUcontext Context,
+                      CUdeviceptr DescriptorPtr, CUdeviceptr FutexPtr) {
+  CUresult Err = cuCtxSetCurrent(Context);
+  if (!checkResult(Err, "error returned from cuCtxSetCurrent"))
+    return;
+
+  CUstream Stream;
+  Err = cuStreamCreate(&Stream, CU_STREAM_NON_BLOCKING);
+  if (Err != CUDA_SUCCESS) {
+    REPORT("Failed to create a stream to launch a new kernel\n");
+    CUDA_ERR_STRING(Err);
+    return;
+  }
+
+  HostRPCInvokerWrapper Invoker;
+  hostrpc::DescriptorWrapper Wrapper;
+
+  auto CheckGlobal = [Module](CUdeviceptr &Ptr, const char *Name, size_t Size) {
+    size_t CUSize;
+
+    CUresult Err = cuModuleGetGlobal(&Ptr, &CUSize, Module, Name);
+    if (Err != CUDA_SUCCESS)
+      return false;
+
+    if (CUSize != Size)
+      return false;
+
+    return true;
+  };
+
+  {
+    CUdeviceptr DevPtr;
+    if (CheckGlobal(DevPtr, "StdInDummyVar", sizeof(int)))
+      Wrapper.StdIn = reinterpret_cast<void *>(DevPtr);
+    if (CheckGlobal(DevPtr, "StdOutDummyVar", sizeof(int)))
+      Wrapper.StdOut = reinterpret_cast<void *>(DevPtr);
+    if (CheckGlobal(DevPtr, "StdErrDummyVar", sizeof(int)))
+      Wrapper.StdErr = reinterpret_cast<void *>(DevPtr);
+
+    DP("[host-rpc] host: stdin=%p, stdout=%p, stderr=%p\n", Wrapper.StdIn,
+       Wrapper.StdOut, Wrapper.StdErr);
+  }
+
+  const uint32_t Zero = 0U;
+
+  while (IsHostRPCEnabled) {
+    if (*reinterpret_cast<uint32_t *>(FutexPtr) == 0) {
+      // std::this_thread::sleep_for(50ns);
+      continue;
+    }
+
+    // Get the descriptor.
+    Wrapper.D = *reinterpret_cast<hostrpc::Descriptor *>(DescriptorPtr);
+
+    // If the client still didn't reset the descriptor, we skip it.
+    if (Wrapper.D.Status == hostrpc::EXEC_STAT_DONE) {
+      // std::this_thread::sleep_for(50ns);
+      continue;
+    }
+
+    DP("[host-rpc] get a request (id=%d).\n", Wrapper.D.Id);
+
+    HostRPCStatisticsRAII StatisticsRAII(Wrapper.D);
+
+    bool HandleResult = false;
+    switch (Wrapper.D.Id) {
+    case hostrpc::CALLID___kmpc_launch_parallel_51_kernel:
+      HandleResult =
+          handle___kmpc_launch_parallel_51_kernel(Wrapper.D, Module, Stream);
+      break;
+    default:
+      Invoker.invoke(Wrapper.D.Id, &Wrapper);
+      HandleResult = true;
+    }
+
+    Wrapper.D.Status = hostrpc::EXEC_STAT_DONE;
+    if (!HandleResult)
+      Wrapper.D.ReturnValue = 0;
+
+    DP("[host-rpc] finish request (id=%d) with retval 0x%lx.\n", Wrapper.D.Id,
+       Wrapper.D.ReturnValue);
+
+    // Update the descriptor and futex word on the device.
+    *reinterpret_cast<hostrpc::Descriptor *>(DescriptorPtr) = Wrapper.D;
+    Err = cuMemcpyHtoD(FutexPtr, &Zero, sizeof(uint32_t));
+    if (Err != CUDA_SUCCESS)
+      abort();
+  }
 }
 
 int memcpyDtoD(const void *SrcPtr, void *DstPtr, int64_t Size,
@@ -366,6 +744,9 @@ class DeviceRTLTy {
   std::vector<std::vector<PeerAccessState>> PeerAccessMatrix;
   std::mutex PeerAccessMatrixLock;
 
+  std::vector<std::vector<std::thread>> HostRPCServers;
+  std::vector<std::vector<int>> HostRPCInitState;
+
   /// A class responsible for interacting with device native runtime library to
   /// allocate and free memory.
   class CUDADeviceAllocatorTy : public DeviceAllocatorTy {
@@ -528,6 +909,8 @@ public:
     Modules.resize(NumberOfDevices);
     StreamPool.resize(NumberOfDevices);
     EventPool.resize(NumberOfDevices);
+    HostRPCServers.resize(NumberOfDevices);
+    HostRPCInitState.resize(NumberOfDevices);
     PeerAccessMatrix.resize(NumberOfDevices);
     for (auto &V : PeerAccessMatrix)
       V.resize(NumberOfDevices, PeerAccessState::Unkown);
@@ -764,6 +1147,11 @@ public:
   }
 
   int deinitDevice(const int DeviceId) {
+    IsHostRPCEnabled = false;
+
+    for (auto &T : HostRPCServers[DeviceId])
+      T.join();
+
     auto IsInitialized = InitializedFlags[DeviceId];
     if (!IsInitialized)
       return OFFLOAD_SUCCESS;
@@ -967,6 +1355,107 @@ public:
            "environment setting.\n");
       }
     }
+
+    // Initialize heap buffer
+    {
+      const char *BufferVarName = "omptarget_device_heap_buffer";
+      const char *SizeVarName = "omptarget_device_heap_size";
+      CUdeviceptr BufferVarPtr;
+      CUdeviceptr SizeVarPtr;
+      size_t BufferVarSize;
+      size_t SizeVarSize;
+
+      Err = cuModuleGetGlobal(&BufferVarPtr, &BufferVarSize, Module,
+                              BufferVarName);
+      if (Err == CUDA_SUCCESS) {
+        if (BufferVarSize != sizeof(uint64_t)) {
+          REPORT("Global global heap buffer pointer '%s' - size mismatch (%zu "
+                 "!= %zu)\n",
+                 BufferVarName, BufferVarSize, sizeof(uint64_t));
+          CUDA_ERR_STRING(Err);
+          return nullptr;
+        }
+
+        Err = cuModuleGetGlobal(&SizeVarPtr, &SizeVarSize, Module, SizeVarName);
+        if (Err == CUDA_SUCCESS) {
+          if (SizeVarSize != sizeof(uint64_t)) {
+            REPORT("Global global heap size variable '%s' - size mismatch (%zu "
+                   "!= %zu)\n",
+                   SizeVarName, SizeVarSize, sizeof(uint64_t));
+            CUDA_ERR_STRING(Err);
+            return nullptr;
+          }
+
+          size_t FreeGPUMemory = 0;
+          size_t TotalGPUMemory = 0;
+          // By default we allocate 12GB memory.
+          size_t HeapSize = 12884901888U;
+
+          Err = cuMemGetInfo(&FreeGPUMemory, &TotalGPUMemory);
+          if (Err == CUDA_SUCCESS)
+            HeapSize = FreeGPUMemory * 95 / 100;
+
+          INFO(OMP_INFOTYPE_PLUGIN_KERNEL, DeviceId,
+               "Allocate %zu bytes device memory for heap.\n", HeapSize);
+
+          CUdeviceptr BufferPtr;
+          Err = cuMemAlloc(&BufferPtr, HeapSize);
+          if (Err != CUDA_SUCCESS) {
+            REPORT("Error when allocating heap bufferm size = %zu\n", HeapSize);
+            CUDA_ERR_STRING(Err);
+            return nullptr;
+          }
+
+          Err = cuMemcpyHtoD(BufferVarPtr, &BufferPtr, BufferVarSize);
+          if (Err != CUDA_SUCCESS) {
+            REPORT("Error when copying data from host to device. Pointers: "
+                   "host = " DPxMOD ", device = " DPxMOD ", size = %zu\n",
+                   DPxPTR(&BufferPtr), DPxPTR(BufferVarPtr), BufferVarSize);
+            CUDA_ERR_STRING(Err);
+            return nullptr;
+          }
+
+          Err = cuMemcpyHtoD(SizeVarPtr, &HeapSize, SizeVarSize);
+          if (Err != CUDA_SUCCESS) {
+            REPORT("Error when copying data from host to device. Pointers: "
+                   "host = " DPxMOD ", device = " DPxMOD ", size = %zu\n",
+                   DPxPTR(&HeapSize), DPxPTR(SizeVarPtr), SizeVarSize);
+            CUDA_ERR_STRING(Err);
+            return nullptr;
+          }
+
+          DP("Successfully set heap buffer. omptarget_device_heap_buffer "
+             "= " DPxMOD ", omptarget_device_heap_size = %zu\n",
+             DPxPTR(BufferPtr), HeapSize);
+        } else {
+          DP("Finding global heap buffer pointer '%s' - symbol missing.\n",
+             SizeVarName);
+          DP("Continue, considering this is an image does not require heap "
+             "allocation.\n");
+        }
+
+      } else {
+        DP("Finding global heap buffer pointer '%s' - symbol missing.\n",
+           BufferVarName);
+        DP("Continue, considering this is an image does not require heap "
+           "allocation.\n");
+      }
+    }
+
+    // Start the host RPC thread
+    IsHostRPCEnabled = true;
+
+    CUdeviceptr DescriptorPtr;
+    CUdeviceptr FutexPtr;
+    if (!initHostRPCServer(Module, DeviceData[DeviceId].Context, DescriptorPtr,
+                           FutexPtr)) {
+      REPORT("Failed to init host RPC server\n");
+      return nullptr;
+    }
+
+    HostRPCServers[DeviceId].emplace_back(runHostRPCServer, Module,
+                                          DeviceData[DeviceId].Context,
+                                          DescriptorPtr, FutexPtr);
 
     return getOffloadEntriesTable(DeviceId);
   }
@@ -1560,8 +2049,8 @@ int32_t __tgt_rtl_is_valid_binary(__tgt_device_image *Image) {
 
 int32_t __tgt_rtl_is_valid_binary_info(__tgt_device_image *Image,
                                        __tgt_image_info *Info) {
-  if (!__tgt_rtl_is_valid_binary(Image))
-    return false;
+  // if (!__tgt_rtl_is_valid_binary(Image))
+  //   return false;
 
   // A subarchitecture was not specified. Assume it is compatible.
   if (!Info || !Info->Arch)

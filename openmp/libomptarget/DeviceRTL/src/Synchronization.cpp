@@ -479,6 +479,18 @@ void setCriticalLock(omp_lock_t *Lock) {
   impl::setLock(Lock);
 }
 
+void mutex::TicketLock::lock() {
+  uint64_t MyTicket = atomic::add(&NextTicket, 1, atomic::seq_cst);
+  while (atomic::load(&NowServing, atomic::aquire) != MyTicket)
+    ;
+  fence::kernel(atomic::aquire);
+}
+
+void mutex::TicketLock::unlock() {
+  fence::kernel(atomic::release);
+  atomic::add(&NowServing, 1, atomic::seq_cst);
+}
+
 extern "C" {
 void __kmpc_ordered(IdentTy *Loc, int32_t TId) { FunctionTracingRAII(); }
 

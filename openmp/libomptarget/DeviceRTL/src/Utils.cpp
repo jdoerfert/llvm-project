@@ -29,6 +29,10 @@ __keep_alive() {
   __kmpc_get_warp_size();
   __kmpc_barrier_simple_spmd(nullptr, IsSPMDMode);
   __kmpc_barrier_simple_generic(nullptr, IsSPMDMode);
+  __kmpc_host_rpc_get_desc(0, 0, nullptr);
+  __kmpc_host_rpc_add_arg(nullptr, 0, 0);
+  __kmpc_host_rpc_send_and_wait(nullptr);
+  __kmpc_launch_parallel_51_kernel(nullptr, 0, 0, 0, nullptr, 0);
 }
 
 namespace impl {
@@ -103,8 +107,9 @@ int32_t shuffleDown(uint64_t Mask, int32_t Var, uint32_t LaneDelta,
   return __builtin_amdgcn_ds_bpermute(Index << 2, Var);
 }
 
-bool isSharedMemPtr(const void * Ptr) {
-  return __builtin_amdgcn_is_shared((const __attribute__((address_space(0))) void *)Ptr);
+bool isSharedMemPtr(const void *Ptr) {
+  return __builtin_amdgcn_is_shared(
+      (const __attribute__((address_space(0))) void *)Ptr);
 }
 #pragma omp end declare variant
 ///}

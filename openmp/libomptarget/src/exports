@@ -62,6 +62,8 @@ VERS1.0 {
     __tgt_interop_init;
     __tgt_interop_use;
     __tgt_interop_destroy;
+    __kmpc_host_rpc_get_arg;
+    __kmpc_host_rpc_set_ret_val;
   local:
     *;
 };

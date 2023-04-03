@@ -13,6 +13,7 @@
 #include "Debug.h"
 #include "Interface.h"
 #include "Mapping.h"
+#include "Memory.h"
 #include "State.h"
 #include "Synchronization.h"
 #include "Types.h"

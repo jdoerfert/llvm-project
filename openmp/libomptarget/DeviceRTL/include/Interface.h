@@ -351,6 +351,22 @@ int32_t __kmpc_cancel(IdentTy *Loc, int32_t TId, int32_t CancelVal);
 int32_t __kmpc_shuffle_int32(int32_t val, int16_t delta, int16_t size);
 int64_t __kmpc_shuffle_int64(int64_t val, int16_t delta, int16_t size);
 ///}
+
+/// Host RPC
+///
+/// {
+void *__kmpc_host_rpc_get_desc(int32_t CallNo, int32_t NumArgs, void *ArgInfo);
+void __kmpc_host_rpc_add_arg(void *Desc, int64_t Arg, int32_t ArgNum);
+int64_t __kmpc_host_rpc_send_and_wait(void *Desc);
+/// }
+
+/// Launch parallel kernel
+///
+///{
+void __kmpc_launch_parallel_51_kernel(const char *name, int32_t gtid,
+                                      int32_t if_expr, int32_t num_threads,
+                                      void **args, int64_t nargs);
+///}
 }
 
 #endif

@@ -16,6 +16,9 @@
 
 #pragma omp begin declare target device_type(nohost)
 
+extern "C" double omp_get_wtime();
+extern "C" int printf(const char *, ...);
+
 namespace ompx {
 namespace utils {
 
@@ -37,8 +40,8 @@ template <typename Ty> inline Ty roundUp(Ty V, Ty Boundary) {
 }
 
 /// Advance \p Ptr by \p Bytes bytes.
-template <typename Ty1, typename Ty2> inline Ty1 *advance(Ty1 Ptr, Ty2 Bytes) {
-  return reinterpret_cast<Ty1 *>(reinterpret_cast<char *>(Ptr) + Bytes);
+template <typename Ty1, typename Ty2> inline Ty1 advance(Ty1 Ptr, Ty2 Bytes) {
+  return reinterpret_cast<Ty1>(reinterpret_cast<char *>(Ptr) + Bytes);
 }
 
 /// Return the first bit set in \p V.
@@ -82,11 +85,38 @@ template <typename DstTy, typename SrcTy> inline DstTy convertViaPun(SrcTy V) {
   return *((DstTy *)(&V));
 }
 
+template <typename Ty = char>
+ptrdiff_t getPtrDiff(const void *End, const void *Begin) {
+  return reinterpret_cast<const Ty *>(End) -
+         reinterpret_cast<const Ty *>(Begin);
+}
+
+inline bool isInRange(void *Ptr, void *BasePtr, int64_t Offset) {
+  ptrdiff_t Diff = getPtrDiff(Ptr, BasePtr);
+  return Diff >= 0 && Diff < Offset;
+}
+
+inline intptr_t ptrtoint(void *Ptr) { return reinterpret_cast<intptr_t>(Ptr); }
+
+template <typename T> T min(T a, T b) { return a < b ? a : b; }
+
 /// A  pointer variable that has by design an `undef` value. Use with care.
 __attribute__((loader_uninitialized)) static void *const UndefPtr;
 
 #define OMP_LIKELY(EXPR) __builtin_expect((bool)(EXPR), true)
 #define OMP_UNLIKELY(EXPR) __builtin_expect((bool)(EXPR), false)
+
+class SimpleProfiler {
+  const char *HeadLine = nullptr;
+  double Start;
+
+public:
+  SimpleProfiler(const char *HL) : HeadLine(HL), Start(omp_get_wtime()) {}
+  ~SimpleProfiler() {
+    double End = omp_get_wtime();
+    printf("%s --> %lf s.\n", HeadLine, End - Start);
+  }
+};
 
 } // namespace utils
 } // namespace ompx

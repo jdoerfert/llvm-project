@@ -211,9 +211,14 @@ uint32_t mapping::getThreadIdInBlock() {
 uint32_t mapping::getWarpSize() { return impl::getWarpSize(); }
 
 uint32_t mapping::getBlockSize(bool IsSPMD) {
-  uint32_t BlockSize =
-      mapping::getNumberOfProcessorElements() - (!IsSPMD * impl::getWarpSize());
-  return BlockSize;
+  uint32_t BlockSize = mapping::getNumberOfProcessorElements();
+  if (IsSPMD)
+    return BlockSize;
+  uint32_t WarpSize = impl::getWarpSize();
+  bool IsFullLastWarp = !(BlockSize % WarpSize);
+  if (OMP_LIKELY(IsFullLastWarp))
+    return BlockSize - WarpSize;
+  return BlockSize - BlockSize % WarpSize;
 }
 uint32_t mapping::getBlockSize() {
   return mapping::getBlockSize(mapping::isSPMDMode());

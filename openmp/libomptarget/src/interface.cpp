@@ -16,6 +16,7 @@
 #include "private.h"
 #include "rtl.h"
 
+#include "HostRPC.h"
 #include "Utilities.h"
 
 #include <cassert>
@@ -428,4 +429,34 @@ EXTERN void __tgt_target_nowait_query(void **AsyncHandle) {
   // Delete the handle and unset it from the OpenMP task data.
   delete AsyncInfo;
   *AsyncHandle = nullptr;
+}
+
+// Host RPC support functions.
+EXTERN int64_t __kmpc_host_rpc_get_arg(void *Wrapper, int32_t ArgNum) {
+  auto *W = reinterpret_cast<hostrpc::DescriptorWrapper *>(Wrapper);
+  auto &SD = W->D;
+
+  assert(ArgNum < SD.NumArgs && "out-of-range argument");
+
+  int64_t ArgVal = SD.Args[ArgNum].Value;
+  void *ArgPtr = reinterpret_cast<void *>(ArgVal);
+
+  DP("[host-rpc] get argno=%d arg=%lx...\n", ArgNum, ArgVal);
+
+  if (W->StdIn && SD.Args[ArgNum].ArgType == hostrpc::ARG_POINTER &&
+      ArgPtr == W->StdIn)
+    return (int64_t)stdin;
+  if (W->StdOut && SD.Args[ArgNum].ArgType == hostrpc::ARG_POINTER &&
+      ArgPtr == W->StdOut)
+    return (int64_t)stdout;
+  if (W->StdErr && SD.Args[ArgNum].ArgType == hostrpc::ARG_POINTER &&
+      ArgPtr == W->StdErr)
+    return (int64_t)stderr;
+
+  return ArgVal;
+}
+
+EXTERN void __kmpc_host_rpc_set_ret_val(void *Wrapper, int64_t RetVal) {
+  auto &SD = reinterpret_cast<hostrpc::DescriptorWrapper *>(Wrapper)->D;
+  SD.ReturnValue = RetVal;
 }

@@ -433,6 +433,10 @@ int __tgt_target_kernel_replay(ident_t *Loc, int64_t DeviceId, void *HostPtr,
 void __tgt_set_info_flag(uint32_t);
 
 int __tgt_print_device_info(int64_t DeviceId);
+
+// Host RPC support
+int64_t __kmpc_host_rpc_get_arg(void *Wrapper, int32_t ArgNo);
+void __kmpc_host_rpc_set_ret_val(void *Wrapper, int64_t RetVal);
 #ifdef __cplusplus
 }
 #endif

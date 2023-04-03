@@ -52,6 +52,7 @@
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 
 #include <algorithm>
 #include <optional>
@@ -133,6 +134,15 @@ static cl::opt<bool>
     EnableVerboseRemarks("openmp-opt-verbose-remarks",
                          cl::desc("Enables more verbose remarks."), cl::Hidden,
                          cl::init(false));
+
+static cl::opt<bool>
+    EnableParallel51Split("openmp-opt-enable-parallel-51-split",
+                          cl::desc("Enable the kernel split at parallel_51."),
+                          cl::Hidden, cl::init(false));
+static cl::opt<bool> EnableParallel51SplitMultiTeams(
+    "openmp-opt-enable-parallel-51-split-multi-teams",
+    cl::desc("Enable multi-teams support for the parallel 51 kernel."),
+    cl::Hidden, cl::init(false));
 
 static cl::opt<unsigned>
     SetFixpointIterations("openmp-opt-max-iterations", cl::Hidden,
@@ -814,6 +824,13 @@ private:
   }
 };
 
+bool canUseMultiTeam(Function *OutlinedFn, OMPInformationCache &OMPInfoCache) {
+  if (!EnableParallel51SplitMultiTeams)
+    return false;
+
+  return true;
+}
+
 struct OpenMPOpt {
 
   using OptimizationRemarkGetter =
@@ -843,6 +860,11 @@ struct OpenMPOpt {
                       << OMPInfoCache.ModuleSlice.size() << " functions\n");
 
     if (IsModulePass) {
+      if (EnableParallel51Split)
+        Changed |= splitKernels();
+
+      OMPInfoCache.recollectUses();
+
       Changed |= runAttributor(IsModulePass);
 
       // Recollect uses, in case Attributor deleted any.
@@ -942,6 +964,260 @@ struct OpenMPOpt {
   }
 
 private:
+  /// Create a new kernel for each function call to __kmpc_parallel_51.
+  bool splitKernels() {
+    bool Changed = false;
+
+    OMPInformationCache::RuntimeFunctionInfo &Parallel51RFI =
+        OMPInfoCache.RFIs[OMPRTL___kmpc_parallel_51];
+
+    if (!Parallel51RFI.Declaration)
+      return Changed;
+
+    SmallVector<CallInst *> WorkItems;
+    for (User *U : Parallel51RFI.Declaration->users()) {
+      auto *CI = dyn_cast<CallInst>(U);
+      if (!CI)
+        continue;
+
+      Function *F = CI->getFunction();
+      // If the parent function is already from kernel split, skip it.
+      Attribute Attr = F->getFnAttribute("omp_parallel_51_kernel");
+      if (Attr.isValid())
+        continue;
+
+      WorkItems.push_back(CI);
+    }
+
+    if (WorkItems.empty())
+      return Changed;
+
+    Changed = true;
+
+    auto CreateNewKernel = [](LLVMContext &Ctx, Module &M,
+                              OpenMPIRBuilder &IRBuilder, Function *Parallel51,
+                              const CallInst *CI) {
+      SmallVector<Type *, 4> ArgTypes;
+      // int32_t gtid
+      ArgTypes.push_back(Type::getInt32Ty(Ctx));
+      // int32_t if_expr
+      ArgTypes.push_back(Type::getInt32Ty(Ctx));
+      // int32_t num_threads
+      ArgTypes.push_back(Type::getInt32Ty(Ctx));
+      // void **args
+      ArgTypes.push_back(Type::getInt8PtrTy(Ctx));
+      // int64_t nargs
+      ArgTypes.push_back(Type::getInt64Ty(Ctx));
+
+      FunctionType *FT =
+          FunctionType::get(Type::getVoidTy(Ctx), ArgTypes, false);
+      std::string KernelName = "__omp_offloading_parallel_51_from_";
+      KernelName += CI->getFunction()->getName();
+      // Sanitize the kernel name
+      {
+        size_t DotPos = KernelName.find('.');
+        while (DotPos != std::string::npos) {
+          KernelName[DotPos] = '_';
+          DotPos = KernelName.find('.');
+        }
+      }
+      Function *K =
+          Function::Create(FT, GlobalValue::WeakODRLinkage, KernelName, &M);
+      K->setVisibility(GlobalValue::ProtectedVisibility);
+      // exec mode global variable
+      GlobalVariable *ModeGV = new GlobalVariable(
+          M, Type::getInt8Ty(Ctx), /*isConstant=*/true,
+          GlobalValue::WeakAnyLinkage,
+          ConstantInt::get(Type::getInt8Ty(Ctx), OMP_TGT_EXEC_MODE_SPMD),
+          K->getName() + "_exec_mode");
+      appendToCompilerUsed(M, {ModeGV});
+
+      // Attach "kernel" metadata to the new kernel.
+      NamedMDNode *MD = M.getOrInsertNamedMetadata("nvvm.annotations");
+      Metadata *MDVals[] = {ConstantAsMetadata::get(K),
+                            MDString::get(Ctx, "kernel"),
+                            ConstantAsMetadata::get(ConstantInt::get(
+                                llvm::Type::getInt32Ty(Ctx), 1))};
+      MD->addOperand(MDNode::get(Ctx, MDVals));
+      // Set kernel attributes.
+      K->setAttributes(
+          AttributeList::get(Ctx, AttributeList::FunctionIndex,
+                             CI->getFunction()->getAttributes().getFnAttrs()));
+      K->removeFnAttr("omp_target_thread_limit");
+      K->removeFnAttr("omp_target_num_teams");
+      K->addFnAttr("omp_parallel_51_kernel");
+      K->addFnAttr("kernel");
+      K->getArg(3)->addAttr(Attribute::NoAlias);
+
+      auto *EntryBB = BasicBlock::Create(Ctx, "entry", K);
+      OpenMPIRBuilder::LocationDescription TargetInitLoc(
+          {EntryBB, EntryBB->end()});
+      auto IP = IRBuilder.createTargetInit(TargetInitLoc, /* IsSPMD */ true);
+      BasicBlock *UserCodeBB = IP.getBlock();
+
+      auto UseDirectIfPossible = [](Value *LHS, Value *RHS) -> Value * {
+        if (isa<Constant>(LHS))
+          return LHS;
+        return RHS;
+      };
+
+      Value *Ident = CI->getOperand(0);
+      Value *TId = UseDirectIfPossible(CI->getOperand(1), K->getArg(0));
+      Value *IfExpr = UseDirectIfPossible(CI->getOperand(2), K->getArg(1));
+      Value *NumThreads = UseDirectIfPossible(CI->getOperand(3), K->getArg(2));
+      Value *ProcBind = CI->getOperand(4);
+      Value *Fn = CI->getOperand(5);
+      Value *WrapperFn = CI->getOperand(6);
+      Value *Args = K->getArg(3);
+      Value *NArgs = UseDirectIfPossible(CI->getOperand(8), K->getArg(4));
+
+      (void)CallInst::Create(Parallel51,
+                             {Ident, TId, IfExpr, NumThreads, ProcBind, Fn,
+                              WrapperFn, Args, NArgs},
+                             "", UserCodeBB);
+
+      OpenMPIRBuilder::LocationDescription TargetDeInitLoc(
+          {UserCodeBB, UserCodeBB->end()});
+      IRBuilder.createTargetDeinit(TargetDeInitLoc, /* IsSPMD */ true);
+      IRBuilder.Builder.CreateRetVoid();
+
+      return K;
+    };
+
+    auto EnableMultiTeam = [](Function *OutlinedFn) {
+      SmallVector<CallInst *> WorkItems;
+      for (BasicBlock &BB : *OutlinedFn)
+        for (Instruction &I : BB) {
+          CallInst *C = dyn_cast<CallInst>(&I);
+          if (!C)
+            continue;
+          Function *Callee = C->getCalledFunction();
+          auto CalleeName = Callee->getName();
+          if (CalleeName == "__kmpc_for_static_init_4" ||
+              CalleeName == "__kmpc_for_static_init_4u" ||
+              CalleeName == "__kmpc_for_static_init_8" ||
+              CalleeName == "__kmpc_for_static_init_8u")
+            WorkItems.push_back(C);
+        }
+
+      for (CallInst *C : WorkItems) {
+        constexpr const unsigned SchedTypeArgNum = 2;
+        Value *SchedTypeVal = C->getOperand(SchedTypeArgNum);
+        ConstantInt *SchedTypeCI = cast<ConstantInt>(SchedTypeVal);
+        int32_t SchedType = SchedTypeCI->getSExtValue();
+        Value *NewSchedType = SchedTypeVal;
+        if (SchedType == /*kmp_sched_static_chunk*/ 33)
+          NewSchedType = ConstantInt::get(SchedTypeCI->getType(), 100);
+        else if (SchedType == /*kmp_sched_static_chunk*/ 34)
+          NewSchedType = ConstantInt::get(SchedTypeCI->getType(), 101);
+        C->setOperand(SchedTypeArgNum, NewSchedType);
+      }
+    };
+
+    auto &Ctx = M.getContext();
+
+    for (CallInst *CI : WorkItems) {
+      Function *K = CreateNewKernel(Ctx, M, OMPInfoCache.OMPBuilder,
+                                    Parallel51RFI.Declaration, CI);
+      OMPInfoCache.Kernels.insert(K);
+
+      constexpr const unsigned OutlinedFnArgNum = 5;
+      Function *OutlinedFn =
+          dyn_cast<Function>(CI->getOperand(OutlinedFnArgNum));
+      assert(OutlinedFn && "arg fn is not a function");
+
+      if (canUseMultiTeam(OutlinedFn, OMPInfoCache))
+        EnableMultiTeam(OutlinedFn);
+
+      auto &Ctx = M.getContext();
+      IRBuilder<> Builder(CI);
+
+      FunctionCallee Callee =
+          OMPInfoCache.OMPBuilder.getOrCreateRuntimeFunction(
+              M, OMPRTL___kmpc_launch_parallel_51_kernel);
+      Constant *KernelName = ConstantDataArray::getString(Ctx, K->getName());
+      GlobalVariable *KernelNameVar =
+          new GlobalVariable(M, KernelName->getType(), /*isConstant=*/true,
+                             GlobalValue::WeakAnyLinkage, KernelName);
+      Value *Args[6] = {KernelNameVar,        CI->getArgOperand(1),
+                        CI->getArgOperand(2), CI->getArgOperand(3),
+                        CI->getArgOperand(7), CI->getArgOperand(8)};
+
+      CallInst *C = Builder.CreateCall(Callee, Args);
+      OMPInfoCache.setCallingConvention(Callee, C);
+      CI->eraseFromParent();
+    }
+
+    // Check all the use of __kmpc_parallel_51 again. If it is just used in
+    // parallel kernel, we can mark the main kernel as SPMD mode as well.
+    bool OnlyUsedByParallelKernel = true;
+    for (User *U : Parallel51RFI.Declaration->users()) {
+      auto *CI = dyn_cast<CallInst>(U);
+      if (!CI)
+        continue;
+      Function *F = CI->getFunction();
+      Attribute Attr = F->getFnAttribute("omp_parallel_51_kernel");
+      if (Attr.isValid())
+        continue;
+      OnlyUsedByParallelKernel = false;
+      break;
+    }
+
+    if (OnlyUsedByParallelKernel) {
+      for (auto K : OMPInfoCache.Kernels) {
+        Attribute Attr = K->getFnAttribute("omp_parallel_51_kernel");
+        if (Attr.isValid())
+          continue;
+        GlobalVariable *ExecMode =
+            M.getGlobalVariable((K->getName() + "_exec_mode").str());
+        assert(ExecMode && "kernel without exec mode");
+        assert(ExecMode->getInitializer() &&
+               "ExecMode doesn't have initializer!");
+        assert(isa<ConstantInt>(ExecMode->getInitializer()) &&
+               "ExecMode is not an integer!");
+        const int8_t ExecModeVal =
+            cast<ConstantInt>(ExecMode->getInitializer())->getSExtValue();
+        // Kernel is already in SPMD mode, skip.
+        if (ExecModeVal & OMP_TGT_EXEC_MODE_SPMD)
+          continue;
+        auto *NewExecModeC =
+            ConstantInt::get(Type::getInt8Ty(Ctx), OMP_TGT_EXEC_MODE_SPMD);
+        ExecMode->setInitializer(NewExecModeC);
+        OMPInformationCache::RuntimeFunctionInfo &TargetInitRFI =
+            OMPInfoCache.RFIs[OMPRTL___kmpc_target_init];
+        OMPInformationCache::RuntimeFunctionInfo &TargetDeInitRFI =
+            OMPInfoCache.RFIs[OMPRTL___kmpc_target_deinit];
+        CallInst *InitCI = nullptr;
+        CallInst *DeInitCI = nullptr;
+        for (User *U : TargetInitRFI.Declaration->users()) {
+          auto *CI = dyn_cast<CallInst>(U);
+          if (!CI)
+            continue;
+          if (CI->getFunction() == K) {
+            InitCI = CI;
+            break;
+          }
+        }
+        for (User *U : TargetDeInitRFI.Declaration->users()) {
+          auto *CI = dyn_cast<CallInst>(U);
+          if (!CI)
+            continue;
+          if (CI->getFunction() == K) {
+            DeInitCI = CI;
+            break;
+          }
+        }
+        assert(InitCI && DeInitCI && "kernel without init and deinit");
+        InitCI->setArgOperand(1, NewExecModeC);
+        InitCI->setArgOperand(2,
+                              ConstantInt::getNullValue(Type::getInt1Ty(Ctx)));
+        DeInitCI->setArgOperand(1, NewExecModeC);
+      }
+    }
+
+    return Changed;
+  }
+
   /// Merge parallel regions when it is safe.
   bool mergeParallelRegions() {
     const unsigned CallbackCalleeOperand = 2;
@@ -3036,7 +3312,7 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
           if (EDAA.getState().isValidState()) {
             const auto &CalleeED = EDAA.getFunctionExecutionDomain();
             ED.IsReachedFromAlignedBarrierOnly =
-                    CalleeED.IsReachedFromAlignedBarrierOnly;
+                CalleeED.IsReachedFromAlignedBarrierOnly;
             AlignedBarrierLastInBlock = ED.IsReachedFromAlignedBarrierOnly;
             if (IsNoSync || !CalleeED.IsReachedFromAlignedBarrierOnly)
               ED.EncounteredNonLocalSideEffect |=
@@ -3526,7 +3802,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
     Attributor::SimplifictionCallbackTy StateMachineSimplifyCB =
         [&](const IRPosition &IRP, const AbstractAttribute *AA,
             bool &UsedAssumedInformation) -> std::optional<Value *> {
-        return nullptr;
+      return nullptr;
     };
 
     Attributor::SimplifictionCallbackTy ModeSimplifyCB =
