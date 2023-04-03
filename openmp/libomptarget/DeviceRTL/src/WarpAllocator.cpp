@@ -98,7 +98,9 @@ template <int32_t WARP_SIZE> struct WarpAllocator {
     OtherThreadHeapSize = utils::align_down(OtherThreadHeapSize, Alignment);
 
     for (int I = 0; I < WARP_SIZE; ++I) {
-      Entries[I] = nullptr;
+      Entries[I] = WarpAllocatorEntry::fromPtr(getBlockBegin(I));
+      Entries[I]->setSize(sizeof(WarpAllocatorEntry));
+      Entries[I]->setPrevSize(nullptr);
       size_t PrivateOffset = OtherThreadHeapSize * I + FirstThreadHeapSize;
       Limits[I] = omptarget_device_heap_buffer + PrivateOffset;
     }
@@ -117,14 +119,11 @@ template <int32_t WARP_SIZE> struct WarpAllocator {
       mutex::LockGuard LG(Locks[TIdInWarp]);
 
       auto *LastEntry = Entries[TIdInWarp];
-      auto *NewWatermark =
-          (LastEntry ? LastEntry->getEndPtr() : getBlockBegin(TIdInWarp)) +
-          Size;
+      auto *NewWatermark = LastEntry->getEndPtr() + Size;
       if (NewWatermark >= Limits[TIdInWarp]) {
         E = findMemorySlow(Size, TIdInWarp);
       } else {
-        E = LastEntry ? LastEntry->getNext()
-                      : WarpAllocatorEntry::fromPtr(getBlockBegin(TIdInWarp));
+        E =LastEntry->getNext();
         E->setSize(Size);
         E->setPrevSize(LastEntry);
         Entries[TIdInWarp] = E;
