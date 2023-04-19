@@ -1240,6 +1240,9 @@ void CGOpenMPRuntimeGPU::emitParallelCall(CodeGenFunction &CGF,
                         Args);
   };
 
+OutlinedFn->dump();
+for (auto *C : CapturedVars)
+C->dump();
   RegionCodeGenTy RCG(ParallelGen);
   RCG(CGF);
 }

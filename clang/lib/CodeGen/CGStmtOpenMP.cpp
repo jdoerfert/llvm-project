@@ -323,6 +323,10 @@ llvm::Value *CodeGenFunction::getTypeSize(QualType Ty) {
   return CGM.getSize(SizeInChars);
 }
 
+static llvm::Value *getAsPtr(CodeGenFunction &CGF, llvm::Value &V) {
+  return CGF.Builder.CreateIntToPtr(&V, CGF.VoidPtrTy);
+}
+
 void CodeGenFunction::GenerateOpenMPCapturedVars(
     const CapturedStmt &S, SmallVectorImpl<llvm::Value *> &CapturedVars) {
   const RecordDecl *RD = S.getCapturedRecordDecl();
@@ -342,25 +346,9 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
 
       // If the field is not a pointer, we need to save the actual value
       // and load it as a void pointer.
-      if (!CurField->getType()->isAnyPointerType()) {
-        ASTContext &Ctx = getContext();
-        Address DstAddr = CreateMemTemp(
-            Ctx.getUIntPtrType(),
-            Twine(CurCap->getCapturedVar()->getName(), ".casted"));
-        LValue DstLV = MakeAddrLValue(DstAddr, Ctx.getUIntPtrType());
-
-        llvm::Value *SrcAddrVal = EmitScalarConversion(
-            DstAddr.getPointer(), Ctx.getPointerType(Ctx.getUIntPtrType()),
-            Ctx.getPointerType(CurField->getType()), CurCap->getLocation());
-        LValue SrcLV =
-            MakeNaturalAlignAddrLValue(SrcAddrVal, CurField->getType());
-
-        // Store the value using the source type pointer.
-        EmitStoreThroughLValue(RValue::get(CV), SrcLV);
-
-        // Load the value using the destination type pointer.
-        CV = EmitLoadOfScalar(DstLV, CurCap->getLocation());
-      }
+      if (CV->getType()->isIntegerTy())
+        CV = getAsPtr(*this, *CV);
+      
       CapturedVars.push_back(CV);
     } else {
       assert(CurCap->capturesVariable() && "Expected capture by reference.");
@@ -443,6 +431,8 @@ static llvm::Function *emitOutlinedFunctionPrologue(
   TargetArgs.append(
       CD->param_begin(),
       std::next(CD->param_begin(), CD->getContextParamPosition()));
+llvm::errs() << "Begin\n";
+for (auto &TA: TargetArgs) TA->getType().dump();
   auto I = FO.S->captures().begin();
   FunctionDecl *DebugFunctionDecl = nullptr;
   if (!FO.UIntPtrCastRequired) {
@@ -460,16 +450,6 @@ static llvm::Function *emitOutlinedFunctionPrologue(
     IdentifierInfo *II = nullptr;
     VarDecl *CapVar = nullptr;
 
-    // If this is a capture by copy and the type is not a pointer, the outlined
-    // function argument type should be uintptr and the value properly casted to
-    // uintptr. This is necessary given that the runtime library is only able to
-    // deal with pointers. We can pass in the same way the VLA type sizes to the
-    // outlined function.
-    if (FO.UIntPtrCastRequired &&
-        ((I->capturesVariableByCopy() && !ArgType->isAnyPointerType()) ||
-         I->capturesVariableArrayType()))
-      ArgType = Ctx.getUIntPtrType();
-
     if (I->capturesVariable() || I->capturesVariableByCopy()) {
       CapVar = I->getCapturedVar();
       II = CapVar->getIdentifier();
@@ -479,8 +459,10 @@ static llvm::Function *emitOutlinedFunctionPrologue(
       assert(I->capturesVariableArrayType());
       II = &Ctx.Idents.get("vla");
     }
-    if (ArgType->isVariablyModifiedType())
-      ArgType = getCanonicalParamType(Ctx, ArgType);
+
+    if (!ArgType->isAnyPointerType())
+       ArgType = Ctx.VoidPtrTy;
+
     VarDecl *Arg;
     if (CapVar && (CapVar->getTLSKind() != clang::VarDecl::TLS_None)) {
       Arg = ImplicitParamDecl::Create(Ctx, /*DC=*/nullptr, FD->getLocation(),
@@ -498,17 +480,18 @@ static llvm::Function *emitOutlinedFunctionPrologue(
     }
     Args.emplace_back(Arg);
     // Do not cast arguments if we emit function with non-original types.
-    TargetArgs.emplace_back(
-        FO.UIntPtrCastRequired
-            ? Arg
-            : CGM.getOpenMPRuntime().translateParameter(FD, Arg));
+    TargetArgs.emplace_back(Arg);
     ++I;
   }
+llvm::errs() << "mid\n";
+for (auto &TA: TargetArgs) TA->getType().dump();
   Args.append(std::next(CD->param_begin(), CD->getContextParamPosition() + 1),
               CD->param_end());
   TargetArgs.append(
       std::next(CD->param_begin(), CD->getContextParamPosition() + 1),
       CD->param_end());
+llvm::errs() << "end\n";
+for (auto &TA: TargetArgs) TA->getType().dump();
 
   // Create the function declaration.
   const CGFunctionInfo &FuncInfo =
@@ -531,15 +514,13 @@ static llvm::Function *emitOutlinedFunctionPrologue(
 
   // Generate the function.
   CGF.StartFunction(CD, Ctx.VoidTy, F, FuncInfo, TargetArgs,
-                    FO.UIntPtrCastRequired ? FO.Loc : FO.S->getBeginLoc(),
-                    FO.UIntPtrCastRequired ? FO.Loc
-                                           : CD->getBody()->getBeginLoc());
+                    FO.Loc, FO.Loc);
   unsigned Cnt = CD->getContextParamPosition();
   I = FO.S->captures().begin();
   for (const FieldDecl *FD : RD->fields()) {
     // Do not map arguments if we emit function with non-original types.
     Address LocalAddr(Address::invalid());
-    if (!FO.UIntPtrCastRequired && Args[Cnt] != TargetArgs[Cnt]) {
+    if (Args[Cnt] != TargetArgs[Cnt]) {
       LocalAddr = CGM.getOpenMPRuntime().getParameterAddress(CGF, Args[Cnt],
                                                              TargetArgs[Cnt]);
     } else {
@@ -555,11 +536,12 @@ static llvm::Function *emitOutlinedFunctionPrologue(
       ++I;
       continue;
     }
+    FD->dump();
 
-    LValue ArgLVal = CGF.MakeAddrLValue(LocalAddr, Args[Cnt]->getType(),
+    LValue ArgLVal = CGF.MakeAddrLValue(LocalAddr, FD->getType(),
                                         AlignmentSource::Decl);
     if (FD->hasCapturedVLAType()) {
-      if (FO.UIntPtrCastRequired) {
+      if (true) {
         ArgLVal = CGF.MakeAddrLValue(
             castValueFromUintptr(CGF, I->getLocation(), FD->getType(),
                                  Args[Cnt]->getName(), ArgLVal),
@@ -588,11 +570,10 @@ static llvm::Function *emitOutlinedFunctionPrologue(
              "Not expecting a captured pointer.");
       const VarDecl *Var = I->getCapturedVar();
       LocalAddrs.insert({Args[Cnt],
-                         {Var, FO.UIntPtrCastRequired
-                                   ? castValueFromUintptr(
+                         {Var, 
+                                    castValueFromUintptr(
                                          CGF, I->getLocation(), FD->getType(),
-                                         Args[Cnt]->getName(), ArgLVal)
-                                   : ArgLVal.getAddress(CGF)}});
+                                         Args[Cnt]->getName(), ArgLVal)}});
     } else {
       // If 'this' is captured, load it into CXXThisValue.
       assert(I->capturesThis());
@@ -3156,14 +3137,14 @@ static void emitDistributeParallelForDistributeInnerBoundParams(
   llvm::Value *LBCast =
       CGF.Builder.CreateIntCast(CGF.Builder.CreateLoad(LB.getAddress(CGF)),
                                 CGF.SizeTy, /*isSigned=*/false);
-  CapturedVars.push_back(LBCast);
+  CapturedVars.push_back(getAsPtr(CGF, *LBCast));
+
   LValue UB =
       CGF.EmitLValue(cast<DeclRefExpr>(Dir.getCombinedUpperBoundVariable()));
-
   llvm::Value *UBCast =
       CGF.Builder.CreateIntCast(CGF.Builder.CreateLoad(UB.getAddress(CGF)),
                                 CGF.SizeTy, /*isSigned=*/false);
-  CapturedVars.push_back(UBCast);
+  CapturedVars.push_back(getAsPtr(CGF, *UBCast));
 }
 
 static void
@@ -6671,6 +6652,9 @@ static void emitCommonOMPTeamsDirective(CodeGenFunction &CGF,
   OMPTeamsScope Scope(CGF, S);
   llvm::SmallVector<llvm::Value *, 16> CapturedVars;
   CGF.GenerateOpenMPCapturedVars(*CS, CapturedVars);
+OutlinedFn->dump();
+for (auto *C : CapturedVars)
+C->dump();
   CGF.CGM.getOpenMPRuntime().emitTeamsCall(CGF, S, S.getBeginLoc(), OutlinedFn,
                                            CapturedVars);
 }

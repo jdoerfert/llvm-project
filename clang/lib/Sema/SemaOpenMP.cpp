@@ -4442,11 +4442,13 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
     QualType KmpInt32Ty = Context.getIntTypeForBitwidth(32, 1).withConst();
     QualType KmpInt32PtrTy =
         Context.getPointerType(KmpInt32Ty).withConst().withRestrict();
+    QualType VoidPtrTy = Context.VoidPtrTy.withConst().withRestrict();
+    QualType PreviousBTy = getLangOpts().OpenMPIsDevice ? VoidPtrTy : Context.getSizeType().withConst();
     Sema::CapturedParamNameType Params[] = {
         std::make_pair(".global_tid.", KmpInt32PtrTy),
         std::make_pair(".bound_tid.", KmpInt32PtrTy),
-        std::make_pair(".previous.lb.", Context.getSizeType().withConst()),
-        std::make_pair(".previous.ub.", Context.getSizeType().withConst()),
+        std::make_pair(".previous.lb.", PreviousBTy),
+        std::make_pair(".previous.ub.", PreviousBTy),
         std::make_pair(StringRef(), QualType()) // __context with shared vars
     };
     ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
@@ -4498,11 +4500,12 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
     ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
                              ParamsTeams, /*OpenMPCaptureLevel=*/2);
 
+    QualType PreviousBTy = getLangOpts().OpenMPIsDevice ? VoidPtrTy : Context.getSizeType().withConst();
     Sema::CapturedParamNameType ParamsParallel[] = {
         std::make_pair(".global_tid.", KmpInt32PtrTy),
         std::make_pair(".bound_tid.", KmpInt32PtrTy),
-        std::make_pair(".previous.lb.", Context.getSizeType().withConst()),
-        std::make_pair(".previous.ub.", Context.getSizeType().withConst()),
+        std::make_pair(".previous.lb.", PreviousBTy),
+        std::make_pair(".previous.ub.", PreviousBTy),
         std::make_pair(StringRef(), QualType()) // __context with shared vars
     };
     // Start a captured region for 'teams' or 'parallel'.  Both regions have
@@ -4543,11 +4546,13 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
     ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
                              ParamsTeams, /*OpenMPCaptureLevel=*/0);
 
+    QualType VoidPtrTy = Context.VoidPtrTy.withConst().withRestrict();
+    QualType PreviousBTy = getLangOpts().OpenMPIsDevice ? VoidPtrTy : Context.getSizeType().withConst();
     Sema::CapturedParamNameType ParamsParallel[] = {
         std::make_pair(".global_tid.", KmpInt32PtrTy),
         std::make_pair(".bound_tid.", KmpInt32PtrTy),
-        std::make_pair(".previous.lb.", Context.getSizeType().withConst()),
-        std::make_pair(".previous.ub.", Context.getSizeType().withConst()),
+        std::make_pair(".previous.lb.", PreviousBTy),
+        std::make_pair(".previous.ub.", PreviousBTy),
         std::make_pair(StringRef(), QualType()) // __context with shared vars
     };
     // Start a captured region for 'teams' or 'parallel'.  Both regions have
