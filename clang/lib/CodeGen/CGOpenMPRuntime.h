@@ -22,6 +22,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
@@ -340,28 +341,25 @@ protected:
   ///
   /// Emit a team of size one for directives such as 'target parallel' that
   /// have no associated teams construct.
-  ///
-  /// Otherwise, return nullptr.
-  const Expr *getNumTeamsExprForTargetDirective(CodeGenFunction &CGF,
-                                                const OMPExecutableDirective &D,
-                                                int32_t &DefaultVal);
-  llvm::Value *emitNumTeamsForTargetDirective(CodeGenFunction &CGF,
-                                              const OMPExecutableDirective &D);
+  void getNumTeamsExprForTargetDirective(
+      CodeGenFunction &CGF, const OMPExecutableDirective &D,
+      int32_t &DefaultVal, llvm::SmallVectorImpl<const Expr *> &NumTeamsExprs);
+  void emitNumTeamsForTargetDirective(
+      CodeGenFunction &CGF, const OMPExecutableDirective &D,
+      llvm::SmallVectorImpl<llvm::Value *> &NumTeams);
   /// Emit the number of threads for a target directive.  Inspect the
   /// thread_limit clause associated with a teams construct combined or closely
   /// nested with the target directive.
   ///
   /// Emit the num_threads clause for directives such as 'target parallel' that
   /// have no associated teams construct.
-  ///
-  /// Otherwise, return nullptr.
-  const Expr *
-  getNumThreadsExprForTargetDirective(CodeGenFunction &CGF,
-                                      const OMPExecutableDirective &D,
-                                      int32_t &DefaultVal);
-  llvm::Value *
-  emitNumThreadsForTargetDirective(CodeGenFunction &CGF,
-                                   const OMPExecutableDirective &D);
+  void getNumThreadsExprForTargetDirective(
+      CodeGenFunction &CGF, const OMPExecutableDirective &D,
+      int32_t &DefaultVal,
+      llvm::SmallVectorImpl<const Expr *> &NumThreadsExprs);
+  void emitNumThreadsForTargetDirective(
+      CodeGenFunction &CGF, const OMPExecutableDirective &D,
+      llvm::SmallVectorImpl<llvm::Value *> &NumThreads);
 
   /// Returns pointer to ident_t type.
   llvm::Type *getIdentTyPointerTy();

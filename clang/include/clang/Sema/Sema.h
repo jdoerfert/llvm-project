@@ -11891,8 +11891,8 @@ public:
                                      SourceLocation EndLoc);
 
   OMPClause *ActOnOpenMPSingleExprWithArgClause(
-      OpenMPClauseKind Kind, ArrayRef<unsigned> Arguments, Expr *Expr,
-      SourceLocation StartLoc, SourceLocation LParenLoc,
+      OpenMPClauseKind Kind, ArrayRef<unsigned> Arguments,
+      ArrayRef<Expr *> Exprs, SourceLocation StartLoc, SourceLocation LParenLoc,
       ArrayRef<SourceLocation> ArgumentsLoc, SourceLocation DelimLoc,
       SourceLocation EndLoc);
   /// Called on well-formed 'schedule' clause.
@@ -12162,11 +12162,12 @@ public:
       const OMPVarListLocTy &Locs, bool NoDiagnose = false,
       ArrayRef<Expr *> UnresolvedMappers = std::nullopt);
   /// Called on well-formed 'num_teams' clause.
-  OMPClause *ActOnOpenMPNumTeamsClause(Expr *NumTeams, SourceLocation StartLoc,
+  OMPClause *ActOnOpenMPNumTeamsClause(ArrayRef<Expr *> NumTeams,
+                                       SourceLocation StartLoc,
                                        SourceLocation LParenLoc,
                                        SourceLocation EndLoc);
   /// Called on well-formed 'thread_limit' clause.
-  OMPClause *ActOnOpenMPThreadLimitClause(Expr *ThreadLimit,
+  OMPClause *ActOnOpenMPThreadLimitClause(ArrayRef<Expr *> ThreadLimit,
                                           SourceLocation StartLoc,
                                           SourceLocation LParenLoc,
                                           SourceLocation EndLoc);

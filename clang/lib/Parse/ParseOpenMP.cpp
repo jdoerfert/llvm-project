@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Expr.h"
 #include "clang/AST/OpenMPClause.h"
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/Basic/OpenMPKinds.h"
@@ -21,8 +22,10 @@
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/Scope.h"
 #include "llvm/ADT/PointerIntPair.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/UniqueVector.h"
+#include "llvm/Frontend/OpenMP/OMP.h.inc"
 #include "llvm/Frontend/OpenMP/OMPAssume.h"
 #include "llvm/Frontend/OpenMP/OMPContext.h"
 #include <optional>
@@ -3232,7 +3235,8 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
     if ((CKind == OMPC_ordered || CKind == OMPC_partial) &&
         PP.LookAhead(/*N=*/0).isNot(tok::l_paren))
       Clause = ParseOpenMPClause(CKind, WrongDirective);
-    else if (CKind == OMPC_grainsize || CKind == OMPC_num_tasks)
+    else if (CKind == OMPC_grainsize || CKind == OMPC_num_tasks ||
+             CKind == OMPC_num_teams || CKind == OMPC_thread_limit)
       Clause = ParseOpenMPSingleExprWithArgClause(DKind, CKind, WrongDirective);
     else
       Clause = ParseOpenMPSingleExprClause(CKind, WrongDirective);
@@ -3429,9 +3433,8 @@ ExprResult Parser::ParseOpenMPParensExpr(StringRef ClauseName,
 }
 
 /// Parsing of OpenMP clauses with single expressions like 'final',
-/// 'collapse', 'safelen', 'num_threads', 'simdlen', 'num_teams',
-/// 'thread_limit', 'simdlen', 'priority', 'grainsize', 'num_tasks', 'hint' or
-/// 'detach'.
+/// 'collapse', 'safelen', 'num_threads', 'simdlen', 'simdlen',
+/// 'priority', 'grainsize', 'num_tasks', 'hint' or 'detach'.
 ///
 ///    final-clause:
 ///      'final' '(' expression ')'
@@ -3766,6 +3769,11 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPClauseKind Kind, bool ParseOnly) {
 ///    device-clause:
 ///      'device' '(' [ device-modifier ':' ] expression ')'
 ///
+///    num_teams-clause:
+///      'num_teams' '(' expression [, expression] [, expression] ')'
+///
+///    thread_limit-clause:
+///      'thread_limit' '(' expression [, expression] [, expression] ')'
 OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPDirectiveKind DKind,
                                                       OpenMPClauseKind Kind,
                                                       bool ParseOnly) {
@@ -3777,7 +3785,18 @@ OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPDirectiveKind DKind,
                          getOpenMPClauseName(Kind).data()))
     return nullptr;
 
-  ExprResult Val;
+  bool Error = false;
+  auto ParseExpr = [&](SmallVectorImpl<Expr *> &Exprs) {
+    SourceLocation ELoc = Tok.getLocation();
+    ExprResult LHS(ParseCastExpression(AnyCastExpr, false, NotTypeCast));
+    auto Val = ParseRHSOfBinaryExpression(LHS, prec::Conditional);
+    ExprResult ER = Actions.ActOnFinishFullExpr(Val.get(), ELoc,
+                                                /*DiscardedValue*/ false);
+    Exprs.push_back(ER.get());
+    Error |= ER.isInvalid();
+  };
+
+  SmallVector<Expr *, 4> Vals;
   SmallVector<unsigned, 4> Arg;
   SmallVector<SourceLocation, 4> KLoc;
   if (Kind == OMPC_schedule) {
@@ -3963,6 +3982,13 @@ OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPDirectiveKind DKind,
       Arg.push_back(OMPC_NUMTASKS_unknown);
       KLoc.emplace_back();
     }
+  } else if (Kind == OMPC_thread_limit || Kind == OMPC_num_teams) {
+    ParseExpr(Vals);
+    if (TryConsumeToken(tok::comma)) {
+      ParseExpr(Vals);
+      if (TryConsumeToken(tok::comma))
+        ParseExpr(Vals);
+    }
   } else {
     assert(Kind == OMPC_if);
     KLoc.push_back(Tok.getLocation());
@@ -3988,11 +4014,8 @@ OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPDirectiveKind DKind,
                           Kind == OMPC_if || Kind == OMPC_device ||
                           Kind == OMPC_grainsize || Kind == OMPC_num_tasks;
   if (NeedAnExpression) {
-    SourceLocation ELoc = Tok.getLocation();
-    ExprResult LHS(ParseCastExpression(AnyCastExpr, false, NotTypeCast));
-    Val = ParseRHSOfBinaryExpression(LHS, prec::Conditional);
-    Val =
-        Actions.ActOnFinishFullExpr(Val.get(), ELoc, /*DiscardedValue*/ false);
+    assert(Vals.empty() && "Did not expect a value already");
+    ParseExpr(Vals);
   }
 
   // Parse ')'.
@@ -4000,13 +4023,15 @@ OMPClause *Parser::ParseOpenMPSingleExprWithArgClause(OpenMPDirectiveKind DKind,
   if (!T.consumeClose())
     RLoc = T.getCloseLocation();
 
-  if (NeedAnExpression && Val.isInvalid())
+  if (Error)
     return nullptr;
 
   if (ParseOnly)
     return nullptr;
+
   return Actions.ActOnOpenMPSingleExprWithArgClause(
-      Kind, Arg, Val.get(), Loc, T.getOpenLocation(), KLoc, DelimLoc, RLoc);
+      Kind, Arg, ArrayRef<Expr *>(Vals), Loc, T.getOpenLocation(), KLoc,
+      DelimLoc, RLoc);
 }
 
 static bool ParseReductionId(Parser &P, CXXScopeSpec &ReductionIdScopeSpec,

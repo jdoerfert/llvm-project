@@ -5987,6 +5987,89 @@ public:
   }
 };
 
+template <OpenMPClauseKind CKind>
+class OMPOneToThreeExprClause : public OMPClause, public OMPClauseWithPreInit {
+  friend class OMPClauseReader;
+
+  /// Location of '('.
+  SourceLocation LParenLoc;
+
+  /// ThreadLimit number.
+  SmallVector<Stmt *, 4> Exprs;
+
+protected:
+  /// Set the Exprs number.
+  ///
+  /// \param E Exprs number.
+  void setExprs(Expr *E0, Expr *E1 = nullptr, Expr *E2 = nullptr) {
+    Exprs.clear();
+    Exprs.push_back(E0);
+    if (!E1)
+      return;
+    Exprs.push_back(E1);
+    if (!E2)
+      return;
+    Exprs.push_back(E2);
+  }
+
+public:
+  /// Build a one to three expression clause of kind \p CKind.
+  ///
+  /// \param Exprs Expressions associated with this clause.
+  /// \param HelperExpr Helper Expression associated with this clause.
+  /// \param CaptureRegion Innermost OpenMP region where expressions in this
+  /// clause must be captured.
+  /// \param StartLoc Starting location of the clause.
+  /// \param LParenLoc Location of '('.
+  /// \param EndLoc Ending location of the clause.
+  OMPOneToThreeExprClause(ArrayRef<Expr *> Exprs, Stmt *HelperExpr,
+                          OpenMPDirectiveKind CaptureRegion,
+                          SourceLocation StartLoc, SourceLocation LParenLoc,
+                          SourceLocation EndLoc)
+      : OMPClause(CKind, StartLoc, EndLoc), OMPClauseWithPreInit(this),
+        LParenLoc(LParenLoc), Exprs(Exprs) {
+    setPreInitStmt(HelperExpr, CaptureRegion);
+  }
+
+  /// Build an empty clause.
+  OMPOneToThreeExprClause()
+      : OMPClause(CKind, SourceLocation(), SourceLocation()),
+        OMPClauseWithPreInit(this) {}
+
+  /// Sets the location of '('.
+  void setLParenLoc(SourceLocation Loc) { LParenLoc = Loc; }
+
+  /// Returns the location of '('.
+  SourceLocation getLParenLoc() const { return LParenLoc; }
+
+  /// Return the expression for dimension \p Dim.
+  Expr *getExpr(size_t Dim = 0) {
+    llvm::errs() << Dim << " : " << Exprs.size() << "\n";
+    return Exprs.size() > Dim ? cast<Expr>(Exprs[Dim]) : nullptr;
+  }
+
+  /// Return the expression for dimension \p Dim.
+  Expr *getExpr(size_t Dim = 0) const {
+    llvm::errs() << Dim << " : " << Exprs.size() << "\n";
+    return Exprs.size() > Dim ? cast<Expr>(Exprs[Dim]) : nullptr;
+  }
+
+  child_range children() { return child_range(Exprs); }
+
+  const_child_range children() const { return const_child_range(Exprs); }
+
+  child_range used_children() {
+    return child_range(child_iterator(), child_iterator());
+  }
+  const_child_range used_children() const {
+    return const_child_range(const_child_iterator(), const_child_iterator());
+  }
+
+  static bool classof(const OMPClause *T) {
+    return T->getClauseKind() == CKind;
+  }
+};
+
 /// This represents 'num_teams' clause in the '#pragma omp ...'
 /// directive.
 ///
@@ -5995,19 +6078,16 @@ public:
 /// \endcode
 /// In this example directive '#pragma omp teams' has clause 'num_teams'
 /// with single expression 'n'.
-class OMPNumTeamsClause : public OMPClause, public OMPClauseWithPreInit {
+class OMPNumTeamsClause
+    : public OMPOneToThreeExprClause<llvm::omp::OMPC_num_teams> {
   friend class OMPClauseReader;
-
-  /// Location of '('.
-  SourceLocation LParenLoc;
-
-  /// NumTeams number.
-  Stmt *NumTeams = nullptr;
 
   /// Set the NumTeams number.
   ///
   /// \param E NumTeams number.
-  void setNumTeams(Expr *E) { NumTeams = E; }
+  void setNumTeams(Expr *E0, Expr *E1 = 0, Expr *E2 = 0) {
+    setExprs(E0, E1, E2);
+  }
 
 public:
   /// Build 'num_teams' clause.
@@ -6019,125 +6099,65 @@ public:
   /// \param StartLoc Starting location of the clause.
   /// \param LParenLoc Location of '('.
   /// \param EndLoc Ending location of the clause.
-  OMPNumTeamsClause(Expr *E, Stmt *HelperE, OpenMPDirectiveKind CaptureRegion,
-                    SourceLocation StartLoc, SourceLocation LParenLoc,
-                    SourceLocation EndLoc)
-      : OMPClause(llvm::omp::OMPC_num_teams, StartLoc, EndLoc),
-        OMPClauseWithPreInit(this), LParenLoc(LParenLoc), NumTeams(E) {
-    setPreInitStmt(HelperE, CaptureRegion);
-  }
+  OMPNumTeamsClause(ArrayRef<Expr *> Exprs, Stmt *HelperE,
+                    OpenMPDirectiveKind CaptureRegion, SourceLocation StartLoc,
+                    SourceLocation LParenLoc, SourceLocation EndLoc)
+      : OMPOneToThreeExprClause(Exprs, HelperE, CaptureRegion, StartLoc,
+                                LParenLoc, EndLoc) {}
 
   /// Build an empty clause.
-  OMPNumTeamsClause()
-      : OMPClause(llvm::omp::OMPC_num_teams, SourceLocation(),
-                  SourceLocation()),
-        OMPClauseWithPreInit(this) {}
-
-  /// Sets the location of '('.
-  void setLParenLoc(SourceLocation Loc) { LParenLoc = Loc; }
-
-  /// Returns the location of '('.
-  SourceLocation getLParenLoc() const { return LParenLoc; }
+  OMPNumTeamsClause() : OMPOneToThreeExprClause() {}
 
   /// Return NumTeams number.
-  Expr *getNumTeams() { return cast<Expr>(NumTeams); }
+  Expr *getNumTeams(size_t Dim = 0) { return getExpr(Dim); }
 
   /// Return NumTeams number.
-  Expr *getNumTeams() const { return cast<Expr>(NumTeams); }
-
-  child_range children() { return child_range(&NumTeams, &NumTeams + 1); }
-
-  const_child_range children() const {
-    return const_child_range(&NumTeams, &NumTeams + 1);
-  }
-
-  child_range used_children() {
-    return child_range(child_iterator(), child_iterator());
-  }
-  const_child_range used_children() const {
-    return const_child_range(const_child_iterator(), const_child_iterator());
-  }
-
-  static bool classof(const OMPClause *T) {
-    return T->getClauseKind() == llvm::omp::OMPC_num_teams;
-  }
+  Expr *getNumTeams(size_t Dim = 0) const { return getExpr(Dim); }
 };
 
 /// This represents 'thread_limit' clause in the '#pragma omp ...'
-/// directive.
+/// directive with 3d extension.
 ///
 /// \code
-/// #pragma omp teams thread_limit(n)
-/// \endcode
+/// #pragma omp teams thread_limit(n [, n2 [, n3]])
+/// \endcode[
 /// In this example directive '#pragma omp teams' has clause 'thread_limit'
-/// with single expression 'n'.
-class OMPThreadLimitClause : public OMPClause, public OMPClauseWithPreInit {
+/// with expression 'n' and potential second and third dimension expressions n2
+/// and n3.
+class OMPThreadLimitClause
+    : public OMPOneToThreeExprClause<llvm::omp::OMPC_thread_limit> {
   friend class OMPClauseReader;
 
-  /// Location of '('.
-  SourceLocation LParenLoc;
-
-  /// ThreadLimit number.
-  Stmt *ThreadLimit = nullptr;
-
-  /// Set the ThreadLimit number.
-  ///
-  /// \param E ThreadLimit number.
-  void setThreadLimit(Expr *E) { ThreadLimit = E; }
+  void setThreadLimit(Expr *E0) { setThreadLimits(E0); }
+  void setThreadLimits(Expr *E0, Expr *E1 = nullptr, Expr *E2 = nullptr) {
+    setExprs(E0, E1, E2);
+  }
 
 public:
   /// Build 'thread_limit' clause.
   ///
-  /// \param E Expression associated with this clause.
+  /// \param Exprs Expressions associated with this clause.
   /// \param HelperE Helper Expression associated with this clause.
   /// \param CaptureRegion Innermost OpenMP region where expressions in this
   /// clause must be captured.
   /// \param StartLoc Starting location of the clause.
   /// \param LParenLoc Location of '('.
   /// \param EndLoc Ending location of the clause.
-  OMPThreadLimitClause(Expr *E, Stmt *HelperE,
+  OMPThreadLimitClause(ArrayRef<Expr *> Exprs, Stmt *HelperE,
                        OpenMPDirectiveKind CaptureRegion,
                        SourceLocation StartLoc, SourceLocation LParenLoc,
                        SourceLocation EndLoc)
-      : OMPClause(llvm::omp::OMPC_thread_limit, StartLoc, EndLoc),
-        OMPClauseWithPreInit(this), LParenLoc(LParenLoc), ThreadLimit(E) {
-    setPreInitStmt(HelperE, CaptureRegion);
-  }
+      : OMPOneToThreeExprClause(Exprs, HelperE, CaptureRegion, StartLoc,
+                                LParenLoc, EndLoc) {}
 
   /// Build an empty clause.
-  OMPThreadLimitClause()
-      : OMPClause(llvm::omp::OMPC_thread_limit, SourceLocation(),
-                  SourceLocation()),
-        OMPClauseWithPreInit(this) {}
-
-  /// Sets the location of '('.
-  void setLParenLoc(SourceLocation Loc) { LParenLoc = Loc; }
-
-  /// Returns the location of '('.
-  SourceLocation getLParenLoc() const { return LParenLoc; }
+  OMPThreadLimitClause() : OMPOneToThreeExprClause() {}
 
   /// Return ThreadLimit number.
-  Expr *getThreadLimit() { return cast<Expr>(ThreadLimit); }
+  Expr *getThreadLimit(size_t Dim = 0) { return getExpr(Dim); }
 
   /// Return ThreadLimit number.
-  Expr *getThreadLimit() const { return cast<Expr>(ThreadLimit); }
-
-  child_range children() { return child_range(&ThreadLimit, &ThreadLimit + 1); }
-
-  const_child_range children() const {
-    return const_child_range(&ThreadLimit, &ThreadLimit + 1);
-  }
-
-  child_range used_children() {
-    return child_range(child_iterator(), child_iterator());
-  }
-  const_child_range used_children() const {
-    return const_child_range(const_child_iterator(), const_child_iterator());
-  }
-
-  static bool classof(const OMPClause *T) {
-    return T->getClauseKind() == llvm::omp::OMPC_thread_limit;
-  }
+  Expr *getThreadLimit(size_t Dim = 0) const { return getExpr(Dim); }
 };
 
 /// This represents 'priority' clause in the '#pragma omp ...'
