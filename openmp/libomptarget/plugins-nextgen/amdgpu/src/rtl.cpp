@@ -581,8 +581,20 @@ struct AMDGPUQueueTy {
     return Plugin::check(Status, "Error in hsa_queue_create: %s");
   }
 
+  /// If the queue is not initialized, do it now.
+  Error initLazy(hsa_agent_t Agent, int32_t QueueSize) {
+    // Lock the queue during the lazy init
+    std::lock_guard<std::mutex> Lock(Mutex);
+    if (Queue)
+      return Plugin::success();
+    return init(Agent, QueueSize);
+  }
+
   /// Deinitialize the queue and destroy its resources.
   Error deinit() {
+    std::lock_guard<std::mutex> Lock(Mutex);
+    if (!Queue)
+      return Plugin::success();
     hsa_status_t Status = hsa_queue_destroy(Queue);
     return Plugin::check(Status, "Error in hsa_queue_destroy: %s");
   }
@@ -599,6 +611,7 @@ struct AMDGPUQueueTy {
     // the addition of other packets to the queue. The following piece of code
     // should be lightweight; do not block the thread, allocate memory, etc.
     std::lock_guard<std::mutex> Lock(Mutex);
+    assert(Queue && "Interacted with a non-initialized queue!");
 
     // Avoid defining the input dependency if already satisfied.
     if (InputSignal && !InputSignal->load())
@@ -647,6 +660,7 @@ struct AMDGPUQueueTy {
                     const AMDGPUSignalTy *InputSignal2) {
     // Lock the queue during the packet publishing process.
     std::lock_guard<std::mutex> Lock(Mutex);
+    assert(Queue && "Interacted with a non-initialized queue!");
 
     // Push the barrier with the lock acquired.
     return pushBarrierImpl(OutputSignal, InputSignal1, InputSignal2);
@@ -1637,14 +1651,14 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
       return Err;
 
     // Compute the number of queues and their size.
-    const uint32_t NumQueues = std::min(OMPX_NumQueues.get(), MaxQueues);
-    const uint32_t QueueSize = std::min(OMPX_QueueSize.get(), MaxQueueSize);
+    OMPX_NumQueues = std::max(1U, std::min(OMPX_NumQueues.get(), MaxQueues));
+    OMPX_QueueSize = std::min(OMPX_QueueSize.get(), MaxQueueSize);
 
     // Construct and initialize each device queue.
-    Queues = std::vector<AMDGPUQueueTy>(NumQueues);
-    for (AMDGPUQueueTy &Queue : Queues)
-      if (auto Err = Queue.init(Agent, QueueSize))
-        return Err;
+    Queues = std::vector<AMDGPUQueueTy>(OMPX_NumQueues);
+    // Initialize one queue eagerly.
+    if (auto Err = Queues.front().init(Agent, OMPX_QueueSize))
+      return Err;
 
     // Initialize stream pool.
     if (auto Err = AMDGPUStreamManager.init(OMPX_InitialNumStreams))
@@ -2354,12 +2368,22 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
         });
   }
 
-  /// Get the next queue in a round-robin fashion.
+  /// Get the next queue in a round-robin fashion, includes lazy initialization.
   AMDGPUQueueTy &getNextQueue() {
-    static std::atomic<uint32_t> NextQueue(0);
-
     uint32_t Current = NextQueue.fetch_add(1, std::memory_order_relaxed);
-    return Queues[Current % Queues.size()];
+    uint32_t Idx = Current % Queues.size();
+    auto &Queue = Queues[Idx];
+    // Only queue 0 has been initialized eagerly. Others might need lazy/late
+    // initialization.
+    if (Idx == 0)
+      return Queue;
+
+    if (auto Err = Queue.initLazy(Agent, OMPX_QueueSize)) {
+      // Gracefully handle late initialization errors, but report them anyway.
+      REPORT("%s\n", toString(std::move(Err)).data());
+      return Queues[0];
+    }
+    return Queue;
   }
 
 private:
@@ -2422,6 +2446,9 @@ private:
 
   /// List of device packet queues.
   std::vector<AMDGPUQueueTy> Queues;
+
+  // The next queue to be used for a new stream.
+  std::atomic<uint32_t> NextQueue = {0};
 };
 
 Error AMDGPUDeviceImageTy::loadExecutable(const AMDGPUDeviceTy &Device) {
