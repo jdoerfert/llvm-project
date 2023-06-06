@@ -993,6 +993,8 @@ private:
   /// Verify internal invariants.
   void verify();
 
+  bool hasIRAttr(Attribute::AttrKind AK) const;
+
   /// Return the attributes of kind \p AK existing in the IR as attribute.
   bool getAttrsFromIRAttr(Attribute::AttrKind AK,
                           SmallVectorImpl<Attribute> &Attrs) const;
@@ -1066,8 +1068,8 @@ template <> struct DenseMapInfo<IRPosition> {
     return IRPosition::TombstoneKey;
   }
   static unsigned getHashValue(const IRPosition &IRP) {
-    return (DenseMapInfo<void *>::getHashValue(IRP) << 4) ^
-           (DenseMapInfo<Value *>::getHashValue(IRP.getCallBaseContext()));
+    return (DenseMapInfo<void *>::getHashValue(IRP) ^
+            DenseMapInfo<Value *>::getHashValue(IRP.getCallBaseContext()));
   }
 
   static bool isEqual(const IRPosition &a, const IRPosition &b) {
@@ -1150,6 +1152,8 @@ template <typename Analysis>
 constexpr bool AnalysisGetter::HasLegacyWrapper<
       Analysis, std::void_t<typename Analysis::LegacyWrapper>> = true;
 
+using AABumpPtrTy = BumpPtrAllocatorImpl<MallocAllocator, 4096, 4096, 2>;
+
 /// Data structure to hold cached (LLVM-IR) information.
 ///
 /// All attributes are given an InformationCache object at creation time to
@@ -1163,9 +1167,8 @@ constexpr bool AnalysisGetter::HasLegacyWrapper<
 /// reusable, it is advised to inherit from the InformationCache and cast the
 /// instance down in the abstract attributes.
 struct InformationCache {
-  InformationCache(const Module &M, AnalysisGetter &AG,
-                   BumpPtrAllocator &Allocator, SetVector<Function *> *CGSCC,
-                   bool UseExplorer = true)
+  InformationCache(const Module &M, AnalysisGetter &AG, AABumpPtrTy &Allocator,
+                   SetVector<Function *> *CGSCC, bool UseExplorer = true)
       : DL(M.getDataLayout()), Allocator(Allocator), AG(AG),
         TargetTriple(M.getTargetTriple()) {
     if (CGSCC)
@@ -1382,7 +1385,7 @@ private:
   const DataLayout &DL;
 
   /// The allocator used to allocate memory, e.g. for `FunctionInfo`s.
-  BumpPtrAllocator &Allocator;
+  AABumpPtrTy &Allocator;
 
   /// MustBeExecutedContextExplorer
   MustBeExecutedContextExplorer *Explorer = nullptr;
@@ -1433,6 +1436,8 @@ struct AttributorConfig {
   /// Flag to determine if we want to initialize all default AAs for an internal
   /// function marked live. See also: InitializationCallback>
   bool DefaultInitializeLiveInternals = true;
+
+  bool UseLiveness = true;
 
   /// Callback function to be invoked on internal functions marked live.
   std::function<void(Attributor &A, const Function &F)> InitializationCallback =
@@ -1530,7 +1535,7 @@ struct Attributor {
   /// attribute is used for reasoning. To record the dependences explicitly use
   /// the `Attributor::recordDependence` method.
   template <typename AAType>
-  const AAType &getAAFor(const AbstractAttribute &QueryingAA,
+  const AAType *getAAFor(const AbstractAttribute &QueryingAA,
                          const IRPosition &IRP, DepClassTy DepClass) {
     return getOrCreateAAFor<AAType>(IRP, &QueryingAA, DepClass,
                                     /* ForceUpdate */ false);
@@ -1542,7 +1547,7 @@ struct Attributor {
   /// possible/useful that were not happening before as the abstract attribute
   /// was assumed dead.
   template <typename AAType>
-  const AAType &getAndUpdateAAFor(const AbstractAttribute &QueryingAA,
+  const AAType *getAndUpdateAAFor(const AbstractAttribute &QueryingAA,
                                   const IRPosition &IRP, DepClassTy DepClass) {
     return getOrCreateAAFor<AAType>(IRP, &QueryingAA, DepClass,
                                     /* ForceUpdate */ true);
@@ -1554,10 +1559,25 @@ struct Attributor {
   /// function.
   /// NOTE: ForceUpdate is ignored in any stage other than the update stage.
   template <typename AAType>
-  const AAType &getOrCreateAAFor(IRPosition IRP,
+  const AAType *getOrCreateAAFor(IRPosition IRP,
                                  const AbstractAttribute *QueryingAA,
                                  DepClassTy DepClass, bool ForceUpdate = false,
                                  bool UpdateAfterInit = true) {
+    bool Invalidate =
+        Configuration.Allowed && !Configuration.Allowed->count(&AAType::ID);
+    if (Invalidate)
+      return nullptr;
+
+    // For now we ignore naked and optnone functions.
+    const Function *AnchorFn = IRP.getAnchorScope();
+    Invalidate =
+        AnchorFn && (AnchorFn->hasFnAttribute(Attribute::Naked) ||
+                     AnchorFn->hasFnAttribute(Attribute::OptimizeNone));
+
+    // Avoid too many nested initializations to prevent a stack overflow.
+    if (Invalidate || InitializationChainLength > MaxInitializationChainLength)
+      return nullptr;
+
     if (!shouldPropagateCallBaseContext(IRP))
       IRP = IRP.stripCallBaseContext();
 
@@ -1565,7 +1585,7 @@ struct Attributor {
                                             /* AllowInvalidState */ true)) {
       if (ForceUpdate && Phase == AttributorPhase::UPDATE)
         updateAA(*AAPtr);
-      return *AAPtr;
+      return AAPtr;
     }
 
     // No matching attribute found, create one.
@@ -1579,44 +1599,27 @@ struct Attributor {
     // If we are currenty seeding attributes, enforce seeding rules.
     if (Phase == AttributorPhase::SEEDING && !shouldSeedAttribute(AA)) {
       AA.getState().indicatePessimisticFixpoint();
-      return AA;
-    }
-
-    // For now we ignore naked and optnone functions.
-    bool Invalidate =
-        Configuration.Allowed && !Configuration.Allowed->count(&AAType::ID);
-    const Function *AnchorFn = IRP.getAnchorScope();
-    if (AnchorFn) {
-      Invalidate |=
-          AnchorFn->hasFnAttribute(Attribute::Naked) ||
-          AnchorFn->hasFnAttribute(Attribute::OptimizeNone) ||
-          (!isModulePass() && !getInfoCache().isInModuleSlice(*AnchorFn));
-    }
-
-    // Avoid too many nested initializations to prevent a stack overflow.
-    Invalidate |= InitializationChainLength > MaxInitializationChainLength;
-
-    // Bootstrap the new attribute with an initial update to propagate
-    // information, e.g., function -> call site. If it is not on a given
-    // Allowed we will not perform updates at all.
-    if (Invalidate) {
-      AA.getState().indicatePessimisticFixpoint();
-      return AA;
+      return &AA;
     }
 
     {
-      TimeTraceScope TimeScope(AA.getName() + "::initialize");
+      TimeTraceScope TimeScope("initialize", [&]() {
+        return AA.getName() +
+               std::to_string(AA.getIRPosition().getPositionKind());
+      });
       ++InitializationChainLength;
       AA.initialize(*this);
       --InitializationChainLength;
     }
 
+    bool IsRunOn = !AnchorFn || isModulePass() ||
+                   isRunOn(const_cast<Function *>(AnchorFn)) ||
+                   isRunOn(IRP.getAssociatedFunction());
     // We update only AAs associated with functions in the Functions set or
     // call sites of them.
-    if ((AnchorFn && !isRunOn(const_cast<Function *>(AnchorFn))) &&
-        !isRunOn(IRP.getAssociatedFunction())) {
+    if (!IsRunOn) {
       AA.getState().indicatePessimisticFixpoint();
-      return AA;
+      return &AA;
     }
 
     // If this is queried in the manifest stage, we force the AA to indicate
@@ -1624,7 +1627,7 @@ struct Attributor {
     if (Phase == AttributorPhase::MANIFEST ||
         Phase == AttributorPhase::CLEANUP) {
       AA.getState().indicatePessimisticFixpoint();
-      return AA;
+      return &AA;
     }
 
     // Allow seeded attributes to declare dependencies.
@@ -1641,10 +1644,10 @@ struct Attributor {
     if (QueryingAA && AA.getState().isValidState())
       recordDependence(AA, const_cast<AbstractAttribute &>(*QueryingAA),
                        DepClass);
-    return AA;
+    return &AA;
   }
   template <typename AAType>
-  const AAType &getOrCreateAAFor(const IRPosition &IRP) {
+  const AAType *getOrCreateAAFor(const IRPosition &IRP) {
     return getOrCreateAAFor<AAType>(IRP, /* QueryingAA */ nullptr,
                                     DepClassTy::NONE);
   }
@@ -2326,7 +2329,11 @@ public:
   const DataLayout &getDataLayout() const { return InfoCache.DL; }
 
   /// The allocator used to allocate memory, e.g. for `AbstractAttribute`s.
-  BumpPtrAllocator &Allocator;
+  AABumpPtrTy &Allocator;
+
+  const SmallSetVector<Function *, 8> &getModifiedFunctions() {
+    return CGModifiedFunctions;
+  }
 
 private:
   /// This method will do fixpoint iteration until fixpoint or the
@@ -3277,6 +3284,17 @@ struct AttributorPass : public PassInfoMixin<AttributorPass> {
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
 };
 struct AttributorCGSCCPass : public PassInfoMixin<AttributorCGSCCPass> {
+  PreservedAnalyses run(LazyCallGraph::SCC &C, CGSCCAnalysisManager &AM,
+                        LazyCallGraph &CG, CGSCCUpdateResult &UR);
+};
+
+struct LightweightAttributorPass
+    : public PassInfoMixin<LightweightAttributorPass> {
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+};
+
+struct LightweightAttributorCGSCCPass
+    : public PassInfoMixin<LightweightAttributorCGSCCPass> {
   PreservedAnalyses run(LazyCallGraph::SCC &C, CGSCCAnalysisManager &AM,
                         LazyCallGraph &CG, CGSCCUpdateResult &UR);
 };

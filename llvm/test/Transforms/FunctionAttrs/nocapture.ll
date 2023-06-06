@@ -1,4 +1,5 @@
 ; RUN: opt -passes=function-attrs -S < %s | FileCheck %s --check-prefixes=FNATTR
+; RUN: opt -passes=light-attributor -S < %s | FileCheck %s --check-prefixes=FNATTR
 
 @g = global ptr null		; <ptr> [#uses=1]
 
