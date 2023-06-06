@@ -682,8 +682,117 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
 }
 } // namespace
 
-/// ------------------------ PointerInfo ---------------------------------------
+/// Ensure the return value is \p V with type \p Ty, if not possible return
+/// nullptr. If \p Check is true we will only verify such an operation would
+/// suceed and return a non-nullptr value if that is the case. No IR is
+/// generated or modified.
+static Value *ensureType(Attributor &A, Value &V, Type &Ty, Instruction *CtxI,
+                         bool Check) {
+  if (auto *TypedV = AA::getWithType(V, Ty))
+    return TypedV;
+  if (CtxI && V.getType()->canLosslesslyBitCastTo(&Ty))
+    return Check ? &V
+                 : BitCastInst::CreatePointerBitCastOrAddrSpaceCast(&V, &Ty, "",
+                                                                    CtxI);
+  return nullptr;
+}
 
+static Value *reproduceValue(Attributor &A, const AbstractAttribute &QueryingAA,
+                             Value &V, Type &Ty, Instruction *CtxI, bool Check,
+                             ValueToValueMapTy &VMap, bool AllowLocalSinks);
+
+/// Reproduce \p I with type \p Ty or return nullptr if that is not posisble.
+/// If \p Check is true we will only verify such an operation would suceed and
+/// return a non-nullptr value if that is the case. No IR is generated or
+/// modified.
+static Value *reproduceInst(Attributor &A, const AbstractAttribute &QueryingAA,
+                            Instruction &I, Type &Ty, Instruction *CtxI,
+                            bool Check, ValueToValueMapTy &VMap) {
+  assert(CtxI && "Cannot reproduce an instruction without context!");
+  auto CanBeRecomputed = [&]() {
+    if (I.mayReadFromMemory()) {
+      if (auto *LI = dyn_cast<LoadInst>(&I)) {
+        if (LI->getPointerAddressSpace() !=
+                unsigned(AA::GPUAddressSpace::Constant) &&
+            !LI->hasMetadata(LLVMContext::MD_invariant_load))
+          return false;
+      } else {
+        return false;
+      }
+    }
+    return isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
+                                        /* TLI */ nullptr);
+  };
+  if (Check && !CanBeRecomputed())
+    return nullptr;
+
+  for (Value *Op : I.operands()) {
+    Value *NewOp = reproduceValue(A, QueryingAA, *Op, Ty, CtxI, Check, VMap,
+                                  /* AllowLocalSinks */ false);
+    if (!NewOp) {
+      assert(Check && "Manifest of new value unexpectedly failed!");
+      return nullptr;
+    }
+    if (!Check)
+      VMap[Op] = NewOp;
+  }
+  if (Check)
+    return &I;
+
+  Instruction *CloneI = I.clone();
+  // TODO: Try to salvage debug information here.
+  CloneI->setDebugLoc(DebugLoc());
+  VMap[&I] = CloneI;
+  CloneI->insertBefore(CtxI);
+  RemapInstruction(CloneI, VMap);
+  return CloneI;
+}
+
+/// Reproduce \p V with type \p Ty or return nullptr if that is not posisble.
+/// If \p Check is true we will only verify such an operation would suceed and
+/// return a non-nullptr value if that is the case. No IR is generated or
+/// modified.
+static Value *reproduceValue(Attributor &A, const AbstractAttribute &QueryingAA,
+                             Value &V, Type &Ty, Instruction *CtxI, bool Check,
+                             ValueToValueMapTy &VMap, bool AllowLocalSinks) {
+  if (const auto &NewV = VMap.lookup(&V))
+    return NewV;
+  bool UsedAssumedInformation = false;
+  std::optional<Value *> SimpleV = A.getAssumedSimplified(
+      V, QueryingAA, UsedAssumedInformation, AA::Interprocedural);
+  if (!SimpleV.has_value())
+    return PoisonValue::get(&Ty);
+  Value *EffectiveV = &V;
+  if (*SimpleV)
+    EffectiveV = *SimpleV;
+  if (auto *C = dyn_cast<Constant>(EffectiveV))
+    return C;
+  if (!CtxI)
+    return nullptr;
+  if (AllowLocalSinks &&
+      AA::isValidAtPosition(AA::ValueAndContext(*EffectiveV, *CtxI),
+                            A.getInfoCache()))
+    return ensureType(A, *EffectiveV, Ty, CtxI, Check);
+  if (auto *I = dyn_cast<Instruction>(EffectiveV))
+    if (Value *NewV = reproduceInst(A, QueryingAA, *I, Ty, CtxI, Check, VMap))
+      return ensureType(A, *NewV, Ty, CtxI, Check);
+  return nullptr;
+}
+
+/// Return a value we can use as replacement for the associated one, or
+/// nullptr if we don't have one that makes sense.
+Value *AA::canManifestReplacementValue(Attributor &A,
+                                       const AbstractAttribute &QueryingAA,
+                                       Value &NewV, Type &Ty,
+                                       Instruction *CtxI) {
+  ValueToValueMapTy VMap;
+  return reproduceValue(A, QueryingAA, NewV, Ty, CtxI,
+                        /* CheckOnly */ true, VMap,
+                        /* AllowLocalSinks */ false);
+}
+
+/// ------------------------ PointerInfo ---------------------------------------
+///
 namespace llvm {
 namespace AA {
 namespace PointerInfo {
@@ -4275,7 +4384,7 @@ struct AAIsDeadValueImpl : public AAIsDead {
   }
 
   /// Check if all uses are assumed dead.
-  bool areAllUsesAssumedDead(Attributor &A, Value &V) {
+  bool areAllUsesAssumedDead(Attributor &A, Value &V, Instruction *CtxI) {
     // Callers might not check the type, void has no uses.
     if (V.getType()->isVoidTy() || V.use_empty())
       return true;
@@ -4286,10 +4395,13 @@ struct AAIsDeadValueImpl : public AAIsDead {
         if (!A.isRunOn(*I->getFunction()))
           return false;
       bool UsedAssumedInformation = false;
-      std::optional<Constant *> C =
-          A.getAssumedConstant(V, *this, UsedAssumedInformation);
-      if (!C || *C)
+      std::optional<Value *> C = A.getAssumedSimplified(
+          V, *this, UsedAssumedInformation, AA::Interprocedural);
+      if (!C ||
+          (*C && *C != &V &&
+           canManifestReplacementValue(A, *this, **C, *V.getType(), CtxI))) {
         return true;
+      }
     }
 
     auto UsePred = [&](const Use &U, bool &Follow) { return false; };
@@ -4426,7 +4538,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     } else {
       if (!isAssumedSideEffectFree(A, I))
         return indicatePessimisticFixpoint();
-      if (!areAllUsesAssumedDead(A, getAssociatedValue()))
+      if (!areAllUsesAssumedDead(A, getAssociatedValue(), I))
         return indicatePessimisticFixpoint();
     }
     return ChangeStatus::UNCHANGED;
@@ -4578,7 +4690,7 @@ struct AAIsDeadCallSiteReturned : public AAIsDeadFloating {
       IsAssumedSideEffectFree = false;
       Changed = ChangeStatus::CHANGED;
     }
-    if (!areAllUsesAssumedDead(A, getAssociatedValue()))
+    if (!areAllUsesAssumedDead(A, getAssociatedValue(), getCtxI()))
       return indicatePessimisticFixpoint();
     return Changed;
   }
@@ -4616,7 +4728,8 @@ struct AAIsDeadReturned : public AAIsDeadValueImpl {
     auto PredForCallSite = [&](AbstractCallSite ACS) {
       if (ACS.isCallbackCall() || !ACS.getInstruction())
         return false;
-      return areAllUsesAssumedDead(A, *ACS.getInstruction());
+      return areAllUsesAssumedDead(A, *ACS.getInstruction(),
+                                   ACS.getInstruction());
     };
 
     if (!A.checkForAllCallSites(PredForCallSite, *this, true,
@@ -6288,84 +6401,10 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     return SimplifiedAssociatedValue;
   }
 
-  /// Ensure the return value is \p V with type \p Ty, if not possible return
-  /// nullptr. If \p Check is true we will only verify such an operation would
-  /// suceed and return a non-nullptr value if that is the case. No IR is
-  /// generated or modified.
-  static Value *ensureType(Attributor &A, Value &V, Type &Ty, Instruction *CtxI,
-                           bool Check) {
-    if (auto *TypedV = AA::getWithType(V, Ty))
-      return TypedV;
-    if (CtxI && V.getType()->canLosslesslyBitCastTo(&Ty))
-      return Check ? &V
-                   : BitCastInst::CreatePointerBitCastOrAddrSpaceCast(&V, &Ty,
-                                                                      "", CtxI);
-    return nullptr;
-  }
-
-  /// Reproduce \p I with type \p Ty or return nullptr if that is not posisble.
-  /// If \p Check is true we will only verify such an operation would suceed and
-  /// return a non-nullptr value if that is the case. No IR is generated or
-  /// modified.
-  static Value *reproduceInst(Attributor &A,
-                              const AbstractAttribute &QueryingAA,
-                              Instruction &I, Type &Ty, Instruction *CtxI,
-                              bool Check, ValueToValueMapTy &VMap) {
-    assert(CtxI && "Cannot reproduce an instruction without context!");
-    if (Check && (I.mayReadFromMemory() ||
-                  !isSafeToSpeculativelyExecute(&I, CtxI, /* DT */ nullptr,
-                                                /* TLI */ nullptr)))
-      return nullptr;
-    for (Value *Op : I.operands()) {
-      Value *NewOp = reproduceValue(A, QueryingAA, *Op, Ty, CtxI, Check, VMap);
-      if (!NewOp) {
-        assert(Check && "Manifest of new value unexpectedly failed!");
-        return nullptr;
-      }
-      if (!Check)
-        VMap[Op] = NewOp;
-    }
-    if (Check)
-      return &I;
-
-    Instruction *CloneI = I.clone();
-    // TODO: Try to salvage debug information here.
-    CloneI->setDebugLoc(DebugLoc());
-    VMap[&I] = CloneI;
-    CloneI->insertBefore(CtxI);
-    RemapInstruction(CloneI, VMap);
-    return CloneI;
-  }
-
   /// Reproduce \p V with type \p Ty or return nullptr if that is not posisble.
   /// If \p Check is true we will only verify such an operation would suceed and
   /// return a non-nullptr value if that is the case. No IR is generated or
   /// modified.
-  static Value *reproduceValue(Attributor &A,
-                               const AbstractAttribute &QueryingAA, Value &V,
-                               Type &Ty, Instruction *CtxI, bool Check,
-                               ValueToValueMapTy &VMap) {
-    if (const auto &NewV = VMap.lookup(&V))
-      return NewV;
-    bool UsedAssumedInformation = false;
-    std::optional<Value *> SimpleV = A.getAssumedSimplified(
-        V, QueryingAA, UsedAssumedInformation, AA::Interprocedural);
-    if (!SimpleV.has_value())
-      return PoisonValue::get(&Ty);
-    Value *EffectiveV = &V;
-    if (*SimpleV)
-      EffectiveV = *SimpleV;
-    if (auto *C = dyn_cast<Constant>(EffectiveV))
-      return C;
-    if (CtxI && AA::isValidAtPosition(AA::ValueAndContext(*EffectiveV, *CtxI),
-                                      A.getInfoCache()))
-      return ensureType(A, *EffectiveV, Ty, CtxI, Check);
-    if (auto *I = dyn_cast<Instruction>(EffectiveV))
-      if (Value *NewV = reproduceInst(A, QueryingAA, *I, Ty, CtxI, Check, VMap))
-        return ensureType(A, *NewV, Ty, CtxI, Check);
-    return nullptr;
-  }
-
   /// Return a value we can use as replacement for the associated one, or
   /// nullptr if we don't have one that makes sense.
   Value *manifestReplacementValue(Attributor &A, Instruction *CtxI) const {
@@ -6377,9 +6416,11 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       // First verify we can reprduce the value with the required type at the
       // context location before we actually start modifying the IR.
       if (reproduceValue(A, *this, *NewV, *getAssociatedType(), CtxI,
-                         /* CheckOnly */ true, VMap))
+                         /* CheckOnly */ true, VMap,
+                         /* AllowLocalSinks */ false))
         return reproduceValue(A, *this, *NewV, *getAssociatedType(), CtxI,
-                              /* CheckOnly */ false, VMap);
+                              /* CheckOnly */ false, VMap,
+                              /* AllowLocalSinks */ false);
     }
     return nullptr;
   }
@@ -10822,7 +10863,8 @@ Value *AAPotentialValues::getSingleValue(
   Type &Ty = *IRP.getAssociatedType();
   std::optional<Value *> V;
   for (auto &It : Values) {
-    V = AA::combineOptionalValuesInAAValueLatice(V, It.getValue(), &Ty);
+    V = AA::combineOptionalValuesInAAValueLatice(V, It.getValue(), &Ty, &A, &AA,
+                                                 IRP.getCtxI());
     if (V.has_value() && !*V)
       break;
   }
@@ -10894,8 +10936,8 @@ struct AAPotentialValuesImpl : AAPotentialValues {
     }
 
     Value *VPtr = &V;
-    if (ValIRP.getAssociatedType()->isIntegerTy()) {
       Type &Ty = *getAssociatedType();
+      if (ValIRP.getAssociatedType()->isIntegerTy()) {
       std::optional<Value *> SimpleV =
           askOtherAA<AAValueConstantRange>(A, *this, ValIRP, Ty);
       if (SimpleV.has_value() && !*SimpleV) {
@@ -10914,11 +10956,13 @@ struct AAPotentialValuesImpl : AAPotentialValues {
 
       if (*SimpleV)
         VPtr = *SimpleV;
-    }
+      }
 
     if (isa<ConstantInt>(VPtr))
       CtxI = nullptr;
-    if (!AA::isValidInScope(*VPtr, AnchorScope))
+    if (!canManifestReplacementValue(A, *this, *VPtr, Ty,
+                                     const_cast<Instruction *>(CtxI)) &&
+        !AA::isValidInScope(*VPtr, AnchorScope))
       S = AA::ValueScope(S | AA::Interprocedural);
 
     State.unionAssumed({{*VPtr, CtxI}, S});
@@ -11002,9 +11046,16 @@ struct AAPotentialValuesImpl : AAPotentialValues {
       Value *NewV = getSingleValue(A, *this, getIRPosition(), Values);
       if (!NewV || NewV == &OldV)
         continue;
-      if (getCtxI() &&
-          !AA::isValidAtPosition({*NewV, *getCtxI()}, A.getInfoCache()))
+      ValueToValueMapTy VMap;
+      // First verify we can reprduce the value with the required type at the
+      // context location before we actually start modifying the IR.
+      if (!reproduceValue(A, *this, *NewV, *getAssociatedType(), getCtxI(),
+                          /* CheckOnly */ true, VMap,
+                          /* AllowLocalSinks */ true))
         continue;
+      NewV = reproduceValue(A, *this, *NewV, *getAssociatedType(), getCtxI(),
+                            /* CheckOnly */ false, VMap,
+                            /* AllowLocalSinks */ true);
       if (A.changeAfterManifest(getIRPosition(), *NewV))
         return ChangeStatus::CHANGED;
     }
@@ -11150,7 +11201,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
   bool handleLoadInst(Attributor &A, LoadInst &LI, ItemInfo II,
                       SmallVectorImpl<ItemInfo> &Worklist) {
     SmallSetVector<Value *, 4> PotentialCopies;
-    SmallSetVector<Instruction *, 4> PotentialValueOrigins;
+    SmallSetVector<std::pair<Instruction *, Value *>, 4> PotentialValueOrigins;
     bool UsedAssumedInformation = false;
     if (!AA::getPotentiallyLoadedValues(A, LI, PotentialCopies,
                                         PotentialValueOrigins, *this,
@@ -11167,7 +11218,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     // assume is probably worth something as long as the stores are around.
     InformationCache &InfoCache = A.getInfoCache();
     if (InfoCache.isOnlyUsedByAssume(LI)) {
-      if (!llvm::all_of(PotentialValueOrigins, [&](Instruction *I) {
+      if (!llvm::all_of(PotentialValueOrigins, [&](const auto &It) {
+            Instruction *I = It.first;
             if (!I || isa<AssumeInst>(I))
               return true;
             if (auto *SI = dyn_cast<StoreInst>(I))
@@ -11190,9 +11242,13 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     // single llvm::Value might represent two runtime values (e.g.,
     // stack locations in different recursive calls).
     const Instruction *CtxI = II.I.getCtxI();
+    Type &Ty = *getAssociatedType();
     bool ScopeIsLocal = (II.S & AA::Intraprocedural);
     bool AllLocal = ScopeIsLocal;
     bool DynamicallyUnique = llvm::all_of(PotentialCopies, [&](Value *PC) {
+      if (canManifestReplacementValue(A, *this, *PC, Ty,
+                                      const_cast<Instruction *>(CtxI)))
+        return true;
       AllLocal &= AA::isValidInScope(*PC, getAnchorScope());
       return AA::isDynamicallyUnique(A, *this, *PC);
     });
@@ -11466,10 +11522,14 @@ struct AAPotentialValuesArgument final : AAPotentialValuesImpl {
                                 UsedAssumedInformation))
       return indicatePessimisticFixpoint();
 
+    Type &Ty = *getAssociatedType();
     Function *Fn = getAssociatedFunction();
     bool AnyNonLocal = false;
     for (auto &It : Values) {
-      if (isa<Constant>(It.getValue())) {
+      if (isa<Constant>(It.getValue()) ||
+          canManifestReplacementValue(
+              A, *this, *It.getValue(), Ty,
+              const_cast<Instruction *>(It.getCtxI()))) {
         addValue(A, getState(), *It.getValue(), It.getCtxI(), AA::AnyScope,
                  getAnchorScope());
         continue;

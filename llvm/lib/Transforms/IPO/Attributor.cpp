@@ -322,35 +322,42 @@ Value *AA::getWithType(Value &V, Type &Ty) {
   return nullptr;
 }
 
-std::optional<Value *>
-AA::combineOptionalValuesInAAValueLatice(const std::optional<Value *> &A,
-                                         const std::optional<Value *> &B,
-                                         Type *Ty) {
-  if (A == B)
-    return A;
-  if (!B)
-    return A;
-  if (*B == nullptr)
+std::optional<Value *> AA::combineOptionalValuesInAAValueLatice(
+    const std::optional<Value *> &V1, const std::optional<Value *> &V2,
+    Type *Ty, Attributor *A, const AbstractAttribute *QueryingAA,
+    Instruction *CtxI) {
+  if (V1 == V2)
+    return V1;
+  if (!V2)
+    return V1;
+  if (*V2 == nullptr)
     return nullptr;
-  if (!A)
-    return Ty ? getWithType(**B, *Ty) : nullptr;
-  if (*A == nullptr)
+  if (!V1)
+    return Ty ? getWithType(**V2, *Ty) : nullptr;
+  if (*V1 == nullptr)
     return nullptr;
   if (!Ty)
-    Ty = (*A)->getType();
-  if (isa_and_nonnull<UndefValue>(*A))
-    return getWithType(**B, *Ty);
-  if (isa<UndefValue>(*B))
-    return A;
-  if (*A && *B && *A == getWithType(**B, *Ty))
-    return A;
+    Ty = (*V1)->getType();
+  if (isa_and_nonnull<UndefValue>(*V1))
+    return getWithType(**V2, *Ty);
+  if (isa<UndefValue>(*V2))
+    return V1;
+  if (*V1 && *V2 && *V1 == getWithType(**V2, *Ty))
+    return V1;
+  if (!A || !QueryingAA || !CtxI)
+    return nullptr;
+  if (!canManifestReplacementValue(*A, *QueryingAA, **V1, *Ty, CtxI))
+    return nullptr;
+  if (!canManifestReplacementValue(*A, *QueryingAA, **V2, *Ty, CtxI))
+    return nullptr;
+
   return nullptr;
 }
 
 template <bool IsLoad, typename Ty>
 static bool getPotentialCopiesOfMemoryValue(
     Attributor &A, Ty &I, SmallSetVector<Value *, 4> &PotentialCopies,
-    SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
+    SmallSetVector<std::pair<Instruction *, Value *>, 4> &PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
     bool OnlyExact) {
   LLVM_DEBUG(dbgs() << "Trying to determine the potential copies of " << I
@@ -475,6 +482,7 @@ static bool getPotentialCopiesOfMemoryValue(
           return false;
         }
         NewCopies.push_back(Acc.getRemoteInst());
+        NewCopyOrigins.push_back(LI);
       }
       return true;
     };
@@ -538,15 +546,19 @@ static bool getPotentialCopiesOfMemoryValue(
       UsedAssumedInformation = true;
     A.recordDependence(*PI, QueryingAA, DepClassTy::OPTIONAL);
   }
+
   PotentialCopies.insert(NewCopies.begin(), NewCopies.end());
-  PotentialValueOrigins.insert(NewCopyOrigins.begin(), NewCopyOrigins.end());
+  assert(NewCopyOrigins.size() == NewCopies.size() &&
+         "Expected matching copies with origins");
+  for (const auto &It : zip(NewCopyOrigins, NewCopies))
+    PotentialValueOrigins.insert({std::get<0>(It), std::get<1>(It)});
 
   return true;
 }
 
 bool AA::getPotentiallyLoadedValues(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialValues,
-    SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
+    SmallSetVector<std::pair<Instruction *, Value *>, 4> &PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
     bool OnlyExact) {
   return getPotentialCopiesOfMemoryValue</* IsLoad */ true>(
@@ -558,7 +570,7 @@ bool AA::getPotentialCopiesOfStoredValue(
     Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
     bool OnlyExact) {
-  SmallSetVector<Instruction *, 4> PotentialValueOrigins;
+  SmallSetVector<std::pair<Instruction *, Value *>, 4> PotentialValueOrigins;
   return getPotentialCopiesOfMemoryValue</* IsLoad */ false>(
       A, SI, PotentialCopies, PotentialValueOrigins, QueryingAA,
       UsedAssumedInformation, OnlyExact);

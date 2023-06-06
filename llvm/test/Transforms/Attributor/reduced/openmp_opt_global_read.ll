@@ -25,7 +25,7 @@ attributes #0 = { nocallback nofree nosync nounwind willreturn memory(inaccessib
 ;.
 ; CHECK-LABEL: define {{[^@]+}}@__omp_offloading_16_2e1d69__ZN11qmcplusplus7ompBLAS9gemv_implIfEEiRiciiT_PKS3_iS5_iS3_PS3_i_l44() {
 ; CHECK-NEXT:  bb:
-; CHECK-NEXT:    tail call void @llvm.assume(i1 true)
+; CHECK-NEXT:    tail call void @llvm.assume(i1 undef)
 ; CHECK-NEXT:    ret void
 ;
 ;.

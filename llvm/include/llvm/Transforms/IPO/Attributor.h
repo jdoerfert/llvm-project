@@ -200,6 +200,10 @@ bool isNoSyncInst(Attributor &A, const Instruction &I,
 bool isDynamicallyUnique(Attributor &A, const AbstractAttribute &QueryingAA,
                          const Value &V, bool ForAnalysisOnly = true);
 
+Value *canManifestReplacementValue(Attributor &A,
+                                   const AbstractAttribute &QueryingAA,
+                                   Value &NewV, Type &Ty, Instruction *CtxI);
+
 /// Return true if \p V is a valid value in \p Scope, that is a constant or an
 /// instruction/argument of \p Scope.
 bool isValidInScope(const Value &V, const Function *Scope);
@@ -222,9 +226,10 @@ Value *getWithType(Value &V, Type &Ty);
 ///        X + none  => X
 /// not_none + undef => not_none
 ///          V1 + V2 => nullptr
-std::optional<Value *>
-combineOptionalValuesInAAValueLatice(const std::optional<Value *> &A,
-                                     const std::optional<Value *> &B, Type *Ty);
+std::optional<Value *> combineOptionalValuesInAAValueLatice(
+    const std::optional<Value *> &V1, const std::optional<Value *> &V2,
+    Type *Ty, Attributor *A = nullptr,
+    const AbstractAttribute *QueryingAA = nullptr, Instruction *CtxI = nullptr);
 
 /// Helper to represent an access offset and size, with logic to deal with
 /// uncertainty and check for overlapping accesses.
@@ -335,7 +340,7 @@ Constant *getInitialValueForObj(Attributor &A, Value &Obj, Type &Ty,
 ///          determined.
 bool getPotentiallyLoadedValues(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialValues,
-    SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
+    SmallSetVector<std::pair<Instruction *, Value *>, 4> &PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
     bool OnlyExact = false);
 

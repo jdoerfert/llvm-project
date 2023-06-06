@@ -731,7 +731,8 @@ define void @arg_nonnull_violation2_1(i1 %c) {
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(none)
 ; CGSCC-LABEL: define {{[^@]+}}@arg_nonnull_violation2_1
 ; CGSCC-SAME: (i1 [[C:%.*]]) #[[ATTR2]] {
-; CGSCC-NEXT:    unreachable
+; CGSCC-NEXT:    call void @arg_nonnull_1(ptr nocapture nofree noundef nonnull writeonly align 4294967296 dereferenceable(4) null) #[[ATTR11:[0-9]+]]
+; CGSCC-NEXT:    ret void
 ;
   %mustnull = select i1 %c, ptr null, ptr null
   call void @arg_nonnull_1(ptr %mustnull)
@@ -747,7 +748,8 @@ define void @arg_nonnull_violation2_2(i1 %c) {
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(none)
 ; CGSCC-LABEL: define {{[^@]+}}@arg_nonnull_violation2_2
 ; CGSCC-SAME: (i1 [[C:%.*]]) #[[ATTR2]] {
-; CGSCC-NEXT:    unreachable
+; CGSCC-NEXT:    call void @arg_nonnull_1_noundef_1(ptr nocapture nofree noundef nonnull writeonly align 4294967296 dereferenceable(4) null) #[[ATTR11]]
+; CGSCC-NEXT:    ret void
 ;
   %mustnull = select i1 %c, ptr null, ptr null
   call void @arg_nonnull_1_noundef_1(ptr %mustnull)
@@ -776,7 +778,7 @@ define void @arg_nonnull_violation3_1(i1 %c) {
 ; CGSCC-NEXT:    [[PTR:%.*]] = alloca i32, align 4
 ; CGSCC-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; CGSCC:       t:
-; CGSCC-NEXT:    call void @arg_nonnull_12(ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[PTR]], ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[PTR]], ptr nofree noundef nonnull writeonly align 4 dereferenceable(4) [[PTR]]) #[[ATTR11:[0-9]+]]
+; CGSCC-NEXT:    call void @arg_nonnull_12(ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[PTR]], ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[PTR]], ptr nofree noundef nonnull writeonly align 4 dereferenceable(4) [[PTR]]) #[[ATTR11]]
 ; CGSCC-NEXT:    call void @arg_nonnull_12(ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[PTR]], ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[PTR]], ptr noalias nocapture nofree noundef writeonly align 4294967296 null) #[[ATTR11]]
 ; CGSCC-NEXT:    unreachable
 ; CGSCC:       f:

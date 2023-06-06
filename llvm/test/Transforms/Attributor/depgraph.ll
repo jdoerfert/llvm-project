@@ -120,6 +120,7 @@ define ptr @checkAndAdvance(ptr align 16 %0) {
 ; GRAPH-NEXT: [AAPotentialValues] for CtxI <<null inst>> at position {flt: [@-1]} with state set-state(< {i64 4[3], } >)
 ; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AAPotentialValues] for CtxI '  %2 = load i32, ptr %0, align 4' at position {flt:checkAndAdvance [checkAndAdvance@-1]} with state set-state(< {@checkAndAdvance[3], } >)
+; GRAPH-NEXT:   updates [AAPotentialValues] for CtxI '  %2 = load i32, ptr %0, align 4' at position {flt:checkAndAdvance [checkAndAdvance@-1]} with state set-state(< {@checkAndAdvance[3], } >)
 ; GRAPH-EMPTY:
 ; GRAPH-NEXT: [AAPotentialValues] for CtxI '  %6 = call ptr @checkAndAdvance(ptr %5)' at position {cs_arg: [@0]} with state set-state(< {  %5 = getelementptr inbounds i32, ptr %0, i64 4[3], } >)
 ; GRAPH-EMPTY:
