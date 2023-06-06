@@ -137,8 +137,8 @@ namespace {
 class AMDGPUInformationCache : public InformationCache {
 public:
   AMDGPUInformationCache(const Module &M, AnalysisGetter &AG,
-                         BumpPtrAllocator &Allocator,
-                         SetVector<Function *> *CGSCC, TargetMachine &TM)
+                         AABumpPtrTy &Allocator, SetVector<Function *> *CGSCC,
+                         TargetMachine &TM)
       : InformationCache(M, AG, Allocator, CGSCC), TM(TM),
         CodeObjectVersion(AMDGPU::getCodeObjectVersion(M)) {}
 
@@ -321,11 +321,11 @@ struct AAUniformWorkGroupSizeFunction : public AAUniformWorkGroupSize {
       LLVM_DEBUG(dbgs() << "[AAUniformWorkGroupSize] Call " << Caller->getName()
                         << "->" << getAssociatedFunction()->getName() << "\n");
 
-      const auto &CallerInfo = A.getAAFor<AAUniformWorkGroupSize>(
+      const auto *CallerInfo = A.getAAFor<AAUniformWorkGroupSize>(
           *this, IRPosition::function(*Caller), DepClassTy::REQUIRED);
 
       Change = Change | clampStateAndIndicateChange(this->getState(),
-                                                    CallerInfo.getState());
+                                                    CallerInfo->getState());
 
       return true;
     };
@@ -410,9 +410,9 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
     auto OrigAssumed = getAssumed();
 
     // Check for Intrinsics and propagate attributes.
-    const AACallEdges &AAEdges = A.getAAFor<AACallEdges>(
+    const AACallEdges *AAEdges = A.getAAFor<AACallEdges>(
         *this, this->getIRPosition(), DepClassTy::REQUIRED);
-    if (AAEdges.hasNonAsmUnknownCallee())
+    if (AAEdges->hasNonAsmUnknownCallee())
       return indicatePessimisticFixpoint();
 
     bool IsNonEntryFunc = !AMDGPU::isEntryFunctionCC(F->getCallingConv());
@@ -423,12 +423,12 @@ struct AAAMDAttributesFunction : public AAAMDAttributes {
     bool SupportsGetDoorbellID = InfoCache.supportsGetDoorbellID(*F);
     unsigned COV = InfoCache.getCodeObjectVersion();
 
-    for (Function *Callee : AAEdges.getOptimisticEdges()) {
+    for (Function *Callee : AAEdges->getOptimisticEdges()) {
       Intrinsic::ID IID = Callee->getIntrinsicID();
       if (IID == Intrinsic::not_intrinsic) {
-        const AAAMDAttributes &AAAMD = A.getAAFor<AAAMDAttributes>(
-          *this, IRPosition::function(*Callee), DepClassTy::REQUIRED);
-        *this &= AAAMD;
+        const AAAMDAttributes *AAAMD = A.getAAFor<AAAMDAttributes>(
+            *this, IRPosition::function(*Callee), DepClassTy::REQUIRED);
+        *this &= *AAAMD;
         continue;
       }
 
@@ -618,10 +618,10 @@ private:
       if (Call.getIntrinsicID() != Intrinsic::amdgcn_implicitarg_ptr)
         return true;
 
-      const auto &PointerInfoAA = A.getAAFor<AAPointerInfo>(
+      const auto *PointerInfoAA = A.getAAFor<AAPointerInfo>(
           *this, IRPosition::callsite_returned(Call), DepClassTy::REQUIRED);
 
-      return PointerInfoAA.forallInterferingAccesses(
+      return PointerInfoAA->forallInterferingAccesses(
           Range, [](const AAPointerInfo::Access &Acc, bool IsExact) {
             return Acc.getRemoteInst()->isDroppable();
           });
@@ -681,11 +681,11 @@ struct AAAMDFlatWorkGroupSize
       LLVM_DEBUG(dbgs() << "[AAAMDFlatWorkGroupSize] Call " << Caller->getName()
                         << "->" << getAssociatedFunction()->getName() << '\n');
 
-      const auto &CallerInfo = A.getAAFor<AAAMDFlatWorkGroupSize>(
+      const auto *CallerInfo = A.getAAFor<AAAMDFlatWorkGroupSize>(
           *this, IRPosition::function(*Caller), DepClassTy::REQUIRED);
 
       Change |=
-          clampStateAndIndicateChange(this->getState(), CallerInfo.getState());
+          clampStateAndIndicateChange(this->getState(), CallerInfo->getState());
 
       return true;
     };
@@ -789,7 +789,7 @@ public:
     }
 
     CallGraphUpdater CGUpdater;
-    BumpPtrAllocator Allocator;
+    AABumpPtrTy Allocator;
     AMDGPUInformationCache InfoCache(M, AG, Allocator, nullptr, *TM);
     DenseSet<const char *> Allowed(
         {&AAAMDAttributes::ID, &AAUniformWorkGroupSize::ID,
