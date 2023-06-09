@@ -24,6 +24,7 @@
 #include "llvm/Analysis/InlineCost.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MustExecute.h"
+#include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/ConstantFold.h"
@@ -3949,6 +3950,7 @@ PreservedAnalyses LightweightAttributorCGSCCPass::run(LazyCallGraph::SCC &C,
     PreservedAnalyses PA;
     // We have not added or removed functions.
     PA.preserve<FunctionAnalysisManagerCGSCCProxy>();
+    PA.preserve<ScalarEvolutionAnalysis>();
     // We already invalidated all relevant function analyses above.
     PA.preserveSet<AllAnalysesOn<Function>>();
     //  Allocator.PrintStats();

@@ -109,7 +109,8 @@ public:
   /// The IndVarSimplify pass transforms loops to have a canonical induction
   /// variable.
   ///
-  PHINode *getCanonicalInductionVariable() const;
+  PHINode *
+  getCanonicalInductionVariable(Instruction **StepInst = nullptr) const;
 
   /// Get the latch condition instruction.
   ICmpInst *getLatchCmpInst() const;

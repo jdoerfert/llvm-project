@@ -28,6 +28,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
@@ -147,7 +148,7 @@ bool Loop::getIncomingAndBackEdge(BasicBlock *&Incoming,
   return true;
 }
 
-PHINode *Loop::getCanonicalInductionVariable() const {
+PHINode *Loop::getCanonicalInductionVariable(Instruction **StepInst) const {
   BasicBlock *H = getHeader();
 
   BasicBlock *Incoming = nullptr, *Backedge = nullptr;
@@ -164,8 +165,11 @@ PHINode *Loop::getCanonicalInductionVariable() const {
                 dyn_cast<Instruction>(PN->getIncomingValueForBlock(Backedge)))
           if (Inc->getOpcode() == Instruction::Add && Inc->getOperand(0) == PN)
             if (ConstantInt *CI = dyn_cast<ConstantInt>(Inc->getOperand(1)))
-              if (CI->isOne())
+              if (CI->isOne()) {
+                if (StepInst)
+                  *StepInst = Inc;
                 return PN;
+              }
   }
   return nullptr;
 }

@@ -3439,7 +3439,6 @@ static bool mayContainUnboundedCycle(Function &F, Attributor &A) {
   // We use scc_iterator which uses Tarjan algorithm to find all the maximal
   // SCCs.To detect if there's a cycle, we only need to find the maximal ones.
   if (!SE || !LI) {
-    assert(0);
     for (scc_iterator<Function *> SCCI = scc_begin(&F); !SCCI.isAtEnd(); ++SCCI)
       if (SCCI.hasCycle())
         return true;
@@ -3448,9 +3447,20 @@ static bool mayContainUnboundedCycle(Function &F, Attributor &A) {
 
   // Any loop that does not have a max trip count is considered unbounded cycle.
   for (auto *L : LI->getLoopsInPreorder()) {
-    if (!SE->getSmallConstantMaxTripCount(L))
+    Instruction *StepInst = nullptr;
+    if (PHINode *IndVarPHI = L->getCanonicalInductionVariable(&StepInst))
+      if (ICmpInst *LatchCmpI = L->getLatchCmpInst()) {
+        if (LatchCmpI->getOperand(0) == StepInst &&
+            L->isLoopInvariant(LatchCmpI->getOperand(1)))
+          continue;
+        if (LatchCmpI->getOperand(1) == StepInst &&
+            L->isLoopInvariant(LatchCmpI->getOperand(0)))
+          continue;
+      }
+    if (isa<SCEVCouldNotCompute>(SE->getSymbolicMaxBackedgeTakenCount(L)))
       return true;
   }
+
   // If there's irreducible control, the function may contain non-loop cycles.
   if (mayContainIrreducibleControl(F, LI))
     return true;
@@ -3461,16 +3471,6 @@ static bool mayContainUnboundedCycle(Function &F, Attributor &A) {
 struct AAWillReturnImpl : public AAWillReturn {
   AAWillReturnImpl(const IRPosition &IRP, Attributor &A)
       : AAWillReturn(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AAWillReturn::initialize(A);
-
-    if (isImpliedByMustprogressAndReadonly(A, /* KnownOnly */ true)) {
-      indicateOptimisticFixpoint();
-      return;
-    }
-  }
 
   /// Check for `mustprogress` and `readonly` as they imply `willreturn`.
   bool isImpliedByMustprogressAndReadonly(Attributor &A, bool KnownOnly) {
