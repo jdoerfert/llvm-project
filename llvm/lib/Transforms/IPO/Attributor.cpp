@@ -3345,7 +3345,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
           getOrCreateAAFor<AANonNull>(ArgPos);
 
         // Every argument with pointer type might be marked noalias.
-        if (!Attrs.hasParamAttr(ArgNo, Attribute::NoAlias))
+        if (false && !Attrs.hasParamAttr(ArgNo, Attribute::NoAlias))
           getOrCreateAAFor<AANoAlias>(ArgPos);
 
         // Every argument with pointer type might be marked dereferenceable.

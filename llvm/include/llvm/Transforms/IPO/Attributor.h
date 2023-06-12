@@ -2635,12 +2635,12 @@ struct BitIntegerState
   BitIntegerState(base_t Assumed) : super(Assumed) {}
 
   /// Return true if the bits set in \p BitsEncoding are "known bits".
-  bool isKnown(base_t BitsEncoding) const {
+  bool isKnown(base_t BitsEncoding = -1) const {
     return (this->Known & BitsEncoding) == BitsEncoding;
   }
 
   /// Return true if the bits set in \p BitsEncoding are "assumed bits".
-  bool isAssumed(base_t BitsEncoding) const {
+  bool isAssumed(base_t BitsEncoding = -1) const {
     return (this->Assumed & BitsEncoding) == BitsEncoding;
   }
 
@@ -5753,12 +5753,12 @@ enum AttributorRunOption {
 
 template <Attribute::AttrKind AK>
 bool hasAssumedIRAttr(Attributor &A, const AbstractAttribute &QueryingAA,
-                      const IRPosition &IRP, DepClassTy DepClass,
-                      bool &IsKnown) {
+                      const IRPosition &IRP, DepClassTy DepClass, bool &IsKnown,
+                      bool IgnoreSubsumingPositions = false) {
   switch (AK) {
 #define CASE(ATTRNAME, AANAME)                                                 \
   case Attribute::ATTRNAME: {                                                  \
-    if (IRP.hasAttr({AK}, /* IgnoreSubsumingPositions */ false))               \
+    if (IRP.hasAttr({AK}, IgnoreSubsumingPositions))                           \
       return IsKnown = true;                                                   \
     auto *AA = A.getAAFor<AANAME>(QueryingAA, IRP, DepClass);                  \
     if (!AA)                                                                   \
@@ -5769,6 +5769,10 @@ bool hasAssumedIRAttr(Attributor &A, const AbstractAttribute &QueryingAA,
     CASE(NoUnwind, AANoUnwind);
     CASE(WillReturn, AAWillReturn);
     CASE(NoFree, AANoFree);
+    CASE(NoCapture, AANoCapture);
+    CASE(NoRecurse, AANoRecurse);
+    CASE(NoSync, AANoSync);
+    CASE(NoAlias, AANoAlias);
 #undef CASE
   default:
     errs() << AK << " : " << IRP << "\n";
