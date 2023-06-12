@@ -41,6 +41,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugCounter.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/TimeProfiler.h"
@@ -669,8 +670,8 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
                         << " intraprocedurally\n");
       const auto *ReachabilityAA = A.getAAFor<AAIntraFnReachability>(
           QueryingAA, IRPosition::function(ToFn), DepClassTy::OPTIONAL);
-      bool Result =
-          ReachabilityAA->isAssumedReachable(A, *CurFromI, *ToI, ExclusionSet);
+      bool Result = !ReachabilityAA || ReachabilityAA->isAssumedReachable(
+                                           A, *CurFromI, *ToI, ExclusionSet);
       LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " "
                         << (Result ? "can potentially " : "cannot ") << "reach "
                         << *ToI << " [Intra]\n");
@@ -683,8 +684,8 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
       const auto *ToReachabilityAA = A.getAAFor<AAIntraFnReachability>(
           QueryingAA, IRPosition::function(ToFn), DepClassTy::OPTIONAL);
       const Instruction &EntryI = ToFn.getEntryBlock().front();
-      Result =
-          ToReachabilityAA->isAssumedReachable(A, EntryI, *ToI, ExclusionSet);
+      Result = !ToReachabilityAA || ToReachabilityAA->isAssumedReachable(
+                                        A, EntryI, *ToI, ExclusionSet);
       LLVM_DEBUG(dbgs() << "[AA] Entry " << EntryI << " of @" << ToFn.getName()
                         << " " << (Result ? "can potentially " : "cannot ")
                         << "reach @" << *ToI << " [ToFn]\n");
@@ -695,8 +696,8 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
       // instruction is already known to reach the ToFn.
       const auto *FnReachabilityAA = A.getAAFor<AAInterFnReachability>(
           QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
-      Result = FnReachabilityAA->instructionCanReach(A, *CurFromI, ToFn,
-                                                     ExclusionSet);
+      Result = !FnReachabilityAA || FnReachabilityAA->instructionCanReach(
+                                        A, *CurFromI, ToFn, ExclusionSet);
       LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " in @" << FromFn->getName()
                         << " " << (Result ? "can potentially " : "cannot ")
                         << "reach @" << ToFn.getName() << " [FromFn]\n");
@@ -708,8 +709,8 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
     const auto *ReachabilityAA = A.getAAFor<AAIntraFnReachability>(
         QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
     auto ReturnInstCB = [&](Instruction &Ret) {
-      bool Result =
-          ReachabilityAA->isAssumedReachable(A, *CurFromI, Ret, ExclusionSet);
+      bool Result = !ReachabilityAA || ReachabilityAA->isAssumedReachable(
+                                           A, *CurFromI, Ret, ExclusionSet);
       LLVM_DEBUG(dbgs() << "[AA][Ret] " << *CurFromI << " "
                         << (Result ? "can potentially " : "cannot ") << "reach "
                         << Ret << " [Intra]\n");
@@ -806,7 +807,7 @@ bool AA::isAssumedThreadLocalObject(Attributor &A, Value &Obj,
                       << " thread local; "
                       << (NoCaptureAA->isAssumedNoCapture() ? "non-" : "")
                       << "captured stack object.\n");
-    return NoCaptureAA->isAssumedNoCapture();
+    return NoCaptureAA && NoCaptureAA->isAssumedNoCapture();
   }
   if (auto *GV = dyn_cast<GlobalVariable>(&Obj)) {
     if (GV->isConstant()) {
@@ -913,18 +914,14 @@ static bool addIfNotExistent(LLVMContext &Ctx, const Attribute &Attr,
   if (Attr.isEnumAttribute()) {
     Attribute::AttrKind Kind = Attr.getKindAsEnum();
     if (Attrs.hasAttributeAtIndex(AttrIdx, Kind))
-      if (!ForceReplace &&
-          isEqualOrWorse(Attr, Attrs.getAttributeAtIndex(AttrIdx, Kind)))
-        return false;
+      return false;
     Attrs = Attrs.addAttributeAtIndex(Ctx, AttrIdx, Attr);
     return true;
   }
   if (Attr.isStringAttribute()) {
     StringRef Kind = Attr.getKindAsString();
     if (Attrs.hasAttributeAtIndex(AttrIdx, Kind))
-      if (!ForceReplace &&
-          isEqualOrWorse(Attr, Attrs.getAttributeAtIndex(AttrIdx, Kind)))
-        return false;
+      return false;
     Attrs = Attrs.addAttributeAtIndex(Ctx, AttrIdx, Attr);
     return true;
   }
@@ -3222,6 +3219,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
   IRPosition FPos = IRPosition::function(F);
   bool IsIPOAmendable = isFunctionIPOAmendable(F);
+  auto Attrs = F.getAttributes();
   if (IsIPOAmendable) {
 
     // Check for dead BasicBlocks in every function.
@@ -3230,11 +3228,11 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     getOrCreateAAFor<AAIsDead>(FPos);
 
     // Every function might be "will-return".
-    if (!F.hasFnAttribute(Attribute::WillReturn))
+    if (!Attrs.hasFnAttr(Attribute::WillReturn))
       getOrCreateAAFor<AAWillReturn>(FPos);
 
     // Every function might be "must-progress".
-    if (!F.hasFnAttribute(Attribute::MustProgress))
+    if (!Attrs.hasFnAttr(Attribute::MustProgress))
       getOrCreateAAFor<AAMustProgress>(FPos);
 
     // Every function might contain instructions that cause "undefined
@@ -3242,27 +3240,27 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     getOrCreateAAFor<AAUndefinedBehavior>(FPos);
 
     // Every function can be nounwind.
-    if (!F.hasFnAttribute(Attribute::NoUnwind))
+    if (!Attrs.hasFnAttr(Attribute::NoUnwind))
       getOrCreateAAFor<AANoUnwind>(FPos);
 
     // Every function might be marked "nosync"
-    if (!F.hasFnAttribute(Attribute::NoSync))
+    if (!Attrs.hasFnAttr(Attribute::NoSync))
       getOrCreateAAFor<AANoSync>(FPos);
 
     // Every function might be "no-free".
-    if (!F.hasFnAttribute(Attribute::NoFree))
+    if (!Attrs.hasFnAttr(Attribute::NoFree))
       getOrCreateAAFor<AANoFree>(FPos);
 
     // Every function might be "no-return".
-    if (!F.hasFnAttribute(Attribute::NoReturn))
+    if (!Attrs.hasFnAttr(Attribute::NoReturn))
       getOrCreateAAFor<AANoReturn>(FPos);
 
     // Every function might be "no-recurse".
-    if (!F.hasFnAttribute(Attribute::NoRecurse))
+    if (!Attrs.hasFnAttr(Attribute::NoRecurse))
       getOrCreateAAFor<AANoRecurse>(FPos);
 
     // Every function can be "non-convergent".
-    if (F.hasFnAttribute(Attribute::Convergent))
+    if (Attrs.hasFnAttr(Attribute::Convergent))
       getOrCreateAAFor<AANonConvergent>(FPos);
 
     // Every function might be "readnone/readonly/writeonly/...".
@@ -3297,7 +3295,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
                          AA::Intraprocedural);
 
     // Every returned value might be marked noundef.
-    if (!F.hasRetAttribute(Attribute::NoUndef))
+    if (!Attrs.hasRetAttr(Attribute::NoUndef))
       getOrCreateAAFor<AANoUndef>(RetPos);
 
     if (ReturnType->isPointerTy()) {
@@ -3306,11 +3304,11 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       getOrCreateAAFor<AAAlign>(RetPos);
 
       // Every function with pointer return type might be marked nonnull.
-      if (!F.hasRetAttribute(Attribute::NonNull))
+      if (!Attrs.hasRetAttr(Attribute::NonNull))
         getOrCreateAAFor<AANonNull>(RetPos);
 
       // Every function with pointer return type might be marked noalias.
-      if (!F.hasRetAttribute(Attribute::NoAlias))
+      if (!Attrs.hasRetAttr(Attribute::NoAlias))
         getOrCreateAAFor<AANoAlias>(RetPos);
 
       // Every function with pointer return type might be marked
@@ -3322,8 +3320,10 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   }
 
   if (IsIPOAmendable) {
+    unsigned ArgNo = -1;
     for (Argument &Arg : F.args()) {
       IRPosition ArgPos = IRPosition::argument(Arg);
+      ++ArgNo;
 
       // Every argument might be simplified. We have to go through the
       // Attributor interface though as outside AAs can register custom
@@ -3336,16 +3336,16 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       getOrCreateAAFor<AAIsDead>(ArgPos);
 
       // Every argument might be marked noundef.
-      if (Arg.hasAttribute(Attribute::NoUndef))
+      if (!Attrs.hasParamAttr(ArgNo, Attribute::NoUndef))
         getOrCreateAAFor<AANoUndef>(ArgPos);
 
       if (Arg.getType()->isPointerTy()) {
         // Every argument with pointer type might be marked nonnull.
-        if (Arg.hasAttribute(Attribute::NonNull))
+        if (!Attrs.hasParamAttr(ArgNo, Attribute::NonNull))
           getOrCreateAAFor<AANonNull>(ArgPos);
 
         // Every argument with pointer type might be marked noalias.
-        if (Arg.hasAttribute(Attribute::NoAlias))
+        if (!Attrs.hasParamAttr(ArgNo, Attribute::NoAlias))
           getOrCreateAAFor<AANoAlias>(ArgPos);
 
         // Every argument with pointer type might be marked dereferenceable.
@@ -3355,7 +3355,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
         getOrCreateAAFor<AAAlign>(ArgPos);
 
         // Every argument with pointer type might be marked nocapture.
-        bool NoCapture = Arg.hasAttribute(Attribute::NoCapture);
+        bool NoCapture = Attrs.hasParamAttr(ArgNo, Attribute::NoCapture);
         const AANoCapture *NoCaptureAA = nullptr;
         if (!NoCapture)
           NoCaptureAA = getOrCreateAAFor<AANoCapture>(ArgPos);
@@ -3755,9 +3755,8 @@ static bool runLightweightAttributorOnFunctions(
   AC.UseLiveness = false;
   DenseSet<const char *> Allowed(
       {&AAWillReturn::ID, &AANoUnwind::ID, &AANoRecurse::ID, &AANoSync::ID,
-       &AANoFree::ID, &AAMemoryLocation::ID, &AAMemoryBehavior::ID,
-       &AANoCapture::ID, &AAReturnedValues::ID, &AANoFPClass::ID,
-       &AANoAlias::ID});
+       &AANoFree::ID, &AAMemoryBehavior::ID, &AANoCapture::ID,
+       &AAReturnedValues::ID, &AANoFPClass::ID, &AANoAlias::ID});
   AC.Allowed = &Allowed;
 
   Attributor A(Functions, InfoCache, AC);

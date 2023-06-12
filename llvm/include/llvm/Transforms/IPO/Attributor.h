@@ -5751,6 +5751,31 @@ enum AttributorRunOption {
   ALL = MODULE | CGSCC
 };
 
+template <Attribute::AttrKind AK>
+bool hasAssumedIRAttr(Attributor &A, const AbstractAttribute &QueryingAA,
+                      const IRPosition &IRP, DepClassTy DepClass,
+                      bool &IsKnown) {
+  switch (AK) {
+#define CASE(ATTRNAME, AANAME)                                                 \
+  case Attribute::ATTRNAME: {                                                  \
+    if (IRP.hasAttr({AK}, /* IgnoreSubsumingPositions */ false))               \
+      return IsKnown = true;                                                   \
+    auto *AA = A.getAAFor<AANAME>(QueryingAA, IRP, DepClass);                  \
+    if (!AA)                                                                   \
+      return false;                                                            \
+    IsKnown = AA->isKnown();                                                   \
+    return AA->isAssumed();                                                    \
+  }
+    CASE(NoUnwind, AANoUnwind);
+    CASE(WillReturn, AAWillReturn);
+    CASE(NoFree, AANoFree);
+#undef CASE
+  default:
+    errs() << AK << " : " << IRP << "\n";
+    llvm_unreachable("");
+  };
+}
+
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
