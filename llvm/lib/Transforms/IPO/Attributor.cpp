@@ -3755,7 +3755,8 @@ static bool runLightweightAttributorOnFunctions(
   AC.UseLiveness = false;
   DenseSet<const char *> Allowed(
       {&AAWillReturn::ID, &AANoUnwind::ID, &AANoRecurse::ID, &AANoSync::ID,
-       &AANoFree::ID, &AAMemoryBehavior::ID, &AANoCapture::ID,
+       &AANoFree::ID, &AAMemoryLocation::ID, &AAMemoryBehavior::ID,
+       &AAMustProgress::ID, &AAUnderlyingObjects::ID, &AANoCapture::ID,
        &AAReturnedValues::ID, &AANoFPClass::ID, &AANoAlias::ID});
   AC.Allowed = &Allowed;
 

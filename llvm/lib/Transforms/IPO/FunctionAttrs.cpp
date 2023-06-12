@@ -1785,6 +1785,12 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
   auto ChangedFunctions = deriveAttrsInPostOrder(Functions, AARGetter);
   if (ChangedFunctions.empty())
     return PreservedAnalyses::all();
+  if (!SkipNonRecursive) {
+    // for (auto *F : Functions)
+    //   F->dump();
+    // PrintStatistics(errs());
+    // exit(0);
+  }
 
   // Invalidate analyses for modified functions so that we don't have to
   // invalidate all analyses for all functions in this SCC.

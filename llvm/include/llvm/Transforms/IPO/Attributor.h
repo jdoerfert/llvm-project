@@ -726,6 +726,15 @@ struct IRPosition {
       return false;
     }
   }
+  bool isFnOrCallSiteFunction() const {
+    switch (getPositionKind()) {
+    case IRPosition::IRP_FUNCTION:
+    case IRPosition::IRP_CALL_SITE:
+      return true;
+    default:
+      return false;
+    }
+  }
 
   /// Return the Function surrounding the anchor value.
   Function *getAnchorScope() const {
@@ -1612,7 +1621,7 @@ struct Attributor {
       --InitializationChainLength;
     }
 
-    bool IsRunOn = !AnchorFn || isModulePass() ||
+    bool IsRunOn = !AnchorFn || isModulePass() || AnchorFn->isDeclaration() ||
                    isRunOn(const_cast<Function *>(AnchorFn)) ||
                    isRunOn(IRP.getAssociatedFunction());
     // We update only AAs associated with functions in the Functions set or
@@ -4489,6 +4498,10 @@ struct AAMemoryLocation
   /// pointers of the associated function, if any.
   bool mayAccessArgMem() const { return !isAssumed(NO_ARGUMENT_MEM); }
 
+  bool mayAccessInaccessibleMem() const {
+    return !isAssumed(NO_INACCESSIBLE_MEM);
+  }
+
   /// Return true if only the memory locations specififed by \p MLK are assumed
   /// to be accessed by the associated function.
   bool isAssumedSpecifiedMemOnly(MemoryLocationsKind MLK) const {
@@ -5773,6 +5786,7 @@ bool hasAssumedIRAttr(Attributor &A, const AbstractAttribute &QueryingAA,
     CASE(NoRecurse, AANoRecurse);
     CASE(NoSync, AANoSync);
     CASE(NoAlias, AANoAlias);
+    CASE(MustProgress, AAMustProgress);
 #undef CASE
   default:
     errs() << AK << " : " << IRP << "\n";

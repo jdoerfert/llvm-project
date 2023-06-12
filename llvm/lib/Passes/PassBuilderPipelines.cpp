@@ -904,7 +904,7 @@ PassBuilder::buildInlinerPipeline(OptimizationLevel Level,
   // Finally, deduce any function attributes based on the fully simplified
   // function.
   MainCGPipeline.addPass(LightweightAttributorCGSCCPass());
-  // MainCGPipeline.addPass(PostOrderFunctionAttrsPass());
+  //  MainCGPipeline.addPass(PostOrderFunctionAttrsPass());
 
   // Mark that the function is fully simplified and that it shouldn't be
   // simplified again if we somehow revisit it due to CGSCC mutations unless

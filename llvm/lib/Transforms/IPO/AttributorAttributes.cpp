@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Support/ModRef.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/APInt.h"
@@ -8062,12 +8063,24 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
   void getDeducedAttributes(LLVMContext &Ctx,
                             SmallVectorImpl<Attribute> &Attrs) const override {
     assert(Attrs.size() == 0);
-    if (isAssumedReadNone())
-      Attrs.push_back(Attribute::get(Ctx, Attribute::ReadNone));
-    else if (isAssumedReadOnly())
-      Attrs.push_back(Attribute::get(Ctx, Attribute::ReadOnly));
-    else if (isAssumedWriteOnly())
-      Attrs.push_back(Attribute::get(Ctx, Attribute::WriteOnly));
+    if (getIRPosition().isFnOrCallSiteFunction()) {
+      if (isAssumedReadNone())
+        Attrs.push_back(
+            Attribute::getWithMemoryEffects(Ctx, MemoryEffects::none()));
+      else if (isAssumedReadOnly())
+        Attrs.push_back(
+            Attribute::getWithMemoryEffects(Ctx, MemoryEffects::readOnly()));
+      else if (isAssumedWriteOnly())
+        Attrs.push_back(
+            Attribute::getWithMemoryEffects(Ctx, MemoryEffects::writeOnly()));
+    } else {
+      if (isAssumedReadNone())
+        Attrs.push_back(Attribute::get(Ctx, Attribute::ReadNone));
+      else if (isAssumedReadOnly())
+        Attrs.push_back(Attribute::get(Ctx, Attribute::ReadOnly));
+      else if (isAssumedWriteOnly())
+        Attrs.push_back(Attribute::get(Ctx, Attribute::WriteOnly));
+    }
     assert(Attrs.size() <= 1);
   }
 
@@ -8081,17 +8094,30 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
     // Check if we would improve the existing attributes first.
     SmallVector<Attribute, 4> DeducedAttrs;
     getDeducedAttributes(IRP.getAnchorValue().getContext(), DeducedAttrs);
-    if (llvm::all_of(DeducedAttrs, [&](const Attribute &Attr) {
-          return IRP.hasAttr(Attr.getKindAsEnum(),
-                             /* IgnoreSubsumingPositions */ true);
-        }))
+    if (DeducedAttrs.size() != 1)
       return ChangeStatus::UNCHANGED;
 
-    // Clear existing attributes.
-    IRP.removeAttrs(AttrKinds);
+    if (!IRP.isFnOrCallSiteFunction())
+      return IRAttributeManifest::manifestAttrs(A, IRP, DeducedAttrs,
+                                                /*ForceReplace*/ true);
 
-    // Use the generic manifest method.
-    return IRAttribute::manifest(A);
+    MemoryEffects ME = DeducedAttrs[0].getMemoryEffects();
+
+    SmallVector<Attribute, 1> ExistingAttrs;
+    IRP.getAttrs({Attribute::Memory}, ExistingAttrs,
+                 /* IgnoreSubsumingPositions */ true);
+
+    if (ExistingAttrs.size() == 1) {
+      MemoryEffects ExistingME = ExistingAttrs[0].getMemoryEffects();
+      ME &= ExistingME;
+      if (ME == ExistingME)
+        return ChangeStatus::UNCHANGED;
+    }
+
+    return IRAttributeManifest::manifestAttrs(
+        A, IRP,
+        Attribute::getWithMemoryEffects(IRP.getAnchorValue().getContext(), ME),
+        /*ForceReplace*/ true);
   }
 
   /// See AbstractState::getAsStr().
@@ -8624,9 +8650,10 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
     // TODO: A better way to handle this would be to add ~NO_GLOBAL_MEM /
     // MemoryEffects::Other as a possible location.
     bool UseArgMemOnly = true;
-    Function *AnchorFn = IRP.getAnchorScope();
-    if (AnchorFn && A.isRunOn(*AnchorFn))
-      UseArgMemOnly = !AnchorFn->hasLocalLinkage();
+    Function *AssociatedFn = IRP.getAssociatedFunction();
+    if (AssociatedFn && !AssociatedFn->isDeclaration() &&
+        A.isRunOn(*AssociatedFn))
+      UseArgMemOnly = !AssociatedFn->hasLocalLinkage();
 
     SmallVector<Attribute, 2> Attrs;
     IRP.getAttrs({Attribute::Memory}, Attrs, IgnoreSubsumingPositions);
@@ -8676,21 +8703,20 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
   /// See AbstractAttribute::getDeducedAttributes(...).
   void getDeducedAttributes(LLVMContext &Ctx,
                             SmallVectorImpl<Attribute> &Attrs) const override {
-    // TODO: We can map Attributor locations to MemoryEffects more precisely.
     assert(Attrs.size() == 0);
-    if (getIRPosition().getPositionKind() == IRPosition::IRP_FUNCTION) {
+    if (getIRPosition().isFnOrCallSiteFunction()) {
+      MemoryEffects ME = MemoryEffects::none();
+      if (isAssumedReadNone()) {
+      } else if (!isAssumedInaccessibleOrArgMemOnly())
+        ME = ME.getWithModRef(MemoryEffects::Other, ModRefInfo::ModRef);
+      if (mayAccessInaccessibleMem())
+        ME &= MemoryEffects::inaccessibleMemOnly();
+      else if (mayAccessArgMem())
+        ME &= MemoryEffects::argMemOnly();
+      Attrs.push_back(Attribute::getWithMemoryEffects(Ctx, ME));
+    } else {
       if (isAssumedReadNone())
-        Attrs.push_back(
-            Attribute::getWithMemoryEffects(Ctx, MemoryEffects::none()));
-      else if (isAssumedInaccessibleMemOnly())
-        Attrs.push_back(Attribute::getWithMemoryEffects(
-            Ctx, MemoryEffects::inaccessibleMemOnly()));
-      else if (isAssumedArgMemOnly())
-        Attrs.push_back(
-            Attribute::getWithMemoryEffects(Ctx, MemoryEffects::argMemOnly()));
-      else if (isAssumedInaccessibleOrArgMemOnly())
-        Attrs.push_back(Attribute::getWithMemoryEffects(
-            Ctx, MemoryEffects::inaccessibleOrArgMemOnly()));
+        Attrs.push_back(Attribute::get(Ctx, Attribute::ReadNone));
     }
     assert(Attrs.size() <= 1);
   }
@@ -8705,6 +8731,11 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
     getDeducedAttributes(IRP.getAnchorValue().getContext(), DeducedAttrs);
     if (DeducedAttrs.size() != 1)
       return ChangeStatus::UNCHANGED;
+
+    if (!IRP.isFnOrCallSiteFunction())
+      return IRAttributeManifest::manifestAttrs(A, IRP, DeducedAttrs,
+                                                /*ForceReplace*/ true);
+
     MemoryEffects ME = DeducedAttrs[0].getMemoryEffects();
 
     // Intersect with existing memory attribute, as we currently deduce the
