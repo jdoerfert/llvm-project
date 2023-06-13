@@ -6174,18 +6174,15 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
     return true;
   };
 
-  //  const auto *NoUnwindAA =
-  //      A.getAAFor<AANoUnwind>(*this, FnPos, DepClassTy::OPTIONAL);
   if (hasAssumedIRAttr<Attribute::NoUnwind>(A, *this, FnPos,
                                             DepClassTy::OPTIONAL, IsKnown)) {
-    //  if (NoUnwindAA && NoUnwindAA->isAssumedNoUnwind()) {
     bool IsVoidTy = F->getReturnType()->isVoidTy();
     const AAReturnedValues *RVAA =
         IsVoidTy ? nullptr
                  : A.getAAFor<AAReturnedValues>(*this, FnPos,
 
                                                 DepClassTy::OPTIONAL);
-    if (IsVoidTy || CheckReturnedArgs(*RVAA)) {
+    if (IsVoidTy || (RVAA && CheckReturnedArgs(*RVAA))) {
       T.addKnownBits(NOT_CAPTURED_IN_RET);
       if (T.isKnown(NOT_CAPTURED_IN_MEM))
         return ChangeStatus::UNCHANGED;
@@ -8097,27 +8094,10 @@ struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
     if (DeducedAttrs.size() != 1)
       return ChangeStatus::UNCHANGED;
 
-    if (!IRP.isFnOrCallSiteFunction())
-      return IRAttributeManifest::manifestAttrs(A, IRP, DeducedAttrs,
-                                                /*ForceReplace*/ true);
-
-    MemoryEffects ME = DeducedAttrs[0].getMemoryEffects();
-
-    SmallVector<Attribute, 1> ExistingAttrs;
-    IRP.getAttrs({Attribute::Memory}, ExistingAttrs,
-                 /* IgnoreSubsumingPositions */ true);
-
-    if (ExistingAttrs.size() == 1) {
-      MemoryEffects ExistingME = ExistingAttrs[0].getMemoryEffects();
-      ME &= ExistingME;
-      if (ME == ExistingME)
-        return ChangeStatus::UNCHANGED;
-    }
-
-    return IRAttributeManifest::manifestAttrs(
-        A, IRP,
-        Attribute::getWithMemoryEffects(IRP.getAnchorValue().getContext(), ME),
-        /*ForceReplace*/ true);
+    assert(!IRP.isFnOrCallSiteFunction());
+    IRP.removeAttrs(AAMemoryBehaviorImpl::AttrKinds);
+    return IRAttributeManifest::manifestAttrs(A, IRP, DeducedAttrs,
+                                              /*ForceReplace*/ true);
   }
 
   /// See AbstractState::getAsStr().
@@ -8709,10 +8689,11 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
       if (isAssumedReadNone()) {
       } else if (!isAssumedInaccessibleOrArgMemOnly())
         ME = ME.getWithModRef(MemoryEffects::Other, ModRefInfo::ModRef);
+
       if (mayAccessInaccessibleMem())
-        ME &= MemoryEffects::inaccessibleMemOnly();
+        ME |= MemoryEffects::inaccessibleMemOnly();
       else if (mayAccessArgMem())
-        ME &= MemoryEffects::argMemOnly();
+        ME |= MemoryEffects::argMemOnly();
       Attrs.push_back(Attribute::getWithMemoryEffects(Ctx, ME));
     } else {
       if (isAssumedReadNone())
@@ -8732,9 +8713,11 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
     if (DeducedAttrs.size() != 1)
       return ChangeStatus::UNCHANGED;
 
-    if (!IRP.isFnOrCallSiteFunction())
+    if (!IRP.isFnOrCallSiteFunction()) {
+      IRP.removeAttrs(AAMemoryBehaviorImpl::AttrKinds);
       return IRAttributeManifest::manifestAttrs(A, IRP, DeducedAttrs,
                                                 /*ForceReplace*/ true);
+    }
 
     MemoryEffects ME = DeducedAttrs[0].getMemoryEffects();
 
@@ -11377,7 +11360,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       bool CyclePHI = mayBeInCycle(CI, &PHI, /* HeaderOnly */ true, &C);
       for (unsigned u = 0, e = PHI.getNumIncomingValues(); u < e; u++) {
         BasicBlock *IncomingBB = PHI.getIncomingBlock(u);
-        if (LI.LivenessAA->isEdgeDead(IncomingBB, PHI.getParent())) {
+        if (LI.LivenessAA &&
+            LI.LivenessAA->isEdgeDead(IncomingBB, PHI.getParent())) {
           LI.AnyDead = true;
           continue;
         }

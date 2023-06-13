@@ -3757,7 +3757,7 @@ static bool runLightweightAttributorOnFunctions(
       {&AAWillReturn::ID, &AANoUnwind::ID, &AANoRecurse::ID, &AANoSync::ID,
        &AANoFree::ID, &AAMemoryLocation::ID, &AAMemoryBehavior::ID,
        &AAMustProgress::ID, &AAUnderlyingObjects::ID, &AANoCapture::ID,
-       &AAReturnedValues::ID, &AANoFPClass::ID, &AANoAlias::ID});
+       &AANoFPClass::ID, &AANoReturn::ID});
   AC.Allowed = &Allowed;
 
   Attributor A(Functions, InfoCache, AC);

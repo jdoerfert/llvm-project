@@ -1780,17 +1780,21 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
   SmallVector<Function *, 8> Functions;
   for (LazyCallGraph::Node &N : C) {
     Functions.push_back(&N.getFunction());
+    //    if (!SkipNonRecursive)
+    //      Functions.back()->dump();
   }
 
   auto ChangedFunctions = deriveAttrsInPostOrder(Functions, AARGetter);
   if (ChangedFunctions.empty())
     return PreservedAnalyses::all();
+#if 0
   if (!SkipNonRecursive) {
-    // for (auto *F : Functions)
-    //   F->dump();
-    // PrintStatistics(errs());
-    // exit(0);
+    for (auto *F : Functions)
+      F->dump();
+    PrintStatistics(errs());
+    exit(0);
   }
+#endif
 
   // Invalidate analyses for modified functions so that we don't have to
   // invalidate all analyses for all functions in this SCC.
