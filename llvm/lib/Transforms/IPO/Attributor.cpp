@@ -1851,49 +1851,26 @@ bool Attributor::shouldPropagateCallBaseContext(const IRPosition &IRP) {
   return EnableCallSiteSpecific;
 }
 
-bool Attributor::checkForAllReturnedValuesAndReturnInsts(
-    function_ref<bool(Value &, const SmallSetVector<ReturnInst *, 4> &)> Pred,
-    const AbstractAttribute &QueryingAA) {
-
-  const IRPosition &IRP = QueryingAA.getIRPosition();
-  // Since we need to provide return instructions we have to have an exact
-  // definition.
-  const Function *AssociatedFunction = IRP.getAssociatedFunction();
-  if (!AssociatedFunction)
-    return false;
-
-  // If this is a call site query we use the call site specific return values
-  // and liveness information.
-  // TODO: use the function scope once we have call site AAReturnedValues.
-  const IRPosition &QueryIRP = IRPosition::function(*AssociatedFunction);
-  const auto *AARetVal =
-      getAAFor<AAReturnedValues>(QueryingAA, QueryIRP, DepClassTy::REQUIRED);
-  if (!AARetVal || !AARetVal->getState().isValidState())
-    return false;
-
-  return AARetVal->checkForAllReturnedValuesAndReturnInsts(Pred);
-}
-
-bool Attributor::checkForAllReturnedValues(
-    function_ref<bool(Value &)> Pred, const AbstractAttribute &QueryingAA) {
+bool Attributor::checkForAllReturnedValues(function_ref<bool(Value &)> Pred,
+                                           const AbstractAttribute &QueryingAA,
+                                           AA::ValueScope S,
+                                           bool RecurseForSelectAndPHI) {
 
   const IRPosition &IRP = QueryingAA.getIRPosition();
   const Function *AssociatedFunction = IRP.getAssociatedFunction();
   if (!AssociatedFunction)
     return false;
 
-  // TODO: use the function scope once we have call site AAReturnedValues.
-  const IRPosition &QueryIRP = IRPosition::function(
-      *AssociatedFunction, QueryingAA.getCallBaseContext());
-  const auto *AARetVal =
-      getAAFor<AAReturnedValues>(QueryingAA, QueryIRP, DepClassTy::REQUIRED);
-  if (!AARetVal || !AARetVal->getState().isValidState())
+  bool UsedAssumedInformation;
+  SmallVector<AA::ValueAndContext> Values;
+  if (!getAssumedSimplifiedValues(
+          IRPosition::returned(*AssociatedFunction), &QueryingAA, Values, S,
+          UsedAssumedInformation, RecurseForSelectAndPHI))
     return false;
 
-  return AARetVal->checkForAllReturnedValuesAndReturnInsts(
-      [&](Value &RV, const SmallSetVector<ReturnInst *, 4> &) {
-        return Pred(RV);
-      });
+  return llvm::all_of(Values, [&](const AA::ValueAndContext &VAC) {
+    return Pred(*VAC.getValue());
+  });
 }
 
 static bool checkForAllInstructionsImpl(
@@ -1937,7 +1914,6 @@ bool Attributor::checkForAllInstructions(function_ref<bool(Instruction &)> Pred,
   if (!Fn || Fn->isDeclaration())
     return false;
 
-  // TODO: use the function scope once we have call site AAReturnedValues.
   const IRPosition &QueryIRP = IRPosition::function(*Fn);
   const auto *LivenessAA =
       CheckPotentiallyDead
@@ -1976,7 +1952,6 @@ bool Attributor::checkForAllReadWriteInstructions(
   if (!AssociatedFunction)
     return false;
 
-  // TODO: use the function scope once we have call site AAReturnedValues.
   const IRPosition &QueryIRP = IRPosition::function(*AssociatedFunction);
   const auto *LivenessAA =
       getAAFor<AAIsDead>(QueryingAA, QueryIRP, DepClassTy::NONE);
@@ -3250,16 +3225,13 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   // Return attributes are only appropriate if the return type is non void.
   Type *ReturnType = F.getReturnType();
   if (!ReturnType->isVoidTy()) {
-    // Argument attribute "returned" --- Create only one per function even
-    // though it is an argument attribute.
-    getOrCreateAAFor<AAReturnedValues>(FPos);
-
     IRPosition RetPos = IRPosition::returned(F);
 
     // Every returned value might be dead.
     getOrCreateAAFor<AAIsDead>(RetPos);
 
-    // Every function might be simplified.
+    // Every function return might be simplified, also, tries to add the
+    // argument attribute "returned".
     bool UsedAssumedInformation = false;
     getAssumedSimplified(RetPos, nullptr, UsedAssumedInformation,
                          AA::Intraprocedural);
