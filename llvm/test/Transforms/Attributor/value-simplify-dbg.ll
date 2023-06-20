@@ -24,7 +24,7 @@ entry:
 declare void @use(i32 noundef)
 
 define void @src() norecurse !dbg !22 {
-; CHECK: Function Attrs: norecurse nosync memory(write)
+; CHECK: Function Attrs: norecurse nosync memory(write, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@src
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] !dbg [[DBG22:![0-9]+]] {
 ; CHECK-NEXT:  entry:
@@ -73,7 +73,7 @@ declare i32 @speculatable() speculatable readnone
 !24 = !DILocation(line: 10, column: 7, scope: !22)
 !25 = !DILocation(line: 11, column: 1, scope: !22)
 ;.
-; CHECK: attributes #[[ATTR0]] = { norecurse nosync memory(write) }
+; CHECK: attributes #[[ATTR0]] = { norecurse nosync memory(write, inaccessiblemem: none) }
 ; CHECK: attributes #[[ATTR1:[0-9]+]] = { speculatable memory(none) }
 ;.
 ; CHECK: [[DBG0]] = !DIGlobalVariableExpression(var: !1, expr: !DIExpression())

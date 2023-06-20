@@ -300,7 +300,7 @@ define void @f2() #0 {
 
 ; TEST 12 NoFree argument - positive.
 define double @test12(ptr nocapture readonly %a) {
-; CHECK: Function Attrs: nofree nounwind
+; CHECK: Function Attrs: nofree nounwind memory(readwrite, argmem: read)
 ; CHECK-LABEL: define {{[^@]+}}@test12
 ; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR7:[0-9]+]] {
 ; CHECK-NEXT:  entry:
@@ -319,9 +319,9 @@ declare double @cos(double) nobuiltin nounwind nofree
 ; FIXME: %a should be nofree.
 ; TEST 13 NoFree argument - positive.
 define noalias ptr @test13(ptr nocapture readonly %a) {
-; CHECK: Function Attrs: nounwind
+; CHECK: Function Attrs: nounwind memory(readwrite, argmem: read)
 ; CHECK-LABEL: define {{[^@]+}}@test13
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR9:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i64, ptr [[A]], align 8
 ; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @malloc(i64 [[TMP0]]) #[[ATTR2]]
@@ -442,10 +442,11 @@ attributes #2 = { nobuiltin nounwind }
 ; TUNIT: attributes #[[ATTR4]] = { mustprogress nofree noinline nosync nounwind willreturn memory(none) uwtable }
 ; TUNIT: attributes #[[ATTR5:[0-9]+]] = { nofree noinline nounwind memory(none) uwtable }
 ; TUNIT: attributes #[[ATTR6:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-; TUNIT: attributes #[[ATTR7]] = { nofree nounwind }
+; TUNIT: attributes #[[ATTR7]] = { nofree nounwind memory(readwrite, argmem: read) }
 ; TUNIT: attributes #[[ATTR8:[0-9]+]] = { nobuiltin nofree nounwind }
-; TUNIT: attributes #[[ATTR9:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
-; TUNIT: attributes #[[ATTR10:[0-9]+]] = { nounwind willreturn }
+; TUNIT: attributes #[[ATTR9]] = { nounwind memory(readwrite, argmem: read) }
+; TUNIT: attributes #[[ATTR10:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
+; TUNIT: attributes #[[ATTR11:[0-9]+]] = { nounwind willreturn }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { nounwind }
 ; CGSCC: attributes #[[ATTR1]] = { noinline nounwind uwtable }
@@ -454,8 +455,9 @@ attributes #2 = { nobuiltin nounwind }
 ; CGSCC: attributes #[[ATTR4:[0-9]+]] = { nofree noinline nounwind memory(none) uwtable }
 ; CGSCC: attributes #[[ATTR5]] = { mustprogress nofree noinline nosync nounwind willreturn memory(none) uwtable }
 ; CGSCC: attributes #[[ATTR6:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-; CGSCC: attributes #[[ATTR7]] = { nofree nounwind }
+; CGSCC: attributes #[[ATTR7]] = { nofree nounwind memory(readwrite, argmem: read) }
 ; CGSCC: attributes #[[ATTR8:[0-9]+]] = { nobuiltin nofree nounwind }
-; CGSCC: attributes #[[ATTR9:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
-; CGSCC: attributes #[[ATTR10:[0-9]+]] = { nounwind willreturn }
+; CGSCC: attributes #[[ATTR9]] = { nounwind memory(readwrite, argmem: read) }
+; CGSCC: attributes #[[ATTR10:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
+; CGSCC: attributes #[[ATTR11:[0-9]+]] = { nounwind willreturn }
 ;.

@@ -3095,13 +3095,12 @@ ChangeStatus AAExecutionDomainFunction::updateImpl(Attributor &A) {
             *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
 
         auto AccessPred = [&](const Instruction *I, const Value *Ptr,
-                              AAMemoryLocation::AccessKind,
-                              AAMemoryLocation::MemoryLocationsKind) {
+                              AA::MemoryEffects AAME) {
           return !AA::isPotentiallyAffectedByBarrier(A, {Ptr}, *this, I);
         };
         if (MemAA && MemAA->getState().isValidState() &&
             MemAA->checkForAllAccessesToMemoryKind(
-                AccessPred, AAMemoryLocation::ALL_LOCATIONS))
+                AccessPred, AA::MemoryEffects::anyObservableMem()))
           continue;
       }
 

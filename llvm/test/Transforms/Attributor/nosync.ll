@@ -70,7 +70,7 @@ define i32 @load_monotonic(ptr nocapture readonly %arg) norecurse nounwind uwtab
 define void @store_monotonic(ptr nocapture %arg) norecurse nounwind uwtable {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) uwtable
 ; CHECK-LABEL: define {{[^@]+}}@store_monotonic
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[ARG:%.*]]) #[[ATTR1]] {
+; CHECK-SAME: (ptr nocapture nofree noundef nonnull align 4 dereferenceable(4) [[ARG:%.*]]) #[[ATTR1]] {
 ; CHECK-NEXT:    store atomic i32 10, ptr [[ARG]] monotonic, align 4
 ; CHECK-NEXT:    ret void
 ;
@@ -105,7 +105,7 @@ define i32 @load_acquire(ptr nocapture readonly %arg) norecurse nounwind uwtable
 define void @load_release(ptr nocapture %arg) norecurse nounwind uwtable {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) uwtable
 ; CHECK-LABEL: define {{[^@]+}}@load_release
-; CHECK-SAME: (ptr nocapture nofree noundef writeonly align 4 [[ARG:%.*]]) #[[ATTR2]] {
+; CHECK-SAME: (ptr nocapture nofree noundef align 4 [[ARG:%.*]]) #[[ATTR2]] {
 ; CHECK-NEXT:    store atomic volatile i32 10, ptr [[ARG]] release, align 4
 ; CHECK-NEXT:    ret void
 ;
@@ -118,7 +118,7 @@ define void @load_release(ptr nocapture %arg) norecurse nounwind uwtable {
 define void @load_volatile_release(ptr nocapture %arg) norecurse nounwind uwtable {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) uwtable
 ; CHECK-LABEL: define {{[^@]+}}@load_volatile_release
-; CHECK-SAME: (ptr nocapture nofree noundef writeonly align 4 [[ARG:%.*]]) #[[ATTR2]] {
+; CHECK-SAME: (ptr nocapture nofree noundef align 4 [[ARG:%.*]]) #[[ATTR2]] {
 ; CHECK-NEXT:    store atomic volatile i32 10, ptr [[ARG]] release, align 4
 ; CHECK-NEXT:    ret void
 ;
@@ -203,7 +203,7 @@ define i32 @scc1(ptr %arg) noinline nounwind uwtable {
 ; TUNIT-LABEL: define {{[^@]+}}@scc1
 ; TUNIT-SAME: (ptr nofree [[ARG:%.*]]) #[[ATTR5:[0-9]+]] {
 ; TUNIT-NEXT:    tail call void @scc2(ptr nofree [[ARG]]) #[[ATTR19:[0-9]+]]
-; TUNIT-NEXT:    [[VAL:%.*]] = tail call i32 @volatile_load(ptr nofree align 4 [[ARG]]) #[[ATTR19]]
+; TUNIT-NEXT:    [[VAL:%.*]] = tail call i32 @volatile_load(ptr nofree align 4 [[ARG]]) #[[ATTR20:[0-9]+]]
 ; TUNIT-NEXT:    ret i32 [[VAL]]
 ;
 ; CGSCC: Function Attrs: nofree noinline nounwind memory(argmem: readwrite) uwtable
@@ -251,7 +251,7 @@ define void @scc2(ptr %arg) noinline nounwind uwtable {
 define void @foo1(ptr %arg, ptr %arg1) {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@foo1
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[ARG:%.*]], ptr nocapture nofree noundef nonnull writeonly dereferenceable(1) [[ARG1:%.*]]) #[[ATTR6:[0-9]+]] {
+; CHECK-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[ARG:%.*]], ptr nocapture nofree noundef nonnull dereferenceable(1) [[ARG1:%.*]]) #[[ATTR6:[0-9]+]] {
 ; CHECK-NEXT:    store i32 100, ptr [[ARG]], align 4
 ; CHECK-NEXT:    fence release
 ; CHECK-NEXT:    store atomic i8 1, ptr [[ARG1]] monotonic, align 1
@@ -266,7 +266,7 @@ define void @foo1(ptr %arg, ptr %arg1) {
 define void @bar(ptr %arg, ptr %arg1) {
 ; CHECK: Function Attrs: nofree norecurse nounwind
 ; CHECK-LABEL: define {{[^@]+}}@bar
-; CHECK-SAME: (ptr nocapture nofree readnone [[ARG:%.*]], ptr nocapture nofree nonnull readonly dereferenceable(1) [[ARG1:%.*]]) #[[ATTR7:[0-9]+]] {
+; CHECK-SAME: (ptr nocapture nofree readnone [[ARG:%.*]], ptr nocapture nofree nonnull dereferenceable(1) [[ARG1:%.*]]) #[[ATTR7:[0-9]+]] {
 ; CHECK-NEXT:    br label [[BB2:%.*]]
 ; CHECK:       bb2:
 ; CHECK-NEXT:    [[I3:%.*]] = load atomic i8, ptr [[ARG1]] monotonic, align 1
@@ -294,7 +294,7 @@ bb6:
 define void @foo1_singlethread(ptr %arg, ptr %arg1) {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@foo1_singlethread
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[ARG:%.*]], ptr nocapture nofree noundef nonnull writeonly dereferenceable(1) [[ARG1:%.*]]) #[[ATTR8:[0-9]+]] {
+; CHECK-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[ARG:%.*]], ptr nocapture nofree noundef nonnull dereferenceable(1) [[ARG1:%.*]]) #[[ATTR8:[0-9]+]] {
 ; CHECK-NEXT:    store i32 100, ptr [[ARG]], align 4
 ; CHECK-NEXT:    fence syncscope("singlethread") release
 ; CHECK-NEXT:    store atomic i8 1, ptr [[ARG1]] monotonic, align 1
@@ -309,7 +309,7 @@ define void @foo1_singlethread(ptr %arg, ptr %arg1) {
 define void @bar_singlethread(ptr %arg, ptr %arg1) {
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind
 ; CHECK-LABEL: define {{[^@]+}}@bar_singlethread
-; CHECK-SAME: (ptr nocapture nofree readnone [[ARG:%.*]], ptr nocapture nofree nonnull readonly dereferenceable(1) [[ARG1:%.*]]) #[[ATTR9:[0-9]+]] {
+; CHECK-SAME: (ptr nocapture nofree readnone [[ARG:%.*]], ptr nocapture nofree nonnull dereferenceable(1) [[ARG1:%.*]]) #[[ATTR9:[0-9]+]] {
 ; CHECK-NEXT:    br label [[BB2:%.*]]
 ; CHECK:       bb2:
 ; CHECK-NEXT:    [[I3:%.*]] = load atomic i8, ptr [[ARG1]] monotonic, align 1
@@ -435,24 +435,46 @@ define float @cos_test2(float %x) {
   ret float %c
 }
 ;.
-; CHECK: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind optsize ssp willreturn memory(none) uwtable }
-; CHECK: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) uwtable }
-; CHECK: attributes #[[ATTR2]] = { mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) uwtable }
-; CHECK: attributes #[[ATTR3]] = { noinline nosync nounwind uwtable }
-; CHECK: attributes #[[ATTR4]] = { noinline nounwind uwtable }
-; CHECK: attributes #[[ATTR5]] = { nofree noinline nounwind memory(argmem: readwrite) uwtable }
-; CHECK: attributes #[[ATTR6]] = { mustprogress nofree norecurse nounwind willreturn }
-; CHECK: attributes #[[ATTR7]] = { nofree norecurse nounwind }
-; CHECK: attributes #[[ATTR8]] = { mustprogress nofree norecurse nosync nounwind willreturn }
-; CHECK: attributes #[[ATTR9]] = { nofree norecurse nosync nounwind }
-; CHECK: attributes #[[ATTR10:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
-; CHECK: attributes #[[ATTR11:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: write) }
-; CHECK: attributes #[[ATTR12]] = { mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) }
-; CHECK: attributes #[[ATTR13]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-; CHECK: attributes #[[ATTR14:[0-9]+]] = { convergent memory(none) }
-; CHECK: attributes #[[ATTR15]] = { memory(none) }
-; CHECK: attributes #[[ATTR16]] = { nounwind }
-; CHECK: attributes #[[ATTR17:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-; CHECK: attributes #[[ATTR18]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; CHECK: attributes #[[ATTR19]] = { nofree nounwind }
+; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind optsize ssp willreturn memory(none) uwtable }
+; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) uwtable }
+; TUNIT: attributes #[[ATTR2]] = { mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) uwtable }
+; TUNIT: attributes #[[ATTR3]] = { noinline nosync nounwind uwtable }
+; TUNIT: attributes #[[ATTR4]] = { noinline nounwind uwtable }
+; TUNIT: attributes #[[ATTR5]] = { nofree noinline nounwind memory(argmem: readwrite) uwtable }
+; TUNIT: attributes #[[ATTR6]] = { mustprogress nofree norecurse nounwind willreturn }
+; TUNIT: attributes #[[ATTR7]] = { nofree norecurse nounwind }
+; TUNIT: attributes #[[ATTR8]] = { mustprogress nofree norecurse nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR9]] = { nofree norecurse nosync nounwind }
+; TUNIT: attributes #[[ATTR10:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
+; TUNIT: attributes #[[ATTR11:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: write) }
+; TUNIT: attributes #[[ATTR12]] = { mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) }
+; TUNIT: attributes #[[ATTR13]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+; TUNIT: attributes #[[ATTR14:[0-9]+]] = { convergent memory(none) }
+; TUNIT: attributes #[[ATTR15]] = { memory(none) }
+; TUNIT: attributes #[[ATTR16]] = { nounwind }
+; TUNIT: attributes #[[ATTR17:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+; TUNIT: attributes #[[ATTR18]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+; TUNIT: attributes #[[ATTR19]] = { nofree nounwind memory(argmem: readwrite) }
+; TUNIT: attributes #[[ATTR20]] = { nofree nounwind }
+;.
+; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind optsize ssp willreturn memory(none) uwtable }
+; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) uwtable }
+; CGSCC: attributes #[[ATTR2]] = { mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) uwtable }
+; CGSCC: attributes #[[ATTR3]] = { noinline nosync nounwind uwtable }
+; CGSCC: attributes #[[ATTR4]] = { noinline nounwind uwtable }
+; CGSCC: attributes #[[ATTR5]] = { nofree noinline nounwind memory(argmem: readwrite) uwtable }
+; CGSCC: attributes #[[ATTR6]] = { mustprogress nofree norecurse nounwind willreturn }
+; CGSCC: attributes #[[ATTR7]] = { nofree norecurse nounwind }
+; CGSCC: attributes #[[ATTR8]] = { mustprogress nofree norecurse nosync nounwind willreturn }
+; CGSCC: attributes #[[ATTR9]] = { nofree norecurse nosync nounwind }
+; CGSCC: attributes #[[ATTR10:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
+; CGSCC: attributes #[[ATTR11:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: write) }
+; CGSCC: attributes #[[ATTR12]] = { mustprogress nofree norecurse nounwind willreturn memory(argmem: readwrite) }
+; CGSCC: attributes #[[ATTR13]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+; CGSCC: attributes #[[ATTR14:[0-9]+]] = { convergent memory(none) }
+; CGSCC: attributes #[[ATTR15]] = { memory(none) }
+; CGSCC: attributes #[[ATTR16]] = { nounwind }
+; CGSCC: attributes #[[ATTR17:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+; CGSCC: attributes #[[ATTR18]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+; CGSCC: attributes #[[ATTR19]] = { nofree nounwind memory(argmem: readwrite) }
 ;.

@@ -3,7 +3,7 @@
 ; Verify we change it to SPMD mode but also avoid propagating the old mode (=generic) into the __kmpc_target_init function.
 ;
 ; CHECK-NOT: store i32 0, ptr addrspace(3) @IsSPMDMode
-; CHECK: call i32 @__kmpc_target_init(ptr addrspacecast (ptr addrspace(1) @1 to ptr), i8 2, i1 false)
+; CHECK: call i32 @__kmpc_target_init(ptr readnone addrspacecast (ptr addrspace(1) @1 to ptr), i8 2, i1 false)
 ; CHECK-NOT: store i32 0, ptr addrspace(3) @IsSPMDMode
 ; CHECK: store i32 1, ptr addrspace(3) @IsSPMDMode
 ; CHECK-NOT: store i32 0, ptr addrspace(3) @IsSPMDMode

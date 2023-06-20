@@ -574,26 +574,28 @@ static bool isAssumedReadOnlyOrReadNone(Attributor &A, const IRPosition &IRP,
     return true;
 
   IRPosition::Kind Kind = IRP.getPositionKind();
-  if (Kind == IRPosition::IRP_FUNCTION || Kind == IRPosition::IRP_CALL_SITE) {
-    const auto *MemLocAA =
-        A.getAAFor<AAMemoryLocation>(QueryingAA, IRP, DepClassTy::NONE);
-    if (MemLocAA && MemLocAA->isAssumedReadNone()) {
-      IsKnown = MemLocAA->isKnownReadNone();
-      if (!IsKnown)
-        A.recordDependence(*MemLocAA, QueryingAA, DepClassTy::OPTIONAL);
-      return true;
-    }
-  }
+  IRPosition FnIRP = IRPosition::function_scope(IRP);
+  const auto *MemLocAA =
+      A.getAAFor<AAMemoryLocation>(QueryingAA, FnIRP, DepClassTy::NONE);
 
-  const auto *MemBehaviorAA =
-      A.getAAFor<AAMemoryBehavior>(QueryingAA, IRP, DepClassTy::NONE);
-  if (MemBehaviorAA &&
-      (MemBehaviorAA->isAssumedReadNone() ||
-       (!RequireReadNone && MemBehaviorAA->isAssumedReadOnly()))) {
-    IsKnown = RequireReadNone ? MemBehaviorAA->isKnownReadNone()
-                              : MemBehaviorAA->isKnownReadOnly();
+  unsigned ArgNo = -1;
+  if (Kind == IRPosition::IRP_ARGUMENT)
+    ArgNo = IRP.getCalleeArgNo();
+  else if (Kind == IRPosition::IRP_CALL_SITE_ARGUMENT)
+    ArgNo = IRP.getCallSiteArgNo();
+
+	if (!MemLocAA)
+		return false;
+  if (MemLocAA->isAssumedReadNone(Kind, ArgNo)) {
+    IsKnown = MemLocAA->isKnownReadNone(Kind, ArgNo);
     if (!IsKnown)
-      A.recordDependence(*MemBehaviorAA, QueryingAA, DepClassTy::OPTIONAL);
+      A.recordDependence(*MemLocAA, QueryingAA, DepClassTy::OPTIONAL);
+    return true;
+  }
+  if (!RequireReadNone && MemLocAA->isAssumedReadOnly(Kind, ArgNo)) {
+    IsKnown = MemLocAA->isKnownReadOnly(Kind, ArgNo);
+    if (!IsKnown)
+      A.recordDependence(*MemLocAA, QueryingAA, DepClassTy::OPTIONAL);
     return true;
   }
 
@@ -1314,36 +1316,67 @@ std::optional<Value *> Attributor::getAssumedSimplified(
 }
 
 bool Attributor::getAssumedSimplifiedValues(
-    const IRPosition &IRP, const AbstractAttribute *AA,
+    const IRPosition &InitialIRP, const AbstractAttribute *AA,
     SmallVectorImpl<AA::ValueAndContext> &Values, AA::ValueScope S,
-    bool &UsedAssumedInformation) {
-  // First check all callbacks provided by outside AAs. If any of them returns
-  // a non-null value that is different from the associated value, or
-  // std::nullopt, we assume it's simplified.
-  const auto &SimplificationCBs = SimplificationCallbacks.lookup(IRP);
-  for (const auto &CB : SimplificationCBs) {
-    std::optional<Value *> CBResult = CB(IRP, AA, UsedAssumedInformation);
-    if (!CBResult.has_value())
-      continue;
-    Value *V = *CBResult;
-    if (!V)
-      return false;
-    if ((S & AA::ValueScope::Interprocedural) ||
-        AA::isValidInScope(*V, IRP.getAnchorScope()))
-      Values.push_back(AA::ValueAndContext{*V, nullptr});
-    else
-      return false;
-  }
-  if (!SimplificationCBs.empty())
-    return true;
+    bool &UsedAssumedInformation, bool RecurseForSelectAndPHI) {
+  SmallPtrSet<Value *, 8> Seen;
+  SmallVector<IRPosition, 8> Worklist;
+  Worklist.push_back(InitialIRP);
+  while (!Worklist.empty()) {
+    const IRPosition &IRP = Worklist.pop_back_val();
 
-  // If no high-level/outside simplification occurred, use AAPotentialValues.
-  const auto *PotentialValuesAA =
-      getOrCreateAAFor<AAPotentialValues>(IRP, AA, DepClassTy::OPTIONAL);
-  if (!PotentialValuesAA ||
-      !PotentialValuesAA->getAssumedSimplifiedValues(*this, Values, S))
-    return false;
-  UsedAssumedInformation |= !PotentialValuesAA->isAtFixpoint();
+    // First check all callbacks provided by outside AAs. If any of them returns
+    // a non-null value that is different from the associated value, or
+    // std::nullopt, we assume it's simplified.
+    int NV = Values.size();
+    const auto &SimplificationCBs = SimplificationCallbacks.lookup(IRP);
+    for (const auto &CB : SimplificationCBs) {
+      std::optional<Value *> CBResult = CB(IRP, AA, UsedAssumedInformation);
+      if (!CBResult.has_value())
+        continue;
+      Value *V = *CBResult;
+      if (!V)
+        return false;
+      if ((S & AA::ValueScope::Interprocedural) ||
+          AA::isValidInScope(*V, IRP.getAnchorScope()))
+        Values.push_back(AA::ValueAndContext{*V, nullptr});
+      else
+        return false;
+    }
+    if (SimplificationCBs.empty()) {
+      // If no high-level/outside simplification occurred, use
+      // AAPotentialValues.
+      const auto *PotentialValuesAA =
+          getOrCreateAAFor<AAPotentialValues>(IRP, AA, DepClassTy::OPTIONAL);
+      if (PotentialValuesAA && PotentialValuesAA->getAssumedSimplifiedValues(*this, Values, S)) {
+        UsedAssumedInformation |= !PotentialValuesAA->isAtFixpoint();
+      } else if (IRP.getPositionKind() != IRPosition::IRP_RETURNED) {
+        Values.push_back({IRP.getAssociatedValue(), IRP.getCtxI()});
+      } else {
+        // TODO: We could visit all returns and add the operands.
+        return false;
+      }
+    }
+
+    if (!RecurseForSelectAndPHI)
+      break;
+
+    for (int I = NV, E = Values.size(); I < E; ++I) {
+      Value *V = Values[I].getValue();
+      if (!isa<PHINode>(V) && !isa<SelectInst>(V))
+        continue;
+      if (!Seen.insert(V).second)
+        continue;
+      // Move the last element to this slot.
+      Values[I] = Values[E - 1];
+      // Eliminate the last slot, adjust the indices.
+      Values.pop_back();
+      --E;
+      --I;
+      // Add a new value (select or phi) to the worklist.
+      Worklist.push_back(IRPosition::value(*V));
+    }
+  }
   return true;
 }
 
@@ -3203,10 +3236,8 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   if (F.hasFnAttribute(Attribute::Convergent))
     getOrCreateAAFor<AANonConvergent>(FPos);
 
-  // Every function might be "readnone/readonly/writeonly/...".
-  getOrCreateAAFor<AAMemoryBehavior>(FPos);
-
   // Every function can be "readnone/argmemonly/inaccessiblememonly/...".
+  // Every function might be "readnone/readonly/writeonly/...".
   getOrCreateAAFor<AAMemoryLocation>(FPos);
 
   // Every function can track active assumptions.
@@ -3286,10 +3317,6 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
       // Every argument with pointer type might be marked nocapture.
       getOrCreateAAFor<AANoCapture>(ArgPos);
-
-      // Every argument with pointer type might be marked
-      // "readnone/readonly/writeonly/..."
-      getOrCreateAAFor<AAMemoryBehavior>(ArgPos);
 
       // Every argument with pointer type might be marked nofree.
       getOrCreateAAFor<AANoFree>(ArgPos);
@@ -3375,10 +3402,6 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
       // Call site argument attribute "align".
       getOrCreateAAFor<AAAlign>(CBArgPos);
-
-      // Call site argument attribute
-      // "readnone/readonly/writeonly/..."
-      getOrCreateAAFor<AAMemoryBehavior>(CBArgPos);
 
       // Call site argument attribute "nofree".
       getOrCreateAAFor<AANoFree>(CBArgPos);

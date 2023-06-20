@@ -69,7 +69,7 @@ entry:
 
 define void @fn_no_null_opt(ptr %P, i1 %C) null_pointer_is_valid {
 ;
-; TUNIT: Function Attrs: nofree norecurse nosync nounwind null_pointer_is_valid
+; TUNIT: Function Attrs: nofree norecurse nosync nounwind null_pointer_is_valid memory(read, argmem: readwrite, inaccessiblemem: none)
 ; TUNIT-LABEL: define {{[^@]+}}@fn_no_null_opt
 ; TUNIT-SAME: (ptr nocapture nofree writeonly [[P:%.*]], i1 [[C:%.*]]) #[[ATTR2:[0-9]+]] {
 ; TUNIT-NEXT:  entry:
@@ -85,7 +85,7 @@ define void @fn_no_null_opt(ptr %P, i1 %C) null_pointer_is_valid {
 ; TUNIT:       exit:
 ; TUNIT-NEXT:    ret void
 ;
-; CGSCC: Function Attrs: nofree nosync nounwind null_pointer_is_valid
+; CGSCC: Function Attrs: nofree nosync nounwind null_pointer_is_valid memory(read, argmem: readwrite, inaccessiblemem: none)
 ; CGSCC-LABEL: define {{[^@]+}}@fn_no_null_opt
 ; CGSCC-SAME: (ptr nocapture nofree writeonly align 4 dereferenceable_or_null(4) [[P:%.*]], i1 [[C:%.*]]) #[[ATTR2:[0-9]+]] {
 ; CGSCC-NEXT:  entry:
@@ -132,10 +132,10 @@ entry:
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { nofree norecurse nosync nounwind memory(argmem: readwrite) }
 ; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; TUNIT: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind null_pointer_is_valid }
+; TUNIT: attributes #[[ATTR2]] = { nofree norecurse nosync nounwind null_pointer_is_valid memory(read, argmem: readwrite, inaccessiblemem: none) }
 ; TUNIT: attributes #[[ATTR3]] = { nofree nosync nounwind }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { nofree nosync nounwind memory(argmem: readwrite) }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; CGSCC: attributes #[[ATTR2]] = { nofree nosync nounwind null_pointer_is_valid }
+; CGSCC: attributes #[[ATTR2]] = { nofree nosync nounwind null_pointer_is_valid memory(read, argmem: readwrite, inaccessiblemem: none) }
 ;.

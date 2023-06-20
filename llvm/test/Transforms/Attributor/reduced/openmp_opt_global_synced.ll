@@ -36,7 +36,7 @@ attributes #1 = { "kernel" }
 ;.
 ; CHECK: @[[_ZN4OMPX5STATE9TEAMSTATEE:[a-zA-Z0-9_$"\\.-]+]] = internal addrspace(3) global ptr undef
 ;.
-; CHECK: Function Attrs: norecurse nosync nounwind memory(read)
+; CHECK: Function Attrs: norecurse nosync nounwind memory(read, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@__kmpc_kernel_parallel
 ; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  bb:
@@ -59,10 +59,10 @@ attributes #1 = { "kernel" }
 ; CHECK-NEXT:    ret void
 ;
 ;.
-; CHECK: attributes #[[ATTR0]] = { norecurse nosync nounwind memory(read) }
+; CHECK: attributes #[[ATTR0]] = { norecurse nosync nounwind memory(read, inaccessiblemem: none) }
 ; CHECK: attributes #[[ATTR1]] = { "kernel" }
 ; CHECK: attributes #[[ATTR2:[0-9]+]] = { nocallback }
-; CHECK: attributes #[[ATTR3:[0-9]+]] = { nosync nounwind memory(read) }
+; CHECK: attributes #[[ATTR3:[0-9]+]] = { nosync nounwind memory(read, inaccessiblemem: none) }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{i32 7, !"openmp", i32 50}
 ; CHECK: [[META1:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
