@@ -836,11 +836,11 @@ struct OpenMPOpt {
         int64_t Teams = It.getAsObject()->getInteger("teams").value();
         int64_t MaxThreads = It.getAsObject()->getInteger("maxntidx").value();
         int64_t MinBlocks = It.getAsObject()->getInteger("minctasm").value();
-        dbgs() << "Parsed kernel " << KernelName << "\n";
-        dbgs() << "Parsed Threads " << Threads << "\n";
-        dbgs() << "Parsed Teams " << Teams << "\n";
-        dbgs() << "Parsed MaxThreads " << MaxThreads << "\n";
-        dbgs() << "Parsed MinBlocks " << MinBlocks << "\n";
+//        dbgs() << "Parsed kernel " << KernelName << "\n";
+//        dbgs() << "Parsed Threads " << Threads << "\n";
+//        dbgs() << "Parsed Teams " << Teams << "\n";
+//        dbgs() << "Parsed MaxThreads " << MaxThreads << "\n";
+//        dbgs() << "Parsed MinBlocks " << MinBlocks << "\n";
         KernelOpts[KernelName] = BOParams(Threads, Teams, MaxThreads, MinBlocks,
                                           /* optimized */ false);
       }
@@ -1377,26 +1377,21 @@ private:
       } else if (TargetTriple.isAMDGCN()) {
         auto CheckAndSetAttribute = [](Function *F, StringRef ParamValue,
                                        StringRef ParamName) {
-          outs() << "Set Attribute " << ParamName << " => " << ParamValue << "\n";
+          outs() << F->getName() << "Set Attribute " << ParamName << " => " << ParamValue << "\n";
           F->addFnAttr(ParamName, ParamValue);
         };
 
         bool Changed = false;
         for (Function *F : getDeviceKernels(M)) {
           auto FName = F->getName().str();
-          outs() << "FName " << FName << "\n";
-          for(auto &KeyVal : KernelOpts) {
-            dbgs() << "Key " << KeyVal.first << "\n";
-          }
           if (KernelOpts.count(FName)) {
-            dbgs() << "FOUND FName " << FName << " in KernelOpts\n";
-            if ( KernelOpts[FName].MaxThreads != -1 ) {
-              std::string FlatWorkGroupSize = "64," + std::to_string(KernelOpts[FName].MaxThreads);
+            if ( KernelOpts[FName].MaxThreads != -1 && KernelOpts[FName].MaxThreads != 0) {
+              std::string FlatWorkGroupSize = "1," + std::to_string(KernelOpts[FName].MaxThreads);
               CheckAndSetAttribute(F, FlatWorkGroupSize, "amdgpu-flat-work-group-size");
               Changed = true;
             }
 
-            if ( KernelOpts[FName].MinBlocks != -1 ) {
+            if ( KernelOpts[FName].MinBlocks != -1 && KernelOpts[FName].MinBlocks != 0 ) {
               std::string WavesPerEU = std::to_string(KernelOpts[FName].MinBlocks);
               CheckAndSetAttribute(F, WavesPerEU, "amdgpu-waves-per-eu");
               Changed = true;
@@ -1439,12 +1434,17 @@ private:
           int Teams = Kernel->second.Teams;
           int Threads = Kernel->second.Threads;
           if (!Kernel->second.optimized) {
-            ConstantInt *BOTeams =
+            if ( Teams != -1 ){
+              ConstantInt *BOTeams =
                 ConstantInt::get(Type::getInt32Ty(M.getContext()), Teams);
-            CI->setArgOperand(2, BOTeams);
-            ConstantInt *BOThreads =
+              CI->setArgOperand(2, BOTeams);
+            }
+
+            if ( Threads != -1 ){
+              ConstantInt *BOThreads =
                 ConstantInt::get(Type::getInt32Ty(M.getContext()), Threads);
-            CI->setArgOperand(3, BOThreads);
+              CI->setArgOperand(3, BOThreads);
+            }
             Kernel->second.optimized = true;
             Changed = true;
           }
