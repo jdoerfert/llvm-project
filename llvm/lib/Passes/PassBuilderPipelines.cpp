@@ -876,6 +876,8 @@ PassBuilder::buildInlinerPipeline(OptimizationLevel Level,
   if (AttributorRun & AttributorRunOption::CGSCC)
     MainCGPipeline.addPass(AttributorCGSCCPass());
 
+  // MainCGPipeline.addPass(LightweightAttributorCGSCCPass());
+
   // Deduce function attributes. We do another run of this after the function
   // simplification pipeline, so this only needs to run when it could affect the
   // function simplification pipeline, which is only the case with recursive
@@ -902,7 +904,8 @@ PassBuilder::buildInlinerPipeline(OptimizationLevel Level,
 
   // Finally, deduce any function attributes based on the fully simplified
   // function.
-  MainCGPipeline.addPass(PostOrderFunctionAttrsPass());
+  MainCGPipeline.addPass(LightweightAttributorCGSCCPass());
+  // MainCGPipeline.addPass(PostOrderFunctionAttrsPass());
 
   // Mark that the function is fully simplified and that it shouldn't be
   // simplified again if we somehow revisit it due to CGSCC mutations unless
