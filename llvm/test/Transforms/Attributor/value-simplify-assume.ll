@@ -346,7 +346,7 @@ define i1 @assume_3_nr(i1 %arg, i1 %cond) norecurse {
 ; TUNIT-NEXT:    store i1 false, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    br label [[M]]
 ; TUNIT:       m:
-; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR6:[0-9]+]]
+; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR7:[0-9]+]]
 ; TUNIT-NEXT:    ret i1 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(inaccessiblemem: readwrite)
@@ -398,7 +398,7 @@ define i1 @assume_4_nr(i1 %arg, i1 %cond) norecurse {
 ; TUNIT:       m:
 ; TUNIT-NEXT:    [[L:%.*]] = load i1, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    call void @llvm.assume(i1 noundef [[L]])
-; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR6]]
+; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR7]]
 ; TUNIT-NEXT:    ret i1 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(inaccessiblemem: readwrite)
@@ -454,7 +454,7 @@ define i1 @assume_5_nr(i1 %arg, i1 %cond) norecurse {
 ; TUNIT:       m:
 ; TUNIT-NEXT:    [[L4:%.*]] = load i1, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    call void @llvm.assume(i1 noundef [[L4]])
-; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR6]]
+; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR7]]
 ; TUNIT-NEXT:    ret i1 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(inaccessiblemem: readwrite)
@@ -523,7 +523,7 @@ define i1 @assume_5c_nr(i1 %cond) norecurse {
 ; TUNIT:       m:
 ; TUNIT-NEXT:    [[L4:%.*]] = load i1, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    call void @llvm.assume(i1 noundef [[L4]])
-; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR6]]
+; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR7]]
 ; TUNIT-NEXT:    ret i1 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(inaccessiblemem: readwrite)
@@ -885,7 +885,7 @@ define i1 @assume_3(i1 %arg, i1 %cond) {
 ; TUNIT-NEXT:    store i1 false, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    br label [[M]]
 ; TUNIT:       m:
-; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR6]]
+; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR7]]
 ; TUNIT-NEXT:    ret i1 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite)
@@ -937,7 +937,7 @@ define i1 @assume_4(i1 %arg, i1 %cond) {
 ; TUNIT:       m:
 ; TUNIT-NEXT:    [[L:%.*]] = load i1, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    call void @llvm.assume(i1 noundef [[L]])
-; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR6]]
+; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR7]]
 ; TUNIT-NEXT:    ret i1 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite)
@@ -993,7 +993,7 @@ define i1 @assume_5(i1 %arg, i1 %cond) {
 ; TUNIT:       m:
 ; TUNIT-NEXT:    [[L4:%.*]] = load i1, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    call void @llvm.assume(i1 noundef [[L4]])
-; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR6]]
+; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR7]]
 ; TUNIT-NEXT:    ret i1 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite)
@@ -1062,7 +1062,7 @@ define i1 @assume_5c(i1 %cond) {
 ; TUNIT:       m:
 ; TUNIT-NEXT:    [[L4:%.*]] = load i1, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    call void @llvm.assume(i1 noundef [[L4]])
-; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR6]]
+; TUNIT-NEXT:    [[R:%.*]] = call i1 @readI1p(ptr noalias nocapture nofree noundef nonnull readonly dereferenceable(1) [[STACK]]) #[[ATTR7]]
 ; TUNIT-NEXT:    ret i1 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite)
@@ -1152,9 +1152,9 @@ define i32 @assume_read_global_good() {
 ; TODO: Technically we could still utilize the assumption if we employ AA.
 define i32 @assume_read_global_bad(ptr %p) {
 ;
-; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, argmem: write)
 ; TUNIT-LABEL: define {{[^@]+}}@assume_read_global_bad
-; TUNIT-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR4]] {
+; TUNIT-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR5:[0-9]+]] {
 ; TUNIT-NEXT:    [[LGS1:%.*]] = load i32, ptr @Gstatic_int2, align 4
 ; TUNIT-NEXT:    [[C:%.*]] = icmp eq i32 [[LGS1]], 42
 ; TUNIT-NEXT:    store i32 13, ptr [[P]], align 4
@@ -1163,9 +1163,9 @@ define i32 @assume_read_global_bad(ptr %p) {
 ; TUNIT-NEXT:    store i32 17, ptr @Gstatic_int2, align 4
 ; TUNIT-NEXT:    ret i32 [[LGS2]]
 ;
-; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, argmem: write)
 ; CGSCC-LABEL: define {{[^@]+}}@assume_read_global_bad
-; CGSCC-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR5]] {
+; CGSCC-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR6:[0-9]+]] {
 ; CGSCC-NEXT:    [[LGS1:%.*]] = load i32, ptr @Gstatic_int2, align 4
 ; CGSCC-NEXT:    [[C:%.*]] = icmp eq i32 [[LGS1]], 42
 ; CGSCC-NEXT:    store i32 13, ptr [[P]], align 4
@@ -1185,16 +1185,16 @@ define i32 @assume_read_global_bad(ptr %p) {
 
 define void @assume_write_globals() {
 ;
-; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write, inaccessiblemem: none)
 ; TUNIT-LABEL: define {{[^@]+}}@assume_write_globals
-; TUNIT-SAME: () #[[ATTR5:[0-9]+]] {
+; TUNIT-SAME: () #[[ATTR6:[0-9]+]] {
 ; TUNIT-NEXT:    store i32 42, ptr @Gstatic_int1, align 4
 ; TUNIT-NEXT:    store i32 42, ptr @Gstatic_int2, align 4
 ; TUNIT-NEXT:    ret void
 ;
-; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
+; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write, inaccessiblemem: none)
 ; CGSCC-LABEL: define {{[^@]+}}@assume_write_globals
-; CGSCC-SAME: () #[[ATTR6:[0-9]+]] {
+; CGSCC-SAME: () #[[ATTR7:[0-9]+]] {
 ; CGSCC-NEXT:    store i32 42, ptr @Gstatic_int1, align 4
 ; CGSCC-NEXT:    store i32 42, ptr @Gstatic_int2, align 4
 ; CGSCC-NEXT:    ret void
@@ -1210,8 +1210,9 @@ define void @assume_write_globals() {
 ; TUNIT: attributes #[[ATTR2]] = { norecurse }
 ; TUNIT: attributes #[[ATTR3]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ; TUNIT: attributes #[[ATTR4]] = { mustprogress nofree norecurse nosync nounwind willreturn }
-; TUNIT: attributes #[[ATTR5]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(write) }
-; TUNIT: attributes #[[ATTR6]] = { nofree nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR5]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, argmem: write) }
+; TUNIT: attributes #[[ATTR6]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(write, inaccessiblemem: none) }
+; TUNIT: attributes #[[ATTR7]] = { nofree nosync nounwind willreturn }
 ;.
 ; CGSCC: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
@@ -1219,5 +1220,6 @@ define void @assume_write_globals() {
 ; CGSCC: attributes #[[ATTR3]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ; CGSCC: attributes #[[ATTR4]] = { mustprogress nofree nosync nounwind willreturn memory(inaccessiblemem: readwrite) }
 ; CGSCC: attributes #[[ATTR5]] = { mustprogress nofree norecurse nosync nounwind willreturn }
-; CGSCC: attributes #[[ATTR6]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(write) }
+; CGSCC: attributes #[[ATTR6]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(readwrite, argmem: write) }
+; CGSCC: attributes #[[ATTR7]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(write, inaccessiblemem: none) }
 ;.

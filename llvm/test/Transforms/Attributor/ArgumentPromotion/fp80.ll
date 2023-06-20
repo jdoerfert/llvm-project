@@ -87,8 +87,9 @@ define internal i64 @CaptureAStruct(ptr byval(%struct.Foo) %a) {
 ; CGSCC-NEXT:    [[A_PTR:%.*]] = alloca ptr, align 8
 ; CGSCC-NEXT:    br label [[LOOP:%.*]]
 ; CGSCC:       loop:
-; CGSCC-NEXT:    [[PHI:%.*]] = phi ptr [ null, [[ENTRY:%.*]] ], [ [[A_PRIV]], [[LOOP]] ]
+; CGSCC-NEXT:    [[PHI:%.*]] = phi ptr [ null, [[ENTRY:%.*]] ], [ [[GEP:%.*]], [[LOOP]] ]
 ; CGSCC-NEXT:    [[TMP2:%.*]] = phi ptr [ [[A_PRIV]], [[ENTRY]] ], [ [[TMP2]], [[LOOP]] ]
+; CGSCC-NEXT:    [[GEP]] = getelementptr [[STRUCT_FOO]], ptr [[A_PRIV]], i64 0
 ; CGSCC-NEXT:    br label [[LOOP]]
 ;
 entry:

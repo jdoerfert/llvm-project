@@ -8,7 +8,7 @@ target datalayout = "E-p:64:64:64-a0:0:8-f32:32:32-f64:64:64-i1:8:8-i8:8:8-i16:1
 
 ; Argpromote + sroa should change this to passing the two integers by value.
 define internal i32 @f(ptr inalloca(%struct.ss) %s) {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read)
+; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 ; CHECK-LABEL: define {{[^@]+}}@f
 ; CHECK-SAME: (ptr noalias nocapture nofree noundef nonnull inalloca([[STRUCT_SS:%.*]]) align 4 dereferenceable(8) [[S:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
@@ -35,7 +35,7 @@ define i32 @main() {
 ; TUNIT-NEXT:    [[F1:%.*]] = getelementptr [[STRUCT_SS]], ptr [[S]], i32 0, i32 1
 ; TUNIT-NEXT:    store i32 1, ptr [[S]], align 4
 ; TUNIT-NEXT:    store i32 2, ptr [[F1]], align 4
-; TUNIT-NEXT:    [[R:%.*]] = call i32 @f(ptr noalias nocapture nofree noundef nonnull inalloca([[STRUCT_SS]]) align 4 dereferenceable(8) [[S]]) #[[ATTR2:[0-9]+]]
+; TUNIT-NEXT:    [[R:%.*]] = call i32 @f(ptr noalias nocapture nofree noundef nonnull inalloca([[STRUCT_SS]]) align 4 dereferenceable(8) [[S]]) #[[ATTR3:[0-9]+]]
 ; TUNIT-NEXT:    ret i32 [[R]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(none)
@@ -46,7 +46,7 @@ define i32 @main() {
 ; CGSCC-NEXT:    [[F1:%.*]] = getelementptr [[STRUCT_SS]], ptr [[S]], i32 0, i32 1
 ; CGSCC-NEXT:    store i32 1, ptr [[S]], align 4
 ; CGSCC-NEXT:    store i32 2, ptr [[F1]], align 4
-; CGSCC-NEXT:    [[R:%.*]] = call i32 @f(ptr noalias nocapture nofree noundef nonnull inalloca([[STRUCT_SS]]) align 4 dereferenceable(8) [[S]])
+; CGSCC-NEXT:    [[R:%.*]] = call i32 @f(ptr noalias nocapture nofree noundef nonnull inalloca([[STRUCT_SS]]) align 4 dereferenceable(8) [[S]]) #[[ATTR3:[0-9]+]]
 ; CGSCC-NEXT:    ret i32 [[R]]
 ;
 entry:
@@ -60,11 +60,11 @@ entry:
 
 ; Argpromote can't promote %a because of the icmp use.
 define internal i1 @g(ptr %a, ptr inalloca(%struct.ss) %b) nounwind  {
-; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-; CGSCC-LABEL: define {{[^@]+}}@g
-; CGSCC-SAME: (ptr noalias nocapture nofree nonnull readnone align 4 dereferenceable(8) [[A:%.*]], ptr noalias nocapture nofree nonnull writeonly inalloca([[STRUCT_SS:%.*]]) align 4 dereferenceable(8) [[B:%.*]]) #[[ATTR2:[0-9]+]] {
-; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    ret i1 undef
+; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write)
+; CHECK-LABEL: define {{[^@]+}}@g
+; CHECK-SAME: (ptr noalias nocapture nofree nonnull readnone align 4 dereferenceable(8) [[A:%.*]], ptr noalias nocapture nofree nonnull writeonly inalloca([[STRUCT_SS:%.*]]) align 4 dereferenceable(8) [[B:%.*]]) #[[ATTR2:[0-9]+]] {
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    ret i1 undef
 ;
 entry:
   %c = icmp eq ptr %a, %b
@@ -76,12 +76,15 @@ define i32 @test() {
 ; TUNIT-LABEL: define {{[^@]+}}@test
 ; TUNIT-SAME: () #[[ATTR1]] {
 ; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    [[C:%.*]] = call i1 @g(ptr noalias nocapture nofree nonnull readnone align 4 dereferenceable(8) undef, ptr noalias nocapture nofree nonnull writeonly inalloca([[STRUCT_SS:%.*]]) align 4 dereferenceable(8) undef) #[[ATTR3]]
 ; TUNIT-NEXT:    ret i32 0
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(none)
 ; CGSCC-LABEL: define {{[^@]+}}@test
 ; CGSCC-SAME: () #[[ATTR1]] {
 ; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    [[S:%.*]] = alloca inalloca [[STRUCT_SS:%.*]], align 4
+; CGSCC-NEXT:    [[C:%.*]] = call i1 @g(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(8) [[S]], ptr noalias nocapture nofree noundef nonnull writeonly inalloca([[STRUCT_SS]]) align 4 dereferenceable(8) [[S]]) #[[ATTR3]]
 ; CGSCC-NEXT:    ret i32 0
 ;
 entry:
@@ -90,11 +93,13 @@ entry:
   ret i32 0
 }
 ;.
-; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
+; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 ; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR2]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+; TUNIT: attributes #[[ATTR3]] = { nofree nosync nounwind willreturn }
 ;.
-; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
+; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree nosync nounwind willreturn memory(none) }
-; CGSCC: attributes #[[ATTR2]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+; CGSCC: attributes #[[ATTR2]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
+; CGSCC: attributes #[[ATTR3]] = { nounwind }
 ;.

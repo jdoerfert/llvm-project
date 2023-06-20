@@ -37,10 +37,10 @@ define dso_local i32 @main() {
 ; TUNIT-NEXT:    [[ALLOC1:%.*]] = alloca i8, align 8
 ; TUNIT-NEXT:    [[ALLOC2:%.*]] = alloca i8, align 8
 ; TUNIT-NEXT:    [[THREAD:%.*]] = alloca i64, align 8
-; TUNIT-NEXT:    [[CALL:%.*]] = call i32 @pthread_create(ptr noundef nonnull align 8 dereferenceable(8) [[THREAD]], ptr noalias nocapture noundef align 4294967296 null, ptr noundef nonnull @foo, ptr noalias nocapture nofree readnone align 4294967296 undef)
-; TUNIT-NEXT:    [[CALL1:%.*]] = call i32 @pthread_create(ptr noundef nonnull align 8 dereferenceable(8) [[THREAD]], ptr noalias nocapture noundef align 4294967296 null, ptr noundef nonnull @bar, ptr noalias nocapture nofree nonnull readnone align 8 dereferenceable(8) undef)
-; TUNIT-NEXT:    [[CALL2:%.*]] = call i32 @pthread_create(ptr noundef nonnull align 8 dereferenceable(8) [[THREAD]], ptr noalias nocapture noundef align 4294967296 null, ptr noundef nonnull @baz, ptr noalias nocapture nofree noundef nonnull readnone align 8 dereferenceable(1) [[ALLOC1]])
-; TUNIT-NEXT:    [[CALL3:%.*]] = call i32 @pthread_create(ptr noundef nonnull align 8 dereferenceable(8) [[THREAD]], ptr noalias nocapture noundef align 4294967296 null, ptr noundef nonnull @buz, ptr noalias nofree noundef nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" [[ALLOC2]])
+; TUNIT-NEXT:    [[CALL:%.*]] = call i32 @pthread_create(ptr noundef nonnull align 8 dereferenceable(8) [[THREAD]], ptr noalias nocapture noundef align 4294967296 null, ptr noundef nonnull @foo, ptr noalias nocapture nofree align 4294967296 undef)
+; TUNIT-NEXT:    [[CALL1:%.*]] = call i32 @pthread_create(ptr noundef nonnull align 8 dereferenceable(8) [[THREAD]], ptr noalias nocapture noundef align 4294967296 null, ptr noundef nonnull @bar, ptr nocapture nofree nonnull align 8 dereferenceable(8) undef)
+; TUNIT-NEXT:    [[CALL2:%.*]] = call i32 @pthread_create(ptr noundef nonnull align 8 dereferenceable(8) [[THREAD]], ptr noalias nocapture noundef align 4294967296 null, ptr noundef nonnull @baz, ptr nocapture nofree noundef nonnull align 8 dereferenceable(1) [[ALLOC1]])
+; TUNIT-NEXT:    [[CALL3:%.*]] = call i32 @pthread_create(ptr noundef nonnull align 8 dereferenceable(8) [[THREAD]], ptr noalias nocapture noundef align 4294967296 null, ptr noundef nonnull @buz, ptr nofree noundef nonnull align 8 dereferenceable(1) "no-capture-maybe-returned" [[ALLOC2]])
 ; TUNIT-NEXT:    ret i32 0
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@main() {
@@ -81,7 +81,7 @@ entry:
 define internal ptr @bar(ptr %arg) {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 ; CHECK-LABEL: define {{[^@]+}}@bar
-; CHECK-SAME: (ptr noalias nocapture nofree nonnull readnone align 8 dereferenceable(8) [[ARG:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (ptr nocapture nofree nonnull readnone align 8 dereferenceable(8) [[ARG:%.*]]) #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    ret ptr @GlobalVPtr
 ;
@@ -92,7 +92,7 @@ entry:
 define internal ptr @baz(ptr %arg) {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 ; CHECK-LABEL: define {{[^@]+}}@baz
-; CHECK-SAME: (ptr noalias nofree noundef nonnull readnone returned align 8 dereferenceable(1) "no-capture-maybe-returned" [[ARG:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (ptr nofree noundef nonnull readnone returned align 8 dereferenceable(1) "no-capture-maybe-returned" [[ARG:%.*]]) #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    ret ptr [[ARG]]
 ;
@@ -103,7 +103,7 @@ entry:
 define internal ptr @buz(ptr %arg) {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 ; CHECK-LABEL: define {{[^@]+}}@buz
-; CHECK-SAME: (ptr noalias nofree noundef nonnull readnone returned align 8 dereferenceable(1) "no-capture-maybe-returned" [[ARG:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (ptr nofree noundef nonnull readnone returned align 8 dereferenceable(1) "no-capture-maybe-returned" [[ARG:%.*]]) #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    ret ptr [[ARG]]
 ;

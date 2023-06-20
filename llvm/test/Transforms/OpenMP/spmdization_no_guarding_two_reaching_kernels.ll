@@ -285,7 +285,7 @@ entry:
 ; Function Attrs: convergent noinline norecurse nounwind
 define internal void @__omp_outlined__(ptr noalias %.global_tid., ptr noalias %.bound_tid.) {
 ; CHECK-LABEL: define {{[^@]+}}@__omp_outlined__
-; CHECK-SAME: (ptr noalias [[DOTGLOBAL_TID_:%.*]], ptr noalias [[DOTBOUND_TID_:%.*]]) #[[ATTR2:[0-9]+]] {
+; CHECK-SAME: (ptr noalias readnone [[DOTGLOBAL_TID_:%.*]], ptr noalias readnone [[DOTBOUND_TID_:%.*]]) #[[ATTR2:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca ptr, align 8
 ; CHECK-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca ptr, align 8
@@ -293,7 +293,7 @@ define internal void @__omp_outlined__(ptr noalias %.global_tid., ptr noalias %.
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLE-SPMDIZATION-LABEL: define {{[^@]+}}@__omp_outlined__
-; CHECK-DISABLE-SPMDIZATION-SAME: (ptr noalias [[DOTGLOBAL_TID_:%.*]], ptr noalias [[DOTBOUND_TID_:%.*]]) #[[ATTR2:[0-9]+]] {
+; CHECK-DISABLE-SPMDIZATION-SAME: (ptr noalias readnone [[DOTGLOBAL_TID_:%.*]], ptr noalias readnone [[DOTBOUND_TID_:%.*]]) #[[ATTR2:[0-9]+]] {
 ; CHECK-DISABLE-SPMDIZATION-NEXT:  entry:
 ; CHECK-DISABLE-SPMDIZATION-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca ptr, align 8
 ; CHECK-DISABLE-SPMDIZATION-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca ptr, align 8
@@ -319,7 +319,7 @@ define internal void @__omp_outlined___wrapper(i16 zeroext %0, i32 %1) #2 {
 ; CHECK-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca ptr, align 8
 ; CHECK-NEXT:    call void @__kmpc_get_shared_variables(ptr [[GLOBAL_ARGS]])
-; CHECK-NEXT:    call void @__omp_outlined__(ptr [[DOTADDR1]], ptr [[DOTZERO_ADDR]]) #[[ATTR8]]
+; CHECK-NEXT:    call void @__omp_outlined__(ptr readnone [[DOTADDR1]], ptr readnone [[DOTZERO_ADDR]]) #[[ATTR10:[0-9]+]]
 ; CHECK-NEXT:    ret void
 ;
 ; CHECK-DISABLE-SPMDIZATION-LABEL: define {{[^@]+}}@__omp_outlined___wrapper
@@ -330,7 +330,7 @@ define internal void @__omp_outlined___wrapper(i16 zeroext %0, i32 %1) #2 {
 ; CHECK-DISABLE-SPMDIZATION-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; CHECK-DISABLE-SPMDIZATION-NEXT:    [[GLOBAL_ARGS:%.*]] = alloca ptr, align 8
 ; CHECK-DISABLE-SPMDIZATION-NEXT:    call void @__kmpc_get_shared_variables(ptr [[GLOBAL_ARGS]])
-; CHECK-DISABLE-SPMDIZATION-NEXT:    call void @__omp_outlined__(ptr [[DOTADDR1]], ptr [[DOTZERO_ADDR]]) #[[ATTR8]]
+; CHECK-DISABLE-SPMDIZATION-NEXT:    call void @__omp_outlined__(ptr readnone [[DOTADDR1]], ptr readnone [[DOTZERO_ADDR]]) #[[ATTR10:[0-9]+]]
 ; CHECK-DISABLE-SPMDIZATION-NEXT:    ret void
 ;
 entry:
@@ -422,25 +422,27 @@ attributes #5 = { convergent }
 ;.
 ; CHECK: attributes #[[ATTR0]] = { convergent noinline norecurse nounwind "frame-pointer"="all" "kernel" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
 ; CHECK: attributes #[[ATTR1]] = { noinline nounwind "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
-; CHECK: attributes #[[ATTR2]] = { norecurse nosync memory(write) }
+; CHECK: attributes #[[ATTR2]] = { norecurse nosync memory(write, argmem: none, inaccessiblemem: none) }
 ; CHECK: attributes #[[ATTR3]] = { noinline norecurse nounwind "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
 ; CHECK: attributes #[[ATTR4]] = { nounwind }
 ; CHECK: attributes #[[ATTR5:[0-9]+]] = { alwaysinline }
-; CHECK: attributes #[[ATTR6]] = { noinline nosync nounwind memory(write) "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
+; CHECK: attributes #[[ATTR6]] = { noinline nosync nounwind memory(write, inaccessiblemem: none) "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
 ; CHECK: attributes #[[ATTR7]] = { convergent nounwind }
-; CHECK: attributes #[[ATTR8]] = { nosync nounwind memory(write) }
+; CHECK: attributes #[[ATTR8]] = { nosync nounwind memory(write, inaccessiblemem: none) }
 ; CHECK: attributes #[[ATTR9]] = { nosync nounwind }
+; CHECK: attributes #[[ATTR10]] = { nosync nounwind memory(write, argmem: none, inaccessiblemem: none) }
 ;.
 ; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR0]] = { convergent noinline norecurse nounwind "frame-pointer"="all" "kernel" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
 ; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR1]] = { noinline nounwind "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
-; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR2]] = { norecurse nosync memory(write) }
+; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR2]] = { norecurse nosync memory(write, argmem: none, inaccessiblemem: none) }
 ; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR3]] = { noinline norecurse nounwind "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
 ; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR4]] = { nounwind }
 ; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR5:[0-9]+]] = { alwaysinline }
-; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR6]] = { noinline nosync nounwind memory(write) "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
+; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR6]] = { noinline nosync nounwind memory(write, inaccessiblemem: none) "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="sm_53" "target-features"="+ptx32,+sm_53" }
 ; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR7]] = { convergent nounwind }
-; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR8]] = { nosync nounwind memory(write) }
+; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR8]] = { nosync nounwind memory(write, inaccessiblemem: none) }
 ; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR9]] = { nosync nounwind }
+; CHECK-DISABLE-SPMDIZATION: attributes #[[ATTR10]] = { nosync nounwind memory(write, argmem: none, inaccessiblemem: none) }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{i32 0, i32 43, i32 17011637, !"spmd", i32 12, i32 0}
 ; CHECK: [[META1:![0-9]+]] = !{i32 0, i32 43, i32 17011637, !"generic", i32 20, i32 1}

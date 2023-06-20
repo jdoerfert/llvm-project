@@ -44,7 +44,7 @@ entry:
 define i32 @is_null_control(i32* %p) #0 {
 ; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) uwtable
 ; CHECK-LABEL: define i32 @is_null_control
-; CHECK-SAME: (i32* nofree [[P:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (i32* nofree readnone [[P:%.*]]) #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[RETVAL:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32* [[P]], null
@@ -172,11 +172,11 @@ define float* @scc_A(i32* dereferenceable_or_null(4) %a) {
 ; TUNIT-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
 ; TUNIT:       cond.true:
 ; TUNIT-NEXT:    [[TMP0:%.*]] = bitcast i32* [[A]] to i16*
-; TUNIT-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree noundef nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP0]]) #[[ATTR9:[0-9]+]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree noundef nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP0]]) #[[ATTR11:[0-9]+]]
 ; TUNIT-NEXT:    [[TMP1:%.*]] = bitcast i8* [[CALL]] to double*
-; TUNIT-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(4) i64* @scc_B(double* noalias nofree noundef readnone dereferenceable_or_null(8) "no-capture-maybe-returned" [[TMP1]]) #[[ATTR9]]
+; TUNIT-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(4) i64* @scc_B(double* noalias nofree noundef readnone dereferenceable_or_null(8) "no-capture-maybe-returned" [[TMP1]]) #[[ATTR11]]
 ; TUNIT-NEXT:    [[TMP2:%.*]] = bitcast i64* [[CALL1]] to i32*
-; TUNIT-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[TMP2]]) #[[ATTR9]]
+; TUNIT-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[TMP2]]) #[[ATTR11]]
 ; TUNIT-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL2]] to i32*
 ; TUNIT-NEXT:    br label [[COND_END:%.*]]
 ; TUNIT:       cond.false:
@@ -194,11 +194,11 @@ define float* @scc_A(i32* dereferenceable_or_null(4) %a) {
 ; CGSCC-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
 ; CGSCC:       cond.true:
 ; CGSCC-NEXT:    [[TMP0:%.*]] = bitcast i32* [[A]] to i16*
-; CGSCC-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree noundef nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP0]]) #[[ATTR10:[0-9]+]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree noundef nonnull readnone dereferenceable(4) "no-capture-maybe-returned" [[TMP0]]) #[[ATTR12:[0-9]+]]
 ; CGSCC-NEXT:    [[TMP1:%.*]] = bitcast i8* [[CALL]] to double*
-; CGSCC-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(4) i64* @scc_B(double* noalias nofree noundef readnone dereferenceable_or_null(8) "no-capture-maybe-returned" [[TMP1]]) #[[ATTR10]]
+; CGSCC-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(4) i64* @scc_B(double* noalias nofree noundef readnone dereferenceable_or_null(8) "no-capture-maybe-returned" [[TMP1]]) #[[ATTR12]]
 ; CGSCC-NEXT:    [[TMP2:%.*]] = bitcast i64* [[CALL1]] to i32*
-; CGSCC-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[TMP2]]) #[[ATTR10]]
+; CGSCC-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[TMP2]]) #[[ATTR12]]
 ; CGSCC-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL2]] to i32*
 ; CGSCC-NEXT:    br label [[COND_END:%.*]]
 ; CGSCC:       cond.false:
@@ -284,22 +284,22 @@ define i8* @scc_C(i16* dereferenceable_or_null(2) %a) {
 ; TUNIT-SAME: (i16* nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR2]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[BC:%.*]] = bitcast i16* [[A]] to i32*
-; TUNIT-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[BC]]) #[[ATTR9]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[BC]]) #[[ATTR11]]
 ; TUNIT-NEXT:    [[BC2:%.*]] = bitcast float* [[CALL]] to i8*
 ; TUNIT-NEXT:    [[TOBOOL:%.*]] = icmp ne i8* [[BC2]], null
 ; TUNIT-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
 ; TUNIT:       cond.true:
 ; TUNIT-NEXT:    [[TMP0:%.*]] = bitcast i16* [[A]] to double*
-; TUNIT-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(4) i64* @scc_B(double* noalias nofree noundef readnone dereferenceable_or_null(8) "no-capture-maybe-returned" [[TMP0]]) #[[ATTR9]]
+; TUNIT-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(4) i64* @scc_B(double* noalias nofree noundef readnone dereferenceable_or_null(8) "no-capture-maybe-returned" [[TMP0]]) #[[ATTR11]]
 ; TUNIT-NEXT:    [[TMP1:%.*]] = bitcast i64* [[CALL1]] to i8*
 ; TUNIT-NEXT:    br label [[COND_END:%.*]]
 ; TUNIT:       cond.false:
-; TUNIT-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[A]]) #[[ATTR9]]
+; TUNIT-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[A]]) #[[ATTR11]]
 ; TUNIT-NEXT:    br label [[COND_END]]
 ; TUNIT:       cond.end:
 ; TUNIT-NEXT:    [[COND:%.*]] = phi i8* [ [[TMP1]], [[COND_TRUE]] ], [ [[CALL2]], [[COND_FALSE]] ]
 ; TUNIT-NEXT:    [[TMP2:%.*]] = bitcast i8* [[COND]] to i32*
-; TUNIT-NEXT:    [[CALL3:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[TMP2]]) #[[ATTR9]]
+; TUNIT-NEXT:    [[CALL3:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[TMP2]]) #[[ATTR11]]
 ; TUNIT-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL3]] to i8*
 ; TUNIT-NEXT:    ret i8* [[TMP3]]
 ;
@@ -308,22 +308,22 @@ define i8* @scc_C(i16* dereferenceable_or_null(2) %a) {
 ; CGSCC-SAME: (i16* nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR2]] {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[BC:%.*]] = bitcast i16* [[A]] to i32*
-; CGSCC-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[BC]]) #[[ATTR10]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[BC]]) #[[ATTR12]]
 ; CGSCC-NEXT:    [[BC2:%.*]] = bitcast float* [[CALL]] to i8*
 ; CGSCC-NEXT:    [[TOBOOL:%.*]] = icmp ne i8* [[BC2]], null
 ; CGSCC-NEXT:    br i1 [[TOBOOL]], label [[COND_TRUE:%.*]], label [[COND_FALSE:%.*]]
 ; CGSCC:       cond.true:
 ; CGSCC-NEXT:    [[TMP0:%.*]] = bitcast i16* [[A]] to double*
-; CGSCC-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(4) i64* @scc_B(double* noalias nofree noundef readnone dereferenceable_or_null(8) "no-capture-maybe-returned" [[TMP0]]) #[[ATTR10]]
+; CGSCC-NEXT:    [[CALL1:%.*]] = call dereferenceable_or_null(4) i64* @scc_B(double* noalias nofree noundef readnone dereferenceable_or_null(8) "no-capture-maybe-returned" [[TMP0]]) #[[ATTR12]]
 ; CGSCC-NEXT:    [[TMP1:%.*]] = bitcast i64* [[CALL1]] to i8*
 ; CGSCC-NEXT:    br label [[COND_END:%.*]]
 ; CGSCC:       cond.false:
-; CGSCC-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[A]]) #[[ATTR10]]
+; CGSCC-NEXT:    [[CALL2:%.*]] = call dereferenceable_or_null(4) i8* @scc_C(i16* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[A]]) #[[ATTR12]]
 ; CGSCC-NEXT:    br label [[COND_END]]
 ; CGSCC:       cond.end:
 ; CGSCC-NEXT:    [[COND:%.*]] = phi i8* [ [[TMP1]], [[COND_TRUE]] ], [ [[CALL2]], [[COND_FALSE]] ]
 ; CGSCC-NEXT:    [[TMP2:%.*]] = bitcast i8* [[COND]] to i32*
-; CGSCC-NEXT:    [[CALL3:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[TMP2]]) #[[ATTR10]]
+; CGSCC-NEXT:    [[CALL3:%.*]] = call dereferenceable_or_null(4) float* @scc_A(i32* noalias nofree noundef readnone dereferenceable_or_null(4) "no-capture-maybe-returned" [[TMP2]]) #[[ATTR12]]
 ; CGSCC-NEXT:    [[TMP3:%.*]] = bitcast float* [[CALL3]] to i8*
 ; CGSCC-NEXT:    ret i8* [[TMP3]]
 ;
@@ -453,16 +453,16 @@ define void @test_not_captured_but_returned_calls(i64* %a) #0 {
 ; TUNIT-LABEL: define void @test_not_captured_but_returned_calls
 ; TUNIT-SAME: (i64* nocapture nofree writeonly align 8 [[A:%.*]]) #[[ATTR4]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR10:[0-9]+]]
-; TUNIT-NEXT:    [[CALL1:%.*]] = call i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR10]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR12:[0-9]+]]
+; TUNIT-NEXT:    [[CALL1:%.*]] = call i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR12]]
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: mustprogress nofree noinline nosync nounwind willreturn memory(argmem: write) uwtable
 ; CGSCC-LABEL: define void @test_not_captured_but_returned_calls
 ; CGSCC-SAME: (i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A:%.*]]) #[[ATTR5:[0-9]+]] {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A]]) #[[ATTR11:[0-9]+]]
-; CGSCC-NEXT:    [[CALL1:%.*]] = call i64* @not_captured_but_returned_1(i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A]]) #[[ATTR11]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A]]) #[[ATTR13:[0-9]+]]
+; CGSCC-NEXT:    [[CALL1:%.*]] = call i64* @not_captured_but_returned_1(i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A]]) #[[ATTR13]]
 ; CGSCC-NEXT:    ret void
 ;
 entry:
@@ -483,14 +483,14 @@ define i64* @negative_test_not_captured_but_returned_call_0a(i64* %a) #0 {
 ; TUNIT-LABEL: define align 8 i64* @negative_test_not_captured_but_returned_call_0a
 ; TUNIT-SAME: (i64* nofree returned writeonly align 8 "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR4]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR10]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR12]]
 ; TUNIT-NEXT:    ret i64* [[A]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree noinline nosync nounwind willreturn memory(argmem: write) uwtable
 ; CGSCC-LABEL: define noundef nonnull align 8 dereferenceable(8) i64* @negative_test_not_captured_but_returned_call_0a
 ; CGSCC-SAME: (i64* nofree noundef nonnull writeonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR5]] {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    [[CALL:%.*]] = call noundef nonnull align 8 dereferenceable(8) i64* @not_captured_but_returned_0(i64* nofree noundef nonnull writeonly align 8 dereferenceable(8) [[A]]) #[[ATTR11]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call noundef nonnull align 8 dereferenceable(8) i64* @not_captured_but_returned_0(i64* nofree noundef nonnull writeonly align 8 dereferenceable(8) [[A]]) #[[ATTR13]]
 ; CGSCC-NEXT:    ret i64* [[CALL]]
 ;
 entry:
@@ -510,7 +510,7 @@ define void @negative_test_not_captured_but_returned_call_0b(i64* %a) #0 {
 ; TUNIT-LABEL: define void @negative_test_not_captured_but_returned_call_0b
 ; TUNIT-SAME: (i64* nofree writeonly align 8 [[A:%.*]]) #[[ATTR4]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR10]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR12]]
 ; TUNIT-NEXT:    [[TMP0:%.*]] = ptrtoint i64* [[A]] to i64
 ; TUNIT-NEXT:    store i64 [[TMP0]], i64* [[A]], align 8
 ; TUNIT-NEXT:    ret void
@@ -519,7 +519,7 @@ define void @negative_test_not_captured_but_returned_call_0b(i64* %a) #0 {
 ; CGSCC-LABEL: define void @negative_test_not_captured_but_returned_call_0b
 ; CGSCC-SAME: (i64* nofree noundef nonnull writeonly align 8 dereferenceable(8) [[A:%.*]]) #[[ATTR5]] {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree noundef nonnull writeonly align 8 dereferenceable(8) [[A]]) #[[ATTR11]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call i64* @not_captured_but_returned_0(i64* nofree noundef nonnull writeonly align 8 dereferenceable(8) [[A]]) #[[ATTR13]]
 ; CGSCC-NEXT:    [[TMP0:%.*]] = ptrtoint i64* [[CALL]] to i64
 ; CGSCC-NEXT:    store i64 [[TMP0]], i64* [[A]], align 8
 ; CGSCC-NEXT:    ret void
@@ -543,14 +543,14 @@ define i64* @negative_test_not_captured_but_returned_call_1a(i64* %a) #0 {
 ; TUNIT-LABEL: define noundef nonnull align 8 dereferenceable(8) i64* @negative_test_not_captured_but_returned_call_1a
 ; TUNIT-SAME: (i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A:%.*]]) #[[ATTR4]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call noundef nonnull align 8 dereferenceable(8) i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR10]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call noundef nonnull align 8 dereferenceable(8) i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR12]]
 ; TUNIT-NEXT:    ret i64* [[CALL]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree noinline nosync nounwind willreturn memory(argmem: write) uwtable
 ; CGSCC-LABEL: define noundef nonnull align 8 dereferenceable(8) i64* @negative_test_not_captured_but_returned_call_1a
 ; CGSCC-SAME: (i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A:%.*]]) #[[ATTR5]] {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    [[CALL:%.*]] = call noundef nonnull align 8 dereferenceable(8) i64* @not_captured_but_returned_1(i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A]]) #[[ATTR11]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call noundef nonnull align 8 dereferenceable(8) i64* @not_captured_but_returned_1(i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A]]) #[[ATTR13]]
 ; CGSCC-NEXT:    ret i64* [[CALL]]
 ;
 entry:
@@ -566,20 +566,20 @@ entry:
 ;
 ; There should *not* be a no-capture attribute on %a
 define void @negative_test_not_captured_but_returned_call_1b(i64* %a) #0 {
-; TUNIT: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write) uwtable
+; TUNIT: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none) uwtable
 ; TUNIT-LABEL: define void @negative_test_not_captured_but_returned_call_1b
-; TUNIT-SAME: (i64* nofree writeonly align 8 [[A:%.*]]) #[[ATTR5:[0-9]+]] {
+; TUNIT-SAME: (i64* nofree align 8 [[A:%.*]]) #[[ATTR5:[0-9]+]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call align 8 i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR10]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call align 8 i64* @not_captured_but_returned_1(i64* nofree writeonly align 8 "no-capture-maybe-returned" [[A]]) #[[ATTR12]]
 ; TUNIT-NEXT:    [[TMP0:%.*]] = ptrtoint i64* [[CALL]] to i64
 ; TUNIT-NEXT:    store i64 [[TMP0]], i64* [[CALL]], align 8
 ; TUNIT-NEXT:    ret void
 ;
-; CGSCC: Function Attrs: mustprogress nofree noinline nosync nounwind willreturn memory(write) uwtable
+; CGSCC: Function Attrs: mustprogress nofree noinline nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none) uwtable
 ; CGSCC-LABEL: define void @negative_test_not_captured_but_returned_call_1b
-; CGSCC-SAME: (i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A:%.*]]) #[[ATTR6:[0-9]+]] {
+; CGSCC-SAME: (i64* nofree noundef nonnull align 8 dereferenceable(16) [[A:%.*]]) #[[ATTR6:[0-9]+]] {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    [[CALL:%.*]] = call align 8 i64* @not_captured_but_returned_1(i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A]]) #[[ATTR11]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call align 8 i64* @not_captured_but_returned_1(i64* nofree noundef nonnull writeonly align 8 dereferenceable(16) [[A]]) #[[ATTR13]]
 ; CGSCC-NEXT:    [[TMP0:%.*]] = ptrtoint i64* [[CALL]] to i64
 ; CGSCC-NEXT:    store i64 [[TMP0]], i64* [[CALL]], align 8
 ; CGSCC-NEXT:    ret void
@@ -603,17 +603,29 @@ entry:
 ;
 
 define i32* @ret_arg_or_unknown(i32* %b) #0 {
-; CHECK: Function Attrs: noinline nounwind uwtable
-; CHECK-LABEL: define i32* @ret_arg_or_unknown
-; CHECK-SAME: (i32* [[B:%.*]]) #[[ATTR3]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32* [[B]], null
-; CHECK-NEXT:    br i1 [[CMP]], label [[RET_ARG:%.*]], label [[RET_UNKNOWN:%.*]]
-; CHECK:       ret_arg:
-; CHECK-NEXT:    ret i32* [[B]]
-; CHECK:       ret_unknown:
-; CHECK-NEXT:    [[CALL:%.*]] = call i32* @unknown()
-; CHECK-NEXT:    ret i32* [[CALL]]
+; TUNIT: Function Attrs: noinline nounwind memory(readwrite, argmem: none) uwtable
+; TUNIT-LABEL: define i32* @ret_arg_or_unknown
+; TUNIT-SAME: (i32* readnone [[B:%.*]]) #[[ATTR6:[0-9]+]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    [[CMP:%.*]] = icmp eq i32* [[B]], null
+; TUNIT-NEXT:    br i1 [[CMP]], label [[RET_ARG:%.*]], label [[RET_UNKNOWN:%.*]]
+; TUNIT:       ret_arg:
+; TUNIT-NEXT:    ret i32* [[B]]
+; TUNIT:       ret_unknown:
+; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @unknown()
+; TUNIT-NEXT:    ret i32* [[CALL]]
+;
+; CGSCC: Function Attrs: noinline nounwind memory(readwrite, argmem: none) uwtable
+; CGSCC-LABEL: define i32* @ret_arg_or_unknown
+; CGSCC-SAME: (i32* readnone [[B:%.*]]) #[[ATTR7:[0-9]+]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    [[CMP:%.*]] = icmp eq i32* [[B]], null
+; CGSCC-NEXT:    br i1 [[CMP]], label [[RET_ARG:%.*]], label [[RET_UNKNOWN:%.*]]
+; CGSCC:       ret_arg:
+; CGSCC-NEXT:    ret i32* [[B]]
+; CGSCC:       ret_unknown:
+; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @unknown()
+; CGSCC-NEXT:    ret i32* [[CALL]]
 ;
 entry:
   %cmp = icmp eq i32* %b, null
@@ -628,20 +640,35 @@ ret_unknown:
 }
 
 define i32* @ret_arg_or_unknown_through_phi(i32* %b) #0 {
-; CHECK: Function Attrs: noinline nounwind uwtable
-; CHECK-LABEL: define i32* @ret_arg_or_unknown_through_phi
-; CHECK-SAME: (i32* [[B:%.*]]) #[[ATTR3]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32* [[B]], null
-; CHECK-NEXT:    br i1 [[CMP]], label [[RET_ARG:%.*]], label [[RET_UNKNOWN:%.*]]
-; CHECK:       ret_arg:
-; CHECK-NEXT:    br label [[R:%.*]]
-; CHECK:       ret_unknown:
-; CHECK-NEXT:    [[CALL:%.*]] = call i32* @unknown()
-; CHECK-NEXT:    br label [[R]]
-; CHECK:       r:
-; CHECK-NEXT:    [[PHI:%.*]] = phi i32* [ [[B]], [[RET_ARG]] ], [ [[CALL]], [[RET_UNKNOWN]] ]
-; CHECK-NEXT:    ret i32* [[PHI]]
+; TUNIT: Function Attrs: noinline nounwind memory(readwrite, argmem: none) uwtable
+; TUNIT-LABEL: define i32* @ret_arg_or_unknown_through_phi
+; TUNIT-SAME: (i32* readnone [[B:%.*]]) #[[ATTR6]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    [[CMP:%.*]] = icmp eq i32* [[B]], null
+; TUNIT-NEXT:    br i1 [[CMP]], label [[RET_ARG:%.*]], label [[RET_UNKNOWN:%.*]]
+; TUNIT:       ret_arg:
+; TUNIT-NEXT:    br label [[R:%.*]]
+; TUNIT:       ret_unknown:
+; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @unknown()
+; TUNIT-NEXT:    br label [[R]]
+; TUNIT:       r:
+; TUNIT-NEXT:    [[PHI:%.*]] = phi i32* [ [[B]], [[RET_ARG]] ], [ [[CALL]], [[RET_UNKNOWN]] ]
+; TUNIT-NEXT:    ret i32* [[PHI]]
+;
+; CGSCC: Function Attrs: noinline nounwind memory(readwrite, argmem: none) uwtable
+; CGSCC-LABEL: define i32* @ret_arg_or_unknown_through_phi
+; CGSCC-SAME: (i32* readnone [[B:%.*]]) #[[ATTR7]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    [[CMP:%.*]] = icmp eq i32* [[B]], null
+; CGSCC-NEXT:    br i1 [[CMP]], label [[RET_ARG:%.*]], label [[RET_UNKNOWN:%.*]]
+; CGSCC:       ret_arg:
+; CGSCC-NEXT:    br label [[R:%.*]]
+; CGSCC:       ret_unknown:
+; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @unknown()
+; CGSCC-NEXT:    br label [[R]]
+; CGSCC:       r:
+; CGSCC-NEXT:    [[PHI:%.*]] = phi i32* [ [[B]], [[RET_ARG]] ], [ [[CALL]], [[RET_UNKNOWN]] ]
+; CGSCC-NEXT:    ret i32* [[PHI]]
 ;
 entry:
   %cmp = icmp eq i32* %b, null
@@ -667,14 +694,14 @@ declare i32* @readonly_unknown(i32*, i32*) readonly
 define void @not_captured_by_readonly_call(i32* %b) #0 {
 ; TUNIT: Function Attrs: noinline nounwind memory(read) uwtable
 ; TUNIT-LABEL: define void @not_captured_by_readonly_call
-; TUNIT-SAME: (i32* nocapture readonly [[B:%.*]]) #[[ATTR7:[0-9]+]] {
+; TUNIT-SAME: (i32* nocapture readonly [[B:%.*]]) #[[ATTR8:[0-9]+]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[B]])
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: noinline nounwind memory(read) uwtable
 ; CGSCC-LABEL: define void @not_captured_by_readonly_call
-; CGSCC-SAME: (i32* nocapture readonly [[B:%.*]]) #[[ATTR8:[0-9]+]] {
+; CGSCC-SAME: (i32* nocapture readonly [[B:%.*]]) #[[ATTR9:[0-9]+]] {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[B]])
 ; CGSCC-NEXT:    ret void
@@ -692,16 +719,16 @@ entry:
 define i32* @not_captured_by_readonly_call_not_returned_either1(i32* %b, i32* returned %r) {
 ; TUNIT: Function Attrs: nounwind memory(read)
 ; TUNIT-LABEL: define i32* @not_captured_by_readonly_call_not_returned_either1
-; TUNIT-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR8:[0-9]+]] {
+; TUNIT-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR9:[0-9]+]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR11:[0-9]+]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR13:[0-9]+]]
 ; TUNIT-NEXT:    ret i32* [[CALL]]
 ;
 ; CGSCC: Function Attrs: nounwind memory(read)
 ; CGSCC-LABEL: define i32* @not_captured_by_readonly_call_not_returned_either1
-; CGSCC-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR9:[0-9]+]] {
+; CGSCC-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly returned [[R:%.*]]) #[[ATTR10:[0-9]+]] {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR11]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR13]]
 ; CGSCC-NEXT:    ret i32* [[CALL]]
 ;
 entry:
@@ -713,16 +740,16 @@ declare i32* @readonly_unknown_r1a(i32*, i32* returned) readonly
 define i32* @not_captured_by_readonly_call_not_returned_either2(i32* %b, i32* %r) {
 ; TUNIT: Function Attrs: nounwind memory(read)
 ; TUNIT-LABEL: define i32* @not_captured_by_readonly_call_not_returned_either2
-; TUNIT-SAME: (i32* readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR8]] {
+; TUNIT-SAME: (i32* readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR9]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1a(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR11]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1a(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR13]]
 ; TUNIT-NEXT:    ret i32* [[CALL]]
 ;
 ; CGSCC: Function Attrs: nounwind memory(read)
 ; CGSCC-LABEL: define i32* @not_captured_by_readonly_call_not_returned_either2
-; CGSCC-SAME: (i32* readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR9]] {
+; CGSCC-SAME: (i32* readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR10]] {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1a(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR11]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1a(i32* readonly [[B]], i32* readonly [[R]]) #[[ATTR13]]
 ; CGSCC-NEXT:    ret i32* [[CALL]]
 ;
 entry:
@@ -734,16 +761,16 @@ declare i32* @readonly_unknown_r1b(i32*, i32* returned) readonly nounwind
 define i32* @not_captured_by_readonly_call_not_returned_either3(i32* %b, i32* %r) {
 ; TUNIT: Function Attrs: nounwind memory(read)
 ; TUNIT-LABEL: define i32* @not_captured_by_readonly_call_not_returned_either3
-; TUNIT-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR8]] {
+; TUNIT-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR9]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1b(i32* nocapture readonly [[B]], i32* readonly [[R]]) #[[ATTR11]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1b(i32* nocapture readonly [[B]], i32* readonly [[R]]) #[[ATTR13]]
 ; TUNIT-NEXT:    ret i32* [[CALL]]
 ;
 ; CGSCC: Function Attrs: nounwind memory(read)
 ; CGSCC-LABEL: define i32* @not_captured_by_readonly_call_not_returned_either3
-; CGSCC-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR9]] {
+; CGSCC-SAME: (i32* nocapture readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR10]] {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1b(i32* nocapture readonly [[B]], i32* readonly [[R]]) #[[ATTR11]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1b(i32* nocapture readonly [[B]], i32* readonly [[R]]) #[[ATTR13]]
 ; CGSCC-NEXT:    ret i32* [[CALL]]
 ;
 entry:
@@ -754,14 +781,14 @@ entry:
 define i32* @not_captured_by_readonly_call_not_returned_either4(i32* %b, i32* %r) nounwind {
 ; TUNIT: Function Attrs: nounwind memory(read)
 ; TUNIT-LABEL: define i32* @not_captured_by_readonly_call_not_returned_either4
-; TUNIT-SAME: (i32* readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR8]] {
+; TUNIT-SAME: (i32* readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR9]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1a(i32* readonly [[B]], i32* readonly [[R]])
 ; TUNIT-NEXT:    ret i32* [[CALL]]
 ;
 ; CGSCC: Function Attrs: nounwind memory(read)
 ; CGSCC-LABEL: define i32* @not_captured_by_readonly_call_not_returned_either4
-; CGSCC-SAME: (i32* readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR9]] {
+; CGSCC-SAME: (i32* readonly [[B:%.*]], i32* readonly [[R:%.*]]) #[[ATTR10]] {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_unknown_r1a(i32* readonly [[B]], i32* readonly [[R]])
 ; CGSCC-NEXT:    ret i32* [[CALL]]
@@ -789,12 +816,21 @@ entry:
 
 declare i32* @readonly_i32p(i32*) readonly
 define void @nocapture_is_not_subsumed_2(i32* nocapture %b) {
-; CHECK-LABEL: define void @nocapture_is_not_subsumed_2
-; CHECK-SAME: (i32* nocapture [[B:%.*]]) {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CALL:%.*]] = call i32* @readonly_i32p(i32* readonly [[B]])
-; CHECK-NEXT:    store i32 0, i32* [[CALL]], align 4
-; CHECK-NEXT:    ret void
+; TUNIT: Function Attrs: memory(readwrite, inaccessiblemem: read)
+; TUNIT-LABEL: define void @nocapture_is_not_subsumed_2
+; TUNIT-SAME: (i32* nocapture readonly [[B:%.*]]) #[[ATTR10:[0-9]+]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    [[CALL:%.*]] = call i32* @readonly_i32p(i32* readonly [[B]])
+; TUNIT-NEXT:    store i32 0, i32* [[CALL]], align 4
+; TUNIT-NEXT:    ret void
+;
+; CGSCC: Function Attrs: memory(readwrite, inaccessiblemem: read)
+; CGSCC-LABEL: define void @nocapture_is_not_subsumed_2
+; CGSCC-SAME: (i32* nocapture readonly [[B:%.*]]) #[[ATTR11:[0-9]+]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    [[CALL:%.*]] = call i32* @readonly_i32p(i32* readonly [[B]])
+; CGSCC-NEXT:    store i32 0, i32* [[CALL]], align 4
+; CGSCC-NEXT:    ret void
 ;
 entry:
   %call = call i32* @readonly_i32p(i32* %b)
@@ -809,13 +845,15 @@ attributes #0 = { noinline nounwind uwtable }
 ; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind memory(none) }
 ; TUNIT: attributes #[[ATTR3]] = { noinline nounwind uwtable }
 ; TUNIT: attributes #[[ATTR4]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: write) uwtable }
-; TUNIT: attributes #[[ATTR5]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write) uwtable }
-; TUNIT: attributes #[[ATTR6:[0-9]+]] = { memory(read) }
-; TUNIT: attributes #[[ATTR7]] = { noinline nounwind memory(read) uwtable }
-; TUNIT: attributes #[[ATTR8]] = { nounwind memory(read) }
-; TUNIT: attributes #[[ATTR9]] = { nofree nosync nounwind }
-; TUNIT: attributes #[[ATTR10]] = { nofree nosync nounwind willreturn }
-; TUNIT: attributes #[[ATTR11]] = { nounwind }
+; TUNIT: attributes #[[ATTR5]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none) uwtable }
+; TUNIT: attributes #[[ATTR6]] = { noinline nounwind memory(readwrite, argmem: none) uwtable }
+; TUNIT: attributes #[[ATTR7:[0-9]+]] = { memory(read) }
+; TUNIT: attributes #[[ATTR8]] = { noinline nounwind memory(read) uwtable }
+; TUNIT: attributes #[[ATTR9]] = { nounwind memory(read) }
+; TUNIT: attributes #[[ATTR10]] = { memory(readwrite, inaccessiblemem: read) }
+; TUNIT: attributes #[[ATTR11]] = { nofree nosync nounwind }
+; TUNIT: attributes #[[ATTR12]] = { nofree nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR13]] = { nounwind }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) uwtable }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree noinline nosync nounwind willreturn memory(none) uwtable }
@@ -823,10 +861,12 @@ attributes #0 = { noinline nounwind uwtable }
 ; CGSCC: attributes #[[ATTR3]] = { noinline nounwind uwtable }
 ; CGSCC: attributes #[[ATTR4]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: write) uwtable }
 ; CGSCC: attributes #[[ATTR5]] = { mustprogress nofree noinline nosync nounwind willreturn memory(argmem: write) uwtable }
-; CGSCC: attributes #[[ATTR6]] = { mustprogress nofree noinline nosync nounwind willreturn memory(write) uwtable }
-; CGSCC: attributes #[[ATTR7:[0-9]+]] = { memory(read) }
-; CGSCC: attributes #[[ATTR8]] = { noinline nounwind memory(read) uwtable }
-; CGSCC: attributes #[[ATTR9]] = { nounwind memory(read) }
-; CGSCC: attributes #[[ATTR10]] = { nofree nosync nounwind }
-; CGSCC: attributes #[[ATTR11]] = { nounwind }
+; CGSCC: attributes #[[ATTR6]] = { mustprogress nofree noinline nosync nounwind willreturn memory(write, argmem: readwrite, inaccessiblemem: none) uwtable }
+; CGSCC: attributes #[[ATTR7]] = { noinline nounwind memory(readwrite, argmem: none) uwtable }
+; CGSCC: attributes #[[ATTR8:[0-9]+]] = { memory(read) }
+; CGSCC: attributes #[[ATTR9]] = { noinline nounwind memory(read) uwtable }
+; CGSCC: attributes #[[ATTR10]] = { nounwind memory(read) }
+; CGSCC: attributes #[[ATTR11]] = { memory(readwrite, inaccessiblemem: read) }
+; CGSCC: attributes #[[ATTR12]] = { nofree nosync nounwind }
+; CGSCC: attributes #[[ATTR13]] = { nounwind }
 ;.

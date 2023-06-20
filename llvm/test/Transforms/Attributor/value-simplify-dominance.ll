@@ -139,9 +139,9 @@ m2:
 declare void @usei32(i32) nocallback
 ; Ensure we use 42, not undef, for %l in the usei32 call and %r in the return.
 define internal i32 @remote_write_and_read(ptr %p) norecurse {
-; TUNIT: Function Attrs: norecurse
+; TUNIT: Function Attrs: norecurse memory(readwrite, argmem: write)
 ; TUNIT-LABEL: define {{[^@]+}}@remote_write_and_read
-; TUNIT-SAME: (ptr noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR2]] {
+; TUNIT-SAME: (ptr noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR3:[0-9]+]] {
 ; TUNIT-NEXT:    call void @usei32(i32 noundef 42)
 ; TUNIT-NEXT:    ret i32 undef
 ;
@@ -164,7 +164,7 @@ define i32 @local_stack_remote_write_and_read() norecurse {
 ; TUNIT-LABEL: define {{[^@]+}}@local_stack_remote_write_and_read
 ; TUNIT-SAME: () #[[ATTR2]] {
 ; TUNIT-NEXT:    [[A:%.*]] = alloca i32, align 4
-; TUNIT-NEXT:    [[R:%.*]] = call i32 @remote_write_and_read(ptr noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[A]])
+; TUNIT-NEXT:    [[R:%.*]] = call i32 @remote_write_and_read(ptr noalias nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[A]]) #[[ATTR4:[0-9]+]]
 ; TUNIT-NEXT:    ret i32 42
 ;
 ; CGSCC: Function Attrs: norecurse
@@ -179,7 +179,13 @@ define i32 @local_stack_remote_write_and_read() norecurse {
   ret i32 %r
 }
 ;.
-; CHECK: attributes #[[ATTR0:[0-9]+]] = { nocallback }
-; CHECK: attributes #[[ATTR1]] = { norecurse nosync }
-; CHECK: attributes #[[ATTR2]] = { norecurse }
+; TUNIT: attributes #[[ATTR0:[0-9]+]] = { nocallback }
+; TUNIT: attributes #[[ATTR1]] = { norecurse nosync }
+; TUNIT: attributes #[[ATTR2]] = { norecurse }
+; TUNIT: attributes #[[ATTR3]] = { norecurse memory(readwrite, argmem: write) }
+; TUNIT: attributes #[[ATTR4]] = { memory(readwrite, argmem: write) }
+;.
+; CGSCC: attributes #[[ATTR0:[0-9]+]] = { nocallback }
+; CGSCC: attributes #[[ATTR1]] = { norecurse nosync }
+; CGSCC: attributes #[[ATTR2]] = { norecurse }
 ;.

@@ -35,9 +35,9 @@ define i32 @fib(i32 %0) local_unnamed_addr #0 {
 ; TUNIT-NEXT:    br i1 [[TMP2]], label [[TMP9:%.*]], label [[TMP3:%.*]]
 ; TUNIT:       3:
 ; TUNIT-NEXT:    [[TMP4:%.*]] = add nsw i32 [[TMP0]], -1
-; TUNIT-NEXT:    [[TMP5:%.*]] = tail call i32 @fib(i32 [[TMP4]]) #[[ATTR25:[0-9]+]]
+; TUNIT-NEXT:    [[TMP5:%.*]] = tail call i32 @fib(i32 [[TMP4]]) #[[ATTR26:[0-9]+]]
 ; TUNIT-NEXT:    [[TMP6:%.*]] = add nsw i32 [[TMP0]], -2
-; TUNIT-NEXT:    [[TMP7:%.*]] = tail call i32 @fib(i32 [[TMP6]]) #[[ATTR26:[0-9]+]]
+; TUNIT-NEXT:    [[TMP7:%.*]] = tail call i32 @fib(i32 [[TMP6]]) #[[ATTR27:[0-9]+]]
 ; TUNIT-NEXT:    [[TMP8:%.*]] = add nsw i32 [[TMP7]], [[TMP5]]
 ; TUNIT-NEXT:    ret i32 [[TMP8]]
 ; TUNIT:       9:
@@ -50,9 +50,9 @@ define i32 @fib(i32 %0) local_unnamed_addr #0 {
 ; CGSCC-NEXT:    br i1 [[TMP2]], label [[TMP9:%.*]], label [[TMP3:%.*]]
 ; CGSCC:       3:
 ; CGSCC-NEXT:    [[TMP4:%.*]] = add nsw i32 [[TMP0]], -1
-; CGSCC-NEXT:    [[TMP5:%.*]] = tail call i32 @fib(i32 [[TMP4]]) #[[ATTR19:[0-9]+]]
+; CGSCC-NEXT:    [[TMP5:%.*]] = tail call i32 @fib(i32 [[TMP4]]) #[[ATTR20:[0-9]+]]
 ; CGSCC-NEXT:    [[TMP6:%.*]] = add nsw i32 [[TMP0]], -2
-; CGSCC-NEXT:    [[TMP7:%.*]] = tail call i32 @fib(i32 [[TMP6]]) #[[ATTR26:[0-9]+]]
+; CGSCC-NEXT:    [[TMP7:%.*]] = tail call i32 @fib(i32 [[TMP6]]) #[[ATTR27:[0-9]+]]
 ; CGSCC-NEXT:    [[TMP8:%.*]] = add nsw i32 [[TMP7]], [[TMP5]]
 ; CGSCC-NEXT:    ret i32 [[TMP8]]
 ; CGSCC:       9:
@@ -181,8 +181,8 @@ define void @mutual_recursion1(i1 %c) #0 {
 ; CHECK-SAME: (i1 noundef [[C:%.*]]) #[[ATTR4:[0-9]+]] {
 ; CHECK-NEXT:    br i1 [[C]], label [[REC:%.*]], label [[END:%.*]]
 ; CHECK:       rec:
-; CHECK-NEXT:    call void @sink() #[[ATTR27:[0-9]+]]
-; CHECK-NEXT:    call void @mutual_recursion2(i1 noundef [[C]]) #[[ATTR26:[0-9]+]]
+; CHECK-NEXT:    call void @sink() #[[ATTR28:[0-9]+]]
+; CHECK-NEXT:    call void @mutual_recursion2(i1 noundef [[C]]) #[[ATTR27:[0-9]+]]
 ; CHECK-NEXT:    br label [[END]]
 ; CHECK:       end:
 ; CHECK-NEXT:    ret void
@@ -201,7 +201,7 @@ define void @mutual_recursion2(i1 %c) #0 {
 ; CHECK: Function Attrs: nofree noinline nosync nounwind uwtable
 ; CHECK-LABEL: define {{[^@]+}}@mutual_recursion2
 ; CHECK-SAME: (i1 [[C:%.*]]) #[[ATTR4]] {
-; CHECK-NEXT:    call void @mutual_recursion1(i1 [[C]]) #[[ATTR26]]
+; CHECK-NEXT:    call void @mutual_recursion1(i1 [[C]]) #[[ATTR27]]
 ; CHECK-NEXT:    ret void
 ;
   call void @mutual_recursion1(i1 %c)
@@ -237,7 +237,7 @@ define void @only_exit() local_unnamed_addr #0 {
 ;     return;
 ; }
 define void @conditional_exit(i32 %0, ptr nocapture readonly %1) local_unnamed_addr #0 {
-; CHECK: Function Attrs: noinline nounwind uwtable
+; CHECK: Function Attrs: noinline nounwind memory(readwrite, argmem: read) uwtable
 ; CHECK-LABEL: define {{[^@]+}}@conditional_exit
 ; CHECK-SAME: (i32 [[TMP0:%.*]], ptr nocapture nofree readonly [[TMP1:%.*]]) local_unnamed_addr #[[ATTR7:[0-9]+]] {
 ; CHECK-NEXT:    [[TMP3:%.*]] = icmp eq i32 [[TMP0]], 0
@@ -314,8 +314,8 @@ declare void @maybe_noreturn() #0
 define void @call_maybe_noreturn() #0 {
 ; CHECK: Function Attrs: noinline nounwind uwtable
 ; CHECK-LABEL: define {{[^@]+}}@call_maybe_noreturn
-; CHECK-SAME: () #[[ATTR7]] {
-; CHECK-NEXT:    tail call void @maybe_noreturn() #[[ATTR27]]
+; CHECK-SAME: () #[[ATTR9:[0-9]+]] {
+; CHECK-NEXT:    tail call void @maybe_noreturn() #[[ATTR28]]
 ; CHECK-NEXT:    ret void
 ;
   tail call void @maybe_noreturn()
@@ -333,7 +333,7 @@ declare void @will_return() willreturn norecurse
 define void @f1() #0 {
 ; CHECK: Function Attrs: mustprogress noinline nounwind willreturn uwtable
 ; CHECK-LABEL: define {{[^@]+}}@f1
-; CHECK-SAME: () #[[ATTR10:[0-9]+]] {
+; CHECK-SAME: () #[[ATTR11:[0-9]+]] {
 ; CHECK-NEXT:    tail call void @will_return()
 ; CHECK-NEXT:    ret void
 ;
@@ -344,14 +344,14 @@ define void @f1() #0 {
 define void @f2() #0 {
 ; TUNIT: Function Attrs: mustprogress noinline nounwind willreturn uwtable
 ; TUNIT-LABEL: define {{[^@]+}}@f2
-; TUNIT-SAME: () #[[ATTR10]] {
-; TUNIT-NEXT:    tail call void @f1() #[[ATTR28:[0-9]+]]
+; TUNIT-SAME: () #[[ATTR11]] {
+; TUNIT-NEXT:    tail call void @f1() #[[ATTR29:[0-9]+]]
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: mustprogress noinline nounwind willreturn uwtable
 ; CGSCC-LABEL: define {{[^@]+}}@f2
-; CGSCC-SAME: () #[[ATTR10]] {
-; CGSCC-NEXT:    tail call void @f1() #[[ATTR27]]
+; CGSCC-SAME: () #[[ATTR11]] {
+; CGSCC-NEXT:    tail call void @f1() #[[ATTR28]]
 ; CGSCC-NEXT:    ret void
 ;
   tail call void @f1()
@@ -392,7 +392,7 @@ declare i1 @maybe_raise_exception() #1 willreturn
 define void @invoke_test() personality ptr @__gxx_personality_v0 {
 ; CHECK: Function Attrs: mustprogress nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@invoke_test
-; CHECK-SAME: () #[[ATTR12:[0-9]+]] personality ptr @__gxx_personality_v0 {
+; CHECK-SAME: () #[[ATTR13:[0-9]+]] personality ptr @__gxx_personality_v0 {
 ; CHECK-NEXT:    [[TMP1:%.*]] = invoke i1 @maybe_raise_exception()
 ; CHECK-NEXT:    to label [[N:%.*]] unwind label [[F:%.*]]
 ; CHECK:       N:
@@ -428,7 +428,7 @@ declare i32 @__gxx_personality_v0(...)
 define i32 @loop_constant_trip_count(ptr nocapture readonly %0) #0 {
 ; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) uwtable
 ; CHECK-LABEL: define {{[^@]+}}@loop_constant_trip_count
-; CHECK-SAME: (ptr nocapture nofree nonnull readonly dereferenceable(4) [[TMP0:%.*]]) #[[ATTR13:[0-9]+]] {
+; CHECK-SAME: (ptr nocapture nofree nonnull readonly dereferenceable(4) [[TMP0:%.*]]) #[[ATTR14:[0-9]+]] {
 ; CHECK-NEXT:    br label [[TMP3:%.*]]
 ; CHECK:       2:
 ; CHECK-NEXT:    ret i32 [[TMP8:%.*]]
@@ -472,7 +472,7 @@ define i32 @loop_constant_trip_count(ptr nocapture readonly %0) #0 {
 define i32 @loop_trip_count_unbound(i32 %0, i32 %1, ptr nocapture readonly %2, i32 %3) local_unnamed_addr #0 {
 ; CHECK: Function Attrs: nofree noinline norecurse nosync nounwind memory(argmem: read) uwtable
 ; CHECK-LABEL: define {{[^@]+}}@loop_trip_count_unbound
-; CHECK-SAME: (i32 [[TMP0:%.*]], i32 [[TMP1:%.*]], ptr nocapture nofree readonly [[TMP2:%.*]], i32 [[TMP3:%.*]]) local_unnamed_addr #[[ATTR14:[0-9]+]] {
+; CHECK-SAME: (i32 [[TMP0:%.*]], i32 [[TMP1:%.*]], ptr nocapture nofree readonly [[TMP2:%.*]], i32 [[TMP3:%.*]]) local_unnamed_addr #[[ATTR15:[0-9]+]] {
 ; CHECK-NEXT:    [[TMP5:%.*]] = icmp eq i32 [[TMP0]], [[TMP1]]
 ; CHECK-NEXT:    br i1 [[TMP5]], label [[TMP6:%.*]], label [[TMP8:%.*]]
 ; CHECK:       6:
@@ -523,7 +523,7 @@ define i32 @loop_trip_count_unbound(i32 %0, i32 %1, ptr nocapture readonly %2, i
 define i32 @loop_trip_dec(i32 %0, ptr nocapture readonly %1) local_unnamed_addr #0 {
 ; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) uwtable
 ; CHECK-LABEL: define {{[^@]+}}@loop_trip_dec
-; CHECK-SAME: (i32 [[TMP0:%.*]], ptr nocapture nofree readonly [[TMP1:%.*]]) local_unnamed_addr #[[ATTR13]] {
+; CHECK-SAME: (i32 [[TMP0:%.*]], ptr nocapture nofree readonly [[TMP1:%.*]]) local_unnamed_addr #[[ATTR14]] {
 ; CHECK-NEXT:    [[TMP3:%.*]] = icmp sgt i32 [[TMP0]], -1
 ; CHECK-NEXT:    br i1 [[TMP3]], label [[TMP4:%.*]], label [[TMP14:%.*]]
 ; CHECK:       4:
@@ -594,7 +594,7 @@ f:
 define void @unreachable_exit_positive1() #0 {
 ; CHECK: Function Attrs: mustprogress noinline nounwind willreturn uwtable
 ; CHECK-LABEL: define {{[^@]+}}@unreachable_exit_positive1
-; CHECK-SAME: () #[[ATTR10]] {
+; CHECK-SAME: () #[[ATTR11]] {
 ; CHECK-NEXT:    tail call void @will_return()
 ; CHECK-NEXT:    ret void
 ; CHECK:       unreachable_label:
@@ -653,7 +653,7 @@ unreachable_label:
 define void @unreachable_exit_negative1() #0 {
 ; CHECK: Function Attrs: noinline nounwind uwtable
 ; CHECK-LABEL: define {{[^@]+}}@unreachable_exit_negative1
-; CHECK-SAME: () #[[ATTR7]] {
+; CHECK-SAME: () #[[ATTR9]] {
 ; CHECK-NEXT:    tail call void @exit(i32 noundef 0) #[[ATTR5]]
 ; CHECK-NEXT:    unreachable
 ; CHECK:       unreachable_label:
@@ -670,7 +670,7 @@ unreachable_label:
 define void @unreachable_exit_negative2() #0 {
 ; CHECK: Function Attrs: nofree noinline norecurse noreturn nosync nounwind memory(none) uwtable
 ; CHECK-LABEL: define {{[^@]+}}@unreachable_exit_negative2
-; CHECK-SAME: () #[[ATTR15:[0-9]+]] {
+; CHECK-SAME: () #[[ATTR16:[0-9]+]] {
 ; CHECK-NEXT:    br label [[L1:%.*]]
 ; CHECK:       L1:
 ; CHECK-NEXT:    br label [[L2:%.*]]
@@ -697,7 +697,7 @@ declare void @llvm.eh.sjlj.longjmp(ptr)
 define void @call_longjmp(ptr nocapture readnone %0) local_unnamed_addr #0 {
 ; CHECK: Function Attrs: noinline nounwind uwtable
 ; CHECK-LABEL: define {{[^@]+}}@call_longjmp
-; CHECK-SAME: (ptr nocapture readnone [[TMP0:%.*]]) local_unnamed_addr #[[ATTR7]] {
+; CHECK-SAME: (ptr nocapture readnone [[TMP0:%.*]]) local_unnamed_addr #[[ATTR9]] {
 ; CHECK-NEXT:    tail call void @llvm.eh.sjlj.longjmp(ptr noalias readnone [[TMP0]]) #[[ATTR5]]
 ; CHECK-NEXT:    unreachable
 ;
@@ -719,7 +719,7 @@ define void @call_longjmp(ptr nocapture readnone %0) local_unnamed_addr #0 {
 define i32 @infinite_loop_inside_bounded_loop(i32 %n) {
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind memory(none)
 ; CHECK-LABEL: define {{[^@]+}}@infinite_loop_inside_bounded_loop
-; CHECK-SAME: (i32 [[N:%.*]]) #[[ATTR17:[0-9]+]] {
+; CHECK-SAME: (i32 [[N:%.*]]) #[[ATTR18:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br label [[FOR_COND:%.*]]
 ; CHECK:       for.cond:
@@ -780,7 +780,7 @@ for.end:                                          ; preds = %for.cond.cleanup
 define i32 @bounded_nested_loops(i32 %n) {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 ; CHECK-LABEL: define {{[^@]+}}@bounded_nested_loops
-; CHECK-SAME: (i32 [[N:%.*]]) #[[ATTR18:[0-9]+]] {
+; CHECK-SAME: (i32 [[N:%.*]]) #[[ATTR19:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br label [[FOR_COND:%.*]]
 ; CHECK:       for.cond:
@@ -857,7 +857,7 @@ for.end:                                          ; preds = %for.cond.cleanup
 define i32 @bounded_loop_inside_unbounded_loop(i32 %n) {
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind memory(none)
 ; CHECK-LABEL: define {{[^@]+}}@bounded_loop_inside_unbounded_loop
-; CHECK-SAME: (i32 [[N:%.*]]) #[[ATTR17]] {
+; CHECK-SAME: (i32 [[N:%.*]]) #[[ATTR18]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br label [[WHILE_COND:%.*]]
 ; CHECK:       while.cond:
@@ -941,7 +941,7 @@ while.end:                                        ; preds = %while.cond
 define i32 @nested_unbounded_loops(i32 %n) {
 ; CHECK: Function Attrs: nofree norecurse nosync nounwind memory(none)
 ; CHECK-LABEL: define {{[^@]+}}@nested_unbounded_loops
-; CHECK-SAME: (i32 [[N:%.*]]) #[[ATTR17]] {
+; CHECK-SAME: (i32 [[N:%.*]]) #[[ATTR18]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br label [[WHILE_COND:%.*]]
 ; CHECK:       while.cond:
@@ -1031,9 +1031,9 @@ while.end11:                                      ; preds = %while.cond
 define void @non_loop_cycle(i32 %n) {
 ; TUNIT: Function Attrs: nofree norecurse nosync nounwind memory(none)
 ; TUNIT-LABEL: define {{[^@]+}}@non_loop_cycle
-; TUNIT-SAME: (i32 [[N:%.*]]) #[[ATTR17]] {
+; TUNIT-SAME: (i32 [[N:%.*]]) #[[ATTR18]] {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    [[CALL:%.*]] = call i32 @fact_loop(i32 [[N]]) #[[ATTR26]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call i32 @fact_loop(i32 [[N]]) #[[ATTR27]]
 ; TUNIT-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[CALL]], 5
 ; TUNIT-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[IF_ELSE:%.*]]
 ; TUNIT:       if.then:
@@ -1041,7 +1041,7 @@ define void @non_loop_cycle(i32 %n) {
 ; TUNIT:       if.else:
 ; TUNIT-NEXT:    br label [[ENTRY2:%.*]]
 ; TUNIT:       entry1:
-; TUNIT-NEXT:    [[CALL1:%.*]] = call i32 @fact_loop(i32 [[N]]) #[[ATTR26]]
+; TUNIT-NEXT:    [[CALL1:%.*]] = call i32 @fact_loop(i32 [[N]]) #[[ATTR27]]
 ; TUNIT-NEXT:    [[CMP2:%.*]] = icmp sgt i32 [[CALL1]], 5
 ; TUNIT-NEXT:    br i1 [[CMP2]], label [[IF_THEN3:%.*]], label [[IF_ELSE4:%.*]]
 ; TUNIT:       if.then3:
@@ -1049,7 +1049,7 @@ define void @non_loop_cycle(i32 %n) {
 ; TUNIT:       if.else4:
 ; TUNIT-NEXT:    br label [[ENTRY2]]
 ; TUNIT:       entry2:
-; TUNIT-NEXT:    [[CALL5:%.*]] = call i32 @fact_loop(i32 [[N]]) #[[ATTR26]]
+; TUNIT-NEXT:    [[CALL5:%.*]] = call i32 @fact_loop(i32 [[N]]) #[[ATTR27]]
 ; TUNIT-NEXT:    [[CMP6:%.*]] = icmp sgt i32 [[CALL5]], 5
 ; TUNIT-NEXT:    br i1 [[CMP6]], label [[IF_THEN7:%.*]], label [[IF_ELSE8:%.*]]
 ; TUNIT:       if.then7:
@@ -1061,7 +1061,7 @@ define void @non_loop_cycle(i32 %n) {
 ;
 ; CGSCC: Function Attrs: nofree nosync nounwind memory(none)
 ; CGSCC-LABEL: define {{[^@]+}}@non_loop_cycle
-; CGSCC-SAME: (i32 [[N:%.*]]) #[[ATTR19]] {
+; CGSCC-SAME: (i32 [[N:%.*]]) #[[ATTR20]] {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[CALL:%.*]] = call i32 @fact_loop(i32 [[N]])
 ; CGSCC-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[CALL]], 5
@@ -1135,13 +1135,13 @@ declare void @readonly_mustprogress() readonly mustprogress
 define void @willreturn_mustprogress_caller_1() mustprogress {
 ; TUNIT: Function Attrs: mustprogress
 ; TUNIT-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_1
-; TUNIT-SAME: () #[[ATTR21:[0-9]+]] {
+; TUNIT-SAME: () #[[ATTR22:[0-9]+]] {
 ; TUNIT-NEXT:    call void @unknown()
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: mustprogress
 ; CGSCC-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_1
-; CGSCC-SAME: () #[[ATTR22:[0-9]+]] {
+; CGSCC-SAME: () #[[ATTR23:[0-9]+]] {
 ; CGSCC-NEXT:    call void @unknown()
 ; CGSCC-NEXT:    ret void
 ;
@@ -1151,13 +1151,13 @@ define void @willreturn_mustprogress_caller_1() mustprogress {
 define void @willreturn_mustprogress_caller_2() mustprogress {
 ; TUNIT: Function Attrs: mustprogress willreturn memory(read)
 ; TUNIT-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_2
-; TUNIT-SAME: () #[[ATTR23:[0-9]+]] {
+; TUNIT-SAME: () #[[ATTR24:[0-9]+]] {
 ; TUNIT-NEXT:    call void @readonly()
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: mustprogress willreturn memory(read)
 ; CGSCC-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_2
-; CGSCC-SAME: () #[[ATTR24:[0-9]+]] {
+; CGSCC-SAME: () #[[ATTR25:[0-9]+]] {
 ; CGSCC-NEXT:    call void @readonly()
 ; CGSCC-NEXT:    ret void
 ;
@@ -1167,13 +1167,13 @@ define void @willreturn_mustprogress_caller_2() mustprogress {
 define void @willreturn_mustprogress_caller_3() mustprogress {
 ; TUNIT: Function Attrs: mustprogress nosync willreturn memory(none)
 ; TUNIT-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_3
-; TUNIT-SAME: () #[[ATTR24:[0-9]+]] {
+; TUNIT-SAME: () #[[ATTR25:[0-9]+]] {
 ; TUNIT-NEXT:    call void @readnone()
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: mustprogress nosync willreturn memory(none)
 ; CGSCC-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_3
-; CGSCC-SAME: () #[[ATTR25:[0-9]+]] {
+; CGSCC-SAME: () #[[ATTR26:[0-9]+]] {
 ; CGSCC-NEXT:    call void @readnone()
 ; CGSCC-NEXT:    ret void
 ;
@@ -1191,13 +1191,13 @@ define void @willreturn_mustprogress_callee_1() {
 define void @willreturn_mustprogress_callee_2() {
 ; TUNIT: Function Attrs: mustprogress willreturn memory(read)
 ; TUNIT-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_2
-; TUNIT-SAME: () #[[ATTR23]] {
+; TUNIT-SAME: () #[[ATTR24]] {
 ; TUNIT-NEXT:    call void @readonly_mustprogress()
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: mustprogress willreturn memory(read)
 ; CGSCC-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_2
-; CGSCC-SAME: () #[[ATTR24]] {
+; CGSCC-SAME: () #[[ATTR25]] {
 ; CGSCC-NEXT:    call void @readonly_mustprogress()
 ; CGSCC-NEXT:    ret void
 ;
@@ -1215,13 +1215,13 @@ define void @willreturn_mustprogress_callee_3() {
 define void @willreturn_mustprogress_callee_4() {
 ; TUNIT: Function Attrs: mustprogress willreturn memory(read)
 ; TUNIT-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_4
-; TUNIT-SAME: () #[[ATTR23]] {
-; TUNIT-NEXT:    call void @willreturn_mustprogress_callee_2() #[[ATTR29:[0-9]+]]
+; TUNIT-SAME: () #[[ATTR24]] {
+; TUNIT-NEXT:    call void @willreturn_mustprogress_callee_2() #[[ATTR30:[0-9]+]]
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: mustprogress willreturn memory(read)
 ; CGSCC-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_4
-; CGSCC-SAME: () #[[ATTR24]] {
+; CGSCC-SAME: () #[[ATTR25]] {
 ; CGSCC-NEXT:    call void @willreturn_mustprogress_callee_2()
 ; CGSCC-NEXT:    ret void
 ;
@@ -1239,29 +1239,30 @@ attributes #1 = { uwtable noinline }
 ; TUNIT: attributes #[[ATTR4]] = { nofree noinline nosync nounwind uwtable }
 ; TUNIT: attributes #[[ATTR5]] = { noreturn }
 ; TUNIT: attributes #[[ATTR6]] = { noinline noreturn nounwind uwtable }
-; TUNIT: attributes #[[ATTR7]] = { noinline nounwind uwtable }
+; TUNIT: attributes #[[ATTR7]] = { noinline nounwind memory(readwrite, argmem: read) uwtable }
 ; TUNIT: attributes #[[ATTR8:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-; TUNIT: attributes #[[ATTR9:[0-9]+]] = { norecurse willreturn }
-; TUNIT: attributes #[[ATTR10]] = { mustprogress noinline nounwind willreturn uwtable }
-; TUNIT: attributes #[[ATTR11:[0-9]+]] = { noinline willreturn uwtable }
-; TUNIT: attributes #[[ATTR12]] = { mustprogress nounwind willreturn }
-; TUNIT: attributes #[[ATTR13]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) uwtable }
-; TUNIT: attributes #[[ATTR14]] = { nofree noinline norecurse nosync nounwind memory(argmem: read) uwtable }
-; TUNIT: attributes #[[ATTR15]] = { nofree noinline norecurse noreturn nosync nounwind memory(none) uwtable }
-; TUNIT: attributes #[[ATTR16:[0-9]+]] = { noreturn nounwind }
-; TUNIT: attributes #[[ATTR17]] = { nofree norecurse nosync nounwind memory(none) }
-; TUNIT: attributes #[[ATTR18]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; TUNIT: attributes #[[ATTR19:[0-9]+]] = { memory(read) }
-; TUNIT: attributes #[[ATTR20:[0-9]+]] = { memory(none) }
-; TUNIT: attributes #[[ATTR21]] = { mustprogress }
-; TUNIT: attributes #[[ATTR22:[0-9]+]] = { mustprogress memory(read) }
-; TUNIT: attributes #[[ATTR23]] = { mustprogress willreturn memory(read) }
-; TUNIT: attributes #[[ATTR24]] = { mustprogress nosync willreturn memory(none) }
-; TUNIT: attributes #[[ATTR25]] = { nofree nosync nounwind memory(none) }
-; TUNIT: attributes #[[ATTR26]] = { nofree nosync nounwind }
-; TUNIT: attributes #[[ATTR27]] = { nounwind }
-; TUNIT: attributes #[[ATTR28]] = { nounwind willreturn }
-; TUNIT: attributes #[[ATTR29]] = { willreturn }
+; TUNIT: attributes #[[ATTR9]] = { noinline nounwind uwtable }
+; TUNIT: attributes #[[ATTR10:[0-9]+]] = { norecurse willreturn }
+; TUNIT: attributes #[[ATTR11]] = { mustprogress noinline nounwind willreturn uwtable }
+; TUNIT: attributes #[[ATTR12:[0-9]+]] = { noinline willreturn uwtable }
+; TUNIT: attributes #[[ATTR13]] = { mustprogress nounwind willreturn }
+; TUNIT: attributes #[[ATTR14]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) uwtable }
+; TUNIT: attributes #[[ATTR15]] = { nofree noinline norecurse nosync nounwind memory(argmem: read) uwtable }
+; TUNIT: attributes #[[ATTR16]] = { nofree noinline norecurse noreturn nosync nounwind memory(none) uwtable }
+; TUNIT: attributes #[[ATTR17:[0-9]+]] = { noreturn nounwind }
+; TUNIT: attributes #[[ATTR18]] = { nofree norecurse nosync nounwind memory(none) }
+; TUNIT: attributes #[[ATTR19]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+; TUNIT: attributes #[[ATTR20:[0-9]+]] = { memory(read) }
+; TUNIT: attributes #[[ATTR21:[0-9]+]] = { memory(none) }
+; TUNIT: attributes #[[ATTR22]] = { mustprogress }
+; TUNIT: attributes #[[ATTR23:[0-9]+]] = { mustprogress memory(read) }
+; TUNIT: attributes #[[ATTR24]] = { mustprogress willreturn memory(read) }
+; TUNIT: attributes #[[ATTR25]] = { mustprogress nosync willreturn memory(none) }
+; TUNIT: attributes #[[ATTR26]] = { nofree nosync nounwind memory(none) }
+; TUNIT: attributes #[[ATTR27]] = { nofree nosync nounwind }
+; TUNIT: attributes #[[ATTR28]] = { nounwind }
+; TUNIT: attributes #[[ATTR29]] = { nounwind willreturn }
+; TUNIT: attributes #[[ATTR30]] = { willreturn }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) uwtable }
 ; CGSCC: attributes #[[ATTR1]] = { nofree noinline nosync nounwind memory(none) uwtable }
@@ -1270,25 +1271,26 @@ attributes #1 = { uwtable noinline }
 ; CGSCC: attributes #[[ATTR4]] = { nofree noinline nosync nounwind uwtable }
 ; CGSCC: attributes #[[ATTR5]] = { noreturn }
 ; CGSCC: attributes #[[ATTR6]] = { noinline noreturn nounwind uwtable }
-; CGSCC: attributes #[[ATTR7]] = { noinline nounwind uwtable }
+; CGSCC: attributes #[[ATTR7]] = { noinline nounwind memory(readwrite, argmem: read) uwtable }
 ; CGSCC: attributes #[[ATTR8:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-; CGSCC: attributes #[[ATTR9:[0-9]+]] = { norecurse willreturn }
-; CGSCC: attributes #[[ATTR10]] = { mustprogress noinline nounwind willreturn uwtable }
-; CGSCC: attributes #[[ATTR11:[0-9]+]] = { noinline willreturn uwtable }
-; CGSCC: attributes #[[ATTR12]] = { mustprogress nounwind willreturn }
-; CGSCC: attributes #[[ATTR13]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) uwtable }
-; CGSCC: attributes #[[ATTR14]] = { nofree noinline norecurse nosync nounwind memory(argmem: read) uwtable }
-; CGSCC: attributes #[[ATTR15]] = { nofree noinline norecurse noreturn nosync nounwind memory(none) uwtable }
-; CGSCC: attributes #[[ATTR16:[0-9]+]] = { noreturn nounwind }
-; CGSCC: attributes #[[ATTR17]] = { nofree norecurse nosync nounwind memory(none) }
-; CGSCC: attributes #[[ATTR18]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; CGSCC: attributes #[[ATTR19]] = { nofree nosync nounwind memory(none) }
-; CGSCC: attributes #[[ATTR20:[0-9]+]] = { memory(read) }
-; CGSCC: attributes #[[ATTR21:[0-9]+]] = { memory(none) }
-; CGSCC: attributes #[[ATTR22]] = { mustprogress }
-; CGSCC: attributes #[[ATTR23:[0-9]+]] = { mustprogress memory(read) }
-; CGSCC: attributes #[[ATTR24]] = { mustprogress willreturn memory(read) }
-; CGSCC: attributes #[[ATTR25]] = { mustprogress nosync willreturn memory(none) }
-; CGSCC: attributes #[[ATTR26]] = { nofree nosync nounwind }
-; CGSCC: attributes #[[ATTR27]] = { nounwind }
+; CGSCC: attributes #[[ATTR9]] = { noinline nounwind uwtable }
+; CGSCC: attributes #[[ATTR10:[0-9]+]] = { norecurse willreturn }
+; CGSCC: attributes #[[ATTR11]] = { mustprogress noinline nounwind willreturn uwtable }
+; CGSCC: attributes #[[ATTR12:[0-9]+]] = { noinline willreturn uwtable }
+; CGSCC: attributes #[[ATTR13]] = { mustprogress nounwind willreturn }
+; CGSCC: attributes #[[ATTR14]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: read) uwtable }
+; CGSCC: attributes #[[ATTR15]] = { nofree noinline norecurse nosync nounwind memory(argmem: read) uwtable }
+; CGSCC: attributes #[[ATTR16]] = { nofree noinline norecurse noreturn nosync nounwind memory(none) uwtable }
+; CGSCC: attributes #[[ATTR17:[0-9]+]] = { noreturn nounwind }
+; CGSCC: attributes #[[ATTR18]] = { nofree norecurse nosync nounwind memory(none) }
+; CGSCC: attributes #[[ATTR19]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+; CGSCC: attributes #[[ATTR20]] = { nofree nosync nounwind memory(none) }
+; CGSCC: attributes #[[ATTR21:[0-9]+]] = { memory(read) }
+; CGSCC: attributes #[[ATTR22:[0-9]+]] = { memory(none) }
+; CGSCC: attributes #[[ATTR23]] = { mustprogress }
+; CGSCC: attributes #[[ATTR24:[0-9]+]] = { mustprogress memory(read) }
+; CGSCC: attributes #[[ATTR25]] = { mustprogress willreturn memory(read) }
+; CGSCC: attributes #[[ATTR26]] = { mustprogress nosync willreturn memory(none) }
+; CGSCC: attributes #[[ATTR27]] = { nofree nosync nounwind }
+; CGSCC: attributes #[[ATTR28]] = { nounwind }
 ;.
