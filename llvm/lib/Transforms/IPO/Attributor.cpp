@@ -3302,6 +3302,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     }
   }
 
+  return;
   auto CallSitePred = [&](Instruction &I) -> bool {
     auto &CB = cast<CallBase>(I);
     IRPosition CBInstPos = IRPosition::inst(CB);

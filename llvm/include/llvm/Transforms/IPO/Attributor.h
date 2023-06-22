@@ -3194,6 +3194,7 @@ struct IRAttribute : public BaseType {
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
+    assert(!isImpliedByIR(A, this->getIRPosition(), getAttrKind()));
     if (isa<UndefValue>(this->getIRPosition().getAssociatedValue()))
       return ChangeStatus::UNCHANGED;
     SmallVector<Attribute, 4> DeducedAttrs;
@@ -3318,6 +3319,8 @@ struct AbstractAttribute : public IRPosition, public AADepGraphNode {
   /// received a new query it needs to request an update via
   /// `Attributor::requestUpdateForAA`.
   virtual bool isQueryAA() const { return false; }
+
+  static bool hasTrivialInitializer() { return true; }
 
   /// Return the internal abstract state for inspection.
   virtual StateType &getState() = 0;
@@ -3558,6 +3561,8 @@ struct AANonNull
     return IRAttribute::isValidIRPositionForInit(A, IRP);
   }
 
+  static bool hasTrivialInitializer() { return false; }
+
   /// Return true if we assume that the underlying value is nonnull.
   bool isAssumedNonNull() const { return getAssumed(); }
 
@@ -3768,6 +3773,8 @@ struct AANoAlias
       return true;
     return false;
   }
+
+  static bool hasTrivialInitializer() { return false; }
 
   /// Return true if we assume that the underlying value is alias.
   bool isAssumedNoAlias() const { return getAssumed(); }
@@ -4102,12 +4109,16 @@ struct AADereferenceable
                          StateWrapper<DerefState, AbstractAttribute>> {
   AADereferenceable(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
+<<<<<<< HEAD
   /// See AbstractAttribute::isValidIRPositionForInit
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
     if (!IRP.getAssociatedType()->isPtrOrPtrVectorTy())
       return false;
     return IRAttribute::isValidIRPositionForInit(A, IRP);
   }
+=======
+  static bool hasTrivialInitializer() { return false; }
+>>>>>>> d14f4fa9d4d5 (Playing)
 
   /// Return true if we assume that the underlying value is nonnull.
   bool isAssumedNonNull() const {
@@ -4165,12 +4176,16 @@ struct AAAlign : public IRAttribute<
                      StateWrapper<AAAlignmentStateType, AbstractAttribute>> {
   AAAlign(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
+<<<<<<< HEAD
   /// See AbstractAttribute::isValidIRPositionForInit
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
     if (!IRP.getAssociatedType()->isPtrOrPtrVectorTy())
       return false;
     return IRAttribute::isValidIRPositionForInit(A, IRP);
   }
+=======
+  static bool hasTrivialInitializer() { return false; }
+>>>>>>> d14f4fa9d4d5 (Playing)
 
   /// Return assumed alignment.
   Align getAssumedAlign() const { return Align(getAssumed()); }
@@ -4507,6 +4522,7 @@ enum Location {
   Other,
   GlobalInternal,
   GlobalExternal,
+  Volatile,
   Malloced,
   Local,
   Const,

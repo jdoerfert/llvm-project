@@ -3159,9 +3159,16 @@ namespace {
 // know if it is bounded or not.
 // Loops with maximum trip count are considered bounded, any other cycle not.
 static bool mayContainUnboundedCycle(Function &F, Attributor &A) {
-  ScalarEvolution *SE =
-      A.getInfoCache().getAnalysisResultForFunction<ScalarEvolutionAnalysis>(F);
-  LoopInfo *LI = A.getInfoCache().getAnalysisResultForFunction<LoopAnalysis>(F);
+  ScalarEvolution *SE = nullptr;
+  A.getInfoCache().getAnalysisResultForFunction<ScalarEvolutionAnalysis>(
+      F, /* CachedOnly */ true);
+  LoopInfo *LI = A.getInfoCache().getAnalysisResultForFunction<LoopAnalysis>(
+      F, /* CachedOnly */ true);
+
+  // If there's irreducible control, the function may contain non-loop cycles.
+  if (LI && LI->empty())
+    return mayContainIrreducibleControl(F, LI);
+
   // If either SCEV or LoopInfo is not available for the function then we assume
   // any cycle to be unbounded cycle.
   // We use scc_iterator which uses Tarjan algorithm to find all the maximal
@@ -3190,7 +3197,7 @@ struct AAWillReturnImpl : public AAWillReturn {
       : AAWillReturn(IRP, A) {}
 
   /// Check for `mustprogress` and `readonly` as they imply `willreturn`.
-  bool isImpliedByMustprogressAndReadonly(Attributor &A, bool KnownOnly) {
+  bool isImpliedByMustprogressAndReadonly(Attributor &A) {
     // Check for `mustprogress` in the scope and the associated function which
     // might be different if this is a call site.
     if ((!getAnchorScope() || !getAnchorScope()->mustProgress()) &&
@@ -3198,14 +3205,12 @@ struct AAWillReturnImpl : public AAWillReturn {
       return false;
 
     bool IsKnown;
-    if (AA::isAssumedReadOnly(A, getIRPosition(), *this, IsKnown))
-      return IsKnown || !KnownOnly;
-    return false;
+    return AA::isAssumedReadOnly(A, getIRPosition(), *this, IsKnown);
   }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    if (isImpliedByMustprogressAndReadonly(A, /* KnownOnly */ false))
+    if (isImpliedByMustprogressAndReadonly(A))
       return ChangeStatus::UNCHANGED;
 
     auto CheckForWillReturn = [&](Instruction &I) {
@@ -3262,7 +3267,7 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    if (isImpliedByMustprogressAndReadonly(A, /* KnownOnly */ false))
+    if (isImpliedByMustprogressAndReadonly(A))
       return ChangeStatus::UNCHANGED;
 
     // TODO: Once we have call site specific value information we can provide
@@ -5355,17 +5360,6 @@ struct AANoReturnFunction final : AANoReturnImpl {
 struct AANoReturnCallSite final : AANoReturnImpl {
   AANoReturnCallSite(const IRPosition &IRP, Attributor &A)
       : AANoReturnImpl(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AANoReturnImpl::initialize(A);
-    if (Function *F = getAssociatedFunction()) {
-      const IRPosition &FnPos = IRPosition::function(*F);
-      auto *FnAA = A.getAAFor<AANoReturn>(*this, FnPos, DepClassTy::REQUIRED);
-      if (!FnAA || !FnAA->isAssumedNoReturn())
-        indicatePessimisticFixpoint();
-    }
-  }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -7607,16 +7601,18 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, AA::Location Loc) {
     return OS << "inaccesiblemem";
   case AA::Other:
     return OS << "other";
-  case AA::Local:
-    return OS << "local";
-  case AA::Const:
-    return OS << "constant";
   case AA::GlobalInternal:
     return OS << "global_int";
   case AA::GlobalExternal:
     return OS << "global_ext";
+  case AA::Volatile:
+    return OS << "volatile";
   case AA::Malloced:
     return OS << "malloced";
+  case AA::Local:
+    return OS << "local";
+  case AA::Const:
+    return OS << "constant";
   }
   llvm_unreachable("Unexpected location!");
 }
@@ -7661,68 +7657,81 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
   AAMemoryLocationImpl(const IRPosition &IRP, Attributor &A)
       : AAMemoryLocation(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    getKnownStateFromValue(A, getIRPosition(), getState());
-  }
-
-  static bool useArgMemOnly(Attributor &A, const IRPosition &IRP) {
-    Function *Fn = IRP.getAssociatedFunction();
-    if (Fn && !Fn->isDeclaration() && A.isRunOn(*Fn))
-      return !Fn->hasLocalLinkage();
-    return true;
-  }
-
-  /// Return the memory behavior information encoded in the IR for \p IRP.
-  static void getKnownStateFromValue(Attributor &A, const IRPosition &IRP,
-                                     MemoryEffectsState &State,
-                                     bool IgnoreSubsumingPositions = false) {
+  static AA::MemoryEffects
+  getStateForFunction(Attributor &A, const IRPosition &IRP, Function *Fn) {
     // For internal functions we weaken `argmemonly` and
     // `inaccessiblememorargmemonly` as we might break it via interprocedural
     // constant propagation. Effectively, we add "global" and "constant" memory
     // to the potentially accessed list too.
-    bool UseArgMemOnly = useArgMemOnly(A, IRP);
+    bool UseArgMemOnly = true;
+    if (Fn && !Fn->isDeclaration() && A.isRunOn(*Fn))
+      UseArgMemOnly = !Fn->hasLocalLinkage();
 
+    LLVMContext &Ctx = IRP.getAssociatedValue().getContext();
+    AA::MemoryEffects AAME = AA::MemoryEffects::unknown();
+
+    SmallVector<Attribute, 1> Attrs;
+    IRP.getAttrs({Attribute::Memory}, Attrs,
+                 /* IgnoreSubsumingPositions */ true);
+    for (const Attribute &Attr : Attrs) {
+      MemoryEffects ME = Attr.getMemoryEffects();
+      if (!UseArgMemOnly &&
+          (ME & MemoryEffects::argMemOnly()) != MemoryEffects::none()) {
+        ME |= MemoryEffects(IRMemLocation::Other,
+                            ME.getModRef(IRMemLocation::ArgMem));
+        IRAttributeManifest::manifestAttrs(
+            A, IRP, Attribute::getWithMemoryEffects(Ctx, ME),
+            /*ForceReplace*/ true);
+      }
+      AA::MemoryEffects AttrAAME(ME);
+      AAME &= AttrAAME;
+    }
+    return AAME;
+  }
+
+  static void getStateForArgument(const IRPosition &IRP,
+                                  AA::MemoryEffects &Known) {
     auto GetMEFromAttr = [](const Attribute &Attr) {
       switch (Attr.getKindAsEnum()) {
-      case Attribute::Memory:
-        return Attr.getMemoryEffects();
       case Attribute::ReadNone:
-        return MemoryEffects::none();
+        return AA::MemoryEffects::none();
       case Attribute::ReadOnly:
-        return MemoryEffects::readOnly();
+        return AA::MemoryEffects::readOnly();
         break;
       case Attribute::WriteOnly:
-        return MemoryEffects::writeOnly();
+        return AA::MemoryEffects::writeOnly();
       default:
         llvm_unreachable("Unexpected attribute kind");
       };
     };
 
-    LLVMContext &Ctx = IRP.getAssociatedValue().getContext();
-    AA::MemoryEffects AAME = AA::MemoryEffects::unknown();
     SmallVector<Attribute::AttrKind, 4> AttrKinds{
-        Attribute::ReadNone, Attribute::ReadOnly, Attribute::WriteOnly,
-        Attribute::Memory};
-    SmallVector<Attribute, 2> Attrs;
-    IRP.getAttrs(AttrKinds, Attrs, IgnoreSubsumingPositions);
-    for (const Attribute &Attr : Attrs) {
-      MemoryEffects ME = GetMEFromAttr(Attr);
-      if (!UseArgMemOnly &&
-          (ME & MemoryEffects::argMemOnly()) != MemoryEffects::none()) {
-        ME |= MemoryEffects(IRMemLocation::Other,
-                            ME.getModRef(IRMemLocation::ArgMem));
-        // Only remove the argmem flag from functions and call sites.
-        if (IRP.getPositionKind() == IRP_CALL_SITE ||
-            IRP.getPositionKind() == IRP_FUNCTION)
-          IRAttributeManifest::manifestAttrs(
-              A, IRP, Attribute::getWithMemoryEffects(Ctx, ME),
-              /*ForceReplace*/ true);
-      }
-      AA::MemoryEffects AttrAAME(ME);
-      AAME &= AttrAAME;
-    }
-    State.expandKnown(IRP.getPositionKind(), AAME, IRP.getArgNo());
+        Attribute::ReadNone, Attribute::ReadOnly, Attribute::WriteOnly};
+
+    SmallVector<Attribute, 1> Attrs;
+    IRP.getAttrs(AttrKinds, Attrs, /* IgnoreSubsumingPositions */ true);
+    for (const Attribute &Attr : Attrs)
+      Known &= GetMEFromAttr(Attr);
+  }
+
+  static void getStateFromCallSiteArg(CallBase &CB, unsigned ArgNo,
+                                      AA::MemoryEffects &Known) {
+    if (CB.isByValArgument(ArgNo))
+      Known &= AA::MemoryEffects::readOnly();
+    getStateForArgument(IRPosition::callsite_argument(CB, ArgNo), Known);
+    Function *Callee = CB.getCalledFunction();
+    if (Callee && Callee->arg_size() > ArgNo)
+      getStateForArgument(IRPosition::argument(*Callee->getArg(ArgNo)), Known);
+  }
+
+  static AA::MemoryEffects getStateFromCallSite(Attributor &A,
+                                                const CallBase &CB) {
+    Function *Callee = CB.getCalledFunction();
+    AA::MemoryEffects Known =
+        getStateForFunction(A, IRPosition::callsite_function(CB), Callee);
+    if (Callee)
+      Known &= getStateForFunction(A, IRPosition::function(*Callee), Callee);
+    return Known;
   }
 
   ChangeStatus manifestArgs(Attributor &A, AttributeList &AttrList) {
@@ -7842,14 +7851,20 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
-    if (isAssumedReadNone())
+    if (isAssumedReadNone()) {
       STATS_DECLTRACK_FN_ATTR(readnone)
-    else if (isAssumedArgMemOnly())
+      return;
+    }
+    if (isAssumedArgMemOnly())
       STATS_DECLTRACK_FN_ATTR(argmemonly)
     else if (isAssumedInaccessibleMemOnly())
       STATS_DECLTRACK_FN_ATTR(inaccessiblememonly)
     else if (isAssumedInaccessibleOrArgMemOnly())
       STATS_DECLTRACK_FN_ATTR(inaccessiblememorargmemonly)
+    if (getAssumedAccessedLocation().onlyReadsMemory())
+      STATS_DECLTRACK_FN_ATTR(readonly)
+    else if (getAssumedAccessedLocation().onlyWritesMemory())
+      STATS_DECLTRACK_FN_ATTR(writeonly)
   }
 
 protected:
@@ -7919,7 +7934,7 @@ AA::MemoryEffects AAMemoryLocationImpl::categorizePtrValue(
 
   AA::MemoryEffects AAME = AA::MemoryEffects::none();
   AAResults *AAR = A.getInfoCache().getAnalysisResultForFunction<AAManager>(
-      *getAnchorScope());
+      *getAnchorScope(), /* CachedOnly */ true);
 
   auto Pred = [&](Value &Obj) {
     if (isa<UndefValue>(&Obj))
@@ -8014,6 +8029,8 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
                     << I << "\n");
 
   if (auto *CB = dyn_cast<CallBase>(&I)) {
+    if (!A.isRunOn(CB->getCalledFunction()))
+      return getStateFromCallSite(A, *CB);
 
     // First check if we assume any memory is access is visible.
     const auto *CBMemLocationAA = A.getAAFor<AAMemoryLocation>(
@@ -8081,8 +8098,9 @@ struct AAMemoryLocationFunction final : public AAMemoryLocationImpl {
       : AAMemoryLocationImpl(IRP, A) {}
 
   void initialize(Attributor &A) override {
-    AAMemoryLocationImpl::initialize(A);
+    STATS_DECLTRACK_FN_ATTR(init_AAMEMFn)
     Function *F = getAssociatedFunction();
+    AA::MemoryEffects FnAAME = getStateForFunction(A, getIRPosition(), F);
     if (hasPtrArgs()) {
       for (Argument &Arg : F->args()) {
         if (!Arg.getType()->isPointerTy())
@@ -8098,17 +8116,16 @@ struct AAMemoryLocationFunction final : public AAMemoryLocationImpl {
           restrictAssume(IRP_FUNCTION, WriteAAME);
           restrictAssume(IRP_ARGUMENT, WriteAAME, Arg.getArgNo());
         }
-        getKnownStateFromValue(
-            A, IRPosition::argument(Arg), getState(),
-            /* IgnoreSubsumingPositions */ Arg.hasPointeeInMemoryValueAttr());
+        AA::MemoryEffects Known = FnAAME;
+        getStateForArgument(IRPosition::argument(Arg), Known);
+        expandKnown(IRP_ARGUMENT, Known, Arg.getArgNo());
       }
     }
-    if (F->isDeclaration() || !A.isFunctionIPOAmendable(*F))
-      indicatePessimisticFixpoint();
   }
 
   /// See AbstractAttribute::updateImpl(Attributor &A).
   ChangeStatus updateImpl(Attributor &A) override {
+    STATS_DECLTRACK_FN_ATTR(upda_AAMEMFn)
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
     auto CheckRWInst = [&](Instruction &I) {
@@ -8218,6 +8235,9 @@ private:
     if (!CB || !CB->isArgOperand(&U))
       return true;
 
+    if (CB->getType()->isVoidTy() || CB->use_empty())
+      return false;
+
     // If the use is a call argument known not to be captured, the users of
     // the call do not need to be visited because they have to be unrelated to
     // the input.
@@ -8305,39 +8325,31 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
 
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
+    STATS_DECLTRACK_CS_ATTR(init_AAMEMCB)
     CallBase &CB = cast<CallBase>(getAnchorValue());
-    getKnownStateFromValue(A, getIRPosition(), getState(),
-                           /* IgnoreSubsumingPositions */ true);
     Function *Callee = CB.getCalledFunction();
+    AA::MemoryEffects FnAAME = getStateForFunction(A, getIRPosition(), Callee);
     if (Callee)
-      getKnownStateFromValue(A, IRPosition::function(*Callee), getState(),
-                             /* IgnoreSubsumingPositions */ false);
+      FnAAME &= getStateForFunction(A, IRPosition::function(*Callee), Callee);
+
     if (hasPtrArgs()) {
       CallBase &CB = cast<CallBase>(getAnchorValue());
       for (unsigned ArgNo = 0, NA = CB.arg_size(); ArgNo != NA; ++ArgNo) {
         if (!CB.getArgOperand(ArgNo)->getType()->isPointerTy())
           continue;
-        if (CB.isByValArgument(ArgNo))
-          expandKnown(IRP_CALL_SITE_ARGUMENT, AA::MemoryEffects::readOnly(),
-                      ArgNo);
-        getKnownStateFromValue(A, IRPosition::callsite_argument(CB, ArgNo),
-                               getState());
-        if (Callee && Callee->arg_size() > ArgNo)
-          getKnownStateFromValue(
-              A, IRPosition::argument(*Callee->getArg(ArgNo)), getState(),
-              /* IgnoreSubsumingPositions */
-              Callee->getArg(ArgNo)->hasPointeeInMemoryValueAttr());
+        AA::MemoryEffects Known = FnAAME;
+        getStateFromCallSiteArg(CB, ArgNo, Known);
+        expandKnown(IRP_CALL_SITE_ARGUMENT, Known, ArgNo);
       }
     }
-    Function *F = getAssociatedFunction();
-    if (!F || F->isDeclaration() || !A.isFunctionIPOAmendable(*F))
-      indicatePessimisticFixpoint();
+
     AccessInfoVec.push_back(
         AccessInfo{getCtxI(), nullptr, getAssumedAccessedLocation()});
   }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    STATS_DECLTRACK_CS_ATTR(upda_AAMEMCB)
     // TODO: Once we have call site specific value information we can provide
     //       call site specific liveness liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
@@ -8417,7 +8429,7 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
 
     ScalarEvolution *SE =
         A.getInfoCache().getAnalysisResultForFunction<ScalarEvolutionAnalysis>(
-            *getAnchorScope());
+            *getAnchorScope(), /* CachedOnly */ true);
 
     LoopInfo *LI = A.getInfoCache().getAnalysisResultForFunction<LoopAnalysis>(
         *getAnchorScope());
@@ -8441,7 +8453,7 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
 
     ScalarEvolution *SE =
         A.getInfoCache().getAnalysisResultForFunction<ScalarEvolutionAnalysis>(
-            *getAnchorScope());
+            *getAnchorScope(), /* CachedOnly */ true);
 
     const SCEV *S = getSCEV(A, I);
     if (!SE || !S)
@@ -8631,12 +8643,6 @@ struct AAValueConstantRangeReturned
                                    /* PropogateCallBaseContext */ true>;
   AAValueConstantRangeReturned(const IRPosition &IRP, Attributor &A)
       : Base(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    if (!A.isFunctionIPOAmendable(*getAssociatedFunction()))
-      indicatePessimisticFixpoint();
-  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -9116,12 +9122,6 @@ struct AAPotentialConstantValuesReturned
                                             AAPotentialConstantValuesImpl>;
   AAPotentialConstantValuesReturned(const IRPosition &IRP, Attributor &A)
       : Base(IRP, A) {}
-
-  void initialize(Attributor &A) override {
-    if (!A.isFunctionIPOAmendable(*getAssociatedFunction()))
-      indicatePessimisticFixpoint();
-    Base::initialize(A);
-  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -10858,8 +10858,7 @@ struct AAPotentialValuesReturned : public AAPotentialValuesFloating {
         ReturnedArg = &Arg;
         break;
       }
-    if (!A.isFunctionIPOAmendable(F) ||
-        A.hasSimplificationCallback(getIRPosition())) {
+    if (A.hasSimplificationCallback(getIRPosition())) {
       if (!ReturnedArg)
         indicatePessimisticFixpoint();
       else
