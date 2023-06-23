@@ -338,10 +338,17 @@ define void @nc4(ptr %p) {
 }
 
 define void @nc5(ptr %f, ptr %p) {
-; CHECK-LABEL: define {{[^@]+}}@nc5
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull [[F:%.*]], ptr nocapture [[P:%.*]]) {
-; CHECK-NEXT:    call void [[F]](ptr nocapture [[P]])
-; CHECK-NEXT:    ret void
+; TUNIT-LABEL: define {{[^@]+}}@nc5
+; TUNIT-SAME: (ptr nocapture nofree noundef nonnull [[F:%.*]], ptr nocapture [[P:%.*]]) {
+; TUNIT-NEXT:    call void [[F]](ptr [[P]]) #[[ATTR9:[0-9]+]]
+; TUNIT-NEXT:    call void [[F]](ptr nocapture [[P]])
+; TUNIT-NEXT:    ret void
+;
+; CGSCC-LABEL: define {{[^@]+}}@nc5
+; CGSCC-SAME: (ptr nocapture nofree noundef nonnull [[F:%.*]], ptr nocapture [[P:%.*]]) {
+; CGSCC-NEXT:    call void [[F]](ptr [[P]]) #[[ATTR12:[0-9]+]]
+; CGSCC-NEXT:    call void [[F]](ptr nocapture [[P]])
+; CGSCC-NEXT:    ret void
 ;
   call void %f(ptr %p) readonly nounwind
   call void %f(ptr nocapture %p)
@@ -757,14 +764,14 @@ declare ptr @unknownpi8pi8(ptr,ptr returned)
 define ptr @test_returned1(ptr %A, ptr returned %B) nounwind readonly {
 ; TUNIT: Function Attrs: nounwind memory(read)
 ; TUNIT-LABEL: define {{[^@]+}}@test_returned1
-; TUNIT-SAME: (ptr nocapture [[A:%.*]], ptr returned [[B:%.*]]) #[[ATTR9:[0-9]+]] {
+; TUNIT-SAME: (ptr nocapture [[A:%.*]], ptr returned [[B:%.*]]) #[[ATTR9]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[P:%.*]] = call ptr @unknownpi8pi8(ptr [[A]], ptr [[B]])
 ; TUNIT-NEXT:    ret ptr [[P]]
 ;
 ; CGSCC: Function Attrs: nounwind memory(read)
 ; CGSCC-LABEL: define {{[^@]+}}@test_returned1
-; CGSCC-SAME: (ptr nocapture [[A:%.*]], ptr returned [[B:%.*]]) #[[ATTR12:[0-9]+]] {
+; CGSCC-SAME: (ptr nocapture [[A:%.*]], ptr returned [[B:%.*]]) #[[ATTR12]] {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[P:%.*]] = call ptr @unknownpi8pi8(ptr [[A]], ptr [[B]])
 ; CGSCC-NEXT:    ret ptr [[P]]

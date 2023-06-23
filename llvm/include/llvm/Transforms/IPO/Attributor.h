@@ -1587,6 +1587,10 @@ struct Attributor {
       return AAPtr;
     }
 
+    bool ShouldUpdateAA;
+    if (!shouldInitialize<AAType>(IRP, ShouldUpdateAA))
+      return nullptr;
+
     // No matching attribute found, create one.
     // Use the static create method.
     auto &AA = AAType::createForPosition(IRP, *this);
@@ -1601,28 +1605,8 @@ struct Attributor {
       return &AA;
     }
 
-    // For now we ignore naked and optnone functions.
-    bool Invalidate =
-        Configuration.Allowed && !Configuration.Allowed->count(&AAType::ID);
-    const Function *AnchorFn = IRP.getAnchorScope();
-    if (AnchorFn) {
-      Invalidate |=
-          AnchorFn->hasFnAttribute(Attribute::Naked) ||
-          AnchorFn->hasFnAttribute(Attribute::OptimizeNone) ||
-          (!isModulePass() && !getInfoCache().isInModuleSlice(*AnchorFn));
-    }
-
-    // Avoid too many nested initializations to prevent a stack overflow.
-    Invalidate |= InitializationChainLength > MaxInitializationChainLength;
-
     // Bootstrap the new attribute with an initial update to propagate
-    // information, e.g., function -> call site. If it is not on a given
-    // Allowed we will not perform updates at all.
-    if (Invalidate) {
-      AA.getState().indicatePessimisticFixpoint();
-      return &AA;
-    }
-
+    // information, e.g., function -> call site.
     {
       TimeTraceScope TimeScope("initialize", [&]() {
         return AA.getName() +
@@ -1633,18 +1617,7 @@ struct Attributor {
       --InitializationChainLength;
     }
 
-    // We update only AAs associated with functions in the Functions set or
-    // call sites of them.
-    if ((AnchorFn && !isRunOn(const_cast<Function *>(AnchorFn))) &&
-        !isRunOn(IRP.getAssociatedFunction())) {
-      AA.getState().indicatePessimisticFixpoint();
-      return &AA;
-    }
-
-    // If this is queried in the manifest stage, we force the AA to indicate
-    // pessimistic fixpoint immediately.
-    if (Phase == AttributorPhase::MANIFEST ||
-        Phase == AttributorPhase::CLEANUP) {
+    if (!ShouldUpdateAA) {
       AA.getState().indicatePessimisticFixpoint();
       return &AA;
     }
@@ -1758,6 +1731,57 @@ struct Attributor {
     return Functions.empty() || Functions.count(Fn);
   }
 
+  template <typename AAType> bool shouldUpdateAA(const IRPosition &IRP) {
+    // If this is queried in the manifest stage, we force the AA to indicate
+    // pessimistic fixpoint immediately.
+    if (Phase == AttributorPhase::MANIFEST || Phase == AttributorPhase::CLEANUP)
+      return false;
+
+    Function *AssociatedFn = IRP.getAssociatedFunction();
+    bool IsFnInterface = IRP.isFnInterfaceKind();
+    assert((!IsFnInterface || AssociatedFn) &&
+           "Function interface without a function?");
+    // TODO: Not all attributes require an exact definition. Find a way to
+    //       enable deduction for some but not all attributes in case the
+    //       definition might be changed at runtime, see also
+    //       http://lists.llvm.org/pipermail/llvm-dev/2018-February/121275.html.
+    // TODO: We could always determine abstract attributes and if sufficient
+    //       information was found we could duplicate the functions that do not
+    //       have an exact definition.
+    if (IsFnInterface && !isFunctionIPOAmendable(*AssociatedFn))
+      return false;
+
+    // We update only AAs associated with functions in the Functions set or
+    // call sites of them.
+    return (!AssociatedFn || isModulePass() || isRunOn(AssociatedFn) ||
+            isRunOn(IRP.getAnchorScope()));
+  }
+
+  template <typename AAType>
+  bool shouldInitialize(const IRPosition &IRP, bool &ShouldUpdateAA) {
+    if (Configuration.Allowed && !Configuration.Allowed->count(&AAType::ID))
+      return false;
+
+    // For now we skip anything in naked and optnone functions.
+    const Function *AnchorFn = IRP.getAnchorScope();
+    if (AnchorFn && (AnchorFn->hasFnAttribute(Attribute::Naked) ||
+                     AnchorFn->hasFnAttribute(Attribute::OptimizeNone)))
+      return false;
+
+    // Avoid too many nested initializations to prevent a stack overflow.
+    if (InitializationChainLength > MaxInitializationChainLength)
+      return false;
+
+    // We skip call sites with unknown callees.
+    if (AAType::callSiteRequiresCallee() && !IRP.getAssociatedFunction() &&
+        IRP.isAnyCallSitePosition())
+      return false;
+
+    ShouldUpdateAA = shouldUpdateAA<AAType>(IRP);
+
+    return !AAType::hasTrivialInitializer() || ShouldUpdateAA;
+  }
+
   /// Determine opportunities to derive 'default' attributes in \p F and create
   /// abstract attribute objects for them.
   ///
@@ -1775,7 +1799,8 @@ struct Attributor {
   /// If a function is exactly defined or it has alwaysinline attribute
   /// and is viable to be inlined, we say it is IPO amendable
   bool isFunctionIPOAmendable(const Function &F) {
-    return F.hasExactDefinition() || InfoCache.InlineableFunctions.count(&F);
+    return F.hasExactDefinition() || InfoCache.InlineableFunctions.count(&F) ||
+           F.hasFnAttribute("kernel");
   }
 
   /// Mark the internal function \p F as live.
@@ -3205,6 +3230,14 @@ struct AbstractAttribute : public IRPosition, public AADepGraphNode {
   /// Synthethis Node are of type AbstractAttribute
   static bool classof(const AADepGraphNode *DGN) { return true; }
 
+  /// Return false if this AA does anything non-trivial (hence not done by
+  /// default) in its initializer.
+  static bool hasTrivialInitializer() { return false; }
+
+  /// Return true if this AA requires a "callee" (or an associted function) for
+  /// a call site positon. Default is optimistic to minimize AAs.
+  static bool callSiteRequiresCallee() { return true; }
+
   /// Initialize the state with the information in the Attributor \p A.
   ///
   /// This function is called by the Attributor once all abstract attributes
@@ -3669,6 +3702,22 @@ struct AANoAlias
     : public IRAttribute<Attribute::NoAlias,
                          StateWrapper<BooleanState, AbstractAttribute>> {
   AANoAlias(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
+
+  static bool isImpliedByIR(Attributor &A, const IRPosition &IRP,
+                            ArrayRef<Attribute::AttrKind> AttrKinds,
+                            bool IgnoreSubsumingPositions = false) {
+    if (IRAttribute::isImpliedByIR(A, IRP, AttrKinds))
+      return true;
+
+    Value &Val = IRP.getAnchorValue();
+    if (isa<AllocaInst>(Val))
+      return true;
+    if (isa<ConstantPointerNull>(Val) &&
+        !NullPointerIsDefined(IRP.getAnchorScope(),
+                              Val.getType()->getPointerAddressSpace()))
+      return true;
+    return false;
+  }
 
   /// Return true if we assume that the underlying value is alias.
   bool isAssumedNoAlias() const { return getAssumed(); }
@@ -5068,6 +5117,10 @@ struct AACallEdges : public StateWrapper<BooleanState, AbstractAttribute>,
   AACallEdges(const IRPosition &IRP, Attributor &A)
       : Base(IRP), AACallGraphNode(A) {}
 
+  /// The callee value is tracked beyond a simple stripPointerCasts, so we allow
+  /// unknown callees.
+  static bool callSiteRequiresCallee() { return false; }
+
   /// Get the optimistic edges.
   virtual const SetVector<Function *> &getOptimisticEdges() const = 0;
 
@@ -5796,24 +5849,27 @@ bool hasAssumedIRAttr(Attributor &A, const AbstractAttribute &QueryingAA,
                       const IRPosition &IRP, DepClassTy DepClass, bool &IsKnown,
                       bool IgnoreSubsumingPositions = false) {
   switch (AK) {
-#define CASE(ATTRNAME, AANAME)                                                 \
+#define CASE(ATTRNAME, AANAME, ...)                                            \
   case Attribute::ATTRNAME: {                                                  \
     if (AANAME::isImpliedByIR(A, IRP, {AK}, IgnoreSubsumingPositions))         \
       return IsKnown = true;                                                   \
     const auto *AA = A.getAAFor<AANAME>(QueryingAA, IRP, DepClass);            \
-    if (!AA || !AA->isAssumed())                                               \
+    if (!AA || !AA->isAssumed(__VA_ARGS__))                                    \
       return false;                                                            \
-    IsKnown = AA->isKnown();                                                   \
+    IsKnown = AA->isKnown(__VA_ARGS__);                                        \
     return true;                                                               \
   }
-    CASE(NoUnwind, AANoUnwind);
-    CASE(WillReturn, AAWillReturn);
-    CASE(NoFree, AANoFree);
-    CASE(NoCapture, AANoCapture);
-    CASE(NoRecurse, AANoRecurse);
-    CASE(NoSync, AANoSync);
-    CASE(NoAlias, AANoAlias);
-    CASE(MustProgress, AAMustProgress);
+    CASE(NoUnwind, AANoUnwind, );
+    CASE(WillReturn, AAWillReturn, );
+    CASE(NoFree, AANoFree, );
+    CASE(NoCapture, AANoCapture, );
+    CASE(NoRecurse, AANoRecurse, );
+    CASE(NoSync, AANoSync, );
+    CASE(NoAlias, AANoAlias, );
+    CASE(MustProgress, AAMustProgress, );
+    CASE(ReadNone, AAMemoryBehavior, );
+    CASE(ReadOnly, AAMemoryBehavior, AAMemoryBehavior::NO_WRITES);
+    CASE(WriteOnly, AAMemoryBehavior, AAMemoryBehavior::NO_READS);
 #undef CASE
   default:
     llvm_unreachable("hasAssumedIRAttr not available for this attribute kind");

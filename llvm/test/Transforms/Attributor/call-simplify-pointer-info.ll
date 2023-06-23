@@ -77,8 +77,8 @@ define internal i8 @sum_two_same_loads(i8* %p) {
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(argmem: read)
 ; CGSCC-LABEL: define {{[^@]+}}@sum_two_same_loads
 ; CGSCC-SAME: (i8* nocapture nofree noundef nonnull readonly dereferenceable(1022) [[P:%.*]]) #[[ATTR2:[0-9]+]] {
-; CGSCC-NEXT:    [[X:%.*]] = call i8 @read_arg_1(i8* nocapture nofree noundef nonnull readonly dereferenceable(1022) [[P]]) #[[ATTR4:[0-9]+]]
-; CGSCC-NEXT:    [[Y:%.*]] = call i8 @read_arg_1(i8* nocapture nofree noundef nonnull readonly dereferenceable(1022) [[P]]) #[[ATTR4]]
+; CGSCC-NEXT:    [[X:%.*]] = call i8 @read_arg_1(i8* nocapture nofree noundef nonnull readonly dereferenceable(1022) [[P]])
+; CGSCC-NEXT:    [[Y:%.*]] = call i8 @read_arg_1(i8* nocapture nofree noundef nonnull readonly dereferenceable(1022) [[P]])
 ; CGSCC-NEXT:    [[Z:%.*]] = add nsw i8 [[X]], [[Y]]
 ; CGSCC-NEXT:    ret i8 [[Z]]
 ;
@@ -183,8 +183,8 @@ define internal i8 @sum_two_different_loads(i8* %p, i8* %q) {
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(argmem: read)
 ; CGSCC-LABEL: define {{[^@]+}}@sum_two_different_loads
 ; CGSCC-SAME: (i8* nocapture nofree noundef nonnull readonly dereferenceable(972) [[P:%.*]], i8* nocapture nofree noundef nonnull readonly dereferenceable(971) [[Q:%.*]]) #[[ATTR2]] {
-; CGSCC-NEXT:    [[X:%.*]] = call i8 @read_arg_2(i8* nocapture nofree noundef nonnull readonly dereferenceable(972) [[P]]) #[[ATTR4]]
-; CGSCC-NEXT:    [[Y:%.*]] = call i8 @read_arg_2(i8* nocapture nofree noundef nonnull readonly dereferenceable(971) [[Q]]) #[[ATTR4]]
+; CGSCC-NEXT:    [[X:%.*]] = call i8 @read_arg_2(i8* nocapture nofree noundef nonnull readonly dereferenceable(972) [[P]])
+; CGSCC-NEXT:    [[Y:%.*]] = call i8 @read_arg_2(i8* nocapture nofree noundef nonnull readonly dereferenceable(971) [[Q]])
 ; CGSCC-NEXT:    [[Z:%.*]] = add nsw i8 [[X]], [[Y]]
 ; CGSCC-NEXT:    ret i8 [[Z]]
 ;
@@ -292,5 +292,4 @@ entry:
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree nosync nounwind willreturn memory(none) }
 ; CGSCC: attributes #[[ATTR2]] = { mustprogress nofree nosync nounwind willreturn memory(argmem: read) }
 ; CGSCC: attributes #[[ATTR3]] = { mustprogress nofree nosync nounwind willreturn }
-; CGSCC: attributes #[[ATTR4]] = { memory(read) }
 ;.

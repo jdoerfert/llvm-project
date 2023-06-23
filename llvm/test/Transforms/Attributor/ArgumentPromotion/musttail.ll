@@ -160,7 +160,7 @@ define i32 @caller2b(ptr %g) {
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(argmem: readwrite)
 ; CGSCC-LABEL: define {{[^@]+}}@caller2b
 ; CGSCC-SAME: (ptr nocapture nofree readonly align 4 [[G:%.*]]) #[[ATTR4]] {
-; CGSCC-NEXT:    [[V:%.*]] = call noundef i32 @test2b(ptr nocapture nofree readonly [[G]], i32 noundef 0) #[[ATTR6:[0-9]+]]
+; CGSCC-NEXT:    [[V:%.*]] = call noundef i32 @test2b(ptr nocapture nofree readonly [[G]], i32 noundef 0) #[[ATTR5]]
 ; CGSCC-NEXT:    ret i32 [[V]]
 ;
   %v = call i32 @test2b(%T* %g, i32 0)
@@ -178,6 +178,5 @@ define i32 @caller2b(ptr %g) {
 ; CGSCC: attributes #[[ATTR2]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
 ; CGSCC: attributes #[[ATTR3]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
 ; CGSCC: attributes #[[ATTR4]] = { mustprogress nofree nosync nounwind willreturn memory(argmem: readwrite) }
-; CGSCC: attributes #[[ATTR5]] = { nounwind memory(write) }
-; CGSCC: attributes #[[ATTR6]] = { nounwind }
+; CGSCC: attributes #[[ATTR5]] = { nounwind }
 ;.

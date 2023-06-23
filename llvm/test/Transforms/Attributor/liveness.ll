@@ -989,8 +989,8 @@ define linkonce_odr void @non_exact3() {
 ; CHECK-NEXT:    call void @non_dead_d13() #[[ATTR2]]
 ; CHECK-NEXT:    call void @non_dead_d14() #[[ATTR2]]
 ; CHECK-NEXT:    call void @non_dead_d15() #[[ATTR2]]
-; CHECK-NEXT:    [[NR:%.*]] = call i32 @foo_noreturn() #[[ATTR4]]
-; CHECK-NEXT:    unreachable
+; CHECK-NEXT:    [[NR:%.*]] = call i32 @foo_noreturn()
+; CHECK-NEXT:    ret void
 ;
   call void @non_dead_d0()
   call void @non_dead_d1()
@@ -2276,7 +2276,7 @@ define void @call_via_pointer_with_dead_args(i32* %a, i32* %b, void (i32*, i32*,
 define internal void @call_via_pointer_with_dead_args_internal_a(i32* %a, i32* %b, void (i32*, i32*, i32*, i64, i32**)* %fp) {
 ; CHECK-LABEL: define {{[^@]+}}@call_via_pointer_with_dead_args_internal_a
 ; CHECK-SAME: (i32* [[A:%.*]], i32* noundef nonnull align 128 dereferenceable(4) [[B:%.*]]) {
-; CHECK-NEXT:    call void @called_via_pointer(i32* [[A]], i32* nonnull align 128 dereferenceable(4) [[B]], i32* [[A]], i64 -1, i32** null)
+; CHECK-NEXT:    call void @called_via_pointer(i32* [[A]], i32* [[B]], i32* [[A]], i64 -1, i32** null)
 ; CHECK-NEXT:    ret void
 ;
   call void %fp(i32* %a, i32* %b, i32* %a, i64 -1, i32** null)
@@ -2285,7 +2285,7 @@ define internal void @call_via_pointer_with_dead_args_internal_a(i32* %a, i32* %
 define internal void @call_via_pointer_with_dead_args_internal_b(i32* %a, i32* %b, void (i32*, i32*, i32*, i64, i32**)* %fp) {
 ; TUNIT-LABEL: define {{[^@]+}}@call_via_pointer_with_dead_args_internal_b
 ; TUNIT-SAME: (i32* [[A:%.*]], i32* noundef nonnull align 128 dereferenceable(4) [[B:%.*]]) {
-; TUNIT-NEXT:    call void @called_via_pointer_internal_2(i32* [[A]], i32* nonnull align 128 dereferenceable(4) [[B]], i32* [[A]], i64 -1, i32** null)
+; TUNIT-NEXT:    call void @called_via_pointer_internal_2(i32* [[A]], i32* [[B]], i32* [[A]], i64 -1, i32** null)
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@call_via_pointer_with_dead_args_internal_b
@@ -2297,8 +2297,9 @@ define internal void @call_via_pointer_with_dead_args_internal_b(i32* %a, i32* %
   ret void
 }
 define void @call_via_pointer_with_dead_args_caller(i32* %a, i32* %b) {
+; TUNIT: Function Attrs: memory(none)
 ; TUNIT-LABEL: define {{[^@]+}}@call_via_pointer_with_dead_args_caller
-; TUNIT-SAME: (i32* [[A:%.*]], i32* [[B:%.*]]) {
+; TUNIT-SAME: (i32* [[A:%.*]], i32* [[B:%.*]]) #[[ATTR1:[0-9]+]] {
 ; TUNIT-NEXT:    [[PTR1:%.*]] = alloca i32, align 128
 ; TUNIT-NEXT:    [[PTR2:%.*]] = alloca i32, align 128
 ; TUNIT-NEXT:    [[PTR3:%.*]] = alloca i32, align 128
@@ -2638,7 +2639,7 @@ declare void @llvm.lifetime.start.p0i8(i64 %0, i8* %1)
 declare void @llvm.lifetime.end.p0i8(i64 %0, i8* %1)
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { nofree noreturn nosync nounwind }
-; TUNIT: attributes #[[ATTR1:[0-9]+]] = { memory(none) }
+; TUNIT: attributes #[[ATTR1]] = { memory(none) }
 ; TUNIT: attributes #[[ATTR2]] = { nounwind }
 ; TUNIT: attributes #[[ATTR3]] = { noreturn nounwind }
 ; TUNIT: attributes #[[ATTR4]] = { noreturn }

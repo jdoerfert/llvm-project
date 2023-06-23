@@ -2817,7 +2817,7 @@ struct AANonNullFloating : public AANonNullImpl {
     auto VisitValueCB = [&](Value &V, const Instruction *CtxI) -> bool {
       const auto *AA = A.getAAFor<AANonNull>(*this, IRPosition::value(V),
                                              DepClassTy::REQUIRED);
-      if (!Stripped && this == AA) {
+      if (!AA || (!Stripped && this == AA)) {
         if (!isKnownNonZero(&V, DL, 0, AC, CtxI, DT))
           T.indicatePessimisticFixpoint();
       } else {
@@ -4073,31 +4073,21 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     return IsAliasing;
   }
 
-  bool
-  isKnownNoAliasDueToNoAliasPreservation(Attributor &A, AAResults *&AAR,
-                                         const AAMemoryBehavior &MemBehaviorAA,
-                                         const AANoAlias &NoAliasAA) {
+  bool isKnownNoAliasDueToNoAliasPreservation(
+      Attributor &A, AAResults *&AAR, const AAMemoryBehavior &MemBehaviorAA) {
     // We can deduce "noalias" if the following conditions hold.
-    // (i)   Associated value is assumed to be noalias in the definition.
-    // (ii)  Associated value is assumed to be no-capture in all the uses
+    // (i)   Associated value is assumed to be noalias in the definition
+    // (checked before). (ii)  Associated value is assumed to be no-capture in
+    // all the uses
     //       possibly executed before this callsite.
     // (iii) There is no other pointer argument which could alias with the
     //       value.
-
-    bool AssociatedValueIsNoAliasAtDef = NoAliasAA.isAssumedNoAlias();
-    if (!AssociatedValueIsNoAliasAtDef) {
-      LLVM_DEBUG(dbgs() << "[AANoAlias] " << getAssociatedValue()
-                        << " is not no-alias at the definition\n");
-      return false;
-    }
 
     auto IsDereferenceableOrNull = [&](Value *O, const DataLayout &DL) {
       const auto *DerefAA = A.getAAFor<AADereferenceable>(
           *this, IRPosition::value(*O), DepClassTy::OPTIONAL);
       return DerefAA ? DerefAA->getAssumedDereferenceableBytes() : 0;
     };
-
-    A.recordDependence(NoAliasAA, *this, DepClassTy::OPTIONAL);
 
     const IRPosition &VIRP = IRPosition::value(getAssociatedValue());
     const Function *ScopeFn = VIRP.getAnchorScope();
@@ -4152,7 +4142,9 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     };
 
     auto *NoCaptureAA = A.getAAFor<AANoCapture>(*this, VIRP, DepClassTy::NONE);
-    if (!NoCaptureAA || !NoCaptureAA->isAssumedNoCaptureMaybeReturned()) {
+    if (NoCaptureAA && NoCaptureAA->isAssumedNoCaptureMaybeReturned()) {
+      A.recordDependence(*NoCaptureAA, *this, DepClassTy::OPTIONAL);
+    } else {
       if (!A.checkForAllUses(UsePred, *this, getAssociatedValue())) {
         LLVM_DEBUG(
             dbgs() << "[AANoAliasCSArg] " << getAssociatedValue()
@@ -4160,7 +4152,6 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
         return false;
       }
     }
-    A.recordDependence(*NoCaptureAA, *this, DepClassTy::OPTIONAL);
 
     // Check there is no other pointer argument which could alias with the
     // value passed at this call site.
@@ -4185,13 +4176,19 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     }
 
     const IRPosition &VIRP = IRPosition::value(getAssociatedValue());
-    const auto *NoAliasAA =
-        A.getAAFor<AANoAlias>(*this, VIRP, DepClassTy::NONE);
+    bool IsKnown;
+    bool AssociatedValueIsNoAliasAtDef =
+        AA::hasAssumedIRAttr<Attribute::NoAlias>(A, *this, VIRP,
+                                                 DepClassTy::REQUIRED, IsKnown);
+    if (!AssociatedValueIsNoAliasAtDef) {
+      LLVM_DEBUG(dbgs() << "[AANoAlias] " << getAssociatedValue()
+                        << " is not no-alias at the definition\n");
+      return indicatePessimisticFixpoint();
+    }
 
     AAResults *AAR = nullptr;
-    if (MemBehaviorAA && NoAliasAA &&
-        isKnownNoAliasDueToNoAliasPreservation(A, AAR, *MemBehaviorAA,
-                                               *NoAliasAA)) {
+    if (MemBehaviorAA &&
+        isKnownNoAliasDueToNoAliasPreservation(A, AAR, *MemBehaviorAA)) {
       LLVM_DEBUG(
           dbgs() << "[AANoAlias] No-Alias deduced via no-alias preservation\n");
       return ChangeStatus::UNCHANGED;
@@ -4366,7 +4363,7 @@ struct AAIsDeadValueImpl : public AAIsDead {
         A.getAndUpdateAAFor<AANoUnwind>(*this, CallIRP, DepClassTy::NONE);
     if (!NoUnwindAA || !NoUnwindAA->isAssumedNoUnwind())
       return false;
-    if (!NoUnwindAA || !NoUnwindAA->isKnownNoUnwind())
+    if (!NoUnwindAA->isKnownNoUnwind())
       A.recordDependence(*NoUnwindAA, *this, DepClassTy::OPTIONAL);
 
     bool IsKnown;
@@ -6176,7 +6173,7 @@ ChangeStatus AANoCaptureImpl::updateImpl(Attributor &A) {
   auto IsDereferenceableOrNull = [&](Value *O, const DataLayout &DL) {
     const auto *DerefAA = A.getAAFor<AADereferenceable>(
         *this, IRPosition::value(*O), DepClassTy::OPTIONAL);
-    return DerefAA && DerefAA->getAssumedDereferenceableBytes();
+    return DerefAA ? DerefAA->getAssumedDereferenceableBytes() : 0;
   };
 
   auto UseCheck = [&](const Use &U, bool &Follow) -> bool {
@@ -8614,7 +8611,7 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
     // TODO: A better way to handle this would be to add ~NO_GLOBAL_MEM /
     // MemoryEffects::Other as a possible location.
     bool UseArgMemOnly = true;
-    Function *AnchorFn = IRP.getAnchorScope();
+    Function *AnchorFn = IRP.getAssociatedFunction();
     if (AnchorFn && A.isRunOn(*AnchorFn))
       UseArgMemOnly = !AnchorFn->hasLocalLinkage();
 
@@ -9099,6 +9096,7 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     AAMemoryLocationImpl::initialize(A);
+
     Function *F = getAssociatedFunction();
     if (!F || F->isDeclaration())
       indicatePessimisticFixpoint();

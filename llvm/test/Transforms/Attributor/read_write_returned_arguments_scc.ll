@@ -104,8 +104,8 @@ define internal ptr @internal_ret0_nw(ptr %n0, ptr %w0) {
 ; CGSCC-NEXT:    [[CALL:%.*]] = call ptr @internal_ret1_rrw(ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nofree noundef nonnull align 4 dereferenceable(4) [[R1]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
 ; CGSCC-NEXT:    [[CALL1:%.*]] = call ptr @external_ret2_nrw(ptr nofree [[N0]], ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
 ; CGSCC-NEXT:    [[CALL2:%.*]] = call ptr @external_ret2_nrw(ptr nofree [[N0]], ptr nofree noundef nonnull align 4 dereferenceable(4) [[R1]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
-; CGSCC-NEXT:    [[CALL3:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree [[N0]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[R0]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR4:[0-9]+]]
-; CGSCC-NEXT:    [[CALL4:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree [[N0]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[R1]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR4]]
+; CGSCC-NEXT:    [[CALL3:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree [[N0]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[R0]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR3]]
+; CGSCC-NEXT:    [[CALL4:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree [[N0]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[R1]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR3]]
 ; CGSCC-NEXT:    [[CALL5:%.*]] = call ptr @internal_ret0_nw(ptr nofree [[N0]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
 ; CGSCC-NEXT:    br label [[RETURN]]
 ; CGSCC:       return:
@@ -187,8 +187,8 @@ define internal ptr @internal_ret1_rrw(ptr %r0, ptr %r1, ptr %w0) {
 ; CGSCC-NEXT:    [[CALL3:%.*]] = call ptr @internal_ret0_nw(ptr nofree nonnull align 4 dereferenceable(4) [[W0]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
 ; CGSCC-NEXT:    [[CALL4:%.*]] = call ptr @external_ret2_nrw(ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nofree nonnull align 4 dereferenceable(4) [[R1]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
 ; CGSCC-NEXT:    [[CALL5:%.*]] = call ptr @external_ret2_nrw(ptr nofree nonnull align 4 dereferenceable(4) [[R1]], ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
-; CGSCC-NEXT:    [[CALL6:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nocapture nofree nonnull readonly align 4 dereferenceable(4) [[R1]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR4]]
-; CGSCC-NEXT:    [[CALL7:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree nonnull align 4 dereferenceable(4) [[R1]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[R0]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR4]]
+; CGSCC-NEXT:    [[CALL6:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nocapture nofree nonnull readonly align 4 dereferenceable(4) [[R1]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR3]]
+; CGSCC-NEXT:    [[CALL7:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree nonnull align 4 dereferenceable(4) [[R1]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[R0]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR3]]
 ; CGSCC-NEXT:    [[CALL8:%.*]] = call ptr @internal_ret0_nw(ptr nofree nonnull align 4 dereferenceable(4) [[R1]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
 ; CGSCC-NEXT:    br label [[RETURN]]
 ; CGSCC:       return:
@@ -294,7 +294,7 @@ define internal ptr @internal_ret1_rw(ptr %r0, ptr %w0) {
 ; CGSCC-NEXT:    store i32 [[TMP1]], ptr [[W0]], align 4
 ; CGSCC-NEXT:    [[CALL1:%.*]] = call ptr @internal_ret0_nw(ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
 ; CGSCC-NEXT:    [[CALL2:%.*]] = call ptr @internal_ret0_nw(ptr nofree nonnull align 4 dereferenceable(4) [[W0]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
-; CGSCC-NEXT:    [[CALL3:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[R0]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR4]]
+; CGSCC-NEXT:    [[CALL3:%.*]] = call ptr @external_sink_ret2_nrw(ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[R0]], ptr nofree nonnull writeonly align 4 dereferenceable(4) [[W0]]) #[[ATTR3]]
 ; CGSCC-NEXT:    [[CALL4:%.*]] = call ptr @external_ret2_nrw(ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nofree noundef nonnull align 4 dereferenceable(4) [[R0]], ptr nofree nonnull align 4 dereferenceable(4) [[W0]]) #[[ATTR2]]
 ; CGSCC-NEXT:    br label [[RETURN]]
 ; CGSCC:       return:
@@ -360,5 +360,4 @@ entry:
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 ; CGSCC: attributes #[[ATTR2]] = { nofree nosync nounwind }
 ; CGSCC: attributes #[[ATTR3]] = { nounwind }
-; CGSCC: attributes #[[ATTR4]] = { nounwind memory(readwrite) }
 ;.
