@@ -727,6 +727,9 @@ struct IRPosition {
     case IRPosition::IRP_FUNCTION:
     case IRPosition::IRP_RETURNED:
     case IRPosition::IRP_ARGUMENT:
+    case IRPosition::IRP_CALL_SITE:
+    case IRPosition::IRP_CALL_SITE_RETURNED:
+    case IRPosition::IRP_CALL_SITE_ARGUMENT:
       return true;
     default:
       return false;
@@ -1725,6 +1728,8 @@ struct Attributor {
 
     assert(!AAPtr && "Attribute already in map!");
     AAPtr = &AA;
+    //    errs() << "New BB " << AA.getName() << " : " << IRP.getPositionKind()
+    //           << "\n";
 
     // Register AA with the synthetic root only before the manifest stage.
     if (Phase == AttributorPhase::SEEDING || Phase == AttributorPhase::UPDATE)
@@ -3474,6 +3479,8 @@ struct AANoSync
                          StateWrapper<BooleanState, AbstractAttribute>> {
   AANoSync(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
+  static bool hasTrivialInitializer() { return true; }
+
   /// See AbstractAttribute::isValidIRPositionForInit
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
     if (!IRP.isFunctionScope() &&
@@ -3806,6 +3813,8 @@ struct AANoFree
     : public IRAttribute<Attribute::NoFree,
                          StateWrapper<BooleanState, AbstractAttribute>> {
   AANoFree(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
+
+  static bool hasTrivialInitializer() { return true; }
 
   /// See AbstractAttribute::isValidIRPositionForInit
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
@@ -4250,6 +4259,8 @@ struct AANoCapture
           Attribute::NoCapture,
           StateWrapper<BitIntegerState<uint16_t, 7, 0>, AbstractAttribute>> {
   AANoCapture(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
+
+  static bool hasTrivialInitializer() { return true; }
 
   /// See AbstractAttribute::isValidIRPositionForInit
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {

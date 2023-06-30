@@ -199,6 +199,7 @@ CGSCC_ANALYSIS("pass-instrumentation", PassInstrumentationAnalysis(PIC))
 #endif
 CGSCC_PASS("argpromotion", ArgumentPromotionPass())
 CGSCC_PASS("invalidate<all>", InvalidateAllAnalysesPass())
+CGSCC_PASS("light-attributor-cgscc", LightweightAttributorCGSCCPass())
 CGSCC_PASS("attributor-cgscc", AttributorCGSCCPass())
 CGSCC_PASS("openmp-opt-cgscc", OpenMPOptCGSCCPass())
 CGSCC_PASS("no-op-cgscc", NoOpCGSCCPass())

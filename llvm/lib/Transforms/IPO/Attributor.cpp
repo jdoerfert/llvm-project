@@ -802,14 +802,14 @@ bool AA::isAssumedThreadLocalObject(Attributor &A, Value &Obj,
                  << "' is thread local; stack objects are thread local.\n");
       return true;
     }
-    const auto *NoCaptureAA = A.getAAFor<AANoCapture>(
-        QueryingAA, IRPosition::value(Obj), DepClassTy::OPTIONAL);
+    bool Known;
+    bool AssumedNoCapture = AA::hasAssumedIRAttr<Attribute::NoCapture>(
+        A, QueryingAA, IRPosition::value(Obj), DepClassTy::OPTIONAL, Known);
     LLVM_DEBUG(dbgs() << "[AA] Object '" << Obj << "' is "
-                      << (NoCaptureAA->isAssumedNoCapture() ? "" : "not")
-                      << " thread local; "
-                      << (NoCaptureAA->isAssumedNoCapture() ? "non-" : "")
+                      << (AssumedNoCapture ? "" : "not") << " thread local; "
+                      << (AssumedNoCapture ? "non-" : "")
                       << "captured stack object.\n");
-    return NoCaptureAA && NoCaptureAA->isAssumedNoCapture();
+    return AssumedNoCapture;
   }
   if (auto *GV = dyn_cast<GlobalVariable>(&Obj)) {
     if (GV->isConstant()) {
@@ -916,8 +916,6 @@ static bool addIfNotExistent(LLVMContext &Ctx, const Attribute &Attr,
   if (Attr.isEnumAttribute()) {
     Attribute::AttrKind Kind = Attr.getKindAsEnum();
     if (Attrs.hasAttributeAtIndex(AttrIdx, Kind))
-      if (!ForceReplace &&
-          isEqualOrWorse(Attr, Attrs.getAttributeAtIndex(AttrIdx, Kind)))
         return false;
     Attrs = Attrs.addAttributeAtIndex(Ctx, AttrIdx, Attr);
     return true;
@@ -925,8 +923,6 @@ static bool addIfNotExistent(LLVMContext &Ctx, const Attribute &Attr,
   if (Attr.isStringAttribute()) {
     StringRef Kind = Attr.getKindAsString();
     if (Attrs.hasAttributeAtIndex(AttrIdx, Kind))
-      if (!ForceReplace &&
-          isEqualOrWorse(Attr, Attrs.getAttributeAtIndex(AttrIdx, Kind)))
         return false;
     Attrs = Attrs.addAttributeAtIndex(Ctx, AttrIdx, Attr);
     return true;
@@ -3324,6 +3320,7 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     }
   }
 
+  return;
   auto CallSitePred = [&](Instruction &I) -> bool {
     auto &CB = cast<CallBase>(I);
     IRPosition CBInstPos = IRPosition::inst(CB);
@@ -3693,9 +3690,8 @@ static bool runLightweightAttributorOnFunctions(
   AC.UseLiveness = false;
   DenseSet<const char *> Allowed(
       {&AAWillReturn::ID, &AANoUnwind::ID, &AANoRecurse::ID, &AANoSync::ID,
-       &AANoFree::ID, &AAMemoryLocation::ID,
-       &AAMustProgress::ID, &AAUnderlyingObjects::ID, &AANoCapture::ID,
-       &AANoFPClass::ID, &AANoReturn::ID});
+       &AANoFree::ID, &AAMemoryLocation::ID, &AAMustProgress::ID,
+       &AANoCapture::ID, &AANoFPClass::ID, &AANoReturn::ID});
   AC.Allowed = &Allowed;
 
   Attributor A(Functions, InfoCache, AC);
