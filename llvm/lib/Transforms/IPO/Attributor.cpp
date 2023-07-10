@@ -3338,9 +3338,9 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       getOrCreateAAFor<AAIsDead>(RetPos);
 
       // Every function might be simplified.
-      bool UsedAssumedInformation = false;
-      getAssumedSimplified(RetPos, nullptr, UsedAssumedInformation,
-                           AA::Intraprocedural);
+      // bool UsedAssumedInformation = false;
+      // getAssumedSimplified(RetPos, nullptr, UsedAssumedInformation,
+      //                     AA::Intraprocedural);
 
       // Every returned value might be marked noundef.
       checkAndQueryIRAttr<Attribute::NoUndef, AANoUndef>(RetPos, RetAttrs);
@@ -3444,9 +3444,9 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
     if (!Callee->getReturnType()->isVoidTy() && !CB.use_empty()) {
       IRPosition CBRetPos = IRPosition::callsite_returned(CB);
-      bool UsedAssumedInformation = false;
-      getAssumedSimplified(CBRetPos, nullptr, UsedAssumedInformation,
-                           AA::Intraprocedural);
+      // bool UsedAssumedInformation = false;
+      // getAssumedSimplified(CBRetPos, nullptr, UsedAssumedInformation,
+      //                      AA::Intraprocedural);
 
       if (AttributeFuncs::isNoFPClassCompatibleType(Callee->getReturnType()))
         getOrCreateAAFor<AANoFPClass>(CBInstPos);
@@ -3464,9 +3464,10 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       // Call site argument might be simplified. We have to go through the
       // Attributor interface though as outside AAs can register custom
       // simplification callbacks.
-      bool UsedAssumedInformation = false;
-      getAssumedSimplified(CBArgPos, /* AA */ nullptr, UsedAssumedInformation,
-                           AA::Intraprocedural);
+      // bool UsedAssumedInformation = false;
+      // getAssumedSimplified(CBArgPos, /* AA */ nullptr,
+      // UsedAssumedInformation,
+      //                     AA::Intraprocedural);
 
       // Every call site argument might be marked "noundef".
       checkAndQueryIRAttr<Attribute::NoUndef, AANoUndef>(CBArgPos, CBArgAttrs);
@@ -3524,8 +3525,8 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
     } else {
       auto &SI = cast<StoreInst>(I);
       getOrCreateAAFor<AAIsDead>(IRPosition::inst(I));
-      getAssumedSimplified(IRPosition::value(*SI.getValueOperand()), nullptr,
-                           UsedAssumedInformation, AA::Intraprocedural);
+      // getAssumedSimplified(IRPosition::value(*SI.getValueOperand()), nullptr,
+      //                      UsedAssumedInformation, AA::Intraprocedural);
       getOrCreateAAFor<AAAlign>(IRPosition::value(*SI.getPointerOperand()));
       getOrCreateAAFor<AAAddressSpace>(
           IRPosition::value(*SI.getPointerOperand()));

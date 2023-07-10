@@ -191,6 +191,10 @@ static cl::opt<bool> ExtraVectorizerPasses(
 
 static cl::opt<bool> RunNewGVN("enable-newgvn", cl::init(false), cl::Hidden,
                                cl::desc("Run the NewGVN pass"));
+static cl::opt<bool> ReplFnAttr("replace-fnattr", cl::init(false), cl::Hidden,
+                                cl::desc(""));
+static cl::opt<bool> AddAttrPass("add-attr", cl::init(false), cl::Hidden,
+                                 cl::desc(""));
 
 static cl::opt<bool> EnableLoopInterchange(
     "enable-loopinterchange", cl::init(false), cl::Hidden,
@@ -903,8 +907,13 @@ PassBuilder::buildInlinerPipeline(OptimizationLevel Level,
 
   // Finally, deduce any function attributes based on the fully simplified
   // function.
-  MainCGPipeline.addPass(LightweightAttributorCGSCCPass());
-  MainCGPipeline.addPass(PostOrderFunctionAttrsPass());
+  if (AddAttrPass) {
+    MainCGPipeline.addPass(LightweightAttributorCGSCCPass());
+    MainCGPipeline.addPass(PostOrderFunctionAttrsPass());
+  } else if (ReplFnAttr)
+    MainCGPipeline.addPass(LightweightAttributorCGSCCPass());
+  else
+    MainCGPipeline.addPass(PostOrderFunctionAttrsPass());
 
   // Mark that the function is fully simplified and that it shouldn't be
   // simplified again if we somehow revisit it due to CGSCC mutations unless

@@ -92,6 +92,8 @@ static cl::opt<bool> EnableNonnullArgPropagation(
     cl::desc("Try to propagate nonnull argument attributes from callsites to "
              "caller functions."));
 
+static cl::opt<bool> Compare("compare-attr", cl::Hidden, cl::desc(""));
+
 static cl::opt<bool> DisableNoUnwindInference(
     "disable-nounwind-inference", cl::Hidden,
     cl::desc("Stop inferring nounwind attribute during function-attrs pass"));
@@ -1782,9 +1784,25 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
     Functions.push_back(&N.getFunction());
   }
 
+  std::string S;
+  if (!SkipNonRecursive && Compare) {
+    raw_string_ostream RSO(S);
+    for (Function *F : Functions)
+      F->print(RSO);
+  }
+
   auto ChangedFunctions = deriveAttrsInPostOrder(Functions, AARGetter);
   if (ChangedFunctions.empty())
     return PreservedAnalyses::all();
+
+  if (!SkipNonRecursive && Compare) {
+    std::string S2;
+    raw_string_ostream RSO2(S2);
+    for (Function *F : Functions)
+      F->print(RSO2);
+    errs() << "Difference!\nBefore:\n" << S << "\nAfter:\n" << S2 << "\n";
+    exit(1);
+  }
 
   // Invalidate analyses for modified functions so that we don't have to
   // invalidate all analyses for all functions in this SCC.
