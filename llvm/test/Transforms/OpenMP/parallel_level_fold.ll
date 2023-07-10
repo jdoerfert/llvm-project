@@ -26,7 +26,7 @@ define weak void @none_spmd() "kernel" {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(ptr null, i8 1, i1 false)
 ; CHECK-NEXT:    call void @none_spmd_helper()
 ; CHECK-NEXT:    call void @mixed_helper()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 1)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 1)
 ; CHECK-NEXT:    ret void
 ;
   %i = call i32 @__kmpc_target_init(ptr null, i8 1, i1 false)
@@ -42,7 +42,7 @@ define weak void @spmd() "kernel" {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(ptr null, i8 2, i1 false)
 ; CHECK-NEXT:    call void @spmd_helper()
 ; CHECK-NEXT:    call void @mixed_helper()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 2)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 2)
 ; CHECK-NEXT:    ret void
 ;
   %i = call i32 @__kmpc_target_init(ptr null, i8 2, i1 false)
@@ -58,7 +58,7 @@ define weak void @parallel() "kernel" {
 ; CHECK-NEXT:    [[I:%.*]] = call i32 @__kmpc_target_init(ptr null, i8 2, i1 false)
 ; CHECK-NEXT:    call void @spmd_helper()
 ; CHECK-NEXT:    call void @__kmpc_parallel_51(ptr null, i32 0, i32 0, i32 0, i32 0, ptr null, ptr null, ptr null, i64 0)
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 2)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 2)
 ; CHECK-NEXT:    ret void
 ;
   %i = call i32 @__kmpc_target_init(ptr null, i8 2, i1 false)

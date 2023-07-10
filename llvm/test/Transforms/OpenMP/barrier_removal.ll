@@ -91,7 +91,6 @@ define void @pos_empty_7b() "kernel" {
 ; CHECK-LABEL: define {{[^@]+}}@pos_empty_7b
 ; CHECK-SAME: () #[[ATTR4]] {
 ; CHECK-NEXT:    call void @unknown() #[[ATTR5:[0-9]+]]
-; CHECK-NEXT:    call void @llvm.amdgcn.s.barrier()
 ; CHECK-NEXT:    call void @unknown()
 ; CHECK-NEXT:    ret void
 ;

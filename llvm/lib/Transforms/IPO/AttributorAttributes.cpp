@@ -39,6 +39,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Assumptions.h"
+#include "llvm/IR/AttributeMask.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -173,7 +174,6 @@ PIPE_OPERATOR(AAValueSimplify)
 PIPE_OPERATOR(AANoFree)
 PIPE_OPERATOR(AAHeapToStack)
 PIPE_OPERATOR(AAIntraFnReachability)
-PIPE_OPERATOR(AAMemoryBehavior)
 PIPE_OPERATOR(AAMemoryLocation)
 PIPE_OPERATOR(AAValueConstantRange)
 PIPE_OPERATOR(AAPrivatizablePtr)
@@ -3810,7 +3810,7 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
   /// Determine if the underlying value may alias with the call site argument
   /// \p OtherArgNo of \p ICS (= the underlying call site).
   bool mayAliasWithArgument(Attributor &A, AAResults *&AAR,
-                            const AAMemoryBehavior &MemBehaviorAA,
+                            const AAMemoryLocation &MemBehaviorAA,
                             const CallBase &CB, unsigned OtherArgNo) {
     // We do not need to worry about aliasing with the underlying IRP.
     if (this->getCalleeArgNo() == (int)OtherArgNo)
@@ -3821,22 +3821,25 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
     if (!ArgOp->getType()->isPtrOrPtrVectorTy())
       return false;
 
-    auto *CBArgMemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
-        *this, IRPosition::callsite_argument(CB, OtherArgNo), DepClassTy::NONE);
+    auto *CBMemBehaviorAA = A.getAAFor<AAMemoryLocation>(
+        *this, IRPosition::callsite_function(CB), DepClassTy::NONE);
 
     // If the argument is readnone, there is no read-write aliasing.
-    if (CBArgMemBehaviorAA && CBArgMemBehaviorAA->isAssumedReadNone()) {
-      A.recordDependence(*CBArgMemBehaviorAA, *this, DepClassTy::OPTIONAL);
+    if (CBMemBehaviorAA && CBMemBehaviorAA->isAssumedReadNone(
+                               IRP_CALL_SITE_ARGUMENT, OtherArgNo)) {
+      A.recordDependence(*CBMemBehaviorAA, *this, DepClassTy::OPTIONAL);
       return false;
     }
 
     // If the argument is readonly and the underlying value is readonly, there
     // is no read-write aliasing.
     bool IsReadOnly = MemBehaviorAA.isAssumedReadOnly();
-    if (CBArgMemBehaviorAA && CBArgMemBehaviorAA->isAssumedReadOnly() &&
+    if (CBMemBehaviorAA &&
+        CBMemBehaviorAA->isAssumedReadOnly(IRP_CALL_SITE_ARGUMENT,
+                                           OtherArgNo) &&
         IsReadOnly) {
       A.recordDependence(MemBehaviorAA, *this, DepClassTy::OPTIONAL);
-      A.recordDependence(*CBArgMemBehaviorAA, *this, DepClassTy::OPTIONAL);
+      A.recordDependence(*CBMemBehaviorAA, *this, DepClassTy::OPTIONAL);
       return false;
     }
 
@@ -3856,7 +3859,7 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
   }
 
   bool isKnownNoAliasDueToNoAliasPreservation(
-      Attributor &A, AAResults *&AAR, const AAMemoryBehavior &MemBehaviorAA) {
+      Attributor &A, AAResults *&AAR, const AAMemoryLocation &MemBehaviorAA) {
     // We can deduce "noalias" if the following conditions hold.
     // (i)   Associated value is assumed to be noalias in the definition.
     // (ii)  Associated value is assumed to be no-capture in all the uses
@@ -3951,11 +3954,14 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    const auto &CB = cast<CallBase>(getAnchorValue());
+    unsigned ArgNo = getIRPosition().getCallSiteArgNo();
     // If the argument is readnone we are done as there are no accesses via the
     // argument.
-    auto *MemBehaviorAA =
-        A.getAAFor<AAMemoryBehavior>(*this, getIRPosition(), DepClassTy::NONE);
-    if (MemBehaviorAA && MemBehaviorAA->isAssumedReadNone()) {
+    auto *MemBehaviorAA = A.getAAFor<AAMemoryLocation>(
+        *this, IRPosition::callsite_function(CB), DepClassTy::NONE);
+    if (MemBehaviorAA &&
+        MemBehaviorAA->isAssumedReadNone(IRP_CALL_SITE_ARGUMENT, ArgNo)) {
       A.recordDependence(*MemBehaviorAA, *this, DepClassTy::OPTIONAL);
       return ChangeStatus::UNCHANGED;
     }
@@ -7720,732 +7726,261 @@ struct AAPrivatizablePtrReturned final : public AAPrivatizablePtrFloating {
 };
 } // namespace
 
-/// -------------------- Memory Behavior Attributes ----------------------------
-/// Includes read-none, read-only, and write-only.
-/// ----------------------------------------------------------------------------
-namespace {
-struct AAMemoryBehaviorImpl : public AAMemoryBehavior {
-  AAMemoryBehaviorImpl(const IRPosition &IRP, Attributor &A)
-      : AAMemoryBehavior(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    intersectAssumedBits(BEST_STATE);
-    getKnownStateFromValue(A, getIRPosition(), getState());
-    AAMemoryBehavior::initialize(A);
+raw_ostream &llvm::operator<<(raw_ostream &OS, AA::Location Loc) {
+  switch (Loc) {
+  case AA::ArgMem:
+    return OS << "argmem";
+  case AA::InaccessibleMem:
+    return OS << "inaccesiblemem";
+  case AA::Other:
+    return OS << "other";
+  case AA::GlobalInternal:
+    return OS << "global_int";
+  case AA::GlobalExternal:
+    return OS << "global_ext";
+  case AA::Volatile:
+    return OS << "volatile";
+  case AA::Malloced:
+    return OS << "malloced";
+  case AA::Local:
+    return OS << "local";
+  case AA::Const:
+    return OS << "constant";
   }
+  llvm_unreachable("Unexpected location!");
+}
 
-  /// Return the memory behavior information encoded in the IR for \p IRP.
-  static void getKnownStateFromValue(Attributor &A, const IRPosition &IRP,
-                                     BitIntegerState &State,
-                                     bool IgnoreSubsumingPositions = false) {
-    SmallVector<Attribute, 2> Attrs;
-    A.getAttrs(IRP, AttrKinds, Attrs, IgnoreSubsumingPositions);
-    for (const Attribute &Attr : Attrs) {
-      switch (Attr.getKindAsEnum()) {
-      case Attribute::ReadNone:
-        State.addKnownBits(NO_ACCESSES);
-        break;
-      case Attribute::ReadOnly:
-        State.addKnownBits(NO_WRITES);
-        break;
-      case Attribute::WriteOnly:
-        State.addKnownBits(NO_READS);
-        break;
-      default:
-        llvm_unreachable("Unexpected attribute!");
-      }
-    }
+raw_ostream &llvm::operator<<(raw_ostream &OS, AA::MemoryEffects AAME) {
+  OS << "memory(";
+  auto HandleModRef = [&](ModRefInfo MRI) -> raw_ostream & {
+    switch (MRI) {
+    case ModRefInfo::NoModRef:
+      return OS << "none";
+    case ModRefInfo::ModRef:
+      return OS << "readwrite";
+    case ModRefInfo::Ref:
+      return OS << "read";
+    case ModRefInfo::Mod:
+      return OS << "write";
+    };
+    llvm_unreachable("Unexpected modref kind!");
+  };
 
-    if (auto *I = dyn_cast<Instruction>(&IRP.getAnchorValue())) {
-      if (!I->mayReadFromMemory())
-        State.addKnownBits(NO_READS);
-      if (!I->mayWriteToMemory())
-        State.addKnownBits(NO_WRITES);
-    }
-  }
-
-  /// See AbstractAttribute::getDeducedAttributes(...).
-  void getDeducedAttributes(Attributor &A, LLVMContext &Ctx,
-                            SmallVectorImpl<Attribute> &Attrs) const override {
-    assert(Attrs.size() == 0);
-    if (isAssumedReadNone())
-      Attrs.push_back(Attribute::get(Ctx, Attribute::ReadNone));
-    else if (isAssumedReadOnly())
-      Attrs.push_back(Attribute::get(Ctx, Attribute::ReadOnly));
-    else if (isAssumedWriteOnly())
-      Attrs.push_back(Attribute::get(Ctx, Attribute::WriteOnly));
-    assert(Attrs.size() <= 1);
-  }
-
-  /// See AbstractAttribute::manifest(...).
-  ChangeStatus manifest(Attributor &A) override {
-    const IRPosition &IRP = getIRPosition();
-
-    if (A.hasAttr(IRP, Attribute::ReadNone,
-                  /* IgnoreSubsumingPositions */ true))
-      return ChangeStatus::UNCHANGED;
-
-    // Check if we would improve the existing attributes first.
-    SmallVector<Attribute, 4> DeducedAttrs;
-    getDeducedAttributes(A, IRP.getAnchorValue().getContext(), DeducedAttrs);
-    if (llvm::all_of(DeducedAttrs, [&](const Attribute &Attr) {
-          return A.hasAttr(IRP, Attr.getKindAsEnum(),
-                           /* IgnoreSubsumingPositions */ true);
-        }))
-      return ChangeStatus::UNCHANGED;
-
-    // Clear existing attributes.
-    A.removeAttrs(IRP, AttrKinds);
-
-    // Use the generic manifest method.
-    return IRAttribute::manifest(A);
-  }
-
-  /// See AbstractState::getAsStr().
-  const std::string getAsStr(Attributor *A) const override {
-    if (isAssumedReadNone())
-      return "readnone";
-    if (isAssumedReadOnly())
-      return "readonly";
-    if (isAssumedWriteOnly())
-      return "writeonly";
-    return "may-read/write";
-  }
-
-  /// The set of IR attributes AAMemoryBehavior deals with.
-  static const Attribute::AttrKind AttrKinds[3];
-};
-
-const Attribute::AttrKind AAMemoryBehaviorImpl::AttrKinds[] = {
-    Attribute::ReadNone, Attribute::ReadOnly, Attribute::WriteOnly};
-
-/// Memory behavior attribute for a floating value.
-struct AAMemoryBehaviorFloating : AAMemoryBehaviorImpl {
-  AAMemoryBehaviorFloating(const IRPosition &IRP, Attributor &A)
-      : AAMemoryBehaviorImpl(IRP, A) {}
-
-  /// See AbstractAttribute::updateImpl(...).
-  ChangeStatus updateImpl(Attributor &A) override;
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    if (isAssumedReadNone())
-      STATS_DECLTRACK_FLOATING_ATTR(readnone)
-    else if (isAssumedReadOnly())
-      STATS_DECLTRACK_FLOATING_ATTR(readonly)
-    else if (isAssumedWriteOnly())
-      STATS_DECLTRACK_FLOATING_ATTR(writeonly)
-  }
-
-private:
-  /// Return true if users of \p UserI might access the underlying
-  /// variable/location described by \p U and should therefore be analyzed.
-  bool followUsersOfUseIn(Attributor &A, const Use &U,
-                          const Instruction *UserI);
-
-  /// Update the state according to the effect of use \p U in \p UserI.
-  void analyzeUseIn(Attributor &A, const Use &U, const Instruction *UserI);
-};
-
-/// Memory behavior attribute for function argument.
-struct AAMemoryBehaviorArgument : AAMemoryBehaviorFloating {
-  AAMemoryBehaviorArgument(const IRPosition &IRP, Attributor &A)
-      : AAMemoryBehaviorFloating(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    intersectAssumedBits(BEST_STATE);
-    const IRPosition &IRP = getIRPosition();
-    // TODO: Make IgnoreSubsumingPositions a property of an IRAttribute so we
-    // can query it when we use has/getAttr. That would allow us to reuse the
-    // initialize of the base class here.
-    bool HasByVal = A.hasAttr(IRP, {Attribute::ByVal},
-                              /* IgnoreSubsumingPositions */ true);
-    getKnownStateFromValue(A, IRP, getState(),
-                           /* IgnoreSubsumingPositions */ HasByVal);
-  }
-
-  ChangeStatus manifest(Attributor &A) override {
-    // TODO: Pointer arguments are not supported on vectors of pointers yet.
-    if (!getAssociatedValue().getType()->isPointerTy())
-      return ChangeStatus::UNCHANGED;
-
-    // TODO: From readattrs.ll: "inalloca parameters are always
-    //                           considered written"
-    if (A.hasAttr(getIRPosition(),
-                  {Attribute::InAlloca, Attribute::Preallocated})) {
-      removeKnownBits(NO_WRITES);
-      removeAssumedBits(NO_WRITES);
-    }
-    A.removeAttrs(getIRPosition(), AttrKinds);
-    return AAMemoryBehaviorFloating::manifest(A);
-  }
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    if (isAssumedReadNone())
-      STATS_DECLTRACK_ARG_ATTR(readnone)
-    else if (isAssumedReadOnly())
-      STATS_DECLTRACK_ARG_ATTR(readonly)
-    else if (isAssumedWriteOnly())
-      STATS_DECLTRACK_ARG_ATTR(writeonly)
-  }
-};
-
-struct AAMemoryBehaviorCallSiteArgument final : AAMemoryBehaviorArgument {
-  AAMemoryBehaviorCallSiteArgument(const IRPosition &IRP, Attributor &A)
-      : AAMemoryBehaviorArgument(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    // If we don't have an associated attribute this is either a variadic call
-    // or an indirect call, either way, nothing to do here.
-    Argument *Arg = getAssociatedArgument();
-    if (!Arg) {
-      indicatePessimisticFixpoint();
+  ModRefInfo OtherModRef = AAME.getModRef(AA::Location::Other);
+  auto HandleLoc = [&](AA::Location Loc) {
+    if (Loc == AA::Location::Other)
       return;
-    }
-    if (Arg->hasByValAttr()) {
-      addKnownBits(NO_WRITES);
-      removeKnownBits(NO_READS);
-      removeAssumedBits(NO_READS);
-    }
-    AAMemoryBehaviorArgument::initialize(A);
-    if (getAssociatedFunction()->isDeclaration())
-      indicatePessimisticFixpoint();
-  }
-
-  /// See AbstractAttribute::updateImpl(...).
-  ChangeStatus updateImpl(Attributor &A) override {
-    // TODO: Once we have call site specific value information we can provide
-    //       call site specific liveness liveness information and then it makes
-    //       sense to specialize attributes for call sites arguments instead of
-    //       redirecting requests to the callee argument.
-    Argument *Arg = getAssociatedArgument();
-    const IRPosition &ArgPos = IRPosition::argument(*Arg);
-    auto *ArgAA =
-        A.getAAFor<AAMemoryBehavior>(*this, ArgPos, DepClassTy::REQUIRED);
-    if (!ArgAA)
-      return indicatePessimisticFixpoint();
-    return clampStateAndIndicateChange(getState(), ArgAA->getState());
-  }
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    if (isAssumedReadNone())
-      STATS_DECLTRACK_CSARG_ATTR(readnone)
-    else if (isAssumedReadOnly())
-      STATS_DECLTRACK_CSARG_ATTR(readonly)
-    else if (isAssumedWriteOnly())
-      STATS_DECLTRACK_CSARG_ATTR(writeonly)
-  }
-};
-
-/// Memory behavior attribute for a call site return position.
-struct AAMemoryBehaviorCallSiteReturned final : AAMemoryBehaviorFloating {
-  AAMemoryBehaviorCallSiteReturned(const IRPosition &IRP, Attributor &A)
-      : AAMemoryBehaviorFloating(IRP, A) {}
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    AAMemoryBehaviorImpl::initialize(A);
-  }
-  /// See AbstractAttribute::manifest(...).
-  ChangeStatus manifest(Attributor &A) override {
-    // We do not annotate returned values.
-    return ChangeStatus::UNCHANGED;
-  }
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {}
-};
-
-/// An AA to represent the memory behavior function attributes.
-struct AAMemoryBehaviorFunction final : public AAMemoryBehaviorImpl {
-  AAMemoryBehaviorFunction(const IRPosition &IRP, Attributor &A)
-      : AAMemoryBehaviorImpl(IRP, A) {}
-
-  /// See AbstractAttribute::updateImpl(Attributor &A).
-  ChangeStatus updateImpl(Attributor &A) override;
-
-  /// See AbstractAttribute::manifest(...).
-  ChangeStatus manifest(Attributor &A) override {
-    // TODO: It would be better to merge this with AAMemoryLocation, so that
-    // we could determine read/write per location. This would also have the
-    // benefit of only one place trying to manifest the memory attribute.
-    Function &F = cast<Function>(getAnchorValue());
-    MemoryEffects ME = MemoryEffects::unknown();
-    if (isAssumedReadNone())
-      ME = MemoryEffects::none();
-    else if (isAssumedReadOnly())
-      ME = MemoryEffects::readOnly();
-    else if (isAssumedWriteOnly())
-      ME = MemoryEffects::writeOnly();
-
-    A.removeAttrs(getIRPosition(), AttrKinds);
-    return A.manifestAttrs(getIRPosition(),
-                           Attribute::getWithMemoryEffects(F.getContext(), ME));
-  }
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    if (isAssumedReadNone())
-      STATS_DECLTRACK_FN_ATTR(readnone)
-    else if (isAssumedReadOnly())
-      STATS_DECLTRACK_FN_ATTR(readonly)
-    else if (isAssumedWriteOnly())
-      STATS_DECLTRACK_FN_ATTR(writeonly)
-  }
-};
-
-/// AAMemoryBehavior attribute for call sites.
-struct AAMemoryBehaviorCallSite final : AAMemoryBehaviorImpl {
-  AAMemoryBehaviorCallSite(const IRPosition &IRP, Attributor &A)
-      : AAMemoryBehaviorImpl(IRP, A) {}
-
-  /// See AbstractAttribute::updateImpl(...).
-  ChangeStatus updateImpl(Attributor &A) override {
-    // TODO: Once we have call site specific value information we can provide
-    //       call site specific liveness liveness information and then it makes
-    //       sense to specialize attributes for call sites arguments instead of
-    //       redirecting requests to the callee argument.
-    Function *F = getAssociatedFunction();
-    const IRPosition &FnPos = IRPosition::function(*F);
-    auto *FnAA =
-        A.getAAFor<AAMemoryBehavior>(*this, FnPos, DepClassTy::REQUIRED);
-    if (!FnAA)
-      return indicatePessimisticFixpoint();
-    return clampStateAndIndicateChange(getState(), FnAA->getState());
-  }
-
-  /// See AbstractAttribute::manifest(...).
-  ChangeStatus manifest(Attributor &A) override {
-    // TODO: Deduplicate this with AAMemoryBehaviorFunction.
-    CallBase &CB = cast<CallBase>(getAnchorValue());
-    MemoryEffects ME = MemoryEffects::unknown();
-    if (isAssumedReadNone())
-      ME = MemoryEffects::none();
-    else if (isAssumedReadOnly())
-      ME = MemoryEffects::readOnly();
-    else if (isAssumedWriteOnly())
-      ME = MemoryEffects::writeOnly();
-
-    A.removeAttrs(getIRPosition(), AttrKinds);
-    return A.manifestAttrs(
-        getIRPosition(), Attribute::getWithMemoryEffects(CB.getContext(), ME));
-  }
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    if (isAssumedReadNone())
-      STATS_DECLTRACK_CS_ATTR(readnone)
-    else if (isAssumedReadOnly())
-      STATS_DECLTRACK_CS_ATTR(readonly)
-    else if (isAssumedWriteOnly())
-      STATS_DECLTRACK_CS_ATTR(writeonly)
-  }
-};
-
-ChangeStatus AAMemoryBehaviorFunction::updateImpl(Attributor &A) {
-
-  // The current assumed state used to determine a change.
-  auto AssumedState = getAssumed();
-
-  auto CheckRWInst = [&](Instruction &I) {
-    // If the instruction has an own memory behavior state, use it to restrict
-    // the local state. No further analysis is required as the other memory
-    // state is as optimistic as it gets.
-    if (const auto *CB = dyn_cast<CallBase>(&I)) {
-      const auto *MemBehaviorAA = A.getAAFor<AAMemoryBehavior>(
-          *this, IRPosition::callsite_function(*CB), DepClassTy::REQUIRED);
-      if (MemBehaviorAA) {
-        intersectAssumedBits(MemBehaviorAA->getAssumed());
-        return !isAtFixpoint();
-      }
-    }
-
-    // Remove access kind modifiers if necessary.
-    if (I.mayReadFromMemory())
-      removeAssumedBits(NO_READS);
-    if (I.mayWriteToMemory())
-      removeAssumedBits(NO_WRITES);
-    return !isAtFixpoint();
-  };
-
-  bool UsedAssumedInformation = false;
-  if (!A.checkForAllReadWriteInstructions(CheckRWInst, *this,
-                                          UsedAssumedInformation))
-    return indicatePessimisticFixpoint();
-
-  return (AssumedState != getAssumed()) ? ChangeStatus::CHANGED
-                                        : ChangeStatus::UNCHANGED;
-}
-
-ChangeStatus AAMemoryBehaviorFloating::updateImpl(Attributor &A) {
-
-  const IRPosition &IRP = getIRPosition();
-  const IRPosition &FnPos = IRPosition::function_scope(IRP);
-  AAMemoryBehavior::StateType &S = getState();
-
-  // First, check the function scope. We take the known information and we avoid
-  // work if the assumed information implies the current assumed information for
-  // this attribute. This is a valid for all but byval arguments.
-  Argument *Arg = IRP.getAssociatedArgument();
-  AAMemoryBehavior::base_t FnMemAssumedState =
-      AAMemoryBehavior::StateType::getWorstState();
-  if (!Arg || !Arg->hasByValAttr()) {
-    const auto *FnMemAA =
-        A.getAAFor<AAMemoryBehavior>(*this, FnPos, DepClassTy::OPTIONAL);
-    if (FnMemAA) {
-      FnMemAssumedState = FnMemAA->getAssumed();
-      S.addKnownBits(FnMemAA->getKnown());
-      if ((S.getAssumed() & FnMemAA->getAssumed()) == S.getAssumed())
-        return ChangeStatus::UNCHANGED;
-    }
-  }
-
-  // The current assumed state used to determine a change.
-  auto AssumedState = S.getAssumed();
-
-  // Make sure the value is not captured (except through "return"), if
-  // it is, any information derived would be irrelevant anyway as we cannot
-  // check the potential aliases introduced by the capture. However, no need
-  // to fall back to anythign less optimistic than the function state.
-  bool IsKnownNoCapture;
-  const AANoCapture *ArgNoCaptureAA = nullptr;
-  bool IsAssumedNoCapture = AA::hasAssumedIRAttr<Attribute::NoCapture>(
-      A, this, IRP, DepClassTy::OPTIONAL, IsKnownNoCapture, false,
-      &ArgNoCaptureAA);
-
-  if (!IsAssumedNoCapture &&
-      (!ArgNoCaptureAA || !ArgNoCaptureAA->isAssumedNoCaptureMaybeReturned())) {
-    S.intersectAssumedBits(FnMemAssumedState);
-    return (AssumedState != getAssumed()) ? ChangeStatus::CHANGED
-                                          : ChangeStatus::UNCHANGED;
-  }
-
-  // Visit and expand uses until all are analyzed or a fixpoint is reached.
-  auto UsePred = [&](const Use &U, bool &Follow) -> bool {
-    Instruction *UserI = cast<Instruction>(U.getUser());
-    LLVM_DEBUG(dbgs() << "[AAMemoryBehavior] Use: " << *U << " in " << *UserI
-                      << " \n");
-
-    // Droppable users, e.g., llvm::assume does not actually perform any action.
-    if (UserI->isDroppable())
-      return true;
-
-    // Check if the users of UserI should also be visited.
-    Follow = followUsersOfUseIn(A, U, UserI);
-
-    // If UserI might touch memory we analyze the use in detail.
-    if (UserI->mayReadOrWriteMemory())
-      analyzeUseIn(A, U, UserI);
-
-    return !isAtFixpoint();
-  };
-
-  if (!A.checkForAllUses(UsePred, *this, getAssociatedValue()))
-    return indicatePessimisticFixpoint();
-
-  return (AssumedState != getAssumed()) ? ChangeStatus::CHANGED
-                                        : ChangeStatus::UNCHANGED;
-}
-
-bool AAMemoryBehaviorFloating::followUsersOfUseIn(Attributor &A, const Use &U,
-                                                  const Instruction *UserI) {
-  // The loaded value is unrelated to the pointer argument, no need to
-  // follow the users of the load.
-  if (isa<LoadInst>(UserI) || isa<ReturnInst>(UserI))
-    return false;
-
-  // By default we follow all uses assuming UserI might leak information on U,
-  // we have special handling for call sites operands though.
-  const auto *CB = dyn_cast<CallBase>(UserI);
-  if (!CB || !CB->isArgOperand(&U))
-    return true;
-
-  // If the use is a call argument known not to be captured, the users of
-  // the call do not need to be visited because they have to be unrelated to
-  // the input. Note that this check is not trivial even though we disallow
-  // general capturing of the underlying argument. The reason is that the
-  // call might the argument "through return", which we allow and for which we
-  // need to check call users.
-  if (U.get()->getType()->isPointerTy()) {
-    unsigned ArgNo = CB->getArgOperandNo(&U);
-    bool IsKnownNoCapture;
-    return !AA::hasAssumedIRAttr<Attribute::NoCapture>(
-        A, this, IRPosition::callsite_argument(*CB, ArgNo),
-        DepClassTy::OPTIONAL, IsKnownNoCapture);
-  }
-
-  return true;
-}
-
-void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use &U,
-                                            const Instruction *UserI) {
-  assert(UserI->mayReadOrWriteMemory());
-
-  switch (UserI->getOpcode()) {
-  default:
-    // TODO: Handle all atomics and other side-effect operations we know of.
-    break;
-  case Instruction::Load:
-    // Loads cause the NO_READS property to disappear.
-    removeAssumedBits(NO_READS);
-    return;
-
-  case Instruction::Store:
-    // Stores cause the NO_WRITES property to disappear if the use is the
-    // pointer operand. Note that while capturing was taken care of somewhere
-    // else we need to deal with stores of the value that is not looked through.
-    if (cast<StoreInst>(UserI)->getPointerOperand() == U.get())
-      removeAssumedBits(NO_WRITES);
-    else
-      indicatePessimisticFixpoint();
-    return;
-
-  case Instruction::Call:
-  case Instruction::CallBr:
-  case Instruction::Invoke: {
-    // For call sites we look at the argument memory behavior attribute (this
-    // could be recursive!) in order to restrict our own state.
-    const auto *CB = cast<CallBase>(UserI);
-
-    // Give up on operand bundles.
-    if (CB->isBundleOperand(&U)) {
-      indicatePessimisticFixpoint();
+    ModRefInfo LocModRef = AAME.getModRef(Loc);
+    if (LocModRef == OtherModRef)
       return;
-    }
-
-    // Calling a function does read the function pointer, maybe write it if the
-    // function is self-modifying.
-    if (CB->isCallee(&U)) {
-      removeAssumedBits(NO_READS);
-      break;
-    }
-
-    // Adjust the possible access behavior based on the information on the
-    // argument.
-    IRPosition Pos;
-    if (U.get()->getType()->isPointerTy())
-      Pos = IRPosition::callsite_argument(*CB, CB->getArgOperandNo(&U));
-    else
-      Pos = IRPosition::callsite_function(*CB);
-    const auto *MemBehaviorAA =
-        A.getAAFor<AAMemoryBehavior>(*this, Pos, DepClassTy::OPTIONAL);
-    if (!MemBehaviorAA)
-      break;
-    // "assumed" has at most the same bits as the MemBehaviorAA assumed
-    // and at least "known".
-    intersectAssumedBits(MemBehaviorAA->getAssumed());
-    return;
-  }
+    OS << ", " << Loc << ": ";
+    HandleModRef(LocModRef);
   };
 
-  // Generally, look at the "may-properties" and adjust the assumed state if we
-  // did not trigger special handling before.
-  if (UserI->mayReadFromMemory())
-    removeAssumedBits(NO_READS);
-  if (UserI->mayWriteToMemory())
-    removeAssumedBits(NO_WRITES);
-}
-} // namespace
+  HandleModRef(OtherModRef);
+  for (AA::Location Loc : AAME.locations())
+    HandleLoc(Loc);
 
-/// -------------------- Memory Locations Attributes ---------------------------
-/// Includes read-none, argmemonly, inaccessiblememonly,
-/// inaccessiblememorargmemonly
-/// ----------------------------------------------------------------------------
-
-std::string AAMemoryLocation::getMemoryLocationsAsStr(
-    AAMemoryLocation::MemoryLocationsKind MLK) {
-  if (0 == (MLK & AAMemoryLocation::NO_LOCATIONS))
-    return "all memory";
-  if (MLK == AAMemoryLocation::NO_LOCATIONS)
-    return "no memory";
-  std::string S = "memory:";
-  if (0 == (MLK & AAMemoryLocation::NO_LOCAL_MEM))
-    S += "stack,";
-  if (0 == (MLK & AAMemoryLocation::NO_CONST_MEM))
-    S += "constant,";
-  if (0 == (MLK & AAMemoryLocation::NO_GLOBAL_INTERNAL_MEM))
-    S += "internal global,";
-  if (0 == (MLK & AAMemoryLocation::NO_GLOBAL_EXTERNAL_MEM))
-    S += "external global,";
-  if (0 == (MLK & AAMemoryLocation::NO_ARGUMENT_MEM))
-    S += "argument,";
-  if (0 == (MLK & AAMemoryLocation::NO_INACCESSIBLE_MEM))
-    S += "inaccessible,";
-  if (0 == (MLK & AAMemoryLocation::NO_MALLOCED_MEM))
-    S += "malloced,";
-  if (0 == (MLK & AAMemoryLocation::NO_UNKOWN_MEM))
-    S += "unknown,";
-  S.pop_back();
-  return S;
+  return OS << ")";
 }
 
 namespace {
 struct AAMemoryLocationImpl : public AAMemoryLocation {
 
   AAMemoryLocationImpl(const IRPosition &IRP, Attributor &A)
-      : AAMemoryLocation(IRP, A), Allocator(A.Allocator) {
-    AccessKind2Accesses.fill(nullptr);
-  }
+      : AAMemoryLocation(IRP, A) {}
 
-  ~AAMemoryLocationImpl() {
-    // The AccessSets are allocated via a BumpPtrAllocator, we call
-    // the destructor manually.
-    for (AccessSet *AS : AccessKind2Accesses)
-      if (AS)
-        AS->~AccessSet();
-  }
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    intersectAssumedBits(BEST_STATE);
-    getKnownStateFromValue(A, getIRPosition(), getState());
-    AAMemoryLocation::initialize(A);
-  }
-
-  /// Return the memory behavior information encoded in the IR for \p IRP.
-  static void getKnownStateFromValue(Attributor &A, const IRPosition &IRP,
-                                     BitIntegerState &State,
-                                     bool IgnoreSubsumingPositions = false) {
-    // For internal functions we ignore `argmemonly` and
+  static AA::MemoryEffects
+  getStateForFunction(Attributor &A, const IRPosition &IRP, Function *Fn) {
+    // For internal functions we weaken `argmemonly` and
     // `inaccessiblememorargmemonly` as we might break it via interprocedural
-    // constant propagation. It is unclear if this is the best way but it is
-    // unlikely this will cause real performance problems. If we are deriving
-    // attributes for the anchor function we even remove the attribute in
-    // addition to ignoring it.
-    // TODO: A better way to handle this would be to add ~NO_GLOBAL_MEM /
-    // MemoryEffects::Other as a possible location.
+    // constant propagation. Effectively, we add "global" and "constant" memory
+    // to the potentially accessed list too.
     bool UseArgMemOnly = true;
-    Function *AnchorFn = IRP.getAnchorScope();
-    if (AnchorFn && A.isRunOn(*AnchorFn))
-      UseArgMemOnly = !AnchorFn->hasLocalLinkage();
+    if (Fn && !Fn->isDeclaration() && A.isRunOn(*Fn))
+      UseArgMemOnly = !Fn->hasLocalLinkage();
 
-    SmallVector<Attribute, 2> Attrs;
-    A.getAttrs(IRP, {Attribute::Memory}, Attrs, IgnoreSubsumingPositions);
+    LLVMContext &Ctx = IRP.getAssociatedValue().getContext();
+    AA::MemoryEffects AAME = AA::MemoryEffects::unknown();
+
+    SmallVector<Attribute, 1> Attrs;
+    A.getAttrs(IRP, {Attribute::Memory}, Attrs,
+               /* IgnoreSubsumingPositions */ true);
     for (const Attribute &Attr : Attrs) {
-      // TODO: We can map MemoryEffects to Attributor locations more precisely.
       MemoryEffects ME = Attr.getMemoryEffects();
-      if (ME.doesNotAccessMemory()) {
-        State.addKnownBits(NO_LOCAL_MEM | NO_CONST_MEM);
-        continue;
+      if (!UseArgMemOnly &&
+          (ME & MemoryEffects::argMemOnly()) != MemoryEffects::none()) {
+        ME |= MemoryEffects(IRMemLocation::Other,
+                            ME.getModRef(IRMemLocation::ArgMem));
+        A.manifestAttrs(IRP, Attribute::getWithMemoryEffects(Ctx, ME),
+                        /*ForceReplace*/ true);
       }
-      if (ME.onlyAccessesInaccessibleMem()) {
-        State.addKnownBits(inverseLocation(NO_INACCESSIBLE_MEM, true, true));
-        continue;
-      }
-      if (ME.onlyAccessesArgPointees()) {
-        if (UseArgMemOnly)
-          State.addKnownBits(inverseLocation(NO_ARGUMENT_MEM, true, true));
-        else {
-          // Remove location information, only keep read/write info.
-          ME = MemoryEffects(ME.getModRef());
-          A.manifestAttrs(IRP,
-                          Attribute::getWithMemoryEffects(
-                              IRP.getAnchorValue().getContext(), ME),
-                          /*ForceReplace*/ true);
-        }
-        continue;
-      }
-      if (ME.onlyAccessesInaccessibleOrArgMem()) {
-        if (UseArgMemOnly)
-          State.addKnownBits(inverseLocation(
-              NO_INACCESSIBLE_MEM | NO_ARGUMENT_MEM, true, true));
-        else {
-          // Remove location information, only keep read/write info.
-          ME = MemoryEffects(ME.getModRef());
-          A.manifestAttrs(IRP,
-                          Attribute::getWithMemoryEffects(
-                              IRP.getAnchorValue().getContext(), ME),
-                          /*ForceReplace*/ true);
-        }
-        continue;
-      }
+      AA::MemoryEffects AttrAAME(ME);
+      AAME &= AttrAAME;
     }
+    return AAME;
   }
 
-  /// See AbstractAttribute::getDeducedAttributes(...).
-  void getDeducedAttributes(Attributor &A, LLVMContext &Ctx,
-                            SmallVectorImpl<Attribute> &Attrs) const override {
-    // TODO: We can map Attributor locations to MemoryEffects more precisely.
-    assert(Attrs.size() == 0);
-    if (getIRPosition().getPositionKind() == IRPosition::IRP_FUNCTION) {
-      if (isAssumedReadNone())
-        Attrs.push_back(
-            Attribute::getWithMemoryEffects(Ctx, MemoryEffects::none()));
-      else if (isAssumedInaccessibleMemOnly())
-        Attrs.push_back(Attribute::getWithMemoryEffects(
-            Ctx, MemoryEffects::inaccessibleMemOnly()));
-      else if (isAssumedArgMemOnly())
-        Attrs.push_back(
-            Attribute::getWithMemoryEffects(Ctx, MemoryEffects::argMemOnly()));
-      else if (isAssumedInaccessibleOrArgMemOnly())
-        Attrs.push_back(Attribute::getWithMemoryEffects(
-            Ctx, MemoryEffects::inaccessibleOrArgMemOnly()));
+  static AA::MemoryEffects getStateForArgument(Attributor &A,
+                                               const IRPosition &IRP) {
+    auto GetMEFromAttr = [](const Attribute &Attr) {
+      switch (Attr.getKindAsEnum()) {
+      case Attribute::ReadNone:
+        return AA::MemoryEffects::none();
+      case Attribute::ReadOnly:
+        return AA::MemoryEffects::readOnly();
+        break;
+      case Attribute::WriteOnly:
+        return AA::MemoryEffects::writeOnly();
+      default:
+        llvm_unreachable("Unexpected attribute kind");
+      };
+    };
+
+    AA::MemoryEffects Known = AA::MemoryEffects::unknown();
+    SmallVector<Attribute::AttrKind, 4> AttrKinds{
+        Attribute::ReadNone, Attribute::ReadOnly, Attribute::WriteOnly};
+
+    SmallVector<Attribute, 1> Attrs;
+    A.getAttrs(IRP, AttrKinds, Attrs, /* IgnoreSubsumingPositions */ true);
+    for (const Attribute &Attr : Attrs)
+      Known &= GetMEFromAttr(Attr);
+    return Known;
+  }
+
+  static AA::MemoryEffects
+  getStateFromCallSiteArg(Attributor &A, const CallBase &CB, unsigned ArgNo) {
+    AA::MemoryEffects Known = AA::MemoryEffects::unknown();
+    if (CB.isByValArgument(ArgNo))
+      Known &= AA::MemoryEffects::readOnly();
+    Known &= getStateForArgument(A, IRPosition::callsite_argument(CB, ArgNo));
+    Function *Callee = CB.getCalledFunction();
+    if (Callee && Callee->arg_size() > ArgNo)
+      Known &=
+          getStateForArgument(A, IRPosition::argument(*Callee->getArg(ArgNo)));
+    return Known;
+  }
+
+  static AA::MemoryEffects getStateFromCallSite(Attributor &A,
+                                                const CallBase &CB) {
+    Function *Callee = CB.getCalledFunction();
+    AA::MemoryEffects Known =
+        getStateForFunction(A, IRPosition::callsite_function(CB), Callee);
+    if (Callee)
+      Known &= getStateForFunction(A, IRPosition::function(*Callee), Callee);
+    return Known;
+  }
+
+  ChangeStatus manifestArgs(Attributor &A) {
+    const IRPosition &IRP = getIRPosition();
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+
+    LLVMContext &Ctx = IRP.getAnchorValue().getContext();
+    CallBase *CB = dyn_cast_or_null<CallBase>(&IRP.getAnchorValue());
+    Function *Callee = IRP.getAssociatedFunction();
+
+    AttributeMask MemBehaviorAttrs;
+    MemBehaviorAttrs.addAttribute(Attribute::ReadNone);
+    MemBehaviorAttrs.addAttribute(Attribute::ReadOnly);
+    MemBehaviorAttrs.addAttribute(Attribute::WriteOnly);
+
+    for (unsigned ArgNo = 0, NA = IRP.getNumArgs(); ArgNo != NA; ++ArgNo) {
+      // Not a pointer, skip.
+      if (!IRP.getArg(ArgNo)->getType()->isPointerTy())
+        continue;
+      ModRefInfo ArgMRI =
+          getAssumed(IRP_ARGUMENT, ArgNo).getModRef(AA::Location::ArgMem);
+      Attribute::AttrKind Kind = Attribute::None;
+      switch (ArgMRI) {
+      case ModRefInfo::ModRef:
+        continue;
+      case ModRefInfo::Ref:
+        Kind = Attribute::ReadOnly;
+        break;
+      case ModRefInfo::Mod:
+        Kind = Attribute::WriteOnly;
+        break;
+      case ModRefInfo::NoModRef:
+        Kind = Attribute::ReadNone;
+        break;
+      };
+
+      const IRPosition &ArgIRP =
+          CB ? IRPosition::callsite_argument(*CB, ArgNo)
+             : IRPosition::argument(*Callee->getArg(ArgNo));
+      Changed |=
+          A.removeAttrs(ArgIRP, {Attribute::ReadNone, Attribute::ReadOnly,
+                                 Attribute::WriteOnly});
+      Changed |= A.manifestAttrs(ArgIRP, Attribute::get(Ctx, Kind));
     }
-    assert(Attrs.size() <= 1);
+
+    return Changed;
+  }
+
+  ChangeStatus manifestFunction(Attributor &A) {
+    const IRPosition IRP = getIRPosition();
+
+    AA::MemoryEffects AAME = getAssumed(IRP.getPositionKind());
+    llvm::MemoryEffects ME = AAME.getAsIRMemoryEffects();
+
+    if (!hasPtrArgs()) {
+      // Make the `argmem` effects match the `other` effects, not more, not
+      // less.
+      ME -= llvm::MemoryEffects::argMemOnly();
+      ME |= llvm::MemoryEffects::argMemOnly(ME.getModRef(IRMemLocation::Other));
+    }
+
+    LLVMContext &Ctx = IRP.getAssociatedValue().getContext();
+    return A.manifestAttrs(IRP, Attribute::getWithMemoryEffects(Ctx, ME));
   }
 
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
-    // TODO: If AAMemoryLocation and AAMemoryBehavior are merged, we could
-    // provide per-location modref information here.
-    const IRPosition &IRP = getIRPosition();
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
-    SmallVector<Attribute, 1> DeducedAttrs;
-    getDeducedAttributes(A, IRP.getAnchorValue().getContext(), DeducedAttrs);
-    if (DeducedAttrs.size() != 1)
-      return ChangeStatus::UNCHANGED;
-    MemoryEffects ME = DeducedAttrs[0].getMemoryEffects();
+    if (hasPtrArgs())
+      Changed |= AAMemoryLocationImpl::manifestArgs(A);
+    Changed |= AAMemoryLocationImpl::manifestFunction(A);
 
-    return A.manifestAttrs(IRP, Attribute::getWithMemoryEffects(
-                                    IRP.getAnchorValue().getContext(), ME));
+    return Changed;
   }
 
   /// See AAMemoryLocation::checkForAllAccessesToMemoryKind(...).
   bool checkForAllAccessesToMemoryKind(
-      function_ref<bool(const Instruction *, const Value *, AccessKind,
-                        MemoryLocationsKind)>
+      function_ref<bool(const Instruction *, const Value *, AA::MemoryEffects)>
           Pred,
-      MemoryLocationsKind RequestedMLK) const override {
+      AA::MemoryEffects AAME) const override {
     if (!isValidState())
       return false;
 
-    MemoryLocationsKind AssumedMLK = getAssumedNotAccessedLocation();
-    if (AssumedMLK == NO_LOCATIONS)
+    AA::MemoryEffects AssumedME = getAssumedAccessedLocation();
+    if ((AssumedME & AAME) == AA::MemoryEffects::none())
       return true;
 
-    unsigned Idx = 0;
-    for (MemoryLocationsKind CurMLK = 1; CurMLK < NO_LOCATIONS;
-         CurMLK *= 2, ++Idx) {
-      if (CurMLK & RequestedMLK)
-        continue;
-
-      if (const AccessSet *Accesses = AccessKind2Accesses[Idx])
-        for (const AccessInfo &AI : *Accesses)
-          if (!Pred(AI.I, AI.Ptr, AI.Kind, CurMLK))
-            return false;
-    }
+    for (const AccessInfo &AI : AccessInfoVec)
+      if ((AI.AAME & AAME) != AA::MemoryEffects::none())
+        if (!Pred(AI.I, AI.Ptr, AI.AAME))
+          return false;
 
     return true;
   }
 
-  ChangeStatus indicatePessimisticFixpoint() override {
-    // If we give up and indicate a pessimistic fixpoint this instruction will
-    // become an access for all potential access kinds:
-    // TODO: Add pointers for argmemonly and globals to improve the results of
-    //       checkForAllAccessesToMemoryKind.
-    bool Changed = false;
-    MemoryLocationsKind KnownMLK = getKnown();
-    Instruction *I = dyn_cast<Instruction>(&getAssociatedValue());
-    for (MemoryLocationsKind CurMLK = 1; CurMLK < NO_LOCATIONS; CurMLK *= 2)
-      if (!(CurMLK & KnownMLK))
-        updateStateAndAccessesMap(getState(), CurMLK, I, nullptr, Changed,
-                                  getAccessKindFromInst(I));
-    return AAMemoryLocation::indicatePessimisticFixpoint();
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    if (isAssumedReadNone()) {
+      STATS_DECLTRACK_FN_ATTR(readnone)
+      return;
+    }
+    if (isAssumedArgMemOnly())
+      STATS_DECLTRACK_FN_ATTR(argmemonly)
+    else if (isAssumedInaccessibleMemOnly())
+      STATS_DECLTRACK_FN_ATTR(inaccessiblememonly)
+    else if (isAssumedInaccessibleOrArgMemOnly())
+      STATS_DECLTRACK_FN_ATTR(inaccessiblememorargmemonly)
+    if (getAssumedAccessedLocation().onlyReadsMemory())
+      STATS_DECLTRACK_FN_ATTR(readonly)
+    else if (getAssumedAccessedLocation().onlyWritesMemory())
+      STATS_DECLTRACK_FN_ATTR(writeonly)
   }
 
 protected:
@@ -8459,275 +7994,226 @@ protected:
     /// The base pointer that is accessed, or null if unknown.
     const Value *Ptr;
 
-    /// The kind of access (read/write/read+write).
-    AccessKind Kind;
+    /// The effects of this access (read/write/read+write + locations).
+    AA::MemoryEffects AAME;
 
     bool operator==(const AccessInfo &RHS) const {
-      return I == RHS.I && Ptr == RHS.Ptr && Kind == RHS.Kind;
+      return I == RHS.I && Ptr == RHS.Ptr && AAME == RHS.AAME;
     }
     bool operator()(const AccessInfo &LHS, const AccessInfo &RHS) const {
       if (LHS.I != RHS.I)
         return LHS.I < RHS.I;
       if (LHS.Ptr != RHS.Ptr)
         return LHS.Ptr < RHS.Ptr;
-      if (LHS.Kind != RHS.Kind)
-        return LHS.Kind < RHS.Kind;
+      if (LHS.AAME != RHS.AAME)
+        return LHS.AAME.toIntValue() < RHS.AAME.toIntValue();
       return false;
     }
   };
 
-  /// Mapping from *single* memory location kinds, e.g., LOCAL_MEM with the
-  /// value of NO_LOCAL_MEM, to the accesses encountered for this memory kind.
-  using AccessSet = SmallSet<AccessInfo, 2, AccessInfo>;
-  std::array<AccessSet *, llvm::CTLog2<VALID_STATE>()> AccessKind2Accesses;
-
-  /// Categorize the pointer arguments of CB that might access memory in
-  /// AccessedLoc and update the state and access map accordingly.
-  void
-  categorizeArgumentPointerLocations(Attributor &A, CallBase &CB,
-                                     AAMemoryLocation::StateType &AccessedLocs,
-                                     bool &Changed);
+  SmallVector<AccessInfo, 16> AccessInfoVec;
 
   /// Return the kind(s) of location that may be accessed by \p V.
-  AAMemoryLocation::MemoryLocationsKind
-  categorizeAccessedLocations(Attributor &A, Instruction &I, bool &Changed);
+  AA::MemoryEffects categorizeAccessedLocations(Attributor &A, Instruction &I,
+                                                ChangeStatus &Changed);
 
   /// Return the access kind as determined by \p I.
-  AccessKind getAccessKindFromInst(const Instruction *I) {
-    AccessKind AK = READ_WRITE;
-    if (I) {
-      AK = I->mayReadFromMemory() ? READ : NONE;
-      AK = AccessKind(AK | (I->mayWriteToMemory() ? WRITE : NONE));
-    }
-    return AK;
-  }
-
-  /// Update the state \p State and the AccessKind2Accesses given that \p I is
-  /// an access of kind \p AK to a \p MLK memory location with the access
-  /// pointer \p Ptr.
-  void updateStateAndAccessesMap(AAMemoryLocation::StateType &State,
-                                 MemoryLocationsKind MLK, const Instruction *I,
-                                 const Value *Ptr, bool &Changed,
-                                 AccessKind AK = READ_WRITE) {
-
-    assert(isPowerOf2_32(MLK) && "Expected a single location set!");
-    auto *&Accesses = AccessKind2Accesses[llvm::Log2_32(MLK)];
-    if (!Accesses)
-      Accesses = new (Allocator) AccessSet();
-    Changed |= Accesses->insert(AccessInfo{I, Ptr, AK}).second;
-    if (MLK == NO_UNKOWN_MEM)
-      MLK = NO_LOCATIONS;
-    State.removeAssumedBits(MLK);
+  ModRefInfo getAccessKindFromInst(const Instruction *I) const {
+    if (!I)
+      return ModRefInfo::ModRef;
+    ModRefInfo MRI = ModRefInfo::NoModRef;
+    if (I->mayReadFromMemory())
+      MRI |= ModRefInfo::Ref;
+    if (I->mayWriteToMemory())
+      MRI |= ModRefInfo::Mod;
+    return MRI;
   }
 
   /// Determine the underlying locations kinds for \p Ptr, e.g., globals or
   /// arguments, and update the state and access map accordingly.
-  void categorizePtrValue(Attributor &A, const Instruction &I, const Value &Ptr,
-                          AAMemoryLocation::StateType &State, bool &Changed,
-                          unsigned AccessAS = 0);
-
-  /// Used to allocate access sets.
-  BumpPtrAllocator &Allocator;
+  AA::MemoryEffects categorizePtrValue(Attributor &A, const Instruction &I,
+                                       const Value &Ptr, ModRefInfo MRI,
+                                       ChangeStatus &Changed,
+                                       unsigned AccessAS = 0);
 };
 
-void AAMemoryLocationImpl::categorizePtrValue(
-    Attributor &A, const Instruction &I, const Value &Ptr,
-    AAMemoryLocation::StateType &State, bool &Changed, unsigned AccessAS) {
-  LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Categorize pointer locations for "
-                    << Ptr << " ["
-                    << getMemoryLocationsAsStr(State.getAssumed()) << "]\n");
+AA::MemoryEffects AAMemoryLocationImpl::categorizePtrValue(
+    Attributor &A, const Instruction &I, const Value &Ptr, ModRefInfo MRI,
+    ChangeStatus &Changed, unsigned AccessAS) {
+  LLVM_DEBUG({
+    dbgs() << "[AAMemoryLocation] Categorize pointer locations for ";
+    if (isa<Function>(Ptr))
+      dbgs() << Ptr.getName() << "\n";
+    else
+      dbgs() << Ptr << "\n";
+  });
+
+  AA::MemoryEffects AAME = AA::MemoryEffects::none();
+  AAResults *AAR = A.getInfoCache().getAnalysisResultForFunction<AAManager>(
+      *getAnchorScope(), /* CachedOnly */ true);
 
   auto Pred = [&](Value &Obj) {
-    unsigned ObjectAS = Obj.getType()->getPointerAddressSpace();
-    // TODO: recognize the TBAA used for constant accesses.
-    MemoryLocationsKind MLK = NO_LOCATIONS;
+    if (isa<UndefValue>(&Obj))
+      return true;
+    if (isa<ConstantPointerNull>(&Obj) &&
+        !NullPointerIsDefined(getAssociatedFunction(), AccessAS)) {
+      return true;
+    }
 
+    if (AAR && AAR->pointsToConstantMemory(&Obj)) {
+      AAME = AA::MemoryEffects(AA::Location::Const, MRI);
+      return true;
+    }
+
+    unsigned ObjectAS = Obj.getType()->getPointerAddressSpace();
     // Filter accesses to constant (GPU) memory if we have an AS at the access
     // site or the object is known to actually have the associated AS.
     if ((AccessAS == (unsigned)AA::GPUAddressSpace::Constant ||
          (ObjectAS == (unsigned)AA::GPUAddressSpace::Constant &&
           isIdentifiedObject(&Obj))) &&
-        AA::isGPU(*I.getModule()))
+        AA::isGPU(*I.getModule())) {
+      AAME = AA::MemoryEffects(AA::Location::Const, MRI);
       return true;
+    }
 
-    if (isa<UndefValue>(&Obj))
-      return true;
-    if (isa<Argument>(&Obj)) {
+    if (auto *Arg = dyn_cast<Argument>(&Obj)) {
       // TODO: For now we do not treat byval arguments as local copies performed
       // on the call edge, though, we should. To make that happen we need to
       // teach various passes, e.g., DSE, about the copy effect of a byval. That
       // would also allow us to mark functions only accessing byval arguments as
       // readnone again, arguably their accesses have no effect outside of the
       // function, like accesses to allocas.
-      MLK = NO_ARGUMENT_MEM;
-    } else if (auto *GV = dyn_cast<GlobalValue>(&Obj)) {
-      // Reading constant memory is not treated as a read "effect" by the
-      // function attr pass so we won't neither. Constants defined by TBAA are
-      // similar. (We know we do not write it because it is constant.)
-      if (auto *GVar = dyn_cast<GlobalVariable>(GV))
-        if (GVar->isConstant())
-          return true;
-
-      if (GV->hasLocalLinkage())
-        MLK = NO_GLOBAL_INTERNAL_MEM;
-      else
-        MLK = NO_GLOBAL_EXTERNAL_MEM;
-    } else if (isa<ConstantPointerNull>(&Obj) &&
-               (!NullPointerIsDefined(getAssociatedFunction(), AccessAS) ||
-                !NullPointerIsDefined(getAssociatedFunction(), ObjectAS))) {
+      AA::MemoryEffects ArgAAME = AA::MemoryEffects::argMemOnly(MRI);
+      // Record the effect on the argument as well.
+      Changed |= restrictAssume(IRP_ARGUMENT, ArgAAME, Arg->getArgNo());
+      AAME |= ArgAAME;
       return true;
-    } else if (isa<AllocaInst>(&Obj)) {
-      MLK = NO_LOCAL_MEM;
-    } else if (const auto *CB = dyn_cast<CallBase>(&Obj)) {
-      bool IsKnownNoAlias;
-      if (AA::hasAssumedIRAttr<Attribute::NoAlias>(
-              A, this, IRPosition::callsite_returned(*CB), DepClassTy::OPTIONAL,
-              IsKnownNoAlias))
-        MLK = NO_MALLOCED_MEM;
-      else
-        MLK = NO_UNKOWN_MEM;
-    } else {
-      MLK = NO_UNKOWN_MEM;
     }
 
-    assert(MLK != NO_LOCATIONS && "No location specified!");
-    LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Ptr value can be categorized: "
-                      << Obj << " -> " << getMemoryLocationsAsStr(MLK) << "\n");
-    updateStateAndAccessesMap(State, MLK, &I, &Obj, Changed,
-                              getAccessKindFromInst(&I));
+    if (auto *GV = dyn_cast<GlobalValue>(&Obj)) {
+      if (auto *GVar = dyn_cast<GlobalVariable>(GV))
+        if (GVar->isConstant()) {
+          AAME = AA::MemoryEffects(AA::Location::Const, MRI);
+          return true;
+        }
 
-    return true;
+      if (GV->hasLocalLinkage())
+        AAME = AA::MemoryEffects(AA::Location::GlobalInternal, MRI);
+      else
+        AAME = AA::MemoryEffects(AA::Location::GlobalExternal, MRI);
+      return true;
+    }
+
+    if (isa<AllocaInst>(&Obj)) {
+      AAME = AA::MemoryEffects(AA::Location::Local, MRI);
+      return true;
+    }
+    if (const auto *CB = dyn_cast<CallBase>(&Obj)) {
+      bool IsKnown;
+      if (AA::hasAssumedIRAttr<Attribute::NoAlias>(
+              A, this, IRPosition::callsite_returned(*CB), DepClassTy::OPTIONAL,
+              IsKnown)) {
+        AAME = AA::MemoryEffects(AA::Location::Malloced, MRI);
+        return true;
+      }
+    }
+
+    LLVM_DEBUG(dbgs() << "Could not categorize underlying pointer: " << Obj
+                      << "\n");
+    return false;
   };
 
   const auto *AA = A.getAAFor<AAUnderlyingObjects>(
       *this, IRPosition::value(Ptr), DepClassTy::OPTIONAL);
   if (!AA || !AA->forallUnderlyingObjects(Pred, AA::Intraprocedural)) {
-    LLVM_DEBUG(
-        dbgs() << "[AAMemoryLocation] Pointer locations not categorized\n");
-    updateStateAndAccessesMap(State, NO_UNKOWN_MEM, &I, nullptr, Changed,
-                              getAccessKindFromInst(&I));
-    return;
+    LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Not all pointer locations "
+                         "categorized, giving up on "
+                      << I << "\n");
+    AAME = AA::MemoryEffects(MRI) - AA::MemoryEffects::inaccessibleMemOnly();
   }
 
   LLVM_DEBUG(
       dbgs() << "[AAMemoryLocation] Accessed locations with pointer locations: "
-             << getMemoryLocationsAsStr(State.getAssumed()) << "\n");
+             << AAME << "\n");
+  return AAME;
 }
 
-void AAMemoryLocationImpl::categorizeArgumentPointerLocations(
-    Attributor &A, CallBase &CB, AAMemoryLocation::StateType &AccessedLocs,
-    bool &Changed) {
-  for (unsigned ArgNo = 0, E = CB.arg_size(); ArgNo < E; ++ArgNo) {
-
-    // Skip non-pointer arguments.
-    const Value *ArgOp = CB.getArgOperand(ArgNo);
-    if (!ArgOp->getType()->isPtrOrPtrVectorTy())
-      continue;
-
-    // Skip readnone arguments.
-    const IRPosition &ArgOpIRP = IRPosition::callsite_argument(CB, ArgNo);
-    const auto *ArgOpMemLocationAA =
-        A.getAAFor<AAMemoryBehavior>(*this, ArgOpIRP, DepClassTy::OPTIONAL);
-
-    if (ArgOpMemLocationAA && ArgOpMemLocationAA->isAssumedReadNone())
-      continue;
-
-    // Categorize potentially accessed pointer arguments as if there was an
-    // access instruction with them as pointer.
-    categorizePtrValue(A, CB, *ArgOp, AccessedLocs, Changed);
-  }
-}
-
-AAMemoryLocation::MemoryLocationsKind
+AA::MemoryEffects
 AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
-                                                  bool &Changed) {
+                                                  ChangeStatus &Changed) {
   LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Categorize accessed locations for "
                     << I << "\n");
 
-  AAMemoryLocation::StateType AccessedLocs;
-  AccessedLocs.intersectAssumedBits(NO_LOCATIONS);
-
   if (auto *CB = dyn_cast<CallBase>(&I)) {
+    const AAMemoryLocation *CBMemLocationAA = nullptr;
+    AA::MemoryEffects AAME = AA::MemoryEffects::unknown();
 
-    // First check if we assume any memory is access is visible.
-    const auto *CBMemLocationAA = A.getAAFor<AAMemoryLocation>(
-        *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
-    LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Categorize call site: " << I
-                      << " [" << CBMemLocationAA << "]\n");
-    if (!CBMemLocationAA) {
-      updateStateAndAccessesMap(AccessedLocs, NO_UNKOWN_MEM, &I, nullptr,
-                                Changed, getAccessKindFromInst(&I));
-      return NO_UNKOWN_MEM;
+    if (!A.isRunOn(CB->getCalledFunction())) {
+      AAME = getStateFromCallSite(A, *CB);
+    } else {
+      // First check if we assume any memory is access is visible.
+      CBMemLocationAA = A.getAAFor<AAMemoryLocation>(
+          *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
+      LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Categorize call site: " << I
+                        << " [" << CBMemLocationAA << "]\n");
+      if (!CBMemLocationAA) {
+        AAME = getStateFromCallSite(A, *CB);
+      } else if (CBMemLocationAA->isAssumedReadNone()) {
+        return AA::MemoryEffects::none();
+      } else {
+        // Take the effects but remove local (to the callee) memory.
+        AAME = CBMemLocationAA->getAssumedAccessedLocation() -
+               AA::MemoryEffects(AA::Location::Local, ModRefInfo::ModRef);
+      }
     }
 
-    if (CBMemLocationAA->isAssumedReadNone())
-      return NO_LOCATIONS;
+    if ((AAME & AA::MemoryEffects::argMemOnly()) != AA::MemoryEffects::none()) {
+      ModRefInfo FnArgMemMI = AAME.getModRef(AA::Location::ArgMem);
+      AAME -= AA::MemoryEffects::argMemOnly();
 
-    if (CBMemLocationAA->isAssumedInaccessibleMemOnly()) {
-      updateStateAndAccessesMap(AccessedLocs, NO_INACCESSIBLE_MEM, &I, nullptr,
-                                Changed, getAccessKindFromInst(&I));
-      return AccessedLocs.getAssumed();
+      for (unsigned ArgNo = 0, E = CB->arg_size(); ArgNo < E; ++ArgNo) {
+
+        // Skip non-pointer arguments.
+        const Value *ArgOp = CB->getArgOperand(ArgNo);
+        if (!ArgOp->getType()->isPointerTy())
+          continue;
+
+        AA::MemoryEffects CBArgAAME =
+            CBMemLocationAA ? CBMemLocationAA->getAssumed(IRP_ARGUMENT, ArgNo)
+                            : getStateFromCallSiteArg(A, *CB, ArgNo);
+        ModRefInfo CBArgMRI =
+            CBArgAAME.getModRef(AA::Location::ArgMem) & FnArgMemMI;
+        if (CBArgMRI == ModRefInfo::NoModRef)
+          continue;
+
+        AA::MemoryEffects ArgAAME =
+            categorizePtrValue(A, I, *ArgOp, CBArgMRI, Changed,
+                               ArgOp->getType()->getPointerAddressSpace());
+        if (!ArgAAME.doesNotAccessMemory())
+          AccessInfoVec.push_back(AccessInfo{&I, ArgOp, ArgAAME});
+        AAME |= ArgAAME;
+      }
     }
 
-    uint32_t CBAssumedNotAccessedLocs =
-        CBMemLocationAA->getAssumedNotAccessedLocation();
-
-    // Set the argmemonly and global bit as we handle them separately below.
-    uint32_t CBAssumedNotAccessedLocsNoArgMem =
-        CBAssumedNotAccessedLocs | NO_ARGUMENT_MEM | NO_GLOBAL_MEM;
-
-    for (MemoryLocationsKind CurMLK = 1; CurMLK < NO_LOCATIONS; CurMLK *= 2) {
-      if (CBAssumedNotAccessedLocsNoArgMem & CurMLK)
-        continue;
-      updateStateAndAccessesMap(AccessedLocs, CurMLK, &I, nullptr, Changed,
-                                getAccessKindFromInst(&I));
-    }
-
-    // Now handle global memory if it might be accessed. This is slightly tricky
-    // as NO_GLOBAL_MEM has multiple bits set.
-    bool HasGlobalAccesses = ((~CBAssumedNotAccessedLocs) & NO_GLOBAL_MEM);
-    if (HasGlobalAccesses) {
-      auto AccessPred = [&](const Instruction *, const Value *Ptr,
-                            AccessKind Kind, MemoryLocationsKind MLK) {
-        updateStateAndAccessesMap(AccessedLocs, MLK, &I, Ptr, Changed,
-                                  getAccessKindFromInst(&I));
-        return true;
-      };
-      if (!CBMemLocationAA->checkForAllAccessesToMemoryKind(
-              AccessPred, inverseLocation(NO_GLOBAL_MEM, false, false)))
-        return AccessedLocs.getWorstState();
-    }
-
-    LLVM_DEBUG(
-        dbgs() << "[AAMemoryLocation] Accessed state before argument handling: "
-               << getMemoryLocationsAsStr(AccessedLocs.getAssumed()) << "\n");
-
-    // Now handle argument memory if it might be accessed.
-    bool HasArgAccesses = ((~CBAssumedNotAccessedLocs) & NO_ARGUMENT_MEM);
-    if (HasArgAccesses)
-      categorizeArgumentPointerLocations(A, *CB, AccessedLocs, Changed);
-
-    LLVM_DEBUG(
-        dbgs() << "[AAMemoryLocation] Accessed state after argument handling: "
-               << getMemoryLocationsAsStr(AccessedLocs.getAssumed()) << "\n");
-
-    return AccessedLocs.getAssumed();
+    if (!AAME.doesNotAccessMemory())
+      AccessInfoVec.push_back(AccessInfo{&I, nullptr, AAME});
+    return AAME;
   }
 
   if (const Value *Ptr = getPointerOperand(&I, /* AllowVolatile */ true)) {
     LLVM_DEBUG(
         dbgs() << "[AAMemoryLocation] Categorize memory access with pointer: "
                << I << " [" << *Ptr << "]\n");
-    categorizePtrValue(A, I, *Ptr, AccessedLocs, Changed,
-                       Ptr->getType()->getPointerAddressSpace());
-    return AccessedLocs.getAssumed();
+    AA::MemoryEffects AAME =
+        categorizePtrValue(A, I, *Ptr, getAccessKindFromInst(&I), Changed,
+                           Ptr->getType()->getPointerAddressSpace());
+    AccessInfoVec.push_back(AccessInfo{&I, Ptr, AAME});
+    return AAME;
   }
 
   LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Failed to categorize instruction: "
                     << I << "\n");
-  updateStateAndAccessesMap(AccessedLocs, NO_UNKOWN_MEM, &I, nullptr, Changed,
-                            getAccessKindFromInst(&I));
-  return AccessedLocs.getAssumed();
+  return AA::MemoryEffects::unknown();
 }
 
 /// An AA to represent the memory behavior function attributes.
@@ -8735,54 +8221,229 @@ struct AAMemoryLocationFunction final : public AAMemoryLocationImpl {
   AAMemoryLocationFunction(const IRPosition &IRP, Attributor &A)
       : AAMemoryLocationImpl(IRP, A) {}
 
+  void initialize(Attributor &A) override {
+    Function *F = getAssociatedFunction();
+    AA::MemoryEffects FnAAME = getStateForFunction(A, getIRPosition(), F);
+    expandKnown(IRP_FUNCTION, FnAAME);
+    if (!hasPtrArgs())
+      return;
+    for (Argument &Arg : F->args()) {
+      if (!Arg.getType()->isPointerTy())
+        continue;
+      bool IsInAllocaOrPreAllocated = Arg.hasAttribute(Attribute::InAlloca) ||
+                                      Arg.hasAttribute(Attribute::Preallocated);
+      // TODO: From readattrs.ll: "inalloca parameters are always considered
+      // written"
+      if (IsInAllocaOrPreAllocated) {
+        AA::MemoryEffects WriteAAME =
+            AA::MemoryEffects::argMemOnly(ModRefInfo::Mod);
+        restrictAssume(IRP_FUNCTION, WriteAAME);
+        restrictAssume(IRP_ARGUMENT, WriteAAME, Arg.getArgNo());
+      }
+      AA::MemoryEffects Known = FnAAME;
+      Known &= getStateForArgument(A, IRPosition::argument(Arg));
+      expandKnown(IRP_ARGUMENT, Known, Arg.getArgNo());
+    }
+  }
+
   /// See AbstractAttribute::updateImpl(Attributor &A).
   ChangeStatus updateImpl(Attributor &A) override {
-
-    const auto *MemBehaviorAA =
-        A.getAAFor<AAMemoryBehavior>(*this, getIRPosition(), DepClassTy::NONE);
-    if (MemBehaviorAA && MemBehaviorAA->isAssumedReadNone()) {
-      if (MemBehaviorAA->isKnownReadNone())
-        return indicateOptimisticFixpoint();
-      assert(isAssumedReadNone() &&
-             "AAMemoryLocation was not read-none but AAMemoryBehavior was!");
-      A.recordDependence(*MemBehaviorAA, *this, DepClassTy::OPTIONAL);
-      return ChangeStatus::UNCHANGED;
-    }
-
-    // The current assumed state used to determine a change.
-    auto AssumedState = getAssumed();
-    bool Changed = false;
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
 
     auto CheckRWInst = [&](Instruction &I) {
-      MemoryLocationsKind MLK = categorizeAccessedLocations(A, I, Changed);
+      AA::MemoryEffects AAME = categorizeAccessedLocations(A, I, Changed);
       LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Accessed locations for " << I
-                        << ": " << getMemoryLocationsAsStr(MLK) << "\n");
-      removeAssumedBits(inverseLocation(MLK, false, false));
-      // Stop once only the valid bit set in the *not assumed location*, thus
-      // once we don't actually exclude any memory locations in the state.
-      return getAssumedNotAccessedLocation() != VALID_STATE;
+                        << ": " << AAME << "\n");
+
+      // If we access something unknown we need to look at the arguments
+      // explicitly.
+      CheckArgumentsExplicitly |=
+          AAME.getModRef(AA::Location::Other) != ModRefInfo::NoModRef;
+      Changed |= restrictAssume(IRP_FUNCTION, AAME);
+
+      return true;
     };
 
     bool UsedAssumedInformation = false;
-    if (!A.checkForAllReadWriteInstructions(CheckRWInst, *this,
-                                            UsedAssumedInformation))
-      return indicatePessimisticFixpoint();
+    if ((!CheckArgumentsExplicitly && hasPtrArgs()) ||
+        !isAtFixpoint(IRP_FUNCTION)) {
+      if (!A.checkForAllReadWriteInstructions(CheckRWInst, *this,
+                                              UsedAssumedInformation)) {
+        indicatePessimisticFixpoint(IRP_FUNCTION);
+        CheckArgumentsExplicitly = true;
+        Changed = ChangeStatus::CHANGED;
+      }
+    }
 
-    Changed |= AssumedState != getAssumed();
-    return Changed ? ChangeStatus::CHANGED : ChangeStatus::UNCHANGED;
+    if (!CheckArgumentsExplicitly || !hasPtrArgs())
+      return Changed;
+
+    AA::MemoryEffects FnAAME = getAssumedAccessedLocation();
+    ModRefInfo FnArgMRI = FnAAME.getModRef(AA::Location::ArgMem);
+    Function *F = getAssociatedFunction();
+    for (Argument &Arg : F->args()) {
+      if (!Arg.getType()->isPointerTy())
+        continue;
+      if (isAtFixpoint(IRP_ARGUMENT, Arg.getArgNo()))
+        continue;
+      AA::MemoryEffects ArgAAME = updateArgument(A, Arg, FnAAME);
+      Changed |= restrictAssume(IRP_ARGUMENT, ArgAAME, Arg.getArgNo());
+
+      // Also update the argmem information of the function.
+      ModRefInfo ArgMRI = ArgAAME.getModRef(AA::Location::ArgMem);
+      FnArgMRI |= ArgMRI;
+    }
+
+    AA::MemoryEffects NewFnAAME =
+        FnAAME.getWithModRef(AA::Location::ArgMem, FnArgMRI);
+    if (NewFnAAME != FnAAME)
+      Changed |= restrictAssume(IRP_FUNCTION, NewFnAAME);
+    return Changed;
   }
 
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    if (isAssumedReadNone())
-      STATS_DECLTRACK_FN_ATTR(readnone)
-    else if (isAssumedArgMemOnly())
-      STATS_DECLTRACK_FN_ATTR(argmemonly)
-    else if (isAssumedInaccessibleMemOnly())
-      STATS_DECLTRACK_FN_ATTR(inaccessiblememonly)
-    else if (isAssumedInaccessibleOrArgMemOnly())
-      STATS_DECLTRACK_FN_ATTR(inaccessiblememorargmemonly)
+private:
+  AA::MemoryEffects updateArgument(Attributor &A, Argument &Arg,
+                                   AA::MemoryEffects FnAAME) {
+
+    unsigned ArgNo = Arg.getArgNo();
+    AA::MemoryEffects AAME = getAssumed(IRP_ARGUMENT, ArgNo);
+
+    // First, check the function scope. We avoid work if the assumed information
+    // implies the current assumed information for this attribute. This is a
+    // valid for all but byval arguments.
+    if (!Arg.hasByValAttr()) {
+      AAME &= FnAAME;
+      if (AAME == FnAAME)
+        return AAME;
+    }
+
+    AA::MemoryEffects Known = getKnown(IRP_ARGUMENT, ArgNo);
+
+    // Visit and expand uses until all are analyzed or a fixpoint is reached.
+    auto UsePred = [&](const Use &U, bool &Follow) -> bool {
+      Instruction *UserI = cast<Instruction>(U.getUser());
+      LLVM_DEBUG(dbgs() << "[AAMemoryBehavior] Use: " << *U << " in " << *UserI
+                        << " \n");
+
+      // Droppable users, e.g., llvm::assume does not actually perform any
+      // action.
+      if (UserI->isDroppable())
+        return true;
+
+      // Check if the users of UserI should also be visited.
+      Follow = followUsersOfUseIn(A, U, UserI);
+
+      // If UserI might touch memory we analyze the use in detail.
+      if (UserI->mayReadOrWriteMemory())
+        AAME |= analyzeUseIn(A, U, UserI);
+
+      return AAME != Known;
+    };
+
+    if (!A.checkForAllUses(UsePred, *this, Arg))
+      return AA::MemoryEffects::unknown();
+
+    return AAME;
   }
+
+  bool followUsersOfUseIn(Attributor &A, const Use &U,
+                          const Instruction *UserI) const {
+    // The loaded value is unrelated to the pointer argument, no need to
+    // follow the users of the load.
+    if (isa<LoadInst>(UserI) || isa<ReturnInst>(UserI))
+      return false;
+
+    // By default we follow all uses assuming UserI might leak information on U,
+    // we have special handling for call sites operands though.
+    const auto *CB = dyn_cast<CallBase>(UserI);
+    if (!CB)
+      return true;
+    if (!CB->isArgOperand(&U))
+      return !CB->isCallee(&U);
+
+    if (CB->getType()->isVoidTy() || CB->use_empty())
+      return false;
+
+    // If the use is a call argument known not to be captured, the users of
+    // the call do not need to be visited because they have to be unrelated to
+    // the input.
+    if (U.get()->getType()->isPointerTy()) {
+      unsigned ArgNo = CB->getArgOperandNo(&U);
+      bool IsKnown;
+      return !AA::hasAssumedIRAttr<Attribute::NoCapture>(
+          A, this, IRPosition::callsite_argument(*CB, ArgNo),
+          DepClassTy::OPTIONAL, IsKnown);
+    }
+
+    return true;
+  }
+
+  AA::MemoryEffects analyzeUseIn(Attributor &A, const Use &U,
+                                 const Instruction *UserI) const {
+    assert(UserI->mayReadOrWriteMemory());
+
+    switch (UserI->getOpcode()) {
+    default:
+      // TODO: Handle all atomics and other side-effect operations we know of.
+      break;
+    case Instruction::Load:
+      if (cast<LoadInst>(UserI)->isVolatile())
+        return AA::MemoryEffects::unknown();
+      return AA::MemoryEffects::readOnly();
+
+    case Instruction::Store: {
+      // Stores cause the NO_WRITES property to disappear if the use is the
+      // pointer operand. Note that while capturing was taken care of somewhere
+      // else we need to deal with stores of the value that is not looked
+      // through.
+      auto *SI = cast<StoreInst>(UserI);
+      if (!SI->isVolatile())
+        if (&SI->getOperandUse(SI->getPointerOperandIndex()) == &U)
+          return AA::MemoryEffects::writeOnly();
+      return AA::MemoryEffects::unknown();
+    }
+
+    case Instruction::Call:
+    case Instruction::CallBr:
+    case Instruction::Invoke: {
+      // For call sites we look at the argument memory behavior attribute (this
+      // could be recursive!) in order to restrict our own state.
+      const auto *CB = cast<CallBase>(UserI);
+
+      // Give up on operand bundles.
+      if (CB->isBundleOperand(&U))
+        return AA::MemoryEffects::unknown();
+
+      // Calling a function does not read the function pointer, this is to match
+      // the FunctionAttrs pass.
+      if (CB->isCallee(&U))
+        return AA::MemoryEffects::none();
+
+      if (U->getType()->isPointerTy()) {
+        if (const auto *MemBehaviorAA = A.getAAFor<AAMemoryLocation>(
+                *this, IRPosition::callsite_function(*CB),
+                DepClassTy::OPTIONAL))
+          return MemBehaviorAA->getAssumed(IRP_CALL_SITE_ARGUMENT,
+                                           CB->getArgOperandNo(&U));
+        return getStateFromCallSiteArg(A, *CB, CB->getArgOperandNo(&U));
+      }
+    }
+    };
+
+    // Generally, look at the "may-properties" and adjust the assumed state if
+    // we did not trigger special handling before.
+    AA::MemoryEffects AAME = AA::MemoryEffects::none();
+    if (UserI->mayReadFromMemory())
+      AAME |= AA::MemoryEffects::readOnly();
+    if (UserI->mayWriteToMemory())
+      AAME |= AA::MemoryEffects::writeOnly();
+    return AAME;
+  }
+
+  /// Flag to indicate if we require explicit use traversals for the arguments
+  /// or if we can just rely on the accesses collected for the function scope
+  /// traversal.
+  bool CheckArgumentsExplicitly = false;
 };
 
 /// AAMemoryLocation attribute for call sites.
@@ -8790,8 +8451,34 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
   AAMemoryLocationCallSite(const IRPosition &IRP, Attributor &A)
       : AAMemoryLocationImpl(IRP, A) {}
 
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    STATS_DECLTRACK_CS_ATTR(init_AAMEMCB)
+    CallBase &CB = cast<CallBase>(getAnchorValue());
+    Function *Callee = CB.getCalledFunction();
+    AA::MemoryEffects FnAAME = getStateForFunction(A, getIRPosition(), Callee);
+    if (Callee)
+      FnAAME &= getStateForFunction(A, IRPosition::function(*Callee), Callee);
+    expandKnown(IRP_FUNCTION, FnAAME);
+
+    if (hasPtrArgs()) {
+      CallBase &CB = cast<CallBase>(getAnchorValue());
+      for (unsigned ArgNo = 0, NA = CB.arg_size(); ArgNo != NA; ++ArgNo) {
+        if (!CB.getArgOperand(ArgNo)->getType()->isPointerTy())
+          continue;
+        AA::MemoryEffects Known = FnAAME;
+        Known &= getStateFromCallSiteArg(A, CB, ArgNo);
+        expandKnown(IRP_CALL_SITE_ARGUMENT, Known, ArgNo);
+      }
+    }
+
+    AccessInfoVec.push_back(
+        AccessInfo{getCtxI(), nullptr, getAssumedAccessedLocation()});
+  }
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    STATS_DECLTRACK_CS_ATTR(upda_AAMEMCB)
     // TODO: Once we have call site specific value information we can provide
     //       call site specific liveness liveness information and then it makes
     //       sense to specialize attributes for call sites arguments instead of
@@ -8802,22 +8489,28 @@ struct AAMemoryLocationCallSite final : AAMemoryLocationImpl {
         A.getAAFor<AAMemoryLocation>(*this, FnPos, DepClassTy::REQUIRED);
     if (!FnAA)
       return indicatePessimisticFixpoint();
-    bool Changed = false;
-    auto AccessPred = [&](const Instruction *I, const Value *Ptr,
-                          AccessKind Kind, MemoryLocationsKind MLK) {
-      updateStateAndAccessesMap(getState(), MLK, I, Ptr, Changed,
-                                getAccessKindFromInst(I));
-      return true;
-    };
-    if (!FnAA->checkForAllAccessesToMemoryKind(AccessPred, ALL_LOCATIONS))
-      return indicatePessimisticFixpoint();
-    return Changed ? ChangeStatus::CHANGED : ChangeStatus::UNCHANGED;
-  }
 
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override {
-    if (isAssumedReadNone())
-      STATS_DECLTRACK_CS_ATTR(readnone)
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    Changed |= restrictAssume(IRP_FUNCTION, FnAA->getAssumedAccessedLocation());
+    AccessInfoVec.back() =
+        AccessInfo{getCtxI(), nullptr, getAssumedAccessedLocation()};
+    if (!hasPtrArgs())
+      return Changed;
+
+    CallBase &CB = cast<CallBase>(getAnchorValue());
+    unsigned NumCBArgs = CB.arg_size();
+    unsigned NumFnArgs = F->arg_size();
+    for (unsigned ArgNo = 0; ArgNo != NumCBArgs; ++ArgNo) {
+      if (!CB.getArgOperand(ArgNo)->getType()->isPointerTy())
+        continue;
+      if (ArgNo >= NumFnArgs) {
+        indicatePessimisticFixpoint(IRP_CALL_SITE_ARGUMENT, ArgNo);
+        continue;
+      }
+      Changed |= restrictAssume(IRP_CALL_SITE_ARGUMENT,
+                                FnAA->getAssumed(IRP_ARGUMENT, ArgNo), ArgNo);
+    }
+    return Changed;
   }
 };
 } // namespace
@@ -12081,7 +11774,6 @@ const char AANoCapture::ID = 0;
 const char AAValueSimplify::ID = 0;
 const char AAHeapToStack::ID = 0;
 const char AAPrivatizablePtr::ID = 0;
-const char AAMemoryBehavior::ID = 0;
 const char AAMemoryLocation::ID = 0;
 const char AAValueConstantRange::ID = 0;
 const char AAPotentialConstantValues::ID = 0;
@@ -12223,8 +11915,6 @@ CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAUndefinedBehavior)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANonConvergent)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAIntraFnReachability)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAInterFnReachability)
-
-CREATE_NON_RET_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAMemoryBehavior)
 
 #undef CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION
 #undef CREATE_FUNCTION_ABSTRACT_ATTRIBUTE_FOR_POSITION
