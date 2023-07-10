@@ -31,7 +31,7 @@ define weak void @kernel0() "kernel" #0 {
 ; CHECK-NEXT:    call void @helper0() #[[ATTR1:[0-9]+]]
 ; CHECK-NEXT:    call void @helper1() #[[ATTR1]]
 ; CHECK-NEXT:    call void @helper2() #[[ATTR1]]
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 2)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 2)
 ; CHECK-NEXT:    ret void
 ;
 
@@ -56,7 +56,7 @@ define weak void @kernel1() "kernel" #0 {
 ; CHECK-NEXT:    ret void
 ; CHECK:       main.thread.user_code:
 ; CHECK-NEXT:    call void @helper1() #[[ATTR1]]
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 2)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 2)
 ; CHECK-NEXT:    ret void
 ;
 
@@ -84,7 +84,7 @@ define weak void @kernel2() "kernel" #0 {
 ; CHECK-NEXT:    call void @helper1() #[[ATTR1]]
 ; CHECK-NEXT:    call void @helper2() #[[ATTR1]]
 ; CHECK-NEXT:    call void @__kmpc_parallel_51(ptr null, i32 [[TMP0]], i32 1, i32 -1, i32 -1, ptr @__omp_outlined__, ptr @__omp_outlined___wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 2)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 2)
 ; CHECK-NEXT:    ret void
 ;
 entry:

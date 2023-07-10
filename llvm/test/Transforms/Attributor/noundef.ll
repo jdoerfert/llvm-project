@@ -38,8 +38,9 @@ define void @caller1() {
 }
 
 define internal void @argument_dead_callback_callee(ptr %c) {
+; CHECK: Function Attrs: memory(readwrite, argmem: none)
 ; CHECK-LABEL: define {{[^@]+}}@argument_dead_callback_callee
-; CHECK-SAME: (ptr noalias nocapture nofree readnone align 4294967296 [[C:%.*]]) {
+; CHECK-SAME: (ptr noalias nocapture nofree readnone align 4294967296 [[C:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:    call void @unknown()
 ; CHECK-NEXT:    ret void
 ;
@@ -49,11 +50,11 @@ define internal void @argument_dead_callback_callee(ptr %c) {
 
 define void @callback_caller() {
 ; TUNIT-LABEL: define {{[^@]+}}@callback_caller() {
-; TUNIT-NEXT:    call void @callback_broker(ptr noundef nonnull @argument_dead_callback_callee, ptr nofree readnone align 4294967296 undef)
+; TUNIT-NEXT:    call void @callback_broker(ptr noundef nonnull @argument_dead_callback_callee, ptr nofree align 4294967296 undef)
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@callback_caller() {
-; CGSCC-NEXT:    call void @callback_broker(ptr noundef nonnull @argument_dead_callback_callee, ptr nofree noundef readnone align 4294967296 null)
+; CGSCC-NEXT:    call void @callback_broker(ptr noundef nonnull @argument_dead_callback_callee, ptr nofree noundef align 4294967296 null)
 ; CGSCC-NEXT:    ret void
 ;
   call void @callback_broker(ptr @argument_dead_callback_callee, ptr null)
@@ -148,6 +149,8 @@ define void @caller_with_noundef_arg() {
 declare !callback !0 void @callback_broker(ptr, ptr)
 !1 = !{i64 0, i64 1, i1 false}
 !0 = !{!1}
+;.
+; CHECK: attributes #[[ATTR0]] = { memory(readwrite, argmem: none) }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{!1}
 ; CHECK: [[META1:![0-9]+]] = !{i64 0, i64 1, i1 false}

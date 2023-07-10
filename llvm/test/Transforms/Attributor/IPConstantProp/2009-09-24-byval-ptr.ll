@@ -164,7 +164,7 @@ entry:
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { nounwind }
 ; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
-; TUNIT: attributes #[[ATTR2]] = { nounwind memory(read) }
+; TUNIT: attributes #[[ATTR2]] = { nounwind memory(argmem: read) }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { nounwind }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }

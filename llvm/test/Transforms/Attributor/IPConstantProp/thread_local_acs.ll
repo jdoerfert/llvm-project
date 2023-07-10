@@ -26,9 +26,9 @@ target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 ; CHECK: @[[GSH:[a-zA-Z0-9_$"\\.-]+]] = dso_local global i32 0, align 4
 ;.
 define internal i32 @callee(ptr %thread_local_ptr, ptr %shared_ptr) {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read)
+; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: none, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@callee
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[THREAD_LOCAL_PTR:%.*]], ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[SHARED_PTR:%.*]]) #[[ATTR0:[0-9]+]] {
+; CHECK-SAME: (ptr nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[THREAD_LOCAL_PTR:%.*]], ptr nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[SHARED_PTR:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP:%.*]] = load i32, ptr @gtl, align 4
 ; CHECK-NEXT:    [[TRUETMP1:%.*]] = load i32, ptr @gsh, align 4
@@ -45,12 +45,12 @@ entry:
 define dso_local void @caller() {
 ; TUNIT-LABEL: define {{[^@]+}}@caller() {
 ; TUNIT-NEXT:  entry:
-; TUNIT-NEXT:    call void @broker(ptr nocapture nofree nonnull readonly align 4 dereferenceable(4) undef, ptr noundef nonnull @callee, ptr nocapture nofree nonnull readonly align 4 dereferenceable(4) undef)
+; TUNIT-NEXT:    call void @broker(ptr nocapture nofree nonnull align 4 dereferenceable(4) undef, ptr noundef nonnull @callee, ptr nocapture nofree nonnull align 4 dereferenceable(4) undef)
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@caller() {
 ; CGSCC-NEXT:  entry:
-; CGSCC-NEXT:    call void @broker(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) @gtl, ptr noundef nonnull @callee, ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) @gsh)
+; CGSCC-NEXT:    call void @broker(ptr nocapture nofree noundef nonnull align 4 dereferenceable(4) @gtl, ptr noundef nonnull @callee, ptr nocapture nofree noundef nonnull align 4 dereferenceable(4) @gsh)
 ; CGSCC-NEXT:    ret void
 ;
 entry:
@@ -63,7 +63,7 @@ declare !callback !0 dso_local void @broker(ptr, ptr, ptr)
 !1 = !{i64 1, i64 0, i64 2, i1 false}
 !0 = !{!1}
 ;.
-; CHECK: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(read) }
+; CHECK: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(read, argmem: none, inaccessiblemem: none) }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{!1}
 ; CHECK: [[META1:![0-9]+]] = !{i64 1, i64 0, i64 2, i1 false}

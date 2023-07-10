@@ -15,9 +15,9 @@
 ; CHECK: @[[S2:[a-zA-Z0-9_$"\\.-]+]] = dso_local addrspace(3) global i32 undef, align 4
 ;.
 define internal void @_Z12global_writePi(ptr noundef %p) #0 {
-; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write)
+; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write, argmem: none, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@_Z12global_writePi
-; CHECK-SAME: (ptr nofree noundef nonnull writeonly align 4 dereferenceable(8) [[P:%.*]]) #[[ATTR0:[0-9]+]] {
+; CHECK-SAME: (ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(8) [[P:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = addrspacecast ptr [[P]] to ptr addrspace(1)
 ; CHECK-NEXT:    [[TMP1:%.*]] = addrspacecast ptr [[P]] to ptr addrspace(1)
@@ -31,9 +31,9 @@ entry:
 
 ; Function Attrs: convergent mustprogress noinline nounwind
 define internal void @_Z13unknown_writePi(ptr noundef %p) #0 {
-; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write)
+; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write, argmem: none, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@_Z13unknown_writePi
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 2, ptr [[P]], align 4
 ; CHECK-NEXT:    ret void
@@ -45,9 +45,9 @@ entry:
 
 ; Function Attrs: convergent mustprogress noinline nounwind
 define internal void @_Z12shared_writePi(ptr noundef %p) #0 {
-; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write)
+; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write, argmem: none, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@_Z12shared_writePi
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR0]] {
+; CHECK-SAME: (ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = addrspacecast ptr [[P]] to ptr addrspace(3)
 ; CHECK-NEXT:    store i32 3, ptr addrspace(3) [[TMP0]], align 4
@@ -60,9 +60,9 @@ entry:
 
 ; Function Attrs: convergent mustprogress noinline nounwind
 define internal void @_Z11global_readPi(ptr noundef %p) #0 {
-; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn
+; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(readwrite, argmem: none, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@_Z11global_readPi
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR1:[0-9]+]] {
+; CHECK-SAME: (ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = addrspacecast ptr [[P]] to ptr addrspace(1)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr addrspace(1) [[TMP0]], align 4
@@ -77,9 +77,9 @@ entry:
 
 ; Function Attrs: convergent mustprogress noinline nounwind
 define internal void @_Z12unknown_readPi(ptr noundef %p) #0 {
-; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn
+; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(readwrite, argmem: none, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@_Z12unknown_readPi
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR1]] {
+; CHECK-SAME: (ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr [[P]], align 4
 ; CHECK-NEXT:    store i32 [[TMP0]], ptr addrspace(1) @dst, align 4
@@ -93,9 +93,9 @@ entry:
 
 ; Function Attrs: convergent mustprogress noinline nounwind
 define internal void @_Z11shared_readPi(ptr noundef %p) #0 {
-; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn
+; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(readwrite, argmem: none, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@_Z11shared_readPi
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR1]] {
+; CHECK-SAME: (ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) [[P:%.*]]) #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[TMP0:%.*]] = addrspacecast ptr [[P]] to ptr addrspace(3)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr addrspace(3) [[TMP0]], align 4
@@ -110,22 +110,22 @@ entry:
 
 ; Function Attrs: convergent mustprogress noinline nounwind
 define dso_local void @_Z3bazv() #0 {
-; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn
+; CHECK: Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none)
 ; CHECK-LABEL: define {{[^@]+}}@_Z3bazv
-; CHECK-SAME: () #[[ATTR1]] {
+; CHECK-SAME: () #[[ATTR2:[0-9]+]] {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    call void @_Z12global_writePi(ptr nofree noundef nonnull writeonly align 4 dereferenceable(8) addrspacecast (ptr addrspace(1) @g1 to ptr)) #[[ATTR2:[0-9]+]]
-; CHECK-NEXT:    call void @_Z12global_writePi(ptr nofree noundef nonnull writeonly align 4 dereferenceable(4) addrspacecast (ptr addrspace(1) @g2 to ptr)) #[[ATTR2]]
-; CHECK-NEXT:    call void @_Z13unknown_writePi(ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(8) addrspacecast (ptr addrspace(1) @g1 to ptr)) #[[ATTR2]]
-; CHECK-NEXT:    call void @_Z13unknown_writePi(ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s1 to ptr)) #[[ATTR2]]
-; CHECK-NEXT:    call void @_Z12shared_writePi(ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s1 to ptr)) #[[ATTR2]]
-; CHECK-NEXT:    call void @_Z12shared_writePi(ptr nocapture nofree noundef nonnull writeonly align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s2 to ptr)) #[[ATTR2]]
-; CHECK-NEXT:    call void @_Z11global_readPi(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(8) addrspacecast (ptr addrspace(1) @g1 to ptr)) #[[ATTR3:[0-9]+]]
-; CHECK-NEXT:    call void @_Z11global_readPi(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) addrspacecast (ptr addrspace(1) @g2 to ptr)) #[[ATTR3]]
-; CHECK-NEXT:    call void @_Z12unknown_readPi(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(8) addrspacecast (ptr addrspace(1) @g1 to ptr)) #[[ATTR3]]
-; CHECK-NEXT:    call void @_Z12unknown_readPi(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s1 to ptr)) #[[ATTR3]]
-; CHECK-NEXT:    call void @_Z11shared_readPi(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s1 to ptr)) #[[ATTR3]]
-; CHECK-NEXT:    call void @_Z11shared_readPi(ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s2 to ptr)) #[[ATTR3]]
+; CHECK-NEXT:    call void @_Z12global_writePi(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(8) addrspacecast (ptr addrspace(1) @g1 to ptr)) #[[ATTR3:[0-9]+]]
+; CHECK-NEXT:    call void @_Z12global_writePi(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(4) addrspacecast (ptr addrspace(1) @g2 to ptr)) #[[ATTR3]]
+; CHECK-NEXT:    call void @_Z13unknown_writePi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(8) addrspacecast (ptr addrspace(1) @g1 to ptr)) #[[ATTR3]]
+; CHECK-NEXT:    call void @_Z13unknown_writePi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s1 to ptr)) #[[ATTR3]]
+; CHECK-NEXT:    call void @_Z12shared_writePi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s1 to ptr)) #[[ATTR3]]
+; CHECK-NEXT:    call void @_Z12shared_writePi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s2 to ptr)) #[[ATTR3]]
+; CHECK-NEXT:    call void @_Z11global_readPi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(8) addrspacecast (ptr addrspace(1) @g1 to ptr)) #[[ATTR4:[0-9]+]]
+; CHECK-NEXT:    call void @_Z11global_readPi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) addrspacecast (ptr addrspace(1) @g2 to ptr)) #[[ATTR4]]
+; CHECK-NEXT:    call void @_Z12unknown_readPi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(8) addrspacecast (ptr addrspace(1) @g1 to ptr)) #[[ATTR4]]
+; CHECK-NEXT:    call void @_Z12unknown_readPi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s1 to ptr)) #[[ATTR4]]
+; CHECK-NEXT:    call void @_Z11shared_readPi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s1 to ptr)) #[[ATTR4]]
+; CHECK-NEXT:    call void @_Z11shared_readPi(ptr noalias nocapture nofree noundef nonnull readnone align 4 dereferenceable(4) addrspacecast (ptr addrspace(3) @s2 to ptr)) #[[ATTR4]]
 ; CHECK-NEXT:    ret void
 ;
 entry:
@@ -147,8 +147,9 @@ entry:
 attributes #0 = { convergent mustprogress noinline nounwind }
 attributes #1 = { convergent nounwind }
 ;.
-; CHECK: attributes #[[ATTR0]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write) }
-; CHECK: attributes #[[ATTR1]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn }
-; CHECK: attributes #[[ATTR2]] = { convergent nofree nosync nounwind willreturn memory(write) }
-; CHECK: attributes #[[ATTR3]] = { convergent nofree nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR0]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(write, argmem: none, inaccessiblemem: none) }
+; CHECK: attributes #[[ATTR1]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(readwrite, argmem: none, inaccessiblemem: none) }
+; CHECK: attributes #[[ATTR2]] = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(readwrite, inaccessiblemem: none) }
+; CHECK: attributes #[[ATTR3]] = { convergent nofree nosync nounwind willreturn memory(write, argmem: none, inaccessiblemem: none) }
+; CHECK: attributes #[[ATTR4]] = { convergent nofree nosync nounwind willreturn memory(readwrite, argmem: none, inaccessiblemem: none) }
 ;.

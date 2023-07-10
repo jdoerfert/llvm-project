@@ -692,7 +692,7 @@ define void @call_longjmp(ptr nocapture readnone %0) local_unnamed_addr #0 {
 ; CHECK: Function Attrs: noinline nounwind uwtable
 ; CHECK-LABEL: define {{[^@]+}}@call_longjmp
 ; CHECK-SAME: (ptr nocapture nofree readnone [[TMP0:%.*]]) local_unnamed_addr #[[ATTR7]] {
-; CHECK-NEXT:    tail call void @llvm.eh.sjlj.longjmp(ptr noalias nofree readnone [[TMP0]]) #[[ATTR5]]
+; CHECK-NEXT:    tail call void @llvm.eh.sjlj.longjmp(ptr nofree [[TMP0]]) #[[ATTR5]]
 ; CHECK-NEXT:    unreachable
 ;
   tail call void @llvm.eh.sjlj.longjmp(ptr %0)
@@ -1152,7 +1152,7 @@ define void @willreturn_mustprogress_caller_2() mustprogress {
 ; CGSCC: Function Attrs: mustprogress willreturn memory(read)
 ; CGSCC-LABEL: define {{[^@]+}}@willreturn_mustprogress_caller_2
 ; CGSCC-SAME: () #[[ATTR24:[0-9]+]] {
-; CGSCC-NEXT:    call void @readonly() #[[ATTR20:[0-9]+]]
+; CGSCC-NEXT:    call void @readonly()
 ; CGSCC-NEXT:    ret void
 ;
   call void @readonly()
@@ -1192,7 +1192,7 @@ define void @willreturn_mustprogress_callee_2() {
 ; CGSCC: Function Attrs: mustprogress willreturn memory(read)
 ; CGSCC-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_2
 ; CGSCC-SAME: () #[[ATTR24]] {
-; CGSCC-NEXT:    call void @readonly_mustprogress() #[[ATTR35:[0-9]+]]
+; CGSCC-NEXT:    call void @readonly_mustprogress() #[[ATTR32]]
 ; CGSCC-NEXT:    ret void
 ;
   call void @readonly_mustprogress()
@@ -1216,7 +1216,7 @@ define void @willreturn_mustprogress_callee_4() {
 ; CGSCC: Function Attrs: mustprogress willreturn memory(read)
 ; CGSCC-LABEL: define {{[^@]+}}@willreturn_mustprogress_callee_4
 ; CGSCC-SAME: () #[[ATTR24]] {
-; CGSCC-NEXT:    call void @willreturn_mustprogress_callee_2() #[[ATTR35]]
+; CGSCC-NEXT:    call void @willreturn_mustprogress_callee_2() #[[ATTR32]]
 ; CGSCC-NEXT:    ret void
 ;
   call void @willreturn_mustprogress_callee_2()
@@ -1348,7 +1348,7 @@ attributes #1 = { uwtable noinline }
 ; CGSCC: attributes #[[ATTR17]] = { nofree norecurse nosync nounwind memory(none) }
 ; CGSCC: attributes #[[ATTR18]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
 ; CGSCC: attributes #[[ATTR19]] = { nofree nosync nounwind memory(none) }
-; CGSCC: attributes #[[ATTR20]] = { memory(read) }
+; CGSCC: attributes #[[ATTR20:[0-9]+]] = { memory(read) }
 ; CGSCC: attributes #[[ATTR21]] = { memory(none) }
 ; CGSCC: attributes #[[ATTR22]] = { mustprogress }
 ; CGSCC: attributes #[[ATTR23:[0-9]+]] = { mustprogress memory(read) }
@@ -1363,5 +1363,4 @@ attributes #1 = { uwtable noinline }
 ; CGSCC: attributes #[[ATTR32]] = { willreturn }
 ; CGSCC: attributes #[[ATTR33]] = { nounwind willreturn }
 ; CGSCC: attributes #[[ATTR34]] = { nofree }
-; CGSCC: attributes #[[ATTR35]] = { willreturn memory(read) }
 ;.

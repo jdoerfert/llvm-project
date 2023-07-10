@@ -69,7 +69,7 @@ define void @intrinsic(ptr %dest, ptr %src, i32 %len) {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 ; CHECK-LABEL: define {{[^@]+}}@intrinsic
 ; CHECK-SAME: (ptr nocapture nofree writeonly [[DEST:%.*]], ptr nocapture nofree readonly [[SRC:%.*]], i32 [[LEN:%.*]]) #[[ATTR4:[0-9]+]] {
-; CHECK-NEXT:    call void @llvm.memcpy.p0.p0.i32(ptr nocapture nofree writeonly [[DEST]], ptr nocapture nofree readonly [[SRC]], i32 [[LEN]], i1 noundef false) #[[ATTR9:[0-9]+]]
+; CHECK-NEXT:    call void @llvm.memcpy.p0.p0.i32(ptr nocapture nofree writeonly [[DEST]], ptr nocapture nofree readonly [[SRC]], i32 [[LEN]], i1 noundef false) #[[ATTR10:[0-9]+]]
 ; CHECK-NEXT:    ret void
 ;
   call void @llvm.memcpy.p0.p0.i32(ptr %dest, ptr %src, i32 %len, i1 false)
@@ -218,8 +218,9 @@ define linkonce_odr i32 @leaf_redefinable() {
 
 ; Call through a function pointer
 define i32 @eval_func1(ptr , i32) local_unnamed_addr {
+; CHECK: Function Attrs: memory(readwrite, argmem: none)
 ; CHECK-LABEL: define {{[^@]+}}@eval_func1
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull [[TMP0:%.*]], i32 [[TMP1:%.*]]) local_unnamed_addr {
+; CHECK-SAME: (ptr nocapture nofree noundef nonnull readnone [[TMP0:%.*]], i32 [[TMP1:%.*]]) local_unnamed_addr #[[ATTR7:[0-9]+]] {
 ; CHECK-NEXT:    [[TMP3:%.*]] = tail call i32 [[TMP0]](i32 [[TMP1]])
 ; CHECK-NEXT:    ret i32 [[TMP3]]
 ;
@@ -228,9 +229,9 @@ define i32 @eval_func1(ptr , i32) local_unnamed_addr {
 }
 
 define i32 @eval_func2(ptr , i32) local_unnamed_addr null_pointer_is_valid{
-; CHECK: Function Attrs: null_pointer_is_valid
+; CHECK: Function Attrs: null_pointer_is_valid memory(readwrite, argmem: none)
 ; CHECK-LABEL: define {{[^@]+}}@eval_func2
-; CHECK-SAME: (ptr nocapture nofree noundef [[TMP0:%.*]], i32 [[TMP1:%.*]]) local_unnamed_addr #[[ATTR7:[0-9]+]] {
+; CHECK-SAME: (ptr nocapture nofree noundef readnone [[TMP0:%.*]], i32 [[TMP1:%.*]]) local_unnamed_addr #[[ATTR8:[0-9]+]] {
 ; CHECK-NEXT:    [[TMP3:%.*]] = tail call i32 [[TMP0]](i32 [[TMP1]])
 ; CHECK-NEXT:    ret i32 [[TMP3]]
 ;
@@ -257,7 +258,7 @@ Dead:
 define i1 @test_rec_neg(i1 %c) norecurse {
 ; TUNIT: Function Attrs: norecurse
 ; TUNIT-LABEL: define {{[^@]+}}@test_rec_neg
-; TUNIT-SAME: (i1 [[C:%.*]]) #[[ATTR8:[0-9]+]] {
+; TUNIT-SAME: (i1 [[C:%.*]]) #[[ATTR9:[0-9]+]] {
 ; TUNIT-NEXT:    [[RC1:%.*]] = call i1 @rec(i1 noundef true)
 ; TUNIT-NEXT:    br i1 [[RC1]], label [[T:%.*]], label [[F:%.*]]
 ; TUNIT:       t:
@@ -268,7 +269,7 @@ define i1 @test_rec_neg(i1 %c) norecurse {
 ;
 ; CGSCC: Function Attrs: norecurse
 ; CGSCC-LABEL: define {{[^@]+}}@test_rec_neg
-; CGSCC-SAME: (i1 [[C:%.*]]) #[[ATTR8:[0-9]+]] {
+; CGSCC-SAME: (i1 [[C:%.*]]) #[[ATTR9:[0-9]+]] {
 ; CGSCC-NEXT:    [[RC1:%.*]] = call noundef i1 @rec(i1 noundef true)
 ; CGSCC-NEXT:    br i1 [[RC1]], label [[T:%.*]], label [[F:%.*]]
 ; CGSCC:       t:
@@ -314,7 +315,8 @@ f:
 ; CHECK: attributes #[[ATTR4]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 ; CHECK: attributes #[[ATTR5:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
 ; CHECK: attributes #[[ATTR6]] = { norecurse nosync memory(none) }
-; CHECK: attributes #[[ATTR7]] = { null_pointer_is_valid }
-; CHECK: attributes #[[ATTR8:[0-9]+]] = { norecurse }
-; CHECK: attributes #[[ATTR9]] = { nofree willreturn }
+; CHECK: attributes #[[ATTR7]] = { memory(readwrite, argmem: none) }
+; CHECK: attributes #[[ATTR8]] = { null_pointer_is_valid memory(readwrite, argmem: none) }
+; CHECK: attributes #[[ATTR9:[0-9]+]] = { norecurse }
+; CHECK: attributes #[[ATTR10]] = { nofree willreturn memory(argmem: readwrite) }
 ;.

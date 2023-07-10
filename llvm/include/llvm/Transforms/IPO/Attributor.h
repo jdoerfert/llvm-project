@@ -803,6 +803,16 @@ struct IRPosition {
     return getArgNo(/* CallbackCalleeArgIfApplicable */ false);
   }
 
+  /// Return the argument number associated with this IRP. It can be the call
+  /// site argument number, if the anchor is a call site, or the callee argument
+  /// number, if the anchor is an llvm::Argument. The difference only exists for
+  /// callbacks.
+  int getArgNo() const {
+    if (isAnyCallSitePosition())
+      return getCallSiteArgNo();
+    return getCalleeArgNo();
+  }
+
   /// Return the index in the attribute list for this position.
   unsigned getAttrIdx() const {
     switch (getPositionKind()) {
@@ -4540,91 +4550,266 @@ struct AAPrivatizablePtr
   static const char ID;
 };
 
-/// An abstract interface for memory access kind related attributes
-/// (readnone/readonly/writeonly).
-struct AAMemoryBehavior
-    : public IRAttribute<
-          Attribute::ReadNone,
-          StateWrapper<BitIntegerState<uint8_t, 3>, AbstractAttribute>,
-          AAMemoryBehavior> {
-  AAMemoryBehavior(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
+namespace AA {
+/// The different locations tracked by the AAMemoryLocation attribute.
+enum Location {
+  ArgMem = int(IRMemLocation::ArgMem),
+  InaccessibleMem,
+  Other,
+  GlobalInternal,
+  GlobalExternal,
+  Volatile,
+  Malloced,
+  Local,
+  Const,
 
-  /// See AbstractAttribute::hasTrivialInitializer.
-  static bool hasTrivialInitializer() { return false; }
+  First = ArgMem,
+  Last = Const,
+  LastObservable = Malloced,
+};
+// Verify we do not diverge for the bits shared between Location and
+// MemoryEffects::Location.
+static_assert(int(Location::ArgMem) == int(IRMemLocation::ArgMem),
+              "Enums diverged");
+static_assert(int(Location::InaccessibleMem) ==
+                  int(IRMemLocation::InaccessibleMem),
+              "Enums diverged");
+static_assert(int(Location::Other) == int(IRMemLocation::Other),
+              "Enums diverged");
+static_assert(int(Location::Other) == int(IRMemLocation::Last),
+              "Enums diverged");
 
-  /// See AbstractAttribute::isValidIRPositionForInit
-  static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
-    if (!IRP.isFunctionScope() &&
-        !IRP.getAssociatedType()->isPtrOrPtrVectorTy())
-      return false;
-    return IRAttribute::isValidIRPositionForInit(A, IRP);
+/// The memory effects tracked by the AAMemoryLocation attribute.
+struct MemoryEffects : public MemoryEffectsBase<AA::Location> {
+  using Base = MemoryEffectsBase<AA::Location>;
+  using LLVMMemoryEffects = llvm::MemoryEffects;
+
+  MemoryEffects(const Base &Other)
+      : Base(Base::createFromIntValue(Other.toIntValue())) {}
+
+  /// Create MemoryEffects that can access only the given location with the
+  /// given ModRefInfo.
+  MemoryEffects(Location Loc, ModRefInfo MR) : Base(Loc, MR) {}
+
+  /// Create MemoryEffects that can access any location with the given
+  /// ModRefInfo.
+  explicit MemoryEffects(ModRefInfo MR) : Base(MR) {}
+
+  /// Convert LLVM-IR MemoryEffects into Attributor MemoryEffects
+  MemoryEffects(LLVMMemoryEffects ME)
+      : Base(Base::createFromIntValue(ME.toIntValue())) {}
+
+  /// Returns iterator over all observable location kinds.
+  static auto observableLocations() {
+    return enum_seq_inclusive(AA::Location::First, AA::Location::LastObservable,
+                              force_iteration_on_noniterable_enum);
   }
 
-  /// State encoding bits. A set bit in the state means the property holds.
-  /// BEST_STATE is the best possible state, 0 the worst possible state.
-  enum {
-    NO_READS = 1 << 0,
-    NO_WRITES = 1 << 1,
-    NO_ACCESSES = NO_READS | NO_WRITES,
-
-    BEST_STATE = NO_ACCESSES,
-  };
-  static_assert(BEST_STATE == getBestState(), "Unexpected BEST_STATE value");
-
-  /// Return true if we know that the underlying value is not read or accessed
-  /// in its respective scope.
-  bool isKnownReadNone() const { return isKnown(NO_ACCESSES); }
-
-  /// Return true if we assume that the underlying value is not read or accessed
-  /// in its respective scope.
-  bool isAssumedReadNone() const { return isAssumed(NO_ACCESSES); }
-
-  /// Return true if we know that the underlying value is not accessed
-  /// (=written) in its respective scope.
-  bool isKnownReadOnly() const { return isKnown(NO_WRITES); }
-
-  /// Return true if we assume that the underlying value is not accessed
-  /// (=written) in its respective scope.
-  bool isAssumedReadOnly() const { return isAssumed(NO_WRITES); }
-
-  /// Return true if we know that the underlying value is not read in its
-  /// respective scope.
-  bool isKnownWriteOnly() const { return isKnown(NO_READS); }
-
-  /// Return true if we assume that the underlying value is not read in its
-  /// respective scope.
-  bool isAssumedWriteOnly() const { return isAssumed(NO_READS); }
-
-  /// Create an abstract attribute view for the position \p IRP.
-  static AAMemoryBehavior &createForPosition(const IRPosition &IRP,
-                                             Attributor &A);
-
-  /// See AbstractAttribute::getName()
-  const std::string getName() const override { return "AAMemoryBehavior"; }
-
-  /// See AbstractAttribute::getIdAddr()
-  const char *getIdAddr() const override { return &ID; }
-
-  /// This function should return true if the type of the \p AA is
-  /// AAMemoryBehavior
-  static bool classof(const AbstractAttribute *AA) {
-    return (AA->getIdAddr() == &ID);
+  LLVMMemoryEffects getAsIRMemoryEffects() {
+    LLVMMemoryEffects ME = LLVMMemoryEffects::none();
+    for (AA::Location Loc : observableLocations()) {
+      IRMemLocation IRLoc = std::min(IRMemLocation(Loc), IRMemLocation::Other);
+      ME |= LLVMMemoryEffects(IRLoc, getModRef(Loc));
+    }
+    return ME;
   }
 
-  /// Unique ID (due to the unique address)
-  static const char ID;
+  static MemoryEffects constantMemOnly(ModRefInfo MR = ModRefInfo::ModRef) {
+    return MemoryEffects(Location::Const, MR);
+  }
+  static MemoryEffects anyObservableMem(ModRefInfo MR = ModRefInfo::ModRef) {
+    return MemoryEffects(MR) - nonObservableMem(MR);
+  }
+  static MemoryEffects nonObservableMem(ModRefInfo MR = ModRefInfo::ModRef) {
+    return MemoryEffects(Location::Const, MR) |
+           MemoryEffects(Location::Local, MR);
+  }
+  static MemoryEffects globalMemOnly(ModRefInfo MR = ModRefInfo::ModRef) {
+    return MemoryEffects(Location::GlobalInternal, MR) |
+           MemoryEffects(Location::GlobalExternal, MR);
+  }
 };
 
-/// An abstract interface for all memory location attributes
-/// (readnone/argmemonly/inaccessiblememonly/inaccessibleorargmemonly).
-struct AAMemoryLocation
-    : public IRAttribute<
-          Attribute::ReadNone,
-          StateWrapper<BitIntegerState<uint32_t, 511>, AbstractAttribute>,
-          AAMemoryLocation> {
-  using MemoryLocationsKind = StateType::base_t;
+} // namespace AA
 
-  AAMemoryLocation(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
+raw_ostream &operator<<(raw_ostream &OS, AA::Location Loc);
+raw_ostream &operator<<(raw_ostream &OS, AA::MemoryEffects AAME);
+
+struct MemoryEffectsState : public AbstractState {
+
+  MemoryEffectsState(const IRPosition &IRP) {
+    // Function information.
+    AssumedEffects.push_back(AA::MemoryEffects::none());
+    KnownEffects.push_back(AA::MemoryEffects::unknown());
+
+    // Argument information.
+    for (unsigned ArgNo = 0, NA = IRP.getNumArgs(); ArgNo != NA; ++ArgNo) {
+      AssumedEffects.push_back(AA::MemoryEffects::none());
+      KnownEffects.push_back(AA::MemoryEffects::unknown());
+      if (!IRP.getArg(ArgNo)->getType()->isPointerTy())
+        continue;
+      HasPtrArgs = true;
+      ++ValidMemoryEffects;
+      ++NonFixMemoryEffects;
+    };
+  }
+
+  /// See AbstractState::isValidState(...)
+  bool isValidState() const override { return ValidMemoryEffects; }
+
+  /// See AbstractState::isAtFixpoint(...)
+  bool isAtFixpoint() const override { return !NonFixMemoryEffects; }
+
+  bool isAtFixpoint(IRPosition::Kind IRPKind, unsigned ArgNo = 0) const {
+    unsigned Idx = getIndex(IRPKind, ArgNo);
+    const AA::MemoryEffects &Assumed = AssumedEffects[Idx];
+    const AA::MemoryEffects &Known = KnownEffects[Idx];
+    return Assumed == Known;
+  }
+
+  /// See AbstractState::indicateOptimisticFixpoint(...)
+  ChangeStatus indicateOptimisticFixpoint() override {
+    NonFixMemoryEffects = 0;
+    for (auto [AE, KE] : zip(AssumedEffects, KnownEffects))
+      KE = AE;
+    for (auto [AE, KE] : zip(AssumedEffects, KnownEffects))
+      assert(KE == AE);
+    return ChangeStatus::UNCHANGED;
+  }
+
+  ChangeStatus indicatePessimisticFixpoint(IRPosition::Kind IRPKind,
+                                           unsigned ArgNo = 0) {
+    unsigned Idx = getIndex(IRPKind, ArgNo);
+    AA::MemoryEffects &Assumed = AssumedEffects[Idx];
+    AA::MemoryEffects &Known = KnownEffects[Idx];
+    if (Assumed == Known)
+      return ChangeStatus::UNCHANGED;
+    --NonFixMemoryEffects;
+    Assumed = Known;
+    AA::MemoryEffects WorstState = AA::MemoryEffects::unknown();
+    if (Assumed == WorstState)
+      --ValidMemoryEffects;
+    return ChangeStatus::CHANGED;
+  }
+
+  /// See AbstractState::indicatePessimisticFixpoint(...)
+  ChangeStatus indicatePessimisticFixpoint() override {
+    NonFixMemoryEffects = 0;
+    AA::MemoryEffects WorstState = AA::MemoryEffects::unknown();
+    for (auto [AE, KE] : zip(AssumedEffects, KnownEffects)) {
+      if (AE == KE)
+        continue;
+      if (KE == WorstState)
+        --ValidMemoryEffects;
+      AE = KE;
+    }
+    return ChangeStatus::CHANGED;
+  }
+
+  ChangeStatus restrictAssume(IRPosition::Kind IRPKind, AA::MemoryEffects AAME,
+                              unsigned ArgNo = 0) {
+    unsigned Idx = getIndex(IRPKind, ArgNo);
+
+    AA::MemoryEffects Known = KnownEffects[Idx];
+    AA::MemoryEffects &Assumed = AssumedEffects[Idx];
+    AA::MemoryEffects After = (Assumed | AAME) & Known;
+    if (Assumed == After)
+      return ChangeStatus::UNCHANGED;
+
+    Assumed = After;
+
+    AA::MemoryEffects WorstState = AA::MemoryEffects::unknown();
+    if (After == WorstState)
+      --ValidMemoryEffects;
+
+    if (After == Known)
+      --NonFixMemoryEffects;
+
+    return ChangeStatus::CHANGED;
+  }
+
+  ChangeStatus expandKnown(IRPosition::Kind IRPKind, AA::MemoryEffects AAME,
+                           unsigned ArgNo = 0) {
+    unsigned Idx = getIndex(IRPKind, ArgNo);
+
+    AA::MemoryEffects &Known = KnownEffects[Idx];
+    AA::MemoryEffects After = Known & AAME;
+    if (Known == After)
+      return ChangeStatus::UNCHANGED;
+
+    Known = After;
+
+    if (After == AssumedEffects[Idx])
+      --NonFixMemoryEffects;
+
+    return ChangeStatus::CHANGED;
+  }
+
+  AA::MemoryEffects getAssumed(IRPosition::Kind IRPKind,
+                               unsigned ArgNo = 0) const {
+    return AssumedEffects[getIndex(IRPKind, ArgNo)];
+  }
+  AA::MemoryEffects getKnown(IRPosition::Kind IRPKind,
+                             unsigned ArgNo = 0) const {
+    return KnownEffects[getIndex(IRPKind, ArgNo)];
+  }
+
+  bool isAssumed(IRPosition::Kind IRPKind, AA::MemoryEffects AAME,
+                 unsigned ArgNo = 0) const {
+    unsigned Idx = getIndex(IRPKind, ArgNo);
+    AA::MemoryEffects Assumed = AssumedEffects[Idx];
+    return (Assumed | AAME) == AAME;
+  }
+  bool isKnown(IRPosition::Kind IRPKind, AA::MemoryEffects AAME,
+               unsigned ArgNo = 0) const {
+    unsigned Idx = getIndex(IRPKind, ArgNo);
+    AA::MemoryEffects Known = KnownEffects[Idx];
+    return (Known | AAME) == AAME;
+  }
+
+  bool hasPtrArgs() const { return HasPtrArgs; }
+
+private:
+  unsigned getIndex(IRPosition::Kind IRPKind, unsigned ArgNo) const {
+    switch (IRPKind) {
+    case IRPosition::IRP_FUNCTION:
+    case IRPosition::IRP_CALL_SITE:
+      return 0;
+    case IRPosition::IRP_ARGUMENT:
+    case IRPosition::IRP_CALL_SITE_ARGUMENT:
+      return ArgNo + 1;
+    default:
+      llvm_unreachable("Unexpected IRPosition kind");
+    }
+  }
+
+  unsigned ValidMemoryEffects = 1;
+  unsigned NonFixMemoryEffects = 1;
+  SmallVector<AA::MemoryEffects, 8> AssumedEffects, KnownEffects;
+  bool HasPtrArgs = false;
+};
+
+/// An abstract interface for all memory location and behavior attributes, thus
+/// the cross product of the locations
+/// (argmemonly/inaccessiblememonly/inaccessibleorargmemonly/...) with the
+/// behaviors (readnone, readonly, writeonly). The information is deduced on a
+/// per function basis for the function and the arguments.
+struct AAMemoryLocation
+    : public StateWrapper<MemoryEffectsState, AbstractAttribute,
+                          const IRPosition &> {
+  using Base =
+      StateWrapper<MemoryEffectsState, AbstractAttribute, const IRPosition &>;
+
+  AAMemoryLocation(const IRPosition &IRP, Attributor &A) : Base(IRP, IRP) {}
+
+  static bool isImpliedByIR(Attributor &A, const IRPosition &IRP,
+                            Attribute::AttrKind ImpliedAttributeKind,
+                            bool IgnoreSubsumingPositions = false) {
+    if (isa<UndefValue>(IRP.getAssociatedValue()))
+      return true;
+    return A.hasAttr(IRP, {Attribute::ReadNone, ImpliedAttributeKind},
+                     IgnoreSubsumingPositions, ImpliedAttributeKind);
+  }
 
   /// See AbstractAttribute::hasTrivialInitializer.
   static bool hasTrivialInitializer() { return false; }
@@ -4634,132 +4819,107 @@ struct AAMemoryLocation
     if (!IRP.isFunctionScope() &&
         !IRP.getAssociatedType()->isPtrOrPtrVectorTy())
       return false;
-    return IRAttribute::isValidIRPositionForInit(A, IRP);
+    return AbstractAttribute::isValidIRPositionForInit(A, IRP);
   }
-
-  /// Encoding of different locations that could be accessed by a memory
-  /// access.
-  enum {
-    ALL_LOCATIONS = 0,
-    NO_LOCAL_MEM = 1 << 0,
-    NO_CONST_MEM = 1 << 1,
-    NO_GLOBAL_INTERNAL_MEM = 1 << 2,
-    NO_GLOBAL_EXTERNAL_MEM = 1 << 3,
-    NO_GLOBAL_MEM = NO_GLOBAL_INTERNAL_MEM | NO_GLOBAL_EXTERNAL_MEM,
-    NO_ARGUMENT_MEM = 1 << 4,
-    NO_INACCESSIBLE_MEM = 1 << 5,
-    NO_MALLOCED_MEM = 1 << 6,
-    NO_UNKOWN_MEM = 1 << 7,
-    NO_LOCATIONS = NO_LOCAL_MEM | NO_CONST_MEM | NO_GLOBAL_INTERNAL_MEM |
-                   NO_GLOBAL_EXTERNAL_MEM | NO_ARGUMENT_MEM |
-                   NO_INACCESSIBLE_MEM | NO_MALLOCED_MEM | NO_UNKOWN_MEM,
-
-    // Helper bit to track if we gave up or not.
-    VALID_STATE = NO_LOCATIONS + 1,
-
-    BEST_STATE = NO_LOCATIONS | VALID_STATE,
-  };
-  static_assert(BEST_STATE == getBestState(), "Unexpected BEST_STATE value");
 
   /// Return true if we know that the associated functions has no observable
   /// accesses.
-  bool isKnownReadNone() const { return isKnown(NO_LOCATIONS); }
+  bool isKnownReadNone(IRPosition::Kind IRPKind = IRP_FUNCTION,
+                       unsigned ArgNo = 0) const {
+    return (getKnown(IRPKind, ArgNo) & AA::MemoryEffects::anyObservableMem())
+        .doesNotAccessMemory();
+  }
 
-  /// Return true if we assume that the associated functions has no observable
+  /// Return true if we assume that the associated \p IRPKind has no observable
   /// accesses.
-  bool isAssumedReadNone() const {
-    return isAssumed(NO_LOCATIONS) || isAssumedStackOnly();
+  bool isAssumedReadNone(IRPosition::Kind IRPKind = IRP_FUNCTION,
+                         unsigned ArgNo = 0) const {
+    return (getAssumed(IRPKind, ArgNo) & AA::MemoryEffects::anyObservableMem())
+        .doesNotAccessMemory();
   }
 
-  /// Return true if we know that the associated functions has at most
-  /// local/stack accesses.
-  bool isKnowStackOnly() const {
-    return isKnown(inverseLocation(NO_LOCAL_MEM, true, true));
+  /// Return true if we know that the associated functions only reads
+  /// (observable memory).
+  bool isKnownReadOnly(IRPosition::Kind IRPKind = IRP_FUNCTION,
+                       unsigned ArgNo = 0) const {
+    return (getKnown(IRPKind, ArgNo) & AA::MemoryEffects::anyObservableMem())
+        .onlyReadsMemory();
   }
 
-  /// Return true if we assume that the associated functions has at most
-  /// local/stack accesses.
-  bool isAssumedStackOnly() const {
-    return isAssumed(inverseLocation(NO_LOCAL_MEM, true, true));
+  /// Return true if we assume that the associated \p IRPKind only reads
+  /// (observable memory).
+  bool isAssumedReadOnly(IRPosition::Kind IRPKind = IRP_FUNCTION,
+                         unsigned ArgNo = 0) const {
+    return (getAssumed(IRPKind, ArgNo) & AA::MemoryEffects::anyObservableMem())
+        .onlyReadsMemory();
+  }
+
+  /// Return true if we know that the associated functions only writes
+  /// (observable memory).
+  bool isKnownWriteOnly(IRPosition::Kind IRPKind = IRP_FUNCTION,
+                        unsigned ArgNo = 0) const {
+    return (getKnown(IRPKind, ArgNo) & AA::MemoryEffects::nonObservableMem())
+        .onlyWritesMemory();
+  }
+
+  /// Return true if we assume that the associated functions only writes
+  /// (observable memory).
+  bool isAssumedWriteOnly(IRPosition::Kind IRPKind = IRP_FUNCTION,
+                          unsigned ArgNo = 0) const {
+    return (getAssumed(IRPKind, ArgNo) & AA::MemoryEffects::nonObservableMem())
+        .onlyWritesMemory();
   }
 
   /// Return true if we know that the underlying value will only access
   /// inaccesible memory only (see Attribute::InaccessibleMemOnly).
   bool isKnownInaccessibleMemOnly() const {
-    return isKnown(inverseLocation(NO_INACCESSIBLE_MEM, true, true));
+    return isKnown(IRP_FUNCTION, AA::MemoryEffects::inaccessibleMemOnly());
   }
 
   /// Return true if we assume that the underlying value will only access
   /// inaccesible memory only (see Attribute::InaccessibleMemOnly).
   bool isAssumedInaccessibleMemOnly() const {
-    return isAssumed(inverseLocation(NO_INACCESSIBLE_MEM, true, true));
+    return isAssumed(IRP_FUNCTION, AA::MemoryEffects::inaccessibleMemOnly());
   }
 
   /// Return true if we know that the underlying value will only access
   /// argument pointees (see Attribute::ArgMemOnly).
   bool isKnownArgMemOnly() const {
-    return isKnown(inverseLocation(NO_ARGUMENT_MEM, true, true));
+    return isKnown(IRP_FUNCTION, AA::MemoryEffects::argMemOnly());
   }
 
   /// Return true if we assume that the underlying value will only access
   /// argument pointees (see Attribute::ArgMemOnly).
   bool isAssumedArgMemOnly() const {
-    return isAssumed(inverseLocation(NO_ARGUMENT_MEM, true, true));
+    return isAssumed(IRP_FUNCTION, AA::MemoryEffects::argMemOnly());
   }
 
   /// Return true if we know that the underlying value will only access
   /// inaccesible memory or argument pointees (see
   /// Attribute::InaccessibleOrArgMemOnly).
   bool isKnownInaccessibleOrArgMemOnly() const {
-    return isKnown(
-        inverseLocation(NO_INACCESSIBLE_MEM | NO_ARGUMENT_MEM, true, true));
+    return isKnown(IRP_FUNCTION, AA::MemoryEffects::inaccessibleOrArgMemOnly());
   }
 
   /// Return true if we assume that the underlying value will only access
   /// inaccesible memory or argument pointees (see
   /// Attribute::InaccessibleOrArgMemOnly).
   bool isAssumedInaccessibleOrArgMemOnly() const {
-    return isAssumed(
-        inverseLocation(NO_INACCESSIBLE_MEM | NO_ARGUMENT_MEM, true, true));
+    return isAssumed(IRP_FUNCTION,
+                     AA::MemoryEffects::inaccessibleOrArgMemOnly());
   }
 
-  /// Return true if the underlying value may access memory through arguement
-  /// pointers of the associated function, if any.
-  bool mayAccessArgMem() const { return !isAssumed(NO_ARGUMENT_MEM); }
-
-  /// Return true if only the memory locations specififed by \p MLK are assumed
-  /// to be accessed by the associated function.
-  bool isAssumedSpecifiedMemOnly(MemoryLocationsKind MLK) const {
-    return isAssumed(MLK);
+  /// Return the locations that are known to be not accessed by the associated
+  /// function, if any.
+  AA::MemoryEffects getKnownAccessedLocation() const {
+    return getKnown(IRP_FUNCTION);
   }
 
   /// Return the locations that are assumed to be not accessed by the associated
   /// function, if any.
-  MemoryLocationsKind getAssumedNotAccessedLocation() const {
-    return getAssumed();
+  AA::MemoryEffects getAssumedAccessedLocation() const {
+    return getAssumed(IRP_FUNCTION);
   }
-
-  /// Return the inverse of location \p Loc, thus for NO_XXX the return
-  /// describes ONLY_XXX. The flags \p AndLocalMem and \p AndConstMem determine
-  /// if local (=stack) and constant memory are allowed as well. Most of the
-  /// time we do want them to be included, e.g., argmemonly allows accesses via
-  /// argument pointers or local or constant memory accesses.
-  static MemoryLocationsKind
-  inverseLocation(MemoryLocationsKind Loc, bool AndLocalMem, bool AndConstMem) {
-    return NO_LOCATIONS & ~(Loc | (AndLocalMem ? NO_LOCAL_MEM : 0) |
-                            (AndConstMem ? NO_CONST_MEM : 0));
-  };
-
-  /// Return the locations encoded by \p MLK as a readable string.
-  static std::string getMemoryLocationsAsStr(MemoryLocationsKind MLK);
-
-  /// Simple enum to distinguish read/write/read-write accesses.
-  enum AccessKind {
-    NONE = 0,
-    READ = 1 << 0,
-    WRITE = 1 << 1,
-    READ_WRITE = READ | WRITE,
-  };
 
   /// Check \p Pred on all accesses to the memory kinds specified by \p MLK.
   ///
@@ -4767,18 +4927,31 @@ struct AAMemoryLocation
   /// underlying accessed memory pointer) and it will return true if \p Pred
   /// holds every time.
   virtual bool checkForAllAccessesToMemoryKind(
-      function_ref<bool(const Instruction *, const Value *, AccessKind,
-                        MemoryLocationsKind)>
+      function_ref<bool(const Instruction *, const Value *, AA::MemoryEffects)>
           Pred,
-      MemoryLocationsKind MLK) const = 0;
+      AA::MemoryEffects) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAMemoryLocation &createForPosition(const IRPosition &IRP,
                                              Attributor &A);
 
-  /// See AbstractState::getAsStr(Attributor).
-  const std::string getAsStr(Attributor *A) const override {
-    return getMemoryLocationsAsStr(getAssumedNotAccessedLocation());
+  /// See AbstractState::getAsStr().
+  const std::string getAsStr(Attributor *) const override {
+    std::string S;
+    llvm::raw_string_ostream OS(S);
+    OS << "known[" << getKnownAccessedLocation() << "] assumed["
+       << getAssumedAccessedLocation() << "]";
+    for (unsigned ArgNo = 0, NA = getNumArgs(); ArgNo != NA; ++ArgNo) {
+      // Not a pointer, skip.
+      if (!getArg(ArgNo)->getType()->isPointerTy())
+        continue;
+      OS << ", arg(" << ArgNo << ") known["
+         << getKnown(IRP_ARGUMENT, ArgNo).getModRef(AA::Location::ArgMem)
+         << "] assumed["
+         << getAssumed(IRP_ARGUMENT, ArgNo).getModRef(AA::Location::ArgMem)
+         << "]";
+    }
+    return S;
   }
 
   /// See AbstractAttribute::getName()
@@ -4796,6 +4969,9 @@ struct AAMemoryLocation
   /// Unique ID (due to the unique address)
   static const char ID;
 };
+
+raw_ostream &operator<<(raw_ostream &OS, AA::Location Loc);
+raw_ostream &operator<<(raw_ostream &OS, AA::MemoryEffects AAME);
 
 /// An abstract interface for range value analysis.
 struct AAValueConstantRange
@@ -6098,13 +6274,13 @@ bool hasAssumedIRAttr(Attributor &A, const AbstractAttribute *QueryingAA,
                       const AAType **AAPtr = nullptr) {
   IsKnown = false;
   switch (AK) {
-#define CASE(ATTRNAME, AANAME, ...)                                            \
+#define CASE(ATTRNAME, AANAME, EffectiveIRP, ...)                              \
   case Attribute::ATTRNAME: {                                                  \
-    if (AANAME::isImpliedByIR(A, IRP, AK, IgnoreSubsumingPositions))           \
+    if (AANAME::isImpliedByIR(A, EffectiveIRP, AK, IgnoreSubsumingPositions))  \
       return IsKnown = true;                                                   \
     if (!QueryingAA)                                                           \
       return false;                                                            \
-    const auto *AA = A.getAAFor<AANAME>(*QueryingAA, IRP, DepClass);           \
+    const auto *AA = A.getAAFor<AANAME>(*QueryingAA, EffectiveIRP, DepClass);  \
     if (AAPtr)                                                                 \
       *AAPtr = reinterpret_cast<const AAType *>(AA);                           \
     if (!AA || !AA->isAssumed(__VA_ARGS__))                                    \
@@ -6112,20 +6288,24 @@ bool hasAssumedIRAttr(Attributor &A, const AbstractAttribute *QueryingAA,
     IsKnown = AA->isKnown(__VA_ARGS__);                                        \
     return true;                                                               \
   }
-    CASE(NoUnwind, AANoUnwind, );
-    CASE(WillReturn, AAWillReturn, );
-    CASE(NoFree, AANoFree, );
-    CASE(NoCapture, AANoCapture, );
-    CASE(NoRecurse, AANoRecurse, );
-    CASE(NoReturn, AANoReturn, );
-    CASE(NoSync, AANoSync, );
-    CASE(NoAlias, AANoAlias, );
-    CASE(NonNull, AANonNull, );
-    CASE(MustProgress, AAMustProgress, );
-    CASE(NoUndef, AANoUndef, );
-    CASE(ReadNone, AAMemoryBehavior, AAMemoryBehavior::NO_ACCESSES);
-    CASE(ReadOnly, AAMemoryBehavior, AAMemoryBehavior::NO_WRITES);
-    CASE(WriteOnly, AAMemoryBehavior, AAMemoryBehavior::NO_READS);
+    CASE(NoUnwind, AANoUnwind, IRP, );
+    CASE(WillReturn, AAWillReturn, IRP, );
+    CASE(NoFree, AANoFree, IRP, );
+    CASE(NoCapture, AANoCapture, IRP, );
+    CASE(NoRecurse, AANoRecurse, IRP, );
+    CASE(NoReturn, AANoReturn, IRP, );
+    CASE(NoSync, AANoSync, IRP, );
+    CASE(NoAlias, AANoAlias, IRP, );
+    CASE(NonNull, AANonNull, IRP, );
+    CASE(MustProgress, AAMustProgress, IRP, );
+    CASE(NoUndef, AANoUndef, IRP, );
+    CASE(ReadNone, AAMemoryLocation, IRPosition::function_scope(IRP),
+         IRP.getPositionKind(), AA::MemoryEffects::nonObservableMem(),
+         IRP.getArgNo());
+    CASE(ReadOnly, AAMemoryLocation, IRPosition::function_scope(IRP),
+         IRP.getPositionKind(), AA::MemoryEffects::readOnly(), IRP.getArgNo());
+    CASE(WriteOnly, AAMemoryLocation, IRPosition::function_scope(IRP),
+         IRP.getPositionKind(), AA::MemoryEffects::writeOnly(), IRP.getArgNo());
 #undef CASE
   default:
     llvm_unreachable("hasAssumedIRAttr not available for this attribute kind");

@@ -30,7 +30,7 @@ define weak void @is_spmd() "kernel" {
 ; CHECK-NEXT:    call void @is_spmd_helper1()
 ; CHECK-NEXT:    call void @is_spmd_helper2()
 ; CHECK-NEXT:    call void @is_mixed_helper()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 2)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 2)
 ; CHECK-NEXT:    ret void
 ;
   %i = call i32 @__kmpc_target_init(ptr null, i8 2, i1 false)
@@ -55,7 +55,7 @@ define weak void @will_be_spmd() "kernel" {
 ; CHECK-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_global_thread_num(ptr null) #[[ATTR3:[0-9]+]]
 ; CHECK-NEXT:    call void @is_spmd_helper2()
 ; CHECK-NEXT:    call void @__kmpc_parallel_51(ptr null, i32 [[TMP0]], i32 1, i32 -1, i32 -1, ptr @__omp_outlined__, ptr @__omp_outlined___wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 2)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 2)
 ; CHECK-NEXT:    ret void
 ;
 entry:
@@ -82,7 +82,7 @@ define weak void @non_spmd() "kernel" {
 ; CHECK-NEXT:    call void @is_generic_helper1()
 ; CHECK-NEXT:    call void @is_generic_helper2()
 ; CHECK-NEXT:    call void @is_mixed_helper()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 1)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 1)
 ; CHECK-NEXT:    ret void
 ;
   %i = call i32 @__kmpc_target_init(ptr null, i8 1, i1 false)
@@ -100,7 +100,7 @@ define weak void @will_not_be_spmd() "kernel" {
 ; CHECK-NEXT:    call void @is_generic_helper1()
 ; CHECK-NEXT:    call void @is_generic_helper2()
 ; CHECK-NEXT:    call void @is_mixed_helper()
-; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr null, i8 1)
+; CHECK-NEXT:    call void @__kmpc_target_deinit(ptr readnone null, i8 1)
 ; CHECK-NEXT:    ret void
 ;
   %i = call i32 @__kmpc_target_init(ptr null, i8 1, i1 false)

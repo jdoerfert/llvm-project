@@ -579,26 +579,28 @@ static bool isAssumedReadOnlyOrReadNone(Attributor &A, const IRPosition &IRP,
     return true;
 
   IRPosition::Kind Kind = IRP.getPositionKind();
-  if (Kind == IRPosition::IRP_FUNCTION || Kind == IRPosition::IRP_CALL_SITE) {
-    const auto *MemLocAA =
-        A.getAAFor<AAMemoryLocation>(QueryingAA, IRP, DepClassTy::NONE);
-    if (MemLocAA && MemLocAA->isAssumedReadNone()) {
-      IsKnown = MemLocAA->isKnownReadNone();
-      if (!IsKnown)
-        A.recordDependence(*MemLocAA, QueryingAA, DepClassTy::OPTIONAL);
-      return true;
-    }
-  }
+  IRPosition FnIRP = IRPosition::function_scope(IRP);
+  const auto *MemLocAA =
+      A.getAAFor<AAMemoryLocation>(QueryingAA, FnIRP, DepClassTy::NONE);
 
-  const auto *MemBehaviorAA =
-      A.getAAFor<AAMemoryBehavior>(QueryingAA, IRP, DepClassTy::NONE);
-  if (MemBehaviorAA &&
-      (MemBehaviorAA->isAssumedReadNone() ||
-       (!RequireReadNone && MemBehaviorAA->isAssumedReadOnly()))) {
-    IsKnown = RequireReadNone ? MemBehaviorAA->isKnownReadNone()
-                              : MemBehaviorAA->isKnownReadOnly();
+  unsigned ArgNo = -1;
+  if (Kind == IRPosition::IRP_ARGUMENT)
+    ArgNo = IRP.getCalleeArgNo();
+  else if (Kind == IRPosition::IRP_CALL_SITE_ARGUMENT)
+    ArgNo = IRP.getCallSiteArgNo();
+
+  if (!MemLocAA)
+    return false;
+  if (MemLocAA->isAssumedReadNone(Kind, ArgNo)) {
+    IsKnown = MemLocAA->isKnownReadNone(Kind, ArgNo);
     if (!IsKnown)
-      A.recordDependence(*MemBehaviorAA, QueryingAA, DepClassTy::OPTIONAL);
+      A.recordDependence(*MemLocAA, QueryingAA, DepClassTy::OPTIONAL);
+    return true;
+  }
+  if (!RequireReadNone && MemLocAA->isAssumedReadOnly(Kind, ArgNo)) {
+    IsKnown = MemLocAA->isKnownReadOnly(Kind, ArgNo);
+    if (!IsKnown)
+      A.recordDependence(*MemLocAA, QueryingAA, DepClassTy::OPTIONAL);
     return true;
   }
 
@@ -2946,6 +2948,18 @@ ChangeStatus Attributor::rewriteFunctionSignatures(
     NewFn->takeName(OldFn);
     NewFn->copyAttributesFrom(OldFn);
 
+    // Remove argmem from the memory effects if we have no more pointer
+    // arguments, or they are readnone.
+    MemoryEffects ME = NewFn->getMemoryEffects();
+    int ArgNo = -1;
+    if (ME.doesAccessArgPointees() && all_of(NewArgumentTypes, [&](Type *T) {
+          ++ArgNo;
+          return !T->isPtrOrPtrVectorTy() ||
+                 NewFn->hasParamAttribute(ArgNo, Attribute::ReadNone);
+        })) {
+      NewFn->setMemoryEffects(ME - MemoryEffects::argMemOnly());
+    }
+
     // Patch the pointer to LLVM function in debug info descriptor.
     NewFn->setSubprogram(OldFn->getSubprogram());
     OldFn->setSubprogram(nullptr);
@@ -3301,8 +3315,6 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       getOrCreateAAFor<AANonConvergent>(FPos);
 
     // Every function might be "readnone/readonly/writeonly/...".
-    getOrCreateAAFor<AAMemoryBehavior>(FPos);
-
     // Every function can be "readnone/argmemonly/inaccessiblememonly/...".
     getOrCreateAAFor<AAMemoryLocation>(FPos);
 
@@ -3390,10 +3402,6 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
       // Every argument with pointer type might be marked nocapture.
       checkAndQueryIRAttr<Attribute::NoCapture, AANoCapture>(ArgPos, ArgAttrs);
-
-      // Every argument with pointer type might be marked
-      // "readnone/readonly/writeonly/..."
-      getOrCreateAAFor<AAMemoryBehavior>(ArgPos);
 
       // Every argument with pointer type might be marked nofree.
       checkAndQueryIRAttr<Attribute::NoFree, AANoFree>(ArgPos, ArgAttrs);
@@ -3483,11 +3491,6 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
       // Call site argument attribute "align".
       getOrCreateAAFor<AAAlign>(CBArgPos);
-
-      // Call site argument attribute
-      // "readnone/readonly/writeonly/..."
-      if (!CBAttrs.hasParamAttr(I, Attribute::ReadNone))
-        getOrCreateAAFor<AAMemoryBehavior>(CBArgPos);
 
       // Call site argument attribute "nofree".
       checkAndQueryIRAttr<Attribute::NoFree, AANoFree>(CBArgPos, CBArgAttrs);

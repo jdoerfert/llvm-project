@@ -14,12 +14,12 @@ define void @foo(ptr %ptr) {
 ; TUNIT-NEXT:    br label [[CALL_BR:%.*]]
 ; TUNIT:       call.br:
 ; TUNIT-NEXT:    [[TMP1:%.*]] = getelementptr inbounds [[STRUCT_TEST_A]], ptr [[TMP0]], i64 0, i32 2
-; TUNIT-NEXT:    tail call void @bar(ptr noalias nocapture nofree noundef nonnull readonly byval([[STRUCT_TEST_A]]) align 8 dereferenceable(24) [[TMP0]]) #[[ATTR2:[0-9]+]]
+; TUNIT-NEXT:    tail call void @bar(ptr noalias nocapture nofree noundef nonnull readnone byval([[STRUCT_TEST_A]]) align 8 dereferenceable(24) [[TMP0]]) #[[ATTR2:[0-9]+]]
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(none)
 ; CGSCC-LABEL: define {{[^@]+}}@foo
-; CGSCC-SAME: (ptr nocapture nofree writeonly [[PTR:%.*]]) #[[ATTR0:[0-9]+]] {
+; CGSCC-SAME: (ptr nocapture nofree readnone [[PTR:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[TMP0:%.*]] = alloca [[STRUCT_TEST_A:%.*]], align 8
 ; CGSCC-NEXT:    br label [[CALL_BR:%.*]]
@@ -55,9 +55,9 @@ define void @bar(ptr noundef byval(%struct.test.a) align 8 %dev) {
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
 ; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn memory(write) }
+; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn memory(argmem: write) }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree nosync nounwind willreturn memory(none) }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
-; CGSCC: attributes #[[ATTR2]] = { nofree nounwind willreturn memory(write) }
+; CGSCC: attributes #[[ATTR2]] = { nofree nounwind willreturn memory(argmem: write) }
 ;.

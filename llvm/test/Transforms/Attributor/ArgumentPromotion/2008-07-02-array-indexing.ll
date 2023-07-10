@@ -54,9 +54,9 @@ define i32 @foo(ptr %A) {
 
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
-; TUNIT: attributes #[[ATTR1]] = { nofree nosync nounwind willreturn memory(read) }
+; TUNIT: attributes #[[ATTR1]] = { nofree nosync nounwind willreturn memory(argmem: read) }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: read) }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree nosync nounwind willreturn memory(argmem: read) }
-; CGSCC: attributes #[[ATTR2]] = { nofree willreturn memory(read) }
+; CGSCC: attributes #[[ATTR2]] = { nofree willreturn memory(argmem: read) }
 ;.

@@ -15,7 +15,7 @@ define void @caller() {
 ; TUNIT-NEXT:    [[TMP1:%.*]] = load i32, ptr [[LEFT_0_1]], align 4
 ; TUNIT-NEXT:    [[LEFT_0_2:%.*]] = getelementptr [3 x i32], ptr [[LEFT]], i64 0, i64 2
 ; TUNIT-NEXT:    [[TMP2:%.*]] = load i32, ptr [[LEFT_0_2]], align 4
-; TUNIT-NEXT:    call void @callee(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]])
+; TUNIT-NEXT:    call void @callee(i32 [[TMP0]], i32 [[TMP1]], i32 [[TMP2]]) #[[ATTR0:[0-9]+]]
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@caller() {
@@ -30,8 +30,9 @@ entry:
 }
 
 define internal void @callee(ptr noalias %arg) {
+; CHECK: Function Attrs: memory(readwrite, argmem: read)
 ; CHECK-LABEL: define {{[^@]+}}@callee
-; CHECK-SAME: (i32 [[TMP0:%.*]], i32 [[TMP1:%.*]], i32 [[TMP2:%.*]]) {
+; CHECK-SAME: (i32 [[TMP0:%.*]], i32 [[TMP1:%.*]], i32 [[TMP2:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[ARG_PRIV:%.*]] = alloca [3 x i32], align 4
 ; CHECK-NEXT:    store i32 [[TMP0]], ptr [[ARG_PRIV]], align 4
@@ -46,3 +47,6 @@ entry:
   call void @use(ptr %arg)
   ret void
 }
+;.
+; CHECK: attributes #[[ATTR0]] = { memory(readwrite, argmem: read) }
+;.

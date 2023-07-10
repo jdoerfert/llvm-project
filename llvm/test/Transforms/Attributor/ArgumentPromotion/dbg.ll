@@ -5,8 +5,9 @@
 declare void @sink(i32)
 
 define internal void @test(ptr %X) !dbg !2 {
+; CHECK: Function Attrs: memory(readwrite, argmem: read)
 ; CHECK-LABEL: define {{[^@]+}}@test
-; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[X:%.*]]) !dbg [[DBG3:![0-9]+]] {
+; CHECK-SAME: (ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[X:%.*]]) #[[ATTR0:[0-9]+]] !dbg [[DBG3:![0-9]+]] {
 ; CHECK-NEXT:    [[TMP1:%.*]] = load ptr, ptr [[X]], align 8
 ; CHECK-NEXT:    [[TMP2:%.*]] = load i32, ptr [[TMP1]], align 8
 ; CHECK-NEXT:    call void @sink(i32 [[TMP2]])
@@ -21,7 +22,9 @@ define internal void @test(ptr %X) !dbg !2 {
 %struct.pair = type { i32, i32 }
 
 define internal void @test_byval(ptr byval(%struct.pair) %P) {
-; CHECK-LABEL: define {{[^@]+}}@test_byval() {
+; CHECK: Function Attrs: memory(readwrite, argmem: none)
+; CHECK-LABEL: define {{[^@]+}}@test_byval
+; CHECK-SAME: () #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:    call void @sink(i32 noundef 0)
 ; CHECK-NEXT:    ret void
 ;
@@ -30,15 +33,17 @@ define internal void @test_byval(ptr byval(%struct.pair) %P) {
 }
 
 define void @caller(ptr %Y, ptr %P) {
+; TUNIT: Function Attrs: memory(readwrite, argmem: read)
 ; TUNIT-LABEL: define {{[^@]+}}@caller
-; TUNIT-SAME: (ptr nocapture nofree readonly [[Y:%.*]], ptr nocapture nofree readnone [[P:%.*]]) {
-; TUNIT-NEXT:    call void @test(ptr nocapture nofree noundef readonly align 8 [[Y]]), !dbg [[DBG4:![0-9]+]]
-; TUNIT-NEXT:    call void @test_byval(), !dbg [[DBG5:![0-9]+]]
+; TUNIT-SAME: (ptr nocapture nofree readonly [[Y:%.*]], ptr nocapture nofree readnone [[P:%.*]]) #[[ATTR0]] {
+; TUNIT-NEXT:    call void @test(ptr nocapture nofree noundef readonly align 8 [[Y]]) #[[ATTR0]], !dbg [[DBG4:![0-9]+]]
+; TUNIT-NEXT:    call void @test_byval() #[[ATTR1]], !dbg [[DBG5:![0-9]+]]
 ; TUNIT-NEXT:    ret void
 ;
+; CGSCC: Function Attrs: memory(readwrite, argmem: read)
 ; CGSCC-LABEL: define {{[^@]+}}@caller
-; CGSCC-SAME: (ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[Y:%.*]], ptr nocapture nofree readnone [[P:%.*]]) {
-; CGSCC-NEXT:    call void @test(ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[Y]]), !dbg [[DBG4:![0-9]+]]
+; CGSCC-SAME: (ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[Y:%.*]], ptr nocapture nofree readnone [[P:%.*]]) #[[ATTR0]] {
+; CGSCC-NEXT:    call void @test(ptr nocapture nofree noundef nonnull readonly align 8 dereferenceable(8) [[Y]]) #[[ATTR0]], !dbg [[DBG4:![0-9]+]]
 ; CGSCC-NEXT:    call void @test_byval(), !dbg [[DBG5:![0-9]+]]
 ; CGSCC-NEXT:    ret void
 ;
@@ -58,6 +63,9 @@ define void @caller(ptr %Y, ptr %P) {
 !3 = distinct !DICompileUnit(language: DW_LANG_C_plus_plus, producer: "clang version 3.5.0 ", isOptimized: false, emissionKind: LineTablesOnly, file: !5)
 !5 = !DIFile(filename: "test.c", directory: "")
 !6 = !DILocation(line: 9, scope: !2)
+;.
+; CHECK: attributes #[[ATTR0]] = { memory(readwrite, argmem: read) }
+; CHECK: attributes #[[ATTR1]] = { memory(readwrite, argmem: none) }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{i32 2, !"Debug Info Version", i32 3}
 ; CHECK: [[META1:![0-9]+]] = distinct !DICompileUnit(language: DW_LANG_C_plus_plus, file: !2, producer: "clang version 3.5.0 ", isOptimized: false, runtimeVersion: 0, emissionKind: LineTablesOnly)

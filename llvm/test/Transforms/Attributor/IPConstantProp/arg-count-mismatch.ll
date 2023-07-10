@@ -59,10 +59,10 @@ define internal i16 @bar(i16 %p1, i16 %p2) {
 }
 
 define dso_local i16 @foo2(i16 %a) {
-; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; TUNIT-LABEL: define {{[^@]+}}@foo2
-; TUNIT-SAME: (i16 [[A:%.*]]) #[[ATTR0]] {
-; TUNIT-NEXT:    [[CALL:%.*]] = call i16 @bar2(i16 [[A]]) #[[ATTR1:[0-9]+]]
+; TUNIT-SAME: (i16 [[A:%.*]]) #[[ATTR1:[0-9]+]] {
+; TUNIT-NEXT:    [[CALL:%.*]] = call i16 @bar2(i16 [[A]]) #[[ATTR2:[0-9]+]]
 ; TUNIT-NEXT:    ret i16 [[CALL]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(none)
@@ -138,7 +138,8 @@ define internal i16 @vararg_no_prop(i16 %p1, i16 %p2, ...) {
 
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; TUNIT: attributes #[[ATTR1]] = { nofree nosync nounwind willreturn memory(none) }
+; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn memory(none) }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree nosync nounwind willreturn memory(none) }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }

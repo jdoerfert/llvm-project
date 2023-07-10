@@ -33,8 +33,9 @@ declare void @llvm.lifetime.start.p0(i64, ptr nocapture) nounwind
 ; CHECK: @[[G:[a-zA-Z0-9_$"\\.-]+]] = internal global ptr undef, align 4
 ;.
 define void @h2s_value_simplify_interaction(i1 %c, ptr %A) {
+; CHECK: Function Attrs: memory(readwrite, argmem: none)
 ; CHECK-LABEL: define {{[^@]+}}@h2s_value_simplify_interaction
-; CHECK-SAME: (i1 [[C:%.*]], ptr nocapture nofree readnone [[A:%.*]]) {
+; CHECK-SAME: (i1 [[C:%.*]], ptr nocapture nofree readnone [[A:%.*]]) #[[ATTR7:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[ADD:%.*]] = add i64 2, 2
 ; CHECK-NEXT:    [[M:%.*]] = tail call noalias align 16 ptr @malloc(i64 noundef [[ADD]])
@@ -46,13 +47,13 @@ define void @h2s_value_simplify_interaction(i1 %c, ptr %A) {
 ; CHECK:       f2:
 ; CHECK-NEXT:    [[L:%.*]] = load i8, ptr [[M]], align 16
 ; CHECK-NEXT:    call void @usei8(i8 [[L]])
-; CHECK-NEXT:    call void @no_sync_func(ptr noalias nocapture nofree noundef nonnull align 16 dereferenceable(1) [[M]]) #[[ATTR11:[0-9]+]]
+; CHECK-NEXT:    call void @no_sync_func(ptr noalias nocapture nofree noundef nonnull align 16 dereferenceable(1) [[M]]) #[[ATTR13:[0-9]+]]
 ; CHECK-NEXT:    br label [[J]]
 ; CHECK:       dead:
 ; CHECK-NEXT:    unreachable
 ; CHECK:       j:
 ; CHECK-NEXT:    [[PHI:%.*]] = phi ptr [ [[M]], [[F]] ], [ null, [[F2]] ]
-; CHECK-NEXT:    tail call void @no_sync_func(ptr nocapture nofree noundef align 16 [[PHI]]) #[[ATTR11]]
+; CHECK-NEXT:    tail call void @no_sync_func(ptr nocapture nofree noundef align 16 [[PHI]]) #[[ATTR13]]
 ; CHECK-NEXT:    ret void
 ;
 entry:
@@ -359,7 +360,7 @@ define void @test9() {
 ; CHECK-NEXT:    [[I:%.*]] = tail call noalias ptr @malloc(i64 noundef 4)
 ; CHECK-NEXT:    tail call void @no_sync_func(ptr nocapture nofree [[I]])
 ; CHECK-NEXT:    store i32 10, ptr [[I]], align 4
-; CHECK-NEXT:    tail call void @foo_nounw(ptr nofree nonnull align 4 dereferenceable(4) [[I]]) #[[ATTR11]]
+; CHECK-NEXT:    tail call void @foo_nounw(ptr nofree nonnull align 4 dereferenceable(4) [[I]]) #[[ATTR13]]
 ; CHECK-NEXT:    tail call void @free(ptr nocapture nonnull align 4 dereferenceable(4) [[I]])
 ; CHECK-NEXT:    ret void
 ;
@@ -398,7 +399,7 @@ define i32 @test_lifetime() {
 ; CHECK-NEXT:  bb:
 ; CHECK-NEXT:    [[I_H2S:%.*]] = alloca i8, i64 4, align 1
 ; CHECK-NEXT:    tail call void @no_sync_func(ptr noalias nocapture nofree [[I_H2S]])
-; CHECK-NEXT:    call void @llvm.lifetime.start.p0(i64 noundef 4, ptr noalias nocapture nofree nonnull align 4 dereferenceable(4) [[I_H2S]])
+; CHECK-NEXT:    call void @llvm.lifetime.start.p0(i64 noundef 4, ptr noalias nocapture nofree nonnull align 4 dereferenceable(4) [[I_H2S]]) #[[ATTR14:[0-9]+]]
 ; CHECK-NEXT:    store i32 10, ptr [[I_H2S]], align 4
 ; CHECK-NEXT:    [[I2:%.*]] = load i32, ptr [[I_H2S]], align 4
 ; CHECK-NEXT:    ret i32 [[I2]]
@@ -419,7 +420,7 @@ define void @test11() {
 ; CHECK-LABEL: define {{[^@]+}}@test11() {
 ; CHECK-NEXT:  bb:
 ; CHECK-NEXT:    [[I_H2S:%.*]] = alloca i8, i64 4, align 1
-; CHECK-NEXT:    tail call void @sync_will_return(ptr [[I_H2S]]) #[[ATTR11]]
+; CHECK-NEXT:    tail call void @sync_will_return(ptr [[I_H2S]]) #[[ATTR13]]
 ; CHECK-NEXT:    ret void
 ;
 bb:
@@ -629,8 +630,9 @@ bb:
 }
 
 define void @test16a(i8 %v, ptr %P) {
+; CHECK: Function Attrs: memory(readwrite, argmem: none)
 ; CHECK-LABEL: define {{[^@]+}}@test16a
-; CHECK-SAME: (i8 [[V:%.*]], ptr nocapture nofree readnone [[P:%.*]]) {
+; CHECK-SAME: (i8 [[V:%.*]], ptr nocapture nofree readnone [[P:%.*]]) #[[ATTR7]] {
 ; CHECK-NEXT:  bb:
 ; CHECK-NEXT:    [[I_H2S:%.*]] = alloca i8, i64 4, align 1
 ; CHECK-NEXT:    store i8 [[V]], ptr [[I_H2S]], align 1
@@ -646,8 +648,9 @@ bb:
 }
 
 define void @test16b(i8 %v, ptr %P) {
+; CHECK: Function Attrs: memory(readwrite, argmem: write)
 ; CHECK-LABEL: define {{[^@]+}}@test16b
-; CHECK-SAME: (i8 [[V:%.*]], ptr nocapture nofree writeonly [[P:%.*]]) {
+; CHECK-SAME: (i8 [[V:%.*]], ptr nocapture nofree writeonly [[P:%.*]]) #[[ATTR10:[0-9]+]] {
 ; CHECK-NEXT:  bb:
 ; CHECK-NEXT:    [[I:%.*]] = tail call noalias ptr @malloc(i64 noundef 4)
 ; CHECK-NEXT:    store ptr [[I]], ptr [[P]], align 8
@@ -664,12 +667,13 @@ bb:
 }
 
 define void @test16c(i8 %v, ptr %P) {
+; CHECK: Function Attrs: memory(readwrite, argmem: write)
 ; CHECK-LABEL: define {{[^@]+}}@test16c
-; CHECK-SAME: (i8 [[V:%.*]], ptr nocapture nofree writeonly [[P:%.*]]) {
+; CHECK-SAME: (i8 [[V:%.*]], ptr nocapture nofree writeonly [[P:%.*]]) #[[ATTR10]] {
 ; CHECK-NEXT:  bb:
 ; CHECK-NEXT:    [[I_H2S:%.*]] = alloca i8, i64 4, align 1
 ; CHECK-NEXT:    store ptr [[I_H2S]], ptr [[P]], align 8
-; CHECK-NEXT:    tail call void @no_sync_func(ptr nocapture nofree [[I_H2S]]) #[[ATTR11]]
+; CHECK-NEXT:    tail call void @no_sync_func(ptr nocapture nofree [[I_H2S]]) #[[ATTR13]]
 ; CHECK-NEXT:    ret void
 ;
 bb:
@@ -681,8 +685,9 @@ bb:
 }
 
 define void @test16d(i8 %v, ptr %P) {
+; CHECK: Function Attrs: memory(readwrite, argmem: write)
 ; CHECK-LABEL: define {{[^@]+}}@test16d
-; CHECK-SAME: (i8 [[V:%.*]], ptr nocapture nofree writeonly [[P:%.*]]) {
+; CHECK-SAME: (i8 [[V:%.*]], ptr nocapture nofree writeonly [[P:%.*]]) #[[ATTR10]] {
 ; CHECK-NEXT:  bb:
 ; CHECK-NEXT:    [[I:%.*]] = tail call noalias ptr @malloc(i64 noundef 4)
 ; CHECK-NEXT:    store ptr [[I]], ptr [[P]], align 8
@@ -698,11 +703,11 @@ bb:
 define void @test16e(i8 %v) norecurse {
 ; CHECK: Function Attrs: norecurse
 ; CHECK-LABEL: define {{[^@]+}}@test16e
-; CHECK-SAME: (i8 [[V:%.*]]) #[[ATTR9:[0-9]+]] {
+; CHECK-SAME: (i8 [[V:%.*]]) #[[ATTR11:[0-9]+]] {
 ; CHECK-NEXT:  bb:
 ; CHECK-NEXT:    [[I_H2S:%.*]] = alloca i8, i64 4, align 1
 ; CHECK-NEXT:    store ptr [[I_H2S]], ptr @G, align 8
-; CHECK-NEXT:    call void @usei8p(ptr nocapture nofree [[I_H2S]]) #[[ATTR12:[0-9]+]]
+; CHECK-NEXT:    call void @usei8p(ptr nocapture nofree [[I_H2S]]) #[[ATTR15:[0-9]+]]
 ; CHECK-NEXT:    ret void
 ;
 bb:
@@ -722,12 +727,15 @@ bb:
 ; CHECK: attributes #[[ATTR4]] = { noreturn }
 ; CHECK: attributes #[[ATTR5:[0-9]+]] = { allockind("free") }
 ; CHECK: attributes #[[ATTR6:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
-; CHECK: attributes #[[ATTR7:[0-9]+]] = { allockind("alloc,uninitialized,aligned") allocsize(1) }
-; CHECK: attributes #[[ATTR8:[0-9]+]] = { allockind("alloc,zeroed") allocsize(0,1) }
-; CHECK: attributes #[[ATTR9]] = { norecurse }
-; CHECK: attributes #[[ATTR10:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: write) }
-; CHECK: attributes #[[ATTR11]] = { nounwind }
-; CHECK: attributes #[[ATTR12]] = { nocallback nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR7]] = { memory(readwrite, argmem: none) }
+; CHECK: attributes #[[ATTR8:[0-9]+]] = { allockind("alloc,uninitialized,aligned") allocsize(1) }
+; CHECK: attributes #[[ATTR9:[0-9]+]] = { allockind("alloc,zeroed") allocsize(0,1) }
+; CHECK: attributes #[[ATTR10]] = { memory(readwrite, argmem: write) }
+; CHECK: attributes #[[ATTR11]] = { norecurse }
+; CHECK: attributes #[[ATTR12:[0-9]+]] = { nocallback nofree nounwind willreturn memory(argmem: write) }
+; CHECK: attributes #[[ATTR13]] = { nounwind }
+; CHECK: attributes #[[ATTR14]] = { memory(argmem: readwrite) }
+; CHECK: attributes #[[ATTR15]] = { nocallback nosync nounwind willreturn }
 ;.
 ;; NOTE: These prefixes are unused and the list is autogenerated. Do not add tests below this line:
 ; CGSCC: {{.*}}

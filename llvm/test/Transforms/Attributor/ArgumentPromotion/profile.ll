@@ -10,7 +10,7 @@ define void @caller() #0 {
 ; TUNIT-NEXT:    [[X:%.*]] = alloca i32, align 4
 ; TUNIT-NEXT:    store i32 42, ptr [[X]], align 4
 ; TUNIT-NEXT:    [[TMP1:%.*]] = load i32, ptr [[X]], align 4
-; TUNIT-NEXT:    call void @promote_i32_ptr(i32 [[TMP1]]), !prof [[PROF0:![0-9]+]]
+; TUNIT-NEXT:    call void @promote_i32_ptr(i32 [[TMP1]]) #[[ATTR0:[0-9]+]], !prof [[PROF0:![0-9]+]]
 ; TUNIT-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@caller() {
@@ -24,8 +24,9 @@ define void @caller() #0 {
 }
 
 define internal void @promote_i32_ptr(ptr %xp) {
+; CHECK: Function Attrs: memory(readwrite, argmem: read)
 ; CHECK-LABEL: define {{[^@]+}}@promote_i32_ptr
-; CHECK-SAME: (i32 [[TMP0:%.*]]) {
+; CHECK-SAME: (i32 [[TMP0:%.*]]) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:    [[XP_PRIV:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    store i32 [[TMP0]], ptr [[XP_PRIV]], align 4
 ; CHECK-NEXT:    [[X:%.*]] = load i32, ptr [[XP_PRIV]], align 4
@@ -40,6 +41,8 @@ define internal void @promote_i32_ptr(ptr %xp) {
 declare void @use_i32(i32)
 
 !0 = !{!"branch_weights", i32 30}
+;.
+; CHECK: attributes #[[ATTR0]] = { memory(readwrite, argmem: read) }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{!"branch_weights", i32 30}
 ;.

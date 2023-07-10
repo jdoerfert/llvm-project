@@ -72,7 +72,7 @@ define void @caller(i1 %C) personality ptr @__gxx_personality_v0 {
 ; TUNIT:       RET:
 ; TUNIT-NEXT:    ret void
 ;
-; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn
+; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(write, inaccessiblemem: none)
 ; CGSCC-LABEL: define {{[^@]+}}@caller
 ; CGSCC-SAME: (i1 noundef [[C:%.*]]) #[[ATTR2:[0-9]+]] personality ptr @__gxx_personality_v0 {
 ; CGSCC-NEXT:    [[Q:%.*]] = alloca i32, align 4
@@ -120,12 +120,12 @@ declare i32 @__gxx_personality_v0(...)
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: write) }
 ; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn memory(write) }
+; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn memory(argmem: write) }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; CGSCC: attributes #[[ATTR2]] = { mustprogress nofree nosync nounwind willreturn }
-; CGSCC: attributes #[[ATTR3]] = { nofree nounwind willreturn }
+; CGSCC: attributes #[[ATTR2]] = { mustprogress nofree nosync nounwind willreturn memory(write, inaccessiblemem: none) }
+; CGSCC: attributes #[[ATTR3]] = { nofree nounwind willreturn memory(argmem: readwrite) }
 ; CGSCC: attributes #[[ATTR4]] = { nofree willreturn }
 ; CGSCC: attributes #[[ATTR5]] = { nofree nounwind willreturn memory(none) }
 ;.

@@ -60,7 +60,7 @@ define void @broker(ptr %unknown) !callback !0 {
 
 define void @func6() {
 ; CHECK-LABEL: @func6(
-; CHECK-NEXT:    call void @broker(ptr nocapture nofree noundef nonnull @func3)
+; CHECK-NEXT:    call void @broker(ptr noalias nocapture nofree noundef nonnull readnone @func3) #[[ATTR0:[0-9]+]]
 ; CHECK-NEXT:    ret void
 ;
   call void @broker(ptr @func3)

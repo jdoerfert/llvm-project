@@ -32,9 +32,9 @@ entry:
 
 define i32 @test(ptr %X) {
 ;
-; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 ; TUNIT-LABEL: define {{[^@]+}}@test
-; TUNIT-SAME: (ptr nocapture nofree nonnull readonly [[X:%.*]]) #[[ATTR0]] {
+; TUNIT-SAME: (ptr nocapture nofree nonnull readnone [[X:%.*]]) #[[ATTR1:[0-9]+]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[S:%.*]] = alloca [[STRUCT_SS:%.*]], align 8
 ; TUNIT-NEXT:    store i32 1, ptr [[S]], align 8
@@ -43,10 +43,10 @@ define i32 @test(ptr %X) {
 ; TUNIT-NEXT:    [[S_0_1:%.*]] = getelementptr [[STRUCT_SS]], ptr [[S]], i64 0, i32 1
 ; TUNIT-NEXT:    [[TMP1:%.*]] = load i64, ptr [[S_0_1]], align 8
 ; TUNIT-NEXT:    [[TMP2:%.*]] = load i32, ptr [[X]], align 4
-; TUNIT-NEXT:    call void @f(i32 [[TMP0]], i64 [[TMP1]], i32 [[TMP2]]) #[[ATTR1:[0-9]+]]
+; TUNIT-NEXT:    call void @f(i32 [[TMP0]], i64 [[TMP1]], i32 [[TMP2]]) #[[ATTR2:[0-9]+]]
 ; TUNIT-NEXT:    ret i32 0
 ;
-; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(argmem: readwrite)
+; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn memory(argmem: read)
 ; CGSCC-LABEL: define {{[^@]+}}@test
 ; CGSCC-SAME: (ptr nocapture nofree noundef nonnull readonly align 4 dereferenceable(4) [[X:%.*]]) #[[ATTR1:[0-9]+]] {
 ; CGSCC-NEXT:  entry:
@@ -66,9 +66,10 @@ entry:
 }
 ;.
 ; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-; TUNIT: attributes #[[ATTR1]] = { nofree nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
+; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn memory(argmem: readwrite) }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
-; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree nosync nounwind willreturn memory(argmem: readwrite) }
-; CGSCC: attributes #[[ATTR2]] = { nofree nounwind willreturn }
+; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree nosync nounwind willreturn memory(argmem: read) }
+; CGSCC: attributes #[[ATTR2]] = { nofree nounwind willreturn memory(none) }
 ;.
