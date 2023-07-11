@@ -4023,7 +4023,9 @@ struct AANoAliasReturned final : AANoAliasImpl {
              (NoCaptureAA && NoCaptureAA->isAssumedNoCaptureMaybeReturned());
     };
 
-    if (!A.checkForAllReturnedValues(CheckReturnValue, *this))
+    if (!A.checkForAllReturnedValues(CheckReturnValue, *this,
+                                     AA::ValueScope::Interprocedural,
+                                     /* RecurseForSelectAndPHI */ true))
       return indicatePessimisticFixpoint();
 
     return ChangeStatus::UNCHANGED;

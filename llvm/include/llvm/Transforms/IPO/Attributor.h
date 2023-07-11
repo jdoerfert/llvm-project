@@ -1140,16 +1140,16 @@ struct AnalysisGetter {
 
   template <typename Analysis>
   typename Analysis::Result *getAnalysis(const Function &F,
-                                         bool RequestCachedOnly = false) {
+                                         bool RequestCachedOnly = true) {
     if (!LegacyPass && !FAM)
       return nullptr;
     if (FAM) {
-      if (CachedOnly || RequestCachedOnly)
+      if (CachedOnly && RequestCachedOnly)
         return FAM->getCachedResult<Analysis>(const_cast<Function &>(F));
       return &FAM->getResult<Analysis>(const_cast<Function &>(F));
     }
     if constexpr (HasLegacyWrapper<Analysis>) {
-      if (!CachedOnly && !RequestCachedOnly)
+      if (!CachedOnly || !RequestCachedOnly)
         return &LegacyPass
                     ->getAnalysis<typename Analysis::LegacyWrapper>(
                         const_cast<Function &>(F))
