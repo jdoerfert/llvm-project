@@ -109,9 +109,12 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
   bool VisitFunctionDecl(FunctionDecl *FD) {
     auto *Fn = createNewFunction(FD, nullptr, FD->getName(),
                                  FD->getReturnType(), FD->parameters());
+    DeclMap[FD] = Fn;
+    if (!FD->hasBody())
+      return true;
     auto *AI = Fn->arg_begin();
     for (auto *Param : FD->parameters()) {
-      auto *Old = DeclMap[Param];
+      auto *Old = cast<Instruction>(DeclMap[Param]);
       AI->setName(Old->getName());
       auto *Placeholder = Old->getOperand(0);
       Old->setOperand(0, AI++);
@@ -127,6 +130,8 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
   }
 
   bool VisitParmVarDecl(ParmVarDecl *PAD) {
+    if (!cast<FunctionDecl>(PAD->getDeclContext())->hasBody())
+      return true;
     errs() << "Visit ParamVarDecl\n";
     PAD->dump();
     auto *A = new llvm::Argument(convertType(PAD->getType(), clang::VK_LValue),
@@ -136,7 +141,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
         {A, Builder.CreateGlobalStringPtr(PAD->getName(), "var_name", 0, M)},
         false, false);
     CS->setName(PAD->getName());
-    CS->insertInto(EntryBB, EntryBB->end());
+    cast<Instruction>(CS)->insertInto(EntryBB, EntryBB->end());
     return true;
   }
 
@@ -224,6 +229,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
       Arg->setName(It.getFirst()->getName());
       It.getFirst()->replaceUsesWithIf(Arg, [BodyFn](Use &U) {
         return llvm::isa_and_nonnull<Instruction>(U.getUser()) &&
+               llvm::cast<Instruction>(U.getUser())->getParent() &&
                llvm::cast<Instruction>(U.getUser())->getFunction() == BodyFn;
       });
     }
@@ -250,6 +256,18 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     return true;
   }
 
+  bool VisitStringLiteral(clang::StringLiteral *SL) {
+    errs() << "Viit SL: ";
+    SL->dump();
+    unsigned TS = ASTCtx.getTypeSize(SL->getType());
+    ExprMap[SL] = createCall(
+        "string_literal", convertType(SL->getType(), SL->getValueKind()),
+        {Builder.getInt32(TS),
+         Builder.CreateGlobalString(SL->getString(), "", 0, M)},
+        false, true);
+    return true;
+  }
+
   bool VisitIntegerLiteral(IntegerLiteral *IL) {
     errs() << "Viit IL: ";
     IL->dump();
@@ -264,11 +282,19 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     return true;
   }
 
+  bool VisitArraySubscriptExpr(clang::ArraySubscriptExpr *ASE) {
+    assert(ExprMap.count(ASE->getLHS()));
+    assert(ExprMap.count(ASE->getRHS()));
+    unsigned TS = ASTCtx.getTypeSize(ASE->getType());
+    ExprMap[ASE] = createCall(
+        "array_subscript_expr",
+        convertType(ASE->getType(), ASE->getValueKind()),
+        {Builder.getInt32(TS), ExprMap[ASE->getLHS()], ExprMap[ASE->getRHS()]},
+        false, true);
+    return true;
+  }
+
   bool VisitBinaryOperator(clang::BinaryOperator *BO) {
-    //    errs() << "Bin op \n";
-    //    BO->dump();
-    //    Scp->DelayedStmtStack.push_back(
-    //        DelayedStmt{"binary_operator", 2, convertType(BO->getType())});
     assert(ExprMap.count(BO->getLHS()));
     assert(ExprMap.count(BO->getRHS()));
     unsigned TS = ASTCtx.getTypeSize(BO->getType());
@@ -278,6 +304,36 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
         false, true);
     return true;
   }
+
+  bool VisitExpr(clang::Expr *E) { return true; }
+
+  bool VisitCallExpr(clang::CallExpr *CE) {
+    SmallVector<llvm::Value *, 4> Args;
+    unsigned TS = ASTCtx.getTypeSize(CE->getType());
+    Args.push_back(Builder.getInt32(TS));
+
+    //    if (auto *CD = CE->getCalleeDecl())
+    //      Args.push_back(DeclMap[CD]);
+    //    else
+    Args.push_back(
+        Builder.getInt32(ASTCtx.getTypeSize(CE->getCallee()->getType())));
+    Args.push_back(ExprMap[CE->getCallee()]);
+
+    Args.push_back(Builder.getInt32(CE->getNumArgs()));
+    for (auto *Arg : CE->arguments()) {
+      assert(ExprMap.count(Arg));
+      unsigned TS = ASTCtx.getTypeSize(Arg->getType());
+      Args.push_back(Builder.getInt32(TS));
+      Args.push_back(ExprMap[Arg]);
+    }
+
+    ExprMap[CE] =
+        createCall("call_expr", convertType(CE->getType(), CE->getValueKind()),
+                   Args, false, true);
+    StmtMap[CE].push_back(cast<Instruction>(ExprMap[CE]));
+    return true;
+  }
+
   bool VisitImplicitCastExpr(clang::ImplicitCastExpr *ICE) {
     assert(ExprMap.count(ICE->getSubExpr()));
     unsigned TS = ASTCtx.getTypeSize(ICE->getType());
@@ -320,7 +376,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
   }
 
   DenseMap<std::pair<void *, int>, llvm::Type *> TypeMap;
-  DenseMap<clang::Decl *, llvm::Instruction *> DeclMap;
+  DenseMap<clang::Decl *, llvm::Value *> DeclMap;
   DenseMap<clang::Expr *, llvm::Value *> ExprMap;
   DenseMap<clang::Stmt *, SmallVector<llvm::Instruction *>> StmtMap;
   clang::Stmt *CurStmt = nullptr;
@@ -334,6 +390,7 @@ public:
 
   void HandleTranslationUnit(ASTContext &Context) override {
     Visitor V(Context);
+    Context.getTranslationUnitDecl()->dump();
     V.TraverseDecl(Context.getTranslationUnitDecl());
   }
 };
