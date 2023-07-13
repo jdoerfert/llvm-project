@@ -655,9 +655,9 @@ struct IRPosition {
   /// Create a position describing the argument of \p ACS at position \p ArgNo.
   static const IRPosition callsite_argument(AbstractCallSite ACS,
                                             unsigned ArgNo) {
-    if (ACS.getNumArgOperands() <= ArgNo)
-      return IRPosition();
     int CSArgNo = ACS.getCallArgOperandNo(ArgNo);
+    if (int(ACS.getInstruction()->arg_size()) <= CSArgNo)
+      return IRPosition();
     if (CSArgNo >= 0)
       return IRPosition::callsite_argument(
           cast<CallBase>(*ACS.getInstruction()), CSArgNo);

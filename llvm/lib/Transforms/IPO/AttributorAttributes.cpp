@@ -4051,7 +4051,7 @@ struct AANoAliasCallSiteArgument final : AANoAliasImpl {
                             const AAMemoryBehavior &MemBehaviorAA,
                             const CallBase &CB, unsigned OtherArgNo) {
     // We do not need to worry about aliasing with the underlying IRP.
-    if (this->getCalleeArgNo() == (int)OtherArgNo)
+    if (getIRPosition().getCallSiteArgNo() == (int)OtherArgNo)
       return false;
 
     // If it is not a pointer or pointer vector we do not alias.
