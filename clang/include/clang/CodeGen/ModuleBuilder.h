@@ -52,7 +52,7 @@ public:
   /// Return an opaque reference to the CodeGenModule object, which can
   /// be used in various secondary APIs.  It is valid as long as the
   /// CodeGenerator exists.
-  CodeGen::CodeGenModule &CGM();
+  virtual CodeGen::CodeGenModule &CGM() = 0;
 
   /// Return the module that this code generator is building into.
   ///
@@ -62,26 +62,26 @@ public:
   /// will be deleted.
   ///
   /// It will also return null if the module is released.
-  llvm::Module *GetModule();
+  virtual llvm::Module *GetModule() = 0;
 
   /// Release ownership of the module to the caller.
   ///
   /// It is illegal to call methods other than GetModule on the
   /// CodeGenerator after releasing its module.
-  llvm::Module *ReleaseModule();
+  virtual llvm::Module *ReleaseModule() = 0;
 
   /// Return debug info code generator.
-  CodeGen::CGDebugInfo *getCGDebugInfo();
+  virtual CodeGen::CGDebugInfo *getCGDebugInfo() = 0;
 
   /// Given a mangled name, return a declaration which mangles that way
   /// which has been added to this code generator via a Handle method.
   ///
   /// This may return null if there was no matching declaration.
-  const Decl *GetDeclForMangledName(llvm::StringRef MangledName);
+  virtual const Decl *GetDeclForMangledName(llvm::StringRef MangledName) = 0;
 
   /// Given a global declaration, return a mangled name for this declaration
   /// which has been added to this code generator via a Handle method.
-  llvm::StringRef GetMangledName(GlobalDecl GD);
+  virtual llvm::StringRef GetMangledName(GlobalDecl GD) = 0;
 
   /// Return the LLVM address of the given global entity.
   ///
@@ -91,11 +91,13 @@ public:
   ///   the object returned may be any sort of constant value, and the
   ///   code generator will schedule the entity for emission if a
   ///   definition has been registered with this code generator.
-  llvm::Constant *GetAddrOfGlobal(GlobalDecl decl, bool isForDefinition);
+  virtual llvm::Constant *GetAddrOfGlobal(GlobalDecl decl,
+                                          bool isForDefinition) = 0;
 
   /// Create a new \c llvm::Module after calling HandleTranslationUnit. This
   /// enable codegen in interactive processing environments.
-  llvm::Module* StartModule(llvm::StringRef ModuleName, llvm::LLVMContext &C);
+  virtual llvm::Module *StartModule(llvm::StringRef ModuleName,
+                                    llvm::LLVMContext &C) = 0;
 };
 
 /// CreateLLVMCodeGen - Create a CodeGenerator instance.

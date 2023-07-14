@@ -29,6 +29,10 @@
 using namespace clang;
 using namespace CodeGen;
 
+static llvm::cl::opt<bool>
+    EmitCLAIR("emit-clair", llvm::cl::Hidden,
+              llvm::cl::desc("Emit CLAIR (ClangAST-IR)"));
+
 namespace {
   class CodeGeneratorImpl : public CodeGenerator {
     DiagnosticsEngine &Diags;
@@ -321,44 +325,48 @@ namespace {
       Builder->EmitVTable(RD);
     }
   };
-}
 
-void CodeGenerator::anchor() { }
+  class CodeGeneratorCLAIRImpl : public CodeGenerator {
+    CodeGenModule &CodeGenerator::CGM() {
+      return static_cast<CodeGeneratorImpl *>(this)->CGM();
+    }
 
-CodeGenModule &CodeGenerator::CGM() {
-  return static_cast<CodeGeneratorImpl*>(this)->CGM();
-}
+    llvm::Module *CodeGenerator::GetModule() {
+      return static_cast<CodeGeneratorImpl *>(this)->GetModule();
+    }
 
-llvm::Module *CodeGenerator::GetModule() {
-  return static_cast<CodeGeneratorImpl*>(this)->GetModule();
-}
+    llvm::Module *CodeGenerator::ReleaseModule() {
+      return static_cast<CodeGeneratorImpl *>(this)->ReleaseModule();
+    }
 
-llvm::Module *CodeGenerator::ReleaseModule() {
-  return static_cast<CodeGeneratorImpl*>(this)->ReleaseModule();
-}
+    CGDebugInfo *CodeGenerator::getCGDebugInfo() {
+      return static_cast<CodeGeneratorImpl *>(this)->getCGDebugInfo();
+    }
 
-CGDebugInfo *CodeGenerator::getCGDebugInfo() {
-  return static_cast<CodeGeneratorImpl*>(this)->getCGDebugInfo();
-}
+    const Decl *CodeGenerator::GetDeclForMangledName(llvm::StringRef name) {
+      return static_cast<CodeGeneratorImpl *>(this)->GetDeclForMangledName(
+          name);
+    }
 
-const Decl *CodeGenerator::GetDeclForMangledName(llvm::StringRef name) {
-  return static_cast<CodeGeneratorImpl*>(this)->GetDeclForMangledName(name);
-}
+    llvm::StringRef CodeGenerator::GetMangledName(GlobalDecl GD) {
+      return static_cast<CodeGeneratorImpl *>(this)->GetMangledName(GD);
+    }
 
-llvm::StringRef CodeGenerator::GetMangledName(GlobalDecl GD) {
-  return static_cast<CodeGeneratorImpl *>(this)->GetMangledName(GD);
-}
+    llvm::Constant *CodeGenerator::GetAddrOfGlobal(GlobalDecl global,
+                                                   bool isForDefinition) {
+      return static_cast<CodeGeneratorImpl *>(this)->GetAddrOfGlobal(
+          global, isForDefinition);
+    }
 
-llvm::Constant *CodeGenerator::GetAddrOfGlobal(GlobalDecl global,
-                                               bool isForDefinition) {
-  return static_cast<CodeGeneratorImpl*>(this)
-           ->GetAddrOfGlobal(global, isForDefinition);
-}
+    llvm::Module *CodeGenerator::StartModule(llvm::StringRef ModuleName,
+                                             llvm::LLVMContext &C) {
+      return static_cast<CodeGeneratorImpl *>(this)->StartModule(ModuleName, C);
+    }
+  }
 
-llvm::Module *CodeGenerator::StartModule(llvm::StringRef ModuleName,
-                                         llvm::LLVMContext &C) {
-  return static_cast<CodeGeneratorImpl*>(this)->StartModule(ModuleName, C);
-}
+  void
+  CodeGenerator::anchor() {
+  }
 
 CodeGenerator *
 clang::CreateLLVMCodeGen(DiagnosticsEngine &Diags, llvm::StringRef ModuleName,
@@ -367,7 +375,11 @@ clang::CreateLLVMCodeGen(DiagnosticsEngine &Diags, llvm::StringRef ModuleName,
                          const PreprocessorOptions &PreprocessorOpts,
                          const CodeGenOptions &CGO, llvm::LLVMContext &C,
                          CoverageSourceInfo *CoverageInfo) {
-  return new CodeGeneratorImpl(Diags, ModuleName, std::move(FS),
-                               HeaderSearchOpts, PreprocessorOpts, CGO, C,
-                               CoverageInfo);
+    if (EmitCLAIR)
+      return new CodeGeneratorCLAIRImpl(Diags, ModuleName, std::move(FS),
+                                        HeaderSearchOpts, PreprocessorOpts, CGO,
+                                        C, CoverageInfo);
+    return new CodeGeneratorImpl(Diags, ModuleName, std::move(FS),
+                                 HeaderSearchOpts, PreprocessorOpts, CGO, C,
+                                 CoverageInfo);
 }

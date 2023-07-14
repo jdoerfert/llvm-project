@@ -127,7 +127,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
 
     llvm::ReturnInst::Create(Ctx, EntryBB);
     EntryBB->removeFromParent();
-    EntryBB->moveBefore(Fn->end());
+    EntryBB->insertInto(Fn);
     EntryBB = llvm::BasicBlock::Create(Ctx, "", DummyFn);
     return true;
   }
@@ -139,7 +139,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     auto *CS = DeclMap[PAD] = createCall(
         "param_var_decl", Builder.getPtrTy(),
         {A, Builder.CreateGlobalStringPtr(PAD->getName(), "var_name", 0, &M)},
-        false, false);
+        false);
     cast<Instruction>(CS)->moveBefore(*EntryBB, EntryBB->end());
     CS->setName(PAD->getName() + "WWWW");
     return true;
@@ -149,7 +149,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     SmallVector<llvm::Value *, 4> Args;
     for (auto *D : DS->decls())
       Args.push_back(DeclMap[D]);
-    createCall("decl_stmt", Builder.getVoidTy(), Args, true, true);
+    createCall("decl_stmt", Builder.getVoidTy(), Args, true);
     return true;
   }
   bool VisitVarDecl(VarDecl *VD) {
@@ -160,7 +160,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     if (auto *Init = VD->getInit())
       Args.push_back(ExprMap[Init]);
     auto *CS = DeclMap[VD] =
-        createCall("var_decl", Builder.getPtrTy(), Args, false, true);
+        createCall("var_decl", Builder.getPtrTy(), Args, false);
     CS->setName(VD->getName());
     return true;
   }
@@ -177,13 +177,16 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     CurBB = llvm::BasicBlock::Create(Ctx, "", DummyFn);
 
     llvm::SmallSetVector<llvm::Value *, 8> Args;
-    llvm::SmallVector<llvm::Value *> Worklist;
-    for (llvm::Instruction &I : *BB) {
-      for (llvm::Value *Op : I.operand_values()) {
+    llvm::SmallSetVector<llvm::Instruction *, 8> Worklist;
+    for (auto *C : CS->body())
+      Worklist.insert(StmtMap[C]);
+
+    for (llvm::Instruction *I : Worklist) {
+      for (llvm::Value *Op : I->operand_values()) {
         if (isa<Constant>(Op))
           continue;
-        if (llvm::Instruction *I = dyn_cast<Instruction>(Op))
-          if (I->getParent() == BB)
+        if (llvm::Instruction *OpI = dyn_cast<Instruction>(Op))
+          if (Worklist.contains(OpI) || StmtInstSet.contains(OpI))
             continue;
         Args.insert(Op);
       }
@@ -208,7 +211,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
                           llvm::GlobalValue::PrivateLinkage);
     M.dump();
     BB->removeFromParent();
-    BB->moveBefore(BodyFn->end());
+    BB->insertInto(BodyFn);
     llvm::ReturnInst::Create(Ctx, BB);
 
     Builder.SetInsertPoint(BB, BB->getFirstInsertionPt());
@@ -225,7 +228,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
       //      });
     }
 
-    createCall("compound_stmt", VoidTy, {BodyFn, AL}, true, true);
+    createCall("compound_stmt", VoidTy, {BodyFn, AL}, true);
     return true;
   }
 
@@ -236,7 +239,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     createCall("return_stmt", RV ? Builder.getPtrTy() : Builder.getVoidTy(),
                RV ? ArrayRef<llvm::Value *>({Builder.getInt32(TS), ExprMap[RV]})
                   : ArrayRef<llvm::Value *>(),
-               true, true);
+               true);
     return true;
   }
 
@@ -246,7 +249,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
         createCall("string_literal", Builder.getPtrTy(),
                    {Builder.getInt32(TS),
                     Builder.CreateGlobalString(SL->getString(), "", 0, &M)},
-                   false, true);
+                   false);
     return true;
   }
 
@@ -258,7 +261,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
         {Builder.getInt32(TS),
          new llvm::GlobalVariable(M, Init->getType(), true,
                                   llvm::GlobalVariable::InternalLinkage, Init)},
-        false, true);
+        false);
     return true;
   }
 
@@ -269,7 +272,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     ExprMap[ASE] = createCall(
         "array_subscript_expr", Builder.getPtrTy(),
         {Builder.getInt32(TS), ExprMap[ASE->getLHS()], ExprMap[ASE->getRHS()]},
-        false, true);
+        false);
     return true;
   }
 
@@ -280,7 +283,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     ExprMap[BO] = createCall(
         "binary_op", Builder.getPtrTy(),
         {Builder.getInt32(TS), ExprMap[BO->getLHS()], ExprMap[BO->getRHS()]},
-        false, true);
+        false);
     return true;
   }
 
@@ -306,9 +309,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
       Args.push_back(ExprMap[Arg]);
     }
 
-    ExprMap[CE] =
-        createCall("call_expr", Builder.getPtrTy(), Args, false, true);
-    StmtMap[CE].push_back(cast<Instruction>(ExprMap[CE]));
+    ExprMap[CE] = createCall("call_expr", Builder.getPtrTy(), Args, true);
     return true;
   }
 
@@ -321,22 +322,21 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
                                   ExprMap[ICE->getSubExpr()],
                                   Builder.getInt32(ICE->getCastKind()),
                               },
-                              false, true);
+                              false);
     return true;
   }
 
   bool VisitDeclRefExpr(clang::DeclRefExpr *DRE) {
     unsigned TS = ASTCtx.getTypeSize(DRE->getType());
     errs() << "DRE:" << *DeclMap[DRE->getDecl()] << "\n";
-    ExprMap[DRE] = createCall("decl_ref", Builder.getPtrTy(),
-                              {Builder.getInt32(TS), DeclMap[DRE->getDecl()]},
-                              false, true);
+    ExprMap[DRE] =
+        createCall("decl_ref", Builder.getPtrTy(),
+                   {Builder.getInt32(TS), DeclMap[DRE->getDecl()]}, false);
     return true;
   }
 
   llvm::Instruction *createCall(StringRef Name, llvm::Type *RetTy,
-                                ArrayRef<llvm::Value *> Args, bool IsStmt,
-                                bool IsInsts) {
+                                ArrayRef<llvm::Value *> Args, bool IsStmt) {
     SmallVector<llvm::Type *> ParamTypes;
     for (auto *V : Args) {
       assert(V);
@@ -348,15 +348,18 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
 
     Builder.SetInsertPoint(CurBB, CurBB->end());
     auto *Call = Builder.CreateCall(CSCallee, Args);
-    if (IsInsts && IsStmt)
-      StmtMap[CurStmt].push_back(Call);
+    if (IsStmt) {
+      StmtMap[CurStmt] = Call;
+      StmtInstSet.insert(Call);
+    }
     return Call;
   }
 
   DenseMap<std::pair<void *, int>, llvm::Type *> TypeMap;
   DenseMap<clang::Decl *, llvm::Value *> DeclMap;
   DenseMap<clang::Expr *, llvm::Value *> ExprMap;
-  DenseMap<clang::Stmt *, SmallVector<llvm::Instruction *>> StmtMap;
+  DenseMap<clang::Stmt *, llvm::Instruction *> StmtMap;
+  DenseSet<llvm::Instruction *> StmtInstSet;
   clang::Stmt *CurStmt = nullptr;
   llvm::Value *LastDeclStmt = nullptr;
 };
