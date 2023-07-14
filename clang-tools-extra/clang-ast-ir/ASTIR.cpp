@@ -24,6 +24,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -37,117 +38,114 @@
 #include "llvm/IR/ValueMap.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
+#include <system_error>
 
 using namespace clang;
 using namespace llvm;
 
 namespace {
 
+static std::string Prefix = "_CLAIR_";
+
 struct Visitor : public RecursiveASTVisitor<Visitor> {
-  LLVMContext Ctx;
-  llvm::Module *M;
   clang::ASTContext &ASTCtx;
+
+  LLVMContext Ctx;
+  llvm::Module M;
 
   /// Return whether this visitor should traverse post-order.
   bool shouldTraversePostOrder() const { return true; }
 
   llvm::IRBuilder<> Builder;
+  llvm::Function *DummyFn;
   llvm::BasicBlock *EntryBB;
+  llvm::BasicBlock *CurBB;
+  llvm::Type *BoxTy;
 
-  Visitor(clang::ASTContext &ASTCtx) : ASTCtx(ASTCtx), Builder(Ctx) {
-    M = new llvm::Module("ASTIR", Ctx);
-    EntryBB = llvm::BasicBlock::Create(Ctx);
+  Visitor(clang::ASTContext &ASTCtx)
+      : ASTCtx(ASTCtx), M(llvm::Module("ASTIR", Ctx)), Builder(Ctx),
+        BoxTy(llvm::PointerType::get(Ctx, 0)) {
+    DummyFn = llvm::Function::Create(
+        llvm::FunctionType::get(Builder.getVoidTy(), false),
+        llvm::GlobalValue::ExternalLinkage, "", &M);
+    EntryBB = llvm::BasicBlock::Create(Ctx, "", DummyFn);
+    CurBB = llvm::BasicBlock::Create(Ctx, "", DummyFn);
+    //		llvm::GlobalVariable(BoxTy, /* isConstant */ false,
+    // llvm::GlobalValue::InternalLinkage, /* Initializer */ nullptr, Prefix +
+    //"return_value",
   }
-  ~Visitor() { M->dump(); }
-
-  static std::string exprValueKindAsString(clang::ExprValueKind Kind) {
-    switch (Kind) {
-    case clang::VK_PRValue:
-      return "pr";
-    case clang::VK_LValue:
-      return "l";
-    case clang::VK_XValue:
-      return "x";
-    };
-  }
-  llvm::Type *convertType(clang::QualType QT, clang::ExprValueKind Kind) {
-    return Builder.getPtrTy();
-    llvm::Type *&Ty = TypeMap[{QT.getAsOpaquePtr(), int(Kind)}];
-    if (!Ty)
-      Ty = llvm::StructType::create(Ctx, QT.getAsString() + "." +
-                                             exprValueKindAsString(Kind));
-    return Ty;
+  ~Visitor() {
+    M.dump();
+    DummyFn->eraseFromParent();
+    std::error_code EC;
+    llvm::raw_fd_ostream OS("clair.ll", EC);
+    M.print(OS, nullptr);
   }
 
-  llvm::Function *createNewFunction(Decl *D, clang::Stmt *S, StringRef Name,
-                                    clang::QualType RetTy,
+  llvm::Function *createNewFunction(Twine Name,
                                     ArrayRef<clang::ParmVarDecl *> Params) {
     SmallVector<llvm::Type *> ParamTypes;
-    for (auto *Param : Params)
-      ParamTypes.push_back(convertType(
-          Param->getType(), Expr::getValueKindForType(Param->getType())));
-    return createNewFunction(
-        D, S, Name, convertType(RetTy, Expr::getValueKindForType(RetTy)),
-        ParamTypes);
+    for (auto *P : Params) {
+      (void)P;
+      ParamTypes.push_back(Builder.getPtrTy());
+    }
+    return createNewFunction(Name, ParamTypes);
   }
 
-  llvm::Function *createNewFunction(Decl *D, clang::Stmt *S, StringRef Name,
-                                    llvm::Type *RetTy,
-                                    ArrayRef<llvm::Type *> ParamTypes) {
-    llvm::FunctionType *FTy = llvm::FunctionType::get(RetTy, ParamTypes, false);
-    llvm::Function *F =
-        Function::Create(FTy, llvm::GlobalValue::ExternalLinkage, 0, Name, M);
+  llvm::Function *createNewFunction(Twine Name,
+                                    ArrayRef<llvm::Type *> ParamTypes,
+                                    llvm::GlobalValue::LinkageTypes Linkage =
+                                        llvm::GlobalValue::ExternalLinkage) {
+    llvm::FunctionType *FTy =
+        llvm::FunctionType::get(Builder.getVoidTy(), ParamTypes, false);
+    llvm::Function *F = Function::Create(FTy, Linkage, 0, Name, &M);
     return F;
   }
 
   bool VisitDecl(Decl *D) {
-    errs() << "Visit\n";
-    D->dump();
     return true;
   }
 
   bool VisitFunctionDecl(FunctionDecl *FD) {
-    auto *Fn = createNewFunction(FD, nullptr, FD->getName(),
-                                 FD->getReturnType(), FD->parameters());
+    auto *Fn =
+        createNewFunction(Prefix + "_" + FD->getName(), FD->parameters());
     DeclMap[FD] = Fn;
     if (!FD->hasBody())
       return true;
     auto *AI = Fn->arg_begin();
     for (auto *Param : FD->parameters()) {
       auto *Old = cast<Instruction>(DeclMap[Param]);
-      AI->setName(Old->getName());
+      AI->takeName(Old);
       auto *Placeholder = Old->getOperand(0);
       Old->setOperand(0, AI++);
       Placeholder->deleteValue();
     }
-    for (auto *I : StmtMap[FD->getBody()]) {
-      I->insertInto(EntryBB, EntryBB->end());
-    }
+
+    assert(CurBB->size() == 1);
+    M.dump();
+    CurBB->front().moveBefore(*EntryBB, EntryBB->end());
+
     llvm::ReturnInst::Create(Ctx, EntryBB);
-    EntryBB->insertInto(Fn);
-    EntryBB = llvm::BasicBlock::Create(Ctx);
+    EntryBB->removeFromParent();
+    EntryBB->moveBefore(Fn->end());
+    EntryBB = llvm::BasicBlock::Create(Ctx, "", DummyFn);
     return true;
   }
 
   bool VisitParmVarDecl(ParmVarDecl *PAD) {
     if (!cast<FunctionDecl>(PAD->getDeclContext())->hasBody())
       return true;
-    errs() << "Visit ParamVarDecl\n";
-    PAD->dump();
-    auto *A = new llvm::Argument(convertType(PAD->getType(), clang::VK_LValue),
-                                 PAD->getName());
+    auto *A = new llvm::Argument(Builder.getPtrTy(), PAD->getName());
     auto *CS = DeclMap[PAD] = createCall(
-        "param_var_decl", convertType(PAD->getType(), clang::VK_LValue),
-        {A, Builder.CreateGlobalStringPtr(PAD->getName(), "var_name", 0, M)},
+        "param_var_decl", Builder.getPtrTy(),
+        {A, Builder.CreateGlobalStringPtr(PAD->getName(), "var_name", 0, &M)},
         false, false);
-    CS->setName(PAD->getName());
-    cast<Instruction>(CS)->insertInto(EntryBB, EntryBB->end());
+    cast<Instruction>(CS)->moveBefore(*EntryBB, EntryBB->end());
+    CS->setName(PAD->getName() + "WWWW");
     return true;
   }
 
   bool VisitDeclStmt(DeclStmt *DS) {
-    errs() << "Visit DeclStmt\n";
-    DS->dump();
     SmallVector<llvm::Value *, 4> Args;
     for (auto *D : DS->decls())
       Args.push_back(DeclMap[D]);
@@ -158,98 +156,84 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     if (isa<ParmVarDecl>(VD))
       return true;
     SmallVector<llvm::Value *, 4> Args = {
-        Builder.CreateGlobalStringPtr(VD->getName(), "var_name", 0, M)};
+        Builder.CreateGlobalStringPtr(VD->getName(), "var_name", 0, &M)};
     if (auto *Init = VD->getInit())
       Args.push_back(ExprMap[Init]);
     auto *CS = DeclMap[VD] =
-        createCall("var_decl", convertType(VD->getType(), clang::VK_LValue),
-                   Args, false, true);
+        createCall("var_decl", Builder.getPtrTy(), Args, false, true);
     CS->setName(VD->getName());
     return true;
   }
 
   bool VisitStmt(Stmt *S) {
-    errs() << "Visit S:\n";
-    S->dump();
     CurStmt = S;
     return true;
   }
 
-  void addInst(llvm::Instruction &I, llvm::BasicBlock &BB,
-               SmallVector<llvm::Value *> &Args,
-               llvm::DenseMap<llvm::Value *, unsigned> &VMap) {
-    for (auto *Op : I.operand_values()) {
-      if (isa<Constant>(Op))
-        continue;
-      if (auto *OpI = dyn_cast<Instruction>(Op)) {
-        if (OpI->getParent() == &BB)
-          continue;
-        if (!OpI->getParent()) {
-          addInst(*OpI, BB, Args, VMap);
-          continue;
-        }
-      }
-      assert(isa<Argument>(Op) || isa<Instruction>(Op));
-      unsigned &ArgNo = VMap[Op];
-      if (ArgNo)
-        continue;
-      ArgNo = Args.size();
-      Args.push_back(Op);
-    }
-    errs() << "Move " << I << " :: " << I.getNumUses() << "\n";
-    I.insertInto(&BB, BB.end());
-  }
-
   bool VisitCompoundStmt(CompoundStmt *CS) {
-    auto *BoolTy = llvm::Type::getInt1Ty(Ctx);
     auto *VoidTy = llvm::Type::getVoidTy(Ctx);
-    auto *PtrTy = llvm::PointerType::get(Ctx, 0);
 
-    llvm::DenseMap<llvm::Value *, unsigned> VMap;
-    SmallVector<llvm::Value *> Args;
-    //    Args.push_back(ConstantPointerNull::get(PtrTy));
+    BasicBlock *BB = CurBB;
+    CurBB = llvm::BasicBlock::Create(Ctx, "", DummyFn);
 
-    BasicBlock *BB = BasicBlock::Create(Ctx, "cs");
-    for (auto *C : CS->body()) {
-      for (auto *I : StmtMap[C])
-        addInst(*I, *BB, Args, VMap);
+    llvm::SmallSetVector<llvm::Value *, 8> Args;
+    llvm::SmallVector<llvm::Value *> Worklist;
+    for (llvm::Instruction &I : *BB) {
+      for (llvm::Value *Op : I.operand_values()) {
+        if (isa<Constant>(Op))
+          continue;
+        if (llvm::Instruction *I = dyn_cast<Instruction>(Op))
+          if (I->getParent() == BB)
+            continue;
+        Args.insert(Op);
+      }
     }
 
-    SmallVector<llvm::Type *> ArgTypes;
+    SmallVector<llvm::Type *> StructTypes;
     for (auto *Arg : Args)
-      ArgTypes.push_back(Arg->getType());
+      StructTypes.push_back(Arg->getType());
+
+    Builder.SetInsertPoint(EntryBB, EntryBB->getFirstInsertionPt());
+    auto *ST = StructType::get(Ctx, StructTypes);
+    auto *AL = Builder.CreateAlloca(ST);
+
+    Builder.SetInsertPoint(EntryBB, EntryBB->end());
+    for (unsigned I = 0; I < Args.size(); ++I) {
+      llvm::Value *GEP = Builder.CreateStructGEP(ST, Args[I], I);
+      Builder.CreateStore(Args[I], GEP);
+    }
 
     Function *BodyFn =
-        createNewFunction(nullptr, CS, "ast_ir.cs.body", VoidTy, ArgTypes);
-    BB->insertInto(BodyFn);
+        createNewFunction(Prefix + "cs.body", {Builder.getPtrTy()},
+                          llvm::GlobalValue::PrivateLinkage);
+    M.dump();
+    BB->removeFromParent();
+    BB->moveBefore(BodyFn->end());
     llvm::ReturnInst::Create(Ctx, BB);
 
-    for (auto &It : VMap) {
-      auto *Arg = BodyFn->getArg(It.getSecond());
-      Arg->setName(It.getFirst()->getName());
-      It.getFirst()->replaceUsesWithIf(Arg, [BodyFn](Use &U) {
-        return llvm::isa_and_nonnull<Instruction>(U.getUser()) &&
-               llvm::cast<Instruction>(U.getUser())->getParent() &&
-               llvm::cast<Instruction>(U.getUser())->getFunction() == BodyFn;
-      });
+    Builder.SetInsertPoint(BB, BB->getFirstInsertionPt());
+    for (unsigned I = 0; I < Args.size(); ++I) {
+      llvm::Type *ElemTy = Args[I]->getType();
+      llvm::Value *GEP = Builder.CreateStructGEP(ST, BodyFn->getArg(0), I);
+      llvm::Value *Repl =
+          Builder.CreateLoad(ElemTy, GEP, Args[I]->getName() + "QQQ");
+      Args[I]->dump();
+      //      Args[I]->replaceUsesWithIf(Repl, [this](Use &U) {
+      //        return llvm::isa_and_nonnull<Instruction>(U.getUser()) &&
+      //               llvm::cast<Instruction>(U.getUser())->getParent() !=
+      //               EntryBB;
+      //      });
     }
 
-    Args.insert(Args.begin(), BodyFn);
-    createCall("compound_stmt", VoidTy, Args, true, true);
+    createCall("compound_stmt", VoidTy, {BodyFn, AL}, true, true);
     return true;
   }
 
   bool VisitReturnStmt(clang::ReturnStmt *RS) {
-    //    errs() << "Ret Stmt \n";
-    //    RS->dump();
-    //    Scp->DelayedStmtStack.push_back(
-    //        DelayedStmt{"return_stmt", 1, Scp->Builder.getVoidTy()});
     auto *RV = RS->getRetValue();
     assert(!RV || ExprMap.count(RV));
     unsigned TS = RV ? ASTCtx.getTypeSize(RV->getType()) : 0;
-    createCall("return_stmt",
-               RV ? convertType(RV->getType(), RV->getValueKind())
-                  : Builder.getVoidTy(),
+    createCall("return_stmt", RV ? Builder.getPtrTy() : Builder.getVoidTy(),
                RV ? ArrayRef<llvm::Value *>({Builder.getInt32(TS), ExprMap[RV]})
                   : ArrayRef<llvm::Value *>(),
                true, true);
@@ -257,26 +241,22 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
   }
 
   bool VisitStringLiteral(clang::StringLiteral *SL) {
-    errs() << "Viit SL: ";
-    SL->dump();
     unsigned TS = ASTCtx.getTypeSize(SL->getType());
-    ExprMap[SL] = createCall(
-        "string_literal", convertType(SL->getType(), SL->getValueKind()),
-        {Builder.getInt32(TS),
-         Builder.CreateGlobalString(SL->getString(), "", 0, M)},
-        false, true);
+    ExprMap[SL] =
+        createCall("string_literal", Builder.getPtrTy(),
+                   {Builder.getInt32(TS),
+                    Builder.CreateGlobalString(SL->getString(), "", 0, &M)},
+                   false, true);
     return true;
   }
 
   bool VisitIntegerLiteral(IntegerLiteral *IL) {
-    errs() << "Viit IL: ";
-    IL->dump();
     unsigned TS = ASTCtx.getTypeSize(IL->getType());
     auto *Init = ConstantInt::get(Ctx, *IL->getIntegerConstantExpr(ASTCtx));
     ExprMap[IL] = createCall(
-        "integer_literal", convertType(IL->getType(), IL->getValueKind()),
+        "integer_literal", Builder.getPtrTy(),
         {Builder.getInt32(TS),
-         new llvm::GlobalVariable(*M, Init->getType(), true,
+         new llvm::GlobalVariable(M, Init->getType(), true,
                                   llvm::GlobalVariable::InternalLinkage, Init)},
         false, true);
     return true;
@@ -287,8 +267,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     assert(ExprMap.count(ASE->getRHS()));
     unsigned TS = ASTCtx.getTypeSize(ASE->getType());
     ExprMap[ASE] = createCall(
-        "array_subscript_expr",
-        convertType(ASE->getType(), ASE->getValueKind()),
+        "array_subscript_expr", Builder.getPtrTy(),
         {Builder.getInt32(TS), ExprMap[ASE->getLHS()], ExprMap[ASE->getRHS()]},
         false, true);
     return true;
@@ -299,7 +278,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     assert(ExprMap.count(BO->getRHS()));
     unsigned TS = ASTCtx.getTypeSize(BO->getType());
     ExprMap[BO] = createCall(
-        "binary_op", convertType(BO->getType(), BO->getValueKind()),
+        "binary_op", Builder.getPtrTy(),
         {Builder.getInt32(TS), ExprMap[BO->getLHS()], ExprMap[BO->getRHS()]},
         false, true);
     return true;
@@ -328,8 +307,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     }
 
     ExprMap[CE] =
-        createCall("call_expr", convertType(CE->getType(), CE->getValueKind()),
-                   Args, false, true);
+        createCall("call_expr", Builder.getPtrTy(), Args, false, true);
     StmtMap[CE].push_back(cast<Instruction>(ExprMap[CE]));
     return true;
   }
@@ -337,8 +315,7 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
   bool VisitImplicitCastExpr(clang::ImplicitCastExpr *ICE) {
     assert(ExprMap.count(ICE->getSubExpr()));
     unsigned TS = ASTCtx.getTypeSize(ICE->getType());
-    ExprMap[ICE] = createCall("implicit_cast_expr",
-                              convertType(ICE->getType(), ICE->getValueKind()),
+    ExprMap[ICE] = createCall("implicit_cast_expr", Builder.getPtrTy(),
                               {
                                   Builder.getInt32(TS),
                                   ExprMap[ICE->getSubExpr()],
@@ -350,9 +327,10 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
 
   bool VisitDeclRefExpr(clang::DeclRefExpr *DRE) {
     unsigned TS = ASTCtx.getTypeSize(DRE->getType());
-    ExprMap[DRE] = createCall(
-        "decl_ref", convertType(DRE->getType(), DRE->getValueKind()),
-        {Builder.getInt32(TS), DeclMap[DRE->getDecl()]}, false, true);
+    errs() << "DRE:" << *DeclMap[DRE->getDecl()] << "\n";
+    ExprMap[DRE] = createCall("decl_ref", Builder.getPtrTy(),
+                              {Builder.getInt32(TS), DeclMap[DRE->getDecl()]},
+                              false, true);
     return true;
   }
 
@@ -366,9 +344,9 @@ struct Visitor : public RecursiveASTVisitor<Visitor> {
     }
 
     llvm::FunctionType *FTy = llvm::FunctionType::get(RetTy, ParamTypes, false);
-    FunctionCallee CSCallee =
-        M->getOrInsertFunction(("ast_ir." + Name).str(), FTy);
+    FunctionCallee CSCallee = M.getOrInsertFunction((Prefix + Name).str(), FTy);
 
+    Builder.SetInsertPoint(CurBB, CurBB->end());
     auto *Call = Builder.CreateCall(CSCallee, Args);
     if (IsInsts && IsStmt)
       StmtMap[CurStmt].push_back(Call);
@@ -406,15 +384,15 @@ protected:
   bool ParseArgs(const CompilerInstance &CI,
                  const std::vector<std::string> &Args) override {
     if (!Args.empty() && Args[0] == "help")
-      PrintHelp(llvm::errs());
+      printHelp(llvm::errs());
 
     return true;
   }
-  void PrintHelp(llvm::raw_ostream &ros) {
-    ros << "Help for ASTIR plugin goes here\n";
+  void printHelp(llvm::raw_ostream &OS) {
+    OS << "Help for ASTIR plugin goes here\n";
   }
 };
-}
+} // namespace
 
 static FrontendPluginRegistry::Add<PrintFunctionNamesAction>
     X("ast-ir", "print function names");
