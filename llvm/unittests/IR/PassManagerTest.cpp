@@ -8,6 +8,7 @@
 
 #include "llvm/IR/PassManager.h"
 #include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/IR/Dominators.h"
@@ -831,6 +832,8 @@ TEST_F(PassManagerTest, FunctionPassCFGChecker) {
   SI.registerCallbacks(PIC, &MAM);
   MAM.registerPass([&] { return PassInstrumentationAnalysis(&PIC); });
   MAM.registerPass([&] { return FunctionAnalysisManagerModuleProxy(FAM); });
+  MAM.registerPass([&] { return GlobalsAA(); });
+  FAM.registerPass([&] { return ModuleAnalysisManagerFunctionProxy(MAM); });
   FAM.registerPass([&] { return PassInstrumentationAnalysis(&PIC); });
   FAM.registerPass([&] { return DominatorTreeAnalysis(); });
   FAM.registerPass([&] { return AssumptionAnalysis(); });
@@ -880,6 +883,8 @@ TEST_F(PassManagerTest, FunctionPassCFGCheckerInvalidateAnalysis) {
   SI.registerCallbacks(PIC, &MAM);
   MAM.registerPass([&] { return FunctionAnalysisManagerModuleProxy(FAM); });
   MAM.registerPass([&] { return PassInstrumentationAnalysis(&PIC); });
+  MAM.registerPass([&] { return GlobalsAA(); });
+  FAM.registerPass([&] { return ModuleAnalysisManagerFunctionProxy(MAM); });
   FAM.registerPass([&] { return PassInstrumentationAnalysis(&PIC); });
   FAM.registerPass([&] { return DominatorTreeAnalysis(); });
   FAM.registerPass([&] { return AssumptionAnalysis(); });
@@ -948,6 +953,8 @@ TEST_F(PassManagerTest, FunctionPassCFGCheckerWrapped) {
   SI.registerCallbacks(PIC, &MAM);
   MAM.registerPass([&] { return FunctionAnalysisManagerModuleProxy(FAM); });
   MAM.registerPass([&] { return PassInstrumentationAnalysis(&PIC); });
+  MAM.registerPass([&] { return GlobalsAA(); });
+  FAM.registerPass([&] { return ModuleAnalysisManagerFunctionProxy(MAM); });
   FAM.registerPass([&] { return PassInstrumentationAnalysis(&PIC); });
   FAM.registerPass([&] { return DominatorTreeAnalysis(); });
   FAM.registerPass([&] { return AssumptionAnalysis(); });

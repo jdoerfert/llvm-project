@@ -38,6 +38,7 @@
 ; CHECK-O-NEXT: Running pass: SimplifyCFGPass
 ; CHECK-O-NEXT: Running analysis: TargetIRAnalysis
 ; CHECK-O-NEXT: Running analysis: AssumptionAnalysis
+; CHECK-O-NEXT: Running analysis: OuterAnalysisManagerProxy
 ; CHECK-O-NEXT: Running pass: SROAPass
 ; CHECK-O-NEXT: Running analysis: DominatorTreeAnalysis
 ; CHECK-O-NEXT: Running pass: EarlyCSEPass
@@ -54,7 +55,6 @@
 ; CHECK-O-NEXT: Running analysis: BasicAA
 ; CHECK-O-NEXT: Running analysis: ScopedNoAliasAA
 ; CHECK-O-NEXT: Running analysis: TypeBasedAA
-; CHECK-O-NEXT: Running analysis: OuterAnalysisManagerProxy
 ; CHECK-O-NEXT: Running pass: SimplifyCFGPass
 ; CHECK-O-NEXT: Running pass: ModuleInlinerWrapperPass
 ; CHECK-O-NEXT: Running analysis: InlineAdvisorAnalysis

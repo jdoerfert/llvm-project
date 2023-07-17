@@ -27,6 +27,7 @@
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/DomTreeUpdater.h"
+#include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/GuardUtils.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/MemorySSA.h"
@@ -3132,10 +3133,9 @@ static ConstantInt *getKnownValueOnEdge(Value *V, BasicBlock *From,
 /// If we have a conditional branch on something for which we know the constant
 /// value in predecessors (e.g. a phi node in the current block), thread edges
 /// from the predecessor to their ultimate destination.
-static std::optional<bool>
-FoldCondBranchOnValueKnownInPredecessorImpl(BranchInst *BI, DomTreeUpdater *DTU,
-                                            const DataLayout &DL,
-                                            AssumptionCache *AC) {
+static std::optional<bool> FoldCondBranchOnValueKnownInPredecessorImpl(
+    BranchInst *BI, DomTreeUpdater *DTU, const DataLayout &DL,
+    AssumptionCache *AC, GlobalsAAResult *GAA) {
   SmallMapVector<ConstantInt *, SmallSetVector<BasicBlock *, 2>, 2> KnownValues;
   BasicBlock *BB = BI->getParent();
   Value *Cond = BI->getCondition();
@@ -3242,9 +3242,12 @@ FoldCondBranchOnValueKnownInPredecessorImpl(BranchInst *BI, DomTreeUpdater *DTU,
       }
       if (N) {
         // Register the new instruction with the assumption cache if necessary.
-        if (auto *Assume = dyn_cast<AssumeInst>(N))
+        if (auto *Assume = dyn_cast<AssumeInst>(N)) {
           if (AC)
             AC->registerAssumption(Assume);
+          if (GAA)
+            GAA->addAssumptionCall(BB->getParent());
+        }
       }
     }
 
@@ -3273,15 +3276,15 @@ FoldCondBranchOnValueKnownInPredecessorImpl(BranchInst *BI, DomTreeUpdater *DTU,
   return false;
 }
 
-static bool FoldCondBranchOnValueKnownInPredecessor(BranchInst *BI,
-                                                    DomTreeUpdater *DTU,
-                                                    const DataLayout &DL,
-                                                    AssumptionCache *AC) {
+static bool FoldCondBranchOnValueKnownInPredecessor(
+    BranchInst *BI, DomTreeUpdater *DTU, const DataLayout &DL,
+    AssumptionCache *AC, GlobalsAAResult *GAAResult) {
   std::optional<bool> Result;
   bool EverChanged = false;
   do {
     // Note that None means "we changed things, but recurse further."
-    Result = FoldCondBranchOnValueKnownInPredecessorImpl(BI, DTU, DL, AC);
+    Result =
+        FoldCondBranchOnValueKnownInPredecessorImpl(BI, DTU, DL, AC, GAAResult);
     EverChanged |= Result == std::nullopt || *Result;
   } while (Result == std::nullopt);
   return EverChanged;
@@ -5146,6 +5149,8 @@ bool SimplifyCFGOpt::simplifyUnreachable(UnreachableInst *UI) {
         }
         if (Options.AC)
           Options.AC->registerAssumption(cast<AssumeInst>(Assumption));
+        if (Options.GAAResult)
+          Options.GAAResult->addAssumptionCall(Assumption->getCaller());
 
         EraseTerminatorAndDCECond(BI);
         Changed = true;
@@ -7082,7 +7087,8 @@ bool SimplifyCFGOpt::simplifyCondBranch(BranchInst *BI, IRBuilder<> &Builder) {
   // If this is a branch on something for which we know the constant value in
   // predecessors (e.g. a phi node in the current block), thread control
   // through this block.
-  if (FoldCondBranchOnValueKnownInPredecessor(BI, DTU, DL, Options.AC))
+  if (FoldCondBranchOnValueKnownInPredecessor(BI, DTU, DL, Options.AC,
+                                              Options.GAAResult))
     return requestResimplify();
 
   // Scan predecessor blocks for conditional branches.

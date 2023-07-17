@@ -360,6 +360,11 @@ PreservedAnalyses SimplifyCFGPass::run(Function &F,
   DominatorTree *DT = nullptr;
   if (RequireAndPreserveDomTree)
     DT = &AM.getResult<DominatorTreeAnalysis>(F);
+
+  auto *MAM = &AM.getResult<ModuleAnalysisManagerFunctionProxy>(F);
+  Options.GAAResult =
+      MAM ? MAM->getCachedResult<GlobalsAA>(*F.getParent()) : nullptr;
+
   if (!simplifyFunctionCFG(F, TTI, DT, Options))
     return PreservedAnalyses::all();
   PreservedAnalyses PA;

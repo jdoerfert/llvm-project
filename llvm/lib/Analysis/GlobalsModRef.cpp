@@ -237,6 +237,11 @@ void GlobalsAAResult::DeletionCallbackHandle::deleted() {
   // This object is now destroyed!
 }
 
+void GlobalsAAResult::addAssumptionCall(const Function *F) {
+  if (FunctionInfo *FI = getFunctionInfo(F))
+    FI->addModRefInfo(ModRefInfo::ModRef);
+}
+
 MemoryEffects GlobalsAAResult::getMemoryEffects(const Function *F) {
   if (FunctionInfo *FI = getFunctionInfo(F))
     return MemoryEffects(FI->getModRefInfo());

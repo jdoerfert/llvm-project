@@ -106,6 +106,10 @@ public:
   /// case the most generic behavior of this function should be returned.
   MemoryEffects getMemoryEffects(const Function *F);
 
+  /// Passes that add a call to llvm.assume into a function \p F need to update
+  /// the cached GlobalsAAResult via this function.
+  void addAssumptionCall(const Function *F);
+
 private:
   FunctionInfo *getFunctionInfo(const Function *F);
 
