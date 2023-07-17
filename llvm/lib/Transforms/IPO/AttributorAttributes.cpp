@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Support/ModRef.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/APInt.h"
@@ -2634,10 +2635,11 @@ struct AANonNullFloating : public AANonNullImpl {
 /// NonNull attribute for function return value.
 struct AANonNullReturned final
     : AAReturnedFromReturnedValues<AANonNull, AANonNull, AANonNull::StateType,
-                                   false, AANonNull::IRAttributeKind> {
+                                   false, AANonNull::IRAttributeKind, false> {
   AANonNullReturned(const IRPosition &IRP, Attributor &A)
       : AAReturnedFromReturnedValues<AANonNull, AANonNull, AANonNull::StateType,
-                                     false, Attribute::NonNull>(IRP, A) {}
+                                     false, Attribute::NonNull, false>(IRP, A) {
+  }
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr(Attributor *A) const override {
@@ -3306,6 +3308,11 @@ struct AAWillReturnImpl : public AAWillReturn {
   ChangeStatus updateImpl(Attributor &A) override {
     if (isImpliedByMustprogressAndReadonly(A, /* KnownOnly */ false))
       return ChangeStatus::UNCHANGED;
+    if (!CheckedForCycles) {
+      if (mayContainUnboundedCycle(*getAssociatedFunction(), A))
+        return indicatePessimisticFixpoint();
+      CheckedForCycles = true;
+    }
 
     auto CheckForWillReturn = [&](Instruction &I) {
       IRPosition IPos = IRPosition::callsite_function(cast<CallBase>(I));
@@ -3334,6 +3341,10 @@ struct AAWillReturnImpl : public AAWillReturn {
   const std::string getAsStr(Attributor *A) const override {
     return getAssumed() ? "willreturn" : "may-noreturn";
   }
+
+private:
+  /// Flag to indicate that we checked for potentially unbound cycles.
+  bool CheckedForCycles = false;
 };
 
 struct AAWillReturnFunction final : AAWillReturnImpl {
@@ -3346,7 +3357,7 @@ struct AAWillReturnFunction final : AAWillReturnImpl {
 
     Function *F = getAnchorScope();
     assert(F && "Did expect an anchor function");
-    if (F->isDeclaration() || mayContainUnboundedCycle(*F, A))
+    if (F->isDeclaration())
       indicatePessimisticFixpoint();
   }
 
@@ -7926,10 +7937,7 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
     llvm::MemoryEffects ME = AAME.getAsIRMemoryEffects();
 
     if (!hasPtrArgs()) {
-      // Make the `argmem` effects match the `other` effects, not more, not
-      // less.
       ME -= llvm::MemoryEffects::argMemOnly();
-      ME |= llvm::MemoryEffects::argMemOnly(ME.getModRef(IRMemLocation::Other));
     }
 
     LLVMContext &Ctx = IRP.getAssociatedValue().getContext();
@@ -8382,6 +8390,8 @@ private:
 
   AA::MemoryEffects analyzeUseIn(Attributor &A, const Use &U,
                                  const Instruction *UserI) const {
+    AA::MemoryEffects OtherMA = AA::MemoryEffects::argMemOnly(
+        getAssumed(IRP_FUNCTION).getModRef(AA::Location::Other));
     assert(UserI->mayReadOrWriteMemory());
 
     switch (UserI->getOpcode()) {
@@ -8390,7 +8400,7 @@ private:
       break;
     case Instruction::Load:
       if (cast<LoadInst>(UserI)->isVolatile())
-        return AA::MemoryEffects::unknown();
+        return OtherMA;
       return AA::MemoryEffects::readOnly();
 
     case Instruction::Store: {
@@ -8402,7 +8412,7 @@ private:
       if (!SI->isVolatile())
         if (&SI->getOperandUse(SI->getPointerOperandIndex()) == &U)
           return AA::MemoryEffects::writeOnly();
-      return AA::MemoryEffects::unknown();
+      return OtherMA;
     }
 
     case Instruction::Call:
@@ -8414,7 +8424,7 @@ private:
 
       // Give up on operand bundles.
       if (CB->isBundleOperand(&U))
-        return AA::MemoryEffects::unknown();
+        return OtherMA;
 
       // Calling a function does not read the function pointer, this is to match
       // the FunctionAttrs pass.
@@ -8425,9 +8435,10 @@ private:
         if (const auto *MemBehaviorAA = A.getAAFor<AAMemoryLocation>(
                 *this, IRPosition::callsite_function(*CB),
                 DepClassTy::OPTIONAL))
-          return MemBehaviorAA->getAssumed(IRP_CALL_SITE_ARGUMENT,
-                                           CB->getArgOperandNo(&U));
-        return getStateFromCallSiteArg(A, *CB, CB->getArgOperandNo(&U));
+          return OtherMA & MemBehaviorAA->getAssumed(IRP_CALL_SITE_ARGUMENT,
+                                                     CB->getArgOperandNo(&U));
+        return OtherMA &
+               getStateFromCallSiteArg(A, *CB, CB->getArgOperandNo(&U));
       }
     }
     };
@@ -8439,7 +8450,7 @@ private:
       AAME |= AA::MemoryEffects::readOnly();
     if (UserI->mayWriteToMemory())
       AAME |= AA::MemoryEffects::writeOnly();
-    return AAME;
+    return OtherMA & AAME;
   }
 
   /// Flag to indicate if we require explicit use traversals for the arguments

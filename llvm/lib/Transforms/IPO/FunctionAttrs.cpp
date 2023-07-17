@@ -879,6 +879,7 @@ static void addArgumentAttrs(const SCCNodeSet &SCCNodes,
           }
         }
         // Otherwise, it's captured. Don't bother doing SCC analysis on it.
+        continue;
       }
       if (!HasNonLocalUses && !A.onlyReadsMemory()) {
         // Can we determine that it's readonly/readnone/writeonly without doing

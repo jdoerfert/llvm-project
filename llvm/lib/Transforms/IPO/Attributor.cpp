@@ -3300,6 +3300,9 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   // Every function might be "will-return".
   checkAndQueryIRAttr<Attribute::WillReturn, AAWillReturn>(FPos, FnAttrs);
 
+  // Every function might be marked "nosync"
+  checkAndQueryIRAttr<Attribute::NoSync, AANoSync>(FPos, FnAttrs);
+
   // Everything that is visible from the outside (=function, argument, return
   // positions), cannot be changed if the function is not IPO amendable. We can
   // however analyse the code inside.
@@ -3307,9 +3310,6 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
 
     // Every function can be nounwind.
     checkAndQueryIRAttr<Attribute::NoUnwind, AANoUnwind>(FPos, FnAttrs);
-
-    // Every function might be marked "nosync"
-    checkAndQueryIRAttr<Attribute::NoSync, AANoSync>(FPos, FnAttrs);
 
     // Every function might be "no-return".
     checkAndQueryIRAttr<Attribute::NoReturn, AANoReturn>(FPos, FnAttrs);
@@ -3338,9 +3338,9 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
       getOrCreateAAFor<AAIsDead>(RetPos);
 
       // Every function might be simplified.
-      // bool UsedAssumedInformation = false;
-      // getAssumedSimplified(RetPos, nullptr, UsedAssumedInformation,
-      //                     AA::Intraprocedural);
+      bool UsedAssumedInformation = false;
+      getAssumedSimplified(RetPos, nullptr, UsedAssumedInformation,
+                           AA::Intraprocedural);
 
       // Every returned value might be marked noundef.
       checkAndQueryIRAttr<Attribute::NoUndef, AANoUndef>(RetPos, RetAttrs);
@@ -3978,7 +3978,7 @@ PreservedAnalyses LightweightAttributorCGSCCPass::run(LazyCallGraph::SCC &C,
   CGUpdater.initialize(CG, C, AM, UR);
   BumpPtrAllocator Allocator;
   InformationCache InfoCache(M, AG, Allocator, /* CGSCC */ nullptr,
-                             /* UseExplorer */ false);
+                             /* UseExplorer */ true);
   if (runLightweightAttributorOnFunctions(InfoCache, Functions, AG, CGUpdater,
                                           FAM,
                                           /* IsModulePass */ false)) {

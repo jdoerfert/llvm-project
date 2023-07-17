@@ -1201,7 +1201,7 @@ struct InformationCache {
         TargetTriple(M.getTargetTriple()) {
     if (UseExplorer)
       Explorer = new (Allocator) MustBeExecutedContextExplorer(
-          /* ExploreInterBlock */ true, /* ExploreCFGForward */ true,
+          /* ExploreInterBlock */ false, /* ExploreCFGForward */ true,
           /* ExploreCFGBackward */ true,
           /* LIGetter */
           [&](const Function &F) { return AG.getAnalysis<LoopAnalysis>(F); },
@@ -1712,7 +1712,7 @@ struct Attributor {
     Function *AssociatedFn = IRP.getAssociatedFunction();
 
     // Check if we require a callee but there is none.
-    if (!AssociatedFn && AAType::requiresCalleeForCallBase() &&
+    if (!AssociatedFn && AAType::requiresCalleeForCallBase(IRP) &&
         IRP.isAnyCallSitePosition())
       return false;
 
@@ -3248,7 +3248,7 @@ struct AbstractAttribute : public IRPosition, public AADepGraphNode {
 
   /// Return true if this AA requires a "callee" (or an associted function) for
   /// a call site positon. Default is optimistic to minimize AAs.
-  static bool requiresCalleeForCallBase() { return true; }
+  static bool requiresCalleeForCallBase(const IRPosition &IRP) { return true; }
 
   /// Return false if an AA should not be created for \p IRP.
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
@@ -3439,6 +3439,25 @@ struct AANoSync
                          StateWrapper<BooleanState, AbstractAttribute>,
                          AANoSync> {
   AANoSync(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
+
+  static bool isImpliedByIR(Attributor &A, const IRPosition &IRP,
+                            Attribute::AttrKind ImpliedAttributeKind,
+                            bool IgnoreSubsumingPositions = false) {
+    // Note: This is also run for non-IPO amendable functions.
+    assert(ImpliedAttributeKind == Attribute::NoSync);
+    if (A.hasAttr(IRP, {Attribute::NoSync}, IgnoreSubsumingPositions,
+                  Attribute::NoSync))
+      return true;
+    // TODO: We should be able to use hasAttr for Attributes, not only
+    // AttrKinds.
+    if (Function *F = IRP.getAssociatedFunction())
+      if (F->doesNotAccessMemory() && !F->isConvergent()) {
+        A.manifestAttrs(IRP, Attribute::get(IRP.getAnchorValue().getContext(),
+                                            Attribute::NoSync));
+        return true;
+      }
+    return false;
+  }
 
   /// See AbstractAttribute::isValidIRPositionForInit
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
@@ -3648,6 +3667,7 @@ struct AAWillReturn
     MemoryEffects ME = MemoryEffects::unknown();
     for (const Attribute &Attr : Attrs)
       ME &= Attr.getMemoryEffects();
+    errs() << IRP << " :: " << ME << " : " << Attrs.size() << "\n";
     return ME.onlyReadsMemory();
   }
 
@@ -3766,7 +3786,9 @@ struct AANoAlias
                             bool IgnoreSubsumingPositions = false);
 
   /// See AbstractAttribute::requiresCalleeForCallBase
-  static bool requiresCalleeForCallBase() { return false; }
+  static bool requiresCalleeForCallBase(const IRPosition &IRP) {
+    return IRP.getPositionKind() != IRP_CALL_SITE_ARGUMENT;
+  }
 
   /// Return true if we assume that the underlying value is alias.
   bool isAssumedNoAlias() const { return getAssumed(); }
@@ -3805,9 +3827,20 @@ struct AANoFree
                             bool IgnoreSubsumingPositions = false) {
     // Note: This is also run for non-IPO amendable functions.
     assert(ImpliedAttributeKind == Attribute::NoFree);
-    return A.hasAttr(
-        IRP, {Attribute::ReadNone, Attribute::ReadOnly, Attribute::NoFree},
-        IgnoreSubsumingPositions, Attribute::NoFree);
+    if (A.hasAttr(IRP,
+                  {Attribute::ReadNone, Attribute::ReadOnly, Attribute::NoFree},
+                  IgnoreSubsumingPositions, Attribute::NoFree))
+      return true;
+
+    // TODO: We should be able to use hasAttr for Attributes, not only
+    // AttrKinds.
+    if (Function *F = IRP.getAssociatedFunction())
+      if (F->onlyReadsMemory()) {
+        A.manifestAttrs(IRP, Attribute::get(IRP.getAnchorValue().getContext(),
+                                            Attribute::NoFree));
+        return true;
+      }
+    return false;
   }
 
   /// See AbstractAttribute::isValidIRPositionForInit
@@ -5447,7 +5480,7 @@ struct AACallEdges : public StateWrapper<BooleanState, AbstractAttribute>,
 
   /// The callee value is tracked beyond a simple stripPointerCasts, so we allow
   /// unknown callees.
-  static bool requiresCalleeForCallBase() { return false; }
+  static bool requiresCalleeForCallBase(const IRPosition &IRP) { return false; }
 
   /// Get the optimistic edges.
   virtual const SetVector<Function *> &getOptimisticEdges() const = 0;
