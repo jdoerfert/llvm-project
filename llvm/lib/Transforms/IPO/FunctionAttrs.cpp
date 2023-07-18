@@ -165,9 +165,6 @@ static MemoryEffects checkFunctionMemoryAccess(Function &F, bool ThisBody,
       // don't have operand bundles.  Calls with operand bundles are allowed to
       // have memory effects not described by the memory effects of the call
       // target.
-      if (!Call->hasOperandBundles() && Call->getCalledFunction() &&
-          SCCNodes.count(Call->getCalledFunction()))
-        continue;
       MemoryEffects CallME = AAR.getMemoryEffects(Call);
 
       // If the call doesn't access memory, we're done.
@@ -1799,6 +1796,7 @@ PreservedAnalyses PostOrderFunctionAttrsPass::run(LazyCallGraph::SCC &C,
   if (!SkipNonRecursive && Compare) {
     std::string S2;
     raw_string_ostream RSO2(S2);
+    Functions.front()->getParent()->dump();
     for (Function *F : Functions)
       F->print(RSO2);
     errs() << "Difference!\nBefore:\n" << S << "\nAfter:\n" << S2 << "\n";

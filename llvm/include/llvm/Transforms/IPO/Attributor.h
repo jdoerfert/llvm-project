@@ -2292,7 +2292,7 @@ public:
   /// present in \p Opcode and return true if \p Pred holds on all of them.
   bool checkForAllInstructions(function_ref<bool(Instruction &)> Pred,
                                const Function *Fn,
-                               const AbstractAttribute &QueryingAA,
+                               const AbstractAttribute *QueryingAA,
                                const ArrayRef<unsigned> &Opcodes,
                                bool &UsedAssumedInformation,
                                bool CheckBBLivenessOnly = false,
@@ -3448,12 +3448,22 @@ struct AANoSync
     if (A.hasAttr(IRP, {Attribute::NoSync}, IgnoreSubsumingPositions,
                   Attribute::NoSync))
       return true;
+
     // TODO: We should be able to use hasAttr for Attributes, not only
     // AttrKinds.
     if (Function *F = IRP.getAssociatedFunction())
-      if (F->doesNotAccessMemory() && !F->isConvergent()) {
-        A.manifestAttrs(IRP, Attribute::get(IRP.getAnchorValue().getContext(),
-                                            Attribute::NoSync));
+      if (!F->isConvergent()) {
+
+        SmallVector<Attribute, 2> Attrs;
+        A.getAttrs(IRP, {Attribute::Memory}, Attrs, IgnoreSubsumingPositions);
+
+        MemoryEffects ME = MemoryEffects::unknown();
+        for (const Attribute &Attr : Attrs)
+          ME &= Attr.getMemoryEffects();
+
+        if (ME.onlyReadsMemory())
+          A.manifestAttrs(IRP, Attribute::get(IRP.getAnchorValue().getContext(),
+                                              Attribute::NoSync));
         return true;
       }
     return false;
@@ -3667,7 +3677,6 @@ struct AAWillReturn
     MemoryEffects ME = MemoryEffects::unknown();
     for (const Attribute &Attr : Attrs)
       ME &= Attr.getMemoryEffects();
-    errs() << IRP << " :: " << ME << " : " << Attrs.size() << "\n";
     return ME.onlyReadsMemory();
   }
 

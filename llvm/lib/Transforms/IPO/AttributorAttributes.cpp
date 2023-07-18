@@ -2201,8 +2201,14 @@ ChangeStatus AANoSyncImpl::updateImpl(Attributor &A) {
     if (I.mayReadOrWriteMemory())
       return true;
 
+    bool IsKnown;
+    CallBase &CB = cast<CallBase>(I);
+    if (AA::hasAssumedIRAttr<Attribute::NoSync>(
+            A, this, IRPosition::callsite_function(CB), DepClassTy::OPTIONAL,
+            IsKnown))
+      return true;
     // non-convergent and readnone imply nosync.
-    return !cast<CallBase>(I).isConvergent();
+    return !CB.isConvergent();
   };
 
   bool UsedAssumedInformation = false;
@@ -2451,9 +2457,6 @@ bool AANonNull::isImpliedByIR(Attributor &A, const IRPosition &IRP,
   if (A.hasAttr(IRP, AttrKinds, IgnoreSubsumingPositions, Attribute::NonNull))
     return true;
 
-  if (IRP.getPositionKind() == IRP_RETURNED)
-    return false;
-
   DominatorTree *DT = nullptr;
   AssumptionCache *AC = nullptr;
   InformationCache &InfoCache = A.getInfoCache();
@@ -2464,8 +2467,23 @@ bool AANonNull::isImpliedByIR(Attributor &A, const IRPosition &IRP,
     }
   }
 
-  if (!isKnownNonZero(&IRP.getAssociatedValue(), A.getDataLayout(), 0, AC,
-                      IRP.getCtxI(), DT))
+  SmallVector<Value *> Worklist;
+  if (IRP.getPositionKind() != IRP_RETURNED) {
+    Worklist.push_back(&IRP.getAssociatedValue());
+  } else {
+    bool UsedAssumedInformation = false;
+    A.checkForAllInstructions(
+        [&](Instruction &I) {
+          Worklist.push_back(cast<ReturnInst>(I).getReturnValue());
+          return true;
+        },
+        IRP.getAssociatedFunction(), nullptr, {Instruction::Ret},
+        UsedAssumedInformation);
+  }
+
+  if (llvm::any_of(Worklist, [&](Value *V) {
+        return !isKnownNonZero(V, A.getDataLayout(), 0, AC, IRP.getCtxI(), DT);
+      }))
     return false;
   A.manifestAttrs(IRP, {Attribute::get(IRP.getAnchorValue().getContext(),
                                        Attribute::NonNull)});
@@ -2611,6 +2629,23 @@ struct AANonNullFloating : public AANonNullImpl {
           Values.size() != 1 || Values.front().getValue() != AssociatedValue;
 
     if (!Stripped) {
+      bool IsKnown;
+      if (auto *PHI = dyn_cast<PHINode>(AssociatedValue))
+        if (llvm::all_of(PHI->incoming_values(), [&](Value *Op) {
+              return AA::hasAssumedIRAttr<Attribute::NonNull>(
+                  A, this, IRPosition::value(*Op), DepClassTy::OPTIONAL,
+                  IsKnown);
+            }))
+          return ChangeStatus::UNCHANGED;
+      if (auto *Select = dyn_cast<SelectInst>(AssociatedValue))
+        if (AA::hasAssumedIRAttr<Attribute::NonNull>(
+                A, this, IRPosition::value(*Select->getFalseValue()),
+                DepClassTy::OPTIONAL, IsKnown) &&
+            AA::hasAssumedIRAttr<Attribute::NonNull>(
+                A, this, IRPosition::value(*Select->getTrueValue()),
+                DepClassTy::OPTIONAL, IsKnown))
+          return ChangeStatus::UNCHANGED;
+
       // If we haven't stripped anything we might still be able to use a
       // different AA, but only if the IRP changes. Effectively when we
       // interpret this not as a call site value but as a floating/argument
@@ -3295,13 +3330,14 @@ struct AAWillReturnImpl : public AAWillReturn {
 
   /// Check for `mustprogress` and `readonly` as they imply `willreturn`.
   bool isImpliedByMustprogressAndReadonly(Attributor &A, bool KnownOnly) {
-    if (!A.hasAttr(getIRPosition(), {Attribute::MustProgress}))
-      return false;
-
     bool IsKnown;
-    if (AA::isAssumedReadOnly(A, getIRPosition(), *this, IsKnown))
-      return IsKnown || !KnownOnly;
-    return false;
+    if (AA::hasAssumedIRAttr<Attribute::MustProgress>(
+            A, this, getIRPosition(), DepClassTy::OPTIONAL, IsKnown))
+      if (KnownOnly && !IsKnown)
+        return false;
+
+    AA::isAssumedReadOnly(A, getIRPosition(), *this, IsKnown);
+    return IsKnown || !KnownOnly;
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -4009,7 +4045,7 @@ struct AANoAliasReturned final : AANoAliasImpl {
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
 
-    auto CheckReturnValue = [&](Value &RV) -> bool {
+    auto UnderlyingObjectPred = [&](Value &RV) -> bool {
       if (Constant *C = dyn_cast<Constant>(&RV))
         if (C->isNullValue() || isa<UndefValue>(C))
           return true;
@@ -4032,6 +4068,13 @@ struct AANoAliasReturned final : AANoAliasImpl {
           &NoCaptureAA);
       return IsAssumedNoCapture ||
              (NoCaptureAA && NoCaptureAA->isAssumedNoCaptureMaybeReturned());
+    };
+
+    auto CheckReturnValue = [&](Value &RV) -> bool {
+      const auto *AA = A.getAAFor<AAUnderlyingObjects>(
+          *this, IRPosition::value(RV), DepClassTy::OPTIONAL);
+      return AA && AA->forallUnderlyingObjects(UnderlyingObjectPred,
+                                               AA::Intraprocedural);
     };
 
     if (!A.checkForAllReturnedValues(CheckReturnValue, *this,
@@ -11033,7 +11076,7 @@ struct AAPotentialValuesArgument final : AAPotentialValuesImpl {
     Function *Fn = getAssociatedFunction();
     bool AnyNonLocal = false;
     for (auto &It : Values) {
-      if (isa<Constant>(It.getValue())) {
+      if (isa<Constant>(It.getValue()) && !isa<GlobalValue>(It.getValue())) {
         addValue(A, getState(), *It.getValue(), It.getCtxI(), AA::AnyScope,
                  getAnchorScope());
         continue;
