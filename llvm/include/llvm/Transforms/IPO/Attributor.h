@@ -1315,6 +1315,10 @@ struct InformationCache {
     return TargetTriple.isAMDGPU() || TargetTriple.isNVPTX();
   }
 
+  const SmallVectorImpl<Function *> &getIndirectlyCallableFunctions() const {
+    return IndirectlyCallableFunctions;
+  }
+
 private:
   struct FunctionInfo {
     ~FunctionInfo();
@@ -1346,6 +1350,10 @@ private:
     }
     return *FI;
   }
+
+  /// Vector of functions that might be callable indirectly, i.a., via a
+  /// function pointer.
+  SmallVector<Function *> IndirectlyCallableFunctions;
 
   /// Initialize the function information cache \p FI for the function \p F.
   ///
@@ -1411,6 +1419,10 @@ struct AttributorConfig {
 
   /// Flag to determine if we should skip all liveness checks early on.
   bool UseLiveness = true;
+
+  /// Flag to indicate if the entire world is contained in this module, that
+  /// is, no outside functions exist.
+  bool IsClosedWorldModule = false;
 
   /// Callback function to be invoked on internal functions marked live.
   std::function<void(Attributor &A, const Function &F)> InitializationCallback =
@@ -1686,6 +1698,10 @@ struct Attributor {
 
   /// Return true if this is a module pass, false otherwise.
   bool isModulePass() const { return Configuration.IsModulePass; }
+
+  /// Return true if the module contains the whole world, thus, no outside
+  /// functions exist.
+  bool isClosedWorldModule() const { return Configuration.IsClosedWorldModule; }
 
   /// Return true if we derive attributes for \p Fn
   bool isRunOn(Function &Fn) const { return isRunOn(&Fn); }

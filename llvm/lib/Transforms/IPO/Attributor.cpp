@@ -3251,11 +3251,20 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
   // determine if it is part of a must-tail call edge. This will influence what
   // attributes we can derive.
   InformationCache::FunctionInfo &FI = InfoCache.getFunctionInfo(F);
-  if (!isModulePass() && !FI.CalledViaMustTail) {
-    for (const Use &U : F.uses())
+  if (isClosedWorldModule() || (!isModulePass() && !FI.CalledViaMustTail)) {
+    bool IsIndirectlyCallable = !isClosedWorldModule() || !F.hasLocalLinkage();
+    for (const Use &U : F.uses()) {
       if (const auto *CB = dyn_cast<CallBase>(U.getUser()))
-        if (CB->isCallee(&U) && CB->isMustTailCall())
-          FI.CalledViaMustTail = true;
+        if (CB->isCallee(&U))
+          if (CB->isMustTailCall()) {
+            FI.CalledViaMustTail = true;
+            if (IsIndirectlyCallable)
+              break;
+            continue;
+          }
+      if (isClosedWorldModule() && IsIndirectlyCallable)
+        InfoCache.IndirectlyCallableFunctions.push_back(&F);
+    }
   }
 
   IRPosition FPos = IRPosition::function(F);

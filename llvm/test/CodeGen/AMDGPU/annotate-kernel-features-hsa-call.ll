@@ -769,7 +769,7 @@ define float @func_indirect_call(ptr %fptr) #3 {
 ; AKF_HSA-NEXT:    ret float [[FADD]]
 ;
 ; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@func_indirect_call
-; ATTRIBUTOR_HSA-SAME: (ptr [[FPTR:%.*]]) #[[ATTR16]] {
+; ATTRIBUTOR_HSA-SAME: (ptr [[FPTR:%.*]]) #[[ATTR17]] {
 ; ATTRIBUTOR_HSA-NEXT:    [[F:%.*]] = call float [[FPTR]]()
 ; ATTRIBUTOR_HSA-NEXT:    [[FADD:%.*]] = fadd float [[F]], 1.000000e+00
 ; ATTRIBUTOR_HSA-NEXT:    ret float [[FADD]]
@@ -806,7 +806,7 @@ define float @func_null_call(ptr %fptr) #3 {
 ; AKF_HSA-NEXT:    ret float [[FADD]]
 ;
 ; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@func_null_call
-; ATTRIBUTOR_HSA-SAME: (ptr [[FPTR:%.*]]) #[[ATTR16]] {
+; ATTRIBUTOR_HSA-SAME: (ptr [[FPTR:%.*]]) #[[ATTR17]] {
 ; ATTRIBUTOR_HSA-NEXT:    [[F:%.*]] = call float null()
 ; ATTRIBUTOR_HSA-NEXT:    [[FADD:%.*]] = fadd float [[F]], 1.000000e+00
 ; ATTRIBUTOR_HSA-NEXT:    ret float [[FADD]]

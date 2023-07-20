@@ -950,6 +950,7 @@ public:
     AC.Allowed = &Allowed;
     AC.IsModulePass = true;
     AC.DefaultInitializeLiveInternals = false;
+    AC.IsClosedWorldModule = true;
     AC.IPOAmendableCB = [](const Function &F) {
       return F.getCallingConv() == CallingConv::AMDGPU_KERNEL;
     };

@@ -10370,12 +10370,21 @@ struct AACallEdgesImpl : public AACallEdges {
   void trackStatistics() const override {}
 
 protected:
-  void addCalledFunction(Function *Fn, ChangeStatus &Change) {
-    if (CalledFunctions.insert(Fn)) {
-      Change = ChangeStatus::CHANGED;
+  void addCalledFunction(Attributor &A, CallBase &CB, Function *Fn,
+                         ChangeStatus &Change,
+                         const TargetTransformInfo *TTI = nullptr) {
+    if (InvalidCallees.count(Fn) || CalledFunctions.count(Fn))
+      return;
+    if (TTI && !TTI->isValidCallBaseForCallee(&CB, Fn)) {
+      LLVM_DEBUG(dbgs() << "[AACallEdges] call edge to " << Fn->getName()
+                        << " ws deemed UB and excluded\n");
+      InvalidCallees.insert(Fn);
+      return;
+    }
       LLVM_DEBUG(dbgs() << "[AACallEdges] New call edge: " << Fn->getName()
                         << "\n");
-    }
+      CalledFunctions.insert(Fn);
+      Change = ChangeStatus::CHANGED;
   }
 
   void setHasUnknownCallee(bool NonAsm, ChangeStatus &Change) {
@@ -10391,6 +10400,8 @@ private:
   /// Optimistic set of functions that might be called by this position.
   SetVector<Function *> CalledFunctions;
 
+  SetVector<Function *> InvalidCallees;
+
   /// Is there any call with a unknown callee.
   bool HasUnknownCallee = false;
 
@@ -10401,27 +10412,47 @@ private:
 struct AACallEdgesCallSite : public AACallEdgesImpl {
   AACallEdgesCallSite(const IRPosition &IRP, Attributor &A)
       : AACallEdgesImpl(IRP, A) {}
+
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     ChangeStatus Change = ChangeStatus::UNCHANGED;
 
-    auto VisitValue = [&](Value &V, const Instruction *CtxI) -> bool {
+    CallBase *CB = cast<CallBase>(getCtxI());
+    const auto *TTI =
+        A.getInfoCache().getAnalysisResultForFunction<TargetIRAnalysis>(
+            *CB->getCaller());
+
+    auto VisitValue = [&](Value &V, const Instruction *CtxI,
+                          bool CallBack) -> bool {
       if (Function *Fn = dyn_cast<Function>(&V)) {
-        addCalledFunction(Fn, Change);
-      } else {
-        LLVM_DEBUG(dbgs() << "[AACallEdges] Unrecognized value: " << V << "\n");
+        addCalledFunction(A, *CB, Fn, Change, CallBack ? nullptr : TTI);
+        // Explore all values.
+        return true;
+      }
+      if (!A.isClosedWorldModule()) {
+        LLVM_DEBUG(if (!hasUnknownCallee()) dbgs()
+                   << "[AACallEdges] Assume unknown callee due to: " << V
+                   << "\n");
         setHasUnknownCallee(true, Change);
+        // Explore all values.
+        return true;
       }
 
+      unsigned NumArgs = CB->arg_size();
+      LLVM_DEBUG(dbgs() << "[AACallEdges] Unrecognized value: " << V
+                        << ", checking indirect callable functions:\n");
+      for (auto *Fn : A.getInfoCache().getIndirectlyCallableFunctions())
+        addCalledFunction(A, *CB, Fn, Change, CallBack ? nullptr : TTI);
       // Explore all values.
       return true;
     };
 
     SmallVector<AA::ValueAndContext> Values;
     // Process any value that we might call.
-    auto ProcessCalledOperand = [&](Value *V, Instruction *CtxI) {
+    auto ProcessCalledOperand = [&](Value *V, Instruction *CtxI,
+                                    bool CallBack) {
       if (isa<Constant>(V)) {
-        VisitValue(*V, CtxI);
+        VisitValue(*V, CtxI, CallBack);
         return;
       }
 
@@ -10432,10 +10463,8 @@ struct AACallEdgesCallSite : public AACallEdgesImpl {
         Values.push_back({*V, CtxI});
       }
       for (auto &VAC : Values)
-        VisitValue(*VAC.getValue(), VAC.getCtxI());
+        VisitValue(*VAC.getValue(), VAC.getCtxI(), CallBack);
     };
-
-    CallBase *CB = cast<CallBase>(getCtxI());
 
     if (auto *IA = dyn_cast<InlineAsm>(CB->getCalledOperand())) {
       if (IA->hasSideEffects() &&
@@ -10451,19 +10480,19 @@ struct AACallEdgesCallSite : public AACallEdgesImpl {
       for (const auto &Op : MD->operands()) {
         Function *Callee = mdconst::dyn_extract_or_null<Function>(Op);
         if (Callee)
-          addCalledFunction(Callee, Change);
+          addCalledFunction(A, *CB, Callee, Change, TTI);
       }
       return Change;
     }
 
     // The most simple case.
-    ProcessCalledOperand(CB->getCalledOperand(), CB);
+    ProcessCalledOperand(CB->getCalledOperand(), CB, /* CallBack */ false);
 
     // Process callback functions.
     SmallVector<const Use *, 4u> CallbackUses;
     AbstractCallSite::getCallbackUses(*CB, CallbackUses);
     for (const Use *U : CallbackUses)
-      ProcessCalledOperand(U->get(), CB);
+      ProcessCalledOperand(U->get(), CB, /* CallBack */ true);
 
     return Change;
   }
@@ -10490,7 +10519,7 @@ struct AACallEdgesFunction : public AACallEdgesImpl {
         setHasUnknownCallee(false, Change);
 
       for (Function *F : CBEdges->getOptimisticEdges())
-        addCalledFunction(F, Change);
+        addCalledFunction(A, CB, F, Change);
 
       return true;
     };
