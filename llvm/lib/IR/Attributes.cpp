@@ -2214,6 +2214,45 @@ bool AttributeFuncs::areInlineCompatible(const Function &Caller,
   return hasCompatibleFnAttrs(Caller, Callee);
 }
 
+bool AttributeFuncs::areCallCompatible(AttributeList CallBaseAttrs,
+                                       AttributeList CalleeAttrs) {
+  // Match sext/zext for return values.
+  SmallVector<Attribute::AttrKind, 2> RetABIAttrs = {Attribute::SExt,
+                                                     Attribute::ZExt};
+  // Match all ABI attributes for parameters.
+  SmallVector<Attribute::AttrKind, 16> ParamABIAttrs = {
+      Attribute::SExt,         Attribute::ZExt,     Attribute::ByRef,
+      Attribute::ByRef,        Attribute::InAlloca, Attribute::InReg,
+      Attribute::Preallocated, Attribute::StructRet};
+
+  if (llvm::all_of(ParamABIAttrs, [&](Attribute::AttrKind AK) {
+        return !CallBaseAttrs.hasAttrSomewhere(AK) &&
+               !CalleeAttrs.hasAttrSomewhere(AK);
+      }))
+    return true;
+
+  AttributeSet CBRetAS = CallBaseAttrs.getRetAttrs();
+  AttributeSet FnRetAS = CalleeAttrs.getRetAttrs();
+
+  for (Attribute::AttrKind AK : RetABIAttrs)
+    if (CBRetAS.hasAttribute(AK) != FnRetAS.hasAttribute(AK))
+      return false;
+
+  unsigned NumArgs =
+      std::max(CallBaseAttrs.getNumAttrSets(), CalleeAttrs.getNumAttrSets()) -
+      AttributeList::FirstArgIndex;
+
+  for (unsigned ArgNo = 0; ArgNo < NumArgs; ++ArgNo) {
+    AttributeSet CBParamAS = CallBaseAttrs.getParamAttrs(ArgNo);
+    AttributeSet FnParamAS = CalleeAttrs.getParamAttrs(ArgNo);
+    for (Attribute::AttrKind AK : ParamABIAttrs)
+      if (CBParamAS.hasAttribute(AK) != FnParamAS.hasAttribute(AK))
+        return false;
+  }
+
+  return true;
+}
+
 bool AttributeFuncs::areOutlineCompatible(const Function &A,
                                           const Function &B) {
   return hasCompatibleFnAttrs(A, B);

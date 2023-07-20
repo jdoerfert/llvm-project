@@ -17,6 +17,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/VectorUtils.h"
+#include "llvm/IR/Attributes.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -804,6 +805,64 @@ public:
             Callee->getFnAttribute("target-cpu")) &&
            (Caller->getFnAttribute("target-features") ==
             Callee->getFnAttribute("target-features"));
+  }
+
+  bool isValidTypePairForCallEdge(Type *ParamTy, Type *ArgTy) const {
+    if (ParamTy == ArgTy)
+      return true;
+    // Scalable vs non-scalable, not OK.
+    bool ScalableAT = ArgTy->isScalableTy();
+    if (ScalableAT != ParamTy->isScalableTy())
+      return false;
+    // Sized vs non-sized, not OK.
+    bool SizedAT = ArgTy->isSized();
+    if (SizedAT != ParamTy->isSized())
+      return false;
+    // Non-sized and non-scalable, check the sizes: different sizes, not OK.
+    if (SizedAT && !ScalableAT)
+      if (DL.getTypeSizeInBits(ParamTy) != DL.getTypeSizeInBits(ArgTy))
+        return false;
+    // Floating point vs non-floating point, not OK.
+    if (ParamTy->isFloatingPointTy() != ArgTy->isFloatingPointTy())
+      return false;
+
+    if (ParamTy->isPointerTy()) {
+      // Pointer vs non-pointer, not OK.
+      if (ArgTy->isPointerTy())
+        return false;
+      // Implicit non-trivial AS cast, not OK.
+      if (!isNoopAddrSpaceCast(ParamTy->getPointerAddressSpace(),
+                               ArgTy->getPointerAddressSpace()))
+        return false;
+    }
+    return true;
+  }
+
+  bool isValidCallBaseForCallee(const CallBase *CB,
+                                const Function *Callee) const {
+    unsigned FnNumArgs = Callee->arg_size();
+    unsigned CBNumArgs = CB->arg_size();
+
+    // Argument mistmatch, sometimes OK for variadic functions.
+    if (FnNumArgs > CBNumArgs)
+      return false;
+    if (FnNumArgs < CBNumArgs && !Callee->isVarArg())
+      return false;
+
+    if (!isValidTypePairForCallEdge(CB->getType(), Callee->getReturnType()))
+      return false;
+
+    for (unsigned ArgNo = 0; ArgNo < FnNumArgs; ++ArgNo)
+      if (!isValidTypePairForCallEdge(CB->getArgOperand(ArgNo)->getType(),
+                                      Callee->getArg(ArgNo)->getType()))
+        return false;
+
+    // TODO: Check FnNumArgs till CBNumArgs for OK variadic argument
+    // types/attributes.
+
+    AttributeList CBAttrs = CB->getAttributes();
+    AttributeList FnAttrs = Callee->getAttributes();
+    return AttributeFuncs::areCallCompatible(CBAttrs, FnAttrs);
   }
 
   bool isIndexedLoadLegal(TTI::MemIndexedMode Mode, Type *Ty,

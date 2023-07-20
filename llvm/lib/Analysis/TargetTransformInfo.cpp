@@ -1128,6 +1128,16 @@ bool TargetTransformInfo::areTypesABICompatible(
   return TTIImpl->areTypesABICompatible(Caller, Callee, Types);
 }
 
+bool TargetTransformInfo::isValidTypePairForCallEdge(Type *ParamTy,
+                                                     Type *ArgTy) const {
+  return TTIImpl->isValidTypePairForCallEdge(ParamTy, ArgTy);
+}
+
+bool TargetTransformInfo::isValidCallBaseForCallee(
+    const CallBase *CB, const Function *Callee) const {
+  return TTIImpl->isValidCallBaseForCallee(CB, Callee);
+}
+
 bool TargetTransformInfo::isIndexedLoadLegal(MemIndexedMode Mode,
                                              Type *Ty) const {
   return TTIImpl->isIndexedLoadLegal(Mode, Ty);

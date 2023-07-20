@@ -1224,6 +1224,9 @@ AttributeMask getUBImplyingAttributes();
 /// attributes for inlining purposes.
 bool areInlineCompatible(const Function &Caller, const Function &Callee);
 
+/// \returns Return true if the attributes at the call base \p CallBaseAttrs
+/// allow a call to the callee with the attributes in \p CalleeAttrs.
+bool areCallCompatible(AttributeList CallBaseAttrs, AttributeList CalleeAttrs);
 
 /// Checks  if there are any incompatible function attributes between
 /// \p A and \p B.

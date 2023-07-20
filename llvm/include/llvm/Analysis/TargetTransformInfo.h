@@ -1510,6 +1510,14 @@ public:
   bool areTypesABICompatible(const Function *Caller, const Function *Callee,
                              const ArrayRef<Type *> &Types) const;
 
+  /// \returns True if \p ParamTy at a call base can be passed to \p ArgTy at a
+  /// callee.
+  bool isValidTypePairForCallEdge(Type *ParamTy, Type *ArgTy) const;
+
+  /// \returns True if \p CB may legally call \p Callee via an indirect call.
+  bool isValidCallBaseForCallee(const CallBase *CB,
+                                const Function *Callee) const;
+
   /// The type of load/store indexing.
   enum MemIndexedMode {
     MIM_Unindexed, ///< No indexing.
@@ -1998,6 +2006,9 @@ public:
   virtual bool areTypesABICompatible(const Function *Caller,
                                      const Function *Callee,
                                      const ArrayRef<Type *> &Types) const = 0;
+  virtual bool isValidTypePairForCallEdge(Type *ParamTy, Type *ArgTy) const = 0;
+  virtual bool isValidCallBaseForCallee(const CallBase *CB,
+                                        const Function *Callee) const = 0;
   virtual bool isIndexedLoadLegal(MemIndexedMode Mode, Type *Ty) const = 0;
   virtual bool isIndexedStoreLegal(MemIndexedMode Mode, Type *Ty) const = 0;
   virtual unsigned getLoadStoreVecRegBitWidth(unsigned AddrSpace) const = 0;
@@ -2653,6 +2664,13 @@ public:
   bool areTypesABICompatible(const Function *Caller, const Function *Callee,
                              const ArrayRef<Type *> &Types) const override {
     return Impl.areTypesABICompatible(Caller, Callee, Types);
+  }
+  bool isValidTypePairForCallEdge(Type *ParamTy, Type *ArgTy) const override {
+    return Impl.isValidTypePairForCallEdge(ParamTy, ArgTy);
+  }
+  bool isValidCallBaseForCallee(const CallBase *CB,
+                                const Function *Callee) const override {
+    return Impl.isValidCallBaseForCallee(CB, Callee);
   }
   bool isIndexedLoadLegal(MemIndexedMode Mode, Type *Ty) const override {
     return Impl.isIndexedLoadLegal(Mode, Ty, getDataLayout());
