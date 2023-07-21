@@ -425,8 +425,7 @@ define amdgpu_kernel void @use_group_to_flat_addrspacecast(ptr addrspace(3) %ptr
 ;
 ; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_group_to_flat_addrspacecast
 ; ATTRIBUTOR_HSA-SAME: (ptr addrspace(3) [[PTR:%.*]]) #[[ATTR11]] {
-; ATTRIBUTOR_HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(3) [[PTR]] to ptr
-; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr [[STOF]], align 4
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(3) [[PTR]], align 4
 ; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %stof = addrspacecast ptr addrspace(3) %ptr to ptr
@@ -443,8 +442,7 @@ define amdgpu_kernel void @use_private_to_flat_addrspacecast(ptr addrspace(5) %p
 ;
 ; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_private_to_flat_addrspacecast
 ; ATTRIBUTOR_HSA-SAME: (ptr addrspace(5) [[PTR:%.*]]) #[[ATTR11]] {
-; ATTRIBUTOR_HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(5) [[PTR]] to ptr
-; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr [[STOF]], align 4
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(5) [[PTR]], align 4
 ; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %stof = addrspacecast ptr addrspace(5) %ptr to ptr
@@ -453,11 +451,16 @@ define amdgpu_kernel void @use_private_to_flat_addrspacecast(ptr addrspace(5) %p
 }
 
 define amdgpu_kernel void @use_flat_to_group_addrspacecast(ptr %ptr) #1 {
-; HSA-LABEL: define {{[^@]+}}@use_flat_to_group_addrspacecast
-; HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
-; HSA-NEXT:    [[FTOS:%.*]] = addrspacecast ptr [[PTR]] to ptr addrspace(3)
-; HSA-NEXT:    store volatile i32 0, ptr addrspace(3) [[FTOS]], align 4
-; HSA-NEXT:    ret void
+; AKF_HSA-LABEL: define {{[^@]+}}@use_flat_to_group_addrspacecast
+; AKF_HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
+; AKF_HSA-NEXT:    [[FTOS:%.*]] = addrspacecast ptr [[PTR]] to ptr addrspace(3)
+; AKF_HSA-NEXT:    store volatile i32 0, ptr addrspace(3) [[FTOS]], align 4
+; AKF_HSA-NEXT:    ret void
+;
+; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_flat_to_group_addrspacecast
+; ATTRIBUTOR_HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr [[PTR]], align 4
+; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %ftos = addrspacecast ptr %ptr to ptr addrspace(3)
   store volatile i32 0, ptr addrspace(3) %ftos
@@ -465,11 +468,16 @@ define amdgpu_kernel void @use_flat_to_group_addrspacecast(ptr %ptr) #1 {
 }
 
 define amdgpu_kernel void @use_flat_to_private_addrspacecast(ptr %ptr) #1 {
-; HSA-LABEL: define {{[^@]+}}@use_flat_to_private_addrspacecast
-; HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
-; HSA-NEXT:    [[FTOS:%.*]] = addrspacecast ptr [[PTR]] to ptr addrspace(5)
-; HSA-NEXT:    store volatile i32 0, ptr addrspace(5) [[FTOS]], align 4
-; HSA-NEXT:    ret void
+; AKF_HSA-LABEL: define {{[^@]+}}@use_flat_to_private_addrspacecast
+; AKF_HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
+; AKF_HSA-NEXT:    [[FTOS:%.*]] = addrspacecast ptr [[PTR]] to ptr addrspace(5)
+; AKF_HSA-NEXT:    store volatile i32 0, ptr addrspace(5) [[FTOS]], align 4
+; AKF_HSA-NEXT:    ret void
+;
+; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_flat_to_private_addrspacecast
+; ATTRIBUTOR_HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr [[PTR]], align 4
+; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %ftos = addrspacecast ptr %ptr to ptr addrspace(5)
   store volatile i32 0, ptr addrspace(5) %ftos
@@ -478,11 +486,16 @@ define amdgpu_kernel void @use_flat_to_private_addrspacecast(ptr %ptr) #1 {
 
 ; No-op addrspacecast should not use queue ptr
 define amdgpu_kernel void @use_global_to_flat_addrspacecast(ptr addrspace(1) %ptr) #1 {
-; HSA-LABEL: define {{[^@]+}}@use_global_to_flat_addrspacecast
-; HSA-SAME: (ptr addrspace(1) [[PTR:%.*]]) #[[ATTR1]] {
-; HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(1) [[PTR]] to ptr
-; HSA-NEXT:    store volatile i32 0, ptr [[STOF]], align 4
-; HSA-NEXT:    ret void
+; AKF_HSA-LABEL: define {{[^@]+}}@use_global_to_flat_addrspacecast
+; AKF_HSA-SAME: (ptr addrspace(1) [[PTR:%.*]]) #[[ATTR1]] {
+; AKF_HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(1) [[PTR]] to ptr
+; AKF_HSA-NEXT:    store volatile i32 0, ptr [[STOF]], align 4
+; AKF_HSA-NEXT:    ret void
+;
+; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_global_to_flat_addrspacecast
+; ATTRIBUTOR_HSA-SAME: (ptr addrspace(1) [[PTR:%.*]]) #[[ATTR1]] {
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(1) [[PTR]], align 4
+; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %stof = addrspacecast ptr addrspace(1) %ptr to ptr
   store volatile i32 0, ptr %stof
@@ -490,11 +503,16 @@ define amdgpu_kernel void @use_global_to_flat_addrspacecast(ptr addrspace(1) %pt
 }
 
 define amdgpu_kernel void @use_constant_to_flat_addrspacecast(ptr addrspace(4) %ptr) #1 {
-; HSA-LABEL: define {{[^@]+}}@use_constant_to_flat_addrspacecast
-; HSA-SAME: (ptr addrspace(4) [[PTR:%.*]]) #[[ATTR1]] {
-; HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(4) [[PTR]] to ptr
-; HSA-NEXT:    [[LD:%.*]] = load volatile i32, ptr [[STOF]], align 4
-; HSA-NEXT:    ret void
+; AKF_HSA-LABEL: define {{[^@]+}}@use_constant_to_flat_addrspacecast
+; AKF_HSA-SAME: (ptr addrspace(4) [[PTR:%.*]]) #[[ATTR1]] {
+; AKF_HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(4) [[PTR]] to ptr
+; AKF_HSA-NEXT:    [[LD:%.*]] = load volatile i32, ptr [[STOF]], align 4
+; AKF_HSA-NEXT:    ret void
+;
+; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_constant_to_flat_addrspacecast
+; ATTRIBUTOR_HSA-SAME: (ptr addrspace(4) [[PTR:%.*]]) #[[ATTR1]] {
+; ATTRIBUTOR_HSA-NEXT:    [[LD:%.*]] = load volatile i32, ptr addrspace(4) [[PTR]], align 4
+; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %stof = addrspacecast ptr addrspace(4) %ptr to ptr
   %ld = load volatile i32, ptr %stof
@@ -502,11 +520,16 @@ define amdgpu_kernel void @use_constant_to_flat_addrspacecast(ptr addrspace(4) %
 }
 
 define amdgpu_kernel void @use_flat_to_global_addrspacecast(ptr %ptr) #1 {
-; HSA-LABEL: define {{[^@]+}}@use_flat_to_global_addrspacecast
-; HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
-; HSA-NEXT:    [[FTOS:%.*]] = addrspacecast ptr [[PTR]] to ptr addrspace(1)
-; HSA-NEXT:    store volatile i32 0, ptr addrspace(1) [[FTOS]], align 4
-; HSA-NEXT:    ret void
+; AKF_HSA-LABEL: define {{[^@]+}}@use_flat_to_global_addrspacecast
+; AKF_HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
+; AKF_HSA-NEXT:    [[FTOS:%.*]] = addrspacecast ptr [[PTR]] to ptr addrspace(1)
+; AKF_HSA-NEXT:    store volatile i32 0, ptr addrspace(1) [[FTOS]], align 4
+; AKF_HSA-NEXT:    ret void
+;
+; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_flat_to_global_addrspacecast
+; ATTRIBUTOR_HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr [[PTR]], align 4
+; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %ftos = addrspacecast ptr %ptr to ptr addrspace(1)
   store volatile i32 0, ptr addrspace(1) %ftos
@@ -514,11 +537,16 @@ define amdgpu_kernel void @use_flat_to_global_addrspacecast(ptr %ptr) #1 {
 }
 
 define amdgpu_kernel void @use_flat_to_constant_addrspacecast(ptr %ptr) #1 {
-; HSA-LABEL: define {{[^@]+}}@use_flat_to_constant_addrspacecast
-; HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
-; HSA-NEXT:    [[FTOS:%.*]] = addrspacecast ptr [[PTR]] to ptr addrspace(4)
-; HSA-NEXT:    [[LD:%.*]] = load volatile i32, ptr addrspace(4) [[FTOS]], align 4
-; HSA-NEXT:    ret void
+; AKF_HSA-LABEL: define {{[^@]+}}@use_flat_to_constant_addrspacecast
+; AKF_HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
+; AKF_HSA-NEXT:    [[FTOS:%.*]] = addrspacecast ptr [[PTR]] to ptr addrspace(4)
+; AKF_HSA-NEXT:    [[LD:%.*]] = load volatile i32, ptr addrspace(4) [[FTOS]], align 4
+; AKF_HSA-NEXT:    ret void
+;
+; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_flat_to_constant_addrspacecast
+; ATTRIBUTOR_HSA-SAME: (ptr [[PTR:%.*]]) #[[ATTR1]] {
+; ATTRIBUTOR_HSA-NEXT:    [[LD:%.*]] = load volatile i32, ptr [[PTR]], align 4
+; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %ftos = addrspacecast ptr %ptr to ptr addrspace(4)
   %ld = load volatile i32, ptr addrspace(4) %ftos

@@ -459,8 +459,7 @@ define void @use_group_to_flat_addrspacecast(ptr addrspace(3) %ptr) #1 {
 ;
 ; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_group_to_flat_addrspacecast
 ; ATTRIBUTOR_HSA-SAME: (ptr addrspace(3) [[PTR:%.*]]) #[[ATTR8]] {
-; ATTRIBUTOR_HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(3) [[PTR]] to ptr addrspace(4)
-; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(4) [[STOF]], align 4
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(3) [[PTR]], align 4
 ; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %stof = addrspacecast ptr addrspace(3) %ptr to ptr addrspace(4)
@@ -478,8 +477,7 @@ define void @use_group_to_flat_addrspacecast_gfx9(ptr addrspace(3) %ptr) #2 {
 ;
 ; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_group_to_flat_addrspacecast_gfx9
 ; ATTRIBUTOR_HSA-SAME: (ptr addrspace(3) [[PTR:%.*]]) #[[ATTR12:[0-9]+]] {
-; ATTRIBUTOR_HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(3) [[PTR]] to ptr addrspace(4)
-; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(4) [[STOF]], align 4
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(3) [[PTR]], align 4
 ; ATTRIBUTOR_HSA-NEXT:    ret void
 ;
   %stof = addrspacecast ptr addrspace(3) %ptr to ptr addrspace(4)
@@ -497,8 +495,7 @@ define void @use_group_to_flat_addrspacecast_queue_ptr_gfx9(ptr addrspace(3) %pt
 ;
 ; ATTRIBUTOR_HSA-LABEL: define {{[^@]+}}@use_group_to_flat_addrspacecast_queue_ptr_gfx9
 ; ATTRIBUTOR_HSA-SAME: (ptr addrspace(3) [[PTR:%.*]]) #[[ATTR13:[0-9]+]] {
-; ATTRIBUTOR_HSA-NEXT:    [[STOF:%.*]] = addrspacecast ptr addrspace(3) [[PTR]] to ptr addrspace(4)
-; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(4) [[STOF]], align 4
+; ATTRIBUTOR_HSA-NEXT:    store volatile i32 0, ptr addrspace(3) [[PTR]], align 4
 ; ATTRIBUTOR_HSA-NEXT:    call void @func_indirect_use_queue_ptr()
 ; ATTRIBUTOR_HSA-NEXT:    ret void
 ;

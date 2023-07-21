@@ -273,47 +273,17 @@ define amdgpu_kernel void @marked_kernel_nokernargs_implicitarg_ptr() #0 {
 
 ; On gfx8, the queue ptr is required for this addrspacecast.
 define void @addrspacecast_requires_queue_ptr(ptr addrspace(5) %ptr.private, ptr addrspace(3) %ptr.local) #0 {
-; FIXEDABI-SDAG-LABEL: addrspacecast_requires_queue_ptr:
-; FIXEDABI-SDAG:       ; %bb.0:
-; FIXEDABI-SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; FIXEDABI-SDAG-NEXT:    s_load_dwordx2 s[4:5], s[6:7], 0x40
-; FIXEDABI-SDAG-NEXT:    v_cmp_ne_u32_e32 vcc, -1, v0
-; FIXEDABI-SDAG-NEXT:    s_waitcnt lgkmcnt(0)
-; FIXEDABI-SDAG-NEXT:    v_mov_b32_e32 v2, s5
-; FIXEDABI-SDAG-NEXT:    v_cndmask_b32_e32 v3, 0, v2, vcc
-; FIXEDABI-SDAG-NEXT:    v_cndmask_b32_e32 v2, 0, v0, vcc
-; FIXEDABI-SDAG-NEXT:    v_mov_b32_e32 v0, s4
-; FIXEDABI-SDAG-NEXT:    v_cmp_ne_u32_e32 vcc, -1, v1
-; FIXEDABI-SDAG-NEXT:    v_cndmask_b32_e32 v5, 0, v0, vcc
-; FIXEDABI-SDAG-NEXT:    v_mov_b32_e32 v0, 1
-; FIXEDABI-SDAG-NEXT:    v_cndmask_b32_e32 v4, 0, v1, vcc
-; FIXEDABI-SDAG-NEXT:    flat_store_dword v[2:3], v0
-; FIXEDABI-SDAG-NEXT:    s_waitcnt vmcnt(0)
-; FIXEDABI-SDAG-NEXT:    v_mov_b32_e32 v0, 2
-; FIXEDABI-SDAG-NEXT:    flat_store_dword v[4:5], v0
-; FIXEDABI-SDAG-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
-; FIXEDABI-SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; FIXEDABI-GISEL-LABEL: addrspacecast_requires_queue_ptr:
-; FIXEDABI-GISEL:       ; %bb.0:
-; FIXEDABI-GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; FIXEDABI-GISEL-NEXT:    s_load_dwordx2 s[4:5], s[6:7], 0x40
-; FIXEDABI-GISEL-NEXT:    v_cmp_ne_u32_e32 vcc, -1, v0
-; FIXEDABI-GISEL-NEXT:    v_cndmask_b32_e32 v2, 0, v0, vcc
-; FIXEDABI-GISEL-NEXT:    s_waitcnt lgkmcnt(0)
-; FIXEDABI-GISEL-NEXT:    v_mov_b32_e32 v0, s5
-; FIXEDABI-GISEL-NEXT:    v_cndmask_b32_e32 v3, 0, v0, vcc
-; FIXEDABI-GISEL-NEXT:    v_mov_b32_e32 v4, s4
-; FIXEDABI-GISEL-NEXT:    v_cmp_ne_u32_e32 vcc, -1, v1
-; FIXEDABI-GISEL-NEXT:    v_cndmask_b32_e32 v0, 0, v1, vcc
-; FIXEDABI-GISEL-NEXT:    v_cndmask_b32_e32 v1, 0, v4, vcc
-; FIXEDABI-GISEL-NEXT:    v_mov_b32_e32 v4, 1
-; FIXEDABI-GISEL-NEXT:    flat_store_dword v[2:3], v4
-; FIXEDABI-GISEL-NEXT:    s_waitcnt vmcnt(0)
-; FIXEDABI-GISEL-NEXT:    v_mov_b32_e32 v2, 2
-; FIXEDABI-GISEL-NEXT:    flat_store_dword v[0:1], v2
-; FIXEDABI-GISEL-NEXT:    s_waitcnt vmcnt(0) lgkmcnt(0)
-; FIXEDABI-GISEL-NEXT:    s_setpc_b64 s[30:31]
+; FIXEDABI-LABEL: addrspacecast_requires_queue_ptr:
+; FIXEDABI:       ; %bb.0:
+; FIXEDABI-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; FIXEDABI-NEXT:    v_mov_b32_e32 v2, 1
+; FIXEDABI-NEXT:    buffer_store_dword v2, v0, s[0:3], 0 offen
+; FIXEDABI-NEXT:    s_waitcnt vmcnt(0)
+; FIXEDABI-NEXT:    v_mov_b32_e32 v0, 2
+; FIXEDABI-NEXT:    s_mov_b32 m0, -1
+; FIXEDABI-NEXT:    ds_write_b32 v1, v0
+; FIXEDABI-NEXT:    s_waitcnt lgkmcnt(0)
+; FIXEDABI-NEXT:    s_setpc_b64 s[30:31]
   %flat.private = addrspacecast ptr addrspace(5) %ptr.private to ptr
   %flat.local = addrspacecast ptr addrspace(3) %ptr.local to ptr
   store volatile i32 1, ptr %flat.private

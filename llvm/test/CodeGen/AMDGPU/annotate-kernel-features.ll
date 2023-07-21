@@ -393,6 +393,7 @@ define amdgpu_kernel void @use_get_local_size_z(ptr addrspace(1) %ptr) #1 {
 attributes #0 = { nounwind readnone }
 attributes #1 = { nounwind }
 
+;.
 ; AKF_CHECK: attributes #[[ATTR0:[0-9]+]] = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 ; AKF_CHECK: attributes #[[ATTR1]] = { nounwind }
 ;.

@@ -15,6 +15,7 @@
 #include "Utils/AMDGPUBaseInfo.h"
 #include "llvm/Analysis/CycleAnalysis.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsR600.h"
 #include "llvm/Target/TargetMachine.h"
@@ -942,7 +943,8 @@ public:
         {&AAAMDAttributes::ID, &AAUniformWorkGroupSize::ID,
          &AAPotentialValues::ID, &AAAMDFlatWorkGroupSize::ID,
          &AAAMDWavesPerEU::ID, &AACallEdges::ID, &AAPointerInfo::ID,
-         &AAPotentialConstantValues::ID, &AAUnderlyingObjects::ID});
+         &AAPotentialConstantValues::ID, &AAUnderlyingObjects::ID,
+         &AAAddressSpace::ID});
 
     AttributorConfig AC(CGUpdater);
     AC.Allowed = &Allowed;
@@ -955,14 +957,23 @@ public:
     Attributor A(Functions, InfoCache, AC);
 
     for (Function &F : M) {
-      if (!F.isIntrinsic()) {
-        A.getOrCreateAAFor<AAAMDAttributes>(IRPosition::function(F));
-        A.getOrCreateAAFor<AAUniformWorkGroupSize>(IRPosition::function(F));
-        if (!AMDGPU::isEntryFunctionCC(F.getCallingConv())) {
-          A.getOrCreateAAFor<AAAMDFlatWorkGroupSize>(IRPosition::function(F));
-          A.getOrCreateAAFor<AAAMDWavesPerEU>(IRPosition::function(F));
-        }
+      if (F.isIntrinsic())
+        continue;
+      A.getOrCreateAAFor<AAAMDAttributes>(IRPosition::function(F));
+      A.getOrCreateAAFor<AAUniformWorkGroupSize>(IRPosition::function(F));
+      if (!AMDGPU::isEntryFunctionCC(F.getCallingConv())) {
+        A.getOrCreateAAFor<AAAMDFlatWorkGroupSize>(IRPosition::function(F));
+        A.getOrCreateAAFor<AAAMDWavesPerEU>(IRPosition::function(F));
       }
+      auto &OpcodeInstMap = InfoCache.getOpcodeInstMapForFunction(F);
+      if (auto *Loads = OpcodeInstMap.lookup(Instruction::Load))
+        for (Instruction *I : *Loads)
+          A.getOrCreateAAFor<AAAddressSpace>(
+              IRPosition::value(*cast<LoadInst>(I)->getPointerOperand()));
+      if (auto *Stores = OpcodeInstMap.lookup(Instruction::Store))
+        for (Instruction *I : *Stores)
+          A.getOrCreateAAFor<AAAddressSpace>(
+              IRPosition::value(*cast<StoreInst>(I)->getPointerOperand()));
     }
 
     ChangeStatus Change = A.run();

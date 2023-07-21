@@ -34,9 +34,8 @@ define amdgpu_kernel void @test_simple_indirect_call() {
 ; ATTRIBUTOR_GCN-LABEL: define {{[^@]+}}@test_simple_indirect_call
 ; ATTRIBUTOR_GCN-SAME: () #[[ATTR1:[0-9]+]] {
 ; ATTRIBUTOR_GCN-NEXT:    [[FPTR:%.*]] = alloca ptr, align 8, addrspace(5)
-; ATTRIBUTOR_GCN-NEXT:    [[FPTR_CAST:%.*]] = addrspacecast ptr addrspace(5) [[FPTR]] to ptr
-; ATTRIBUTOR_GCN-NEXT:    store ptr @indirect, ptr [[FPTR_CAST]], align 8
-; ATTRIBUTOR_GCN-NEXT:    [[FP:%.*]] = load ptr, ptr [[FPTR_CAST]], align 8
+; ATTRIBUTOR_GCN-NEXT:    store ptr @indirect, ptr addrspace(5) [[FPTR]], align 8
+; ATTRIBUTOR_GCN-NEXT:    [[FP:%.*]] = load ptr, ptr addrspace(5) [[FPTR]], align 8
 ; ATTRIBUTOR_GCN-NEXT:    call void [[FP]]()
 ; ATTRIBUTOR_GCN-NEXT:    ret void
 ;
