@@ -1586,6 +1586,7 @@ struct Attributor {
       });
       ++InitializationChainLength;
       AA.initialize(*this);
+      dbgs() << "[Attributor] Init: " << cast<AbstractAttribute>(AA) << "\n";
       --InitializationChainLength;
     }
 
