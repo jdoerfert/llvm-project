@@ -1014,7 +1014,7 @@ ChangeStatus AbstractAttribute::update(Attributor &A) {
   if (getState().isAtFixpoint())
     return HasChanged;
 
-  LLVM_DEBUG(dbgs() << "[Attributor] Update: " << *this << "\n");
+  (dbgs() << "[Attributor] Update: " << *this << "\n");
 
   HasChanged = updateImpl(A);
 

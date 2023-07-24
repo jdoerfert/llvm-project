@@ -10398,24 +10398,6 @@ struct AAPotentialValuesImpl : AAPotentialValues {
   AAPotentialValuesImpl(const IRPosition &IRP, Attributor &A)
       : AAPotentialValues(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(..).
-  void initialize(Attributor &A) override {
-    if (A.hasSimplificationCallback(getIRPosition())) {
-      indicatePessimisticFixpoint();
-      return;
-    }
-    Value *Stripped = getAssociatedValue().stripPointerCasts();
-    auto *CE = dyn_cast<ConstantExpr>(Stripped);
-    if (isa<Constant>(Stripped) &&
-        (!CE || CE->getOpcode() != Instruction::ICmp)) {
-      addValue(A, getState(), *Stripped, getCtxI(), AA::AnyScope,
-               getAnchorScope());
-      indicateOptimisticFixpoint();
-      return;
-    }
-    AAPotentialValues::initialize(A);
-  }
-
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr(Attributor *A) const override {
     std::string Str;
@@ -11039,13 +11021,6 @@ struct AAPotentialValuesArgument final : AAPotentialValuesImpl {
   AAPotentialValuesArgument(const IRPosition &IRP, Attributor &A)
       : Base(IRP, A) {}
 
-  /// See AbstractAttribute::initialize(..).
-  void initialize(Attributor &A) override {
-    auto &Arg = cast<Argument>(getAssociatedValue());
-    if (Arg.hasPointeeInMemoryValueAttr())
-      indicatePessimisticFixpoint();
-  }
-
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     auto AssumedBefore = getAssumed();
@@ -11115,24 +11090,12 @@ struct AAPotentialValuesReturned : public AAPotentialValuesFloating {
   /// See AbstractAttribute::initialize(..).
   void initialize(Attributor &A) override {
     Function *F = getAssociatedFunction();
-    if (!F || F->isDeclaration() || F->getReturnType()->isVoidTy()) {
-      indicatePessimisticFixpoint();
-      return;
-    }
-
     for (Argument &Arg : F->args())
       if (Arg.hasReturnedAttr()) {
         addValue(A, getState(), Arg, nullptr, AA::AnyScope, F);
         ReturnedArg = &Arg;
         break;
       }
-    if (!A.isFunctionIPOAmendable(*F) ||
-        A.hasSimplificationCallback(getIRPosition())) {
-      if (!ReturnedArg)
-        indicatePessimisticFixpoint();
-      else
-        indicateOptimisticFixpoint();
-    }
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -11557,8 +11520,7 @@ struct AAUnderlyingObjectsImpl
           };
 
           if (!OtherAA || !OtherAA->forallUnderlyingObjects(Pred, Scope))
-            llvm_unreachable(
-                "The forall call should not return false at this position");
+            Values.emplace_back(*UO, nullptr);
 
           continue;
         }
@@ -11620,8 +11582,7 @@ private:
       return true;
     };
     if (!AA || !AA->forallUnderlyingObjects(Pred, Scope))
-      llvm_unreachable(
-          "The forall call should not return false at this position");
+      UnderlyingObjects.insert(&V);
     return Changed;
   }
 

@@ -3589,6 +3589,10 @@ struct AANonNull
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
     if (!IRP.getAssociatedType()->isPtrOrPtrVectorTy())
       return false;
+    if (!IRP.getCtxI())
+      return false;
+    if (!A.isRunOn(IRP.getAssociatedFunction()))
+      return false;
     return IRAttribute::isValidIRPositionForInit(A, IRP);
   }
 
@@ -5337,6 +5341,42 @@ struct AAPotentialValues
   using Base = StateWrapper<PotentialLLVMValuesState, AbstractAttribute>;
   AAPotentialValues(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
+  /// See AbstractAttribute::isValidIRPositionForInit
+  static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
+    if (A.hasSimplificationCallback(IRP))
+      return false;
+    if (Argument *Arg = IRP.getAssociatedArgument()) {
+      if (Arg->hasPointeeInMemoryValueAttr())
+        return false;
+      if (!Arg->getParent()->hasLocalLinkage())
+        return false;
+    }
+    if (IRP.getPositionKind() == IRP_CALL_SITE_RETURNED) {
+      auto *CB = cast<CallBase>(IRP.getCtxI());
+      if (!A.isRunOn(CB->getCalledFunction())) {
+        if (!CB->getReturnedArgOperand())
+          return false;
+      }
+    }
+    if (IRP.getPositionKind() == IRP_RETURNED) {
+      Function *F = IRP.getAssociatedFunction();
+      if (!F || F->isDeclaration() || F->getReturnType()->isVoidTy())
+        return false;
+      if (!A.isFunctionIPOAmendable(*F))
+        return false;
+    } else {
+      Value *Stripped = IRP.getAssociatedValue().stripPointerCasts();
+      auto *CE = dyn_cast<ConstantExpr>(Stripped);
+      if (isa<Constant>(Stripped) &&
+          (!CE || CE->getOpcode() != Instruction::ICmp))
+        return false;
+    }
+    return true;
+  }
+
+  /// See AbstractAttribute::hasTrivialInitializer.
+  static bool hasTrivialInitializer() { return true; }
+
   /// See AbstractAttribute::requiresCallersForArgOrFunction
   static bool requiresCallersForArgOrFunction() { return true; }
 
@@ -6219,6 +6259,9 @@ struct AAUnderlyingObjects : AbstractAttribute {
 
   /// See AbstractAttribute::requiresCallersForArgOrFunction
   static bool requiresCallersForArgOrFunction() { return true; }
+
+  /// See AbstractAttribute::hasTrivialInitializer.
+  static bool hasTrivialInitializer() { return true; }
 
   /// Create an abstract attribute biew for the position \p IRP.
   static AAUnderlyingObjects &createForPosition(const IRPosition &IRP,
