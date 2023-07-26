@@ -446,10 +446,10 @@ struct DenseMapInfo<const AA::InstExclusionSetTy *>
     return static_cast<const AA::InstExclusionSetTy *>(
         super::getTombstoneKey());
   }
-  static unsigned getHashValue(const AA::InstExclusionSetTy *BES) {
+  static unsigned getHashValue(const AA::InstExclusionSetTy *IES) {
     unsigned H = 0;
-    if (BES)
-      for (const auto *II : *BES)
+    if (IES)
+      for (const auto *II : *IES)
         H += DenseMapInfo<const Instruction *>::getHashValue(II);
     return H;
   }
@@ -1212,8 +1212,8 @@ struct InformationCache {
       It.getSecond()->~FunctionInfo();
     // Same is true for the instruction exclusions sets.
     using AA::InstExclusionSetTy;
-    for (auto *BES : BESets)
-      BES->~InstExclusionSetTy();
+    for (auto &It : IESets)
+      It.first->~InstExclusionSetTy();
     if (Explorer)
       Explorer->~MustBeExecutedContextExplorer();
   }
@@ -1294,17 +1294,36 @@ struct InformationCache {
   /// Return the map conaining all the knowledge we have from `llvm.assume`s.
   const RetainedKnowledgeMap &getKnowledgeMap() const { return KnowledgeMap; }
 
-  /// Given \p BES, return a uniqued version.
+  /// Given \p IES, return a uniqued version.
   const AA::InstExclusionSetTy *
-  getOrCreateUniqueBlockExecutionSet(const AA::InstExclusionSetTy *BES) {
-    auto It = BESets.find(BES);
-    if (It != BESets.end())
-      return *It;
-    auto *UniqueBES = new (Allocator) AA::InstExclusionSetTy(*BES);
-    bool Success = BESets.insert(UniqueBES).second;
+  getOrCreateUniqueBlockExecutionSet(const AA::InstExclusionSetTy *IES) {
+    auto It = IESets.find(IES);
+    if (It != IESets.end()) {
+      It->second++;
+      return It->first;
+    }
+
+    // The constness is for users.
+    AA::InstExclusionSetTy *NonConstIES =
+        const_cast<AA::InstExclusionSetTy *>(IES);
+    AA::InstExclusionSetTy *UniqueIES =
+        new AA::InstExclusionSetTy(*NonConstIES);
+    linkUniqueBlockExecutionSet(UniqueIES);
+    return UniqueIES;
+  }
+
+  void linkUniqueBlockExecutionSet(const AA::InstExclusionSetTy *UniqueIES) {
+    bool Success = IESets.insert({UniqueIES, 1}).second;
     (void)Success;
     assert(Success && "Expected only new entries to be added");
-    return UniqueBES;
+  }
+
+  void unlinkUniqueBlockExecutionSet(const AA::InstExclusionSetTy *UniqueIES) {
+    decltype(IESets)::iterator It = IESets.find(UniqueIES);
+    if (--It->second)
+      return;
+    IESets.erase(It);
+    delete UniqueIES;
   }
 
   /// Return true if the stack (llvm::Alloca) can be accessed by other threads.
@@ -1369,7 +1388,7 @@ private:
   SetVector<const Instruction *> AssumeOnlyValues;
 
   /// Cache for block sets to allow reuse.
-  DenseSet<const AA::InstExclusionSetTy *> BESets;
+  DenseMap<const AA::InstExclusionSetTy *, unsigned> IESets;
 
   /// Getters for analysis.
   AnalysisGetter &AG;
@@ -3738,9 +3757,11 @@ struct AAIntraFnReachability
   /// Returns true if 'From' instruction is assumed to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
-  virtual bool isAssumedReachable(
-      Attributor &A, const Instruction &From, const Instruction &To,
-      const AA::InstExclusionSetTy *ExclusionSet = nullptr) const = 0;
+  virtual bool
+  isAssumedReachable(Attributor &A, const Instruction &From,
+                     const Instruction &To,
+                     const AA::InstExclusionSetTy *ExclusionSet = nullptr,
+                     const AbstractAttribute *QueryingAA = nullptr) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAIntraFnReachability &createForPosition(const IRPosition &IRP,
@@ -5516,10 +5537,12 @@ struct AAInterFnReachability
 
   /// Can  \p Inst reach \p Fn.
   /// See also AA::isPotentiallyReachable.
-  virtual bool instructionCanReach(
-      Attributor &A, const Instruction &Inst, const Function &Fn,
-      const AA::InstExclusionSetTy *ExclusionSet = nullptr,
-      SmallPtrSet<const Function *, 16> *Visited = nullptr) const = 0;
+  virtual bool
+  instructionCanReach(Attributor &A, const Instruction &Inst,
+                      const Function &Fn,
+                      const AA::InstExclusionSetTy *ExclusionSet = nullptr,
+                      SmallPtrSet<const Function *, 16> *Visited = nullptr,
+                      const AbstractAttribute *QueryingAA = nullptr) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAInterFnReachability &createForPosition(const IRPosition &IRP,

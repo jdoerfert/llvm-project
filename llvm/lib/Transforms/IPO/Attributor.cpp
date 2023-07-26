@@ -700,8 +700,9 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
       // instruction is already known to reach the ToFn.
       const auto *FnReachabilityAA = A.getAAFor<AAInterFnReachability>(
           QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
-      Result = !FnReachabilityAA || FnReachabilityAA->instructionCanReach(
-                                        A, *CurFromI, ToFn, ExclusionSet);
+      Result = !FnReachabilityAA ||
+               FnReachabilityAA->instructionCanReach(
+                   A, *CurFromI, ToFn, ExclusionSet, nullptr, &QueryingAA);
       LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " in @" << FromFn->getName()
                         << " " << (Result ? "can potentially " : "cannot ")
                         << "reach @" << ToFn.getName() << " [FromFn]\n");
