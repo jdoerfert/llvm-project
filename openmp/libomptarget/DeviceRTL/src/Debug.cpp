@@ -42,7 +42,8 @@ __attribute__((loader_uninitialized)) static uint32_t Level;
 DebugEntryRAII::DebugEntryRAII(const char *File, const unsigned Line,
                                const char *Function) {
   if (config::isDebugMode(config::DebugKind::FunctionTracing) &&
-      mapping::getThreadIdInBlock() == 0 && mapping::getBlockId() == 0) {
+      mapping::getThreadIdInBlock() == 0 &&
+      mapping::getBlockIdInKernel() == 0) {
 
     for (int I = 0; I < Level; ++I)
       PRINTF("%s", "  ");
@@ -55,7 +56,7 @@ DebugEntryRAII::DebugEntryRAII(const char *File, const unsigned Line,
 
 DebugEntryRAII::~DebugEntryRAII() {
   if (config::isDebugMode(config::DebugKind::FunctionTracing) &&
-      mapping::getThreadIdInBlock() == 0 && mapping::getBlockId() == 0)
+      mapping::getThreadIdInBlock() == 0 && mapping::getBlockIdInKernel() == 0)
     Level--;
 }
 
