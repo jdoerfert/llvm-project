@@ -56,6 +56,22 @@ _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_C(block_dim, 1)
 #undef _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_C
 ///}
 
+/// ompx_{sync_block}_{,divergent}
+///{
+#define _TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_C(RETTY, NAME, ARGS, BODY)         \
+  __attribute__((overloadable)) static inline RETTY ompx_##NAME(ARGS) { BODY; }
+
+_TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_C(void, sync_block, void,
+                                      _Pragma("omp barrier"));
+_TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_C(void, sync_block, int Ordering,
+                                      ompx_sync_block());
+_TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_C(void, sync_block_divergent, void,
+                                      ompx_sync_block());
+_TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_C(void, sync_block_divergent, int Ordering,
+                                      ompx_sync_block(Ordering));
+#undef _TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_C
+///}
+
 #pragma omp end declare variant
 
 /// ompx_{thread,block}_{id,dim}_{x,y,z}
@@ -100,6 +116,22 @@ _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_CXX(thread_dim)
 _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_CXX(block_id)
 _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_CXX(block_dim)
 #undef _TGT_KERNEL_LANGUAGE_HOST_IMPL_GRID_CXX
+///}
+
+/// ompx_{sync_block}_{,divergent}
+///{
+#define _TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_CXX(RETTY, NAME, ARGS, CALL_ARGS)  \
+  __attribute__((overloadable)) static inline RETTY NAME(ARGS) {               \
+    return ompx_##NAME(CALL_ARGS);                                             \
+  }
+
+_TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_CXX(void, sync_block, void, );
+_TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_CXX(void, sync_block, int Ordering,
+                                        Ordering);
+_TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_CXX(void, sync_block_divergent, void, );
+_TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_CXX(void, sync_block_divergent,
+                                        int Ordering, Ordering);
+#undef _TGT_KERNEL_LANGUAGE_HOST_IMPL_SYNC_CXX
 ///}
 
 } // namespace ompx

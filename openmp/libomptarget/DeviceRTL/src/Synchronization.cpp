@@ -595,6 +595,19 @@ void omp_set_lock(omp_lock_t *Lock) { impl::setLock(Lock); }
 void omp_unset_lock(omp_lock_t *Lock) { impl::unsetLock(Lock); }
 
 int omp_test_lock(omp_lock_t *Lock) { return impl::testLock(Lock); }
+
+__attribute__((overloadable)) void ompx_sync_block() {
+  impl::syncThreadsAligned(atomic::OrderingTy::seq_cst);
+}
+__attribute__((overloadable)) void ompx_sync_block(int Ordering) {
+  impl::syncThreadsAligned(atomic::OrderingTy(Ordering));
+}
+__attribute__((overloadable)) void ompx_sync_block_divergent() {
+  impl::syncThreads(atomic::OrderingTy::seq_cst);
+}
+__attribute__((overloadable)) void ompx_sync_block_divergent(int Ordering) {
+  impl::syncThreads(atomic::OrderingTy(Ordering));
+}
 } // extern "C"
 
 #pragma omp end declare target
