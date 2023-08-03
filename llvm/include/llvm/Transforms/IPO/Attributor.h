@@ -169,6 +169,8 @@ public:
   unsigned getHash() const { return Hash; }
 
   bool operator==(const ExclusionTy &Other) const {
+    if (this == &Other)
+      return true;
     if (Hash != Other.Hash)
       return false;
     if (NumInsts != Other.NumInsts)
@@ -5993,7 +5995,8 @@ struct AAPointerInfo : public AbstractAttribute {
       Attributor &A, const AbstractAttribute &QueryingAA, Instruction &I,
       bool FindInterferingWrites, bool FindInterferingReads,
       function_ref<bool(const Access &, bool)> CB, bool &HasBeenWrittenTo,
-      AA::RangeTy &Range) const = 0;
+      AA::RangeTy &Range,
+      function_ref<bool(const Access &)> InterestCB) const = 0;
 
   /// This function should return true if the type of the \p AA is AAPointerInfo
   static bool classof(const AbstractAttribute *AA) {
