@@ -620,16 +620,15 @@ static bool
 isPotentiallyReachable(Attributor &A, const Instruction &FromI,
                        const Instruction *ToI, const Function &ToFn,
                        const AbstractAttribute &QueryingAA,
-                       const AA::InstExclusionSetTy *ExclusionSet,
+                       std::shared_ptr<const AA::ExclusionTy> ExclusionSets,
                        std::function<bool(const Function &F)> GoBackwardsCB) {
   DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE, {
     dbgs() << "[AA] isPotentiallyReachable @" << ToFn.getName() << " from "
-           << FromI << " [GBCB: " << bool(GoBackwardsCB) << "][#ExS: "
-           << (ExclusionSet ? std::to_string(ExclusionSet->size()) : "none")
+           << FromI << " [GBCB: " << bool(GoBackwardsCB)
+           << "][#ExS: " << (ExclusionSets ? ExclusionSets->size() : 0)
            << "]\n";
-    if (ExclusionSet)
-      for (auto *ES : *ExclusionSet)
-        dbgs() << *ES << "\n";
+    if (ExclusionSets)
+      ExclusionSets->dump();
   });
 
   // We know kernels (generally) cannot be called from within the module. Thus,
@@ -650,7 +649,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
   // provided, or once we track internal functions not accessible from the
   // outside, it makes sense to perform backwards analysis in the absence of a
   // GoBackwardsCB.
-  if (!GoBackwardsCB && !ExclusionSet) {
+  if (!GoBackwardsCB && ExclusionSets->empty()) {
     LLVM_DEBUG(dbgs() << "[AA] check @" << ToFn.getName() << " from " << FromI
                       << " is not checked backwards and does not have an "
                          "exclusion set, abort\n");
@@ -675,7 +674,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
       const auto *ReachabilityAA = A.getAAFor<AAIntraFnReachability>(
           QueryingAA, IRPosition::function(ToFn), DepClassTy::OPTIONAL);
       bool Result = !ReachabilityAA || ReachabilityAA->isAssumedReachable(
-                                           A, *CurFromI, *ToI, ExclusionSet);
+                                           A, *CurFromI, *ToI, ExclusionSets);
       LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " "
                         << (Result ? "can potentially " : "cannot ") << "reach "
                         << *ToI << " [Intra]\n");
@@ -689,7 +688,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
           QueryingAA, IRPosition::function(ToFn), DepClassTy::OPTIONAL);
       const Instruction &EntryI = ToFn.getEntryBlock().front();
       Result = !ToReachabilityAA || ToReachabilityAA->isAssumedReachable(
-                                        A, EntryI, *ToI, ExclusionSet);
+                                        A, EntryI, *ToI, ExclusionSets);
       LLVM_DEBUG(dbgs() << "[AA] Entry " << EntryI << " of @" << ToFn.getName()
                         << " " << (Result ? "can potentially " : "cannot ")
                         << "reach @" << *ToI << " [ToFn]\n");
@@ -701,7 +700,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
       const auto *FnReachabilityAA = A.getAAFor<AAInterFnReachability>(
           QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
       Result = !FnReachabilityAA || FnReachabilityAA->instructionCanReach(
-                                        A, *CurFromI, ToFn, ExclusionSet);
+                                        A, *CurFromI, ToFn, ExclusionSets);
       LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " in @" << FromFn->getName()
                         << " " << (Result ? "can potentially " : "cannot ")
                         << "reach @" << ToFn.getName() << " [FromFn]\n");
@@ -714,7 +713,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
         QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
     auto ReturnInstCB = [&](Instruction &Ret) {
       bool Result = !ReachabilityAA || ReachabilityAA->isAssumedReachable(
-                                           A, *CurFromI, Ret, ExclusionSet);
+                                           A, *CurFromI, Ret, ExclusionSets);
       LLVM_DEBUG(dbgs() << "[AA][Ret] " << *CurFromI << " "
                         << (Result ? "can potentially " : "cannot ") << "reach "
                         << Ret << " [Intra]\n");
@@ -776,20 +775,20 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
 bool AA::isPotentiallyReachable(
     Attributor &A, const Instruction &FromI, const Instruction &ToI,
     const AbstractAttribute &QueryingAA,
-    const AA::InstExclusionSetTy *ExclusionSet,
+    std::shared_ptr<const AA::ExclusionTy> ExclusionSets,
     std::function<bool(const Function &F)> GoBackwardsCB) {
   const Function *ToFn = ToI.getFunction();
   return ::isPotentiallyReachable(A, FromI, &ToI, *ToFn, QueryingAA,
-                                  ExclusionSet, GoBackwardsCB);
+                                  ExclusionSets, GoBackwardsCB);
 }
 
 bool AA::isPotentiallyReachable(
     Attributor &A, const Instruction &FromI, const Function &ToFn,
     const AbstractAttribute &QueryingAA,
-    const AA::InstExclusionSetTy *ExclusionSet,
+    std::shared_ptr<const AA::ExclusionTy> ExclusionSets,
     std::function<bool(const Function &F)> GoBackwardsCB) {
   return ::isPotentiallyReachable(A, FromI, /* ToI */ nullptr, ToFn, QueryingAA,
-                                  ExclusionSet, GoBackwardsCB);
+                                  ExclusionSets, GoBackwardsCB);
 }
 
 bool AA::isAssumedThreadLocalObject(Attributor &A, Value &Obj,

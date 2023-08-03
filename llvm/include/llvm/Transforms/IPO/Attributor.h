@@ -97,12 +97,14 @@
 #ifndef LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 #define LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 
+#include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/Analysis/AssumeBundleQueries.h"
 #include "llvm/Analysis/CFG.h"
@@ -135,6 +137,7 @@
 
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 
 namespace llvm {
@@ -156,7 +159,68 @@ class Function;
 
 /// Abstract Attribute helper functions.
 namespace AA {
-using InstExclusionSetTy = SmallPtrSet<Instruction *, 4>;
+class ExclusionTy {
+  using InstSetTy = SmallPtrSet<const Instruction *, 4>;
+  SmallVector<std::shared_ptr<InstSetTy>, 4> Sets;
+  DenseMap<const Function *, unsigned> IdxMap;
+  unsigned Hash = 0, NumInsts = 0;
+
+public:
+  unsigned getHash() const { return Hash; }
+
+  bool operator==(const ExclusionTy &Other) const {
+    if (Hash != Other.Hash)
+      return false;
+    if (NumInsts != Other.NumInsts)
+      return false;
+    if (Sets.size() != Other.Sets.size())
+      return false;
+    for (auto &It : IdxMap) {
+      auto Idx = It.second;
+      auto OtherIdx = Other.IdxMap.lookup(It.first);
+      if (OtherIdx == 0)
+        return false;
+      auto &Set = Sets[Idx - 1];
+      auto &OtherSet = Other.Sets[OtherIdx - 1];
+      if (Set == OtherSet)
+        continue;
+      if (*Set != *OtherSet)
+        return false;
+    }
+    return true;
+  }
+
+  bool insert(const Instruction &I) {
+    const Function *Fn = I.getFunction();
+    unsigned &Idx = IdxMap[Fn];
+    if (Idx == 0) {
+      Sets.push_back(std::make_shared<InstSetTy>());
+      Sets.back()->insert(&I);
+      Idx = Sets.size();
+    } else if (!Sets[Idx - 1]->insert(&I).second)
+      return false;
+    Hash = detail::combineHashValue(
+        Hash, DenseMapInfo<const Instruction *>::getHashValue(&I));
+    ++NumInsts;
+    return true;
+  }
+
+  unsigned size() const { return NumInsts; }
+  bool empty() const { return Sets.empty(); }
+
+  const InstSetTy *lookup(const Function *Fn) const {
+    unsigned Idx = IdxMap.lookup(Fn);
+    if (Idx == 0)
+      return nullptr;
+    return Sets[Idx - 1].get();
+  }
+
+  void dump() const {
+    for (auto &Set : Sets)
+      for (auto *I : *Set)
+        dbgs() << *I << "\n";
+  }
+};
 
 enum class GPUAddressSpace : unsigned {
   Generic = 0,
@@ -365,7 +429,7 @@ bool isAssumedReadNone(Attributor &A, const IRPosition &IRP,
                        const AbstractAttribute &QueryingAA, bool &IsKnown);
 
 /// Return true if \p ToI is potentially reachable from \p FromI without running
-/// into any instruction in \p ExclusionSet The two instructions do not need to
+/// into any instruction in \p ExclusionSets The two instructions do not need to
 /// be in the same function. \p GoBackwardsCB can be provided to convey domain
 /// knowledge about the "lifespan" the user is interested in. By default, the
 /// callers of \p FromI are checked as well to determine if \p ToI can be
@@ -375,14 +439,14 @@ bool isAssumedReadNone(Attributor &A, const IRPosition &IRP,
 bool isPotentiallyReachable(
     Attributor &A, const Instruction &FromI, const Instruction &ToI,
     const AbstractAttribute &QueryingAA,
-    const AA::InstExclusionSetTy *ExclusionSet = nullptr,
+    std::shared_ptr<const AA::ExclusionTy> ExclusionSets,
     std::function<bool(const Function &F)> GoBackwardsCB = nullptr);
 
 /// Same as above but it is sufficient to reach any instruction in \p ToFn.
 bool isPotentiallyReachable(
     Attributor &A, const Instruction &FromI, const Function &ToFn,
     const AbstractAttribute &QueryingAA,
-    const AA::InstExclusionSetTy *ExclusionSet = nullptr,
+    std::shared_ptr<const AA::ExclusionTy> ExclusionSets,
     std::function<bool(const Function &F)> GoBackwardsCB = nullptr);
 
 /// Return true if \p Obj is assumed to be a thread local object.
@@ -436,37 +500,26 @@ struct DenseMapInfo<AA::ValueScope> : public DenseMapInfo<unsigned char> {
 };
 
 template <>
-struct DenseMapInfo<const AA::InstExclusionSetTy *>
-    : public DenseMapInfo<void *> {
+struct DenseMapInfo<const AA::ExclusionTy *> : public DenseMapInfo<void *> {
   using super = DenseMapInfo<void *>;
-  static inline const AA::InstExclusionSetTy *getEmptyKey() {
-    return static_cast<const AA::InstExclusionSetTy *>(super::getEmptyKey());
+  static inline const AA::ExclusionTy *getEmptyKey() {
+    return static_cast<const AA::ExclusionTy *>(super::getEmptyKey());
   }
-  static inline const AA::InstExclusionSetTy *getTombstoneKey() {
-    return static_cast<const AA::InstExclusionSetTy *>(
-        super::getTombstoneKey());
+  static inline const AA::ExclusionTy *getTombstoneKey() {
+    return static_cast<const AA::ExclusionTy *>(super::getTombstoneKey());
   }
-  static unsigned getHashValue(const AA::InstExclusionSetTy *BES) {
-    unsigned H = 0;
-    if (BES)
-      for (const auto *II : *BES)
-        H += DenseMapInfo<const Instruction *>::getHashValue(II);
-    return H;
+  static unsigned getHashValue(const AA::ExclusionTy *E) {
+    return E->getHash();
   }
-  static bool isEqual(const AA::InstExclusionSetTy *LHS,
-                      const AA::InstExclusionSetTy *RHS) {
+  static bool isEqual(const AA::ExclusionTy *LHS, const AA::ExclusionTy *RHS) {
     if (LHS == RHS)
       return true;
     if (LHS == getEmptyKey() || RHS == getEmptyKey() ||
         LHS == getTombstoneKey() || RHS == getTombstoneKey())
       return false;
-    auto SizeLHS = LHS ? LHS->size() : 0;
-    auto SizeRHS = RHS ? RHS->size() : 0;
-    if (SizeLHS != SizeRHS)
+    if (!LHS || !RHS)
       return false;
-    if (SizeRHS == 0)
-      return true;
-    return llvm::set_is_subset(*LHS, *RHS);
+    return *LHS == *RHS;
   }
 };
 
@@ -1210,10 +1263,6 @@ struct InformationCache {
     // the destructor manually.
     for (auto &It : FuncInfoMap)
       It.getSecond()->~FunctionInfo();
-    // Same is true for the instruction exclusions sets.
-    using AA::InstExclusionSetTy;
-    for (auto *BES : BESets)
-      BES->~InstExclusionSetTy();
     if (Explorer)
       Explorer->~MustBeExecutedContextExplorer();
   }
@@ -1294,19 +1343,6 @@ struct InformationCache {
   /// Return the map conaining all the knowledge we have from `llvm.assume`s.
   const RetainedKnowledgeMap &getKnowledgeMap() const { return KnowledgeMap; }
 
-  /// Given \p BES, return a uniqued version.
-  const AA::InstExclusionSetTy *
-  getOrCreateUniqueBlockExecutionSet(const AA::InstExclusionSetTy *BES) {
-    auto It = BESets.find(BES);
-    if (It != BESets.end())
-      return *It;
-    auto *UniqueBES = new (Allocator) AA::InstExclusionSetTy(*BES);
-    bool Success = BESets.insert(UniqueBES).second;
-    (void)Success;
-    assert(Success && "Expected only new entries to be added");
-    return UniqueBES;
-  }
-
   /// Return true if the stack (llvm::Alloca) can be accessed by other threads.
   bool stackIsAccessibleByOtherThreads() { return !targetIsGPU(); }
 
@@ -1367,9 +1403,6 @@ private:
 
   /// A container for all instructions that are only used by `llvm.assume`.
   SetVector<const Instruction *> AssumeOnlyValues;
-
-  /// Cache for block sets to allow reuse.
-  DenseSet<const AA::InstExclusionSetTy *> BESets;
 
   /// Getters for analysis.
   AnalysisGetter &AG;
@@ -3738,9 +3771,11 @@ struct AAIntraFnReachability
   /// Returns true if 'From' instruction is assumed to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
-  virtual bool isAssumedReachable(
-      Attributor &A, const Instruction &From, const Instruction &To,
-      const AA::InstExclusionSetTy *ExclusionSet = nullptr) const = 0;
+  virtual bool
+  isAssumedReachable(Attributor &A, const Instruction &From,
+                     const Instruction &To,
+                     std::shared_ptr<const AA::ExclusionTy> ExclusionSets,
+                     const Instruction *ExclusionI = nullptr) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAIntraFnReachability &createForPosition(const IRPosition &IRP,
@@ -5518,8 +5553,9 @@ struct AAInterFnReachability
   /// See also AA::isPotentiallyReachable.
   virtual bool instructionCanReach(
       Attributor &A, const Instruction &Inst, const Function &Fn,
-      const AA::InstExclusionSetTy *ExclusionSet = nullptr,
-      SmallPtrSet<const Function *, 16> *Visited = nullptr) const = 0;
+      std::shared_ptr<const AA::ExclusionTy> ExclusionSets = nullptr,
+      SmallPtrSet<const Function *, 16> *Visited = nullptr,
+      const Instruction *ExclusionI = nullptr) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAInterFnReachability &createForPosition(const IRPosition &IRP,
