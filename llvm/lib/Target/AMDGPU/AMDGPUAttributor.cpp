@@ -15,10 +15,13 @@
 #include "Utils/AMDGPUBaseInfo.h"
 #include "llvm/Analysis/CycleAnalysis.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/IR/CallingConv.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsR600.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO/Attributor.h"
+#include <optional>
 
 #define DEBUG_TYPE "amdgpu-attributor"
 
@@ -944,14 +947,42 @@ public:
         {&AAAMDAttributes::ID, &AAUniformWorkGroupSize::ID,
          &AAPotentialValues::ID, &AAAMDFlatWorkGroupSize::ID,
          &AAAMDWavesPerEU::ID, &AACallEdges::ID, &AAPointerInfo::ID,
-         &AAPotentialConstantValues::ID, &AAUnderlyingObjects::ID});
+         &AAIndirectCallInfo::ID, &AAPotentialConstantValues::ID,
+         &AAUnderlyingObjects::ID});
 
     AttributorConfig AC(CGUpdater);
     AC.Allowed = &Allowed;
     AC.IsModulePass = true;
     AC.DefaultInitializeLiveInternals = false;
+    AC.IsClosedWorldModule = true;
     AC.IPOAmendableCB = [](const Function &F) {
       return F.getCallingConv() == CallingConv::AMDGPU_KERNEL;
+    };
+
+    // Callback to determine if we should specialize a indirect call site with a
+    // specific callee. It's effectively a heuristic and we can add checks for
+    // the callee size, PGO, etc. For now, we check for single potential callees
+    // and kernel arguments as they are known uniform values.
+    AC.IndirectCalleeSpecializationCallback = [&](Attributor &A,
+                                                  const AbstractAttribute &AA,
+                                                  CallBase &CB,
+                                                  Function &Callee) {
+      bool UsedAssumedInformation = false;
+      std::optional<Value *> SimpleV = A.getAssumedSimplified(
+          *CB.getCalledOperand(), AA, UsedAssumedInformation,
+          AA::ValueScope::AnyScope);
+      assert(SimpleV.has_value() && "No value but potential callee?");
+      // Unknown value.
+      if (!SimpleV.value())
+        return false;
+      // Singleton function.
+      if (isa<Function>(SimpleV.value()))
+        return true;
+      // Uniform (kernel argument) value.
+      if (auto *Arg = dyn_cast_or_null<Argument>(SimpleV.value()))
+        if (Arg->getParent()->getCallingConv() == CallingConv::AMDGPU_KERNEL)
+          return true;
+      return false;
     };
 
     Attributor A(Functions, InfoCache, AC);

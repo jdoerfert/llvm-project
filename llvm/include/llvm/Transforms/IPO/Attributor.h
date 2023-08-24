@@ -1316,6 +1316,11 @@ struct InformationCache {
     return TargetTriple.isAMDGPU() || TargetTriple.isNVPTX();
   }
 
+  /// Return all functions that might be called indirectly, only valid for
+  /// closed world modules (see isClosedWorldModule).
+  const ArrayRef<Function *>
+  getIndirectlyCallableFunctions(Attributor &A) const;
+
 private:
   struct FunctionInfo {
     ~FunctionInfo();
@@ -1333,6 +1338,9 @@ private:
 
     /// Function contains a `musttail` call.
     bool ContainsMustTailCall;
+
+    /// Function is potentially called indirectly
+    bool IsPotentiallyCalledIndirectly;
   };
 
   /// A map type from functions to informatio about it.
@@ -1347,6 +1355,10 @@ private:
     }
     return *FI;
   }
+
+  /// Vector of functions that might be callable indirectly, i.a., via a
+  /// function pointer.
+  SmallVector<Function *> IndirectlyCallableFunctions;
 
   /// Initialize the function information cache \p FI for the function \p F.
   ///
@@ -1413,13 +1425,18 @@ struct AttributorConfig {
   /// Flag to determine if we should skip all liveness checks early on.
   bool UseLiveness = true;
 
+  /// Flag to indicate if the entire world is contained in this module, that
+  /// is, no outside functions exist.
+  bool IsClosedWorldModule = false;
+
   /// Callback function to be invoked on internal functions marked live.
   std::function<void(Attributor &A, const Function &F)> InitializationCallback =
       nullptr;
 
   /// Callback function to determine if an indirect call targets should be made
   /// direct call targets (with an if-cascade).
-  std::function<bool(Attributor &A, CallBase &CB, Function &AssummedCallee)>
+  std::function<bool(Attributor &A, const AbstractAttribute &AA, CallBase &CB,
+                     Function &AssummedCallee)>
       IndirectCalleeSpecializationCallback = nullptr;
 
   /// Helper to update an underlying call graph and to delete functions.
@@ -1482,9 +1499,7 @@ struct Attributor {
   /// \param Configuration The Attributor configuration which determines what
   ///                      generic features to use.
   Attributor(SetVector<Function *> &Functions, InformationCache &InfoCache,
-             AttributorConfig Configuration)
-      : Allocator(InfoCache.Allocator), Functions(Functions),
-        InfoCache(InfoCache), Configuration(Configuration) {}
+             AttributorConfig Configuration);
 
   ~Attributor();
 
@@ -1695,12 +1710,17 @@ struct Attributor {
 
   /// Return true if we should specialize the call site \b CB for the potential
   /// callee \p Fn.
-  bool shouldSpecializeCallSiteForCallee(CallBase &CB, Function &Callee) {
+  bool shouldSpecializeCallSiteForCallee(const AbstractAttribute &AA,
+                                         CallBase &CB, Function &Callee) {
     return Configuration.IndirectCalleeSpecializationCallback
-               ? Configuration.IndirectCalleeSpecializationCallback(*this, CB,
-                                                                    Callee)
+               ? Configuration.IndirectCalleeSpecializationCallback(*this, AA,
+                                                                    CB, Callee)
                : true;
   }
+
+  /// Return true if the module contains the whole world, thus, no outside
+  /// functions exist.
+  bool isClosedWorldModule() const;
 
   /// Return true if we derive attributes for \p Fn
   bool isRunOn(Function &Fn) const { return isRunOn(&Fn); }

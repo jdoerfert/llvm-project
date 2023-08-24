@@ -12066,11 +12066,22 @@ struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     auto *MD = getCtxI()->getMetadata(LLVMContext::MD_callees);
-    if (!MD)
+    if (!MD && !A.isClosedWorldModule())
       return;
-    for (const auto &Op : MD->operands())
-      if (Function *Callee = mdconst::dyn_extract_or_null<Function>(Op))
-        PotentialCallees.insert(Callee);
+
+    if (MD) {
+      for (const auto &Op : MD->operands())
+        if (Function *Callee = mdconst::dyn_extract_or_null<Function>(Op))
+          PotentialCallees.insert(Callee);
+    } else if (A.isClosedWorldModule()) {
+      ArrayRef<Function *> IndirectlyCallableFunctions =
+          A.getInfoCache().getIndirectlyCallableFunctions(A);
+      PotentialCallees.insert(IndirectlyCallableFunctions.begin(),
+                              IndirectlyCallableFunctions.end());
+    }
+
+    if (PotentialCallees.empty())
+      indicateOptimisticFixpoint();
   }
 
   ChangeStatus updateImpl(Attributor &A) override {
@@ -12205,7 +12216,7 @@ struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
     SmallVector<Function *, 8> SkippedAssumedCallees;
     SmallVector<std::pair<CallInst *, Instruction *>> NewCalls;
     for (Function *NewCallee : AssumedCallees) {
-      if (!A.shouldSpecializeCallSiteForCallee(*CB, *NewCallee)) {
+      if (!A.shouldSpecializeCallSiteForCallee(*this, *CB, *NewCallee)) {
         SkippedAssumedCallees.push_back(NewCallee);
         SpecializedForAllCallees = false;
         continue;
