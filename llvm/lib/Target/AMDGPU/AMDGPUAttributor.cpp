@@ -14,11 +14,15 @@
 #include "GCNSubtarget.h"
 #include "Utils/AMDGPUBaseInfo.h"
 #include "llvm/Analysis/CycleAnalysis.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/IR/CallingConv.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsR600.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO/Attributor.h"
+#include <optional>
 
 #define DEBUG_TYPE "amdgpu-attributor"
 
@@ -944,15 +948,28 @@ public:
         {&AAAMDAttributes::ID, &AAUniformWorkGroupSize::ID,
          &AAPotentialValues::ID, &AAAMDFlatWorkGroupSize::ID,
          &AAAMDWavesPerEU::ID, &AACallEdges::ID, &AAPointerInfo::ID,
-         &AAPotentialConstantValues::ID, &AAUnderlyingObjects::ID});
+         &AAIndirectCallInfo::ID, &AAPotentialConstantValues::ID,
+         &AAUnderlyingObjects::ID});
 
     AttributorConfig AC(CGUpdater);
     AC.Allowed = &Allowed;
     AC.IsModulePass = true;
     AC.DefaultInitializeLiveInternals = false;
+    AC.IsClosedWorldModule = true;
     AC.IPOAmendableCB = [](const Function &F) {
       return F.getCallingConv() == CallingConv::AMDGPU_KERNEL;
     };
+
+    // Callback to determine if we should specialize a indirect call site with a
+    // specific callee. It's effectively a heuristic and we can add checks for
+    // the callee size, PGO, etc. For now, we check for single potential callees
+    // and kernel arguments as they are known uniform values.
+    AC.IndirectCalleeSpecializationCallback =
+        [&](Attributor &A, const AbstractAttribute &AA, CallBase &CB,
+            Function &Callee, unsigned NumCallees) {
+          return indirectCalleeSpecializationCallback(A, AA, CB, Callee,
+                                                      NumCallees);
+        };
 
     Attributor A(Functions, InfoCache, AC);
 
@@ -973,6 +990,20 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<CycleInfoWrapperPass>();
+  }
+
+  /// Helper to decide if we should specialize the indirect \p CB for \p Callee,
+  /// which is one of the \p NumCallees potential callees.
+  bool indirectCalleeSpecializationCallback(Attributor &A,
+                                            const AbstractAttribute &AA,
+                                            CallBase &CB, Function &Callee,
+                                            unsigned NumCallees) {
+    // Singleton functions should be specialized.
+    if (NumCallees == 1)
+      return true;
+    // Otherewise specialize uniform values.
+    const auto &TTI = TM->getTargetTransformInfo(*CB.getCaller());
+    return TTI.isAlwaysUniform(CB.getCalledOperand());
   }
 
   StringRef getPassName() const override { return "AMDGPU Attributor"; }
