@@ -944,12 +944,14 @@ public:
         {&AAAMDAttributes::ID, &AAUniformWorkGroupSize::ID,
          &AAPotentialValues::ID, &AAAMDFlatWorkGroupSize::ID,
          &AAAMDWavesPerEU::ID, &AACallEdges::ID, &AAPointerInfo::ID,
-         &AAPotentialConstantValues::ID, &AAUnderlyingObjects::ID});
+         &AAIndirectCallInfo::ID, &AAPotentialConstantValues::ID,
+         &AAUnderlyingObjects::ID});
 
     AttributorConfig AC(CGUpdater);
     AC.Allowed = &Allowed;
     AC.IsModulePass = true;
     AC.DefaultInitializeLiveInternals = false;
+    AC.IsClosedWorldModule = true;
     AC.IPOAmendableCB = [](const Function &F) {
       return F.getCallingConv() == CallingConv::AMDGPU_KERNEL;
     };
