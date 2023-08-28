@@ -193,6 +193,7 @@ PIPE_OPERATOR(AAAssumptionInfo)
 PIPE_OPERATOR(AAUnderlyingObjects)
 PIPE_OPERATOR(AAAddressSpace)
 PIPE_OPERATOR(AAIndirectCallInfo)
+PIPE_OPERATOR(AAGlobalValueInfo)
 
 #undef PIPE_OPERATOR
 
@@ -12057,6 +12058,136 @@ struct AAUnderlyingObjectsFunction final : AAUnderlyingObjectsImpl {
 };
 } // namespace
 
+/// ------------------------ Global Value Info  -------------------------------
+namespace {
+struct AAGlobalValueInfoFloating : public AAGlobalValueInfo {
+  AAGlobalValueInfoFloating(const IRPosition &IRP, Attributor &A)
+      : AAGlobalValueInfo(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {}
+
+  bool checkUse(Attributor &A, const Use &U, bool &Follow,
+                SmallVectorImpl<const Value *> &Worklist) {
+    Instruction *UInst = dyn_cast<Instruction>(U.getUser());
+    if (!UInst) {
+      Follow = true;
+      return true;
+    }
+
+    LLVM_DEBUG(dbgs() << "[AAGlobalValueInfo] Check use: " << *U.get() << " in "
+                      << *UInst << "\n");
+
+    if (auto *Cmp = dyn_cast<ICmpInst>(U.getUser())) {
+      int Idx = &Cmp->getOperandUse(0) == &U;
+      if (isa<Constant>(Cmp->getOperand(Idx)))
+        return true;
+      return U == &getAnchorValue();
+    }
+
+    // Deal with ptr2int by following uses.
+    if (isa<PtrToIntInst>(UInst)) {
+      Follow = true;
+      return true;
+    }
+
+    // For stores we already checked if we can follow them, if they make it
+    // here we give up.
+    if (isa<StoreInst>(UInst))
+      return false;
+
+    // Explicitly catch return instructions.
+    if (isa<ReturnInst>(UInst)) {
+      return false;
+    }
+
+    // For now we only use special logic for call sites. However, the tracker
+    // itself knows about a lot of other non-capturing cases already.
+    auto *CB = dyn_cast<CallBase>(UInst);
+    if (!CB)
+      return false;
+    if (CB->isCallee(&U))
+      return true;
+    if (!CB->isArgOperand(&U))
+      return false;
+    auto *Fn = dyn_cast<Function>(CB->getCalledOperand());
+    if (!Fn || !A.isFunctionIPOAmendable(*Fn))
+      return false;
+
+    unsigned ArgNo = CB->getArgOperandNo(&U);
+    Worklist.push_back(Fn->getArg(ArgNo));
+    return true;
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    unsigned NumUsesBefore = Uses.size();
+
+    SmallPtrSet<const Value *, 8> Visited;
+    SmallVector<const Value *> Worklist;
+    Worklist.push_back(&getAnchorValue());
+
+    auto UsePred = [&](const Use &U, bool &Follow) -> bool {
+      Uses.insert(&U);
+      UseCaptureKind UCK =
+          DetermineUseCaptureKind(U, [](Value *V, const DataLayout &DL) {
+            bool CanBeNull = false, CanBeFreed = false;
+            return V->getPointerDereferenceableBytes(DL, CanBeNull, CanBeFreed);
+          });
+      switch (UCK) {
+      case UseCaptureKind::NO_CAPTURE:
+        return checkUse(A, U, Follow, Worklist);
+      case UseCaptureKind::MAY_CAPTURE:
+        return checkUse(A, U, Follow, Worklist);
+      case UseCaptureKind::PASSTHROUGH:
+        Follow = true;
+        return true;
+      }
+      return true;
+    };
+    auto EquivalentUseCB = [&](const Use &OldU, const Use &NewU) {
+      Uses.insert(&OldU);
+      return true;
+    };
+
+    while (!Worklist.empty()) {
+      const Value *V = Worklist.pop_back_val();
+      if (!Visited.insert(V).second)
+        continue;
+      if (!A.checkForAllUses(UsePred, *this, *V,
+                             /* CheckBBLivenessOnly */ true,
+                             DepClassTy::OPTIONAL,
+                             /* IgnoreDroppableUses */ true, EquivalentUseCB)) {
+        return indicatePessimisticFixpoint();
+      }
+    }
+
+    return Uses.size() == NumUsesBefore ? ChangeStatus::UNCHANGED
+                                        : ChangeStatus::CHANGED;
+  }
+
+  bool isPotentialUse(const Use &U) const override {
+    return !isValidState() || Uses.contains(&U);
+  }
+
+  /// See AbstractAttribute::manifest(...).
+  ChangeStatus manifest(Attributor &A) override {
+    return ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractAttribute::getAsStr().
+  const std::string getAsStr(Attributor *A) const override {
+    return "[" + std::to_string(Uses.size()) + " uses]";
+  }
+
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FLOATING_ATTR(GlobalValuesTracked);
+  }
+
+private:
+  SmallPtrSet<const Use *, 8> Uses;
+};
+} // namespace
+
 /// ------------------------ Indirect Call Info  -------------------------------
 namespace {
 struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
@@ -12086,10 +12217,29 @@ struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
 
   ChangeStatus updateImpl(Attributor &A) override {
     CallBase *CB = cast<CallBase>(getCtxI());
+    const Use &CalleeUse = CB->getCalledOperandUse();
     Value *FP = CB->getCalledOperand();
 
     SmallSetVector<Function *, 4> AssumedCalleesNow;
     bool AllCalleesKnownNow = AllCalleesKnown;
+
+    auto CheckPotentialCalleeUse = [&](Function &PotentialCallee,
+                                       bool &UsedAssumedInformation) {
+      const auto *GIAA = A.getAAFor<AAGlobalValueInfo>(
+          *this, IRPosition::value(PotentialCallee), DepClassTy::OPTIONAL);
+      if (!GIAA || GIAA->isPotentialUse(CalleeUse))
+        return true;
+      UsedAssumedInformation = !GIAA->isAtFixpoint();
+      return false;
+    };
+
+    auto AddPotentialCallees = [&]() {
+      for (auto *PotentialCallee : PotentialCallees) {
+        bool UsedAssumedInformation = false;
+        if (CheckPotentialCalleeUse(*PotentialCallee, UsedAssumedInformation))
+          AssumedCalleesNow.insert(PotentialCallee);
+      }
+    };
 
     // Use simplification to find potential callees, if !callees was present,
     // fallback to that set if necessary.
@@ -12100,7 +12250,7 @@ struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
                                       UsedAssumedInformation)) {
       if (PotentialCallees.empty())
         return indicatePessimisticFixpoint();
-      AssumedCalleesNow.set_union(PotentialCallees);
+      AddPotentialCallees();
     }
 
     // Try to find a reason for \p Fn not to be a potential callee. If none was
@@ -12113,11 +12263,22 @@ struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
       if (CachedResult.has_value())
         return CachedResult.value();
 
+      bool UsedAssumedInformation = false;
+      if (!CheckPotentialCalleeUse(Fn, UsedAssumedInformation)) {
+        if (!UsedAssumedInformation)
+          CachedResult = false;
+        return false;
+      }
+
       int NumFnArgs = Fn.arg_size();
       int NumCBArgs = CB->arg_size();
+      // if (!Fn.isVarArg() && NumFnArgs != NumCBArgs) {
+      //   CachedResult = false;
+      //   return false;
+      // }
 
-      // Check if any excess argument (which we fill up with poison) is known to
-      // be UB on undef.
+      // Check if any excess argument (which we fill up with poison) is
+      // known to be UB on undef.
       for (int I = NumCBArgs; I < NumFnArgs; ++I) {
         bool IsKnown = false;
         if (AA::hasAssumedIRAttr<Attribute::NoUndef>(
@@ -12148,7 +12309,7 @@ struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
         continue;
       }
       if (!PotentialCallees.empty()) {
-        AssumedCalleesNow.set_union(PotentialCallees);
+        AddPotentialCallees();
         break;
       }
       AllCalleesKnownNow = false;
@@ -12173,6 +12334,9 @@ struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     CallBase *CB = cast<CallBase>(getCtxI());
     Value *FP = CB->getCalledOperand();
+    if (FP->getType()->getPointerAddressSpace())
+      FP =
+          new AddrSpaceCastInst(FP, PointerType::get(FP->getType(), 0), "", CB);
 
     bool CBIsVoid = CB->getType()->isVoidTy();
     Instruction *IP = CB;
@@ -12551,6 +12715,7 @@ const char AAAssumptionInfo::ID = 0;
 const char AAUnderlyingObjects::ID = 0;
 const char AAAddressSpace::ID = 0;
 const char AAIndirectCallInfo::ID = 0;
+const char AAGlobalValueInfo::ID = 0;
 
 // Macro magic to create the static generator function for attributes that
 // follow the naming scheme.
@@ -12689,6 +12854,8 @@ CREATE_ALL_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAUnderlyingObjects)
 
 CREATE_ABSTRACT_ATTRIBUTE_FOR_ONE_POSITION(IRP_CALL_SITE, CallSite,
                                            AAIndirectCallInfo)
+CREATE_ABSTRACT_ATTRIBUTE_FOR_ONE_POSITION(IRP_FLOAT, Floating,
+                                           AAGlobalValueInfo)
 
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAHeapToStack)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAUndefinedBehavior)

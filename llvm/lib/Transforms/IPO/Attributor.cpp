@@ -1068,14 +1068,17 @@ Attributor::Attributor(SetVector<Function *> &Functions,
       InfoCache(InfoCache), Configuration(Configuration) {
   if (!isClosedWorldModule())
     return;
-  for (Function *Fn : Functions)
-    if (Fn->hasAddressTaken(/*PutOffender=*/nullptr,
-                            /*IgnoreCallbackUses=*/true,
-                            /*IgnoreAssumeLikeCalls=*/true,
-                            /*IgnoreLLVMUsed=*/true,
-                            /*IgnoreARCAttachedCall=*/false,
-                            /*IgnoreCastedDirectCall=*/true))
-      InfoCache.IndirectlyCallableFunctions.push_back(Fn);
+  for (Function *Fn : Functions) {
+    const User *User;
+    if (!Fn->hasAddressTaken(/*PutOffender=*/&User,
+                             /*IgnoreCallbackUses=*/true,
+                             /*IgnoreAssumeLikeCalls=*/true,
+                             /*IgnoreLLVMUsed=*/true,
+                             /*IgnoreARCAttachedCall=*/false,
+                             /*IgnoreCastedDirectCall=*/true))
+      continue;
+    InfoCache.IndirectlyCallableFunctions.push_back(Fn);
+  }
 }
 
 bool Attributor::getAttrsFromAssumes(const IRPosition &IRP,
