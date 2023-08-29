@@ -425,6 +425,16 @@ define i32 @non_matching_unknown(i1 %c, ptr %fn) {
   ret i32 %call
 }
 
+declare void @usedOnlyInCastedDirectCall(i32)
+define void @usedOnlyInCastedDirectCallCaller() {
+; CHECK-LABEL: @usedOnlyInCastedDirectCallCaller(
+; CHECK-NEXT:    call void @usedOnlyInCastedDirectCall()
+; CHECK-NEXT:    ret void
+;
+  call void @usedOnlyInCastedDirectCall()
+  ret void
+}
+
 define void @broker(ptr %unknown) !callback !0 {
 ; OWRDL-LABEL: @broker(
 ; OWRDL-NEXT:    call void [[UNKNOWN:%.*]]()
