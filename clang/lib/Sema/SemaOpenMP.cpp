@@ -6020,6 +6020,9 @@ processImplicitMapsWithDefaultMappers(Sema &S, DSAStackTy *Stack,
           ElemType = BaseType->getPointeeType();
         CanonType = ElemType;
       }
+      llvm::errs() << "Cnt " << Cnt << "\n";
+      E->dump();
+      CanonType.dump();
 
       // DFS over data members in structures/classes.
       SmallVector<std::pair<QualType, FieldDecl *>, 4> Types(
@@ -6038,8 +6041,10 @@ processImplicitMapsWithDefaultMappers(Sema &S, DSAStackTy *Stack,
           continue;
         // Only structs/classes are allowed to have mappers.
         const RecordDecl *RD = BaseType.getCanonicalType()->getAsRecordDecl();
+        errs() << "RD : " << RD << "\n";
         if (!RD)
           continue;
+        RD->dump();
         auto It = Visited.find(BaseType.getTypePtr());
         if (It == Visited.end()) {
           // Try to find the associated user-defined mapper.
@@ -22090,8 +22095,11 @@ static void checkMappableExpressionList(
     const Expr *BE =
         checkMapClauseExpressionBase(SemaRef, SimpleExpr, CurComponents, CKind,
                                      DSAS->getCurrentDirective(), NoDiagnose);
+    SimpleExpr->dump();
+    llvm::errs() << " : " << CurComponents.size() << " : " << BE << "\n";
     if (!BE)
       continue;
+    BE->dump();
 
     assert(!CurComponents.empty() &&
            "Invalid mappable expression information.");
@@ -22199,6 +22207,7 @@ static void checkMappableExpressionList(
     if (!checkTypeMappable(VE->getExprLoc(), VE->getSourceRange(), SemaRef,
                            DSAS, Type, /*FullCheck=*/true))
       continue;
+    llvm::errs() << "Mappable\n";
 
     if (CKind == OMPC_map) {
       // target enter data
@@ -22289,6 +22298,8 @@ static void checkMappableExpressionList(
     ExprResult ER = buildUserDefinedMapperRef(
         SemaRef, DSAS->getCurScope(), MapperIdScopeSpec, MapperId,
         Type.getCanonicalType(), UnresolvedMapper);
+    llvm::errs() << " ER " << ER.getAsOpaquePointer() << " : " << ER.isInvalid()
+                 << "\n";
     if (ER.isInvalid())
       continue;
     MVLI.UDMapperList.push_back(ER.get());

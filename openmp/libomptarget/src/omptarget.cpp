@@ -793,10 +793,12 @@ postProcessingTargetDataEnd(DeviceTy *Device,
     // If the last element from the mapper (for end transfer args comes in
     // reverse order), do not remove the partial entry, the parent struct still
     // exists.
+    DP("Del Entry %p : %i\n", HstPtrBegin, DelEntry);
     if ((ArgType & OMP_TGT_MAPTYPE_MEMBER_OF) &&
         !(ArgType & OMP_TGT_MAPTYPE_PTR_AND_OBJ)) {
       DelEntry = false; // protect parent struct from being deallocated
     }
+    DP("Del Entry %p : %i\n", HstPtrBegin, DelEntry);
 
     // If we marked the entry to be deleted we need to verify no other
     // thread reused it by now. If deletion is still supposed to happen by
@@ -813,13 +815,16 @@ postProcessingTargetDataEnd(DeviceTy *Device,
     TPR.getEntry()->lock();
     auto *Entry = TPR.getEntry();
 
-    const bool IsNotLastUser = Entry->decDataEndThreadCount() != 0;
+    auto I = Entry->decDataEndThreadCount();
+    const bool IsNotLastUser = I != 0;
+    DP("%i : %lu\n", I, Entry->getTotalRefCount());
     if (DelEntry && (Entry->getTotalRefCount() != 0 || IsNotLastUser)) {
       // The thread is not in charge of deletion anymore. Give up access
       // to the HDTT map and unset the deletion flag.
       HDTTMap.destroy();
       DelEntry = false;
     }
+    DP("Del Entry %p : %i\n", HstPtrBegin, DelEntry);
 
     // If we copied back to the host a struct/array containing pointers,
     // we need to restore the original host pointer values from their
@@ -844,6 +849,7 @@ postProcessingTargetDataEnd(DeviceTy *Device,
     if (!DelEntry)
       continue;
 
+    DP("!!!!Del Entry %p : %i\n", HstPtrBegin, DelEntry);
     Ret = Device->eraseMapEntry(HDTTMap, Entry, DataSize);
     // Entry is already remove from the map, we can unlock it now.
     HDTTMap.destroy();
@@ -863,6 +869,7 @@ int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                   void **ArgBases, void **Args, int64_t *ArgSizes,
                   int64_t *ArgTypes, map_var_info_t *ArgNames,
                   void **ArgMappers, AsyncInfoTy &AsyncInfo, bool FromMapper) {
+  dumpTargetPointerMappings(Loc, Device);
   int Ret = OFFLOAD_SUCCESS;
   auto *PostProcessingPtrs = new SmallVector<PostProcessingInfo>();
   // process each input.
@@ -897,9 +904,11 @@ int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
     void *HstPtrBegin = Args[I];
     int64_t DataSize = ArgSizes[I];
     bool IsImplicit = ArgTypes[I] & OMP_TGT_MAPTYPE_IMPLICIT;
+    // Members only update the reference count if they are not ptr&obj type
+    // *and* not the outer-mapper entry.
     bool UpdateRef = (!(ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF) ||
-                      (ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ)) &&
-                     !(FromMapper && I == 0);
+                      ((ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ) &&
+                       !(FromMapper && I == 0)));
     bool ForceDelete = ArgTypes[I] & OMP_TGT_MAPTYPE_DELETE;
     bool HasPresentModifier = ArgTypes[I] & OMP_TGT_MAPTYPE_PRESENT;
     bool HasHoldModifier = ArgTypes[I] & OMP_TGT_MAPTYPE_OMPX_HOLD;
@@ -945,12 +954,16 @@ int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
     // construct and a corresponding list item of the original list item is not
     // present in the device data environment on exit from the region then the
     // list item is ignored."
+    DP("Is present %i\n", TPR.isPresent());
     if (!TPR.isPresent())
       continue;
 
     // Move data back to the host
     const bool HasAlways = ArgTypes[I] & OMP_TGT_MAPTYPE_ALWAYS;
     const bool HasFrom = ArgTypes[I] & OMP_TGT_MAPTYPE_FROM;
+    DP("Has from %i\n", HasFrom);
+    DP("IsHost ptr %i\n", TPR.Flags.IsHostPointer);
+    DP("Data size %i\n", int(DataSize));
     if (HasFrom && (HasAlways || TPR.Flags.IsLast) &&
         !TPR.Flags.IsHostPointer && DataSize != 0) {
       DP("Moving %" PRId64 " bytes (tgt:" DPxMOD ") -> (hst:" DPxMOD ")\n",
@@ -984,6 +997,7 @@ int targetDataEnd(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
     }
 
     // Add pointer to the buffer for post-synchronize processing.
+    DP("Post processing !\nb");
     PostProcessingPtrs->emplace_back(HstPtrBegin, DataSize, ArgTypes[I],
                                      std::move(TPR));
     PostProcessingPtrs->back().TPR.getEntry()->unlock();
