@@ -36,6 +36,11 @@ struct DeviceEnvironmentTy {
   uint64_t HardwareParallelism;
 };
 
+struct DeviceMemoryPoolTy {
+  void *Ptr;
+  uint64_t Size;
+};
+
 // NOTE: Please don't change the order of those members as their indices are
 // used in the middle end. Always add the new data member at the end.
 // Different from KernelEnvironmentTy below, this structure contains members

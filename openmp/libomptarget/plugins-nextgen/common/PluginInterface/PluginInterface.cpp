@@ -10,6 +10,7 @@
 
 #include "PluginInterface.h"
 #include "Debug.h"
+#include "Environment.h"
 #include "GlobalHandler.h"
 #include "JIT.h"
 #include "elf_common.h"
@@ -591,6 +592,8 @@ Error GenericDeviceTy::init(GenericPluginTy &Plugin) {
 Error GenericDeviceTy::deinit(GenericPluginTy &Plugin) {
   // Delete the memory manager before deinitializing the device. Otherwise,
   // we may delete device allocations after the device is deinitialized.
+  printf("Device tracker %lu : %lu, min/max: %lu/%lu\n", MemoryTracker[0],
+         MemoryTracker[1], MemoryTracker[2], MemoryTracker[3]);
   if (MemoryManager)
     delete MemoryManager;
   MemoryManager = nullptr;
@@ -646,6 +649,17 @@ GenericDeviceTy::loadBinary(GenericPluginTy &Plugin,
   // Setup the device environment if needed.
   if (auto Err = setupDeviceEnvironment(Plugin, *Image))
     return std::move(Err);
+
+  // Setup the global device memory pool if needed.
+  if (shouldSetupDeviceMemoryPool()) {
+    uint64_t HeapSize;
+    auto SizeOrErr = getDeviceHeapSize(HeapSize);
+    if (SizeOrErr) {
+      REPORT("No global device memory pool due to error: %s\n",
+             toString(std::move(SizeOrErr)).data());
+    } else if (auto Err = setupDeviceMemoryPool(Plugin, *Image, HeapSize))
+      return std::move(Err);
+  }
 
   // Register all offload entries of the image.
   if (auto Err = registerOffloadEntries(*Image))
@@ -710,6 +724,52 @@ Error GenericDeviceTy::setupDeviceEnvironment(GenericPluginTy &Plugin,
     consumeError(std::move(Err));
   }
   return Plugin::success();
+}
+
+Error GenericDeviceTy::setupDeviceMemoryPool(GenericPluginTy &Plugin,
+                                             DeviceImageTy &Image,
+                                             uint64_t PoolSize) {
+  // Free the old pool, if any.
+  if (DeviceMemoryPool.Ptr) {
+    if (auto Err = dataDelete(DeviceMemoryPool.Ptr,
+                              TargetAllocTy::TARGET_ALLOC_DEVICE))
+      return Err;
+  }
+
+  DeviceMemoryPool.Size = PoolSize;
+  auto AllocOrErr = dataAlloc(PoolSize, /*HostPtr=*/nullptr,
+                              TargetAllocTy::TARGET_ALLOC_DEVICE);
+  if (AllocOrErr) {
+    DeviceMemoryPool.Ptr = *AllocOrErr;
+  } else {
+    auto Err = AllocOrErr.takeError();
+    REPORT("Failure to allocate device memory for global memory pool: %s\n",
+           toString(std::move(Err)).data());
+    DeviceMemoryPool.Ptr = nullptr;
+    DeviceMemoryPool.Size = 0;
+  }
+
+  if (auto A = dataAlloc(32, /*HostPtr=*/nullptr,
+                         TargetAllocTy::TARGET_ALLOC_SHARED)) {
+    MemoryTracker = reinterpret_cast<uint64_t *>(*A);
+    uint64_t ZERO[4] = {0, 0, ~0U, 0};
+    if (auto E = dataSubmit(MemoryTracker, &ZERO, 32, nullptr)) {
+    }
+    printf("shared tracker:%p\n", *A);
+    GlobalTy DevEnvGlobal("__omp_rtl_device_memory_tracker", 8, &MemoryTracker);
+    GenericGlobalHandlerTy &GHandler = Plugin.getGlobalHandler();
+    if (auto E = GHandler.writeGlobalToDevice(*this, Image, DevEnvGlobal)) {
+    }
+  }
+
+  printf("Device memory pool: %lu :: %p\n", PoolSize, DeviceMemoryPool.Ptr);
+  // Create the metainfo of the device environment global.
+  GlobalTy DevEnvGlobal("__omp_rtl_device_memory_pool",
+                        sizeof(DeviceMemoryPoolTy), &DeviceMemoryPool);
+
+  // Write device environment values to the device.
+  GenericGlobalHandlerTy &GHandler = Plugin.getGlobalHandler();
+  return GHandler.writeGlobalToDevice(*this, Image, DevEnvGlobal);
 }
 
 Error GenericDeviceTy::setupRPCServer(GenericPluginTy &Plugin,

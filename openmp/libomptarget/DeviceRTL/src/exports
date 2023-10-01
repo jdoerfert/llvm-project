@@ -10,3 +10,4 @@ IsSPMDMode
 memcmp
 printf
 __assert_fail
+malloc

@@ -9,6 +9,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "State.h"
+#include "Allocator.h"
+#include "Configuration.h"
 #include "Debug.h"
 #include "Environment.h"
 #include "Interface.h"
@@ -25,49 +27,21 @@ using namespace ompx;
 ///
 ///{
 
-/// Add worst-case padding so that future allocations are properly aligned.
-/// FIXME: The stack shouldn't require worst-case padding. Alignment needs to be
-/// passed in as an argument and the stack rewritten to support it.
-constexpr const uint32_t Alignment = 16;
-
 /// External symbol to access dynamic shared memory.
-extern unsigned char DynamicSharedBuffer[] __attribute__((aligned(Alignment)));
+extern unsigned char DynamicSharedBuffer[]
+    __attribute__((aligned(allocator::ALIGNMENT)));
 #pragma omp allocate(DynamicSharedBuffer) allocator(omp_pteam_mem_alloc)
 
 /// The kernel environment passed to the init method by the compiler.
 static KernelEnvironmentTy *SHARED(KernelEnvironmentPtr);
 
+extern "C" {
+void *malloc(uint64_t Size) { return allocator::alloc(Size); }
+
+void free(void *Ptr) { return allocator::free(Ptr); }
+}
+
 namespace {
-
-/// Fallback implementations are missing to trigger a link time error.
-/// Implementations for new devices, including the host, should go into a
-/// dedicated begin/end declare variant.
-///
-///{
-
-extern "C" {
-__attribute__((leaf)) void *malloc(uint64_t Size);
-__attribute__((leaf)) void free(void *Ptr);
-}
-
-///}
-
-/// AMDGCN implementations of the shuffle sync idiom.
-///
-///{
-#pragma omp begin declare variant match(device = {arch(amdgcn)})
-
-extern "C" {
-void *malloc(uint64_t Size) {
-  // TODO: Use some preallocated space for dynamic malloc.
-  return nullptr;
-}
-
-void free(void *Ptr) {}
-}
-
-#pragma omp end declare variant
-///}
 
 /// A "smart" stack in shared memory.
 ///
@@ -95,7 +69,7 @@ private:
   uint32_t computeThreadStorageTotal() {
     uint32_t NumLanesInBlock = mapping::getNumberOfThreadsInBlock();
     return utils::align_down((state::SharedScratchpadSize / NumLanesInBlock),
-                             Alignment);
+                             allocator::ALIGNMENT);
   }
 
   /// Return the top address of the warp data stack, that is the first address
@@ -106,9 +80,9 @@ private:
 
   /// The actual storage, shared among all warps.
   unsigned char Data[state::SharedScratchpadSize]
-      __attribute__((aligned(Alignment)));
+      __attribute__((aligned(allocator::ALIGNMENT)));
   unsigned char Usage[mapping::MaxThreadsPerTeam]
-      __attribute__((aligned(Alignment)));
+      __attribute__((aligned(allocator::ALIGNMENT)));
 };
 
 static_assert(state::SharedScratchpadSize / mapping::MaxThreadsPerTeam <= 256,
@@ -123,7 +97,9 @@ void SharedMemorySmartStackTy::init(bool IsSPMD) {
 
 void *SharedMemorySmartStackTy::push(uint64_t Bytes) {
   // First align the number of requested bytes.
-  uint64_t AlignedBytes = utils::align_up(Bytes, Alignment);
+  /// FIXME: The stack shouldn't require worst-case padding. Alignment needs to
+  /// be passed in as an argument and the stack rewritten to support it.
+  uint64_t AlignedBytes = utils::align_up(Bytes, allocator::ALIGNMENT);
 
   uint32_t StorageTotal = computeThreadStorageTotal();
 
@@ -151,7 +127,7 @@ void *SharedMemorySmartStackTy::push(uint64_t Bytes) {
 }
 
 void SharedMemorySmartStackTy::pop(void *Ptr, uint32_t Bytes) {
-  uint64_t AlignedBytes = utils::align_up(Bytes, Alignment);
+  uint64_t AlignedBytes = utils::align_up(Bytes, allocator::ALIGNMENT);
   if (utils::isSharedMemPtr(Ptr)) {
     int TId = mapping::getThreadIdInBlock();
     Usage[TId] -= AlignedBytes;
@@ -173,13 +149,13 @@ void memory::freeShared(void *Ptr, uint64_t Bytes, const char *Reason) {
 }
 
 void *memory::allocGlobal(uint64_t Bytes, const char *Reason) {
-  void *Ptr = malloc(Bytes);
+  void *Ptr = allocator::alloc(Bytes);
   if (config::isDebugMode(config::DebugKind::CommonIssues) && Ptr == nullptr)
     PRINT("nullptr returned by malloc!\n");
   return Ptr;
 }
 
-void memory::freeGlobal(void *Ptr, const char *Reason) { free(Ptr); }
+void memory::freeGlobal(void *Ptr, const char *Reason) { allocator::free(Ptr); }
 
 ///}
 

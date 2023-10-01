@@ -29,6 +29,8 @@ extern uint32_t __omp_rtl_assume_no_nested_parallelism;
 // hidden visibility.
 DeviceEnvironmentTy CONSTANT(__omp_rtl_device_environment)
     __attribute__((used, retain, weak, visibility("protected")));
+DeviceMemoryPoolTy CONSTANT(__omp_rtl_device_memory_pool)
+    __attribute__((used, retain, weak, visibility("protected")));
 
 uint32_t config::getDebugKind() {
   return __omp_rtl_debug_kind & __omp_rtl_device_environment.DebugKind;
@@ -61,6 +63,14 @@ uint64_t config::getHardwareParallelism() {
 
 uint64_t config::getIndirectCallTableSize() {
   return __omp_rtl_device_environment.IndirectCallTableSize;
+}
+
+void *config::getDeviceMemoryPoolPtr() {
+  return __omp_rtl_device_memory_pool.Ptr;
+}
+
+uint64_t config::getDeviceMemoryPoolSize() {
+  return __omp_rtl_device_memory_pool.Size;
 }
 
 bool config::isDebugMode(config::DebugKind Kind) {

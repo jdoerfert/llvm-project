@@ -1,9 +1,6 @@
 // RUN: %libomptarget-compilexx-run-and-check-generic
 // RUN: %libomptarget-compileoptxx-run-and-check-generic
 
-// TODO: This requires malloc support for the threads states.
-// UNSUPPORTED: amdgcn-amd-amdhsa
-
 #include <omp.h>
 #include <stdio.h>
 #define N 10

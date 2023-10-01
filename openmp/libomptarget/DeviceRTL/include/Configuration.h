@@ -46,6 +46,12 @@ void *getIndirectCallTablePtr();
 /// Returns the size of the indirect call table.
 uint64_t getIndirectCallTableSize();
 
+/// Returns a pointer to the beginning of the global memory pool.
+void *getDeviceMemoryPoolPtr();
+
+/// Returns the size of the global memory pool.
+uint64_t getDeviceMemoryPoolSize();
+
 /// Returns the size of the indirect call table.
 uint64_t getHardwareParallelism();
 
