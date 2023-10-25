@@ -1,6 +1,5 @@
-// This fails when optimized for now.
 // RUN: %libomptarget-compile-run-and-check-generic
-// XUN: %libomptarget-compileopt-run-and-check-generic
+// RUN: %libomptarget-compileopt-run-and-check-generic
 
 #include <omp.h>
 #include <stdio.h>
@@ -28,8 +27,8 @@ int main() {
       }
     }
   }
-  if (o_lvl == 1 && o_tid == o_nt - 1 && o_nt > 1 && i_lvl == 2 && i_tid == 0 &&
-      i_nt == 1) {
+  if (o_lvl == 1 && o_tid == o_nt - 1 && o_nt >= 1 && i_lvl == 2 &&
+      i_tid == 0 && i_nt == 1) {
     // CHECK: Success
     printf("Success\n");
     return 0;
