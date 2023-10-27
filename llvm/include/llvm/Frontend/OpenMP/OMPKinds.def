@@ -99,6 +99,8 @@ __OMP_STRUCT_TYPE(ConfigurationEnvironment, ConfigurationEnvironmentTy, false,
 __OMP_STRUCT_TYPE(DynamicEnvironment, DynamicEnvironmentTy, false, Int16)
 __OMP_STRUCT_TYPE(KernelEnvironment, KernelEnvironmentTy, false,
                   ConfigurationEnvironment, IdentPtr, DynamicEnvironmentPtr)
+__OMP_STRUCT_TYPE(KernelLaunchEnvironment, KernelLaunchEnvironmentTy, false,
+                  Int32, Int32)
 
 #undef __OMP_STRUCT_TYPE
 #undef OMP_STRUCT_TYPE
@@ -457,7 +459,7 @@ __OMP_RTL(__kmpc_task_allow_completion_event, false, VoidPtr, IdentPtr,
           /* Int */ Int32, /* kmp_task_t */ VoidPtr)
 
 /// OpenMP Device runtime functions
-__OMP_RTL(__kmpc_target_init, false, Int32, KernelEnvironmentPtr)
+__OMP_RTL(__kmpc_target_init, false, Int32, KernelEnvironmentPtr, KernelLaunchEnvironmentPtr)
 __OMP_RTL(__kmpc_target_deinit, false, Void,)
 __OMP_RTL(__kmpc_kernel_prepare_parallel, false, Void, VoidPtr)
 __OMP_RTL(__kmpc_parallel_51, false, Void, IdentPtr, Int32, Int32, Int32, Int32,

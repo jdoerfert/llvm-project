@@ -4166,7 +4166,9 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
           ? KernelEnvironmentGV
           : ConstantExpr::getAddrSpaceCast(KernelEnvironmentGV,
                                            KernelEnvironmentPtr);
-  CallInst *ThreadKind = Builder.CreateCall(Fn, {KernelEnvironment});
+  Value *KernelLaunchEnvironment = Kernel->getArg(0);
+  CallInst *ThreadKind =
+      Builder.CreateCall(Fn, {KernelEnvironment, KernelLaunchEnvironment});
 
   Value *ExecUserCode = Builder.CreateICmpEQ(
       ThreadKind, ConstantInt::get(ThreadKind->getType(), -1),
@@ -4584,6 +4586,11 @@ static Function *createOutlinedFunction(
     OpenMPIRBuilder::TargetGenArgAccessorsCallbackTy &ArgAccessorFuncCB) {
   SmallVector<Type *> ParameterTypes;
   if (OMPBuilder.Config.isTargetDevice()) {
+    // Add the "implicit" runtime argument we use to provide launch specific
+    // information for target devices.
+    auto *Int8PtrTy = Type::getInt8PtrTy(Builder.getContext());
+    Inputs.push_back(ConstantPointerNull::get(Int8PtrTy));
+
     // All parameters to target devices are passed as pointers
     // or i64. This assumes 64-bit address spaces/pointers.
     for (auto &Arg : Inputs)

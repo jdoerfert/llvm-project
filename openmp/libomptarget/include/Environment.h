@@ -97,4 +97,9 @@ struct KernelEnvironmentTy {
   DynamicEnvironmentTy *DynamicEnv;
 };
 
+struct KernelLaunchEnvironmentTy {
+  uint32_t ReductionCnt;
+  uint32_t ReductionIterCnt;
+};
+
 #endif // _OMPTARGET_ENVIRONMENT_H_
