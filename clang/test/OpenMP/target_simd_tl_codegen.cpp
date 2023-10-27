@@ -18,7 +18,8 @@ int thread_limit_target_simd() {
 }
 
 #endif
-// OMP51-LABEL: define {{.*}}thread_limit_target_simd{{.*}}{
+// OMP51-LABEL: define dso_local noundef i32 @_Z24thread_limit_target_simdv
+// OMP51-SAME: () #[[ATTR0:[0-9]+]] {
 // OMP51-NEXT:  entry:
 // OMP51-NEXT:    [[AGG_CAPTURED:%.*]] = alloca [[STRUCT_ANON:%.*]], align 1
 // OMP51-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_global_thread_num(ptr @[[GLOB1:[0-9]+]])
@@ -30,7 +31,38 @@ int thread_limit_target_simd() {
 // OMP51-NEXT:    ret i32 0
 //
 //
-// OMP51-LABEL: define {{.*}}omp_task_entry{{.*}}{
+// OMP51-LABEL: define internal void @__omp_offloading_16_21d006d8__Z24thread_limit_target_simdv_l14
+// OMP51-SAME: () #[[ATTR1:[0-9]+]] {
+// OMP51-NEXT:  entry:
+// OMP51-NEXT:    [[TMP:%.*]] = alloca i32, align 4
+// OMP51-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4
+// OMP51-NEXT:    [[I:%.*]] = alloca i32, align 4
+// OMP51-NEXT:    store i32 0, ptr [[DOTOMP_IV]], align 4
+// OMP51-NEXT:    br label [[OMP_INNER_FOR_COND:%.*]]
+// OMP51:       omp.inner.for.cond:
+// OMP51-NEXT:    [[TMP0:%.*]] = load i32, ptr [[DOTOMP_IV]], align 4, !llvm.access.group [[ACC_GRP3:![0-9]+]]
+// OMP51-NEXT:    [[CMP:%.*]] = icmp slt i32 [[TMP0]], 2
+// OMP51-NEXT:    br i1 [[CMP]], label [[OMP_INNER_FOR_BODY:%.*]], label [[OMP_INNER_FOR_END:%.*]]
+// OMP51:       omp.inner.for.body:
+// OMP51-NEXT:    [[TMP1:%.*]] = load i32, ptr [[DOTOMP_IV]], align 4, !llvm.access.group [[ACC_GRP3]]
+// OMP51-NEXT:    [[MUL:%.*]] = mul nsw i32 [[TMP1]], 1
+// OMP51-NEXT:    [[ADD:%.*]] = add nsw i32 0, [[MUL]]
+// OMP51-NEXT:    store i32 [[ADD]], ptr [[I]], align 4, !llvm.access.group [[ACC_GRP3]]
+// OMP51-NEXT:    br label [[OMP_BODY_CONTINUE:%.*]]
+// OMP51:       omp.body.continue:
+// OMP51-NEXT:    br label [[OMP_INNER_FOR_INC:%.*]]
+// OMP51:       omp.inner.for.inc:
+// OMP51-NEXT:    [[TMP2:%.*]] = load i32, ptr [[DOTOMP_IV]], align 4, !llvm.access.group [[ACC_GRP3]]
+// OMP51-NEXT:    [[ADD1:%.*]] = add nsw i32 [[TMP2]], 1
+// OMP51-NEXT:    store i32 [[ADD1]], ptr [[DOTOMP_IV]], align 4, !llvm.access.group [[ACC_GRP3]]
+// OMP51-NEXT:    br label [[OMP_INNER_FOR_COND]], !llvm.loop [[LOOP4:![0-9]+]]
+// OMP51:       omp.inner.for.end:
+// OMP51-NEXT:    store i32 2, ptr [[I]], align 4
+// OMP51-NEXT:    ret void
+//
+//
+// OMP51-LABEL: define internal noundef i32 @.omp_task_entry.
+// OMP51-SAME: (i32 noundef [[TMP0:%.*]], ptr noalias noundef [[TMP1:%.*]]) #[[ATTR3:[0-9]+]] {
 // OMP51-NEXT:  entry:
 // OMP51-NEXT:    [[DOTGLOBAL_TID__ADDR_I:%.*]] = alloca i32, align 4
 // OMP51-NEXT:    [[DOTPART_ID__ADDR_I:%.*]] = alloca ptr, align 8
@@ -61,6 +93,6 @@ int thread_limit_target_simd() {
 // OMP51-NEXT:    [[TMP8:%.*]] = load ptr, ptr [[__CONTEXT_ADDR_I]], align 8, !noalias !16
 // OMP51-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTGLOBAL_TID__ADDR_I]], align 4, !noalias !16
 // OMP51-NEXT:    call void @__kmpc_set_thread_limit(ptr @[[GLOB1]], i32 [[TMP9]], i32 2)
-// OMP51-NEXT:    call void @__omp_offloading{{.*}}thread_limit_target_simd{{.*}}
+// OMP51-NEXT:    call void @__omp_offloading_16_21d006d8__Z24thread_limit_target_simdv_l14() #[[ATTR2]]
 // OMP51-NEXT:    ret i32 0
 //

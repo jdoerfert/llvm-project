@@ -5727,10 +5727,11 @@ TEST_F(OpenMPIRBuilderTest, TargetRegionDevice) {
   EXPECT_NE(F, OutlinedFn);
 
   EXPECT_TRUE(OutlinedFn->hasWeakODRLinkage());
-  EXPECT_EQ(OutlinedFn->arg_size(), 2U);
+  // Account for the "implicit" first argument.
   EXPECT_EQ(OutlinedFn->getName(), "__omp_offloading_1_2_parent_l3");
-  EXPECT_TRUE(OutlinedFn->getArg(0)->getType()->isPointerTy());
+  EXPECT_EQ(OutlinedFn->arg_size(), 3U);
   EXPECT_TRUE(OutlinedFn->getArg(1)->getType()->isPointerTy());
+  EXPECT_TRUE(OutlinedFn->getArg(2)->getType()->isPointerTy());
 
   // Check entry block
   auto &EntryBlock = OutlinedFn->getEntryBlock();
@@ -5744,11 +5745,15 @@ TEST_F(OpenMPIRBuilderTest, TargetRegionDevice) {
   EXPECT_TRUE(isa<AllocaInst>(Alloca2));
   auto *Store2 = Alloca2->getNextNode();
   EXPECT_TRUE(isa<StoreInst>(Store2));
+  auto *Alloca3 = Store2->getNextNode();
+  EXPECT_TRUE(isa<AllocaInst>(Alloca3));
+  auto *Store3 = Alloca3->getNextNode();
+  EXPECT_TRUE(isa<StoreInst>(Store3));
 
-  auto *InitCall = dyn_cast<CallInst>(Store2->getNextNode());
+  auto *InitCall = dyn_cast<CallInst>(Store3->getNextNode());
   EXPECT_NE(InitCall, nullptr);
   EXPECT_EQ(InitCall->getCalledFunction()->getName(), "__kmpc_target_init");
-  EXPECT_EQ(InitCall->arg_size(), 1U);
+  EXPECT_EQ(InitCall->arg_size(), 2U);
   EXPECT_TRUE(isa<GlobalVariable>(InitCall->getArgOperand(0)));
   auto *KernelEnvGV = cast<GlobalVariable>(InitCall->getArgOperand(0));
   EXPECT_TRUE(isa<ConstantStruct>(KernelEnvGV->getInitializer()));
@@ -5773,8 +5778,10 @@ TEST_F(OpenMPIRBuilderTest, TargetRegionDevice) {
   EXPECT_TRUE(isa<LoadInst>(Load1));
   auto *Load2 = Load1->getNextNode();
   EXPECT_TRUE(isa<LoadInst>(Load2));
+  auto *Load3 = Load2->getNextNode();
+  EXPECT_TRUE(isa<LoadInst>(Load3));
 
-  auto *Value1 = Load2->getNextNode();
+  auto *Value1 = Load3->getNextNode();
   EXPECT_EQ(Value1, Value);
   EXPECT_EQ(Value1->getNextNode(), TargetStore);
   auto *Deinit = TargetStore->getNextNode();
