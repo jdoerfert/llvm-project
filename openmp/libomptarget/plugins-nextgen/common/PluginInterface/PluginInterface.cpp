@@ -385,6 +385,14 @@ void AsyncInfoWrapperTy::finalize(Error &Err) {
 
   // Invalidate the wrapper object.
   AsyncInfoPtr = nullptr;
+
+  for (auto *Ptr : AssociatedAllocations) {
+    if (auto Err = Device.dataDelete(Ptr, TargetAllocTy::TARGET_ALLOC_DEVICE)) {
+      REPORT("Failure to deallocate associated device allocations: %s\n",
+             toString(std::move(Err)).data());
+    }
+  }
+  AssociatedAllocations.clear();
 }
 
 Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
@@ -423,6 +431,29 @@ Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
   return initImpl(GenericDevice, Image);
 }
 
+Expected<KernelLaunchEnvironmentTy *>
+GenericKernelTy::getKernelLaunchEnvironment(
+    GenericDeviceTy &GenericDevice,
+    AsyncInfoWrapperTy &AsyncInfoWrapper) const {
+  // TODO: Check if the kernel needs a launch environment.
+  auto AllocOrErr = GenericDevice.dataAlloc(sizeof(KernelLaunchEnvironmentTy),
+                                            /*HostPtr=*/nullptr,
+                                            TargetAllocTy::TARGET_ALLOC_DEVICE);
+  if (!AllocOrErr)
+    return AllocOrErr.takeError();
+
+  // Remember to free the memory later.
+  AsyncInfoWrapper.freeAllocationAfterSynchronization(*AllocOrErr);
+
+  KernelLaunchEnvironmentTy LocalKLE = KernelLaunchEnvironment;
+  auto Err = GenericDevice.dataSubmit(*AllocOrErr, &LocalKLE,
+                                      sizeof(KernelLaunchEnvironmentTy),
+                                      AsyncInfoWrapper);
+  if (Err)
+    return Err;
+  return static_cast<KernelLaunchEnvironmentTy *>(*AllocOrErr);
+}
+
 Error GenericKernelTy::printLaunchInfo(GenericDeviceTy &GenericDevice,
                                        KernelArgsTy &KernelArgs,
                                        uint32_t NumThreads,
@@ -448,8 +479,14 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
   llvm::SmallVector<void *, 16> Args;
   llvm::SmallVector<void *, 16> Ptrs;
 
-  void *KernelArgsPtr = prepareArgs(GenericDevice, ArgPtrs, ArgOffsets,
-                                    KernelArgs.NumArgs, Args, Ptrs);
+  auto KernelLaunchEnvOrErr =
+      getKernelLaunchEnvironment(GenericDevice, AsyncInfoWrapper);
+  if (!KernelLaunchEnvOrErr)
+    return KernelLaunchEnvOrErr.takeError();
+
+  void *KernelArgsPtr =
+      prepareArgs(GenericDevice, ArgPtrs, ArgOffsets, KernelArgs.NumArgs, Args,
+                  Ptrs, *KernelLaunchEnvOrErr);
 
   uint32_t NumThreads = getNumThreads(GenericDevice, KernelArgs.ThreadLimit);
   uint64_t NumBlocks =
@@ -464,19 +501,21 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
                     KernelArgsPtr, AsyncInfoWrapper);
 }
 
-void *GenericKernelTy::prepareArgs(GenericDeviceTy &GenericDevice,
-                                   void **ArgPtrs, ptrdiff_t *ArgOffsets,
-                                   int32_t NumArgs,
-                                   llvm::SmallVectorImpl<void *> &Args,
-                                   llvm::SmallVectorImpl<void *> &Ptrs) const {
+void *GenericKernelTy::prepareArgs(
+    GenericDeviceTy &GenericDevice, void **ArgPtrs, ptrdiff_t *ArgOffsets,
+    uint32_t &NumArgs, llvm::SmallVectorImpl<void *> &Args,
+    llvm::SmallVectorImpl<void *> &Ptrs,
+    KernelLaunchEnvironmentTy *KernelLaunchEnvironment) const {
+  NumArgs += 1;
+
   Args.resize(NumArgs);
   Ptrs.resize(NumArgs);
 
-  if (NumArgs == 0)
-    return nullptr;
+  Ptrs[0] = KernelLaunchEnvironment;
+  Args[0] = &Ptrs[0];
 
-  for (int I = 0; I < NumArgs; ++I) {
-    Ptrs[I] = (void *)((intptr_t)ArgPtrs[I] + ArgOffsets[I]);
+  for (int I = 1; I < NumArgs; ++I) {
+    Ptrs[I] = (void *)((intptr_t)ArgPtrs[I - 1] + ArgOffsets[I - 1]);
     Args[I] = &Ptrs[I];
   }
   return &Args[0];
