@@ -385,14 +385,6 @@ void AsyncInfoWrapperTy::finalize(Error &Err) {
 
   // Invalidate the wrapper object.
   AsyncInfoPtr = nullptr;
-
-  for (auto *Ptr : AssociatedAllocations) {
-    if (auto Err = Device.dataDelete(Ptr, TargetAllocTy::TARGET_ALLOC_DEVICE)) {
-      REPORT("Failure to deallocate associated device allocations: %s\n",
-             toString(std::move(Err)).data());
-    }
-  }
-  AssociatedAllocations.clear();
 }
 
 Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
@@ -445,7 +437,21 @@ GenericKernelTy::getKernelLaunchEnvironment(
   // Remember to free the memory later.
   AsyncInfoWrapper.freeAllocationAfterSynchronization(*AllocOrErr);
 
-  KernelLaunchEnvironmentTy LocalKLE = KernelLaunchEnvironment;
+  /// Use the KLE in the __tgt_async_info to ensure a stable address for the
+  /// async data transfer.
+  auto &LocalKLE = (*AsyncInfoWrapper).KernelLaunchEnvironment;
+  LocalKLE = KernelLaunchEnvironment;
+  if (KernelEnvironment.Configuration.ReductionBufferSize) {
+    auto AllocOrErr = GenericDevice.dataAlloc(
+        KernelEnvironment.Configuration.ReductionBufferSize,
+        /*HostPtr=*/nullptr, TargetAllocTy::TARGET_ALLOC_DEVICE);
+    if (!AllocOrErr)
+      return AllocOrErr.takeError();
+    LocalKLE.ReductionBuffer = *AllocOrErr;
+    // Remember to free the memory later.
+    AsyncInfoWrapper.freeAllocationAfterSynchronization(*AllocOrErr);
+  }
+
   auto Err = GenericDevice.dataSubmit(*AllocOrErr, &LocalKLE,
                                       sizeof(KernelLaunchEnvironmentTy),
                                       AsyncInfoWrapper);
@@ -1266,7 +1272,15 @@ Error GenericDeviceTy::synchronize(__tgt_async_info *AsyncInfo) {
   if (!AsyncInfo || !AsyncInfo->Queue)
     return Plugin::error("Invalid async info queue");
 
-  return synchronizeImpl(*AsyncInfo);
+  if (auto Err = synchronizeImpl(*AsyncInfo))
+    return Err;
+
+  for (auto *Ptr : AsyncInfo->AssociatedAllocations)
+    if (auto Err = dataDelete(Ptr, TargetAllocTy::TARGET_ALLOC_DEVICE))
+      return Err;
+  AsyncInfo->AssociatedAllocations.clear();
+
+  return Plugin::success();
 }
 
 Error GenericDeviceTy::queryAsync(__tgt_async_info *AsyncInfo) {

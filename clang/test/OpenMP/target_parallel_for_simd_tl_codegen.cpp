@@ -31,14 +31,14 @@ int thread_limit_target_parallel_for_simd() {
 // OMP51-NEXT:    ret i32 0
 //
 //
-// OMP51-LABEL: define internal void @__omp_offloading_16_21d006ca__Z37thread_limit_target_parallel_for_simdv_l14
+// OMP51-LABEL: define internal void @__omp_offloading_16_21e01bd8__Z37thread_limit_target_parallel_for_simdv_l14
 // OMP51-SAME: () #[[ATTR1:[0-9]+]] {
 // OMP51-NEXT:  entry:
-// OMP51-NEXT:    call void (ptr, i32, ptr, ...) @__kmpc_fork_call(ptr @[[GLOB2]], i32 0, ptr @__omp_offloading_16_21d006ca__Z37thread_limit_target_parallel_for_simdv_l14.omp_outlined)
+// OMP51-NEXT:    call void (ptr, i32, ptr, ...) @__kmpc_fork_call(ptr @[[GLOB2]], i32 0, ptr @__omp_offloading_16_21e01bd8__Z37thread_limit_target_parallel_for_simdv_l14.omp_outlined)
 // OMP51-NEXT:    ret void
 //
 //
-// OMP51-LABEL: define internal void @__omp_offloading_16_21d006ca__Z37thread_limit_target_parallel_for_simdv_l14.omp_outlined
+// OMP51-LABEL: define internal void @__omp_offloading_16_21e01bd8__Z37thread_limit_target_parallel_for_simdv_l14.omp_outlined
 // OMP51-SAME: (ptr noalias noundef [[DOTGLOBAL_TID_:%.*]], ptr noalias noundef [[DOTBOUND_TID_:%.*]]) #[[ATTR1]] {
 // OMP51-NEXT:  entry:
 // OMP51-NEXT:    [[DOTGLOBAL_TID__ADDR:%.*]] = alloca ptr, align 8
@@ -137,6 +137,6 @@ int thread_limit_target_parallel_for_simd() {
 // OMP51-NEXT:    [[TMP8:%.*]] = load ptr, ptr [[__CONTEXT_ADDR_I]], align 8, !noalias !18
 // OMP51-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTGLOBAL_TID__ADDR_I]], align 4, !noalias !18
 // OMP51-NEXT:    call void @__kmpc_set_thread_limit(ptr @[[GLOB2]], i32 [[TMP9]], i32 2)
-// OMP51-NEXT:    call void @__omp_offloading_16_21d006ca__Z37thread_limit_target_parallel_for_simdv_l14() #[[ATTR2]]
+// OMP51-NEXT:    call void @__omp_offloading_16_21e01bd8__Z37thread_limit_target_parallel_for_simdv_l14() #[[ATTR2]]
 // OMP51-NEXT:    ret i32 0
 //
