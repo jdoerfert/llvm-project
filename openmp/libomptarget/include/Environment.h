@@ -86,6 +86,7 @@ struct ConfigurationEnvironmentTy {
   int32_t MaxThreads;
   int32_t MinTeams;
   int32_t MaxTeams;
+  int32_t ReductionBufferSize;
   //}
 };
 
@@ -98,6 +99,9 @@ struct KernelEnvironmentTy {
 };
 
 struct KernelLaunchEnvironmentTy {
+  uint32_t ReductionCnt;
+  uint32_t ReductionIterCnt;
+  void *ReductionBuffer;
 };
 
 #endif // _OMPTARGET_ENVIRONMENT_H_

@@ -96,17 +96,13 @@ struct AsyncInfoWrapperTy {
   /// Register \p Ptr as an associated alloction that is freed after
   /// finalization.
   void freeAllocationAfterSynchronization(void *Ptr) {
-    AssociatedAllocations.push_back(Ptr);
+    AsyncInfoPtr->AssociatedAllocations.push_back(Ptr);
   }
 
 private:
   GenericDeviceTy &Device;
   __tgt_async_info LocalAsyncInfo;
   __tgt_async_info *AsyncInfoPtr;
-
-  /// A collection of allocations that are associated with this stream and that
-  /// should be freed after finalization.
-  llvm::SmallVector<void *, 2> AssociatedAllocations;
 };
 
 /// The information level represents the level of a key-value property in the
@@ -391,7 +387,7 @@ protected:
   KernelEnvironmentTy KernelEnvironment;
 
   /// The prototype kernel launch environment.
-  KernelLaunchEnvironmentTy KernelLaunchEnvironment;
+  KernelLaunchEnvironmentTy KernelLaunchEnvironment = {0, 0};
 };
 
 /// Class representing a map of host pinned allocations. We track these pinned

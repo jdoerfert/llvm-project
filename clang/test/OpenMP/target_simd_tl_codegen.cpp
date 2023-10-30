@@ -31,7 +31,7 @@ int thread_limit_target_simd() {
 // OMP51-NEXT:    ret i32 0
 //
 //
-// OMP51-LABEL: define internal void @__omp_offloading_16_21d006d8__Z24thread_limit_target_simdv_l14
+// OMP51-LABEL: define internal void @__omp_offloading_16_21e01bdc__Z24thread_limit_target_simdv_l14
 // OMP51-SAME: () #[[ATTR1:[0-9]+]] {
 // OMP51-NEXT:  entry:
 // OMP51-NEXT:    [[TMP:%.*]] = alloca i32, align 4
@@ -93,6 +93,6 @@ int thread_limit_target_simd() {
 // OMP51-NEXT:    [[TMP8:%.*]] = load ptr, ptr [[__CONTEXT_ADDR_I]], align 8, !noalias !16
 // OMP51-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTGLOBAL_TID__ADDR_I]], align 4, !noalias !16
 // OMP51-NEXT:    call void @__kmpc_set_thread_limit(ptr @[[GLOB1]], i32 [[TMP9]], i32 2)
-// OMP51-NEXT:    call void @__omp_offloading_16_21d006d8__Z24thread_limit_target_simdv_l14() #[[ATTR2]]
+// OMP51-NEXT:    call void @__omp_offloading_16_21e01bdc__Z24thread_limit_target_simdv_l14() #[[ATTR2]]
 // OMP51-NEXT:    ret i32 0
 //
