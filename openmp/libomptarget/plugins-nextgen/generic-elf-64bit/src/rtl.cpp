@@ -57,7 +57,7 @@ struct GenELF64KernelTy : public GenericKernelTy {
   /// Initialize the kernel.
   Error initImpl(GenericDeviceTy &Device, DeviceImageTy &Image) override {
     // Functions have zero size.
-    GlobalTy Global(getName(), 0);
+    GlobalTy Global(getName().data(), 0);
 
     // Get the metadata (address) of the kernel function.
     GenericGlobalHandlerTy &GHandler = Plugin::get().getGlobalHandler();
@@ -66,7 +66,7 @@ struct GenELF64KernelTy : public GenericKernelTy {
 
     // Check that the function pointer is valid.
     if (!Global.getPtr())
-      return Plugin::error("Invalid function for kernel %s", getName());
+      return Plugin::error("Invalid function for kernel %s", getName().data());
 
     // Save the function pointer.
     Func = (void (*)())Global.getPtr();
@@ -141,14 +141,14 @@ struct GenELF64DeviceTy : public GenericDeviceTy {
 
   /// Construct the kernel for a specific image on the device.
   Expected<GenericKernelTy &>
-  constructKernel(const __tgt_offload_entry &KernelEntry) override {
+  constructKernel(llvm::StringRef KernelName) override {
     // Allocate and construct the kernel.
     GenELF64KernelTy *GenELF64Kernel =
         Plugin::get().allocate<GenELF64KernelTy>();
     if (!GenELF64Kernel)
       return Plugin::error("Failed to allocate memory for GenELF64 kernel");
 
-    new (GenELF64Kernel) GenELF64KernelTy(KernelEntry.name);
+    new (GenELF64Kernel) GenELF64KernelTy(KernelName.data());
 
     return *GenELF64Kernel;
   }

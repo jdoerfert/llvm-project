@@ -411,7 +411,7 @@ private:
 /// generic kernel class.
 struct AMDGPUKernelTy : public GenericKernelTy {
   /// Create an AMDGPU kernel with a name and an execution mode.
-  AMDGPUKernelTy(const char *Name) : GenericKernelTy(Name) {}
+  AMDGPUKernelTy(StringRef Name) : GenericKernelTy(Name) {}
 
   /// Initialize the AMDGPU kernel.
   Error initImpl(GenericDeviceTy &Device, DeviceImageTy &Image) override {
@@ -459,7 +459,8 @@ struct AMDGPUKernelTy : public GenericKernelTy {
     KernelInfo = AMDImage.getKernelInfo(getName());
     if (!KernelInfo.has_value())
       INFO(OMP_INFOTYPE_PLUGIN_KERNEL, Device.getDeviceId(),
-           "Could not read extra information for kernel %s.", getName());
+           "Could not read extra information for kernel %s.", getName().data());
+    printf("KO: %p : %s\n", (void *)KernelObject, getName().data());
 
     return Plugin::success();
   }
@@ -1977,13 +1978,13 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
 
   /// Allocate and construct an AMDGPU kernel.
   Expected<GenericKernelTy &>
-  constructKernel(const __tgt_offload_entry &KernelEntry) override {
+  constructKernel(llvm::StringRef KernelName) override {
     // Allocate and construct the AMDGPU kernel.
     AMDGPUKernelTy *AMDGPUKernel = Plugin::get().allocate<AMDGPUKernelTy>();
     if (!AMDGPUKernel)
       return Plugin::error("Failed to allocate memory for AMDGPU kernel");
 
-    new (AMDGPUKernel) AMDGPUKernelTy(KernelEntry.name);
+    new (AMDGPUKernel) AMDGPUKernelTy(KernelName);
 
     return *AMDGPUKernel;
   }

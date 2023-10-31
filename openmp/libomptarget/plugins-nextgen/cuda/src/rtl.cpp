@@ -22,6 +22,7 @@
 #include "OmptCallback.h"
 #include "PluginInterface.h"
 
+#include "llvm/ADT/StringRef.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
@@ -79,7 +80,7 @@ private:
 /// generic kernel class.
 struct CUDAKernelTy : public GenericKernelTy {
   /// Create a CUDA kernel with a name and an execution mode.
-  CUDAKernelTy(const char *Name) : GenericKernelTy(Name), Func(nullptr) {}
+  CUDAKernelTy(StringRef Name) : GenericKernelTy(Name), Func(nullptr) {}
 
   /// Initialize the CUDA kernel.
   Error initImpl(GenericDeviceTy &GenericDevice,
@@ -88,14 +89,14 @@ struct CUDAKernelTy : public GenericKernelTy {
     CUDADeviceImageTy &CUDAImage = static_cast<CUDADeviceImageTy &>(Image);
 
     // Retrieve the function pointer of the kernel.
-    Res = cuModuleGetFunction(&Func, CUDAImage.getModule(), getName());
+    Res = cuModuleGetFunction(&Func, CUDAImage.getModule(), getName().data());
     if (auto Err = Plugin::check(Res, "Error in cuModuleGetFunction('%s'): %s",
-                                 getName()))
+                                 getName().data()))
       return Err;
 
     // Check that the function pointer is valid.
     if (!Func)
-      return Plugin::error("Invalid function for kernel %s", getName());
+      return Plugin::error("Invalid function for kernel %s", getName().data());
 
     int MaxThreads;
     Res = cuFuncGetAttribute(&MaxThreads,
@@ -355,13 +356,13 @@ struct CUDADeviceTy : public GenericDeviceTy {
 
   /// Allocate and construct a CUDA kernel.
   Expected<GenericKernelTy &>
-  constructKernel(const __tgt_offload_entry &KernelEntry) override {
+  constructKernel(llvm::StringRef KernelName) override {
     // Allocate and construct the CUDA kernel.
     CUDAKernelTy *CUDAKernel = Plugin::get().allocate<CUDAKernelTy>();
     if (!CUDAKernel)
       return Plugin::error("Failed to allocate memory for CUDA kernel");
 
-    new (CUDAKernel) CUDAKernelTy(KernelEntry.name);
+    new (CUDAKernel) CUDAKernelTy(KernelName);
 
     return *CUDAKernel;
   }
@@ -1056,7 +1057,8 @@ Error CUDAKernelTy::launchImpl(GenericDeviceTy &GenericDevice,
                      /* gridDimZ */ 1, NumThreads,
                      /* blockDimY */ 1, /* blockDimZ */ 1, MaxDynCGroupMem,
                      Stream, (void **)Args, nullptr);
-  return Plugin::check(Res, "Error in cuLaunchKernel for '%s': %s", getName());
+  return Plugin::check(Res, "Error in cuLaunchKernel for '%s': %s",
+                       getName().data());
 }
 
 /// Class implementing the CUDA-specific functionalities of the global handler.

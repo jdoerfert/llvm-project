@@ -80,6 +80,7 @@ struct ConfigurationEnvironmentTy {
   uint8_t UseGenericStateMachine;
   uint8_t MayUseNestedParallelism;
   llvm::omp::OMPTgtExecModeFlags ExecMode;
+  uint8_t HasReductionContinuation;
   // Information about (legal) launch configurations.
   //{
   int32_t MinThreads;

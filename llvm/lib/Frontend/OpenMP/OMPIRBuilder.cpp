@@ -4111,6 +4111,7 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
   Constant *MinTeams = ConstantInt::getSigned(Int32, MinTeamsVal);
   Constant *MaxTeams = ConstantInt::getSigned(Int32, MaxTeamsVal);
   Constant *ReductionBufferSize = ConstantInt::getSigned(Int32, 0);
+  Constant *HasReductionContinuation = ConstantInt::getSigned(Int8, 0);
 
   // We need to strip the debug prefix to get the correct kernel name.
   StringRef KernelName = Kernel->getName();
@@ -4143,6 +4144,7 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
                                     UseGenericStateMachineVal,
                                     MayUseNestedParallelismVal,
                                     IsSPMDVal,
+                                    HasReductionContinuation,
                                     MinThreads,
                                     MaxThreads,
                                     MinTeams,
@@ -4226,9 +4228,11 @@ void OpenMPIRBuilder::createTargetDeinit(const LocationDescription &Loc,
       M.getNamedGlobal((KernelName + "_kernel_environment").str());
   assert(KernelEnvironmentGV && "Expected kernel environment global\n");
   auto *KernelEnvironmentInitializer = KernelEnvironmentGV->getInitializer();
+  constexpr int ReductionBufferSizeIdx = 8;
   auto *NewInitializer = ConstantFoldInsertValueInstruction(
       KernelEnvironmentInitializer,
-      ConstantInt::get(Int32, TeamsReductionBufferSize), {0, 7});
+      ConstantInt::get(Int32, TeamsReductionBufferSize),
+      {0, ReductionBufferSizeIdx});
   KernelEnvironmentGV->setInitializer(NewInitializer);
 }
 

@@ -261,7 +261,7 @@ public:
 /// implement the necessary virtual function members.
 struct GenericKernelTy {
   /// Construct a kernel with a name and a execution mode.
-  GenericKernelTy(const char *Name)
+  GenericKernelTy(StringRef Name)
       : Name(Name), PreferredNumThreads(0), MaxNumThreads(0) {}
 
   virtual ~GenericKernelTy() {}
@@ -282,7 +282,7 @@ struct GenericKernelTy {
                            AsyncInfoWrapperTy &AsyncInfoWrapper) const = 0;
 
   /// Get the kernel name.
-  const char *getName() const { return Name; }
+  StringRef getName() const { return Name; }
 
   /// Get the kernel image.
   DeviceImageTy &getImage() const {
@@ -372,7 +372,7 @@ private:
   }
 
   /// The kernel name.
-  const char *Name;
+  std::string Name;
 
   /// The image that contains this kernel.
   DeviceImageTy *ImagePtr = nullptr;
@@ -389,6 +389,8 @@ protected:
 
   /// The prototype kernel launch environment.
   KernelLaunchEnvironmentTy KernelLaunchEnvironment = {0, 0};
+
+  GenericKernelTy *ReductionContinuation = nullptr;
 };
 
 /// Class representing a map of host pinned allocations. We track these pinned
@@ -845,6 +847,10 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
     return 0;
   }
 
+  /// Allocate and construct a kernel object.
+  virtual Expected<GenericKernelTy &>
+  constructKernel(llvm::StringRef KernelName) = 0;
+
 private:
   /// Register offload entry for global variable.
   Error registerGlobalOffloadEntry(DeviceImageTy &DeviceImage,
@@ -855,10 +861,6 @@ private:
   Error registerKernelOffloadEntry(DeviceImageTy &DeviceImage,
                                    const __tgt_offload_entry &KernelEntry,
                                    __tgt_offload_entry &DeviceEntry);
-
-  /// Allocate and construct a kernel object.
-  virtual Expected<GenericKernelTy &>
-  constructKernel(const __tgt_offload_entry &KernelEntry) = 0;
 
   /// Get and set the stack size and heap size for the device. If not used, the
   /// plugin can implement the setters as no-op and setting the output
