@@ -298,7 +298,8 @@ struct GenericKernelTy {
   /// Return a device pointer to a new kernel launch environment.
   Expected<KernelLaunchEnvironmentTy *>
   getKernelLaunchEnvironment(GenericDeviceTy &GenericDevice,
-                             AsyncInfoWrapperTy &AsyncInfo) const;
+                             AsyncInfoWrapperTy &AsyncInfo, int32_t NumThreads,
+                             int32_t NumBlocks) const;
 
   /// Indicate whether an execution mode is valid.
   static bool isValidExecutionMode(OMPTgtExecModeFlags ExecutionMode) {
