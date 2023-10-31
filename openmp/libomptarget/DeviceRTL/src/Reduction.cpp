@@ -292,12 +292,7 @@ int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
       }
     }
 
-    if (IsMaster) {
-      Cnt = 0;
-      IterCnt = 0;
-      return 1;
-    }
-    return 0;
+    return IsMaster;
   }
   if (IsMaster && ChunkTeamCount == num_of_records - 1) {
     // Allow SIZE number of teams to proceed writing their
