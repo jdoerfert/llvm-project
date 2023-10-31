@@ -425,8 +425,8 @@ Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
 
 Expected<KernelLaunchEnvironmentTy *>
 GenericKernelTy::getKernelLaunchEnvironment(
-    GenericDeviceTy &GenericDevice,
-    AsyncInfoWrapperTy &AsyncInfoWrapper) const {
+    GenericDeviceTy &GenericDevice, AsyncInfoWrapperTy &AsyncInfoWrapper,
+    int32_t NumThreads, int32_t NumBlocks) const {
   // TODO: Check if the kernel needs a launch environment.
   auto AllocOrErr = GenericDevice.dataAlloc(sizeof(KernelLaunchEnvironmentTy),
                                             /*HostPtr=*/nullptr,
@@ -485,19 +485,19 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
   llvm::SmallVector<void *, 16> Args;
   llvm::SmallVector<void *, 16> Ptrs;
 
-  auto KernelLaunchEnvOrErr =
-      getKernelLaunchEnvironment(GenericDevice, AsyncInfoWrapper);
+  uint32_t NumThreads = getNumThreads(GenericDevice, KernelArgs.ThreadLimit);
+  uint64_t NumBlocks =
+      getNumBlocks(GenericDevice, KernelArgs.NumTeams, KernelArgs.Tripcount,
+                   NumThreads, KernelArgs.ThreadLimit[0] > 0);
+
+  auto KernelLaunchEnvOrErr = getKernelLaunchEnvironment(
+      GenericDevice, AsyncInfoWrapper, NumThreads, NumBlocks);
   if (!KernelLaunchEnvOrErr)
     return KernelLaunchEnvOrErr.takeError();
 
   void *KernelArgsPtr =
       prepareArgs(GenericDevice, ArgPtrs, ArgOffsets, KernelArgs.NumArgs, Args,
                   Ptrs, *KernelLaunchEnvOrErr);
-
-  uint32_t NumThreads = getNumThreads(GenericDevice, KernelArgs.ThreadLimit);
-  uint64_t NumBlocks =
-      getNumBlocks(GenericDevice, KernelArgs.NumTeams, KernelArgs.Tripcount,
-                   NumThreads, KernelArgs.ThreadLimit[0] > 0);
 
   if (auto Err =
           printLaunchInfo(GenericDevice, KernelArgs, NumThreads, NumBlocks))
