@@ -13,6 +13,7 @@
 #define OMPTARGET_MAPPING_H
 
 #include "Types.h"
+#include "llvm/Frontend/OpenMP/OMPGridValues.h"
 
 namespace ompx {
 
@@ -29,6 +30,30 @@ enum {
 inline constexpr uint32_t MaxThreadsPerTeam = 1024;
 
 #pragma omp end declare target
+
+namespace {
+
+constexpr static inline const llvm::omp::GV &getGridValue() {
+  return llvm::omp::NVPTXGridValues;
+}
+
+#pragma omp begin declare target device_type(nohost)
+#pragma omp begin declare variant match(device = {arch(amdgcn)})
+constexpr static inline const llvm::omp::GV &getGridValue() {
+  return llvm::omp::getAMDGPUGridValues<__AMDGCN_WAVEFRONT_SIZE>();
+}
+#pragma omp end declare variant
+
+#pragma omp begin declare variant match(                                       \
+        device = {arch(nvptx, nvptx64)},                                       \
+            implementation = {extension(match_any)})
+constexpr static inline const llvm::omp::GV &getGridValue() {
+  return llvm::omp::NVPTXGridValues;
+}
+#pragma omp end declare variant
+#pragma omp end declare target
+
+} // namespace
 
 /// Initialize the mapping machinery.
 void init(bool IsSPMD);
@@ -70,7 +95,7 @@ LaneMaskTy lanemaskGT();
 uint32_t getThreadIdInWarp();
 
 /// Return the warp size, thus number of threads in the warp.
-uint32_t getWarpSize();
+constexpr inline uint32_t getWarpSize() { return getGridValue().GV_Warp_Size; }
 
 /// Return the warp id in the block, in [0, getNumberOfWarpsInBlock()]
 uint32_t getWarpIdInBlock();

@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "Allocator.h"
 #include "Debug.h"
 #include "Interface.h"
 #include "Mapping.h"
@@ -23,6 +24,53 @@ using namespace ompx;
 namespace {
 
 #pragma omp begin declare target device_type(nohost)
+
+constexpr uint64_t MaxNumWarps =
+    mapping::MaxThreadsPerTeam / mapping::getWarpSize();
+constexpr uint64_t SharedMemScratchpadSize = MaxNumWarps * 32;
+[[clang::loader_uninitialized]] static char
+    SharedMemScratchpad[SharedMemScratchpadSize]
+    __attribute__((aligned(allocator::ALIGNMENT)));
+#pragma omp allocate(SharedMemScratchpad) allocator(omp_pteam_mem_alloc)
+
+void accumulateWarpResultsInFirstWarp(char *ReduceData, uint64_t ReduceDataSize,
+                                      uint64_t NumWarps) {
+
+  bool IsLeaderInWarp = mapping::isLeaderInWarp();
+  uint64_t ThreadId = mapping::getThreadIdInBlock();
+  uint64_t WarpId = mapping::getWarpIdInBlock();
+  uint64_t MinBatchSize = state::SharedScratchpadSize / MaxNumWarps;
+  uint64_t MaxBatchSize = state::SharedScratchpadSize / NumWarps;
+  __builtin_assume(NumWarps <= MaxNumWarps);
+  __builtin_assume(MaxBatchSize >= MinBatchSize);
+
+  // Make an explicit compile time evaluatable condition that can be used to
+  // avoid the loop back edge.
+  bool NoLoopCompiletime = ReduceDataSize <= MinBatchSize;
+
+  uint64_t Remaining = ReduceDataSize;
+  uint64_t Offset = 0;
+  do {
+    uint64_t BatchSize =
+        NoLoopCompiletime ? Remaining : utils::min(Remaining, MaxBatchSize);
+
+    if (IsLeaderInWarp == 0)
+      __builtin_memcpy(&SharedMemScratchpad[BatchSize * WarpId],
+                       &ReduceData[Offset], BatchSize);
+
+    if (mapping::isSPMDMode())
+      synchronize::threadsAligned(atomic::acq_rel);
+    else
+      synchronize::threads(atomic::acq_rel);
+
+    // TODO Consider using all threads in the warp if legal and beneficial.
+    if (ThreadId < NumWarps)
+      __builtin_memcpy(&ReduceData[Offset],
+                       &SharedMemScratchpad[BatchSize * ThreadId], BatchSize);
+
+    Remaining -= BatchSize;
+  } while (Remaining > 0);
+}
 
 void gpu_regular_warp_reduce(void *reduce_data, ShuffleReductFnTy shflFct) {
   for (uint32_t mask = mapping::getWarpSize() / 2; mask > 0; mask /= 2) {
@@ -65,10 +113,9 @@ static uint32_t gpu_irregular_simd_reduce(void *reduce_data,
 }
 #endif
 
-static int32_t nvptx_parallel_reduce_nowait(
+static int32_t nvptx_parallel_reduce_nowait(uint64_t reduce_data_size,
                                             void *reduce_data,
-                                            ShuffleReductFnTy shflFct,
-                                            InterWarpCopyFnTy cpyFct) {
+                                            ShuffleReductFnTy shflFct) {
   uint32_t BlockThreadId = mapping::getThreadIdInBlock();
   if (mapping::isMainThreadInGenericMode(/* IsSPMD */ false))
     BlockThreadId = 0;
@@ -110,7 +157,8 @@ static int32_t nvptx_parallel_reduce_nowait(
   if (NumThreads > mapping::getWarpSize()) {
     // Gather all the reduced values from each warp
     // to the first warp.
-    cpyFct(reduce_data, WarpsNeeded);
+    accumulateWarpResultsInFirstWarp(reinterpret_cast<char *>(reduce_data),
+                                     reduce_data_size, WarpsNeeded);
 
     if (WarpId == 0)
       gpu_irregular_warp_reduce(reduce_data, shflFct, WarpsNeeded,
@@ -141,7 +189,8 @@ static int32_t nvptx_parallel_reduce_nowait(
         (NumThreads + mapping::getWarpSize() - 1) / mapping::getWarpSize();
     // Gather all the reduced values from each warp
     // to the first warp.
-    cpyFct(reduce_data, WarpsNeeded);
+    accumulateWarpResultsInFirstWarp(reinterpret_cast<char *>(reduce_data),
+                                     reduce_data_size, WarpsNeeded);
 
     uint32_t WarpId = BlockThreadId / mapping::getWarpSize();
     if (WarpId == 0)
@@ -171,9 +220,8 @@ extern "C" {
 int32_t __kmpc_nvptx_parallel_reduce_nowait_v2(IdentTy *Loc,
                                                uint64_t reduce_data_size,
                                                void *reduce_data,
-                                               ShuffleReductFnTy shflFct,
-                                               InterWarpCopyFnTy cpyFct) {
-  return nvptx_parallel_reduce_nowait(reduce_data, shflFct, cpyFct);
+                                               ShuffleReductFnTy shflFct) {
+  return nvptx_parallel_reduce_nowait(reduce_data_size, reduce_data, shflFct);
 }
 
 /// Mostly like _v2 but with the builtin assumption that we have less than
@@ -181,8 +229,8 @@ int32_t __kmpc_nvptx_parallel_reduce_nowait_v2(IdentTy *Loc,
 int32_t __kmpc_nvptx_teams_reduce_nowait_v3(
     IdentTy *Loc, void *__restrict__ GlobalBuffer, uint32_t num_of_records,
     uint64_t reduce_data_size, void *reduce_data, ShuffleReductFnTy shflFct,
-    InterWarpCopyFnTy cpyFct, ListGlobalFnTy lgcpyFct, ListGlobalFnTy lgredFct,
-    ListGlobalFnTy glcpyFct, ListGlobalFnTy glredFct) {
+    ListGlobalFnTy lgcpyFct, ListGlobalFnTy lgredFct, ListGlobalFnTy glcpyFct,
+    ListGlobalFnTy glredFct) {
   // Terminate all threads in non-SPMD mode except for the main thread.
   uint32_t ThreadId = mapping::getThreadIdInBlock();
   if (mapping::isGenericMode()) {
@@ -256,7 +304,8 @@ int32_t __kmpc_nvptx_teams_reduce_nowait_v3(
       (ActiveThreads + mapping::getWarpSize() - 1) / mapping::getWarpSize();
   // Gather all the reduced values from each warp
   // to the first warp.
-  cpyFct(reduce_data, WarpsNeeded);
+  accumulateWarpResultsInFirstWarp(reinterpret_cast<char *>(reduce_data),
+                                   reduce_data_size, WarpsNeeded);
 
   if (mapping::getWarpIdInBlock() == 0)
     gpu_irregular_warp_reduce(reduce_data, shflFct, WarpsNeeded, ThreadId);
@@ -267,8 +316,8 @@ int32_t __kmpc_nvptx_teams_reduce_nowait_v3(
 int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
     IdentTy *Loc, void *GlobalBuffer, uint32_t num_of_records,
     uint64_t reduce_data_size, void *reduce_data, ShuffleReductFnTy shflFct,
-    InterWarpCopyFnTy cpyFct, ListGlobalFnTy lgcpyFct, ListGlobalFnTy lgredFct,
-    ListGlobalFnTy glcpyFct, ListGlobalFnTy glredFct) {
+    ListGlobalFnTy lgcpyFct, ListGlobalFnTy lgredFct, ListGlobalFnTy glcpyFct,
+    ListGlobalFnTy glredFct) {
   // The first check is a compile time constant, the second one a runtime check.
   // If the first one succeeds we will use the specialized version.
   if ((state::getKernelEnvironment().Configuration.MaxTeams >= 0 &&
@@ -277,7 +326,7 @@ int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
       (omp_get_num_teams() <= num_of_records))
     return __kmpc_nvptx_teams_reduce_nowait_v3(
         Loc, GlobalBuffer, num_of_records, reduce_data_size, reduce_data,
-        shflFct, cpyFct, lgcpyFct, lgredFct, glcpyFct, glredFct);
+        shflFct, lgcpyFct, lgredFct, glcpyFct, glredFct);
 
   // Terminate all threads in non-SPMD mode except for the master thread.
   uint32_t ThreadId = mapping::getThreadIdInBlock();
@@ -385,7 +434,8 @@ int32_t __kmpc_nvptx_teams_reduce_nowait_v2(
                                mapping::getWarpSize();
         // Gather all the reduced values from each warp
         // to the first warp.
-        cpyFct(reduce_data, WarpsNeeded);
+        accumulateWarpResultsInFirstWarp(reinterpret_cast<char *>(reduce_data),
+                                         reduce_data_size, WarpsNeeded);
 
         uint32_t WarpId = ThreadId / mapping::getWarpSize();
         if (WarpId == 0)

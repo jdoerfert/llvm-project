@@ -17,15 +17,12 @@
 
 #pragma omp begin declare target device_type(nohost)
 
-#include "llvm/Frontend/OpenMP/OMPGridValues.h"
-
 using namespace ompx;
 
 namespace ompx {
 namespace impl {
 
 // Forward declarations defined to be defined for AMDGCN and NVPTX.
-const llvm::omp::GV &getGridValue();
 LaneMaskTy activemask();
 LaneMaskTy lanemaskLT();
 LaneMaskTy lanemaskGT();
@@ -42,10 +39,6 @@ uint32_t getNumberOfWarpsInBlock();
 ///
 ///{
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
-
-const llvm::omp::GV &getGridValue() {
-  return llvm::omp::getAMDGPUGridValues<__AMDGCN_WAVEFRONT_SIZE>();
-}
 
 uint32_t getNumberOfThreadsInBlock(int32_t Dim) {
   switch (Dim) {
@@ -152,8 +145,6 @@ uint32_t getNumberOfThreadsInBlock(int32_t Dim) {
   UNREACHABLE("Dim outside range!");
 }
 
-const llvm::omp::GV &getGridValue() { return llvm::omp::NVPTXGridValues; }
-
 LaneMaskTy activemask() {
   unsigned int Mask;
   asm("activemask.b32 %0;" : "=r"(Mask));
@@ -234,8 +225,6 @@ uint32_t getNumberOfWarpsInBlock() {
 #pragma omp end declare variant
 ///}
 
-uint32_t getWarpSize() { return getGridValue().GV_Warp_Size; }
-
 } // namespace impl
 } // namespace ompx
 
@@ -281,7 +270,7 @@ LaneMaskTy mapping::lanemaskGT() { return impl::lanemaskGT(); }
 
 uint32_t mapping::getThreadIdInWarp() {
   uint32_t ThreadIdInWarp = impl::getThreadIdInWarp();
-  ASSERT(ThreadIdInWarp < impl::getWarpSize(), nullptr);
+  ASSERT(ThreadIdInWarp < getWarpSize(), nullptr);
   return ThreadIdInWarp;
 }
 
@@ -290,12 +279,10 @@ uint32_t mapping::getThreadIdInBlock(int32_t Dim) {
   return ThreadIdInBlock;
 }
 
-uint32_t mapping::getWarpSize() { return impl::getWarpSize(); }
-
 uint32_t mapping::getMaxTeamThreads(bool IsSPMD) {
   uint32_t BlockSize = mapping::getNumberOfThreadsInBlock();
   // If we are in SPMD mode, remove one warp.
-  return BlockSize - (!IsSPMD * impl::getWarpSize());
+  return BlockSize - (!IsSPMD * getWarpSize());
 }
 uint32_t mapping::getMaxTeamThreads() {
   return mapping::getMaxTeamThreads(mapping::isSPMDMode());
@@ -367,7 +354,7 @@ extern "C" {
 }
 
 [[gnu::noinline]] uint32_t __kmpc_get_warp_size() {
-  return impl::getWarpSize();
+  return mapping::getWarpSize();
 }
 }
 

@@ -74,6 +74,9 @@ template <typename Ty1, typename Ty2> inline Ty1 align_down(Ty1 V, Ty2 Align) {
   return V - V % Align;
 }
 
+template <typename Ty> inline Ty &min(Ty &A, Ty &B) { return A < B ? A : B; }
+template <typename Ty> inline Ty &max(Ty &A, Ty &B) { return A < B ? B : A; }
+
 /// Return true iff \p Ptr is pointing into shared (local) memory (AS(3)).
 bool isSharedMemPtr(void *Ptr);
 

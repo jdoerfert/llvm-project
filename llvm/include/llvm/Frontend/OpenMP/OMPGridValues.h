@@ -83,6 +83,10 @@ struct GV {
   }
 };
 
+#ifdef _OPENMP
+#pragma omp begin declare target
+#endif
+
 /// For AMDGPU GPUs
 static constexpr GV AMDGPUGridValues64 = {
     256,       // GV_Slot_Size
@@ -119,6 +123,10 @@ static constexpr GV NVPTXGridValues = {
     1024,      // GV_Max_WG_Size
     128,       // GV_Default_WG_Size
 };
+
+#ifdef _OPENMP
+#pragma omp end declare target
+#endif
 
 } // namespace omp
 } // namespace llvm
