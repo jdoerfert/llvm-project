@@ -88,45 +88,6 @@ int32_t AsyncInfoTy::runPostProcessing() {
 
 bool AsyncInfoTy::isQueueEmpty() const { return AsyncInfo.Queue == nullptr; }
 
-/* All begin addresses for partially mapped structs must be aligned, up to 16,
- * in order to ensure proper alignment of members. E.g.
- *
- * struct S {
- *   int a;   // 4-aligned
- *   int b;   // 4-aligned
- *   int *p;  // 8-aligned
- * } s1;
- * ...
- * #pragma omp target map(tofrom: s1.b, s1.p[0:N])
- * {
- *   s1.b = 5;
- *   for (int i...) s1.p[i] = ...;
- * }
- *
- * Here we are mapping s1 starting from member b, so BaseAddress=&s1=&s1.a and
- * BeginAddress=&s1.b. Let's assume that the struct begins at address 0x100,
- * then &s1.a=0x100, &s1.b=0x104, &s1.p=0x108. Each member obeys the alignment
- * requirements for its type. Now, when we allocate memory on the device, in
- * CUDA's case cuMemAlloc() returns an address which is at least 256-aligned.
- * This means that the chunk of the struct on the device will start at a
- * 256-aligned address, let's say 0x200. Then the address of b will be 0x200 and
- * address of p will be a misaligned 0x204 (on the host there was no need to add
- * padding between b and p, so p comes exactly 4 bytes after b). If the device
- * kernel tries to access s1.p, a misaligned address error occurs (as reported
- * by the CUDA plugin). By padding the begin address down to a multiple of 8 and
- * extending the size of the allocated chuck accordingly, the chuck on the
- * device will start at 0x200 with the padding (4 bytes), then &s1.b=0x204 and
- * &s1.p=0x208, as they should be to satisfy the alignment requirements.
- */
-static const int64_t MaxAlignment = 16;
-
-/// Return the alignment requirement of partially mapped structs, see
-/// MaxAlignment above.
-static uint64_t getPartialStructRequiredAlignment(void *HstPtrBase) {
-  int LowestOneBit = __builtin_ffsl(reinterpret_cast<uintptr_t>(HstPtrBase));
-  uint64_t BaseAlignment = 1 << (LowestOneBit - 1);
-  return MaxAlignment < BaseAlignment ? MaxAlignment : BaseAlignment;
-}
 
 /// Map global data and execute pending ctors
 static int initLibrary(DeviceTy &Device) {
@@ -391,10 +352,6 @@ bool checkDeviceAndCtors(int64_t &DeviceID, ident_t *Loc) {
   return false;
 }
 
-static int32_t getParentIndex(int64_t Type) {
-  return ((Type & OMP_TGT_MAPTYPE_MEMBER_OF) >> 48) - 1;
-}
-
 void *targetAllocExplicit(size_t Size, int DeviceNum, int Kind,
                           const char *Name) {
   TIMESCOPE();
@@ -491,10 +448,11 @@ void targetUnlockExplicit(void *HostPtr, int DeviceNum, const char *Name) {
 
 /// Call the user-defined mapper function followed by the appropriate
 // targetData* function (targetData{Begin,End,Update}).
-int targetDataMapper(ident_t *Loc, DeviceTy &Device, void *ArgBase, void *Arg,
-                     int64_t ArgSize, int64_t ArgType, map_var_info_t ArgNames,
-                     void *ArgMapper, AsyncInfoTy &AsyncInfo,
-                     TargetDataFuncPtrTy TargetDataFunction) {
+static int targetDataMapper(ident_t *Loc, DeviceTy &Device, void *ArgBase,
+                            void *Arg, int64_t ArgSize, int64_t ArgType,
+                            map_var_info_t ArgNames, void *ArgMapper,
+                            AsyncInfoTy &AsyncInfo,
+                            TargetDataFuncPtrTy TargetDataFunction) {
   DP("Calling the mapper function " DPxMOD "\n", DPxPTR(ArgMapper));
 
   // The mapper function fills up Components.
@@ -528,6 +486,50 @@ int targetDataMapper(ident_t *Loc, DeviceTy &Device, void *ArgBase, void *Arg,
                               AsyncInfo, /*FromMapper=*/true);
 
   return Rc;
+}
+
+/* All begin addresses for partially mapped structs must be aligned, up to 16,
+ * in order to ensure proper alignment of members. E.g.
+ *
+ * struct S {
+ *   int a;   // 4-aligned
+ *   int b;   // 4-aligned
+ *   int *p;  // 8-aligned
+ * } s1;
+ * ...
+ * #pragma omp target map(tofrom: s1.b, s1.p[0:N])
+ * {
+ *   s1.b = 5;
+ *   for (int i...) s1.p[i] = ...;
+ * }
+ *
+ * Here we are mapping s1 starting from member b, so BaseAddress=&s1=&s1.a and
+ * BeginAddress=&s1.b. Let's assume that the struct begins at address 0x100,
+ * then &s1.a=0x100, &s1.b=0x104, &s1.p=0x108. Each member obeys the alignment
+ * requirements for its type. Now, when we allocate memory on the device, in
+ * CUDA's case cuMemAlloc() returns an address which is at least 256-aligned.
+ * This means that the chunk of the struct on the device will start at a
+ * 256-aligned address, let's say 0x200. Then the address of b will be 0x200 and
+ * address of p will be a misaligned 0x204 (on the host there was no need to add
+ * padding between b and p, so p comes exactly 4 bytes after b). If the device
+ * kernel tries to access s1.p, a misaligned address error occurs (as reported
+ * by the CUDA plugin). By padding the begin address down to a multiple of 8 and
+ * extending the size of the allocated chuck accordingly, the chuck on the
+ * device will start at 0x200 with the padding (4 bytes), then &s1.b=0x204 and
+ * &s1.p=0x208, as they should be to satisfy the alignment requirements.
+ */
+static const int64_t MaxAlignment = 16;
+
+/// Return the alignment requirement of partially mapped structs, see
+/// MaxAlignment above.
+static uint64_t getPartialStructRequiredAlignment(void *HstPtrBase) {
+  int LowestOneBit = __builtin_ffsl(reinterpret_cast<uintptr_t>(HstPtrBase));
+  uint64_t BaseAlignment = 1 << (LowestOneBit - 1);
+  return MaxAlignment < BaseAlignment ? MaxAlignment : BaseAlignment;
+}
+
+static int32_t getParentIndex(int64_t Type) {
+  return ((Type & OMP_TGT_MAPTYPE_MEMBER_OF) >> 48) - 1;
 }
 
 /// Internal function to do the mapping and transfer the data to the device
@@ -1149,13 +1151,6 @@ int targetDataUpdate(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
   return OFFLOAD_SUCCESS;
 }
 
-static const unsigned LambdaMapping = OMP_TGT_MAPTYPE_PTR_AND_OBJ |
-                                      OMP_TGT_MAPTYPE_LITERAL |
-                                      OMP_TGT_MAPTYPE_IMPLICIT;
-static bool isLambdaMapping(int64_t Mapping) {
-  return (Mapping & LambdaMapping) == LambdaMapping;
-}
-
 namespace {
 /// Find the table information in the map or look it up in the translation
 /// tables.
@@ -1396,6 +1391,13 @@ public:
     return OFFLOAD_SUCCESS;
   }
 };
+
+static const unsigned LambdaMapping = OMP_TGT_MAPTYPE_PTR_AND_OBJ |
+                                      OMP_TGT_MAPTYPE_LITERAL |
+                                      OMP_TGT_MAPTYPE_IMPLICIT;
+static bool isLambdaMapping(int64_t Mapping) {
+  return (Mapping & LambdaMapping) == LambdaMapping;
+}
 
 /// Process data before launching the kernel, including calling targetDataBegin
 /// to map and transfer data to target device, transferring (first-)private
