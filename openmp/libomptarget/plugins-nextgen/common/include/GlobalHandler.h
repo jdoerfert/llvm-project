@@ -140,7 +140,8 @@ public:
   /// \p DeviceGlobal.
   virtual Error getGlobalMetadataFromDevice(GenericDeviceTy &Device,
                                             DeviceImageTy &Image,
-                                            GlobalTy &DeviceGlobal) = 0;
+                                            GlobalTy &DeviceGlobal,
+                                            bool IsVariable = true) = 0;
 
   /// Copy the memory associated with a global from the device to its
   /// counterpart on the host. The name, size, and destination are defined by

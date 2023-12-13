@@ -167,6 +167,8 @@ struct DeviceTy {
   int32_t getDevicePointer(llvm::StringRef Name, bool RequiresFunctionPtr,
                            void **Ptr);
 
+  int32_t getKernelHandle(llvm::StringRef Name, void **HandlePtr);
+
 private:
   /// Deinitialize the device (and plugin).
   void deinit();

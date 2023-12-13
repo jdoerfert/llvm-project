@@ -821,6 +821,8 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   /// match the expected type.
   Expected<void *> getDevicePtr(StringRef Name, bool RequiresFunctionPtr);
 
+  Expected<GenericKernelTy *> getKernelHandle(StringRef Name);
+
   /// Getters of the grid values.
   uint32_t getWarpSize() const { return GridValues.GV_Warp_Size; }
   uint32_t getThreadLimit() const { return GridValues.GV_Max_WG_Size; }

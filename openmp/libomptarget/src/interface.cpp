@@ -14,6 +14,8 @@
 #include "OpenMP/OMPT/Interface.h"
 #include "OpenMP/OMPT/Callback.h"
 #include "PluginManager.h"
+#include "Shared/APITypes.h"
+#include "Shared/PluginAPI.h"
 #include "private.h"
 
 #include "Shared/EnvironmentVar.h"
@@ -489,4 +491,24 @@ EXTERN int __tgt_get_device_pointer(int64_t DeviceId, const char *Name,
   if (!DeviceOrErr)
     FATAL_MESSAGE(DeviceId, "%s", toString(DeviceOrErr.takeError()).c_str());
   return DeviceOrErr->getDevicePointer(Name, RequiresFunctionPtr, Ptr);
+}
+
+EXTERN int __tgt_get_kernel_handle(int64_t DeviceId, const char *Name,
+                                   void **HandlePtr) {
+  auto DeviceOrErr = PM->getDevice(DeviceId);
+  if (!DeviceOrErr)
+    FATAL_MESSAGE(DeviceId, "%s", toString(DeviceOrErr.takeError()).c_str());
+  return DeviceOrErr->getKernelHandle(Name, HandlePtr);
+}
+
+EXTERN int __tgt_launch_kernel_via_handle(int64_t DeviceId, void *HandlePtr) {
+  auto DeviceOrErr = PM->getDevice(DeviceId);
+  if (!DeviceOrErr)
+    FATAL_MESSAGE(DeviceId, "%s", toString(DeviceOrErr.takeError()).c_str());
+  KernelArgsTy KernelArgs = {0};
+  KernelArgs.NumTeams[0] = 1;
+  KernelArgs.ThreadLimit[0] = 1;
+  AsyncInfoTy AsyncInfo(*DeviceOrErr);
+  return DeviceOrErr->launchKernel(HandlePtr, nullptr, nullptr, KernelArgs,
+                                   AsyncInfo);
 }

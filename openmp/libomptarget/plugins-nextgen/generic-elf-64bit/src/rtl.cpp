@@ -346,7 +346,8 @@ class GenELF64GlobalHandlerTy final : public GenericGlobalHandlerTy {
 public:
   Error getGlobalMetadataFromDevice(GenericDeviceTy &GenericDevice,
                                     DeviceImageTy &Image,
-                                    GlobalTy &DeviceGlobal) override {
+                                    GlobalTy &DeviceGlobal,
+                                    bool IsVariable) override {
     const char *GlobalName = DeviceGlobal.getName().data();
     GenELF64DeviceImageTy &GenELF64Image =
         static_cast<GenELF64DeviceImageTy &>(Image);

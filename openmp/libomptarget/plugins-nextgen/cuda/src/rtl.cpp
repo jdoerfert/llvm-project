@@ -1205,7 +1205,8 @@ public:
   /// to DeviceGlobal.
   Error getGlobalMetadataFromDevice(GenericDeviceTy &Device,
                                     DeviceImageTy &Image,
-                                    GlobalTy &DeviceGlobal) override {
+                                    GlobalTy &DeviceGlobal,
+                                    bool IsVariable) override {
     CUDADeviceImageTy &CUDAImage = static_cast<CUDADeviceImageTy &>(Image);
 
     const char *GlobalName = DeviceGlobal.getName().data();

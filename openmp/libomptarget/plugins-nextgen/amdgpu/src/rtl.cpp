@@ -2866,12 +2866,17 @@ struct AMDGPUGlobalHandlerTy final : public GenericGlobalHandlerTy {
   /// to DeviceGlobal.
   Error getGlobalMetadataFromDevice(GenericDeviceTy &Device,
                                     DeviceImageTy &Image,
-                                    GlobalTy &DeviceGlobal) override {
+                                    GlobalTy &DeviceGlobal,
+                                    bool IsVariable) override {
     AMDGPUDeviceImageTy &AMDImage = static_cast<AMDGPUDeviceImageTy &>(Image);
 
+    // Kernel symbols have a ".kd" suffix.
+    std::string AdjustedName(DeviceGlobal.getName());
+    if (!IsVariable)
+      AdjustedName += ".kd";
+
     // Find the symbol on the device executable.
-    auto SymbolOrErr =
-        AMDImage.findDeviceSymbol(Device, DeviceGlobal.getName());
+    auto SymbolOrErr = AMDImage.findDeviceSymbol(Device, AdjustedName);
     if (!SymbolOrErr)
       return SymbolOrErr.takeError();
 

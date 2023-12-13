@@ -346,3 +346,7 @@ int32_t DeviceTy::getDevicePointer(llvm::StringRef Name,
   return RTL->get_device_pointer(RTLDeviceID, Name.data(), RequiresFunctionPtr,
                                  Ptr);
 }
+
+int32_t DeviceTy::getKernelHandle(llvm::StringRef Name, void **Ptr) {
+  return RTL->get_kernel_handle(RTLDeviceID, Name.data(), Ptr);
+}

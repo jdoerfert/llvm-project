@@ -69,6 +69,8 @@ VERS1.0 {
     __tgt_interop_destroy;
     ompt_libomptarget_connect;
     __tgt_get_device_pointer;
+    __tgt_get_kernel_handle;
+    __tgt_launch_kernel_via_handle;
   local:
     *;
 };

@@ -20,6 +20,7 @@
 #include "Utils/ELF.h"
 #include "omptarget.h"
 #include "llvm/ADT/SmallVector.h"
+#include <cstring>
 
 #ifdef OMPT_SUPPORT
 #include "OpenMP/OMPT/Callback.h"
@@ -1538,8 +1539,8 @@ Expected<void *> GenericDeviceTy::getDevicePtr(StringRef Name,
   void *Ptr = nullptr;
   GlobalTy DeviceGlobal(Name.data(), 0);
   for (DeviceImageTy *Image : LoadedImages) {
-    if (auto Err =
-            Handler.getGlobalMetadataFromDevice(*this, *Image, DeviceGlobal)) {
+    if (auto Err = Handler.getGlobalMetadataFromDevice(
+            *this, *Image, DeviceGlobal, !RequiresFunctionPtr)) {
       JoinedErr = llvm::joinErrors(std::move(JoinedErr), std::move(Err));
       continue;
     }
@@ -1551,6 +1552,35 @@ Expected<void *> GenericDeviceTy::getDevicePtr(StringRef Name,
     return JoinedErr;
 
   return Ptr;
+}
+
+Expected<GenericKernelTy *> GenericDeviceTy::getKernelHandle(StringRef Name) {
+  if (LoadedImages.empty())
+    return Plugin::error("No images loaded");
+
+  for (DeviceImageTy *Image : LoadedImages) {
+    for (auto &OffloadEntry : Image->getOffloadEntryTable()) {
+      if (OffloadEntry.size)
+        continue;
+      if (std::strcmp(Name.data(), OffloadEntry.name))
+        continue;
+      return reinterpret_cast<GenericKernelTy *>(OffloadEntry.addr);
+    }
+  }
+
+  for (DeviceImageTy *Image : LoadedImages) {
+    if (!getDevicePtr(Name, /*RequiresFunctionPtr=*/true))
+      continue;
+
+    __tgt_offload_entry KernelEntry = {0, const_cast<char *>(Name.data()), 0, 0,
+                                       0};
+    __tgt_offload_entry DeviceEntry;
+    if (auto Err = registerKernelOffloadEntry(*Image, KernelEntry, DeviceEntry))
+      return Err;
+    return reinterpret_cast<GenericKernelTy *>(DeviceEntry.addr);
+  }
+
+  return Plugin::error("Kernel not found");
 }
 
 Error GenericDeviceTy::createEvent(void **EventPtrStorage) {
@@ -2096,6 +2126,21 @@ int32_t __tgt_rtl_get_device_pointer(int32_t DeviceId, const char *Name,
   }
 
   *Ptr = *PtrOrErr;
+  return OFFLOAD_SUCCESS;
+}
+
+int32_t __tgt_rtl_get_kernel_handle(int32_t DeviceId, const char *Name,
+                                    void **HandlePtr) {
+
+  auto PtrOrErr = Plugin::get().getDevice(DeviceId).getKernelHandle(Name);
+  if (!PtrOrErr) {
+    REPORT("Failure to retrive the kernel handle for device %d with name '%s': "
+           "%s\n",
+           DeviceId, Name, toString(PtrOrErr.takeError()).data());
+    return OFFLOAD_FAIL;
+  }
+
+  *HandlePtr = *PtrOrErr;
   return OFFLOAD_SUCCESS;
 }
 

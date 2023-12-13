@@ -228,6 +228,9 @@ int32_t __tgt_rtl_initialize_record_replay(int32_t DeviceId, int64_t MemorySize,
 
 int32_t __tgt_rtl_get_device_pointer(int32_t DeviceId, const char *Name,
                                      int32_t RequiresFunctionPtr, void **Ptr);
+
+int32_t __tgt_rtl_get_kernel_handle(int32_t DeviceId, const char *Name,
+                                    void **HandlePtr);
 }
 
 #endif // OMPTARGET_SHARED_PLUGIN_API_H
