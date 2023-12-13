@@ -816,6 +816,11 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   Error printInfo();
   virtual Error obtainInfoImpl(InfoQueueTy &Info) = 0;
 
+  /// Return the device pointer of a symbol named \p Name or an error if the
+  /// symbols was not found, found multiple times (across images), or didn't
+  /// match the expected type.
+  Expected<void *> getDevicePtr(StringRef Name, bool RequiresFunctionPtr);
+
   /// Getters of the grid values.
   uint32_t getWarpSize() const { return GridValues.GV_Warp_Size; }
   uint32_t getThreadLimit() const { return GridValues.GV_Max_WG_Size; }

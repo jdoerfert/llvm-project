@@ -482,3 +482,11 @@ EXTERN void __tgt_target_nowait_query(void **AsyncHandle) {
   delete AsyncInfo;
   *AsyncHandle = nullptr;
 }
+
+EXTERN int __tgt_get_device_pointer(int64_t DeviceId, const char *Name,
+                                    int32_t RequiresFunctionPtr, void **Ptr) {
+  auto DeviceOrErr = PM->getDevice(DeviceId);
+  if (!DeviceOrErr)
+    FATAL_MESSAGE(DeviceId, "%s", toString(DeviceOrErr.takeError()).c_str());
+  return DeviceOrErr->getDevicePointer(Name, RequiresFunctionPtr, Ptr);
+}

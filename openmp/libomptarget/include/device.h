@@ -164,6 +164,9 @@ struct DeviceTy {
   /// Print all offload entries to stderr.
   void dumpOffloadEntries();
 
+  int32_t getDevicePointer(llvm::StringRef Name, bool RequiresFunctionPtr,
+                           void **Ptr);
+
 private:
   /// Deinitialize the device (and plugin).
   void deinit();

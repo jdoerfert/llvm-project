@@ -340,3 +340,9 @@ void DeviceTy::dumpOffloadEntries() {
     fprintf(stderr, "  %11s: %s\n", Kind, It.second->getNameAsCStr());
   }
 }
+
+int32_t DeviceTy::getDevicePointer(llvm::StringRef Name,
+                                   bool RequiresFunctionPtr, void **Ptr) {
+  return RTL->get_device_pointer(RTLDeviceID, Name.data(), RequiresFunctionPtr,
+                                 Ptr);
+}

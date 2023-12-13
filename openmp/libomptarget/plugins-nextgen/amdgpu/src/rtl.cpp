@@ -2878,21 +2878,43 @@ struct AMDGPUGlobalHandlerTy final : public GenericGlobalHandlerTy {
     hsa_executable_symbol_t Symbol = *SymbolOrErr;
     hsa_symbol_kind_t SymbolType;
     hsa_status_t Status;
-    uint64_t SymbolAddr;
-    uint32_t SymbolSize;
+    uint64_t SymbolAddr = 0;
+    uint32_t SymbolSize = 0;
 
-    // Retrieve the type, address and size of the symbol.
-    std::pair<hsa_executable_symbol_info_t, void *> RequiredInfos[] = {
-        {HSA_EXECUTABLE_SYMBOL_INFO_TYPE, &SymbolType},
-        {HSA_EXECUTABLE_SYMBOL_INFO_VARIABLE_ADDRESS, &SymbolAddr},
-        {HSA_EXECUTABLE_SYMBOL_INFO_VARIABLE_SIZE, &SymbolSize}};
-
-    for (auto &Info : RequiredInfos) {
-      Status = hsa_executable_symbol_get_info(Symbol, Info.first, Info.second);
+    auto GetSymbolInfo = [&](hsa_executable_symbol_info_t InfoT,
+                             void *Storage) {
+      Status = hsa_executable_symbol_get_info(Symbol, InfoT, Storage);
       if (auto Err = Plugin::check(
               Status, "Error in hsa_executable_symbol_get_info: %s"))
         return Err;
+      return Plugin::success();
+    };
+
+    if (auto Err = GetSymbolInfo(HSA_EXECUTABLE_SYMBOL_INFO_TYPE, &SymbolType))
+      return Err;
+
+    // Retrieve the type, address and size of the symbol.
+    SmallVector<std::pair<hsa_executable_symbol_info_t, void *>> RequiredInfos;
+    switch (SymbolType) {
+    case HSA_SYMBOL_KIND_VARIABLE:
+      RequiredInfos.push_back(
+          {HSA_EXECUTABLE_SYMBOL_INFO_VARIABLE_ADDRESS, &SymbolAddr});
+      RequiredInfos.push_back(
+          {HSA_EXECUTABLE_SYMBOL_INFO_VARIABLE_SIZE, &SymbolSize});
+      break;
+    case HSA_SYMBOL_KIND_KERNEL:
+      RequiredInfos.push_back(
+          {HSA_EXECUTABLE_SYMBOL_INFO_KERNEL_OBJECT, &SymbolAddr});
+      break;
+    case HSA_SYMBOL_KIND_INDIRECT_FUNCTION:
+      RequiredInfos.push_back(
+          {HSA_EXECUTABLE_SYMBOL_INFO_INDIRECT_FUNCTION_OBJECT, &SymbolAddr});
+      break;
     }
+
+    for (auto &Info : RequiredInfos)
+      if (auto Err = GetSymbolInfo(Info.first, Info.second))
+        return Err;
 
     // Check the size of the symbol.
     if (SymbolSize != DeviceGlobal.getSize())

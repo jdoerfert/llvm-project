@@ -19,6 +19,7 @@
 #include "JIT.h"
 #include "Utils/ELF.h"
 #include "omptarget.h"
+#include "llvm/ADT/SmallVector.h"
 
 #ifdef OMPT_SUPPORT
 #include "OpenMP/OMPT/Callback.h"
@@ -1525,6 +1526,33 @@ Error GenericDeviceTy::printInfo() {
   return Plugin::success();
 }
 
+Expected<void *> GenericDeviceTy::getDevicePtr(StringRef Name,
+                                               bool RequiresFunctionPtr) {
+  if (LoadedImages.empty())
+    return Plugin::error("No images loaded");
+
+  GenericPluginTy &Plugin = Plugin::get();
+  GenericGlobalHandlerTy &Handler = Plugin.getGlobalHandler();
+
+  llvm::Error JoinedErr = Plugin::success();
+  void *Ptr = nullptr;
+  GlobalTy DeviceGlobal(Name.data(), 0);
+  for (DeviceImageTy *Image : LoadedImages) {
+    if (auto Err =
+            Handler.getGlobalMetadataFromDevice(*this, *Image, DeviceGlobal)) {
+      JoinedErr = llvm::joinErrors(std::move(JoinedErr), std::move(Err));
+      continue;
+    }
+    if (Ptr)
+      return Plugin::error("Device pointer found in multiple images");
+    Ptr = DeviceGlobal.getPtr();
+  }
+  if (!Ptr || JoinedErr)
+    return JoinedErr;
+
+  return Ptr;
+}
+
 Error GenericDeviceTy::createEvent(void **EventPtrStorage) {
   return createEventImpl(EventPtrStorage);
 }
@@ -2053,6 +2081,21 @@ int32_t __tgt_rtl_init_device_info(int32_t DeviceId,
 int32_t __tgt_rtl_set_device_offset(int32_t DeviceIdOffset) {
   Plugin::get().setDeviceIdStartIndex(DeviceIdOffset);
 
+  return OFFLOAD_SUCCESS;
+}
+
+int32_t __tgt_rtl_get_device_pointer(int32_t DeviceId, const char *Name,
+                                     int32_t RequiresFunctionPtr, void **Ptr) {
+  auto PtrOrErr =
+      Plugin::get().getDevice(DeviceId).getDevicePtr(Name, RequiresFunctionPtr);
+  if (!PtrOrErr) {
+    REPORT("Failure to retrive the %s from device %d with name '%s': %s\n",
+           RequiresFunctionPtr ? "function pointer" : "pointer", DeviceId, Name,
+           toString(PtrOrErr.takeError()).data());
+    return OFFLOAD_FAIL;
+  }
+
+  *Ptr = *PtrOrErr;
   return OFFLOAD_SUCCESS;
 }
 
