@@ -1031,6 +1031,9 @@ void Sema::inheritCUDATargetAttrs(FunctionDecl *FD,
 }
 
 std::string Sema::getCudaConfigureFuncName() const {
+  if (getLangOpts().OffloadViaLLVM)
+    return "__llvmPushCallConfiguration";
+
   if (getLangOpts().HIP)
     return getLangOpts().HIPUseNewLaunchAPI ? "__hipPushCallConfiguration"
                                             : "hipConfigureCall";

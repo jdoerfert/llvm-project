@@ -319,6 +319,9 @@ set(openmp_wrapper_files
   openmp_wrappers/__clang_openmp_device_functions.h
   openmp_wrappers/complex_cmath.h
   openmp_wrappers/new
+  openmp_wrappers/__llvm_offload.h
+  openmp_wrappers/__llvm_offload_host.h
+  openmp_wrappers/__llvm_offload_device.h
 )
 
 set(llvm_libc_wrapper_files

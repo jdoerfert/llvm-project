@@ -19,6 +19,7 @@
 #include "clang/Basic/Cuda.h"
 #include "clang/CodeGen/CodeGenABITypes.h"
 #include "clang/CodeGen/ConstantInitBuilder.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Frontend/Offloading/Utility.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -171,7 +172,7 @@ private:
   /// Transform managed variables for device compilation.
   void transformManagedVars();
   /// Create offloading entries to register globals in RDC mode.
-  void createOffloadingEntries();
+  void createOffloadingEntries(StringRef Section = "");
 
 public:
   CGNVCUDARuntime(CodeGenModule &CGM);
@@ -195,12 +196,16 @@ public:
 } // end anonymous namespace
 
 std::string CGNVCUDARuntime::addPrefixToName(StringRef FuncName) const {
+  if (CGM.getLangOpts().OffloadViaLLVM)
+    return ((Twine("llvm") + Twine(FuncName)).str());
   if (CGM.getLangOpts().HIP)
     return ((Twine("hip") + Twine(FuncName)).str());
   return ((Twine("cuda") + Twine(FuncName)).str());
 }
 std::string
 CGNVCUDARuntime::addUnderscoredPrefixToName(StringRef FuncName) const {
+  if (CGM.getLangOpts().OffloadViaLLVM)
+    return ((Twine("__llvm") + Twine(FuncName)).str());
   if (CGM.getLangOpts().HIP)
     return ((Twine("__hip") + Twine(FuncName)).str());
   return ((Twine("__cuda") + Twine(FuncName)).str());
@@ -314,7 +319,8 @@ void CGNVCUDARuntime::emitDeviceStub(CodeGenFunction &CGF,
   }
   if (CudaFeatureEnabled(CGM.getTarget().getSDKVersion(),
                          CudaFeature::CUDA_USES_NEW_LAUNCH) ||
-      (CGF.getLangOpts().HIP && CGF.getLangOpts().HIPUseNewLaunchAPI))
+      (CGF.getLangOpts().HIP && CGF.getLangOpts().HIPUseNewLaunchAPI) ||
+      (CGF.getLangOpts().OffloadViaLLVM))
     emitDeviceStubBodyNew(CGF, Args);
   else
     emitDeviceStubBodyLegacy(CGF, Args);
@@ -1125,9 +1131,11 @@ void CGNVCUDARuntime::transformManagedVars() {
 // Creates offloading entries for all the kernels and globals that must be
 // registered. The linker will provide a pointer to this section so we can
 // register the symbols with the linked device image.
-void CGNVCUDARuntime::createOffloadingEntries() {
-  StringRef Section = CGM.getLangOpts().HIP ? "hip_offloading_entries"
-                                            : "cuda_offloading_entries";
+void CGNVCUDARuntime::createOffloadingEntries(StringRef Section) {
+  if (Section.empty())
+    Section = CGM.getLangOpts().HIP ? "hip_offloading_entries"
+                                    : "cuda_offloading_entries";
+
   llvm::Module &M = CGM.getModule();
   for (KernelInfo &I : EmittedKernels)
     llvm::offloading::emitOffloadingEntry(
@@ -1171,6 +1179,9 @@ void CGNVCUDARuntime::createOffloadingEntries() {
 
 // Returns module constructor to be added.
 llvm::Function *CGNVCUDARuntime::finalizeModule() {
+  llvm::errs() << "OFfload Is DEvice: " << CGM.getLangOpts().OffloadIsDevice
+               << "\n";
+  llvm::errs() << "CUDA Is DEvice: " << CGM.getLangOpts().CUDAIsDevice << "\n";
   if (CGM.getLangOpts().CUDAIsDevice) {
     transformManagedVars();
 
@@ -1197,7 +1208,9 @@ llvm::Function *CGNVCUDARuntime::finalizeModule() {
     }
     return nullptr;
   }
-  if (CGM.getLangOpts().OffloadingNewDriver && RelocatableDeviceCode)
+  if (CGM.getLangOpts().OffloadViaLLVM)
+    createOffloadingEntries("omp_offloading_entries");
+  else if (CGM.getLangOpts().OffloadingNewDriver && RelocatableDeviceCode)
     createOffloadingEntries();
   else
     return makeModuleCtorFunction();

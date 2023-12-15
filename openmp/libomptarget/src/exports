@@ -71,6 +71,9 @@ VERS1.0 {
     __tgt_get_device_pointer;
     __tgt_get_kernel_handle;
     __tgt_launch_kernel_via_handle;
+    __llvmPushCallConfiguration;
+    __llvmPopCallConfiguration;
+    llvmLaunchKernel;
   local:
     *;
 };

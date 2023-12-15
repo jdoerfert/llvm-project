@@ -10,14 +10,11 @@
 #ifndef __CLANG_OPENMP_DEVICE_FUNCTIONS_H__
 #define __CLANG_OPENMP_DEVICE_FUNCTIONS_H__
 
-#ifndef _OPENMP
-#error "This file is for OpenMP compilation only."
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifdef __NVPTX__
 #pragma omp begin declare variant match(                                       \
     device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
 
@@ -34,6 +31,7 @@ extern "C" {
 #undef __CUDA__
 
 #pragma omp end declare variant
+#endif
 
 #ifdef __AMDGCN__
 #pragma omp begin declare variant match(device = {arch(amdgcn)})

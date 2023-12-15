@@ -1123,6 +1123,18 @@ void Clang::AddPreprocessingOptions(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("__clang_openmp_device_functions.h");
   }
 
+  if (Args.hasArg(options::OPT_foffload_via_llvm)) {
+    CmdArgs.push_back("-include");
+    SmallString<128> P(D.ResourceDir);
+    llvm::sys::path::append(P, "include");
+    llvm::sys::path::append(P, "openmp_wrappers");
+    if (JA.isDeviceOffloading(Action::OFK_OpenMP))
+      llvm::sys::path::append(P, "__llvm_offload_device.h");
+    else
+      llvm::sys::path::append(P, "__llvm_offload_host.h");
+    CmdArgs.push_back(Args.MakeArgString(P));
+  }
+
   // Add -i* options, and automatically translate to
   // -include-pch/-include-pth for transparent PCH support. It's
   // wonky, but we include looking for .gch so we can support seamless
@@ -6403,6 +6415,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_no_offload_new_driver, false))
     CmdArgs.push_back("--offload-new-driver");
 
+  // Forward the offload runtime change to code generation.
+  if (Args.hasFlag(options::OPT_foffload_via_llvm,
+                   options::OPT_fno_offload_via_llvm, false))
+    CmdArgs.push_back("-foffload-via-llvm");
+
   SanitizeArgs.addArgs(TC, Args, CmdArgs, InputType);
 
   const XRayArgs &XRay = TC.getXRayArgs();
@@ -7409,6 +7426,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // so that only the relevant declarations are emitted.
   if (IsOpenMPDevice) {
     CmdArgs.push_back("-fopenmp-is-target-device");
+    CmdArgs.push_back("-fcuda-is-device");
     if (OpenMPDeviceInput) {
       CmdArgs.push_back("-fopenmp-host-ir-file-path");
       CmdArgs.push_back(Args.MakeArgString(OpenMPDeviceInput->getFilename()));

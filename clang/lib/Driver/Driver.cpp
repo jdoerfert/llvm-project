@@ -110,6 +110,7 @@ static std::optional<llvm::Triple> getOffloadTargetTriple(const Driver &D,
   // Offload compilation flow does not support multiple targets for now. We
   // need the HIPActionBuilder (and possibly the CudaActionBuilder{,Base}too)
   // to support multiple tool chains first.
+  llvm::errs() << "Offload S " << OffloadTargets.size() << "\n";
   switch (OffloadTargets.size()) {
   default:
     D.Diag(diag::err_drv_only_one_offload_target_supported);
@@ -126,6 +127,7 @@ static std::optional<llvm::Triple> getOffloadTargetTriple(const Driver &D,
 static std::optional<llvm::Triple>
 getNVIDIAOffloadTargetTriple(const Driver &D, const ArgList &Args,
                              const llvm::Triple &HostTriple) {
+  llvm::errs() << "Offload Eq " << Args.hasArg(options::OPT_offload_EQ) << "\n";
   if (!Args.hasArg(options::OPT_offload_EQ)) {
     return llvm::Triple(HostTriple.isArch64Bit() ? "nvptx64-nvidia-cuda"
                                                  : "nvptx-nvidia-cuda");
@@ -138,6 +140,8 @@ getNVIDIAOffloadTargetTriple(const Driver &D, const ArgList &Args,
     D.Diag(diag::err_drv_cuda_offload_only_emit_bc);
     return std::nullopt;
   }
+  if (Args.hasArg(options::OPT_foffload_via_llvm))
+    return TT;
   D.Diag(diag::err_drv_invalid_or_unsupported_offload_target) << TT->str();
   return std::nullopt;
 }
@@ -769,11 +773,13 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
                    }) ||
       C.getInputArgs().hasArg(options::OPT_hip_link) ||
       C.getInputArgs().hasArg(options::OPT_hipstdpar);
+  bool UseLLVMOffload = C.getInputArgs().hasArg(
+      options::OPT_foffload_via_llvm, options::OPT_fno_offload_via_llvm, false);
   if (IsCuda && IsHIP) {
     Diag(clang::diag::err_drv_mix_cuda_hip);
     return;
   }
-  if (IsCuda) {
+  if (IsCuda && !UseLLVMOffload) {
     const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
     const llvm::Triple &HostTriple = HostTC->getTriple();
     auto OFK = Action::OFK_Cuda;
@@ -795,7 +801,7 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
         CudaInstallation.WarnIfUnsupportedVersion();
     }
     C.addOffloadDeviceToolChain(CudaTC.get(), OFK);
-  } else if (IsHIP) {
+  } else if (IsHIP && !UseLLVMOffload) {
     if (auto *OMPTargetArg =
             C.getInputArgs().getLastArg(options::OPT_fopenmp_targets_EQ)) {
       Diag(clang::diag::err_drv_unsupported_opt_for_language_mode)
@@ -819,10 +825,11 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
   // We need to generate an OpenMP toolchain if the user specified targets with
   // the -fopenmp-targets option or used --offload-arch with OpenMP enabled.
   bool IsOpenMPOffloading =
-      C.getInputArgs().hasFlag(options::OPT_fopenmp, options::OPT_fopenmp_EQ,
-                               options::OPT_fno_openmp, false) &&
-      (C.getInputArgs().hasArg(options::OPT_fopenmp_targets_EQ) ||
-       C.getInputArgs().hasArg(options::OPT_offload_arch_EQ));
+      ((IsCuda || IsHIP) && UseLLVMOffload) ||
+      (C.getInputArgs().hasFlag(options::OPT_fopenmp, options::OPT_fopenmp_EQ,
+                                options::OPT_fno_openmp, false) &&
+       (C.getInputArgs().hasArg(options::OPT_fopenmp_targets_EQ) ||
+        C.getInputArgs().hasArg(options::OPT_offload_arch_EQ)));
   if (IsOpenMPOffloading) {
     // We expect that -fopenmp-targets is always used in conjunction with the
     // option -fopenmp specifying a valid runtime with offloading support, i.e.
@@ -849,8 +856,7 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
       }
       for (StringRef T : OpenMPTargets->getValues())
         OpenMPTriples.insert(T);
-    } else if (C.getInputArgs().hasArg(options::OPT_offload_arch_EQ) &&
-               !IsHIP && !IsCuda) {
+    } else if (C.getInputArgs().hasArg(options::OPT_offload_arch_EQ)) {
       const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
       auto AMDTriple = getHIPOffloadTargetTriple(*this, C.getInputArgs());
       auto NVPTXTriple = getNVIDIAOffloadTargetTriple(*this, C.getInputArgs(),
@@ -867,8 +873,7 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
         for (StringRef Arch : getOffloadArchs(
                  C, C.getArgs(), Action::OFK_OpenMP, &*TempTC, true))
           Archs.insert(Arch);
-      }
-      if (AMDTriple) {
+      } else if (AMDTriple) {
         auto TempTC = std::make_unique<toolchains::AMDGPUOpenMPToolChain>(
             *this, *AMDTriple, *HostTC, C.getInputArgs());
         for (StringRef Arch : getOffloadArchs(
@@ -2930,8 +2935,9 @@ class OffloadingActionBuilder final {
         : DeviceActionBuilder(C, Args, Inputs, OFKind) {
 
       CompileDeviceOnly = C.getDriver().offloadDeviceOnly();
-      Relocatable = Args.hasFlag(options::OPT_fgpu_rdc,
-                                 options::OPT_fno_gpu_rdc, /*Default=*/false);
+      Relocatable =
+          Args.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc,
+                       /*Default=*/false);
     }
 
     ActionBuilderReturnCode addDeviceDependences(Action *HostAction) override {
@@ -3131,6 +3137,7 @@ class OffloadingActionBuilder final {
 
       // Collect all offload arch parameters, removing duplicates.
       std::set<StringRef> GpuArchs;
+      GpuArchs.insert("x86_64");
       bool Error = false;
       for (Arg *A : Args) {
         if (!(A->getOption().matches(options::OPT_offload_arch_EQ) ||
@@ -3207,11 +3214,26 @@ class OffloadingActionBuilder final {
 
     StringRef getCanonicalOffloadArch(StringRef ArchStr) override {
       CudaArch Arch = StringToCudaArch(ArchStr);
-      if (Arch == CudaArch::UNKNOWN || !IsNVIDIAGpuArch(Arch)) {
+      if (Arch != CudaArch::UNKNOWN) {
+        if (IsNVIDIAGpuArch(Arch))
+          return CudaArchToString(Arch);
+        if (IsAMDGpuArch(Arch)) {
+          llvm::StringMap<bool> Features;
+          auto HIPTriple =
+              getHIPOffloadTargetTriple(C.getDriver(), C.getInputArgs());
+          if (!HIPTriple)
+            return StringRef();
+          auto Arch = parseTargetID(*HIPTriple, ArchStr, &Features);
+          if (!Arch) {
+            C.getDriver().Diag(clang::diag::err_drv_bad_target_id) << ArchStr;
+            C.setContainsError();
+            return StringRef();
+          }
+          return getCanonicalTargetID(*Arch, Features);
+        }
+      }
         C.getDriver().Diag(clang::diag::err_drv_cuda_bad_gpu_arch) << ArchStr;
         return StringRef();
-      }
-      return CudaArchToString(Arch);
     }
 
     std::optional<std::pair<llvm::StringRef, llvm::StringRef>>
@@ -4084,6 +4106,8 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
 
   bool UseNewOffloadingDriver =
       C.isOffloadingHostKind(Action::OFK_OpenMP) ||
+      Args.hasFlag(options::OPT_foffload_via_llvm,
+                   options::OPT_fno_offload_via_llvm, false) ||
       Args.hasFlag(options::OPT_offload_new_driver,
                    options::OPT_no_offload_new_driver, false);
 
