@@ -10373,7 +10373,7 @@ struct AANoFPClassImpl : AANoFPClass {
                             /*Depth=*/0, TLI, AC, I, DT);
     State.addKnownBits(~KnownFPClass.KnownFPClasses);
 
-    if (auto *CI = dyn_cast<CallInst>(UseV)) {
+    if (auto *CI = dyn_cast<CallInst>(I)) {
       // Special case FP intrinsic with struct return type.
       switch (CI->getIntrinsicID()) {
       case Intrinsic::frexp:
@@ -10386,9 +10386,9 @@ struct AANoFPClassImpl : AANoFPClass {
       }
     }
 
-    if (!UseV->getType()->isFPOrFPVectorTy())
+    if (!I->getType()->isFPOrFPVectorTy())
       return false;
-    return !isa<LoadInst, AtomicRMWInst>(UseV);
+    return !isa<LoadInst, AtomicRMWInst>(I);
   }
 
   const std::string getAsStr(Attributor *A) const override {
