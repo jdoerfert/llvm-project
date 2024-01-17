@@ -10382,7 +10382,8 @@ struct AANoFPClassImpl : AANoFPClass {
         // TODO: Could recognize math libcalls
         return false;
       default:
-        break;
+        // Arbitrary intrinsics.
+        return false;
       }
     }
 
