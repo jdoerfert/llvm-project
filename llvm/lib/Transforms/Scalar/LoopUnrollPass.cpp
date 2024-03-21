@@ -214,6 +214,7 @@ TargetTransformInfo::UnrollingPreferences llvm::gatherUnrollingPreferences(
   UP.AllowExpensiveTripCount = false;
   UP.Force = false;
   UP.UpperBound = false;
+  // errs() << "0 UPUB " << UP.UpperBound << "\n";
   UP.UnrollAndJam = false;
   UP.UnrollAndJamInnerLoopThreshold = 60;
   UP.MaxIterationsCountToAnalyze = UnrollMaxIterationsCountToAnalyze;
@@ -252,8 +253,10 @@ TargetTransformInfo::UnrollingPreferences llvm::gatherUnrollingPreferences(
     UP.AllowRemainder = UnrollAllowRemainder;
   if (UnrollRuntime.getNumOccurrences() > 0)
     UP.Runtime = UnrollRuntime;
+  // errs() << "1 UPUB " << UP.UpperBound << "\n";
   if (UnrollMaxUpperBound == 0)
     UP.UpperBound = false;
+  // errs() << "2 UPUB " << UP.UpperBound << "\n";
   if (UnrollUnrollRemainder.getNumOccurrences() > 0)
     UP.UnrollRemainder = UnrollUnrollRemainder;
   if (UnrollMaxIterationsCountToAnalyze.getNumOccurrences() > 0)
@@ -272,6 +275,7 @@ TargetTransformInfo::UnrollingPreferences llvm::gatherUnrollingPreferences(
     UP.Runtime = *UserRuntime;
   if (UserUpperBound)
     UP.UpperBound = *UserUpperBound;
+  // errs() << "3 UPUB " << UP.UpperBound << "\n";
   if (UserFullUnrollMaxCount)
     UP.FullUnrollMaxCount = *UserFullUnrollMaxCount;
 
@@ -903,6 +907,8 @@ bool llvm::computeUnrollCount(
     TargetTransformInfo::UnrollingPreferences &UP,
     TargetTransformInfo::PeelingPreferences &PP, bool &UseUpperBound) {
 
+  // errs() << "TC " << TripCount << " MTC: " << MaxTripCount
+  //        << " MOZ: " << MaxOrZero << " TM: " << TripMultiple << "\n";
   unsigned LoopSize = UCE.getRolledLoopSize();
 
   const bool UserUnrollCount = UnrollCount.getNumOccurrences() > 0;
@@ -975,6 +981,11 @@ bool llvm::computeUnrollCount(
   // Note that the cost of bounded unrolling is always strictly greater than
   // cost of exact full unrolling.  As such, if we have an exact count and
   // found it unprofitable, we'll never chose to bounded unroll.
+  // errs() << "UPUB " << UP.UpperBound << " : " << UP.MaxUpperBound << "\n";
+  // errs() << "FU "
+  //       << (!TripCount && MaxTripCount && (UP.UpperBound || MaxOrZero) &&
+  //           MaxTripCount <= UP.MaxUpperBound)
+  //       << "\n";
   if (!TripCount && MaxTripCount && (UP.UpperBound || MaxOrZero) &&
       MaxTripCount <= UP.MaxUpperBound) {
     UP.Count = MaxTripCount;
@@ -988,6 +999,7 @@ bool llvm::computeUnrollCount(
 
   // 5th priority is loop peeling.
   computePeelCount(L, LoopSize, PP, TripCount, DT, SE, AC, UP.Threshold);
+  // errs() << "PC: " << PP.PeelCount << "\n";
   if (PP.PeelCount) {
     UP.Runtime = false;
     UP.Count = 1;
@@ -1146,6 +1158,7 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
                     << L->getHeader()->getParent()->getName() << "] Loop %"
                     << L->getHeader()->getName() << "\n");
   TransformationMode TM = hasUnrollTransformation(L);
+  // errs() << "TM " << TM << "\n";
   if (TM & TM_Disable)
     return LoopUnrollResult::Unmodified;
 
@@ -1195,8 +1208,10 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
   // Exit early if unrolling is disabled. For OptForSize, we pick the loop size
   // as threshold later on.
   if (UP.Threshold == 0 && (!UP.Partial || UP.PartialThreshold == 0) &&
-      !OptForSize)
+      !OptForSize) {
+    // errs() << "disabled\n";
     return LoopUnrollResult::Unmodified;
+  }
 
   SmallPtrSet<const Value *, 32> EphValues;
   CodeMetrics::collectEphemeralValues(L, &AC, EphValues);
@@ -1276,8 +1291,10 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
   bool IsCountSetExplicitly = computeUnrollCount(
       L, TTI, DT, LI, &AC, SE, EphValues, &ORE, TripCount, MaxTripCount,
       MaxOrZero, TripMultiple, UCE, UP, PP, UseUpperBound);
-  if (!UP.Count)
+  if (!UP.Count) {
+    // errs() << "Count is 0\n";
     return LoopUnrollResult::Unmodified;
+  }
 
   if (PP.PeelCount) {
     assert(UP.Count == 1 && "Cannot perform peel and unroll in the same step");

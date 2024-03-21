@@ -758,7 +758,7 @@ public:
   /// SCEV that does not have a single pointer operand. This returns a
   /// SCEVUnknown pointer for well-formed pointer-type expressions, but corner
   /// cases do exist.
-  const SCEV *getPointerBase(const SCEV *V);
+  const SCEV *getPointerBase(const SCEV *V, const SCEV **Offset = nullptr);
 
   /// Compute an expression equivalent to S - getPointerBase(S).
   const SCEV *removePointerBase(const SCEV *S);

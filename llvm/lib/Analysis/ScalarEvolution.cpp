@@ -4848,7 +4848,8 @@ ScalarEvolution::getUMinFromMismatchedTypes(SmallVectorImpl<const SCEV *> &Ops,
   return getUMinExpr(PromotedOps, Sequential);
 }
 
-const SCEV *ScalarEvolution::getPointerBase(const SCEV *V) {
+const SCEV *ScalarEvolution::getPointerBase(const SCEV *V,
+                                            const SCEV **Offset) {
   // A pointer operand may evaluate to a nonpointer expression, such as null.
   if (!V->getType()->isPointerTy())
     return V;
@@ -4858,14 +4859,19 @@ const SCEV *ScalarEvolution::getPointerBase(const SCEV *V) {
       V = AddRec->getStart();
     } else if (auto *Add = dyn_cast<SCEVAddExpr>(V)) {
       const SCEV *PtrOp = nullptr;
+      SmallVector<const SCEV *> Offsets;
       for (const SCEV *AddOp : Add->operands()) {
         if (AddOp->getType()->isPointerTy()) {
           assert(!PtrOp && "Cannot have multiple pointer ops");
           PtrOp = AddOp;
+        } else if (Offset) {
+          Offsets.push_back(AddOp);
         }
       }
       assert(PtrOp && "Must have pointer op");
       V = PtrOp;
+      if (Offset)
+        *Offset = getAddExpr(Offsets);
     } else // Not something we can look further into.
       return V;
   }
@@ -8418,17 +8424,20 @@ ScalarEvolution::computeExitLimitFromMemAccessImpl(const Loop *L) {
   const DataLayout &DL = getDataLayout();
 
   for (Instruction *I : MemInsts) {
-    Value *Ptr = getLoadStorePointerOperand(I);
+    Value *Ptr = getLoadStorePointerOperand(I)->stripPointerCasts();
     assert(Ptr && "empty pointer operand");
     auto *AddRec = dyn_cast<SCEVAddRecExpr>(getSCEV(Ptr));
     if (!AddRec || !AddRec->isAffine())
       continue;
-    const SCEV *PtrBase = getPointerBase(AddRec);
+    const SCEV *Offset = nullptr;
+    const SCEV *PtrBase = getPointerBase(AddRec, &Offset);
     const SCEV *Step = AddRec->getStepRecurrence(*this);
     const SCEV *MemSize =
         getCertainSizeOfMem(PtrBase, Step->getType(), DL, TLI, this);
     if (!MemSize)
       continue;
+    if (Offset)
+      MemSize = getMinusSCEV(MemSize, Offset);
     if (isKnownNegative(Step))
       Step = getNegativeSCEV(Step);
     // Now we can infer a max execution time by MemLength/StepLength.
@@ -9058,6 +9067,7 @@ ScalarEvolution::computeExitLimit(const Loop *L, BasicBlock *ExitingBlock,
     assert(Latch == ExitingBlock);
     auto EL = computeExitLimitFromMemAccess(L);
     PotentiallyBetterConstantMax = EL.ConstantMaxNotTaken;
+    // errs() << "PBCM " << *PotentiallyBetterConstantMax << "\n";
   }
 
   bool IsOnlyExit = (L->getExitingBlock() != nullptr);

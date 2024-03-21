@@ -115,6 +115,8 @@ void AMDGPUTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
 
   // We want to run unroll even for the loops which have been vectorized.
   UP.UnrollVectorizedLoop = true;
+  UP.UpperBound = true;
+  UP.MaxUpperBound = 128;
 
   // TODO: Do we want runtime unrolling?
 
