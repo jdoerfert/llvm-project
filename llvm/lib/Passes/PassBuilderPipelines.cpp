@@ -1117,9 +1117,6 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
           PGOIndirectCallPromotion(true /* IsInLTO */, true /* SamplePGO */));
   }
 
-  if (EnableGPUSan)
-    MPM.addPass(GPUSanPass());
-
   // Try to perform OpenMP specific optimizations on the module. This is a
   // (quick!) no-op if there are no OpenMP runtime calls present in the module.
   MPM.addPass(OpenMPOptPass());
@@ -1885,6 +1882,9 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
   // Lower variadic functions for supported targets prior to inlining.
   MPM.addPass(ExpandVariadicsPass(ExpandVariadicsMode::Optimize));
 
+  if (EnableGPUSan)
+    MPM.addPass(GPUSanPass());
+
   // Note: historically, the PruneEH pass was run first to deduce nounwind and
   // generally clean up exception handling overhead. It isn't clear this is
   // valuable as the inliner doesn't currently care whether it is inlining an
@@ -1910,9 +1910,6 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
 
   // Optimize globals again after we ran the inliner.
   MPM.addPass(GlobalOptPass());
-
-  if (EnableGPUSan)
-    MPM.addPass(GPUSanPass());
 
   // Run the OpenMPOpt pass again after global optimizations.
   MPM.addPass(OpenMPOptPass(ThinOrFullLTOPhase::FullLTOPostLink));
