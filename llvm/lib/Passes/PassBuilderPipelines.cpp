@@ -2073,6 +2073,9 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
 
   invokeFullLinkTimeOptimizationLastEPCallbacks(MPM, Level);
 
+  if (EnableGPUSan)
+    MPM.addPass(GPUSanPass());
+
   // Emit annotation remarks.
   addAnnotationRemarksPass(MPM);
 
