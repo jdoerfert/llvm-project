@@ -2275,6 +2275,10 @@ void GPUSanTy::checkAndReportError() {
         Default());
     break;
   }
+  case SanitizerTrapInfoTy::UseAfterScope:
+    fprintf(stderr, "%sERROR: OffloadSanitizer %s\n%s", Red(),
+            "use-after-scope", Default());
+    break;
   case SanitizerTrapInfoTy::UseAfterFree:
     fprintf(stderr, "%sERROR: OffloadSanitizer %s\n%s", Red(), "use-after-free",
             Default());
