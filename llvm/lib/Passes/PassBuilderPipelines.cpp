@@ -165,8 +165,9 @@ static cl::opt<bool>
                             cl::Hidden,
                             cl::desc("Enable inline deferral during PGO"));
 
-static cl::opt<bool> EnableGPUSan("enable-gpu-san", cl::init(false), cl::Hidden,
-                                  cl::desc("Enable gpu san"));
+static cl::opt<bool>
+    EnableOffloadSanitizer("enable-offload-sanitizer", cl::init(false),
+                           cl::Hidden, cl::desc("Enable offload sanitizer"));
 
 static cl::opt<bool> EnableModuleInliner("enable-module-inliner",
                                          cl::init(false), cl::Hidden,
@@ -2063,7 +2064,7 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
 
   invokeFullLinkTimeOptimizationLastEPCallbacks(MPM, Level);
 
-  if (EnableGPUSan)
+  if (EnableOffloadSanitizer)
     MPM.addPass(GPUSanPass());
 
   // Emit annotation remarks.
