@@ -1768,6 +1768,9 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
     // in ICP.
     MPM.addPass(LowerTypeTestsPass(nullptr, nullptr, true));
 
+    if (EnableOffloadSanitizer)
+      MPM.addPass(GPUSanPass());
+
     invokeFullLinkTimeOptimizationLastEPCallbacks(MPM, Level);
 
     // Emit annotation remarks.
@@ -1845,6 +1848,9 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
     // in ICP (which is performed earlier than this in the regular LTO
     // pipeline).
     MPM.addPass(LowerTypeTestsPass(nullptr, nullptr, true));
+
+    if (EnableOffloadSanitizer)
+      MPM.addPass(GPUSanPass());
 
     invokeFullLinkTimeOptimizationLastEPCallbacks(MPM, Level);
 
