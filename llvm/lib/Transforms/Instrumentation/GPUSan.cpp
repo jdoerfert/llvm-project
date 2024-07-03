@@ -58,8 +58,8 @@ namespace llvm {
 
 struct LocationInfoTy {
   uint64_t LineNo = 0;
-  uint32_t ColumnNo = 0;
-  uint32_t ParentIdx = -1;
+  uint64_t ColumnNo = 0;
+  uint64_t ParentIdx = -1;
   StringRef FileName;
   StringRef FunctionName;
   bool operator==(const LocationInfoTy &RHS) const {
@@ -117,6 +117,37 @@ static std::string getSuffix(PtrOrigin PO) {
     break;
   }
   llvm_unreachable("Bad pointer origin!");
+}
+
+static StringRef prettifyFunctionName(StringSaver &SS, StringRef Name) {
+  if (Name.ends_with(".internalized"))
+    return SS.save(Name.drop_back(sizeof("internalized")) + " (internalized)");
+  if (!Name.starts_with("__omp_offloading_"))
+    return Name;
+  Name = Name.drop_front(sizeof("__omp_offloading_"));
+  auto It = Name.find_first_of("_");
+  if (It != StringRef::npos && It + 1 < Name.size())
+    Name = Name.drop_front(It + 1);
+  It = Name.find_first_of("_");
+  if (It != StringRef::npos && It + 1 < Name.size())
+    Name = Name.drop_front(It + 1);
+  if (Name.ends_with("_debug__"))
+    Name = Name.drop_back(sizeof("debug__"));
+  if (Name.ends_with("_debug___omp_outlined_debug__"))
+    Name = Name.drop_back(sizeof("debug___omp_outlined_debug__"));
+  It = Name.find_last_of("_");
+  if (It == StringRef::npos || It + 1 >= Name.size())
+    return Name;
+  if (Name[It + 1] != 'l')
+    return Name;
+  int64_t KernelLineNo = 0;
+  Name.take_back(Name.size() - It -
+                 /* '_' and 'l' */ 2)
+      .getAsInteger(10, KernelLineNo);
+  if (KernelLineNo)
+    Name = SS.save("omp target (" + Name.take_front(It).str() + ":" +
+                   std::to_string(KernelLineNo) + ")");
+  return Name;
 }
 
 class GPUSanImpl final {
@@ -273,12 +304,38 @@ private:
     return {It.first->first, It.first->second};
   }
 
-  void addParentLocationInfo(LocationInfoTy &LI, uint64_t ParentIdx) {
-    LI.ParentIdx = ParentIdx;
-  }
-
   void buildCallTreeInfo(Function &Fn, LocationInfoTy &LI);
   ConstantInt *getSourceIndex(Instruction &I, LocationInfoTy *LastLI = nullptr);
+
+  uint64_t addString(StringRef S) {
+    const auto &It = UniqueStrings.insert({S, ConcatenatedString.size()});
+    if (It.second) {
+      ConcatenatedString += S;
+      ConcatenatedString.push_back('\0');
+    }
+    return It.first->second;
+  };
+
+  void encodeLocationInfo(LocationInfoTy &LI, uint64_t Idx) {
+    StringRef FunctionName = LI.FunctionName;
+    if (LI.ParentIdx == (decltype(LI.ParentIdx))-1)
+      FunctionName = prettifyFunctionName(SS, FunctionName);
+
+    auto FuncIdx = addString(FunctionName);
+    auto FileIdx = addString(LI.FileName);
+    if (LocationEncoding.size() < (Idx + 1) * 5)
+      LocationEncoding.resize((Idx + 1) * 5);
+    LocationEncoding[Idx * 5 + 0] = ConstantInt::get(Int64Ty, FuncIdx);
+    LocationEncoding[Idx * 5 + 1] = ConstantInt::get(Int64Ty, FileIdx);
+    LocationEncoding[Idx * 5 + 2] = ConstantInt::get(Int64Ty, LI.LineNo);
+    LocationEncoding[Idx * 5 + 3] = ConstantInt::get(Int64Ty, LI.ColumnNo);
+    LocationEncoding[Idx * 5 + 4] = ConstantInt::get(Int64Ty, LI.ParentIdx);
+  }
+
+  SmallVector<Constant *> LocationEncoding;
+  std::string ConcatenatedString;
+  DenseMap<uint64_t, uint64_t> StringIndexMap;
+  DenseMap<StringRef, uint64_t> UniqueStrings;
 
   BumpPtrAllocator BPA;
   StringSaver SS = StringSaver(BPA);
@@ -291,38 +348,6 @@ ConstantInt *GPUSanImpl::getSourceIndex(Instruction &I,
   LocationInfoTy *LI = new LocationInfoTy();
   auto *DILoc = I.getDebugLoc().get();
 
-  auto PrettifyFunctionName = [&](StringRef Name) {
-    if (Name.ends_with(".internalized"))
-      return SS.save(Name.drop_back(sizeof("internalized")) +
-                     " (internalized)");
-    if (!Name.starts_with("__omp_offloading_"))
-      return Name;
-    Name = Name.drop_front(sizeof("__omp_offloading_"));
-    auto It = Name.find_first_of("_");
-    if (It != StringRef::npos && It + 1 < Name.size())
-      Name = Name.drop_front(It + 1);
-    It = Name.find_first_of("_");
-    if (It != StringRef::npos && It + 1 < Name.size())
-      Name = Name.drop_front(It + 1);
-    if (Name.ends_with("_debug__"))
-      Name = Name.drop_back(sizeof("debug__"));
-    if (Name.ends_with("_debug___omp_outlined_debug__"))
-      Name = Name.drop_back(sizeof("debug___omp_outlined_debug__"));
-    It = Name.find_last_of("_");
-    if (It == StringRef::npos || It + 1 >= Name.size())
-      return Name;
-    if (Name[It + 1] != 'l')
-      return Name;
-    int64_t KernelLineNo = 0;
-    Name.take_back(Name.size() - It -
-                   /* '_' and 'l' */ 2)
-        .getAsInteger(10, KernelLineNo);
-    if (KernelLineNo)
-      Name = SS.save("omp target (" + Name.take_front(It).str() + ":" +
-                     std::to_string(KernelLineNo) + ")");
-    return Name;
-  };
-
   auto FillLI = [&](LocationInfoTy &LI, DILocation &DIL) {
     LI.FileName = DIL.getFilename();
     if (LI.FileName.empty())
@@ -330,7 +355,6 @@ ConstantInt *GPUSanImpl::getSourceIndex(Instruction &I,
     LI.FunctionName = DIL.getSubprogramLinkageName();
     if (LI.FunctionName.empty())
       LI.FunctionName = I.getFunction()->getName();
-    LI.FunctionName = PrettifyFunctionName(LI.FunctionName);
     LI.LineNo = DIL.getLine();
     LI.ColumnNo = DIL.getColumn();
   };
@@ -340,52 +364,46 @@ ConstantInt *GPUSanImpl::getSourceIndex(Instruction &I,
     FillLI(*LI, *DILoc);
     ParentDILoc = DILoc->getInlinedAt();
   } else {
-    LI->FunctionName = PrettifyFunctionName(I.getFunction()->getName());
+    LI->FunctionName = I.getFunction()->getName();
   }
-  errs() << __FUNCTION__ << " : " << I << " : " << LastLI << "\n";
 
   bool IsNew;
   uint64_t Idx;
-  errs() << "Line: " << LI->LineNo << "\n";
   std::tie(LI, Idx) = addLocationInfo(LI, IsNew);
-  errs() << "Idx: " << Idx << " : IsNew " << IsNew << "\n";
-  errs() << "Line: " << LI->LineNo << "\n";
   if (LastLI)
-    addParentLocationInfo(*LastLI, Idx);
+    LastLI->ParentIdx = Idx;
   if (!IsNew)
     return ConstantInt::get(Int64Ty, Idx);
 
+  uint64_t CurIdx = Idx;
   LocationInfoTy *CurLI = LI;
   while (ParentDILoc) {
-    //    if (!ParentDILoc->getScope()->getSubprogram()->isArtificial()) {
     auto *ParentLI = new LocationInfoTy();
     FillLI(*ParentLI, *ParentDILoc);
     uint64_t ParentIdx;
-    errs() << "Parent " << ParentLI->LineNo << "\n";
     std::tie(ParentLI, ParentIdx) = addLocationInfo(ParentLI, IsNew);
-    errs() << "Parent " << ParentIdx << " :: " << ParentLI->LineNo << "\n";
-    addParentLocationInfo(*CurLI, ParentIdx);
-    CurLI = ParentLI;
+    CurLI->ParentIdx = ParentIdx;
     if (!IsNew)
       break;
-    //   }
+    encodeLocationInfo(*CurLI, CurIdx);
+    CurLI = ParentLI;
+    CurIdx = ParentIdx;
     ParentDILoc = ParentDILoc->getInlinedAt();
   }
 
   Function &Fn = *I.getFunction();
   buildCallTreeInfo(Fn, *CurLI);
 
+  encodeLocationInfo(*CurLI, CurIdx);
+
   return ConstantInt::get(Int64Ty, Idx);
 }
 
 void GPUSanImpl::buildCallTreeInfo(Function &Fn, LocationInfoTy &LI) {
-  errs() << __FUNCTION__ << " : " << Fn.getName() << " : "
-         << Fn.hasFnAttribute("kernel") << "\n";
   if (Fn.hasFnAttribute("kernel"))
     return;
   SmallVector<CallBase *> Calls;
   for (auto &U : Fn.uses()) {
-    errs() << *U.getUser() << "\n";
     auto *CB = dyn_cast<CallBase>(U.getUser());
     if (!CB)
       continue;
@@ -393,11 +411,11 @@ void GPUSanImpl::buildCallTreeInfo(Function &Fn, LocationInfoTy &LI) {
       continue;
     Calls.push_back(CB);
   }
-  errs() << "Calls " << Calls.size() << "\n";
   if (Calls.size() == 1) {
     getSourceIndex(*Calls.back(), &LI);
     return;
   }
+  LI.ParentIdx = -2;
   AmbiguousCalls.insert(Calls.begin(), Calls.end());
 }
 
@@ -760,58 +778,116 @@ bool GPUSanImpl::instrument() {
     return false;
   }();
 
-  for (Function &Fn : M)
+  SmallVector<Function *> Kernels;
+  for (Function &Fn : M) {
+    if (Fn.hasFnAttribute("kernel"))
+      Kernels.push_back(&Fn);
     if (!Fn.getName().contains("ompx") && !Fn.getName().contains("__kmpc") &&
         !Fn.getName().starts_with("rpc_"))
       if (!Fn.hasFnAttribute(Attribute::DisableSanitizerInstrumentation))
         Changed |= instrumentFunction(Fn);
+  }
 
-  SmallVector<std::pair<CallBase *, ConstantInt *>> AmbiguousCallsNumbered;
+  SmallVector<CallBase *> AmbiguousCallsOrdered;
+  SmallVector<Constant *> AmbiguousCallsMapping;
+  if (LocationMap.empty())
+    AmbiguousCalls.clear();
   for (size_t I = 0; I < AmbiguousCalls.size(); ++I) {
     CallBase &CB = *AmbiguousCalls[I];
-    AmbiguousCallsNumbered.push_back({&CB, getSourceIndex(CB)});
+    AmbiguousCallsOrdered.push_back(&CB);
+    AmbiguousCallsMapping.push_back(getSourceIndex(CB));
   }
-  IntegerType *ITy = nullptr;
-  if (size_t NumAmbiguousCalls = AmbiguousCalls.size()) {
-    ITy = IntegerType::get(Ctx, llvm::PowerOf2Ceil(NumAmbiguousCalls));
-    auto *ArrayTy = ArrayType::get(ITy, 1024);
-    LocationsArray = new GlobalVariable(
-        ArrayTy, /*isConstant=*/false, GlobalValue::PrivateLinkage,
-        UndefValue::get(ArrayTy), "__san.locations",
-        GlobalValue::ThreadLocalMode::NotThreadLocal, 3);
-    M.insertGlobalVariable(LocationsArray);
 
+  uint64_t AmbiguousCallsBitWidth =
+      llvm::Log2_64_Ceil(AmbiguousCalls.size() + 1);
+
+  new GlobalVariable(M, Int64Ty, /*isConstant=*/true,
+                     GlobalValue::ExternalLinkage,
+                     ConstantInt::get(Int64Ty, AmbiguousCallsBitWidth),
+                     "__san.num_ambiguous_calls", nullptr,
+                     GlobalValue::ThreadLocalMode::NotThreadLocal, 1);
+
+  if (size_t NumAmbiguousCalls = AmbiguousCalls.size()) {
+    {
+      auto *ArrayTy = ArrayType::get(Int64Ty, NumAmbiguousCalls);
+      auto *GV = new GlobalVariable(
+          M, ArrayTy, /*isConstant=*/true, GlobalValue::ExternalLinkage,
+          ConstantArray::get(ArrayTy, AmbiguousCallsMapping),
+          "__san.ambiguous_calls_mapping", nullptr,
+          GlobalValue::ThreadLocalMode::NotThreadLocal, 4);
+      GV->setVisibility(GlobalValue::ProtectedVisibility);
+    }
+
+    auto *ArrayTy = ArrayType::get(Int64Ty, 1024);
+    LocationsArray = new GlobalVariable(
+        M, ArrayTy, /*isConstant=*/false, GlobalValue::PrivateLinkage,
+        UndefValue::get(ArrayTy), "__san.calls", nullptr,
+        GlobalValue::ThreadLocalMode::NotThreadLocal, 3);
+
+    auto *OldFn = M.getFunction("__san_get_location_value");
+    if (OldFn)
+      OldFn->setName("");
     Function *LocationGetter = Function::Create(
-        FunctionType::get(Int64Ty, false), llvm::GlobalValue::ExternalLinkage,
+        FunctionType::get(Int64Ty, false), GlobalValue::ExternalLinkage,
         "__san_get_location_value", M);
+    if (OldFn) {
+      OldFn->replaceAllUsesWith(LocationGetter);
+      OldFn->eraseFromParent();
+    }
     auto *EntryBB = BasicBlock::Create(Ctx, "entry", LocationGetter);
     IRBuilder<> IRB(EntryBB);
     Value *Idx = IRB.CreateCall(getThreadIdFn(), {}, "san.gtid");
-    Value *Ptr = IRB.CreateGEP(ITy, LocationsArray, {Idx});
-    auto *LocationValue = IRB.CreateLoad(ITy, Ptr);
-    IRB.CreateRet(IRB.CreateZExt(LocationValue, Int64Ty));
+    Value *Ptr = IRB.CreateGEP(Int64Ty, LocationsArray, {Idx});
+    auto *LocationValue = IRB.CreateLoad(Int64Ty, Ptr);
+    IRB.CreateRet(LocationValue);
   }
 
-  for (auto &It : AmbiguousCallsNumbered) {
-    IRBuilder<> IRB(It.first);
+  Function *InitSharedFn =
+      Function::Create(FunctionType::get(VoidTy, false),
+                       GlobalValue::PrivateLinkage, "__san.init_shared", &M);
+  auto *EntryBB = BasicBlock::Create(Ctx, "entry", InitSharedFn);
+  IRBuilder<> IRB(EntryBB);
+  if (!AmbiguousCalls.empty()) {
     Value *Idx = IRB.CreateCall(getThreadIdFn(), {}, "san.gtid");
-    Value *Ptr = IRB.CreateGEP(ITy, LocationsArray, {Idx});
-    IRB.CreateStore(It.second, Ptr);
+    Value *Ptr = IRB.CreateGEP(Int64Ty, LocationsArray, {Idx});
+    IRB.CreateStore(ConstantInt::get(Int64Ty, 0), Ptr);
+  }
+  IRB.CreateRetVoid();
+
+  for (auto *KernelFn : Kernels) {
+    IRBuilder<> IRB(&*KernelFn->getEntryBlock().getFirstNonPHIOrDbgOrAlloca());
+    IRB.CreateCall(InitSharedFn, {});
   }
 
-  SmallVector<LocationInfoTy *> Locations;
-  Locations.resize(LocationMap.size());
-  for (auto &It : LocationMap)
-    Locations[It.second] = It.first;
-  for (size_t I = 0; I < Locations.size(); ++I) {
-    LocationInfoTy &LI = *Locations[I];
-    errs() << "[" << I << "]";
-    errs() << " - File: " << LI.FileName << "\n";
-    errs() << " - Func: " << LI.FunctionName << "\n";
-    errs() << " - Line: " << LI.LineNo << "\n";
-    errs() << " - Coln: " << LI.ColumnNo << "\n";
-    errs() << " - ParI: " << LI.ParentIdx << "\n";
+  for (const auto &It : llvm::enumerate(AmbiguousCallsOrdered)) {
+    IRBuilder<> IRB(It.value());
+    Value *Idx = IRB.CreateCall(getThreadIdFn(), {}, "san.gtid");
+    Value *Ptr = IRB.CreateGEP(Int64Ty, LocationsArray, {Idx});
+    Value *OldVal = IRB.CreateLoad(Int64Ty, Ptr);
+    Value *OldValShifted = IRB.CreateShl(
+        OldVal, ConstantInt::get(Int64Ty, AmbiguousCallsBitWidth));
+    Value *NewVal = IRB.CreateBinOp(Instruction::Or, OldValShifted,
+                                    ConstantInt::get(Int64Ty, It.index() + 1));
+    IRB.CreateStore(NewVal, Ptr);
+    IRB.SetInsertPoint(It.value()->getNextNode());
+    IRB.CreateStore(OldVal, Ptr);
   }
+
+  auto *NamesTy = ArrayType::get(Int8Ty, ConcatenatedString.size() + 1);
+  auto *Names = new GlobalVariable(
+      M, NamesTy, /*isConstant=*/true, GlobalValue::ExternalLinkage,
+      ConstantDataArray::getString(Ctx, ConcatenatedString),
+      "__san.location_names", nullptr,
+      GlobalValue::ThreadLocalMode::NotThreadLocal, 4);
+  Names->setVisibility(GlobalValue::ProtectedVisibility);
+
+  auto *ArrayTy = ArrayType::get(Int64Ty, LocationEncoding.size());
+  auto *GV = new GlobalVariable(
+      M, ArrayTy, /*isConstant=*/true, GlobalValue::ExternalLinkage,
+      ConstantArray::get(ArrayTy, LocationEncoding), "__san.locations", nullptr,
+      GlobalValue::ThreadLocalMode::NotThreadLocal, 4);
+  GV->setVisibility(GlobalValue::ProtectedVisibility);
+
   M.dump();
   return Changed;
 }

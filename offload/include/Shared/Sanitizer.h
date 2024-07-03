@@ -14,9 +14,12 @@
 #include "Types.h"
 #include "Utils.h"
 
-extern "C" int ompx_block_id(int Dim);
-extern "C" int ompx_block_dim(int Dim);
-extern "C" int ompx_thread_id(int Dim);
+extern "C" {
+int ompx_block_id(int Dim);
+int ompx_block_dim(int Dim);
+int ompx_thread_id(int Dim);
+int64_t __san_get_location_value();
+}
 
 enum class AllocationKind { LOCAL, GLOBAL, LAST = GLOBAL };
 
@@ -126,6 +129,14 @@ template <AllocationKind AK> struct Allocations {
   static AllocationArrayTy<AK> Arr[SanitizerConfig<AK>::NUM_ALLOCATION_ARRAYS];
 };
 
+struct LocationEncodingTy {
+  uint64_t FunctionNameIdx;
+  uint64_t FileNameIdx;
+  uint64_t LineNo;
+  uint64_t ColumnNo;
+  uint64_t ParentIdx;
+};
+
 struct SanitizerTrapInfoTy {
   /// AllocationTy
   /// {
@@ -167,7 +178,8 @@ struct SanitizerTrapInfoTy {
   uint64_t BlockId[3];
   uint32_t ThreadId[3];
   uint64_t PC;
-  uint64_t SrcId;
+  uint64_t LocationId;
+  int64_t CallId;
   /// }
 
   [[clang::disable_sanitizer_instrumentation]] void
@@ -176,7 +188,8 @@ struct SanitizerTrapInfoTy {
       BlockId[Dim] = ompx_block_id(Dim);
       ThreadId[Dim] = ompx_thread_id(Dim);
     }
-    SrcId = SourceId;
+    LocationId = SourceId;
+    CallId = __san_get_location_value();
   }
 
   template <enum AllocationKind AK>
