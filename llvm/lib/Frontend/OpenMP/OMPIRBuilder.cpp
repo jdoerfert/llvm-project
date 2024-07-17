@@ -4573,15 +4573,26 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
 
   Function *Kernel = Builder.GetInsertBlock()->getParent();
 
+  // We need to strip the debug prefix to get the correct kernel name.
+  StringRef KernelName = Kernel->getName();
+  const std::string DebugPrefix = "_debug__";
+  if (KernelName.ends_with(DebugPrefix)) {
+    KernelName = KernelName.drop_back(DebugPrefix.length());
+    Kernel = M.getFunction(KernelName);
+    assert(Kernel && "Expected the real kernel to exist");
+  }
+
   // Manifest the launch configuration in the metadata matching the kernel
   // environment.
   if (MinTeamsVal > 1 || MaxTeamsVal > 0)
     writeTeamsForKernel(T, *Kernel, MinTeamsVal, MaxTeamsVal);
 
   // For max values, < 0 means unset, == 0 means set but unknown.
+  errs() << MinThreadsVal << " : " << MaxThreadsVal << "\n";
   if (MaxThreadsVal < 0)
     MaxThreadsVal = std::max(
         int32_t(getGridValue(T, Kernel).GV_Default_WG_Size), MinThreadsVal);
+  errs() << MinThreadsVal << " : " << MaxThreadsVal << "\n";
 
   if (MaxThreadsVal > 0)
     writeThreadBoundsForKernel(T, *Kernel, MinThreadsVal, MaxThreadsVal);
@@ -4592,12 +4603,6 @@ OpenMPIRBuilder::createTargetInit(const LocationDescription &Loc, bool IsSPMD,
   Constant *MaxTeams = ConstantInt::getSigned(Int32, MaxTeamsVal);
   Constant *ReductionDataSize = ConstantInt::getSigned(Int32, 0);
   Constant *ReductionBufferLength = ConstantInt::getSigned(Int32, 0);
-
-  // We need to strip the debug prefix to get the correct kernel name.
-  StringRef KernelName = Kernel->getName();
-  const std::string DebugPrefix = "_debug__";
-  if (KernelName.ends_with(DebugPrefix))
-    KernelName = KernelName.drop_back(DebugPrefix.length());
 
   Function *Fn = getOrCreateRuntimeFunctionPtr(
       omp::RuntimeFunction::OMPRTL___kmpc_target_init);
@@ -4790,10 +4795,15 @@ void OpenMPIRBuilder::writeThreadBoundsForKernel(const Triple &T,
                                                  Function &Kernel, int32_t LB,
                                                  int32_t UB) {
   Kernel.addFnAttr("omp_target_thread_limit", std::to_string(UB));
+  errs() << "K " << Kernel.getName() << " : " << T.isAMDGPU() << "\n";
 
   if (T.isAMDGPU()) {
     Kernel.addFnAttr("amdgpu-flat-work-group-size",
                      llvm::utostr(LB) + "," + llvm::utostr(UB));
+    errs() << "K "
+           << Kernel.getFnAttribute("amdgpu-flat-work-group-size")
+                  .getValueAsString()
+           << "\n";
     return;
   }
 
