@@ -20,8 +20,12 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Utils.h"
@@ -33,6 +37,11 @@ using namespace llvm;
 
 static cl::opt<unsigned> MaxBooleansInControlFlowHub(
     "max-booleans-in-control-flow-hub", cl::init(32), cl::Hidden,
+    cl::desc("Set the maximum number of outgoing blocks for using a boolean "
+             "value to record the exiting block in CreateControlFlowHub."));
+
+static cl::opt<int> MaxIncomingPHIValues(
+    "max-incoming-phi-values-in-control-flow-hub", cl::init(-1), cl::Hidden,
     cl::desc("Set the maximum number of outgoing blocks for using a boolean "
              "value to record the exiting block in CreateControlFlowHub."));
 
@@ -124,6 +133,7 @@ static void restoreSSA(const DominatorTree &DT, const Loop *L,
       LLVM_DEBUG(dbgs() << "predecessor " << In->getName() << ": ");
       if (Def->getParent() == In || DT.dominates(Def, In)) {
         LLVM_DEBUG(dbgs() << "dominated\n");
+        assert(!isa<UndefValue>(Def));
         NewPhi->addIncoming(Def, In);
       } else {
         LLVM_DEBUG(dbgs() << "not dominated\n");
@@ -140,7 +150,89 @@ static void restoreSSA(const DominatorTree &DT, const Loop *L,
   }
 }
 
-static bool unifyLoopExits(DominatorTree &DT, LoopInfo &LI, Loop *L) {
+static void prepareSSA(const DominatorTree &DT, const Loop *L,
+                       const SetVector<BasicBlock *> &Incoming,
+                       DenseMap<BasicBlock *, SetVector<BasicBlock *>> &ExitMap,
+                       DenseMap<Type *, SmallVector<AllocaInst *>> &AllocaMap) {
+  BasicBlock &EntryBB = L->getHeader()->getParent()->getEntryBlock();
+  auto DL = EntryBB.getModule()->getDataLayout();
+
+  DenseMap<std::pair<Type *, BasicBlock *>, unsigned> AllocaIdxMap;
+
+  auto GetAlloca = [&](Type *Ty, BasicBlock *BB) {
+    auto &Idx = AllocaIdxMap[{Ty, BB}];
+    auto &Allocas = AllocaMap[Ty];
+    if (Idx == Allocas.size()) {
+      auto *AI = new AllocaInst(Ty, DL.getAllocaAddrSpace(), "storage",
+                                EntryBB.getFirstInsertionPt());
+      Allocas.push_back(AI);
+    }
+    assert(Idx < Allocas.size());
+    return Allocas[Idx++];
+  };
+
+  struct ReplacementInfo {
+    Use *U;
+    AllocaInst *AI;
+    Instruction *IP;
+  };
+  SmallVector<ReplacementInfo> Replacements;
+  SmallVector<ReplacementInfo> ReplacementsSI;
+  for (auto *BB : L->blocks()) {
+    for (auto &I : *BB) {
+      for (auto &U : I.uses()) {
+        auto *UserInst = cast<Instruction>(U.getUser());
+        auto *UserBlock = UserInst->getParent();
+        if (L->contains(UserBlock))
+          continue;
+        LLVM_DEBUG(dbgs() << "found ext use for " << I.getName() << "("
+                          << BB->getName() << ")"
+                          << ": " << *UserInst << "(" << UserBlock->getName()
+                          << ")"
+                          << "\n");
+
+        if (pred_size(UserBlock) != 1) {
+          LLVM_DEBUG(dbgs()
+                     << "Complex user block " << UserBlock->getName() << "\n");
+          continue;
+        }
+        const auto &ExitingBBs = ExitMap.lookup(UserBlock);
+        if (ExitingBBs.empty()) {
+          LLVM_DEBUG(dbgs() << "Not an exit " << UserBlock->getName() << "\n");
+          continue;
+        }
+        AllocaInst *AI = GetAlloca(I.getType(), UserBlock);
+        for (auto *ExitingBB : ExitingBBs)
+          ReplacementsSI.push_back({&U, AI, ExitingBB->getTerminator()});
+
+        auto *IP = UserInst;
+        if (auto *PHI = dyn_cast<PHINode>(IP)) {
+          for (size_t J = 0; J < PHI->getNumIncomingValues(); ++J) {
+            if (PHI->getIncomingValue(J) != &I)
+              continue;
+            IP = PHI->getIncomingBlock(J)->getTerminator();
+            break;
+          }
+          assert(IP != U);
+        }
+        Replacements.push_back({&U, AI, IP});
+      }
+    }
+  }
+  for (auto &It : ReplacementsSI) {
+    new StoreInst(It.U->get(), It.AI, false, It.IP);
+  }
+  for (auto &It : Replacements) {
+    auto *LI = new LoadInst(It.U->get()->getType(), It.AI,
+                            It.U->get()->getName() + ".reload", It.IP);
+    It.U->getUser()->replaceUsesOfWith(It.U->get(), LI);
+    assert(It.AI->getNumUses() > 1);
+  }
+}
+
+static bool
+unifyLoopExits(DominatorTree &DT, LoopInfo &LI, Loop *L,
+               DenseMap<Type *, SmallVector<AllocaInst *>> &AllocaMap) {
   // To unify the loop exits, we need a list of the exiting blocks as
   // well as exit blocks. The functions for locating these lists both
   // traverse the entire loop body. It is more efficient to first
@@ -148,6 +240,7 @@ static bool unifyLoopExits(DominatorTree &DT, LoopInfo &LI, Loop *L) {
   // locate the exit blocks.
   SetVector<BasicBlock *> ExitingBlocks;
   SetVector<BasicBlock *> Exits;
+  DenseMap<BasicBlock *, SetVector<BasicBlock *>> ExitMap;
 
   // We need SetVectors, but the Loop API takes a vector, so we use a temporary.
   SmallVector<BasicBlock *, 8> Temp;
@@ -161,6 +254,8 @@ static bool unifyLoopExits(DominatorTree &DT, LoopInfo &LI, Loop *L) {
       if (SL == L || L->contains(SL))
         continue;
       Exits.insert(S);
+      if (MaxIncomingPHIValues > 0)
+        ExitMap[S].insert(BB);
     }
   }
 
@@ -181,6 +276,10 @@ static bool unifyLoopExits(DominatorTree &DT, LoopInfo &LI, Loop *L) {
     LLVM_DEBUG(dbgs() << "loop does not have multiple exits; nothing to do\n");
     return false;
   }
+
+  if (MaxIncomingPHIValues > 0 &&
+      int(ExitingBlocks.size()) > MaxIncomingPHIValues)
+    prepareSSA(DT, L, ExitingBlocks, ExitMap, AllocaMap);
 
   SmallVector<BasicBlock *, 8> GuardBlocks;
   DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
@@ -217,10 +316,11 @@ static bool runImpl(LoopInfo &LI, DominatorTree &DT) {
 
   bool Changed = false;
   auto Loops = LI.getLoopsInPreorder();
+  DenseMap<Type *, SmallVector<AllocaInst *>> AllocaMap;
   for (auto *L : Loops) {
     LLVM_DEBUG(dbgs() << "Loop: " << L->getHeader()->getName() << " (depth: "
                       << LI.getLoopDepth(L->getHeader()) << ")\n");
-    Changed |= unifyLoopExits(DT, LI, L);
+    Changed |= unifyLoopExits(DT, LI, L, AllocaMap);
   }
   return Changed;
 }
