@@ -26,6 +26,7 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Module.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Utils.h"
@@ -40,10 +41,11 @@ static cl::opt<unsigned> MaxBooleansInControlFlowHub(
     cl::desc("Set the maximum number of outgoing blocks for using a boolean "
              "value to record the exiting block in CreateControlFlowHub."));
 
-static cl::opt<int> MaxIncomingPHIValues(
-    "max-incoming-phi-values-in-control-flow-hub", cl::init(-1), cl::Hidden,
-    cl::desc("Set the maximum number of outgoing blocks for using a boolean "
-             "value to record the exiting block in CreateControlFlowHub."));
+static cl::opt<unsigned>
+    MaxIncomingPHIValues("max-incoming-phi-values-in-control-flow-hub",
+                         cl::init(0), cl::Hidden,
+                         cl::desc("Set the maximum number of incoming phi "
+                                  "valus before memory is used instead."));
 
 namespace {
 struct UnifyLoopExitsLegacyPass : public FunctionPass {
@@ -125,10 +127,14 @@ static void restoreSSA(const DominatorTree &DT, const Loop *L,
     // dominate it, while the remaining values are undefined since those paths
     // didn't exist in the original CFG.
     auto Def = II.first;
+    if (auto *PHI = dyn_cast<PHINode>(Def))
+      if (PHI->getName().contains(".moved"))
+        if (Incoming.size() > 10)
+          assert(0 && "BAD");
     LLVM_DEBUG(dbgs() << "externally used: " << Def->getName() << "\n");
     auto NewPhi =
         PHINode::Create(Def->getType(), Incoming.size(),
-                        Def->getName() + ".moved", LoopExitBlock->begin());
+                        Def->getName() + ".movedX", LoopExitBlock->begin());
     for (auto *In : Incoming) {
       LLVM_DEBUG(dbgs() << "predecessor " << In->getName() << ": ");
       if (Def->getParent() == In || DT.dominates(Def, In)) {
@@ -150,30 +156,37 @@ static void restoreSSA(const DominatorTree &DT, const Loop *L,
   }
 }
 
-static void prepareSSA(const DominatorTree &DT, const Loop *L,
-                       const SetVector<BasicBlock *> &Incoming,
-                       DenseMap<BasicBlock *, SetVector<BasicBlock *>> &ExitMap,
-                       DenseMap<Type *, SmallVector<AllocaInst *>> &AllocaMap) {
+static void lowerEscapingValuesToMemory(
+    const DominatorTree &DT, const Loop *L,
+    const SetVector<BasicBlock *> &Incoming,
+    DenseMap<BasicBlock *, SetVector<BasicBlock *>> &ExitMap,
+    DenseMap<unsigned, SmallVector<Value *>> &StorageMap) {
   BasicBlock &EntryBB = L->getHeader()->getParent()->getEntryBlock();
   auto DL = EntryBB.getModule()->getDataLayout();
 
-  DenseMap<std::pair<Type *, BasicBlock *>, unsigned> AllocaIdxMap;
+  // Bookeeping to reuse existing storage without resuing the same storage twice
+  // for the same edge.
+  DenseMap<std::pair<unsigned, BasicBlock *>, unsigned> StorageIdxMap;
 
-  auto GetAlloca = [&](Type *Ty, BasicBlock *BB) {
-    auto &Idx = AllocaIdxMap[{Ty, BB}];
-    auto &Allocas = AllocaMap[Ty];
-    if (Idx == Allocas.size()) {
+  auto GetStorage = [&](Type *Ty, BasicBlock *BB) {
+    // TODO: We could check for larger storage sizes to be available or have a
+    // single allocation we grow. However, multiple allocations might allow
+    // later optimizations.
+    unsigned Size = DL.getTypeStoreSize(Ty);
+    auto &Idx = StorageIdxMap[{Size, BB}];
+    auto &Storage = StorageMap[Size];
+    if (Idx == Storage.size()) {
       auto *AI = new AllocaInst(Ty, DL.getAllocaAddrSpace(), "storage",
                                 EntryBB.getFirstInsertionPt());
-      Allocas.push_back(AI);
+      Storage.push_back(AI);
     }
-    assert(Idx < Allocas.size());
-    return Allocas[Idx++];
+    assert(Idx < Storage.size() && "Storage should be available");
+    return Storage[Idx++];
   };
 
   struct ReplacementInfo {
     Use *U;
-    AllocaInst *AI;
+    Value *StoragePtr;
     Instruction *IP;
   };
   SmallVector<ReplacementInfo> Replacements;
@@ -191,6 +204,14 @@ static void prepareSSA(const DominatorTree &DT, const Loop *L,
                           << ")"
                           << "\n");
 
+        // Do not rewrite PHI nodes, given the restrictions below we would not
+        // actually do anything (store and load in the same block).
+        if (isa<PHINode>(UserInst))
+          continue;
+
+        // We only use memory if the user is reached only from a loop exiting
+        // block and the user block is an exit block of the loop. In this case
+        // the "communication" via memory is trivial.
         if (pred_size(UserBlock) != 1) {
           LLVM_DEBUG(dbgs()
                      << "Complex user block " << UserBlock->getName() << "\n");
@@ -201,38 +222,31 @@ static void prepareSSA(const DominatorTree &DT, const Loop *L,
           LLVM_DEBUG(dbgs() << "Not an exit " << UserBlock->getName() << "\n");
           continue;
         }
-        AllocaInst *AI = GetAlloca(I.getType(), UserBlock);
-        for (auto *ExitingBB : ExitingBBs)
-          ReplacementsSI.push_back({&U, AI, ExitingBB->getTerminator()});
 
-        auto *IP = UserInst;
-        if (auto *PHI = dyn_cast<PHINode>(IP)) {
-          for (size_t J = 0; J < PHI->getNumIncomingValues(); ++J) {
-            if (PHI->getIncomingValue(J) != &I)
-              continue;
-            IP = PHI->getIncomingBlock(J)->getTerminator();
-            break;
-          }
-          assert(IP != U);
-        }
-        Replacements.push_back({&U, AI, IP});
+        Value *StoragePtr = GetStorage(I.getType(), UserBlock);
+        Replacements.push_back({&U, StoragePtr, UserInst});
+
+        for (auto *ExitingBB : ExitingBBs)
+          ReplacementsSI.push_back(
+              {&U, StoragePtr, ExitingBB->getTerminator()});
       }
     }
   }
-  for (auto &It : ReplacementsSI) {
-    new StoreInst(It.U->get(), It.AI, false, It.IP);
-  }
+
+  // Only insert instructions after the loop above.
+  for (auto &It : ReplacementsSI)
+    new StoreInst(It.U->get(), It.StoragePtr, false, It.IP);
   for (auto &It : Replacements) {
-    auto *LI = new LoadInst(It.U->get()->getType(), It.AI,
+    auto *LI = new LoadInst(It.U->get()->getType(), It.StoragePtr,
                             It.U->get()->getName() + ".reload", It.IP);
     It.U->getUser()->replaceUsesOfWith(It.U->get(), LI);
-    assert(It.AI->getNumUses() > 1);
+    assert(It.StoragePtr->getNumUses() > 1);
   }
 }
 
 static bool
 unifyLoopExits(DominatorTree &DT, LoopInfo &LI, Loop *L,
-               DenseMap<Type *, SmallVector<AllocaInst *>> &AllocaMap) {
+               DenseMap<unsigned, SmallVector<Value *>> &StorageMap) {
   // To unify the loop exits, we need a list of the exiting blocks as
   // well as exit blocks. The functions for locating these lists both
   // traverse the entire loop body. It is more efficient to first
@@ -277,9 +291,8 @@ unifyLoopExits(DominatorTree &DT, LoopInfo &LI, Loop *L,
     return false;
   }
 
-  if (MaxIncomingPHIValues > 0 &&
-      int(ExitingBlocks.size()) > MaxIncomingPHIValues)
-    prepareSSA(DT, L, ExitingBlocks, ExitMap, AllocaMap);
+  if (MaxIncomingPHIValues > 0 && ExitingBlocks.size() > MaxIncomingPHIValues)
+    lowerEscapingValuesToMemory(DT, L, ExitingBlocks, ExitMap, StorageMap);
 
   SmallVector<BasicBlock *, 8> GuardBlocks;
   DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
@@ -316,11 +329,11 @@ static bool runImpl(LoopInfo &LI, DominatorTree &DT) {
 
   bool Changed = false;
   auto Loops = LI.getLoopsInPreorder();
-  DenseMap<Type *, SmallVector<AllocaInst *>> AllocaMap;
+  DenseMap<unsigned, SmallVector<Value *>> StorageMap;
   for (auto *L : Loops) {
     LLVM_DEBUG(dbgs() << "Loop: " << L->getHeader()->getName() << " (depth: "
                       << LI.getLoopDepth(L->getHeader()) << ")\n");
-    Changed |= unifyLoopExits(DT, LI, L, AllocaMap);
+    Changed |= unifyLoopExits(DT, LI, L, StorageMap);
   }
   return Changed;
 }

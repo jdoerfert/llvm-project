@@ -1908,7 +1908,7 @@ static void reconnectPhis(BasicBlock *Out, BasicBlock *GuardBlock,
     auto Phi = cast<PHINode>(I);
     auto NewPhi =
         PHINode::Create(Phi->getType(), Incoming.size(),
-                        Phi->getName() + ".moved", FirstGuardBlock->begin());
+                        Phi->getName() + ".movedQ", FirstGuardBlock->begin());
     bool AllUndef = true;
     for (auto *In : Incoming) {
       Value *V = UndefValue::get(Phi->getType());
