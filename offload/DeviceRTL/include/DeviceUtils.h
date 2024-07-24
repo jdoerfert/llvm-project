@@ -41,6 +41,9 @@ bool isSharedMemPtr(void *Ptr);
 /// Return true iff \p Ptr is pointing into (thread) local memory (AS(5)).
 bool isThreadLocalMemPtr(void *Ptr);
 
+/// Terminate the execution of this warp.
+void terminateWarp();
+
 /// A  pointer variable that has by design an `undef` value. Use with care.
 [[clang::loader_uninitialized]] static void *const UndefPtr;
 
