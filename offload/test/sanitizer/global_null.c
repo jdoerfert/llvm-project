@@ -1,6 +1,6 @@
 // clang-format off
 // RUN: %libomptarget-compileopt-generic -fsanitize=offload
-// RUN: not %libomptarget-run-generic 2>&1 > %t.out
+// RUN: not %libomptarget-run-generic 2> %t.out
 // RUN: %fcheck-generic --check-prefixes=CHECK < %t.out
 // clang-format on
 

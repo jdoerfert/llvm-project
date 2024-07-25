@@ -79,7 +79,7 @@ template <AllocationKind AK> struct AllocationTracker {
 
   [[clang::disable_sanitizer_instrumentation]] static _AS_PTR(void, AK)
       create(_AS_PTR(void, AK) Start, uint64_t Length, int64_t AllocationId,
-             uint64_t Slot, int64_t SourceId, uint64_t PC) {
+             int64_t Slot, int64_t SourceId, uint64_t PC) {
     if constexpr (SanitizerConfig<AK>::OFFSET_BITS < 64)
       if (OMP_UNLIKELY(Length >= (1UL << (SanitizerConfig<AK>::OFFSET_BITS))))
         __sanitizer_trap_info_ptr->exceedsAllocationLength<AK>(
@@ -89,6 +89,8 @@ template <AllocationKind AK> struct AllocationTracker {
     auto &AllocArr = getAllocationArray<AK>();
     auto &Cnt = AllocArr.Cnt;
     if constexpr (AK == AllocationKind::LOCAL)
+      Slot = ++Cnt;
+    if (Slot == -1)
       Slot = ++Cnt;
 
     uint64_t NumSlots = SanitizerConfig<AK>::SLOTS;
@@ -246,10 +248,10 @@ extern "C" {
 [[clang::disable_sanitizer_instrumentation, gnu::flatten, gnu::always_inline,
   gnu::used, gnu::retain]] _AS_PTR(void, AllocationKind::GLOBAL)
     ompx_new_global(_AS_PTR(void, AllocationKind::GLOBAL) Start,
-                    uint64_t Length, int64_t AllocationId, uint32_t Slot,
-                    int64_t SourceId, uint64_t PC) {
+                    uint64_t Length, int64_t AllocationId, int64_t SourceId,
+                    uint64_t PC) {
   return AllocationTracker<AllocationKind::GLOBAL>::create(
-      Start, Length, AllocationId, Slot, SourceId, PC);
+      Start, Length, AllocationId, -1, SourceId, PC);
 }
 [[clang::disable_sanitizer_instrumentation, gnu::flatten, gnu::always_inline,
   gnu::used, gnu::retain]] void
@@ -260,13 +262,13 @@ __sanitizer_register_host(_AS_PTR(void, AllocationKind::GLOBAL) Start,
 }
 [[clang::disable_sanitizer_instrumentation, gnu::flatten, gnu::always_inline,
   gnu::used, gnu::retain]] void *
-ompx_new(void *Start, uint64_t Length, int64_t AllocationId, uint32_t Slot,
-         int64_t SourceId, uint64_t PC) {
+ompx_new(void *Start, uint64_t Length, int64_t AllocationId, int64_t SourceId,
+         uint64_t PC) {
   if (REAL_PTR_IS_LOCAL(Start))
     return (void *)ompx_new_local((_AS_PTR(void, AllocationKind::LOCAL))Start,
                                   Length, AllocationId, SourceId, PC);
   return (void *)ompx_new_global((_AS_PTR(void, AllocationKind::GLOBAL))Start,
-                                 Length, AllocationId, Slot, SourceId, PC);
+                                 Length, AllocationId, SourceId, PC);
 }
 [[clang::disable_sanitizer_instrumentation, gnu::flatten, gnu::always_inline,
   gnu::used, gnu::retain]] void

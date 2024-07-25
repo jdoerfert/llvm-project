@@ -619,6 +619,8 @@ struct GPUSanTy {
   void addGPUSanNewFn(GenericKernelTy &GK) { NewFns.push_back(&GK); }
   void addGPUSanFreeFn(GenericKernelTy &GK) { FreeFns.push_back(&GK); }
   void checkAndReportError();
+  Error transferFakePtrToDevice(const char *GlobalName, void *FakeHstPtr,
+                                SmallVector<DeviceImageTy *> &Images);
 
 private:
   uint32_t SlotCnt = SanitizerConfig<AllocationKind::GLOBAL>::SLOTS - 1;
@@ -762,6 +764,13 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
     if (!HstPtr)
       return Error::success();
     return PinnedAllocs.unlockUnmappedHostBuffer(HstPtr);
+  }
+
+  /// Transfers a fake pointer to its respective shadow variable to prevent
+  /// double initializing GPUSan shadow constants. Only runs if GPUSan is
+  /// enabled
+  Error transferFakePtrToDevice(const char *GlobalName, void *FakeHstPtr) {
+    return GPUSan.transferFakePtrToDevice(GlobalName, FakeHstPtr, LoadedImages);
   }
 
   /// Check whether the host buffer with address \p HstPtr is pinned by the

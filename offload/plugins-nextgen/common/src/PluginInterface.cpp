@@ -2360,12 +2360,12 @@ void GPUSanTy::checkAndReportError() {
   case SanitizerTrapInfoTy::None:
     llvm_unreachable("Unexpected exception");
   case SanitizerTrapInfoTy::ExceedsLength:
-    fprintf(stderr, "%sERROR: OffloadSanitizer %s\n%s", Red(), "exceeds length",
-            Default());
+    fprintf(stderr, "%sERROR: OffloadSanitizer %s %d\n%s", Red(),
+            "exceeds length", STI->PtrSlot, Default());
     break;
   case SanitizerTrapInfoTy::ExceedsSlots:
-    fprintf(stderr, "%sERROR: OffloadSanitizer %s\n%s", Red(), "exceeds slots",
-            Default());
+    fprintf(stderr, "%sERROR: OffloadSanitizer %s %d\n%s", Red(),
+            "exceeds slots", STI->PtrSlot, Default());
     break;
   case SanitizerTrapInfoTy::PointerOutsideAllocation:
     fprintf(stderr, "%sERROR: OffloadSanitizer %s : %p : %i %lu (%s)\n%s",
@@ -2384,14 +2384,35 @@ void GPUSanTy::checkAndReportError() {
     DiagnoseAccess("use-after-free");
     break;
   case SanitizerTrapInfoTy::MemoryLeak:
-    fprintf(stderr, "%sERROR: OffloadSanitizer %s\n%s", Red(), "memory leak",
-            Default());
+    fprintf(stderr, "%sERROR: OffloadSanitizer memory leak at slot %d\n%s",
+            Red(), STI->PtrSlot, Default());
     break;
   case SanitizerTrapInfoTy::GarbagePointer:
     DiagnoseAccess("garbage-pointer");
     break;
   }
   fflush(stderr);
+}
+
+Error GPUSanTy::transferFakePtrToDevice(const char *GlobalName,
+                                        void *FakeHstPtr,
+                                        SmallVector<DeviceImageTy *> &Images) {
+  if (!FakeHstPtr)
+    return Plugin::success();
+
+  std::string ShadowName("__san.global.");
+  ShadowName.append(GlobalName);
+
+  GenericGlobalHandlerTy &GHandler = Device.Plugin.getGlobalHandler();
+  GlobalTy ShadowGlobal(ShadowName, sizeof(void *), &FakeHstPtr);
+
+  int imgCount = 0;
+  for (auto Img : Images) {
+    if (GHandler.isSymbolInImage(Device, *Img, ShadowName))
+      return GHandler.writeGlobalToDevice(Device, *Img, ShadowGlobal);
+  }
+
+  return Plugin::error("Shadow global for '%s' not found", GlobalName);
 }
 
 bool llvm::omp::target::plugin::libomptargetSupportsRPC() {
