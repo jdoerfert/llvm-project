@@ -281,6 +281,10 @@ public:
       case SanitizerEnvironmentTy::TRAP:
         reportError("execution interrupted by hardware trap instruction");
         break;
+      case SanitizerEnvironmentTy::UNREACHABLE:
+        reportError("execution reached an \"unreachable\" state (likely caused "
+                  "by undefined behavior)");
+	break;
       default:
         reportError(
             "execution stopped, reason is unknown due to invalid error code");
@@ -335,7 +339,7 @@ public:
       auto PrettyKernelName =
           llvm::omp::prettityFunctionName(KTI.Kernel->getName());
       if (NumKTIs == 1)
-        print(BoldLightPurple, "Kernel '%s'\n", PrettyKernelName.c_str());
+        reportError("Kernel '%s'\n", KTI.Kernel->getName());
       else
         print(BoldLightPurple, "Kernel %d: '%s'\n", I,
               PrettyKernelName.c_str());
