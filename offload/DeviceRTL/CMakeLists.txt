@@ -133,9 +133,8 @@ set(bc_flags -c -foffload-lto -std=c++17 -fvisibility=hidden
              ${LIBOMPTARGET_LLVM_INCLUDE_DIRS_DEVICERTL}
 )
 
-# first create an object target
 add_library(omptarget.devicertl.all_objs OBJECT IMPORTED)
-function(compileDeviceRTLLibrary target_cpu target_name target_triple)
+function(compileDeviceRTLLibrary libraryname target_cpu target_name target_triple)
   set(target_bc_flags ${ARGN})
 
   set(bc_files "")
@@ -171,7 +170,7 @@ function(compileDeviceRTLLibrary target_cpu target_name target_triple)
     list(APPEND bc_files ${outfile})
   endforeach()
 
-  set(bclib_name "libomptarget-${target_name}-${target_cpu}.bc")
+  set(bclib_name "lib${libraryname}-${target_name}-${target_cpu}.bc")
 
   # Link to a bitcode library.
   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/linked_${bclib_name}
@@ -211,14 +210,14 @@ function(compileDeviceRTLLibrary target_cpu target_name target_triple)
       APPEND)
   endif()
 
-  set(bclib_target_name "omptarget-${target_name}-${target_cpu}-bc")
+  set(bclib_target_name "${libraryname}-${target_name}-${target_cpu}-bc")
   add_custom_target(${bclib_target_name} DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${bclib_name})
 
   # Copy library to destination.
   add_custom_command(TARGET ${bclib_target_name} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/${bclib_name}
                     ${LIBOMPTARGET_LIBRARY_DIR})
-  add_dependencies(omptarget.devicertl.${target_name} ${bclib_target_name})
+  add_dependencies(${libraryname}.devicertl.${target_name} ${bclib_target_name})
 
   set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${bclib_name} ${LIBOMPTARGET_LIBRARY_DIR}/${bclib_name})
 
@@ -260,10 +259,10 @@ function(compileDeviceRTLLibrary target_cpu target_name target_triple)
   endif()
 
   set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${output_name})
-  set_property(TARGET omptarget.devicertl.all_objs APPEND PROPERTY IMPORTED_OBJECTS ${output_name})
+  set_property(TARGET ${libraryname}.devicertl.all_objs APPEND PROPERTY IMPORTED_OBJECTS ${output_name})
 
   if (CMAKE_EXPORT_COMPILE_COMMANDS)
-    set(ide_target_name omptarget-ide-${target_name}-${target_cpu})
+    set(ide_target_name ${libraryname}-ide-${target_name}-${target_cpu})
     add_library(${ide_target_name} STATIC EXCLUDE_FROM_ALL ${src_files})
     target_compile_options(${ide_target_name} PRIVATE
       -fopenmp --offload-arch=${target_cpu} -fopenmp-cuda-mode
@@ -281,25 +280,31 @@ function(compileDeviceRTLLibrary target_cpu target_name target_triple)
   endif()
 endfunction()
 
-# Generate a Bitcode library for all the gpu architectures the user requested.
 add_custom_target(omptarget.devicertl.nvptx)
 add_custom_target(omptarget.devicertl.amdgpu)
-foreach(gpu_arch ${LIBOMPTARGET_DEVICE_ARCHITECTURES})
-  if("${gpu_arch}" IN_LIST all_amdgpu_architectures)
-    compileDeviceRTLLibrary(${gpu_arch} amdgpu amdgcn-amd-amdhsa -Xclang -mcode-object-version=none)
-  elseif("${gpu_arch}" IN_LIST all_nvptx_architectures)
-    compileDeviceRTLLibrary(${gpu_arch} nvptx nvptx64-nvidia-cuda --cuda-feature=+ptx63)
-  else()
-    libomptarget_error_say("Unknown GPU architecture '${gpu_arch}'")
-  endif()
-endforeach()
+set(librarynames "omptarget")
+foreach(libraryname ${librarynames})
+# first create an object target
+  message(STATUS
+      "QQQ ${libraryname}")
+# Generate a Bitcode library for all the gpu architectures the user requested.
+  foreach(gpu_arch ${LIBOMPTARGET_DEVICE_ARCHITECTURES})
+    if("${gpu_arch}" IN_LIST all_amdgpu_architectures)
+      compileDeviceRTLLibrary("libomptarget" ${gpu_arch} amdgpu amdgcn-amd-amdhsa -Xclang -mcode-object-version=none)
+    elseif("${gpu_arch}" IN_LIST all_nvptx_architectures)
+      compileDeviceRTLLibrary("libomptarget" ${gpu_arch} nvptx nvptx64-nvidia-cuda --cuda-feature=+ptx63)
+    else()
+      libomptarget_error_say("Unknown GPU architecture '${gpu_arch}'")
+    endif()
+  endforeach()
 
 # Archive all the object files generated above into a static library
-add_library(omptarget.devicertl STATIC)
-set_target_properties(omptarget.devicertl PROPERTIES
-  ARCHIVE_OUTPUT_DIRECTORY "${LIBOMPTARGET_LLVM_LIBRARY_INTDIR}"
-  LINKER_LANGUAGE CXX
-)
-target_link_libraries(omptarget.devicertl PRIVATE omptarget.devicertl.all_objs)
+  add_library(${libraryname}.devicertl STATIC)
+  set_target_properties(${libraryname}.devicertl PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${LIBOMPTARGET_LLVM_LIBRARY_INTDIR}"
+    LINKER_LANGUAGE CXX
+  )
+  target_link_libraries(${libraryname}.devicertl PRIVATE ${libraryname}.devicertl.all_objs)
 
-install(TARGETS omptarget.devicertl ARCHIVE DESTINATION ${OFFLOAD_INSTALL_LIBDIR})
+  install(TARGETS ${libraryname}.devicertl ARCHIVE DESTINATION ${OFFLOAD_INSTALL_LIBDIR})
+endforeach()
