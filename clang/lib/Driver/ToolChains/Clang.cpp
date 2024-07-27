@@ -9096,6 +9096,9 @@ void LinkerWrapper::ConstructJob(Compilation &C, const JobAction &JA,
   }
   Args.ClaimAllArgs(options::OPT_Xoffload_linker);
 
+  CmdArgs.push_back(
+      Args.MakeArgString("--device-linker=-Wl,--lto-whole-program-visibility"));
+
   // Embed bitcode instead of an object in JIT mode.
   if (Args.hasFlag(options::OPT_fopenmp_target_jit,
                    options::OPT_fno_openmp_target_jit, false))

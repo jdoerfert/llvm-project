@@ -12,6 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/Support/CommandLine.h"
 using namespace llvm;
 
@@ -138,6 +140,11 @@ FunctionImportGlobalProcessing::getLinkage(const GlobalValue *SGV,
   // Otherwise, if we aren't importing, no linkage change is needed.
   if (!isPerformingImport())
     return SGV->getLinkage();
+
+  if (MakeSelfContainedModules &&
+      (SGV->hasHiddenVisibility() || isa<Function>(SGV)) &&
+      doImportAsDefinition(SGV))
+    return GlobalValue::ExternalLinkage;
 
   switch (SGV->getLinkage()) {
   case GlobalValue::LinkOnceODRLinkage:
@@ -295,8 +302,12 @@ void FunctionImportGlobalProcessing::processGlobalForThinLTO(GlobalValue &GV) {
     if (const auto *C = GV.getComdat())
       if (C->getName() == Name)
         RenamedComdats.try_emplace(C, M.getOrInsertComdat(GV.getName()));
-  } else
+  } else {
     GV.setLinkage(getLinkage(&GV, /* DoPromote */ false));
+    //    errs() << "QQQ GV " << GV.getName() << " Linkage set to " <<
+    //    GV.getLinkage()
+    //           << "\n";
+  }
 
   // When ClearDSOLocalOnDeclarations is true, clear dso_local if GV is
   // converted to a declaration, to disable direct access. Don't do this if GV
@@ -354,8 +365,10 @@ bool FunctionImportGlobalProcessing::run() {
 
 bool llvm::renameModuleForThinLTO(Module &M, const ModuleSummaryIndex &Index,
                                   bool ClearDSOLocalOnDeclarations,
-                                  SetVector<GlobalValue *> *GlobalsToImport) {
+                                  SetVector<GlobalValue *> *GlobalsToImport,
+                                  bool MakeSelfContainedModules) {
   FunctionImportGlobalProcessing ThinLTOProcessing(M, Index, GlobalsToImport,
-                                                   ClearDSOLocalOnDeclarations);
+                                                   ClearDSOLocalOnDeclarations,
+                                                   MakeSelfContainedModules);
   return ThinLTOProcessing.run();
 }

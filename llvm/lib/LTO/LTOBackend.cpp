@@ -599,13 +599,16 @@ Error lto::thinBackend(const Config &Conf, unsigned Task, AddStreamFn AddStream,
   if (ThinLTOAssumeMerged)
     return OptimizeAndCodegen(Mod, TM.get(), std::move(DiagnosticOutputFile));
 
+  bool MakeSelfContainedModules = Conf.HasWholeProgramVisibility &&
+                                  Triple(Mod.getTargetTriple()).isAMDGPU();
   // When linking an ELF shared object, dso_local should be dropped. We
   // conservatively do this for -fpic.
   bool ClearDSOLocalOnDeclarations =
       TM->getTargetTriple().isOSBinFormatELF() &&
       TM->getRelocationModel() != Reloc::Static &&
       Mod.getPIELevel() == PIELevel::Default;
-  renameModuleForThinLTO(Mod, CombinedIndex, ClearDSOLocalOnDeclarations);
+  renameModuleForThinLTO(Mod, CombinedIndex, ClearDSOLocalOnDeclarations,
+                         /*GlobalsToImport=*/nullptr, MakeSelfContainedModules);
 
   dropDeadSymbols(Mod, DefinedGlobals, CombinedIndex);
 
@@ -615,7 +618,7 @@ Error lto::thinBackend(const Config &Conf, unsigned Task, AddStreamFn AddStream,
     return finalizeOptimizationRemarks(std::move(DiagnosticOutputFile));
 
   if (!DefinedGlobals.empty())
-    thinLTOInternalizeModule(Mod, DefinedGlobals);
+    thinLTOInternalizeModule(Mod, DefinedGlobals, MakeSelfContainedModules);
 
   if (Conf.PostInternalizeModuleHook &&
       !Conf.PostInternalizeModuleHook(Task, Mod))
@@ -656,7 +659,8 @@ Error lto::thinBackend(const Config &Conf, unsigned Task, AddStreamFn AddStream,
   };
 
   FunctionImporter Importer(CombinedIndex, ModuleLoader,
-                            ClearDSOLocalOnDeclarations);
+                            ClearDSOLocalOnDeclarations,
+                            MakeSelfContainedModules);
   if (Error Err = Importer.importFunctions(Mod, ImportList).takeError())
     return Err;
 

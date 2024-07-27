@@ -115,9 +115,11 @@ public:
 
   /// Create a Function Importer.
   FunctionImporter(const ModuleSummaryIndex &Index, ModuleLoaderTy ModuleLoader,
-                   bool ClearDSOLocalOnDeclarations)
+                   bool ClearDSOLocalOnDeclarations,
+                   bool MakeSelfContainedModules = false)
       : Index(Index), ModuleLoader(std::move(ModuleLoader)),
-        ClearDSOLocalOnDeclarations(ClearDSOLocalOnDeclarations) {}
+        ClearDSOLocalOnDeclarations(ClearDSOLocalOnDeclarations),
+        MakeSelfContainedModules(MakeSelfContainedModules) {}
 
   /// Import functions in Module \p M based on the supplied import list.
   Expected<bool> importFunctions(Module &M, const ImportMapTy &ImportList);
@@ -132,6 +134,9 @@ private:
   /// See the comment of ClearDSOLocalOnDeclarations in
   /// Utils/FunctionImportUtils.h.
   bool ClearDSOLocalOnDeclarations;
+
+  /// TODO
+  bool MakeSelfContainedModules;
 };
 
 /// The function importing pass
@@ -167,7 +172,8 @@ void ComputeCrossModuleImport(
     function_ref<bool(GlobalValue::GUID, const GlobalValueSummary *)>
         isPrevailing,
     DenseMap<StringRef, FunctionImporter::ImportMapTy> &ImportLists,
-    DenseMap<StringRef, FunctionImporter::ExportSetTy> &ExportLists);
+    DenseMap<StringRef, FunctionImporter::ExportSetTy> &ExportLists,
+    bool MakeSelfContainedModules = false);
 
 /// PrevailingType enum used as a return type of callback passed
 /// to computeDeadSymbolsAndUpdateIndirectCalls. Yes and No values used when
@@ -242,7 +248,8 @@ void thinLTOFinalizeInModule(Module &TheModule,
 /// Internalize \p TheModule based on the information recorded in the summaries
 /// during global summary-based analysis.
 void thinLTOInternalizeModule(Module &TheModule,
-                              const GVSummaryMapTy &DefinedGlobals);
+                              const GVSummaryMapTy &DefinedGlobals,
+                              bool MakeSelfContainedModules = false);
 
 } // end namespace llvm
 

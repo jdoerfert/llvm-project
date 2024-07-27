@@ -39,8 +39,8 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Metadata.h"
-#include "llvm/IR/PassManager.h"
 #include "llvm/IR/PassInstrumentation.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/ReplaceConstant.h"
 #include "llvm/IR/Value.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -813,6 +813,7 @@ GlobalValue *OpenMPIRBuilder::createGlobalFlag(unsigned Value, StringRef Name) {
       new GlobalVariable(M, I32Ty,
                          /* isConstant = */ true, GlobalValue::WeakODRLinkage,
                          ConstantInt::get(I32Ty, Value), Name);
+  GV->setUnnamedAddr(GlobalValue::UnnamedAddr::Local);
   GV->setVisibility(GlobalValue::HiddenVisibility);
 
   return GV;

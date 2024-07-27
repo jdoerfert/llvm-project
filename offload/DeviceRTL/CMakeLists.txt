@@ -108,7 +108,7 @@ set(src_files
 # propagation. That said, we will run the vectorizer again after the runtime
 # has been linked into the user program.
 set(clang_opt_flags -O3 -mllvm -openmp-opt-disable -DSHARED_SCRATCHPAD_SIZE=512 -mllvm -vectorize-slp=false )
-set(link_opt_flags  -O3        -openmp-opt-disable -attributor-enable=module -vectorize-slp=false )
+set(link_opt_flags  -O3        -openmp-opt-disable -attributor-enable=module -vectorize-slp=false --module-summary)
 set(link_export_flag -passes=internalize -internalize-public-api-file=${source_directory}/exports)
 
 # If the user built with the GPU C library enabled we will use that instead.
@@ -121,7 +121,7 @@ set (LIBOMPTARGET_LLVM_INCLUDE_DIRS_DEVICERTL "${LIBOMPTARGET_LLVM_INCLUDE_DIRS}
 list(TRANSFORM LIBOMPTARGET_LLVM_INCLUDE_DIRS_DEVICERTL PREPEND "-I")
 
 # Set flags for LLVM Bitcode compilation.
-set(bc_flags -c -foffload-lto -std=c++17 -fvisibility=hidden
+set(bc_flags -c -foffload-lto=thin -std=c++17 -fvisibility=hidden
               ${clang_opt_flags} --offload-device-only
              -nocudalib -nogpulib -nostdinc
              -fopenmp -fopenmp-cuda-mode
@@ -267,7 +267,7 @@ function(compileDeviceRTLLibrary target_cpu target_name target_triple)
     target_compile_options(${ide_target_name} PRIVATE
       -fopenmp --offload-arch=${target_cpu} -fopenmp-cuda-mode
       -mllvm -openmp-opt-disable
-      -foffload-lto -fvisibility=hidden --offload-device-only
+      -foffload-lto=thin -fvisibility=hidden --offload-device-only
       -nocudalib -nogpulib -nostdinc -Wno-unknown-cuda-version
     )
     target_compile_definitions(${ide_target_name} PRIVATE SHARED_SCRATCHPAD_SIZE=512)

@@ -555,7 +555,7 @@ struct OMPInformationCache : public InformationCache {
     for (RuntimeFunction Fn : Fns) {
       RuntimeFunctionInfo &RFI = RFIs[Fn];
 
-      if (RFI.Declaration && RFI.Declaration->isDeclaration())
+      if (!RFI.Declaration || RFI.Declaration->isDeclaration())
         return false;
     }
     return true;
@@ -5785,7 +5785,7 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
   CallGraphUpdater CGUpdater;
 
   bool PostLink = LTOPhase == ThinOrFullLTOPhase::FullLTOPostLink ||
-                  LTOPhase == ThinOrFullLTOPhase::ThinLTOPreLink;
+                  LTOPhase == ThinOrFullLTOPhase::ThinLTOPostLink;
   OMPInformationCache InfoCache(M, AG, Allocator, /*CGSCC*/ nullptr, PostLink);
 
   unsigned MaxFixpointIterations =
@@ -5816,7 +5816,7 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
         F.addFnAttr(Attribute::AlwaysInline);
 
   if (PrintModuleAfterOptimizations)
-    LLVM_DEBUG(dbgs() << TAG << "Module after OpenMPOpt Module Pass:\n" << M);
+    dbgs() << TAG << "Module after OpenMPOpt Module Pass:\n" << M;
 
   if (Changed)
     return PreservedAnalyses::none();

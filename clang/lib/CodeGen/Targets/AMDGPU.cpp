@@ -418,11 +418,11 @@ void AMDGPUTargetCodeGenInfo::emitTargetGlobals(
   // It needs to be constant weak_odr without externally_initialized so that
   // the load instuction can be eliminated by the IPSCCP.
   auto *GV = new llvm::GlobalVariable(
-      CGM.getModule(), Type, true, llvm::GlobalValue::WeakODRLinkage, COV, Name,
-      nullptr, llvm::GlobalValue::ThreadLocalMode::NotThreadLocal,
+      CGM.getModule(), Type, true, llvm::GlobalValue::InternalLinkage, COV,
+      Name, nullptr, llvm::GlobalValue::ThreadLocalMode::NotThreadLocal,
       CGM.getContext().getTargetAddressSpace(LangAS::opencl_constant));
-  GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Local);
-  GV->setVisibility(llvm::GlobalValue::VisibilityTypes::HiddenVisibility);
+  //  GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Local);
+  //  GV->setVisibility(llvm::GlobalValue::VisibilityTypes::HiddenVisibility);
 
   // Replace any external references to this variable with the new global.
   if (OriginalGV) {

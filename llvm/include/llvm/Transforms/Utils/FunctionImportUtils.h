@@ -52,6 +52,8 @@ class FunctionImportGlobalProcessing {
   /// unnecessarily disable direct access.
   bool ClearDSOLocalOnDeclarations;
 
+  bool MakeSelfContainedModules;
+
   /// Set of llvm.*used values, in order to validate that we don't try
   /// to promote any non-renamable values.
   SmallPtrSet<GlobalValue *, 4> Used;
@@ -100,9 +102,11 @@ class FunctionImportGlobalProcessing {
 public:
   FunctionImportGlobalProcessing(Module &M, const ModuleSummaryIndex &Index,
                                  SetVector<GlobalValue *> *GlobalsToImport,
-                                 bool ClearDSOLocalOnDeclarations)
+                                 bool ClearDSOLocalOnDeclarations,
+                                 bool MakeSelfContainedModules)
       : M(M), ImportIndex(Index), GlobalsToImport(GlobalsToImport),
-        ClearDSOLocalOnDeclarations(ClearDSOLocalOnDeclarations) {
+        ClearDSOLocalOnDeclarations(ClearDSOLocalOnDeclarations),
+        MakeSelfContainedModules(MakeSelfContainedModules) {
     // If we have a ModuleSummaryIndex but no function to import,
     // then this is the primary module being compiled in a ThinLTO
     // backend compilation, and we need to see if it has functions that
@@ -125,10 +129,10 @@ public:
 
 /// Perform in-place global value handling on the given Module for
 /// exported local functions renamed and promoted for ThinLTO.
-bool renameModuleForThinLTO(
-    Module &M, const ModuleSummaryIndex &Index,
-    bool ClearDSOLocalOnDeclarations,
-    SetVector<GlobalValue *> *GlobalsToImport = nullptr);
+bool renameModuleForThinLTO(Module &M, const ModuleSummaryIndex &Index,
+                            bool ClearDSOLocalOnDeclarations,
+                            SetVector<GlobalValue *> *GlobalsToImport = nullptr,
+                            bool MakeSelfContainedModules = false);
 
 } // End llvm namespace
 

@@ -397,6 +397,7 @@ static bool getPotentialCopiesOfMemoryValue(
           dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
       return false;
     }
+    bool IsConstant = false;
     // TODO: Use assumed noalias return.
     if (!isa<AllocaInst>(&Obj) && !isa<GlobalVariable>(&Obj) &&
         !(IsLoad ? isAllocationFn(&Obj, TLI) : isNoAliasCall(&Obj))) {
@@ -404,7 +405,8 @@ static bool getPotentialCopiesOfMemoryValue(
                         << "\n";);
       return false;
     }
-    if (auto *GV = dyn_cast<GlobalVariable>(&Obj))
+    if (auto *GV = dyn_cast<GlobalVariable>(&Obj)) {
+      IsConstant = GV->isConstant();
       if (!GV->hasLocalLinkage() &&
           !(GV->isConstant() && GV->hasInitializer())) {
         LLVM_DEBUG(dbgs() << "Underlying object is global with external "
@@ -412,6 +414,7 @@ static bool getPotentialCopiesOfMemoryValue(
                           << Obj << "\n";);
         return false;
       }
+    }
 
     bool NullOnly = true;
     bool NullRequired = false;
@@ -464,6 +467,8 @@ static bool getPotentialCopiesOfMemoryValue(
     };
 
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
+      if (IsConstant)
+        return true;
       if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))
         return true;
       if (IsLoad && Acc.isWrittenValueYetUndetermined())

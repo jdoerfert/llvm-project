@@ -18218,11 +18218,12 @@ Value *EmitAMDGPUWorkGroupSize(CodeGenFunction &CGF, unsigned Index) {
     StringRef Name = "__oclc_ABI_version";
     auto *ABIVersionC = CGF.CGM.getModule().getNamedGlobal(Name);
     if (!ABIVersionC)
-      ABIVersionC = new llvm::GlobalVariable(
-          CGF.CGM.getModule(), CGF.Int32Ty, false,
-          llvm::GlobalValue::ExternalLinkage, nullptr, Name, nullptr,
-          llvm::GlobalVariable::NotThreadLocal,
-          CGF.CGM.getContext().getTargetAddressSpace(LangAS::opencl_constant));
+    ABIVersionC = new llvm::GlobalVariable(
+        CGF.CGM.getModule(), CGF.Int32Ty, true,
+        llvm::GlobalValue::WeakODRLinkage,
+        llvm::ConstantInt::get(CGF.Int32Ty, 0), Name, nullptr,
+        llvm::GlobalVariable::NotThreadLocal,
+        CGF.CGM.getContext().getTargetAddressSpace(LangAS::opencl_constant));
 
     // This load will be eliminated by the IPSCCP because it is constant
     // weak_odr without externally_initialized. Either changing it to weak or

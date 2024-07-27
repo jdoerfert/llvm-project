@@ -625,6 +625,10 @@ void LTO::addModuleToGlobalRes(ArrayRef<InputFile::Symbol> Syms,
   for (const InputFile::Symbol &Sym : Syms) {
     assert(ResI != ResE);
     SymbolResolution Res = *ResI++;
+    //    auto GUID = GlobalValue::getGUID(
+    //        GlobalValue::dropLLVMManglingEscape(Sym.getIRName()));
+    // errs() << "SymRes: " << Sym.getIRName() << " :: " << GUID << " : "
+    //        << Res.Prevailing << "\n";
 
     auto &GlobalRes = (*GlobalResolutions)[Sym.getName()];
     GlobalRes.UnnamedAddr &= Sym.isUnnamedAddr();
@@ -751,10 +755,16 @@ Error LTO::addModule(InputFile &Input, unsigned ModI,
         "compatible bitcode modules (use -funified-lto)",
         inconvertibleErrorCode());
 
+  // errs() << "Input " << Input.getSourceFileName() << "\n";
+  // errs() << "LTOInfo : " << LTOInfo->IsThinLTO << "\n";
+  // errs() << "Summary : " << LTOInfo->HasSummary << "\n";
+  // errs() << "Unified : " << LTOInfo->UnifiedLTO << "\n";
+  // errs() << "LTOMode : " << LTOMode << "\n";
   if (LTOInfo->UnifiedLTO && LTOMode == LTOK_Default)
     LTOMode = LTOK_UnifiedThin;
 
   bool IsThinLTO = LTOInfo->IsThinLTO && (LTOMode != LTOK_UnifiedRegular);
+  // errs() << "IsThinLTO : " << IsThinLTO << "\n";
 
   auto ModSyms = Input.module_symbols(ModI);
   addModuleToGlobalRes(ModSyms, {ResI, ResE},
@@ -1732,8 +1742,14 @@ Error LTO::runThinLTO(AddStreamFn AddStream, FileCache Cache,
       // If validation is enabled, upgrade visibility only when all vtables
       // have typeinfos.
       (!Conf.ValidateAllVtablesHaveTypeInfos || Conf.AllVtablesHaveTypeInfos);
-  if (hasWholeProgramVisibility(WholeProgramVisibilityEnabledInLTO))
+  //  errs() << "WholeProgramVisibility : " << Conf.HasWholeProgramVisibility
+  //         << "\n";
+  // errs() << "WholeProgramVisibility : " << WholeProgramVisibilityEnabledInLTO
+  //        << "\n";
+  if (hasWholeProgramVisibility(WholeProgramVisibilityEnabledInLTO)) {
+    //    errs() << "WholeProgramVisibility : true\n";
     ThinLTO.CombinedIndex.setWithWholeProgramVisibility();
+  }
 
   // If we're validating, get the vtable symbols that should not be
   // upgraded because they correspond to typeIDs outside of index-based
@@ -1780,6 +1796,8 @@ Error LTO::runThinLTO(AddStreamFn AddStream, FileCache Cache,
   // we must apply DCE consistently with the full LTO module in order to avoid
   // undefined references during the final link.
   for (auto &Res : *GlobalResolutions) {
+    // errs() << "Check " << Res.second.IRName
+    //        << ": prev: " << Res.second.isPrevailingIRSymbol() << "\n";
     // If the symbol does not have external references or it is not prevailing,
     // then not need to mark it as exported from a ThinLTO partition.
     if (Res.second.Partition != GlobalResolution::External ||
@@ -1788,8 +1806,10 @@ Error LTO::runThinLTO(AddStreamFn AddStream, FileCache Cache,
     auto GUID = GlobalValue::getGUID(
         GlobalValue::dropLLVMManglingEscape(Res.second.IRName));
     // Mark exported unless index-based analysis determined it to be dead.
-    if (ThinLTO.CombinedIndex.isGUIDLive(GUID))
+    if (ThinLTO.CombinedIndex.isGUIDLive(GUID)) {
       ExportedGUIDs.insert(GUID);
+      // errs() << "Export " << Res.second.IRName << " : " << GUID << "\n";
+    }
   }
 
   // Reset the GlobalResolutions to deallocate the associated memory, as there
@@ -1798,9 +1818,13 @@ Error LTO::runThinLTO(AddStreamFn AddStream, FileCache Cache,
   // and export lists.
   GlobalResolutions.reset();
 
-  if (Conf.OptLevel > 0)
+  bool MakeSelfContainedModules =
+      Conf.HasWholeProgramVisibility &&
+      Triple(RegularLTO.CombinedModule->getTargetTriple()).isAMDGPU();
+  if (Conf.OptLevel > 0 || MakeSelfContainedModules)
     ComputeCrossModuleImport(ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,
-                             isPrevailing, ImportLists, ExportLists);
+                             isPrevailing, ImportLists, ExportLists,
+                             MakeSelfContainedModules);
 
   // Any functions referenced by the jump table in the regular LTO object must
   // be exported.
