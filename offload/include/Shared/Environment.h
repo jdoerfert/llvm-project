@@ -112,7 +112,11 @@ struct SanitizerEnvironmentTy {
     NONE = 0,
     TRAP,
     UNREACHABLE,
-    LAST = UNREACHABLE,
+    BAD_PTR,
+    ALLOCATION_TOO_LARGE,
+    AS_MISMATCH,
+    OUT_OF_BOUNDS,
+    LAST = OUT_OF_BOUNDS,
   } ErrorCode;
 
   /// Flag to indicate the environment has been initialized fully.

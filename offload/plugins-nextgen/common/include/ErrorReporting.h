@@ -340,6 +340,20 @@ public:
         reportError("execution reached an \"unreachable\" state (likely caused "
                   "by undefined behavior)");
 	break;
+
+      case SanitizerEnvironmentTy::BAD_PTR:
+        reportError("execution encountered a garbage pointer");
+        break;
+      case SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE:
+        reportError("execution encountered an allocation that is too large");
+        break;
+      case SanitizerEnvironmentTy::AS_MISMATCH:
+        reportError(
+            "execution encountered a pointer to the wrong address space");
+        break;
+      case SanitizerEnvironmentTy::OUT_OF_BOUNDS:
+        reportError("execution encountered an out-of-bounds access");
+        break;
       default:
         reportError(
             "execution stopped, reason is unknown due to invalid error code");
@@ -355,6 +369,26 @@ public:
               Device.OMPX_TrackNumKernelLaunches.getName().data());
     }
     abort();
+  }
+
+  static void checkAndReportError(GenericDeviceTy &Device,
+                                  __tgt_async_info *AsyncInfo) {
+    SanitizerEnvironmentTy *SE = nullptr;
+    for (auto &It : Device.SanitizerEnvironmentMap) {
+      if (It.second->ErrorCode == SanitizerEnvironmentTy::NONE)
+        continue;
+      if (SE)
+        reportWarning(
+            "Multiple errors encountered, information might be inaccurate.");
+      SE = It.second;
+    }
+    if (!SE)
+      return;
+
+    auto KernelTraceInfoRecord =
+        Device.KernelLaunchTraces.getExclusiveAccessor();
+    reportTrapInKernel(Device, *KernelTraceInfoRecord,
+                       [=](__tgt_async_info &TAI) { return true; });
   }
 
   /// Report the kernel traces taken from \p KTIR, up to
