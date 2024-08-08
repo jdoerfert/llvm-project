@@ -974,14 +974,14 @@ exit:
 define ptr @checkAndAdvance(ptr align(16) %p) {
 ; TUNIT: Function Attrs: nounwind
 ; TUNIT-LABEL: define {{[^@]+}}@checkAndAdvance
-; TUNIT-SAME: (ptr nofree noundef nonnull readonly align 16 dereferenceable(4) "no-capture-maybe-returned" [[P:%.*]]) #[[ATTR2]] {
+; TUNIT-SAME: (ptr noundef nonnull readonly align 16 dereferenceable(4) "no-capture-maybe-returned" [[P:%.*]]) #[[ATTR2]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr [[P]], align 16
 ; TUNIT-NEXT:    [[CMP:%.*]] = icmp eq i32 [[TMP0]], 0
 ; TUNIT-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[RETURN:%.*]]
 ; TUNIT:       if.then:
 ; TUNIT-NEXT:    [[ADD_PTR:%.*]] = getelementptr inbounds i32, ptr [[P]], i64 4
-; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @checkAndAdvance(ptr nofree noundef nonnull readonly align 16 "no-capture-maybe-returned" [[ADD_PTR]]) #[[ATTR2]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @checkAndAdvance(ptr noundef nonnull readonly align 16 "no-capture-maybe-returned" [[ADD_PTR]]) #[[ATTR2]]
 ; TUNIT-NEXT:    br label [[RETURN]]
 ; TUNIT:       return:
 ; TUNIT-NEXT:    [[RETVAL_0:%.*]] = phi ptr [ [[ADD_PTR]], [[IF_THEN]] ], [ [[P]], [[ENTRY:%.*]] ]
@@ -990,14 +990,14 @@ define ptr @checkAndAdvance(ptr align(16) %p) {
 ;
 ; CGSCC: Function Attrs: nounwind
 ; CGSCC-LABEL: define {{[^@]+}}@checkAndAdvance
-; CGSCC-SAME: (ptr nofree noundef nonnull readonly align 16 dereferenceable(4) "no-capture-maybe-returned" [[P:%.*]]) #[[ATTR3]] {
+; CGSCC-SAME: (ptr noundef nonnull readonly align 16 dereferenceable(4) "no-capture-maybe-returned" [[P:%.*]]) #[[ATTR3]] {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr [[P]], align 16
 ; CGSCC-NEXT:    [[CMP:%.*]] = icmp eq i32 [[TMP0]], 0
 ; CGSCC-NEXT:    br i1 [[CMP]], label [[IF_THEN:%.*]], label [[RETURN:%.*]]
 ; CGSCC:       if.then:
 ; CGSCC-NEXT:    [[ADD_PTR:%.*]] = getelementptr inbounds i32, ptr [[P]], i64 4
-; CGSCC-NEXT:    [[CALL:%.*]] = call ptr @checkAndAdvance(ptr nofree noundef nonnull readonly align 16 "no-capture-maybe-returned" [[ADD_PTR]]) #[[ATTR3]]
+; CGSCC-NEXT:    [[CALL:%.*]] = call ptr @checkAndAdvance(ptr noundef nonnull readonly align 16 "no-capture-maybe-returned" [[ADD_PTR]]) #[[ATTR3]]
 ; CGSCC-NEXT:    br label [[RETURN]]
 ; CGSCC:       return:
 ; CGSCC-NEXT:    [[RETVAL_0:%.*]] = phi ptr [ [[ADD_PTR]], [[IF_THEN]] ], [ [[P]], [[ENTRY:%.*]] ]

@@ -666,13 +666,13 @@ declare void @unknown_fn(ptr) #0
 define ptr @calls_unknown_fn(ptr %r) #0 {
 ; TUNIT: Function Attrs: noinline nounwind uwtable
 ; TUNIT-LABEL: define {{[^@]+}}@calls_unknown_fn
-; TUNIT-SAME: (ptr nofree readnone returned "no-capture-maybe-returned" [[R:%.*]]) #[[ATTR5:[0-9]+]] {
+; TUNIT-SAME: (ptr readnone returned "no-capture-maybe-returned" [[R:%.*]]) #[[ATTR5:[0-9]+]] {
 ; TUNIT-NEXT:    tail call void @unknown_fn(ptr noundef nonnull @calls_unknown_fn) #[[ATTR10:[0-9]+]]
 ; TUNIT-NEXT:    ret ptr [[R]]
 ;
 ; CGSCC: Function Attrs: noinline nounwind uwtable
 ; CGSCC-LABEL: define {{[^@]+}}@calls_unknown_fn
-; CGSCC-SAME: (ptr nofree readnone returned "no-capture-maybe-returned" [[R:%.*]]) #[[ATTR4:[0-9]+]] {
+; CGSCC-SAME: (ptr readnone returned "no-capture-maybe-returned" [[R:%.*]]) #[[ATTR4:[0-9]+]] {
 ; CGSCC-NEXT:    tail call void @unknown_fn(ptr noundef nonnull @calls_unknown_fn) #[[ATTR9:[0-9]+]]
 ; CGSCC-NEXT:    ret ptr [[R]]
 ;
