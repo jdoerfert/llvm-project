@@ -89,16 +89,16 @@ void raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode,
 
 struct FakePtrTy {
 
-  static constexpr uint32_t MAGIC = 0b11011;
-  static constexpr uint32_t BITS_OFFSET = 12;
+  static constexpr uint32_t MAGIC = 0b1111000;
+  static constexpr uint32_t BITS_OFFSET = 11;
 
   union {
     void *VPtr;
     struct {
       uint32_t Offset : BITS_OFFSET;
-      uint32_t Magic : 5;
       uint32_t Size : BITS_OFFSET;
       uint32_t RealAS : 3;
+      uint32_t Magic : 7;
       uint32_t RealPtr : 32;
     } Enc;
   } U;
@@ -165,6 +165,9 @@ struct FakePtrTy {
       return U.Enc.RealAS;
     return ~0;
   }
+
+  _SAN_ATTRS
+  uint32_t getMagic() { return U.Enc.Magic; }
 };
 
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
@@ -176,7 +179,6 @@ static_assert(sizeof(void [[clang::address_space(AllocaAS)]] *) == 4,
 } // namespace
 
 extern "C" {
-
 _SAN_ENTRY_ATTRS void __offload_san_trap_info(uint64_t PC) {
   raiseExecutionError(SanitizerEnvironmentTy::TRAP, PC);
 }
@@ -187,6 +189,7 @@ _SAN_ENTRY_ATTRS void __offload_san_unreachable_info(uint64_t PC) {
 
 _SAN_ENTRY_ATTRS void *__offload_san_register_alloca(
     uint64_t PC, void [[clang::address_space(AllocaAS)]] * Ptr, uint32_t Size) {
+  raiseExecutionError(SanitizerEnvironmentTy::TRAP, uint64_t(Size));
   return FakePtrTy::create<AllocaAS>(Ptr, Size);
 }
 

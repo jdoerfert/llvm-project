@@ -10,11 +10,14 @@
 
 #include "llvm/Transforms/Instrumentation/OffloadSanitizer.h"
 
+#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/Argument.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
@@ -52,7 +55,7 @@ private:
   };
   Type *getWithoutAS(Type &T) { return isASType(T) ? T.getPointerTo() : &T; };
 
-  bool shouldInstrumentFunction(Function &Fn);
+  bool shouldInstrumentFunction(Function *Fn);
 
   struct AccessInfoTy {
     Instruction *I;
@@ -60,18 +63,17 @@ private:
     unsigned AS;
   };
 
-  void removeASFromUses(SmallVectorImpl<const Use *> &Uses,
-                        DenseMap<Value *, Value *> &VMap);
+  void removeAS(Function &Fn, SmallVectorImpl<Instruction *> &ASInsts);
 
   bool instrumentFunction(Function &Fn);
-  bool instrumentTrapInstructions(SmallVectorImpl<IntrinsicInst *> &TrapCalls);
-  bool instrumentCallInsts(SmallVectorImpl<CallInst *> &CallInsts);
-  bool instrumentLifetimeIntrinsics(
+  void instrumentTrapInstructions(SmallVectorImpl<IntrinsicInst *> &TrapCalls);
+  void instrumentCallInsts(SmallVectorImpl<CallInst *> &CallInsts);
+  void instrumentLifetimeIntrinsics(
       SmallVectorImpl<LifetimeIntrinsic *> &LifetimeInsts);
-  bool instrumentUnreachableInstructions(
+  void instrumentUnreachableInstructions(
       SmallVectorImpl<UnreachableInst *> &UnreachableInsts);
-  bool instrumentAccesses(SmallVectorImpl<AccessInfoTy> &Accesses);
-  bool instrumentAllocaInstructions(SmallVectorImpl<AllocaInst *> &AllocaInsts);
+  void instrumentAccesses(SmallVectorImpl<AccessInfoTy> &Accesses);
+  void instrumentAllocaInstructions(SmallVectorImpl<AllocaInst *> &AllocaInsts);
 
   FunctionCallee getOrCreateFn(FunctionCallee &FC, StringRef Name, Type *RetTy,
                                ArrayRef<Type *> ArgTys) {
@@ -130,12 +132,14 @@ private:
   CallInst *createCall(IRBuilder<> &IRB, FunctionCallee Callee,
                        ArrayRef<Value *> Args = std::nullopt,
                        const Twine &Name = "") {
-    Calls.push_back(IRB.CreateCall(Callee, Args, Name));
-    return Calls.back();
+    RTCalls.push_back(IRB.CreateCall(Callee, Args, Name));
+    return RTCalls.back();
   }
-  SmallVector<CallInst *> Calls;
+  SmallVector<CallInst *> RTCalls;
 
   Value *getPC(IRBuilder<> &IRB) {
+    static int X = 0;
+    return ConstantInt::get(Int64Ty, X++);
     return IRB.CreateIntrinsic(Int64Ty, Intrinsic::amdgcn_s_getpc, {}, nullptr,
                                "PC");
   }
@@ -144,7 +148,6 @@ private:
   const DataLayout &DL = M.getDataLayout();
   FunctionAnalysisManager &FAM;
   LLVMContext &Ctx;
-  DenseMap<Value *, Value *> VMap;
 
   Type *VoidTy = Type::getVoidTy(Ctx);
   Type *IntptrTy = M.getDataLayout().getIntPtrType(Ctx);
@@ -161,95 +164,120 @@ private:
 
 } // end anonymous namespace
 
-bool OffloadSanitizerImpl::shouldInstrumentFunction(Function &Fn) {
-  if (Fn.isDeclaration())
+bool OffloadSanitizerImpl::shouldInstrumentFunction(Function *Fn) {
+  if (!Fn || Fn->isDeclaration())
     return false;
-  if (Fn.getName().contains("ompx") || Fn.getName().contains("__kmpc") ||
-      Fn.getName().starts_with("rpc_"))
+  if (Fn->getName().contains("ompx") || Fn->getName().contains("__kmpc") ||
+      Fn->getName().starts_with("rpc_"))
     return false;
-  return !Fn.hasFnAttribute(Attribute::DisableSanitizerInstrumentation);
+  return !Fn->hasFnAttribute(Attribute::DisableSanitizerInstrumentation);
 }
 
-void OffloadSanitizerImpl::removeASFromUses(SmallVectorImpl<const Use *> &Uses,
-                                            DenseMap<Value *, Value *> &VMap) {
-  auto Clone = [&](Instruction &I) {
-    Instruction *NewI = I.clone();
-    NewI->setName(I.getName() + ".noas");
-    NewI->insertAfter(&I);
-    NewI->mutateType(getWithoutAS(*I.getType()));
-    VMap[&I] = NewI;
-    return NewI;
+void OffloadSanitizerImpl::removeAS(Function &Fn,
+                                    SmallVectorImpl<Instruction *> &ASInsts) {
+
+  DenseMap<Value *, Value *> VMap;
+
+  auto GetAsGeneric = [&](Value &V) {
+    if (!isASType(*V.getType()))
+      return &V;
+    auto *&NewV = VMap[&V];
+    if (!NewV) {
+      auto *IP = &Fn.getEntryBlock().front();
+      if (isa<IntrinsicInst>(V))
+        IP = cast<Instruction>(&V)->getNextNode();
+      else
+        assert(!isa<Instruction>(V));
+      NewV = new AddrSpaceCastInst(&V, getWithoutAS(*V.getType()),
+                                   V.getName() + ".noas", IP);
+    }
+    return NewV;
   };
 
-  auto GetCasted = [&](Value &Op, Instruction &I) {
-    Instruction *IP = nullptr;
-    if (auto *PHIOp = dyn_cast<PHINode>(&Op))
-      IP = PHIOp->getParent()->getFirstNonPHI();
-    else if (auto *OpI = dyn_cast<Instruction>(&Op))
-      IP = OpI->getNextNode();
-    else
-      IP = &I.getFunction()->getEntryBlock().front();
-    auto *ACS = new AddrSpaceCastInst(&Op, getWithoutAS(*Op.getType()),
-                                      Op.getName() + ".noas", IP);
-    VMap[&Op] = ACS;
-    return ACS;
-  };
-
-  for (auto *U : Uses) {
-    auto *I = cast<Instruction>(U->getUser());
+  for (auto *I : ASInsts) {
     errs() << "I: " << *I << "\n";
-    if (VMap.count(I))
-      continue;
     switch (I->getOpcode()) {
     case Instruction::Load: {
       auto &LI = cast<LoadInst>(*I);
-      LI.setOperand(LI.getPointerOperandIndex(), VMap[LI.getPointerOperand()]);
-      VMap[I] = I;
+      if (LI.getPointerAddressSpace()) {
+        auto *GenericOp = GetAsGeneric(*LI.getPointerOperand());
+        auto *ASOp =
+            new AddrSpaceCastInst(GenericOp, LI.getPointerOperandType(),
+                                  GenericOp->getName() + ".as", &LI);
+        LI.setOperand(LI.getPointerOperandIndex(), ASOp);
+      }
+      if (isASType(*LI.getType()))
+        VMap[I] = GetAsGeneric(LI);
       break;
     }
     case Instruction::Store: {
       auto &SI = cast<StoreInst>(*I);
-      SI.setOperand(SI.getPointerOperandIndex(), VMap[SI.getPointerOperand()]);
-      VMap[I] = I;
+      assert(SI.getPointerAddressSpace());
+      auto *GenericOp = GetAsGeneric(*SI.getPointerOperand());
+      auto *ASOp = new AddrSpaceCastInst(GenericOp, SI.getPointerOperandType(),
+                                         GenericOp->getName() + ".as", &SI);
+      SI.setOperand(SI.getPointerOperandIndex(), ASOp);
       break;
     }
     case Instruction::GetElementPtr: {
-      auto &NewGEP = cast<GetElementPtrInst>(*Clone(*I));
-      NewGEP.setSourceElementType(getWithoutAS(*NewGEP.getSourceElementType()));
-      NewGEP.setResultElementType(getWithoutAS(*NewGEP.getResultElementType()));
-      NewGEP.setOperand(NewGEP.getPointerOperandIndex(),
-                        VMap[NewGEP.getPointerOperand()]);
+      auto &GEP = cast<GetElementPtrInst>(*I);
+      GEP.setSourceElementType(getWithoutAS(*GEP.getSourceElementType()));
+      GEP.setResultElementType(getWithoutAS(*GEP.getResultElementType()));
+      GEP.setOperand(GEP.getPointerOperandIndex(),
+                     GetAsGeneric(*GEP.getPointerOperand()));
+      GEP.mutateType(getWithoutAS(*GEP.getType()));
       break;
     }
     case Instruction::AddrSpaceCast: {
       auto &ASC = cast<AddrSpaceCastInst>(*I);
-      VMap[I] = VMap[ASC.getPointerOperand()];
+      assert(!isASType(*ASC.getPointerOperand()->getType()));
+      VMap[I] = GetAsGeneric(*ASC.getPointerOperand());
       break;
     }
     case Instruction::Select: {
-      auto &NewSI = cast<SelectInst>(*Clone(*I));
-      if (auto *NewTV = VMap.lookup(NewSI.getTrueValue()))
-        NewSI.setTrueValue(NewTV);
-      else
-        NewSI.setTrueValue(GetCasted(*NewSI.getTrueValue(), NewSI));
-      if (auto *NewFV = VMap.lookup(NewSI.getFalseValue()))
-        NewSI.setFalseValue(NewFV);
-      else
-        NewSI.setFalseValue(GetCasted(*NewSI.getFalseValue(), NewSI));
+      auto &SI = cast<SelectInst>(*I);
+      SI.setTrueValue(GetAsGeneric(*SI.getTrueValue()));
+      SI.setFalseValue(GetAsGeneric(*SI.getFalseValue()));
+      SI.mutateType(getWithoutAS(*SI.getType()));
       break;
     }
     case Instruction::PHI: {
-      auto &NewPHI = cast<PHINode>(*Clone(*I));
-      for (unsigned I = 0, E = NewPHI.getNumIncomingValues(); I < E; ++I) {
-        if (auto *NewV = VMap.lookup(NewPHI.getIncomingValue(I)))
-          NewPHI.setIncomingValue(I, NewV);
-        else
-          NewPHI.setIncomingValue(
-              I, GetCasted(*NewPHI.getIncomingValue(I), NewPHI));
-      }
+      auto &PHI = cast<PHINode>(*I);
+      for (unsigned I = 0, E = PHI.getNumIncomingValues(); I < E; ++I)
+        PHI.setIncomingValue(I, GetAsGeneric(*PHI.getIncomingValue(I)));
+      PHI.mutateType(getWithoutAS(*PHI.getType()));
       break;
     }
     case Instruction::Call: {
+      auto &CI = cast<CallInst>(*I);
+      auto *Callee = CI.getCalledFunction();
+      if (shouldInstrumentFunction(Callee)) {
+        for (unsigned I = 0, E = CI.arg_size(); I < E; ++I)
+          CI.setArgOperand(I, GetAsGeneric(*CI.getArgOperand(I)));
+
+        auto *FT = CI.getFunctionType();
+        SmallVector<Type *> ArgTypes;
+        for (auto *ArgType : FT->params())
+          ArgTypes.push_back(getWithoutAS(*ArgType));
+        FunctionType *NewFT = FunctionType::get(
+            getWithoutAS(*FT->getReturnType()), ArgTypes, FT->isVarArg());
+        CI.mutateFunctionType(NewFT);
+        CI.mutateType(getWithoutAS(*CI.getType()));
+      } else {
+        assert(!isASType(*CI.getType()) && "TODO");
+        IRBuilder<> IRB(&CI);
+        for (unsigned I = 0, E = CI.arg_size(); I < E; ++I) {
+          auto *Op = CI.getArgOperand(I);
+          if (!(Op->getType()->isPointerTy()))
+            continue;
+          auto *GenericOp = GetAsGeneric(*Op);
+          Value *NewOp = createCall(IRB, getUnpackFn(), {getPC(IRB), GenericOp},
+                                    GenericOp->getName() + ".unpack");
+          if (auto AS = Op->getType()->getPointerAddressSpace())
+            NewOp = IRB.CreateAddrSpaceCast(NewOp, Op->getType());
+          CI.setArgOperand(I, NewOp);
+        }
+      }
       break;
     }
     default:
@@ -261,17 +289,16 @@ void OffloadSanitizerImpl::removeASFromUses(SmallVectorImpl<const Use *> &Uses,
   }
 }
 
-bool OffloadSanitizerImpl::instrumentCallInsts(
+void OffloadSanitizerImpl::instrumentCallInsts(
     SmallVectorImpl<CallInst *> &CallInsts) {
-  bool Changed = false;
   for (auto *CI : CallInsts) {
     if (isa<LifetimeIntrinsic>(CI))
-      return Changed;
+      continue;
     auto *Fn = CI->getCalledFunction();
     if (!Fn)
       continue;
     if (Fn->getName().starts_with("__kmpc_target_init"))
-      return Changed;
+      continue;
     if ((Fn->isDeclaration() || Fn->getName().starts_with("__kmpc") ||
          Fn->getName().starts_with("rpc_")) &&
         !Fn->getName().starts_with("ompx")) {
@@ -283,33 +310,27 @@ bool OffloadSanitizerImpl::instrumentCallInsts(
         auto *CB = createCall(IRB, getUnpackFn(), {getPC(IRB), Op},
                               Op->getName() + ".unpack");
         CI->setArgOperand(I, CB);
-        Changed = true;
       }
     }
   }
-  return Changed;
 }
 
-bool OffloadSanitizerImpl::instrumentLifetimeIntrinsics(
+void OffloadSanitizerImpl::instrumentLifetimeIntrinsics(
     SmallVectorImpl<LifetimeIntrinsic *> &LifetimeInsts) {
   for (auto *LI : LifetimeInsts)
     LI->eraseFromParent();
-  return !LifetimeInsts.empty();
 }
 
-bool OffloadSanitizerImpl::instrumentTrapInstructions(
+void OffloadSanitizerImpl::instrumentTrapInstructions(
     SmallVectorImpl<IntrinsicInst *> &TrapCalls) {
-  bool Changed = false;
   for (auto *II : TrapCalls) {
     IRBuilder<> IRB(II);
     createCall(IRB, getTrapInfoFn(), {getPC(IRB)});
   }
-  return Changed;
 }
 
-bool OffloadSanitizerImpl::instrumentUnreachableInstructions(
+void OffloadSanitizerImpl::instrumentUnreachableInstructions(
     SmallVectorImpl<UnreachableInst *> &UnreachableInsts) {
-  bool Changed = false;
   for (auto *II : UnreachableInsts) {
     // Skip unreachables after traps since we instrument those as well.
     if (&II->getParent()->front() != II)
@@ -319,12 +340,10 @@ bool OffloadSanitizerImpl::instrumentUnreachableInstructions(
     IRBuilder<> IRB(II);
     createCall(IRB, getUnreachableInfoFn(), {getPC(IRB)});
   }
-  return Changed;
 }
 
-bool OffloadSanitizerImpl::instrumentAccesses(
+void OffloadSanitizerImpl::instrumentAccesses(
     SmallVectorImpl<AccessInfoTy> &AccessInfos) {
-  bool Changed = false;
   for (auto &AI : AccessInfos) {
     IRBuilder<> IRB(AI.I);
     auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
@@ -332,20 +351,21 @@ bool OffloadSanitizerImpl::instrumentAccesses(
         ConstantInt::get(Int32Ty, DL.getTypeStoreSize(AI.I->getAccessType()));
     AI.I->dump();
     FakePtr->dump();
-    if (FakePtr->getType()->getPointerAddressSpace())
-      FakePtr = IRB.CreateAddrSpaceCast(FakePtr, PtrTy);
+    if (FakePtr->getType()->getPointerAddressSpace()) {
+      auto *ASC = cast<AddrSpaceCastInst>(FakePtr);
+      FakePtr = ASC->getPointerOperand();
+    }
+    assert(FakePtr->getType()->getPointerAddressSpace() == 0);
     FakePtr->dump();
     auto *RealPtr =
         createCall(IRB, getCheckAccessFn(AI.AS), {getPC(IRB), FakePtr, Size});
     AI.I->setOperand(AI.PtrOpIdx, RealPtr);
   }
-  return Changed;
 }
 
-bool OffloadSanitizerImpl::instrumentAllocaInstructions(
+void OffloadSanitizerImpl::instrumentAllocaInstructions(
     SmallVectorImpl<AllocaInst *> &AllocaInsts) {
 
-  SmallVector<const Use *> Worklist, Visited;
   auto IsApplicable = [&](AllocaInst &AI, TypeSize &TS) {
     // Check the type and size.
     if (AI.getAllocatedType()->isScalableTy())
@@ -355,61 +375,34 @@ bool OffloadSanitizerImpl::instrumentAllocaInstructions(
     if (AllocSize->getKnownMinValue() >= (1UL << 32))
       return false;
     TS = *AllocSize;
-
-    // Now we check the users.
-    Visited.clear();
-    Worklist.clear();
-    for (auto &U : AI.uses())
-      Worklist.push_back(&U);
-    errs() << "AI: " << AI << "\n";
-    while (!Worklist.empty()) {
-      auto *U = Worklist.pop_back_val();
-      auto *I = cast<Instruction>(U->getUser());
-      errs() << "WI: " << *I << "\n";
-      Visited.push_back(U);
-      switch (I->getOpcode()) {
-      case Instruction::Load:
-        break;
-      case Instruction::GetElementPtr:
-      case Instruction::AddrSpaceCast:
-      case Instruction::Select:
-      case Instruction::PHI:
-        for (auto &U : I->uses())
-          Worklist.push_back(&U);
-        break;
-      case Instruction::Call: {
-        break;
-      }
-      case Instruction::Store:
-        if (cast<StoreInst>(I)->getValueOperand() == U->get())
-          return false;
-        break;
-      default:
-        return false;
-      }
-    }
     return true;
   };
 
-  bool Changed = false;
   for (auto *AI : AllocaInsts) {
     TypeSize TS(0, false);
     if (!IsApplicable(*AI, TS))
       continue;
-    Changed = true;
 
     IRBuilder<> IRB(AI->getNextNode());
     auto *Size = ConstantInt::get(Int32Ty, TS);
     auto *FakePtr =
         createCall(IRB, getAllocaRegisterFn(), {getPC(IRB), AI, Size});
-    VMap[AI] = FakePtr;
-    removeASFromUses(Visited, VMap);
+    for (auto *U : AI->users()) {
+      auto *UI = cast<Instruction>(U);
+      if (UI == FakePtr)
+        continue;
+      assert(isa<AddrSpaceCastInst>(UI) &&
+             "Expected only address space casts users of allocas");
+      assert(UI->getType()->getPointerAddressSpace() == 0 &&
+             "Expected only address space casts to AS 0 as users of allocas");
+      UI->replaceAllUsesWith(FakePtr);
+      UI->eraseFromParent();
+    }
   }
-  return Changed;
 }
 
 bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
-  if (!shouldInstrumentFunction(Fn))
+  if (!shouldInstrumentFunction(&Fn))
     return false;
 
   SmallVector<UnreachableInst *> UnreachableInsts;
@@ -420,70 +413,81 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   SmallVector<LifetimeIntrinsic *> LifetimeInsts;
   SmallVector<CallInst *> CallInsts;
 
-  for (auto &Arg : Fn.args())
-    if (isASType(*Arg.getType())) {
-    }
-
-  bool Changed = false;
-  for (auto &I : instructions(Fn)) {
-    switch (I.getOpcode()) {
-    case Instruction::Alloca:
-      AllocaInsts.push_back(cast<AllocaInst>(&I));
-      break;
-    case Instruction::Store: {
-      auto &SI = cast<StoreInst>(I);
-      AccessInfos.push_back(
-          {&I, SI.getPointerOperandIndex(), SI.getPointerAddressSpace()});
-      break;
-    }
-    case Instruction::Load: {
-      auto &LI = cast<LoadInst>(I);
-      AccessInfos.push_back(
-          {&I, LI.getPointerOperandIndex(), LI.getPointerAddressSpace()});
-      break;
-    }
-    case Instruction::Unreachable:
-      UnreachableInsts.push_back(cast<UnreachableInst>(&I));
-      break;
-    case Instruction::Call: {
-      auto &CI = cast<CallInst>(I);
-      if (auto *II = dyn_cast<IntrinsicInst>(&CI)) {
-        switch (II->getIntrinsicID()) {
-        case Intrinsic::trap:
-          TrapCalls.push_back(II);
-          break;
-        case Intrinsic::lifetime_start:
-        case Intrinsic::lifetime_end:
-          LifetimeInsts.push_back(cast<LifetimeIntrinsic>(II));
-          break;
-        }
-      } else {
-        CallInsts.push_back(&CI);
+  ReversePostOrderTraversal<Function *> RPOT(&Fn);
+  for (auto &It : RPOT) {
+    for (auto &I : *It) {
+      switch (I.getOpcode()) {
+      case Instruction::Alloca:
+        AllocaInsts.push_back(cast<AllocaInst>(&I));
+        break;
+      case Instruction::Store: {
+        auto &SI = cast<StoreInst>(I);
+        AccessInfos.push_back(
+            {&I, SI.getPointerOperandIndex(), SI.getPointerAddressSpace()});
+        if (isASType(*SI.getPointerOperandType()))
+          ASInsts.push_back(&I);
+        break;
       }
-      //      if (isASType(*CI.getType()) == 4)
-      //        break;
-      //      assert(!isASType(*CI.getType()) && "TODO");
-      break;
-    }
-    default:
-      //      if (any_of(I.operands(),
-      //                 [&](auto &Op) { return isASType(*Op.getType()); }))
-      //        break;
-      if (isASType(*I.getType()))
-        ASInsts.push_back(&I);
-      break;
+      case Instruction::Load: {
+        auto &LI = cast<LoadInst>(I);
+        AccessInfos.push_back(
+            {&I, LI.getPointerOperandIndex(), LI.getPointerAddressSpace()});
+        if (isASType(*LI.getType()) || isASType(*LI.getPointerOperandType()))
+          ASInsts.push_back(&I);
+        break;
+      }
+      case Instruction::Unreachable:
+        UnreachableInsts.push_back(cast<UnreachableInst>(&I));
+        break;
+      case Instruction::Call: {
+        auto &CI = cast<CallInst>(I);
+        if (auto *II = dyn_cast<IntrinsicInst>(&CI)) {
+          switch (II->getIntrinsicID()) {
+          case Intrinsic::trap:
+            TrapCalls.push_back(II);
+            break;
+          case Intrinsic::lifetime_start:
+          case Intrinsic::lifetime_end:
+            LifetimeInsts.push_back(cast<LifetimeIntrinsic>(II));
+            break;
+          }
+        } else {
+          if (isASType(*CI.getType()))
+            ASInsts.push_back(&I);
+          else if (any_of(CI.args(),
+                          [&](Value *Op) { return isASType(*Op->getType()); }))
+            ASInsts.push_back(&I);
+          CallInsts.push_back(&CI);
+        }
+        break;
+      }
+      default:
+        if (isASType(*I.getType()))
+          ASInsts.push_back(&I);
+        else if (any_of(I.operand_values(),
+                        [&](Value *Op) { return isASType(*Op->getType()); }))
+          ASInsts.push_back(&I);
+        break;
+      }
     }
   }
 
-  Changed |= instrumentCallInsts(CallInsts);
-  Changed |= instrumentLifetimeIntrinsics(LifetimeInsts);
-  Changed |= instrumentTrapInstructions(TrapCalls);
-  Changed |= instrumentUnreachableInstructions(UnreachableInsts);
-  Changed |= instrumentAccesses(AccessInfos);
-  Changed |= instrumentAllocaInstructions(AllocaInsts);
+  Fn.dump();
+  removeAS(Fn, ASInsts);
+  //  instrumentCallInsts(CallInsts);
+  instrumentLifetimeIntrinsics(LifetimeInsts);
+  //  instrumentTrapInstructions(TrapCalls);
+  //  instrumentUnreachableInstructions(UnreachableInsts);
+  instrumentAccesses(AccessInfos);
+  instrumentAllocaInstructions(AllocaInsts);
+
+  for (auto *CI : RTCalls) {
+    InlineFunctionInfo IFI;
+    InlineFunction(*CI, IFI);
+  }
   Fn.dump();
 
-  return Changed;
+  return true;
 }
 
 bool OffloadSanitizerImpl::instrument() {
