@@ -43,6 +43,8 @@ using namespace omp;
 using namespace target;
 using namespace plugin;
 
+extern "C" void *registerPtr(void *DevPtr, long Size);
+
 // TODO: Fix any thread safety issues for multi-threaded kernel recording.
 namespace llvm::omp::target::plugin {
 struct RecordReplayTy {
