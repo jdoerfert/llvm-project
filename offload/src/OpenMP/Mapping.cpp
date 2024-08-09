@@ -69,7 +69,7 @@ int MappingInfoTy::associatePtr(void *HstPtrBegin, void *TgtPtrBegin,
   }
 
   // Mapping does not exist, allocate it with refCount=INF
-  const HostDataToTargetTy &NewEntry =
+  HostDataToTargetTy &NewEntry =
       *HDTTMap
            ->emplace(new HostDataToTargetTy(
                /*HstPtrBase=*/(uintptr_t)HstPtrBegin,
@@ -89,7 +89,8 @@ int MappingInfoTy::associatePtr(void *HstPtrBegin, void *TgtPtrBegin,
   (void)NewEntry;
 
   // Notify the plugin about the new mapping.
-  return Device.notifyDataMapped(HstPtrBegin, Size);
+  return Device.notifyDataMapped(HstPtrBegin, TgtPtrBegin, Size,
+                                 NewEntry.FakeTgtPtrBegin);
 }
 
 int MappingInfoTy::disassociatePtr(void *HstPtrBegin) {
@@ -120,7 +121,7 @@ int MappingInfoTy::disassociatePtr(void *HstPtrBegin) {
     if (Event)
       Device.destroyEvent(Event);
     HDTTMap->erase(It);
-    return Device.notifyDataUnmapped(HstPtrBegin);
+    return Device.notifyDataUnmapped(HstPtrBegin, HDTT.FakeTgtPtrBegin);
   }
 
   REPORT("Trying to disassociate a pointer which was not mapped via "
@@ -313,7 +314,8 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
     LR.TPR.TargetPointer = (void *)TgtPtrBegin;
 
     // Notify the plugin about the new mapping.
-    if (Device.notifyDataMapped(HstPtrBegin, Size))
+    if (Device.notifyDataMapped(HstPtrBegin, (void *)TgtPtrBegin, Size,
+                                LR.TPR.getEntry()->FakeTgtPtrBegin))
       return TargetPointerResultTy{};
   } else {
     // This entry is not present and we did not create a new entry for it.
@@ -495,7 +497,8 @@ int MappingInfoTy::deallocTgtPtrAndEntry(HostDataToTargetTy *Entry,
   int Ret = Device.deleteData((void *)Entry->TgtAllocBegin);
 
   // Notify the plugin about the unmapped memory.
-  Ret |= Device.notifyDataUnmapped((void *)Entry->HstPtrBegin);
+  Ret |= Device.notifyDataUnmapped((void *)Entry->HstPtrBegin,
+                                   Entry->FakeTgtPtrBegin);
 
   delete Entry;
 

@@ -792,6 +792,8 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   /// as source/destination of memory transfers. We can use this information to
   /// lock the host buffer and optimize its memory transfers.
   Error notifyDataMapped(void *HstPtr, int64_t Size) {
+    if (!HstPtr)
+      return Error::success();
     return PinnedAllocs.lockMappedHostBuffer(HstPtr, Size);
   }
 
@@ -799,8 +801,13 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   /// libomptarget removed an existing mapping. If the plugin locked the buffer
   /// in notifyDataMapped, this function should unlock it.
   Error notifyDataUnmapped(void *HstPtr) {
+    if (!HstPtr)
+      return Error::success();
     return PinnedAllocs.unlockUnmappedHostBuffer(HstPtr);
   }
+
+  void *createFakeHostPtr(void *DevicePtr, int64_t Size);
+  void removeFakeHostPtr(void *FakeHstPtr);
 
   /// Check whether the host buffer with address \p HstPtr is pinned by the
   /// underlying vendor-specific runtime (if any). Retrieve the host pointer,
@@ -1255,10 +1262,12 @@ public:
   int32_t data_unlock(int32_t DeviceId, void *Ptr);
 
   /// Notify the runtime about a new mapping that has been created outside.
-  int32_t data_notify_mapped(int32_t DeviceId, void *HstPtr, int64_t Size);
+  int32_t data_notify_mapped(int32_t DeviceId, void *HstPtr, void *DevicePtr,
+                             int64_t Size, void *&FakeHstPtr);
 
   /// Notify t he runtime about a mapping that has been deleted.
-  int32_t data_notify_unmapped(int32_t DeviceId, void *HstPtr);
+  int32_t data_notify_unmapped(int32_t DeviceId, void *HstPtr,
+                               void *FakeHstPtr);
 
   /// Copy data to the given device.
   int32_t data_submit(int32_t DeviceId, void *TgtPtr, void *HstPtr,

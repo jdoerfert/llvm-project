@@ -433,17 +433,21 @@ static int loadImagesOntoDevice(DeviceTy &Device) {
            ", name \"%s\"\n",
            DPxPTR(CurrHostEntry->addr), DPxPTR(CurrDeviceEntry->addr),
            CurrDeviceEntry->size, CurrDeviceEntry->name);
-        HDTTMap->emplace(new HostDataToTargetTy(
-            (uintptr_t)CurrHostEntry->addr /*HstPtrBase*/,
-            (uintptr_t)CurrHostEntry->addr /*HstPtrBegin*/,
-            (uintptr_t)CurrHostEntry->addr + CurrHostEntry->size /*HstPtrEnd*/,
-            (uintptr_t)CurrDeviceEntryAddr /*TgtAllocBegin*/,
-            (uintptr_t)CurrDeviceEntryAddr /*TgtPtrBegin*/,
-            false /*UseHoldRefCount*/, CurrHostEntry->name,
-            true /*IsRefCountINF*/));
+        auto *Entry = HDTTMap
+                          ->emplace(new HostDataToTargetTy(
+                              (uintptr_t)CurrHostEntry->addr /*HstPtrBase*/,
+                              (uintptr_t)CurrHostEntry->addr /*HstPtrBegin*/,
+                              (uintptr_t)CurrHostEntry->addr +
+                                  CurrHostEntry->size /*HstPtrEnd*/,
+                              (uintptr_t)CurrDeviceEntryAddr /*TgtAllocBegin*/,
+                              (uintptr_t)CurrDeviceEntryAddr /*TgtPtrBegin*/,
+                              false /*UseHoldRefCount*/, CurrHostEntry->name,
+                              true /*IsRefCountINF*/))
+                          .first->HDTT;
 
         // Notify about the new mapping.
-        if (Device.notifyDataMapped(CurrHostEntry->addr, CurrHostEntry->size))
+        if (Device.notifyDataMapped(CurrHostEntry->addr, CurrHostEntry->size,
+                                    Entry->FakeTgtPtrBegin))
           return OFFLOAD_FAIL;
       }
     }

@@ -198,7 +198,7 @@ static int32_t getParentIndex(int64_t Type) {
   return ((Type & OMP_TGT_MAPTYPE_MEMBER_OF) >> 48) - 1;
 }
 
-void *targetAllocExplicit(size_t Size, int DeviceNum, int Kind,
+void *targetAllocExplicit(size_t Size, int64_t DeviceNum, int Kind,
                           const char *Name) {
   DP("Call to %s for device %d requesting %zu bytes\n", Name, DeviceNum, Size);
 
@@ -215,13 +215,21 @@ void *targetAllocExplicit(size_t Size, int DeviceNum, int Kind,
     return Rc;
   }
 
+  if (checkDeviceAndCtors(DeviceNum, nullptr)) {
+    DP("Not offloading to device %" PRId64 "\n", DeviceNum);
+    return Rc;
+  }
+
   auto DeviceOrErr = PM->getDevice(DeviceNum);
   if (!DeviceOrErr)
     FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
 
   Rc = DeviceOrErr->allocData(Size, nullptr, Kind);
   DP("%s returns device ptr " DPxMOD "\n", Name, DPxPTR(Rc));
-  return Rc;
+  void *FakeHstPtr = nullptr;
+  if (DeviceOrErr->notifyDataMapped(nullptr, Rc, Size, FakeHstPtr))
+    return nullptr;
+  return FakeHstPtr ? FakeHstPtr : Rc;
 }
 
 void targetFreeExplicit(void *DevicePtr, int DeviceNum, int Kind,
@@ -455,6 +463,9 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
         HasFlagTo, HasFlagAlways, IsImplicit, UpdateRef, HasCloseModifier,
         HasPresentModifier, HasHoldModifier, AsyncInfo, PointerTpr.getEntry());
     void *TgtPtrBegin = TPR.TargetPointer;
+    if (auto *Entry = TPR.getEntry())
+      if (auto *FakeTgtPtrBegin = Entry->FakeTgtPtrBegin)
+        TgtPtrBegin = FakeTgtPtrBegin;
     IsHostPtr = TPR.Flags.IsHostPointer;
     // If data_size==0, then the argument could be a zero-length pointer to
     // NULL, so getOrAlloc() returning NULL is not an error.
