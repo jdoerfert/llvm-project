@@ -24,6 +24,7 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -248,6 +249,9 @@ void OffloadSanitizerImpl::removeASFromUses(SmallVectorImpl<const Use *> &Uses,
       }
       break;
     }
+    case Instruction::Call: {
+      break;
+    }
     default:
       I->dump();
       llvm_unreachable("Instruction with AS not handled");
@@ -373,6 +377,9 @@ bool OffloadSanitizerImpl::instrumentAllocaInstructions(
         for (auto &U : I->uses())
           Worklist.push_back(&U);
         break;
+      case Instruction::Call: {
+        break;
+      }
       case Instruction::Store:
         if (cast<StoreInst>(I)->getValueOperand() == U->get())
           return false;
