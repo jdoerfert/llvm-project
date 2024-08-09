@@ -50,11 +50,6 @@ private:
     return T.isPointerTy() && T.getPointerAddressSpace();
   };
   Type *getWithoutAS(Type &T) { return isASType(T) ? T.getPointerTo() : &T; };
-  Value *stripASCasts(Value *V) {
-    while (auto *ASC = dyn_cast<AddrSpaceCastInst>(V))
-      V = ASC->getPointerOperand();
-    return V;
-  }
 
   bool shouldInstrumentFunction(Function &Fn);
 
@@ -64,8 +59,10 @@ private:
     unsigned AS;
   };
 
+  void removeASFromUses(SmallVectorImpl<const Use *> &Uses,
+                        DenseMap<Value *, Value *> &VMap);
+
   bool instrumentFunction(Function &Fn);
-  bool clearAS(Function &Fn, SmallVectorImpl<Instruction *> &ASInsts);
   bool instrumentTrapInstructions(SmallVectorImpl<IntrinsicInst *> &TrapCalls);
   bool instrumentCallInsts(SmallVectorImpl<CallInst *> &CallInsts);
   bool instrumentLifetimeIntrinsics(
@@ -146,6 +143,7 @@ private:
   const DataLayout &DL = M.getDataLayout();
   FunctionAnalysisManager &FAM;
   LLVMContext &Ctx;
+  DenseMap<Value *, Value *> VMap;
 
   Type *VoidTy = Type::getVoidTy(Ctx);
   Type *IntptrTy = M.getDataLayout().getIntPtrType(Ctx);
@@ -171,55 +169,92 @@ bool OffloadSanitizerImpl::shouldInstrumentFunction(Function &Fn) {
   return !Fn.hasFnAttribute(Attribute::DisableSanitizerInstrumentation);
 }
 
-bool OffloadSanitizerImpl::clearAS(Function &Fn,
-                                   SmallVectorImpl<Instruction *> &ASInsts) {
-  DenseMap<Value *, Value *> VMap;
-
-  auto HandleRoot = [&](Value *Root) {
-    if (!isASType(*Root->getType()))
-      return Root;
-    Value *&NewRoot = VMap[Root];
-    if (!NewRoot) {
-      Instruction *IP = dyn_cast<Instruction>(Root);
-      if (IP)
-        IP = IP->getNextNode();
-      else
-        IP = &Fn.getEntryBlock().front();
-      NewRoot = new AddrSpaceCastInst(Root, getWithoutAS(*Root->getType()),
-                                      Root->getName() + ".noas", IP);
-    }
-    return NewRoot;
+void OffloadSanitizerImpl::removeASFromUses(SmallVectorImpl<const Use *> &Uses,
+                                            DenseMap<Value *, Value *> &VMap) {
+  auto Clone = [&](Instruction &I) {
+    Instruction *NewI = I.clone();
+    NewI->setName(I.getName() + ".noas");
+    NewI->insertAfter(&I);
+    NewI->mutateType(getWithoutAS(*I.getType()));
+    VMap[&I] = NewI;
+    return NewI;
   };
 
-  for (auto *I : ASInsts) {
+  auto GetCasted = [&](Value &Op, Instruction &I) {
+    Instruction *IP = nullptr;
+    if (auto *PHIOp = dyn_cast<PHINode>(&Op))
+      IP = PHIOp->getParent()->getFirstNonPHI();
+    else if (auto *OpI = dyn_cast<Instruction>(&Op))
+      IP = OpI->getNextNode();
+    else
+      IP = &I.getFunction()->getEntryBlock().front();
+    auto *ACS = new AddrSpaceCastInst(&Op, getWithoutAS(*Op.getType()),
+                                      Op.getName() + ".noas", IP);
+    VMap[&Op] = ACS;
+    return ACS;
+  };
+
+  for (auto *U : Uses) {
+    auto *I = cast<Instruction>(U->getUser());
+    errs() << "I: " << *I << "\n";
+    if (VMap.count(I))
+      continue;
     switch (I->getOpcode()) {
+    case Instruction::Load: {
+      auto &LI = cast<LoadInst>(*I);
+      LI.setOperand(LI.getPointerOperandIndex(), VMap[LI.getPointerOperand()]);
+      VMap[I] = I;
+      break;
+    }
+    case Instruction::Store: {
+      auto &SI = cast<StoreInst>(*I);
+      SI.setOperand(SI.getPointerOperandIndex(), VMap[SI.getPointerOperand()]);
+      VMap[I] = I;
+      break;
+    }
     case Instruction::GetElementPtr: {
-      auto &GEP = cast<GetElementPtrInst>(*I);
-      GEP.dump();
-      GEP.setSourceElementType(getWithoutAS(*GEP.getSourceElementType()));
-      GEP.setResultElementType(getWithoutAS(*GEP.getResultElementType()));
-      auto *Op = HandleRoot(GEP.getPointerOperand());
-      GEP.setOperand(GEP.getPointerOperandIndex(), Op);
-      auto *Ty = GEP.getType();
-      auto *TyNoAS = getWithoutAS(*Ty);
-      auto *ACS = new AddrSpaceCastInst(UndefValue::get(TyNoAS), Ty, "",
-                                        GEP.getNextNode());
-      GEP.replaceAllUsesWith(ACS);
-      GEP.mutateType(TyNoAS);
-      ACS->setOperand(ACS->getPointerOperandIndex(), &GEP);
-      GEP.dump();
+      auto &NewGEP = cast<GetElementPtrInst>(*Clone(*I));
+      NewGEP.setSourceElementType(getWithoutAS(*NewGEP.getSourceElementType()));
+      NewGEP.setResultElementType(getWithoutAS(*NewGEP.getResultElementType()));
+      NewGEP.setOperand(NewGEP.getPointerOperandIndex(),
+                        VMap[NewGEP.getPointerOperand()]);
       break;
     }
     case Instruction::AddrSpaceCast: {
       auto &ASC = cast<AddrSpaceCastInst>(*I);
+      VMap[I] = VMap[ASC.getPointerOperand()];
+      break;
+    }
+    case Instruction::Select: {
+      auto &NewSI = cast<SelectInst>(*Clone(*I));
+      if (auto *NewTV = VMap.lookup(NewSI.getTrueValue()))
+        NewSI.setTrueValue(NewTV);
+      else
+        NewSI.setTrueValue(GetCasted(*NewSI.getTrueValue(), NewSI));
+      if (auto *NewFV = VMap.lookup(NewSI.getFalseValue()))
+        NewSI.setFalseValue(NewFV);
+      else
+        NewSI.setFalseValue(GetCasted(*NewSI.getFalseValue(), NewSI));
+      break;
+    }
+    case Instruction::PHI: {
+      auto &NewPHI = cast<PHINode>(*Clone(*I));
+      for (unsigned I = 0, E = NewPHI.getNumIncomingValues(); I < E; ++I) {
+        if (auto *NewV = VMap.lookup(NewPHI.getIncomingValue(I)))
+          NewPHI.setIncomingValue(I, NewV);
+        else
+          NewPHI.setIncomingValue(
+              I, GetCasted(*NewPHI.getIncomingValue(I), NewPHI));
+      }
       break;
     }
     default:
       I->dump();
       llvm_unreachable("Instruction with AS not handled");
     }
+    if (VMap.count(I))
+      errs() << "I: " << *I << " --> " << *VMap[I] << "\n";
   }
-  return !ASInsts.empty();
 }
 
 bool OffloadSanitizerImpl::instrumentCallInsts(
@@ -288,7 +323,7 @@ bool OffloadSanitizerImpl::instrumentAccesses(
   bool Changed = false;
   for (auto &AI : AccessInfos) {
     IRBuilder<> IRB(AI.I);
-    auto *FakePtr = stripASCasts(AI.I->getOperand(AI.PtrOpIdx));
+    auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
     auto *Size =
         ConstantInt::get(Int32Ty, DL.getTypeStoreSize(AI.I->getAccessType()));
     AI.I->dump();
@@ -305,21 +340,63 @@ bool OffloadSanitizerImpl::instrumentAccesses(
 
 bool OffloadSanitizerImpl::instrumentAllocaInstructions(
     SmallVectorImpl<AllocaInst *> &AllocaInsts) {
+
+  SmallVector<const Use *> Worklist, Visited;
+  auto IsApplicable = [&](AllocaInst &AI, TypeSize &TS) {
+    // Check the type and size.
+    if (AI.getAllocatedType()->isScalableTy())
+      return false;
+    auto AllocSize = AI.getAllocationSize(DL);
+    assert(AllocSize && "Alloc size not known!");
+    if (AllocSize->getKnownMinValue() >= (1UL << 32))
+      return false;
+    TS = *AllocSize;
+
+    // Now we check the users.
+    Visited.clear();
+    Worklist.clear();
+    for (auto &U : AI.uses())
+      Worklist.push_back(&U);
+    errs() << "AI: " << AI << "\n";
+    while (!Worklist.empty()) {
+      auto *U = Worklist.pop_back_val();
+      auto *I = cast<Instruction>(U->getUser());
+      errs() << "WI: " << *I << "\n";
+      Visited.push_back(U);
+      switch (I->getOpcode()) {
+      case Instruction::Load:
+        break;
+      case Instruction::GetElementPtr:
+      case Instruction::AddrSpaceCast:
+      case Instruction::Select:
+      case Instruction::PHI:
+        for (auto &U : I->uses())
+          Worklist.push_back(&U);
+        break;
+      case Instruction::Store:
+        if (cast<StoreInst>(I)->getValueOperand() == U->get())
+          return false;
+        break;
+      default:
+        return false;
+      }
+    }
+    return true;
+  };
+
   bool Changed = false;
   for (auto *AI : AllocaInsts) {
-    assert(!AI->getAllocatedType()->isScalableTy());
-    auto AllocSize = AI->getAllocationSize(DL);
-    assert(AllocSize && "Alloc size not known!");
-    assert((AllocSize->getKnownMinValue() < (1UL << 32)) &&
-           "Alloc size too large!");
+    TypeSize TS(0, false);
+    if (!IsApplicable(*AI, TS))
+      continue;
+    Changed = true;
 
     IRBuilder<> IRB(AI->getNextNode());
-    auto *Size = ConstantInt::get(Int32Ty, *AllocSize);
+    auto *Size = ConstantInt::get(Int32Ty, TS);
     auto *FakePtr =
         createCall(IRB, getAllocaRegisterFn(), {getPC(IRB), AI, Size});
-    auto *NewPtr = IRB.CreateAddrSpaceCast(FakePtr, AI->getType());
-    AI->replaceUsesWithIf(NewPtr,
-                          [=](Use &U) { return U.getUser() != FakePtr; });
+    VMap[AI] = FakePtr;
+    removeASFromUses(Visited, VMap);
   }
   return Changed;
 }
@@ -356,8 +433,6 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
       auto &LI = cast<LoadInst>(I);
       AccessInfos.push_back(
           {&I, LI.getPointerOperandIndex(), LI.getPointerAddressSpace()});
-      if (isASType(*LI.getType()))
-        LI.mutateType(getWithoutAS(*LI.getType()));
       break;
     }
     case Instruction::Unreachable:
@@ -393,7 +468,6 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
     }
   }
 
-  //  Changed |= clearAS(Fn, ASInsts);
   Changed |= instrumentCallInsts(CallInsts);
   Changed |= instrumentLifetimeIntrinsics(LifetimeInsts);
   Changed |= instrumentTrapInstructions(TrapCalls);
