@@ -806,13 +806,13 @@ void AMDGPUTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
   // FIXME: Why is AMDGPUAttributor not in CGSCC?
   PB.registerOptimizerLastEPCallback(
       [this](ModulePassManager &MPM, OptimizationLevel Level) {
-        if (Level != OptimizationLevel::O0) {
-          MPM.addPass(AMDGPUAttributorPass(*this));
-        }
       });
 
   PB.registerFullLinkTimeOptimizationLastEPCallback(
       [this](ModulePassManager &PM, OptimizationLevel Level) {
+        if (Level != OptimizationLevel::O0) {
+          PM.addPass(AMDGPUAttributorPass(*this));
+        }
         // We want to support the -lto-partitions=N option as "best effort".
         // For that, we need to lower LDS earlier in the pipeline before the
         // module is partitioned for codegen.
