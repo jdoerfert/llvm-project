@@ -11,6 +11,7 @@
 #include "llvm/Transforms/Instrumentation/OffloadSanitizer.h"
 
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Argument.h"
@@ -27,6 +28,7 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -178,76 +180,85 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
 
   DenseMap<Value *, Value *> VMap;
 
-  auto GetAsGeneric = [&](Value &V) {
+  std::function<Value *(Value &)> GetAsGeneric = [&](Value &V) -> Value * {
     if (!isASType(*V.getType()))
       return &V;
     auto *&NewV = VMap[&V];
     if (!NewV) {
       auto *IP = &Fn.getEntryBlock().front();
-      if (isa<IntrinsicInst>(V))
-        IP = cast<Instruction>(&V)->getNextNode();
-      else
-        assert(!isa<Instruction>(V));
+      if (auto *I = dyn_cast<Instruction>(&V))
+        IP = I->getNextNode();
       NewV = new AddrSpaceCastInst(&V, getWithoutAS(*V.getType()),
                                    V.getName() + ".noas", IP);
     }
     return NewV;
   };
 
+  SmallVector<PHINode *> PHIs;
   for (auto *I : ASInsts) {
     errs() << "I: " << *I << "\n";
     switch (I->getOpcode()) {
     case Instruction::Load: {
       auto &LI = cast<LoadInst>(*I);
-      //     if (LI.getPointerAddressSpace()) {
-      //       auto *GenericOp = GetAsGeneric(*LI.getPointerOperand());
-      //       auto *ASOp =
-      //           new AddrSpaceCastInst(GenericOp, LI.getPointerOperandType(),
-      //                                 GenericOp->getName() + ".as", &LI);
-      //       LI.setOperand(LI.getPointerOperandIndex(), ASOp);
-      //     }
-      assert(isASType(*LI.getType()));
+      auto *GenericOp = GetAsGeneric(*LI.getPointerOperand());
+      if (LI.getPointerAddressSpace())
+        GenericOp = new AddrSpaceCastInst(GenericOp, LI.getPointerOperandType(),
+                                          GenericOp->getName() + ".as", &LI);
+      LI.setOperand(LI.getPointerOperandIndex(), GenericOp);
       VMap[I] = GetAsGeneric(LI);
       break;
     }
-      //    case Instruction::Store: {
-      //      auto &SI = cast<StoreInst>(*I);
-      //      assert(SI.getPointerAddressSpace());
-      //      auto *GenericOp = GetAsGeneric(*SI.getPointerOperand());
-      //      auto *ASOp = new AddrSpaceCastInst(GenericOp,
-      //      SI.getPointerOperandType(),
-      //                                         GenericOp->getName() + ".as",
-      //                                         &SI);
-      //      SI.setOperand(SI.getPointerOperandIndex(), ASOp);
-      //      break;
-      //    }
+    case Instruction::Store: {
+      auto &SI = cast<StoreInst>(*I);
+      auto *GenericOp = GetAsGeneric(*SI.getPointerOperand());
+      if (SI.getPointerAddressSpace())
+        GenericOp = new AddrSpaceCastInst(GenericOp, SI.getPointerOperandType(),
+                                          GenericOp->getName() + ".as", &SI);
+      SI.setOperand(SI.getPointerOperandIndex(), GenericOp);
+      break;
+    }
+    case Instruction::AtomicRMW: {
+      auto &ARMW = cast<AtomicRMWInst>(*I);
+      auto *GenericOp = GetAsGeneric(*ARMW.getPointerOperand());
+      if (ARMW.getPointerAddressSpace())
+        GenericOp = new AddrSpaceCastInst(GenericOp,
+                                          ARMW.getPointerOperand()->getType(),
+                                          GenericOp->getName() + ".as", &ARMW);
+      ARMW.setOperand(ARMW.getPointerOperandIndex(), GenericOp);
+      VMap[I] = GetAsGeneric(ARMW);
+      break;
+    }
     case Instruction::GetElementPtr: {
       auto &GEP = cast<GetElementPtrInst>(*I);
+      GEP.mutateType(getWithoutAS(*GEP.getType()));
       GEP.setSourceElementType(getWithoutAS(*GEP.getSourceElementType()));
       GEP.setResultElementType(getWithoutAS(*GEP.getResultElementType()));
       GEP.setOperand(GEP.getPointerOperandIndex(),
                      GetAsGeneric(*GEP.getPointerOperand()));
-      GEP.mutateType(getWithoutAS(*GEP.getType()));
       break;
     }
     case Instruction::AddrSpaceCast: {
       auto &ASC = cast<AddrSpaceCastInst>(*I);
-      assert(!isASType(*ASC.getPointerOperand()->getType()));
       VMap[I] = GetAsGeneric(*ASC.getPointerOperand());
       break;
     }
     case Instruction::Select: {
       auto &SI = cast<SelectInst>(*I);
+      SI.mutateType(getWithoutAS(*SI.getType()));
       SI.setTrueValue(GetAsGeneric(*SI.getTrueValue()));
       SI.setFalseValue(GetAsGeneric(*SI.getFalseValue()));
-      SI.mutateType(getWithoutAS(*SI.getType()));
       break;
     }
     case Instruction::PHI: {
       auto &PHI = cast<PHINode>(*I);
-      for (unsigned I = 0, E = PHI.getNumIncomingValues(); I < E; ++I)
-        PHI.setIncomingValue(I, GetAsGeneric(*PHI.getIncomingValue(I)));
       PHI.mutateType(getWithoutAS(*PHI.getType()));
+      PHIs.push_back(&PHI);
+      break;
+    }
+    case Instruction::ICmp: {
+      auto &II = cast<ICmpInst>(*I);
+      II.setOperand(0, GetAsGeneric(*II.getOperand(0)));
+      II.setOperand(1, GetAsGeneric(*II.getOperand(1)));
       break;
     }
     case Instruction::Call: {
@@ -289,6 +300,10 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
     if (VMap.count(I))
       errs() << "I: " << *I << " --> " << *VMap[I] << "\n";
   }
+
+  for (auto *PHI : PHIs)
+    for (unsigned I = 0, E = PHI->getNumIncomingValues(); I < E; ++I)
+      PHI->setIncomingValue(I, GetAsGeneric(*PHI->getIncomingValue(I)));
 }
 
 void OffloadSanitizerImpl::instrumentCallInsts(
@@ -351,16 +366,18 @@ void OffloadSanitizerImpl::instrumentAccesses(
     auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
     auto *Size =
         ConstantInt::get(Int32Ty, DL.getTypeStoreSize(AI.I->getAccessType()));
+    errs() << "AI " << AI.I << "\n";
     AI.I->dump();
     FakePtr->dump();
-    //    if (FakePtr->getType()->getPointerAddressSpace()) {
-    //      auto *ASC = cast<AddrSpaceCastInst>(FakePtr);
-    //      FakePtr = ASC->getPointerOperand();
-    //    }
+    if (FakePtr->getType()->getPointerAddressSpace()) {
+      auto *ASC = cast<AddrSpaceCastInst>(FakePtr);
+      FakePtr = ASC->getPointerOperand();
+    }
     assert(FakePtr->getType()->getPointerAddressSpace() == 0);
     auto *RealPtr =
         createCall(IRB, getCheckAccessFn(AI.AS), {getPC(IRB), FakePtr, Size});
     AI.I->setOperand(AI.PtrOpIdx, RealPtr);
+    assert(RealPtr->getParent());
   }
 }
 
@@ -383,6 +400,7 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
     TypeSize TS(0, false);
     if (!IsApplicable(*AI, TS))
       continue;
+    AI->dump();
 
     IRBuilder<> IRB(AI->getNextNode());
     auto *Size = ConstantInt::get(Int32Ty, TS);
@@ -392,12 +410,13 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
       auto *UI = cast<Instruction>(U);
       if (UI == FakePtr)
         continue;
+      if (isa<MemIntrinsic>(UI))
+        continue;
       assert(isa<AddrSpaceCastInst>(UI) &&
              "Expected only address space casts users of allocas");
       assert(UI->getType()->getPointerAddressSpace() == 0 &&
              "Expected only address space casts to AS 0 as users of allocas");
       UI->replaceAllUsesWith(FakePtr);
-      UI->eraseFromParent();
     }
   }
 }
@@ -413,28 +432,39 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   SmallVector<Instruction *> ASInsts;
   SmallVector<LifetimeIntrinsic *> LifetimeInsts;
   SmallVector<CallInst *> CallInsts;
+  SmallVector<AddrSpaceCastInst *> ASCInsts;
 
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
   for (auto &It : RPOT) {
     for (auto &I : *It) {
+      if (!I.getType()->isVoidTy())
+        I.setName("I");
       switch (I.getOpcode()) {
       case Instruction::Alloca:
         AllocaInsts.push_back(cast<AllocaInst>(&I));
         break;
       case Instruction::Store: {
         auto &SI = cast<StoreInst>(I);
+        errs() << &SI << " :" << SI << "\n";
         AccessInfos.push_back(
             {&I, SI.getPointerOperandIndex(), SI.getPointerAddressSpace()});
-        //        if (isASType(*SI.getPointerOperandType()))
-        //          ASInsts.push_back(&I);
+        if (isASType(*SI.getPointerOperandType()))
+          ASInsts.push_back(&I);
         break;
       }
       case Instruction::Load: {
         auto &LI = cast<LoadInst>(I);
+        errs() << &LI << " :" << LI << "\n";
         AccessInfos.push_back(
             {&I, LI.getPointerOperandIndex(), LI.getPointerAddressSpace()});
-        if (isASType(
-                *LI.getType())) // || isASType(*LI.getPointerOperandType()))
+        if (isASType(*LI.getType()) || isASType(*LI.getPointerOperandType()))
+          ASInsts.push_back(&I);
+        break;
+      }
+      case Instruction::AtomicRMW: {
+        auto &ARMW = cast<AtomicRMWInst>(I);
+        if (isASType(*ARMW.getType()) ||
+            isASType(*ARMW.getPointerOperand()->getType()))
           ASInsts.push_back(&I);
         break;
       }
@@ -463,6 +493,10 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
         }
         break;
       }
+      case Instruction::AddrSpaceCast:
+        ASCInsts.push_back(cast<AddrSpaceCastInst>(&I));
+        ASInsts.push_back(&I);
+        break;
       default:
         if (isASType(*I.getType()))
           ASInsts.push_back(&I);
@@ -476,18 +510,27 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
 
   Fn.dump();
   removeAS(Fn, ASInsts);
+  Fn.dump();
   //  instrumentCallInsts(CallInsts);
   instrumentLifetimeIntrinsics(LifetimeInsts);
   //  instrumentTrapInstructions(TrapCalls);
   //  instrumentUnreachableInstructions(UnreachableInsts);
   instrumentAccesses(AccessInfos);
+  Fn.dump();
   instrumentAllocaInstructions(AllocaInsts);
 
-  for (auto *CI : RTCalls) {
-    InlineFunctionInfo IFI;
-    InlineFunction(*CI, IFI);
+  for (auto *ASC : ASCInsts) {
+    if (ASC->getPointerOperand()->getType() == ASC->getType())
+      ASC->replaceAllUsesWith(ASC->getPointerOperand());
+    if (ASC->use_empty())
+      ASC->eraseFromParent();
   }
-  Fn.dump();
+
+  //  for (auto *CI : RTCalls) {
+  //    InlineFunctionInfo IFI;
+  //    InlineFunction(*CI, IFI);
+  //  }
+  RTCalls.clear();
 
   return true;
 }
@@ -514,6 +557,7 @@ PreservedAnalyses OffloadSanitizerPass::run(Module &M,
   OffloadSanitizerImpl Impl(M, FAM);
   if (!Impl.instrument())
     return PreservedAnalyses::all();
-  LLVM_DEBUG(M.dump());
+  M.dump();
+  assert(!verifyModule(M, &errs()));
   return PreservedAnalyses::none();
 }
