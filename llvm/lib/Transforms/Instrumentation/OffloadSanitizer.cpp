@@ -199,26 +199,28 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
     switch (I->getOpcode()) {
     case Instruction::Load: {
       auto &LI = cast<LoadInst>(*I);
-      if (LI.getPointerAddressSpace()) {
-        auto *GenericOp = GetAsGeneric(*LI.getPointerOperand());
-        auto *ASOp =
-            new AddrSpaceCastInst(GenericOp, LI.getPointerOperandType(),
-                                  GenericOp->getName() + ".as", &LI);
-        LI.setOperand(LI.getPointerOperandIndex(), ASOp);
-      }
-      if (isASType(*LI.getType()))
-        VMap[I] = GetAsGeneric(LI);
+      //     if (LI.getPointerAddressSpace()) {
+      //       auto *GenericOp = GetAsGeneric(*LI.getPointerOperand());
+      //       auto *ASOp =
+      //           new AddrSpaceCastInst(GenericOp, LI.getPointerOperandType(),
+      //                                 GenericOp->getName() + ".as", &LI);
+      //       LI.setOperand(LI.getPointerOperandIndex(), ASOp);
+      //     }
+      assert(isASType(*LI.getType()));
+      VMap[I] = GetAsGeneric(LI);
       break;
     }
-    case Instruction::Store: {
-      auto &SI = cast<StoreInst>(*I);
-      assert(SI.getPointerAddressSpace());
-      auto *GenericOp = GetAsGeneric(*SI.getPointerOperand());
-      auto *ASOp = new AddrSpaceCastInst(GenericOp, SI.getPointerOperandType(),
-                                         GenericOp->getName() + ".as", &SI);
-      SI.setOperand(SI.getPointerOperandIndex(), ASOp);
-      break;
-    }
+      //    case Instruction::Store: {
+      //      auto &SI = cast<StoreInst>(*I);
+      //      assert(SI.getPointerAddressSpace());
+      //      auto *GenericOp = GetAsGeneric(*SI.getPointerOperand());
+      //      auto *ASOp = new AddrSpaceCastInst(GenericOp,
+      //      SI.getPointerOperandType(),
+      //                                         GenericOp->getName() + ".as",
+      //                                         &SI);
+      //      SI.setOperand(SI.getPointerOperandIndex(), ASOp);
+      //      break;
+      //    }
     case Instruction::GetElementPtr: {
       auto &GEP = cast<GetElementPtrInst>(*I);
       GEP.setSourceElementType(getWithoutAS(*GEP.getSourceElementType()));
@@ -351,12 +353,11 @@ void OffloadSanitizerImpl::instrumentAccesses(
         ConstantInt::get(Int32Ty, DL.getTypeStoreSize(AI.I->getAccessType()));
     AI.I->dump();
     FakePtr->dump();
-    if (FakePtr->getType()->getPointerAddressSpace()) {
-      auto *ASC = cast<AddrSpaceCastInst>(FakePtr);
-      FakePtr = ASC->getPointerOperand();
-    }
+    //    if (FakePtr->getType()->getPointerAddressSpace()) {
+    //      auto *ASC = cast<AddrSpaceCastInst>(FakePtr);
+    //      FakePtr = ASC->getPointerOperand();
+    //    }
     assert(FakePtr->getType()->getPointerAddressSpace() == 0);
-    FakePtr->dump();
     auto *RealPtr =
         createCall(IRB, getCheckAccessFn(AI.AS), {getPC(IRB), FakePtr, Size});
     AI.I->setOperand(AI.PtrOpIdx, RealPtr);
@@ -424,15 +425,16 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
         auto &SI = cast<StoreInst>(I);
         AccessInfos.push_back(
             {&I, SI.getPointerOperandIndex(), SI.getPointerAddressSpace()});
-        if (isASType(*SI.getPointerOperandType()))
-          ASInsts.push_back(&I);
+        //        if (isASType(*SI.getPointerOperandType()))
+        //          ASInsts.push_back(&I);
         break;
       }
       case Instruction::Load: {
         auto &LI = cast<LoadInst>(I);
         AccessInfos.push_back(
             {&I, LI.getPointerOperandIndex(), LI.getPointerAddressSpace()});
-        if (isASType(*LI.getType()) || isASType(*LI.getPointerOperandType()))
+        if (isASType(
+                *LI.getType())) // || isASType(*LI.getPointerOperandType()))
           ASInsts.push_back(&I);
         break;
       }
