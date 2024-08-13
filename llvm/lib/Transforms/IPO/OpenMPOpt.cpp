@@ -5816,7 +5816,7 @@ PreservedAnalyses OpenMPOptPass::run(Module &M, ModuleAnalysisManager &AM) {
         F.addFnAttr(Attribute::AlwaysInline);
 
   if (PrintModuleAfterOptimizations)
-    dbgs() << TAG << "Module after OpenMPOpt Module Pass:\n" << M;
+    LLVM_DEBUG(dbgs() << TAG << "Module after OpenMPOpt Module Pass:\n" << M);
 
   if (Changed)
     return PreservedAnalyses::none();
