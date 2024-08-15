@@ -197,6 +197,8 @@ PIPE_OPERATOR(AAAllocationInfo)
 PIPE_OPERATOR(AAIndirectCallInfo)
 PIPE_OPERATOR(AAGlobalValueInfo)
 PIPE_OPERATOR(AADenormalFPMath)
+PIPE_OPERATOR(AAStoresFromLoad)
+PIPE_OPERATOR(AALoadsFromStore)
 
 #undef PIPE_OPERATOR
 
@@ -4186,8 +4188,11 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
     bool UsedAssumedInformation = false;
     if (!AssumeOnlyInst) {
       PotentialCopies.clear();
-      if (!AA::getPotentialCopiesOfStoredValue(A, SI, PotentialCopies, *this,
-                                               UsedAssumedInformation)) {
+      auto *LoadsFromStoreAA = A.getAAFor<AALoadsFromStore>(
+          *this, IRPosition::inst(SI), DepClassTy::OPTIONAL);
+      if (!LoadsFromStoreAA ||
+          !LoadsFromStoreAA->getPotentialCopiesOfStoredValue(
+              A, PotentialCopies, UsedAssumedInformation)) {
         LLVM_DEBUG(
             dbgs()
             << "[AAIsDead] Could not determine potential copies of store!\n");
@@ -4195,7 +4200,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
       }
     }
     LLVM_DEBUG(dbgs() << "[AAIsDead] Store has " << PotentialCopies.size()
-                      << " potential copies.\n");
+                      << " potential copies : " << AssumeOnlyInst << "\n");
 
     InformationCache &InfoCache = A.getInfoCache();
     return llvm::all_of(PotentialCopies, [&](Value *V) {
@@ -8950,6 +8955,405 @@ struct AADenormalFPMathFunction final : AADenormalFPMathImpl {
 };
 } // namespace
 
+/// ------------------ Store-Load | Load-Store relation attributes -------------
+
+namespace {
+
+template <bool IsLoad, typename Ty>
+static bool getPotentialCopiesOfMemoryValue(
+    Attributor &A, Ty &I, SmallSetVector<Value *, 4> &PotentialCopies,
+    SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
+    const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
+    bool OnlyExact) {
+  LLVM_DEBUG(dbgs() << "Trying to determine the potential copies of " << I
+                    << " (only exact: " << OnlyExact << ")\n";);
+
+  Value &Ptr = *I.getPointerOperand();
+  // Containers to remember the pointer infos and new copies while we are not
+  // sure that we can find all of them. If we abort we want to avoid spurious
+  // dependences and potential copies in the provided container.
+  SmallVector<const AAPointerInfo *> PIs;
+  SmallSetVector<Value *, 8> NewCopies;
+  SmallSetVector<Instruction *, 8> NewCopyOrigins;
+
+  const auto *TLI =
+      A.getInfoCache().getTargetLibraryInfoForFunction(*I.getFunction());
+
+  auto Pred = [&](Value &Obj) {
+    LLVM_DEBUG(dbgs() << "Visit underlying object " << Obj << "\n");
+    if (isa<UndefValue>(&Obj))
+      return true;
+    if (isa<ConstantPointerNull>(&Obj)) {
+      // A null pointer access can be undefined but any offset from null may
+      // be OK. We do not try to optimize the latter.
+      if (!NullPointerIsDefined(I.getFunction(),
+                                Ptr.getType()->getPointerAddressSpace()) &&
+          A.getAssumedSimplified(Ptr, QueryingAA, UsedAssumedInformation,
+                                 AA::Interprocedural) == &Obj)
+        return true;
+      LLVM_DEBUG(
+          dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
+      return false;
+    }
+    // TODO: Use assumed noalias return.
+    if (!isa<AllocaInst>(&Obj) && !isa<GlobalVariable>(&Obj) &&
+        !(IsLoad ? isAllocationFn(&Obj, TLI) : isNoAliasCall(&Obj))) {
+      LLVM_DEBUG(dbgs() << "Underlying object is not supported yet: " << Obj
+                        << "\n";);
+      return false;
+    }
+    if (auto *GV = dyn_cast<GlobalVariable>(&Obj))
+      if (!GV->hasLocalLinkage() &&
+          !(GV->isConstant() && GV->hasInitializer())) {
+        LLVM_DEBUG(dbgs() << "Underlying object is global with external "
+                             "linkage, not supported yet: "
+                          << Obj << "\n";);
+        return false;
+      }
+
+    bool NullOnly = true;
+    bool NullRequired = false;
+    auto CheckForNullOnlyAndUndef = [&](std::optional<Value *> V,
+                                        bool IsExact) {
+      if (!V || *V == nullptr)
+        NullOnly = false;
+      else if (isa<UndefValue>(*V))
+        /* No op */;
+      else if (isa<Constant>(*V) && cast<Constant>(*V)->isNullValue())
+        NullRequired = !IsExact;
+      else
+        NullOnly = false;
+    };
+
+    auto AdjustWrittenValueType = [&](const AAPointerInfo::Access &Acc,
+                                      Value &V) {
+      Value *AdjV = AA::getWithType(V, *I.getType());
+      if (!AdjV) {
+        LLVM_DEBUG(dbgs() << "Underlying object written but stored value "
+                             "cannot be converted to read type: "
+                          << *Acc.getRemoteInst() << " : " << *I.getType()
+                          << "\n";);
+      }
+      return AdjV;
+    };
+
+    auto SkipCB = [&](const AAPointerInfo::Access &Acc) {
+      if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))
+        return true;
+      if (IsLoad) {
+        if (Acc.isWrittenValueYetUndetermined())
+          return true;
+        if (!isa<AssumeInst>(Acc.getRemoteInst()))
+          return false;
+        if (!Acc.isWrittenValueUnknown())
+          if (Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue()))
+            if (NewCopies.count(V)) {
+              NewCopyOrigins.insert(Acc.getRemoteInst());
+              return true;
+            }
+        if (auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst()))
+          if (Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand()))
+            if (NewCopies.count(V)) {
+              NewCopyOrigins.insert(Acc.getRemoteInst());
+              return true;
+            }
+      }
+      return false;
+    };
+
+    auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
+      if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))
+        return true;
+      if (IsLoad && Acc.isWrittenValueYetUndetermined())
+        return true;
+      CheckForNullOnlyAndUndef(Acc.getContent(), IsExact);
+      if (OnlyExact && !IsExact && !NullOnly &&
+          !isa_and_nonnull<UndefValue>(Acc.getWrittenValue())) {
+        LLVM_DEBUG(dbgs() << "Non exact access " << *Acc.getRemoteInst()
+                          << ", abort!\n");
+        return false;
+      }
+      if (NullRequired && !NullOnly) {
+        LLVM_DEBUG(dbgs() << "Required all `null` accesses due to non exact "
+                             "one, however found non-null one: "
+                          << *Acc.getRemoteInst() << ", abort!\n");
+        return false;
+      }
+      if (IsLoad) {
+        assert(isa<LoadInst>(I) && "Expected load or store instruction only!");
+        if (!Acc.isWrittenValueUnknown()) {
+          Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue());
+          if (!V)
+            return false;
+          NewCopies.insert(V);
+          NewCopyOrigins.insert(Acc.getRemoteInst());
+          return true;
+        }
+        auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst());
+        if (!SI) {
+          LLVM_DEBUG(dbgs() << "Underlying object written through a non-store "
+                               "instruction not supported yet: "
+                            << *Acc.getRemoteInst() << "\n";);
+          return false;
+        }
+        Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand());
+        if (!V)
+          return false;
+        NewCopies.insert(V);
+        NewCopyOrigins.insert(SI);
+      } else {
+        assert(isa<StoreInst>(I) && "Expected load or store instruction only!");
+        auto *LI = dyn_cast<LoadInst>(Acc.getRemoteInst());
+        if (!LI && OnlyExact) {
+          LLVM_DEBUG(dbgs() << "Underlying object read through a non-load "
+                               "instruction not supported yet: "
+                            << *Acc.getRemoteInst() << "\n";);
+          return false;
+        }
+        NewCopies.insert(Acc.getRemoteInst());
+      }
+      return true;
+    };
+
+    // If the value has been written to we don't need the initial value of the
+    // object.
+    bool HasBeenWrittenTo = false;
+
+    AA::RangeTy Range;
+    auto *PI = A.getAAFor<AAPointerInfo>(QueryingAA, IRPosition::value(Obj),
+                                         DepClassTy::NONE);
+    if (!PI || !PI->forallInterferingAccesses(
+                   A, QueryingAA, I,
+                   /* FindInterferingWrites */ IsLoad,
+                   /* FindInterferingReads */ !IsLoad, CheckAccess,
+                   HasBeenWrittenTo, Range, SkipCB)) {
+      LLVM_DEBUG(
+          dbgs()
+          << "Failed to verify all interfering accesses for underlying object: "
+          << Obj << "\n");
+      return false;
+    }
+
+    if (IsLoad && !HasBeenWrittenTo && !Range.isUnassigned()) {
+      const DataLayout &DL = A.getDataLayout();
+      Value *InitialValue = AA::getInitialValueForObj(
+          A, QueryingAA, Obj, *I.getType(), TLI, DL, &Range);
+      if (!InitialValue) {
+        LLVM_DEBUG(dbgs() << "Could not determine required initial value of "
+                             "underlying object, abort!\n");
+        return false;
+      }
+      CheckForNullOnlyAndUndef(InitialValue, /* IsExact */ true);
+      if (NullRequired && !NullOnly) {
+        LLVM_DEBUG(dbgs() << "Non exact access but initial value that is not "
+                             "null or undef, abort!\n");
+        return false;
+      }
+
+      NewCopies.insert(InitialValue);
+      NewCopyOrigins.insert(nullptr);
+    }
+
+    PIs.push_back(PI);
+
+    return true;
+  };
+
+  const auto *AAUO = A.getAAFor<AAUnderlyingObjects>(
+      QueryingAA, IRPosition::value(Ptr), DepClassTy::OPTIONAL);
+  if (!AAUO || !AAUO->forallUnderlyingObjects(Pred)) {
+    LLVM_DEBUG(
+        dbgs() << "Underlying objects stored into could not be determined\n";);
+    return false;
+  }
+
+  // Only if we were successful collection all potential copies we record
+  // dependences (on non-fix AAPointerInfo AAs). We also only then modify the
+  // given PotentialCopies container.
+  for (const auto *PI : PIs) {
+    if (!PI->getState().isAtFixpoint())
+      UsedAssumedInformation = true;
+    A.recordDependence(*PI, QueryingAA, DepClassTy::OPTIONAL);
+  }
+  PotentialCopies.insert(NewCopies.begin(), NewCopies.end());
+  PotentialValueOrigins.insert(NewCopyOrigins.begin(), NewCopyOrigins.end());
+
+  return true;
+}
+
+template <bool IsLoad> struct AAForwardingHelper {
+
+  template <typename Ty>
+  bool getData(Attributor &A, AbstractAttribute &AA, Ty &I,
+               SmallSetVector<Value *, 4> &PotentialValues,
+               SmallSetVector<Instruction *, 4> *PotentialValueOrigins,
+               bool &UsedAssumedInformation, bool OnlyExact) {
+    if (!AA.getState().isValidState())
+      return false;
+    if (!OnlyExact && ExactData.Valid) {
+      if (getData(A, AA, I, PotentialValues, PotentialValueOrigins,
+                  UsedAssumedInformation, /*OnlyExact=*/true))
+        return true;
+    }
+    Data &D = OnlyExact ? ExactData : NonExactData;
+    if (!D.Valid)
+      return false;
+
+    // Run an initial updateImplImpl if not yet done and remember the request.
+    if ((OnlyExact && !ExactRequested) || (!OnlyExact && !NonExactRequested)) {
+      updateImplImpl(A, AA, I, OnlyExact);
+      A.registerForUpdate(AA);
+    }
+    ExactRequested |= OnlyExact;
+    NonExactRequested |= !OnlyExact;
+
+    if (!D.Valid)
+      return false;
+
+    // If the status is valid, provide the information to the user.
+    PotentialValues.insert(D.PotentialValues.begin(), D.PotentialValues.end());
+    if (PotentialValueOrigins)
+      PotentialValueOrigins->insert(D.PotentialValueOrigins.begin(),
+                                    D.PotentialValueOrigins.end());
+    UsedAssumedInformation |= D.UsedAssumedInformation;
+    return true;
+  }
+
+  template <typename Ty>
+  ChangeStatus updateImplImpl(Attributor &A, const AbstractAttribute &AA, Ty &V,
+                              bool OnlyExact) {
+    Data &D = OnlyExact ? ExactData : NonExactData;
+    if (!D.Valid)
+      return ChangeStatus::UNCHANGED;
+    auto Size = D.PotentialValues.size();
+    D.UsedAssumedInformation = false;
+    bool Success = getPotentialCopiesOfMemoryValue<IsLoad>(
+        A, V, D.PotentialValues, D.PotentialValueOrigins, AA,
+        D.UsedAssumedInformation, OnlyExact);
+    if (!Success) {
+      D.Valid = false;
+      return ChangeStatus::CHANGED;
+    }
+    return (Size != D.PotentialValues.size()) ? ChangeStatus::CHANGED
+                                              : ChangeStatus::UNCHANGED;
+  }
+
+  const std::string getAsStr(const std::string &Name) const {
+    std::string Str(Name);
+    raw_string_ostream OS(Str);
+    OS << "[";
+    if (ExactRequested) {
+      OS << "exact: ";
+      if (!ExactData.Valid)
+        OS << "<invalid>";
+      else
+        OS << ExactData.PotentialValues.size()
+           << (IsLoad ? " stores" : " loads");
+    }
+    if (ExactRequested && NonExactRequested)
+      OS << ", ";
+    if (NonExactRequested) {
+      OS << "non-exact: ";
+      if (!ExactData.Valid)
+        OS << "<invalid>";
+      else
+        OS << NonExactData.PotentialValues.size()
+           << (IsLoad ? " stores" : " loads");
+    }
+    OS << "]";
+    return Str;
+  }
+
+  /// Were "OnlyExact" ever requested.
+  bool ExactRequested = false;
+  /// Were "!OnlyExact" ever requested.
+  bool NonExactRequested = false;
+
+  struct Data {
+    bool Valid = true;
+    bool UsedAssumedInformation = false;
+    SmallSetVector<Value *, 4> PotentialValues;
+    SmallSetVector<Instruction *, 4> PotentialValueOrigins;
+  };
+  // The cached results of getPotentialCopiesOfMemoryValue.
+  Data ExactData, NonExactData;
+};
+
+struct AAStoresFromLoadFloating : public AAStoresFromLoad,
+                                  AAForwardingHelper</*IsLoad=*/true> {
+  AAStoresFromLoadFloating(const IRPosition &IRP, Attributor &A)
+      : AAStoresFromLoad(IRP, A) {}
+
+  bool getPotentiallyLoadedValues(
+      Attributor &A, SmallSetVector<Value *, 4> &PotentialValues,
+      SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
+      bool &UsedAssumedInformation, bool OnlyExact) const override {
+    auto *This = const_cast<AAStoresFromLoadFloating *>(this);
+    return This->getData(A, *This, cast<LoadInst>(This->getAssociatedValue()),
+                         PotentialValues, &PotentialValueOrigins,
+                         UsedAssumedInformation, OnlyExact);
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Change = ChangeStatus::UNCHANGED;
+    if (ExactRequested)
+      Change = updateImplImpl(A, *this, cast<LoadInst>(getAssociatedValue()),
+                              /*OnlyExact=*/true) |
+               Change;
+    if (NonExactRequested)
+      Change = updateImplImpl(A, *this, cast<LoadInst>(getAssociatedValue()),
+                              /*OnlyExact=*/false) |
+               Change;
+    if (!ExactData.Valid && !NonExactData.Valid)
+      return indicatePessimisticFixpoint();
+    return Change;
+  }
+
+  const std::string getAsStr(Attributor *A) const override {
+    return AAForwardingHelper::getAsStr(getName());
+  }
+
+  void trackStatistics() const override {}
+};
+
+struct AALoadsFromStoreFloating : public AALoadsFromStore,
+                                  AAForwardingHelper</*IsLoad=*/false> {
+  AALoadsFromStoreFloating(const IRPosition &IRP, Attributor &A)
+      : AALoadsFromStore(IRP, A) {}
+
+  bool getPotentialCopiesOfStoredValue(
+      Attributor &A, SmallSetVector<Value *, 4> &PotentialCopies,
+      bool &UsedAssumedInformation, bool OnlyExact = false) const override {
+    auto *This = const_cast<AALoadsFromStoreFloating *>(this);
+    return This->getData(
+        A, *This, cast<StoreInst>(This->getAssociatedValue()), PotentialCopies,
+        /*PotentialValueOrigins*/ nullptr, UsedAssumedInformation, OnlyExact);
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Change = ChangeStatus::UNCHANGED;
+    if (ExactRequested)
+      Change = updateImplImpl(A, *this, cast<StoreInst>(getAssociatedValue()),
+                              /*OnlyExact=*/true) |
+               Change;
+    if (NonExactRequested)
+      Change = updateImplImpl(A, *this, cast<StoreInst>(getAssociatedValue()),
+                              /*OnlyExact=*/false) |
+               Change;
+    if (!ExactData.Valid && !NonExactData.Valid)
+      return indicatePessimisticFixpoint();
+    return Change;
+  }
+
+  const std::string getAsStr(Attributor *A) const override {
+    return AAForwardingHelper::getAsStr(getName());
+  }
+
+  void trackStatistics() const override {}
+};
+
+} // namespace
+
 /// ------------------ Value Constant Range Attribute -------------------------
 
 namespace {
@@ -11122,10 +11526,12 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     SmallSetVector<Value *, 4> PotentialCopies;
     SmallSetVector<Instruction *, 4> PotentialValueOrigins;
     bool UsedAssumedInformation = false;
-    if (!AA::getPotentiallyLoadedValues(A, LI, PotentialCopies,
-                                        PotentialValueOrigins, *this,
-                                        UsedAssumedInformation,
-                                        /* OnlyExact */ true)) {
+    auto *StoresFromLoadAA = A.getAAFor<AAStoresFromLoad>(
+        *this, IRPosition::inst(LI), DepClassTy::OPTIONAL);
+    if (!StoresFromLoadAA ||
+        !StoresFromLoadAA->getPotentiallyLoadedValues(
+            A, PotentialCopies, PotentialValueOrigins, UsedAssumedInformation,
+            /* OnlyExact */ true)) {
       LLVM_DEBUG(dbgs() << "[AAPotentialValues] Failed to get potentially "
                            "loaded values for load instruction "
                         << LI << "\n");
@@ -12943,6 +13349,8 @@ const char AAAllocationInfo::ID = 0;
 const char AAIndirectCallInfo::ID = 0;
 const char AAGlobalValueInfo::ID = 0;
 const char AADenormalFPMath::ID = 0;
+const char AAStoresFromLoad::ID = 0;
+const char AALoadsFromStore::ID = 0;
 
 // Macro magic to create the static generator function for attributes that
 // follow the naming scheme.
@@ -13084,6 +13492,10 @@ CREATE_ABSTRACT_ATTRIBUTE_FOR_ONE_POSITION(IRP_CALL_SITE, CallSite,
                                            AAIndirectCallInfo)
 CREATE_ABSTRACT_ATTRIBUTE_FOR_ONE_POSITION(IRP_FLOAT, Floating,
                                            AAGlobalValueInfo)
+CREATE_ABSTRACT_ATTRIBUTE_FOR_ONE_POSITION(IRP_FLOAT, Floating,
+                                           AAStoresFromLoad)
+CREATE_ABSTRACT_ATTRIBUTE_FOR_ONE_POSITION(IRP_FLOAT, Floating,
+                                           AALoadsFromStore)
 
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAHeapToStack)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAUndefinedBehavior)

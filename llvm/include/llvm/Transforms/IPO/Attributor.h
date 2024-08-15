@@ -329,37 +329,6 @@ Constant *getInitialValueForObj(Attributor &A,
                                 const DataLayout &DL,
                                 RangeTy *RangePtr = nullptr);
 
-/// Collect all potential values \p LI could read into \p PotentialValues. That
-/// is, the only values read by \p LI are assumed to be known and all are in
-/// \p PotentialValues. \p PotentialValueOrigins will contain all the
-/// instructions that might have put a potential value into \p PotentialValues.
-/// Dependences onto \p QueryingAA are properly tracked, \p
-/// UsedAssumedInformation will inform the caller if assumed information was
-/// used.
-///
-/// \returns True if the assumed potential copies are all in \p PotentialValues,
-///          false if something went wrong and the copies could not be
-///          determined.
-bool getPotentiallyLoadedValues(
-    Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialValues,
-    SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
-    const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact = false);
-
-/// Collect all potential values of the one stored by \p SI into
-/// \p PotentialCopies. That is, the only copies that were made via the
-/// store are assumed to be known and all are in \p PotentialCopies. Dependences
-/// onto \p QueryingAA are properly tracked, \p UsedAssumedInformation will
-/// inform the caller if assumed information was used.
-///
-/// \returns True if the assumed potential copies are all in \p PotentialCopies,
-///          false if something went wrong and the copies could not be
-///          determined.
-bool getPotentialCopiesOfStoredValue(
-    Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
-    const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact = false);
-
 /// Return true if \p IRP is readonly. This will query respective AAs that
 /// deduce the information and introduce dependences for \p QueryingAA.
 bool isAssumedReadOnly(Attributor &A, const IRPosition &IRP,
@@ -6403,6 +6372,102 @@ struct AADenormalFPMath
 
   /// This function should return true if the type of the \p AA is
   /// AADenormalFPMath.
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+};
+
+/// An abstract Attribute to determine the stores that reach a load.
+struct AAStoresFromLoad : public StateWrapper<BooleanState, AbstractAttribute> {
+  using Base = StateWrapper<BooleanState, AbstractAttribute>;
+
+  AAStoresFromLoad(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
+
+  /// See AbstractAttribute::isValidIRPositionForInit
+  static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
+    return isa<LoadInst>(IRP.getAssociatedValue());
+  }
+
+  /// Collect all potential values the underlying load (LI) could read into
+  /// \p PotentialValues. That is, the only values read by LI are assumed to be
+  /// known and all are in \p PotentialValues. \p PotentialValueOrigins will
+  /// contain all the instructions that might have put a potential value into
+  /// \p PotentialValues. \p UsedAssumedInformation will inform the caller if
+  /// assumed information was used.
+  ///
+  /// \returns True if the assumed potential copies are all known and inserted
+  /// 	       into \p PotentialValues, false if something went wrong and the
+  ///          copies could not be determined.
+  virtual bool getPotentiallyLoadedValues(
+      Attributor &A, SmallSetVector<Value *, 4> &PotentialValues,
+      SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
+      bool &UsedAssumedInformation, bool OnlyExact) const;
+
+  /// This AA is lazy and updates only after initial queries.
+  bool isQueryAA() const override { return true; }
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AAStoresFromLoad &createForPosition(const IRPosition &IRP,
+                                             Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AAStoresFromLoad"; }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is
+  /// AAStoresFromLoad.
+  static bool classof(const AbstractAttribute *AA) {
+    return (AA->getIdAddr() == &ID);
+  }
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+};
+
+/// An abstract Attribute to determine the loads influence by a store.
+struct AALoadsFromStore : public StateWrapper<BooleanState, AbstractAttribute> {
+  using Base = StateWrapper<BooleanState, AbstractAttribute>;
+
+  AALoadsFromStore(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
+
+  /// See AbstractAttribute::isValidIRPositionForInit
+  static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
+    return isa<StoreInst>(IRP.getAssociatedValue());
+  }
+
+  /// Collect all potential values of the one stored by the underlying store
+  /// (SI) into \p PotentialCopies. That is, the only copies that were made via
+  /// the store are assumed to be known and all are in \p PotentialCopies.
+  /// \p UsedAssumedInformation will inform the caller if assumed information
+  /// was used.
+  ///
+  /// \returns True if the assumed potential copies are all known and inserted
+  /// 	       into \p PotentialCopies, false if something went wrong and the
+  /// 	       copies could not be determined.
+  virtual bool getPotentialCopiesOfStoredValue(
+      Attributor &A, SmallSetVector<Value *, 4> &PotentialCopies,
+      bool &UsedAssumedInformation, bool OnlyExact = false) const;
+
+  /// This AA is lazy and updates only after initial queries.
+  bool isQueryAA() const override { return true; }
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AALoadsFromStore &createForPosition(const IRPosition &IRP,
+                                             Attributor &A);
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AALoadsFromStore"; }
+
+  /// See AbstractAttribute::getIdAddr()
+  const char *getIdAddr() const override { return &ID; }
+
+  /// This function should return true if the type of the \p AA is
+  /// AALoadsFromStore.
   static bool classof(const AbstractAttribute *AA) {
     return (AA->getIdAddr() == &ID);
   }

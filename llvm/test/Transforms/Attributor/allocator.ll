@@ -269,8 +269,9 @@ entry:
   ret void
 }
 
-;TODO: Here since only even indexes of the array are part of the output
-;We can reduce the allocation by half and make an array that's accessed contiguously
+; TODO: Here since only even indexes of the array are part of the output
+; TODO: The simplification of the loads from array now time out (32 iterations) and are not simplified anymore.
+; We can reduce the allocation by half and make an array that's accessed contiguously
 ; Function Attrs: noinline nounwind uwtable
 define dso_local void @positive_test_reduce_array_allocation_2() #0 {
 ; CHECK-LABEL: define dso_local void @positive_test_reduce_array_allocation_2() {
@@ -287,9 +288,10 @@ define dso_local void @positive_test_reduce_array_allocation_2() #0 {
 ; CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END:%.*]]
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr [[I]], align 4
+; CHECK-NEXT:    [[TMP12:%.*]] = load ptr, ptr [[ARRAY]], align 8
 ; CHECK-NEXT:    [[TMP2:%.*]] = load i32, ptr [[I]], align 4
 ; CHECK-NEXT:    [[IDXPROM:%.*]] = sext i32 [[TMP2]] to i64
-; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds i32, ptr [[CALL]], i64 [[IDXPROM]]
+; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds i32, ptr [[TMP12]], i64 [[IDXPROM]]
 ; CHECK-NEXT:    store i32 [[TMP1]], ptr [[ARRAYIDX]], align 4
 ; CHECK-NEXT:    br label [[FOR_INC:%.*]]
 ; CHECK:       for.inc:
@@ -305,9 +307,10 @@ define dso_local void @positive_test_reduce_array_allocation_2() #0 {
 ; CHECK-NEXT:    [[CMP2:%.*]] = icmp slt i32 [[TMP4]], 10000
 ; CHECK-NEXT:    br i1 [[CMP2]], label [[FOR_BODY3:%.*]], label [[FOR_END9:%.*]]
 ; CHECK:       for.body3:
+; CHECK-NEXT:    [[TMP13:%.*]] = load ptr, ptr [[ARRAY]], align 8
 ; CHECK-NEXT:    [[TMP5:%.*]] = load i32, ptr [[I]], align 4
 ; CHECK-NEXT:    [[IDXPROM4:%.*]] = sext i32 [[TMP5]] to i64
-; CHECK-NEXT:    [[ARRAYIDX5:%.*]] = getelementptr inbounds i32, ptr [[CALL]], i64 [[IDXPROM4]]
+; CHECK-NEXT:    [[ARRAYIDX5:%.*]] = getelementptr inbounds i32, ptr [[TMP13]], i64 [[IDXPROM4]]
 ; CHECK-NEXT:    [[TMP6:%.*]] = load i32, ptr [[ARRAYIDX5]], align 4
 ; CHECK-NEXT:    [[ADD6:%.*]] = add nsw i32 [[TMP6]], 1
 ; CHECK-NEXT:    store i32 [[ADD6]], ptr [[ARRAYIDX5]], align 4
@@ -325,9 +328,10 @@ define dso_local void @positive_test_reduce_array_allocation_2() #0 {
 ; CHECK-NEXT:    [[CMP11:%.*]] = icmp slt i32 [[TMP8]], 10000
 ; CHECK-NEXT:    br i1 [[CMP11]], label [[FOR_BODY12:%.*]], label [[FOR_END18:%.*]]
 ; CHECK:       for.body12:
+; CHECK-NEXT:    [[TMP14:%.*]] = load ptr, ptr [[ARRAY]], align 8
 ; CHECK-NEXT:    [[TMP9:%.*]] = load i32, ptr [[I]], align 4
 ; CHECK-NEXT:    [[IDXPROM13:%.*]] = sext i32 [[TMP9]] to i64
-; CHECK-NEXT:    [[ARRAYIDX14:%.*]] = getelementptr inbounds i32, ptr [[CALL]], i64 [[IDXPROM13]]
+; CHECK-NEXT:    [[ARRAYIDX14:%.*]] = getelementptr inbounds i32, ptr [[TMP14]], i64 [[IDXPROM13]]
 ; CHECK-NEXT:    [[TMP10:%.*]] = load i32, ptr [[ARRAYIDX14]], align 4
 ; CHECK-NEXT:    [[CALL15:%.*]] = call i32 (ptr, ...) @printf(ptr noundef nonnull dereferenceable(17) @.str, i32 noundef [[TMP10]])
 ; CHECK-NEXT:    br label [[FOR_INC16:%.*]]
