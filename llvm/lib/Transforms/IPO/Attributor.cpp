@@ -418,6 +418,10 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
                        const AbstractAttribute &QueryingAA,
                        const AA::InstExclusionSetTy *ExclusionSet,
                        std::function<bool(const Function &F)> GoBackwardsCB) {
+  if (ExclusionSet) {
+    errs() << FromI << " -> " << ToI << " : " << ToFn.getName() << " : "
+           << ExclusionSet->size() << "\n";
+  }
   DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE, {
     dbgs() << "[AA] isPotentiallyReachable @" << ToFn.getName() << " from "
            << FromI << " [GBCB: " << bool(GoBackwardsCB) << "][#ExS: "

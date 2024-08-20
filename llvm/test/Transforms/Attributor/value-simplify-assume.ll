@@ -590,7 +590,7 @@ define i1 @assume_5c_nr(i1 %cond) norecurse {
 ; TUNIT-LABEL: define {{[^@]+}}@assume_5c_nr
 ; TUNIT-SAME: (i1 noundef [[COND:%.*]]) #[[ATTR4]] {
 ; TUNIT-NEXT:    [[STACK:%.*]] = alloca i1, align 1
-; TUNIT-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR7]]
+; TUNIT-NEXT:    [[L1:%.*]] = load i1, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    br i1 [[COND]], label [[T:%.*]], label [[F:%.*]]
 ; TUNIT:       t:
 ; TUNIT-NEXT:    store i1 true, ptr [[STACK]], align 1
@@ -1207,7 +1207,7 @@ define i1 @assume_5c(i1 %cond) {
 ; TUNIT-LABEL: define {{[^@]+}}@assume_5c
 ; TUNIT-SAME: (i1 noundef [[COND:%.*]]) #[[ATTR4]] {
 ; TUNIT-NEXT:    [[STACK:%.*]] = alloca i1, align 1
-; TUNIT-NEXT:    call void @llvm.assume(i1 noundef true) #[[ATTR7]]
+; TUNIT-NEXT:    [[L1:%.*]] = load i1, ptr [[STACK]], align 1
 ; TUNIT-NEXT:    br i1 [[COND]], label [[T:%.*]], label [[F:%.*]]
 ; TUNIT:       t:
 ; TUNIT-NEXT:    store i1 true, ptr [[STACK]], align 1

@@ -199,6 +199,7 @@ PIPE_OPERATOR(AAGlobalValueInfo)
 PIPE_OPERATOR(AADenormalFPMath)
 PIPE_OPERATOR(AAStoresFromLoad)
 PIPE_OPERATOR(AALoadsFromStore)
+PIPE_OPERATOR(AAMemorySSA)
 
 #undef PIPE_OPERATOR
 
@@ -1097,8 +1098,9 @@ struct AAPointerInfoImpl
       Attributor &A, const AbstractAttribute &QueryingAA, Instruction &I,
       bool FindInterferingWrites, bool FindInterferingReads,
       function_ref<bool(const Access &, bool)> UserCB, bool &HasBeenWrittenTo,
-      AA::RangeTy &Range,
-      function_ref<bool(const Access &)> SkipCB) const override {
+      AA::RangeTy &Range, function_ref<bool(const Access &, bool)> SkipCB,
+      function_ref<void(const Access &A, bool)> PotentialAccessCB =
+          nullptr) const override {
     HasBeenWrittenTo = false;
 
     SmallPtrSet<const Access *, 8> DominatingWrites;
@@ -1265,6 +1267,8 @@ struct AAPointerInfoImpl
       AllInSameNoSyncFn &= Acc.getRemoteInst()->getFunction() == &Scope;
 
       InterferingAccesses.push_back({&Acc, Exact});
+      if (PotentialAccessCB)
+        PotentialAccessCB(Acc, Exact);
       return true;
     };
     if (!State::forallInterferingAccesses(I, AccessCB, Range))
@@ -1285,7 +1289,7 @@ struct AAPointerInfoImpl
 
     // Helper to determine if we can skip a specific write access.
     auto CanSkipAccess = [&](const Access &Acc, bool Exact) {
-      if (SkipCB && SkipCB(Acc))
+      if (SkipCB && SkipCB(Acc, Exact))
         return true;
       if (!CanIgnoreThreading(Acc))
         return false;
@@ -9037,23 +9041,66 @@ static bool getPotentialCopiesOfMemoryValue(
       return AdjV;
     };
 
-    auto SkipCB = [&](const AAPointerInfo::Access &Acc) {
+    const DataLayout &DL = A.getDataLayout();
+    Value *InitialValue = IsLoad
+                              ? AA::getInitialValueForObj(A, QueryingAA, Obj,
+                                                          *I.getType(), TLI, DL)
+                              : nullptr;
+    bool PotentialValuesValid = IsLoad;
+    SmallPtrSet<Value *, 8> PotentialValues;
+    SmallSetVector<Instruction *, 8> PotentialOrigins;
+    if (!InitialValue || !isa<UndefValue>(InitialValue)) {
+      PotentialValues.insert(InitialValue);
+      PotentialOrigins.insert(nullptr);
+      PotentialValuesValid = InitialValue;
+    }
+
+    auto PotentialAccessCB = [&](const AAPointerInfo::Access &Acc,
+                                 bool IsExact) {
+      if (IsLoad && IsExact && Acc.isWriteOrAssumption()) {
+        if (Acc.isWrittenValueYetUndetermined())
+          return;
+        if (!Acc.isWrittenValueUnknown())
+          if (Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue())) {
+            if (!isa<UndefValue>(V)) {
+              PotentialValues.insert(V);
+              PotentialOrigins.insert(Acc.getRemoteInst());
+            }
+            return;
+          }
+        if (auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst()))
+          if (Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand())) {
+            if (!isa<UndefValue>(V)) {
+              PotentialValues.insert(V);
+              PotentialOrigins.insert(SI);
+            }
+            return;
+          }
+      }
+      PotentialValuesValid = false;
+    };
+
+    auto SkipCB = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
+      if (!IsExact)
+        return false;
       if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))
         return true;
       if (IsLoad) {
         if (Acc.isWrittenValueYetUndetermined())
           return true;
-        if (!isa<AssumeInst>(Acc.getRemoteInst()))
-          return false;
         if (!Acc.isWrittenValueUnknown())
           if (Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue()))
-            if (NewCopies.count(V)) {
+            if (NewCopies.count(V) ||
+                (PotentialValuesValid && PotentialValues.size() == 1)) {
+              NewCopies.insert(V);
               NewCopyOrigins.insert(Acc.getRemoteInst());
               return true;
             }
         if (auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst()))
           if (Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand()))
-            if (NewCopies.count(V)) {
+            if (NewCopies.count(V) ||
+                (PotentialValuesValid && PotentialValues.size() == 1)) {
+              NewCopies.insert(V);
               NewCopyOrigins.insert(Acc.getRemoteInst());
               return true;
             }
@@ -9121,12 +9168,12 @@ static bool getPotentialCopiesOfMemoryValue(
 
     AA::RangeTy Range;
     auto *PI = A.getAAFor<AAPointerInfo>(QueryingAA, IRPosition::value(Obj),
-                                         DepClassTy::NONE);
+                                         DepClassTy::REQUIRED);
     if (!PI || !PI->forallInterferingAccesses(
                    A, QueryingAA, I,
                    /* FindInterferingWrites */ IsLoad,
                    /* FindInterferingReads */ !IsLoad, CheckAccess,
-                   HasBeenWrittenTo, Range, SkipCB)) {
+                   HasBeenWrittenTo, Range, SkipCB, PotentialAccessCB)) {
       LLVM_DEBUG(
           dbgs()
           << "Failed to verify all interfering accesses for underlying object: "
@@ -9135,9 +9182,9 @@ static bool getPotentialCopiesOfMemoryValue(
     }
 
     if (IsLoad && !HasBeenWrittenTo && !Range.isUnassigned()) {
-      const DataLayout &DL = A.getDataLayout();
-      Value *InitialValue = AA::getInitialValueForObj(
-          A, QueryingAA, Obj, *I.getType(), TLI, DL, &Range);
+      if (!InitialValue)
+        InitialValue = AA::getInitialValueForObj(A, QueryingAA, Obj,
+                                                 *I.getType(), TLI, DL, &Range);
       if (!InitialValue) {
         LLVM_DEBUG(dbgs() << "Could not determine required initial value of "
                              "underlying object, abort!\n");
@@ -9160,21 +9207,13 @@ static bool getPotentialCopiesOfMemoryValue(
   };
 
   const auto *AAUO = A.getAAFor<AAUnderlyingObjects>(
-      QueryingAA, IRPosition::value(Ptr), DepClassTy::OPTIONAL);
+      QueryingAA, IRPosition::value(Ptr), DepClassTy::REQUIRED);
   if (!AAUO || !AAUO->forallUnderlyingObjects(Pred)) {
     LLVM_DEBUG(
         dbgs() << "Underlying objects stored into could not be determined\n";);
     return false;
   }
 
-  // Only if we were successful collection all potential copies we record
-  // dependences (on non-fix AAPointerInfo AAs). We also only then modify the
-  // given PotentialCopies container.
-  for (const auto *PI : PIs) {
-    if (!PI->getState().isAtFixpoint())
-      UsedAssumedInformation = true;
-    A.recordDependence(*PI, QueryingAA, DepClassTy::OPTIONAL);
-  }
   PotentialCopies.insert(NewCopies.begin(), NewCopies.end());
   PotentialValueOrigins.insert(NewCopyOrigins.begin(), NewCopyOrigins.end());
 
@@ -9352,6 +9391,31 @@ struct AALoadsFromStoreFloating : public AALoadsFromStore,
   void trackStatistics() const override {}
 };
 
+} // namespace
+
+namespace {
+struct AAMemorySSAFunction final : public AAMemorySSA {
+  AAMemorySSAFunction(const IRPosition &IRP, Attributor &A)
+      : AAMemorySSA(IRP, A) {}
+
+  bool getPotentiallyLoadedValues(
+      Attributor &A, SmallSetVector<Value *, 4> &PotentialValues,
+      SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
+      bool &UsedAssumedInformation) const override {
+    auto *This = const_cast<AAMemorySSAFunction *>(this);
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Change = ChangeStatus::UNCHANGED;
+    return Change;
+  }
+
+  const std::string getAsStr(Attributor *A) const override { return ""; }
+
+  void trackStatistics() const override {}
+
+  SmallSetVector<Value *> Queries;
+};
 } // namespace
 
 /// ------------------ Value Constant Range Attribute -------------------------
@@ -13351,6 +13415,7 @@ const char AAGlobalValueInfo::ID = 0;
 const char AADenormalFPMath::ID = 0;
 const char AAStoresFromLoad::ID = 0;
 const char AALoadsFromStore::ID = 0;
+const char AAMemorySSA::ID = 0;
 
 // Macro magic to create the static generator function for attributes that
 // follow the naming scheme.
@@ -13503,6 +13568,7 @@ CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANonConvergent)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAIntraFnReachability)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAInterFnReachability)
 CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AADenormalFPMath)
+CREATE_FUNCTION_ONLY_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAMemorySSA)
 
 CREATE_NON_RET_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAMemoryBehavior)
 
