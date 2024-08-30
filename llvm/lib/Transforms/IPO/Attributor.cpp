@@ -764,7 +764,10 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
 
     // Check if we can reach returns.
     bool UsedAssumedInformation = false;
-    if (A.checkForAllInstructions(ReturnInstCB, FromFn, &QueryingAA,
+    // TODO: For now we avoid dealing with setjmp/longjmp by requiring a GPU
+    // target here.
+    if (A.getInfoCache().targetIsGPU() &&
+        A.checkForAllInstructions(ReturnInstCB, FromFn, &QueryingAA,
                                   {Instruction::Ret}, UsedAssumedInformation)) {
       LLVM_DEBUG(dbgs() << "[AA] No return is reachable, done\n");
       continue;

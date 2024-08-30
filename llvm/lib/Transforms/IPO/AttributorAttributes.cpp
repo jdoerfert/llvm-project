@@ -10463,6 +10463,8 @@ struct AACallEdgesImpl : public AACallEdges {
     return CalledFunctions;
   }
 
+  bool hasExternalCallee() const override { return HasExternalCallee; }
+
   bool hasUnknownCallee() const override { return HasUnknownCallee; }
 
   bool hasNonAsmUnknownCallee() const override {
@@ -10471,6 +10473,7 @@ struct AACallEdgesImpl : public AACallEdges {
 
   const std::string getAsStr(Attributor *A) const override {
     return "CallEdges[" + std::to_string(HasUnknownCallee) + "," +
+           std::to_string(HasExternalCallee) + "," +
            std::to_string(CalledFunctions.size()) + "]";
   }
 
@@ -10483,20 +10486,30 @@ protected:
       LLVM_DEBUG(dbgs() << "[AACallEdges] New call edge: " << Fn->getName()
                         << "\n");
     }
+    if (Fn->isDeclaration() && !HasExternalCallee) {
+      HasExternalCallee = true;
+      assert(Change == ChangeStatus::CHANGED && "Expected changed status");
+    }
   }
 
   void setHasUnknownCallee(bool NonAsm, ChangeStatus &Change) {
     if (!HasUnknownCallee)
       Change = ChangeStatus::CHANGED;
-    if (NonAsm && !HasUnknownCalleeNonAsm)
+    else if (!HasExternalCallee)
+      Change = ChangeStatus::CHANGED;
+    else if (NonAsm && !HasUnknownCalleeNonAsm)
       Change = ChangeStatus::CHANGED;
     HasUnknownCalleeNonAsm |= NonAsm;
     HasUnknownCallee = true;
+    HasExternalCallee = true;
   }
 
 private:
   /// Optimistic set of functions that might be called by this position.
   SetVector<Function *> CalledFunctions;
+
+  /// Is there any call with an external callee.
+  bool HasExternalCallee = false;
 
   /// Is there any call with a unknown callee.
   bool HasUnknownCallee = false;

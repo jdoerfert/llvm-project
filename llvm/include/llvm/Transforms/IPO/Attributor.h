@@ -1206,6 +1206,14 @@ struct InformationCache {
                    bool UseExplorer = true)
       : CGSCC(CGSCC), DL(M.getDataLayout()), Allocator(Allocator), AG(AG),
         TargetTriple(M.getTargetTriple()) {
+
+    for (auto &Fn : M) {
+      if (!Fn.hasFnAttribute(Attribute::ReturnsTwice))
+        continue;
+      HasReturnTwiceFn = true;
+      break;
+    }
+
     if (UseExplorer)
       Explorer = new (Allocator) MustBeExecutedContextExplorer(
           /* ExploreInterBlock */ true, /* ExploreCFGForward */ true,
@@ -1341,6 +1349,9 @@ struct InformationCache {
   const ArrayRef<Function *>
   getIndirectlyCallableFunctions(Attributor &A) const;
 
+  /// Return true if the module has a "return twice" function (e.g., setjmp).
+  bool hasReturnTwiceFn() const { return HasReturnTwiceFn; }
+
 private:
   struct FunctionInfo {
     ~FunctionInfo();
@@ -1409,6 +1420,9 @@ private:
 
   /// The triple describing the target machine.
   Triple TargetTriple;
+
+  /// Flag to indicate the module has a "return twice" function (e.g., setjmp).
+  bool HasReturnTwiceFn = false;
 
   /// Give the Attributor access to the members so
   /// Attributor::identifyDefaultAbstractAttributes(...) can initialize them.
@@ -3814,6 +3828,13 @@ struct AAIntraFnReachability
   using Base = StateWrapper<BooleanState, AbstractAttribute>;
   AAIntraFnReachability(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
+  /// See AbstractAttribute::isValidIRPositionForInit
+  //  static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP)
+  //  {
+  //    return A.getInfoCache().targetIsGPU() || (A.isClosedWorldModule() &&
+  //    !A.getInfoCache().hasReturnTwiceFn());
+  //  }
+
   /// Returns true if 'From' instruction is assumed to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
@@ -5493,6 +5514,9 @@ struct AACallEdges : public StateWrapper<BooleanState, AbstractAttribute>,
   /// Get the optimistic edges.
   virtual const SetVector<Function *> &getOptimisticEdges() const = 0;
 
+  /// Is there any call with an external callee.
+  virtual bool hasExternalCallee() const = 0;
+
   /// Is there any call with a unknown callee.
   virtual bool hasUnknownCallee() const = 0;
 
@@ -5681,6 +5705,13 @@ struct AAInterFnReachability
   using Base = StateWrapper<BooleanState, AbstractAttribute>;
 
   AAInterFnReachability(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
+
+  /// See AbstractAttribute::isValidIRPositionForInit
+  //  static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP)
+  //  {
+  //    return A.getInfoCache().targetIsGPU() || (A.isClosedWorldModule() &&
+  //    !A.getInfoCache().hasReturnTwiceFn());
+  //  }
 
   /// If the function represented by this possition can reach \p Fn.
   bool canReach(Attributor &A, const Function &Fn) const {
