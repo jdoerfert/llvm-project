@@ -11666,10 +11666,9 @@ struct AAPotentialValuesCallSiteReturned : AAPotentialValuesImpl {
       if (AA::isDynamicallyUnique(A, *this, *V) &&
           AA::isValidInScope(*V, Caller)) {
         if (*CallerV) {
-          SmallVector<AA::ValueAndContext> ArgValues;
           IRPosition IRP = IRPosition::value(*V);
           if (auto *Arg = dyn_cast<Argument>(V))
-            if (Arg->getParent() == CB->getCalledOperand())
+            if (Arg->getParent() == Callee)
               IRP = IRPosition::callsite_argument(*CB, Arg->getArgNo());
           if (recurseForValue(A, IRP, AA::AnyScope))
             continue;
@@ -11690,6 +11689,13 @@ struct AAPotentialValuesCallSiteReturned : AAPotentialValuesImpl {
       getState() = PotentialLLVMValuesState::getBestState();
       for (auto &It : Values) {
         Value *V = It.getValue();
+        std::optional<Value *> CallerV = A.translateArgumentToCallSiteContent(
+            V, *CB, *this, UsedAssumedInformation);
+        if (!CallerV.has_value()) {
+          // Nothing to do as long as no value was determined.
+          continue;
+        }
+        V = *CallerV ? *CallerV : V;
         if (!AA::isDynamicallyUnique(A, *this, *V))
           return indicatePessimisticFixpoint();
         if (AA::isValidInScope(*V, Caller)) {
