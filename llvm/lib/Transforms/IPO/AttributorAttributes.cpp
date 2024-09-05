@@ -3385,12 +3385,8 @@ template <typename ToTy> struct ReachabilityQueryInfo {
   const Instruction *From = nullptr;
   /// reach this place,
   const ToTy *To = nullptr;
-  /// without going through any of these instructions,
-  const AA::InstExclusionSetTy *ExclusionSet = nullptr;
   /// and remember if it worked:
   Reachable Result = Reachable::No;
-
-  bool UsedAssumedInformation = false;
 
   /// Precomputed hash for this RQI.
   unsigned Hash = 0;
@@ -3400,32 +3396,14 @@ template <typename ToTy> struct ReachabilityQueryInfo {
     using InstSetDMI = DenseMapInfo<const AA::InstExclusionSetTy *>;
     using PairDMI = DenseMapInfo<std::pair<const Instruction *, const ToTy *>>;
     return const_cast<ReachabilityQueryInfo<ToTy> *>(this)->Hash =
-               detail::combineHashValue(PairDMI ::getHashValue({From, To}),
-                                        InstSetDMI::getHashValue(ExclusionSet));
+               PairDMI ::getHashValue({From, To});
   }
 
-  ReachabilityQueryInfo(const Instruction *From, const ToTy *To,
-                        bool UsedAssumedInformation = false)
-      : From(From), To(To), UsedAssumedInformation(UsedAssumedInformation) {}
-
-  /// Constructor replacement to ensure unique and stable sets are used for the
-  /// cache.
-  ReachabilityQueryInfo(Attributor &A, const Instruction &From, const ToTy &To,
-                        const AA::InstExclusionSetTy *ES, bool MakeUnique,
-                        bool UsedAssumedInformation = false)
-      : From(&From), To(&To), ExclusionSet(ES),
-        UsedAssumedInformation(UsedAssumedInformation) {
-
-    if (!ES || ES->empty()) {
-      ExclusionSet = nullptr;
-    } else if (MakeUnique) {
-      ExclusionSet = A.getInfoCache().getOrCreateUniqueBlockExecutionSet(ES);
-    }
-  }
+  ReachabilityQueryInfo(const Instruction *From, const ToTy *To)
+      : From(From), To(To) {}
 
   ReachabilityQueryInfo(const ReachabilityQueryInfo &RQI)
-      : From(RQI.From), To(RQI.To), ExclusionSet(RQI.ExclusionSet),
-        UsedAssumedInformation(RQI.UsedAssumedInformation) {}
+      : From(RQI.From), To(RQI.To), Result(RQI.Result), Hash(RQI.Hash) {}
 };
 
 namespace llvm {
@@ -3445,9 +3423,7 @@ template <typename ToTy> struct DenseMapInfo<ReachabilityQueryInfo<ToTy> *> {
   }
   static bool isEqual(const ReachabilityQueryInfo<ToTy> *LHS,
                       const ReachabilityQueryInfo<ToTy> *RHS) {
-    if (!PairDMI::isEqual({LHS->From, LHS->To}, {RHS->From, RHS->To}))
-      return false;
-    return InstSetDMI::isEqual(LHS->ExclusionSet, RHS->ExclusionSet);
+    return PairDMI::isEqual({LHS->From, LHS->To}, {RHS->From, RHS->To});
   }
 };
 
@@ -3486,7 +3462,7 @@ struct CachedReachabilityAA : public BaseTy {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     for (unsigned u = 0, e = QueryVector.size(); u < e; ++u) {
       RQITy *RQI = QueryVector[u];
-      if (RQI->UsedAssumedInformation && RQI->Result == RQITy::Reachable::No &&
+      if (RQI->Result == RQITy::Reachable::No &&
           isReachableImpl(A, *RQI, /*IsTemporaryRQI=*/false))
         Changed = ChangeStatus::CHANGED;
     }
@@ -3497,41 +3473,20 @@ struct CachedReachabilityAA : public BaseTy {
                                bool IsTemporaryRQI) = 0;
 
   bool rememberResult(Attributor &A, typename RQITy::Reachable Result,
-                      RQITy &RQI, bool UsedExclusionSet, bool IsTemporaryRQI) {
+                      RQITy RQI, AA::InstExclusionSetTy &UsedExclusionSet,
+                      bool IsTemporaryRQI) {
     RQI.Result = Result;
 
-    // Remove the temporary RQI from the cache.
-    if (IsTemporaryRQI)
-      QueryCache.erase(&RQI);
+    assert(QueryCache.count(RQI));
+    if (Result == RQITy::Reachable::No)
+      QueryVector.push_back(RQI);
 
-    // Insert a plain RQI (w/o exclusion set) if that makes sense. Two options:
-    // 1) If it is reachable, it doesn't matter if we have an exclusion set for
-    // this query. 2) We did not use the exclusion set, potentially because
-    // there is none.
-    if (Result == RQITy::Reachable::Yes || !UsedExclusionSet) {
-      RQITy PlainRQI(RQI.From, RQI.To);
-      if (!QueryCache.count(&PlainRQI)) {
-        RQITy *RQIPtr = new (A.Allocator)
-            RQITy(RQI.From, RQI.To, RQI.UsedAssumedInformation);
-        RQIPtr->Result = Result;
-        QueryVector.push_back(RQIPtr);
-        QueryCache.insert(RQIPtr);
-      }
-    }
-
-    // Check if we need to insert a new permanent RQI with the exclusion set.
-    if (IsTemporaryRQI && Result != RQITy::Reachable::Yes && UsedExclusionSet) {
-      assert((!RQI.ExclusionSet || !RQI.ExclusionSet->empty()) &&
-             "Did not expect empty set!");
-      RQITy *RQIPtr =
-          new (A.Allocator) RQITy(A, *RQI.From, *RQI.To, RQI.ExclusionSet, true,
-                                  RQI.UsedAssumedInformation);
-      assert(RQIPtr->Result == RQITy::Reachable::No && "Already reachable?");
-      RQIPtr->Result = Result;
-      assert(!QueryCache.count(RQIPtr));
-      QueryVector.push_back(RQIPtr);
-      QueryCache.insert(RQIPtr);
-    }
+    auto *ExclusionSet =
+        UsedExclusionSet.empty()
+            ? nullptr
+            : A.getInfoCache().getOrCreateUniqueBlockExecutionSet(
+                  &UsedExclusionSet);
+    QueryCache[RQI].push_back(ExclusionSet);
 
     if (Result == RQITy::Reachable::No && IsTemporaryRQI)
       A.registerForUpdate(*this);
@@ -3544,41 +3499,41 @@ struct CachedReachabilityAA : public BaseTy {
   }
 
   bool checkQueryCache(Attributor &A, RQITy &StackRQI,
-                       typename RQITy::Reachable &Result,
-                       bool &UsedAssumedInformation) {
+                       AA::InstExclusionSetTy *ExclusionSet,
+                       typename RQITy::Reachable &Result) {
     if (!this->getState().isValidState()) {
       Result = RQITy::Reachable::Yes;
       return true;
     }
 
-    // If we have an exclusion set we might be able to find our answer by
-    // ignoring it first.
-    if (StackRQI.ExclusionSet) {
-      RQITy PlainRQI(StackRQI.From, StackRQI.To);
-      auto It = QueryCache.find(&PlainRQI);
-      if (It != QueryCache.end() && (*It)->Result == RQITy::Reachable::No) {
-        Result = RQITy::Reachable::No;
-        UsedAssumedInformation |= (*It)->UsedAssumedInformation;
-        return true;
-      }
-    }
-
-    auto It = QueryCache.find(&StackRQI);
+    auto It = QueryCache.find(StackRQI);
     if (It != QueryCache.end()) {
-      Result = (*It)->Result;
-      UsedAssumedInformation |= (*It)->UsedAssumedInformation;
+      for (auto *ES : (*It->second)) {
+        if (!ExclusionSet) {
+          if (!ES) {
+            Result = (*It)->first.Result;
+            return true;
+          }
+          continue;
+        }
+        if (!ES || llvm::set_is_subset(*ES, *ExclusionSet)) {
+          Result = (*It)->first.Result;
+          return true;
+        }
+      }
+      Result = RQITy::Reachable::Yes;
       return true;
     }
 
     // Insert a temporary for recursive queries. We will replace it with a
     // permanent entry later.
-    QueryCache.insert(&StackRQI);
+    QueryCache[StackRQI].push_back(nullptr);
     return false;
   }
 
 private:
-  SmallVector<RQITy *> QueryVector;
-  DenseSet<RQITy *> QueryCache;
+  SmallVector<RQITy> QueryVector;
+  DenseMap<RQITy, SmallVector<AA::InstExclusionSetTy *>> QueryCache;
 };
 
 struct AAIntraFnReachabilityFunction final
