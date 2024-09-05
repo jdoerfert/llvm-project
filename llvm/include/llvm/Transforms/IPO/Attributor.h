@@ -3819,6 +3819,7 @@ struct AAIntraFnReachability
   /// determines (and caches) reachability.
   virtual bool isAssumedReachable(
       Attributor &A, const Instruction &From, const Instruction &To,
+      bool &UsedAssumedInformation,
       const AA::InstExclusionSetTy *ExclusionSet = nullptr) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
@@ -5687,13 +5688,16 @@ struct AAInterFnReachability
     Function *Scope = getAnchorScope();
     if (!Scope || Scope->isDeclaration())
       return true;
-    return instructionCanReach(A, Scope->getEntryBlock().front(), Fn);
+    bool UsedAssumedInformation = false;
+    return instructionCanReach(A, Scope->getEntryBlock().front(), Fn,
+                               UsedAssumedInformation);
   }
 
   /// Can  \p Inst reach \p Fn.
   /// See also AA::isPotentiallyReachable.
   virtual bool instructionCanReach(
       Attributor &A, const Instruction &Inst, const Function &Fn,
+      bool &UsedAssumedInformation,
       const AA::InstExclusionSetTy *ExclusionSet = nullptr) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.

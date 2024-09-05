@@ -698,6 +698,7 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
     return true;
   }
 
+  bool UsedAssumedInformation = false;
   SmallPtrSet<const Instruction *, 8> Visited;
   SmallVector<const Instruction *> Worklist;
   Worklist.push_back(&FromI);
@@ -715,8 +716,10 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
                         << " intraprocedurally\n");
       const auto *ReachabilityAA = A.getAAFor<AAIntraFnReachability>(
           QueryingAA, IRPosition::function(ToFn), DepClassTy::OPTIONAL);
-      bool Result = !ReachabilityAA || ReachabilityAA->isAssumedReachable(
-                                           A, *CurFromI, *ToI, ExclusionSet);
+      bool Result = !ReachabilityAA ||
+                    ReachabilityAA->isAssumedReachable(A, *CurFromI, *ToI,
+                                                       UsedAssumedInformation,
+                                                       ExclusionSet);
       LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " "
                         << (Result ? "can potentially " : "cannot ") << "reach "
                         << *ToI << " [Intra]\n");
@@ -729,8 +732,9 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
       const auto *ToReachabilityAA = A.getAAFor<AAIntraFnReachability>(
           QueryingAA, IRPosition::function(ToFn), DepClassTy::OPTIONAL);
       const Instruction &EntryI = ToFn.getEntryBlock().front();
-      Result = !ToReachabilityAA || ToReachabilityAA->isAssumedReachable(
-                                        A, EntryI, *ToI, ExclusionSet);
+      Result = !ToReachabilityAA ||
+               ToReachabilityAA->isAssumedReachable(
+                   A, EntryI, *ToI, UsedAssumedInformation, ExclusionSet);
       LLVM_DEBUG(dbgs() << "[AA] Entry " << EntryI << " of @" << ToFn.getName()
                         << " " << (Result ? "can potentially " : "cannot ")
                         << "reach @" << *ToI << " [ToFn]\n");
@@ -741,8 +745,9 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
       // instruction is already known to reach the ToFn.
       const auto *FnReachabilityAA = A.getAAFor<AAInterFnReachability>(
           QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
-      Result = !FnReachabilityAA || FnReachabilityAA->instructionCanReach(
-                                        A, *CurFromI, ToFn, ExclusionSet);
+      Result = !FnReachabilityAA ||
+               FnReachabilityAA->instructionCanReach(
+                   A, *CurFromI, ToFn, UsedAssumedInformation, ExclusionSet);
       LLVM_DEBUG(dbgs() << "[AA] " << *CurFromI << " in @" << FromFn->getName()
                         << " " << (Result ? "can potentially " : "cannot ")
                         << "reach @" << ToFn.getName() << " [FromFn]\n");
@@ -754,8 +759,10 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
     const auto *ReachabilityAA = A.getAAFor<AAIntraFnReachability>(
         QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
     auto ReturnInstCB = [&](Instruction &Ret) {
-      bool Result = !ReachabilityAA || ReachabilityAA->isAssumedReachable(
-                                           A, *CurFromI, Ret, ExclusionSet);
+      bool Result = !ReachabilityAA ||
+                    ReachabilityAA->isAssumedReachable(A, *CurFromI, Ret,
+                                                       UsedAssumedInformation,
+                                                       ExclusionSet);
       LLVM_DEBUG(dbgs() << "[AA][Ret] " << *CurFromI << " "
                         << (Result ? "can potentially " : "cannot ") << "reach "
                         << Ret << " [Intra]\n");

@@ -1332,9 +1332,11 @@ struct AAPointerInfoImpl
           // instruction itself either.
           bool Inserted = ExclusionSet.insert(&I).second;
 
+          bool UsedAssumedInformation = false;
           if (!FnReachabilityAA->instructionCanReach(
                   A, *LeastDominatingWriteInst,
-                  *Acc.getRemoteInst()->getFunction(), &ExclusionSet))
+                  *Acc.getRemoteInst()->getFunction(), UsedAssumedInformation,
+                  &ExclusionSet))
             WriteChecked = true;
 
           if (Inserted)
@@ -3388,6 +3390,8 @@ template <typename ToTy> struct ReachabilityQueryInfo {
   /// and remember if it worked:
   Reachable Result = Reachable::No;
 
+  bool UsedAssumedInformation = false;
+
   /// Precomputed hash for this RQI.
   unsigned Hash = 0;
 
@@ -3400,14 +3404,17 @@ template <typename ToTy> struct ReachabilityQueryInfo {
                                         InstSetDMI::getHashValue(ExclusionSet));
   }
 
-  ReachabilityQueryInfo(const Instruction *From, const ToTy *To)
-      : From(From), To(To) {}
+  ReachabilityQueryInfo(const Instruction *From, const ToTy *To,
+                        bool UsedAssumedInformation = false)
+      : From(From), To(To), UsedAssumedInformation(UsedAssumedInformation) {}
 
   /// Constructor replacement to ensure unique and stable sets are used for the
   /// cache.
   ReachabilityQueryInfo(Attributor &A, const Instruction &From, const ToTy &To,
-                        const AA::InstExclusionSetTy *ES, bool MakeUnique)
-      : From(&From), To(&To), ExclusionSet(ES) {
+                        const AA::InstExclusionSetTy *ES, bool MakeUnique,
+                        bool UsedAssumedInformation = false)
+      : From(&From), To(&To), ExclusionSet(ES),
+        UsedAssumedInformation(UsedAssumedInformation) {
 
     if (!ES || ES->empty()) {
       ExclusionSet = nullptr;
@@ -3417,7 +3424,8 @@ template <typename ToTy> struct ReachabilityQueryInfo {
   }
 
   ReachabilityQueryInfo(const ReachabilityQueryInfo &RQI)
-      : From(RQI.From), To(RQI.To), ExclusionSet(RQI.ExclusionSet) {}
+      : From(RQI.From), To(RQI.To), ExclusionSet(RQI.ExclusionSet),
+        UsedAssumedInformation(RQI.UsedAssumedInformation) {}
 };
 
 namespace llvm {
@@ -3478,7 +3486,7 @@ struct CachedReachabilityAA : public BaseTy {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     for (unsigned u = 0, e = QueryVector.size(); u < e; ++u) {
       RQITy *RQI = QueryVector[u];
-      if (RQI->Result == RQITy::Reachable::No &&
+      if (RQI->UsedAssumedInformation && RQI->Result == RQITy::Reachable::No &&
           isReachableImpl(A, *RQI, /*IsTemporaryRQI=*/false))
         Changed = ChangeStatus::CHANGED;
     }
@@ -3503,7 +3511,8 @@ struct CachedReachabilityAA : public BaseTy {
     if (Result == RQITy::Reachable::Yes || !UsedExclusionSet) {
       RQITy PlainRQI(RQI.From, RQI.To);
       if (!QueryCache.count(&PlainRQI)) {
-        RQITy *RQIPtr = new (A.Allocator) RQITy(RQI.From, RQI.To);
+        RQITy *RQIPtr = new (A.Allocator)
+            RQITy(RQI.From, RQI.To, RQI.UsedAssumedInformation);
         RQIPtr->Result = Result;
         QueryVector.push_back(RQIPtr);
         QueryCache.insert(RQIPtr);
@@ -3514,8 +3523,9 @@ struct CachedReachabilityAA : public BaseTy {
     if (IsTemporaryRQI && Result != RQITy::Reachable::Yes && UsedExclusionSet) {
       assert((!RQI.ExclusionSet || !RQI.ExclusionSet->empty()) &&
              "Did not expect empty set!");
-      RQITy *RQIPtr = new (A.Allocator)
-          RQITy(A, *RQI.From, *RQI.To, RQI.ExclusionSet, true);
+      RQITy *RQIPtr =
+          new (A.Allocator) RQITy(A, *RQI.From, *RQI.To, RQI.ExclusionSet, true,
+                                  RQI.UsedAssumedInformation);
       assert(RQIPtr->Result == RQITy::Reachable::No && "Already reachable?");
       RQIPtr->Result = Result;
       assert(!QueryCache.count(RQIPtr));
@@ -3534,7 +3544,8 @@ struct CachedReachabilityAA : public BaseTy {
   }
 
   bool checkQueryCache(Attributor &A, RQITy &StackRQI,
-                       typename RQITy::Reachable &Result) {
+                       typename RQITy::Reachable &Result,
+                       bool &UsedAssumedInformation) {
     if (!this->getState().isValidState()) {
       Result = RQITy::Reachable::Yes;
       return true;
@@ -3547,6 +3558,7 @@ struct CachedReachabilityAA : public BaseTy {
       auto It = QueryCache.find(&PlainRQI);
       if (It != QueryCache.end() && (*It)->Result == RQITy::Reachable::No) {
         Result = RQITy::Reachable::No;
+        UsedAssumedInformation |= (*It)->UsedAssumedInformation;
         return true;
       }
     }
@@ -3554,6 +3566,7 @@ struct CachedReachabilityAA : public BaseTy {
     auto It = QueryCache.find(&StackRQI);
     if (It != QueryCache.end()) {
       Result = (*It)->Result;
+      UsedAssumedInformation |= (*It)->UsedAssumedInformation;
       return true;
     }
 
@@ -3579,6 +3592,7 @@ struct AAIntraFnReachabilityFunction final
 
   bool isAssumedReachable(
       Attributor &A, const Instruction &From, const Instruction &To,
+      bool &UsedAssumedInformation,
       const AA::InstExclusionSetTy *ExclusionSet) const override {
     auto *NonConstThis = const_cast<AAIntraFnReachabilityFunction *>(this);
     if (&From == &To)
@@ -3586,9 +3600,14 @@ struct AAIntraFnReachabilityFunction final
 
     RQITy StackRQI(A, From, To, ExclusionSet, false);
     typename RQITy::Reachable Result;
-    if (!NonConstThis->checkQueryCache(A, StackRQI, Result))
-      return NonConstThis->isReachableImpl(A, StackRQI,
-                                           /*IsTemporaryRQI=*/true);
+    if (!NonConstThis->checkQueryCache(A, StackRQI, Result,
+                                       UsedAssumedInformation)) {
+      if (NonConstThis->isReachableImpl(A, StackRQI,
+                                        /*IsTemporaryRQI=*/true))
+        return true;
+      UsedAssumedInformation |= StackRQI.UsedAssumedInformation;
+      return false;
+    }
     return Result == RQITy::Reachable::Yes;
   }
 
@@ -3666,6 +3685,7 @@ struct AAIntraFnReachabilityFunction final
         A.getAAFor<AAIsDead>(*this, getIRPosition(), DepClassTy::OPTIONAL);
     if (LivenessAA && LivenessAA->isAssumedDead(ToBB)) {
       DeadBlocks.insert(ToBB);
+      RQI.UsedAssumedInformation |= !LivenessAA->isAtFixpoint();
       return rememberResult(A, RQITy::Reachable::No, RQI, UsedExclusionSet,
                             IsTemporaryRQI);
     }
@@ -3681,6 +3701,7 @@ struct AAIntraFnReachabilityFunction final
         continue;
       for (const BasicBlock *SuccBB : successors(BB)) {
         if (LivenessAA && LivenessAA->isEdgeDead(BB, SuccBB)) {
+          RQI.UsedAssumedInformation |= !LivenessAA->isAtFixpoint();
           LocalDeadEdges.insert({BB, SuccBB});
           continue;
         }
@@ -10623,15 +10644,21 @@ struct AAInterFnReachabilityFunction
 
   bool instructionCanReach(
       Attributor &A, const Instruction &From, const Function &To,
+      bool &UsedAssumedInformation,
       const AA::InstExclusionSetTy *ExclusionSet) const override {
     assert(From.getFunction() == getAnchorScope() && "Queried the wrong AA!");
     auto *NonConstThis = const_cast<AAInterFnReachabilityFunction *>(this);
 
     RQITy StackRQI(A, From, To, ExclusionSet, false);
     typename RQITy::Reachable Result;
-    if (!NonConstThis->checkQueryCache(A, StackRQI, Result))
-      return NonConstThis->isReachableImpl(A, StackRQI,
-                                           /*IsTemporaryRQI=*/true);
+    if (!NonConstThis->checkQueryCache(A, StackRQI, Result,
+                                       UsedAssumedInformation)) {
+      if (NonConstThis->isReachableImpl(A, StackRQI,
+                                        /*IsTemporaryRQI=*/true))
+        return true;
+      UsedAssumedInformation |= StackRQI.UsedAssumedInformation;
+      return false;
+    }
     return Result == RQITy::Reachable::Yes;
   }
 
@@ -10640,7 +10667,8 @@ struct AAInterFnReachabilityFunction
     const Instruction *EntryI =
         &RQI.From->getFunction()->getEntryBlock().front();
     if (EntryI != RQI.From &&
-        !instructionCanReach(A, *EntryI, *RQI.To, nullptr))
+        !instructionCanReach(A, *EntryI, *RQI.To, RQI.UsedAssumedInformation,
+                             nullptr))
       return rememberResult(A, RQITy::Reachable::No, RQI, false,
                             IsTemporaryRQI);
 
@@ -10677,9 +10705,11 @@ struct AAInterFnReachabilityFunction
         const Instruction &FnFirstInst = Fn->getEntryBlock().front();
         if (!InterFnReachability ||
             InterFnReachability->instructionCanReach(A, FnFirstInst, *RQI.To,
+                                                     RQI.UsedAssumedInformation,
                                                      RQI.ExclusionSet))
           return false;
       }
+      RQI.UsedAssumedInformation |= !CBEdges->isAtFixpoint();
       return true;
     };
 
@@ -10693,14 +10723,15 @@ struct AAInterFnReachabilityFunction
       // reachability first.
       if (CheckReachableCallBase(cast<CallBase>(&CBInst)))
         return true;
-      return IntraFnReachability && !IntraFnReachability->isAssumedReachable(
-                                        A, *RQI.From, CBInst, RQI.ExclusionSet);
+      return IntraFnReachability &&
+             !IntraFnReachability->isAssumedReachable(
+                 A, *RQI.From, CBInst, RQI.UsedAssumedInformation,
+                 RQI.ExclusionSet);
     };
 
     bool UsedExclusionSet = /* conservative */ true;
-    bool UsedAssumedInformation = false;
     if (!A.checkForAllCallLikeInstructions(CheckCallBase, *this,
-                                           UsedAssumedInformation,
+                                           RQI.UsedAssumedInformation,
                                            /* CheckBBLivenessOnly */ true))
       return rememberResult(A, RQITy::Reachable::Yes, RQI, UsedExclusionSet,
                             IsTemporaryRQI);
