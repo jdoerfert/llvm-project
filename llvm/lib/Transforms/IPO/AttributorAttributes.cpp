@@ -11166,6 +11166,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
   bool handleLoadInst(Attributor &A, LoadInst &LI, ItemInfo II,
                       SmallVectorImpl<ItemInfo> &Worklist) {
     SmallSetVector<Value *, 4> PotentialCopies;
+    for (auto &It : getState())
+      PotentialCopies.insert(It.first.getValue());
     SmallSetVector<Instruction *, 4> PotentialValueOrigins;
     bool UsedAssumedInformation = false;
     if (!AA::getPotentiallyLoadedValues(A, LI, PotentialCopies,

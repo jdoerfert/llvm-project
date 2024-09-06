@@ -5049,6 +5049,9 @@ template <typename MemberTy> struct PotentialValuesState : AbstractState {
     return !isValidState() ? true : Set.contains(V);
   }
 
+  auto begin() const { return Set.begin(); }
+  auto end() const { return Set.end(); }
+
 protected:
   SetTy &getAssumedSet() {
     assert(isValidState() && "This set shoud not be used when it is invalid!");

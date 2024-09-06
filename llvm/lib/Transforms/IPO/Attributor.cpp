@@ -446,18 +446,17 @@ static bool getPotentialCopiesOfMemoryValue(
         return false;
       if (Acc.isWrittenValueYetUndetermined())
         return true;
-      //        if (PotentialValueOrigins &&
-      //        !isa<AssumeInst>(Acc.getRemoteInst()))
-      //          return false;
       if (!Acc.isWrittenValueUnknown())
         if (Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue()))
-          if (NewCopies.count(V)) {
+          if (isa<UndefValue>(V) || NewCopies.count(V) ||
+              PotentialCopies.count(V)) {
             NewCopyOrigins.insert(Acc.getRemoteInst());
             return true;
           }
       if (auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst()))
         if (Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand()))
-          if (NewCopies.count(V)) {
+          if (isa<UndefValue>(V) || NewCopies.count(V) ||
+              PotentialCopies.count(V)) {
             NewCopyOrigins.insert(Acc.getRemoteInst());
             return true;
           }
