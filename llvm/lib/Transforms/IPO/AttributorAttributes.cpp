@@ -1106,7 +1106,7 @@ struct AAPointerInfoImpl
       bool FindInterferingWrites, bool FindInterferingReads,
       function_ref<bool(const Access &, bool)> UserCB, bool &HasBeenWrittenTo,
       AA::RangeTy &Range,
-      function_ref<bool(const Access &)> SkipCB) const override {
+      function_ref<bool(const Access &, bool)> SkipCB) const override {
     HasBeenWrittenTo = false;
 
     SmallPtrSet<const Access *, 8> DominatingWrites;
@@ -1293,7 +1293,7 @@ struct AAPointerInfoImpl
 
     // Helper to determine if we can skip a specific write access.
     auto CanSkipAccess = [&](const Access &Acc, bool Exact) {
-      if (SkipCB && SkipCB(Acc))
+      if (SkipCB && SkipCB(Acc, Exact))
         return true;
       if (!CanIgnoreThreading(Acc))
         return false;

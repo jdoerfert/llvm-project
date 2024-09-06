@@ -6142,7 +6142,7 @@ struct AAPointerInfo : public AbstractAttribute {
       bool FindInterferingWrites, bool FindInterferingReads,
       function_ref<bool(const Access &, bool)> CB, bool &HasBeenWrittenTo,
       AA::RangeTy &Range,
-      function_ref<bool(const Access &)> SkipCB = nullptr) const = 0;
+      function_ref<bool(const Access &, bool)> SkipCB = nullptr) const = 0;
 
   /// This function should return true if the type of the \p AA is AAPointerInfo
   static bool classof(const AbstractAttribute *AA) {
