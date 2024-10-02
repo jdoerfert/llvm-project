@@ -518,13 +518,14 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   instrumentAccesses(AccessInfos);
   Fn.dump();
   instrumentAllocaInstructions(AllocaInsts);
+  Fn.dump();
 
-  for (auto *ASC : ASCInsts) {
-    if (ASC->getPointerOperand()->getType() == ASC->getType())
-      ASC->replaceAllUsesWith(ASC->getPointerOperand());
-    if (ASC->use_empty())
-      ASC->eraseFromParent();
-  }
+  // for (auto *ASC : ASCInsts) {
+  //   if (ASC->getPointerOperand()->getType() == ASC->getType())
+  //     ASC->replaceAllUsesWith(ASC->getPointerOperand());
+  //   if (ASC->use_empty())
+  //     ASC->eraseFromParent();
+  // }
 
   //  for (auto *CI : RTCalls) {
   //    InlineFunctionInfo IFI;
