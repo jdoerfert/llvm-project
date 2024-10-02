@@ -8,11 +8,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "DeviceTypes.h"
+#include "DeviceUtils.h"
 #include "Mapping.h"
 #include "Shared/Environment.h"
 #include "Synchronization.h"
-#include "Types.h"
-#include "Utils.h"
 
 using namespace ompx;
 

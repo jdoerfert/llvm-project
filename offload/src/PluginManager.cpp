@@ -446,7 +446,8 @@ static int loadImagesOntoDevice(DeviceTy &Device) {
                           .first->HDTT;
 
         // Notify about the new mapping.
-        if (Device.notifyDataMapped(CurrHostEntry->addr, CurrHostEntry->size,
+        if (Device.notifyDataMapped(CurrHostEntry->addr, CurrDeviceEntryAddr,
+                                    CurrHostEntry->size,
                                     Entry->FakeTgtPtrBegin))
           return OFFLOAD_FAIL;
       }

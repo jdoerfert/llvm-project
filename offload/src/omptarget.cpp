@@ -198,7 +198,7 @@ static int32_t getParentIndex(int64_t Type) {
   return ((Type & OMP_TGT_MAPTYPE_MEMBER_OF) >> 48) - 1;
 }
 
-void *targetAllocExplicit(size_t Size, int64_t DeviceNum, int Kind,
+void *targetAllocExplicit(size_t Size, int DeviceNum, int Kind,
                           const char *Name) {
   DP("Call to %s for device %d requesting %zu bytes\n", Name, DeviceNum, Size);
 
@@ -212,11 +212,6 @@ void *targetAllocExplicit(size_t Size, int64_t DeviceNum, int Kind,
   if (DeviceNum == omp_get_initial_device()) {
     Rc = malloc(Size);
     DP("%s returns host ptr " DPxMOD "\n", Name, DPxPTR(Rc));
-    return Rc;
-  }
-
-  if (checkDeviceAndCtors(DeviceNum, nullptr)) {
-    DP("Not offloading to device %" PRId64 "\n", DeviceNum);
     return Rc;
   }
 
