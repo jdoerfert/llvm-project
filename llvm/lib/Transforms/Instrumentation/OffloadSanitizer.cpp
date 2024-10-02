@@ -14,6 +14,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -65,6 +66,31 @@ private:
     unsigned AS;
   };
 
+  DenseMap<Value *, Value *> PtrInfoMap;
+
+  Value *getPtrInfoForObj(Value &Obj, const AccessInfoTy &AI) {
+    if (AI.AS != 1)
+      return PoisonValue::get(PtrInfoTy);
+    Value *&PtrInfo = PtrInfoMap[&Obj];
+    if (!PtrInfo) {
+      auto *IP = dyn_cast<Instruction>(&Obj);
+      if (!IP && isa<Argument>(Obj)) {
+        IP = &*cast<Argument>(Obj)
+                   .getParent()
+                   ->getEntryBlock()
+                   .getFirstNonPHIOrDbgOrAlloca();
+      } else {
+        IP = &*AI.I->getFunction()
+                   ->getEntryBlock()
+                   .getFirstNonPHIOrDbgOrAlloca();
+      }
+      IRBuilder<> IRB(IP);
+      PtrInfo = createCall(IRB, getGetPtrInfoFn(AI.AS),
+                           {IRB.CreateAddrSpaceCast(&Obj, PtrTy)});
+    }
+    return PtrInfo;
+  }
+
   void removeAS(Function &Fn, SmallVectorImpl<Instruction *> &ASInsts);
 
   bool instrumentFunction(Function &Fn);
@@ -107,6 +133,15 @@ private:
                          {/*PC*/ Int64Ty, PtrTy});
   }
 
+  /// PtrTy __offload_san_unpack(Int64Ty, PtrTy);
+  FunctionCallee GetPtrInfoFn[NumSupportedAddressSpaces];
+  FunctionCallee getGetPtrInfoFn(unsigned AS) {
+    assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
+    return getOrCreateFn(GetPtrInfoFn[AS],
+                         "__offload_san_get_as" + std::to_string(AS) + "_base",
+                         PtrInfoTy, {PtrTy});
+  }
+
   /// ptr(AS) __offload_san_check_as<AS>_access(/* PC */Int64Ty,
   /// 					        /* FakePtr */ PtrTy,
   /// 				                /* Size */Int32Ty);
@@ -117,6 +152,19 @@ private:
                          "__offload_san_check_as" + std::to_string(AS) +
                              "_access",
                          ASPtrTy[AS], {/*PC*/ Int64Ty, PtrTy, Int32Ty});
+  }
+
+  /// ptr(AS) __offload_san_check_as<AS>_access_with_base(/* PC */Int64Ty,
+  /// 					                  /* FakePtr */ PtrTy,
+  /// 				                          /* Size */Int32Ty,
+  /// 				                          /* PI */ PtrInfoTy);
+  FunctionCallee CheckAccessWithBaseFn[NumSupportedAddressSpaces];
+  FunctionCallee getCheckAccessWithBaseFn(unsigned AS) {
+    assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
+    return getOrCreateFn(
+        CheckAccessWithBaseFn[AS],
+        "__offload_san_check_as" + std::to_string(AS) + "_access_with_base",
+        ASPtrTy[AS], {/*PC*/ Int64Ty, PtrTy, Int32Ty, PtrInfoTy});
   }
 
   /// PtrTy __offload_san_register_alloca(/* PC */ Int64Ty,
@@ -162,6 +210,7 @@ private:
       PointerType::get(Ctx, 0), PointerType::get(Ctx, 1),
       PointerType::get(Ctx, 2), PointerType::get(Ctx, 3),
       PointerType::get(Ctx, 4), PointerType::get(Ctx, 5)};
+  Type *PtrInfoTy = StructType::get(Ctx, {ASPtrTy[5], Int64Ty}, false);
 };
 
 } // end anonymous namespace
@@ -366,16 +415,27 @@ void OffloadSanitizerImpl::instrumentAccesses(
     auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
     auto *Size =
         ConstantInt::get(Int32Ty, DL.getTypeStoreSize(AI.I->getAccessType()));
-    errs() << "AI " << AI.I << "\n";
-    AI.I->dump();
-    FakePtr->dump();
     if (FakePtr->getType()->getPointerAddressSpace()) {
       auto *ASC = cast<AddrSpaceCastInst>(FakePtr);
       FakePtr = ASC->getPointerOperand();
     }
     assert(FakePtr->getType()->getPointerAddressSpace() == 0);
-    auto *RealPtr =
-        createCall(IRB, getCheckAccessFn(AI.AS), {getPC(IRB), FakePtr, Size});
+
+    SmallVector<Value *> Args;
+    Args.append({getPC(IRB), FakePtr, Size});
+
+    auto *Obj = getUnderlyingObject(FakePtr);
+
+    FunctionCallee FC;
+    if (Obj) {
+      FC = getCheckAccessWithBaseFn(AI.AS);
+      Value *PtrInfo = getPtrInfoForObj(*Obj, AI);
+      Args.push_back(PtrInfo);
+    } else {
+      FC = getCheckAccessFn(AI.AS);
+    }
+
+    auto *RealPtr = createCall(IRB, FC, Args);
     AI.I->setOperand(AI.PtrOpIdx, RealPtr);
     assert(RealPtr->getParent());
   }

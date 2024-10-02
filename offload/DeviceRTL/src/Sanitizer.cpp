@@ -125,11 +125,16 @@ struct FakePtrTy {
   FakePtrTy(void *FakePtr) { U.VPtr = FakePtr; }
 
   _SAN_ATTRS
-  FakePtrTy(void *FakePtr, int32_t AS) : FakePtrTy(FakePtr) {
-    if (U.Enc32.Magic != MAGIC)
-      raiseExecutionError(SanitizerEnvironmentTy::BAD_PTR, 0);
-    if (U.Enc32.RealAS != AS)
-      raiseExecutionError(SanitizerEnvironmentTy::AS_MISMATCH, AS);
+  FakePtrTy(void *FakePtr, int32_t AS, bool Checked = false)
+      : FakePtrTy(FakePtr) {
+    if (Checked)
+      return;
+    bool BadMagic = U.Enc32.Magic != MAGIC;
+    bool BadAS = U.Enc32.RealAS != AS;
+    if (BadMagic | BadAS)
+      raiseExecutionError(BadMagic ? SanitizerEnvironmentTy::BAD_PTR
+                                   : SanitizerEnvironmentTy::AS_MISMATCH,
+                          AS);
   }
 
   _SAN_ATTRS
@@ -165,6 +170,19 @@ struct FakePtrTy {
     return FP;
   }
 
+  _SAN_ATTRS static FakePtrTy createHost(void *Ptr, uint32_t Size,
+                                         uint32_t SlotId) {
+    FakePtrTy FP;
+
+    PtrInfos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
+    PtrInfos[SlotId].Size = Size;
+    FP.U.Enc64.RealAS = MallocAS;
+    FP.U.Enc64.Magic = MAGIC;
+    FP.U.Enc64.SlotId = SlotId;
+
+    return FP;
+  }
+
   _SAN_ATTRS
   operator void *() { return U.VPtr; }
 
@@ -189,6 +207,25 @@ struct FakePtrTy {
     if (MaxOffset > AllocSize)
       raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC);
     return Base + Offset;
+  }
+
+  template <uint32_t AS>
+      _SAN_ATTRS void [[clang::address_space(AS)]] *
+      checkWithBase(uint64_t PC, uint32_t Size, PtrInfoTy PI) {
+    static_assert(AS == MallocAS, "");
+    uint64_t Offset = uint64_t(U.Enc64.Offset);
+    uint64_t MaxOffset = Offset + uint64_t(Size);
+    uint32_t SlotId = U.Enc64.SlotId;
+    if (MaxOffset > PI.Size)
+      raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC);
+    return PI.Base + Offset;
+  }
+
+  _SAN_ATTRS PtrInfoTy getPtrInfo() {
+    uint32_t SlotId = U.Enc64.SlotId;
+    auto *Base = PtrInfos[SlotId].Base;
+    uint64_t AllocSize = PtrInfos[SlotId].Size;
+    return {Base, AllocSize};
   }
 
   template <uint32_t AS>
@@ -244,6 +281,11 @@ _SAN_ENTRY_ATTRS void *__offload_san_register_malloc(
   return FakePtrTy::create<MallocAS>(Ptr, Size);
 }
 
+_SAN_ENTRY_ATTRS void *__offload_san_register_host(void *Ptr, uint32_t Size,
+                                                   uint32_t Slot) {
+  return FakePtrTy::createHost(Ptr, Size, Slot);
+}
+
 _SAN_ENTRY_ATTRS void *__offload_san_unpack(uint64_t PC, void *FakePtr) {
   FakePtrTy FP(FakePtr);
   /* Only AllocaAS is actually sanitized for now */
@@ -267,6 +309,28 @@ _SAN_ENTRY_ATTRS void *__offload_san_unpack(uint64_t PC, void *FakePtr) {
       return FP.check<AS>(PC, Size);                                           \
     }                                                                          \
     return (void [[clang::address_space(AS)]] *)FakePtr;                       \
+  }                                                                            \
+                                                                               \
+  _SAN_ENTRY_ATTRS PtrInfoTy __offload_san_get_as##AS##_base(void *FakePtr) {  \
+    FakePtrTy FP(FakePtr, AS);                                                 \
+    if constexpr (AS == MallocAS)                                              \
+      return FP.getPtrInfo();                                                  \
+    return {};                                                                 \
+  }                                                                            \
+                                                                               \
+  _SAN_ENTRY_ATTRS void [[clang::address_space(AS)]] *                         \
+      __offload_san_check_as##AS##_access_with_base(                           \
+          uint64_t PC, void *FakePtr, uint32_t Size, PtrInfoTy PI) {           \
+    if constexpr (AS == AllocaAS) {                                            \
+      FakePtrTy FP(FakePtr, AS, true);                                         \
+      return FP.check<AS>(PC, Size);                                           \
+    }                                                                          \
+    if constexpr (AS == MallocAS) {                                            \
+      FakePtrTy FP(FakePtr, AS, true);                                         \
+      return FP.checkWithBase<AS>(PC, Size, PI);                               \
+    }                                                                          \
+    __builtin_trap();                                                          \
+    return nullptr;                                                            \
   }
 
 CHECK_FOR_AS(1)

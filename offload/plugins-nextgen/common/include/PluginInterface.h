@@ -940,9 +940,12 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   bool useAutoZeroCopy();
   virtual bool useAutoZeroCopyImpl() { return false; }
 
-  /// Allocate and construct a kernel object.
-  virtual Expected<GenericKernelTy &> constructKernel(const char *Name) = 0;
+  /// Retrieve the kernel with name \p Name from image \p Image (or any image if
+  /// \p Image is null) and return it.
+  Expected<GenericKernelTy &> getKernel(llvm::StringRef Name,
+                                        DeviceImageTy *Image = nullptr);
 
+  SmallVector<GenericKernelTy *> NewFns, DelFns;
   DenseMap<DeviceImageTy *, SanitizerEnvironmentTy *> SanitizerEnvironmentMap;
 
   /// Reference to the underlying plugin that created this device.
@@ -1002,6 +1005,10 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
       BoolEnvar("OFFLOAD_TRACK_ALLOCATION_TRACES", false);
 
 private:
+  /// Allocate and construct a kernel object (users should use getKernel).
+  virtual Expected<GenericKernelTy &>
+  constructKernelImpl(llvm::StringRef Name) = 0;
+
   /// Get and set the stack size and heap size for the device. If not used, the
   /// plugin can implement the setters as no-op and setting the output
   /// value to zero for the getters.
@@ -1096,6 +1103,7 @@ protected:
 private:
   DeviceMemoryPoolTy DeviceMemoryPool = {nullptr, 0};
   DeviceMemoryPoolTrackingTy DeviceMemoryPoolTracking = {0, 0, ~0U, 0};
+  DenseMap<StringRef, GenericKernelTy *> KernelMap;
 };
 
 /// Class implementing common functionalities of offload plugins. Each plugin

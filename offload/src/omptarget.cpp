@@ -252,6 +252,8 @@ void targetFreeExplicit(void *DevicePtr, int DeviceNum, int Kind,
                   "Failed to deallocate device ptr. Set "
                   "OFFLOAD_TRACK_ALLOCATION_TRACES=1 to track allocations.");
 
+  DeviceOrErr->notifyDataUnmapped(nullptr, DevicePtr);
+
   DP("omp_target_free deallocated device ptr\n");
 }
 
@@ -1314,11 +1316,16 @@ static int processDataBefore(ident_t *Loc, int64_t DeviceId, void *HostPtr,
           /*UpdateRefCount=*/false,
           /*UseHoldRefCount=*/false);
       TgtPtrBegin = TPR.TargetPointer;
+      if (auto *Entry = TPR.getEntry())
+        if (auto *FakeTgtPtrBegin = Entry->FakeTgtPtrBegin)
+          TgtPtrBegin = FakeTgtPtrBegin;
       TgtBaseOffset = (intptr_t)HstPtrBase - (intptr_t)HstPtrBegin;
 #ifdef OMPTARGET_DEBUG
       void *TgtPtrBase = (void *)((intptr_t)TgtPtrBegin + TgtBaseOffset);
-      DP("Obtained target argument " DPxMOD " from host pointer " DPxMOD "\n",
-         DPxPTR(TgtPtrBase), DPxPTR(HstPtrBegin));
+      DP("Obtained target argument " DPxMOD " from host pointer " DPxMOD
+         " %s\n",
+         DPxPTR(TgtPtrBase), DPxPTR(HstPtrBegin),
+         TgtPtrBegin != TPR.TargetPointer ? "fake" : "");
 #endif
     }
     TgtArgsPositions[I] = TgtArgs.size();

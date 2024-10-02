@@ -1051,7 +1051,27 @@ Error GenericDeviceTy::setupSanitizerEnvironment(GenericPluginTy &Plugin,
   GlobalTy SanitizerEnvironmentGlobal("__sanitizer_environment_ptr",
                                       sizeof(SanitizerEnvironment),
                                       &SanitizerEnvironment);
-  return GHandler.writeGlobalToDevice(*this, Image, SanitizerEnvironmentGlobal);
+  if (auto Err = GHandler.writeGlobalToDevice(*this, Image,
+                                              SanitizerEnvironmentGlobal))
+    return Err;
+
+  {
+    auto KernelOrErr = getKernel("__sanitizer_register", &Image);
+    if (auto Err = KernelOrErr.takeError()) {
+      consumeError(std::move(Err));
+      return Plugin::success();
+    }
+    NewFns.push_back(&*KernelOrErr);
+  }
+  {
+    auto KernelOrErr = getKernel("__sanitizer_unregister", &Image);
+    if (auto Err = KernelOrErr.takeError()) {
+      consumeError(std::move(Err));
+      return Plugin::success();
+    }
+    DelFns.push_back(&*KernelOrErr);
+  }
+  return Plugin::success();
 }
 
 Error GenericDeviceTy::setupRPCServer(GenericPluginTy &Plugin,
@@ -1571,6 +1591,55 @@ Error GenericDeviceTy::printInfo() {
   return Plugin::success();
 }
 
+Expected<GenericKernelTy &>
+GenericDeviceTy::getKernel(llvm::StringRef Name, DeviceImageTy *ImagePtr) {
+
+  GenericKernelTy *&KernelPtr = KernelMap[Name];
+  if (!KernelPtr) {
+    GenericGlobalHandlerTy &GHandler = Plugin.getGlobalHandler();
+
+    auto CheckImage = [&](DeviceImageTy &Image) -> GenericKernelTy * {
+      if (!GHandler.isSymbolInImage(*this, Image, Name))
+        return nullptr;
+
+      auto KernelOrErr = constructKernelImpl(Name);
+      if (Error Err = KernelOrErr.takeError()) {
+        [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
+        DP("Failed to construct kernel ('%s'): %s", Name.data(),
+           ErrStr.c_str());
+        return nullptr;
+      }
+
+      GenericKernelTy &Kernel = *KernelOrErr;
+      if (auto Err = Kernel.init(*this, Image)) {
+        [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
+        DP("Failed to initialize kernel ('%s'): %s", Name.data(),
+           ErrStr.c_str());
+        return nullptr;
+      }
+
+      return &Kernel;
+    };
+
+    if (ImagePtr) {
+      KernelPtr = CheckImage(*ImagePtr);
+    } else {
+      for (DeviceImageTy *Image : LoadedImages) {
+        KernelPtr = CheckImage(*Image);
+        if (KernelPtr)
+          break;
+      }
+    }
+  }
+
+  if (!KernelPtr)
+    return Plugin::error("Kernel '%s' not found or could not be initialized, "
+                         "searched %zu images",
+                         Name.data(),
+                         ImagePtr ? size_t(1) : LoadedImages.size());
+  return *KernelPtr;
+}
+
 Error GenericDeviceTy::createEvent(void **EventPtrStorage) {
   return createEventImpl(EventPtrStorage);
 }
@@ -1602,9 +1671,74 @@ Error GenericDeviceTy::syncEvent(void *EventPtr) {
 
 bool GenericDeviceTy::useAutoZeroCopy() { return useAutoZeroCopyImpl(); }
 
+struct FakePtrTy {
+
+  static constexpr uint32_t MAGIC = 0b1111000;
+  static constexpr uint32_t BITS_OFFSET = 11;
+
+  union {
+    void *VPtr;
+    struct {
+      uint32_t Offset : BITS_OFFSET;
+      uint32_t Size : BITS_OFFSET;
+      uint32_t RealAS : 3;
+      uint32_t Magic : 7;
+      uint32_t RealPtr : 32;
+    } Enc32;
+    struct {
+      uint32_t Offset : BITS_OFFSET * 2;
+      uint32_t RealAS : 3;
+      uint32_t Magic : 7;
+      uint32_t SlotId : 32;
+    } Enc64;
+  } U;
+
+  FakePtrTy(uint32_t SlotId) {
+    U.VPtr = nullptr;
+    U.Enc64.RealAS = 1;
+    U.Enc64.Magic = MAGIC;
+    U.Enc64.SlotId = SlotId;
+  }
+
+  operator void *() { return U.VPtr; }
+};
+
 void *GenericDeviceTy::createFakeHostPtr(void *DevicePtr, int64_t Size) {
-  return nullptr;
+  if (NewFns.empty())
+    return nullptr;
+  static uint32_t Slot = 1024;
+  uint32_t SlotId = --Slot;
+  KernelArgsTy Args = {};
+  Args.NumTeams[0] = 1;
+  Args.ThreadLimit[0] = 1;
+  AsyncInfoWrapperTy AsyncInfoWrapper(*this, nullptr);
+  for (GenericKernelTy *NewFP : NewFns) {
+    struct {
+      void *Ptr;
+      int64_t Length;
+      uint64_t Slot;
+    } KernelArgs{DevicePtr, Size, SlotId};
+    KernelLaunchParamsTy ArgPtrs{sizeof(KernelArgs), &KernelArgs, nullptr};
+    Args.ArgPtrs = reinterpret_cast<void **>(&ArgPtrs);
+    Args.Flags.IsCUDA = true;
+    if (auto Err = NewFP->launch(*this, Args.ArgPtrs, nullptr, Args,
+                                 AsyncInfoWrapper)) {
+      AsyncInfoWrapper.finalize(Err);
+      REPORT("Failure: %s\n", toString(std::move(Err)).data());
+      return nullptr;
+    }
+  }
+
+  Error Err = Plugin::success();
+  AsyncInfoWrapper.finalize(Err);
+  if (Err) {
+    REPORT("Failure: %s\n", toString(std::move(Err)).data());
+    assert(0);
+    return nullptr;
+  }
+  return FakePtrTy(SlotId);
 }
+
 void GenericDeviceTy::removeFakeHostPtr(void *FakeHstPtr) {}
 
 Error GenericPluginTy::init() {
@@ -2196,20 +2330,14 @@ int32_t GenericPluginTy::get_function(__tgt_device_binary Binary,
 
   GenericDeviceTy &Device = Image.getDevice();
 
-  auto KernelOrErr = Device.constructKernel(Name);
+  auto KernelOrErr = Device.getKernel(Name, &Image);
   if (Error Err = KernelOrErr.takeError()) {
     REPORT("Failure to look up kernel: %s\n", toString(std::move(Err)).data());
     return OFFLOAD_FAIL;
   }
 
-  GenericKernelTy &Kernel = *KernelOrErr;
-  if (auto Err = Kernel.init(Device, Image)) {
-    REPORT("Failure to init kernel: %s\n", toString(std::move(Err)).data());
-    return OFFLOAD_FAIL;
-  }
-
   // Note that this is not the kernel's device address.
-  *KernelPtr = &Kernel;
+  *KernelPtr = &*KernelOrErr;
   return OFFLOAD_SUCCESS;
 }
 
