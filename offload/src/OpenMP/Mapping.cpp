@@ -37,12 +37,13 @@ void dumpTargetPointerMappings(const ident_t *Loc, DeviceTy &Device,
     HostDataToTargetTy &HDTT = *It.HDTT;
     SourceInfo Info(HDTT.HstPtrName);
     DUMP_INFO(toStdOut, OMP_INFOTYPE_ALL, Device.DeviceID,
-              DPxMOD " " DPxMOD " %-8" PRIuPTR " %-11s %-12s %s at %s:%d:%d\n",
+              DPxMOD " " DPxMOD " %-8" PRIuPTR
+                     " %-11s %-12s %s at %s:%d:%d " DPxMOD "\n",
               DPxPTR(HDTT.HstPtrBegin), DPxPTR(HDTT.TgtPtrBegin),
               HDTT.HstPtrEnd - HDTT.HstPtrBegin,
               HDTT.dynRefCountToStr().c_str(), HDTT.holdRefCountToStr().c_str(),
               Info.getName(), Info.getFilename(), Info.getLine(),
-              Info.getColumn());
+              Info.getColumn(), DPxPTR(HDTT.FakeTgtPtrBegin));
   }
 }
 
@@ -236,7 +237,7 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
     }
     const char *DynRefCountAction = HasHoldModifier ? "" : RefCountAction;
     const char *HoldRefCountAction = HasHoldModifier ? RefCountAction : "";
-    uintptr_t Ptr = LR.TPR.getEntry()->TgtPtrBegin +
+    uintptr_t Ptr = LR.TPR.getEntry()->getBeginPtr() +
                     ((uintptr_t)HstPtrBegin - LR.TPR.getEntry()->HstPtrBegin);
     INFO(OMP_INFOTYPE_MAPPING_EXISTS, Device.DeviceID,
          "Mapping exists%s with HstPtrBegin=" DPxMOD ", TgtPtrBegin=" DPxMOD
@@ -311,12 +312,12 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
          LR.TPR.getEntry()->dynRefCountToStr().c_str(),
          LR.TPR.getEntry()->holdRefCountToStr().c_str(),
          (HstPtrName) ? getNameFromMapping(HstPtrName).c_str() : "unknown");
-    LR.TPR.TargetPointer = (void *)TgtPtrBegin;
 
     // Notify the plugin about the new mapping.
     if (Device.notifyDataMapped(HstPtrBegin, (void *)TgtPtrBegin, Size,
                                 LR.TPR.getEntry()->FakeTgtPtrBegin))
       return TargetPointerResultTy{};
+    LR.TPR.TargetPointer = (void *)LR.TPR.getEntry()->getBeginPtr();
   } else {
     // This entry is not present and we did not create a new entry for it.
     LR.TPR.Flags.IsPresent = false;
@@ -413,7 +414,7 @@ TargetPointerResultTy MappingInfoTy::getTgtPtrBegin(
     }
     const char *DynRefCountAction = UseHoldRefCount ? "" : RefCountAction;
     const char *HoldRefCountAction = UseHoldRefCount ? RefCountAction : "";
-    uintptr_t TP = LR.TPR.getEntry()->TgtPtrBegin +
+    uintptr_t TP = LR.TPR.getEntry()->getBeginPtr() +
                    ((uintptr_t)HstPtrBegin - LR.TPR.getEntry()->HstPtrBegin);
     INFO(OMP_INFOTYPE_MAPPING_EXISTS, Device.DeviceID,
          "Mapping exists with HstPtrBegin=" DPxMOD ", TgtPtrBegin=" DPxMOD ", "
@@ -450,8 +451,8 @@ void *MappingInfoTy::getTgtPtrBegin(HDTTMapAccessorTy &HDTTMap,
   uintptr_t HP = (uintptr_t)HstPtrBegin;
   LookupResult LR = lookupMapping(HDTTMap, HstPtrBegin, Size);
   if (LR.Flags.IsContained || LR.Flags.ExtendsBefore || LR.Flags.ExtendsAfter) {
-    uintptr_t TP =
-        LR.TPR.getEntry()->TgtPtrBegin + (HP - LR.TPR.getEntry()->HstPtrBegin);
+    uintptr_t TP = LR.TPR.getEntry()->getBeginPtr() +
+                   (HP - LR.TPR.getEntry()->HstPtrBegin);
     return (void *)TP;
   }
 

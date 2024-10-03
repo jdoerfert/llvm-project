@@ -280,13 +280,13 @@ public:
           "host-issued allocation%s.\n",
           DevicePtr,
           IsClose ? "" : " (might be a global, stack, or shared location)");
-    if (IsClose) {
-      print(Cyan,
-            "Closest host-issued allocation (distance %" PRIuPTR
-            " byte%s; might be by page):\n",
-            Distance, Distance > 1 ? "s" : "");
-      reportAllocationInfo(ATI);
-    }
+    //    if (IsClose) {
+    print(Cyan,
+          "Closest host-issued allocation (distance %" PRIuPTR
+          " byte%s; might be by page):\n",
+          Distance, Distance > 1 ? "s" : "");
+    reportAllocationInfo(ATI);
+    //    }
     if (Abort)
       abortExecution();
   }
@@ -372,7 +372,8 @@ public:
   }
 
   static void checkAndReportError(GenericDeviceTy &Device,
-                                  __tgt_async_info *AsyncInfo) {
+                                  __tgt_async_info *AsyncInfo,
+                                  KernelTraceInfoRecordTy *KTIR = nullptr) {
     SanitizerEnvironmentTy *SE = nullptr;
     for (auto &It : Device.SanitizerEnvironmentMap) {
       if (It.second->ErrorCode == SanitizerEnvironmentTy::NONE)
@@ -385,10 +386,15 @@ public:
     if (!SE)
       return;
 
-    auto KernelTraceInfoRecord =
-        Device.KernelLaunchTraces.getExclusiveAccessor();
-    reportTrapInKernel(Device, *KernelTraceInfoRecord,
-                       [=](__tgt_async_info &TAI) { return true; });
+    if (KTIR) {
+      reportTrapInKernel(Device, *KTIR,
+                         [=](__tgt_async_info &TAI) { return true; });
+    } else {
+      auto KernelTraceInfoRecord =
+          Device.KernelLaunchTraces.getExclusiveAccessor();
+      reportTrapInKernel(Device, *KernelTraceInfoRecord,
+                         [=](__tgt_async_info &TAI) { return true; });
+    }
   }
 
   /// Report the kernel traces taken from \p KTIR, up to

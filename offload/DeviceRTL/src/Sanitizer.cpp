@@ -16,9 +16,12 @@
 
 using namespace ompx;
 
+#define _INLINE [[gnu::always_inline]]
+#define _NOINLINE [[gnu::noinline]]
+#define _FLATTEN [[gnu::flatten]]
 #define _SAN_ATTRS                                                             \
   [[clang::disable_sanitizer_instrumentation, gnu::used, gnu::retain]]
-#define _SAN_ENTRY_ATTRS [[gnu::flatten, gnu::always_inline]] _SAN_ATTRS
+#define _SAN_ENTRY_ATTRS _FLATTEN _INLINE _SAN_ATTRS
 
 #pragma omp begin declare target device_type(nohost)
 
@@ -31,12 +34,17 @@ enum {
   AllocaAS = 5,
 };
 
-struct PtrInfoTy {
+struct __attribute__((packed)) PtrInfoTy {
   char [[clang::address_space(MallocAS)]] * Base;
   uint64_t Size;
 };
-static PtrInfoTy PtrInfos[1024];
+static PtrInfoTy PtrInfos[1 << 14];
 static uint32_t PtrInfoCnt = 0;
+
+struct __attribute__((packed)) InfoTy {
+  PtrInfoTy PI;
+  uint32_t AS;
+};
 
 /// Helper to lock the sanitizer environment. While we never unlock it, this
 /// allows us to have a no-op "side effect" in the spin-wait function below.
@@ -50,14 +58,13 @@ getSanitizerEnvironmentLock(SanitizerEnvironmentTy &SE,
 
 /// The spin-wait function should not be inlined, it's a catch all to give one
 /// thread time to setup the sanitizer environment.
-[[clang::noinline]] _SAN_ATTRS void spinWait(SanitizerEnvironmentTy &SE) {
+_SAN_ATTRS void spinWait(SanitizerEnvironmentTy &SE) {
   while (!atomic::load(&SE.IsInitialized, atomic::OrderingTy::aquire))
     ;
   //  __builtin_trap();
 }
 
-_SAN_ATTRS
-void setLocation(SanitizerEnvironmentTy &SE, uint64_t PC) {
+_SAN_ATTRS void setLocation(SanitizerEnvironmentTy &SE, uint64_t PC) {
   for (int I = 0; I < 3; ++I) {
     SE.ThreadId[I] = mapping::getThreadIdInBlock(I);
     SE.BlockId[I] = mapping::getBlockIdInKernel(I);
@@ -70,14 +77,14 @@ void setLocation(SanitizerEnvironmentTy &SE, uint64_t PC) {
   atomic::store(&SE.IsInitialized, 1, atomic::OrderingTy::release);
 }
 
-_SAN_ATTRS
-void raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode,
-                         uint64_t PC) {
+_SAN_ATTRS _FLATTEN _INLINE void
+raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode,
+                    uint64_t PC) {
   SanitizerEnvironmentTy &SE = *__sanitizer_environment_ptr;
   bool HasLock = getSanitizerEnvironmentLock(SE, ErrorCode);
 
   // If no thread of this warp has the lock, end execution gracefully.
-  bool AnyThreadHasLock = utils::ballotSync(lanes::All, HasLock);
+  // bool AnyThreadHasLock = utils::ballotSync(lanes::All, HasLock);
   //  if (!AnyThreadHasLock)
   //    utils::terminateWarp();
 
@@ -96,25 +103,7 @@ void raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode,
 
 struct FakePtrTy {
 
-  static constexpr uint32_t MAGIC = 0b1111000;
-  static constexpr uint32_t BITS_OFFSET = 11;
-
-  union {
-    void *VPtr;
-    struct {
-      uint32_t Offset : BITS_OFFSET;
-      uint32_t Size : BITS_OFFSET;
-      uint32_t RealAS : 3;
-      uint32_t Magic : 7;
-      uint32_t RealPtr : 32;
-    } Enc32;
-    struct {
-      uint32_t Offset : BITS_OFFSET * 2;
-      uint32_t RealAS : 3;
-      uint32_t Magic : 7;
-      uint32_t SlotId : 32;
-    } Enc64;
-  } U;
+  FakePtrUnionEncodingTy U;
 
   static_assert(sizeof(U) == sizeof(void *), "Encoding is too large!");
 
@@ -125,20 +114,21 @@ struct FakePtrTy {
   FakePtrTy(void *FakePtr) { U.VPtr = FakePtr; }
 
   _SAN_ATTRS
-  FakePtrTy(void *FakePtr, int32_t AS, bool Checked = false)
+  FakePtrTy(void *FakePtr, int32_t AS, bool Checked = false, uint64_t PC = 0)
       : FakePtrTy(FakePtr) {
     if (Checked)
       return;
-    bool BadMagic = U.Enc32.Magic != MAGIC;
     bool BadAS = U.Enc32.RealAS != AS;
+    bool BadMagic =
+        (AS == MallocAS ? U.Enc64.Magic : U.Enc32.Magic) != FAKE_PTR_MAGIC;
     if (BadMagic | BadAS)
       raiseExecutionError(BadMagic ? SanitizerEnvironmentTy::BAD_PTR
                                    : SanitizerEnvironmentTy::AS_MISMATCH,
-                          AS);
+                          uint64_t(PC));
   }
 
   _SAN_ATTRS
-  uint32_t getMaxSize() { return (1u << BITS_OFFSET) - 1; }
+  uint32_t getMaxSize() { return (1u << FAKE_PTR_BASE_BITS_OFFSET) - 1; }
 
   template <uint32_t AS>
   _SAN_ATTRS static FakePtrTy create(void [[clang::address_space(AS)]] * Ptr,
@@ -148,9 +138,9 @@ struct FakePtrTy {
       raiseExecutionError(SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE, Size);
 
     FP.U.Enc32.Size = Size;
-    FP.U.Enc32.RealAS = AS;
-    FP.U.Enc32.Magic = MAGIC;
     FP.U.Enc32.RealPtr = uint64_t(Ptr);
+    FP.U.Enc32.RealAS = AS;
+    FP.U.Enc32.Magic = FAKE_PTR_MAGIC;
 
     return FP;
   }
@@ -164,23 +154,24 @@ struct FakePtrTy {
     PtrInfos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
     PtrInfos[SlotId].Size = Size;
     FP.U.Enc64.RealAS = MallocAS;
-    FP.U.Enc64.Magic = MAGIC;
+    FP.U.Enc64.Magic = FAKE_PTR_MAGIC;
     FP.U.Enc64.SlotId = SlotId;
 
     return FP;
   }
 
-  _SAN_ATTRS static FakePtrTy createHost(void *Ptr, uint32_t Size,
-                                         uint32_t SlotId) {
-    FakePtrTy FP;
+  _SAN_ATTRS static void registerHost(void *Ptr, uint32_t Size,
+                                      uint32_t SlotId) {
+    if (SlotId >= (1 << 14))
+      raiseExecutionError(SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE, SlotId);
 
     PtrInfos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
     PtrInfos[SlotId].Size = Size;
-    FP.U.Enc64.RealAS = MallocAS;
-    FP.U.Enc64.Magic = MAGIC;
-    FP.U.Enc64.SlotId = SlotId;
+  }
 
-    return FP;
+  _SAN_ATTRS static void unregisterHost(void *Ptr) {
+    FakePtrTy FP(Ptr);
+    PtrInfos[FP.U.Enc64.SlotId].Size = 0;
   }
 
   _SAN_ATTRS
@@ -189,49 +180,48 @@ struct FakePtrTy {
   template <uint32_t AS>
       _SAN_ATTRS void [[clang::address_space(AS)]] *
       check(uint64_t PC, uint32_t Size) {
-    uint64_t MaxOffset = uint64_t(U.Enc32.Offset) + uint64_t(Size);
-    if (MaxOffset > uint64_t(U.Enc32.Size))
+    uint64_t MaxOffset = int64_t(U.Enc32.Offset) + uint64_t(Size);
+    if (MaxOffset < Size || MaxOffset > uint64_t(U.Enc32.Size))
       raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC);
-    return (char [[clang::address_space(AS)]] *)(uint64_t(U.Enc32.RealPtr)) +
-           U.Enc32.Offset;
+    return unpack<AS>(PC);
   }
 
   template <>
       _SAN_ATTRS void [[clang::address_space(MallocAS)]] *
       check<MallocAS>(uint64_t PC, uint32_t Size) {
-    uint64_t Offset = uint64_t(U.Enc64.Offset);
-    uint64_t MaxOffset = Offset + uint64_t(Size);
     uint32_t SlotId = U.Enc64.SlotId;
-    auto *Base = PtrInfos[SlotId].Base;
-    uint64_t AllocSize = PtrInfos[SlotId].Size;
-    if (MaxOffset > AllocSize)
-      raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC);
-    return Base + Offset;
+    return checkWithBase<MallocAS>(PC, Size, PtrInfos[SlotId]);
   }
 
   template <uint32_t AS>
       _SAN_ATTRS void [[clang::address_space(AS)]] *
       checkWithBase(uint64_t PC, uint32_t Size, PtrInfoTy PI) {
     static_assert(AS == MallocAS, "");
-    uint64_t Offset = uint64_t(U.Enc64.Offset);
+    int64_t Offset = int64_t(U.Enc64.Offset);
     uint64_t MaxOffset = Offset + uint64_t(Size);
-    uint32_t SlotId = U.Enc64.SlotId;
-    if (MaxOffset > PI.Size)
+    if (MaxOffset < Size || MaxOffset > PI.Size)
       raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC);
     return PI.Base + Offset;
   }
 
+  _SAN_ATTRS void advance(int64_t Offset) {
+    //    if constexpr (AS == MallocAS) {
+    U.Enc64.Offset += Offset;
+    //    } else {
+    //      U.Enc32.Offset += Offset;
+    //    }
+  }
+
   _SAN_ATTRS PtrInfoTy getPtrInfo() {
     uint32_t SlotId = U.Enc64.SlotId;
-    auto *Base = PtrInfos[SlotId].Base;
-    uint64_t AllocSize = PtrInfos[SlotId].Size;
-    return {Base, AllocSize};
+    return PtrInfos[SlotId];
   }
 
   template <uint32_t AS>
       _SAN_ATTRS void [[clang::address_space(AS)]] * unpack(uint64_t PC) {
-    return (char [[clang::address_space(AS)]] *)(uint64_t(U.Enc32.RealPtr)) +
-           U.Enc32.Offset;
+    auto *PtrBase =
+        (char [[clang::address_space(AS)]] *)(uint64_t(U.Enc32.RealPtr));
+    return PtrBase + uint64_t(U.Enc32.Offset);
   }
 
   template <>
@@ -245,13 +235,14 @@ struct FakePtrTy {
 
   _SAN_ATTRS
   uint32_t getAS() {
-    if (U.Enc32.Magic == MAGIC)
-      return U.Enc32.RealAS;
+    switch (U.Enc32.RealAS) {
+    case MallocAS:
+      return U.Enc64.Magic == FAKE_PTR_MAGIC ? MallocAS : ~0;
+    case AllocaAS:
+      return U.Enc32.Magic == FAKE_PTR_MAGIC ? AllocaAS : ~0;
+    }
     return ~0;
   }
-
-  _SAN_ATTRS
-  uint32_t getMagic() { return U.Enc32.Magic; }
 };
 
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
@@ -281,71 +272,81 @@ _SAN_ENTRY_ATTRS void *__offload_san_register_malloc(
   return FakePtrTy::create<MallocAS>(Ptr, Size);
 }
 
-_SAN_ENTRY_ATTRS void *__offload_san_register_host(void *Ptr, uint32_t Size,
-                                                   uint32_t Slot) {
-  return FakePtrTy::createHost(Ptr, Size, Slot);
+_SAN_ENTRY_ATTRS void __offload_san_register_host(void *Ptr, uint32_t Size,
+                                                  uint32_t Slot) {
+  FakePtrTy::registerHost(Ptr, Size, Slot);
+}
+_SAN_ENTRY_ATTRS void __offload_san_unregister_host(void *Ptr) {
+  FakePtrTy::unregisterHost(Ptr);
 }
 
 _SAN_ENTRY_ATTRS void *__offload_san_unpack(uint64_t PC, void *FakePtr) {
   FakePtrTy FP(FakePtr);
-  /* Only AllocaAS is actually sanitized for now */
-  if (FP.getAS() == AllocaAS)
-    return (void *)FP.unpack<AllocaAS>(PC);
   if (FP.getAS() == MallocAS)
     return (void *)FP.unpack<MallocAS>(PC);
+  if (FP.getAS() == AllocaAS)
+    return (void *)FP.unpack<AllocaAS>(PC);
   return FakePtr;
 }
 
 #define CHECK_FOR_AS(AS)                                                       \
-  _SAN_ENTRY_ATTRS void [[clang::address_space(AS)]] *                         \
-      __offload_san_check_as##AS##_access(uint64_t PC, void *FakePtr,          \
-                                          uint32_t Size) {                     \
-    if constexpr (AS == AllocaAS) {                                            \
-      FakePtrTy FP(FakePtr, AS);                                               \
-      return FP.check<AS>(PC, Size);                                           \
-    }                                                                          \
-    if constexpr (AS == MallocAS) {                                            \
-      FakePtrTy FP(FakePtr, AS);                                               \
-      return FP.check<AS>(PC, Size);                                           \
-    }                                                                          \
-    return (void [[clang::address_space(AS)]] *)FakePtr;                       \
-  }                                                                            \
-                                                                               \
-  _SAN_ENTRY_ATTRS PtrInfoTy __offload_san_get_as##AS##_base(void *FakePtr) {  \
-    FakePtrTy FP(FakePtr, AS);                                                 \
+  _SAN_ENTRY_ATTRS InfoTy __offload_san_get_as##AS##_info(uint64_t PC,         \
+                                                          void *FakePtr) {     \
+    FakePtrTy FP(FakePtr, AS, true, PC);                                       \
     if constexpr (AS == MallocAS)                                              \
-      return FP.getPtrInfo();                                                  \
+      return {FP.getPtrInfo(), MallocAS};                                      \
     return {};                                                                 \
   }                                                                            \
                                                                                \
   _SAN_ENTRY_ATTRS void [[clang::address_space(AS)]] *                         \
-      __offload_san_check_as##AS##_access_with_base(                           \
-          uint64_t PC, void *FakePtr, uint32_t Size, PtrInfoTy PI) {           \
+      __offload_san_check_as##AS##_access_with_info(                           \
+          uint64_t PC, void *FakePtr, uint32_t Size, uint32_t AllocAS,         \
+          char [[clang::address_space(MallocAS)]] * AllocBase,                 \
+          uint64_t AllocSize) {                                                \
+    if constexpr (AS == MallocAS) {                                            \
+      FakePtrTy FP(FakePtr, AS, false, PC);                                    \
+      return FP.checkWithBase<AS>(PC, Size, {AllocBase, AllocSize});           \
+    }                                                                          \
     if constexpr (AS == AllocaAS) {                                            \
-      FakePtrTy FP(FakePtr, AS, true);                                         \
+      FakePtrTy FP(FakePtr, AS, false, PC);                                    \
       return FP.check<AS>(PC, Size);                                           \
     }                                                                          \
-    if constexpr (AS == MallocAS) {                                            \
-      FakePtrTy FP(FakePtr, AS, true);                                         \
-      return FP.checkWithBase<AS>(PC, Size, PI);                               \
-    }                                                                          \
-    __builtin_trap();                                                          \
-    return nullptr;                                                            \
+    return (void [[clang::address_space(AS)]] *)FakePtr;                       \
   }
 
 CHECK_FOR_AS(1)
 CHECK_FOR_AS(3)
 CHECK_FOR_AS(4)
 CHECK_FOR_AS(5)
+#undef CHECK_FOR_AS
 
-_SAN_ENTRY_ATTRS void *
-__offload_san_check_as0_access(uint64_t PC, void *FakePtr, uint32_t Size) {
+_SAN_ENTRY_ATTRS InfoTy __offload_san_get_as0_info(uint64_t PC, void *FakePtr) {
   FakePtrTy FP(FakePtr);
-  if (FP.getAS() == AllocaAS)
-    return (void *)__offload_san_check_as5_access(PC, FakePtr, Size);
   if (FP.getAS() == MallocAS)
-    return (void *)__offload_san_check_as1_access(PC, FakePtr, Size);
+    return __offload_san_get_as1_info(PC, FakePtr);
+  if (FP.getAS() == AllocaAS)
+    return __offload_san_get_as5_info(PC, FakePtr);
+  return {};
+}
+
+_SAN_ENTRY_ATTRS void *__offload_san_check_as0_access_with_info(
+    uint64_t PC, void *FakePtr, uint32_t Size, uint32_t AllocAS,
+    char [[clang::address_space(MallocAS)]] * AllocBase, uint64_t AllocSize) {
+  if (AllocAS == MallocAS) {
+    FakePtrTy FP(FakePtr, MallocAS, false, PC);
+    return (void *)FP.checkWithBase<MallocAS>(PC, Size, {AllocBase, AllocSize});
+  }
+  if (AllocAS == AllocaAS) {
+    FakePtrTy FP(FakePtr, AllocaAS, false, PC);
+    return (void *)FP.check<AllocaAS>(PC, Size);
+  }
   return FakePtr;
+}
+
+_SAN_ENTRY_ATTRS void *__offload_san_gep(void *FakePtr, int64_t Offset) {
+  FakePtrTy FP(FakePtr);
+  FP.advance(Offset);
+  return FP;
 }
 }
 

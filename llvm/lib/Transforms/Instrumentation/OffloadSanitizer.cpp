@@ -45,7 +45,10 @@ namespace {
 class OffloadSanitizerImpl final {
 public:
   OffloadSanitizerImpl(Module &M, FunctionAnalysisManager &FAM)
-      : M(M), FAM(FAM), Ctx(M.getContext()) {}
+      : M(M), FAM(FAM), Ctx(M.getContext()) {
+    if (auto *Fn = M.getFunction("__offload_san_get_as0_info"))
+      InfoTy = Fn->getReturnType();
+  }
 
   bool instrument();
 
@@ -56,7 +59,9 @@ private:
   bool isASType(Type &T) {
     return T.isPointerTy() && T.getPointerAddressSpace();
   };
-  Type *getWithoutAS(Type &T) { return isASType(T) ? T.getPointerTo() : &T; };
+  Type *getWithoutAS(Type &T) {
+    return isASType(T) ? PointerType::get(T.getContext(), 0) : &T;
+  };
 
   bool shouldInstrumentFunction(Function *Fn);
 
@@ -69,12 +74,16 @@ private:
   DenseMap<Value *, Value *> PtrInfoMap;
 
   Value *getPtrInfoForObj(Value &Obj, const AccessInfoTy &AI) {
-    if (AI.AS != 1)
-      return PoisonValue::get(PtrInfoTy);
+    if (AI.AS > 1)
+      return PoisonValue::get(InfoTy);
     Value *&PtrInfo = PtrInfoMap[&Obj];
     if (!PtrInfo) {
-      auto *IP = dyn_cast<Instruction>(&Obj);
-      if (!IP && isa<Argument>(Obj)) {
+      Instruction *IP;
+      if (auto *PHI = dyn_cast<PHINode>(&Obj)) {
+        IP = PHI->getParent()->getFirstNonPHIOrDbgOrLifetime();
+      } else if (auto *I = dyn_cast<Instruction>(&Obj)) {
+        IP = I->getNextNode();
+      } else if (isa<Argument>(Obj)) {
         IP = &*cast<Argument>(Obj)
                    .getParent()
                    ->getEntryBlock()
@@ -86,7 +95,7 @@ private:
       }
       IRBuilder<> IRB(IP);
       PtrInfo = createCall(IRB, getGetPtrInfoFn(AI.AS),
-                           {IRB.CreateAddrSpaceCast(&Obj, PtrTy)});
+                           {getPC(IRB), IRB.CreateAddrSpaceCast(&Obj, PtrTy)});
     }
     return PtrInfo;
   }
@@ -100,6 +109,7 @@ private:
       SmallVectorImpl<LifetimeIntrinsic *> &LifetimeInsts);
   void instrumentUnreachableInstructions(
       SmallVectorImpl<UnreachableInst *> &UnreachableInsts);
+  void instrumentGEPs(SmallVectorImpl<GetElementPtrInst *> &GEPInsts);
   void instrumentAccesses(SmallVectorImpl<AccessInfoTy> &Accesses);
   void instrumentAllocaInstructions(SmallVectorImpl<AllocaInst *> &AllocaInsts);
 
@@ -119,6 +129,12 @@ private:
                          {/*PC*/ Int64Ty});
   }
 
+  /// PtrTy __offload_san_gep(PtrTy, Int64Ty);
+  FunctionCallee GEPFn;
+  FunctionCallee getGEPFn() {
+    return getOrCreateFn(GEPFn, "__offload_san_gep", PtrTy, {PtrTy, Int64Ty});
+  }
+
   /// void __offload_san_unreachable_info(Int64Ty);
   FunctionCallee UnreachableInfoFn;
   FunctionCallee getUnreachableInfoFn() {
@@ -133,38 +149,36 @@ private:
                          {/*PC*/ Int64Ty, PtrTy});
   }
 
-  /// PtrTy __offload_san_unpack(Int64Ty, PtrTy);
+  /// InfoTy __offload_san_get_as<AS>_info(PtrTy);
   FunctionCallee GetPtrInfoFn[NumSupportedAddressSpaces];
   FunctionCallee getGetPtrInfoFn(unsigned AS) {
     assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
     return getOrCreateFn(GetPtrInfoFn[AS],
-                         "__offload_san_get_as" + std::to_string(AS) + "_base",
-                         PtrInfoTy, {PtrTy});
+                         "__offload_san_get_as" + std::to_string(AS) + "_info",
+                         InfoTy, {Int64Ty, PtrTy});
   }
 
-  /// ptr(AS) __offload_san_check_as<AS>_access(/* PC */Int64Ty,
-  /// 					        /* FakePtr */ PtrTy,
-  /// 				                /* Size */Int32Ty);
-  FunctionCallee CheckAccessFn[NumSupportedAddressSpaces];
-  FunctionCallee getCheckAccessFn(unsigned AS) {
-    assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
-    return getOrCreateFn(CheckAccessFn[AS],
-                         "__offload_san_check_as" + std::to_string(AS) +
-                             "_access",
-                         ASPtrTy[AS], {/*PC*/ Int64Ty, PtrTy, Int32Ty});
-  }
-
-  /// ptr(AS) __offload_san_check_as<AS>_access_with_base(/* PC */Int64Ty,
+  /// ptr(0) __offload_san_check_as0_access_with_info(/* PC */Int64Ty,
+  /// 					             /* FakePtr */ PtrTy,
+  /// 				                     /* Size */Int32Ty,
+  /// 				                     /* AS */Int32Ty,
+  /// 				                     /* PI.Base */ ptr(1),
+  /// 				                     /* PI.Size */ Int64Ty);
+  /// ptr(AS) __offload_san_check_as<AS>_access_with_info(/* PC */Int64Ty,
   /// 					                  /* FakePtr */ PtrTy,
   /// 				                          /* Size */Int32Ty,
-  /// 				                          /* PI */ PtrInfoTy);
-  FunctionCallee CheckAccessWithBaseFn[NumSupportedAddressSpaces];
-  FunctionCallee getCheckAccessWithBaseFn(unsigned AS) {
+  /// 				                          /* AS */Int32Ty,
+  /// 				                          /* PI.Base */ ptr(1),
+  /// 				                          /* PI.Size */
+  /// Int64Ty);
+  FunctionCallee CheckAccessWithInfoFn[NumSupportedAddressSpaces];
+  FunctionCallee getCheckAccessWithInfoFn(unsigned AS) {
     assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
     return getOrCreateFn(
-        CheckAccessWithBaseFn[AS],
-        "__offload_san_check_as" + std::to_string(AS) + "_access_with_base",
-        ASPtrTy[AS], {/*PC*/ Int64Ty, PtrTy, Int32Ty, PtrInfoTy});
+        CheckAccessWithInfoFn[AS],
+        "__offload_san_check_as" + std::to_string(AS) + "_access_with_info",
+        ASPtrTy[AS],
+        {/*PC*/ Int64Ty, PtrTy, Int32Ty, Int32Ty, ASPtrTy[1], Int64Ty});
   }
 
   /// PtrTy __offload_san_register_alloca(/* PC */ Int64Ty,
@@ -210,7 +224,8 @@ private:
       PointerType::get(Ctx, 0), PointerType::get(Ctx, 1),
       PointerType::get(Ctx, 2), PointerType::get(Ctx, 3),
       PointerType::get(Ctx, 4), PointerType::get(Ctx, 5)};
-  Type *PtrInfoTy = StructType::get(Ctx, {ASPtrTy[5], Int64Ty}, false);
+  Type *PtrInfoTy = StructType::get(Ctx, {ASPtrTy[1], Int64Ty}, true);
+  Type *InfoTy = StructType::get(Ctx, {PtrInfoTy, Int32Ty}, true);
 };
 
 } // end anonymous namespace
@@ -235,7 +250,9 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
     auto *&NewV = VMap[&V];
     if (!NewV) {
       auto *IP = &Fn.getEntryBlock().front();
-      if (auto *I = dyn_cast<Instruction>(&V))
+      if (auto *PHI = dyn_cast<PHINode>(&V))
+        IP = PHI->getParent()->getFirstNonPHIOrDbgOrLifetime();
+      else if (auto *I = dyn_cast<Instruction>(&V))
         IP = I->getNextNode();
       NewV = new AddrSpaceCastInst(&V, getWithoutAS(*V.getType()),
                                    V.getName() + ".noas", IP);
@@ -288,7 +305,13 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
     }
     case Instruction::AddrSpaceCast: {
       auto &ASC = cast<AddrSpaceCastInst>(*I);
-      VMap[I] = GetAsGeneric(*ASC.getPointerOperand());
+      Value *PlainV;
+      VMap[I] = PlainV = GetAsGeneric(*ASC.getPointerOperand());
+      while (!ASC.use_empty()) {
+        Use &U = *ASC.use_begin();
+        U.set(PlainV);
+      }
+      ASC.eraseFromParent();
       break;
     }
     case Instruction::Select: {
@@ -346,8 +369,8 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
       I->dump();
       llvm_unreachable("Instruction with AS not handled");
     }
-    if (VMap.count(I))
-      errs() << "I: " << *I << " --> " << *VMap[I] << "\n";
+    //  if (VMap.count(I))
+    //    errs() << "I: " << *I << " --> " << *VMap[I] << "\n";
   }
 
   for (auto *PHI : PHIs)
@@ -408,6 +431,21 @@ void OffloadSanitizerImpl::instrumentUnreachableInstructions(
   }
 }
 
+void OffloadSanitizerImpl::instrumentGEPs(
+    SmallVectorImpl<GetElementPtrInst *> &GEPInsts) {
+  for (auto *GEP : GEPInsts) {
+    IRBuilder<> IRB(GEP->getNextNode());
+    auto *Ptr = GEP->getPointerOperand();
+    GEP->setOperand(
+        GEP->getPointerOperandIndex(),
+        ConstantPointerNull::get(cast<PointerType>(Ptr->getType())));
+    auto *Offset = IRB.CreatePtrToInt(GEP, Int64Ty);
+    auto *NewGEP = createCall(IRB, getGEPFn(), {Ptr, Offset});
+    GEP->replaceUsesWithIf(NewGEP,
+                           [&](Use &U) { return U.getUser() != Offset; });
+  }
+}
+
 void OffloadSanitizerImpl::instrumentAccesses(
     SmallVectorImpl<AccessInfoTy> &AccessInfos) {
   for (auto &AI : AccessInfos) {
@@ -425,15 +463,19 @@ void OffloadSanitizerImpl::instrumentAccesses(
     Args.append({getPC(IRB), FakePtr, Size});
 
     auto *Obj = getUnderlyingObject(FakePtr);
-
-    FunctionCallee FC;
-    if (Obj) {
-      FC = getCheckAccessWithBaseFn(AI.AS);
-      Value *PtrInfo = getPtrInfoForObj(*Obj, AI);
-      Args.push_back(PtrInfo);
-    } else {
-      FC = getCheckAccessFn(AI.AS);
-    }
+    if (isa<GlobalValue>(Obj))
+      AI.AS = 0;
+    else if (AI.AS == 0)
+      AI.AS = Obj->getType()->getPointerAddressSpace();
+    if (AI.AS == 0 && isa<Argument>(Obj))
+      if (cast<Argument>(Obj)->getParent()->getCallingConv() ==
+          CallingConv::AMDGPU_KERNEL)
+        AI.AS = 1;
+    Value *PtrInfo = getPtrInfoForObj(*Obj, AI);
+    Args.push_back(IRB.CreateExtractValue(PtrInfo, {1}, "obj.as"));
+    Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 0}, "obj.base"));
+    Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 1}, "obj.size"));
+    FunctionCallee FC = getCheckAccessWithInfoFn(AI.AS);
 
     auto *RealPtr = createCall(IRB, FC, Args);
     AI.I->setOperand(AI.PtrOpIdx, RealPtr);
@@ -460,7 +502,6 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
     TypeSize TS(0, false);
     if (!IsApplicable(*AI, TS))
       continue;
-    AI->dump();
 
     IRBuilder<> IRB(AI->getNextNode());
     auto *Size = ConstantInt::get(Int32Ty, TS);
@@ -484,6 +525,7 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
 bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   if (!shouldInstrumentFunction(&Fn))
     return false;
+  PtrInfoMap.clear();
 
   SmallVector<UnreachableInst *> UnreachableInsts;
   SmallVector<IntrinsicInst *> TrapCalls;
@@ -493,6 +535,7 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   SmallVector<LifetimeIntrinsic *> LifetimeInsts;
   SmallVector<CallInst *> CallInsts;
   SmallVector<AddrSpaceCastInst *> ASCInsts;
+  SmallVector<GetElementPtrInst *> GEPInsts;
 
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
   for (auto &It : RPOT) {
@@ -557,6 +600,11 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
         ASCInsts.push_back(cast<AddrSpaceCastInst>(&I));
         ASInsts.push_back(&I);
         break;
+      case Instruction::GetElementPtr:
+        if (isASType(*I.getType()))
+          ASInsts.push_back(&I);
+        GEPInsts.push_back(cast<GetElementPtrInst>(&I));
+        break;
       default:
         if (isASType(*I.getType()))
           ASInsts.push_back(&I);
@@ -570,15 +618,13 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
 
   Fn.dump();
   removeAS(Fn, ASInsts);
-  Fn.dump();
   //  instrumentCallInsts(CallInsts);
   instrumentLifetimeIntrinsics(LifetimeInsts);
   //  instrumentTrapInstructions(TrapCalls);
   //  instrumentUnreachableInstructions(UnreachableInsts);
+  // instrumentGEPs(GEPInsts);
   instrumentAccesses(AccessInfos);
-  Fn.dump();
   instrumentAllocaInstructions(AllocaInsts);
-  Fn.dump();
 
   // for (auto *ASC : ASCInsts) {
   //   if (ASC->getPointerOperand()->getType() == ASC->getType())

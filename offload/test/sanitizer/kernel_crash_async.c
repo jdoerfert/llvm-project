@@ -5,6 +5,12 @@
 // RUN: %libomptarget-compileopt-generic -g
 // RUN: %not --crash env -u LLVM_DISABLE_SYMBOLIZATION OFFLOAD_TRACK_NUM_KERNEL_LAUNCH_TRACES=1 %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=TRACE
 // RUN: %not --crash %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=CHECK
+// RUN: %libomptarget-compileopt-generic -loffload.kernels -mllvm -amdgpu-enable-offload-sanitizer 
+// RUN: %not --crash env -u LLVM_DISABLE_SYMBOLIZATION OFFLOAD_TRACK_NUM_KERNEL_LAUNCH_TRACES=1 %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=TRACE
+// RUN: %not --crash %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=CHECK
+// RUN: %libomptarget-compileopt-generic -g -loffload.kernels -mllvm -amdgpu-enable-offload-sanitizer 
+// RUN: %not --crash env -u LLVM_DISABLE_SYMBOLIZATION OFFLOAD_TRACK_NUM_KERNEL_LAUNCH_TRACES=1 %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=TRACE
+// RUN: %not --crash %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=CHECK
 // clang-format on
 
 // UNSUPPORTED: nvptx64-nvidia-cuda

@@ -73,6 +73,10 @@ struct HostDataToTargetTy {
   const uintptr_t TgtPtrBegin; // mapped target memory = TgtAllocBegin + padding
   void *FakeTgtPtrBegin = 0;   // mapped target memory = TgtAllocBegin + padding
 
+  uintptr_t getBeginPtr() {
+    return FakeTgtPtrBegin ? uintptr_t(FakeTgtPtrBegin) : TgtPtrBegin;
+  }
+
 private:
   static const uint64_t INFRefCount = ~(uint64_t)0;
   static std::string refCountToStr(uint64_t RefCount) {

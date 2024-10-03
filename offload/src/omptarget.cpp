@@ -460,9 +460,6 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
         HasFlagTo, HasFlagAlways, IsImplicit, UpdateRef, HasCloseModifier,
         HasPresentModifier, HasHoldModifier, AsyncInfo, PointerTpr.getEntry());
     void *TgtPtrBegin = TPR.TargetPointer;
-    if (auto *Entry = TPR.getEntry())
-      if (auto *FakeTgtPtrBegin = Entry->FakeTgtPtrBegin)
-        TgtPtrBegin = FakeTgtPtrBegin;
     IsHostPtr = TPR.Flags.IsHostPointer;
     // If data_size==0, then the argument could be a zero-length pointer to
     // NULL, so getOrAlloc() returning NULL is not an error.
@@ -811,7 +808,7 @@ static int targetDataContiguous(ident_t *Loc, DeviceTy &Device, void *ArgsBase,
                DPxPTR(ShadowPtr.TgtPtrVal), DPxPTR(ShadowPtr.TgtPtrAddr));
             Ret = Device.submitData(ShadowPtr.TgtPtrAddr,
                                     (void *)&ShadowPtr.TgtPtrVal,
-                                    sizeof(void *), AsyncInfo);
+                                    sizeof(void *), AsyncInfo, TPR.getEntry());
             if (Ret != OFFLOAD_SUCCESS) {
               REPORT("Copying data to device failed.\n");
               return OFFLOAD_FAIL;
@@ -1071,13 +1068,19 @@ public:
            (IsFirstPrivate ? "first-" : ""), DPxPTR(HstPtr));
         return OFFLOAD_FAIL;
       }
+      void *FakeHstPtr = nullptr;
+      if (Device.notifyDataMapped(HstPtr, TgtPtr, ArgSize, FakeHstPtr)) {
+        DP("Data registration for %sprivate array " DPxMOD " failed.\n",
+           (IsFirstPrivate ? "first-" : ""), DPxPTR(HstPtr));
+        return OFFLOAD_FAIL;
+      }
 #ifdef OMPTARGET_DEBUG
       void *TgtPtrBase = (void *)((intptr_t)TgtPtr + ArgOffset);
       DP("Allocated %" PRId64 " bytes of target memory at " DPxMOD
          " for %sprivate array " DPxMOD " - pushing target argument " DPxMOD
-         "\n",
+         " -> fake: " DPxMOD "\n",
          ArgSize, DPxPTR(TgtPtr), (IsFirstPrivate ? "first-" : ""),
-         DPxPTR(HstPtr), DPxPTR(TgtPtrBase));
+         DPxPTR(HstPtr), DPxPTR(TgtPtrBase), DPxPTR(FakeHstPtr));
 #endif
       // If first-private, copy data from host
       if (IsFirstPrivate) {
@@ -1089,6 +1092,8 @@ public:
         }
       }
       TgtPtrs.push_back(TgtPtr);
+      if (FakeHstPtr)
+        TgtPtr = FakeHstPtr;
     } else {
       DP("Firstprivate array " DPxMOD " of size %" PRId64 " will be packed\n",
          DPxPTR(HstPtr), ArgSize);
@@ -1160,9 +1165,16 @@ public:
         DP("Failed to allocate target memory for private arguments.\n");
         return OFFLOAD_FAIL;
       }
+      void *FakeHstPtr = nullptr;
+      if (Device.notifyDataMapped(FirstPrivateArgBuffer.data(), TgtPtr,
+                                  FirstPrivateArgSize, FakeHstPtr)) {
+        DP("Failed to register target memory for private arguments.\n");
+        return OFFLOAD_FAIL;
+      }
       TgtPtrs.push_back(TgtPtr);
-      DP("Allocated %" PRId64 " bytes of target memory at " DPxMOD "\n",
-         FirstPrivateArgSize, DPxPTR(TgtPtr));
+      DP("Allocated %" PRId64 " bytes of target memory at " DPxMOD
+         " -> fake: " DPxMOD "\n",
+         FirstPrivateArgSize, DPxPTR(TgtPtr), DPxPTR(FakeHstPtr));
       // Transfer data to target device
       int Ret = Device.submitData(TgtPtr, FirstPrivateArgBuffer.data(),
                                   FirstPrivateArgSize, AsyncInfo);
@@ -1171,7 +1183,7 @@ public:
         return OFFLOAD_FAIL;
       }
       // Fill in all placeholder pointers
-      auto TP = reinterpret_cast<uintptr_t>(TgtPtr);
+      auto TP = reinterpret_cast<uintptr_t>(FakeHstPtr ? FakeHstPtr : TgtPtr);
       for (FirstPrivateArgInfoTy &Info : FirstPrivateArgInfo) {
         void *&Ptr = TgtArgs[Info.Index];
         assert(Ptr == nullptr && "Target pointer is already set by mistaken");
@@ -1316,9 +1328,6 @@ static int processDataBefore(ident_t *Loc, int64_t DeviceId, void *HostPtr,
           /*UpdateRefCount=*/false,
           /*UseHoldRefCount=*/false);
       TgtPtrBegin = TPR.TargetPointer;
-      if (auto *Entry = TPR.getEntry())
-        if (auto *FakeTgtPtrBegin = Entry->FakeTgtPtrBegin)
-          TgtPtrBegin = FakeTgtPtrBegin;
       TgtBaseOffset = (intptr_t)HstPtrBase - (intptr_t)HstPtrBegin;
 #ifdef OMPTARGET_DEBUG
       void *TgtPtrBase = (void *)((intptr_t)TgtPtrBegin + TgtBaseOffset);

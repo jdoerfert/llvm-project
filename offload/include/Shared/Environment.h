@@ -135,4 +135,29 @@ struct SanitizerEnvironmentTy {
   /// }
 };
 
+#pragma omp begin declare target
+static constexpr uint32_t FAKE_PTR_MAGIC = 0b1111000;
+static constexpr uint32_t FAKE_PTR_BASE_BITS_OFFSET = 11;
+#pragma omp end declare target
+
+using FakePtrUnionEncodingTy = union {
+  void *VPtr;
+  struct __attribute__((packed)) {
+    int32_t Offset : FAKE_PTR_BASE_BITS_OFFSET;
+    uint32_t Magic : 7;
+    uint32_t Size : FAKE_PTR_BASE_BITS_OFFSET;
+    uint32_t RealPtr : 32;
+    uint32_t RealAS : 3;
+  } Enc32;
+  struct __attribute__((packed)) {
+    int64_t Offset : 40;
+    uint32_t Magic : 7;
+    uint32_t SlotId : 14;
+    uint32_t RealAS : 3;
+  } Enc64;
+};
+
+static_assert(sizeof(FakePtrUnionEncodingTy) == sizeof(void *),
+              "Encoding is too large!");
+
 #endif // OMPTARGET_SHARED_ENVIRONMENT_H

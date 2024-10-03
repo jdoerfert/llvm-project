@@ -1,11 +1,11 @@
 // clang-format off
-// RUN: %libomptarget-compile-generic -DN=5 -mllvm -amdgpu-enable-offload-sanitizer -fopenmp-cuda-mode
+// RUN: %libomptarget-compile-generic -DN=5 -mllvm -amdgpu-enable-offload-sanitizer -fopenmp-cuda-mode -loffload.kernels
 // RUN: %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=CHECK5
-// RUN: %libomptarget-compileopt-generic -DN=2 -mllvm -amdgpu-enable-offload-sanitizer -fopenmp-cuda-mode
+// RUN: %libomptarget-compileopt-generic -DN=2 -mllvm -amdgpu-enable-offload-sanitizer -fopenmp-cuda-mode -loffload.kernels
 // RUN: %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=CHECK2
-// RUN: %libomptarget-compile-generic -DN=101 -mllvm -amdgpu-enable-offload-sanitizer -fopenmp-cuda-mode
+// RUN: %libomptarget-compile-generic -DN=101 -mllvm -amdgpu-enable-offload-sanitizer -fopenmp-cuda-mode -loffload.kernels
 // RUN: %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=CRASH
-// RUN: %libomptarget-compileopt-generic -DN=101 -mllvm -amdgpu-enable-offload-sanitizer -fopenmp-cuda-mode
+// RUN: %libomptarget-compileopt-generic -DN=101 -mllvm -amdgpu-enable-offload-sanitizer -fopenmp-cuda-mode -loffload.kernels
 // RUN: %libomptarget-run-generic 2>&1 | %fcheck-generic --check-prefixes=CRASH
 // clang-format on
 

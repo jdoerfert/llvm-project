@@ -71,6 +71,8 @@
 #include "llvm/Transforms/IPO/ExpandVariadics.h"
 #include "llvm/Transforms/IPO/GlobalDCE.h"
 #include "llvm/Transforms/IPO/Internalize.h"
+#include "llvm/Transforms/IPO/SCCP.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Instrumentation/OffloadSanitizer.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/EarlyCSE.h"
@@ -81,6 +83,7 @@
 #include "llvm/Transforms/Scalar/LoopDataPrefetch.h"
 #include "llvm/Transforms/Scalar/NaryReassociate.h"
 #include "llvm/Transforms/Scalar/SeparateConstOffsetFromGEP.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include "llvm/Transforms/Scalar/Sink.h"
 #include "llvm/Transforms/Scalar/StraightLineStrengthReduce.h"
 #include "llvm/Transforms/Scalar/StructurizeCFG.h"
@@ -816,8 +819,17 @@ void AMDGPUTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
 
   PB.registerFullLinkTimeOptimizationLastEPCallback(
       [this](ModulePassManager &PM, OptimizationLevel Level) {
-        if (EnableOffloadSanitizer)
+        if (EnableOffloadSanitizer) {
           PM.addPass(OffloadSanitizerPass());
+          PM.addPass(IPSCCPPass());
+          PM.addPass(AlwaysInlinerPass());
+          FunctionPassManager FPM;
+          FPM.addPass(SimplifyCFGPass());
+          FPM.addPass(InstCombinePass());
+          FPM.addPass(GVNPass());
+          FPM.addPass(SimplifyCFGPass());
+          PM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+        }
         if (Level != OptimizationLevel::O0) {
           PM.addPass(AMDGPUAttributorPass(*this));
         }

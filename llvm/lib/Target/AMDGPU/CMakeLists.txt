@@ -194,6 +194,7 @@ add_llvm_target(AMDGPUCodeGen
   MIRParser
   Passes
   Scalar
+  InstCombine 
   SelectionDAG
   Support
   Target

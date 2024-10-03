@@ -43,8 +43,6 @@ using namespace omp;
 using namespace target;
 using namespace plugin;
 
-extern "C" void *registerPtr(void *DevPtr, long Size);
-
 // TODO: Fix any thread safety issues for multi-threaded kernel recording.
 namespace llvm::omp::target::plugin {
 struct RecordReplayTy {
@@ -492,6 +490,9 @@ GenericKernelTy::getKernelLaunchEnvironment(
                                             TargetAllocTy::TARGET_ALLOC_DEVICE);
   if (!AllocOrErr)
     return AllocOrErr.takeError();
+  auto *FakeKernelLaunchPtr =
+      static_cast<KernelLaunchEnvironmentTy *>(GenericDevice.createFakeHostPtr(
+          *AllocOrErr, sizeof(KernelLaunchEnvironmentTy)));
 
   // Remember to free the memory later.
   AsyncInfoWrapper.freeAllocationAfterSynchronization(*AllocOrErr);
@@ -507,7 +508,13 @@ GenericKernelTy::getKernelLaunchEnvironment(
         /*HostPtr=*/nullptr, TargetAllocTy::TARGET_ALLOC_DEVICE);
     if (!AllocOrErr)
       return AllocOrErr.takeError();
-    LocalKLE.ReductionBuffer = *AllocOrErr;
+    auto *FakeBufferPtr = static_cast<KernelLaunchEnvironmentTy *>(
+        GenericDevice.createFakeHostPtr(
+            *AllocOrErr,
+            KernelEnvironment.Configuration.ReductionDataSize *
+                KernelEnvironment.Configuration.ReductionBufferLength));
+    LocalKLE.ReductionBuffer = FakeBufferPtr ? FakeBufferPtr : *AllocOrErr;
+    printf("Reduction buffer: %p (fake: %p)\n", *AllocOrErr, FakeBufferPtr);
     // Remember to free the memory later.
     AsyncInfoWrapper.freeAllocationAfterSynchronization(*AllocOrErr);
   }
@@ -523,7 +530,10 @@ GenericKernelTy::getKernelLaunchEnvironment(
                                       AsyncInfoWrapper);
   if (Err)
     return Err;
-  return static_cast<KernelLaunchEnvironmentTy *>(*AllocOrErr);
+  printf("Kernel Env: %p (fake: %p)\n", *AllocOrErr, FakeKernelLaunchPtr);
+  return FakeKernelLaunchPtr
+             ? FakeKernelLaunchPtr
+             : static_cast<KernelLaunchEnvironmentTy *>(*AllocOrErr);
 }
 
 Error GenericKernelTy::printLaunchInfo(GenericDeviceTy &GenericDevice,
@@ -1006,7 +1016,9 @@ Error GenericDeviceTy::setupDeviceMemoryPool(GenericPluginTy &Plugin,
   auto AllocOrErr = dataAlloc(PoolSize, /*HostPtr=*/nullptr,
                               TargetAllocTy::TARGET_ALLOC_DEVICE);
   if (AllocOrErr) {
-    DeviceMemoryPool.Ptr = *AllocOrErr;
+    auto *FakePtr = static_cast<KernelLaunchEnvironmentTy *>(
+        createFakeHostPtr(*AllocOrErr, sizeof(PoolSize)));
+    DeviceMemoryPool.Ptr = FakePtr ? FakePtr : *AllocOrErr;
   } else {
     auto Err = AllocOrErr.takeError();
     REPORT("Failure to allocate device memory for global memory pool: %s\n",
@@ -1673,30 +1685,12 @@ bool GenericDeviceTy::useAutoZeroCopy() { return useAutoZeroCopyImpl(); }
 
 struct FakePtrTy {
 
-  static constexpr uint32_t MAGIC = 0b1111000;
-  static constexpr uint32_t BITS_OFFSET = 11;
-
-  union {
-    void *VPtr;
-    struct {
-      uint32_t Offset : BITS_OFFSET;
-      uint32_t Size : BITS_OFFSET;
-      uint32_t RealAS : 3;
-      uint32_t Magic : 7;
-      uint32_t RealPtr : 32;
-    } Enc32;
-    struct {
-      uint32_t Offset : BITS_OFFSET * 2;
-      uint32_t RealAS : 3;
-      uint32_t Magic : 7;
-      uint32_t SlotId : 32;
-    } Enc64;
-  } U;
+  FakePtrUnionEncodingTy U;
 
   FakePtrTy(uint32_t SlotId) {
     U.VPtr = nullptr;
     U.Enc64.RealAS = 1;
-    U.Enc64.Magic = MAGIC;
+    U.Enc64.Magic = FAKE_PTR_MAGIC;
     U.Enc64.SlotId = SlotId;
   }
 
@@ -1706,7 +1700,7 @@ struct FakePtrTy {
 void *GenericDeviceTy::createFakeHostPtr(void *DevicePtr, int64_t Size) {
   if (NewFns.empty())
     return nullptr;
-  static uint32_t Slot = 1024;
+  static uint32_t Slot = 1 << 14;
   uint32_t SlotId = --Slot;
   KernelArgsTy Args = {};
   Args.NumTeams[0] = 1;
@@ -1739,7 +1733,35 @@ void *GenericDeviceTy::createFakeHostPtr(void *DevicePtr, int64_t Size) {
   return FakePtrTy(SlotId);
 }
 
-void GenericDeviceTy::removeFakeHostPtr(void *FakeHstPtr) {}
+void GenericDeviceTy::removeFakeHostPtr(void *FakeHstPtr) {
+  if (DelFns.empty())
+    return;
+  KernelArgsTy Args = {};
+  Args.NumTeams[0] = 1;
+  Args.ThreadLimit[0] = 1;
+  AsyncInfoWrapperTy AsyncInfoWrapper(*this, nullptr);
+  for (GenericKernelTy *DelFP : DelFns) {
+    struct {
+      void *Ptr;
+    } KernelArgs{FakeHstPtr};
+    KernelLaunchParamsTy ArgPtrs{sizeof(KernelArgs), &KernelArgs, nullptr};
+    Args.ArgPtrs = reinterpret_cast<void **>(&ArgPtrs);
+    Args.Flags.IsCUDA = true;
+    if (auto Err = DelFP->launch(*this, Args.ArgPtrs, nullptr, Args,
+                                 AsyncInfoWrapper)) {
+      AsyncInfoWrapper.finalize(Err);
+      REPORT("Failure: %s\n", toString(std::move(Err)).data());
+      return;
+    }
+  }
+
+  Error Err = Plugin::success();
+  AsyncInfoWrapper.finalize(Err);
+  if (Err) {
+    REPORT("Failure: %s\n", toString(std::move(Err)).data());
+    assert(0);
+  }
+}
 
 Error GenericPluginTy::init() {
   if (Initialized)

@@ -3278,6 +3278,8 @@ private:
                          Node, Event->memory_fault.agent.handle,
                          (void *)Event->memory_fault.virtual_address,
                          llvm::join(Reasons, ", ").c_str());
+      ErrorReporter::checkAndReportError(AMDGPUDevice, nullptr,
+                                         &*KernelTraceInfoRecord);
       ErrorReporter::reportKernelTraces(AMDGPUDevice, *KernelTraceInfoRecord);
       ErrorReporter::reportMemoryAccessError(AMDGPUDevice, DevicePtr, S,
                                              /*Abort*/ true);

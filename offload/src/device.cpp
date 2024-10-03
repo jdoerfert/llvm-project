@@ -18,6 +18,7 @@
 #include "PluginManager.h"
 #include "Shared/APITypes.h"
 #include "Shared/Debug.h"
+#include "Shared/Utils.h"
 #include "omptarget.h"
 #include "private.h"
 #include "rtl.h"
@@ -134,6 +135,28 @@ int32_t DeviceTy::deleteData(void *TgtAllocBegin, int32_t Kind) {
 int32_t DeviceTy::submitData(void *TgtPtrBegin, void *HstPtrBegin, int64_t Size,
                              AsyncInfoTy &AsyncInfo, HostDataToTargetTy *Entry,
                              MappingInfoTy::HDTTMapAccessorTy *HDTTMapPtr) {
+  {
+    auto HDTTMap = MappingInfo.HostDataToTargetMap.getExclusiveAccessor(
+        !!Entry || !!HDTTMapPtr);
+    LookupResult LR;
+    if (!Entry) {
+      LR = MappingInfo.lookupMapping(HDTTMapPtr ? *HDTTMapPtr : HDTTMap,
+                                     HstPtrBegin, Size);
+      Entry = LR.TPR.getEntry();
+    }
+    assert(Entry);
+    if (Entry && Entry->FakeTgtPtrBegin &&
+        Entry->FakeTgtPtrBegin <= TgtPtrBegin &&
+        utils::advancePtr(Entry->FakeTgtPtrBegin,
+                          (Entry->HstPtrEnd - Entry->HstPtrBegin)) >
+            TgtPtrBegin) {
+      // TODO: Launch a check kernel
+      TgtPtrBegin = utils::advancePtr(
+          (void *)Entry->TgtPtrBegin,
+          utils::getPtrDiff(TgtPtrBegin, Entry->FakeTgtPtrBegin));
+    }
+  }
+
   if (getInfoLevel() & OMP_INFOTYPE_DATA_TRANSFER)
     MappingInfo.printCopyInfo(TgtPtrBegin, HstPtrBegin, Size, /*H2D=*/true,
                               Entry, HDTTMapPtr);
@@ -154,6 +177,27 @@ int32_t DeviceTy::retrieveData(void *HstPtrBegin, void *TgtPtrBegin,
                                int64_t Size, AsyncInfoTy &AsyncInfo,
                                HostDataToTargetTy *Entry,
                                MappingInfoTy::HDTTMapAccessorTy *HDTTMapPtr) {
+  {
+    auto HDTTMap = MappingInfo.HostDataToTargetMap.getExclusiveAccessor(
+        !!Entry || !!HDTTMapPtr);
+    LookupResult LR;
+    if (!Entry) {
+      LR = MappingInfo.lookupMapping(HDTTMapPtr ? *HDTTMapPtr : HDTTMap,
+                                     HstPtrBegin, Size);
+      Entry = LR.TPR.getEntry();
+    }
+    assert(Entry);
+    if (Entry && Entry->FakeTgtPtrBegin &&
+        Entry->FakeTgtPtrBegin <= TgtPtrBegin &&
+        utils::advancePtr(Entry->FakeTgtPtrBegin,
+                          (Entry->HstPtrEnd - Entry->HstPtrBegin)) >
+            TgtPtrBegin) {
+      // TODO: Launch a check kernel
+      TgtPtrBegin = utils::advancePtr(
+          (void *)Entry->TgtPtrBegin,
+          utils::getPtrDiff(TgtPtrBegin, Entry->FakeTgtPtrBegin));
+    }
+  }
   if (getInfoLevel() & OMP_INFOTYPE_DATA_TRANSFER)
     MappingInfo.printCopyInfo(TgtPtrBegin, HstPtrBegin, Size, /*H2D=*/false,
                               Entry, HDTTMapPtr);
@@ -201,6 +245,8 @@ int32_t DeviceTy::notifyDataMapped(void *HstPtr, void *DevicePtr, int64_t Size,
     REPORT("Notifiying about data mapping failed.\n");
     return OFFLOAD_FAIL;
   }
+  DP("Fake: " DPxMOD " for " DPxMOD " of size %" PRId64 "\n",
+     DPxPTR(FakeHstPtr), DPxPTR(DevicePtr), Size);
   return OFFLOAD_SUCCESS;
 }
 
