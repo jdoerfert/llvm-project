@@ -280,22 +280,23 @@ _SAN_ENTRY_ATTRS void __offload_san_unregister_host(void *Ptr) {
   FakePtrTy::unregisterHost(Ptr);
 }
 
-_SAN_ENTRY_ATTRS void *__offload_san_unpack(uint64_t PC, void *FakePtr) {
-  FakePtrTy FP(FakePtr);
-  if (FP.getAS() == MallocAS)
-    return (void *)FP.unpack<MallocAS>(PC);
-  if (FP.getAS() == AllocaAS)
-    return (void *)FP.unpack<AllocaAS>(PC);
-  return FakePtr;
-}
-
 #define CHECK_FOR_AS(AS)                                                       \
+  _SAN_ENTRY_ATTRS void [[clang::address_space(AS)]] *                         \
+      __offload_san_unpack_as##AS(uint64_t PC, void *FakePtr) {                \
+    FakePtrTy FP(FakePtr, AS, true, PC);                                       \
+    if constexpr (AS == MallocAS)                                              \
+      return FP.unpack<AS>(PC);                                                \
+    if constexpr (AS == AllocaAS)                                              \
+      return FP.unpack<AS>(PC);                                                \
+    return (void [[clang::address_space(AS)]] *)FakePtr;                       \
+  }                                                                            \
+                                                                               \
   _SAN_ENTRY_ATTRS InfoTy __offload_san_get_as##AS##_info(uint64_t PC,         \
                                                           void *FakePtr) {     \
     FakePtrTy FP(FakePtr, AS, true, PC);                                       \
     if constexpr (AS == MallocAS)                                              \
       return {FP.getPtrInfo(), MallocAS};                                      \
-    return {};                                                                 \
+    return {{}, AS};                                                           \
   }                                                                            \
                                                                                \
   _SAN_ENTRY_ATTRS void [[clang::address_space(AS)]] *                         \
@@ -320,13 +321,22 @@ CHECK_FOR_AS(4)
 CHECK_FOR_AS(5)
 #undef CHECK_FOR_AS
 
+_SAN_ENTRY_ATTRS void *__offload_san_unpack_as0(uint64_t PC, void *FakePtr) {
+  FakePtrTy FP(FakePtr);
+  if (FP.getAS() == MallocAS)
+    return (void *)FP.unpack<MallocAS>(PC);
+  if (FP.getAS() == AllocaAS)
+    return (void *)FP.unpack<AllocaAS>(PC);
+  return FakePtr;
+}
+
 _SAN_ENTRY_ATTRS InfoTy __offload_san_get_as0_info(uint64_t PC, void *FakePtr) {
   FakePtrTy FP(FakePtr);
   if (FP.getAS() == MallocAS)
     return __offload_san_get_as1_info(PC, FakePtr);
   if (FP.getAS() == AllocaAS)
     return __offload_san_get_as5_info(PC, FakePtr);
-  return {};
+  return {{}, 0};
 }
 
 _SAN_ENTRY_ATTRS void *__offload_san_check_as0_access_with_info(

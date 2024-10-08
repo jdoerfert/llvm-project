@@ -143,10 +143,12 @@ private:
   }
 
   /// PtrTy __offload_san_unpack(Int64Ty, PtrTy);
-  FunctionCallee UnpackFn;
-  FunctionCallee getUnpackFn() {
-    return getOrCreateFn(UnpackFn, "__offload_san_unpack", PtrTy,
-                         {/*PC*/ Int64Ty, PtrTy});
+  FunctionCallee UnpackFns[NumSupportedAddressSpaces];
+  FunctionCallee getUnpackFn(uint32_t AS) {
+    assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
+    return getOrCreateFn(UnpackFns[AS],
+                         "__offload_san_unpack_as" + std::to_string(AS),
+                         ASPtrTy[AS], {/*PC*/ Int64Ty, PtrTy});
   }
 
   /// InfoTy __offload_san_get_as<AS>_info(PtrTy);
@@ -233,9 +235,9 @@ private:
 bool OffloadSanitizerImpl::shouldInstrumentFunction(Function *Fn) {
   if (!Fn || Fn->isDeclaration())
     return false;
-  if (Fn->getName().contains("ompx") || Fn->getName().contains("__kmpc") ||
-      Fn->getName().starts_with("rpc_"))
-    return false;
+  //  if (Fn->getName().contains("ompx") || Fn->getName().contains("__kmpc") ||
+  //      Fn->getName().starts_with("rpc_"))
+  //    return false;
   return !Fn->hasFnAttribute(Attribute::DisableSanitizerInstrumentation);
 }
 
@@ -292,6 +294,17 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
                                           GenericOp->getName() + ".as", &ARMW);
       ARMW.setOperand(ARMW.getPointerOperandIndex(), GenericOp);
       VMap[I] = GetAsGeneric(ARMW);
+      break;
+    }
+    case Instruction::AtomicCmpXchg: {
+      auto &ACX = cast<AtomicCmpXchgInst>(*I);
+      auto *GenericOp = GetAsGeneric(*ACX.getPointerOperand());
+      if (ACX.getPointerAddressSpace())
+        GenericOp =
+            new AddrSpaceCastInst(GenericOp, ACX.getPointerOperand()->getType(),
+                                  GenericOp->getName() + ".as", &ACX);
+      ACX.setOperand(ACX.getPointerOperandIndex(), GenericOp);
+      VMap[I] = GetAsGeneric(ACX);
       break;
     }
     case Instruction::GetElementPtr: {
@@ -355,12 +368,11 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
           auto *Op = CI.getArgOperand(I);
           if (!(Op->getType()->isPointerTy()))
             continue;
-          auto *GenericOp = GetAsGeneric(*Op);
-          Value *NewOp = createCall(IRB, getUnpackFn(), {getPC(IRB), GenericOp},
-                                    GenericOp->getName() + ".unpack");
-          if (auto AS = Op->getType()->getPointerAddressSpace())
-            NewOp = IRB.CreateAddrSpaceCast(NewOp, Op->getType());
-          CI.setArgOperand(I, NewOp);
+          auto *NewOp = GetAsGeneric(*Op);
+          auto AS = Op->getType()->getPointerAddressSpace();
+          Value *NewArg = createCall(IRB, getUnpackFn(AS), {getPC(IRB), NewOp},
+                                     NewOp->getName() + ".unpack");
+          CI.setArgOperand(I, NewArg);
         }
       }
       break;
@@ -384,22 +396,17 @@ void OffloadSanitizerImpl::instrumentCallInsts(
     if (isa<LifetimeIntrinsic>(CI))
       continue;
     auto *Fn = CI->getCalledFunction();
-    if (!Fn)
+    if (!Fn || !Fn->isDeclaration())
       continue;
-    if (Fn->getName().starts_with("__kmpc_target_init"))
-      continue;
-    if ((Fn->isDeclaration() || Fn->getName().starts_with("__kmpc") ||
-         Fn->getName().starts_with("rpc_")) &&
-        !Fn->getName().starts_with("ompx")) {
-      IRBuilder<> IRB(CI);
-      for (int I = 0, E = CI->arg_size(); I != E; ++I) {
-        Value *Op = CI->getArgOperand(I);
-        if (!Op->getType()->isPointerTy())
-          continue;
-        auto *CB = createCall(IRB, getUnpackFn(), {getPC(IRB), Op},
-                              Op->getName() + ".unpack");
-        CI->setArgOperand(I, CB);
-      }
+    IRBuilder<> IRB(CI);
+    for (int I = 0, E = CI->arg_size(); I != E; ++I) {
+      Value *Op = CI->getArgOperand(I);
+      if (!Op->getType()->isPointerTy())
+        continue;
+      auto *CB =
+          createCall(IRB, getUnpackFn(Op->getType()->getPointerAddressSpace()),
+                     {getPC(IRB), Op}, Op->getName() + ".unpack");
+      CI->setArgOperand(I, CB);
     }
   }
 }
@@ -463,14 +470,14 @@ void OffloadSanitizerImpl::instrumentAccesses(
     Args.append({getPC(IRB), FakePtr, Size});
 
     auto *Obj = getUnderlyingObject(FakePtr);
-    if (isa<GlobalValue>(Obj))
-      AI.AS = 0;
-    else if (AI.AS == 0)
+    if (AI.AS == 0)
       AI.AS = Obj->getType()->getPointerAddressSpace();
     if (AI.AS == 0 && isa<Argument>(Obj))
       if (cast<Argument>(Obj)->getParent()->getCallingConv() ==
           CallingConv::AMDGPU_KERNEL)
         AI.AS = 1;
+    if (AI.AS == 1)
+      AI.AS = 0;
     Value *PtrInfo = getPtrInfoForObj(*Obj, AI);
     Args.push_back(IRB.CreateExtractValue(PtrInfo, {1}, "obj.as"));
     Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 0}, "obj.base"));
@@ -511,8 +518,6 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
       auto *UI = cast<Instruction>(U);
       if (UI == FakePtr)
         continue;
-      if (isa<MemIntrinsic>(UI))
-        continue;
       assert(isa<AddrSpaceCastInst>(UI) &&
              "Expected only address space casts users of allocas");
       assert(UI->getType()->getPointerAddressSpace() == 0 &&
@@ -548,7 +553,6 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
         break;
       case Instruction::Store: {
         auto &SI = cast<StoreInst>(I);
-        errs() << &SI << " :" << SI << "\n";
         AccessInfos.push_back(
             {&I, SI.getPointerOperandIndex(), SI.getPointerAddressSpace()});
         if (isASType(*SI.getPointerOperandType()))
@@ -557,7 +561,6 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
       }
       case Instruction::Load: {
         auto &LI = cast<LoadInst>(I);
-        errs() << &LI << " :" << LI << "\n";
         AccessInfos.push_back(
             {&I, LI.getPointerOperandIndex(), LI.getPointerAddressSpace()});
         if (isASType(*LI.getType()) || isASType(*LI.getPointerOperandType()))
@@ -571,11 +574,21 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
           ASInsts.push_back(&I);
         break;
       }
+      case Instruction::AtomicCmpXchg: {
+        auto &ACX = cast<AtomicCmpXchgInst>(I);
+        AccessInfos.push_back(
+            {&I, ACX.getPointerOperandIndex(), ACX.getPointerAddressSpace()});
+        if (isASType(*ACX.getType()) ||
+            isASType(*ACX.getPointerOperand()->getType()))
+          ASInsts.push_back(&I);
+        break;
+      }
       case Instruction::Unreachable:
         UnreachableInsts.push_back(cast<UnreachableInst>(&I));
         break;
       case Instruction::Call: {
         auto &CI = cast<CallInst>(I);
+        CallInsts.push_back(&CI);
         if (auto *II = dyn_cast<IntrinsicInst>(&CI)) {
           switch (II->getIntrinsicID()) {
           case Intrinsic::trap:
@@ -592,7 +605,6 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
           else if (any_of(CI.args(),
                           [&](Value *Op) { return isASType(*Op->getType()); }))
             ASInsts.push_back(&I);
-          CallInsts.push_back(&CI);
         }
         break;
       }
@@ -618,7 +630,7 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
 
   Fn.dump();
   removeAS(Fn, ASInsts);
-  //  instrumentCallInsts(CallInsts);
+  // instrumentCallInsts(CallInsts);
   instrumentLifetimeIntrinsics(LifetimeInsts);
   //  instrumentTrapInstructions(TrapCalls);
   //  instrumentUnreachableInstructions(UnreachableInsts);
