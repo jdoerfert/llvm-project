@@ -514,7 +514,6 @@ GenericKernelTy::getKernelLaunchEnvironment(
             KernelEnvironment.Configuration.ReductionDataSize *
                 KernelEnvironment.Configuration.ReductionBufferLength));
     LocalKLE.ReductionBuffer = FakeBufferPtr ? FakeBufferPtr : *AllocOrErr;
-    printf("Reduction buffer: %p (fake: %p)\n", *AllocOrErr, FakeBufferPtr);
     // Remember to free the memory later.
     AsyncInfoWrapper.freeAllocationAfterSynchronization(*AllocOrErr);
   }
@@ -530,7 +529,6 @@ GenericKernelTy::getKernelLaunchEnvironment(
                                       AsyncInfoWrapper);
   if (Err)
     return Err;
-  printf("Kernel Env: %p (fake: %p)\n", *AllocOrErr, FakeKernelLaunchPtr);
   return FakeKernelLaunchPtr
              ? FakeKernelLaunchPtr
              : static_cast<KernelLaunchEnvironmentTy *>(*AllocOrErr);

@@ -137,9 +137,9 @@ struct FakePtrTy {
     if (Size > FP.getMaxSize())
       raiseExecutionError(SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE, Size);
 
-    FP.U.Enc32.Size = Size;
-    FP.U.Enc32.RealPtr = uint64_t(Ptr);
     FP.U.Enc32.RealAS = AS;
+    FP.U.Enc32.RealPtr = uint64_t(Ptr);
+    FP.U.Enc32.Size = Size;
     FP.U.Enc32.Magic = FAKE_PTR_MAGIC;
 
     return FP;
@@ -154,8 +154,8 @@ struct FakePtrTy {
     PtrInfos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
     PtrInfos[SlotId].Size = Size;
     FP.U.Enc64.RealAS = MallocAS;
-    FP.U.Enc64.Magic = FAKE_PTR_MAGIC;
     FP.U.Enc64.SlotId = SlotId;
+    FP.U.Enc64.Magic = FAKE_PTR_MAGIC;
 
     return FP;
   }
@@ -340,13 +340,13 @@ _SAN_ENTRY_ATTRS InfoTy __offload_san_get_as0_info(uint64_t PC, void *FakePtr) {
 }
 
 _SAN_ENTRY_ATTRS void *__offload_san_check_as0_access_with_info(
-    uint64_t PC, void *FakePtr, uint32_t Size, uint32_t AllocAS,
-    char [[clang::address_space(MallocAS)]] * AllocBase, uint64_t AllocSize) {
-  if (AllocAS == MallocAS) {
+    uint64_t PC, void *FakePtr, uint32_t Size, uint32_t InfoAS,
+    char [[clang::address_space(MallocAS)]] * InfoBase, uint64_t InfoSize) {
+  if (InfoAS == MallocAS) {
     FakePtrTy FP(FakePtr, MallocAS, false, PC);
-    return (void *)FP.checkWithBase<MallocAS>(PC, Size, {AllocBase, AllocSize});
+    return (void *)FP.checkWithBase<MallocAS>(PC, Size, {InfoBase, InfoSize});
   }
-  if (AllocAS == AllocaAS) {
+  if (InfoAS == AllocaAS) {
     FakePtrTy FP(FakePtr, AllocaAS, false, PC);
     return (void *)FP.check<AllocaAS>(PC, Size);
   }

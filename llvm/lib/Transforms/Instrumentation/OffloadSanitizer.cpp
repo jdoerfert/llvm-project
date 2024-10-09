@@ -362,16 +362,15 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
         CI.mutateFunctionType(NewFT);
         CI.mutateType(getWithoutAS(*CI.getType()));
       } else {
-        assert(!isASType(*CI.getType()) && "TODO");
+        if (isASType(*CI.getType()))
+          VMap[I] = GetAsGeneric(CI);
         IRBuilder<> IRB(&CI);
         for (unsigned I = 0, E = CI.arg_size(); I < E; ++I) {
           auto *Op = CI.getArgOperand(I);
-          if (!(Op->getType()->isPointerTy()))
+          if (!isASType(*Op->getType()))
             continue;
           auto *NewOp = GetAsGeneric(*Op);
-          auto AS = Op->getType()->getPointerAddressSpace();
-          Value *NewArg = createCall(IRB, getUnpackFn(AS), {getPC(IRB), NewOp},
-                                     NewOp->getName() + ".unpack");
+          Value *NewArg = IRB.CreateAddrSpaceCast(NewOp, Op->getType());
           CI.setArgOperand(I, NewArg);
         }
       }
@@ -393,19 +392,24 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
 void OffloadSanitizerImpl::instrumentCallInsts(
     SmallVectorImpl<CallInst *> &CallInsts) {
   for (auto *CI : CallInsts) {
-    if (isa<LifetimeIntrinsic>(CI))
-      continue;
+    assert(!isa<LifetimeIntrinsic>(CI));
     auto *Fn = CI->getCalledFunction();
-    if (!Fn || !Fn->isDeclaration())
+    if (shouldInstrumentFunction(Fn))
       continue;
     IRBuilder<> IRB(CI);
     for (int I = 0, E = CI->arg_size(); I != E; ++I) {
       Value *Op = CI->getArgOperand(I);
       if (!Op->getType()->isPointerTy())
         continue;
+      auto *PlainOp = Op;
+      auto AS = Op->getType()->getPointerAddressSpace();
+      if (AS)
+        if (auto *AC = dyn_cast<AddrSpaceCastInst>(Op))
+          PlainOp = AC->getPointerOperand();
       auto *CB =
-          createCall(IRB, getUnpackFn(Op->getType()->getPointerAddressSpace()),
-                     {getPC(IRB), Op}, Op->getName() + ".unpack");
+          createCall(IRB, getUnpackFn(AS),
+                     {getPC(IRB), IRB.CreateAddrSpaceCast(PlainOp, PtrTy)},
+                     Op->getName() + ".unpack");
       CI->setArgOperand(I, CB);
     }
   }
@@ -518,6 +522,11 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
       auto *UI = cast<Instruction>(U);
       if (UI == FakePtr)
         continue;
+      if (!isa<AddrSpaceCastInst>(UI)) {
+        AI->getFunction()->dump();
+        AI->dump();
+        UI->dump();
+      }
       assert(isa<AddrSpaceCastInst>(UI) &&
              "Expected only address space casts users of allocas");
       assert(UI->getType()->getPointerAddressSpace() == 0 &&
@@ -569,6 +578,8 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
       }
       case Instruction::AtomicRMW: {
         auto &ARMW = cast<AtomicRMWInst>(I);
+        AccessInfos.push_back(
+            {&I, ARMW.getPointerOperandIndex(), ARMW.getPointerAddressSpace()});
         if (isASType(*ARMW.getType()) ||
             isASType(*ARMW.getPointerOperand()->getType()))
           ASInsts.push_back(&I);
@@ -588,24 +599,27 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
         break;
       case Instruction::Call: {
         auto &CI = cast<CallInst>(I);
-        CallInsts.push_back(&CI);
+        bool Handled = false;
         if (auto *II = dyn_cast<IntrinsicInst>(&CI)) {
           switch (II->getIntrinsicID()) {
           case Intrinsic::trap:
+            Handled = true;
             TrapCalls.push_back(II);
             break;
           case Intrinsic::lifetime_start:
           case Intrinsic::lifetime_end:
+            Handled = true;
             LifetimeInsts.push_back(cast<LifetimeIntrinsic>(II));
             break;
           }
-        } else {
-          if (isASType(*CI.getType()))
-            ASInsts.push_back(&I);
-          else if (any_of(CI.args(),
-                          [&](Value *Op) { return isASType(*Op->getType()); }))
-            ASInsts.push_back(&I);
         }
+        if (!Handled)
+          CallInsts.push_back(&CI);
+        if (isASType(*CI.getType()))
+          ASInsts.push_back(&I);
+        else if (any_of(CI.args(),
+                        [&](Value *Op) { return isASType(*Op->getType()); }))
+          ASInsts.push_back(&I);
         break;
       }
       case Instruction::AddrSpaceCast:
@@ -630,7 +644,7 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
 
   Fn.dump();
   removeAS(Fn, ASInsts);
-  // instrumentCallInsts(CallInsts);
+  instrumentCallInsts(CallInsts);
   instrumentLifetimeIntrinsics(LifetimeInsts);
   //  instrumentTrapInstructions(TrapCalls);
   //  instrumentUnreachableInstructions(UnreachableInsts);
@@ -650,6 +664,14 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   //    InlineFunction(*CI, IFI);
   //  }
   RTCalls.clear();
+
+  auto &BB = Fn.getEntryBlock();
+  SmallVector<AllocaInst *> Allocas;
+  for (auto &I : BB)
+    if (auto *AI = dyn_cast<AllocaInst>(&I))
+      Allocas.push_back(AI);
+  for (auto *AI : Allocas)
+    AI->moveBefore(&*BB.getFirstInsertionPt());
 
   return true;
 }
