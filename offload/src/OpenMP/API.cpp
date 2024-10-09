@@ -681,5 +681,9 @@ EXTERN void *omp_get_mapped_ptr(const void *Ptr, int DeviceNum) {
 
   DP("omp_get_mapped_ptr returns " DPxMOD ".\n", DPxPTR(TPR.TargetPointer));
 
-  return TPR.TargetPointer;
+  // return TPR.TargetPointer;
+  return utils::advancePtr(
+      (void *)TPR.getEntry()->TgtPtrBegin,
+      utils::getPtrDiff(TPR.TargetPointer,
+                        (void *)TPR.getEntry()->getBeginPtr()));
 }

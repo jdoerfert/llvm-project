@@ -3543,6 +3543,12 @@ void AMDGPUQueueTy::callbackError(hsa_status_t Status, hsa_queue_t *Source,
                                       AsyncInfoWrapperMatcher);
   }
 
+  {
+    auto KernelTraceInfoRecord =
+        AMDGPUDevice.KernelLaunchTraces.getExclusiveAccessor();
+    ErrorReporter::checkAndReportError(AMDGPUDevice, nullptr,
+                                       &*KernelTraceInfoRecord);
+  }
   auto Err = Plugin::check(Status, "Received error in queue %p: %s", Source);
   FATAL_MESSAGE(1, "%s", toString(std::move(Err)).data());
 }
