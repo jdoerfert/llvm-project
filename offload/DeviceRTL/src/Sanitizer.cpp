@@ -77,7 +77,7 @@ _SAN_ATTRS void setLocation(SanitizerEnvironmentTy &SE, uint64_t PC) {
   atomic::store(&SE.IsInitialized, 1, atomic::OrderingTy::release);
 }
 
-_SAN_ATTRS _FLATTEN _INLINE void
+_SAN_ATTRS _FLATTEN _NOINLINE void
 raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode,
                     uint64_t PC) {
   SanitizerEnvironmentTy &SE = *__sanitizer_environment_ptr;

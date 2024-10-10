@@ -460,7 +460,6 @@ void OffloadSanitizerImpl::instrumentGEPs(
 void OffloadSanitizerImpl::instrumentAccesses(
     SmallVectorImpl<AccessInfoTy> &AccessInfos) {
   for (auto &AI : AccessInfos) {
-    IRBuilder<> IRB(AI.I);
     auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
     auto *Size =
         ConstantInt::get(Int32Ty, DL.getTypeStoreSize(AI.I->getAccessType()));
@@ -470,6 +469,7 @@ void OffloadSanitizerImpl::instrumentAccesses(
     }
     assert(FakePtr->getType()->getPointerAddressSpace() == 0);
 
+    IRBuilder<> IRB(AI.I);
     SmallVector<Value *> Args;
     Args.append({getPC(IRB), FakePtr, Size});
 
@@ -483,9 +483,15 @@ void OffloadSanitizerImpl::instrumentAccesses(
     if (AI.AS == 1)
       AI.AS = 0;
     Value *PtrInfo = getPtrInfoForObj(*Obj, AI);
-    Args.push_back(IRB.CreateExtractValue(PtrInfo, {1}, "obj.as"));
-    Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 0}, "obj.base"));
-    Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 1}, "obj.size"));
+    Instruction *IP = AI.I;
+    if (auto *PII = dyn_cast<Instruction>(PtrInfo))
+      IP = PII->getNextNode();
+    {
+      IRBuilder<> IRB(IP);
+      Args.push_back(IRB.CreateExtractValue(PtrInfo, {1}, "obj.as"));
+      Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 0}, "obj.base"));
+      Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 1}, "obj.size"));
+    }
     FunctionCallee FC = getCheckAccessWithInfoFn(AI.AS);
 
     auto *RealPtr = createCall(IRB, FC, Args);

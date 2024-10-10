@@ -91,7 +91,7 @@ static constexpr GV AMDGPUGridValues64 = {
     440,       // GV_Default_Num_Teams
     896,       // GV_SimpleBufferSize
     1024,      // GV_Max_WG_Size,
-    256,       // GV_Default_WG_Size
+    128,       // GV_Default_WG_Size
 };
 
 static constexpr GV AMDGPUGridValues32 = {

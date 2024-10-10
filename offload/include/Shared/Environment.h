@@ -132,7 +132,22 @@ struct SanitizerEnvironmentTy {
   uint32_t ThreadId[3];
   uint32_t BlockId[3];
   uint64_t PC;
+  uint64_t LocationId;
+  int64_t CallId;
   /// }
+
+  /// Access info
+  /// {
+  uint16_t AccessSize;
+  /// }
+
+  /// Pointer info
+  /// {
+  uint8_t PtrAddrSpace;
+  uint32_t PtrSlot;
+  uint64_t PtrOffset;
+  uint64_t PtrBase;
+  ///}
 };
 
 #pragma omp begin declare target
