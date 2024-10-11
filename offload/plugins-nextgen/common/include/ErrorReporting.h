@@ -157,7 +157,13 @@ class ErrorReporter {
       print(DarkPurple, "    %s", Parts[0].take_front().str().c_str());
       print(Green, "%*u", NumDigits, FrameIdx);
       print(BoldLightBlue, " %s", Parts[1].str().c_str());
-      print(" %s\n", Parts[2].str().c_str());
+
+      StringRef SignatureAndLocation = Parts[2];
+      auto LastSpace = SignatureAndLocation.rfind(' ');
+      if (LastSpace != StringRef::npos)
+        print(" %s", SignatureAndLocation.substr(0, LastSpace).str().c_str());
+      print(Yellow, "%s\n",
+            SignatureAndLocation.substr(LastSpace).str().c_str());
     }
     print("\n");
   }
@@ -208,6 +214,62 @@ class ErrorReporter {
 
   /// End the execution of the program.
   static void abortExecution() { abort(); }
+
+  static void reportOutOfBoundsError(GenericDeviceTy &Device,
+                                     DeviceImageTy &Image,
+                                     SanitizerEnvironmentTy &SE) {
+    reportError("execution encountered an out-of-bounds access");
+    uint32_t AS = SE.FP.Enc32.RealAS;
+    bool Is32Bit = AS == 3 || AS == 5;
+    uint64_t Offset = Is32Bit ? SE.FP.Enc32.Offset : SE.FP.Enc64.Offset;
+    uint32_t Length = Is32Bit ? SE.FP.Enc32.Size : -1;
+    void *DevicePtr = nullptr;
+    if (Is32Bit)
+      DevicePtr = (void *)(uint64_t)SE.FP.Enc32.RealPtr;
+    else
+      Device.getFakeHostPtrInfo(Image, SE.FP.Enc64.SlotId, DevicePtr, Length);
+    reportError("AS: %u, Offset: %lu Base: %p Length %u\n", AS, Offset,
+                DevicePtr, Length);
+
+    if (Is32Bit)
+      return;
+
+    if (!Device.OMPX_TrackAllocationTraces) {
+      print(Yellow, "Use '%s=true' to track device allocations\n",
+            Device.OMPX_TrackAllocationTraces.getName().data());
+      return;
+    }
+    uintptr_t Distance = false;
+    auto *ATI =
+        Device.getClosestAllocationTraceInfoForAddr(DevicePtr, Distance);
+
+    if (!ATI) {
+      print(Cyan,
+            "No host-issued allocations; device pointer %p might be "
+            "a global, stack, or shared location\n",
+            DevicePtr);
+      return;
+    }
+    if (!Distance) {
+      print(Cyan, "Device pointer %p points into%s host-issued allocation:\n",
+            DevicePtr, ATI->DeallocationTrace.empty() ? "" : " prior");
+      reportAllocationInfo(ATI);
+      return;
+    }
+
+    bool IsClose = Distance < (1L << 29L /*512MB=*/);
+    print(Cyan,
+          "Device pointer %p does not point into any (current or prior) "
+          "host-issued allocation%s.\n",
+          DevicePtr,
+          IsClose ? "" : " (might be a global, stack, or shared location)");
+    //    if (IsClose) {
+    print(Cyan,
+          "Closest host-issued allocation (distance %" PRIuPTR
+          " byte%s; might be by page):\n",
+          Distance, Distance > 1 ? "s" : "");
+    reportAllocationInfo(ATI);
+  }
 
 public:
 #define DEALLOCATION_ERROR(Format, ...)                                        \
@@ -292,11 +354,12 @@ public:
   }
 
   /// Report that a kernel encountered a trap instruction.
-  static void reportTrapInKernel(
-      GenericDeviceTy &Device, KernelTraceInfoRecordTy &KTIR,
-      std::function<bool(__tgt_async_info &)> AsyncInfoWrapperMatcher) {
+  static void
+  reportTrapInKernel(GenericDeviceTy &Device, KernelTraceInfoRecordTy &KTIR,
+                     std::function<bool(void *Queue)> AsyncInfoWrapperMatcher) {
     assert(AsyncInfoWrapperMatcher && "A matcher is required");
 
+    DeviceImageTy *Image = nullptr;
     SanitizerEnvironmentTy *SE = nullptr;
     for (auto &It : Device.SanitizerEnvironmentMap) {
       if (It.second->ErrorCode == SanitizerEnvironmentTy::NONE)
@@ -304,7 +367,8 @@ public:
       if (SE)
         reportWarning(
             "Multiple errors encountered, information might be inaccurate.");
-      SE = It.second;
+      std::tie(Image, SE) = It;
+      assert(Image);
     }
 
     uint32_t Idx = 0;
@@ -313,14 +377,82 @@ public:
       if (KTI.Kernel == nullptr)
         break;
       // Skip kernels issued in other queues.
-      if (KTI.AsyncInfo && !(AsyncInfoWrapperMatcher(*KTI.AsyncInfo)))
+      if (KTI.Queue && !(AsyncInfoWrapperMatcher(KTI.Queue)))
         continue;
       Idx = I;
       break;
     }
 
+    GenericGlobalHandlerTy &GHandler = Device.Plugin.getGlobalHandler();
+    auto GetImagePtr = [&](GlobalTy &GV, bool Quiet = false) {
+      if (auto Err = GHandler.getGlobalMetadataFromImage(Device, *Image, GV)) {
+        if (Quiet)
+          consumeError(std::move(Err));
+        else
+          REPORT("WARNING: Failed to read backtrace "
+                 "(%s)\n",
+                 toString(std::move(Err)).data());
+        return false;
+      }
+      return true;
+    };
+
+    GlobalTy LocationsGV("__offload_san_locations", -1);
+    GlobalTy LocationNamesGV("__offload_san_location_names", -1);
+    GlobalTy AmbiguousCallsBitWidthGV("__offload_san_num_ambiguous_calls", -1);
+    GlobalTy AmbiguousCallsLocationsGV("__offload_san_ambiguous_calls_mapping",
+                                       -1);
+    if (Image) {
+      if (GetImagePtr(LocationsGV))
+        GetImagePtr(LocationNamesGV);
+      GetImagePtr(AmbiguousCallsBitWidthGV, /*Quiet=*/true);
+      GetImagePtr(AmbiguousCallsLocationsGV, /*Quiet=*/true);
+    }
+
+    auto PrintStackTrace = [&](int64_t LocationId) {
+      if (LocationId < 0 || !LocationsGV.getPtr() ||
+          !LocationNamesGV.getPtr()) {
+        reportError("    no backtrace available\n");
+        return;
+      }
+      char *LocationNames = LocationNamesGV.getPtrAs<char>();
+      LocationEncodingTy *Locations =
+          LocationsGV.getPtrAs<LocationEncodingTy>();
+      uint64_t *AmbiguousCallsBitWidth =
+          AmbiguousCallsBitWidthGV.getPtrAs<uint64_t>();
+      uint64_t *AmbiguousCallsLocations =
+          AmbiguousCallsLocationsGV.getPtrAs<uint64_t>();
+
+      if (SE->CallId && AmbiguousCallsBitWidth) {
+        // Get rid of partial encodings at the end of the CallId
+        SE->CallId <<= (64 % *AmbiguousCallsBitWidth);
+        SE->CallId >>= (64 % *AmbiguousCallsBitWidth);
+      }
+
+      int32_t FrameIdx = 0;
+      unsigned NumDigits = 2;
+      do {
+        LocationEncodingTy &LE = Locations[LocationId];
+        print(DarkPurple, "    #");
+        print(Green, "%*u", NumDigits, FrameIdx);
+        print(" %s", &LocationNames[LE.FunctionNameIdx]);
+        print(Yellow, " %s:%lu:%lu\n", &LocationNames[LE.FileNameIdx],
+              LE.LineNo, LE.ColumnNo);
+        LocationId = LE.ParentIdx;
+        FrameIdx++;
+        if (LocationId < 0 && SE->CallId != 0 && AmbiguousCallsBitWidth &&
+            AmbiguousCallsLocations) {
+          uint64_t LastCallId =
+              SE->CallId & ((1 << *AmbiguousCallsBitWidth) - 1);
+          LocationId = AmbiguousCallsLocations[LastCallId - 1];
+          SE->CallId >>= (*AmbiguousCallsBitWidth);
+        }
+      } while (LocationId >= 0);
+      print("\n");
+    };
+
     auto KTI = KTIR.getKernelTraceInfo(Idx);
-    if (KTI.AsyncInfo && (AsyncInfoWrapperMatcher(*KTI.AsyncInfo))) {
+    if (KTI.Queue && AsyncInfoWrapperMatcher(KTI.Queue)) {
       auto PrettyKernelName =
           llvm::omp::prettifyFunctionName(KTI.Kernel->getName());
       reportError("Kernel '%s'", PrettyKernelName.c_str());
@@ -352,7 +484,7 @@ public:
             "execution encountered a pointer to the wrong address space");
         break;
       case SanitizerEnvironmentTy::OUT_OF_BOUNDS:
-        reportError("execution encountered an out-of-bounds access");
+        reportOutOfBoundsError(Device, *Image, *SE);
         break;
       default:
         reportError(
@@ -360,13 +492,17 @@ public:
       }
 
       reportLocation(*SE);
+      PrintStackTrace(SE->LocationId);
     }
-    if (KTI.AsyncInfo && (AsyncInfoWrapperMatcher(*KTI.AsyncInfo))) {
-      if (!KTI.LaunchTrace.empty())
+
+    if (KTI.Queue && AsyncInfoWrapperMatcher(KTI.Queue)) {
+      if (!KTI.LaunchTrace.empty()) {
+        print(BoldLightPurple, "Kernel launch trace:\n");
         reportStackTrace(KTI.LaunchTrace);
-      else
+      } else {
         print(Yellow, "Use '%s=1' to show the stack trace of the kernel\n",
               Device.OMPX_TrackNumKernelLaunches.getName().data());
+      }
     }
     abort();
   }
@@ -387,13 +523,12 @@ public:
       return;
 
     if (KTIR) {
-      reportTrapInKernel(Device, *KTIR,
-                         [=](__tgt_async_info &TAI) { return true; });
+      reportTrapInKernel(Device, *KTIR, [=](void *) { return true; });
     } else {
       auto KernelTraceInfoRecord =
           Device.KernelLaunchTraces.getExclusiveAccessor();
       reportTrapInKernel(Device, *KernelTraceInfoRecord,
-                         [=](__tgt_async_info &TAI) { return true; });
+                         [=](void *) { return true; });
     }
   }
 

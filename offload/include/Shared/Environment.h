@@ -105,6 +105,39 @@ struct KernelLaunchEnvironmentTy {
   void *ReductionBuffer = nullptr;
 };
 
+struct LocationEncodingTy {
+  uint64_t FunctionNameIdx;
+  uint64_t FileNameIdx;
+  uint64_t LineNo;
+  uint64_t ColumnNo;
+  uint64_t ParentIdx;
+};
+
+#pragma omp begin declare target
+static constexpr uint32_t FAKE_PTR_MAGIC = 0b1111000;
+static constexpr uint32_t FAKE_PTR_BASE_BITS_OFFSET = 11;
+#pragma omp end declare target
+
+using FakePtrUnionEncodingTy = union {
+  void *VPtr;
+  struct __attribute__((packed)) {
+    int32_t Offset : FAKE_PTR_BASE_BITS_OFFSET;
+    uint32_t Magic : 7;
+    uint32_t Size : FAKE_PTR_BASE_BITS_OFFSET;
+    uint32_t RealPtr : 32;
+    uint32_t RealAS : 3;
+  } Enc32;
+  struct __attribute__((packed)) {
+    int64_t Offset : 40;
+    uint32_t Magic : 7;
+    uint32_t SlotId : 14;
+    uint32_t RealAS : 3;
+  } Enc64;
+};
+
+static_assert(sizeof(FakePtrUnionEncodingTy) == sizeof(void *),
+              "Encoding is too large!");
+
 /// The environment used to communicate sanitizer information from the device to
 /// the host.
 struct SanitizerEnvironmentTy {
@@ -133,46 +166,13 @@ struct SanitizerEnvironmentTy {
   uint32_t BlockId[3];
   uint64_t PC;
   uint64_t LocationId;
-  int64_t CallId;
-  /// }
-
-  /// Access info
-  /// {
-  uint16_t AccessSize;
+  uint64_t CallId;
   /// }
 
   /// Pointer info
   /// {
-  uint8_t PtrAddrSpace;
-  uint32_t PtrSlot;
-  uint64_t PtrOffset;
-  uint64_t PtrBase;
+  FakePtrUnionEncodingTy FP;
   ///}
 };
-
-#pragma omp begin declare target
-static constexpr uint32_t FAKE_PTR_MAGIC = 0b1111000;
-static constexpr uint32_t FAKE_PTR_BASE_BITS_OFFSET = 11;
-#pragma omp end declare target
-
-using FakePtrUnionEncodingTy = union {
-  void *VPtr;
-  struct __attribute__((packed)) {
-    int32_t Offset : FAKE_PTR_BASE_BITS_OFFSET;
-    uint32_t Magic : 7;
-    uint32_t Size : FAKE_PTR_BASE_BITS_OFFSET;
-    uint32_t RealPtr : 32;
-    uint32_t RealAS : 3;
-  } Enc32;
-  struct __attribute__((packed)) {
-    int64_t Offset : 40;
-    uint32_t Magic : 7;
-    uint32_t SlotId : 14;
-    uint32_t RealAS : 3;
-  } Enc64;
-};
-
-static_assert(sizeof(FakePtrUnionEncodingTy) == sizeof(void *),
-              "Encoding is too large!");
 
 #endif // OMPTARGET_SHARED_ENVIRONMENT_H

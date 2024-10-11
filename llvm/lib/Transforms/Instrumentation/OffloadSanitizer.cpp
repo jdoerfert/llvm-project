@@ -15,6 +15,7 @@
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Frontend/OpenMP/OMP.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -32,15 +33,63 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
+#include <llvm/IR/GlobalVariable.h>
 #include <string>
 
 using namespace llvm;
 
 #define DEBUG_TYPE "offload-sanitizer"
 
+namespace llvm {
+
+struct LocationInfoTy {
+  uint64_t LineNo = 0;
+  uint64_t ColumnNo = 0;
+  uint64_t ParentIdx = -1;
+  StringRef FileName;
+  StringRef FunctionName;
+  bool operator==(const LocationInfoTy &RHS) const {
+    return LineNo == RHS.LineNo && ColumnNo == RHS.ColumnNo &&
+           FileName == RHS.FileName && FunctionName == RHS.FunctionName;
+  }
+};
+template <> struct DenseMapInfo<LocationInfoTy *> {
+  static LocationInfoTy EmptyKey;
+  static LocationInfoTy TombstoneKey;
+  static inline LocationInfoTy *getEmptyKey() { return &EmptyKey; }
+
+  static inline LocationInfoTy *getTombstoneKey() { return &TombstoneKey; }
+
+  static unsigned getHashValue(const LocationInfoTy *LI) {
+    unsigned Hash = DenseMapInfo<uint64_t>::getHashValue(LI->LineNo);
+    Hash = detail::combineHashValue(
+        Hash, DenseMapInfo<uint64_t>::getHashValue(LI->ColumnNo));
+    Hash = detail::combineHashValue(
+        Hash, DenseMapInfo<StringRef>::getHashValue(LI->FileName));
+    Hash = detail::combineHashValue(
+        Hash, DenseMapInfo<StringRef>::getHashValue(LI->FunctionName));
+    return Hash;
+  }
+
+  static bool isEqual(const LocationInfoTy *LHS, const LocationInfoTy *RHS) {
+    return *LHS == *RHS;
+  }
+};
+LocationInfoTy DenseMapInfo<LocationInfoTy *>::EmptyKey =
+    LocationInfoTy{(uint64_t)-1};
+LocationInfoTy DenseMapInfo<LocationInfoTy *>::TombstoneKey =
+    LocationInfoTy{(uint64_t)-2};
+} // namespace llvm
+
 namespace {
+
+constexpr uint32_t SHARED_ADDRSPACE = 3;
+bool isSharedGlobal(const GlobalValue &G) {
+  return G.getAddressSpace() == SHARED_ADDRSPACE;
+}
 
 class OffloadSanitizerImpl final {
 public:
@@ -71,13 +120,186 @@ private:
     unsigned AS;
   };
 
-  DenseMap<Value *, Value *> PtrInfoMap;
+  struct PtrInfoTy {
+    Value *Start;
+    Value *Length;
+    Value *AS;
+  };
+  DenseMap<Value *, PtrInfoTy> AllocationInfoMap;
+  StringMap<Value *> GlobalStringMap;
 
-  Value *getPtrInfoForObj(Value &Obj, const AccessInfoTy &AI) {
+  DenseMap<LocationInfoTy *, uint64_t, DenseMapInfo<LocationInfoTy *>>
+      LocationMap;
+
+  const std::pair<LocationInfoTy *, uint64_t>
+  addLocationInfo(LocationInfoTy *LI, bool &IsNew) {
+    auto It = LocationMap.insert({LI, LocationMap.size()});
+    IsNew = It.second;
+    if (!IsNew)
+      delete LI;
+    return {It.first->first, It.first->second};
+  }
+
+  uint64_t addString(StringRef S) {
+    const auto &It = UniqueStrings.insert({S, ConcatenatedString.size()});
+    if (It.second) {
+      ConcatenatedString += S;
+      ConcatenatedString.push_back('\0');
+    }
+    return It.first->second;
+  };
+
+  void encodeLocationInfo(LocationInfoTy &LI, uint64_t Idx) {
+    StringRef FunctionName = LI.FunctionName;
+    auto PN = omp::prettifyFunctionName(FunctionName);
+    FunctionName = SS.save(PN);
+
+    auto FuncIdx = addString(FunctionName);
+    auto FileIdx = addString(LI.FileName);
+    if (LocationEncoding.size() < (Idx + 1) * 5)
+      LocationEncoding.resize((Idx + 1) * 5);
+    LocationEncoding[Idx * 5 + 0] = ConstantInt::get(Int64Ty, FuncIdx);
+    LocationEncoding[Idx * 5 + 1] = ConstantInt::get(Int64Ty, FileIdx);
+    LocationEncoding[Idx * 5 + 2] = ConstantInt::get(Int64Ty, LI.LineNo);
+    LocationEncoding[Idx * 5 + 3] = ConstantInt::get(Int64Ty, LI.ColumnNo);
+    LocationEncoding[Idx * 5 + 4] = ConstantInt::get(Int64Ty, LI.ParentIdx);
+  }
+
+  ConstantInt *getSourceIndex(Instruction &I,
+                              LocationInfoTy *LastLI = nullptr) {
+    LocationInfoTy *LI = new LocationInfoTy();
+    auto *DILoc = I.getDebugLoc().get();
+
+    auto FillLI = [&](LocationInfoTy &LI, DILocation &DIL) {
+      LI.FileName = DIL.getFilename();
+      if (LI.FileName.empty())
+        LI.FileName = I.getFunction()->getSubprogram()->getFilename();
+      LI.FunctionName = DIL.getSubprogramLinkageName();
+      if (LI.FunctionName.empty())
+        LI.FunctionName = I.getFunction()->getName();
+      LI.LineNo = DIL.getLine();
+      LI.ColumnNo = DIL.getColumn();
+    };
+
+    DILocation *ParentDILoc = nullptr;
+    if (DILoc) {
+      FillLI(*LI, *DILoc);
+      ParentDILoc = DILoc->getInlinedAt();
+    } else {
+      LI->FunctionName = I.getFunction()->getName();
+    }
+
+    bool IsNew;
+    uint64_t Idx;
+    std::tie(LI, Idx) = addLocationInfo(LI, IsNew);
+    if (LastLI)
+      LastLI->ParentIdx = Idx;
+    if (!IsNew)
+      return ConstantInt::get(Int64Ty, Idx);
+
+    uint64_t CurIdx = Idx;
+    LocationInfoTy *CurLI = LI;
+    while (ParentDILoc) {
+      auto *ParentLI = new LocationInfoTy();
+      FillLI(*ParentLI, *ParentDILoc);
+      uint64_t ParentIdx;
+      std::tie(ParentLI, ParentIdx) = addLocationInfo(ParentLI, IsNew);
+      CurLI->ParentIdx = ParentIdx;
+      if (!IsNew)
+        break;
+      encodeLocationInfo(*CurLI, CurIdx);
+      CurLI = ParentLI;
+      CurIdx = ParentIdx;
+      ParentDILoc = ParentDILoc->getInlinedAt();
+    }
+
+    Function &Fn = *I.getFunction();
+    buildCallTreeInfo(Fn, *CurLI);
+
+    encodeLocationInfo(*CurLI, CurIdx);
+
+    return ConstantInt::get(Int64Ty, Idx);
+  }
+
+  ConstantInt *getSourceIndex(const GlobalVariable *G) {
+    SmallVector<DIGlobalVariableExpression *, 1> GlobalLocations;
+    G->getDebugInfo(GlobalLocations);
+
+    if (GlobalLocations.empty())
+      return ConstantInt::get(Int64Ty, 0); // Fallback
+
+    const auto *DLVar = GlobalLocations.front()->getVariable();
+
+    LocationInfoTy *LI = new LocationInfoTy();
+    LI->FileName = DLVar->getFilename();
+    LI->LineNo = DLVar->getLine();
+    LI->FunctionName = DLVar->getName();
+    LI->ColumnNo = 0;
+
+    bool IsNew;
+    uint64_t Idx;
+    std::tie(LI, Idx) = addLocationInfo(LI, IsNew);
+
+    if (IsNew)
+      encodeLocationInfo(*LI, Idx);
+
+    return ConstantInt::get(Int64Ty, Idx);
+  }
+
+  void buildCallTreeInfo(Function &Fn, LocationInfoTy &LI) {
+    if (Fn.hasFnAttribute("kernel"))
+      return;
+    SmallVector<CallBase *> Calls;
+    for (auto &U : Fn.uses()) {
+      auto *CB = dyn_cast<CallBase>(U.getUser());
+      if (!CB)
+        continue;
+      if (!CB->isCallee(&U))
+        continue;
+      Calls.push_back(CB);
+    }
+    if (Calls.size() == 1) {
+      getSourceIndex(*Calls.back(), &LI);
+      return;
+    }
+    LI.ParentIdx = -2;
+    AmbiguousCalls.insert(Calls.begin(), Calls.end());
+  }
+
+  SmallVector<Constant *> LocationEncoding;
+  std::string ConcatenatedString;
+  DenseMap<uint64_t, uint64_t> StringIndexMap;
+  DenseMap<StringRef, uint64_t> UniqueStrings;
+
+  SmallVector<Function *> Kernels;
+  GlobalVariable *LocationsArray = nullptr;
+  SmallSetVector<CallBase *, 16> AmbiguousCalls;
+  int AllocationId = 1;
+
+  BumpPtrAllocator BPA;
+  StringSaver SS = StringSaver(BPA);
+
+  bool handleAmbiguousCalls();
+  bool handleCallStackSupport();
+  bool finalizeKernels();
+
+  bool addCtor();
+  bool addDtor();
+
+  Function *createSanitizerInitKernel();
+
+  Value *getFunctionName(IRBuilder<> &IRB);
+  Value *getFileName(IRBuilder<> &IRB);
+  Value *getLineNo(IRBuilder<> &IRB);
+
+  PtrInfoTy getPtrInfoTy(Value &Obj, const AccessInfoTy &AI) {
     if (AI.AS > 1)
-      return PoisonValue::get(InfoTy);
-    Value *&PtrInfo = PtrInfoMap[&Obj];
-    if (!PtrInfo) {
+      return {
+          PoisonValue::get(InfoTy->getContainedType(0)->getContainedType(0)),
+          PoisonValue::get(InfoTy->getContainedType(0)->getContainedType(1)),
+          PoisonValue::get(InfoTy->getContainedType(1))};
+    PtrInfoTy &AllocationInfo = AllocationInfoMap[&Obj];
+    if (!AllocationInfo.Start) {
       Instruction *IP;
       if (auto *PHI = dyn_cast<PHINode>(&Obj)) {
         IP = PHI->getParent()->getFirstNonPHIOrDbgOrLifetime();
@@ -94,14 +316,21 @@ private:
                    .getFirstNonPHIOrDbgOrAlloca();
       }
       IRBuilder<> IRB(IP);
-      PtrInfo = createCall(IRB, getGetPtrInfoFn(AI.AS),
-                           {getPC(IRB), IRB.CreateAddrSpaceCast(&Obj, PtrTy)});
+      auto *AllocationInfoStruct =
+          createCall(IRB, getGetAllocationInfoFn(AI.AS),
+                     {getPC(IRB), getSourceIndex(*AI.I),
+                      IRB.CreateAddrSpaceCast(&Obj, PtrTy)});
+      AllocationInfo = PtrInfoTy{
+          IRB.CreateExtractValue(AllocationInfoStruct, {0, 0}, "obj.base"),
+          IRB.CreateExtractValue(AllocationInfoStruct, {0, 1}, "obj.size"),
+          IRB.CreateExtractValue(AllocationInfoStruct, {1}, "obj.as")};
     }
-    return PtrInfo;
+    return AllocationInfo;
   }
 
   void removeAS(Function &Fn, SmallVectorImpl<Instruction *> &ASInsts);
 
+  bool instrumentGlobals();
   bool instrumentFunction(Function &Fn);
   void instrumentTrapInstructions(SmallVectorImpl<IntrinsicInst *> &TrapCalls);
   void instrumentCallInsts(SmallVectorImpl<CallInst *> &CallInsts);
@@ -109,7 +338,6 @@ private:
       SmallVectorImpl<LifetimeIntrinsic *> &LifetimeInsts);
   void instrumentUnreachableInstructions(
       SmallVectorImpl<UnreachableInst *> &UnreachableInsts);
-  void instrumentGEPs(SmallVectorImpl<GetElementPtrInst *> &GEPInsts);
   void instrumentAccesses(SmallVectorImpl<AccessInfoTy> &Accesses);
   void instrumentAllocaInstructions(SmallVectorImpl<AllocaInst *> &AllocaInsts);
 
@@ -122,45 +350,58 @@ private:
     return FC;
   }
 
+  /// int32_t ompx_global_thread_id();
+  FunctionCallee ThreadIDFn;
+  FunctionCallee getThreadIdFn() {
+    return getOrCreateFn(ThreadIDFn, "ompx_global_thread_id", Int32Ty, {});
+  }
+
+  /// void ompx_sync_block_acq_rel();
+  FunctionCallee SyncBlockFn;
+  FunctionCallee getSyncBlockFn() {
+    return getOrCreateFn(SyncBlockFn, "ompx_sync_block_acq_rel", VoidTy, {});
+  }
+
+  /// void __offload_san_leak_check();
+  FunctionCallee getLeakCheckFn() {
+    FunctionCallee LeakCheckFn;
+    return getOrCreateFn(LeakCheckFn, "__offload_san_leak_check", VoidTy, {});
+  }
+
   /// void __offload_san_trap_info(Int64Ty);
   FunctionCallee TrapInfoFn;
   FunctionCallee getTrapInfoFn() {
     return getOrCreateFn(TrapInfoFn, "__offload_san_trap_info", VoidTy,
-                         {/*PC*/ Int64Ty});
-  }
-
-  /// PtrTy __offload_san_gep(PtrTy, Int64Ty);
-  FunctionCallee GEPFn;
-  FunctionCallee getGEPFn() {
-    return getOrCreateFn(GEPFn, "__offload_san_gep", PtrTy, {PtrTy, Int64Ty});
+                         {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty});
   }
 
   /// void __offload_san_unreachable_info(Int64Ty);
   FunctionCallee UnreachableInfoFn;
   FunctionCallee getUnreachableInfoFn() {
     return getOrCreateFn(UnreachableInfoFn, "__offload_san_unreachable_info",
-                         VoidTy, {/*PC*/ Int64Ty});
+                         VoidTy, {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty});
   }
 
   /// PtrTy __offload_san_unpack(Int64Ty, PtrTy);
   FunctionCallee UnpackFns[NumSupportedAddressSpaces];
   FunctionCallee getUnpackFn(uint32_t AS) {
     assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
-    return getOrCreateFn(UnpackFns[AS],
-                         "__offload_san_unpack_as" + std::to_string(AS),
-                         ASPtrTy[AS], {/*PC*/ Int64Ty, PtrTy});
+    return getOrCreateFn(
+        UnpackFns[AS], "__offload_san_unpack_as" + std::to_string(AS),
+        ASPtrTy[AS], {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty, PtrTy});
   }
 
-  /// InfoTy __offload_san_get_as<AS>_info(PtrTy);
-  FunctionCallee GetPtrInfoFn[NumSupportedAddressSpaces];
-  FunctionCallee getGetPtrInfoFn(unsigned AS) {
+  /// InfoTy __offload_san_get_as<AS>_info(Int64Ty, Int64Ty, PtrTy);
+  FunctionCallee GetAllocationInfoFn[NumSupportedAddressSpaces];
+  FunctionCallee getGetAllocationInfoFn(unsigned AS) {
     assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
-    return getOrCreateFn(GetPtrInfoFn[AS],
+    return getOrCreateFn(GetAllocationInfoFn[AS],
                          "__offload_san_get_as" + std::to_string(AS) + "_info",
-                         InfoTy, {Int64Ty, PtrTy});
+                         InfoTy, {Int64Ty, Int64Ty, PtrTy});
   }
 
   /// ptr(0) __offload_san_check_as0_access_with_info(/* PC */Int64Ty,
+  /// 						     /*LocationId*/ Int64Ty,
   /// 					             /* FakePtr */ PtrTy,
   /// 				                     /* Size */Int32Ty,
   /// 				                     /* AS */Int32Ty,
@@ -176,20 +417,23 @@ private:
   FunctionCallee CheckAccessWithInfoFn[NumSupportedAddressSpaces];
   FunctionCallee getCheckAccessWithInfoFn(unsigned AS) {
     assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
-    return getOrCreateFn(
-        CheckAccessWithInfoFn[AS],
-        "__offload_san_check_as" + std::to_string(AS) + "_access_with_info",
-        ASPtrTy[AS],
-        {/*PC*/ Int64Ty, PtrTy, Int32Ty, Int32Ty, ASPtrTy[1], Int64Ty});
+    return getOrCreateFn(CheckAccessWithInfoFn[AS],
+                         "__offload_san_check_as" + std::to_string(AS) +
+                             "_access_with_info",
+                         ASPtrTy[AS],
+                         {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty, PtrTy,
+                          Int32Ty, Int32Ty, ASPtrTy[1], Int64Ty});
   }
 
-  /// PtrTy __offload_san_register_alloca(/* PC */ Int64Ty,
+  /// PtrTy __offload_san_register_alloca(/* PC */ Int64Ty, /*LocationId*/
+  /// Int64Ty,
   /// 						/* RealPtr */ AllocaPtrTy,
   /// 						/* Size */ Int32Ty);
   FunctionCallee AllocaRegisterFn;
   FunctionCallee getAllocaRegisterFn() {
-    getOrCreateFn(AllocaRegisterFn, "__offload_san_register_alloca", PtrTy,
-                  {/*PC*/ Int64Ty, AllocaPtrTy, Int32Ty});
+    getOrCreateFn(
+        AllocaRegisterFn, "__offload_san_register_alloca", PtrTy,
+        {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty, AllocaPtrTy, Int32Ty});
     //    cast<Function>(AllocaRegisterFn.getCallee())
     //        ->addRetAttr(Attribute::NoAlias);
     return AllocaRegisterFn;
@@ -226,8 +470,8 @@ private:
       PointerType::get(Ctx, 0), PointerType::get(Ctx, 1),
       PointerType::get(Ctx, 2), PointerType::get(Ctx, 3),
       PointerType::get(Ctx, 4), PointerType::get(Ctx, 5)};
-  Type *PtrInfoTy = StructType::get(Ctx, {ASPtrTy[1], Int64Ty}, true);
-  Type *InfoTy = StructType::get(Ctx, {PtrInfoTy, Int32Ty}, true);
+  Type *AllocationInfoTy = StructType::get(Ctx, {ASPtrTy[1], Int64Ty}, true);
+  Type *InfoTy = StructType::get(Ctx, {AllocationInfoTy, Int32Ty}, true);
 };
 
 } // end anonymous namespace
@@ -406,10 +650,10 @@ void OffloadSanitizerImpl::instrumentCallInsts(
       if (AS)
         if (auto *AC = dyn_cast<AddrSpaceCastInst>(Op))
           PlainOp = AC->getPointerOperand();
-      auto *CB =
-          createCall(IRB, getUnpackFn(AS),
-                     {getPC(IRB), IRB.CreateAddrSpaceCast(PlainOp, PtrTy)},
-                     Op->getName() + ".unpack");
+      auto *CB = createCall(IRB, getUnpackFn(AS),
+                            {getPC(IRB), getSourceIndex(*CI),
+                             IRB.CreateAddrSpaceCast(PlainOp, PtrTy)},
+                            Op->getName() + ".unpack");
       CI->setArgOperand(I, CB);
     }
   }
@@ -425,7 +669,7 @@ void OffloadSanitizerImpl::instrumentTrapInstructions(
     SmallVectorImpl<IntrinsicInst *> &TrapCalls) {
   for (auto *II : TrapCalls) {
     IRBuilder<> IRB(II);
-    createCall(IRB, getTrapInfoFn(), {getPC(IRB)});
+    createCall(IRB, getTrapInfoFn(), {getPC(IRB), getSourceIndex(*II)});
   }
 }
 
@@ -438,22 +682,7 @@ void OffloadSanitizerImpl::instrumentUnreachableInstructions(
         if (CI->getIntrinsicID() == Intrinsic::trap)
           continue;
     IRBuilder<> IRB(II);
-    createCall(IRB, getUnreachableInfoFn(), {getPC(IRB)});
-  }
-}
-
-void OffloadSanitizerImpl::instrumentGEPs(
-    SmallVectorImpl<GetElementPtrInst *> &GEPInsts) {
-  for (auto *GEP : GEPInsts) {
-    IRBuilder<> IRB(GEP->getNextNode());
-    auto *Ptr = GEP->getPointerOperand();
-    GEP->setOperand(
-        GEP->getPointerOperandIndex(),
-        ConstantPointerNull::get(cast<PointerType>(Ptr->getType())));
-    auto *Offset = IRB.CreatePtrToInt(GEP, Int64Ty);
-    auto *NewGEP = createCall(IRB, getGEPFn(), {Ptr, Offset});
-    GEP->replaceUsesWithIf(NewGEP,
-                           [&](Use &U) { return U.getUser() != Offset; });
+    createCall(IRB, getUnreachableInfoFn(), {getPC(IRB), getSourceIndex(*II)});
   }
 }
 
@@ -471,7 +700,7 @@ void OffloadSanitizerImpl::instrumentAccesses(
 
     IRBuilder<> IRB(AI.I);
     SmallVector<Value *> Args;
-    Args.append({getPC(IRB), FakePtr, Size});
+    Args.append({getPC(IRB), getSourceIndex(*AI.I), FakePtr, Size});
 
     auto *Obj = getUnderlyingObject(FakePtr);
     if (AI.AS == 0)
@@ -482,16 +711,10 @@ void OffloadSanitizerImpl::instrumentAccesses(
         AI.AS = 1;
     if (AI.AS == 1)
       AI.AS = 0;
-    Value *PtrInfo = getPtrInfoForObj(*Obj, AI);
-    Instruction *IP = AI.I;
-    if (auto *PII = dyn_cast<Instruction>(PtrInfo))
-      IP = PII->getNextNode();
-    {
-      IRBuilder<> IRB(IP);
-      Args.push_back(IRB.CreateExtractValue(PtrInfo, {1}, "obj.as"));
-      Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 0}, "obj.base"));
-      Args.push_back(IRB.CreateExtractValue(PtrInfo, {0, 1}, "obj.size"));
-    }
+    const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
+    Args.push_back(PtrInfo.AS);
+    Args.push_back(PtrInfo.Start);
+    Args.push_back(PtrInfo.Length);
     FunctionCallee FC = getCheckAccessWithInfoFn(AI.AS);
 
     auto *RealPtr = createCall(IRB, FC, Args);
@@ -522,8 +745,8 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
 
     IRBuilder<> IRB(AI->getNextNode());
     auto *Size = ConstantInt::get(Int32Ty, TS);
-    auto *FakePtr =
-        createCall(IRB, getAllocaRegisterFn(), {getPC(IRB), AI, Size});
+    auto *FakePtr = createCall(IRB, getAllocaRegisterFn(),
+                               {getPC(IRB), getSourceIndex(*AI), AI, Size});
     for (auto *U : AI->users()) {
       auto *UI = cast<Instruction>(U);
       if (UI == FakePtr)
@@ -545,7 +768,11 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
 bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   if (!shouldInstrumentFunction(&Fn))
     return false;
-  PtrInfoMap.clear();
+
+  if (Fn.getCallingConv() == CallingConv::AMDGPU_KERNEL)
+    Kernels.push_back(&Fn);
+
+  AllocationInfoMap.clear();
 
   SmallVector<UnreachableInst *> UnreachableInsts;
   SmallVector<IntrinsicInst *> TrapCalls;
@@ -555,7 +782,6 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   SmallVector<LifetimeIntrinsic *> LifetimeInsts;
   SmallVector<CallInst *> CallInsts;
   SmallVector<AddrSpaceCastInst *> ASCInsts;
-  SmallVector<GetElementPtrInst *> GEPInsts;
 
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
   for (auto &It : RPOT) {
@@ -605,6 +831,8 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
         break;
       case Instruction::Call: {
         auto &CI = cast<CallInst>(I);
+        if (CI.isIndirectCall())
+          AmbiguousCalls.insert(&CI);
         bool Handled = false;
         if (auto *II = dyn_cast<IntrinsicInst>(&CI)) {
           switch (II->getIntrinsicID()) {
@@ -635,7 +863,6 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
       case Instruction::GetElementPtr:
         if (isASType(*I.getType()))
           ASInsts.push_back(&I);
-        GEPInsts.push_back(cast<GetElementPtrInst>(&I));
         break;
       default:
         if (isASType(*I.getType()))
@@ -652,9 +879,8 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   removeAS(Fn, ASInsts);
   instrumentCallInsts(CallInsts);
   instrumentLifetimeIntrinsics(LifetimeInsts);
-  //  instrumentTrapInstructions(TrapCalls);
-  //  instrumentUnreachableInstructions(UnreachableInsts);
-  // instrumentGEPs(GEPInsts);
+  instrumentTrapInstructions(TrapCalls);
+  instrumentUnreachableInstructions(UnreachableInsts);
   instrumentAccesses(AccessInfos);
   instrumentAllocaInstructions(AllocaInsts);
 
@@ -682,11 +908,215 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   return true;
 }
 
-bool OffloadSanitizerImpl::instrument() {
+bool OffloadSanitizerImpl::handleAmbiguousCalls() {
+  if (AmbiguousCalls.empty())
+    return false;
+
+  SmallVector<CallBase *> AmbiguousCallsOrdered;
+  SmallVector<Constant *> AmbiguousCallsMapping;
+  for (size_t I = 0; I < AmbiguousCalls.size(); ++I) {
+    CallBase &CB = *AmbiguousCalls[I];
+    AmbiguousCallsOrdered.push_back(&CB);
+    AmbiguousCallsMapping.push_back(getSourceIndex(CB));
+  }
+
+  uint64_t AmbiguousCallsBitWidth =
+      llvm::Log2_64_Ceil(AmbiguousCalls.size() + 1);
+
+  new GlobalVariable(M, Int64Ty, /*isConstant=*/true,
+                     GlobalValue::ExternalLinkage,
+                     ConstantInt::get(Int64Ty, AmbiguousCallsBitWidth),
+                     "__offload_san_num_ambiguous_calls", nullptr,
+                     GlobalValue::ThreadLocalMode::NotThreadLocal, 1);
+
+  size_t NumAmbiguousCalls = AmbiguousCalls.size();
+  {
+    auto *ArrayTy = ArrayType::get(Int64Ty, NumAmbiguousCalls);
+    auto *GV = new GlobalVariable(
+        M, ArrayTy, /*isConstant=*/true, GlobalValue::ExternalLinkage,
+        ConstantArray::get(ArrayTy, AmbiguousCallsMapping),
+        "__offload_san_ambiguous_calls_mapping", nullptr,
+        GlobalValue::ThreadLocalMode::NotThreadLocal, 4);
+    GV->setVisibility(GlobalValue::ProtectedVisibility);
+  }
+
+  auto *ArrayTy = ArrayType::get(Int64Ty, 1024);
+  LocationsArray = new GlobalVariable(
+      M, ArrayTy, /*isConstant=*/false, GlobalValue::PrivateLinkage,
+      UndefValue::get(ArrayTy), "__offload_san_calls", nullptr,
+      GlobalValue::ThreadLocalMode::NotThreadLocal, SHARED_ADDRSPACE);
+
+  for (const auto &It : llvm::enumerate(AmbiguousCallsOrdered)) {
+    IRBuilder<> IRB(It.value());
+    Value *Idx = createCall(IRB, getThreadIdFn(), {}, "san.gtid");
+    Value *Ptr = IRB.CreateGEP(Int64Ty, LocationsArray, {Idx});
+    Value *OldVal = IRB.CreateLoad(Int64Ty, Ptr);
+    Value *OldValShifted = IRB.CreateShl(
+        OldVal, ConstantInt::get(Int64Ty, AmbiguousCallsBitWidth));
+    Value *NewVal = IRB.CreateBinOp(Instruction::Or, OldValShifted,
+                                    ConstantInt::get(Int64Ty, It.index() + 1));
+    IRB.CreateStore(NewVal, Ptr);
+    IRB.SetInsertPoint(It.value()->getNextNode());
+    IRB.CreateStore(OldVal, Ptr);
+  }
+
+  return true;
+}
+
+bool OffloadSanitizerImpl::handleCallStackSupport() {
+  if (LocationMap.empty())
+    return false;
+
+  handleAmbiguousCalls();
+
+  auto *NamesTy = ArrayType::get(Int8Ty, ConcatenatedString.size() + 1);
+  auto *Names = new GlobalVariable(
+      M, NamesTy, /*isConstant=*/true, GlobalValue::ExternalLinkage,
+      ConstantDataArray::getString(Ctx, ConcatenatedString),
+      "__offload_san_location_names", nullptr,
+      GlobalValue::ThreadLocalMode::NotThreadLocal, 4);
+  Names->setVisibility(GlobalValue::ProtectedVisibility);
+
+  auto *ArrayTy = ArrayType::get(Int64Ty, LocationEncoding.size());
+  auto *GV = new GlobalVariable(
+      M, ArrayTy, /*isConstant=*/true, GlobalValue::ExternalLinkage,
+      ConstantArray::get(ArrayTy, LocationEncoding), "__offload_san_locations",
+      nullptr, GlobalValue::ThreadLocalMode::NotThreadLocal, 4);
+  GV->setVisibility(GlobalValue::ProtectedVisibility);
+
+  return true;
+}
+
+bool OffloadSanitizerImpl::finalizeKernels() {
+  for (auto *Kernel : Kernels) {
+    Function *InitKernelFn = createSanitizerInitKernel();
+    IRBuilder<> IRB(&*Kernel->getEntryBlock().getFirstNonPHIOrDbgOrAlloca());
+    createCall(IRB, InitKernelFn, {});
+  }
+  return Kernels.size();
+}
+
+bool OffloadSanitizerImpl::addCtor() {
+  Function *CtorFn =
+      Function::Create(FunctionType::get(VoidTy, false),
+                       GlobalValue::PrivateLinkage, "__offload_san_ctor", &M);
+  CtorFn->addFnAttr(Attribute::DisableSanitizerInstrumentation);
+
+  BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", CtorFn);
+  IRBuilder<> IRB(Entry);
+
+  IRB.CreateRetVoid();
+
+  appendToGlobalCtors(M, CtorFn, 0, nullptr);
+  return true;
+}
+
+bool OffloadSanitizerImpl::addDtor() {
+  Function *DtorFn =
+      Function::Create(FunctionType::get(VoidTy, false),
+                       GlobalValue::PrivateLinkage, "__offload_san_dtor", &M);
+  DtorFn->addFnAttr(Attribute::DisableSanitizerInstrumentation);
+  BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", DtorFn);
+  IRBuilder<> IRB(Entry);
+
+  createCall(IRB, getLeakCheckFn());
+
+  IRB.CreateRetVoid();
+  appendToGlobalDtors(M, DtorFn, 0, nullptr);
+  return true;
+}
+
+Function *OffloadSanitizerImpl::createSanitizerInitKernel() {
+  if (auto *Fn = M.getFunction("__offload_san_init_kernel"))
+    return Fn;
+
+  Function *InitSharedFn = Function::Create(FunctionType::get(VoidTy, false),
+                                            GlobalValue::PrivateLinkage,
+                                            "__offload_san_init_kernel", &M);
+  InitSharedFn->addFnAttr(Attribute::DisableSanitizerInstrumentation);
+
+  auto *EntryBB = BasicBlock::Create(Ctx, "entry", InitSharedFn);
+  IRBuilder<> IRB(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
+  auto *Barrier = createCall(IRB, getSyncBlockFn());
+  IRB.CreateRetVoid();
+  IRB.SetInsertPoint(Barrier);
+
+  if (!AmbiguousCalls.empty()) {
+    Value *Idx = createCall(IRB, getThreadIdFn(), {}, "san.gtid");
+    Value *Ptr = IRB.CreateGEP(Int64Ty, LocationsArray, {Idx});
+    IRB.CreateStore(ConstantInt::get(Int64Ty, 42), Ptr);
+
+    auto *CondV = IRB.CreateICmpEQ(Idx, IRB.getInt32(0));
+
+    auto *CondTI = SplitBlockAndInsertIfThen(CondV, Barrier, false);
+    IRB.SetInsertPoint(CondTI);
+    auto *AmbiguousCallsInfoPtrGV =
+        M.getNamedGlobal("__offload_san_ambiguous_calls_info_ptr");
+    assert(AmbiguousCallsInfoPtrGV);
+    IRB.CreateStore(LocationsArray, AmbiguousCallsInfoPtrGV);
+  }
+
+  InitSharedFn->dump();
+  return InitSharedFn;
+}
+
+constexpr StringRef ShadowGlobalPrefix = "__offload_san_global.";
+constexpr StringRef ShadowSharedPrefix = "__offload_san_shared.";
+constexpr StringRef GlobalIgnorePrefix[] = {"llvm.", "__offload_san", "__san"};
+static bool canInstrumentGlobal(const GlobalVariable &G) {
+  auto Name = G.getName();
+  if (Name.empty())
+    return false;
+  for (const auto &S : GlobalIgnorePrefix) {
+    if (Name.starts_with(S))
+      return false;
+  }
+  return true;
+}
+
+static Twine getShadowGlobalName(const GlobalValue &G, bool IsShared) {
+  return (IsShared ? ShadowSharedPrefix : ShadowGlobalPrefix) + G.getName();
+}
+
+bool OffloadSanitizerImpl::instrumentGlobals() {
   bool Changed = false;
+  for (GlobalVariable &GV : M.globals()) {
+    if (!canInstrumentGlobal(GV))
+      continue;
+
+    bool IsShared = isSharedGlobal(GV);
+    GlobalVariable *ShadowVar;
+    if (IsShared) {
+      ShadowVar = new GlobalVariable(
+          M, ASPtrTy[SHARED_ADDRSPACE], false, GlobalValue::ExternalLinkage,
+          UndefValue::get(ASPtrTy[SHARED_ADDRSPACE]),
+          getShadowGlobalName(GV, IsShared), &GV,
+          GlobalValue::ThreadLocalMode::NotThreadLocal, SHARED_ADDRSPACE);
+    } else {
+      ShadowVar =
+          new GlobalVariable(M, IntptrTy, false, GlobalValue::ExternalLinkage,
+                             Constant::getNullValue(IntptrTy),
+                             getShadowGlobalName(GV, IsShared), &GV);
+    }
+
+    ShadowVar->setVisibility(GlobalValue::ProtectedVisibility);
+    //    ShadowGlobalMap[&GV] = ShadowVar;
+    Changed = true;
+  }
+
+  return Changed;
+}
+
+bool OffloadSanitizerImpl::instrument() {
+  bool Changed = instrumentGlobals();
 
   for (Function &Fn : M)
     Changed |= instrumentFunction(Fn);
+
+  Changed |= addCtor();
+  Changed |= addDtor();
+  Changed |= handleCallStackSupport();
+  Changed |= finalizeKernels();
 
   removeFromUsedLists(M, [&](Constant *C) {
     if (!C->getName().starts_with("__offload_san"))

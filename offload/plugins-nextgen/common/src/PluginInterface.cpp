@@ -1081,6 +1081,14 @@ Error GenericDeviceTy::setupSanitizerEnvironment(GenericPluginTy &Plugin,
     }
     DelFns.push_back(&*KernelOrErr);
   }
+  {
+    auto KernelOrErr = getKernel("__sanitizer_get_ptr_info", &Image);
+    if (auto Err = KernelOrErr.takeError()) {
+      consumeError(std::move(Err));
+      return Plugin::success();
+    }
+    InfoFns[&Image] = &*KernelOrErr;
+  }
   return Plugin::success();
 }
 
@@ -1537,7 +1545,9 @@ Error GenericDeviceTy::launchKernel(void *EntryPtr, void **ArgPtrs,
                                     ptrdiff_t *ArgOffsets,
                                     KernelArgsTy &KernelArgs,
                                     __tgt_async_info *AsyncInfo) {
-  AsyncInfoWrapperTy AsyncInfoWrapper(*this, nullptr);
+  AsyncInfoWrapperTy AsyncInfoWrapper(
+      *this,
+      Plugin.getRecordReplay().isRecordingOrReplaying() ? nullptr : AsyncInfo);
 
   GenericKernelTy &GenericKernel =
       *reinterpret_cast<GenericKernelTy *>(EntryPtr);
@@ -1559,6 +1569,9 @@ Error GenericDeviceTy::launchKernel(void *EntryPtr, void **ArgPtrs,
 
   // 'finalize' here to guarantee next record-replay actions are in-sync
   AsyncInfoWrapper.finalize(Err);
+
+  if (!Err)
+    Err = synchronize(AsyncInfo);
 
   ErrorReporter::checkAndReportError(*this, AsyncInfo);
 
@@ -1759,6 +1772,48 @@ void GenericDeviceTy::removeFakeHostPtr(void *FakeHstPtr) {
     REPORT("Failure: %s\n", toString(std::move(Err)).data());
     assert(0);
   }
+}
+
+void GenericDeviceTy::getFakeHostPtrInfo(DeviceImageTy &Image, uint32_t SlotId,
+                                         void *&DevicePtr, uint32_t &Size) {
+  if (!InfoFns.count(&Image))
+    return;
+  auto *InfoFP = InfoFns[&Image];
+  KernelArgsTy Args = {};
+  Args.NumTeams[0] = 1;
+  Args.ThreadLimit[0] = 1;
+  AsyncInfoWrapperTy AsyncInfoWrapper(*this, nullptr);
+  void **PtrOut = reinterpret_cast<void **>(
+      allocate(sizeof(void *), nullptr, TARGET_ALLOC_HOST));
+  uint32_t *LengthOut = reinterpret_cast<uint32_t *>(
+      allocate(sizeof(uint32_t), nullptr, TARGET_ALLOC_HOST));
+  struct {
+    uint32_t Slot;
+    void **Ptr;
+    uint32_t *Length;
+  } KernelArgs{SlotId, PtrOut, LengthOut};
+  KernelLaunchParamsTy ArgPtrs{sizeof(KernelArgs), &KernelArgs, nullptr};
+  Args.ArgPtrs = reinterpret_cast<void **>(&ArgPtrs);
+  Args.Flags.IsCUDA = true;
+  if (auto Err = InfoFP->launch(*this, Args.ArgPtrs, nullptr, Args,
+                                AsyncInfoWrapper)) {
+    AsyncInfoWrapper.finalize(Err);
+    REPORT("Failure: %s\n", toString(std::move(Err)).data());
+    return;
+  }
+
+  Error Err = Plugin::success();
+  AsyncInfoWrapper.finalize(Err);
+  if (Err) {
+    REPORT("Failure: %s\n", toString(std::move(Err)).data());
+    assert(0);
+    return;
+  }
+
+  DevicePtr = *PtrOut;
+  Size = *LengthOut;
+
+  return;
 }
 
 Error GenericPluginTy::init() {

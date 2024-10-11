@@ -109,4 +109,6 @@ uint32_t getNumberOfProcessorElements();
 
 } // namespace ompx
 
+extern "C" uint32_t ompx_global_thread_id();
+
 #endif

@@ -196,12 +196,13 @@ bool isCombinedConstruct(Directive D) {
 std::string prettifyFunctionName(StringRef FunctionName) {
   // Internalized functions have the right name, but simply a suffix.
   if (FunctionName.ends_with(".internalized"))
-    return FunctionName.drop_back(sizeof("internalized")).str() +
+    return prettifyFunctionName(
+               FunctionName.drop_back(sizeof("internalized"))) +
            " (internalized)";
   unsigned LineNo = 0;
   auto ParentName = deconstructOpenMPKernelName(FunctionName, LineNo);
   if (LineNo == 0)
-    return FunctionName.str();
+    return demangle(FunctionName);
   return ("omp target in " + ParentName + " @ " + std::to_string(LineNo) +
           " (" + FunctionName + ")")
       .str();

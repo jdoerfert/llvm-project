@@ -19,15 +19,24 @@ using namespace ompx;
 #define _INLINE [[gnu::always_inline]]
 #define _NOINLINE [[gnu::noinline]]
 #define _FLATTEN [[gnu::flatten]]
-#define _SAN_ATTRS                                                             \
-  [[clang::disable_sanitizer_instrumentation, gnu::used, gnu::retain]]
-#define _SAN_ENTRY_ATTRS _FLATTEN _INLINE _SAN_ATTRS
+#define _KEEP [[gnu::used, gnu::retain]]
+#define _SAN_ATTRS [[clang::disable_sanitizer_instrumentation]]
+#define _SAN_ENTRY_ATTRS _FLATTEN _INLINE _SAN_ATTRS _KEEP
 
 #pragma omp begin declare target device_type(nohost)
 
-[[gnu::visibility("protected")]] _SAN_ATTRS SanitizerEnvironmentTy
-    *__sanitizer_environment_ptr;
+[[gnu::visibility(
+    "protected")]] _KEEP SanitizerEnvironmentTy *__sanitizer_environment_ptr;
+[[gnu::visibility("protected")]] _KEEP int64_t
+    [[clang::address_space(3)]] *__offload_san_ambiguous_calls_info_ptr =
+        nullptr;
+
 namespace {
+
+int64_t getAmbiguouesCallId() {
+  auto GTId = ompx_global_thread_id();
+  return __offload_san_ambiguous_calls_info_ptr[GTId];
+}
 
 enum {
   MallocAS = 1,
@@ -64,12 +73,18 @@ _SAN_ATTRS void spinWait(SanitizerEnvironmentTy &SE) {
   //  __builtin_trap();
 }
 
-_SAN_ATTRS void setLocation(SanitizerEnvironmentTy &SE, uint64_t PC) {
+struct FakePtrTy;
+_SAN_ATTRS void setAccessInfo(SanitizerEnvironmentTy &SE, const FakePtrTy &FP);
+
+_SAN_ATTRS void setLocation(SanitizerEnvironmentTy &SE, uint64_t PC,
+                            uint64_t LocationId) {
   for (int I = 0; I < 3; ++I) {
     SE.ThreadId[I] = mapping::getThreadIdInBlock(I);
     SE.BlockId[I] = mapping::getBlockIdInKernel(I);
   }
   SE.PC = PC;
+  SE.LocationId = LocationId;
+  SE.CallId = getAmbiguouesCallId();
 
   // This is the last step to initialize the sanitizer environment, time to
   // trap via the spinWait. Flush the memory writes and signal for the end.
@@ -78,8 +93,8 @@ _SAN_ATTRS void setLocation(SanitizerEnvironmentTy &SE, uint64_t PC) {
 }
 
 _SAN_ATTRS _FLATTEN _NOINLINE void
-raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode,
-                    uint64_t PC) {
+raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode, uint64_t PC,
+                    uint64_t LocationId, const FakePtrTy &FP) {
   SanitizerEnvironmentTy &SE = *__sanitizer_environment_ptr;
   bool HasLock = getSanitizerEnvironmentLock(SE, ErrorCode);
 
@@ -90,8 +105,10 @@ raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode,
 
   // One thread will set the location information and signal that the rest of
   // the wapr that the actual trap can be executed now.
-  if (HasLock)
-    setLocation(SE, PC);
+  if (HasLock) {
+    setAccessInfo(SE, FP);
+    setLocation(SE, PC, LocationId);
+  }
 
   synchronize::warp(lanes::All);
 
@@ -114,7 +131,8 @@ struct FakePtrTy {
   FakePtrTy(void *FakePtr) { U.VPtr = FakePtr; }
 
   _SAN_ATTRS
-  FakePtrTy(void *FakePtr, int32_t AS, bool Checked = false, uint64_t PC = 0)
+  FakePtrTy(void *FakePtr, int32_t AS, bool Checked, uint64_t PC,
+            uint64_t LocationId)
       : FakePtrTy(FakePtr) {
     if (Checked)
       return;
@@ -124,18 +142,16 @@ struct FakePtrTy {
     if (BadMagic | BadAS)
       raiseExecutionError(BadMagic ? SanitizerEnvironmentTy::BAD_PTR
                                    : SanitizerEnvironmentTy::AS_MISMATCH,
-                          uint64_t(PC));
+                          uint64_t(PC), LocationId, *this);
   }
 
   _SAN_ATTRS
-  uint32_t getMaxSize() { return (1u << FAKE_PTR_BASE_BITS_OFFSET) - 1; }
+  uint64_t getMaxSize() { return (1UL << 40) - 1; }
 
   template <uint32_t AS>
   _SAN_ATTRS static FakePtrTy create(void [[clang::address_space(AS)]] * Ptr,
-                                     uint32_t Size) {
+                                     uint32_t Size, uint64_t LocationId) {
     FakePtrTy FP;
-    if (Size > FP.getMaxSize())
-      raiseExecutionError(SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE, Size);
 
     FP.U.Enc32.RealAS = AS;
     FP.U.Enc32.RealPtr = uint64_t(Ptr);
@@ -146,9 +162,14 @@ struct FakePtrTy {
   }
 
   template <>
-  _SAN_ATTRS FakePtrTy create<MallocAS>(
-      void [[clang::address_space(MallocAS)]] * Ptr, uint32_t Size) {
+  _SAN_ATTRS FakePtrTy create<MallocAS>(void
+                                            [[clang::address_space(MallocAS)]] *
+                                            Ptr,
+                                        uint32_t Size, uint64_t LocationId) {
     FakePtrTy FP;
+    if (Size > FP.getMaxSize())
+      raiseExecutionError(SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE, Size,
+                          LocationId, FakePtrTy((void *)(uint64_t)Size));
 
     uint32_t SlotId = PtrInfoCnt++;
     PtrInfos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
@@ -163,7 +184,8 @@ struct FakePtrTy {
   _SAN_ATTRS static void registerHost(void *Ptr, uint32_t Size,
                                       uint32_t SlotId) {
     if (SlotId >= (1 << 14))
-      raiseExecutionError(SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE, SlotId);
+      raiseExecutionError(SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE, SlotId,
+                          -1, FakePtrTy((void *)(uint64_t)Size));
 
     PtrInfos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
     PtrInfos[SlotId].Size = Size;
@@ -174,42 +196,43 @@ struct FakePtrTy {
     PtrInfos[FP.U.Enc64.SlotId].Size = 0;
   }
 
+  _SAN_ATTRS static void getHostPtrInfo(uint32_t SlotId, void **Ptr,
+                                        uint32_t *Size) {
+    *Ptr = (void *)(uint64_t)PtrInfos[SlotId].Base;
+    *Size = PtrInfos[SlotId].Size;
+  }
+
   _SAN_ATTRS
-  operator void *() { return U.VPtr; }
+  operator void *() const { return U.VPtr; }
 
   template <uint32_t AS>
       _SAN_ATTRS void [[clang::address_space(AS)]] *
-      check(uint64_t PC, uint32_t Size) {
+      check(uint64_t PC, uint64_t LocationId, uint32_t Size) {
     uint64_t MaxOffset = int64_t(U.Enc32.Offset) + uint64_t(Size);
     if (MaxOffset < Size || MaxOffset > uint64_t(U.Enc32.Size))
-      raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC);
+      raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC, LocationId,
+                          *this);
     return unpack<AS>(PC);
   }
 
   template <>
       _SAN_ATTRS void [[clang::address_space(MallocAS)]] *
-      check<MallocAS>(uint64_t PC, uint32_t Size) {
+      check<MallocAS>(uint64_t PC, uint64_t LocationId, uint32_t Size) {
     uint32_t SlotId = U.Enc64.SlotId;
-    return checkWithBase<MallocAS>(PC, Size, PtrInfos[SlotId]);
+    return checkWithBase<MallocAS>(PC, LocationId, Size, PtrInfos[SlotId]);
   }
 
   template <uint32_t AS>
       _SAN_ATTRS void [[clang::address_space(AS)]] *
-      checkWithBase(uint64_t PC, uint32_t Size, PtrInfoTy PI) {
+      checkWithBase(uint64_t PC, uint64_t LocationId, uint32_t Size,
+                    PtrInfoTy PI) {
     static_assert(AS == MallocAS, "");
     int64_t Offset = int64_t(U.Enc64.Offset);
     uint64_t MaxOffset = Offset + uint64_t(Size);
     if (MaxOffset < Size || MaxOffset > PI.Size)
-      raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC);
+      raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC, LocationId,
+                          *this);
     return PI.Base + Offset;
-  }
-
-  _SAN_ATTRS void advance(int64_t Offset) {
-    //    if constexpr (AS == MallocAS) {
-    U.Enc64.Offset += Offset;
-    //    } else {
-    //      U.Enc32.Offset += Offset;
-    //    }
   }
 
   _SAN_ATTRS PtrInfoTy getPtrInfo() {
@@ -245,6 +268,10 @@ struct FakePtrTy {
   }
 };
 
+_SAN_ATTRS void setAccessInfo(SanitizerEnvironmentTy &SE, const FakePtrTy &FP) {
+  SE.FP.VPtr = FP;
+}
+
 #pragma omp begin declare variant match(device = {arch(amdgcn)})
 // TODO: On NVIDIA we currently use 64 bit pointers, see -fcuda-short-ptr
 static_assert(sizeof(void [[clang::address_space(AllocaAS)]] *) == 4,
@@ -254,36 +281,50 @@ static_assert(sizeof(void [[clang::address_space(AllocaAS)]] *) == 4,
 } // namespace
 
 extern "C" {
-_SAN_ENTRY_ATTRS void __offload_san_trap_info(uint64_t PC) {
-  raiseExecutionError(SanitizerEnvironmentTy::TRAP, PC);
+_SAN_ENTRY_ATTRS void __offload_san_trap_info(uint64_t PC,
+                                              uint64_t LocationId) {
+  raiseExecutionError(SanitizerEnvironmentTy::TRAP, PC, LocationId,
+                      FakePtrTy());
 }
 
-_SAN_ENTRY_ATTRS void __offload_san_unreachable_info(uint64_t PC) {
-  raiseExecutionError(SanitizerEnvironmentTy::UNREACHABLE, PC);
+_SAN_ENTRY_ATTRS void __offload_san_unreachable_info(uint64_t PC,
+                                                     uint64_t LocationId) {
+  raiseExecutionError(SanitizerEnvironmentTy::UNREACHABLE, PC, LocationId,
+                      FakePtrTy());
 }
 
-_SAN_ENTRY_ATTRS void *__offload_san_register_alloca(
-    uint64_t PC, void [[clang::address_space(AllocaAS)]] * Ptr, uint32_t Size) {
-  return FakePtrTy::create<AllocaAS>(Ptr, Size);
+_SAN_ENTRY_ATTRS void *
+__offload_san_register_alloca(uint64_t PC, uint64_t LocationId,
+                              void [[clang::address_space(AllocaAS)]] * Ptr,
+                              uint32_t Size) {
+  return FakePtrTy::create<AllocaAS>(Ptr, Size, LocationId);
 }
 
-_SAN_ENTRY_ATTRS void *__offload_san_register_malloc(
-    uint64_t PC, void [[clang::address_space(MallocAS)]] * Ptr, uint32_t Size) {
-  return FakePtrTy::create<MallocAS>(Ptr, Size);
+_SAN_ENTRY_ATTRS void *
+__offload_san_register_malloc(uint64_t PC, uint64_t LocationId,
+                              void [[clang::address_space(MallocAS)]] * Ptr,
+                              uint32_t Size) {
+  return FakePtrTy::create<MallocAS>(Ptr, Size, LocationId);
 }
 
 _SAN_ENTRY_ATTRS void __offload_san_register_host(void *Ptr, uint32_t Size,
-                                                  uint32_t Slot) {
-  FakePtrTy::registerHost(Ptr, Size, Slot);
+                                                  uint32_t SlotId) {
+  FakePtrTy::registerHost(Ptr, Size, SlotId);
 }
 _SAN_ENTRY_ATTRS void __offload_san_unregister_host(void *Ptr) {
   FakePtrTy::unregisterHost(Ptr);
 }
 
+_SAN_ENTRY_ATTRS void __offload_san_get_ptr_info(uint32_t SlotId, void **Ptr,
+                                                 uint32_t *Size) {
+  FakePtrTy::getHostPtrInfo(SlotId, Ptr, Size);
+}
+
 #define CHECK_FOR_AS(AS)                                                       \
   _SAN_ENTRY_ATTRS void [[clang::address_space(AS)]] *                         \
-      __offload_san_unpack_as##AS(uint64_t PC, void *FakePtr) {                \
-    FakePtrTy FP(FakePtr, AS, true, PC);                                       \
+      __offload_san_unpack_as##AS(uint64_t PC, uint64_t LocationId,            \
+                                  void *FakePtr) {                             \
+    FakePtrTy FP(FakePtr, AS, true, PC, LocationId);                           \
     if constexpr (AS == MallocAS)                                              \
       return FP.unpack<AS>(PC);                                                \
     if constexpr (AS == AllocaAS)                                              \
@@ -291,9 +332,9 @@ _SAN_ENTRY_ATTRS void __offload_san_unregister_host(void *Ptr) {
     return (void [[clang::address_space(AS)]] *)FakePtr;                       \
   }                                                                            \
                                                                                \
-  _SAN_ENTRY_ATTRS InfoTy __offload_san_get_as##AS##_info(uint64_t PC,         \
-                                                          void *FakePtr) {     \
-    FakePtrTy FP(FakePtr, AS, true, PC);                                       \
+  _SAN_ENTRY_ATTRS InfoTy __offload_san_get_as##AS##_info(                     \
+      uint64_t PC, uint64_t LocationId, void *FakePtr) {                       \
+    FakePtrTy FP(FakePtr, AS, true, PC, LocationId);                           \
     if constexpr (AS == MallocAS)                                              \
       return {FP.getPtrInfo(), MallocAS};                                      \
     return {{}, AS};                                                           \
@@ -301,16 +342,18 @@ _SAN_ENTRY_ATTRS void __offload_san_unregister_host(void *Ptr) {
                                                                                \
   _SAN_ENTRY_ATTRS void [[clang::address_space(AS)]] *                         \
       __offload_san_check_as##AS##_access_with_info(                           \
-          uint64_t PC, void *FakePtr, uint32_t Size, uint32_t AllocAS,         \
+          uint64_t PC, uint64_t LocationId, void *FakePtr, uint32_t Size,      \
+          uint32_t AllocAS,                                                    \
           char [[clang::address_space(MallocAS)]] * AllocBase,                 \
           uint64_t AllocSize) {                                                \
     if constexpr (AS == MallocAS) {                                            \
-      FakePtrTy FP(FakePtr, AS, false, PC);                                    \
-      return FP.checkWithBase<AS>(PC, Size, {AllocBase, AllocSize});           \
+      FakePtrTy FP(FakePtr, AS, false, PC, LocationId);                        \
+      return FP.checkWithBase<AS>(PC, LocationId, Size,                        \
+                                  {AllocBase, AllocSize});                     \
     }                                                                          \
     if constexpr (AS == AllocaAS) {                                            \
-      FakePtrTy FP(FakePtr, AS, false, PC);                                    \
-      return FP.check<AS>(PC, Size);                                           \
+      FakePtrTy FP(FakePtr, AS, false, PC, LocationId);                        \
+      return FP.check<AS>(PC, LocationId, Size);                               \
     }                                                                          \
     return (void [[clang::address_space(AS)]] *)FakePtr;                       \
   }
@@ -321,7 +364,8 @@ CHECK_FOR_AS(4)
 CHECK_FOR_AS(5)
 #undef CHECK_FOR_AS
 
-_SAN_ENTRY_ATTRS void *__offload_san_unpack_as0(uint64_t PC, void *FakePtr) {
+_SAN_ENTRY_ATTRS void *
+__offload_san_unpack_as0(uint64_t PC, uint64_t LocationId, void *FakePtr) {
   FakePtrTy FP(FakePtr);
   if (FP.getAS() == MallocAS)
     return (void *)FP.unpack<MallocAS>(PC);
@@ -330,34 +374,34 @@ _SAN_ENTRY_ATTRS void *__offload_san_unpack_as0(uint64_t PC, void *FakePtr) {
   return FakePtr;
 }
 
-_SAN_ENTRY_ATTRS InfoTy __offload_san_get_as0_info(uint64_t PC, void *FakePtr) {
+_SAN_ENTRY_ATTRS InfoTy __offload_san_get_as0_info(uint64_t PC,
+                                                   uint64_t LocationId,
+                                                   void *FakePtr) {
   FakePtrTy FP(FakePtr);
   if (FP.getAS() == MallocAS)
-    return __offload_san_get_as1_info(PC, FakePtr);
+    return __offload_san_get_as1_info(PC, LocationId, FakePtr);
   if (FP.getAS() == AllocaAS)
-    return __offload_san_get_as5_info(PC, FakePtr);
+    return __offload_san_get_as5_info(PC, LocationId, FakePtr);
   return {{}, 0};
 }
 
 _SAN_ENTRY_ATTRS void *__offload_san_check_as0_access_with_info(
-    uint64_t PC, void *FakePtr, uint32_t Size, uint32_t InfoAS,
-    char [[clang::address_space(MallocAS)]] * InfoBase, uint64_t InfoSize) {
+    uint64_t PC, uint64_t LocationId, void *FakePtr, uint32_t Size,
+    uint32_t InfoAS, char [[clang::address_space(MallocAS)]] * InfoBase,
+    uint64_t InfoSize) {
   if (InfoAS == MallocAS) {
-    FakePtrTy FP(FakePtr, MallocAS, false, PC);
-    return (void *)FP.checkWithBase<MallocAS>(PC, Size, {InfoBase, InfoSize});
+    FakePtrTy FP(FakePtr, MallocAS, false, PC, LocationId);
+    return (void *)FP.checkWithBase<MallocAS>(PC, LocationId, Size,
+                                              {InfoBase, InfoSize});
   }
   if (InfoAS == AllocaAS) {
-    FakePtrTy FP(FakePtr, AllocaAS, false, PC);
-    return (void *)FP.check<AllocaAS>(PC, Size);
+    FakePtrTy FP(FakePtr, AllocaAS, false, PC, LocationId);
+    return (void *)FP.check<AllocaAS>(PC, LocationId, Size);
   }
   return FakePtr;
 }
 
-_SAN_ENTRY_ATTRS void *__offload_san_gep(void *FakePtr, int64_t Offset) {
-  FakePtrTy FP(FakePtr);
-  FP.advance(Offset);
-  return FP;
-}
+_SAN_ENTRY_ATTRS void __offload_san_leak_check() {}
 }
 
 #pragma omp end declare target

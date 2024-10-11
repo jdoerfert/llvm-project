@@ -364,6 +364,12 @@ _TGT_KERNEL_LANGUAGE(block_id, getBlockIdInKernel)
 _TGT_KERNEL_LANGUAGE(block_dim, getNumberOfThreadsInBlock)
 _TGT_KERNEL_LANGUAGE(grid_dim, getNumberOfBlocksInKernel)
 
+extern "C" [[gnu::flatten, gnu::always_inline, gnu::used, gnu::retain]] uint32_t
+ompx_global_thread_id() {
+  return ompx_thread_id(0) + ompx_thread_id(1) * ompx_block_dim(0) +
+         ompx_thread_id(2) * ompx_block_dim(0) * ompx_block_dim(1);
+}
+
 extern "C" {
 uint64_t ompx_ballot_sync(uint64_t mask, int pred) {
   return utils::ballotSync(mask, pred);

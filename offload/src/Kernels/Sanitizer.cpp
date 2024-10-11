@@ -12,16 +12,23 @@
 
 extern "C" {
 __device__ void __offload_san_register_host(void *Ptr, uint32_t Size,
-                                            uint32_t Slot);
+                                            uint32_t SlotId);
 __device__ void __offload_san_unregister_host(void *Ptr);
+__device__ void __offload_san_get_ptr_info(uint32_t SlotId, void **Ptr,
+                                           uint32_t *Size);
 
 [[gnu::weak, clang::disable_sanitizer_instrumentation]] __global__ void
-__sanitizer_register(void *P, uint64_t Bytes, uint64_t Slot) {
-  __offload_san_register_host(P, Bytes, Slot);
+__sanitizer_register(void *P, uint64_t Bytes, uint64_t SlotId) {
+  __offload_san_register_host(P, Bytes, SlotId);
 }
 
 [[gnu::weak, clang::disable_sanitizer_instrumentation]] __global__ void
 __sanitizer_unregister(void *P) {
   __offload_san_unregister_host(P);
+}
+
+[[gnu::weak, clang::disable_sanitizer_instrumentation]] __global__ void
+__sanitizer_get_ptr_info(uint32_t SlotId, void **Ptr, uint32_t *Size) {
+  __offload_san_get_ptr_info(SlotId, Ptr, Size);
 }
 }

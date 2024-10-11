@@ -589,7 +589,8 @@ int omp_test_lock(omp_lock_t *Lock) { return impl::testLock(Lock); }
 void ompx_sync_block(int Ordering) {
   impl::syncThreadsAligned(atomic::OrderingTy(Ordering));
 }
-void ompx_sync_block_acq_rel() {
+[[gnu::flatten, gnu::always_inline, gnu::used, gnu::retain]] void
+ompx_sync_block_acq_rel() {
   impl::syncThreadsAligned(atomic::OrderingTy::acq_rel);
 }
 void ompx_sync_block_divergent(int Ordering) {

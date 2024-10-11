@@ -137,4 +137,6 @@ void system(atomic::OrderingTy Ordering);
 
 } // namespace ompx
 
+extern "C" void ompx_sync_block_acq_rel();
+
 #endif

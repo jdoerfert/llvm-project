@@ -3532,13 +3532,12 @@ void AMDGPUQueueTy::callbackError(hsa_status_t Status, hsa_queue_t *Source,
   if (Status == HSA_STATUS_ERROR_EXCEPTION) {
     auto KernelTraceInfoRecord =
         AMDGPUDevice.KernelLaunchTraces.getExclusiveAccessor();
-    std::function<bool(__tgt_async_info &)> AsyncInfoWrapperMatcher =
-        [=](__tgt_async_info &AsyncInfo) {
-          auto *Stream = reinterpret_cast<AMDGPUStreamTy *>(AsyncInfo.Queue);
-          if (!Stream || !Stream->getQueue())
-            return false;
-          return Stream->getQueue()->Queue == Source;
-        };
+    std::function<bool(void *)> AsyncInfoWrapperMatcher = [=](void *Queue) {
+      auto *Stream = reinterpret_cast<AMDGPUStreamTy *>(Queue);
+      if (!Stream || !Stream->getQueue())
+        return false;
+      return Stream->getQueue()->Queue == Source;
+    };
     ErrorReporter::reportTrapInKernel(AMDGPUDevice, *KernelTraceInfoRecord,
                                       AsyncInfoWrapperMatcher);
   }

@@ -417,13 +417,13 @@ struct AllocationTraceInfoTy {
 struct KernelTraceInfoTy {
 
   /// The launched kernel.
-  GenericKernelTy *Kernel;
+  GenericKernelTy *Kernel = nullptr;
 
   /// The stack trace of the launch itself.
   std::string LaunchTrace;
 
-  /// The async info the kernel was launched in.
-  __tgt_async_info *AsyncInfo;
+  /// The queue the kernel was launched in.
+  void *Queue = nullptr;
 };
 
 struct KernelTraceInfoRecordTy {
@@ -435,12 +435,13 @@ struct KernelTraceInfoRecordTy {
   /// Create a new kernel trace info and add it into the record.
   void emplace(GenericKernelTy *Kernel, const std::string &&StackTrace,
                __tgt_async_info *AsyncInfo) {
-    KTIs[Idx] = {Kernel, std::move(StackTrace), AsyncInfo};
+    KTIs[Idx] = {Kernel, std::move(StackTrace),
+                 AsyncInfo ? AsyncInfo->Queue : nullptr};
     Idx = (Idx + 1) % size();
   }
 
   /// Return the \p I'th last kernel trace info.
-  auto getKernelTraceInfo(int32_t I) const {
+  KernelTraceInfoTy getKernelTraceInfo(int32_t I) const {
     // Note that kernel trace infos "grow forward", so lookup is backwards.
     return KTIs[(Idx - I - 1 + size()) % size()];
   }
@@ -808,6 +809,8 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
 
   void *createFakeHostPtr(void *DevicePtr, int64_t Size);
   void removeFakeHostPtr(void *FakeHstPtr);
+  void getFakeHostPtrInfo(DeviceImageTy &Image, uint32_t SlotId,
+                          void *&DevicePtr, uint32_t &Size);
 
   /// Check whether the host buffer with address \p HstPtr is pinned by the
   /// underlying vendor-specific runtime (if any). Retrieve the host pointer,
@@ -946,6 +949,7 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
                                         DeviceImageTy *Image = nullptr);
 
   SmallVector<GenericKernelTy *> NewFns, DelFns;
+  DenseMap<DeviceImageTy *, GenericKernelTy *> InfoFns;
   DenseMap<DeviceImageTy *, SanitizerEnvironmentTy *> SanitizerEnvironmentMap;
 
   /// Reference to the underlying plugin that created this device.
