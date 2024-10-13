@@ -17,10 +17,13 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Frontend/OpenMP/OMP.h"
 #include "llvm/IR/Argument.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
@@ -29,6 +32,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/ReplaceConstant.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
@@ -36,12 +40,52 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
-#include <llvm/IR/GlobalVariable.h>
+#include "llvm/Transforms/Utils/ValueMapper.h"
+#include <cstdint>
 #include <string>
 
 using namespace llvm;
 
 #define DEBUG_TYPE "offload-sanitizer"
+
+enum {
+  GlobalAS = 1,
+  SharedAS = 3,
+  ConstantAS = 4,
+};
+
+static constexpr StringRef ShadowGlobalPrefix = "__offload_san_global.";
+static constexpr StringRef ShadowSharedPrefix = "__offload_san_shared.";
+static constexpr StringRef ShadowConstantPrefix = "__offload_san_constant.";
+static constexpr StringRef GlobalIgnorePrefix[] = {"llvm."};
+static constexpr StringRef GlobalIgnoreParts[] = {"__offload_san", "__san"};
+
+static bool canInstrumentGlobal(const GlobalVariable &G) {
+  auto Name = G.getName();
+  if (Name.empty())
+    return false;
+  for (const auto &S : GlobalIgnorePrefix)
+    if (Name.starts_with(S))
+      return false;
+  for (const auto &S : GlobalIgnoreParts)
+    if (Name.contains(S))
+      return false;
+  return any_of(G.uses(),
+                [](const Use &U) { return isa<Instruction>(U.getUser()); });
+}
+
+static Twine getShadowGlobalName(const GlobalValue &G, uint32_t AS) {
+  switch (AS) {
+  case GlobalAS:
+    return ShadowGlobalPrefix + G.getName();
+  case SharedAS:
+    return ShadowSharedPrefix + G.getName();
+  case ConstantAS:
+    return ShadowConstantPrefix + G.getName();
+  default:
+    llvm_unreachable("not handled");
+  };
+}
 
 namespace llvm {
 
@@ -86,11 +130,6 @@ LocationInfoTy DenseMapInfo<LocationInfoTy *>::TombstoneKey =
 
 namespace {
 
-constexpr uint32_t SHARED_ADDRSPACE = 3;
-bool isSharedGlobal(const GlobalValue &G) {
-  return G.getAddressSpace() == SHARED_ADDRSPACE;
-}
-
 class OffloadSanitizerImpl final {
 public:
   OffloadSanitizerImpl(Module &M, FunctionAnalysisManager &FAM)
@@ -118,6 +157,10 @@ private:
     Instruction *I;
     unsigned PtrOpIdx;
     unsigned AS;
+    enum { READ = 1, WRITE = 2, ATOMIC = 4 };
+    uint32_t Kind;
+
+    uint32_t encodeKindInSize(uint32_t Size) { return Size | (Kind << 29); }
   };
 
   struct PtrInfoTy {
@@ -225,20 +268,21 @@ private:
     SmallVector<DIGlobalVariableExpression *, 1> GlobalLocations;
     G->getDebugInfo(GlobalLocations);
 
-    if (GlobalLocations.empty())
-      return ConstantInt::get(Int64Ty, 0); // Fallback
-
-    const auto *DLVar = GlobalLocations.front()->getVariable();
-
     LocationInfoTy *LI = new LocationInfoTy();
-    LI->FileName = DLVar->getFilename();
-    LI->LineNo = DLVar->getLine();
-    LI->FunctionName = DLVar->getName();
-    LI->ColumnNo = 0;
+    if (GlobalLocations.empty()) {
+      LI->FunctionName = G->getName();
+    } else {
+      const auto *DLVar = GlobalLocations.front()->getVariable();
+      LI->FileName = DLVar->getFilename();
+      LI->LineNo = DLVar->getLine();
+      LI->FunctionName = DLVar->getName();
+      LI->ColumnNo = 0;
+    }
 
     bool IsNew;
     uint64_t Idx;
     std::tie(LI, Idx) = addLocationInfo(LI, IsNew);
+    errs() << "GV GV " << *G << " :: " << IsNew << " : " << Idx << "\n";
 
     if (IsNew)
       encodeLocationInfo(*LI, Idx);
@@ -330,7 +374,7 @@ private:
 
   void removeAS(Function &Fn, SmallVectorImpl<Instruction *> &ASInsts);
 
-  bool instrumentGlobals();
+  void instrumentGlobal(IRBuilder<> &IRB, GlobalVariable &GV, uint32_t AS);
   bool instrumentFunction(Function &Fn);
   void instrumentTrapInstructions(SmallVectorImpl<IntrinsicInst *> &TrapCalls);
   void instrumentCallInsts(SmallVectorImpl<CallInst *> &CallInsts);
@@ -338,7 +382,8 @@ private:
       SmallVectorImpl<LifetimeIntrinsic *> &LifetimeInsts);
   void instrumentUnreachableInstructions(
       SmallVectorImpl<UnreachableInst *> &UnreachableInsts);
-  void instrumentAccesses(SmallVectorImpl<AccessInfoTy> &Accesses);
+  void instrumentAccesses(DominatorTree &DT,
+                          SmallVectorImpl<AccessInfoTy> &Accesses);
   void instrumentAllocaInstructions(SmallVectorImpl<AllocaInst *> &AllocaInsts);
 
   FunctionCallee getOrCreateFn(FunctionCallee &FC, StringRef Name, Type *RetTy,
@@ -422,7 +467,7 @@ private:
                              "_access_with_info",
                          ASPtrTy[AS],
                          {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty, PtrTy,
-                          Int32Ty, Int32Ty, ASPtrTy[1], Int64Ty});
+                          Int32Ty, Int32Ty, PtrTy, Int64Ty});
   }
 
   /// PtrTy __offload_san_register_alloca(/* PC */ Int64Ty, /*LocationId*/
@@ -437,6 +482,19 @@ private:
     //    cast<Function>(AllocaRegisterFn.getCallee())
     //        ->addRetAttr(Attribute::NoAlias);
     return AllocaRegisterFn;
+  }
+
+  /// PtrTy __offload_san_global(/* PC */ Int64Ty, /*LocationId*/ Int64Ty,
+  /// 						/* RealPtr */ ASPtrTy[AS],
+  /// 						/* Size */ Int32Ty);
+  FunctionCallee GlobalRegisterFn[NumSupportedAddressSpaces];
+  FunctionCallee getGlobalRegisterFn(uint32_t AS) {
+    assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
+    getOrCreateFn(
+        GlobalRegisterFn[AS],
+        "__offload_san_register_as" + std::to_string(AS) + "_global", PtrTy,
+        {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty, ASPtrTy[AS], Int32Ty});
+    return GlobalRegisterFn[AS];
   }
 
   CallInst *createCall(IRBuilder<> &IRB, FunctionCallee Callee,
@@ -466,6 +524,7 @@ private:
   IntegerType *Int32Ty = Type::getInt32Ty(Ctx);
   IntegerType *Int64Ty = Type::getInt64Ty(Ctx);
   PointerType *AllocaPtrTy = PointerType::get(Ctx, DL.getAllocaAddrSpace());
+  PointerType *GlobalPtrTy = PointerType::get(Ctx, 1);
   PointerType *ASPtrTy[NumSupportedAddressSpaces] = {
       PointerType::get(Ctx, 0), PointerType::get(Ctx, 1),
       PointerType::get(Ctx, 2), PointerType::get(Ctx, 3),
@@ -479,9 +538,6 @@ private:
 bool OffloadSanitizerImpl::shouldInstrumentFunction(Function *Fn) {
   if (!Fn || Fn->isDeclaration())
     return false;
-  //  if (Fn->getName().contains("ompx") || Fn->getName().contains("__kmpc") ||
-  //      Fn->getName().starts_with("rpc_"))
-  //    return false;
   return !Fn->hasFnAttribute(Attribute::DisableSanitizerInstrumentation);
 }
 
@@ -687,11 +743,23 @@ void OffloadSanitizerImpl::instrumentUnreachableInstructions(
 }
 
 void OffloadSanitizerImpl::instrumentAccesses(
-    SmallVectorImpl<AccessInfoTy> &AccessInfos) {
+    DominatorTree &DT, SmallVectorImpl<AccessInfoTy> &AccessInfos) {
+  DenseMap<Value *, SmallVector<Instruction *>> CheckedPtrs;
   for (auto &AI : AccessInfos) {
     auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
-    auto *Size =
-        ConstantInt::get(Int32Ty, DL.getTypeStoreSize(AI.I->getAccessType()));
+    bool Checked = false;
+    for (Instruction *RealPtr : CheckedPtrs.lookup(FakePtr)) {
+      if (!DT.dominates(RealPtr->getParent(), AI.I->getParent()))
+        continue;
+      AI.I->setOperand(AI.PtrOpIdx, RealPtr);
+      Checked = true;
+    }
+    if (Checked)
+      continue;
+
+    auto *Size = ConstantInt::get(
+        Int32Ty,
+        AI.encodeKindInSize(DL.getTypeStoreSize(AI.I->getAccessType())));
     if (FakePtr->getType()->getPointerAddressSpace()) {
       auto *ASC = cast<AddrSpaceCastInst>(FakePtr);
       FakePtr = ASC->getPointerOperand();
@@ -709,17 +777,21 @@ void OffloadSanitizerImpl::instrumentAccesses(
       if (cast<Argument>(Obj)->getParent()->getCallingConv() ==
           CallingConv::AMDGPU_KERNEL)
         AI.AS = 1;
-    if (AI.AS == 1)
-      AI.AS = 0;
     const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
     Args.push_back(PtrInfo.AS);
     Args.push_back(PtrInfo.Start);
     Args.push_back(PtrInfo.Length);
-    FunctionCallee FC = getCheckAccessWithInfoFn(AI.AS);
-
-    auto *RealPtr = createCall(IRB, FC, Args);
+    getCheckAccessWithInfoFn(AI.AS).getCallee()->dump();
+    getCheckAccessWithInfoFn(AI.AS).getFunctionType()->dump();
+    for (auto *A : Args) {
+      A->getType()->dump();
+      A->dump();
+    }
+    auto *RealPtr = createCall(IRB, getCheckAccessWithInfoFn(AI.AS), Args);
     AI.I->setOperand(AI.PtrOpIdx, RealPtr);
+
     assert(RealPtr->getParent());
+    CheckedPtrs[FakePtr].push_back(RealPtr);
   }
 }
 
@@ -794,24 +866,32 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
         break;
       case Instruction::Store: {
         auto &SI = cast<StoreInst>(I);
-        AccessInfos.push_back(
-            {&I, SI.getPointerOperandIndex(), SI.getPointerAddressSpace()});
+        uint32_t Kind = AccessInfoTy::WRITE;
+        if (SI.isAtomic())
+          Kind |= AccessInfoTy::ATOMIC;
+        AccessInfos.push_back({&I, SI.getPointerOperandIndex(),
+                               SI.getPointerAddressSpace(), Kind});
         if (isASType(*SI.getPointerOperandType()))
           ASInsts.push_back(&I);
         break;
       }
       case Instruction::Load: {
         auto &LI = cast<LoadInst>(I);
-        AccessInfos.push_back(
-            {&I, LI.getPointerOperandIndex(), LI.getPointerAddressSpace()});
+        uint32_t Kind = AccessInfoTy::READ;
+        if (LI.isAtomic())
+          Kind |= AccessInfoTy::ATOMIC;
+        AccessInfos.push_back({&I, LI.getPointerOperandIndex(),
+                               LI.getPointerAddressSpace(), Kind});
         if (isASType(*LI.getType()) || isASType(*LI.getPointerOperandType()))
           ASInsts.push_back(&I);
         break;
       }
       case Instruction::AtomicRMW: {
         auto &ARMW = cast<AtomicRMWInst>(I);
-        AccessInfos.push_back(
-            {&I, ARMW.getPointerOperandIndex(), ARMW.getPointerAddressSpace()});
+        uint32_t Kind =
+            AccessInfoTy::READ | AccessInfoTy::WRITE | AccessInfoTy::ATOMIC;
+        AccessInfos.push_back({&I, ARMW.getPointerOperandIndex(),
+                               ARMW.getPointerAddressSpace(), Kind});
         if (isASType(*ARMW.getType()) ||
             isASType(*ARMW.getPointerOperand()->getType()))
           ASInsts.push_back(&I);
@@ -819,8 +899,10 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
       }
       case Instruction::AtomicCmpXchg: {
         auto &ACX = cast<AtomicCmpXchgInst>(I);
-        AccessInfos.push_back(
-            {&I, ACX.getPointerOperandIndex(), ACX.getPointerAddressSpace()});
+        uint32_t Kind =
+            AccessInfoTy::READ | AccessInfoTy::WRITE | AccessInfoTy::ATOMIC;
+        AccessInfos.push_back({&I, ACX.getPointerOperandIndex(),
+                               ACX.getPointerAddressSpace(), Kind});
         if (isASType(*ACX.getType()) ||
             isASType(*ACX.getPointerOperand()->getType()))
           ASInsts.push_back(&I);
@@ -875,26 +957,17 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
     }
   }
 
+  DominatorTree DT(Fn);
+
   Fn.dump();
   removeAS(Fn, ASInsts);
   instrumentCallInsts(CallInsts);
   instrumentLifetimeIntrinsics(LifetimeInsts);
   instrumentTrapInstructions(TrapCalls);
   instrumentUnreachableInstructions(UnreachableInsts);
-  instrumentAccesses(AccessInfos);
+  instrumentAccesses(DT, AccessInfos);
   instrumentAllocaInstructions(AllocaInsts);
 
-  // for (auto *ASC : ASCInsts) {
-  //   if (ASC->getPointerOperand()->getType() == ASC->getType())
-  //     ASC->replaceAllUsesWith(ASC->getPointerOperand());
-  //   if (ASC->use_empty())
-  //     ASC->eraseFromParent();
-  // }
-
-  //  for (auto *CI : RTCalls) {
-  //    InlineFunctionInfo IFI;
-  //    InlineFunction(*CI, IFI);
-  //  }
   RTCalls.clear();
 
   auto &BB = Fn.getEntryBlock();
@@ -944,7 +1017,7 @@ bool OffloadSanitizerImpl::handleAmbiguousCalls() {
   LocationsArray = new GlobalVariable(
       M, ArrayTy, /*isConstant=*/false, GlobalValue::PrivateLinkage,
       UndefValue::get(ArrayTy), "__offload_san_calls", nullptr,
-      GlobalValue::ThreadLocalMode::NotThreadLocal, SHARED_ADDRSPACE);
+      GlobalValue::ThreadLocalMode::NotThreadLocal, SharedAS);
 
   for (const auto &It : llvm::enumerate(AmbiguousCallsOrdered)) {
     IRBuilder<> IRB(It.value());
@@ -967,8 +1040,6 @@ bool OffloadSanitizerImpl::handleCallStackSupport() {
   if (LocationMap.empty())
     return false;
 
-  handleAmbiguousCalls();
-
   auto *NamesTy = ArrayType::get(Int8Ty, ConcatenatedString.size() + 1);
   auto *Names = new GlobalVariable(
       M, NamesTy, /*isConstant=*/true, GlobalValue::ExternalLinkage,
@@ -985,6 +1056,174 @@ bool OffloadSanitizerImpl::handleCallStackSupport() {
   GV->setVisibility(GlobalValue::ProtectedVisibility);
 
   return true;
+}
+
+void OffloadSanitizerImpl::instrumentGlobal(IRBuilder<> &IRB,
+                                            GlobalVariable &GV, uint32_t AS) {
+  if (!canInstrumentGlobal(GV))
+    return;
+
+  auto InsertNewInst = [&](Use &U, Instruction *UserI,
+                           SmallVectorImpl<Instruction *> &NewInsts,
+                           ValueToValueMapTy &VMap) -> Instruction * {
+    auto *IP = UserI;
+    if (auto *PHI = dyn_cast<PHINode>(UserI))
+      IP = PHI->getIncomingBlock(U)->getTerminator();
+
+    UserI->getParent()->dump();
+    SmallVector<Instruction *> CloneInsts;
+    for (auto *NewI : NewInsts) {
+      auto *CloneI = NewI->clone();
+      CloneInsts.push_back(CloneI);
+      CloneI->insertBefore(IP);
+      CloneI->setName("i");
+      errs() << "CloneI " << *CloneI << "\n";
+      VMap[VMap[NewI]] = CloneI;
+      RemapInstruction(CloneI, VMap, RF_IgnoreMissingLocals);
+    }
+    U.set(VMap[VMap[NewInsts.back()]]);
+    UserI->getParent()->dump();
+    removeAS(*IP->getFunction(), CloneInsts);
+    UserI->getParent()->dump();
+    if (isa<AddrSpaceCastInst>(NewInsts.front()))
+      return nullptr;
+    return cast<Instruction>(VMap[VMap[NewInsts.front()]]);
+  };
+
+  auto ConstantExprToInst = [&](Use *CEU, ConstantExpr *CE,
+                                SmallVectorImpl<Use *> &ToBeReplacedUses) {
+    SmallVector<Instruction *> NewInsts;
+    SmallVector<ConstantExpr *> Worklist;
+    Worklist.push_back(CE);
+
+    ValueToValueMapTy VMap;
+    while (!Worklist.empty()) {
+      ConstantExpr *CE = Worklist.pop_back_val();
+      auto *NewI = CE->getAsInstruction();
+      NewInsts.push_back(NewI);
+      VMap[NewI] = CE;
+      for (auto &U : make_early_inc_range(CE->uses())) {
+        if (auto *UserI = dyn_cast<Instruction>(U.getUser())) {
+          if (shouldInstrumentFunction(UserI->getFunction())) {
+            if (auto *NewI = InsertNewInst(U, UserI, NewInsts, VMap))
+              ToBeReplacedUses.push_back(
+                  &NewI->getOperandUse(CEU->getOperandNo()));
+          }
+          continue;
+        }
+        if (auto *UserCE = dyn_cast<ConstantExpr>(U.getUser())) {
+          Worklist.push_back(UserCE);
+          continue;
+        }
+        if (auto *GV = dyn_cast<GlobalVariable>(U.getUser())) {
+          auto *SI = IRB.CreateStore(CE, GV);
+          if (auto *NewI =
+                  InsertNewInst(SI->getOperandUse(0), SI, NewInsts, VMap))
+            ToBeReplacedUses.push_back(
+                &NewI->getOperandUse(CEU->getOperandNo()));
+          continue;
+        }
+        if (isa<Constant>(U.getUser())) {
+          continue;
+        }
+
+        U.get()->dump();
+        U.getUser()->dump();
+        llvm_unreachable("unhandled user");
+      }
+    }
+    for (auto *NewInst : NewInsts)
+      NewInst->deleteValue();
+  };
+
+  auto *ShadowGV = new GlobalVariable(
+      M, PtrTy, false, GlobalValue::PrivateLinkage, PoisonValue::get(PtrTy),
+      getShadowGlobalName(GV, AS), &GV, GlobalValue::NotThreadLocal, AS);
+
+  auto *Size =
+      ConstantInt::get(Int32Ty, DL.getTypeAllocSize(GV.getValueType()));
+
+  auto *FakePtr = createCall(IRB, getGlobalRegisterFn(AS),
+                             {getPC(IRB), getSourceIndex(&GV), &GV, Size});
+  IRB.CreateStore(FakePtr, ShadowGV);
+
+  SmallVector<Use *> ToBeReplacedUses;
+  for (auto &U : GV.uses()) {
+    if (auto *UserI = dyn_cast<Instruction>(U.getUser())) {
+      if (shouldInstrumentFunction(UserI->getFunction()))
+        ToBeReplacedUses.push_back(&U);
+    } else if (auto *CE = dyn_cast<ConstantExpr>(U.getUser())) {
+      ConstantExprToInst(&U, CE, ToBeReplacedUses);
+    } else {
+      U.get()->dump();
+      U.getUser()->dump();
+      llvm_unreachable("unhandled user");
+    }
+  }
+
+  for (auto *U : ToBeReplacedUses) {
+    auto *IP = cast<Instruction>(U->getUser());
+    if (auto *PHI = dyn_cast<PHINode>(IP))
+      IP = PHI->getIncomingBlock(*U)->getTerminator();
+
+    IRBuilder<> IRB(IP);
+    auto *FakePtr = IRB.CreateLoad(PtrTy, ShadowGV);
+    errs() << *FakePtr << " :: " << *U->get() << " : : " << *U->getUser()
+           << "\n";
+    if (U->get()->getType() == FakePtr->getType()) {
+      U->set(FakePtr);
+      continue;
+    }
+    auto *ASC = dyn_cast<AddrSpaceCastInst>(U->getUser());
+    if (!ASC || ASC->getDestAddressSpace()) {
+      IP->getFunction()->dump();
+      U->getUser()->dump();
+      U->get()->dump();
+      llvm_unreachable("Expected addrspacecast to AS(0) only");
+    }
+    ASC->replaceAllUsesWith(FakePtr);
+  }
+}
+
+Function *OffloadSanitizerImpl::createSanitizerInitKernel() {
+  if (auto *Fn = M.getFunction("__offload_san_init_kernel"))
+    return Fn;
+
+  Function *InitSharedFn = Function::Create(FunctionType::get(VoidTy, false),
+                                            GlobalValue::PrivateLinkage,
+                                            "__offload_san_init_kernel", &M);
+  InitSharedFn->addFnAttr(Attribute::DisableSanitizerInstrumentation);
+
+  auto *EntryBB = BasicBlock::Create(Ctx, "entry", InitSharedFn);
+  IRBuilder<> IRB(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
+  auto *Barrier = createCall(IRB, getSyncBlockFn());
+  IRB.CreateRetVoid();
+  IRB.SetInsertPoint(Barrier);
+
+  if (!AmbiguousCalls.empty()) {
+    Value *Idx = createCall(IRB, getThreadIdFn(), {}, "san.gtid");
+    Value *Ptr = IRB.CreateGEP(Int64Ty, LocationsArray, {Idx});
+    IRB.CreateStore(ConstantInt::get(Int64Ty, 0), Ptr);
+
+    auto *CondV = IRB.CreateICmpEQ(Idx, IRB.getInt32(0));
+
+    auto *CondTI = SplitBlockAndInsertIfThen(CondV, Barrier, false);
+    IRB.SetInsertPoint(CondTI);
+    auto *AmbiguousCallsInfoPtrGV =
+        M.getNamedGlobal("__offload_san_ambiguous_calls_info_ptr");
+    assert(AmbiguousCallsInfoPtrGV);
+    IRB.CreateStore(LocationsArray, AmbiguousCallsInfoPtrGV);
+  }
+
+  for (auto &GV : M.globals()) {
+    if (GV.getAddressSpace() != SharedAS)
+      continue;
+
+    instrumentGlobal(IRB, GV, SharedAS);
+  }
+
+  InitSharedFn->dump();
+  return InitSharedFn;
 }
 
 bool OffloadSanitizerImpl::finalizeKernels() {
@@ -1004,6 +1243,13 @@ bool OffloadSanitizerImpl::addCtor() {
 
   BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", CtorFn);
   IRBuilder<> IRB(Entry);
+
+  for (auto &GV : M.globals()) {
+    if (GV.getAddressSpace() != GlobalAS)
+      continue;
+
+    instrumentGlobal(IRB, GV, GlobalAS);
+  }
 
   IRB.CreateRetVoid();
 
@@ -1026,97 +1272,20 @@ bool OffloadSanitizerImpl::addDtor() {
   return true;
 }
 
-Function *OffloadSanitizerImpl::createSanitizerInitKernel() {
-  if (auto *Fn = M.getFunction("__offload_san_init_kernel"))
-    return Fn;
-
-  Function *InitSharedFn = Function::Create(FunctionType::get(VoidTy, false),
-                                            GlobalValue::PrivateLinkage,
-                                            "__offload_san_init_kernel", &M);
-  InitSharedFn->addFnAttr(Attribute::DisableSanitizerInstrumentation);
-
-  auto *EntryBB = BasicBlock::Create(Ctx, "entry", InitSharedFn);
-  IRBuilder<> IRB(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
-  auto *Barrier = createCall(IRB, getSyncBlockFn());
-  IRB.CreateRetVoid();
-  IRB.SetInsertPoint(Barrier);
-
-  if (!AmbiguousCalls.empty()) {
-    Value *Idx = createCall(IRB, getThreadIdFn(), {}, "san.gtid");
-    Value *Ptr = IRB.CreateGEP(Int64Ty, LocationsArray, {Idx});
-    IRB.CreateStore(ConstantInt::get(Int64Ty, 42), Ptr);
-
-    auto *CondV = IRB.CreateICmpEQ(Idx, IRB.getInt32(0));
-
-    auto *CondTI = SplitBlockAndInsertIfThen(CondV, Barrier, false);
-    IRB.SetInsertPoint(CondTI);
-    auto *AmbiguousCallsInfoPtrGV =
-        M.getNamedGlobal("__offload_san_ambiguous_calls_info_ptr");
-    assert(AmbiguousCallsInfoPtrGV);
-    IRB.CreateStore(LocationsArray, AmbiguousCallsInfoPtrGV);
-  }
-
-  InitSharedFn->dump();
-  return InitSharedFn;
-}
-
-constexpr StringRef ShadowGlobalPrefix = "__offload_san_global.";
-constexpr StringRef ShadowSharedPrefix = "__offload_san_shared.";
-constexpr StringRef GlobalIgnorePrefix[] = {"llvm.", "__offload_san", "__san"};
-static bool canInstrumentGlobal(const GlobalVariable &G) {
-  auto Name = G.getName();
-  if (Name.empty())
-    return false;
-  for (const auto &S : GlobalIgnorePrefix) {
-    if (Name.starts_with(S))
-      return false;
-  }
-  return true;
-}
-
-static Twine getShadowGlobalName(const GlobalValue &G, bool IsShared) {
-  return (IsShared ? ShadowSharedPrefix : ShadowGlobalPrefix) + G.getName();
-}
-
-bool OffloadSanitizerImpl::instrumentGlobals() {
-  bool Changed = false;
-  for (GlobalVariable &GV : M.globals()) {
-    if (!canInstrumentGlobal(GV))
-      continue;
-
-    bool IsShared = isSharedGlobal(GV);
-    GlobalVariable *ShadowVar;
-    if (IsShared) {
-      ShadowVar = new GlobalVariable(
-          M, ASPtrTy[SHARED_ADDRSPACE], false, GlobalValue::ExternalLinkage,
-          UndefValue::get(ASPtrTy[SHARED_ADDRSPACE]),
-          getShadowGlobalName(GV, IsShared), &GV,
-          GlobalValue::ThreadLocalMode::NotThreadLocal, SHARED_ADDRSPACE);
-    } else {
-      ShadowVar =
-          new GlobalVariable(M, IntptrTy, false, GlobalValue::ExternalLinkage,
-                             Constant::getNullValue(IntptrTy),
-                             getShadowGlobalName(GV, IsShared), &GV);
-    }
-
-    ShadowVar->setVisibility(GlobalValue::ProtectedVisibility);
-    //    ShadowGlobalMap[&GV] = ShadowVar;
-    Changed = true;
-  }
-
-  return Changed;
-}
-
 bool OffloadSanitizerImpl::instrument() {
-  bool Changed = instrumentGlobals();
+  bool Changed = false;
+
+  for (auto &GV : M.globals())
+    convertUsersOfConstantsToInstructions({&GV});
 
   for (Function &Fn : M)
     Changed |= instrumentFunction(Fn);
 
   Changed |= addCtor();
   Changed |= addDtor();
-  Changed |= handleCallStackSupport();
+  handleAmbiguousCalls();
   Changed |= finalizeKernels();
+  Changed |= handleCallStackSupport();
 
   removeFromUsedLists(M, [&](Constant *C) {
     if (!C->getName().starts_with("__offload_san"))

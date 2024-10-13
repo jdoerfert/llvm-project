@@ -1087,7 +1087,15 @@ Error GenericDeviceTy::setupSanitizerEnvironment(GenericPluginTy &Plugin,
       consumeError(std::move(Err));
       return Plugin::success();
     }
-    InfoFns[&Image] = &*KernelOrErr;
+    PtrInfoFns[&Image] = &*KernelOrErr;
+  }
+  {
+    auto KernelOrErr = getKernel("__sanitizer_get_global_info", &Image);
+    if (auto Err = KernelOrErr.takeError()) {
+      consumeError(std::move(Err));
+      return Plugin::success();
+    }
+    GlobalInfoFns[&Image] = &*KernelOrErr;
   }
   return Plugin::success();
 }
@@ -1711,7 +1719,7 @@ struct FakePtrTy {
 void *GenericDeviceTy::createFakeHostPtr(void *DevicePtr, int64_t Size) {
   if (NewFns.empty())
     return nullptr;
-  static uint32_t Slot = 1 << 14;
+  static uint32_t Slot = 1 << 16;
   uint32_t SlotId = --Slot;
   KernelArgsTy Args = {};
   Args.NumTeams[0] = 1;
@@ -1775,10 +1783,11 @@ void GenericDeviceTy::removeFakeHostPtr(void *FakeHstPtr) {
 }
 
 void GenericDeviceTy::getFakeHostPtrInfo(DeviceImageTy &Image, uint32_t SlotId,
-                                         void *&DevicePtr, uint32_t &Size) {
-  if (!InfoFns.count(&Image))
+                                         void *&DevicePtr, uint64_t &Size,
+                                         uint64_t &LocationId) {
+  if (!PtrInfoFns.count(&Image))
     return;
-  auto *InfoFP = InfoFns[&Image];
+  auto *InfoFP = PtrInfoFns[&Image];
   KernelArgsTy Args = {};
   Args.NumTeams[0] = 1;
   Args.ThreadLimit[0] = 1;
@@ -1787,11 +1796,14 @@ void GenericDeviceTy::getFakeHostPtrInfo(DeviceImageTy &Image, uint32_t SlotId,
       allocate(sizeof(void *), nullptr, TARGET_ALLOC_HOST));
   uint32_t *LengthOut = reinterpret_cast<uint32_t *>(
       allocate(sizeof(uint32_t), nullptr, TARGET_ALLOC_HOST));
+  uint64_t *LocationIdOut = reinterpret_cast<uint64_t *>(
+      allocate(sizeof(uint64_t), nullptr, TARGET_ALLOC_HOST));
   struct {
     uint32_t Slot;
     void **Ptr;
     uint32_t *Length;
-  } KernelArgs{SlotId, PtrOut, LengthOut};
+    uint64_t *LocationIdPtr;
+  } KernelArgs{SlotId, PtrOut, LengthOut, LocationIdOut};
   KernelLaunchParamsTy ArgPtrs{sizeof(KernelArgs), &KernelArgs, nullptr};
   Args.ArgPtrs = reinterpret_cast<void **>(&ArgPtrs);
   Args.Flags.IsCUDA = true;
@@ -1812,6 +1824,46 @@ void GenericDeviceTy::getFakeHostPtrInfo(DeviceImageTy &Image, uint32_t SlotId,
 
   DevicePtr = *PtrOut;
   Size = *LengthOut;
+  LocationId = *LocationIdOut;
+
+  return;
+}
+
+void GenericDeviceTy::getFakeHostPtrGlobalInfo(DeviceImageTy &Image,
+                                               void *DevicePtr,
+                                               uint64_t &LocationId) {
+  if (!GlobalInfoFns.count(&Image))
+    return;
+  auto *InfoFP = GlobalInfoFns[&Image];
+  KernelArgsTy Args = {};
+  Args.NumTeams[0] = 1;
+  Args.ThreadLimit[0] = 1;
+  AsyncInfoWrapperTy AsyncInfoWrapper(*this, nullptr);
+  uint64_t *LocationIdOut = reinterpret_cast<uint64_t *>(
+      allocate(sizeof(uint64_t), nullptr, TARGET_ALLOC_HOST));
+  struct {
+    void *Ptr;
+    uint64_t *LocationIdPtr;
+  } KernelArgs{DevicePtr, LocationIdOut};
+  KernelLaunchParamsTy ArgPtrs{sizeof(KernelArgs), &KernelArgs, nullptr};
+  Args.ArgPtrs = reinterpret_cast<void **>(&ArgPtrs);
+  Args.Flags.IsCUDA = true;
+  if (auto Err = InfoFP->launch(*this, Args.ArgPtrs, nullptr, Args,
+                                AsyncInfoWrapper)) {
+    AsyncInfoWrapper.finalize(Err);
+    REPORT("Failure: %s\n", toString(std::move(Err)).data());
+    return;
+  }
+
+  Error Err = Plugin::success();
+  AsyncInfoWrapper.finalize(Err);
+  if (Err) {
+    REPORT("Failure: %s\n", toString(std::move(Err)).data());
+    assert(0);
+    return;
+  }
+
+  LocationId = *LocationIdOut;
 
   return;
 }

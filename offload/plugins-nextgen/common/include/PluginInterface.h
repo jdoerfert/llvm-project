@@ -810,7 +810,10 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   void *createFakeHostPtr(void *DevicePtr, int64_t Size);
   void removeFakeHostPtr(void *FakeHstPtr);
   void getFakeHostPtrInfo(DeviceImageTy &Image, uint32_t SlotId,
-                          void *&DevicePtr, uint32_t &Size);
+                          void *&DevicePtr, uint64_t &Size,
+                          uint64_t &LocationId);
+  void getFakeHostPtrGlobalInfo(DeviceImageTy &Image, void *DevicePtr,
+                                uint64_t &LocationId);
 
   /// Check whether the host buffer with address \p HstPtr is pinned by the
   /// underlying vendor-specific runtime (if any). Retrieve the host pointer,
@@ -949,7 +952,7 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
                                         DeviceImageTy *Image = nullptr);
 
   SmallVector<GenericKernelTy *> NewFns, DelFns;
-  DenseMap<DeviceImageTy *, GenericKernelTy *> InfoFns;
+  DenseMap<DeviceImageTy *, GenericKernelTy *> PtrInfoFns, GlobalInfoFns;
   DenseMap<DeviceImageTy *, SanitizerEnvironmentTy *> SanitizerEnvironmentMap;
 
   /// Reference to the underlying plugin that created this device.

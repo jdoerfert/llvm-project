@@ -114,23 +114,23 @@ struct LocationEncodingTy {
 };
 
 #pragma omp begin declare target
-static constexpr uint32_t FAKE_PTR_MAGIC = 0b1111000;
-static constexpr uint32_t FAKE_PTR_BASE_BITS_OFFSET = 11;
+static constexpr uint32_t FAKE_PTR_MAGIC = 0b101;
+static constexpr uint32_t FAKE_PTR_BASE_BITS_OFFSET = 13;
 #pragma omp end declare target
 
 using FakePtrUnionEncodingTy = union {
   void *VPtr;
   struct __attribute__((packed)) {
     int32_t Offset : FAKE_PTR_BASE_BITS_OFFSET;
-    uint32_t Magic : 7;
+    uint32_t Magic : 3;
     uint32_t Size : FAKE_PTR_BASE_BITS_OFFSET;
     uint32_t RealPtr : 32;
     uint32_t RealAS : 3;
   } Enc32;
   struct __attribute__((packed)) {
-    int64_t Offset : 40;
-    uint32_t Magic : 7;
-    uint32_t SlotId : 14;
+    int64_t Offset : 42;
+    uint32_t Magic : 3;
+    uint32_t SlotId : 16;
     uint32_t RealAS : 3;
   } Enc64;
 };
@@ -172,6 +172,12 @@ struct SanitizerEnvironmentTy {
   /// Pointer info
   /// {
   FakePtrUnionEncodingTy FP;
+  ///}
+
+  /// Access info
+  /// {
+  uint32_t IsWrite : 1;
+  uint32_t AccessSize;
   ///}
 };
 

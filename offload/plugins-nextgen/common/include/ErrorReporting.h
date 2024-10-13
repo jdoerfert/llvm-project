@@ -23,9 +23,11 @@
 #include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <charconv>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <optional>
 #include <string>
@@ -53,6 +55,10 @@ class ErrorReporter {
 
   /// The banner printed at the beginning of an error report.
   static constexpr auto ErrorBanner = "OFFLOAD ERROR: ";
+
+  static constexpr uint64_t InvalidLocationId = -1;
+  static constexpr uint64_t AmbiguousCallLocationId = -2;
+  static constexpr uint64_t InvalidLineOrColumn = -1;
 
   /// Return the device id as string, or n/a if not available.
   static std::string getDeviceIdStr(GenericDeviceTy *Device) {
@@ -215,60 +221,163 @@ class ErrorReporter {
   /// End the execution of the program.
   static void abortExecution() { abort(); }
 
+  static std::pair<const char *, uint32_t> asToString(uint32_t AS) {
+    switch (AS) {
+    case 0:
+      return {"generic", strlen("generic")};
+    case 1:
+      return {"global", strlen("global")};
+    case 3:
+      return {"shared", strlen("shared")};
+    case 4:
+      return {"constant", strlen("constant")};
+    case 5:
+      return {"stack", strlen("stack")};
+    default:
+      return {"", 0};
+    }
+  }
+
+  static void printFakePointer(GenericDeviceTy &Device, DeviceImageTy &Image,
+                               SanitizerEnvironmentTy &SE) {
+    uint32_t AS = SE.FP.Enc32.RealAS;
+    bool Is32Bit = AS == 3 || AS == 5;
+
+    char FakePtrBits[68]{};
+    auto ASLeadingZeros = std::min(__builtin_clzg((uintptr_t)SE.FP.VPtr), 3);
+    memset(&FakePtrBits[0], '0', ASLeadingZeros);
+    auto ToCharResult = std::to_chars(&FakePtrBits[ASLeadingZeros],
+                                      &FakePtrBits[64 + ASLeadingZeros],
+                                      (uintptr_t)SE.FP.VPtr, 2);
+    if (ToCharResult.ec != std::errc()) {
+      REPORT("WARNING: %s\n",
+             std::make_error_code(ToCharResult.ec).message().c_str());
+      return;
+    }
+
+    auto [ASStr, ASStrLength] = asToString(AS);
+    if (!ASStrLength) {
+      REPORT("WARNING: Invalid address space for fake pointer, abort\n");
+      return;
+    }
+
+    auto PrintFakePtrBits = [&](ColorTy Color, uint32_t First,
+                                uint32_t NumBits) {
+      char FakePtrBitsTmp[65]{};
+      memcpy(&FakePtrBitsTmp[0], &FakePtrBits[First], NumBits);
+      print(Color, FakePtrBitsTmp);
+      return First + NumBits;
+    };
+
+    const char *EmptyString = "";
+    const char *LeftMessage = "encoding: ";
+    int32_t MessageOffset = strlen(LeftMessage);
+    print("\n");
+    int32_t Offset = MessageOffset + 4 - (ASStrLength + 7) / 2;
+    print(BoldDarkGrey, "%*s%s memory", Offset, EmptyString, ASStr);
+
+    if (Is32Bit) {
+      Offset = 32 - (ASStrLength + 7) / 2;
+      print(BoldLightPurple, "%*s|alloc. size|", Offset, EmptyString);
+      Offset = 3;
+      print(BoldLightBlue, "%*s|ptr. offset|\n", Offset, EmptyString);
+      print("%s0b", LeftMessage);
+      uint32_t Idx = 0;
+      // RealAS
+      Idx = PrintFakePtrBits(BoldDarkGrey, Idx, 3);
+      // RealPtr
+      Idx = PrintFakePtrBits(Cyan, Idx, 32);
+      // Size
+      Idx = PrintFakePtrBits(BoldLightPurple, Idx, FAKE_PTR_BASE_BITS_OFFSET);
+      // Magic
+      Idx = PrintFakePtrBits(BoldDarkGrey, Idx, 3);
+      // Offset
+      Idx = PrintFakePtrBits(BoldLightBlue, Idx, FAKE_PTR_BASE_BITS_OFFSET);
+      print("\n");
+      print(Cyan, "%*s|-    real device pointer     -|", MessageOffset + 5,
+            EmptyString);
+      print(BoldDarkGrey, "%*smagic\n\n", FAKE_PTR_BASE_BITS_OFFSET - 1,
+            EmptyString);
+    } else {
+      Offset = 16 - (ASStrLength + 7) / 2 - 1;
+      print(BoldDarkGrey, "%*smagic\n", Offset, EmptyString);
+      print("%s0b", LeftMessage);
+      uint32_t Idx = 0;
+      // RealAS
+      Idx = PrintFakePtrBits(BoldDarkGrey, Idx, 3);
+      // Slot no
+      Idx = PrintFakePtrBits(Green, Idx, 16);
+      // Magic
+      Idx = PrintFakePtrBits(BoldDarkGrey, Idx, 3);
+      // Offset
+      Idx = PrintFakePtrBits(BoldLightBlue, Idx, 42);
+      print("\n");
+      print(Green, "%*s|- alloc. no. -|", MessageOffset + 5, EmptyString);
+      print(BoldLightBlue, "   |-             pointer offset           -|\n\n");
+    }
+  }
+
   static void reportOutOfBoundsError(GenericDeviceTy &Device,
                                      DeviceImageTy &Image,
                                      SanitizerEnvironmentTy &SE) {
     reportError("execution encountered an out-of-bounds access");
+
     uint32_t AS = SE.FP.Enc32.RealAS;
     bool Is32Bit = AS == 3 || AS == 5;
+
     uint64_t Offset = Is32Bit ? SE.FP.Enc32.Offset : SE.FP.Enc64.Offset;
-    uint32_t Length = Is32Bit ? SE.FP.Enc32.Size : -1;
+    uint64_t Length = Is32Bit ? SE.FP.Enc32.Size : -1;
     void *DevicePtr = nullptr;
-    if (Is32Bit)
+    uint64_t AllocationLocationId = InvalidLocationId;
+    if (Is32Bit) {
       DevicePtr = (void *)(uint64_t)SE.FP.Enc32.RealPtr;
-    else
-      Device.getFakeHostPtrInfo(Image, SE.FP.Enc64.SlotId, DevicePtr, Length);
-    reportError("AS: %u, Offset: %lu Base: %p Length %u\n", AS, Offset,
-                DevicePtr, Length);
-
-    if (Is32Bit)
-      return;
-
-    if (!Device.OMPX_TrackAllocationTraces) {
-      print(Yellow, "Use '%s=true' to track device allocations\n",
-            Device.OMPX_TrackAllocationTraces.getName().data());
-      return;
+      Device.getFakeHostPtrGlobalInfo(Image, DevicePtr, AllocationLocationId);
+    } else {
+      Device.getFakeHostPtrInfo(Image, SE.FP.Enc64.SlotId, DevicePtr, Length,
+                                AllocationLocationId);
     }
-    uintptr_t Distance = false;
-    auto *ATI =
-        Device.getClosestAllocationTraceInfoForAddr(DevicePtr, Distance);
+    void *AccessPtr = utils::advancePtr(DevicePtr, Offset);
 
-    if (!ATI) {
-      print(Cyan,
-            "No host-issued allocations; device pointer %p might be "
-            "a global, stack, or shared location\n",
-            DevicePtr);
-      return;
-    }
-    if (!Distance) {
-      print(Cyan, "Device pointer %p points into%s host-issued allocation:\n",
-            DevicePtr, ATI->DeallocationTrace.empty() ? "" : " prior");
-      reportAllocationInfo(ATI);
-      return;
-    }
+    uint32_t AccessKind = SE.AccessSize >> 29;
+    uint32_t AccessSize = (SE.AccessSize << 3) >> 3;
+    auto AccessKindStr = [](uint32_t Kind) {
+      switch (Kind) {
+      case 1:
+        return "READ";
+      case 2:
+        return "WRITE";
+      case 5:
+        return "ATOMIC READ";
+      case 6:
+        return "ATOMIC WRITE";
+      case 7:
+        return "ATOMIC READ-WRITE";
+      default:
+        return "ACCESS";
+      }
+    };
 
-    bool IsClose = Distance < (1L << 29L /*512MB=*/);
+    print(BoldLightBlue,
+          "%s of size %u at %p by thread <%u,%u,%u> block <%u,%u,%u>\n",
+          AccessKindStr(AccessKind), AccessSize, (void *)SE.PC, SE.ThreadId[0],
+          SE.ThreadId[1], SE.ThreadId[2], SE.BlockId[0], SE.BlockId[1],
+          SE.BlockId[2]);
+    printLocationIdTrace(Device, Image, SE.LocationId, SE.CallId);
+
+    auto [ASStr, ASStrLength] = asToString(AS);
     print(Cyan,
-          "Device pointer %p does not point into any (current or prior) "
-          "host-issued allocation%s.\n",
-          DevicePtr,
-          IsClose ? "" : " (might be a global, stack, or shared location)");
-    //    if (IsClose) {
-    print(Cyan,
-          "Closest host-issued allocation (distance %" PRIuPTR
-          " byte%s; might be by page):\n",
-          Distance, Distance > 1 ? "s" : "");
-    reportAllocationInfo(ATI);
+          "%p is located %lu bytes inside of a %lu-byte %s memory region "
+          "[%p,%p)\n\n",
+          AccessPtr, Offset, Length, ASStr, DevicePtr,
+          utils::advancePtr(DevicePtr, Length));
+
+    if (AllocationLocationId != InvalidLocationId) {
+      printLocationIdTrace(Device, Image, AllocationLocationId,
+                           /*AmbiguousCallEnc*/ 0, /*IsAllocation*/ true);
+    } else if (!Is32Bit)
+      reportMemoryAccessError(Device, AccessPtr, StringRef(), /*Abort*/ false);
+
+    printFakePointer(Device, Image, SE);
   }
 
 public:
@@ -304,12 +413,100 @@ public:
 #undef DEALLOCATION_ERROR
   }
 
+  static void printLocationIdTrace(GenericDeviceTy &Device,
+                                   DeviceImageTy &Image, uint64_t LocationId,
+                                   uint64_t AmbiguousCallEnc = 0,
+                                   bool IsAllocation = false) {
+    if (LocationId == InvalidLocationId) {
+      reportError("    no backtrace available\n");
+      return;
+    }
+
+    GenericGlobalHandlerTy &GHandler = Device.Plugin.getGlobalHandler();
+    auto GetImagePtr = [&](GlobalTy &GV, bool Quiet = false) {
+      if (auto Err = GHandler.getGlobalMetadataFromImage(Device, Image, GV)) {
+        if (Quiet)
+          consumeError(std::move(Err));
+        else
+          REPORT("WARNING: Failed to read backtrace "
+                 "(%s)\n",
+                 toString(std::move(Err)).data());
+        return false;
+      }
+      return true;
+    };
+
+    GlobalTy LocationsGV("__offload_san_locations", -1);
+    GlobalTy LocationNamesGV("__offload_san_location_names", -1);
+    GlobalTy AmbiguousCallsBitWidthGV("__offload_san_num_ambiguous_calls", -1);
+    GlobalTy AmbiguousCallsLocationsGV("__offload_san_ambiguous_calls_mapping",
+                                       -1);
+    if (GetImagePtr(LocationsGV))
+      GetImagePtr(LocationNamesGV);
+    GetImagePtr(AmbiguousCallsBitWidthGV, /*Quiet=*/true);
+    GetImagePtr(AmbiguousCallsLocationsGV, /*Quiet=*/true);
+
+    if (!LocationsGV.getPtr() || !LocationNamesGV.getPtr()) {
+      reportError("    no backtrace available\n");
+      return;
+    }
+
+    char *LocationNames = LocationNamesGV.getPtrAs<char>();
+    LocationEncodingTy *Locations = LocationsGV.getPtrAs<LocationEncodingTy>();
+    uint64_t *AmbiguousCallsBitWidth =
+        AmbiguousCallsBitWidthGV.getPtrAs<uint64_t>();
+    uint64_t *AmbiguousCallsLocations =
+        AmbiguousCallsLocationsGV.getPtrAs<uint64_t>();
+
+    if (AmbiguousCallEnc && AmbiguousCallsBitWidth) {
+      // Get rid of partial encodings at the end of the AmbiguousCallEnc
+      AmbiguousCallEnc <<= (64 % *AmbiguousCallsBitWidth);
+      AmbiguousCallEnc >>= (64 % *AmbiguousCallsBitWidth);
+    }
+
+    if (IsAllocation) {
+      LocationEncodingTy &LE = Locations[LocationId];
+      print(Green, "allocation of ");
+      print(BoldLightPurple, "'%s'", &LocationNames[LE.FunctionNameIdx]);
+      if (strlen(&LocationNames[LE.FileNameIdx])) {
+        print(Green, " in ");
+        print(Yellow, "%s:%lu", &LocationNames[LE.FileNameIdx], LE.LineNo);
+      }
+      print("\n");
+      assert(LE.ParentIdx == InvalidLocationId);
+      return;
+    }
+
+    int32_t FrameIdx = 0;
+    unsigned NumDigits = 2;
+    do {
+      LocationEncodingTy &LE = Locations[LocationId];
+      print(DarkPurple, "    #");
+      print(Green, "%*u", NumDigits, FrameIdx);
+      print(" %s", &LocationNames[LE.FunctionNameIdx]);
+      print(Yellow, " %s:%lu:%lu\n", &LocationNames[LE.FileNameIdx], LE.LineNo,
+            LE.ColumnNo);
+      LocationId = LE.ParentIdx;
+      FrameIdx++;
+      if (LocationId == AmbiguousCallLocationId && AmbiguousCallEnc != 0 &&
+          AmbiguousCallsBitWidth && AmbiguousCallsLocations) {
+        uint64_t LastAmbiguousCallEnc =
+            AmbiguousCallEnc & ((1 << *AmbiguousCallsBitWidth) - 1);
+        LocationId = AmbiguousCallsLocations[LastAmbiguousCallEnc - 1];
+        AmbiguousCallEnc >>= (*AmbiguousCallsBitWidth);
+      }
+    } while (LocationId != InvalidLocationId &&
+             LocationId != AmbiguousCallLocationId);
+    print("\n");
+  }
+
   static void reportMemoryAccessError(GenericDeviceTy &Device, void *DevicePtr,
-                                      std::string &ErrorStr, bool Abort) {
-    reportError(ErrorStr.c_str());
+                                      StringRef ErrorStr, bool Abort) {
+    if (!ErrorStr.empty())
+      reportError(ErrorStr.data());
 
     if (!Device.OMPX_TrackAllocationTraces) {
-      print(Yellow, "Use '%s=true' to track device allocations\n",
+      print(Yellow, "Use '%s=true' to track device allocations\n\n",
             Device.OMPX_TrackAllocationTraces.getName().data());
       if (Abort)
         abortExecution();
@@ -383,74 +580,6 @@ public:
       break;
     }
 
-    GenericGlobalHandlerTy &GHandler = Device.Plugin.getGlobalHandler();
-    auto GetImagePtr = [&](GlobalTy &GV, bool Quiet = false) {
-      if (auto Err = GHandler.getGlobalMetadataFromImage(Device, *Image, GV)) {
-        if (Quiet)
-          consumeError(std::move(Err));
-        else
-          REPORT("WARNING: Failed to read backtrace "
-                 "(%s)\n",
-                 toString(std::move(Err)).data());
-        return false;
-      }
-      return true;
-    };
-
-    GlobalTy LocationsGV("__offload_san_locations", -1);
-    GlobalTy LocationNamesGV("__offload_san_location_names", -1);
-    GlobalTy AmbiguousCallsBitWidthGV("__offload_san_num_ambiguous_calls", -1);
-    GlobalTy AmbiguousCallsLocationsGV("__offload_san_ambiguous_calls_mapping",
-                                       -1);
-    if (Image) {
-      if (GetImagePtr(LocationsGV))
-        GetImagePtr(LocationNamesGV);
-      GetImagePtr(AmbiguousCallsBitWidthGV, /*Quiet=*/true);
-      GetImagePtr(AmbiguousCallsLocationsGV, /*Quiet=*/true);
-    }
-
-    auto PrintStackTrace = [&](int64_t LocationId) {
-      if (LocationId < 0 || !LocationsGV.getPtr() ||
-          !LocationNamesGV.getPtr()) {
-        reportError("    no backtrace available\n");
-        return;
-      }
-      char *LocationNames = LocationNamesGV.getPtrAs<char>();
-      LocationEncodingTy *Locations =
-          LocationsGV.getPtrAs<LocationEncodingTy>();
-      uint64_t *AmbiguousCallsBitWidth =
-          AmbiguousCallsBitWidthGV.getPtrAs<uint64_t>();
-      uint64_t *AmbiguousCallsLocations =
-          AmbiguousCallsLocationsGV.getPtrAs<uint64_t>();
-
-      if (SE->CallId && AmbiguousCallsBitWidth) {
-        // Get rid of partial encodings at the end of the CallId
-        SE->CallId <<= (64 % *AmbiguousCallsBitWidth);
-        SE->CallId >>= (64 % *AmbiguousCallsBitWidth);
-      }
-
-      int32_t FrameIdx = 0;
-      unsigned NumDigits = 2;
-      do {
-        LocationEncodingTy &LE = Locations[LocationId];
-        print(DarkPurple, "    #");
-        print(Green, "%*u", NumDigits, FrameIdx);
-        print(" %s", &LocationNames[LE.FunctionNameIdx]);
-        print(Yellow, " %s:%lu:%lu\n", &LocationNames[LE.FileNameIdx],
-              LE.LineNo, LE.ColumnNo);
-        LocationId = LE.ParentIdx;
-        FrameIdx++;
-        if (LocationId < 0 && SE->CallId != 0 && AmbiguousCallsBitWidth &&
-            AmbiguousCallsLocations) {
-          uint64_t LastCallId =
-              SE->CallId & ((1 << *AmbiguousCallsBitWidth) - 1);
-          LocationId = AmbiguousCallsLocations[LastCallId - 1];
-          SE->CallId >>= (*AmbiguousCallsBitWidth);
-        }
-      } while (LocationId >= 0);
-      print("\n");
-    };
-
     auto KTI = KTIR.getKernelTraceInfo(Idx);
     if (KTI.Queue && AsyncInfoWrapperMatcher(KTI.Queue)) {
       auto PrettyKernelName =
@@ -467,21 +596,30 @@ public:
       switch (SE->ErrorCode) {
       case SanitizerEnvironmentTy::TRAP:
         reportError("execution interrupted by hardware trap instruction");
+        reportLocation(*SE);
+        printLocationIdTrace(Device, *Image, SE->LocationId, SE->CallId);
         break;
       case SanitizerEnvironmentTy::UNREACHABLE:
         reportError("execution reached an \"unreachable\" state (likely caused "
                   "by undefined behavior)");
-	break;
-
+        reportLocation(*SE);
+        printLocationIdTrace(Device, *Image, SE->LocationId, SE->CallId);
+        break;
       case SanitizerEnvironmentTy::BAD_PTR:
         reportError("execution encountered a garbage pointer");
+        reportLocation(*SE);
+        printLocationIdTrace(Device, *Image, SE->LocationId, SE->CallId);
         break;
       case SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE:
         reportError("execution encountered an allocation that is too large");
+        reportLocation(*SE);
+        printLocationIdTrace(Device, *Image, SE->LocationId, SE->CallId);
         break;
       case SanitizerEnvironmentTy::AS_MISMATCH:
         reportError(
             "execution encountered a pointer to the wrong address space");
+        reportLocation(*SE);
+        printLocationIdTrace(Device, *Image, SE->LocationId, SE->CallId);
         break;
       case SanitizerEnvironmentTy::OUT_OF_BOUNDS:
         reportOutOfBoundsError(Device, *Image, *SE);
@@ -489,10 +627,9 @@ public:
       default:
         reportError(
             "execution stopped, reason is unknown due to invalid error code");
-      }
-
       reportLocation(*SE);
-      PrintStackTrace(SE->LocationId);
+      printLocationIdTrace(Device, *Image, SE->LocationId, SE->CallId);
+      }
     }
 
     if (KTI.Queue && AsyncInfoWrapperMatcher(KTI.Queue)) {
