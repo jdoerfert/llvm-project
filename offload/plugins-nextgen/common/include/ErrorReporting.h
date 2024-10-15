@@ -319,7 +319,7 @@ class ErrorReporter {
 
   static void reportOutOfBoundsError(GenericDeviceTy &Device,
                                      DeviceImageTy &Image,
-                                     SanitizerEnvironmentTy &SE) {
+                                     SanitizerEnvironmentTy &SE, bool Event) {
     reportError("execution encountered an out-of-bounds access");
 
     uint32_t AS = SE.FP.Enc32.RealAS;
@@ -331,10 +331,12 @@ class ErrorReporter {
     uint64_t AllocationLocationId = InvalidLocationId;
     if (Is32Bit) {
       DevicePtr = (void *)(uint64_t)SE.FP.Enc32.RealPtr;
-      Device.getFakeHostPtrGlobalInfo(Image, DevicePtr, AllocationLocationId);
+      if (!Event)
+        Device.getFakeHostPtrGlobalInfo(Image, DevicePtr, AllocationLocationId);
     } else {
-      Device.getFakeHostPtrInfo(Image, SE.FP.Enc64.SlotId, DevicePtr, Length,
-                                AllocationLocationId);
+      if (!Event)
+        Device.getFakeHostPtrInfo(Image, SE.FP.Enc64.SlotId, DevicePtr, Length,
+                                  AllocationLocationId);
     }
     void *AccessPtr = utils::advancePtr(DevicePtr, Offset);
 
@@ -553,7 +555,8 @@ public:
   /// Report that a kernel encountered a trap instruction.
   static void
   reportTrapInKernel(GenericDeviceTy &Device, KernelTraceInfoRecordTy &KTIR,
-                     std::function<bool(void *Queue)> AsyncInfoWrapperMatcher) {
+                     std::function<bool(void *Queue)> AsyncInfoWrapperMatcher,
+                     bool Event = false) {
     assert(AsyncInfoWrapperMatcher && "A matcher is required");
 
     DeviceImageTy *Image = nullptr;
@@ -622,7 +625,7 @@ public:
         printLocationIdTrace(Device, *Image, SE->LocationId, SE->CallId);
         break;
       case SanitizerEnvironmentTy::OUT_OF_BOUNDS:
-        reportOutOfBoundsError(Device, *Image, *SE);
+        reportOutOfBoundsError(Device, *Image, *SE, Event);
         break;
       default:
         reportError(
@@ -641,12 +644,14 @@ public:
               Device.OMPX_TrackNumKernelLaunches.getName().data());
       }
     }
-    abort();
+    if (!Event)
+      abort();
   }
 
   static void checkAndReportError(GenericDeviceTy &Device,
                                   __tgt_async_info *AsyncInfo,
-                                  KernelTraceInfoRecordTy *KTIR = nullptr) {
+                                  KernelTraceInfoRecordTy *KTIR = nullptr,
+                                  bool Event = false) {
     SanitizerEnvironmentTy *SE = nullptr;
     for (auto &It : Device.SanitizerEnvironmentMap) {
       if (It.second->ErrorCode == SanitizerEnvironmentTy::NONE)
@@ -660,12 +665,13 @@ public:
       return;
 
     if (KTIR) {
-      reportTrapInKernel(Device, *KTIR, [=](void *) { return true; });
+      reportTrapInKernel(
+          Device, *KTIR, [=](void *) { return true; }, Event);
     } else {
       auto KernelTraceInfoRecord =
           Device.KernelLaunchTraces.getExclusiveAccessor();
-      reportTrapInKernel(Device, *KernelTraceInfoRecord,
-                         [=](void *) { return true; });
+      reportTrapInKernel(
+          Device, *KernelTraceInfoRecord, [=](void *) { return true; }, Event);
     }
   }
 

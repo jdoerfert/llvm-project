@@ -1275,15 +1275,16 @@ bool OffloadSanitizerImpl::addDtor() {
 bool OffloadSanitizerImpl::instrument() {
   bool Changed = false;
 
-  for (auto &GV : M.globals())
-    convertUsersOfConstantsToInstructions({&GV});
-
   for (Function &Fn : M)
     Changed |= instrumentFunction(Fn);
 
+  for (auto &GV : M.globals())
+    convertUsersOfConstantsToInstructions({&GV});
+
+  handleAmbiguousCalls();
+
   Changed |= addCtor();
   Changed |= addDtor();
-  handleAmbiguousCalls();
   Changed |= finalizeKernels();
   Changed |= handleCallStackSupport();
 
