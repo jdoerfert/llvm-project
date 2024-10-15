@@ -32,6 +32,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/NoFolder.h"
 #include "llvm/IR/ReplaceConstant.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
@@ -332,9 +333,9 @@ private:
 
   Function *createSanitizerInitKernel();
 
-  Value *getFunctionName(IRBuilder<> &IRB);
-  Value *getFileName(IRBuilder<> &IRB);
-  Value *getLineNo(IRBuilder<> &IRB);
+  Value *getFunctionName(IRBuilder<NoFolder> &IRB);
+  Value *getFileName(IRBuilder<NoFolder> &IRB);
+  Value *getLineNo(IRBuilder<NoFolder> &IRB);
 
   PtrInfoTy getPtrInfoTy(Value &Obj, const AccessInfoTy &AI) {
     if (AI.AS > 1)
@@ -359,7 +360,7 @@ private:
                    ->getEntryBlock()
                    .getFirstNonPHIOrDbgOrAlloca();
       }
-      IRBuilder<> IRB(IP);
+      IRBuilder<NoFolder> IRB(IP);
       auto *AllocationInfoStruct =
           createCall(IRB, getGetAllocationInfoFn(AI.AS),
                      {getPC(IRB), getSourceIndex(*AI.I),
@@ -374,7 +375,8 @@ private:
 
   void removeAS(Function &Fn, SmallVectorImpl<Instruction *> &ASInsts);
 
-  void instrumentGlobal(IRBuilder<> &IRB, GlobalVariable &GV, uint32_t AS);
+  void instrumentGlobal(IRBuilder<NoFolder> &IRB, GlobalVariable &GV,
+                        uint32_t AS);
   bool instrumentFunction(Function &Fn);
   void instrumentTrapInstructions(SmallVectorImpl<IntrinsicInst *> &TrapCalls);
   void instrumentCallInsts(SmallVectorImpl<CallInst *> &CallInsts);
@@ -497,7 +499,7 @@ private:
     return GlobalRegisterFn[AS];
   }
 
-  CallInst *createCall(IRBuilder<> &IRB, FunctionCallee Callee,
+  CallInst *createCall(IRBuilder<NoFolder> &IRB, FunctionCallee Callee,
                        ArrayRef<Value *> Args = std::nullopt,
                        const Twine &Name = "") {
     RTCalls.push_back(IRB.CreateCall(Callee, Args, Name));
@@ -505,7 +507,7 @@ private:
   }
   SmallVector<CallInst *> RTCalls;
 
-  Value *getPC(IRBuilder<> &IRB) {
+  Value *getPC(IRBuilder<NoFolder> &IRB) {
     static int X = 0;
     return ConstantInt::get(Int64Ty, X++);
     return IRB.CreateIntrinsic(Int64Ty, Intrinsic::amdgcn_s_getpc, {}, nullptr,
@@ -664,7 +666,7 @@ void OffloadSanitizerImpl::removeAS(Function &Fn,
       } else {
         if (isASType(*CI.getType()))
           VMap[I] = GetAsGeneric(CI);
-        IRBuilder<> IRB(&CI);
+        IRBuilder<NoFolder> IRB(&CI);
         for (unsigned I = 0, E = CI.arg_size(); I < E; ++I) {
           auto *Op = CI.getArgOperand(I);
           if (!isASType(*Op->getType()))
@@ -696,7 +698,7 @@ void OffloadSanitizerImpl::instrumentCallInsts(
     auto *Fn = CI->getCalledFunction();
     if (shouldInstrumentFunction(Fn))
       continue;
-    IRBuilder<> IRB(CI);
+    IRBuilder<NoFolder> IRB(CI);
     for (int I = 0, E = CI->arg_size(); I != E; ++I) {
       Value *Op = CI->getArgOperand(I);
       if (!Op->getType()->isPointerTy())
@@ -724,7 +726,7 @@ void OffloadSanitizerImpl::instrumentLifetimeIntrinsics(
 void OffloadSanitizerImpl::instrumentTrapInstructions(
     SmallVectorImpl<IntrinsicInst *> &TrapCalls) {
   for (auto *II : TrapCalls) {
-    IRBuilder<> IRB(II);
+    IRBuilder<NoFolder> IRB(II);
     createCall(IRB, getTrapInfoFn(), {getPC(IRB), getSourceIndex(*II)});
   }
 }
@@ -737,7 +739,7 @@ void OffloadSanitizerImpl::instrumentUnreachableInstructions(
       if (auto *CI = dyn_cast<CallInst>(II->getPrevNode()))
         if (CI->getIntrinsicID() == Intrinsic::trap)
           continue;
-    IRBuilder<> IRB(II);
+    IRBuilder<NoFolder> IRB(II);
     createCall(IRB, getUnreachableInfoFn(), {getPC(IRB), getSourceIndex(*II)});
   }
 }
@@ -766,7 +768,7 @@ void OffloadSanitizerImpl::instrumentAccesses(
     }
     assert(FakePtr->getType()->getPointerAddressSpace() == 0);
 
-    IRBuilder<> IRB(AI.I);
+    IRBuilder<NoFolder> IRB(AI.I);
     SmallVector<Value *> Args;
     Args.append({getPC(IRB), getSourceIndex(*AI.I), FakePtr, Size});
 
@@ -815,7 +817,7 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
     if (!IsApplicable(*AI, TS))
       continue;
 
-    IRBuilder<> IRB(AI->getNextNode());
+    IRBuilder<NoFolder> IRB(AI->getNextNode());
     auto *Size = ConstantInt::get(Int32Ty, TS);
     auto *FakePtr = createCall(IRB, getAllocaRegisterFn(),
                                {getPC(IRB), getSourceIndex(*AI), AI, Size});
@@ -1020,7 +1022,7 @@ bool OffloadSanitizerImpl::handleAmbiguousCalls() {
       GlobalValue::ThreadLocalMode::NotThreadLocal, SharedAS);
 
   for (const auto &It : llvm::enumerate(AmbiguousCallsOrdered)) {
-    IRBuilder<> IRB(It.value());
+    IRBuilder<NoFolder> IRB(It.value());
     Value *Idx = createCall(IRB, getThreadIdFn(), {}, "san.gtid");
     Value *Ptr = IRB.CreateGEP(Int64Ty, LocationsArray, {Idx});
     Value *OldVal = IRB.CreateLoad(Int64Ty, Ptr);
@@ -1058,7 +1060,7 @@ bool OffloadSanitizerImpl::handleCallStackSupport() {
   return true;
 }
 
-void OffloadSanitizerImpl::instrumentGlobal(IRBuilder<> &IRB,
+void OffloadSanitizerImpl::instrumentGlobal(IRBuilder<NoFolder> &IRB,
                                             GlobalVariable &GV, uint32_t AS) {
   if (!canInstrumentGlobal(GV))
     return;
@@ -1166,7 +1168,7 @@ void OffloadSanitizerImpl::instrumentGlobal(IRBuilder<> &IRB,
     if (auto *PHI = dyn_cast<PHINode>(IP))
       IP = PHI->getIncomingBlock(*U)->getTerminator();
 
-    IRBuilder<> IRB(IP);
+    IRBuilder<NoFolder> IRB(IP);
     auto *FakePtr = IRB.CreateLoad(PtrTy, ShadowGV);
     errs() << *FakePtr << " :: " << *U->get() << " : : " << *U->getUser()
            << "\n";
@@ -1195,7 +1197,7 @@ Function *OffloadSanitizerImpl::createSanitizerInitKernel() {
   InitSharedFn->addFnAttr(Attribute::DisableSanitizerInstrumentation);
 
   auto *EntryBB = BasicBlock::Create(Ctx, "entry", InitSharedFn);
-  IRBuilder<> IRB(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
+  IRBuilder<NoFolder> IRB(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
   auto *Barrier = createCall(IRB, getSyncBlockFn());
   IRB.CreateRetVoid();
   IRB.SetInsertPoint(Barrier);
@@ -1222,14 +1224,14 @@ Function *OffloadSanitizerImpl::createSanitizerInitKernel() {
     instrumentGlobal(IRB, GV, SharedAS);
   }
 
-  InitSharedFn->dump();
   return InitSharedFn;
 }
 
 bool OffloadSanitizerImpl::finalizeKernels() {
   for (auto *Kernel : Kernels) {
     Function *InitKernelFn = createSanitizerInitKernel();
-    IRBuilder<> IRB(&*Kernel->getEntryBlock().getFirstNonPHIOrDbgOrAlloca());
+    IRBuilder<NoFolder> IRB(
+        &*Kernel->getEntryBlock().getFirstNonPHIOrDbgOrAlloca());
     createCall(IRB, InitKernelFn, {});
   }
   return Kernels.size();
@@ -1242,7 +1244,7 @@ bool OffloadSanitizerImpl::addCtor() {
   CtorFn->addFnAttr(Attribute::DisableSanitizerInstrumentation);
 
   BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", CtorFn);
-  IRBuilder<> IRB(Entry);
+  IRBuilder<NoFolder> IRB(Entry);
 
   for (auto &GV : M.globals()) {
     if (GV.getAddressSpace() != GlobalAS)
@@ -1263,7 +1265,7 @@ bool OffloadSanitizerImpl::addDtor() {
                        GlobalValue::PrivateLinkage, "__offload_san_dtor", &M);
   DtorFn->addFnAttr(Attribute::DisableSanitizerInstrumentation);
   BasicBlock *Entry = BasicBlock::Create(Ctx, "entry", DtorFn);
-  IRBuilder<> IRB(Entry);
+  IRBuilder<NoFolder> IRB(Entry);
 
   createCall(IRB, getLeakCheckFn());
 
@@ -1275,11 +1277,11 @@ bool OffloadSanitizerImpl::addDtor() {
 bool OffloadSanitizerImpl::instrument() {
   bool Changed = false;
 
-  for (Function &Fn : M)
-    Changed |= instrumentFunction(Fn);
-
   for (auto &GV : M.globals())
     convertUsersOfConstantsToInstructions({&GV});
+
+  for (Function &Fn : M)
+    Changed |= instrumentFunction(Fn);
 
   handleAmbiguousCalls();
 
