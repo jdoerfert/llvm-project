@@ -1065,6 +1065,9 @@ Error GenericDeviceTy::setupSanitizerEnvironment(GenericPluginTy &Plugin,
                                               SanitizerEnvironmentGlobal))
     return Err;
 
+  BoolEnvar OMPX_SANITIZE = BoolEnvar("OMPX_SANITIZE", 1);
+  if (!OMPX_SANITIZE)
+    return Plugin::success();
   {
     auto KernelOrErr = getKernel("__sanitizer_register", &Image);
     if (auto Err = KernelOrErr.takeError()) {
@@ -2250,6 +2253,31 @@ int32_t GenericPluginTy::data_retrieve_async(int32_t DeviceId, void *HstPtr,
   }
 
   return OFFLOAD_SUCCESS;
+}
+
+void *GenericPluginTy::get_device_ptr(int32_t DeviceId, void *TgtPtr,
+                                      int64_t Size) {
+  FakePtrTy FP(0);
+  FP.U.VPtr = TgtPtr;
+  if (FP.U.Enc64.RealAS != 1)
+    return TgtPtr;
+  if (FP.U.Enc64.Magic != FAKE_PTR_MAGIC)
+    return TgtPtr;
+  uint32_t SlotId = FP.U.Enc64.SlotId;
+
+  auto &D = getDevice(DeviceId);
+  for (DeviceImageTy *Image : D.LoadedImages) {
+    void *DevPtr = nullptr;
+    uint64_t DevSize = -1;
+    uint64_t LocationId = -1;
+    D.getFakeHostPtrInfo(*Image, SlotId, DevPtr, DevSize, LocationId);
+    if (DevSize == -1)
+      continue;
+    assert(DevSize >= FP.U.Enc64.Offset + Size);
+    assert(0 <= FP.U.Enc64.Offset);
+    return utils::advancePtr(DevPtr, FP.U.Enc64.Offset);
+  }
+  return TgtPtr;
 }
 
 int32_t GenericPluginTy::data_exchange(int32_t SrcDeviceId, void *SrcPtr,

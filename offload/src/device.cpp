@@ -144,7 +144,6 @@ int32_t DeviceTy::submitData(void *TgtPtrBegin, void *HstPtrBegin, int64_t Size,
                                      HstPtrBegin, Size);
       Entry = LR.TPR.getEntry();
     }
-    assert(Entry);
     if (Entry && Entry->FakeTgtPtrBegin &&
         Entry->FakeTgtPtrBegin <= TgtPtrBegin &&
         utils::advancePtr(Entry->FakeTgtPtrBegin,
@@ -154,6 +153,8 @@ int32_t DeviceTy::submitData(void *TgtPtrBegin, void *HstPtrBegin, int64_t Size,
       TgtPtrBegin = utils::advancePtr(
           (void *)Entry->TgtPtrBegin,
           utils::getPtrDiff(TgtPtrBegin, Entry->FakeTgtPtrBegin));
+    } else {
+      TgtPtrBegin = RTL->get_device_ptr(RTLDeviceID, TgtPtrBegin, Size);
     }
   }
 
@@ -186,7 +187,6 @@ int32_t DeviceTy::retrieveData(void *HstPtrBegin, void *TgtPtrBegin,
                                      HstPtrBegin, Size);
       Entry = LR.TPR.getEntry();
     }
-    assert(Entry);
     if (Entry && Entry->FakeTgtPtrBegin &&
         Entry->FakeTgtPtrBegin <= TgtPtrBegin &&
         utils::advancePtr(Entry->FakeTgtPtrBegin,
@@ -196,6 +196,8 @@ int32_t DeviceTy::retrieveData(void *HstPtrBegin, void *TgtPtrBegin,
       TgtPtrBegin = utils::advancePtr(
           (void *)Entry->TgtPtrBegin,
           utils::getPtrDiff(TgtPtrBegin, Entry->FakeTgtPtrBegin));
+    } else {
+      TgtPtrBegin = RTL->get_device_ptr(RTLDeviceID, TgtPtrBegin, Size);
     }
   }
   if (getInfoLevel() & OMP_INFOTYPE_DATA_TRANSFER)
