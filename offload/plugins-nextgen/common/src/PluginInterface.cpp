@@ -1797,14 +1797,14 @@ void GenericDeviceTy::getFakeHostPtrInfo(DeviceImageTy &Image, uint32_t SlotId,
   AsyncInfoWrapperTy AsyncInfoWrapper(*this, nullptr);
   void **PtrOut = reinterpret_cast<void **>(
       allocate(sizeof(void *), nullptr, TARGET_ALLOC_HOST));
-  uint32_t *LengthOut = reinterpret_cast<uint32_t *>(
-      allocate(sizeof(uint32_t), nullptr, TARGET_ALLOC_HOST));
+  uint64_t *LengthOut = reinterpret_cast<uint64_t *>(
+      allocate(sizeof(uint64_t), nullptr, TARGET_ALLOC_HOST));
   uint64_t *LocationIdOut = reinterpret_cast<uint64_t *>(
       allocate(sizeof(uint64_t), nullptr, TARGET_ALLOC_HOST));
   struct {
     uint32_t Slot;
     void **Ptr;
-    uint32_t *Length;
+    uint64_t *Length;
     uint64_t *LocationIdPtr;
   } KernelArgs{SlotId, PtrOut, LengthOut, LocationIdOut};
   KernelLaunchParamsTy ArgPtrs{sizeof(KernelArgs), &KernelArgs, nullptr};

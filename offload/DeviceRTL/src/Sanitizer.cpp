@@ -166,7 +166,7 @@ struct FakePtrTy {
 
   template <uint32_t AS>
   _SAN_ATTRS static FakePtrTy create(uint64_t PC, uint64_t LocationId,
-                                     ASPtrTy<AS> Ptr, uint32_t Size) {
+                                     ASPtrTy<AS> Ptr, uint64_t Size) {
     FakePtrTy FP;
 
     FP.U.Enc32.RealAS = AS;
@@ -179,7 +179,7 @@ struct FakePtrTy {
 
   template <>
   _SAN_ATTRS FakePtrTy create<GlobalAS>(uint64_t PC, uint64_t LocationId,
-                                        GlobalPtrTy Ptr, uint32_t Size) {
+                                        GlobalPtrTy Ptr, uint64_t Size) {
     FakePtrTy FP;
     if (Size > FP.getMaxSize())
       raiseExecutionError(SanitizerEnvironmentTy::ALLOCATION_TOO_LARGE, PC,
@@ -198,7 +198,7 @@ struct FakePtrTy {
 
   template <uint32_t AS>
   _SAN_ATTRS static FakePtrTy registerGlobal(uint64_t PC, uint64_t LocationId,
-                                             ASPtrTy<AS> Ptr, uint32_t Size) {
+                                             ASPtrTy<AS> Ptr, uint64_t Size) {
 
     uint32_t GlobalSlotId = __san_global_info_cnt++;
     if (GlobalSlotId < __san_num_global_infos) {
@@ -221,7 +221,7 @@ struct FakePtrTy {
   _SAN_ATTRS FakePtrTy registerGlobal<SharedAS>(uint64_t PC,
                                                 uint64_t LocationId,
                                                 ASPtrTy<SharedAS> Ptr,
-                                                uint32_t Size) {
+                                                uint64_t Size) {
     uint32_t GlobalSlotId = __san_global_info_cnt++;
     if (GlobalSlotId < __san_num_global_infos) {
       __san_global_infos[GlobalSlotId].Base =
@@ -232,7 +232,7 @@ struct FakePtrTy {
     return create<SharedAS>(PC, LocationId, Ptr, Size);
   }
 
-  _SAN_ATTRS static void registerHost(void *Ptr, uint32_t Size,
+  _SAN_ATTRS static void registerHost(void *Ptr, uint64_t Size,
                                       uint32_t SlotId) {
     __san_ptr_infos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
     __san_ptr_infos[SlotId].Size = Size;
@@ -357,18 +357,18 @@ _SAN_ENTRY_ATTRS void __offload_san_unreachable_info(uint64_t PC,
 _SAN_ENTRY_ATTRS void *__offload_san_register_alloca(uint64_t PC,
                                                      uint64_t LocationId,
                                                      AllocaPtrTy Ptr,
-                                                     uint32_t Size) {
+                                                     uint64_t Size) {
   return FakePtrTy::create<AllocaAS>(PC, LocationId, Ptr, Size);
 }
 
 _SAN_ENTRY_ATTRS void *__offload_san_register_malloc(uint64_t PC,
                                                      uint64_t LocationId,
                                                      GlobalPtrTy Ptr,
-                                                     uint32_t Size) {
+                                                     uint64_t Size) {
   return FakePtrTy::create<GlobalAS>(PC, LocationId, Ptr, Size);
 }
 
-_SAN_ENTRY_ATTRS void __offload_san_register_host(void *Ptr, uint32_t Size,
+_SAN_ENTRY_ATTRS void __offload_san_register_host(void *Ptr, uint64_t Size,
                                                   uint32_t SlotId) {
   FakePtrTy::registerHost(Ptr, Size, SlotId);
 }
@@ -412,7 +412,7 @@ _SAN_ENTRY_ATTRS void __offload_san_get_ptr_info(uint32_t SlotId,
   }                                                                            \
                                                                                \
   _SAN_ENTRY_ATTRS ASPtrTy<AS> __offload_san_check_as##AS##_access_with_info(  \
-      uint64_t PC, uint64_t LocationId, void *FakePtr, uint32_t Size,          \
+      uint64_t PC, uint64_t LocationId, void *FakePtr, uint64_t Size,          \
       uint32_t AllocAS, char *AllocBase, uint64_t AllocSize) {                 \
     if constexpr (AS == GlobalAS) {                                            \
       FakePtrTy FP(FakePtr, AS, /* Checked */ false, PC, LocationId);          \
@@ -430,7 +430,7 @@ _SAN_ENTRY_ATTRS void __offload_san_get_ptr_info(uint32_t SlotId,
     return (ASPtrTy<AS>)FakePtr;                                               \
   }                                                                            \
   _SAN_ENTRY_ATTRS void *__offload_san_register_as##AS##_global(               \
-      uint64_t PC, uint64_t LocationId, ASPtrTy<AS> Ptr, uint32_t Size) {      \
+      uint64_t PC, uint64_t LocationId, ASPtrTy<AS> Ptr, uint64_t Size) {      \
     return (void *)FakePtrTy::registerGlobal<AS>(PC, LocationId, Ptr, Size);   \
   }
 
