@@ -325,7 +325,7 @@ class ErrorReporter {
     uint32_t AS = SE.FP.Enc32.RealAS;
     bool Is32Bit = AS == 3 || AS == 5;
 
-    uint64_t Offset = Is32Bit ? SE.FP.Enc32.Offset : SE.FP.Enc64.Offset;
+    int64_t Offset = Is32Bit ? SE.FP.Enc32.Offset : SE.FP.Enc64.Offset;
     uint64_t Length = Is32Bit ? SE.FP.Enc32.Size : -1;
     void *DevicePtr = nullptr;
     uint64_t AllocationLocationId = InvalidLocationId;
@@ -368,7 +368,7 @@ class ErrorReporter {
 
     auto [ASStr, ASStrLength] = asToString(AS);
     print(Cyan,
-          "%p is located %lu bytes inside of a %lu-byte %s memory region "
+          "%p is located %ld bytes inside of a %lu-byte %s memory region "
           "[%p,%p)\n\n",
           AccessPtr, Offset, Length, ASStr, DevicePtr,
           utils::advancePtr(DevicePtr, Length));

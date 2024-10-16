@@ -1637,7 +1637,7 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
            "Current pointer should be assigned");
 
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Usr)) {
-      if (CE->isCast())
+      if (CE->isCast() && CE->getOpcode() != Instruction::PtrToInt)
         return HandlePassthroughUser(Usr, CurPtr, Follow);
       if (!isa<GEPOperator>(CE)) {
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled constant user " << *CE

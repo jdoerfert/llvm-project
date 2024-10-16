@@ -14,6 +14,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Frontend/OpenMP/OMP.h"
 #include "llvm/IR/Argument.h"
@@ -31,6 +32,7 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/NoFolder.h"
 #include "llvm/IR/ReplaceConstant.h"
@@ -385,7 +387,7 @@ private:
       SmallVectorImpl<LifetimeIntrinsic *> &LifetimeInsts);
   void instrumentUnreachableInstructions(
       SmallVectorImpl<UnreachableInst *> &UnreachableInsts);
-  void instrumentAccesses(DominatorTree &DT,
+  void instrumentAccesses(DominatorTree &DT, PostDominatorTree &PDT,
                           SmallVectorImpl<AccessInfoTy> &Accesses);
   void instrumentAllocaInstructions(SmallVectorImpl<AllocaInst *> &AllocaInsts);
 
@@ -746,7 +748,8 @@ void OffloadSanitizerImpl::instrumentUnreachableInstructions(
 }
 
 void OffloadSanitizerImpl::instrumentAccesses(
-    DominatorTree &DT, SmallVectorImpl<AccessInfoTy> &AccessInfos) {
+    DominatorTree &DT, PostDominatorTree &PDT,
+    SmallVectorImpl<AccessInfoTy> &AccessInfos) {
   DenseMap<Value *, SmallVector<Instruction *>> CheckedPtrs;
   DenseMap<std::pair<BasicBlock *, Value *>,
            SmallVector<std::pair<AccessInfoTy *, APInt>>>
@@ -758,13 +761,6 @@ void OffloadSanitizerImpl::instrumentAccesses(
     Offset -= AccessSize;
     auto *Size = ConstantInt::get(Int32Ty, AI.encodeKindInSize(AccessSize));
 
-    IRBuilder<NoFolder> IRB(IP);
-    Ptr = IRB.CreateAddrSpaceCast(Ptr, PtrTy);
-    Ptr = IRB.CreateGEP(Int8Ty, Ptr,
-                        {ConstantInt::get(Int32Ty, Offset.getSExtValue())});
-    SmallVector<Value *> Args;
-    Args.append({getPC(IRB), getSourceIndex(*AI.I), Ptr, Size});
-
     auto *Obj = getUnderlyingObject(Ptr);
     if (AI.AS == 0)
       AI.AS = Obj->getType()->getPointerAddressSpace();
@@ -772,7 +768,22 @@ void OffloadSanitizerImpl::instrumentAccesses(
       if (cast<Argument>(Obj)->getParent()->getCallingConv() ==
           CallingConv::AMDGPU_KERNEL)
         AI.AS = 1;
+
     const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
+
+    if (auto *PtrI = dyn_cast<Instruction>(Ptr))
+      if (DT.dominates(PtrI, IP) && PDT.dominates(IP, PtrI))
+        IP = PtrI->getNextNode();
+    if (Obj == Ptr && isa<Instruction>(PtrInfo.AS))
+      IP = cast<Instruction>(PtrInfo.AS)->getNextNode();
+
+    IRBuilder<NoFolder> IRB(IP);
+    Ptr = IRB.CreateAddrSpaceCast(Ptr, PtrTy);
+    Ptr = IRB.CreateGEP(Int8Ty, Ptr,
+                        {ConstantInt::get(Int32Ty, Offset.getSExtValue())});
+    SmallVector<Value *> Args;
+    Args.append({getPC(IRB), getSourceIndex(*AI.I), Ptr, Size});
+
     Args.push_back(PtrInfo.AS);
     Args.push_back(PtrInfo.Start);
     Args.push_back(PtrInfo.Length);
@@ -820,10 +831,37 @@ void OffloadSanitizerImpl::instrumentAccesses(
     }
     AI.AS = FakePtr->getType()->getPointerAddressSpace();
     APInt Offset(DL.getIndexSizeInBits(AI.AS), 0);
-    Offset += DL.getTypeStoreSize(AI.I->getAccessType());
+
+    Value *SafePtr = nullptr;
     auto *StrippedPtr =
         FakePtr->stripAndAccumulateConstantOffsets(DL, Offset, true);
-    BlockMap[{AI.I->getParent(), StrippedPtr}].push_back({&AI, Offset});
+    APInt OffsetAndSize = Offset + DL.getTypeStoreSize(AI.I->getAccessType());
+    if (auto *GV = dyn_cast<GlobalVariable>(StrippedPtr)) {
+      if (APInt(OffsetAndSize.getBitWidth(),
+                DL.getTypeStoreSize(GV->getValueType()))
+              .uge(OffsetAndSize)) {
+        SafePtr = GV;
+      }
+    } else if (auto *AllocI = dyn_cast<AllocaInst>(StrippedPtr)) {
+      if (APInt(OffsetAndSize.getBitWidth(),
+                DL.getTypeStoreSize(AllocI->getAllocatedType()))
+              .uge(OffsetAndSize)) {
+        SafePtr = AllocI;
+      }
+    }
+    if (SafePtr) {
+      IRBuilder<NoFolder> IRB(AI.I);
+      auto *Ptr = cast<Instruction>(IRB.CreateGEP(
+          Int8Ty, SafePtr, {ConstantInt::get(Int32Ty, Offset.getSExtValue())}));
+      Ptr->addAnnotationMetadata("__san_disable");
+      Value *ASPtr = IRB.CreateAddrSpaceCast(
+          Ptr, AI.I->getOperand(AI.PtrOpIdx)->getType());
+      AI.I->setOperand(AI.PtrOpIdx, ASPtr);
+      AI.Checked = true;
+      continue;
+    }
+
+    BlockMap[{AI.I->getParent(), StrippedPtr}].push_back({&AI, OffsetAndSize});
   }
 
   for (auto &It : BlockMap) {
@@ -888,10 +926,6 @@ void OffloadSanitizerImpl::instrumentAccesses(
     }
     assert(FakePtr->getType()->getPointerAddressSpace() == 0);
 
-    IRBuilder<NoFolder> IRB(AI.I);
-    SmallVector<Value *> Args;
-    Args.append({getPC(IRB), getSourceIndex(*AI.I), FakePtr, Size});
-
     auto *Obj = getUnderlyingObject(FakePtr);
     if (AI.AS == 0)
       AI.AS = Obj->getType()->getPointerAddressSpace();
@@ -899,7 +933,20 @@ void OffloadSanitizerImpl::instrumentAccesses(
       if (cast<Argument>(Obj)->getParent()->getCallingConv() ==
           CallingConv::AMDGPU_KERNEL)
         AI.AS = 1;
+
     const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
+
+    auto *IP = AI.I;
+    if (auto *PtrI = dyn_cast<Instruction>(FakePtr))
+      if (DT.dominates(PtrI, IP) && PDT.dominates(IP, PtrI))
+        IP = PtrI->getNextNode();
+    if (Obj == FakePtr && isa<Instruction>(PtrInfo.AS))
+      IP = cast<Instruction>(PtrInfo.AS)->getNextNode();
+
+    IRBuilder<NoFolder> IRB(IP);
+    SmallVector<Value *> Args;
+    Args.append({getPC(IRB), getSourceIndex(*AI.I), FakePtr, Size});
+
     Args.push_back(PtrInfo.AS);
     Args.push_back(PtrInfo.Start);
     Args.push_back(PtrInfo.Length);
@@ -945,6 +992,22 @@ void OffloadSanitizerImpl::instrumentAllocaInstructions(
       auto *UI = cast<Instruction>(U);
       if (UI == FakePtr)
         continue;
+
+      if (UI->hasMetadata(LLVMContext::MD_annotation)) {
+        if (any_of(UI->getMetadata(LLVMContext::MD_annotation)->operands(),
+                   [&](const MDOperand &Op) {
+                     StringRef AnnotationStr =
+                         isa<MDString>(Op.get())
+                             ? cast<MDString>(Op.get())->getString()
+                             : cast<MDString>(
+                                   cast<MDTuple>(Op.get())->getOperand(0).get())
+                                   ->getString();
+                     errs() << "ANNOTATION " << AnnotationStr << "\n";
+                     return (AnnotationStr == "__san_disable");
+                   }))
+          continue;
+      }
+
       if (!isa<AddrSpaceCastInst>(UI)) {
         AI->getFunction()->dump();
         AI->dump();
@@ -1080,6 +1143,7 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   }
 
   DominatorTree DT(Fn);
+  PostDominatorTree PDT(Fn);
 
   Fn.dump();
   removeAS(Fn, ASInsts);
@@ -1087,7 +1151,7 @@ bool OffloadSanitizerImpl::instrumentFunction(Function &Fn) {
   instrumentLifetimeIntrinsics(LifetimeInsts);
   instrumentTrapInstructions(TrapCalls);
   instrumentUnreachableInstructions(UnreachableInsts);
-  instrumentAccesses(DT, AccessInfos);
+  instrumentAccesses(DT, PDT, AccessInfos);
   instrumentAllocaInstructions(AllocaInsts);
 
   RTCalls.clear();
@@ -1284,7 +1348,23 @@ void OffloadSanitizerImpl::instrumentGlobal(IRBuilder<NoFolder> &IRB,
   }
 
   for (auto *U : ToBeReplacedUses) {
+
     auto *IP = cast<Instruction>(U->getUser());
+    if (IP->hasMetadata(LLVMContext::MD_annotation)) {
+      if (any_of(IP->getMetadata(LLVMContext::MD_annotation)->operands(),
+                 [&](const MDOperand &Op) {
+                   StringRef AnnotationStr =
+                       isa<MDString>(Op.get())
+                           ? cast<MDString>(Op.get())->getString()
+                           : cast<MDString>(
+                                 cast<MDTuple>(Op.get())->getOperand(0).get())
+                                 ->getString();
+                   errs() << "ANNOTATION " << AnnotationStr << "\n";
+                   return (AnnotationStr == "__san_disable");
+                 }))
+        continue;
+    }
+
     if (auto *PHI = dyn_cast<PHINode>(IP))
       IP = PHI->getIncomingBlock(*U)->getTerminator();
 
