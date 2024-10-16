@@ -160,6 +160,7 @@ private:
     unsigned AS;
     enum { READ = 1, WRITE = 2, ATOMIC = 4 };
     uint32_t Kind;
+    bool Checked = false;
 
     uint32_t encodeKindInSize(uint32_t Size) { return Size | (Kind << 29); }
   };
@@ -488,14 +489,14 @@ private:
 
   /// PtrTy __offload_san_global(/* PC */ Int64Ty, /*LocationId*/ Int64Ty,
   /// 						/* RealPtr */ ASPtrTy[AS],
-  /// 						/* Size */ Int32Ty);
+  /// 						/* Size */ Int64Ty);
   FunctionCallee GlobalRegisterFn[NumSupportedAddressSpaces];
   FunctionCallee getGlobalRegisterFn(uint32_t AS) {
     assert(AS < NumSupportedAddressSpaces && "Unexpected address space!");
     getOrCreateFn(
         GlobalRegisterFn[AS],
         "__offload_san_register_as" + std::to_string(AS) + "_global", PtrTy,
-        {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty, ASPtrTy[AS], Int32Ty});
+        {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty, ASPtrTy[AS], Int64Ty});
     return GlobalRegisterFn[AS];
   }
 
@@ -747,9 +748,128 @@ void OffloadSanitizerImpl::instrumentUnreachableInstructions(
 void OffloadSanitizerImpl::instrumentAccesses(
     DominatorTree &DT, SmallVectorImpl<AccessInfoTy> &AccessInfos) {
   DenseMap<Value *, SmallVector<Instruction *>> CheckedPtrs;
+  DenseMap<std::pair<BasicBlock *, Value *>,
+           SmallVector<std::pair<AccessInfoTy *, APInt>>>
+      BlockMap;
+
+  auto CheckAccess = [&](AccessInfoTy &AI, Value *Ptr, Instruction *IP,
+                         APInt &Offset) {
+    auto AccessSize = DL.getTypeStoreSize(AI.I->getAccessType());
+    Offset -= AccessSize;
+    auto *Size = ConstantInt::get(Int32Ty, AI.encodeKindInSize(AccessSize));
+
+    IRBuilder<NoFolder> IRB(IP);
+    Ptr = IRB.CreateAddrSpaceCast(Ptr, PtrTy);
+    Ptr = IRB.CreateGEP(Int8Ty, Ptr,
+                        {ConstantInt::get(Int32Ty, Offset.getSExtValue())});
+    SmallVector<Value *> Args;
+    Args.append({getPC(IRB), getSourceIndex(*AI.I), Ptr, Size});
+
+    auto *Obj = getUnderlyingObject(Ptr);
+    if (AI.AS == 0)
+      AI.AS = Obj->getType()->getPointerAddressSpace();
+    if (AI.AS == 0 && isa<Argument>(Obj))
+      if (cast<Argument>(Obj)->getParent()->getCallingConv() ==
+          CallingConv::AMDGPU_KERNEL)
+        AI.AS = 1;
+    const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
+    Args.push_back(PtrInfo.AS);
+    Args.push_back(PtrInfo.Start);
+    Args.push_back(PtrInfo.Length);
+    auto *RealPtr = createCall(IRB, getCheckAccessWithInfoFn(AI.AS), Args);
+    AI.I->setOperand(AI.PtrOpIdx, RealPtr);
+
+    assert(RealPtr->getParent());
+    auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
+    CheckedPtrs[FakePtr].push_back(RealPtr);
+    return RealPtr;
+  };
+
+  auto MovePtrOps = [&](Instruction *IP, Value *Ptr) {
+    auto *PtrI = dyn_cast<Instruction>(Ptr);
+    if (!PtrI || IP == Ptr)
+      return true;
+    SmallVector<Instruction *> Worklist;
+    SmallVector<Instruction *> Visited;
+    Worklist.push_back(PtrI);
+    while (!Worklist.empty()) {
+      auto *I = Worklist.pop_back_val();
+      if (DT.dominates(I, IP))
+        continue;
+      Visited.push_back(I);
+      if (I->mayHaveSideEffects() || I->mayReadFromMemory())
+        return false;
+      for (auto &Op : I->operands()) {
+        if (auto *OpI = dyn_cast<Instruction>(&Op))
+          Worklist.push_back(OpI);
+      }
+    }
+    sort(Visited, [&](const Instruction *LHS, const Instruction *RHS) {
+      return DT.dominates(LHS, RHS);
+    });
+    for (auto *I : Visited)
+      I->moveBefore(IP);
+    return true;
+  };
+
   for (auto &AI : AccessInfos) {
     auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
-    bool Checked = false;
+    if (FakePtr->getType()->getPointerAddressSpace()) {
+      auto *ASC = cast<AddrSpaceCastInst>(FakePtr);
+      FakePtr = ASC->getPointerOperand();
+    }
+    AI.AS = FakePtr->getType()->getPointerAddressSpace();
+    APInt Offset(DL.getIndexSizeInBits(AI.AS), 0);
+    Offset += DL.getTypeStoreSize(AI.I->getAccessType());
+    auto *StrippedPtr =
+        FakePtr->stripAndAccumulateConstantOffsets(DL, Offset, true);
+    BlockMap[{AI.I->getParent(), StrippedPtr}].push_back({&AI, Offset});
+  }
+
+  for (auto &It : BlockMap) {
+    if (It.second.size() < 2)
+      continue;
+    errs() << "IT.second size " << It.second.size() << "\n";
+    sort(It.second, [&](const std::pair<const AccessInfoTy *, APInt> &LHS,
+                        const std::pair<const AccessInfoTy *, APInt> &RHS) {
+      return DT.dominates(LHS.first->I, RHS.first->I);
+    });
+    errs() << "IT.second size " << It.second.size() << "\n";
+    Instruction *IP = It.second.front().first->I;
+    if (!all_of(It.second,
+                [&](const std::pair<const AccessInfoTy *, APInt> &It) {
+                  return MovePtrOps(
+                      IP, It.first->I->getOperand(It.first->PtrOpIdx));
+                }))
+      continue;
+    errs() << "IT.second size " << It.second.size() << "\n";
+    auto *Min = &It.second.front(), *Max = &It.second.front();
+    for (auto &Pair : It.second) {
+      if (Pair.second.sgt(Max->second))
+        Max = &Pair;
+      if (Pair.second.slt(Min->second))
+        Min = &Pair;
+      Pair.first->Checked = true;
+    }
+    if (Min->second.isNegative())
+      CheckAccess(*Min->first, It.first.second, IP, Min->second);
+    auto *MaxPtr = CheckAccess(*Max->first, It.first.second, IP, Max->second);
+    for (auto &[AI, Offset] : It.second) {
+      if (AI == Max->first || (AI == Min->first && Min->second.isNegative()))
+        continue;
+      IRBuilder<NoFolder> IRB(AI->I);
+      auto AccessSize = DL.getTypeStoreSize(AI->I->getAccessType());
+      auto *RealPtr = IRB.CreateGEP(
+          Int8Ty, MaxPtr,
+          {ConstantInt::get(
+              Int32Ty, (Offset - AccessSize - Max->second).getSExtValue())});
+      AI->I->setOperand(AI->PtrOpIdx, RealPtr);
+    }
+  }
+
+  for (auto &AI : AccessInfos) {
+    auto *FakePtr = AI.I->getOperand(AI.PtrOpIdx);
+    bool Checked = AI.Checked;
     for (Instruction *RealPtr : CheckedPtrs.lookup(FakePtr)) {
       if (!DT.dominates(RealPtr->getParent(), AI.I->getParent()))
         continue;
@@ -1143,7 +1263,7 @@ void OffloadSanitizerImpl::instrumentGlobal(IRBuilder<NoFolder> &IRB,
       getShadowGlobalName(GV, AS), &GV, GlobalValue::NotThreadLocal, AS);
 
   auto *Size =
-      ConstantInt::get(Int32Ty, DL.getTypeAllocSize(GV.getValueType()));
+      ConstantInt::get(Int64Ty, DL.getTypeAllocSize(GV.getValueType()));
 
   auto *FakePtr = createCall(IRB, getGlobalRegisterFn(AS),
                              {getPC(IRB), getSourceIndex(&GV), &GV, Size});

@@ -412,7 +412,7 @@ _SAN_ENTRY_ATTRS void __offload_san_get_ptr_info(uint32_t SlotId,
   }                                                                            \
                                                                                \
   _SAN_ENTRY_ATTRS ASPtrTy<AS> __offload_san_check_as##AS##_access_with_info(  \
-      uint64_t PC, uint64_t LocationId, void *FakePtr, uint64_t Size,          \
+      uint64_t PC, uint64_t LocationId, void *FakePtr, uint32_t Size,          \
       uint32_t AllocAS, char *AllocBase, uint64_t AllocSize) {                 \
     if constexpr (AS == GlobalAS) {                                            \
       FakePtrTy FP(FakePtr, AS, /* Checked */ false, PC, LocationId);          \
