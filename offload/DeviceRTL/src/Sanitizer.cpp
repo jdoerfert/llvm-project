@@ -225,14 +225,11 @@ template <AllocationKind AK> struct AllocationTracker {
     }
   }
 
-  [[clang::disable_sanitizer_instrumentation]] static bool
+  [[clang::disable_sanitizer_instrumentation]] static void
   checkPtr(void *P, int64_t SourceId, uint64_t PC) {
     auto AP = AllocationPtrTy<AK>::get(P);
-    if ((AllocationKind)AP.Kind != AK)
-      return false;
     if (AP.Magic != SanitizerConfig<AK>::MAGIC)
       __sanitizer_trap_info_ptr->garbagePointer<AK>(AP, P, SourceId, PC);
-    return true;
   }
 };
 
@@ -240,19 +237,38 @@ template <AllocationKind AK>
 AllocationArrayTy<AK>
     Allocations<AK>::Arr[SanitizerConfig<AK>::NUM_ALLOCATION_ARRAYS];
 
+[[clang::disable_sanitizer_instrumentation, gnu::always_inline]] static void
+checkForMagic(AllocationKind PtrKind, void *P, int64_t SourceId, uint64_t PC) {
+  switch (PtrKind) {
+  case AllocationKind::GLOBAL:
+    AllocationTracker<AllocationKind::GLOBAL>::checkPtr(P, SourceId, PC);
+    break;
+  case AllocationKind::LOCAL:
+    AllocationTracker<AllocationKind::LOCAL>::checkPtr(P, SourceId, PC);
+    break;
+  case AllocationKind::SHARED:
+    AllocationTracker<AllocationKind::SHARED>::checkPtr(P, SourceId, PC);
+    break;
+  }
+}
+
+constexpr uint32_t BIG_KIND_OFFSET = 64 - FAKE_PTR_KIND_BITS;
+constexpr uint32_t SMALL_KIND_OFFSET = 32 - FAKE_PTR_KIND_BITS;
+
 [[clang::disable_sanitizer_instrumentation,
   gnu::always_inline]] static AllocationKind
-getFakePtrType(void *P, int64_t SourceId, uint64_t PC) {
-  if (AllocationTracker<AllocationKind::SHARED>::checkPtr(P, SourceId, PC))
-    return AllocationKind::SHARED;
-  if (AllocationTracker<AllocationKind::GLOBAL>::checkPtr(P, SourceId, PC))
-    return AllocationKind::GLOBAL;
-  if (AllocationTracker<AllocationKind::LOCAL>::checkPtr(P, SourceId, PC))
-    return AllocationKind::LOCAL;
+getFakePtrType(void *P) {
+  uintptr_t PtrInt = (uintptr_t)P;
+  uint32_t FAKE_PTR_KIND_MASK = (1 << FAKE_PTR_KIND_BITS) - 1;
 
-  // Couldn't determine type
-  __sanitizer_trap_info_ptr->garbagePointer<AllocationKind::LOCAL>(
-      AllocationPtrTy<AllocationKind::LOCAL>::get(P), P, SourceId, PC);
+  // Check for global variable type (64 bit pointer)
+  AllocationKind GlobalType =
+      (AllocationKind)((PtrInt >> BIG_KIND_OFFSET) & FAKE_PTR_KIND_MASK);
+  if (GlobalType == AllocationKind::GLOBAL)
+    return AllocationKind::GLOBAL;
+
+  // Get type field on 32 bit pointer
+  return (AllocationKind)((PtrInt >> SMALL_KIND_OFFSET) & FAKE_PTR_KIND_MASK);
 }
 
 extern "C" {
@@ -332,7 +348,8 @@ ompx_free_shared(_AS_PTR(void, AllocationKind::SHARED) P, int64_t SourceId) {
 [[clang::disable_sanitizer_instrumentation, gnu::flatten, gnu::always_inline,
   gnu::used, gnu::retain]] void
 ompx_free(void *P, int64_t SourceId, uint64_t PC) {
-  auto PtrKind = getFakePtrType(P, SourceId, PC);
+  auto PtrKind = getFakePtrType(P);
+  checkForMagic(PtrKind, P, SourceId, PC);
   switch (PtrKind) {
   case AllocationKind::GLOBAL:
     return ompx_free_global((_AS_PTR(void, AllocationKind::GLOBAL))P, SourceId);
@@ -366,7 +383,8 @@ ompx_free(void *P, int64_t SourceId, uint64_t PC) {
 [[clang::disable_sanitizer_instrumentation, gnu::flatten, gnu::always_inline,
   gnu::used, gnu::retain]] void *
 ompx_gep(void *P, uint64_t Offset, int64_t SourceId) {
-  auto PtrKind = getFakePtrType(P, SourceId, 0);
+  auto PtrKind = getFakePtrType(P);
+  checkForMagic(PtrKind, P, SourceId, 0);
   switch (PtrKind) {
   case AllocationKind::GLOBAL:
     return (void *)ompx_gep_global((_AS_PTR(void, AllocationKind::GLOBAL))P,
@@ -405,7 +423,8 @@ ompx_gep(void *P, uint64_t Offset, int64_t SourceId) {
   gnu::used, gnu::retain]] void *
 ompx_check(void *P, uint64_t Size, uint64_t AccessId, int64_t SourceId,
            uint64_t PC) {
-  auto PtrKind = getFakePtrType(P, SourceId, PC);
+  auto PtrKind = getFakePtrType(P);
+  checkForMagic(PtrKind, P, SourceId, PC);
   switch (PtrKind) {
   case AllocationKind::GLOBAL:
     return (void *)ompx_check_global((_AS_PTR(void, AllocationKind::GLOBAL))P,
@@ -476,8 +495,8 @@ ompx_check(void *P, uint64_t Size, uint64_t AccessId, int64_t SourceId,
 [[clang::disable_sanitizer_instrumentation, gnu::flatten, gnu::always_inline,
   gnu::used, gnu::retain]] void *
 ompx_unpack(void *P, int64_t SourceId) {
-  printf("UNPACK GENERIC %p\n", P);
-  auto PtrKind = getFakePtrType(P, SourceId, 0);
+  auto PtrKind = getFakePtrType(P);
+  checkForMagic(PtrKind, P, SourceId, 0);
   switch (PtrKind) {
   case AllocationKind::GLOBAL:
     return (void *)ompx_unpack_global((_AS_PTR(void, AllocationKind::GLOBAL))P,
