@@ -333,6 +333,23 @@ struct SanitizerTrapInfoTy {
   }
 
   template <enum AllocationKind AK>
+  [[clang::disable_sanitizer_instrumentation, noreturn, NOINLINE,
+    gnu::cold]] void
+  garbagePointer2(const AllocationPtrTy<AK> AP, void *P, int64_t SourceId,
+                  int64_t Id, uint64_t PC) {
+    ErrorCode = GarbagePointer;
+    AllocationStart = P;
+    AllocationKind = (decltype(AllocationKind))AK;
+    PtrOffset = AP.Offset;
+    PtrSlot = AP.AllocationId;
+    PtrTag = AP.AllocationTag;
+    PtrKind = AP.Kind;
+    AccessId = Id;
+    setCoordinates(SourceId, PC);
+    __builtin_trap();
+  }
+
+  template <enum AllocationKind AK>
   [[clang::disable_sanitizer_instrumentation, noreturn, INLINE, gnu::cold]] void
   memoryLeak(const AllocationTy<AK> A, uint64_t Slot) {
     allocationError<AK>(MemoryLeak, A.Start, A.Length, A.Id, A.Tag, Slot,
