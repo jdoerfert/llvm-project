@@ -769,6 +769,9 @@ void OffloadSanitizerImpl::instrumentAccesses(
           CallingConv::AMDGPU_KERNEL)
         AI.AS = 1;
 
+    if (AI.AS == 1)
+      AI.AS = 0;
+
     const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
 
     if (auto *PtrI = dyn_cast<Instruction>(Ptr))
@@ -933,6 +936,8 @@ void OffloadSanitizerImpl::instrumentAccesses(
       if (cast<Argument>(Obj)->getParent()->getCallingConv() ==
           CallingConv::AMDGPU_KERNEL)
         AI.AS = 1;
+    if (AI.AS == 1)
+      AI.AS = 0;
 
     const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
 

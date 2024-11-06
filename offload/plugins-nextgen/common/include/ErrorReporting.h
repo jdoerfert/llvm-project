@@ -38,6 +38,8 @@ namespace omp {
 namespace target {
 namespace plugin {
 
+static uint64_t DevicePrefix = 0;
+
 class ErrorReporter {
 
   enum ColorTy {
@@ -233,6 +235,8 @@ class ErrorReporter {
       return {"constant", strlen("constant")};
     case 5:
       return {"stack", strlen("stack")};
+    case 7:
+      return {"(small) global", strlen("(small) global")};
     default:
       return {"", 0};
     }
@@ -241,7 +245,7 @@ class ErrorReporter {
   static void printFakePointer(GenericDeviceTy &Device, DeviceImageTy &Image,
                                SanitizerEnvironmentTy &SE) {
     uint32_t AS = SE.FP.Enc32.RealAS;
-    bool Is32Bit = AS == 3 || AS == 5;
+    bool Is32Bit = AS == 3 || AS == 5 || AS == 7;
 
     char FakePtrBits[68]{};
     auto ASLeadingZeros = std::min(__builtin_clzg((uintptr_t)SE.FP.VPtr), 3);
@@ -323,7 +327,7 @@ class ErrorReporter {
     reportError("execution encountered an out-of-bounds access");
 
     uint32_t AS = SE.FP.Enc32.RealAS;
-    bool Is32Bit = AS == 3 || AS == 5;
+    bool Is32Bit = AS == 3 || AS == 5 || AS == 7;
 
     int64_t Offset = Is32Bit ? SE.FP.Enc32.Offset : SE.FP.Enc64.Offset;
     uint64_t Length = Is32Bit ? SE.FP.Enc32.Size : -1;
@@ -331,6 +335,8 @@ class ErrorReporter {
     uint64_t AllocationLocationId = InvalidLocationId;
     if (Is32Bit) {
       DevicePtr = (void *)(uint64_t)SE.FP.Enc32.RealPtr;
+      if (AS == 7)
+        DevicePtr = (void *)((uint64_t)SE.FP.Enc32.RealPtr | DevicePrefix);
       if (!Event)
         Device.getFakeHostPtrGlobalInfo(Image, DevicePtr, AllocationLocationId);
     } else {

@@ -1709,11 +1709,29 @@ struct FakePtrTy {
 
   FakePtrUnionEncodingTy U;
 
-  FakePtrTy(uint32_t SlotId) {
+  FakePtrTy() {}
+
+  FakePtrTy(uint32_t SlotId, uint64_t Size, void *P) {
     U.VPtr = nullptr;
-    U.Enc64.RealAS = 1;
-    U.Enc64.Magic = FAKE_PTR_MAGIC;
-    U.Enc64.SlotId = SlotId;
+    uint64_t Prefix = (uint64_t)P;
+    Prefix = (Prefix >> 32) << 32;
+    static BoolEnvar OMPX_32("OMPX_32", true);
+    printf("Size: %lu %i : Prefix %i (%lu : %lu)\n", Size,
+           (Size < (1 << FAKE_PTR_BASE_BITS_OFFSET) - 1),
+           ((!DevicePrefix || DevicePrefix == Prefix)), DevicePrefix, Prefix);
+    if (OMPX_32 && (Size < (1 << FAKE_PTR_BASE_BITS_OFFSET) - 1) &&
+        (!DevicePrefix || DevicePrefix == Prefix)) {
+      U.Enc32.RealAS = 7;
+      U.Enc32.Magic = FAKE_PTR_MAGIC;
+      DevicePrefix = Prefix;
+      uintptr_t PV = (uintptr_t)P;
+      U.Enc32.RealPtr = (uint32_t)(uint64_t)P;
+      U.Enc32.Size = Size;
+    } else {
+      U.Enc64.RealAS = 1;
+      U.Enc64.Magic = FAKE_PTR_MAGIC;
+      U.Enc64.SlotId = SlotId;
+    }
   }
 
   operator void *() { return U.VPtr; }
@@ -1724,6 +1742,9 @@ void *GenericDeviceTy::createFakeHostPtr(void *DevicePtr, int64_t Size) {
     return nullptr;
   static uint32_t Slot = 1 << 16;
   uint32_t SlotId = --Slot;
+  FakePtrTy FP(SlotId, Size, DevicePtr);
+  if (FP.U.Enc64.RealAS == 7)
+    SlotId = -1;
   KernelArgsTy Args = {};
   Args.NumTeams[0] = 1;
   Args.ThreadLimit[0] = 1;
@@ -1752,7 +1773,7 @@ void *GenericDeviceTy::createFakeHostPtr(void *DevicePtr, int64_t Size) {
     assert(0);
     return nullptr;
   }
-  return FakePtrTy(SlotId);
+  return FP;
 }
 
 void GenericDeviceTy::removeFakeHostPtr(void *FakeHstPtr) {
@@ -2257,8 +2278,15 @@ int32_t GenericPluginTy::data_retrieve_async(int32_t DeviceId, void *HstPtr,
 
 void *GenericPluginTy::get_device_ptr(int32_t DeviceId, void *TgtPtr,
                                       int64_t Size) {
-  FakePtrTy FP(0);
+  FakePtrTy FP;
   FP.U.VPtr = TgtPtr;
+  if (FP.U.Enc64.RealAS == 7) {
+    if (FP.U.Enc32.Magic != FAKE_PTR_MAGIC)
+      return TgtPtr;
+    uintptr_t VP = DevicePrefix;
+    VP |= FP.U.Enc32.RealPtr;
+    return (void *)VP;
+  }
   if (FP.U.Enc64.RealAS != 1)
     return TgtPtr;
   if (FP.U.Enc64.Magic != FAKE_PTR_MAGIC)
