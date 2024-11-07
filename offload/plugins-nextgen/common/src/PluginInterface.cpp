@@ -1714,13 +1714,16 @@ struct FakePtrTy {
   FakePtrTy(uint32_t SlotId, uint64_t Size, void *P) {
     U.VPtr = nullptr;
     uint64_t Prefix = (uint64_t)P;
+    bool LZeros = (Prefix >> 48) == 0;
+    bool TZeros = (Size & (128 - 1)) == 0;
     Prefix = (Prefix >> 32) << 32;
-    static BoolEnvar OMPX_32("OMPX_32", true);
-    printf("Size: %lu %i : Prefix %i (%lu : %lu)\n", Size,
+    static BoolEnvar OMPX_32("OMPX_32", false);
+    printf("Size: %lu %i : Prefix %i (%lu : %lu) : Zeros %i:%i\n", Size,
            (Size < (1 << FAKE_PTR_BASE_BITS_OFFSET) - 1),
-           ((!DevicePrefix || DevicePrefix == Prefix)), DevicePrefix, Prefix);
+           ((!DevicePrefix || DevicePrefix == Prefix)), DevicePrefix, Prefix,
+           LZeros, TZeros);
     if (OMPX_32 && (Size < (1 << FAKE_PTR_BASE_BITS_OFFSET) - 1) &&
-        (!DevicePrefix || DevicePrefix == Prefix)) {
+        (!DevicePrefix || DevicePrefix == Prefix) && LZeros && TZeros) {
       U.Enc32.RealAS = 7;
       U.Enc32.Magic = FAKE_PTR_MAGIC;
       DevicePrefix = Prefix;
@@ -1728,8 +1731,13 @@ struct FakePtrTy {
       U.Enc32.RealPtr = (uint32_t)(uint64_t)P;
       U.Enc32.Size = Size;
     } else {
+      Decomposer D;
+      D.Ptr = P;
+      printf("%p : %u : %u : %u \n", P, D.S.Zeros, D.S.Base, D.S.Suffix);
+      assert(D.S.Zeros == 0);
       U.Enc64.RealAS = 1;
       U.Enc64.Magic = FAKE_PTR_MAGIC;
+      U.Enc64.Suffix = D.S.Suffix;
       U.Enc64.SlotId = SlotId;
     }
   }
@@ -1740,7 +1748,8 @@ struct FakePtrTy {
 void *GenericDeviceTy::createFakeHostPtr(void *DevicePtr, int64_t Size) {
   if (NewFns.empty())
     return nullptr;
-  static uint32_t Slot = 1 << 16;
+  assert(Size < ((1UL << 32) - 1));
+  static uint32_t Slot = 1 << 10;
   uint32_t SlotId = --Slot;
   FakePtrTy FP(SlotId, Size, DevicePtr);
   if (FP.U.Enc64.RealAS == 7)

@@ -472,7 +472,7 @@ private:
                              "_access_with_info",
                          ASPtrTy[AS],
                          {/*PC*/ Int64Ty, /*LocationId*/ Int64Ty, PtrTy,
-                          Int32Ty, Int32Ty, PtrTy, Int64Ty});
+                          Int32Ty, Int32Ty, Int32Ty, Int32Ty});
   }
 
   /// PtrTy __offload_san_register_alloca(/* PC */ Int64Ty, /*LocationId*/
@@ -534,7 +534,7 @@ private:
       PointerType::get(Ctx, 0), PointerType::get(Ctx, 1),
       PointerType::get(Ctx, 2), PointerType::get(Ctx, 3),
       PointerType::get(Ctx, 4), PointerType::get(Ctx, 5)};
-  Type *AllocationInfoTy = StructType::get(Ctx, {ASPtrTy[1], Int64Ty}, true);
+  Type *AllocationInfoTy = StructType::get(Ctx, {Int32Ty, Int32Ty}, true);
   Type *InfoTy = StructType::get(Ctx, {AllocationInfoTy, Int32Ty}, true);
 };
 
@@ -769,8 +769,8 @@ void OffloadSanitizerImpl::instrumentAccesses(
           CallingConv::AMDGPU_KERNEL)
         AI.AS = 1;
 
-    if (AI.AS == 1)
-      AI.AS = 0;
+    //    if (AI.AS == 1)
+    //      AI.AS = 0;
 
     const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
 
@@ -936,8 +936,8 @@ void OffloadSanitizerImpl::instrumentAccesses(
       if (cast<Argument>(Obj)->getParent()->getCallingConv() ==
           CallingConv::AMDGPU_KERNEL)
         AI.AS = 1;
-    if (AI.AS == 1)
-      AI.AS = 0;
+    //    if (AI.AS == 1)
+    //      AI.AS = 0;
 
     const auto &PtrInfo = getPtrInfoTy(*Obj, AI);
 

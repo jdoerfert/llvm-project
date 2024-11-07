@@ -43,8 +43,8 @@ using AllocaPtrTy = char [[clang::address_space(AllocaAS)]] *;
     [[clang::address_space(SharedAS)]] *__offload_san_ambiguous_calls_info_ptr =
         nullptr;
 struct __attribute__((packed)) PtrInfoTy {
-  char *Base;
-  uint64_t Size;
+  uint32_t Base;
+  uint32_t Size;
 };
 struct __attribute__((packed)) PtrASInfoTy {
   PtrInfoTy PI;
@@ -55,7 +55,7 @@ struct __attribute__((packed)) GlobalInfoTy {
   uint64_t LocationId;
 };
 
-static constexpr uint32_t __san_num_ptr_infos = 1 << 16;
+static constexpr uint32_t __san_num_ptr_infos = 1 << 10;
 static PtrInfoTy __san_ptr_infos[__san_num_ptr_infos];
 static uint32_t __san_ptr_info_cnt = 0;
 
@@ -165,7 +165,7 @@ struct FakePtrTy {
   }
 
   _SAN_ATTRS
-  uint64_t getMaxSize() { return (1UL << 40) - 1; }
+  uint64_t getMaxSize() { return (1UL << 32) - 1; }
 
   template <uint32_t AS>
   _SAN_ATTRS static FakePtrTy create(uint64_t PC, uint64_t LocationId,
@@ -190,9 +190,12 @@ struct FakePtrTy {
 
     uint32_t SlotId = atomic::inc(&__san_ptr_info_cnt, __san_num_ptr_infos,
                                   atomic::acq_rel, atomic::device);
-    __san_ptr_infos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
+    Decomposer D;
+    D.Ptr = (void *)Ptr;
+    __san_ptr_infos[SlotId].Base = D.S.Base;
     __san_ptr_infos[SlotId].Size = Size;
     FP.U.Enc64.RealAS = GlobalAS;
+    FP.U.Enc64.Suffix = D.S.Suffix;
     FP.U.Enc64.SlotId = SlotId;
     FP.U.Enc64.Magic = FAKE_PTR_MAGIC;
 
@@ -210,13 +213,19 @@ struct FakePtrTy {
     }
 
     uint32_t PtrSlotId = __san_ptr_info_cnt++;
-    __san_ptr_infos[PtrSlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
+    Decomposer D;
+    D.Ptr = (void *)Ptr;
+    __san_ptr_infos[PtrSlotId].Base = D.S.Base;
     __san_ptr_infos[PtrSlotId].Size = Size;
 
     FakePtrTy FP;
     FP.U.Enc64.RealAS = AS;
+    FP.U.Enc64.Suffix = D.S.Suffix;
     FP.U.Enc64.SlotId = PtrSlotId;
     FP.U.Enc64.Magic = FAKE_PTR_MAGIC;
+    if (D.S.Zeros != 0)
+      raiseExecutionError(SanitizerEnvironmentTy::BAD_PTR, uint64_t(PC),
+                          LocationId, FP);
     return FP;
   }
 
@@ -242,7 +251,9 @@ struct FakePtrTy {
       Prefix = (Prefix >> 32) << 32;
       __san_short_global_prefix = Prefix;
     } else {
-      __san_ptr_infos[SlotId].Base = decltype(PtrInfoTy::Base)(Ptr);
+      Decomposer D;
+      D.Ptr = Ptr;
+      __san_ptr_infos[SlotId].Base = D.S.Base;
       __san_ptr_infos[SlotId].Size = Size;
     }
   }
@@ -254,17 +265,21 @@ struct FakePtrTy {
 
   _SAN_ATTRS static void getHostPtrInfo(uint32_t SlotId, void **BasePtrPtr,
                                         uint32_t *SizePtr) {
-    *BasePtrPtr = (void *)(uint64_t)__san_ptr_infos[SlotId].Base;
+    Decomposer D;
+    D.S.Zeros = 0;
+    D.S.Base = __san_ptr_infos[SlotId].Base;
+    *BasePtrPtr = D.Ptr;
     *SizePtr = __san_ptr_infos[SlotId].Size;
   }
 
   _SAN_ATTRS static void getGlobalPtrInfo(void *BasePtr,
                                           uint64_t *LocationIdPtr) {
     for (int32_t I = 0, E = __san_global_info_cnt; I != E; ++I) {
-      if (__san_global_infos[I].Base == BasePtr) {
-        *LocationIdPtr = __san_global_infos[I].LocationId;
-        return;
-      }
+      // TODO:
+      //      if (__san_global_infos[I].Base == BasePtr) {
+      //        *LocationIdPtr = __san_global_infos[I].LocationId;
+      //        return;
+      //      }
     }
     *LocationIdPtr = -1;
   }
@@ -311,7 +326,11 @@ struct FakePtrTy {
     if (MaxOffset < Size || MaxOffset > PI.Size)
       raiseExecutionError(SanitizerEnvironmentTy::OUT_OF_BOUNDS, PC, LocationId,
                           *this, SizeAndKind);
-    auto *Base = (ASPtrTy<AS>)PI.Base;
+    Decomposer D;
+    D.S.Zeros = 0;
+    D.S.Base = PI.Base;
+    D.S.Suffix = U.Enc64.Suffix;
+    auto *Base = (ASPtrTy<AS>)D.Ptr;
     return Base + Offset;
   }
 
@@ -328,7 +347,11 @@ struct FakePtrTy {
   template <> _SAN_ATTRS GlobalPtrTy unpack<GlobalAS>(uint64_t PC) {
     uint64_t Offset = uint64_t(U.Enc64.Offset);
     uint32_t SlotId = U.Enc64.SlotId;
-    auto *Base = (GlobalPtrTy)__san_ptr_infos[SlotId].Base;
+    Decomposer D;
+    D.S.Zeros = 0;
+    D.S.Base = __san_ptr_infos[SlotId].Base;
+    D.S.Suffix = U.Enc64.Suffix;
+    auto *Base = (GlobalPtrTy)D.Ptr;
     return Base + Offset;
   }
 
@@ -440,11 +463,10 @@ _SAN_ENTRY_ATTRS void __offload_san_get_ptr_info(uint32_t SlotId,
                                                                                \
   _SAN_ENTRY_ATTRS ASPtrTy<AS> __offload_san_check_as##AS##_access_with_info(  \
       uint64_t PC, uint64_t LocationId, void *FakePtr, uint32_t Size,          \
-      uint32_t AllocAS, char *AllocBase, uint64_t AllocSize) {                 \
+      uint32_t AllocAS, uint32_t Base, uint32_t AllocSize) {                   \
     if constexpr (AS == GlobalAS) {                                            \
       FakePtrTy FP(FakePtr, AS, /* Checked */ false, PC, LocationId);          \
-      return FP.checkWithBase<AS>(PC, LocationId, Size,                        \
-                                  {AllocBase, AllocSize});                     \
+      return FP.checkWithBase<AS>(PC, LocationId, Size, {Base, AllocSize});    \
     }                                                                          \
     if constexpr (AS == SharedAS) {                                            \
       FakePtrTy FP(FakePtr, AS, /* Checked */ true, PC, LocationId);           \
@@ -498,11 +520,11 @@ _SAN_ENTRY_ATTRS PtrASInfoTy __offload_san_get_as0_info(uint64_t PC,
 
 _SAN_ENTRY_ATTRS void *__offload_san_check_as0_access_with_info(
     uint64_t PC, uint64_t LocationId, void *FakePtr, uint32_t Size,
-    uint32_t InfoAS, char *InfoBase, uint64_t InfoSize) {
+    uint32_t InfoAS, uint32_t Base, uint32_t InfoSize) {
   if (InfoAS == GlobalAS) {
     FakePtrTy FP(FakePtr, GlobalAS, false, PC, LocationId);
     return (void *)FP.checkWithBase<GlobalAS>(PC, LocationId, Size,
-                                              {InfoBase, InfoSize});
+                                              {Base, InfoSize});
   }
   if (InfoAS == ShortGlobalAS) {
     FakePtrTy FP(FakePtr, ShortGlobalAS, false, PC, LocationId);

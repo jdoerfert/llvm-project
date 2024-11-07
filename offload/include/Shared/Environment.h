@@ -116,6 +116,7 @@ struct LocationEncodingTy {
 #pragma omp begin declare target
 static constexpr uint32_t FAKE_PTR_MAGIC = 0b101;
 static constexpr uint32_t FAKE_PTR_BASE_BITS_OFFSET = 13;
+static constexpr uint32_t FAKE_SHORT_PTR_BITS_OFFSET = 26;
 #pragma omp end declare target
 
 using FakePtrUnionEncodingTy = union {
@@ -128,11 +129,26 @@ using FakePtrUnionEncodingTy = union {
     uint32_t RealAS : 3;
   } Enc32;
   struct __attribute__((packed)) {
-    int64_t Offset : 42;
+    int32_t Offset : FAKE_SHORT_PTR_BITS_OFFSET;
     uint32_t Magic : 3;
-    uint32_t SlotId : 16;
+    uint32_t RealPtr : 32;
+    uint32_t RealAS : 3;
+  } Enc26;
+  struct __attribute__((packed)) {
+    int64_t Offset : 32;
+    uint32_t Magic : 3;
+    uint64_t Suffix : 16;
+    uint32_t SlotId : 10;
     uint32_t RealAS : 3;
   } Enc64;
+};
+union Decomposer {
+  void *Ptr;
+  struct {
+    uint64_t Suffix : 16;
+    uint64_t Base : 32;
+    uint64_t Zeros : 16;
+  } S;
 };
 
 static_assert(sizeof(FakePtrUnionEncodingTy) == sizeof(void *),
