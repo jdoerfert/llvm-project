@@ -13,7 +13,6 @@
 #include "Mapping.h"
 #include "Shared/Environment.h"
 #include "Synchronization.h"
-#include "gpuintrin.h"
 
 using namespace ompx;
 
@@ -69,7 +68,7 @@ void raiseExecutionError(SanitizerEnvironmentTy::ErrorCodeTy ErrorCode,
   // If no thread of this warp has the lock, end execution gracefully.
   bool AnyThreadHasLock = utils::ballotSync(lanes::All, HasLock);
   if (!AnyThreadHasLock)
-    __gpu_exit();
+    utils::terminateWarp();
 
   // One thread will set the location information and signal that the rest of
   // the wapr that the actual trap can be executed now.
