@@ -13,8 +13,12 @@ define noundef zeroext i1 @_Z15store_load_boolPbb(ptr nocapture noundef initiali
 ; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i64 1, i32 12, i64 1, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store i8 [[STOREDV]], ptr [[A]], align 1
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 1
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 1, i32 12, i64 1, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i8, ptr [[ARRAYIDX]], align 1
-; CHECK-NEXT:    [[LOADEDV2:%.*]] = trunc nuw i8 [[TMP1]] to i1
+; CHECK-NEXT:    [[TMP2:%.*]] = zext i8 [[TMP1]] to i64
+; CHECK-NEXT:    [[TMP3:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX]], i32 0, i64 [[TMP2]], i64 1, i32 12, i64 1, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP4:%.*]] = trunc i64 [[TMP3]] to i8
+; CHECK-NEXT:    [[LOADEDV2:%.*]] = trunc nuw i8 [[TMP4]] to i1
 ; CHECK-NEXT:    ret i1 [[LOADEDV2]]
 ;
 entry:
@@ -35,8 +39,12 @@ define noundef signext i8 @_Z15store_load_charPcc(ptr nocapture noundef initiali
 ; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i64 1, i32 12, i64 1, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store i8 [[VAL]], ptr [[A]], align 1
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 1
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 1, i32 12, i64 1, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i8, ptr [[ARRAYIDX]], align 1
-; CHECK-NEXT:    ret i8 [[TMP1]]
+; CHECK-NEXT:    [[TMP2:%.*]] = zext i8 [[TMP1]] to i64
+; CHECK-NEXT:    [[TMP3:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX]], i32 0, i64 [[TMP2]], i64 1, i32 12, i64 1, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP4:%.*]] = trunc i64 [[TMP3]] to i8
+; CHECK-NEXT:    ret i8 [[TMP4]]
 ;
 entry:
   store i8 %Val, ptr %A, align 1
@@ -54,8 +62,12 @@ define noundef signext i16 @_Z16store_load_shortPss(ptr nocapture noundef initia
 ; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i64 2, i32 12, i64 2, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store i16 [[VAL]], ptr [[A]], align 2
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 2
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 2, i32 12, i64 2, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i16, ptr [[ARRAYIDX]], align 2
-; CHECK-NEXT:    ret i16 [[TMP1]]
+; CHECK-NEXT:    [[TMP2:%.*]] = zext i16 [[TMP1]] to i64
+; CHECK-NEXT:    [[TMP3:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX]], i32 0, i64 [[TMP2]], i64 2, i32 12, i64 2, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP4:%.*]] = trunc i64 [[TMP3]] to i16
+; CHECK-NEXT:    ret i16 [[TMP4]]
 ;
 entry:
   store i16 %Val, ptr %A, align 2
@@ -73,8 +85,12 @@ define noundef i32 @_Z14store_load_intPii(ptr nocapture noundef initializes((0, 
 ; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i64 4, i32 12, i64 4, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store i32 [[VAL]], ptr [[A]], align 4
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 4
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 4, i32 12, i64 4, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr [[ARRAYIDX]], align 4
-; CHECK-NEXT:    ret i32 [[TMP1]]
+; CHECK-NEXT:    [[TMP2:%.*]] = zext i32 [[TMP1]] to i64
+; CHECK-NEXT:    [[TMP3:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX]], i32 0, i64 [[TMP2]], i64 4, i32 12, i64 4, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP4:%.*]] = trunc i64 [[TMP3]] to i32
+; CHECK-NEXT:    ret i32 [[TMP4]]
 ;
 entry:
   store i32 %Val, ptr %A, align 4
@@ -91,8 +107,10 @@ define noundef i64 @_Z15store_load_longPll(ptr nocapture noundef initializes((0,
 ; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[VAL]], i64 8, i32 12, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store i64 [[VAL]], ptr [[A]], align 8
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 8
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 8, i32 12, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i64, ptr [[ARRAYIDX]], align 8
-; CHECK-NEXT:    ret i64 [[TMP0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX]], i32 0, i64 [[TMP0]], i64 8, i32 12, i64 8, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    ret i64 [[TMP1]]
 ;
 entry:
   store i64 %Val, ptr %A, align 8
@@ -111,8 +129,12 @@ define noundef i128 @_Z20store_load_long_longPxx(ptr nocapture noundef initializ
 ; CHECK-NEXT:    call void @__instrumentor_pre_store_ind(ptr [[A]], i32 0, ptr [[TMP0]], i64 16, i32 12, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store i128 [[VAL]], ptr [[A]], align 8
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 16
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 16, i32 12, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i128, ptr [[ARRAYIDX]], align 8
-; CHECK-NEXT:    ret i128 [[TMP1]]
+; CHECK-NEXT:    store i128 [[TMP1]], ptr [[TMP0]], align 16
+; CHECK-NEXT:    call void @__instrumentor_post_load_ind(ptr [[ARRAYIDX]], i32 0, ptr [[TMP0]], i64 16, i32 12, i64 8, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP2:%.*]] = load i128, ptr [[TMP0]], align 16
+; CHECK-NEXT:    ret i128 [[TMP2]]
 ;
 entry:
   store i128 %Val, ptr %A, align 8
@@ -131,8 +153,12 @@ define noundef float @_Z16store_load_floatPff(ptr nocapture noundef initializes(
 ; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP1]], i64 4, i32 2, i64 4, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store float [[VAL]], ptr [[A]], align 4
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 4
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 4, i32 2, i64 4, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP2:%.*]] = load float, ptr [[ARRAYIDX]], align 4
-; CHECK-NEXT:    ret float [[TMP2]]
+; CHECK-NEXT:    [[TMP3:%.*]] = bitcast float [[TMP2]] to i32
+; CHECK-NEXT:    [[TMP4:%.*]] = zext i32 [[TMP3]] to i64
+; CHECK-NEXT:    [[TMP5:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX]], i32 0, i64 [[TMP4]], i64 4, i32 2, i64 4, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    ret float 0xFFFFFFFFE0000000
 ;
 entry:
   store float %Val, ptr %A, align 4
@@ -150,8 +176,12 @@ define noundef double @_Z17store_load_doublePdd(ptr nocapture noundef initialize
 ; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i64 8, i32 3, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[VAL]], ptr [[A]], align 8
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 8
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 8, i32 3, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load double, ptr [[ARRAYIDX]], align 8
-; CHECK-NEXT:    ret double [[TMP1]]
+; CHECK-NEXT:    [[TMP2:%.*]] = bitcast double [[TMP1]] to i64
+; CHECK-NEXT:    [[TMP3:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX]], i32 0, i64 [[TMP2]], i64 8, i32 3, i64 8, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP4:%.*]] = bitcast i64 [[TMP3]] to double
+; CHECK-NEXT:    ret double [[TMP4]]
 ;
 entry:
   store double %Val, ptr %A, align 8
@@ -170,8 +200,12 @@ define noundef x86_fp80 @_Z22store_load_long_doublePee(ptr nocapture noundef ini
 ; CHECK-NEXT:    call void @__instrumentor_pre_store_ind(ptr [[A]], i32 0, ptr [[TMP0]], i64 10, i32 4, i64 16, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store x86_fp80 [[VAL]], ptr [[A]], align 16
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr [[A]], i64 16
+; CHECK-NEXT:    call void @__instrumentor_pre_load(ptr [[ARRAYIDX]], i32 0, i64 10, i32 4, i64 16, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = load x86_fp80, ptr [[ARRAYIDX]], align 16
-; CHECK-NEXT:    ret x86_fp80 [[TMP1]]
+; CHECK-NEXT:    store x86_fp80 [[TMP1]], ptr [[TMP0]], align 16
+; CHECK-NEXT:    call void @__instrumentor_post_load_ind(ptr [[ARRAYIDX]], i32 0, ptr [[TMP0]], i64 10, i32 4, i64 16, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP2:%.*]] = load x86_fp80, ptr [[TMP0]], align 16
+; CHECK-NEXT:    ret x86_fp80 [[TMP2]]
 ;
 entry:
   store x86_fp80 %Val, ptr %A, align 16

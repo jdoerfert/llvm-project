@@ -194,6 +194,7 @@ private:
   bool shouldInstrumentFunction(Function *Fn);
   bool instrumentFunction(Function &Fn);
   bool instrument(AllocaInst &I);
+  bool instrument(LoadInst &I, bool After);
   bool instrument(StoreInst &I);
 
   /// Mapping to remember temporary allocas for reuse.
@@ -392,8 +393,7 @@ bool InstrumentorImpl::instrument(StoreInst &I) {
       RTArgs.push_back(IndirectionAI);
     else
       RTArgs.push_back(tryToCast(IRB, I.getValueOperand(), ArgTy, DL));
-    RTArgNames.push_back(IndirectionAI ? "ValueOperandStorage"
-                                       : "ValueOperand");
+    RTArgNames.push_back("ValueOperand");
   }
 
   if (IC.Store.ValueOperandSize) {
@@ -446,6 +446,113 @@ bool InstrumentorImpl::instrument(StoreInst &I) {
   return true;
 }
 
+bool InstrumentorImpl::instrument(LoadInst &I, bool After) {
+  if (IC.Load.CB && !IC.Load.CB(I))
+    return false;
+
+  AllocaInst *IndirectionAI = nullptr;
+  if (After)
+    IRB.SetInsertPoint(I.getNextNonDebugInstruction());
+  else
+    IRB.SetInsertPoint(&I);
+
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<Value *> RTArgs;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.Load.PointerOperand) {
+    auto *ArgTy = PtrTy;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(
+        IRB.CreatePointerBitCastOrAddrSpaceCast(I.getPointerOperand(), ArgTy));
+    RTArgNames.push_back("PointerOperand");
+  }
+
+  if (IC.Load.PointerOperandAddressSpace) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.getPointerAddressSpace()));
+    RTArgNames.push_back("PointerOperandAddressSpace");
+  }
+
+  if (IC.Load.Value && After) {
+    Type *ArgTy = Int64Ty;
+    if (DL.getTypeSizeInBits(I.getType()) > 64) {
+      IndirectionAI = getAlloca(I.getFunction(), I.getType());
+      IRB.CreateStore(&I, IndirectionAI);
+      ArgTy = PtrTy;
+    }
+
+    RTArgTypes.push_back(ArgTy);
+    if (IndirectionAI)
+      RTArgs.push_back(IndirectionAI);
+    else
+      RTArgs.push_back(tryToCast(IRB, &I, ArgTy, DL));
+    RTArgNames.push_back(IndirectionAI ? "ValueStorage" : "Value");
+  }
+
+  if (IC.Load.ValueSize) {
+    auto *ArgTy = Int64Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, DL.getTypeStoreSize(I.getType())));
+    RTArgNames.push_back("ValueSize");
+  }
+
+  if (IC.Load.ValueTypeId) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.getType()->getTypeID()));
+    RTArgNames.push_back("ValueTypeId");
+  };
+
+  if (IC.Load.Alignment) {
+    auto *ArgTy = Int64Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.getAlign().value()));
+    RTArgNames.push_back("Alignment");
+  }
+
+  if (IC.Load.AtomicityOrdering) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, uint64_t(I.getOrdering())));
+    RTArgNames.push_back("AtomicityOrdering");
+  }
+
+  if (IC.Load.SyncScopeId) {
+    auto *ArgTy = Int8Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, uint64_t(I.getSyncScopeID())));
+    RTArgNames.push_back("SyncScopeId");
+  }
+
+  if (IC.Load.IsVolatile) {
+    auto *ArgTy = Int8Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.isVolatile()));
+    RTArgNames.push_back("IsVolatile");
+  }
+
+  bool ReplaceValue = IC.Load.ReplaceValue && (After || !IC.Load.Value);
+  Type *RetTy = ReplaceValue && !IndirectionAI ? Int64Ty : nullptr;
+  FunctionCallee FC =
+      getCallee(I, RTArgTypes, RTArgNames, After, IndirectionAI, RetTy);
+  auto *CI = IRB.CreateCall(FC, RTArgs);
+  if (ReplaceValue) {
+    IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
+    Value *NewV = IndirectionAI ? IRB.CreateLoad(I.getType(), IndirectionAI)
+                                : tryToCast(IRB, CI, I.getType(), DL);
+    I.replaceUsesWithIf(NewV, [&](Use &U) {
+      return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
+    });
+  }
+
+  if (!After && IC.Load.Value)
+    instrument(I, /*After=*/true);
+
+  return true;
+}
+
 bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   bool Changed = false;
   if (!shouldInstrumentFunction(&Fn))
@@ -465,6 +572,10 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       case Instruction::Alloca:
         if (IC.Alloca.Instrument)
           instrument(cast<AllocaInst>(I));
+        break;
+      case Instruction::Load:
+        if (IC.Load.Instrument)
+          instrument(cast<LoadInst>(I), !IC.Load.CheckBefore);
         break;
       case Instruction::Store:
         if (IC.Store.Instrument)

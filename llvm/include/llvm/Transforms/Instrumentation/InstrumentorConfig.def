@@ -85,6 +85,47 @@ CONFIG_INTERNAL(Store, CallbackTy, CB, nullptr)
 SECTION_END(Store)
 ///}
 
+/// LoadInst
+///{
+SECTION_START(Load, LoadInst)
+
+/// Should loads be instrumented.
+CONFIG(Load, bool, Instrument, true)
+
+/// Should loads be checked before their execution.
+CONFIG(Load, bool, CheckBefore, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The pointer operand.
+CONFIG(Load, bool, PointerOperand, true)
+/// The pointer operand address space.
+CONFIG(Load, bool, PointerOperandAddressSpace, true)
+/// The loaded value, passed as 64-bit integer.
+CONFIG(Load, bool, Value, true)
+/// The value size.
+CONFIG(Load, bool, ValueSize, true)
+/// The value type id.
+CONFIG(Load, bool, ValueTypeId, true)
+/// The minimal alignment requested statically.
+CONFIG(Load, bool, Alignment, true)
+/// The atomicity ordering.
+CONFIG(Load, bool, AtomicityOrdering, true)
+/// The sync cope id.
+CONFIG(Load, bool, SyncScopeId, true)
+/// The volatile flag.
+CONFIG(Load, bool, IsVolatile, true)
+///}
+
+/// Should the value be replaced by the runtime call result.
+CONFIG(Alloca, bool, ReplaceValue, true)
+
+/// Optional callback, see CallbackTy.
+CONFIG_INTERNAL(Load, CallbackTy, CB, nullptr)
+
+SECTION_END(Load)
+///}
+
 #undef SECTION_START
 #undef CONFIG
 #undef CONFIG_INTERNAL

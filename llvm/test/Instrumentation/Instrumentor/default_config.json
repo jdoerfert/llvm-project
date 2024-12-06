@@ -21,5 +21,19 @@
     "AtomicityOrdering": true,
     "SyncScopeId": true,
     "IsVolatile": true
+  },
+  "Load": {
+    "Instrument": true,
+    "CheckBefore": true,
+    "PointerOperand": true,
+    "PointerOperandAddressSpace": true,
+    "Value": true,
+    "ValueSize": true,
+    "ValueTypeId": true,
+    "Alignment": true,
+    "AtomicityOrdering": true,
+    "SyncScopeId": true,
+    "IsVolatile": true,
+    "ReplaceValue": true
   }
 }
