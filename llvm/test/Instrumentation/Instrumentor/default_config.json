@@ -9,5 +9,17 @@
     "AllocationSize": true,
     "Alignment": true,
     "ReplaceValue": true
+  },
+  "Store": {
+    "Instrument": true,
+    "PointerOperand": true,
+    "PointerOperandAddressSpace": true,
+    "ValueOperand": true,
+    "ValueOperandSize": true,
+    "ValueOperandTypeId": true,
+    "Alignment": true,
+    "AtomicityOrdering": true,
+    "SyncScopeId": true,
+    "IsVolatile": true
   }
 }

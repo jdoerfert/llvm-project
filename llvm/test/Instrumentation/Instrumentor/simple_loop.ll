@@ -11,7 +11,7 @@ define dso_local double @foo(i64 noundef %j, i64 noundef %N) local_unnamed_addr 
 ; CHECK-NEXT:    [[TMP0:%.*]] = tail call ptr @llvm.stacksave.p0()
 ; CHECK-NEXT:    [[VLA:%.*]] = alloca double, i64 [[N]], align 16
 ; CHECK-NEXT:    [[TMP1:%.*]] = mul i64 8, [[N]]
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_alloca(ptr [[VLA]], i64 [[TMP1]], i64 16)
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[VLA]], i64 [[TMP1]], i64 16)
 ; CHECK-NEXT:    [[CMP5:%.*]] = icmp sgt i64 [[N]], 0
 ; CHECK-NEXT:    br i1 [[CMP5]], label %[[FOR_BODY_PREHEADER:.*]], label %[[FOR_COND_CLEANUP:.*]]
 ; CHECK:       [[FOR_BODY_PREHEADER]]:
@@ -31,6 +31,8 @@ define dso_local double @foo(i64 noundef %j, i64 noundef %N) local_unnamed_addr 
 ; CHECK-NEXT:    [[CONV_EPIL:%.*]] = sitofp i64 [[I_06_EPIL]] to double
 ; CHECK-NEXT:    [[MUL_EPIL:%.*]] = fmul double [[CONV_EPIL]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX_EPIL:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[I_06_EPIL]]
+; CHECK-NEXT:    [[TMP4:%.*]] = bitcast double [[MUL_EPIL]] to i64
+; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[ARRAYIDX_EPIL]], i32 0, i64 [[TMP4]], i64 8, i32 3, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL_EPIL]], ptr [[ARRAYIDX_EPIL]], align 8
 ; CHECK-NEXT:    [[INC_EPIL]] = add nuw nsw i64 [[I_06_EPIL]], 1
 ; CHECK-NEXT:    [[EPIL_ITER_NEXT]] = add i64 [[EPIL_ITER]], 1
@@ -47,21 +49,29 @@ define dso_local double @foo(i64 noundef %j, i64 noundef %N) local_unnamed_addr 
 ; CHECK-NEXT:    [[CONV:%.*]] = sitofp i64 [[I_06]] to double
 ; CHECK-NEXT:    [[MUL:%.*]] = fmul double [[CONV]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[I_06]]
+; CHECK-NEXT:    [[TMP6:%.*]] = bitcast double [[MUL]] to i64
+; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[ARRAYIDX]], i32 0, i64 [[TMP6]], i64 8, i32 3, i64 16, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL]], ptr [[ARRAYIDX]], align 16
 ; CHECK-NEXT:    [[INC:%.*]] = or i64 [[I_06]], 1
 ; CHECK-NEXT:    [[CONV_1:%.*]] = sitofp i64 [[INC]] to double
 ; CHECK-NEXT:    [[MUL_1:%.*]] = fmul double [[CONV_1]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX_1:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[INC]]
+; CHECK-NEXT:    [[TMP7:%.*]] = bitcast double [[MUL_1]] to i64
+; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[ARRAYIDX_1]], i32 0, i64 [[TMP7]], i64 8, i32 3, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL_1]], ptr [[ARRAYIDX_1]], align 8
 ; CHECK-NEXT:    [[INC_1:%.*]] = or i64 [[I_06]], 2
 ; CHECK-NEXT:    [[CONV_2:%.*]] = sitofp i64 [[INC_1]] to double
 ; CHECK-NEXT:    [[MUL_2:%.*]] = fmul double [[CONV_2]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX_2:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[INC_1]]
+; CHECK-NEXT:    [[TMP8:%.*]] = bitcast double [[MUL_2]] to i64
+; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[ARRAYIDX_2]], i32 0, i64 [[TMP8]], i64 8, i32 3, i64 16, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL_2]], ptr [[ARRAYIDX_2]], align 16
 ; CHECK-NEXT:    [[INC_2:%.*]] = or i64 [[I_06]], 3
 ; CHECK-NEXT:    [[CONV_3:%.*]] = sitofp i64 [[INC_2]] to double
 ; CHECK-NEXT:    [[MUL_3:%.*]] = fmul double [[CONV_3]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX_3:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[INC_2]]
+; CHECK-NEXT:    [[TMP9:%.*]] = bitcast double [[MUL_3]] to i64
+; CHECK-NEXT:    call void @__instrumentor_pre_store(ptr [[ARRAYIDX_3]], i32 0, i64 [[TMP9]], i64 8, i32 3, i64 8, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL_3]], ptr [[ARRAYIDX_3]], align 8
 ; CHECK-NEXT:    [[INC_3]] = add nuw nsw i64 [[I_06]], 4
 ; CHECK-NEXT:    [[NITER_NEXT_3]] = add i64 [[NITER]], 4

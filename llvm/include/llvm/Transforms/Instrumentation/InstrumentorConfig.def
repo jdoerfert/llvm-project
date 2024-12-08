@@ -50,6 +50,41 @@ CONFIG_INTERNAL(Alloca, CallbackTy, CB, nullptr)
 SECTION_END(Alloca)
 ///}
 
+/// StoreInst
+///{
+SECTION_START(Store, StoreInst)
+
+/// Should stores be instrumented.
+CONFIG(Store, bool, Instrument, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The pointer operand.
+CONFIG(Store, bool, PointerOperand, true)
+/// The pointer operand address space.
+CONFIG(Store, bool, PointerOperandAddressSpace, true)
+/// The value operand, passed as 64-bit integer.
+CONFIG(Store, bool, ValueOperand, true)
+/// The value operand size.
+CONFIG(Store, bool, ValueOperandSize, true)
+/// The value operand type id.
+CONFIG(Store, bool, ValueOperandTypeId, true)
+/// The minimal alignment requested statically.
+CONFIG(Store, bool, Alignment, true)
+/// The atomicity ordering.
+CONFIG(Store, bool, AtomicityOrdering, true)
+/// The sync cope id.
+CONFIG(Store, bool, SyncScopeId, true)
+/// The volatile flag.
+CONFIG(Store, bool, IsVolatile, true)
+///}
+
+/// Optional callback, see CallbackTy.
+CONFIG_INTERNAL(Store, CallbackTy, CB, nullptr)
+
+SECTION_END(Store)
+///}
+
 #undef SECTION_START
 #undef CONFIG
 #undef CONFIG_INTERNAL

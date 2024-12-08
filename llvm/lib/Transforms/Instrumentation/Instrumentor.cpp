@@ -21,6 +21,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -29,6 +30,8 @@
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <cstdint>
 #include <type_traits>
 
 using namespace llvm;
@@ -141,6 +144,41 @@ raw_ostream &printAsCType(raw_ostream &OS, Type *T) {
   return OS << *T << " ";
 }
 
+template <typename IRBTy>
+Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL) {
+  auto *VTy = V->getType();
+  if (VTy == Ty)
+    return V;
+  if (CastInst::isBitOrNoopPointerCastable(VTy, Ty, DL))
+    return IRB.CreateBitOrPointerCast(V, Ty);
+  if (VTy->isPointerTy() && Ty->isPointerTy())
+    return IRB.CreatePointerBitCastOrAddrSpaceCast(V, Ty);
+  if (VTy->isPointerTy() && Ty->isIntegerTy())
+    return IRB.CreateIntToPtr(V, Ty);
+  if (VTy->isIntegerTy() && Ty->isIntegerTy())
+    return IRB.CreateIntCast(V, Ty, /* isSigned */ false);
+  if (VTy->isFloatingPointTy() && Ty->isIntOrPtrTy()) {
+    switch (DL.getTypeSizeInBits(VTy)) {
+    case 64:
+      V = IRB.CreateBitCast(V, IRB.getInt64Ty());
+      break;
+    case 32:
+      V = IRB.CreateBitCast(V, IRB.getInt32Ty());
+      break;
+    case 16:
+      V = IRB.CreateBitCast(V, IRB.getInt16Ty());
+      break;
+    case 8:
+      V = IRB.CreateBitCast(V, IRB.getInt8Ty());
+      break;
+    default:
+      return Constant::getAllOnesValue(Ty);
+    }
+    return tryToCast(IRB, V, Ty, DL);
+  }
+  return Constant::getAllOnesValue(Ty);
+}
+
 class InstrumentorImpl final {
 public:
   InstrumentorImpl(const InstrumentorConfig &IC, Module &M)
@@ -156,23 +194,42 @@ private:
   bool shouldInstrumentFunction(Function *Fn);
   bool instrumentFunction(Function &Fn);
   bool instrument(AllocaInst &I);
+  bool instrument(StoreInst &I);
+
+  /// Mapping to remember temporary allocas for reuse.
+  DenseMap<std::pair<Function *, unsigned>, AllocaInst *> AllocaMap;
+
+  /// Return a temporary alloca to communicate (large) values with the runtime.
+  AllocaInst *getAlloca(Function *Fn, Type *Ty) {
+    AllocaInst *&AI = AllocaMap[{Fn, DL.getTypeAllocSize(Ty)}];
+    if (!AI)
+      AI = new AllocaInst(Ty, DL.getAllocaAddrSpace(), "",
+                          Fn->getEntryBlock().getFirstInsertionPt());
+    return AI;
+  }
 
   template <typename Ty> Constant *getCI(Type *IT, Ty Val) {
     return ConstantInt::get(IT, Val);
   }
 
-  std::string getRTName(StringRef Suffix) {
-    return (IC.Base.RuntimeName + Suffix).str();
+  std::string getRTName(StringRef Prefix, StringRef Position,
+                        StringRef Suffix = "") {
+    return (IC.Base.RuntimeName + Prefix + Position + Suffix).str();
   }
 
-  DenseMap<unsigned, FunctionCallee> InstrumentationFunctions;
+  /// Map to remember instrumentation functions for a specific opcode and
+  /// pre/post position.
+  DenseMap<int, FunctionCallee> InstrumentationFunctions;
+
   FunctionCallee getCallee(Instruction &I, SmallVectorImpl<Type *> &RTArgTypes,
-                           SmallVectorImpl<std::string> &RTArgNames,
-                           Type *RT = nullptr) {
-    FunctionCallee &FC = InstrumentationFunctions[I.getOpcode()];
+                           SmallVectorImpl<std::string> &RTArgNames, bool After,
+                           bool Indirection, Type *RT = nullptr) {
+    FunctionCallee &FC =
+        InstrumentationFunctions[4 * I.getOpcode() + 2 * After + Indirection];
     if (!FC.getFunctionType()) {
       FC = M.getOrInsertFunction(
-          getRTName(I.getOpcodeName()),
+          getRTName(After ? "post_" : "pre_", I.getOpcodeName(),
+                    Indirection ? "_ind" : ""),
           FunctionType::get(RT ? RT : VoidTy, RTArgTypes, /*IsVarArgs*/ false));
 
       if (IC.Base.PrintRuntimeSignatures) {
@@ -249,7 +306,7 @@ bool InstrumentorImpl::instrument(AllocaInst &I) {
   if (IC.Alloca.Value) {
     auto *ArgTy = PtrTy;
     RTArgTypes.push_back(ArgTy);
-    RTArgs.push_back(IRB.CreatePointerBitCastOrAddrSpaceCast(&I, ArgTy));
+    RTArgs.push_back(tryToCast(IRB, &I, ArgTy, DL));
     RTArgNames.push_back("Value");
   }
 
@@ -282,13 +339,109 @@ bool InstrumentorImpl::instrument(AllocaInst &I) {
   }
 
   Type *RetTy = IC.Alloca.ReplaceValue ? PtrTy : nullptr;
-  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, RetTy);
+  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, /*After=*/true,
+                                /*Indirection=*/false, RetTy);
   auto *CI = IRB.CreateCall(FC, RTArgs);
-  if (IC.Alloca.ReplaceValue)
-    I.replaceUsesWithIf(
-        IRB.CreatePointerBitCastOrAddrSpaceCast(CI, I.getType()), [&](Use &U) {
-          return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
-        });
+  if (IC.Alloca.ReplaceValue) {
+    IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
+    I.replaceUsesWithIf(tryToCast(IRB, CI, I.getType(), DL), [&](Use &U) {
+      return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
+    });
+  }
+
+  return true;
+}
+
+bool InstrumentorImpl::instrument(StoreInst &I) {
+  if (IC.Store.CB && !IC.Store.CB(I))
+    return false;
+
+  IRB.SetInsertPoint(&I);
+
+  AllocaInst *IndirectionAI = nullptr;
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<Value *> RTArgs;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.Store.PointerOperand) {
+    auto *ArgTy = PtrTy;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(
+        IRB.CreatePointerBitCastOrAddrSpaceCast(I.getPointerOperand(), ArgTy));
+    RTArgNames.push_back("PointerOperand");
+  }
+
+  if (IC.Store.PointerOperandAddressSpace) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.getPointerAddressSpace()));
+    RTArgNames.push_back("PointerOperandAddressSpace");
+  }
+
+  if (IC.Store.ValueOperand) {
+    Type *ArgTy = Int64Ty;
+    if (DL.getTypeSizeInBits(I.getValueOperand()->getType()) > 64) {
+      IndirectionAI =
+          getAlloca(I.getFunction(), I.getValueOperand()->getType());
+      IRB.CreateStore(I.getValueOperand(), IndirectionAI);
+      ArgTy = PtrTy;
+    }
+
+    RTArgTypes.push_back(ArgTy);
+    if (IndirectionAI)
+      RTArgs.push_back(IndirectionAI);
+    else
+      RTArgs.push_back(tryToCast(IRB, I.getValueOperand(), ArgTy, DL));
+    RTArgNames.push_back(IndirectionAI ? "ValueOperandStorage"
+                                       : "ValueOperand");
+  }
+
+  if (IC.Store.ValueOperandSize) {
+    auto *ArgTy = Int64Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(
+        getCI(ArgTy, DL.getTypeStoreSize(I.getValueOperand()->getType())));
+    RTArgNames.push_back("ValueOperandSize");
+  }
+
+  if (IC.Store.ValueOperandTypeId) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.getValueOperand()->getType()->getTypeID()));
+    RTArgNames.push_back("ValueOperandTypeId");
+  };
+
+  if (IC.Store.Alignment) {
+    auto *ArgTy = Int64Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.getAlign().value()));
+    RTArgNames.push_back("Alignment");
+  }
+
+  if (IC.Store.AtomicityOrdering) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, uint64_t(I.getOrdering())));
+    RTArgNames.push_back("AtomicityOrdering");
+  }
+
+  if (IC.Store.SyncScopeId) {
+    auto *ArgTy = Int8Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, uint64_t(I.getSyncScopeID())));
+    RTArgNames.push_back("SyncScopeId");
+  }
+
+  if (IC.Store.IsVolatile) {
+    auto *ArgTy = Int8Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.isVolatile()));
+    RTArgNames.push_back("IsVolatile");
+  }
+
+  FunctionCallee FC =
+      getCallee(I, RTArgTypes, RTArgNames, /*After=*/false, IndirectionAI);
+  IRB.CreateCall(FC, RTArgs);
 
   return true;
 }
@@ -312,6 +465,10 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       case Instruction::Alloca:
         if (IC.Alloca.Instrument)
           instrument(cast<AllocaInst>(I));
+        break;
+      case Instruction::Store:
+        if (IC.Store.Instrument)
+          instrument(cast<StoreInst>(I));
         break;
       default:
         break;

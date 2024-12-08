@@ -7,7 +7,7 @@ define ptr @foo() {
 ; CHECK-LABEL: define ptr @foo() {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[A:%.*]] = alloca ptr, align 8
-; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_alloca(ptr [[A]], i64 8, i64 8)
+; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[A]], i64 8, i64 8)
 ; CHECK-NEXT:    ret ptr [[TMP0]]
 ;
 entry:
@@ -20,8 +20,8 @@ define ptr @bar(i1 %c) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[A:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    [[B:%.*]] = alloca i32, i32 5, align 4
-; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_alloca(ptr [[B]], i64 20, i64 4)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[A]], i64 4, i64 4)
+; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[B]], i64 20, i64 4)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[A]], i64 4, i64 4)
 ; CHECK-NEXT:    [[S:%.*]] = select i1 [[C]], ptr [[TMP1]], ptr [[TMP0]]
 ; CHECK-NEXT:    ret ptr [[S]]
 ;
@@ -38,7 +38,7 @@ define ptr @baz(i32 %v) {
 ; CHECK-NEXT:    [[A:%.*]] = alloca ptr, i32 [[V]], align 8
 ; CHECK-NEXT:    [[TMP0:%.*]] = zext i32 [[V]] to i64
 ; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 8, [[TMP0]]
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[A]], i64 [[TMP2]], i64 8)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[A]], i64 [[TMP2]], i64 8)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
 entry:
@@ -53,7 +53,7 @@ define ptr @fizz() {
 ; CHECK-NEXT:    [[TMP1:%.*]] = getelementptr <vscale x 2 x i32>, ptr [[A]], i32 1
 ; CHECK-NEXT:    [[TMP2:%.*]] = ptrtoint ptr [[TMP1]] to i64
 ; CHECK-NEXT:    [[TMP3:%.*]] = sub i64 [[TMP2]], [[TMP0]]
-; CHECK-NEXT:    [[TMP4:%.*]] = call ptr @__instrumentor_alloca(ptr [[A]], i64 [[TMP3]], i64 8)
+; CHECK-NEXT:    [[TMP4:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[A]], i64 [[TMP3]], i64 8)
 ; CHECK-NEXT:    ret ptr [[TMP4]]
 ;
 entry:
