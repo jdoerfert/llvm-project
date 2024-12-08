@@ -18,6 +18,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/TargetFolder.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/ValueHandle.h"
@@ -134,6 +135,24 @@ LLVM_ABI Constant *getInitialValueOfAllocation(const Value *V,
 /// of functions.
 LLVM_ABI std::optional<StringRef>
 getAllocationFamily(const Value *I, const TargetLibraryInfo *TLI);
+
+/// Description of an allocation call. Note that some elements might be null.
+struct AllocationCallInfo {
+  /// The name of the allocation family, e.g., malloc.
+  std::optional<StringRef> Family;
+  /// The known initial value, usually 0, UndefValue, or unknown (=nullptr).
+  Constant *InitialValue;
+  /// The total size is the product of SizeLHS and SizeRHS, if both are
+  /// non-null, otherwise it is simply the non-null value.
+  Value *SizeLHS;
+  Value *SizeRHS;
+  /// The statically requested alignment.
+  Value *Alignment;
+};
+
+/// Return all known information about the allocation call \p CB.
+std::optional<AllocationCallInfo>
+getAllocationCallInfo(const CallBase *CB, const TargetLibraryInfo *TLI);
 
 //===----------------------------------------------------------------------===//
 //  Utility functions to compute size of objects.

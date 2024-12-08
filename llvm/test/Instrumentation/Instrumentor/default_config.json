@@ -35,5 +35,14 @@
     "SyncScopeId": true,
     "IsVolatile": true,
     "ReplaceValue": true
+  },
+  "AllocationCall": {
+    "Instrument": true,
+    "MemoryPointer": true,
+    "MemorySize": true,
+    "Alignment": true,
+    "Family": true,
+    "InitialValue": true,
+    "ReplaceValue": true
   }
 }

@@ -3,9 +3,16 @@
 
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
 
+;.
+; CHECK: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [6 x i8] c"_Znwm\00", align 1
+; CHECK: @[[GLOB1:[0-9]+]] = private unnamed_addr constant [21 x i8] c"_ZnwmSt11align_val_t\00", align 1
+; CHECK: @[[GLOB2:[0-9]+]] = private unnamed_addr constant [6 x i8] c"_Znam\00", align 1
+; CHECK: @[[GLOB3:[0-9]+]] = private unnamed_addr constant [21 x i8] c"_ZnamSt11align_val_t\00", align 1
+;.
 define void @new() {
 ; CHECK-LABEL: define void @new() {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @_Znwm(i64 10) #[[ATTR0:[0-9]+]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_Znwm(i64 10) #[[ATTR0:[0-9]+]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 -1, ptr @[[GLOB0]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP1]])
 ; CHECK-NEXT:    ret void
 ;
@@ -16,7 +23,8 @@ define void @new() {
 
 define void @new_align() {
 ; CHECK-LABEL: define void @new_align() {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @_ZnwmSt11align_val_t(i64 10, i64 8) #[[ATTR0]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnwmSt11align_val_t(i64 10, i64 8) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 8, ptr @[[GLOB1]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP1]])
 ; CHECK-NEXT:    ret void
 ;
@@ -28,8 +36,9 @@ define void @new_align() {
 define void @new_nothrow() {
 ; CHECK-LABEL: define void @new_nothrow() {
 ; CHECK-NEXT:    [[NT:%.*]] = alloca i8, align 1
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[NT]], i64 1, i64 1)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @_ZnwmRKSt9nothrow_t(i64 10, ptr [[TMP1]]) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[NT]], i64 1, i64 1)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnwmRKSt9nothrow_t(i64 10, ptr [[TMP1]]) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 -1, ptr @[[GLOB0]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP2]])
 ; CHECK-NEXT:    ret void
 ;
@@ -42,8 +51,9 @@ define void @new_nothrow() {
 define void @new_align_nothrow() {
 ; CHECK-LABEL: define void @new_align_nothrow() {
 ; CHECK-NEXT:    [[NT:%.*]] = alloca i8, align 1
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[NT]], i64 1, i64 1)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @_ZnwmSt11align_val_tRKSt9nothrow_t(i64 10, i64 8, ptr [[TMP1]]) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[NT]], i64 1, i64 1)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnwmSt11align_val_tRKSt9nothrow_t(i64 10, i64 8, ptr [[TMP1]]) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 8, ptr @[[GLOB1]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP2]])
 ; CHECK-NEXT:    ret void
 ;
@@ -55,7 +65,8 @@ define void @new_align_nothrow() {
 
 define void @array_new() {
 ; CHECK-LABEL: define void @array_new() {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @_Znam(i64 10) #[[ATTR0]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_Znam(i64 10) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 -1, ptr @[[GLOB2]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP1]])
 ; CHECK-NEXT:    ret void
 ;
@@ -66,7 +77,8 @@ define void @array_new() {
 
 define void @array_new_align() {
 ; CHECK-LABEL: define void @array_new_align() {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @_ZnamSt11align_val_t(i64 10, i64 8) #[[ATTR0]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnamSt11align_val_t(i64 10, i64 8) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 8, ptr @[[GLOB3]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP1]])
 ; CHECK-NEXT:    ret void
 ;
@@ -78,8 +90,9 @@ define void @array_new_align() {
 define void @array_new_nothrow() {
 ; CHECK-LABEL: define void @array_new_nothrow() {
 ; CHECK-NEXT:    [[NT:%.*]] = alloca i8, align 1
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[NT]], i64 1, i64 1)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @_ZnamRKSt9nothrow_t(i64 10, ptr [[TMP1]]) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[NT]], i64 1, i64 1)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnamRKSt9nothrow_t(i64 10, ptr [[TMP1]]) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 -1, ptr @[[GLOB2]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP2]])
 ; CHECK-NEXT:    ret void
 ;
@@ -92,8 +105,9 @@ define void @array_new_nothrow() {
 define void @array_new_align_nothrow() {
 ; CHECK-LABEL: define void @array_new_align_nothrow() {
 ; CHECK-NEXT:    [[NT:%.*]] = alloca i8, align 1
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[NT]], i64 1, i64 1)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @_ZnamSt11align_val_tRKSt9nothrow_t(i64 10, i64 8, ptr [[TMP1]]) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[NT]], i64 1, i64 1)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnamSt11align_val_tRKSt9nothrow_t(i64 10, i64 8, ptr [[TMP1]]) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 8, ptr @[[GLOB3]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP2]])
 ; CHECK-NEXT:    ret void
 ;
@@ -105,7 +119,8 @@ define void @array_new_align_nothrow() {
 
 define void @new_hot_cold() {
 ; CHECK-LABEL: define void @new_hot_cold() {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @_Znwm12__hot_cold_t(i64 10, i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_Znwm12__hot_cold_t(i64 10, i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 -1, ptr @[[GLOB0]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP1]])
 ; CHECK-NEXT:    ret void
 ;
@@ -116,7 +131,8 @@ define void @new_hot_cold() {
 
 define void @new_align_hot_cold() {
 ; CHECK-LABEL: define void @new_align_hot_cold() {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @_ZnwmSt11align_val_t12__hot_cold_t(i64 10, i64 8, i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnwmSt11align_val_t12__hot_cold_t(i64 10, i64 8, i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 8, ptr @[[GLOB1]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP1]])
 ; CHECK-NEXT:    ret void
 ;
@@ -128,8 +144,9 @@ define void @new_align_hot_cold() {
 define void @new_nothrow_hot_cold() {
 ; CHECK-LABEL: define void @new_nothrow_hot_cold() {
 ; CHECK-NEXT:    [[NT:%.*]] = alloca i8, align 1
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[NT]], i64 1, i64 1)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @_ZnwmRKSt9nothrow_t12__hot_cold_t(i64 10, ptr [[TMP1]], i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[NT]], i64 1, i64 1)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnwmRKSt9nothrow_t12__hot_cold_t(i64 10, ptr [[TMP1]], i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 -1, ptr @[[GLOB0]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP2]])
 ; CHECK-NEXT:    ret void
 ;
@@ -142,8 +159,9 @@ define void @new_nothrow_hot_cold() {
 define void @new_align_nothrow_hot_cold() {
 ; CHECK-LABEL: define void @new_align_nothrow_hot_cold() {
 ; CHECK-NEXT:    [[NT:%.*]] = alloca i8, align 1
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[NT]], i64 1, i64 1)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @_ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t(i64 10, i64 8, ptr [[TMP1]], i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[NT]], i64 1, i64 1)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t(i64 10, i64 8, ptr [[TMP1]], i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 8, ptr @[[GLOB1]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP2]])
 ; CHECK-NEXT:    ret void
 ;
@@ -155,7 +173,8 @@ define void @new_align_nothrow_hot_cold() {
 
 define void @array_new_hot_cold() {
 ; CHECK-LABEL: define void @array_new_hot_cold() {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @_Znam12__hot_cold_t(i64 10, i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_Znam12__hot_cold_t(i64 10, i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 -1, ptr @[[GLOB0]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP1]])
 ; CHECK-NEXT:    ret void
 ;
@@ -166,7 +185,8 @@ define void @array_new_hot_cold() {
 
 define void @array_new_align_hot_cold() {
 ; CHECK-LABEL: define void @array_new_align_hot_cold() {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @_ZnamSt11align_val_t12__hot_cold_t(i64 10, i64 8, i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnamSt11align_val_t12__hot_cold_t(i64 10, i64 8, i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 8, ptr @[[GLOB1]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP1]])
 ; CHECK-NEXT:    ret void
 ;
@@ -178,8 +198,9 @@ define void @array_new_align_hot_cold() {
 define void @array_new_nothrow_hot_cold() {
 ; CHECK-LABEL: define void @array_new_nothrow_hot_cold() {
 ; CHECK-NEXT:    [[NT:%.*]] = alloca i8, align 1
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[NT]], i64 1, i64 1)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @_ZnamRKSt9nothrow_t12__hot_cold_t(i64 10, ptr [[TMP1]], i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[NT]], i64 1, i64 1)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnamRKSt9nothrow_t12__hot_cold_t(i64 10, ptr [[TMP1]], i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 -1, ptr @[[GLOB0]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP2]])
 ; CHECK-NEXT:    ret void
 ;
@@ -192,8 +213,9 @@ define void @array_new_nothrow_hot_cold() {
 define void @array_new_align_nothrow_hot_cold() {
 ; CHECK-LABEL: define void @array_new_align_nothrow_hot_cold() {
 ; CHECK-NEXT:    [[NT:%.*]] = alloca i8, align 1
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_alloca(ptr [[NT]], i64 1, i64 1)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @_ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t(i64 10, i64 8, ptr [[TMP1]], i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_alloca(ptr [[NT]], i64 1, i64 1)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @_ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t(i64 10, i64 8, ptr [[TMP1]], i8 7) #[[ATTR0]]
+; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 10, i32 8, ptr @[[GLOB1]], i8 1)
 ; CHECK-NEXT:    call void @dummy(ptr [[TMP2]])
 ; CHECK-NEXT:    ret void
 ;

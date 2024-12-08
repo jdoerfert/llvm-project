@@ -12,8 +12,12 @@
 
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/MemoryBuiltins.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/ConstantFolder.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -25,13 +29,16 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstdint>
+#include <functional>
 #include <type_traits>
 
 using namespace llvm;
@@ -146,6 +153,8 @@ raw_ostream &printAsCType(raw_ostream &OS, Type *T) {
 
 template <typename IRBTy>
 Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL) {
+  if (!V)
+    return Constant::getAllOnesValue(Ty);
   auto *VTy = V->getType();
   if (VTy == Ty)
     return V;
@@ -181,11 +190,17 @@ Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL) {
 
 class InstrumentorImpl final {
 public:
-  InstrumentorImpl(const InstrumentorConfig &IC, Module &M)
-      : IC(IC), M(M), Ctx(M.getContext()),
-        IRB(Ctx, ConstantFolder(),
-            IRBuilderCallbackInserter(
-                [&](Instruction *I) { NewInsts[I] = Epoche; })) {}
+  InstrumentorImpl(const InstrumentorConfig &IC, Module &M,
+                   ModuleAnalysisManager &MAM)
+      : IC(IC), M(M), MAM(MAM),
+        FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()),
+        GetTLI([this](Function &F) -> TargetLibraryInfo & {
+          return FAM.getResult<TargetLibraryAnalysis>(F);
+        }),
+        Ctx(M.getContext()), IRB(Ctx, ConstantFolder(),
+                                 IRBuilderCallbackInserter([&](Instruction *I) {
+                                   NewInsts[I] = Epoche;
+                                 })) {}
 
   /// Instrument the module, public entry point.
   bool instrument();
@@ -194,6 +209,8 @@ private:
   bool shouldInstrumentFunction(Function *Fn);
   bool instrumentFunction(Function &Fn);
   bool instrument(AllocaInst &I);
+  bool instrument(CallBase &I);
+  bool instrumentAllocationCall(CallBase &I, const AllocationCallInfo &ACI);
   bool instrument(LoadInst &I, bool After);
   bool instrument(StoreInst &I);
 
@@ -207,6 +224,15 @@ private:
       AI = new AllocaInst(Ty, DL.getAllocaAddrSpace(), "",
                           Fn->getEntryBlock().getFirstInsertionPt());
     return AI;
+  }
+
+  /// Mapping to remember global strings passed to the runtime.
+  DenseMap<StringRef, Value *> GlobalStringsMap;
+  Value *getGlobalString(StringRef S) {
+    Value *&V = GlobalStringsMap[S];
+    if (!V)
+      V = IRB.CreateGlobalString(S, "", DL.getDefaultGlobalsAddressSpace(), &M);
+    return V;
   }
 
   template <typename Ty> Constant *getCI(Type *IT, Ty Val) {
@@ -224,12 +250,14 @@ private:
 
   FunctionCallee getCallee(Instruction &I, SmallVectorImpl<Type *> &RTArgTypes,
                            SmallVectorImpl<std::string> &RTArgNames, bool After,
-                           bool Indirection, Type *RT = nullptr) {
+                           bool Indirection, Type *RT = nullptr,
+                           StringRef PositionName = "") {
     FunctionCallee &FC =
         InstrumentationFunctions[4 * I.getOpcode() + 2 * After + Indirection];
     if (!FC.getFunctionType()) {
       FC = M.getOrInsertFunction(
-          getRTName(After ? "post_" : "pre_", I.getOpcodeName(),
+          getRTName(After ? "post_" : "pre_",
+                    !PositionName.empty() ? PositionName : I.getOpcodeName(),
                     Indirection ? "_ind" : ""),
           FunctionType::get(RT ? RT : VoidTy, RTArgTypes, /*IsVarArgs*/ false));
 
@@ -262,8 +290,15 @@ private:
   /// The instrumentor configuration.
   const InstrumentorConfig &IC;
 
-  /// The module and the LLVM context.
+  /// The underlying module.
   Module &M;
+
+  ModuleAnalysisManager &MAM;
+  FunctionAnalysisManager &FAM;
+
+  std::function<TargetLibraryInfo &(Function &F)> GetTLI;
+
+  /// The underying LLVM context.
   LLVMContext &Ctx;
 
   /// A special IR builder that keeps track of the inserted instructions.
@@ -344,6 +379,102 @@ bool InstrumentorImpl::instrument(AllocaInst &I) {
                                 /*Indirection=*/false, RetTy);
   auto *CI = IRB.CreateCall(FC, RTArgs);
   if (IC.Alloca.ReplaceValue) {
+    IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
+    I.replaceUsesWithIf(tryToCast(IRB, CI, I.getType(), DL), [&](Use &U) {
+      return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
+    });
+  }
+
+  return true;
+}
+
+bool InstrumentorImpl::instrument(CallBase &I) {
+  auto &TLI = GetTLI(*I.getFunction());
+  auto ACI = getAllocationCallInfo(&I, &TLI);
+
+  if (ACI)
+    return instrumentAllocationCall(I, *ACI);
+
+  return false;
+}
+
+bool InstrumentorImpl::instrumentAllocationCall(CallBase &I,
+                                                const AllocationCallInfo &ACI) {
+  if (IC.AllocationCall.CB && !IC.AllocationCall.CB(I))
+    return false;
+
+  Instruction *IP = I.getNextNonDebugInstruction();
+  IRB.SetInsertPoint(IP);
+
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<Value *> RTArgs;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.AllocationCall.MemoryPointer) {
+    auto *ArgTy = PtrTy;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(tryToCast(IRB, &I, ArgTy, DL));
+    RTArgNames.push_back("MemoryPointer");
+  }
+
+  if (IC.AllocationCall.MemorySize) {
+    auto *ArgTy = Int64Ty;
+    RTArgTypes.push_back(ArgTy);
+    auto *LHS = tryToCast(IRB, ACI.SizeLHS, ArgTy, DL);
+    auto *RHS = tryToCast(IRB, ACI.SizeRHS, ArgTy, DL);
+    bool LHSIsUnknown =
+        isa<ConstantInt>(LHS) && cast<ConstantInt>(LHS)->isAllOnesValue();
+    bool RHSIsUnknown =
+        isa<ConstantInt>(RHS) && cast<ConstantInt>(RHS)->isAllOnesValue();
+    Value *Size = nullptr;
+    if (!LHSIsUnknown && !RHSIsUnknown)
+      Size = IRB.CreateMul(LHS, RHS);
+    else if (LHSIsUnknown)
+      Size = RHS;
+    else
+      Size = LHS;
+    RTArgs.push_back(Size);
+    RTArgNames.push_back("MemorySize");
+  }
+
+  if (IC.AllocationCall.Alignment) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(tryToCast(IRB, ACI.Alignment, ArgTy, DL));
+    RTArgNames.push_back("Alignment");
+  }
+
+  if (IC.AllocationCall.Family) {
+    auto *ArgTy = PtrTy;
+    RTArgTypes.push_back(ArgTy);
+    StringRef Family = ACI.Family.value_or("");
+    if (Family.empty())
+      RTArgs.push_back(Constant::getNullValue(ArgTy));
+    else
+      RTArgs.push_back(getGlobalString(Family));
+    RTArgNames.push_back("Family");
+  }
+
+  if (IC.AllocationCall.InitialValue) {
+    auto *ArgTy = Int8Ty;
+    RTArgTypes.push_back(ArgTy);
+    if (!ACI.InitialValue)
+      RTArgs.push_back(getCI(ArgTy, -1));
+    else if (isa<UndefValue>(ACI.InitialValue))
+      RTArgs.push_back(getCI(ArgTy, 1));
+    else if (ACI.InitialValue->isZeroValue())
+      RTArgs.push_back(getCI(ArgTy, 0));
+    else
+      RTArgs.push_back(getCI(ArgTy, -1));
+    RTArgNames.push_back("InitialValue");
+  }
+
+  Type *RetTy = IC.AllocationCall.ReplaceValue ? PtrTy : nullptr;
+  FunctionCallee FC =
+      getCallee(I, RTArgTypes, RTArgNames, /*After=*/true,
+                /*Indirection=*/false, RetTy, "allocation_call");
+  auto *CI = IRB.CreateCall(FC, RTArgs);
+  if (IC.AllocationCall.ReplaceValue) {
     IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
     I.replaceUsesWithIf(tryToCast(IRB, CI, I.getType(), DL), [&](Use &U) {
       return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
@@ -573,6 +704,10 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
         if (IC.Alloca.Instrument)
           instrument(cast<AllocaInst>(I));
         break;
+      case Instruction::Call:
+        if (IC.AllocationCall.Instrument)
+          instrument(cast<CallBase>(I));
+        break;
       case Instruction::Load:
         if (IC.Load.Instrument)
           instrument(cast<LoadInst>(I), !IC.Load.CheckBefore);
@@ -600,7 +735,7 @@ bool InstrumentorImpl::instrument() {
 }
 
 PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
-  InstrumentorImpl Impl(IC, M);
+  InstrumentorImpl Impl(IC, M, MAM);
   if (!readInstrumentorConfigFromJSON(IC))
     return PreservedAnalyses::all();
   writeInstrumentorConfig(IC);

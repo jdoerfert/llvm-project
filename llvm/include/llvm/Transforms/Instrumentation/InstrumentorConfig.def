@@ -126,6 +126,36 @@ CONFIG_INTERNAL(Load, CallbackTy, CB, nullptr)
 SECTION_END(Load)
 ///}
 
+/// AllocationCall
+///{
+SECTION_START(AllocationCall, CallBase)
+
+/// Should allocation calls, i.a., malloc, new, be instrumented.
+CONFIG(AllocationCall, bool, Instrument, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The allocation result, passed as void *.
+CONFIG(AllocationCall, bool, MemoryPointer, true)
+/// The allocation memory size.
+CONFIG(AllocationCall, bool, MemorySize, true)
+/// The minimal alignment requested statically.
+CONFIG(AllocationCall, bool, Alignment, true)
+/// The allocation family, passed as a C string.
+CONFIG(AllocationCall, bool, Family, true)
+/// The initial allocation value: 0 for zeros, 1, for undef, or -1 if unknown.
+CONFIG(AllocationCall, bool, InitialValue, true)
+///}
+
+/// Should the value be replaced by the runtime call result.
+CONFIG(Alloca, bool, ReplaceValue, true)
+
+/// Optional callback, see CallbackTy.
+CONFIG_INTERNAL(AllocationCall, CallbackTy, CB, nullptr)
+
+SECTION_END(AllocationCall)
+///}
+
 #undef SECTION_START
 #undef CONFIG
 #undef CONFIG_INTERNAL
