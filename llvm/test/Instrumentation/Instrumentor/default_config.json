@@ -44,5 +44,18 @@
     "Family": true,
     "InitialValue": true,
     "ReplaceValue": true
+  },
+  "MemoryIntrinsics": {
+    "Instrument": true,
+    "KindId": true,
+    "DestinationPointer": true,
+    "DestinationPointerAddressSpace": true,
+    "SourcePointer": true,
+    "SourcePointerAddressSpace": true,
+    "MemsetValue": true,
+    "Length": true,
+    "IsVolatile": true,
+    "AtomicElementSize": true,
+    "ReplaceValue": true
   }
 }

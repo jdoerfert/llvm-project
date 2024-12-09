@@ -156,6 +156,44 @@ CONFIG_INTERNAL(AllocationCall, CallbackTy, CB, nullptr)
 SECTION_END(AllocationCall)
 ///}
 
+/// MemoryIntrinsics
+///{
+SECTION_START(MemoryIntrinsics, CallBase)
+
+/// Should memory intrinsics, i.a., memset, memcpy, be instrumented.
+CONFIG(MemoryIntrinsics, bool, Instrument, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The kind identifier (memset, memset_inline, ...)
+CONFIG(MemoryIntrinsics, bool, KindId, true)
+/// The destination pointer.
+CONFIG(MemoryIntrinsics, bool, DestinationPointer, true)
+/// The destination pointer address space.
+CONFIG(MemoryIntrinsics, bool, DestinationPointerAddressSpace, true)
+/// The source pointer.
+CONFIG(MemoryIntrinsics, bool, SourcePointer, true)
+/// The source pointer address space.
+CONFIG(MemoryIntrinsics, bool, SourcePointerAddressSpace, true)
+/// The memset value (2x i64).
+CONFIG(MemoryIntrinsics, bool, MemsetValue, true)
+/// The length of the operation in bytes.
+CONFIG(MemoryIntrinsics, bool, Length, true)
+/// The volatile flag.
+CONFIG(MemoryIntrinsics, bool, IsVolatile, true)
+/// The atomic element size.
+CONFIG(MemoryIntrinsics, bool, AtomicElementSize, true)
+///}
+
+/// Should the value be replaced by the runtime call result.
+CONFIG(MemoryIntrinsics, bool, ReplaceValue, true)
+
+/// Optional callback, see CallbackTy.
+CONFIG_INTERNAL(MemoryIntrinsics, CallbackTy, CB, nullptr)
+
+SECTION_END(MemoryIntrinsics)
+///}
+
 #undef SECTION_START
 #undef CONFIG
 #undef CONFIG_INTERNAL

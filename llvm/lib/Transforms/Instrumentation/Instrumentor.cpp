@@ -27,18 +27,22 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <type_traits>
 
 using namespace llvm;
@@ -211,6 +215,7 @@ private:
   bool instrument(AllocaInst &I);
   bool instrument(CallBase &I);
   bool instrumentAllocationCall(CallBase &I, const AllocationCallInfo &ACI);
+  bool instrumentMemoryIntrinsic(IntrinsicInst &I);
   bool instrument(LoadInst &I, bool After);
   bool instrument(StoreInst &I);
 
@@ -395,6 +400,22 @@ bool InstrumentorImpl::instrument(CallBase &I) {
   if (ACI)
     return instrumentAllocationCall(I, *ACI);
 
+  if (auto *II = dyn_cast<IntrinsicInst>(&I)) {
+    switch (II->getIntrinsicID()) {
+    case Intrinsic::memcpy:
+    case Intrinsic::memcpy_element_unordered_atomic:
+    case Intrinsic::memcpy_inline:
+    case Intrinsic::memmove:
+    case Intrinsic::memmove_element_unordered_atomic:
+    case Intrinsic::memset:
+    case Intrinsic::memset_element_unordered_atomic:
+    case Intrinsic::memset_inline:
+      return instrumentMemoryIntrinsic(*II);
+    default:
+      break;
+    }
+  }
+
   return false;
 }
 
@@ -479,6 +500,124 @@ bool InstrumentorImpl::instrumentAllocationCall(CallBase &I,
     I.replaceUsesWithIf(tryToCast(IRB, CI, I.getType(), DL), [&](Use &U) {
       return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
     });
+  }
+
+  return true;
+}
+
+bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
+  if (IC.MemoryIntrinsics.CB && !IC.MemoryIntrinsics.CB(I))
+    return false;
+
+  unsigned KindId = I.getIntrinsicID();
+  Value *SrcPtr = nullptr;
+  Value *DestPtr = nullptr;
+  Value *Length = nullptr;
+  Value *MemsetValue = nullptr;
+  uint32_t AtomicElementSize = -1;
+
+  switch (KindId) {
+  case Intrinsic::memcpy_element_unordered_atomic:
+  case Intrinsic::memmove_element_unordered_atomic:
+  case Intrinsic::memset_element_unordered_atomic:
+    AtomicElementSize = cast<AtomicMemCpyInst>(I).getElementSizeInBytes();
+  default:
+    break;
+  }
+
+  switch (KindId) {
+  case Intrinsic::memcpy:
+  case Intrinsic::memcpy_inline:
+  case Intrinsic::memcpy_element_unordered_atomic:
+  case Intrinsic::memmove:
+  case Intrinsic::memmove_element_unordered_atomic: {
+    auto &AMC = cast<AnyMemTransferInst>(I);
+    SrcPtr = AMC.getRawSource();
+    DestPtr = AMC.getRawDest();
+    Length = AMC.getLength();
+  }
+  case Intrinsic::memset:
+  case Intrinsic::memset_inline:
+  case Intrinsic::memset_element_unordered_atomic: {
+    auto &AMS = cast<AnyMemSetInst>(I);
+    DestPtr = AMS.getRawDest();
+    Length = AMS.getLength();
+    MemsetValue = AMS.getValue();
+  }
+  default:
+    llvm_unreachable("Unexpected intrinsic");
+  }
+
+  AllocaInst *IndirectionAI = nullptr;
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<Value *> RTArgs;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.MemoryIntrinsics.KindId) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, KindId));
+    RTArgNames.push_back("KindId");
+  }
+
+  if (IC.MemoryIntrinsics.DestinationPointer) {
+    assert(DestPtr && "Expected destination pointer");
+    auto *ArgTy = PtrTy;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(DestPtr);
+    RTArgNames.push_back("DestinationPointer");
+  }
+
+  if (IC.MemoryIntrinsics.DestinationPointerAddressSpace) {
+    assert(DestPtr && "Expected destination pointer");
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(
+        getCI(ArgTy, DestPtr->getType()->getPointerAddressSpace()));
+    RTArgNames.push_back("DestinationPointerAddressSpace");
+  }
+
+  if (!SrcPtr)
+    SrcPtr = Constant::getAllOnesValue(PtrTy);
+
+  if (IC.MemoryIntrinsics.SourcePointer) {
+    assert(SrcPtr && "Expected source pointer");
+    auto *ArgTy = PtrTy;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(SrcPtr);
+    RTArgNames.push_back("SourcePointer");
+  }
+
+  if (IC.MemoryIntrinsics.SourcePointerAddressSpace) {
+    assert(SrcPtr && "Expected source pointer");
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, SrcPtr->getType()->getPointerAddressSpace()));
+    RTArgNames.push_back("SourcePointerAddressSpace");
+  }
+
+  if (!MemsetValue)
+    MemsetValue = Constant::getAllOnesValue(Int64Ty);
+  if (IC.MemoryIntrinsics.MemsetValue) {
+    assert(SrcPtr && " ");
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, SrcPtr->getType()->getPointerAddressSpace()));
+    RTArgNames.push_back("SourcePointerAddressSpace");
+  }
+
+  if (IC.MemoryIntrinsics.Length) {
+    auto *ArgTy = Int64Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, Length);
+    RTArgNames.push_back("SourcePointerAddressSpace");
+  }
+
+  if (IC.MemoryIntrinsics.IsVolatile) {
+    auto *ArgTy = Int8Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.isVolatile());
+    RTArgNames.push_back("SourcePointerAddressSpace");
   }
 
   return true;
@@ -705,7 +844,7 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
           instrument(cast<AllocaInst>(I));
         break;
       case Instruction::Call:
-        if (IC.AllocationCall.Instrument)
+        if (IC.AllocationCall.Instrument || IC.MemoryIntrinsics.Instrument)
           instrument(cast<CallBase>(I));
         break;
       case Instruction::Load:
