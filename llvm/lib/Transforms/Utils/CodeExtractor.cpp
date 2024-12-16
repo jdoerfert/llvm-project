@@ -961,6 +961,7 @@ Function *CodeExtractor::constructFunctionDeclaration(
       case Attribute::NoFPClass:
       case Attribute::CoroDestroyOnlyWhenComplete:
       case Attribute::CoroElideSafe:
+      case Attribute::InputGenEntry:
       case Attribute::NoDivergenceSource:
       case Attribute::NoCreateUndefOrPoison:
         continue;

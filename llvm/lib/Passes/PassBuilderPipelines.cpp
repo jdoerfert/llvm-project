@@ -228,10 +228,6 @@ static cl::opt<bool> EnableInstrumentor("enable-instrumentor", cl::init(false),
                                        cl::Hidden,
                                        cl::desc("Enable the Instrumentor Pass"));
 
-static cl::opt<bool> EnableInputGen("enable-input-gen", cl::init(false),
-                                       cl::Hidden,
-                                       cl::desc("Enable the InputGen Pass"));
-
 // Experimentally allow loop header duplication. This should allow for better
 // optimization at Oz, since loop-idiom recognition can then recognize things
 // like memcpy. If this ends up being useful for many targets, we should drop
@@ -1665,9 +1661,8 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
   if (EnableInstrumentor)
     MPM.addPass(InstrumentorPass());
 
-  // Run the InputGen pass late.
-  if (EnableInputGen)
-    MPM.addPass(InputGenPass());
+  // Run the InputGen memory pass late.
+  MPM.addPass(InputGenInstrumentMemoryPass());
 
   // Split out cold code. Splitting is done late to avoid hiding context from
   // other optimizations and inadvertently regressing performance. The tradeoff
@@ -1760,6 +1755,9 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
 
   // Apply module pipeline start EP callback.
   invokePipelineStartEPCallbacks(MPM, Level);
+
+  // Run the InputGen entry pass early.
+  MPM.addPass(InputGenInstrumentEntriesPass());
 
   // Add the core simplification pipeline.
   MPM.addPass(buildModuleSimplificationPipeline(Level, Phase));

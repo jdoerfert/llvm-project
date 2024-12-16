@@ -16,13 +16,22 @@
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
-class InputGenPass : public PassInfoMixin<InputGenPass> {
 
+enum class IGIMode : unsigned { Disabled, Record, Generate, Replay };
+
+class InputGenInstrumentEntriesPass
+    : public PassInfoMixin<InputGenInstrumentEntriesPass> {
 public:
-  InputGenPass() {}
-
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
+  InputGenInstrumentEntriesPass(){};
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
 };
+class InputGenInstrumentMemoryPass
+    : public PassInfoMixin<InputGenInstrumentMemoryPass> {
+public:
+  InputGenInstrumentMemoryPass(){};
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+};
+
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_IPO_INPUTGEN_H

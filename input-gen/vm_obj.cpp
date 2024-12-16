@@ -47,6 +47,6 @@ void ObjectManager::saveInput(uint32_t InputIdx, uint32_t ExitCode) {
 
   std::string OutputName = ProgramName + "." + std::to_string(InputIdx) + "." +
                            std::to_string(ExitCode) + ".inp";
-  std::ofstream ofs(OutputName, std::ios_base::out | std::ios_base::binary);
-  SM.write(ofs);
+  std::ofstream OFS(OutputName, std::ios_base::out | std::ios_base::binary);
+  SM.write(OFS);
 }

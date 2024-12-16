@@ -11,6 +11,7 @@
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <functional>
 #include <ios>
 #include <list>
 #include <map>
@@ -20,6 +21,7 @@
 #include <tuple>
 #include <type_traits>
 
+#include "logging.h"
 #include "vm_choices.h"
 #include "vm_enc.h"
 
@@ -84,7 +86,7 @@ struct ObjectManager {
         checkBranchConditions(VPtr);
       return RTObjs.access(VPtr, AccessSize, TypeId, AK, IsInitialized);
     default:
-      fprintf(stderr, "unknown encoding %i\n", getEncoding(VPtr));
+      ERR("unknown encoding {}\n", getEncoding(VPtr));
       UserBS10.error(6);
       std::terminate();
     }
@@ -114,7 +116,7 @@ struct ObjectManager {
     default:
       if (AllowToFail)
         return {-2, -2};
-      fprintf(stderr, "unknown encoding %i\n", getEncoding(VPtr));
+      ERR("unknown encoding {}\n", getEncoding(VPtr));
       UserBS10.error(7);
       std::terminate();
     }
@@ -126,7 +128,7 @@ struct ObjectManager {
     case 1:
       return RTObjs.getBasePtrInfo(VPtr);
     default:
-      fprintf(stderr, "unknown encoding %i\n", getEncoding(VPtr));
+      ERR("unknown encoding {}\n", getEncoding(VPtr));
       UserBS10.error(8);
       std::terminate();
     }
@@ -160,10 +162,8 @@ struct ObjectManager {
       return TryToMakeObjNull(LHSPtr, *LHSTE, LHSOffset);
 
     if (LHSInfo < 0 || RHSInfo < 0) {
-      fprintf(
-          stderr,
-          "comparison of user object and runtime object! C/C++ UB detected! "
-          "(%u[%u] %u[%u])\n",
+      ERR("comparison of user object and runtime object! C/C++ UB detected! "
+          "({}[{}] {}[{}])\n",
           LHSInfo, LHSOffset, RHSInfo, RHSOffset);
       UserBS10.error(43);
       std::terminate();
@@ -230,11 +230,11 @@ struct ObjectManager {
     if (BCIs.empty())
       return;
 
-    printf("Got %zu BCIs\n", BCIs.size());
+    VERBOSE("Got {} BCIs\n", BCIs.size());
     int32_t BestValue = 0;
     uint32_t BestNumDesired = 0;
-    for (auto I = 0; I < 1<<10; ++I) {
-      auto Value = I - (1<<4);
+    for (auto I = 0; I < 1 << 10; ++I) {
+      auto Value = I - (1 << 4);
 
       uint32_t NumDesired = 0;
       for (auto *BCI : BCIs) {
@@ -253,11 +253,11 @@ struct ObjectManager {
             auto *MPtr =
                 decodeAndCheckInitialized(FVI.VPtr, FVI.Size, IsInitialized);
             if (IsInitialized) {
-              printf("Is initialied %i [%u]\n", *((int*)MPtr), FVI.Offset);
+              VERBOSE("Is initialied {} [{}]\n", *((int *)MPtr), FVI.Offset);
               __builtin_memcpy(ArgPtr, MPtr, FVI.Size);
               break;
             }
-            printf("Trying %i for %i [%u]\n", Value, I, FVI.Offset);
+            VERBOSE("Trying {} for {} [{}]\n", Value, I, FVI.Offset);
             NumFreeLoads++;
             __builtin_memcpy(ArgPtr, &Value, 4);
             if (FVI.Size > 4)
@@ -273,7 +273,8 @@ struct ObjectManager {
         }
         char Outcome = BCI->Fn(BCI->ArgMemPtr);
         char DesiredOutcome = getDesiredOutcome(BCI->No);
-        printf(" want %i, got %i [free %u]\n", DesiredOutcome, Outcome, NumFreeLoads);
+        VERBOSE(" want {}, got {} [free {}]\n", DesiredOutcome, Outcome,
+                NumFreeLoads);
         if (Outcome == DesiredOutcome)
           NumDesired++;
       }
@@ -286,7 +287,7 @@ struct ObjectManager {
         break;
     }
 
-    printf("BND %u out of %u : %i\n", BestNumDesired, BCIs.size(), BestValue);
+    VERBOSE("BND {} out of {} : {}\n", BestNumDesired, BCIs.size(), BestValue);
     if (BestNumDesired == 0)
       return;
 

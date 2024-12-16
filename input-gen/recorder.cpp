@@ -1,6 +1,8 @@
+#include "common.h"
 #include "timer.h"
 #include "vm_choices.h"
 #include "vm_obj.h"
+#include "logging.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -8,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <condition_variable>
 
 extern "C" uint32_t __ig_num_entry_points;
 extern "C" void __ig_entry(uint32_t, void *);
@@ -115,14 +118,14 @@ int main(int argc, char **argv) {
     Seed = std::atoi(argv[5]);
 
   if (EntryNo >= __ig_num_entry_points) {
-    fprintf(stderr, "Entry %u is out of bounds, %u available\n", EntryNo,
+    ERR("Entry {} is out of bounds, {} available\n", EntryNo,
             __ig_num_entry_points);
-    exit(1);
+    exit(static_cast<int>(ExitStatus::EntryNoOutOfBounds));
   }
 
   uint32_t NumInputsPerThread = (NumInputs + NumThreads - 1) / NumThreads;
-  printf("Generating %u inputs for entry %u with %u threads, starting with %u; "
-         "Seed: %u\n",
+  INFO("Generating {} inputs for entry {} with {} threads, starting with {}; "
+       "Seed: {}\n",
          NumInputs, EntryNo, NumThreads, FirstInput, Seed);
 
   std::mt19937 Generator(Seed);
@@ -142,4 +145,5 @@ int main(int argc, char **argv) {
   }
 
   fprintf(stderr, "No Inputs to process\n");
+  return static_cast<int>(ExitStatus::NoInputs);
 }

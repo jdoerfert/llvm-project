@@ -332,6 +332,8 @@ struct BaseConfigurationOpportunity {
 
 struct InstrumentationConfig {
 
+  virtual ~InstrumentationConfig() {}
+
   InstrumentationConfig() : SS(StringAllocator) {
     RuntimePrefix = BaseConfigurationOpportunity::getStringOption(
         *this, "runtime_prefix", "The runtime API prefix.", "__instrumentor_");

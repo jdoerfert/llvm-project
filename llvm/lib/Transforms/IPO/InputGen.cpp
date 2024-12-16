@@ -35,9 +35,28 @@ using namespace llvm::instrumentor;
 
 #define DEBUG_TYPE "input-gen"
 
+static cl::opt<IGIMode> ClInstrumentationMode(
+    "input-gen-mode", cl::desc("input-gen instrumentation mode"), cl::Hidden,
+    cl::init(IGIMode::Disabled),
+    cl::values(clEnumValN(IGIMode::Disabled, "disable", ""),
+               clEnumValN(IGIMode::Record, "record", ""),
+               clEnumValN(IGIMode::Generate, "generate", ""),
+               clEnumValN(IGIMode::Replay, "replay", "")));
+
+#ifndef NDEBUG
+static cl::opt<std::string>
+    ClGenerateStubs("input-gen-generate-stubs",
+                    cl::desc("Generate the stubs for the input-gen runtime"),
+                    cl::Hidden);
+#else
+static constexpr std::string ClGenerateStubs = "";
+#endif
+
+static constexpr char InputGenRuntimePrefix[] = "__ig_";
+
 namespace {
 
-struct InputGenImpl;
+struct InputGenMemoryImpl;
 
 struct BranchConditionInfo {
   struct ParameterInfo {
@@ -60,7 +79,7 @@ struct BranchConditionInfo {
 
 struct InputGenInstrumentationConfig : public InstrumentationConfig {
 
-  InputGenInstrumentationConfig(InputGenImpl &IGI);
+  InputGenInstrumentationConfig(InputGenMemoryImpl &IGMI);
   virtual ~InputGenInstrumentationConfig() {}
 
   void populate(LLVMContext &Ctx) override;
@@ -73,7 +92,7 @@ struct InputGenInstrumentationConfig : public InstrumentationConfig {
   }
   BranchConditionInfo &getBCI(Value &V) { return *BCIMap[&V]; }
 
-  InputGenImpl &IGI;
+  InputGenMemoryImpl &IGMI;
 
   using DTGetterTy = std::function<DominatorTree &(Function &F)>;
   DTGetterTy DTGetter;
@@ -83,15 +102,14 @@ struct InputGenInstrumentationConfig : public InstrumentationConfig {
 
 struct InputGenInstrumentationConfig;
 
-struct InputGenImpl {
-  InputGenImpl(Module &M, ModuleAnalysisManager &MAM)
+struct InputGenMemoryImpl {
+  InputGenMemoryImpl(Module &M, ModuleAnalysisManager &MAM)
       : M(M), MAM(MAM),
         FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()),
         IConf(*this) {}
 
   bool instrument();
   bool analyzeFunction(Function &Fn, InputGenInstrumentationConfig &IConf);
-  bool createEntryPoint(InputGenInstrumentationConfig &IConf);
 
   bool shouldInstrumentCall(CallInst &CI);
   bool shouldInstrumentLoad(LoadInst &LI);
@@ -106,6 +124,24 @@ private:
   ModuleAnalysisManager &MAM;
   FunctionAnalysisManager &FAM;
   InputGenInstrumentationConfig IConf;
+  const DataLayout &DL = M.getDataLayout();
+};
+
+struct InputGenEntriesImpl {
+  InputGenEntriesImpl(Module &M, ModuleAnalysisManager &MAM)
+      : M(M), MAM(MAM),
+        FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()) {
+  }
+
+  bool instrument();
+  bool createEntryPoint();
+
+  FunctionAnalysisManager &getFAM() { return FAM; };
+
+private:
+  Module &M;
+  ModuleAnalysisManager &MAM;
+  FunctionAnalysisManager &FAM;
   const DataLayout &DL = M.getDataLayout();
   SmallVector<Function *> UserFunctions;
 };
@@ -252,7 +288,7 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
   auto AdjustIP = [&](Instruction *I) {
     if (!IP || DT.dominates(IP, I)) {
       if (isa<PHINode>(I))
-        IP = I->getParent()->getFirstNonPHIOrDbgOrLifetime();
+        IP = &*I->getParent()->getFirstNonPHIOrDbgOrLifetime();
       else
         IP = I->getNextNode();
       return;
@@ -325,8 +361,9 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
   RemapFunction(*BCIFn, VM, RF_IgnoreMissingLocals);
 
   IRB.CreateBr(ComputeBB);
-  ReturnInst::Create(
-      Ctx, new ZExtInst(VM[BI.getCondition()], RetTy, "", ComputeBB), ComputeBB);
+  ReturnInst::Create(Ctx,
+                     new ZExtInst(VM[BI.getCondition()], RetTy, "", ComputeBB),
+                     ComputeBB);
   BCIFn->dump();
   BCI.Fn = BCIFn;
   return IP;
@@ -362,7 +399,8 @@ Value *BranchConditionIO::getArguments(Value &V, Type &Ty,
     }
   }
 
-  StructType *STy = StructType::get(IIRB.Ctx, ParameterTypes, /*isPacked=*/true);
+  StructType *STy =
+      StructType::get(IIRB.Ctx, ParameterTypes, /*isPacked=*/true);
   auto *AI = IIRB.getAlloca(BI.getFunction(), STy);
   for (auto [Idx, V] : enumerate(ParameterValues)) {
     auto *Ptr = IIRB.IRB.CreateStructGEP(STy, AI, Idx);
@@ -372,11 +410,11 @@ Value *BranchConditionIO::getArguments(Value &V, Type &Ty,
   return AI;
 }
 
-bool InputGenImpl::shouldInstrumentBranch(BranchInst &BI) {
+bool InputGenMemoryImpl::shouldInstrumentBranch(BranchInst &BI) {
   return BI.isConditional() && isa<Instruction>(BI.getCondition());
 }
 
-bool InputGenImpl::shouldInstrumentLoad(LoadInst &LI) {
+bool InputGenMemoryImpl::shouldInstrumentLoad(LoadInst &LI) {
   const Value *UnderlyingPtr =
       getUnderlyingObjectAggressive(LI.getPointerOperand());
   if (auto *AI = dyn_cast<AllocaInst>(UnderlyingPtr)) {
@@ -386,7 +424,7 @@ bool InputGenImpl::shouldInstrumentLoad(LoadInst &LI) {
   return true;
 }
 
-bool InputGenImpl::shouldInstrumentStore(StoreInst &SI) {
+bool InputGenMemoryImpl::shouldInstrumentStore(StoreInst &SI) {
   const Value *UnderlyingPtr =
       getUnderlyingObjectAggressive(SI.getPointerOperand());
   if (auto *AI = dyn_cast<AllocaInst>(UnderlyingPtr)) {
@@ -397,7 +435,7 @@ bool InputGenImpl::shouldInstrumentStore(StoreInst &SI) {
   return true;
 }
 
-bool InputGenImpl::shouldInstrumentAlloca(AllocaInst &AI) {
+bool InputGenMemoryImpl::shouldInstrumentAlloca(AllocaInst &AI) {
   auto IsUseOK = [&](Use &U) -> bool {
     if (auto *SI = dyn_cast<StoreInst>(U.getUser())) {
       if (SI->getPointerOperandIndex() == U.getOperandNo() &&
@@ -415,20 +453,14 @@ bool InputGenImpl::shouldInstrumentAlloca(AllocaInst &AI) {
   return all_of(AI.uses(), IsUseOK);
 }
 
-bool InputGenImpl::shouldInstrumentCall(CallInst &CI) {
+bool InputGenMemoryImpl::shouldInstrumentCall(CallInst &CI) {
   if (CI.getCaller()->getName().starts_with(IConf.getRTName()))
     return false;
   return true;
 }
 
-bool InputGenImpl::instrument() {
+bool InputGenMemoryImpl::instrument() {
   bool Changed = false;
-
-  for (auto &Fn : M.functions())
-    if (!Fn.isDeclaration())
-      UserFunctions.push_back(&Fn);
-
-  Changed |= createEntryPoint(IConf);
 
   InstrumentorPass IP(&IConf);
 
@@ -439,7 +471,19 @@ bool InputGenImpl::instrument() {
   return Changed;
 }
 
-bool InputGenImpl::createEntryPoint(InputGenInstrumentationConfig &IConf) {
+bool InputGenEntriesImpl::instrument() {
+  bool Changed = false;
+
+  for (auto &Fn : M.functions())
+    if (!Fn.isDeclaration())
+      UserFunctions.push_back(&Fn);
+
+  Changed |= createEntryPoint();
+
+  return Changed;
+}
+
+bool InputGenEntriesImpl::createEntryPoint() {
   auto &Ctx = M.getContext();
   auto *I32Ty = IntegerType::getInt32Ty(Ctx);
   auto *PtrTy = PointerType::getUnqual(Ctx);
@@ -447,11 +491,12 @@ bool InputGenImpl::createEntryPoint(InputGenInstrumentationConfig &IConf) {
   uint32_t NumEntryPoints = UserFunctions.size();
   new GlobalVariable(M, I32Ty, true, GlobalValue::ExternalLinkage,
                      ConstantInt::get(I32Ty, NumEntryPoints),
-                     IConf.getRTName("", "num_entry_points"));
+                     std::string(InputGenRuntimePrefix) + "num_entry_points");
 
   Function *IGEntry = Function::Create(
       FunctionType::get(Type::getVoidTy(Ctx), {I32Ty, PtrTy}, false),
-      GlobalValue::ExternalLinkage, IConf.getRTName("", "entry"), M);
+      GlobalValue::ExternalLinkage,
+      std::string(InputGenRuntimePrefix) + "entry", M);
   IGEntry->addFnAttr("instrument");
 
   auto *EntryChoice = IGEntry->getArg(0);
@@ -492,16 +537,17 @@ bool InputGenImpl::createEntryPoint(InputGenInstrumentationConfig &IConf) {
   return true;
 }
 
-InputGenInstrumentationConfig::InputGenInstrumentationConfig(InputGenImpl &IGI)
-    : InstrumentationConfig(), IGI(IGI),
+InputGenInstrumentationConfig::InputGenInstrumentationConfig(
+    InputGenMemoryImpl &IGI)
+    : InstrumentationConfig(), IGMI(IGI),
       DTGetter([&](Function &F) -> DominatorTree & {
         return IGI.getFAM().getResult<DominatorTreeAnalysis>(F);
       }),
       PDTGetter([&](Function &F) -> PostDominatorTree & {
         return IGI.getFAM().getResult<PostDominatorTreeAnalysis>(F);
       }) {
-  RuntimePrefix->setString("__ig_");
-  RuntimeStubsFile->setString("ig.test.cpp");
+  RuntimePrefix->setString(InputGenRuntimePrefix);
+  RuntimeStubsFile->setString(ClGenerateStubs);
 }
 
 void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
@@ -510,20 +556,20 @@ void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
 
   auto *BIC = new (ChoiceAllocator.Allocate()) BranchConditionIO;
   BIC->CB = [&](Value &V) {
-    return IGI.shouldInstrumentBranch(cast<BranchInst>(V));
+    return IGMI.shouldInstrumentBranch(cast<BranchInst>(V));
   };
   BIC->init(*this, Ctx);
 
   auto *AIC = new (ChoiceAllocator.Allocate()) AllocaIO(/*IsPRE=*/false);
   AIC->CB = [&](Value &V) {
-    return IGI.shouldInstrumentAlloca(cast<AllocaInst>(V));
+    return IGMI.shouldInstrumentAlloca(cast<AllocaInst>(V));
   };
   AIC->init(*this, Ctx, /*ReplaceAddr=*/true, /*ReplaceSize=*/false,
             /*PassAlignment*/ true);
 
   auto *LIC = new (ChoiceAllocator.Allocate()) LoadIO(/*IsPRE=*/true);
   LIC->CB = [&](Value &V) {
-    return IGI.shouldInstrumentLoad(cast<LoadInst>(V));
+    return IGMI.shouldInstrumentLoad(cast<LoadInst>(V));
   };
   LIC->init(*this, Ctx, /*PassPointer=*/true, /*ReplacePointer=*/true,
             /*PassPointerAS=*/false, /*PassBasePointerInfo=*/true,
@@ -534,7 +580,7 @@ void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
 
   auto *SIC = new (ChoiceAllocator.Allocate()) StoreIO(/*IsPRE=*/true);
   SIC->CB = [&](Value &V) {
-    return IGI.shouldInstrumentStore(cast<StoreInst>(V));
+    return IGMI.shouldInstrumentStore(cast<StoreInst>(V));
   };
   SIC->init(*this, Ctx, /*PassPointer=*/true, /*ReplacePointer=*/true,
             /*PassPointerAS=*/false, /*PassBasePointerInfo=*/true,
@@ -545,7 +591,7 @@ void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
 
   auto *CIC = new (ChoiceAllocator.Allocate()) CallIO(/*IsPRE=*/true);
   CIC->CB = [&](Value &V) {
-    return IGI.shouldInstrumentCall(cast<CallInst>(V));
+    return IGMI.shouldInstrumentCall(cast<CallInst>(V));
   };
   CIC->init(*this, Ctx, /*PassCallee=*/true, /*PassCalleeName=*/true,
             /*PassIntrinsicId=*/true, /*PassAllocationInfo=*/true,
@@ -556,17 +602,49 @@ void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
 
 } // namespace
 
-PreservedAnalyses InputGenPass::run(Module &M, ModuleAnalysisManager &MAM) {
-
-  InputGenImpl Impl(M, MAM);
-
-  bool Changed = Impl.instrument();
-  if (!Changed)
+PreservedAnalyses
+InputGenInstrumentEntriesPass::run(Module &M, AnalysisManager<Module> &MAM) {
+  switch (ClInstrumentationMode) {
+  default:
     return PreservedAnalyses::all();
 
-  if (verifyModule(M))
-    M.dump();
-  assert(!verifyModule(M, &errs()));
+  case IGIMode::Generate:
+  case IGIMode::Replay: {
 
-  return PreservedAnalyses::none();
+    InputGenEntriesImpl Impl(M, MAM);
+
+    bool Changed = Impl.instrument();
+    if (!Changed)
+      return PreservedAnalyses::all();
+
+    if (verifyModule(M))
+      M.dump();
+    assert(!verifyModule(M, &errs()));
+
+    return PreservedAnalyses::none();
+  }
+  }
+}
+
+PreservedAnalyses
+InputGenInstrumentMemoryPass::run(Module &M, AnalysisManager<Module> &MAM) {
+  switch (ClInstrumentationMode) {
+  default:
+    return PreservedAnalyses::all();
+
+  case IGIMode::Generate: {
+
+    InputGenMemoryImpl Impl(M, MAM);
+
+    bool Changed = Impl.instrument();
+    if (!Changed)
+      return PreservedAnalyses::all();
+
+    if (verifyModule(M))
+      M.dump();
+    assert(!verifyModule(M, &errs()));
+
+    return PreservedAnalyses::none();
+  }
+  }
 }

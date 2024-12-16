@@ -49,7 +49,14 @@ public:
     return (const_cast<MLModelRunner *>(this))->getTensorUntyped(Index);
   }
 
-  enum class Kind : int { Unknown, Release, Development, NoOp, Interactive };
+  enum class Kind : int {
+    Unknown,
+    Release,
+    Development,
+    NoOp,
+    Interactive,
+    UnrollInteractive
+  };
   Kind getKind() const { return Type; }
   virtual void switchContext(StringRef Name) {}
 

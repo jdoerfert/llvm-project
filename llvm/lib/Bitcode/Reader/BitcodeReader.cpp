@@ -2300,6 +2300,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::DenormalFPEnv;
   case bitc::ATTR_KIND_NOOUTLINE:
     return Attribute::NoOutline;
+  case bitc::ATTR_KIND_INPUTGEN_ENTRY:
+    return Attribute::InputGenEntry;
   }
 }
 

@@ -47,7 +47,7 @@ def send(f: io.BufferedWriter, value: Union[int, float], spec: log_reader.Tensor
 def run_interactive(
     temp_rootname: str,
     make_response: Callable[[List[log_reader.TensorValue]], Union[int, float, list]],
-    process_and_args: List[str],
+    process_and_args: List[str], before_advice = None, after_advice = None
 ):
     """Host the compiler.
     Args:
@@ -73,31 +73,35 @@ def run_interactive(
         compiler_proc = subprocess.Popen(
             process_and_args, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL
         )
-        with io.BufferedWriter(io.FileIO(to_compiler, "wb")) as tc:
-            with io.BufferedReader(io.FileIO(from_compiler, "rb")) as fc:
-                tensor_specs, _, advice_spec = log_reader.read_header(fc)
-                context = None
-                while compiler_proc.poll() is None:
-                    next_event = fc.readline()
-                    if not next_event:
-                        break
-                    (
-                        last_context,
-                        observation_id,
-                        features,
-                        _,
-                    ) = log_reader.read_one_observation(
-                        context, next_event, fc, tensor_specs, None
-                    )
-                    if last_context != context:
-                        print(f"context: {last_context}")
-                    context = last_context
-                    print(f"observation: {observation_id}")
-                    tensor_values = []
-                    for fv in features:
-                        log_reader.pretty_print_tensor_value(fv)
-                        tensor_values.append(fv)
-                    send(tc, make_response(tensor_values), advice_spec)
+        with io.BufferedWriter(io.FileIO(to_compiler, "wb")) as tc, \
+             io.BufferedReader(io.FileIO(from_compiler, "rb")) as fc:
+            tensor_specs, _, advice_spec = log_reader.read_header(fc)
+            context = None
+            while compiler_proc.poll() is None:
+                next_event = fc.readline()
+                if not next_event:
+                    break
+                (
+                    last_context,
+                    observation_id,
+                    features,
+                    _,
+                ) = log_reader.read_one_observation(
+                    context, next_event, fc, tensor_specs, None
+                )
+                if last_context != context:
+                    print(f"context: {last_context}")
+                context = last_context
+                print(f"observation: {observation_id}")
+                tensor_values = []
+                for fv in features:
+                    log_reader.pretty_print_tensor_value(fv)
+                    tensor_values.append(fv)
+                if before_advice is not None:
+                    before_advice(tc, fc)
+                send(tc, make_response(tensor_values), advice_spec)
+                if after_advice is not None:
+                    after_advice(tc, fc)
         _, err = compiler_proc.communicate()
         print(err.decode("utf-8"))
         compiler_proc.wait()

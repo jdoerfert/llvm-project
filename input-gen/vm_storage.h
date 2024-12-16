@@ -1,9 +1,9 @@
 
 
 #include "vm_obj.h"
+
 #include <cstdint>
 #include <fstream>
-#include <string_view>
 
 using namespace __ig;
 
@@ -16,9 +16,9 @@ struct Range {
         char *End)
       : ObjIdx(ObjIdx), AnyRecorded(AnyRecorded), NegativeSize(NegativeSize),
         Begin(Begin), End(End) {}
-  Range(std::ifstream &ifs);
+  Range(std::ifstream &IFS);
 
-  void write(std::ofstream &ofs);
+  void write(std::ofstream &OFS);
 };
 
 struct Ptr {
@@ -30,9 +30,9 @@ struct Ptr {
   Ptr(uint32_t ObjIdx, uint32_t Offset, uint32_t TgtObjIdx, uint32_t TgtOffset)
       : ObjIdx(ObjIdx), Offset(Offset), TgtObjIdx(TgtObjIdx),
         TgtOffset(TgtOffset) {}
-  Ptr(std::ifstream &ifs);
+  Ptr(std::ifstream &IFS);
 
-  void write(std::ofstream &ofs);
+  void write(std::ofstream &OFS);
 };
 
 struct StorageManager {
@@ -44,6 +44,6 @@ struct StorageManager {
   void encode(ObjectManager &OM, uint32_t ObjIdx,
               TableSchemeBaseTy::TableEntryTy &TE);
 
-  void *read(std::string_view FileName);
-  void write(std::ofstream &ofs);
+  void *read(std::ifstream &IFS);
+  void write(std::ofstream &OFS);
 };

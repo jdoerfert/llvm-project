@@ -11,7 +11,7 @@ struct Args {
 extern "C" {
 #endif
 
-//__attribute__((optnone))
+__attribute__((inputgen_entry))
 void entry(struct Args *AP) {
 
   struct Args args = *AP;

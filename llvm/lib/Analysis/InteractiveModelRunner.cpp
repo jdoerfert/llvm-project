@@ -55,13 +55,15 @@ InteractiveModelRunner::~InteractiveModelRunner() {
   sys::fs::closeFile(FDAsOSHandle);
 }
 
-void *InteractiveModelRunner::evaluateUntyped() {
+void InteractiveModelRunner::logInput() {
   Log->startObservation();
   for (size_t I = 0; I < InputSpecs.size(); ++I)
     Log->logTensorValue(I, reinterpret_cast<const char *>(getTensorUntyped(I)));
   Log->endObservation();
   Log->flush();
+}
 
+void *InteractiveModelRunner::getOutputUntyped() {
   size_t InsPoint = 0;
   char *Buff = OutputBuffer.data();
   const size_t Limit = OutputBuffer.size();

@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 
+__attribute__((inputgen_entry))
 void foo(int *q) {
   int V = q[0];
   int P = q[1];

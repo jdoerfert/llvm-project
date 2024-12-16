@@ -37,6 +37,7 @@ class OptimizationRemarkEmitter;
 class ScalarEvolution;
 class StringRef;
 class Value;
+class UnrollAdvice;
 
 using NewLoopsMap = SmallDenseMap<const Loop *, Loop *, 4>;
 
@@ -53,6 +54,11 @@ LLVM_ABI const Loop *addClonedBlockToLoopInfo(BasicBlock *OriginalBB,
                                               BasicBlock *ClonedBB,
                                               LoopInfo *LI,
                                               NewLoopsMap &NewLoops);
+/// A magic value for use with the Threshold parameter to indicate
+/// that the loop unroll should be performed regardless of how much
+/// code expansion would result.
+static const unsigned LoopUnrollNoThreshold =
+    std::numeric_limits<unsigned>::max();
 
 /// Represents the result of a \c UnrollLoop invocation.
 enum class LoopUnrollResult {
@@ -175,15 +181,17 @@ public:
                       unsigned CountOverwrite = 0) const;
 };
 
-LLVM_ABI void
-computeUnrollCount(Loop *L, const TargetTransformInfo &TTI, DominatorTree &DT,
-                   LoopInfo *LI, AssumptionCache *AC, ScalarEvolution &SE,
-                   const SmallPtrSetImpl<const Value *> &EphValues,
-                   OptimizationRemarkEmitter *ORE, unsigned TripCount,
-                   unsigned MaxTripCount, bool MaxOrZero, unsigned TripMultiple,
-                   const UnrollCostEstimator &UCE,
-                   TargetTransformInfo::UnrollingPreferences &UP,
-                   TargetTransformInfo::PeelingPreferences &PP);
+LLVM_ABI
+bool computeUnrollCount(Loop *L, const TargetTransformInfo &TTI,
+                        DominatorTree &DT, LoopInfo *LI, AssumptionCache *AC,
+                        ScalarEvolution &SE,
+                        const SmallPtrSetImpl<const Value *> &EphValues,
+                        OptimizationRemarkEmitter *ORE, unsigned TripCount,
+                        unsigned MaxTripCount, bool MaxOrZero,
+                        unsigned TripMultiple, const UnrollCostEstimator &UCE,
+                        TargetTransformInfo::UnrollingPreferences &UP,
+                        TargetTransformInfo::PeelingPreferences &PP,
+                        bool &UseUpperBound, UnrollAdvice &Advice);
 
 LLVM_ABI std::optional<RecurrenceDescriptor>
 canParallelizeReductionWhenUnrolling(PHINode &Phi, Loop *L,

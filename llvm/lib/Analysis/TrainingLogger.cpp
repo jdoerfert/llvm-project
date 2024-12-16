@@ -79,7 +79,6 @@ void Logger::logRewardImpl(const char *RawData) {
 }
 
 void Logger::logCustom(const char *Type, const char *RawData, size_t Size) {
-  assert(IncludeReward);
   json::OStream JOS(*OS);
   JOS.object([&]() {
     JOS.attribute(Type, static_cast<int64_t>(

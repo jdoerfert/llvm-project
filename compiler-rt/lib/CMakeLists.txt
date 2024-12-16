@@ -73,6 +73,8 @@ if(COMPILER_RT_BUILD_ORC)
   compiler_rt_build_runtime(orc)
 endif()
 
+add_subdirectory(inputgen)
+
 # It doesn't normally make sense to build runtimes when a sanitizer is enabled,
 # so we don't add_subdirectory the runtimes in that case. However, the opposite
 # is true for fuzzers that exercise parts of the runtime. So we add the fuzzer

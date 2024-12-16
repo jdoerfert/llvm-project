@@ -1,14 +1,13 @@
 
-
 #include "vm_storage.h"
 #include "vm_obj.h"
+
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
-#include <string_view>
 
 using namespace __ig;
 
@@ -39,12 +38,12 @@ Range::Range(std::ifstream &IFS) {
   assert(C == ',');
 }
 
-void Range::write(std::ofstream &ofs) {
-  ofs << ObjIdx << ',' << NegativeSize << ',' << AnyRecorded << ','
+void Range::write(std::ofstream &OFS) {
+  OFS << ObjIdx << ',' << NegativeSize << ',' << AnyRecorded << ','
       << (End - Begin) << ',';
   if (AnyRecorded)
-    ofs.write(Begin, End - Begin);
-  ofs << ',';
+    OFS.write(Begin, End - Begin);
+  OFS << ',';
 }
 
 Ptr::Ptr(std::ifstream &IFS) {
@@ -63,8 +62,8 @@ Ptr::Ptr(std::ifstream &IFS) {
   assert(C == ',');
 }
 
-void Ptr::write(std::ofstream &ofs) {
-  ofs << ObjIdx << ',' << Offset << ',' << TgtObjIdx << ',' << TgtOffset << ',';
+void Ptr::write(std::ofstream &OFS) {
+  OFS << ObjIdx << ',' << Offset << ',' << TgtObjIdx << ',' << TgtOffset << ',';
 }
 
 StorageManager::StorageManager() { std::ios::sync_with_stdio(false); }
@@ -116,20 +115,19 @@ void StorageManager::encode(ObjectManager &OM, uint32_t ObjIdx,
                       BaseP + TE.getSize());
 }
 
-void StorageManager::write(std::ofstream &ofs) {
+void StorageManager::write(std::ofstream &OFS) {
   uint32_t NRanges = Ranges.size();
-  ofs << NRanges;
-  ofs << ',';
+  OFS << NRanges;
+  OFS << ',';
   for (auto &Range : Ranges)
-    Range.write(ofs);
+    Range.write(OFS);
   uint32_t NPtrs = Ptrs.size();
-  ofs << 'p' << NPtrs << ',';
+  OFS << 'p' << NPtrs << ',';
   for (auto &Ptr : Ptrs)
-    Ptr.write(ofs);
+    Ptr.write(OFS);
 }
 
-void *StorageManager::read(std::string_view FileName) {
-  std::ifstream IFS(FileName, std::ios_base::in | std::ios_base::binary);
+void *StorageManager::read(std::ifstream &IFS) {
   const int BufferSize = 65536; // Example: 64KB
   char *Buffer = new char[BufferSize];
   IFS.rdbuf()->pubsetbuf(Buffer, BufferSize);

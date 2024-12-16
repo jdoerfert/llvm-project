@@ -6,6 +6,7 @@ struct LL {
   struct LL* next;
 } L;
 
+__attribute__((inputgen_entry))
 int main(int argc, char **argv) {
   struct LL *p = &L;
   int sum = 0;

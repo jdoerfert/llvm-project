@@ -24,6 +24,7 @@
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Analysis/UnrollAdvisor.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Frontend/Offloading/Utility.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
@@ -7429,8 +7430,14 @@ static int32_t computeHeuristicUnrollFactor(CanonicalLoopInfo *CLI) {
   bool MaxOrZero = false;
   unsigned TripMultiple = 0;
 
+  // TODO do we also want to hook up the ML model here?
+  auto Advisor = getDefaultModeUnrollAdvisor();
+  auto Advice = Advisor->getAdvice({(unsigned)TripCount, UCE, UP, SE, LI, *L});
+  Advice->recordUnattemptedUnrolling();
+  bool UseUpperBound = false;
   computeUnrollCount(L, TTI, DT, &LI, &AC, SE, EphValues, &ORE, TripCount,
-                     MaxTripCount, MaxOrZero, TripMultiple, UCE, UP, PP);
+                     MaxTripCount, MaxOrZero, TripMultiple, UCE, UP, PP,
+                     UseUpperBound, *Advice);
   unsigned Factor = UP.Count;
   LLVM_DEBUG(dbgs() << "Suggesting unroll factor of " << Factor << "\n");
 
