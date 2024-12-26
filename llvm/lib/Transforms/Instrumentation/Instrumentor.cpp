@@ -212,12 +212,12 @@ public:
 private:
   bool shouldInstrumentFunction(Function *Fn);
   bool instrumentFunction(Function &Fn);
-  bool instrument(AllocaInst &I);
-  bool instrument(CallBase &I);
+  bool instrumentAlloca(AllocaInst &I);
+  bool instrumentCall(CallBase &I);
   bool instrumentAllocationCall(CallBase &I, const AllocationCallInfo &ACI);
   bool instrumentMemoryIntrinsic(IntrinsicInst &I);
-  bool instrument(LoadInst &I, bool After);
-  bool instrument(StoreInst &I);
+  bool instrumentLoad(LoadInst &I, bool After);
+  bool instrumentStore(StoreInst &I);
 
   /// Mapping to remember temporary allocas for reuse.
   DenseMap<std::pair<Function *, unsigned>, AllocaInst *> AllocaMap;
@@ -331,7 +331,7 @@ bool InstrumentorImpl::shouldInstrumentFunction(Function *Fn) {
   return true;
 }
 
-bool InstrumentorImpl::instrument(AllocaInst &I) {
+bool InstrumentorImpl::instrumentAlloca(AllocaInst &I) {
   if (IC.Alloca.CB && !IC.Alloca.CB(I))
     return false;
 
@@ -393,7 +393,7 @@ bool InstrumentorImpl::instrument(AllocaInst &I) {
   return true;
 }
 
-bool InstrumentorImpl::instrument(CallBase &I) {
+bool InstrumentorImpl::instrumentCall(CallBase &I) {
   auto &TLI = GetTLI(*I.getFunction());
   auto ACI = getAllocationCallInfo(&I, &TLI);
 
@@ -506,8 +506,10 @@ bool InstrumentorImpl::instrumentAllocationCall(CallBase &I,
 }
 
 bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
-  if (IC.MemoryIntrinsics.CB && !IC.MemoryIntrinsics.CB(I))
+  if (IC.MemoryIntrinsic.CB && !IC.MemoryIntrinsic.CB(I))
     return false;
+
+  IRB.SetInsertPoint(&I);
 
   unsigned KindId = I.getIntrinsicID();
   Value *SrcPtr = nullptr;
@@ -535,6 +537,7 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
     SrcPtr = AMC.getRawSource();
     DestPtr = AMC.getRawDest();
     Length = AMC.getLength();
+    break;
   }
   case Intrinsic::memset:
   case Intrinsic::memset_inline:
@@ -543,6 +546,7 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
     DestPtr = AMS.getRawDest();
     Length = AMS.getLength();
     MemsetValue = AMS.getValue();
+    break;
   }
   default:
     llvm_unreachable("Unexpected intrinsic");
@@ -553,14 +557,14 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
   SmallVector<Value *> RTArgs;
   SmallVector<std::string> RTArgNames;
 
-  if (IC.MemoryIntrinsics.KindId) {
+  if (IC.MemoryIntrinsic.KindId) {
     auto *ArgTy = Int32Ty;
     RTArgTypes.push_back(ArgTy);
     RTArgs.push_back(getCI(ArgTy, KindId));
     RTArgNames.push_back("KindId");
   }
 
-  if (IC.MemoryIntrinsics.DestinationPointer) {
+  if (IC.MemoryIntrinsic.DestinationPointer) {
     assert(DestPtr && "Expected destination pointer");
     auto *ArgTy = PtrTy;
     RTArgTypes.push_back(ArgTy);
@@ -568,7 +572,7 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
     RTArgNames.push_back("DestinationPointer");
   }
 
-  if (IC.MemoryIntrinsics.DestinationPointerAddressSpace) {
+  if (IC.MemoryIntrinsic.DestinationPointerAddressSpace) {
     assert(DestPtr && "Expected destination pointer");
     auto *ArgTy = Int32Ty;
     RTArgTypes.push_back(ArgTy);
@@ -580,7 +584,7 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
   if (!SrcPtr)
     SrcPtr = Constant::getAllOnesValue(PtrTy);
 
-  if (IC.MemoryIntrinsics.SourcePointer) {
+  if (IC.MemoryIntrinsic.SourcePointer) {
     assert(SrcPtr && "Expected source pointer");
     auto *ArgTy = PtrTy;
     RTArgTypes.push_back(ArgTy);
@@ -588,7 +592,7 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
     RTArgNames.push_back("SourcePointer");
   }
 
-  if (IC.MemoryIntrinsics.SourcePointerAddressSpace) {
+  if (IC.MemoryIntrinsic.SourcePointerAddressSpace) {
     assert(SrcPtr && "Expected source pointer");
     auto *ArgTy = Int32Ty;
     RTArgTypes.push_back(ArgTy);
@@ -598,7 +602,7 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
 
   if (!MemsetValue)
     MemsetValue = Constant::getAllOnesValue(Int64Ty);
-  if (IC.MemoryIntrinsics.MemsetValue) {
+  if (IC.MemoryIntrinsic.MemsetValue) {
     assert(SrcPtr && " ");
     auto *ArgTy = Int32Ty;
     RTArgTypes.push_back(ArgTy);
@@ -606,24 +610,29 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
     RTArgNames.push_back("SourcePointerAddressSpace");
   }
 
-  if (IC.MemoryIntrinsics.Length) {
+  if (IC.MemoryIntrinsic.Length) {
     auto *ArgTy = Int64Ty;
     RTArgTypes.push_back(ArgTy);
-    RTArgs.push_back(getCI(ArgTy, Length);
+    RTArgs.push_back(Length);
     RTArgNames.push_back("SourcePointerAddressSpace");
   }
 
-  if (IC.MemoryIntrinsics.IsVolatile) {
+  if (IC.MemoryIntrinsic.IsVolatile) {
     auto *ArgTy = Int8Ty;
     RTArgTypes.push_back(ArgTy);
-    RTArgs.push_back(getCI(ArgTy, I.isVolatile());
+    RTArgs.push_back(getCI(ArgTy, I.isVolatile()));
     RTArgNames.push_back("SourcePointerAddressSpace");
   }
+
+  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, /*After=*/false,
+                                /*Indirection=*/false, nullptr,
+                                "memory_intrinsic");
+  IRB.CreateCall(FC, RTArgs);
 
   return true;
 }
 
-bool InstrumentorImpl::instrument(StoreInst &I) {
+bool InstrumentorImpl::instrumentStore(StoreInst &I) {
   if (IC.Store.CB && !IC.Store.CB(I))
     return false;
 
@@ -716,7 +725,7 @@ bool InstrumentorImpl::instrument(StoreInst &I) {
   return true;
 }
 
-bool InstrumentorImpl::instrument(LoadInst &I, bool After) {
+bool InstrumentorImpl::instrumentLoad(LoadInst &I, bool After) {
   if (IC.Load.CB && !IC.Load.CB(I))
     return false;
 
@@ -818,7 +827,7 @@ bool InstrumentorImpl::instrument(LoadInst &I, bool After) {
   }
 
   if (!After && IC.Load.Value)
-    instrument(I, /*After=*/true);
+    instrumentLoad(I, /*After=*/true);
 
   return true;
 }
@@ -841,19 +850,19 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       switch (I.getOpcode()) {
       case Instruction::Alloca:
         if (IC.Alloca.Instrument)
-          instrument(cast<AllocaInst>(I));
+          Changed |= instrumentAlloca(cast<AllocaInst>(I));
         break;
       case Instruction::Call:
-        if (IC.AllocationCall.Instrument || IC.MemoryIntrinsics.Instrument)
-          instrument(cast<CallBase>(I));
+        if (IC.AllocationCall.Instrument || IC.MemoryIntrinsic.Instrument)
+          Changed |= instrumentCall(cast<CallBase>(I));
         break;
       case Instruction::Load:
         if (IC.Load.Instrument)
-          instrument(cast<LoadInst>(I), !IC.Load.CheckBefore);
+          Changed |= instrumentLoad(cast<LoadInst>(I), !IC.Load.InstrumentBefore);
         break;
       case Instruction::Store:
         if (IC.Store.Instrument)
-          instrument(cast<StoreInst>(I));
+          Changed |= instrumentStore(cast<StoreInst>(I));
         break;
       default:
         break;

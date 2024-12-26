@@ -92,8 +92,8 @@ SECTION_START(Load, LoadInst)
 /// Should loads be instrumented.
 CONFIG(Load, bool, Instrument, true)
 
-/// Should loads be checked before their execution.
-CONFIG(Load, bool, CheckBefore, true)
+/// Should loads also be instrumented before their execution.
+CONFIG(Load, bool, InstrumentBefore, true)
 
 /// Selection of information passed to the runtime.
 ///{
@@ -118,7 +118,7 @@ CONFIG(Load, bool, IsVolatile, true)
 ///}
 
 /// Should the value be replaced by the runtime call result.
-CONFIG(Alloca, bool, ReplaceValue, true)
+CONFIG(Load, bool, ReplaceValue, true)
 
 /// Optional callback, see CallbackTy.
 CONFIG_INTERNAL(Load, CallbackTy, CB, nullptr)
@@ -148,7 +148,7 @@ CONFIG(AllocationCall, bool, InitialValue, true)
 ///}
 
 /// Should the value be replaced by the runtime call result.
-CONFIG(Alloca, bool, ReplaceValue, true)
+CONFIG(AllocationCall, bool, ReplaceValue, true)
 
 /// Optional callback, see CallbackTy.
 CONFIG_INTERNAL(AllocationCall, CallbackTy, CB, nullptr)
@@ -156,42 +156,42 @@ CONFIG_INTERNAL(AllocationCall, CallbackTy, CB, nullptr)
 SECTION_END(AllocationCall)
 ///}
 
-/// MemoryIntrinsics
+/// MemoryIntrinsic
 ///{
-SECTION_START(MemoryIntrinsics, CallBase)
+SECTION_START(MemoryIntrinsic, CallBase)
 
-/// Should memory intrinsics, i.a., memset, memcpy, be instrumented.
-CONFIG(MemoryIntrinsics, bool, Instrument, true)
+/// Should memory intrinsics, e.g., memset, memcpy, be instrumented.
+CONFIG(MemoryIntrinsic, bool, Instrument, true)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The kind identifier (memset, memset_inline, ...)
-CONFIG(MemoryIntrinsics, bool, KindId, true)
+CONFIG(MemoryIntrinsic, bool, KindId, true)
 /// The destination pointer.
-CONFIG(MemoryIntrinsics, bool, DestinationPointer, true)
+CONFIG(MemoryIntrinsic, bool, DestinationPointer, true)
 /// The destination pointer address space.
-CONFIG(MemoryIntrinsics, bool, DestinationPointerAddressSpace, true)
+CONFIG(MemoryIntrinsic, bool, DestinationPointerAddressSpace, true)
 /// The source pointer.
-CONFIG(MemoryIntrinsics, bool, SourcePointer, true)
+CONFIG(MemoryIntrinsic, bool, SourcePointer, true)
 /// The source pointer address space.
-CONFIG(MemoryIntrinsics, bool, SourcePointerAddressSpace, true)
+CONFIG(MemoryIntrinsic, bool, SourcePointerAddressSpace, true)
 /// The memset value (2x i64).
-CONFIG(MemoryIntrinsics, bool, MemsetValue, true)
+CONFIG(MemoryIntrinsic, bool, MemsetValue, true)
 /// The length of the operation in bytes.
-CONFIG(MemoryIntrinsics, bool, Length, true)
+CONFIG(MemoryIntrinsic, bool, Length, true)
 /// The volatile flag.
-CONFIG(MemoryIntrinsics, bool, IsVolatile, true)
+CONFIG(MemoryIntrinsic, bool, IsVolatile, true)
 /// The atomic element size.
-CONFIG(MemoryIntrinsics, bool, AtomicElementSize, true)
+CONFIG(MemoryIntrinsic, bool, AtomicElementSize, true)
 ///}
 
 /// Should the value be replaced by the runtime call result.
-CONFIG(MemoryIntrinsics, bool, ReplaceValue, true)
+CONFIG(MemoryIntrinsic, bool, ReplaceValue, true)
 
 /// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(MemoryIntrinsics, CallbackTy, CB, nullptr)
+CONFIG_INTERNAL(MemoryIntrinsic, CallbackTy, CB, nullptr)
 
-SECTION_END(MemoryIntrinsics)
+SECTION_END(MemoryIntrinsic)
 ///}
 
 #undef SECTION_START
