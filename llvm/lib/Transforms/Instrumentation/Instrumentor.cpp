@@ -216,8 +216,10 @@ private:
   bool instrumentCall(CallBase &I);
   bool instrumentAllocationCall(CallBase &I, const AllocationCallInfo &ACI);
   bool instrumentMemoryIntrinsic(IntrinsicInst &I);
+  bool instrumentGeneralIntrinsic(IntrinsicInst &I);
   bool instrumentLoad(LoadInst &I, bool After);
   bool instrumentStore(StoreInst &I);
+  bool instrumentUnreachable(UnreachableInst &I);
 
   /// Mapping to remember temporary allocas for reuse.
   DenseMap<std::pair<Function *, unsigned>, AllocaInst *> AllocaMap;
@@ -411,6 +413,10 @@ bool InstrumentorImpl::instrumentCall(CallBase &I) {
     case Intrinsic::memset_element_unordered_atomic:
     case Intrinsic::memset_inline:
       return instrumentMemoryIntrinsic(*II);
+    case Intrinsic::trap:
+    case Intrinsic::debugtrap:
+    case Intrinsic::ubsantrap:
+      return instrumentGeneralIntrinsic(*II);
     default:
       break;
     }
@@ -632,6 +638,31 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
   return true;
 }
 
+bool InstrumentorImpl::instrumentGeneralIntrinsic(IntrinsicInst &I) {
+  if (IC.GeneralIntrinsic.CB && !IC.GeneralIntrinsic.CB(I))
+    return false;
+
+  IRB.SetInsertPoint(&I);
+
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<Value *> RTArgs;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.MemoryIntrinsic.KindId) {
+    auto *ArgTy = Int32Ty;
+    RTArgTypes.push_back(ArgTy);
+    RTArgs.push_back(getCI(ArgTy, I.getIntrinsicID()));
+    RTArgNames.push_back("KindId");
+  }
+
+  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, /*After=*/false,
+                                /*Indirection=*/false, nullptr,
+                                "general_intrinsic");
+  IRB.CreateCall(FC, RTArgs);
+
+  return true;
+}
+
 bool InstrumentorImpl::instrumentStore(StoreInst &I) {
   if (IC.Store.CB && !IC.Store.CB(I))
     return false;
@@ -832,6 +863,22 @@ bool InstrumentorImpl::instrumentLoad(LoadInst &I, bool After) {
   return true;
 }
 
+bool InstrumentorImpl::instrumentUnreachable(UnreachableInst &I) {
+  if (IC.Unreachable.CB && !IC.Unreachable.CB(I))
+    return false;
+
+  IRB.SetInsertPoint(&I);
+
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<Value *> RTArgs;
+  SmallVector<std::string> RTArgNames;
+
+  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, /*After=*/false, /*Indirection=*/false);
+  IRB.CreateCall(FC, RTArgs);
+
+  return true;
+}
+
 bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   bool Changed = false;
   if (!shouldInstrumentFunction(&Fn))
@@ -853,7 +900,8 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
           Changed |= instrumentAlloca(cast<AllocaInst>(I));
         break;
       case Instruction::Call:
-        if (IC.AllocationCall.Instrument || IC.MemoryIntrinsic.Instrument)
+        if (IC.AllocationCall.Instrument || IC.MemoryIntrinsic.Instrument
+            || IC.GeneralIntrinsic.Instrument)
           Changed |= instrumentCall(cast<CallBase>(I));
         break;
       case Instruction::Load:
@@ -863,6 +911,10 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       case Instruction::Store:
         if (IC.Store.Instrument)
           Changed |= instrumentStore(cast<StoreInst>(I));
+        break;
+      case Instruction::Unreachable:
+        if (IC.Unreachable.Instrument)
+          Changed |= instrumentUnreachable(cast<UnreachableInst>(I));
         break;
       default:
         break;

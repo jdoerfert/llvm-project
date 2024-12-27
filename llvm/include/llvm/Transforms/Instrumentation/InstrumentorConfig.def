@@ -194,6 +194,38 @@ CONFIG_INTERNAL(MemoryIntrinsic, CallbackTy, CB, nullptr)
 SECTION_END(MemoryIntrinsic)
 ///}
 
+/// GeneralIntrinsic
+///{
+SECTION_START(GeneralIntrinsic, CallBase)
+
+/// Should general intrinsics, e.g., traps, be instrumented.
+CONFIG(GeneralIntrinsic, bool, Instrument, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The kind identifier (trap, ...)
+CONFIG(GeneralIntrinsic, bool, KindId, true)
+///}
+
+/// Optional callback, see CallbackTy.
+CONFIG_INTERNAL(GeneralIntrinsic, CallbackTy, CB, nullptr)
+
+SECTION_END(GeneralIntrinsic)
+///}
+
+/// Unreachable
+///{
+SECTION_START(Unreachable, UnreachableInst)
+
+/// Should unreachables be instrumented.
+CONFIG(Unreachable, bool, Instrument, true)
+
+/// Optional callback, see CallbackTy.
+CONFIG_INTERNAL(Unreachable, CallbackTy, CB, nullptr)
+
+SECTION_END(Unreachable)
+///}
+
 #undef SECTION_START
 #undef CONFIG
 #undef CONFIG_INTERNAL
