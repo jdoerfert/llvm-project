@@ -226,6 +226,32 @@ CONFIG_INTERNAL(Unreachable, CallbackTy, CB, nullptr)
 SECTION_END(Unreachable)
 ///}
 
+/// MainFunction
+///{
+SECTION_START(MainFunction, CallBase)
+
+/// Should the main function be instrumented before its execution.
+CONFIG(MainFunction, bool, InstrumentBefore, true)
+
+/// Should the main function be instrumented after its execution.
+CONFIG(MainFunction, bool, InstrumentAfter, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The pointers to the main arguments.
+CONFIG(MainFunction, bool, Args, true)
+/// The value returned by the main function.
+CONFIG(MainFunction, bool, Value, true)
+/// Should the value be replaced by the runtime call result.
+CONFIG(MainFunction, bool, ReplaceValue, true)
+///}
+
+/// Optional callback, see CallbackTy.
+CONFIG_INTERNAL(MainFunction, CallbackTy, CB, nullptr)
+
+SECTION_END(MainFunction)
+///}
+
 #undef SECTION_START
 #undef CONFIG
 #undef CONFIG_INTERNAL

@@ -12,6 +12,7 @@
 
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -220,6 +221,7 @@ private:
   bool instrumentLoad(LoadInst &I, bool After);
   bool instrumentStore(StoreInst &I);
   bool instrumentUnreachable(UnreachableInst &I);
+  bool instrumentMainFunction(Function &MainFn);
 
   /// Mapping to remember temporary allocas for reuse.
   DenseMap<std::pair<Function *, unsigned>, AllocaInst *> AllocaMap;
@@ -253,20 +255,17 @@ private:
 
   /// Map to remember instrumentation functions for a specific opcode and
   /// pre/post position.
-  DenseMap<int, FunctionCallee> InstrumentationFunctions;
+  StringMap<FunctionCallee> InstrumentorCallees;
 
-  FunctionCallee getCallee(Instruction &I, SmallVectorImpl<Type *> &RTArgTypes,
+  FunctionCallee getCallee(StringRef Name, SmallVectorImpl<Type *> &RTArgTypes,
                            SmallVectorImpl<std::string> &RTArgNames, bool After,
-                           bool Indirection, Type *RT = nullptr,
-                           StringRef PositionName = "") {
-    FunctionCallee &FC =
-        InstrumentationFunctions[4 * I.getOpcode() + 2 * After + Indirection];
+                           bool Indirection, Type *RetTy = nullptr) {
+    std::string CompleteName = getRTName(After ? "post_" : "pre_", Name, Indirection ? "_ind" : "");
+    FunctionCallee &FC = InstrumentorCallees[CompleteName];
+
     if (!FC.getFunctionType()) {
-      FC = M.getOrInsertFunction(
-          getRTName(After ? "post_" : "pre_",
-                    !PositionName.empty() ? PositionName : I.getOpcodeName(),
-                    Indirection ? "_ind" : ""),
-          FunctionType::get(RT ? RT : VoidTy, RTArgTypes, /*IsVarArgs*/ false));
+      FC = M.getOrInsertFunction(CompleteName, FunctionType::get(RetTy ? RetTy : VoidTy,
+          RTArgTypes, /*IsVarArgs*/ false));
 
       if (IC.Base.PrintRuntimeSignatures) {
         printAsCType(outs(), FC.getFunctionType()->getReturnType());
@@ -322,6 +321,7 @@ private:
   IntegerType *Int8Ty = Type::getInt8Ty(Ctx);
   IntegerType *Int32Ty = Type::getInt32Ty(Ctx);
   IntegerType *Int64Ty = Type::getInt64Ty(Ctx);
+  Constant *NullPtrVal = Constant::getNullValue(PtrTy);
   ///}
 };
 
@@ -382,7 +382,7 @@ bool InstrumentorImpl::instrumentAlloca(AllocaInst &I) {
   }
 
   Type *RetTy = IC.Alloca.ReplaceValue ? PtrTy : nullptr;
-  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, /*After=*/true,
+  FunctionCallee FC = getCallee("alloca", RTArgTypes, RTArgNames, /*After=*/true,
                                 /*Indirection=*/false, RetTy);
   auto *CI = IRB.CreateCall(FC, RTArgs);
   if (IC.Alloca.ReplaceValue) {
@@ -498,8 +498,8 @@ bool InstrumentorImpl::instrumentAllocationCall(CallBase &I,
 
   Type *RetTy = IC.AllocationCall.ReplaceValue ? PtrTy : nullptr;
   FunctionCallee FC =
-      getCallee(I, RTArgTypes, RTArgNames, /*After=*/true,
-                /*Indirection=*/false, RetTy, "allocation_call");
+      getCallee("allocation_call", RTArgTypes, RTArgNames, /*After=*/true,
+                /*Indirection=*/false, RetTy);
   auto *CI = IRB.CreateCall(FC, RTArgs);
   if (IC.AllocationCall.ReplaceValue) {
     IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
@@ -630,9 +630,8 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
     RTArgNames.push_back("SourcePointerAddressSpace");
   }
 
-  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, /*After=*/false,
-                                /*Indirection=*/false, nullptr,
-                                "memory_intrinsic");
+  FunctionCallee FC = getCallee("memory_intrinsic", RTArgTypes, RTArgNames,
+                                /*After=*/false, /*Indirection=*/false);
   IRB.CreateCall(FC, RTArgs);
 
   return true;
@@ -655,9 +654,8 @@ bool InstrumentorImpl::instrumentGeneralIntrinsic(IntrinsicInst &I) {
     RTArgNames.push_back("KindId");
   }
 
-  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, /*After=*/false,
-                                /*Indirection=*/false, nullptr,
-                                "general_intrinsic");
+  FunctionCallee FC = getCallee("general_intrinsic", RTArgTypes, RTArgNames,
+                                /*After=*/false, /*Indirection=*/false);
   IRB.CreateCall(FC, RTArgs);
 
   return true;
@@ -750,7 +748,7 @@ bool InstrumentorImpl::instrumentStore(StoreInst &I) {
   }
 
   FunctionCallee FC =
-      getCallee(I, RTArgTypes, RTArgNames, /*After=*/false, IndirectionAI);
+      getCallee("store", RTArgTypes, RTArgNames, /*After=*/false, IndirectionAI);
   IRB.CreateCall(FC, RTArgs);
 
   return true;
@@ -846,7 +844,7 @@ bool InstrumentorImpl::instrumentLoad(LoadInst &I, bool After) {
   bool ReplaceValue = IC.Load.ReplaceValue && (After || !IC.Load.Value);
   Type *RetTy = ReplaceValue && !IndirectionAI ? Int64Ty : nullptr;
   FunctionCallee FC =
-      getCallee(I, RTArgTypes, RTArgNames, After, IndirectionAI, RetTy);
+      getCallee("load", RTArgTypes, RTArgNames, After, IndirectionAI, RetTy);
   auto *CI = IRB.CreateCall(FC, RTArgs);
   if (ReplaceValue) {
     IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
@@ -873,7 +871,7 @@ bool InstrumentorImpl::instrumentUnreachable(UnreachableInst &I) {
   SmallVector<Value *> RTArgs;
   SmallVector<std::string> RTArgNames;
 
-  FunctionCallee FC = getCallee(I, RTArgTypes, RTArgNames, /*After=*/false, /*Indirection=*/false);
+  FunctionCallee FC = getCallee("unreachable", RTArgTypes, RTArgNames, /*After=*/false, /*Indirection=*/false);
   IRB.CreateCall(FC, RTArgs);
 
   return true;
@@ -925,11 +923,90 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   return Changed;
 }
 
+bool InstrumentorImpl::instrumentMainFunction(Function &MainFn)
+{
+  if (!shouldInstrumentFunction(&MainFn))
+    return false;
+
+  std::string MainFnName = getRTName("", "main");
+  MainFn.setName(MainFnName);
+
+  Function *InstMainFn = Function::Create(MainFn.getFunctionType(),
+                                          GlobalValue::ExternalLinkage,
+                                          "main", M);
+
+  auto *EntryBB = BasicBlock::Create(Ctx, "entry", InstMainFn);
+  IRB.SetInsertPoint(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
+
+  SmallVector<Value *> Args;
+  SmallVector<Value *> PtrArgs;
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<std::string> RTArgNames;
+
+  for (Argument &Arg : InstMainFn->args())
+    Args.push_back(&Arg);
+
+  if (IC.MainFunction.Args) {
+    if (Args.empty())
+      PtrArgs = { NullPtrVal, NullPtrVal };
+    else if (IC.MainFunction.Args)
+      for (size_t A = 0; A < Args.size(); ++A)
+        PtrArgs.push_back(IRB.CreateAlloca(Args[A]->getType()));
+
+    RTArgTypes = { PtrTy, PtrTy };
+    RTArgNames = { "argc", "argv" };
+  }
+
+  for (size_t A = 0; A < PtrArgs.size(); ++A)
+    if (PtrArgs[A] != NullPtrVal)
+      IRB.CreateStore(Args[A], PtrArgs[A]);
+
+  if (IC.MainFunction.InstrumentBefore) {
+    FunctionCallee FC = getCallee("main", RTArgTypes, RTArgNames, /*After=*/false,
+                                  /*Indirection=*/false);
+    IRB.CreateCall(FC, PtrArgs);
+  }
+
+  for (size_t A = 0; A < PtrArgs.size(); ++A)
+    if (PtrArgs[A] != NullPtrVal)
+      Args[A] = IRB.CreateLoad(Args[A]->getType(), PtrArgs[A]);
+
+  FunctionCallee FnCallee = M.getOrInsertFunction(MainFnName, MainFn.getFunctionType());
+  Value *Ret = IRB.CreateCall(FnCallee, Args);
+
+  if (IC.MainFunction.InstrumentAfter) {
+    if (IC.MainFunction.Value) {
+      RTArgTypes.push_back(Int32Ty);
+      RTArgNames.push_back("ret");
+      PtrArgs.push_back(Ret);
+    }
+
+    Type *RetTy = IC.MainFunction.ReplaceValue ? Int32Ty : nullptr;
+    FunctionCallee FC = getCallee("main", RTArgTypes, RTArgNames, /*After=*/true,
+                                  /*Indirection=*/false, RetTy);
+    Value *Replacement = IRB.CreateCall(FC, PtrArgs);
+    if (RetTy)
+      Ret = Replacement;
+  }
+
+  IRB.CreateRet(Ret);
+
+  return true;
+}
+
 bool InstrumentorImpl::instrument() {
   bool Changed = false;
+  Function *MainFn = nullptr;
 
-  for (Function &Fn : M)
+  for (Function &Fn : M) {
     Changed |= instrumentFunction(Fn);
+
+    if (Fn.getName() == "main")
+      MainFn = &Fn;
+  }
+
+  if (MainFn && (IC.MainFunction.InstrumentBefore || IC.MainFunction.InstrumentAfter))
+    Changed |= instrumentMainFunction(*MainFn);
 
   return Changed;
 }
