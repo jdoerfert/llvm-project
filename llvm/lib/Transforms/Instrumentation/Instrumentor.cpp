@@ -40,6 +40,7 @@
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 
 #include <cstdint>
 #include <functional>
@@ -212,9 +213,13 @@ public:
 
 private:
   bool shouldInstrumentFunction(Function *Fn);
+  bool shouldInstrumentGlobalVariable(GlobalVariable *GV);
+  bool hasAnnotation(Instruction *I, StringRef Annotation);
+
   bool instrumentFunction(Function &Fn);
   bool instrumentAlloca(AllocaInst &I);
   bool instrumentCall(CallBase &I);
+  bool instrumentCallArgs(CallInst &I);
   bool instrumentAllocationCall(CallBase &I, const AllocationCallInfo &ACI);
   bool instrumentMemoryIntrinsic(IntrinsicInst &I);
   bool instrumentGeneralIntrinsic(IntrinsicInst &I);
@@ -222,6 +227,21 @@ private:
   bool instrumentStore(StoreInst &I);
   bool instrumentUnreachable(UnreachableInst &I);
   bool instrumentMainFunction(Function &MainFn);
+  bool instrumentModule(bool After);
+
+  DenseMap<Value *, CallInst *> BasePtrMap;
+  bool instrumentBasePointer(Value &ArgOrInst);
+  bool removeUnusedBasePointers();
+  Value *findBasePointer(Value *V);
+
+  template <typename MemoryInstTy>
+  bool analyzeAccess(MemoryInstTy &I);
+
+  SmallVector<GlobalVariable *> Globals;
+  bool prepareGlobalVariables();
+  bool instrumentGlobalVariables();
+
+  void addCtorOrDtor(bool Ctor);
 
   /// Mapping to remember temporary allocas for reuse.
   DenseMap<std::pair<Function *, unsigned>, AllocaInst *> AllocaMap;
@@ -239,8 +259,10 @@ private:
   DenseMap<StringRef, Value *> GlobalStringsMap;
   Value *getGlobalString(StringRef S) {
     Value *&V = GlobalStringsMap[S];
-    if (!V)
-      V = IRB.CreateGlobalString(S, "", DL.getDefaultGlobalsAddressSpace(), &M);
+    if (!V) {
+      Twine Name = Twine(IC.Base.RuntimeName) + "str";
+      V = IRB.CreateGlobalString(S, Name, DL.getDefaultGlobalsAddressSpace(), &M);
+    }
     return V;
   }
 
@@ -310,6 +332,13 @@ private:
   /// A special IR builder that keeps track of the inserted instructions.
   IRBuilder<ConstantFolder, IRBuilderCallbackInserter> IRB;
 
+  /// The module's ctor and dtor functions.
+  Function *CtorFn = nullptr;
+  Function *DtorFn = nullptr;
+
+  static constexpr StringRef SkipAnnotation = "__instrumentor_skip";
+  static constexpr StringRef COAnnotation = "__instrumentor_constoffset";
+
   /// Commonly used values for IR inspection and creation.
   ///{
 
@@ -330,7 +359,31 @@ private:
 bool InstrumentorImpl::shouldInstrumentFunction(Function *Fn) {
   if (!Fn || Fn->isDeclaration())
     return false;
-  return true;
+  return !Fn->getName().starts_with(IC.Base.RuntimeName);
+}
+
+bool InstrumentorImpl::shouldInstrumentGlobalVariable(GlobalVariable *GV) {
+  if (!GV || GV->hasGlobalUnnamedAddr())
+    return false;
+  if (GV->getName().starts_with("llvm."))
+    return false;
+  return !GV->getName().starts_with(IC.Base.RuntimeName);
+}
+
+bool InstrumentorImpl::hasAnnotation(Instruction *I, StringRef Annotation) {
+  if (!I || !I->hasMetadata(LLVMContext::MD_annotation))
+    return false;
+
+  return any_of(I->getMetadata(LLVMContext::MD_annotation)->operands(),
+                [&](const MDOperand &Op) {
+                  StringRef AnnotationStr =
+                      isa<MDString>(Op.get())
+                          ? cast<MDString>(Op.get())->getString()
+                          : cast<MDString>(
+                              cast<MDTuple>(Op.get())->getOperand(0).get())
+                                  ->getString();
+                  return (AnnotationStr == Annotation);
+                 });
 }
 
 bool InstrumentorImpl::instrumentAlloca(AllocaInst &I) {
@@ -388,7 +441,14 @@ bool InstrumentorImpl::instrumentAlloca(AllocaInst &I) {
   if (IC.Alloca.ReplaceValue) {
     IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
     I.replaceUsesWithIf(tryToCast(IRB, CI, I.getType(), DL), [&](Use &U) {
-      return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
+      if (NewInsts.lookup(cast<Instruction>(U.getUser())) == Epoche)
+        return false;
+      if (auto *LI = dyn_cast<LoadInst>(U.getUser()))
+        return !hasAnnotation(LI, COAnnotation);
+      if (auto *SI = dyn_cast<StoreInst>(U.getUser()))
+        return SI->getPointerOperand() == &I &&
+               !hasAnnotation(cast<Instruction>(U.getUser()), COAnnotation);
+      return true;
     });
   }
 
@@ -399,7 +459,7 @@ bool InstrumentorImpl::instrumentCall(CallBase &I) {
   auto &TLI = GetTLI(*I.getFunction());
   auto ACI = getAllocationCallInfo(&I, &TLI);
 
-  if (ACI)
+  if (ACI && IC.AllocationCall.Instrument)
     return instrumentAllocationCall(I, *ACI);
 
   if (auto *II = dyn_cast<IntrinsicInst>(&I)) {
@@ -412,17 +472,81 @@ bool InstrumentorImpl::instrumentCall(CallBase &I) {
     case Intrinsic::memset:
     case Intrinsic::memset_element_unordered_atomic:
     case Intrinsic::memset_inline:
-      return instrumentMemoryIntrinsic(*II);
+      if (IC.MemoryIntrinsic.Instrument)
+        return instrumentMemoryIntrinsic(*II);
+      break;
     case Intrinsic::trap:
     case Intrinsic::debugtrap:
     case Intrinsic::ubsantrap:
-      return instrumentGeneralIntrinsic(*II);
+      if (IC.GeneralIntrinsic.Instrument)
+        return instrumentGeneralIntrinsic(*II);
+      break;
     default:
       break;
     }
   }
 
   return false;
+}
+
+bool InstrumentorImpl::instrumentCallArgs(CallInst &I) {
+  Function *CalledFn = I.getCalledFunction();
+  // TODO: This should be more generic
+  if (shouldInstrumentFunction(CalledFn))
+    return false;
+
+  SmallVector <Use *> InstrUses;
+
+  for (size_t A = 0; A < I.arg_size(); ++A) {
+    Use &U = I.getArgOperandUse(A);
+    Value *Arg = U.get();
+    // TODO: This should be more generic. For now, we are only
+    // considering pointer arguments
+    if (Arg->getType() != PtrTy || Arg == NullPtrVal)
+      continue;
+    if (auto *LI = dyn_cast<LoadInst>(Arg))
+      if (hasAnnotation(LI, SkipAnnotation))
+        continue;
+    APInt Offset(64, 0);
+    Value *BasePtr = Arg->stripAndAccumulateConstantOffsets(DL, Offset, true);
+    if (auto *GV = dyn_cast<GlobalVariable>(BasePtr))
+      if (!shouldInstrumentGlobalVariable(GV))
+        continue;
+
+    InstrUses.push_back(&U);
+  }
+
+  if (InstrUses.empty())
+    return false;
+
+  IRB.SetInsertPoint(&I);
+
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.CallArg.Value) {
+    auto *ArgTy = PtrTy;
+    RTArgTypes.push_back(ArgTy);
+    RTArgNames.push_back("Value");
+  }
+
+  Type *RetTy = IC.CallArg.ReplaceValue ? PtrTy : nullptr;
+
+  for (Use *U : InstrUses) {
+    SmallVector<Value *> RTArgs;
+    if (IC.CallArg.Value)
+      RTArgs.push_back(U->get());
+
+    FunctionCallee FC =
+        getCallee("call_arg", RTArgTypes, RTArgNames, /*After=*/false,
+                  /*Indirection=*/false, RetTy);
+
+    Value *Ret = IRB.CreateCall(FC, RTArgs);
+    if (RetTy)
+      U->set(Ret);
+  }
+
+  return true;
 }
 
 bool InstrumentorImpl::instrumentAllocationCall(CallBase &I,
@@ -661,8 +785,42 @@ bool InstrumentorImpl::instrumentGeneralIntrinsic(IntrinsicInst &I) {
   return true;
 }
 
+template <typename MemoryInstTy>
+bool InstrumentorImpl::analyzeAccess(MemoryInstTy &I)
+{
+  Value *Ptr = I.getPointerOperand();
+
+  APInt Offset(DL.getIndexSizeInBits(0), 0);
+  Value *BasePtr = Ptr->stripAndAccumulateConstantOffsets(DL, Offset, true);
+
+  Type *AllocTy = nullptr;
+  if (auto *AI = dyn_cast<AllocaInst>(BasePtr))
+    AllocTy = AI->getAllocatedType();
+#if 0
+  // TODO: Implement constant offset optimization for globals
+  else if (auto *GV = dyn_cast<GlobalVariable>(BasePtr))
+    AllocTy = GV->getValueType();
+#endif
+
+  if (!AllocTy)
+    return false;
+
+  APInt OffsetPlusSize = Offset + DL.getTypeStoreSize(I.getAccessType());
+  APInt AllocSize(OffsetPlusSize.getBitWidth(), DL.getTypeStoreSize(AllocTy));
+  if (AllocSize.ult(OffsetPlusSize))
+    return false;
+
+  I.addAnnotationMetadata(COAnnotation);
+
+  return true;
+}
+
 bool InstrumentorImpl::instrumentStore(StoreInst &I) {
   if (IC.Store.CB && !IC.Store.CB(I))
+    return false;
+  if (hasAnnotation(&I, SkipAnnotation))
+    return false;
+  if (hasAnnotation(&I, COAnnotation))
     return false;
 
   IRB.SetInsertPoint(&I);
@@ -747,15 +905,33 @@ bool InstrumentorImpl::instrumentStore(StoreInst &I) {
     RTArgNames.push_back("IsVolatile");
   }
 
+  if (IC.Store.BasePointerInfo) {
+    auto *ArgTy = Int64Ty;
+    RTArgTypes.push_back(ArgTy);
+    Value *BPI = findBasePointer(I.getPointerOperand());
+    if (!BPI)
+      BPI = getCI(ArgTy, 0);
+    RTArgs.push_back(BPI);
+    RTArgNames.push_back("BasePointerInfo");
+  }
+
+  Type *RetTy = IC.Store.ReplacePointerOperand ? PtrTy : nullptr;
+
   FunctionCallee FC =
-      getCallee("store", RTArgTypes, RTArgNames, /*After=*/false, IndirectionAI);
-  IRB.CreateCall(FC, RTArgs);
+      getCallee("store", RTArgTypes, RTArgNames, /*After=*/false, IndirectionAI, RetTy);
+  Value *Ret = IRB.CreateCall(FC, RTArgs);
+  if (RetTy)
+    I.setOperand(I.getPointerOperandIndex(), Ret);
 
   return true;
 }
 
 bool InstrumentorImpl::instrumentLoad(LoadInst &I, bool After) {
   if (IC.Load.CB && !IC.Load.CB(I))
+    return false;
+  if (hasAnnotation(&I, SkipAnnotation))
+    return false;
+  if (hasAnnotation(&I, COAnnotation))
     return false;
 
   AllocaInst *IndirectionAI = nullptr;
@@ -841,8 +1017,25 @@ bool InstrumentorImpl::instrumentLoad(LoadInst &I, bool After) {
     RTArgNames.push_back("IsVolatile");
   }
 
-  bool ReplaceValue = IC.Load.ReplaceValue && (After || !IC.Load.Value);
-  Type *RetTy = ReplaceValue && !IndirectionAI ? Int64Ty : nullptr;
+  if (IC.Load.BasePointerInfo) {
+    auto *ArgTy = Int64Ty;
+    RTArgTypes.push_back(ArgTy);
+    Value *BPI = findBasePointer(I.getPointerOperand());
+    if (!BPI)
+      BPI = getCI(ArgTy, 0);
+    RTArgs.push_back(BPI);
+    RTArgNames.push_back("BasePointerInfo");
+  }
+
+  bool ReplaceValue = IC.Load.ReplaceValue && After;
+  bool ReplacePointerOperand = IC.Load.ReplacePointerOperand && !After;
+
+  Type *RetTy = nullptr;
+  if (ReplaceValue && !IndirectionAI)
+    RetTy = Int64Ty;
+  else if (ReplacePointerOperand)
+    RetTy = PtrTy;
+
   FunctionCallee FC =
       getCallee("load", RTArgTypes, RTArgNames, After, IndirectionAI, RetTy);
   auto *CI = IRB.CreateCall(FC, RTArgs);
@@ -853,10 +1046,9 @@ bool InstrumentorImpl::instrumentLoad(LoadInst &I, bool After) {
     I.replaceUsesWithIf(NewV, [&](Use &U) {
       return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
     });
+  } else if (ReplacePointerOperand) {
+    I.setOperand(I.getPointerOperandIndex(), CI);
   }
-
-  if (!After && IC.Load.Value)
-    instrumentLoad(I, /*After=*/true);
 
   return true;
 }
@@ -882,6 +1074,31 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   if (!shouldInstrumentFunction(&Fn))
     return Changed;
 
+  if (IC.Load.SkipSafeAccess || IC.Load.SkipSafeAccess) {
+    // TODO: Merge this into the main loop with RPOT
+    for (auto &BB : Fn) {
+      for (auto &I : BB) {
+        switch (I.getOpcode()) {
+        case Instruction::Load:
+          if (IC.Load.SkipSafeAccess)
+            Changed |= analyzeAccess(cast<LoadInst>(I));
+          break;
+        case Instruction::Store:
+          if (IC.Store.SkipSafeAccess)
+            Changed |= analyzeAccess(cast<StoreInst>(I));
+          break;
+        default:
+          break;
+        }
+      }
+    }
+  }
+
+  if (IC.BasePointer.Instrument)
+    for (auto &Arg : Fn.args())
+      if (Arg.getType() == PtrTy)
+        instrumentBasePointer(Arg);
+
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
   for (auto &It : RPOT) {
     for (auto &I : *It) {
@@ -894,6 +1111,19 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
 
       switch (I.getOpcode()) {
       case Instruction::Alloca:
+      case Instruction::Call:
+      case Instruction::Load:
+      case Instruction::PHI:
+        if (IC.BasePointer.Instrument)
+          if (I.getType() == PtrTy)
+            Changed |= instrumentBasePointer(I);
+        break;
+      default:
+        break;
+      }
+
+      switch (I.getOpcode()) {
+      case Instruction::Alloca:
         if (IC.Alloca.Instrument)
           Changed |= instrumentAlloca(cast<AllocaInst>(I));
         break;
@@ -903,8 +1133,10 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
           Changed |= instrumentCall(cast<CallBase>(I));
         break;
       case Instruction::Load:
-        if (IC.Load.Instrument)
-          Changed |= instrumentLoad(cast<LoadInst>(I), !IC.Load.InstrumentBefore);
+        if (IC.Load.InstrumentBefore)
+          Changed |= instrumentLoad(cast<LoadInst>(I), /*After=*/false);
+        if (IC.Load.InstrumentAfter)
+          Changed |= instrumentLoad(cast<LoadInst>(I), /*After=*/true);
         break;
       case Instruction::Store:
         if (IC.Store.Instrument)
@@ -920,12 +1152,23 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
     }
   }
 
+  // TODO: Can be merged into the previous loop
+  if (IC.CallArg.Instrument) {
+    for (auto &It : RPOT)
+      for (auto &I : *It)
+        if (auto *CI = dyn_cast<CallInst>(&I))
+          if (!NewInsts.contains(CI))
+            Changed |= instrumentCallArgs(*CI);
+  }
+
   return Changed;
 }
 
 bool InstrumentorImpl::instrumentMainFunction(Function &MainFn)
 {
   if (!shouldInstrumentFunction(&MainFn))
+    return false;
+  if (IC.MainFunction.CB && !IC.MainFunction.CB(MainFn))
     return false;
 
   std::string MainFnName = getRTName("", "main");
@@ -994,9 +1237,313 @@ bool InstrumentorImpl::instrumentMainFunction(Function &MainFn)
   return true;
 }
 
+bool InstrumentorImpl::instrumentModule(bool After) {
+  Function *YtorFn = After ? DtorFn : CtorFn;
+  assert(YtorFn);
+
+  IRB.SetInsertPointPastAllocas(YtorFn);
+
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<Value *> RTArgs;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.Module.Name) {
+    RTArgTypes.push_back(PtrTy);
+    RTArgNames.push_back("Name");
+    RTArgs.push_back(getGlobalString(M.getName()));
+  }
+
+  if (IC.Module.TargetTriple) {
+    RTArgTypes.push_back(PtrTy);
+    RTArgNames.push_back("TargetTriple");
+    RTArgs.push_back(getGlobalString(M.getTargetTriple()));
+  }
+
+  FunctionCallee FC = getCallee("module", RTArgTypes, RTArgNames, /*After=*/After,
+                                /*Indirection=*/false);
+
+  IRB.CreateCall(FC, RTArgs);
+
+  return true;
+}
+
+bool InstrumentorImpl::prepareGlobalVariables() {
+  bool Changed = false;
+
+  for (GlobalVariable &GV : M.globals()) {
+    if (!shouldInstrumentGlobalVariable(&GV))
+      continue;
+
+    if (GV.isDSOLocal()) {
+      Globals.push_back(&GV);
+    } else {
+      // TODO: Find a better way to skip external globals (e.g., stderr, stdout)
+      for (Use &U : GV.uses()) {
+        assert(isa<Instruction>(U.getUser()));
+        Instruction *I = cast<Instruction>(U.getUser());
+        I->addAnnotationMetadata(SkipAnnotation);
+        Changed = true;
+      }
+    }
+  }
+
+  for (GlobalVariable *GV : Globals) {
+    SmallVector<Use *> Uses;
+    for (Use &U : GV->uses())
+      Uses.push_back(&U);
+
+    for (Use *U : Uses) {
+      auto *E = dyn_cast<ConstantExpr>(U->getUser());
+      if (!E)
+        continue;
+
+      SmallVector<Use *> CEUses;
+      for (Use &CEU : E->uses())
+        CEUses.push_back(&CEU);
+
+      for (Use *CEU : CEUses) {
+        if (auto *UI = dyn_cast<Instruction>(CEU->getUser())) {
+          if (shouldInstrumentFunction(UI->getFunction())) {
+            Instruction *NewI = E->getAsInstruction();
+            NewI->insertBefore(UI);
+            CEU->set(NewI);
+            Changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  return Changed;
+}
+
+bool InstrumentorImpl::instrumentGlobalVariables() {
+  IRB.SetInsertPointPastAllocas(CtorFn);
+
+  if (Globals.empty())
+    return false;
+
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.GlobalVariable.Value) {
+    RTArgTypes.push_back(PtrTy);
+    RTArgNames.push_back("Value");
+  }
+  if (IC.GlobalVariable.Size) {
+    RTArgTypes.push_back(Int64Ty);
+    RTArgNames.push_back("Size");
+  }
+  if (IC.GlobalVariable.Alignment) {
+    RTArgTypes.push_back(Int64Ty);
+    RTArgNames.push_back("Alignment");
+  }
+  if (IC.GlobalVariable.Constant) {
+    RTArgTypes.push_back(Int32Ty);
+    RTArgNames.push_back("Constant");
+  }
+  if (IC.GlobalVariable.UnnamedAddress) {
+    RTArgTypes.push_back(Int32Ty);
+    RTArgNames.push_back("UnnamedAddr");
+  }
+  if (IC.GlobalVariable.Name) {
+    RTArgTypes.push_back(PtrTy);
+    RTArgNames.push_back("Name");
+  }
+
+  Type *RetTy = IC.GlobalVariable.ReplaceValue ? PtrTy : nullptr;
+  FunctionCallee FC =
+      getCallee("global", RTArgTypes, RTArgNames, /*After=*/true,
+                /*Indirection=*/false, RetTy);
+
+  SmallVector<GlobalVariable *> InstrGlobals;
+  for (GlobalVariable *GV : Globals) {
+    GlobalVariable *InstrGV =
+        new GlobalVariable(M, PtrTy, false, GlobalValue::PrivateLinkage,
+                           NullPtrVal, getRTName("", GV->getName()));
+
+    SmallVector<Value *> RTArgs;
+    if (IC.GlobalVariable.Value)
+      RTArgs.push_back(GV);
+    if (IC.GlobalVariable.Size)
+      RTArgs.push_back(getCI(Int64Ty, DL.getTypeAllocSize(GV->getValueType())));
+    if (IC.GlobalVariable.Alignment)
+      RTArgs.push_back(getCI(Int64Ty, GV->getAlign().valueOrOne().value()));
+    if (IC.GlobalVariable.Constant)
+      RTArgs.push_back(getCI(Int32Ty, GV->isConstant()));
+    if (IC.GlobalVariable.UnnamedAddress)
+      RTArgs.push_back(getCI(Int32Ty, int(GV->getUnnamedAddr())));
+    if (IC.GlobalVariable.Name)
+      RTArgs.push_back(getGlobalString(GV->getName()));
+
+    Value *Ret = IRB.CreateCall(FC, RTArgs);
+    if (RetTy)
+      IRB.CreateStore(Ret, InstrGV);
+
+    InstrGlobals.push_back(InstrGV);
+  }
+
+  for (size_t G = 0; G < Globals.size(); ++G) {
+    GlobalVariable *GV = Globals[G];
+
+    SmallVector<Use *> Uses;
+    for (Use &U : GV->uses())
+      Uses.push_back(&U);
+
+    SmallVector<Use *> ReplaceUses;
+    for (Use *U : Uses) {
+      if (auto *I = dyn_cast<Instruction>(U->getUser())) {
+        if (shouldInstrumentFunction(I->getFunction()))
+          ReplaceUses.push_back(U);
+      } else if (auto *E = dyn_cast<ConstantExpr>(U->getUser())) {
+      } else {
+        llvm_unreachable("Unexpected global variable use");
+      }
+    }
+
+    for (Use *U : ReplaceUses) {
+#if 0
+      // TODO: Implement constant offset optimization for globals
+      Instruction *LoadI = nullptr;
+      Instruction *StoreI = nullptr;
+      Instruction *UserI = cast<Instruction>(U->getUser());
+      if (auto *LI = dyn_cast<LoadInst>(UserI)) {
+        MI = LI;
+      } else if (auto *SI = dyn_cast<StoreInst>(UserI)) {
+        if (SI->getPointerOperand() == GV)
+        MemI = nullptr;
+      } else if (isa<GetElementPtrInst>(UserI)) {
+        SmallVector<Use *> GEPUses;
+        for (Use &GEPU : UserI->uses())
+          GEPUses.push_back(&GEPU);
+        assert(GEPUses.size() == 1);
+
+        Value *Val = GEPUses[0]->getUser();
+        assert(isa<LoadInst>(Val) || isa<StoreInst>(Val));
+        MemI = cast<Instruction>(Val);
+      }
+      assert(MemI);
+
+      if (hasAnnotation(MemI, COAnnotation))
+        continue;
+#endif
+      Instruction *UserI = cast<Instruction>(U->getUser());
+      IRB.SetInsertPoint(UserI);
+      auto *LoadPtr = IRB.CreateLoad(PtrTy, InstrGlobals[G]);
+      U->set(LoadPtr);
+    }
+  }
+
+  return true;
+}
+
+bool InstrumentorImpl::instrumentBasePointer(Value &ArgOrInst) {
+  if (auto *Arg = dyn_cast<Argument>(&ArgOrInst)) {
+    IRB.SetInsertPointPastAllocas(Arg->getParent());
+  } else if (auto *I = dyn_cast<Instruction>(&ArgOrInst)) {
+    do {
+      I = I->getNextNonDebugInstruction();
+    } while (isa<AllocaInst>(I));
+    IRB.SetInsertPoint(I);
+  }
+
+  SmallVector<Type *> RTArgTypes;
+  SmallVector<Value *> RTArgs;
+  SmallVector<std::string> RTArgNames;
+
+  if (IC.BasePointer.Value) {
+    RTArgTypes.push_back(PtrTy);
+    RTArgs.push_back(&ArgOrInst);
+    RTArgNames.push_back("Value");
+  }
+
+  Type *RetTy = IC.BasePointer.ReturnPointerInfo ? Int64Ty : nullptr;
+  FunctionCallee FC = getCallee("baseptr", RTArgTypes, RTArgNames, /*After=*/true,
+                                /*Indirection=*/false, RetTy);
+
+  auto *CI = IRB.CreateCall(FC, RTArgs);
+  if (RetTy)
+    BasePtrMap[&ArgOrInst] = CI;
+
+  return true;
+}
+
+bool InstrumentorImpl::removeUnusedBasePointers() {
+  bool Changed = false;
+
+  for (auto &Entry : BasePtrMap) {
+    CallInst *CI = Entry.second;
+    if (!CI->getNumUses()) {
+      CI->eraseFromParent();
+      Changed = true;
+    }
+  }
+  return Changed;
+}
+
+Value * InstrumentorImpl::findBasePointer(Value *V) {
+  if (!IC.BasePointer.Instrument || !IC.BasePointer.ReturnPointerInfo)
+    return nullptr;
+
+  while (auto *I = dyn_cast<Instruction>(V)) {
+    bool KeepSearching = false;
+    switch (I->getOpcode()) {
+    case Instruction::GetElementPtr:
+      V = cast<GetElementPtrInst>(I)->getPointerOperand();
+      KeepSearching = true;
+      break;
+    case Instruction::AddrSpaceCast:
+      V = cast<AddrSpaceCastInst>(I)->getPointerOperand();
+      KeepSearching = true;
+      break;
+    default:
+      break;
+    }
+
+    if (!KeepSearching)
+      break;
+  }
+
+  auto It = BasePtrMap.find(V);
+  if (It == BasePtrMap.end())
+    return nullptr;
+  return It->second;
+}
+
+void InstrumentorImpl::addCtorOrDtor(bool Ctor) {
+  Function *YtorFn = Function::Create(FunctionType::get(VoidTy, false),
+                                      GlobalValue::PrivateLinkage,
+                                      getRTName("", Ctor ? "ctor" : "dtor"), M);
+
+  auto *EntryBB = BasicBlock::Create(Ctx, "entry", YtorFn);
+  IRB.SetInsertPoint(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
+  IRB.CreateRetVoid();
+
+  if (Ctor) {
+    appendToGlobalCtors(M, YtorFn, 0);
+    CtorFn = YtorFn;
+  } else {
+    appendToGlobalDtors(M, YtorFn, 0);
+    DtorFn = YtorFn;
+  }
+}
+
 bool InstrumentorImpl::instrument() {
   bool Changed = false;
   Function *MainFn = nullptr;
+
+  if (IC.Module.InstrumentBefore || IC.GlobalVariable.Instrument)
+    addCtorOrDtor(/*Ctor=*/true);
+  if (IC.Module.InstrumentAfter)
+    addCtorOrDtor(/*Ctor=*/false);
+
+  if (IC.Module.InstrumentBefore)
+    Changed |= instrumentModule(/*After=*/false);
+  if (IC.Module.InstrumentAfter)
+    Changed |= instrumentModule(/*After=*/true);
+
+  if (IC.GlobalVariable.Instrument)
+    Changed |= prepareGlobalVariables();
 
   for (Function &Fn : M) {
     Changed |= instrumentFunction(Fn);
@@ -1005,8 +1552,14 @@ bool InstrumentorImpl::instrument() {
       MainFn = &Fn;
   }
 
+  if (IC.GlobalVariable.Instrument)
+    Changed |= instrumentGlobalVariables();
+
   if (MainFn && (IC.MainFunction.InstrumentBefore || IC.MainFunction.InstrumentAfter))
     Changed |= instrumentMainFunction(*MainFn);
+
+  if (IC.BasePointer.SkipUnused)
+    Changed |= removeUnusedBasePointers();
 
   return Changed;
 }
@@ -1016,8 +1569,10 @@ PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
   if (!readInstrumentorConfigFromJSON(IC))
     return PreservedAnalyses::all();
   writeInstrumentorConfig(IC);
+
   if (!Impl.instrument())
     return PreservedAnalyses::all();
+
   assert(!verifyModule(M, &errs()));
   return PreservedAnalyses::none();
 }

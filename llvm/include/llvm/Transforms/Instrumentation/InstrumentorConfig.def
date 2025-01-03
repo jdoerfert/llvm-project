@@ -77,7 +77,15 @@ CONFIG(Store, bool, AtomicityOrdering, true)
 CONFIG(Store, bool, SyncScopeId, true)
 /// The volatile flag.
 CONFIG(Store, bool, IsVolatile, true)
+/// The pointer base info. See BasePointer.
+CONFIG(Store, bool, BasePointerInfo, true)
 ///}
+
+/// Should the pointer operand be replaced by the runtime call result.
+CONFIG(Store, bool, ReplacePointerOperand, true)
+
+/// Skip instrumenting stores that are known to be safe at compile time.
+CONFIG(Store, bool, SkipSafeAccess, false)
 
 /// Optional callback, see CallbackTy.
 CONFIG_INTERNAL(Store, CallbackTy, CB, nullptr)
@@ -89,11 +97,11 @@ SECTION_END(Store)
 ///{
 SECTION_START(Load, LoadInst)
 
-/// Should loads be instrumented.
-CONFIG(Load, bool, Instrument, true)
-
-/// Should loads also be instrumented before their execution.
+/// Should loads be instrumented before their execution.
 CONFIG(Load, bool, InstrumentBefore, true)
+
+/// Should loads be instrumented after their execution.
+CONFIG(Load, bool, InstrumentAfter, true)
 
 /// Selection of information passed to the runtime.
 ///{
@@ -115,10 +123,18 @@ CONFIG(Load, bool, AtomicityOrdering, true)
 CONFIG(Load, bool, SyncScopeId, true)
 /// The volatile flag.
 CONFIG(Load, bool, IsVolatile, true)
+/// The pointer base info. See BasePointer.
+CONFIG(Load, bool, BasePointerInfo, true)
 ///}
+
+/// Should the pointer operand be replaced by the runtime call result.
+CONFIG(Load, bool, ReplacePointerOperand, true)
 
 /// Should the value be replaced by the runtime call result.
 CONFIG(Load, bool, ReplaceValue, true)
+
+/// Skip instrumenting loads that are known to be safe at compile time.
+CONFIG(Store, bool, SkipSafeAccess, false)
 
 /// Optional callback, see CallbackTy.
 CONFIG_INTERNAL(Load, CallbackTy, CB, nullptr)
@@ -226,6 +242,59 @@ CONFIG_INTERNAL(Unreachable, CallbackTy, CB, nullptr)
 SECTION_END(Unreachable)
 ///}
 
+/// GlobalVariable
+///{
+SECTION_START(GlobalVariable, GlobalVariable)
+
+/// Should the global variables be instrumented.
+CONFIG(GlobalVariable, bool, Instrument, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The pointer to the global variable.
+CONFIG(GlobalVariable, bool, Value, true)
+/// The size of the global variable.
+CONFIG(GlobalVariable, bool, Size, true)
+/// The minimal alignment requested statically.
+CONFIG(GlobalVariable, bool, Alignment, true)
+/// Whether the global variable is constant.
+CONFIG(GlobalVariable, bool, Constant, true)
+/// The value of the unnamed address attribute.
+CONFIG(GlobalVariable, bool, UnnamedAddress, true)
+/// The name of the global variable.
+CONFIG(GlobalVariable, bool, Name, true)
+///}
+
+/// Should the value be replaced by the runtime call result.
+CONFIG(GlobalVariable, bool, ReplaceValue, true)
+
+/// Optional callback, see GlobalCallbackTy.
+CONFIG_INTERNAL(GlobalVariable, GlobalCallbackTy, CB, nullptr)
+
+SECTION_END(GlobalVariable)
+///}
+
+/// Module
+///{
+SECTION_START(Module, Module)
+
+/// Should the module construction be instrumented.
+CONFIG(Module, bool, InstrumentBefore, true)
+
+/// Should the module destruction be instrumented.
+CONFIG(Module, bool, InstrumentAfter, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The name of the module.
+CONFIG(Module, bool, Name, true)
+/// The target triple of the module.
+CONFIG(Module, bool, TargetTriple, true)
+///}
+
+SECTION_END(Module)
+///}
+
 /// MainFunction
 ///{
 SECTION_START(MainFunction, CallBase)
@@ -246,10 +315,52 @@ CONFIG(MainFunction, bool, Value, true)
 CONFIG(MainFunction, bool, ReplaceValue, true)
 ///}
 
-/// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(MainFunction, CallbackTy, CB, nullptr)
+/// Optional callback, see GlobalCallbackTy.
+CONFIG_INTERNAL(MainFunction, GlobalCallbackTy, CB, nullptr)
 
 SECTION_END(MainFunction)
+///}
+
+/// CallArg
+///{
+SECTION_START(CallArg, Value)
+
+/// Should the arguments of function calls be instrumented.
+CONFIG(CallArg, bool, Instrument, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The argument value.
+CONFIG(CallArg, bool, Value, true)
+/// Should the value be replaced by the runtime call result.
+CONFIG(CallArg, bool, ReplaceValue, true)
+///}
+
+SECTION_END(CallArg)
+///}
+
+/// BasePointer
+///{
+SECTION_START(BasePointer, Value)
+
+/// Should the base pointers (originators) be instrumented.
+CONFIG(BasePointer, bool, Instrument, true)
+
+/// Selection of information passed to the runtime.
+///{
+/// The base pointer.
+CONFIG(BasePointer, bool, Value, true)
+/// Should the runtime call return pointer information as a 64-bit integer. This
+/// info can be forwarded to load and store instrumentation. See BasePointerInfo
+/// option for Load and Store.
+CONFIG(BasePointer, bool, ReturnPointerInfo, true)
+///}
+
+/// Skip instrumenting base pointers whose PointerInfo are not used by any Load
+/// or Store.
+CONFIG(BasePointer, bool, SkipUnused, true)
+
+SECTION_END(BasePointer)
 ///}
 
 #undef SECTION_START

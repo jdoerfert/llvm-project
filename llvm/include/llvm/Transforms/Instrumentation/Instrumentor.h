@@ -13,6 +13,7 @@
 #ifndef LLVM_TRANSFORMS_INSTRUMENTATION_INSTRUMENTOR_H
 #define LLVM_TRANSFORMS_INSTRUMENTATION_INSTRUMENTOR_H
 
+#include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
 
@@ -28,6 +29,10 @@ struct InstrumentorConfig {
   /// An optional callback that takes the instruction that is about to be
   /// instrumented and can return false if it should be skipped.
   using CallbackTy = std::function<bool(Instruction &)>;
+
+  /// An optional callback that takes the global object that is about to be
+  /// instrumented and can return false if it should be skipped.
+  using GlobalCallbackTy = std::function<bool(GlobalObject &)>;
 
 #define SECTION_START(SECTION, CLASS) struct {
 
