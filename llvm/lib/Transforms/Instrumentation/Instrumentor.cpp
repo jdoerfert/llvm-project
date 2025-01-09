@@ -1266,8 +1266,8 @@ bool InstrumentorImpl::instrumentMainFunction(Function &MainFn)
       for (size_t A = 0; A < Args.size(); ++A)
         PtrArgs.push_back(IRB.CreateAlloca(Args[A]->getType()));
 
-    RTArgTypes = {Int32Ty, PtrTy};
-    RTArgNames = { "argc", "argv" };
+    RTArgTypes = {PtrTy, PtrTy};
+    RTArgNames = {"ArgcPtr", "ArgvPtr"};
   }
 
   for (size_t A = 0; A < PtrArgs.size(); ++A)
