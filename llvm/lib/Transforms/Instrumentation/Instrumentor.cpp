@@ -45,6 +45,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <system_error>
 #include <type_traits>
 
 using namespace llvm;
@@ -156,6 +157,21 @@ raw_ostream &printAsCType(raw_ostream &OS, Type *T) {
     return OS << "int" << T->getIntegerBitWidth() << "_t ";
   return OS << *T << " ";
 }
+bool printAsPrintfFormat(raw_ostream &OS, Type *T) {
+  if (T->isPointerTy())
+    return OS << "%p", true;
+  if (T->isIntegerTy()) {
+    if (T->getIntegerBitWidth() <= 32)
+      return OS << "%i", true;
+    if (T->getIntegerBitWidth() <= 64)
+      return OS << "%li", true;
+  }
+  if (T->isFloatTy())
+    return OS << "%f", true;
+  if (T->isDoubleTy())
+    return OS << "%lf", true;
+  return false;
+}
 
 template <typename IRBTy>
 Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL) {
@@ -207,6 +223,8 @@ public:
                                  IRBuilderCallbackInserter([&](Instruction *I) {
                                    NewInsts[I] = Epoche;
                                  })) {}
+
+  ~InstrumentorImpl() { delete StubRuntimeOut; }
 
   /// Instrument the module, public entry point.
   bool instrument();
@@ -275,6 +293,28 @@ private:
     return (IC.Base.RuntimeName + Prefix + Position + Suffix).str();
   }
 
+  raw_fd_ostream *StubRuntimeOut = nullptr;
+
+  raw_fd_ostream *getStubRuntimeOut() {
+    if (!StubRuntimeOut) {
+      std::error_code EC;
+      StubRuntimeOut = new raw_fd_ostream(IC.Base.StubRuntimePath, EC);
+      if (EC) {
+        errs() << "WARNING: Failed to open instrumentor stub runtime "
+                  "file for "
+                  "writing: "
+               << EC.message() << "\n";
+        delete StubRuntimeOut;
+        StubRuntimeOut = nullptr;
+      } else {
+        *StubRuntimeOut << "// LLVM Instrumentor stub runtime\n\n";
+        *StubRuntimeOut << "#include <stdint.h>\n";
+        *StubRuntimeOut << "#include <stdio.h>\n\n";
+      }
+    }
+    return StubRuntimeOut;
+  }
+
   /// Map to remember instrumentation functions for a specific opcode and
   /// pre/post position.
   StringMap<FunctionCallee> InstrumentorCallees;
@@ -289,16 +329,46 @@ private:
       FC = M.getOrInsertFunction(CompleteName, FunctionType::get(RetTy ? RetTy : VoidTy,
           RTArgTypes, /*IsVarArgs*/ false));
 
-      if (IC.Base.PrintRuntimeSignatures) {
-        printAsCType(outs(), FC.getFunctionType()->getReturnType());
-        outs() << FC.getCallee()->getName() << "(";
+      if (IC.Base.PrintRuntimeSignatures || !IC.Base.StubRuntimePath.empty()) {
+        std::string Str;
+        raw_string_ostream StrOut(Str);
+        printAsCType(StrOut, FC.getFunctionType()->getReturnType());
+        StrOut << FC.getCallee()->getName() << "(";
         auto *FT = FC.getFunctionType();
         for (int I = 0, E = RTArgNames.size(); I != E; ++I) {
           if (I != 0)
-            outs() << ", ";
-          printAsCType(outs(), FT->getParamType(I)) << RTArgNames[I];
+            StrOut << ", ";
+          printAsCType(StrOut, FT->getParamType(I)) << RTArgNames[I];
         }
-        outs() << ");\n";
+        StrOut << ")";
+        if (IC.Base.PrintRuntimeSignatures)
+          outs() << Str << ";\n";
+        if (!IC.Base.StubRuntimePath.empty()) {
+          if (auto *SROut = getStubRuntimeOut()) {
+            (*SROut) << Str << " {\n";
+            Str.clear();
+            (*SROut) << "  printf(\"" << CompleteName << " - ";
+            for (int I = 0, E = RTArgNames.size(); I != E; ++I) {
+              (*SROut) << RTArgNames[I] << ": ";
+              if (printAsPrintfFormat(*SROut, RTArgTypes[I])) {
+                if (!Str.empty())
+                  StrOut << ", ";
+                StrOut << RTArgNames[I];
+              } else {
+                (*SROut) << "<unknown>";
+              }
+              (*SROut) << " - ";
+            }
+            (*SROut) << "\\n\", " << Str << ");\n";
+            if (RetTy) {
+              if (RetTy == RTArgTypes[0])
+                (*SROut) << "  return " << RTArgNames[0] << ";\n";
+              else
+                (*SROut) << "  return 0;\n";
+            }
+            (*SROut) << "}\n";
+          }
+        }
       }
     }
     return FC;
@@ -737,21 +807,21 @@ bool InstrumentorImpl::instrumentMemoryIntrinsic(IntrinsicInst &I) {
     auto *ArgTy = Int32Ty;
     RTArgTypes.push_back(ArgTy);
     RTArgs.push_back(getCI(ArgTy, SrcPtr->getType()->getPointerAddressSpace()));
-    RTArgNames.push_back("SourcePointerAddressSpace");
+    RTArgNames.push_back("MemsetValue");
   }
 
   if (IC.MemoryIntrinsic.Length) {
     auto *ArgTy = Int64Ty;
     RTArgTypes.push_back(ArgTy);
     RTArgs.push_back(Length);
-    RTArgNames.push_back("SourcePointerAddressSpace");
+    RTArgNames.push_back("Length");
   }
 
   if (IC.MemoryIntrinsic.IsVolatile) {
     auto *ArgTy = Int8Ty;
     RTArgTypes.push_back(ArgTy);
     RTArgs.push_back(getCI(ArgTy, I.isVolatile()));
-    RTArgNames.push_back("SourcePointerAddressSpace");
+    RTArgNames.push_back("IsVolatile");
   }
 
   FunctionCallee FC = getCallee("memory_intrinsic", RTArgTypes, RTArgNames,
@@ -1196,7 +1266,7 @@ bool InstrumentorImpl::instrumentMainFunction(Function &MainFn)
       for (size_t A = 0; A < Args.size(); ++A)
         PtrArgs.push_back(IRB.CreateAlloca(Args[A]->getType()));
 
-    RTArgTypes = { PtrTy, PtrTy };
+    RTArgTypes = {Int32Ty, PtrTy};
     RTArgNames = { "argc", "argv" };
   }
 

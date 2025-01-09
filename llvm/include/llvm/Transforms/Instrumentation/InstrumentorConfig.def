@@ -21,6 +21,8 @@ CONFIG(Base, std::string, RuntimeName, "__instrumentor_")
 /// Print the signatures of all used runtime functions.
 CONFIG(Base, bool, PrintRuntimeSignatures, true)
 
+CONFIG(Base, std::string, StubRuntimePath, "")
+
 SECTION_END(Base)
 ///}
 
