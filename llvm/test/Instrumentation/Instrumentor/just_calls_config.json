@@ -3,12 +3,11 @@
     "RuntimeName": "__just_calls_",
     "PrintRuntimeSignatures": false
   },
-  "Alloca": {
-    "Instrument": true,
+  "alloca": {
+    "Enabled": true,
     "Value": false,
     "AllocationSize": false,
     "Alignment": false,
-    "ArraySize": false,
     "ReplaceValue": false
   }
 }
