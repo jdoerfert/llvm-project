@@ -45,10 +45,7 @@ define dso_local double @foo(i64 noundef %j, i64 noundef %N) local_unnamed_addr 
 ; CHECK-NEXT:    [[TMP10:%.*]] = bitcast double [[TMP5]] to i64
 ; CHECK-NEXT:    [[TMP18:%.*]] = call i64 @__instrumentor_post_load(ptr [[TMP14]], i32 0, i64 [[TMP10]], i64 8, i32 3, i64 8, i32 0, i8 1, i8 0, ptr null)
 ; CHECK-NEXT:    [[TMP19:%.*]] = bitcast i64 [[TMP18]] to double
-; CHECK-NEXT:    [[TMP20:%.*]] = ptrtoint ptr [[TMP0]] to i64
-; CHECK-NEXT:    [[TMP21:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP20]], i32 14)
-; CHECK-NEXT:    [[TMP16:%.*]] = inttoptr i64 [[TMP21]] to ptr
-; CHECK-NEXT:    tail call void @llvm.stackrestore.p0(ptr [[TMP16]])
+; CHECK-NEXT:    tail call void @llvm.stackrestore.p0(ptr [[TMP0]])
 ; CHECK-NEXT:    ret double [[TMP19]]
 ; CHECK:       [[FOR_BODY]]:
 ; CHECK-NEXT:    [[I_06:%.*]] = phi i64 [ 0, %[[FOR_BODY_PREHEADER_NEW]] ], [ [[INC_3]], %[[FOR_BODY]] ]

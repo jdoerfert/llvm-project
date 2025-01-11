@@ -24,15 +24,35 @@ declare ptr @my_calloc(i64, i64) allocsize(0, 1)
 ; CHECK: @__instrumentor_str = private unnamed_addr constant [8 x i8] c"<stdin>\00", align 1
 ; CHECK: @__instrumentor_str.1 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
 ; CHECK: @__instrumentor_str.2 = private unnamed_addr constant [7 x i8] c"malloc\00", align 1
-; CHECK: @__instrumentor_str.3 = private unnamed_addr constant [6 x i8] c"_Znam\00", align 1
-; CHECK: @__instrumentor_str.4 = private unnamed_addr constant [6 x i8] c"_Znwm\00", align 1
-; CHECK: @__instrumentor_str.5 = private unnamed_addr constant [21 x i8] c"_ZnamSt11align_val_t\00", align 1
+; CHECK: @__instrumentor_str.3 = private unnamed_addr constant [14 x i8] c"aligned_alloc\00", align 1
+; CHECK: @__instrumentor_str.4 = private unnamed_addr constant [4 x i8] c"foo\00", align 1
+; CHECK: @__instrumentor_str.5 = private unnamed_addr constant [9 x i8] c"memalign\00", align 1
+; CHECK: @__instrumentor_str.6 = private unnamed_addr constant [8 x i8] c"realloc\00", align 1
+; CHECK: @__instrumentor_str.7 = private unnamed_addr constant [7 x i8] c"calloc\00", align 1
+; CHECK: @__instrumentor_str.8 = private unnamed_addr constant [6 x i8] c"_Znam\00", align 1
+; CHECK: @__instrumentor_str.9 = private unnamed_addr constant [6 x i8] c"_Znwm\00", align 1
+; CHECK: @__instrumentor_str.10 = private unnamed_addr constant [7 x i8] c"strdup\00", align 1
+; CHECK: @__instrumentor_str.11 = private unnamed_addr constant [21 x i8] c"_ZnamSt11align_val_t\00", align 1
+; CHECK: @__instrumentor_str.12 = private unnamed_addr constant [10 x i8] c"my_malloc\00", align 1
+; CHECK: @__instrumentor_str.13 = private unnamed_addr constant [10 x i8] c"my_calloc\00", align 1
+; CHECK: @__instrumentor_str.14 = private unnamed_addr constant [10 x i8] c"<unknown>\00", align 1
 ;.
 define noalias ptr @malloc_nonconstant_size(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @malloc_nonconstant_size(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @malloc(i64 [[N]])
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[N]], i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP8:%.*]] = alloca [[TMP0:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP0]], ptr [[TMP8]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @malloc, ptr @__instrumentor_str.2, ptr [[TMP8]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @malloc(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @malloc, ptr @__instrumentor_str.2)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @malloc(i64 %n)
@@ -41,8 +61,19 @@ define noalias ptr @malloc_nonconstant_size(i64 %n) {
 
 define noalias ptr @malloc_constant_size() {
 ; CHECK-LABEL: define noalias ptr @malloc_constant_size() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @malloc(i64 40)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 40, i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP1]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP1]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 40, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @malloc, ptr @__instrumentor_str.2, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @malloc(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @malloc, ptr @__instrumentor_str.2)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call noalias ptr @malloc(i64 40)
@@ -51,8 +82,26 @@ define noalias ptr @malloc_constant_size() {
 
 define noalias ptr @aligned_alloc_constant_size() {
 ; CHECK-LABEL: define noalias ptr @aligned_alloc_constant_size() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 32, i64 512)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 512, i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP2:%.*]], align 8
+; CHECK-NEXT:    [[TMP2]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP2]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP2]], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i64 512, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @aligned_alloc, ptr @__instrumentor_str.3, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @aligned_alloc, ptr @__instrumentor_str.3)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call noalias ptr @aligned_alloc(i64 32, i64 512)
@@ -62,9 +111,27 @@ define noalias ptr @aligned_alloc_constant_size() {
 define noalias ptr @aligned_alloc_unknown_size_nonzero(i1 %c) {
 ; CHECK-LABEL: define noalias ptr @aligned_alloc_unknown_size_nonzero(
 ; CHECK-SAME: i1 [[C:%.*]]) {
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP3:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
 ; CHECK-NEXT:    [[SIZE:%.*]] = select i1 [[C]], i64 64, i64 128
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 32, i64 [[SIZE]])
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[SIZE]], i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP3]] = getelementptr inbounds nuw [[TMP3]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP3]], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[SIZE]], ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @aligned_alloc, ptr @__instrumentor_str.3, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @aligned_alloc, ptr @__instrumentor_str.3)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %size = select i1 %c, i64 64, i64 128
@@ -75,9 +142,27 @@ define noalias ptr @aligned_alloc_unknown_size_nonzero(i1 %c) {
 define noalias ptr @aligned_alloc_unknown_size_possibly_zero(i1 %c) {
 ; CHECK-LABEL: define noalias ptr @aligned_alloc_unknown_size_possibly_zero(
 ; CHECK-SAME: i1 [[C:%.*]]) {
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP4:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
 ; CHECK-NEXT:    [[SIZE:%.*]] = select i1 [[C]], i64 64, i64 0
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 32, i64 [[SIZE]])
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[SIZE]], i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP4]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4]] = getelementptr inbounds nuw [[TMP4]], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[SIZE]], ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @aligned_alloc, ptr @__instrumentor_str.3, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @aligned_alloc, ptr @__instrumentor_str.3)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %size = select i1 %c, i64 64, i64 0
@@ -88,8 +173,26 @@ define noalias ptr @aligned_alloc_unknown_size_possibly_zero(i1 %c) {
 define noalias ptr @aligned_alloc_unknown_align(i64 %align) {
 ; CHECK-LABEL: define noalias ptr @aligned_alloc_unknown_align(
 ; CHECK-SAME: i64 [[ALIGN:%.*]]) {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[ALIGN]], i64 128)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 128, i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP5:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP5]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[ALIGN]], ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP5]], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i64 128, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @aligned_alloc, ptr @__instrumentor_str.3, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @aligned_alloc, ptr @__instrumentor_str.3)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call noalias ptr @aligned_alloc(i64 %align, i64 128)
@@ -101,22 +204,88 @@ declare noalias ptr @foo(ptr, ptr, ptr)
 define noalias ptr @aligned_alloc_dynamic_args(i64 %align, i64 %size) {
 ; CHECK-LABEL: define noalias ptr @aligned_alloc_dynamic_args(
 ; CHECK-SAME: i64 [[ALIGN:%.*]], i64 [[SIZE:%.*]]) {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[ALIGN]], i64 1024)
-; CHECK-NEXT:    [[TMP4:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 1024, i64 -1, ptr @__instrumentor_str.2, i8 1)
-; CHECK-NEXT:    [[CALL_3:%.*]] = tail call noalias ptr @aligned_alloc(i64 0, i64 1024)
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL_3]], i64 1024, i64 -1, ptr @__instrumentor_str.2, i8 1)
-; CHECK-NEXT:    [[CALL_4:%.*]] = tail call noalias ptr @aligned_alloc(i64 32, i64 [[SIZE]])
-; CHECK-NEXT:    [[TMP3:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL_4]], i64 [[SIZE]], i64 -1, ptr @__instrumentor_str.2, i8 1)
-; CHECK-NEXT:    [[TMP6:%.*]] = ptrtoint ptr [[TMP4]] to i64
-; CHECK-NEXT:    [[TMP5:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP6]], i32 14)
-; CHECK-NEXT:    [[CALL:%.*]] = inttoptr i64 [[TMP5]] to ptr
-; CHECK-NEXT:    [[TMP7:%.*]] = ptrtoint ptr [[TMP2]] to i64
-; CHECK-NEXT:    [[TMP8:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP7]], i32 14)
-; CHECK-NEXT:    [[CALL_1:%.*]] = inttoptr i64 [[TMP8]] to ptr
-; CHECK-NEXT:    [[TMP10:%.*]] = ptrtoint ptr [[TMP3]] to i64
-; CHECK-NEXT:    [[TMP11:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP10]], i32 14)
-; CHECK-NEXT:    [[CALL_2:%.*]] = inttoptr i64 [[TMP11]] to ptr
+; CHECK-NEXT:    [[TMP14:%.*]] = alloca [[TMP6:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = alloca [[TMP7:%.*]], align 8
+; CHECK-NEXT:    [[TMP45:%.*]] = alloca [3 x i32], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr inbounds nuw [[TMP6]], ptr [[TMP14]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[ALIGN]], ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6]] = getelementptr inbounds nuw [[TMP6]], ptr [[TMP14]], i32 0, i32 1
+; CHECK-NEXT:    store i64 1024, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP8]], align 4
+; CHECK-NEXT:    [[TMP9:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP9]], align 4
+; CHECK-NEXT:    [[TMP10:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP10]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @aligned_alloc, ptr @__instrumentor_str.3, ptr [[TMP14]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP12:%.*]] = load i64, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP13:%.*]] = load i64, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[TMP12]], i64 [[TMP13]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @aligned_alloc, ptr @__instrumentor_str.3)
+; CHECK-NEXT:    [[TMP4:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP13]], i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP15:%.*]] = getelementptr inbounds nuw [[TMP8]], ptr [[TMP14]], i32 0, i32 0
+; CHECK-NEXT:    store i64 0, ptr [[TMP15]], align 4
+; CHECK-NEXT:    [[TMP16:%.*]] = getelementptr inbounds nuw [[TMP8]], ptr [[TMP14]], i32 0, i32 1
+; CHECK-NEXT:    store i64 1024, ptr [[TMP16]], align 4
+; CHECK-NEXT:    [[TMP17:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP17]], align 4
+; CHECK-NEXT:    [[TMP18:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP18]], align 4
+; CHECK-NEXT:    [[TMP19:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP19]], align 4
+; CHECK-NEXT:    [[TMP20:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP20]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @aligned_alloc, ptr @__instrumentor_str.3, ptr [[TMP14]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP22:%.*]] = load i64, ptr [[TMP15]], align 4
+; CHECK-NEXT:    [[TMP23:%.*]] = load i64, ptr [[TMP16]], align 4
+; CHECK-NEXT:    [[CALL_3:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[TMP22]], i64 [[TMP23]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @aligned_alloc, ptr @__instrumentor_str.3)
+; CHECK-NEXT:    [[TMP24:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL_3]], i64 [[TMP23]], i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP25:%.*]] = getelementptr inbounds nuw [[TMP9]], ptr [[TMP14]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP25]], align 4
+; CHECK-NEXT:    [[TMP26:%.*]] = getelementptr inbounds nuw [[TMP9]], ptr [[TMP14]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[SIZE]], ptr [[TMP26]], align 4
+; CHECK-NEXT:    [[TMP27:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP27]], align 4
+; CHECK-NEXT:    [[TMP28:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP28]], align 4
+; CHECK-NEXT:    [[TMP29:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP29]], align 4
+; CHECK-NEXT:    [[TMP30:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP30]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @aligned_alloc, ptr @__instrumentor_str.3, ptr [[TMP14]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP32:%.*]] = load i64, ptr [[TMP25]], align 4
+; CHECK-NEXT:    [[TMP33:%.*]] = load i64, ptr [[TMP26]], align 4
+; CHECK-NEXT:    [[CALL_4:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[TMP32]], i64 [[TMP33]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @aligned_alloc, ptr @__instrumentor_str.3)
+; CHECK-NEXT:    [[TMP34:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL_4]], i64 [[TMP33]], i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP35:%.*]] = getelementptr inbounds nuw [[TMP7]], ptr [[TMP3]], i32 0, i32 0
+; CHECK-NEXT:    store ptr [[TMP4]], ptr [[TMP35]], align 8
+; CHECK-NEXT:    [[TMP36:%.*]] = getelementptr inbounds nuw [[TMP7]], ptr [[TMP3]], i32 0, i32 1
+; CHECK-NEXT:    store ptr [[TMP24]], ptr [[TMP36]], align 8
+; CHECK-NEXT:    [[TMP37:%.*]] = getelementptr inbounds nuw [[TMP7]], ptr [[TMP3]], i32 0, i32 2
+; CHECK-NEXT:    store ptr [[TMP34]], ptr [[TMP37]], align 8
+; CHECK-NEXT:    [[TMP38:%.*]] = getelementptr [3 x i32], ptr [[TMP45]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP38]], align 4
+; CHECK-NEXT:    [[TMP39:%.*]] = getelementptr [3 x i32], ptr [[TMP45]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP39]], align 4
+; CHECK-NEXT:    [[TMP40:%.*]] = getelementptr [3 x i32], ptr [[TMP45]], i32 0, i32 2
+; CHECK-NEXT:    store i32 8, ptr [[TMP40]], align 4
+; CHECK-NEXT:    [[TMP41:%.*]] = getelementptr [3 x i32], ptr [[TMP45]], i32 0, i32 0
+; CHECK-NEXT:    store i32 14, ptr [[TMP41]], align 4
+; CHECK-NEXT:    [[TMP42:%.*]] = getelementptr [3 x i32], ptr [[TMP45]], i32 0, i32 1
+; CHECK-NEXT:    store i32 14, ptr [[TMP42]], align 4
+; CHECK-NEXT:    [[TMP43:%.*]] = getelementptr [3 x i32], ptr [[TMP45]], i32 0, i32 2
+; CHECK-NEXT:    store i32 14, ptr [[TMP43]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @foo, ptr @__instrumentor_str.4, ptr [[TMP3]], ptr [[TMP45]], ptr [[TMP45]], i32 3)
+; CHECK-NEXT:    [[CALL:%.*]] = load ptr, ptr [[TMP35]], align 8
+; CHECK-NEXT:    [[CALL_1:%.*]] = load ptr, ptr [[TMP36]], align 8
+; CHECK-NEXT:    [[CALL_2:%.*]] = load ptr, ptr [[TMP37]], align 8
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @foo(ptr [[CALL]], ptr [[CALL_1]], ptr [[CALL_2]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @foo, ptr @__instrumentor_str.4)
 ; CHECK-NEXT:    ret ptr [[TMP4]]
 ;
   %call = tail call noalias ptr @aligned_alloc(i64 %align, i64 1024)
@@ -129,8 +298,26 @@ define noalias ptr @aligned_alloc_dynamic_args(i64 %align, i64 %size) {
 
 define noalias ptr @memalign_constant_size() {
 ; CHECK-LABEL: define noalias ptr @memalign_constant_size() {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @memalign(i64 32, i64 512)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 512, i64 -1, ptr @__instrumentor_str.1, i8 -1)
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP10:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP10]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP10]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 512, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @memalign, ptr @__instrumentor_str.5, ptr [[TMP12]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP9:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP10]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @memalign(i64 [[TMP9]], i64 [[TMP10]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @memalign, ptr @__instrumentor_str.5)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP10]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @memalign(i64 32, i64 512)
@@ -140,10 +327,28 @@ define noalias ptr @memalign_constant_size() {
 define noalias ptr @memalign_unknown_size_nonzero(i1 %c) {
 ; CHECK-LABEL: define noalias ptr @memalign_unknown_size_nonzero(
 ; CHECK-SAME: i1 [[C:%.*]]) {
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP11:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
 ; CHECK-NEXT:    [[SIZE:%.*]] = select i1 [[C]], i64 64, i64 128
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @memalign(i64 32, i64 [[SIZE]])
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[SIZE]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
-; CHECK-NEXT:    ret ptr [[TMP1]]
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP11]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP11]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[SIZE]], ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @memalign, ptr @__instrumentor_str.5, ptr [[TMP12]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP13:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @memalign(i64 [[TMP10]], i64 [[TMP13]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @memalign, ptr @__instrumentor_str.5)
+; CHECK-NEXT:    [[TMP11]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP13]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
+; CHECK-NEXT:    ret ptr [[TMP11]]
 ;
   %size = select i1 %c, i64 64, i64 128
   %call = tail call noalias ptr @memalign(i64 32, i64 %size)
@@ -153,10 +358,28 @@ define noalias ptr @memalign_unknown_size_nonzero(i1 %c) {
 define noalias ptr @memalign_unknown_size_possibly_zero(i1 %c) {
 ; CHECK-LABEL: define noalias ptr @memalign_unknown_size_possibly_zero(
 ; CHECK-SAME: i1 [[C:%.*]]) {
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP1:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
 ; CHECK-NEXT:    [[SIZE:%.*]] = select i1 [[C]], i64 64, i64 0
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @memalign(i64 32, i64 [[SIZE]])
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[SIZE]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
-; CHECK-NEXT:    ret ptr [[TMP1]]
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP1]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP1]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[SIZE]], ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @memalign, ptr @__instrumentor_str.5, ptr [[TMP12]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @memalign(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @memalign, ptr @__instrumentor_str.5)
+; CHECK-NEXT:    [[TMP13:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
+; CHECK-NEXT:    ret ptr [[TMP13]]
 ;
   %size = select i1 %c, i64 64, i64 0
   %call = tail call noalias ptr @memalign(i64 32, i64 %size)
@@ -166,8 +389,26 @@ define noalias ptr @memalign_unknown_size_possibly_zero(i1 %c) {
 define noalias ptr @memalign_unknown_align(i64 %align) {
 ; CHECK-LABEL: define noalias ptr @memalign_unknown_align(
 ; CHECK-SAME: i64 [[ALIGN:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @memalign(i64 [[ALIGN]], i64 128)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 128, i64 -1, ptr @__instrumentor_str.1, i8 -1)
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP13:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP13]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[ALIGN]], ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP13]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 128, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @memalign, ptr @__instrumentor_str.5, ptr [[TMP12]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @memalign(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @memalign, ptr @__instrumentor_str.5)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @memalign(i64 %align, i64 128)
@@ -176,8 +417,19 @@ define noalias ptr @memalign_unknown_align(i64 %align) {
 
 define noalias ptr @malloc_constant_size2() {
 ; CHECK-LABEL: define noalias ptr @malloc_constant_size2() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias dereferenceable_or_null(80) ptr @malloc(i64 40)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 40, i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP14:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP14]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 40, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @malloc, ptr @__instrumentor_str.2, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias dereferenceable_or_null(80) ptr @malloc(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @malloc, ptr @__instrumentor_str.2)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call noalias dereferenceable_or_null(80) ptr @malloc(i64 40)
@@ -186,8 +438,19 @@ define noalias ptr @malloc_constant_size2() {
 
 define noalias ptr @malloc_constant_size3() {
 ; CHECK-LABEL: define noalias ptr @malloc_constant_size3() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias dereferenceable(80) ptr @malloc(i64 40)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 40, i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP15:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP15]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 40, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @malloc, ptr @__instrumentor_str.2, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias dereferenceable(80) ptr @malloc(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @malloc, ptr @__instrumentor_str.2)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call noalias dereferenceable(80) ptr @malloc(i64 40)
@@ -196,8 +459,19 @@ define noalias ptr @malloc_constant_size3() {
 
 define noalias ptr @malloc_constant_zero_size() {
 ; CHECK-LABEL: define noalias ptr @malloc_constant_zero_size() {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @malloc(i64 0)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 0, i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP8:%.*]] = alloca [[TMP16:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP16]], ptr [[TMP8]], i32 0, i32 0
+; CHECK-NEXT:    store i64 0, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @malloc, ptr @__instrumentor_str.2, ptr [[TMP8]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @malloc(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @malloc, ptr @__instrumentor_str.2)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @malloc(i64 0)
@@ -207,11 +481,26 @@ define noalias ptr @malloc_constant_zero_size() {
 define noalias ptr @realloc_nonconstant_size(ptr %p, i64 %n) {
 ; CHECK-LABEL: define noalias ptr @realloc_nonconstant_size(
 ; CHECK-SAME: ptr [[P:%.*]], i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[TMP3:%.*]] = ptrtoint ptr [[P]] to i64
-; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP3]], i32 14)
-; CHECK-NEXT:    [[TMP2:%.*]] = inttoptr i64 [[TMP4]] to ptr
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @realloc(ptr [[TMP2]], i64 [[N]])
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[N]], i64 -1, ptr @__instrumentor_str.2, i8 -1)
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP17:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP17]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store ptr [[P]], ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP17]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 14, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @realloc, ptr @__instrumentor_str.6, ptr [[TMP12]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load ptr, ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @realloc(ptr [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @realloc, ptr @__instrumentor_str.6)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @realloc(ptr %p, i64 %n)
@@ -221,11 +510,26 @@ define noalias ptr @realloc_nonconstant_size(ptr %p, i64 %n) {
 define noalias ptr @realloc_constant_zero_size(ptr %p) {
 ; CHECK-LABEL: define noalias ptr @realloc_constant_zero_size(
 ; CHECK-SAME: ptr [[P:%.*]]) {
-; CHECK-NEXT:    [[TMP3:%.*]] = ptrtoint ptr [[P]] to i64
-; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP3]], i32 14)
-; CHECK-NEXT:    [[TMP2:%.*]] = inttoptr i64 [[TMP4]] to ptr
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @realloc(ptr [[TMP2]], i64 0)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 0, i64 -1, ptr @__instrumentor_str.2, i8 -1)
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP18:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP18]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store ptr [[P]], ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP18]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 0, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 14, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @realloc, ptr @__instrumentor_str.6, ptr [[TMP12]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load ptr, ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @realloc(ptr [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @realloc, ptr @__instrumentor_str.6)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @realloc(ptr %p, i64 0)
@@ -235,11 +539,26 @@ define noalias ptr @realloc_constant_zero_size(ptr %p) {
 define noalias ptr @realloc_constant_size(ptr %p) {
 ; CHECK-LABEL: define noalias ptr @realloc_constant_size(
 ; CHECK-SAME: ptr [[P:%.*]]) {
-; CHECK-NEXT:    [[TMP3:%.*]] = ptrtoint ptr [[P]] to i64
-; CHECK-NEXT:    [[TMP2:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP3]], i32 14)
-; CHECK-NEXT:    [[TMP1:%.*]] = inttoptr i64 [[TMP2]] to ptr
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @realloc(ptr [[TMP1]], i64 40)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 40, i64 -1, ptr @__instrumentor_str.2, i8 -1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP19:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP19]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store ptr [[P]], ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP19]], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i64 40, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 14, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @realloc, ptr @__instrumentor_str.6, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load ptr, ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @realloc(ptr [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @realloc, ptr @__instrumentor_str.6)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP11]], i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call noalias ptr @realloc(ptr %p, i64 40)
@@ -249,8 +568,26 @@ define noalias ptr @realloc_constant_size(ptr %p) {
 define noalias ptr @calloc_nonconstant_size(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @calloc_nonconstant_size(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 1, i64 [[N]])
-; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 1, [[N]]
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP20:%.*]], align 8
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP20]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 1, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP20]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP12]], ptr [[TMP13]], ptr [[TMP13]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 [[TMP10]], [[TMP11]]
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP2]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
@@ -261,8 +598,26 @@ define noalias ptr @calloc_nonconstant_size(i64 %n) {
 define noalias ptr @calloc_nonconstant_size2(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @calloc_nonconstant_size2(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[N]], i64 0)
-; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 [[N]], 0
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP21:%.*]], align 8
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP21]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP21]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 0, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP12]], ptr [[TMP13]], ptr [[TMP13]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 [[TMP10]], [[TMP11]]
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP2]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
@@ -273,8 +628,26 @@ define noalias ptr @calloc_nonconstant_size2(i64 %n) {
 define noalias ptr @calloc_nonconstant_size3(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @calloc_nonconstant_size3(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[N]], i64 [[N]])
-; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 [[N]], [[N]]
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP22:%.*]], align 8
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP22]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP22]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP12]], ptr [[TMP13]], ptr [[TMP13]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 [[TMP10]], [[TMP11]]
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP2]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
@@ -284,8 +657,27 @@ define noalias ptr @calloc_nonconstant_size3(i64 %n) {
 
 define noalias ptr @calloc_constant_zero_size() {
 ; CHECK-LABEL: define noalias ptr @calloc_constant_zero_size() {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 0, i64 0)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 0, i64 -1, ptr @__instrumentor_str.2, i8 0)
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [[TMP23:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP23]], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i64 0, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP23]], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i64 0, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP13]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP12:%.*]] = mul i64 [[TMP10]], [[TMP11]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP12]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @calloc(i64 0, i64 0)
@@ -295,8 +687,26 @@ define noalias ptr @calloc_constant_zero_size() {
 define noalias ptr @calloc_constant_zero_size2(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @calloc_constant_zero_size2(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[N]], i64 0)
-; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 [[N]], 0
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP24:%.*]], align 8
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP24]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP24]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 0, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP12]], ptr [[TMP13]], ptr [[TMP13]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 [[TMP10]], [[TMP11]]
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP2]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
@@ -308,8 +718,26 @@ define noalias ptr @calloc_constant_zero_size2(i64 %n) {
 define noalias ptr @calloc_constant_zero_size3(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @calloc_constant_zero_size3(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 0, i64 [[N]])
-; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 0, [[N]]
+; CHECK-NEXT:    [[TMP12:%.*]] = alloca [[TMP25:%.*]], align 8
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP25]], ptr [[TMP12]], i32 0, i32 0
+; CHECK-NEXT:    store i64 0, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP25]], ptr [[TMP12]], i32 0, i32 1
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP12]], ptr [[TMP13]], ptr [[TMP13]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP2:%.*]] = mul i64 [[TMP10]], [[TMP11]]
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP2]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
@@ -320,8 +748,27 @@ define noalias ptr @calloc_constant_zero_size3(i64 %n) {
 define noalias ptr @calloc_constant_zero_size4(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @calloc_constant_zero_size4(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 0, i64 1)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 0, i64 -1, ptr @__instrumentor_str.2, i8 0)
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [[TMP26:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP26]], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i64 0, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP26]], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i64 1, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP13]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP12:%.*]] = mul i64 [[TMP10]], [[TMP11]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP12]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @calloc(i64 0, i64 1)
@@ -331,8 +778,27 @@ define noalias ptr @calloc_constant_zero_size4(i64 %n) {
 define noalias ptr @calloc_constant_zero_size5(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @calloc_constant_zero_size5(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 1, i64 0)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 0, i64 -1, ptr @__instrumentor_str.2, i8 0)
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [[TMP27:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP27]], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i64 1, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP27]], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i64 0, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP13]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP12:%.*]] = mul i64 [[TMP10]], [[TMP11]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP12]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @calloc(i64 1, i64 0)
@@ -341,8 +807,27 @@ define noalias ptr @calloc_constant_zero_size5(i64 %n) {
 
 define noalias ptr @calloc_constant_size() {
 ; CHECK-LABEL: define noalias ptr @calloc_constant_size() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @calloc(i64 16, i64 8)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 128, i64 -1, ptr @__instrumentor_str.2, i8 0)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP28:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP28]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 16, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP28]], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i64 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP12:%.*]] = mul i64 [[TMP10]], [[TMP11]]
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP12]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call noalias ptr @calloc(i64 16, i64 8)
@@ -351,8 +836,27 @@ define noalias ptr @calloc_constant_size() {
 
 define noalias ptr @calloc_constant_size_overflow() {
 ; CHECK-LABEL: define noalias ptr @calloc_constant_size_overflow() {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 2000000000000, i64 80000000000)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 -7058095356650717184, i64 -1, ptr @__instrumentor_str.2, i8 0)
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [[TMP29:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP29]], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i64 2000000000000, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP29]], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i64 80000000000, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @calloc, ptr @__instrumentor_str.7, ptr [[TMP13]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @calloc, ptr @__instrumentor_str.7)
+; CHECK-NEXT:    [[TMP12:%.*]] = mul i64 [[TMP10]], [[TMP11]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP12]], i64 -1, ptr @__instrumentor_str.2, i8 0)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call noalias ptr @calloc(i64 2000000000000, i64 80000000000)
@@ -362,8 +866,19 @@ define noalias ptr @calloc_constant_size_overflow() {
 define noalias ptr @op_new_nonconstant_size(i64 %n) {
 ; CHECK-LABEL: define noalias ptr @op_new_nonconstant_size(
 ; CHECK-SAME: i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call ptr @_Znam(i64 [[N]])
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[N]], i64 -1, ptr @__instrumentor_str.3, i8 1)
+; CHECK-NEXT:    [[TMP8:%.*]] = alloca [[TMP30:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP30]], ptr [[TMP8]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[N]], ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @_Znam, ptr @__instrumentor_str.8, ptr [[TMP8]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call ptr @_Znam(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @_Znam, ptr @__instrumentor_str.8)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.8, i8 1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call ptr @_Znam(i64 %n)
@@ -372,8 +887,19 @@ define noalias ptr @op_new_nonconstant_size(i64 %n) {
 
 define noalias ptr @op_new_constant_size() {
 ; CHECK-LABEL: define noalias ptr @op_new_constant_size() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call ptr @_Znam(i64 40)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 40, i64 -1, ptr @__instrumentor_str.3, i8 1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP31:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP31]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 40, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @_Znam, ptr @__instrumentor_str.8, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call ptr @_Znam(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @_Znam, ptr @__instrumentor_str.8)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.8, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call ptr @_Znam(i64 40)
@@ -382,8 +908,19 @@ define noalias ptr @op_new_constant_size() {
 
 define noalias ptr @op_new_constant_size2() {
 ; CHECK-LABEL: define noalias ptr @op_new_constant_size2() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call ptr @_Znwm(i64 40)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 40, i64 -1, ptr @__instrumentor_str.4, i8 1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP32:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP32]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 40, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @_Znwm, ptr @__instrumentor_str.9, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call ptr @_Znwm(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @_Znwm, ptr @__instrumentor_str.9)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.9, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call ptr @_Znwm(i64 40)
@@ -392,8 +929,19 @@ define noalias ptr @op_new_constant_size2() {
 
 define noalias ptr @op_new_constant_zero_size() {
 ; CHECK-LABEL: define noalias ptr @op_new_constant_zero_size() {
-; CHECK-NEXT:    [[CALL:%.*]] = tail call ptr @_Znam(i64 0)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 0, i64 -1, ptr @__instrumentor_str.3, i8 1)
+; CHECK-NEXT:    [[TMP8:%.*]] = alloca [[TMP33:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP33]], ptr [[TMP8]], i32 0, i32 0
+; CHECK-NEXT:    store i64 0, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @_Znam, ptr @__instrumentor_str.8, ptr [[TMP8]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = tail call ptr @_Znam(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @_Znam, ptr @__instrumentor_str.8)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.8, i8 1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = tail call ptr @_Znam(i64 0)
@@ -402,7 +950,18 @@ define noalias ptr @op_new_constant_zero_size() {
 
 define noalias ptr @strdup_constant_str() {
 ; CHECK-LABEL: define noalias ptr @strdup_constant_str() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @strdup(ptr @.str)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP34:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP34]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store ptr @.str, ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 14, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @strdup, ptr @__instrumentor_str.10, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load ptr, ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @strdup(ptr [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @strdup, ptr @__instrumentor_str.10)
 ; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 -1, i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
@@ -413,10 +972,18 @@ define noalias ptr @strdup_constant_str() {
 define noalias ptr @strdup_notconstant_str(ptr %str) {
 ; CHECK-LABEL: define noalias ptr @strdup_notconstant_str(
 ; CHECK-SAME: ptr [[STR:%.*]]) {
-; CHECK-NEXT:    [[TMP3:%.*]] = ptrtoint ptr [[STR]] to i64
-; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP3]], i32 14)
-; CHECK-NEXT:    [[TMP2:%.*]] = inttoptr i64 [[TMP4]] to ptr
+; CHECK-NEXT:    [[TMP7:%.*]] = alloca [[TMP35:%.*]], align 8
+; CHECK-NEXT:    [[TMP8:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP35]], ptr [[TMP7]], i32 0, i32 0
+; CHECK-NEXT:    store ptr [[STR]], ptr [[TMP3]], align 8
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP8]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP8]], i32 0, i32 0
+; CHECK-NEXT:    store i32 14, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @strdup, ptr @__instrumentor_str.10, ptr [[TMP7]], ptr [[TMP8]], ptr [[TMP8]], i32 1)
+; CHECK-NEXT:    [[TMP2:%.*]] = load ptr, ptr [[TMP3]], align 8
 ; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @strdup(ptr [[TMP2]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @strdup, ptr @__instrumentor_str.10)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 -1, i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
@@ -429,9 +996,27 @@ define noalias ptr @strdup_notconstant_str(ptr %str) {
 define noalias ptr @ossfuzz_23214() {
 ; CHECK-LABEL: define noalias ptr @ossfuzz_23214() {
 ; CHECK-NEXT:  [[BB:.*:]]
+; CHECK-NEXT:    [[TMP0:%.*]] = alloca [[TMP36:%.*]], align 8
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [2 x i32], align 4
 ; CHECK-NEXT:    [[AND:%.*]] = and i64 -1, -9223372036854775808
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[AND]], i64 512)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 512, i64 -1, ptr @__instrumentor_str.2, i8 1)
+; CHECK-NEXT:    [[TMP2:%.*]] = getelementptr inbounds nuw [[TMP36]], ptr [[TMP0]], i32 0, i32 0
+; CHECK-NEXT:    store i64 [[AND]], ptr [[TMP2]], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP36]], ptr [[TMP0]], i32 0, i32 1
+; CHECK-NEXT:    store i64 512, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [2 x i32], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @aligned_alloc, ptr @__instrumentor_str.3, ptr [[TMP0]], ptr [[TMP1]], ptr [[TMP1]], i32 2)
+; CHECK-NEXT:    [[TMP9:%.*]] = load i64, ptr [[TMP2]], align 4
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @aligned_alloc(i64 [[TMP9]], i64 [[TMP10]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @aligned_alloc, ptr @__instrumentor_str.3)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP10]], i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
 bb:
@@ -442,8 +1027,26 @@ bb:
 
 define noalias ptr @op_new_align() {
 ; CHECK-LABEL: define noalias ptr @op_new_align() {
-; CHECK-NEXT:    [[CALL1:%.*]] = tail call ptr @_ZnamSt11align_val_t(i64 32, i64 32)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 32, i64 32, ptr @__instrumentor_str.5, i8 1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP37:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP37]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP37]], ptr [[TMP1]], i32 0, i32 1
+; CHECK-NEXT:    store i64 32, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @_ZnamSt11align_val_t, ptr @__instrumentor_str.11, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = tail call ptr @_ZnamSt11align_val_t(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @_ZnamSt11align_val_t, ptr @__instrumentor_str.11)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP10]], i64 [[TMP11]], ptr @__instrumentor_str.11, i8 1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = tail call ptr @_ZnamSt11align_val_t(i64 32, i64 32)
@@ -452,8 +1055,19 @@ define noalias ptr @op_new_align() {
 
 define ptr @my_malloc_constant_size() {
 ; CHECK-LABEL: define ptr @my_malloc_constant_size() {
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @my_malloc(i64 32)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 32, i64 -1, ptr @__instrumentor_str.1, i8 -1)
+; CHECK-NEXT:    [[TMP8:%.*]] = alloca [[TMP38:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP38]], ptr [[TMP8]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @my_malloc, ptr @__instrumentor_str.12, ptr [[TMP8]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @my_malloc(i64 [[TMP7]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @my_malloc, ptr @__instrumentor_str.12)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = call ptr @my_malloc(i64 32)
@@ -462,8 +1076,27 @@ define ptr @my_malloc_constant_size() {
 
 define ptr @my_calloc_constant_size() {
 ; CHECK-LABEL: define ptr @my_calloc_constant_size() {
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @my_calloc(i64 32, i64 4)
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 128, i64 -1, ptr @__instrumentor_str.1, i8 -1)
+; CHECK-NEXT:    [[TMP13:%.*]] = alloca [[TMP39:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [2 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP39]], ptr [[TMP13]], i32 0, i32 0
+; CHECK-NEXT:    store i64 32, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds nuw [[TMP39]], ptr [[TMP13]], i32 0, i32 1
+; CHECK-NEXT:    store i64 4, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP5]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 8, ptr [[TMP6]], align 4
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP7]], align 4
+; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr [2 x i32], ptr [[TMP2]], i32 0, i32 1
+; CHECK-NEXT:    store i32 12, ptr [[TMP8]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr @my_calloc, ptr @__instrumentor_str.13, ptr [[TMP13]], ptr [[TMP2]], ptr [[TMP2]], i32 2)
+; CHECK-NEXT:    [[TMP10:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i64, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @my_calloc(i64 [[TMP10]], i64 [[TMP11]])
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr @my_calloc, ptr @__instrumentor_str.13)
+; CHECK-NEXT:    [[TMP12:%.*]] = mul i64 [[TMP10]], [[TMP11]]
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[TMP12]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
 ;
   %call = call ptr @my_calloc(i64 32, i64 4)
@@ -473,8 +1106,19 @@ define ptr @my_calloc_constant_size() {
 define ptr @virtual_constant_size(ptr %alloc) {
 ; CHECK-LABEL: define ptr @virtual_constant_size(
 ; CHECK-SAME: ptr [[ALLOC:%.*]]) {
-; CHECK-NEXT:    [[CALL1:%.*]] = call ptr [[ALLOC]](i64 16) #[[ATTR5:[0-9]+]]
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 16, i64 -1, ptr @__instrumentor_str.1, i8 -1)
+; CHECK-NEXT:    [[TMP1:%.*]] = alloca [[TMP40:%.*]], align 8
+; CHECK-NEXT:    [[TMP2:%.*]] = alloca [1 x i32], align 4
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw [[TMP40]], ptr [[TMP1]], i32 0, i32 0
+; CHECK-NEXT:    store i64 16, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 8, ptr [[TMP4]], align 4
+; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr [1 x i32], ptr [[TMP2]], i32 0, i32 0
+; CHECK-NEXT:    store i32 12, ptr [[TMP5]], align 4
+; CHECK-NEXT:    call void @__instrumentor_pre_call(ptr [[ALLOC]], ptr @__instrumentor_str.14, ptr [[TMP1]], ptr [[TMP2]], ptr [[TMP2]], i32 1)
+; CHECK-NEXT:    [[TMP7:%.*]] = load i64, ptr [[TMP3]], align 4
+; CHECK-NEXT:    [[CALL1:%.*]] = call ptr [[ALLOC]](i64 [[TMP7]]) #[[ATTR5:[0-9]+]]
+; CHECK-NEXT:    call void @__instrumentor_post_call(ptr [[ALLOC]], ptr @__instrumentor_str.14)
+; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 [[TMP7]], i64 -1, ptr @__instrumentor_str.1, i8 -1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
 ;
   %call = call ptr %alloc(i64 16) allocsize(0)

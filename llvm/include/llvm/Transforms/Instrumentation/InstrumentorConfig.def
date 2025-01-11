@@ -292,22 +292,30 @@ CVALUE_INTERNAL(main_function, GlobalCallbackTy, CB, nullptr)
 SECTION_END(main_function)
 ///}
 
-/// CallArg
+/// Call
 ///{
-SECTION_START(call_arg, InstrumentorConfig::PRE)
+SECTION_START(call, InstrumentorConfig::PRE_AND_POST)
 
 /// Selection of information passed to the runtime.
 ///{
-/// The argument value.
-RTVALUE(call_arg, Value, true, "int64_t", POTENTIALLY_INDIRECT | REPLACABLE_PRE)
-/// The argument type id.
-RTVALUE(call_arg, ValueTypeId, true, "int32_t", TYPE_ID)
+/// The callee ptr.
+RTVALUE(call, CalleePtr, true, "void*", PLAIN)
+/// The callee name.
+RTVALUE(call, CalleeName, true, "void*", STRING)
+/// The argument values.
+RTVALUE(call, Values, true, "void*", PRE_ONLY)
+/// The argument value sizes.
+RTVALUE(call, ValueSizes, true, "void*", PRE_ONLY)
+/// The argument value type ids.
+RTVALUE(call, ValueTypeIds, true, "void*", TYPE_ID | PRE_ONLY)
+/// The number of arguments.
+RTVALUE(call, NumValues, true, "int32_t", PRE_ONLY)
 ///}
 
-/// Should the value be replaced by the runtime call result.
-CVALUE(call_arg, bool, ReplaceValue, true)
+/// Should the values be replaced.
+CVALUE(call, bool, ReplaceValues, true)
 
-SECTION_END(call_arg)
+SECTION_END(call)
 ///}
 
 /// BasePointer

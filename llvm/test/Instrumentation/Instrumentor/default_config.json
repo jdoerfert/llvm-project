@@ -99,11 +99,16 @@
     "ReplaceArgumentValues": true,
     "ReplaceReturnValue": true
   },
-  "call_arg": {
+  "call": {
     "EnabledPre": true,
-    "Value": true,
-    "ValueTypeId": true,
-    "ReplaceValue": true
+    "EnabledPost": true,
+    "CalleePtr": true,
+    "CalleeName": true,
+    "Values": true,
+    "ValueSizes": true,
+    "ValueTypeIds": true,
+    "NumValues": true,
+    "ReplaceValues": true
   },
   "base_pointer": {
     "EnabledPost": true,

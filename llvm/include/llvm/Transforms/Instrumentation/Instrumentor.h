@@ -108,7 +108,10 @@ struct InstrumentorConfig {
     }
 
     bool Enabled;
-    operator bool() { return Enabled; }
+    bool isEnabled(Position P) const {
+      return Enabled && (!(ValKind & PRE_ONLY) || (P & PRE)) &&
+             (!(ValKind & POST_ONLY) || (P & POST));
+    }
 
   private:
     std::string ValName;
