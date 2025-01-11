@@ -93,12 +93,6 @@ SECTION_END(store)
 ///{
 SECTION_START(load, InstrumentorConfig::PRE_AND_POST)
 
-/// Should loads be instrumented before their execution.
-CVALUE(load, bool, InstrumentBefore, true)
-
-/// Should loads be instrumented after their execution.
-CVALUE(load, bool, InstrumentAfter, true)
-
 /// Selection of information passed to the runtime.
 ///{
 /// The pointer operand.
@@ -261,12 +255,6 @@ SECTION_END(global_var)
 ///{
 SECTION_START(module, InstrumentorConfig::PRE_AND_POST)
 
-/// Should the module construction be instrumented.
-CVALUE(module, bool, InstrumentBefore, true)
-
-/// Should the module destruction be instrumented.
-CVALUE(module, bool, InstrumentAfter, true)
-
 /// Selection of information passed to the runtime.
 ///{
 /// The name of the module.
@@ -281,12 +269,6 @@ SECTION_END(module)
 /// MainFunction
 ///{
 SECTION_START(main_function, InstrumentorConfig::PRE_AND_POST)
-
-/// Should the main function be instrumented before its execution.
-CVALUE(main_function, bool, InstrumentBefore, true)
-
-/// Should the main function be instrumented after its execution.
-CVALUE(main_function, bool, InstrumentAfter, true)
 
 /// Selection of information passed to the runtime.
 ///{

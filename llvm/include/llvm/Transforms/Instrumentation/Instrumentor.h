@@ -78,9 +78,18 @@ struct InstrumentorConfig {
   };
 
   struct ConfigSection {
-    ConfigSection(const char *SectionName) : SectionName(SectionName) {}
-    bool Enabled = true;
+    ConfigSection(const char *SectionName, Position SP)
+        : SectionName(SectionName), SP(SP) {}
+    bool EnabledPre = true;
+    bool EnabledPost = true;
     std::string SectionName;
+    Position SP;
+    bool canRunPre() const { return SP & PRE; }
+    bool canRunPost() const { return SP & POST; }
+    bool isEnabled(Position P) const {
+      return (P & SP) &&
+             ((EnabledPre && (P & PRE)) || (EnabledPost && (P & POST)));
+    }
   };
 
   struct ConfigValue {
@@ -110,7 +119,7 @@ struct InstrumentorConfig {
 
 #define SECTION_START(SECTION, POSITION)                                       \
   struct SECTION##Obj : public ConfigSection {                                 \
-    SECTION##Obj() : ConfigSection(#SECTION) {}
+    SECTION##Obj() : ConfigSection(#SECTION, POSITION) {}
 
 #define CVALUE_INTERNAL(SECTION, TYPE, NAME, DEFAULT_VALUE)                    \
   TYPE NAME = DEFAULT_VALUE;

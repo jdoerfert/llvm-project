@@ -1,19 +1,18 @@
 {
   "Base": {
-    "Enabled": true,
     "RuntimeName": "__instrumentor_",
     "PrintRuntimeSignatures": true,
     "StubRuntimePath": "rt.c"
   },
   "alloca": {
-    "Enabled": true,
+    "EnabledPost": true,
     "Value": true,
     "AllocationSize": true,
     "Alignment": true,
     "ReplaceValue": true
   },
   "store": {
-    "Enabled": true,
+    "EnabledPre": true,
     "PointerOperand": true,
     "PointerOperandAddressSpace": true,
     "ValueOperand": true,
@@ -28,9 +27,8 @@
     "SkipSafeAccess": false
   },
   "load": {
-    "Enabled": true,
-    "InstrumentBefore": true,
-    "InstrumentAfter": true,
+    "EnabledPre": true,
+    "EnabledPost": true,
     "PointerOperand": true,
     "PointerOperandAddressSpace": true,
     "Value": true,
@@ -46,7 +44,7 @@
     "SkipSafeAccess": false
   },
   "allocation_call": {
-    "Enabled": true,
+    "EnabledPost": true,
     "MemoryPointer": true,
     "MemorySize": true,
     "Alignment": true,
@@ -55,7 +53,8 @@
     "ReplaceValue": true
   },
   "memory_intrinsic": {
-    "Enabled": true,
+    "EnabledPre": true,
+    "EnabledPost": true,
     "KindId": true,
     "DestinationPointer": true,
     "DestinationPointerAddressSpace": true,
@@ -68,14 +67,14 @@
     "ReplaceValue": true
   },
   "intrinsic": {
-    "Enabled": true,
+    "EnabledPre": true,
     "KindId": true
   },
   "unreachable": {
-    "Enabled": true
+    "EnabledPre": true
   },
   "global_var": {
-    "Enabled": true,
+    "EnabledPost": true,
     "Value": true,
     "Size": true,
     "Alignment": true,
@@ -86,16 +85,14 @@
     "ReplaceValue": true
   },
   "module": {
-    "Enabled": true,
-    "InstrumentBefore": true,
-    "InstrumentAfter": true,
+    "EnabledPre": true,
+    "EnabledPost": true,
     "ModuleName": true,
     "ModuleTargetTriple": true
   },
   "main_function": {
-    "Enabled": true,
-    "InstrumentBefore": true,
-    "InstrumentAfter": true,
+    "EnabledPre": true,
+    "EnabledPost": true,
     "ArgC": true,
     "ArgV": true,
     "ReturnValue": true,
@@ -103,13 +100,13 @@
     "ReplaceReturnValue": true
   },
   "call_arg": {
-    "Enabled": true,
+    "EnabledPre": true,
     "Value": true,
     "ValueTypeId": true,
     "ReplaceValue": true
   },
   "base_pointer": {
-    "Enabled": true,
+    "EnabledPost": true,
     "Value": true,
     "SkipUnused": true
   }
