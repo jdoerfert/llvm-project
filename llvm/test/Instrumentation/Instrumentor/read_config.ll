@@ -9,9 +9,9 @@ define ptr @bar(i1 %c) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[A:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    [[B:%.*]] = alloca i32, i32 5, align 4
-; CHECK-NEXT:    call void @__just_calls_post_alloca()
-; CHECK-NEXT:    call void @__just_calls_post_alloca()
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[C]], ptr [[A]], ptr [[B]]
+; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__just_calls_post_alloca(ptr [[B]], i64 20, i64 4)
+; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__just_calls_post_alloca(ptr [[A]], i64 4, i64 4)
+; CHECK-NEXT:    [[S:%.*]] = select i1 [[C]], ptr [[TMP1]], ptr [[TMP0]]
 ; CHECK-NEXT:    ret ptr [[S]]
 ;
 entry:

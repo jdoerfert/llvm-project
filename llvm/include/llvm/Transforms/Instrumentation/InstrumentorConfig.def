@@ -12,360 +12,341 @@
 
 /// Base configuration
 ///{
-SECTION_START(Base, )
+SECTION_START(Base, InstrumentorConfig::NONE)
 
 /// The base name which defines the runtime call names, i.a.,
 /// <BaseName><instruction/location>(...)
-CONFIG(Base, std::string, RuntimeName, "__instrumentor_")
+CVALUE(Base, std::string, RuntimeName, "__instrumentor_")
 
 /// Print the signatures of all used runtime functions.
-CONFIG(Base, bool, PrintRuntimeSignatures, true)
+CVALUE(Base, bool, PrintRuntimeSignatures, true)
 
-CONFIG(Base, std::string, StubRuntimePath, "")
+CVALUE(Base, std::string, StubRuntimePath, "rt.c")
 
 SECTION_END(Base)
 ///}
 
 /// AllocaInst
 ///{
-SECTION_START(Alloca, AllocaInst)
-
-/// Should allocas be instrumented.
-CONFIG(Alloca, bool, Instrument, true)
+SECTION_START(alloca, InstrumentorConfig::POST)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The actual allocated pointer.
-CONFIG(Alloca, bool, Value, true)
+RTVALUE(alloca, Value, true, "void*", REPLACABLE_POST)
 /// The size of the entire allocation.
-CONFIG(Alloca, bool, AllocationSize, true)
+RTVALUE(alloca, AllocationSize, true, "int64_t", PLAIN)
 /// The minimal alignment requested statically.
-CONFIG(Alloca, bool, Alignment, true)
+RTVALUE(alloca, Alignment, true, "int64_t", PLAIN)
 ///}
 
 /// Should the value be replaced by the runtime call result.
-CONFIG(Alloca, bool, ReplaceValue, true)
+CVALUE(alloca, bool, ReplaceValue, true)
 
 /// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(Alloca, CallbackTy, CB, nullptr)
+CVALUE_INTERNAL(alloca, CallbackTy, CB, nullptr)
 
-SECTION_END(Alloca)
+SECTION_END(alloca)
 ///}
 
 /// StoreInst
 ///{
-SECTION_START(Store, StoreInst)
-
-/// Should stores be instrumented.
-CONFIG(Store, bool, Instrument, true)
+SECTION_START(store, InstrumentorConfig::PRE)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The pointer operand.
-CONFIG(Store, bool, PointerOperand, true)
+RTVALUE(store, PointerOperand, true, "void*", REPLACABLE_PRE)
 /// The pointer operand address space.
-CONFIG(Store, bool, PointerOperandAddressSpace, true)
+RTVALUE(store, PointerOperandAddressSpace, true, "int32_t", PLAIN)
 /// The value operand, passed as 64-bit integer.
-CONFIG(Store, bool, ValueOperand, true)
+RTVALUE(store, ValueOperand, true, "int64_t", POTENTIALLY_INDIRECT)
 /// The value operand size.
-CONFIG(Store, bool, ValueOperandSize, true)
+RTVALUE(store, ValueOperandSize, true, "int64_t", PLAIN)
 /// The value operand type id.
-CONFIG(Store, bool, ValueOperandTypeId, true)
+RTVALUE(store, ValueOperandTypeId, true, "int64_t", TYPE_ID)
 /// The minimal alignment requested statically.
-CONFIG(Store, bool, Alignment, true)
+RTVALUE(store, Alignment, true, "int64_t", PLAIN)
 /// The atomicity ordering.
-CONFIG(Store, bool, AtomicityOrdering, true)
+RTVALUE(store, AtomicityOrdering, true, "int32_t", PLAIN)
 /// The sync cope id.
-CONFIG(Store, bool, SyncScopeId, true)
+RTVALUE(store, SyncScopeId, true, "int8_t", PLAIN)
 /// The volatile flag.
-CONFIG(Store, bool, IsVolatile, true)
+RTVALUE(store, IsVolatile, true, "int8_t", BOOLEAN)
 /// The pointer base info. See BasePointer.
-CONFIG(Store, bool, BasePointerInfo, true)
+RTVALUE(store, BasePointerInfo, true, "void*", PLAIN)
 ///}
 
 /// Should the pointer operand be replaced by the runtime call result.
-CONFIG(Store, bool, ReplacePointerOperand, true)
+CVALUE(store, bool, ReplacePointerOperand, true)
 
 /// Skip instrumenting stores that are known to be safe at compile time.
-CONFIG(Store, bool, SkipSafeAccess, false)
+CVALUE(store, bool, SkipSafeAccess, false)
 
 /// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(Store, CallbackTy, CB, nullptr)
+CVALUE_INTERNAL(store, CallbackTy, CB, nullptr)
 
-SECTION_END(Store)
+SECTION_END(store)
 ///}
 
 /// LoadInst
 ///{
-SECTION_START(Load, LoadInst)
+SECTION_START(load, InstrumentorConfig::PRE_AND_POST)
 
 /// Should loads be instrumented before their execution.
-CONFIG(Load, bool, InstrumentBefore, true)
+CVALUE(load, bool, InstrumentBefore, true)
 
 /// Should loads be instrumented after their execution.
-CONFIG(Load, bool, InstrumentAfter, true)
+CVALUE(load, bool, InstrumentAfter, true)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The pointer operand.
-CONFIG(Load, bool, PointerOperand, true)
+RTVALUE(load, PointerOperand, true, "void*", REPLACABLE_PRE)
 /// The pointer operand address space.
-CONFIG(Load, bool, PointerOperandAddressSpace, true)
+RTVALUE(load, PointerOperandAddressSpace, true, "int32_t", PLAIN)
 /// The loaded value, passed as 64-bit integer.
-CONFIG(Load, bool, Value, true)
+RTVALUE(load, Value, true, "int64_t", REPLACABLE_POST | POTENTIALLY_INDIRECT | POST_ONLY)
 /// The value size.
-CONFIG(Load, bool, ValueSize, true)
+RTVALUE(load, ValueSize, true, "int64_t", PLAIN)
 /// The value type id.
-CONFIG(Load, bool, ValueTypeId, true)
+RTVALUE(load, ValueTypeId, true, "int64_t", TYPE_ID)
 /// The minimal alignment requested statically.
-CONFIG(Load, bool, Alignment, true)
+RTVALUE(load, Alignment, true, "int64_t", PLAIN)
 /// The atomicity ordering.
-CONFIG(Load, bool, AtomicityOrdering, true)
+RTVALUE(load, AtomicityOrdering, true, "int32_t", PLAIN)
 /// The sync cope id.
-CONFIG(Load, bool, SyncScopeId, true)
+RTVALUE(load, SyncScopeId, true, "int8_t", PLAIN)
 /// The volatile flag.
-CONFIG(Load, bool, IsVolatile, true)
+RTVALUE(load, IsVolatile, true, "int8_t", BOOLEAN)
 /// The pointer base info. See BasePointer.
-CONFIG(Load, bool, BasePointerInfo, true)
+RTVALUE(load, BasePointerInfo, true, "void*", PLAIN)
 ///}
 
 /// Should the pointer operand be replaced by the runtime call result.
-CONFIG(Load, bool, ReplacePointerOperand, true)
+CVALUE(load, bool, ReplacePointerOperand, true)
 
 /// Should the value be replaced by the runtime call result.
-CONFIG(Load, bool, ReplaceValue, true)
+CVALUE(load, bool, ReplaceValue, true)
 
 /// Skip instrumenting loads that are known to be safe at compile time.
-CONFIG(Store, bool, SkipSafeAccess, false)
+CVALUE(load, bool, SkipSafeAccess, false)
 
 /// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(Load, CallbackTy, CB, nullptr)
+CVALUE_INTERNAL(load, CallbackTy, CB, nullptr)
 
-SECTION_END(Load)
+SECTION_END(load)
 ///}
 
 /// AllocationCall
 ///{
-SECTION_START(AllocationCall, CallBase)
-
-/// Should allocation calls, i.a., malloc, new, be instrumented.
-CONFIG(AllocationCall, bool, Instrument, true)
+SECTION_START(allocation_call, InstrumentorConfig::POST)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The allocation result, passed as void *.
-CONFIG(AllocationCall, bool, MemoryPointer, true)
+RTVALUE(allocation_call, MemoryPointer, true, "void*", REPLACABLE_POST)
 /// The allocation memory size.
-CONFIG(AllocationCall, bool, MemorySize, true)
+RTVALUE(allocation_call, MemorySize, true, "int64_t", PLAIN)
 /// The minimal alignment requested statically.
-CONFIG(AllocationCall, bool, Alignment, true)
+RTVALUE(allocation_call, Alignment, true, "int64_t", PLAIN)
 /// The allocation family, passed as a C string.
-CONFIG(AllocationCall, bool, Family, true)
-/// The initial allocation value: 0 for zeros, 1, for undef, or -1 if unknown.
-CONFIG(AllocationCall, bool, InitialValue, true)
+RTVALUE(allocation_call, Family, true, "void*", STRING)
+/// The initial allocation value: 0 for zeros, 1 for undef, or -1 if unknown.
+RTVALUE(allocation_call, InitializerKind, true, "int8_t", INITIALIZER_KIND)
 ///}
 
 /// Should the value be replaced by the runtime call result.
-CONFIG(AllocationCall, bool, ReplaceValue, true)
+CVALUE(allocation_call, bool, ReplaceValue, true)
 
 /// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(AllocationCall, CallbackTy, CB, nullptr)
+CVALUE_INTERNAL(allocation_call, CallbackTy, CB, nullptr)
 
-SECTION_END(AllocationCall)
+SECTION_END(allocation_call)
 ///}
 
 /// MemoryIntrinsic
 ///{
-SECTION_START(MemoryIntrinsic, CallBase)
-
-/// Should memory intrinsics, e.g., memset, memcpy, be instrumented.
-CONFIG(MemoryIntrinsic, bool, Instrument, true)
+SECTION_START(memory_intrinsic, InstrumentorConfig::PRE_AND_POST)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The kind identifier (memset, memset_inline, ...)
-CONFIG(MemoryIntrinsic, bool, KindId, true)
+RTVALUE(memory_intrinsic, KindId, true, "int32_t", PLAIN)
 /// The destination pointer.
-CONFIG(MemoryIntrinsic, bool, DestinationPointer, true)
+RTVALUE(memory_intrinsic, DestinationPointer, true, "void*", PLAIN)
 /// The destination pointer address space.
-CONFIG(MemoryIntrinsic, bool, DestinationPointerAddressSpace, true)
+RTVALUE(memory_intrinsic, DestinationPointerAddressSpace, true, "int32_t", PLAIN)
 /// The source pointer.
-CONFIG(MemoryIntrinsic, bool, SourcePointer, true)
+RTVALUE(memory_intrinsic, SourcePointer, true, "void*", PLAIN)
 /// The source pointer address space.
-CONFIG(MemoryIntrinsic, bool, SourcePointerAddressSpace, true)
-/// The memset value (2x i64).
-CONFIG(MemoryIntrinsic, bool, MemsetValue, true)
+RTVALUE(memory_intrinsic, SourcePointerAddressSpace, true, "int32_t", PLAIN)
+/// The memset value.
+RTVALUE(memory_intrinsic, MemsetValue, true, "int64_t", PLAIN)
 /// The length of the operation in bytes.
-CONFIG(MemoryIntrinsic, bool, Length, true)
+RTVALUE(memory_intrinsic, Length, true, "int64_t", PLAIN)
 /// The volatile flag.
-CONFIG(MemoryIntrinsic, bool, IsVolatile, true)
+RTVALUE(memory_intrinsic, IsVolatile, true, "int8_t", BOOLEAN)
 /// The atomic element size.
-CONFIG(MemoryIntrinsic, bool, AtomicElementSize, true)
+RTVALUE(memory_intrinsic, AtomicElementSize, true, "int32_t", PLAIN)
 ///}
 
 /// Should the value be replaced by the runtime call result.
-CONFIG(MemoryIntrinsic, bool, ReplaceValue, true)
+CVALUE(memory_intrinsic, bool, ReplaceValue, true)
 
 /// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(MemoryIntrinsic, CallbackTy, CB, nullptr)
+CVALUE_INTERNAL(memory_intrinsic, CallbackTy, CB, nullptr)
 
-SECTION_END(MemoryIntrinsic)
+SECTION_END(memory_intrinsic)
 ///}
 
 /// GeneralIntrinsic
 ///{
-SECTION_START(GeneralIntrinsic, CallBase)
-
-/// Should general intrinsics, e.g., traps, be instrumented.
-CONFIG(GeneralIntrinsic, bool, Instrument, true)
+SECTION_START(intrinsic, InstrumentorConfig::PRE)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The kind identifier (trap, ...)
-CONFIG(GeneralIntrinsic, bool, KindId, true)
+RTVALUE(intrinsic, KindId, true, "int32_t", PLAIN)
 ///}
 
 /// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(GeneralIntrinsic, CallbackTy, CB, nullptr)
+CVALUE_INTERNAL(intrinsic, CallbackTy, CB, nullptr)
 
-SECTION_END(GeneralIntrinsic)
+SECTION_END(intrinsic)
 ///}
 
 /// Unreachable
 ///{
-SECTION_START(Unreachable, UnreachableInst)
-
-/// Should unreachables be instrumented.
-CONFIG(Unreachable, bool, Instrument, true)
+SECTION_START(unreachable, InstrumentorConfig::PRE)
 
 /// Optional callback, see CallbackTy.
-CONFIG_INTERNAL(Unreachable, CallbackTy, CB, nullptr)
+CVALUE_INTERNAL(unreachable, CallbackTy, CB, nullptr)
 
-SECTION_END(Unreachable)
+SECTION_END(unreachable)
 ///}
 
 /// GlobalVariable
 ///{
-SECTION_START(GlobalVariable, GlobalVariable)
-
-/// Should the global variables be instrumented.
-CONFIG(GlobalVariable, bool, Instrument, true)
+SECTION_START(global_var, InstrumentorConfig::POST)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The pointer to the global variable.
-CONFIG(GlobalVariable, bool, Value, true)
+RTVALUE(global_var, Value, true, "void*", REPLACABLE_POST)
 /// The size of the global variable.
-CONFIG(GlobalVariable, bool, Size, true)
+RTVALUE(global_var, Size, true, "int64_t", PLAIN)
 /// The minimal alignment requested statically.
-CONFIG(GlobalVariable, bool, Alignment, true)
+RTVALUE(global_var, Alignment, true, "int64_t", PLAIN)
 /// Whether the global variable is constant.
-CONFIG(GlobalVariable, bool, Constant, true)
+RTVALUE(global_var, IsConstant, true, "int8_t", BOOLEAN)
 /// The value of the unnamed address attribute.
-CONFIG(GlobalVariable, bool, UnnamedAddress, true)
+RTVALUE(global_var, UnnamedAddress, true, "int8_t", PLAIN)
 /// The name of the global variable.
-CONFIG(GlobalVariable, bool, Name, true)
+RTVALUE(global_var, Name, true, "void*", STRING)
+/// The initializer kind of the global variable.
+RTVALUE(global_var, InitializerKind, true, "int8_t", INITIALIZER_KIND)
 ///}
 
 /// Should the value be replaced by the runtime call result.
-CONFIG(GlobalVariable, bool, ReplaceValue, true)
+CVALUE(global_var, bool, ReplaceValue, true)
 
 /// Optional callback, see GlobalCallbackTy.
-CONFIG_INTERNAL(GlobalVariable, GlobalCallbackTy, CB, nullptr)
+CVALUE_INTERNAL(global_var, GlobalCallbackTy, CB, nullptr)
 
-SECTION_END(GlobalVariable)
+SECTION_END(global_var)
 ///}
 
 /// Module
 ///{
-SECTION_START(Module, Module)
+SECTION_START(module, InstrumentorConfig::PRE_AND_POST)
 
 /// Should the module construction be instrumented.
-CONFIG(Module, bool, InstrumentBefore, true)
+CVALUE(module, bool, InstrumentBefore, true)
 
 /// Should the module destruction be instrumented.
-CONFIG(Module, bool, InstrumentAfter, true)
+CVALUE(module, bool, InstrumentAfter, true)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The name of the module.
-CONFIG(Module, bool, Name, true)
+RTVALUE(module, ModuleName, true, "void*", STRING)
 /// The target triple of the module.
-CONFIG(Module, bool, TargetTriple, true)
+RTVALUE(module, ModuleTargetTriple, true, "void*", STRING)
 ///}
 
-SECTION_END(Module)
+SECTION_END(module)
 ///}
 
 /// MainFunction
 ///{
-SECTION_START(MainFunction, CallBase)
+SECTION_START(main_function, InstrumentorConfig::PRE_AND_POST)
 
 /// Should the main function be instrumented before its execution.
-CONFIG(MainFunction, bool, InstrumentBefore, true)
+CVALUE(main_function, bool, InstrumentBefore, true)
 
 /// Should the main function be instrumented after its execution.
-CONFIG(MainFunction, bool, InstrumentAfter, true)
+CVALUE(main_function, bool, InstrumentAfter, true)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The pointers to the main arguments.
-CONFIG(MainFunction, bool, Args, true)
+RTVALUE(main_function, ArgC, true, "int32_t", POTENTIALLY_INDIRECT | REPLACABLE_PRE | REPLACABLE_POST)
+/// The pointers to the main arguments.
+RTVALUE(main_function, ArgV, true, "void*", POTENTIALLY_INDIRECT | REPLACABLE_PRE | REPLACABLE_POST)
 /// The value returned by the main function.
-CONFIG(MainFunction, bool, Value, true)
-/// Should the value be replaced by the runtime call result.
-CONFIG(MainFunction, bool, ReplaceValue, true)
+RTVALUE(main_function, ReturnValue, true, "int32_t", REPLACABLE_POST | POST_ONLY)
 ///}
 
-/// Optional callback, see GlobalCallbackTy.
-CONFIG_INTERNAL(MainFunction, GlobalCallbackTy, CB, nullptr)
+/// Should the argument value be replaced by the runtime call result.
+CVALUE(main_function, bool, ReplaceArgumentValues, true)
 
-SECTION_END(MainFunction)
+/// Should the return value be replaced by the runtime call result.
+CVALUE(main_function, bool, ReplaceReturnValue, true)
+
+/// Optional callback, see GlobalCallbackTy.
+CVALUE_INTERNAL(main_function, GlobalCallbackTy, CB, nullptr)
+
+SECTION_END(main_function)
 ///}
 
 /// CallArg
 ///{
-SECTION_START(CallArg, Value)
-
-/// Should the arguments of function calls be instrumented.
-CONFIG(CallArg, bool, Instrument, true)
+SECTION_START(call_arg, InstrumentorConfig::PRE)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The argument value.
-CONFIG(CallArg, bool, Value, true)
-/// Should the value be replaced by the runtime call result.
-CONFIG(CallArg, bool, ReplaceValue, true)
+RTVALUE(call_arg, Value, true, "int64_t", POTENTIALLY_INDIRECT | REPLACABLE_PRE)
+/// The argument type id.
+RTVALUE(call_arg, ValueTypeId, true, "int64_t", TYPE_ID)
 ///}
 
-SECTION_END(CallArg)
+/// Should the value be replaced by the runtime call result.
+CVALUE(call_arg, bool, ReplaceValue, true)
+
+SECTION_END(call_arg)
 ///}
 
 /// BasePointer
 ///{
-SECTION_START(BasePointer, Value)
-
-/// Should the base pointers (originators) be instrumented.
-CONFIG(BasePointer, bool, Instrument, true)
+SECTION_START(base_pointer, InstrumentorConfig::POST)
 
 /// Selection of information passed to the runtime.
 ///{
 /// The base pointer.
-CONFIG(BasePointer, bool, Value, true)
-/// Should the runtime call return pointer information as a 64-bit integer. This
-/// info can be forwarded to load and store instrumentation. See BasePointerInfo
-/// option for Load and Store.
-CONFIG(BasePointer, bool, ReturnPointerInfo, true)
+RTVALUE(base_pointer, Value, true, "void*", REPLACABLE_POST)
 ///}
 
 /// Skip instrumenting base pointers whose PointerInfo are not used by any Load
 /// or Store.
-CONFIG(BasePointer, bool, SkipUnused, true)
+CVALUE(base_pointer, bool, SkipUnused, true)
 
-SECTION_END(BasePointer)
+SECTION_END(base_pointer)
 ///}
 
 #undef SECTION_START
-#undef CONFIG
-#undef CONFIG_INTERNAL
+#undef CVALUE
+#undef CVALUE_INTERNAL
+#undef RTVALUE
 #undef SECTION_END
