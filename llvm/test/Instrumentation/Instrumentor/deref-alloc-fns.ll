@@ -107,9 +107,15 @@ define noalias ptr @aligned_alloc_dynamic_args(i64 %align, i64 %size) {
 ; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL_3]], i64 1024, i64 -1, ptr @__instrumentor_str.2, i8 1)
 ; CHECK-NEXT:    [[CALL_4:%.*]] = tail call noalias ptr @aligned_alloc(i64 32, i64 [[SIZE]])
 ; CHECK-NEXT:    [[TMP3:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL_4]], i64 [[SIZE]], i64 -1, ptr @__instrumentor_str.2, i8 1)
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_pre_call_arg(ptr [[TMP4]])
-; CHECK-NEXT:    [[CALL_1:%.*]] = call ptr @__instrumentor_pre_call_arg(ptr [[TMP2]])
-; CHECK-NEXT:    [[CALL_2:%.*]] = call ptr @__instrumentor_pre_call_arg(ptr [[TMP3]])
+; CHECK-NEXT:    [[TMP6:%.*]] = ptrtoint ptr [[TMP4]] to i64
+; CHECK-NEXT:    [[TMP5:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP6]], i32 14)
+; CHECK-NEXT:    [[CALL:%.*]] = inttoptr i64 [[TMP5]] to ptr
+; CHECK-NEXT:    [[TMP7:%.*]] = ptrtoint ptr [[TMP2]] to i64
+; CHECK-NEXT:    [[TMP8:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP7]], i32 14)
+; CHECK-NEXT:    [[CALL_1:%.*]] = inttoptr i64 [[TMP8]] to ptr
+; CHECK-NEXT:    [[TMP10:%.*]] = ptrtoint ptr [[TMP3]] to i64
+; CHECK-NEXT:    [[TMP11:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP10]], i32 14)
+; CHECK-NEXT:    [[CALL_2:%.*]] = inttoptr i64 [[TMP11]] to ptr
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @foo(ptr [[CALL]], ptr [[CALL_1]], ptr [[CALL_2]])
 ; CHECK-NEXT:    ret ptr [[TMP4]]
 ;
@@ -201,7 +207,9 @@ define noalias ptr @malloc_constant_zero_size() {
 define noalias ptr @realloc_nonconstant_size(ptr %p, i64 %n) {
 ; CHECK-LABEL: define noalias ptr @realloc_nonconstant_size(
 ; CHECK-SAME: ptr [[P:%.*]], i64 [[N:%.*]]) {
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_pre_call_arg(ptr [[P]])
+; CHECK-NEXT:    [[TMP3:%.*]] = ptrtoint ptr [[P]] to i64
+; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP3]], i32 14)
+; CHECK-NEXT:    [[TMP2:%.*]] = inttoptr i64 [[TMP4]] to ptr
 ; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @realloc(ptr [[TMP2]], i64 [[N]])
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 [[N]], i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
@@ -213,7 +221,9 @@ define noalias ptr @realloc_nonconstant_size(ptr %p, i64 %n) {
 define noalias ptr @realloc_constant_zero_size(ptr %p) {
 ; CHECK-LABEL: define noalias ptr @realloc_constant_zero_size(
 ; CHECK-SAME: ptr [[P:%.*]]) {
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_pre_call_arg(ptr [[P]])
+; CHECK-NEXT:    [[TMP3:%.*]] = ptrtoint ptr [[P]] to i64
+; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP3]], i32 14)
+; CHECK-NEXT:    [[TMP2:%.*]] = inttoptr i64 [[TMP4]] to ptr
 ; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @realloc(ptr [[TMP2]], i64 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 0, i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]
@@ -225,7 +235,9 @@ define noalias ptr @realloc_constant_zero_size(ptr %p) {
 define noalias ptr @realloc_constant_size(ptr %p) {
 ; CHECK-LABEL: define noalias ptr @realloc_constant_size(
 ; CHECK-SAME: ptr [[P:%.*]]) {
-; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_call_arg(ptr [[P]])
+; CHECK-NEXT:    [[TMP3:%.*]] = ptrtoint ptr [[P]] to i64
+; CHECK-NEXT:    [[TMP2:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP3]], i32 14)
+; CHECK-NEXT:    [[TMP1:%.*]] = inttoptr i64 [[TMP2]] to ptr
 ; CHECK-NEXT:    [[CALL1:%.*]] = tail call noalias ptr @realloc(ptr [[TMP1]], i64 40)
 ; CHECK-NEXT:    [[CALL:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL1]], i64 40, i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[CALL]]
@@ -401,7 +413,9 @@ define noalias ptr @strdup_constant_str() {
 define noalias ptr @strdup_notconstant_str(ptr %str) {
 ; CHECK-LABEL: define noalias ptr @strdup_notconstant_str(
 ; CHECK-SAME: ptr [[STR:%.*]]) {
-; CHECK-NEXT:    [[TMP2:%.*]] = call ptr @__instrumentor_pre_call_arg(ptr [[STR]])
+; CHECK-NEXT:    [[TMP3:%.*]] = ptrtoint ptr [[STR]] to i64
+; CHECK-NEXT:    [[TMP4:%.*]] = call i64 @__instrumentor_pre_call_arg(i64 [[TMP3]], i32 14)
+; CHECK-NEXT:    [[TMP2:%.*]] = inttoptr i64 [[TMP4]] to ptr
 ; CHECK-NEXT:    [[CALL:%.*]] = tail call noalias ptr @strdup(ptr [[TMP2]])
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_allocation_call(ptr [[CALL]], i64 -1, i64 -1, ptr @__instrumentor_str.2, i8 -1)
 ; CHECK-NEXT:    ret ptr [[TMP1]]

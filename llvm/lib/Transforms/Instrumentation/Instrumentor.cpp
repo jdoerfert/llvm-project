@@ -321,7 +321,17 @@ Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL,
   if (VTy->isIntegerTy() && Ty->isPointerTy())
     return CheckOnly ? V : IRB.CreateIntToPtr(V, Ty);
   if (VTy->isIntegerTy() && Ty->isIntegerTy())
-    return CheckOnly ? V : IRB.CreateIntCast(V, Ty, /* isSigned */ false);
+    return CheckOnly ? V : IRB.CreateIntCast(V, Ty, /*IsSigned=*/ false);
+  if (VTy->isIntegerTy() && Ty->isFloatingPointTy()) {
+    if (DL.getTypeSizeInBits(VTy) > DL.getTypeSizeInBits(Ty))
+      return tryToCast(IRB,
+                       CheckOnly
+                           ? IRB.getIntN(DL.getTypeSizeInBits(VTy) / 2, 0)
+                           : IRB.CreateIntCast(
+                                 V, IRB.getIntNTy(DL.getTypeSizeInBits(VTy) / 2), /*IsSigned=*/false),
+                       Ty, DL);
+    return nullptr;
+  }
   if (VTy->isFloatingPointTy() && Ty->isIntOrPtrTy()) {
     switch (DL.getTypeSizeInBits(VTy)) {
     case 64:
@@ -693,6 +703,8 @@ private:
     if (shouldSkipCV(Obj, After))
       return nullptr;
     if (!ForceIndirection &&
+        tryToCast(IRB, UndefValue::get(Obj.getType(Ctx)), V->getType(), DL,
+                  /*CheckOnly=*/true) &&
         tryToCast(IRB, V, Obj.getType(Ctx), DL, /*CheckOnly=*/true)) {
       addVal(RTArgs, Obj, V, After);
       return nullptr;
@@ -1216,6 +1228,9 @@ bool InstrumentorImpl::instrumentLoad(LoadInst &I, bool After) {
     IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
     Value *NewV = IndirectionAI ? IRB.CreateLoad(I.getType(), IndirectionAI)
                                 : tryToCast(IRB, CI, I.getType(), DL);
+    if (!NewV)
+      I.getFunction()->dump();
+    assert(NewV);
     I.replaceUsesWithIf(NewV, [&](Use &U) {
       return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
     });

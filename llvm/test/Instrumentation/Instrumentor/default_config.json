@@ -1,17 +1,19 @@
 {
   "Base": {
+    "Enabled": true,
     "RuntimeName": "__instrumentor_",
-    "PrintRuntimeSignatures": true
+    "PrintRuntimeSignatures": true,
+    "StubRuntimePath": "rt.c"
   },
-  "Alloca": {
-    "Instrument": true,
+  "alloca": {
+    "Enabled": true,
     "Value": true,
     "AllocationSize": true,
     "Alignment": true,
     "ReplaceValue": true
   },
-  "Store": {
-    "Instrument": true,
+  "store": {
+    "Enabled": true,
     "PointerOperand": true,
     "PointerOperandAddressSpace": true,
     "ValueOperand": true,
@@ -20,11 +22,15 @@
     "Alignment": true,
     "AtomicityOrdering": true,
     "SyncScopeId": true,
-    "IsVolatile": true
+    "IsVolatile": true,
+    "BasePointerInfo": true,
+    "ReplacePointerOperand": true,
+    "SkipSafeAccess": false
   },
-  "Load": {
-    "Instrument": true,
-    "CheckBefore": true,
+  "load": {
+    "Enabled": true,
+    "InstrumentBefore": true,
+    "InstrumentAfter": true,
     "PointerOperand": true,
     "PointerOperandAddressSpace": true,
     "Value": true,
@@ -34,19 +40,22 @@
     "AtomicityOrdering": true,
     "SyncScopeId": true,
     "IsVolatile": true,
-    "ReplaceValue": true
+    "BasePointerInfo": true,
+    "ReplacePointerOperand": true,
+    "ReplaceValue": true,
+    "SkipSafeAccess": false
   },
-  "AllocationCall": {
-    "Instrument": true,
+  "allocation_call": {
+    "Enabled": true,
     "MemoryPointer": true,
     "MemorySize": true,
     "Alignment": true,
     "Family": true,
-    "InitialValue": true,
+    "InitializerKind": true,
     "ReplaceValue": true
   },
-  "MemoryIntrinsics": {
-    "Instrument": true,
+  "memory_intrinsic": {
+    "Enabled": true,
     "KindId": true,
     "DestinationPointer": true,
     "DestinationPointerAddressSpace": true,
@@ -57,5 +66,51 @@
     "IsVolatile": true,
     "AtomicElementSize": true,
     "ReplaceValue": true
+  },
+  "intrinsic": {
+    "Enabled": true,
+    "KindId": true
+  },
+  "unreachable": {
+    "Enabled": true
+  },
+  "global_var": {
+    "Enabled": true,
+    "Value": true,
+    "Size": true,
+    "Alignment": true,
+    "IsConstant": true,
+    "UnnamedAddress": true,
+    "Name": true,
+    "InitializerKind": true,
+    "ReplaceValue": true
+  },
+  "module": {
+    "Enabled": true,
+    "InstrumentBefore": true,
+    "InstrumentAfter": true,
+    "ModuleName": true,
+    "ModuleTargetTriple": true
+  },
+  "main_function": {
+    "Enabled": true,
+    "InstrumentBefore": true,
+    "InstrumentAfter": true,
+    "ArgC": true,
+    "ArgV": true,
+    "ReturnValue": true,
+    "ReplaceArgumentValues": true,
+    "ReplaceReturnValue": true
+  },
+  "call_arg": {
+    "Enabled": true,
+    "Value": true,
+    "ValueTypeId": true,
+    "ReplaceValue": true
+  },
+  "base_pointer": {
+    "Enabled": true,
+    "Value": true,
+    "SkipUnused": true
   }
 }
