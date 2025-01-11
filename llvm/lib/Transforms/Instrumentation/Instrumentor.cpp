@@ -185,7 +185,7 @@ bool readInstrumentorConfigFromJSON(InstrumentorConfig &IC) {
 
 raw_ostream &printAsCType(raw_ostream &OS, Type *Ty,
                           InstrumentorKindTy Kind = InstrumentorKindTy::PLAIN,
-                          bool Indirect = false) {
+                          bool IsIndirect = false) {
   // TODO: filter ORIGINAL_VALUE and such
   switch (Kind) {
   case InstrumentorKindTy::STRING:
@@ -198,18 +198,18 @@ raw_ostream &printAsCType(raw_ostream &OS, Type *Ty,
     break;
   };
   if (Ty->isPointerTy())
-    return OS << "void* ";
-  if (Ty->isIntegerTy())
+    OS << "void*";
+  else if (Ty->isIntegerTy())
     OS << "int" << Ty->getIntegerBitWidth() << "_t";
   else
     OS << *Ty;
-  if (Indirect && (Kind & InstrumentorKindTy::POTENTIALLY_INDIRECT))
+  if (IsIndirect)
     OS << "*";
   return OS << " ";
 }
 
 bool printAsPrintfFormat(raw_ostream &OS, InstrumentorConfig::ConfigValue &CV,
-                         LLVMContext &Ctx, bool Indirect) {
+                         LLVMContext &Ctx, bool IsIndirect) {
   // TODO: filter ORIGINAL_VALUE and such
   switch (CV.getKind()) {
   default:
@@ -229,6 +229,8 @@ bool printAsPrintfFormat(raw_ostream &OS, InstrumentorConfig::ConfigValue &CV,
   };
 
   Type *Ty = CV.getType(Ctx);
+  if (IsIndirect)
+    OS << "%p -> ";
   if (Ty->isPointerTy())
     return OS << "%p", true;
   if (Ty->isIntegerTy()) {
@@ -380,7 +382,6 @@ public:
   Position = POSITION;
 
 #define SECTION_END(SECTION)                                                   \
-  errs() << "END " << #SECTION << " : " << HasPotentiallyIndirect << "\n";     \
   for (auto &Pos : {InstrumentorConfig::PRE, InstrumentorConfig::POST})        \
     if (Position & Pos) {                                                      \
       if (HasPotentiallyIndirect < 2)                                          \
@@ -486,8 +487,6 @@ private:
   raw_fd_ostream *StubRuntimeOut = nullptr;
 
   raw_fd_ostream *getStubRuntimeOut() {
-    errs() << IC.Base.StubRuntimePath << ":"
-           << (!IC.Base.StubRuntimePath.empty()) << "\n";
     if (!IC.Base.StubRuntimePath.empty()) {
       std::error_code EC;
       StubRuntimeOut = new raw_fd_ostream(IC.Base.StubRuntimePath, EC);
@@ -573,7 +572,7 @@ private:
       SmallVectorImpl<InstrumentorConfig::ConfigValue *> &ConfigValues,
       InstrumentorConfig::Position Position, bool Indirect) {
 
-    bool DirectReturn = false;
+    [[maybe_unused]] bool DirectReturn = false;
     StringRef ReturnedVariable;
     Type *RetTy = VoidTy;
     for (auto *CV : ConfigValues) {
@@ -592,7 +591,7 @@ private:
             (Indirect &&
              (CV->getKind() & InstrumentorKindTy::POTENTIALLY_INDIRECT));
         assert(!DirectReturn || CanBeIndirect);
-        if (!DirectReturn) {
+        if (!CanBeIndirect) {
           RetTy = CV->getType(Ctx);
           ReturnedVariable = CV->getName();
         }
@@ -612,7 +611,9 @@ private:
       if (!First)
         StrOut << ", ";
       First = false;
-      printAsCType(StrOut, CV->getType(Ctx), CV->getKind(), Indirect)
+      bool IsIndirect = Indirect && (CV->getKind() &
+                                     InstrumentorKindTy::POTENTIALLY_INDIRECT);
+      printAsCType(StrOut, CV->getType(Ctx), CV->getKind(), IsIndirect)
           << CV->getName();
       if (Indirect &&
           (CV->getKind() & InstrumentorKindTy::POTENTIALLY_INDIRECT))
@@ -629,12 +630,13 @@ private:
     for (auto *CV : ConfigValues) {
       if (shouldSkipCV(*CV, (Position & InstrumentorConfig::POST)))
         continue;
-      if (Indirect &&
-          (CV->getKind() & InstrumentorKindTy::POTENTIALLY_INDIRECT))
+      bool IsIndirect = Indirect && (CV->getKind() &
+                                     InstrumentorKindTy::POTENTIALLY_INDIRECT);
+      if (IsIndirect)
         (*StubRTOut) << CV->getName() << "Ind: ";
       else
         (*StubRTOut) << CV->getName() << ": ";
-      if (printAsPrintfFormat(*StubRTOut, *CV, Ctx, Indirect)) {
+      if (printAsPrintfFormat(*StubRTOut, *CV, Ctx, IsIndirect)) {
         if (!Str.empty())
           StrOut << ", ";
         // TODO: filter ORIGINAL_VALUE and such
@@ -654,10 +656,11 @@ private:
           StrOut << CV->getName() << ", *" << CV->getName();
           break;
         default:
+          if (IsIndirect)
+            StrOut << "(void*)";
           StrOut << CV->getName();
-          if (Indirect &&
-              (CV->getKind() & InstrumentorKindTy::POTENTIALLY_INDIRECT))
-            StrOut << "Ind";
+          if (IsIndirect)
+            StrOut << "Ind, *" << CV->getName() << "Ind";
         }
       } else {
         (*StubRTOut) << "unknown";
@@ -679,7 +682,6 @@ private:
       return;
     Type *Ty = Obj.getType(Ctx);
     V = tryToCast(IRB, V, Ty, DL);
-    errs() << *V << " : " << *Ty << "\n";
     assert(V->getType() == Ty);
     RTArgs.emplace_back(V, Obj.getName(), Obj.getKind());
   }
@@ -709,7 +711,6 @@ private:
       return;
     Type *Ty = Obj.getType(Ctx);
     Value *V = ValFn(Ty);
-    errs() << *V << " : " << *Ty << "\n";
     assert(V->getType() == Ty);
     RTArgs.emplace_back(tryToCast(IRB, V, Ty, DL), Obj.getName(),
                         Obj.getKind());
@@ -989,7 +990,6 @@ bool InstrumentorImpl::instrumentAllocationCall(CallBase &I,
   addValCB(RTArgs, IC.allocation_call.InitializerKind, GetInitializerKind,
            /*After=*/true);
 
-  Type *RetTy = IC.allocation_call.ReplaceValue ? PtrTy : nullptr;
   auto *CI = getCall(IC.allocation_call.SectionName, RTArgs, /*After=*/true);
   if (IC.allocation_call.ReplaceValue) {
     IRB.SetInsertPoint(CI->getNextNonDebugInstruction());
@@ -1169,9 +1169,9 @@ bool InstrumentorImpl::instrumentStore(StoreInst &I) {
 bool InstrumentorImpl::instrumentLoad(LoadInst &I, bool After) {
   if (!IC.load.Enabled)
     return false;
-  if (After || !IC.load.InstrumentBefore)
+  if (!After && !IC.load.InstrumentBefore)
     return false;
-  if (!After || !IC.load.InstrumentAfter)
+  if (After && !IC.load.InstrumentAfter)
     return false;
   if (IC.load.CB && !IC.load.CB(I))
     return false;

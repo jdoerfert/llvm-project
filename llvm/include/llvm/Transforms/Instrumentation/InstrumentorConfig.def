@@ -64,7 +64,7 @@ RTVALUE(store, ValueOperand, true, "int64_t", POTENTIALLY_INDIRECT)
 /// The value operand size.
 RTVALUE(store, ValueOperandSize, true, "int64_t", PLAIN)
 /// The value operand type id.
-RTVALUE(store, ValueOperandTypeId, true, "int64_t", TYPE_ID)
+RTVALUE(store, ValueOperandTypeId, true, "int32_t", TYPE_ID)
 /// The minimal alignment requested statically.
 RTVALUE(store, Alignment, true, "int64_t", PLAIN)
 /// The atomicity ordering.
@@ -110,7 +110,7 @@ RTVALUE(load, Value, true, "int64_t", REPLACABLE_POST | POTENTIALLY_INDIRECT | P
 /// The value size.
 RTVALUE(load, ValueSize, true, "int64_t", PLAIN)
 /// The value type id.
-RTVALUE(load, ValueTypeId, true, "int64_t", TYPE_ID)
+RTVALUE(load, ValueTypeId, true, "int32_t", TYPE_ID)
 /// The minimal alignment requested statically.
 RTVALUE(load, Alignment, true, "int64_t", PLAIN)
 /// The atomicity ordering.
@@ -319,7 +319,7 @@ SECTION_START(call_arg, InstrumentorConfig::PRE)
 /// The argument value.
 RTVALUE(call_arg, Value, true, "int64_t", POTENTIALLY_INDIRECT | REPLACABLE_PRE)
 /// The argument type id.
-RTVALUE(call_arg, ValueTypeId, true, "int64_t", TYPE_ID)
+RTVALUE(call_arg, ValueTypeId, true, "int32_t", TYPE_ID)
 ///}
 
 /// Should the value be replaced by the runtime call result.
