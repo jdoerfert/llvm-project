@@ -18,6 +18,7 @@
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constant.h"
@@ -456,7 +457,7 @@ private:
   bool instrumentModule(InstrumentorConfig::Position P);
 
   DenseMap<Value *, CallInst *> BasePtrMap;
-  bool instrumentBasePointer(Value &ArgOrInst, InstrumentorConfig::Position P);
+  bool instrumentBasePointer(Value &ArgOrInst);
   bool removeUnusedBasePointers();
   Value *findBasePointer(Value *V);
 
@@ -896,6 +897,9 @@ bool InstrumentorImpl::instrumentAlloca(AllocaInst &I,
                !hasAnnotation(cast<Instruction>(U.getUser()), COAnnotation);
       return true;
     });
+
+    // This generates a base pointer.
+    instrumentBasePointer(*CI);
   }
 
   return true;
@@ -1068,6 +1072,9 @@ bool InstrumentorImpl::instrumentAllocationCall(
     I.replaceUsesWithIf(tryToCast(IRB, CI, I.getType(), DL), [&](Use &U) {
       return NewInsts.lookup(cast<Instruction>(U.getUser())) != Epoche;
     });
+
+    // This generates a base pointer.
+    instrumentBasePointer(*CI);
   }
 
   return true;
@@ -1332,12 +1339,9 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
     }
   }
 
-  if (IC.base_pointer.isEnabled(InstrumentorConfig::PRE_AND_POST))
-    for (auto &Arg : Fn.args())
-      if (Arg.getType() == PtrTy) {
-        instrumentBasePointer(Arg, InstrumentorConfig::PRE);
-        instrumentBasePointer(Arg, InstrumentorConfig::POST);
-      }
+  for (auto &Arg : Fn.args())
+    if (Arg.getType() == PtrTy)
+      Changed |= instrumentBasePointer(Arg);
 
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
   for (auto &It : RPOT) {
@@ -1354,10 +1358,9 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       case Instruction::Call:
       case Instruction::Load:
       case Instruction::PHI:
-        if (I.getType() == PtrTy) {
-          Changed |= instrumentBasePointer(I, InstrumentorConfig::PRE);
-          Changed |= instrumentBasePointer(I, InstrumentorConfig::POST);
-        }
+      case Instruction::IntToPtr:
+        if (I.getType() == PtrTy)
+          Changed |= instrumentBasePointer(I);
         break;
       default:
         break;
@@ -1636,8 +1639,8 @@ bool InstrumentorImpl::instrumentGlobalVariables(
   return true;
 }
 
-bool InstrumentorImpl::instrumentBasePointer(Value &ArgOrInst,
-                                             InstrumentorConfig::Position P) {
+bool InstrumentorImpl::instrumentBasePointer(Value &ArgOrInst) {
+  auto P = InstrumentorConfig::POST;
   if (!IC.base_pointer.isEnabled(P))
     return false;
   if (auto *Arg = dyn_cast<Argument>(&ArgOrInst)) {
@@ -1672,29 +1675,16 @@ Value *InstrumentorImpl::findBasePointer(Value *V) {
   if (!IC.base_pointer.isEnabled(InstrumentorConfig::PRE_AND_POST))
     return NullPtrVal;
 
-  while (auto *I = dyn_cast<Instruction>(V)) {
-    bool KeepSearching = false;
-    switch (I->getOpcode()) {
-    case Instruction::GetElementPtr:
-      V = cast<GetElementPtrInst>(I)->getPointerOperand();
-      KeepSearching = true;
-      break;
-    case Instruction::AddrSpaceCast:
-      V = cast<AddrSpaceCastInst>(I)->getPointerOperand();
-      KeepSearching = true;
-      break;
-    default:
-      break;
-    }
+  Value *UO = getUnderlyingObject(V, 10);
 
-    if (!KeepSearching)
-      break;
-  }
+  auto It = BasePtrMap.find(UO);
+  if (It != BasePtrMap.end())
+    return It->second;
 
-  auto It = BasePtrMap.find(V);
-  if (It == BasePtrMap.end())
-    return NullPtrVal;
-  return It->second;
+  // It must be a global variable. Otherwise, there are pointer
+  // originators that are not instrumented yet.
+  assert(isa<GlobalVariable>(UO));
+  return NullPtrVal;
 }
 
 void InstrumentorImpl::addCtorOrDtor(bool Ctor) {
