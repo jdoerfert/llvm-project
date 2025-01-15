@@ -388,31 +388,35 @@ public:
 
     SmallVector<InstrumentorConfig::ConfigValue *> ConfigValues;
     InstrumentorConfig::Position Position;
-    int HasPotentiallyIndirect = 0;
+    int HasPotentiallyIndirect[3] = {0, 0, 0};
     StringRef Name;
 
 #define CVALUE(SECTION, TYPE, NAME, DEFAULT_VALUE)
 #define CVALUE_INTERNAL(SECTION, TYPE, NAME, DEFAULT_VALUE)
 #define RTVALUE(SECTION, NAME, DEFAULT_VALUE, VALUE_TYPE_STR, PROPERTIES)      \
   ConfigValues.push_back(&IC.SECTION.NAME);                                    \
-  HasPotentiallyIndirect += bool(IC.SECTION.NAME.getKind() &                   \
-                                 InstrumentorKindTy::POTENTIALLY_INDIRECT);
+  for (auto &Pos : {InstrumentorConfig::PRE, InstrumentorConfig::POST})        \
+    if (IC.SECTION.NAME.isEnabled(Pos))                                        \
+      HasPotentiallyIndirect[Pos] +=                                           \
+          bool(IC.SECTION.NAME.getKind() &                                     \
+               InstrumentorKindTy::POTENTIALLY_INDIRECT);
 
 #define SECTION_START(SECTION, POSITION)                                       \
   Name = IC.SECTION.SectionName;                                               \
-  HasPotentiallyIndirect = 0;                                                  \
+  HasPotentiallyIndirect[1] = HasPotentiallyIndirect[2] = 0;                   \
   Position = POSITION;
 
 #define SECTION_END(SECTION)                                                   \
-  for (auto &Pos : {InstrumentorConfig::PRE, InstrumentorConfig::POST})        \
+  for (auto &Pos : {InstrumentorConfig::PRE, InstrumentorConfig::POST}) {      \
     if (Position & Pos) {                                                      \
-      if (HasPotentiallyIndirect < 2)                                          \
+      if (HasPotentiallyIndirect[Pos] < 2)                                     \
         printStubRTDefinitions(DeclOut, StubRTOut, Name, ConfigValues, Pos,    \
                                /*Indirect=*/false);                            \
-      if (HasPotentiallyIndirect)                                              \
+      if (HasPotentiallyIndirect[Pos])                                         \
         printStubRTDefinitions(DeclOut, StubRTOut, Name, ConfigValues, Pos,    \
                                /*Indirect=*/true);                             \
     }                                                                          \
+  }                                                                            \
   ConfigValues.clear();
 
 #include "llvm/Transforms/Instrumentation/InstrumentorConfig.def"
@@ -909,7 +913,8 @@ bool InstrumentorImpl::instrumentCall(CallBase &I,
       Changed |= instrumentAllocationCall(I, *ACI, P);
   }
 
-  if (!IC.memory_intrinsic.isEnabled(P) && !IC.intrinsic.isEnabled(P))
+  if (!IC.memory_intrinsic.isEnabled(P) && !IC.intrinsic.isEnabled(P) &&
+      !IC.call.isEnabled(P))
     return Changed;
 
   switch (I.getIntrinsicID()) {
@@ -1427,7 +1432,7 @@ bool InstrumentorImpl::instrumentMainFunction(Function &MainFn,
       /*ForceIndirection=*/IC.main_function.ReplaceArgumentValues);
 
   if (P & InstrumentorConfig::PRE)
-    getCall(IC.main_function.SectionName, RTArgs, P);
+    getCall(IC.main_function.SectionName, RTArgs, InstrumentorConfig::PRE);
 
   SmallVector<Value *> UserMainArgs;
   if (IC.main_function.ReplaceArgumentValues) {
@@ -1449,7 +1454,8 @@ bool InstrumentorImpl::instrumentMainFunction(Function &MainFn,
   if (P & InstrumentorConfig::POST) {
     addVal(RTArgs, IC.main_function.ReturnValue, ReturnValue, P);
 
-    auto *CI = getCall(IC.main_function.SectionName, RTArgs, P);
+    auto *CI =
+        getCall(IC.main_function.SectionName, RTArgs, InstrumentorConfig::POST);
     if (IC.main_function.ReplaceReturnValue)
       ReturnValue = CI;
   }
@@ -1737,10 +1743,9 @@ bool InstrumentorImpl::instrument() {
   Changed |= instrumentGlobalVariables(InstrumentorConfig::PRE);
   Changed |= instrumentGlobalVariables(InstrumentorConfig::POST);
 
-  if (MainFn) {
-    Changed |= instrumentMainFunction(*MainFn, InstrumentorConfig::PRE);
-    Changed |= instrumentMainFunction(*MainFn, InstrumentorConfig::POST);
-  }
+  if (MainFn)
+    Changed |=
+        instrumentMainFunction(*MainFn, InstrumentorConfig::PRE_AND_POST);
 
   if (IC.base_pointer.SkipUnused)
     Changed |= removeUnusedBasePointers();
