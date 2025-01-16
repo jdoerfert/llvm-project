@@ -831,7 +831,9 @@ struct AAAMDSizeRangeAttribute
   const std::string getAsStr(Attributor *) const override {
     std::string Str;
     raw_string_ostream OS(Str);
-    OS << getName() << '[';
+    OS << getName() << " Known[";
+    OS << getKnown().getLower() << ',' << getKnown().getUpper() - 1;
+    OS << "] Assumed[";
     OS << getAssumed().getLower() << ',' << getAssumed().getUpper() - 1;
     OS << ']';
     return OS.str();
@@ -1044,60 +1046,40 @@ struct AAAMDWavesPerEU : public AAAMDSizeRangeAttribute {
   AAAMDWavesPerEU(const IRPosition &IRP, Attributor &A)
       : AAAMDSizeRangeAttribute(IRP, A, "amdgpu-waves-per-eu") {}
 
-  bool isValidState() const override {
-    return !Assumed.isEmptySet() && IntegerRangeState::isValidState();
-  }
-
   void initialize(Attributor &A) override {
     Function *F = getAssociatedFunction();
     auto &InfoCache = static_cast<AMDGPUInformationCache &>(A.getInfoCache());
 
-    if (const auto *AssumedGroupSize = A.getAAFor<AAAMDFlatWorkGroupSize>(
-            *this, IRPosition::function(*F), DepClassTy::REQUIRED);
-        AssumedGroupSize->isValidState()) {
+    // We allow consistent WavesPErEU for all functions here but for non-entry
+    // points we will verify consistency in the end.
+    unsigned ImpliedMin, ImpliedMax;
+    std::tie(ImpliedMin, ImpliedMax) =
+        InfoCache.getWavesPerEU(*F, InfoCache.getFlatWorkGroupSizes(*F));
 
-      unsigned Min, Max;
-      std::tie(Min, Max) = InfoCache.getWavesPerEU(
-          *F, {AssumedGroupSize->getAssumed().getLower().getZExtValue(),
-               AssumedGroupSize->getAssumed().getUpper().getZExtValue() - 1});
+    ConstantRange Range(APInt(32, ImpliedMin), APInt(32, ImpliedMax + 1));
+    intersectKnown(Range);
 
-      ConstantRange Range(APInt(32, Min), APInt(32, Max + 1));
-      intersectKnown(Range);
-    }
-
-    if (AMDGPU::isEntryFunctionCC(F->getCallingConv()))
+    // For entries we cannot derive anything better.
+    if (AMDGPU::isEntryFunctionCC(getAssociatedFunction()->getCallingConv()))
       indicatePessimisticFixpoint();
   }
 
   ChangeStatus updateImpl(Attributor &A) override {
-    auto &InfoCache = static_cast<AMDGPUInformationCache &>(A.getInfoCache());
     ChangeStatus Change = ChangeStatus::UNCHANGED;
 
     auto CheckCallSite = [&](AbstractCallSite CS) {
       Function *Caller = CS.getInstruction()->getFunction();
-      Function *Func = getAssociatedFunction();
+      [[maybe_unused]] Function *Func = getAssociatedFunction();
       LLVM_DEBUG(dbgs() << '[' << getName() << "] Call " << Caller->getName()
                         << "->" << Func->getName() << '\n');
 
       const auto *CallerInfo = A.getAAFor<AAAMDWavesPerEU>(
           *this, IRPosition::function(*Caller), DepClassTy::REQUIRED);
-      const auto *AssumedGroupSize = A.getAAFor<AAAMDFlatWorkGroupSize>(
-          *this, IRPosition::function(*Func), DepClassTy::REQUIRED);
-      if (!CallerInfo || !AssumedGroupSize || !CallerInfo->isValidState() ||
-          !AssumedGroupSize->isValidState())
+      if (!CallerInfo || !CallerInfo->isValidState())
         return false;
 
-      unsigned Min, Max;
-      std::tie(Min, Max) = InfoCache.getEffectiveWavesPerEU(
-          *Caller,
-          {CallerInfo->getAssumed().getLower().getZExtValue(),
-           CallerInfo->getAssumed().getUpper().getZExtValue() - 1},
-          {AssumedGroupSize->getAssumed().getLower().getZExtValue(),
-           AssumedGroupSize->getAssumed().getUpper().getZExtValue() - 1});
-      ConstantRange CallerRange(APInt(32, Min), APInt(32, Max + 1));
-      IntegerRangeState CallerRangeState(CallerRange);
-      Change |= clampStateAndIndicateChange(this->getState(), CallerRangeState);
-
+      Change |=
+          clampStateAndIndicateChange(this->getState(), CallerInfo->getState());
       return true;
     };
 
@@ -1113,8 +1095,28 @@ struct AAAMDWavesPerEU : public AAAMDSizeRangeAttribute {
                                             Attributor &A);
 
   ChangeStatus manifest(Attributor &A) override {
+    unsigned ImpliedMin = getAssumed().getLower().getZExtValue();
+    unsigned ImpliedMax = getAssumed().getUpper().getZExtValue() - 1;
+
     Function *F = getAssociatedFunction();
     auto &InfoCache = static_cast<AMDGPUInformationCache &>(A.getInfoCache());
+
+    // Make non-kernel functions locally consistent.
+    if (!AMDGPU::isEntryFunctionCC(getAssociatedFunction()->getCallingConv())) {
+      const auto *AssumedGroupSize = A.getAAFor<AAAMDFlatWorkGroupSize>(
+          *this, getIRPosition(), DepClassTy::OPTIONAL);
+      std::pair<unsigned, unsigned> FlatWorkGroupSize;
+      if (!AssumedGroupSize || !AssumedGroupSize->isValidState())
+        FlatWorkGroupSize = InfoCache.getFlatWorkGroupSizes(*F);
+      else
+        FlatWorkGroupSize = {
+            AssumedGroupSize->getAssumed().getLower().getZExtValue(),
+            AssumedGroupSize->getAssumed().getUpper().getZExtValue() - 1};
+
+      std::tie(ImpliedMin, ImpliedMax) = InfoCache.getEffectiveWavesPerEU(
+          *F, {ImpliedMin, ImpliedMax}, FlatWorkGroupSize);
+    }
+
     unsigned Max = InfoCache.getMaxWavesPerEU(*F);
     return emitAttributeIfNotDefault(A, 1, Max);
   }
@@ -1295,10 +1297,10 @@ static bool runImpl(Module &M, AnalysisGetter &AG, TargetMachine &TM,
     A.getOrCreateAAFor<AAUniformWorkGroupSize>(IRPosition::function(*F));
     A.getOrCreateAAFor<AAAMDMaxNumWorkgroups>(IRPosition::function(*F));
     A.getOrCreateAAFor<AAAMDGPUNoAGPR>(IRPosition::function(*F));
+    A.getOrCreateAAFor<AAAMDWavesPerEU>(IRPosition::function(*F));
     CallingConv::ID CC = F->getCallingConv();
     if (!AMDGPU::isEntryFunctionCC(CC)) {
       A.getOrCreateAAFor<AAAMDFlatWorkGroupSize>(IRPosition::function(*F));
-      A.getOrCreateAAFor<AAAMDWavesPerEU>(IRPosition::function(*F));
     } else if (CC == CallingConv::AMDGPU_KERNEL) {
       addPreloadKernArgHint(*F, TM);
     }

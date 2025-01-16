@@ -44,7 +44,7 @@ define void @use_variables() sanitize_address {
 
 define amdgpu_kernel void @k0() sanitize_address {
 ; CHECK-LABEL: define amdgpu_kernel void @k0(
-; CHECK-SAME: ) #[[ATTR1:[0-9]+]] !llvm.amdgcn.lds.kernel.id [[META2:![0-9]+]] {
+; CHECK-SAME: ) #[[ATTR1:[0-9]+]] !llvm.amdgcn.lds.kernel.id [[META3:![0-9]+]] {
 ; CHECK-NEXT:  WId:
 ; CHECK-NEXT:    [[TMP0:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; CHECK-NEXT:    [[TMP1:%.*]] = call i32 @llvm.amdgcn.workitem.id.y()
@@ -138,5 +138,6 @@ define amdgpu_kernel void @k0() sanitize_address {
 ;.
 ; CHECK: [[META0]] = !{i32 0, i32 1}
 ; CHECK: [[META1]] = !{i32 8, i32 9}
-; CHECK: [[META2]] = !{i32 0}
+; CHECK: [[META2:![0-9]+]] = !{i32 4, !"nosanitize_address", i32 1}
+; CHECK: [[META3]] = !{i32 0}
 ;.

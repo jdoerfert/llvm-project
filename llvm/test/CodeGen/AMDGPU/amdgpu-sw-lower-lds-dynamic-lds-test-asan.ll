@@ -66,7 +66,7 @@ define amdgpu_kernel void @k0() sanitize_address {
 ; CHECK-NEXT:    [[TMP38:%.*]] = and i1 [[TMP34]], [[TMP37]]
 ; CHECK-NEXT:    [[TMP39:%.*]] = call i64 @llvm.amdgcn.ballot.i64(i1 [[TMP38]])
 ; CHECK-NEXT:    [[TMP40:%.*]] = icmp ne i64 [[TMP39]], 0
-; CHECK-NEXT:    br i1 [[TMP40]], label [[ASAN_REPORT:%.*]], label [[TMP43:%.*]], !prof [[PROF2:![0-9]+]]
+; CHECK-NEXT:    br i1 [[TMP40]], label [[ASAN_REPORT:%.*]], label [[TMP43:%.*]], !prof [[PROF3:![0-9]+]]
 ; CHECK:       asan.report:
 ; CHECK-NEXT:    br i1 [[TMP38]], label [[TMP41:%.*]], label [[CONDFREE:%.*]]
 ; CHECK:       41:
@@ -109,5 +109,6 @@ define amdgpu_kernel void @k0() sanitize_address {
 ;.
 ; CHECK: [[META0]] = !{i32 0, i32 1}
 ; CHECK: [[META1]] = !{i32 8, i32 9}
-; CHECK: [[PROF2]] = !{!"branch_weights", i32 1, i32 1048575}
+; CHECK: [[META2:![0-9]+]] = !{i32 4, !"nosanitize_address", i32 1}
+; CHECK: [[PROF3]] = !{!"branch_weights", i32 1, i32 1048575}
 ;.
