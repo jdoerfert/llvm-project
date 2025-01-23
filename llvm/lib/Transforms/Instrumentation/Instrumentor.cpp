@@ -481,9 +481,8 @@ private:
 
   template <typename MemoryInstTy> bool analyzeAccess(MemoryInstTy &I);
 
-  SmallVector<GlobalVariable *> Globals;
   bool prepareGlobalVariables();
-  bool instrumentGlobalVariables(InstrumentorConfig::Position P);
+  bool instrumentGlobalVariables();
 
   void addCtorOrDtor(bool Ctor);
 
@@ -821,6 +820,10 @@ private:
   Function *CtorFn = nullptr;
   Function *DtorFn = nullptr;
 
+  // The functions and globals that are instrumented within the module.
+  SmallVector<Function *> Functions;
+  SmallVector<GlobalVariable *> Globals;
+
   StringSet<> ExternalInstrFunctions;
   StringSet<> ExternalInstrGlobals;
 
@@ -1054,6 +1057,17 @@ bool InstrumentorImpl::instrumentGenericCall(CallBase &I,
   if (!IC.call.isEnabled(P))
     return false;
 
+  Function *CalledFn = I.getCalledFunction();
+  if (IC.call.SkipInstrumentedLocally)
+    // TODO: This will not work for indirect calls.
+    if (shouldInstrumentFunction(CalledFn))
+      return false;
+
+  if (IC.call.SkipInstrumentedExternally)
+    // TODO: This will not work for indirect calls.
+    if (CalledFn && ExternalInstrFunctions.contains(CalledFn->getName()))
+      return false;
+
   setInsertPoint(I, P);
 
   SmallVector<RTArgument> RTArgs;
@@ -1067,9 +1081,7 @@ bool InstrumentorImpl::instrumentGenericCall(CallBase &I,
   addValCB(
       RTArgs, IC.call.CalleeName,
       [&](Type *) {
-        return getGlobalString(I.getCalledFunction()
-                                   ? I.getCalledFunction()->getName()
-                                   : "<unknown>");
+        return getGlobalString(CalledFn ? CalledFn->getName() : "<unknown>");
       },
       P);
 
@@ -1422,6 +1434,8 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   if (!shouldInstrumentFunction(&Fn))
     return Changed;
 
+  Functions.push_back(&Fn);
+
   if (IC.load.SkipSafeAccess || IC.load.SkipSafeAccess) {
     // TODO: Merge this into the main loop with RPOT
     for (auto &BB : Fn) {
@@ -1594,21 +1608,25 @@ bool InstrumentorImpl::instrumentModule(InstrumentorConfig::Position P) {
 
 bool InstrumentorImpl::prepareGlobalVariables() {
   bool Changed = false;
+  if (!IC.global_var.isEnabled(InstrumentorConfig::POST))
+    return Changed;
 
   for (GlobalVariable &GV : M.globals()) {
     if (!shouldInstrumentGlobalVariable(&GV))
       continue;
 
-    if (GV.isDSOLocal()) {
+    if (GV.isDeclaration() && ExternalInstrGlobals.contains(GV.getName())) {
       Globals.push_back(&GV);
-    } else {
-      // TODO: Find a better way to skip external globals (e.g., stderr, stdout)
+    } else if (GV.isDeclaration() && IC.global_var.SkipDeclaration) {
+      // TODO: Avoid saving this information as annotations
       for (Use &U : GV.uses()) {
         assert(isa<Instruction>(U.getUser()));
         Instruction *I = cast<Instruction>(U.getUser());
         I->addAnnotationMetadata(SkipAnnotation);
         Changed = true;
       }
+    } else {
+      Globals.push_back(&GV);
     }
   }
 
@@ -1642,20 +1660,27 @@ bool InstrumentorImpl::prepareGlobalVariables() {
   return Changed;
 }
 
-bool InstrumentorImpl::instrumentGlobalVariables(
-    InstrumentorConfig::Position P) {
+bool InstrumentorImpl::instrumentGlobalVariables() {
+  auto P = InstrumentorConfig::POST;
   if (!IC.global_var.isEnabled(P))
     return false;
-  IRB.SetInsertPointPastAllocas(CtorFn);
-
   if (Globals.empty())
     return false;
+
+  IRB.SetInsertPointPastAllocas(CtorFn);
 
   SmallVector<GlobalVariable *> InstrGlobals;
   for (GlobalVariable *GV : Globals) {
     GlobalVariable *InstrGV =
-        new GlobalVariable(M, PtrTy, false, GlobalValue::PrivateLinkage,
-                           NullPtrVal, getRTName("", GV->getName()));
+        new GlobalVariable(M, PtrTy, false, GlobalValue::ExternalLinkage,
+                           GV->isDeclaration() ? nullptr : NullPtrVal,
+                           getRTName("", GV->getName()));
+
+    InstrGlobals.push_back(InstrGV);
+
+    // Do not register the global as another module will do it.
+    if (GV->isDeclaration())
+      continue;
 
     SmallVector<RTArgument> RTArgs;
     addVal(RTArgs, IC.global_var.Value, GV, P);
@@ -1684,8 +1709,6 @@ bool InstrumentorImpl::instrumentGlobalVariables(
     auto *CI = getCall(IC.global_var.SectionName, RTArgs, P);
     if (IC.global_var.ReplaceValue)
       IRB.CreateStore(CI, InstrGV);
-
-    InstrGlobals.push_back(InstrGV);
   }
 
   for (size_t G = 0; G < Globals.size(); ++G) {
@@ -1833,8 +1856,7 @@ bool InstrumentorImpl::instrument() {
       MainFn = &Fn;
   }
 
-  Changed |= instrumentGlobalVariables(InstrumentorConfig::PRE);
-  Changed |= instrumentGlobalVariables(InstrumentorConfig::POST);
+  Changed |= instrumentGlobalVariables();
 
   if (MainFn)
     Changed |=

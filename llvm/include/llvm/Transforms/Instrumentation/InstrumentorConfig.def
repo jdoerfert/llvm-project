@@ -245,6 +245,11 @@ RTVALUE(global_var, InitializerKind, true, "int8_t", INITIALIZER_KIND)
 /// Should the value be replaced by the runtime call result.
 CVALUE(global_var, bool, ReplaceValue, true)
 
+/// Skip instrumenting declarations of global variables. Declarations of global
+/// variables whose definitions are instrumented in other modules may still be
+/// instrumented in the current module.
+CVALUE(global_var, bool, SkipDeclaration, false)
+
 /// Optional callback, see GlobalCallbackTy.
 CVALUE_INTERNAL(global_var, GlobalCallbackTy, CB, nullptr)
 
@@ -314,6 +319,14 @@ RTVALUE(call, NumValues, true, "int32_t", PRE_ONLY)
 
 /// Should the values be replaced.
 CVALUE(call, bool, ReplaceValues, true)
+
+/// Skip instrumenting calls to functions that are defined and instrumented in
+/// the current module.
+CVALUE(call, bool, SkipInstrumentedLocally, false)
+
+/// Skip instrumenting calls to functions that are defined and instrumented in
+/// other modules.
+CVALUE(call, bool, SkipInstrumentedExternally, false)
 
 SECTION_END(call)
 ///}
