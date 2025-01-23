@@ -15,6 +15,7 @@
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -46,6 +47,8 @@
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <optional>
 #include <string>
@@ -65,6 +68,18 @@ cl::opt<std::string> ReadJSONConfig(
     "instrumentor-read-config-file",
     cl::desc(
         "Read the instrumentor configuration from the specified JSON file"),
+    cl::init(""));
+
+cl::opt<std::string> ReadDatabaseDir(
+    "instrumentor-read-database-dir",
+    cl::desc(
+        "Read the externally instrumented entities from the directory"),
+    cl::init(""));
+
+cl::opt<std::string> WriteDatabaseDir(
+    "instrumentor-write-database-dir",
+    cl::desc(
+        "Write the locally instrumented entities into the directory"),
     cl::init(""));
 
 namespace {
@@ -433,6 +448,9 @@ public:
 
   /// Instrument the module, public entry point.
   bool instrument();
+
+  void loadInstrumentorDatabase();
+  void updateInstrumentorDatabase();
 
 private:
   bool shouldInstrumentFunction(Function *Fn);
@@ -803,6 +821,13 @@ private:
   Function *CtorFn = nullptr;
   Function *DtorFn = nullptr;
 
+  StringSet<> ExternalInstrFunctions;
+  StringSet<> ExternalInstrGlobals;
+
+  static constexpr StringRef DatabaseExt = ".instrdb";
+  static constexpr StringRef DatabaseSectionFunctions = "[functions]";
+  static constexpr StringRef DatabaseSectionGlobals = "[globals]";
+
   static constexpr StringRef SkipAnnotation = "__instrumentor_skip";
   static constexpr StringRef COAnnotation = "__instrumentor_constoffset";
 
@@ -822,6 +847,84 @@ private:
 };
 
 } // end anonymous namespace
+
+namespace fs = std::filesystem;
+
+void InstrumentorImpl::loadInstrumentorDatabase() {
+  const std::string &DatabaseDir = ReadDatabaseDir;
+  if (DatabaseDir.empty())
+    return;
+
+  std::string CurrentFileName = M.getSourceFileName() + DatabaseExt.data();
+
+  fs::path Directory(DatabaseDir);
+  if (!fs::exists(Directory) || !fs::is_directory(Directory)) {
+    errs() << "Instrumentor database directory does not exists\n";
+    return;
+  }
+
+  for (const auto& entry : fs::directory_iterator(Directory)) {
+    if (!fs::is_regular_file(entry.status()))
+      continue;
+
+    const fs::path &FilePath = entry.path();
+    fs::path FileName = FilePath.filename();
+    StringRef FileNameStr(FileName.c_str());
+    if (!FileNameStr.ends_with(DatabaseExt))
+      continue;
+    if (FileNameStr == StringRef(CurrentFileName))
+      continue;
+
+    std::ifstream File(FilePath.string());
+    if (!File.is_open())
+      continue;
+
+    errs() << "Loading instrumented entities from " << FilePath << "\n";
+
+    std::string Line;
+    std::getline(File, Line);
+    assert(Line == DatabaseSectionFunctions);
+
+    while (std::getline(File, Line) && Line != DatabaseSectionGlobals)
+      ExternalInstrFunctions.insert(Line.c_str());
+    assert(Line == DatabaseSectionGlobals);
+
+    while (std::getline(File, Line))
+      ExternalInstrGlobals.insert(Line.c_str());
+
+    File.close();
+  }
+}
+
+void InstrumentorImpl::updateInstrumentorDatabase() {
+  const std::string &DatabaseDir = WriteDatabaseDir;
+  if (DatabaseDir.empty())
+    return;
+
+  fs::path Directory(DatabaseDir);
+  fs::create_directory(Directory);
+
+  std::string FileName = M.getSourceFileName() + DatabaseExt.data();
+
+  fs::path FilePath = Directory / FileName;
+  if (fs::exists(FilePath) && !fs::is_regular_file(FilePath)) {
+    errs() << "Instrumentor database file " << FileName << " is not a regular file\n";
+    return;
+  }
+
+  std::ofstream File(FilePath.string());
+  assert(File.is_open());
+
+  errs() << "Writing instrumented entities to " << FilePath << "\n";
+
+  File << DatabaseSectionFunctions.data() << std::endl;
+  for (const Function *Fn : Functions)
+    File << Fn->getName().data() << std::endl;
+
+  File << DatabaseSectionGlobals.data() << std::endl;
+  for (const GlobalVariable *GV : Globals)
+    File << GV->getName().data() << std::endl;
+}
 
 bool InstrumentorImpl::shouldInstrumentFunction(Function *Fn) {
   if (!Fn || Fn->isDeclaration())
@@ -1749,11 +1852,16 @@ PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
     return PreservedAnalyses::all();
   writeInstrumentorConfig(IC);
 
+  Impl.loadInstrumentorDatabase();
+
   if (!Impl.instrument())
     return PreservedAnalyses::all();
 
   if (verifyModule(M))
     M.dump();
   assert(!verifyModule(M, &errs()));
+
+  Impl.updateInstrumentorDatabase();
+
   return PreservedAnalyses::none();
 }
