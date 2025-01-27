@@ -13,6 +13,7 @@
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
@@ -455,7 +456,7 @@ public:
 private:
   bool shouldInstrumentFunction(Function *Fn);
   bool shouldInstrumentGlobalVariable(GlobalVariable *GV);
-  bool hasAnnotation(Instruction *I, StringRef Annotation);
+  bool shouldInstrumentAccess(Value *Ptr, Instruction *MI = nullptr);
 
   bool instrumentFunction(Function &Fn);
   bool instrumentAlloca(AllocaInst &I, InstrumentorConfig::Position P);
@@ -824,6 +825,14 @@ private:
   SmallVector<Function *> Functions;
   SmallVector<GlobalVariable *> Globals;
 
+  // The original globals that are not instrumented.
+  SmallSet<GlobalVariable *, 20> SkippedGlobals;
+
+  // The original memory instructions that should not be instrumented. For
+  // instance, the accesses that are safe. See load.SkipSafeAccess and
+  // store.SkipSafeAccess.
+  SmallSet<Instruction *, 20> SkippedMemInsts;
+
   StringSet<> ExternalInstrFunctions;
   StringSet<> ExternalInstrGlobals;
 
@@ -831,8 +840,6 @@ private:
   static constexpr StringRef DatabaseSectionFunctions = "[functions]";
   static constexpr StringRef DatabaseSectionGlobals = "[globals]";
 
-  static constexpr StringRef SkipAnnotation = "__instrumentor_skip";
-  static constexpr StringRef COAnnotation = "__instrumentor_constoffset";
 
   /// Commonly used values for IR inspection and creation.
   ///{
@@ -938,25 +945,30 @@ bool InstrumentorImpl::shouldInstrumentFunction(Function *Fn) {
 bool InstrumentorImpl::shouldInstrumentGlobalVariable(GlobalVariable *GV) {
   if (!GV || GV->hasGlobalUnnamedAddr())
     return false;
-  if (GV->getName().starts_with("llvm."))
-    return false;
-  return !GV->getName().starts_with(IC.Base.RuntimeName);
+  return !GV->getName().starts_with("llvm.");
 }
 
-bool InstrumentorImpl::hasAnnotation(Instruction *I, StringRef Annotation) {
-  if (!I || !I->hasMetadata(LLVMContext::MD_annotation))
+bool InstrumentorImpl::shouldInstrumentAccess(Value *Ptr, Instruction *MI) {
+  if (!Ptr || Ptr == NullPtrVal)
     return false;
 
-  return any_of(I->getMetadata(LLVMContext::MD_annotation)->operands(),
-                [&](const MDOperand &Op) {
-                  StringRef AnnotationStr =
-                      isa<MDString>(Op.get())
-                          ? cast<MDString>(Op.get())->getString()
-                          : cast<MDString>(
-                                cast<MDTuple>(Op.get())->getOperand(0).get())
-                                ->getString();
-                  return (AnnotationStr == Annotation);
-                });
+  // If the pointer is used by a memory instruction, check whether that
+  // instruction should be skipped (e.g., a memory instruction has a constant
+  // offset access).
+  if (MI && SkippedMemInsts.contains(MI))
+    return false;
+
+  // Some global variables could be skipped also.
+  Value *UO = getUnderlyingObject(Ptr, 10);
+  if (auto *GV = dyn_cast<GlobalVariable>(UO)) {
+    if (SkippedGlobals.contains(GV))
+      return false;
+  } else if (auto *LI = dyn_cast<LoadInst>(UO)) {
+    if (auto *GV = dyn_cast<GlobalVariable>(LI->getPointerOperand()))
+      if (SkippedGlobals.contains(GV))
+        return false;
+  }
+  return true;
 }
 
 bool InstrumentorImpl::instrumentAlloca(AllocaInst &I,
@@ -997,10 +1009,10 @@ bool InstrumentorImpl::instrumentAlloca(AllocaInst &I,
       if (NewInsts.lookup(cast<Instruction>(U.getUser())) == Epoche)
         return false;
       if (auto *LI = dyn_cast<LoadInst>(U.getUser()))
-        return !hasAnnotation(LI, COAnnotation);
+        return !SkippedMemInsts.contains(LI);
       if (auto *SI = dyn_cast<StoreInst>(U.getUser()))
-        return SI->getPointerOperand() == &I &&
-               !hasAnnotation(cast<Instruction>(U.getUser()), COAnnotation);
+        return SI->getPointerOperand() != &I ||
+               !SkippedMemInsts.contains(SI);
       return true;
     });
 
@@ -1068,14 +1080,22 @@ bool InstrumentorImpl::instrumentGenericCall(CallBase &I,
     if (CalledFn && ExternalInstrFunctions.contains(CalledFn->getName()))
       return false;
 
-  setInsertPoint(I, P);
+  SmallVector<Value *> CallArgs;
+  SmallVector<uint32_t> CallArgsPos;
+  for (auto [Idx, AU] : enumerate(I.args()))
+    if (!IC.call.OnlyReplacedPointerValues || (AU.get()->getType() == PtrTy &&
+        shouldInstrumentAccess(AU.get()))) {
+      CallArgs.push_back(AU.get());
+      CallArgsPos.push_back(Idx);
+  }
 
   SmallVector<RTArgument> RTArgs;
+  setInsertPoint(I, P);
 
   SmallVector<Type *> ArgTypes;
   SmallVector<Value *> ValueGEPs;
-  for (Use &AU : I.args())
-    ArgTypes.push_back(AU->getType());
+  for (Value *AV : CallArgs)
+    ArgTypes.push_back(AV->getType());
 
   addVal(RTArgs, IC.call.CalleePtr, I.getCalledOperand(), P);
   addValCB(
@@ -1091,9 +1111,9 @@ bool InstrumentorImpl::instrumentGenericCall(CallBase &I,
     } else {
       StructType *ArgStructTy = StructType::create(ArgTypes);
       auto *ArgStructAI = getAlloca(I.getFunction(), ArgStructTy);
-      for (auto [Idx, AU] : enumerate(I.args())) {
+      for (auto [Idx, AV] : enumerate(CallArgs)) {
         ValueGEPs.push_back(IRB.CreateStructGEP(ArgStructTy, ArgStructAI, Idx));
-        IRB.CreateStore(AU, ValueGEPs.back());
+        IRB.CreateStore(AV, ValueGEPs.back());
       }
       addVal(RTArgs, IC.call.Values, ArgStructAI, P);
     }
@@ -1132,7 +1152,7 @@ bool InstrumentorImpl::instrumentGenericCall(CallBase &I,
 
   if (IC.call.ReplaceValues && IC.call.Values.isEnabled(P)) {
     for (auto [Idx, ATy] : enumerate(ArgTypes))
-      I.setArgOperand(Idx, IRB.CreateLoad(ATy, ValueGEPs[Idx]));
+      I.setArgOperand(CallArgsPos[Idx], IRB.CreateLoad(ATy, ValueGEPs[Idx]));
   }
 
   return true;
@@ -1310,7 +1330,7 @@ bool InstrumentorImpl::analyzeAccess(MemoryInstTy &I) {
   if (AllocSize.ult(OffsetPlusSize))
     return false;
 
-  I.addAnnotationMetadata(COAnnotation);
+  SkippedMemInsts.insert(&I);
 
   return true;
 }
@@ -1321,9 +1341,7 @@ bool InstrumentorImpl::instrumentStore(StoreInst &I,
     return false;
   if (IC.store.CB && !IC.store.CB(I))
     return false;
-  if (hasAnnotation(&I, SkipAnnotation))
-    return false;
-  if (hasAnnotation(&I, COAnnotation))
+  if (!shouldInstrumentAccess(I.getPointerOperand(), &I))
     return false;
 
   setInsertPoint(I, P);
@@ -1363,9 +1381,7 @@ bool InstrumentorImpl::instrumentLoad(LoadInst &I,
     return false;
   if (IC.load.CB && !IC.load.CB(I))
     return false;
-  if (hasAnnotation(&I, SkipAnnotation))
-    return false;
-  if (hasAnnotation(&I, COAnnotation))
+  if (!shouldInstrumentAccess(I.getPointerOperand(), &I))
     return false;
 
   setInsertPoint(I, P);
@@ -1608,23 +1624,16 @@ bool InstrumentorImpl::instrumentModule(InstrumentorConfig::Position P) {
 
 bool InstrumentorImpl::prepareGlobalVariables() {
   bool Changed = false;
-  if (!IC.global_var.isEnabled(InstrumentorConfig::POST))
+  if (!IC.global_var.isEnabled(InstrumentorConfig::PRE_AND_POST))
     return Changed;
 
   for (GlobalVariable &GV : M.globals()) {
-    if (!shouldInstrumentGlobalVariable(&GV))
-      continue;
-
-    if (GV.isDeclaration() && ExternalInstrGlobals.contains(GV.getName())) {
+    if (!shouldInstrumentGlobalVariable(&GV)) {
+      SkippedGlobals.insert(&GV);
+    } else if (GV.isDeclaration() && ExternalInstrGlobals.contains(GV.getName())) {
       Globals.push_back(&GV);
     } else if (GV.isDeclaration() && IC.global_var.SkipDeclaration) {
-      // TODO: Avoid saving this information as annotations
-      for (Use &U : GV.uses()) {
-        assert(isa<Instruction>(U.getUser()));
-        Instruction *I = cast<Instruction>(U.getUser());
-        I->addAnnotationMetadata(SkipAnnotation);
-        Changed = true;
-      }
+      SkippedGlobals.insert(&GV);
     } else {
       Globals.push_back(&GV);
     }
@@ -1730,31 +1739,6 @@ bool InstrumentorImpl::instrumentGlobalVariables() {
     }
 
     for (Use *U : ReplaceUses) {
-#if 0
-      // TODO: Implement constant offset optimization for globals
-      Instruction *LoadI = nullptr;
-      Instruction *StoreI = nullptr;
-      Instruction *UserI = cast<Instruction>(U->getUser());
-      if (auto *LI = dyn_cast<LoadInst>(UserI)) {
-        MI = LI;
-      } else if (auto *SI = dyn_cast<StoreInst>(UserI)) {
-        if (SI->getPointerOperand() == GV)
-        MemI = nullptr;
-      } else if (isa<GetElementPtrInst>(UserI)) {
-        SmallVector<Use *> GEPUses;
-        for (Use &GEPU : UserI->uses())
-          GEPUses.push_back(&GEPU);
-        assert(GEPUses.size() == 1);
-
-        Value *Val = GEPUses[0]->getUser();
-        assert(isa<LoadInst>(Val) || isa<StoreInst>(Val));
-        MemI = cast<Instruction>(Val);
-      }
-      assert(MemI);
-
-      if (hasAnnotation(MemI, COAnnotation))
-        continue;
-#endif
       Instruction *UserI = cast<Instruction>(U->getUser());
       IRB.SetInsertPoint(UserI);
       auto *LoadPtr = IRB.CreateLoad(PtrTy, InstrGlobals[G]);
@@ -1846,8 +1830,7 @@ bool InstrumentorImpl::instrument() {
   Changed |= instrumentModule(InstrumentorConfig::PRE);
   Changed |= instrumentModule(InstrumentorConfig::POST);
 
-  if (IC.global_var.isEnabled(InstrumentorConfig::PRE_AND_POST))
-    Changed |= prepareGlobalVariables();
+  Changed |= prepareGlobalVariables();
 
   for (Function &Fn : M) {
     Changed |= instrumentFunction(Fn);

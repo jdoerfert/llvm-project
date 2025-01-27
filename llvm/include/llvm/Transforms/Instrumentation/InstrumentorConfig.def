@@ -328,6 +328,10 @@ CVALUE(call, bool, SkipInstrumentedLocally, false)
 /// other modules.
 CVALUE(call, bool, SkipInstrumentedExternally, false)
 
+/// Skip passing arguments that are not pointers and pointers that were not
+/// originated by a runtime call via replacement.
+CVALUE(call, bool, OnlyReplacedPointerValues, false)
+
 SECTION_END(call)
 ///}
 
