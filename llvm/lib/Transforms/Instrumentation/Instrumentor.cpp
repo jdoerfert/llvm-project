@@ -472,7 +472,7 @@ private:
   bool instrumentStore(StoreInst &I, InstrumentorConfig::Position P);
   bool instrumentUnreachable(UnreachableInst &I,
                              InstrumentorConfig::Position P);
-  bool instrumentMainFunction(Function &MainFn, InstrumentorConfig::Position P);
+  bool instrumentMainFunction(Function &MainFn);
   bool instrumentModule(InstrumentorConfig::Position P);
 
   DenseMap<Value *, CallInst *> BasePtrMap;
@@ -1534,9 +1534,9 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   return Changed;
 }
 
-bool InstrumentorImpl::instrumentMainFunction(Function &MainFn,
-                                              InstrumentorConfig::Position P) {
-  if (!IC.main_function.isEnabled(P))
+bool InstrumentorImpl::instrumentMainFunction(Function &MainFn) {
+  auto AvailP = InstrumentorConfig::PRE_AND_POST;
+  if (!IC.main_function.isEnabled(AvailP))
     return false;
   if (!shouldInstrumentFunction(&MainFn))
     return false;
@@ -1558,16 +1558,16 @@ bool InstrumentorImpl::instrumentMainFunction(Function &MainFn,
       RTArgs, IC.main_function.ArgC,
       InstMainFn->arg_size() ? cast<Value>(InstMainFn->arg_begin())
                              : getCI(IC.main_function.ArgC.getType(Ctx), 0),
-      InstMainFn, P,
+      InstMainFn, AvailP,
       /*ForceIndirection=*/IC.main_function.ReplaceArgumentValues);
   IndirectionAIArgV = addIndVal(
       RTArgs, IC.main_function.ArgV,
       InstMainFn->arg_size() > 1 ? cast<Value>(InstMainFn->arg_begin() + 1)
                                  : NullPtrVal,
-      InstMainFn, P,
+      InstMainFn, AvailP,
       /*ForceIndirection=*/IC.main_function.ReplaceArgumentValues);
 
-  if (P & InstrumentorConfig::PRE)
+  if (IC.main_function.isEnabled(InstrumentorConfig::PRE))
     getCall(IC.main_function.SectionName, RTArgs, InstrumentorConfig::PRE);
 
   SmallVector<Value *> UserMainArgs;
@@ -1587,8 +1587,8 @@ bool InstrumentorImpl::instrumentMainFunction(Function &MainFn,
       M.getOrInsertFunction(MainFnName, MainFn.getFunctionType());
   Value *ReturnValue = IRB.CreateCall(FnCallee, UserMainArgs);
 
-  if (P & InstrumentorConfig::POST) {
-    addVal(RTArgs, IC.main_function.ReturnValue, ReturnValue, P);
+  if (IC.main_function.isEnabled(InstrumentorConfig::POST)) {
+    addVal(RTArgs, IC.main_function.ReturnValue, ReturnValue, AvailP);
 
     auto *CI =
         getCall(IC.main_function.SectionName, RTArgs, InstrumentorConfig::POST);
@@ -1601,9 +1601,10 @@ bool InstrumentorImpl::instrumentMainFunction(Function &MainFn,
 }
 
 bool InstrumentorImpl::instrumentModule(InstrumentorConfig::Position P) {
+  assert(P != InstrumentorConfig::PRE_AND_POST);
   if (!IC.module.isEnabled(P))
     return false;
-  assert(P != InstrumentorConfig::PRE_AND_POST);
+
   Function *YtorFn = (P & InstrumentorConfig::POST) ? DtorFn : CtorFn;
   assert(YtorFn);
 
@@ -1842,8 +1843,7 @@ bool InstrumentorImpl::instrument() {
   Changed |= instrumentGlobalVariables();
 
   if (MainFn)
-    Changed |=
-        instrumentMainFunction(*MainFn, InstrumentorConfig::PRE_AND_POST);
+    Changed |= instrumentMainFunction(*MainFn);
 
   if (IC.base_pointer.SkipUnused)
     Changed |= removeUnusedBasePointers();
