@@ -1382,7 +1382,7 @@ bool InstrumentorImpl::instrumentStore(StoreInst &I,
   RTArgPack.addIndVal(IC.store.ValueOperand, I.getValueOperand(), I.getFunction(),
             P);
   RTArgPack.addCI(IC.store.ValueOperandSize,
-        DL.getTypeSizeInBits(I.getValueOperand()->getType()), P);
+        DL.getTypeStoreSize(I.getValueOperand()->getType()), P);
   RTArgPack.addCI(IC.store.ValueOperandTypeId,
         I.getValueOperand()->getType()->getTypeID(), P);
   RTArgPack.addCI(IC.store.Alignment, I.getAlign().value(), P);
