@@ -139,10 +139,9 @@ struct AllocationCallInfo {
   Constant *InitialValue;
   /// The total size is the product of SizeLHS and SizeRHS, if both are
   /// non-null, otherwise it is simply the non-null value.
-  Value *SizeLHS;
-  Value *SizeRHS;
+  int SizeLHSArgNo, SizeRHSArgNo;
   /// The statically requested alignment.
-  Value *Alignment;
+  int AlignmentArgNo;
 };
 
 /// Return all known information about the allocation call \p CB.
