@@ -23,9 +23,21 @@ from typing import Callable, List, Union
 def send(f: io.BufferedWriter, value: Union[int, float], spec: log_reader.TensorSpec):
     """Send the `value` - currently just a scalar - formatted as per `spec`."""
 
-    # just int64 for now
-    assert spec.element_type == ctypes.c_int64
-    to_send = ctypes.c_int64(int(value))
+    if spec.element_type == ctypes.c_int64:
+        convert_el_func = int
+        ctype_func = ctypes.c_int64
+    elif spec.element_type == ctypes.c_float:
+        convert_el_func = float
+        ctype_func = ctypes.c_float
+    else:
+        print(spec.element_type, "not supported")
+        assert False
+
+    if isinstance(value, list):
+        to_send = (ctype_func * len(value))(*[convert_el_func(el) for el in value])
+    else:
+        to_send = ctype_func(convert_el_func(value))
+
     assert f.write(bytes(to_send)) == ctypes.sizeof(spec.element_type) * math.prod(
         spec.shape
     )
@@ -34,7 +46,7 @@ def send(f: io.BufferedWriter, value: Union[int, float], spec: log_reader.Tensor
 
 def run_interactive(
     temp_rootname: str,
-    make_response: Callable[[List[log_reader.TensorValue]], Union[int, float]],
+    make_response: Callable[[List[log_reader.TensorValue]], Union[int, float, list]],
     process_and_args: List[str],
 ):
     """Host the compiler.
