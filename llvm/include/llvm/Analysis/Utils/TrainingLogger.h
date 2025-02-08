@@ -136,6 +136,11 @@ public:
     logRewardImpl(reinterpret_cast<const char *>(&Value));
   }
 
+  void logCustom(const char *Type, const char *RawData, size_t Size);
+  template <typename T> void logCustom(const char *Type, T Value) {
+    logCustom(Type, reinterpret_cast<const char *>(&Value), sizeof(Value));
+  }
+
   void logTensorValue(size_t FeatureID, const char *RawData) {
     writeTensor(FeatureSpecs[FeatureID], RawData);
   }

@@ -78,6 +78,19 @@ void Logger::logRewardImpl(const char *RawData) {
   *OS << "\n";
 }
 
+void Logger::logCustom(const char *Type, const char *RawData, size_t Size) {
+  assert(IncludeReward);
+  json::OStream JOS(*OS);
+  JOS.object([&]() {
+    JOS.attribute(Type, static_cast<int64_t>(
+                            ObservationIDs.find(CurrentContext)->second));
+  });
+  *OS << "\n";
+  while (Size--)
+    OS->write(*RawData++);
+  *OS << "\n";
+}
+
 Logger::Logger(std::unique_ptr<raw_ostream> OS,
                const std::vector<TensorSpec> &FeatureSpecs,
                const TensorSpec &RewardSpec, bool IncludeReward,
