@@ -27,6 +27,7 @@ add_llvm_component_library(LLVMipo
   IROutliner.cpp
   InferFunctionAttrs.cpp
   Inliner.cpp
+  InputGen.cpp
   Internalize.cpp
   LoopExtractor.cpp
   LowerTypeTests.cpp

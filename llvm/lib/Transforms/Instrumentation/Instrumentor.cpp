@@ -30,6 +30,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
@@ -46,6 +47,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 
+#include <cassert>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -70,11 +72,6 @@ static cl::opt<std::string> ReadJSONConfig(
     cl::init(""));
 
 namespace {
-
-static std::string getRTName(StringRef Base, StringRef Prefix, StringRef Name,
-                             StringRef Suffix = "") {
-  return (Base + Prefix + Name + Suffix).str();
-}
 
 void writeInstrumentorConfig(InstrumentationConfig &IConf) {
   if (WriteJSONConfig.empty())
@@ -321,15 +318,15 @@ public:
       for (auto &[_, IO] : ChoiceMap) {
         if (!IO->Enabled)
           continue;
-        IRTCallDescription IRTCallDesc(*IO);
+        IRTCallDescription IRTCallDesc(*IO, IO->getRetTy(M.getContext()));
         const auto &Signatures = IRTCallDesc.createCSignature(IConf, IIRB.DL);
         const auto &Bodies = IRTCallDesc.createCBodies(IConf, IIRB.DL);
         if (!Signatures.first.empty()) {
-          Out << Signatures.first << "{\n";
+          Out << Signatures.first << " {\n";
           Out << "  " << Bodies.first << "}\n\n";
         }
         if (!Signatures.second.empty()) {
-          Out << Signatures.second << "{\n";
+          Out << Signatures.second << " {\n";
           Out << "  " << Bodies.second << "}\n\n";
         }
       }
@@ -397,7 +394,7 @@ protected:
 bool InstrumentorImpl::shouldInstrumentFunction(Function &Fn) {
   if (Fn.isDeclaration())
     return false;
-  return !Fn.getName().starts_with(IConf.getRTName());
+  return !Fn.getName().starts_with(IConf.getRTName()) || Fn.hasFnAttribute("instrument");
 }
 
 bool InstrumentorImpl::shouldInstrumentGlobalVariable(GlobalVariable &GV) {
@@ -407,7 +404,7 @@ bool InstrumentorImpl::shouldInstrumentGlobalVariable(GlobalVariable &GV) {
 
 bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   bool Changed = false;
-  if (!shouldInstrumentFunction(Fn))
+  if (!shouldInstrumentFunction(Fn)) 
     return Changed;
 
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
@@ -453,7 +450,7 @@ bool InstrumentorImpl::instrumentModule() {
   auto CreateYtor = [&](bool Ctor) {
     Function *YtorFn = Function::Create(
         FunctionType::get(IIRB.VoidTy, false), GlobalValue::PrivateLinkage,
-        getRTName(IConf.getRTName(), Ctor ? "ctor" : "dtor", ""), M);
+        IConf.getRTName(Ctor ? "ctor" : "dtor", ""), M);
 
     auto *EntryBB = BasicBlock::Create(IIRB.Ctx, "entry", YtorFn);
     IIRB.IRB.SetInsertPoint(EntryBB, EntryBB->begin());
@@ -515,8 +512,6 @@ bool InstrumentorImpl::instrumentModule() {
     }
   }
 
-  IIRB.IRB.SetInsertPointPastAllocas(CtorFn);
-
   return Changed;
 }
 
@@ -553,9 +548,6 @@ PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
   Impl.printRuntimeSignatures();
 
   bool Changed = Impl.instrument();
-  if (UserIConf)
-    delete &IConf;
-
   if (!Changed)
     return PreservedAnalyses::all();
 
@@ -595,12 +587,14 @@ void InstrumentationConfig::populate(LLVMContext &Ctx) {
   UnreachableIO::populate(*this, Ctx);
   BasePointerIO::populate(*this, Ctx);
   FunctionIO::populate(*this, Ctx);
+  PtrToIntIO::populate(*this, Ctx);
   ModuleIO::populate(*this, Ctx);
   GlobalIO::populate(*this, Ctx);
   AllocaIO::populate(*this, Ctx);
   StoreIO::populate(*this, Ctx);
   LoadIO::populate(*this, Ctx);
   CallIO::populate(*this, Ctx);
+  ICmpIO::populate(*this, Ctx);
 }
 
 void InstrumentationConfig::addChoice(InstrumentationOpportunity &IO) {
@@ -636,8 +630,10 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
     else if (isa<GlobalValue>(VPtr) || isa<Argument>(VPtr))
       IIRB.IRB.SetInsertPointPastAllocas(
           IIRB.IRB.GetInsertBlock()->getParent());
-    else
+    else {
+      VPtr->dump();
       llvm_unreachable("Unexpected base pointer!");
+    }
     BPI = BPIO->instrument(VPtr, *this, IIRB);
   }
   return BPI;
@@ -645,6 +641,8 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
 
 Value *InstrumentationOpportunity::forceCast(Value &V, Type &Ty,
                                              InstrumentorIRBuilderTy &IIRB) {
+  if (V.getType()->isVoidTy())
+    return Ty.isVoidTy() ? &V : Constant::getNullValue(&Ty);
   return tryToCast(IIRB.IRB, &V, &Ty,
                    IIRB.IRB.GetInsertBlock()->getDataLayout());
 }
@@ -652,10 +650,16 @@ Value *InstrumentationOpportunity::forceCast(Value &V, Type &Ty,
 Value *InstrumentationOpportunity::replaceValue(Value &V, Value &NewV,
                                                 InstrumentationConfig &IConf,
                                                 InstrumentorIRBuilderTy &IIRB) {
-  errs() << V << " : " << NewV << "\n";
-  auto *NewVCasted =
-      tryToCast(IIRB.IRB, &NewV, V.getType(), IIRB.DL, /*AllowTruncate=*/true);
-  errs() << V << " : " << *NewVCasted << "\n";
+  if (V.getType()->isVoidTy())
+    return &V;
+
+  auto *NewVCasted = &NewV;
+  if (auto *I = dyn_cast<Instruction>(&NewV)) {
+    IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
+    IIRB.IRB.SetInsertPoint(I->getNextNode());
+    NewVCasted = tryToCast(IIRB.IRB, &NewV, V.getType(), IIRB.DL,
+                           /*AllowTruncate=*/true);
+  }
   V.replaceUsesWithIf(NewVCasted, [&](Use &U) {
     if (IIRB.NewInsts.lookup(cast<Instruction>(U.getUser())) == IIRB.Epoche)
       return false;
@@ -665,8 +669,9 @@ Value *InstrumentationOpportunity::replaceValue(Value &V, Value &NewV,
   return &V;
 }
 
-IRTCallDescription::IRTCallDescription(InstrumentationOpportunity &IO)
-    : IO(IO) {
+IRTCallDescription::IRTCallDescription(InstrumentationOpportunity &IO,
+                                       Type *RetTy)
+    : IO(IO), RetTy(RetTy) {
   for (auto &It : IO.IRTArgs) {
     if (!It.Enabled)
       continue;
@@ -675,14 +680,15 @@ IRTCallDescription::IRTCallDescription(InstrumentationOpportunity &IO)
   }
   if (NumReplaceableArgs > 1)
     MightRequireIndirection = RequiresIndirection = true;
-  errs() << IO.getName() << " : " << NumReplaceableArgs << " : "
-         << MightRequireIndirection << " : " << RequiresIndirection << "\n";
 }
 
 static std::pair<std::string, std::string> getAsCType(Type *Ty,
                                                       unsigned Flags) {
   if (Ty->isIntegerTy()) {
-    auto S = "int" + std::to_string(Ty->getIntegerBitWidth()) + "_t ";
+    auto BW = Ty->getIntegerBitWidth();
+    if (BW == 1)
+      return {"bool ", "bool *"};
+    auto S = "int" + std::to_string(BW) + "_t ";
     return {S, S + "*"};
   }
   if (Ty->isPointerTy())
@@ -718,7 +724,7 @@ IRTCallDescription::createCBodies(InstrumentationConfig &IConf,
   std::string DirectFormat = "printf(\"" + IO.getName().str() +
                              (IO.IP.isPRE() ? " pre" : " post") + " -- ";
   std::string IndirectFormat = DirectFormat;
-  std::string DirectArg, IndirectArg, ReturnValue;
+  std::string DirectArg, IndirectArg, DirectReturnValue, IndirectReturnValue;
 
   auto AddToFormats = [&](Twine S) {
     DirectFormat += S.str();
@@ -737,13 +743,13 @@ IRTCallDescription::createCBodies(InstrumentationConfig &IConf,
     First = false;
     AddToArgs(", " + IRArg.Name);
     AddToFormats(IRArg.Name + ": ");
-    errs() << "B IRArg: " << IRArg.Name << " : " << isPotentiallyIndirect(IRArg)
-           << " : " << NumReplaceableArgs << " : "
-           << (IRArg.Flags & IRTArg::REPLACABLE) << "\n";
+    if (NumReplaceableArgs == 1 && (IRArg.Flags & IRTArg::REPLACABLE)) {
+      DirectReturnValue = IRArg.Name;
+      if (!isPotentiallyIndirect(IRArg))
+        IndirectReturnValue = IRArg.Name;
+    }
     if (!isPotentiallyIndirect(IRArg)) {
       AddToFormats(getPrintfFormatString(IRArg.Ty, IRArg.Flags));
-      if (NumReplaceableArgs == 1 && (IRArg.Flags & IRTArg::REPLACABLE))
-        ReturnValue = IRArg.Name;
     } else {
       DirectFormat += getPrintfFormatString(IRArg.Ty, IRArg.Flags);
       IndirectFormat += "%p";
@@ -758,10 +764,15 @@ IRTCallDescription::createCBodies(InstrumentationConfig &IConf,
 
   std::string DirectBody = DirectFormat + "\\n\"" + DirectArg + ");\n";
   std::string IndirectBody = IndirectFormat + "\\n\"" + IndirectArg + ");\n";
-  if (!ReturnValue.empty()) {
-    DirectBody += "  return " + ReturnValue + ";\n";
-    IndirectBody += "  return " + ReturnValue + ";\n";
+  if (RetTy) {
+    assert(DirectReturnValue.empty() && IndirectReturnValue.empty() &&
+           "Explicit return type but also implicit one!");
+    IndirectReturnValue = DirectReturnValue = "0";
   }
+  if (!DirectReturnValue.empty())
+    DirectBody += "  return " + DirectReturnValue + ";\n";
+  if (!IndirectReturnValue.empty())
+    IndirectBody += "  return " + IndirectReturnValue + ";\n";
   return {DirectBody, IndirectBody};
 }
 
@@ -769,7 +780,7 @@ std::pair<std::string, std::string>
 IRTCallDescription::createCSignature(InstrumentationConfig &IConf,
                                      const DataLayout &DL) {
   SmallVector<std::string> DirectArgs, IndirectArgs;
-  std::string RetTy = "void ";
+  std::string DirectRetTy = "void ", IndirectRetTy = "void ";
   for (auto &IRArg : IO.IRTArgs) {
     if (!IRArg.Enabled)
       continue;
@@ -779,13 +790,13 @@ IRTCallDescription::createCSignature(InstrumentationConfig &IConf,
     std::string IndirectArg = IndirectArgTy + IRArg.Name.str() + "_ptr";
     std::string IndirectArgSize = "int32_t " + IRArg.Name.str() + "_size";
     DirectArgs.push_back(DirectArg);
-    errs() << "S IRArg: " << IRArg.Name << " : " << isPotentiallyIndirect(IRArg)
-           << " : " << NumReplaceableArgs << " : "
-           << (IRArg.Flags & IRTArg::REPLACABLE) << "\n";
+    if (NumReplaceableArgs == 1 && (IRArg.Flags & IRTArg::REPLACABLE)) {
+      DirectRetTy = DirectArgTy;
+      if (!isPotentiallyIndirect(IRArg))
+        IndirectRetTy = DirectArgTy;
+    }
     if (!isPotentiallyIndirect(IRArg)) {
       IndirectArgs.push_back(DirectArg);
-      if (NumReplaceableArgs == 1 && (IRArg.Flags & IRTArg::REPLACABLE))
-        RetTy = DirectArgTy;
     } else {
       IndirectArgs.push_back(IndirectArg);
       if (!(IRArg.Flags & IRTArg::INDIRECT_HAS_SIZE))
@@ -793,24 +804,26 @@ IRTCallDescription::createCSignature(InstrumentationConfig &IConf,
     }
   }
 
-  auto DirectName = getRTName(
-      IConf.getRTName(), IO.IP.isPRE() ? "pre_" : "post_", IO.getName(), "");
+  auto DirectName =
+      IConf.getRTName(IO.IP.isPRE() ? "pre_" : "post_", IO.getName(), "");
   auto IndirectName =
-      getRTName(IConf.getRTName(), IO.IP.isPRE() ? "pre_" : "post_",
-                IO.getName(), "_ind");
+      IConf.getRTName(IO.IP.isPRE() ? "pre_" : "post_", IO.getName(), "_ind");
   auto MakeSignature = [&](std::string &RetTy, std::string &Name,
                            SmallVectorImpl<std::string> &Args) {
     return RetTy + Name + "(" + join(Args, ", ") + ")";
   };
 
-  errs() << "RI: " << RequiresIndirection << " : " << MightRequireIndirection
-         << "\n";
+  if (RetTy) {
+    assert(DirectRetTy == "void " && IndirectRetTy == "void " &&
+           "Explicit return type but also implicit one!");
+    IndirectRetTy = DirectRetTy = getAsCType(RetTy, 0).first;
+  }
   if (RequiresIndirection)
-    return {"", MakeSignature(RetTy, IndirectName, IndirectArgs)};
+    return {"", MakeSignature(IndirectRetTy, IndirectName, IndirectArgs)};
   if (!MightRequireIndirection)
-    return {MakeSignature(RetTy, DirectName, DirectArgs), ""};
-  return {MakeSignature(RetTy, DirectName, DirectArgs),
-          MakeSignature(RetTy, IndirectName, IndirectArgs)};
+    return {MakeSignature(DirectRetTy, DirectName, DirectArgs), ""};
+  return {MakeSignature(DirectRetTy, DirectName, DirectArgs),
+          MakeSignature(IndirectRetTy, IndirectName, IndirectArgs)};
 }
 
 FunctionType *
@@ -822,7 +835,6 @@ IRTCallDescription::createLLVMSignature(InstrumentationConfig &IConf,
          "Wrong indirection setting!");
 
   SmallVector<Type *> ParamTypes;
-  Type *RetTy = Type::getVoidTy(Ctx);
   for (auto &It : IO.IRTArgs) {
     if (!It.Enabled)
       continue;
@@ -838,6 +850,8 @@ IRTCallDescription::createLLVMSignature(InstrumentationConfig &IConf,
     if (!(It.Flags & IRTArg::INDIRECT_HAS_SIZE))
       ParamTypes.push_back(IntegerType::getInt32Ty(Ctx));
   }
+  if (!RetTy)
+    RetTy = Type::getVoidTy(Ctx);
 
   return FunctionType::get(RetTy, ParamTypes, /*isVarArg=*/false);
 }
@@ -903,15 +917,11 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
   auto *FnTy =
       createLLVMSignature(IConf, V->getContext(), DL, ForceIndirection);
   auto CompleteName =
-      getRTName(IConf.getRTName(), IO.IP.isPRE() ? "pre_" : "post_",
-                IO.getName(), ForceIndirection ? "_ind" : "");
+      IConf.getRTName(IO.IP.isPRE() ? "pre_" : "post_", IO.getName(),
+                      ForceIndirection ? "_ind" : "");
   auto FC = IIRB.IRB.GetInsertBlock()->getModule()->getOrInsertFunction(
       CompleteName, FnTy);
-  FnTy->dump();
-  for (auto *CP : CallParams)
-    CP->dump();
   auto *CI = IIRB.IRB.CreateCall(FC, CallParams);
-  FnTy->dump();
 
   for (unsigned I = 0, E = IO.IRTArgs.size(); I < E; ++I) {
     if (!IO.IRTArgs[I].Enabled)
@@ -941,7 +951,6 @@ static Value *createValuePack(const Range &R, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
   auto *Fn = IIRB.IRB.GetInsertBlock()->getParent();
   auto &DL = Fn->getDataLayout();
-  auto *PtrTy = IIRB.IRB.getPtrTy();
   auto *I32Ty = IIRB.IRB.getInt32Ty();
   SmallVector<Value *> Values;
   SmallVector<Type *> Types;
@@ -970,12 +979,14 @@ static Value *createValuePack(const Range &R, InstrumentationConfig &IConf,
   }
 
   auto *AI = IIRB.getAlloca(Fn, STy);
-  unsigned Offset = 0;
-  for (auto *Param : Values) {
-    auto *Ptr = IIRB.IRB.CreateConstInBoundsGEP1_32(IIRB.Int8Ty, AI, Offset);
+  //unsigned Offset = 0;
+  for (auto [Idx, Param] : enumerate(Values)) {
+    auto *Ptr = IIRB.IRB.CreateStructGEP(STy, AI, Idx);
+    //auto *Ptr = IIRB.IRB.CreateConstInBoundsGEP1_32(IIRB.Int8Ty, AI, Offset);
     IIRB.IRB.CreateStore(Param, Ptr);
-    Offset += DL.getTypeAllocSize(Param->getType());
+    //Offset += DL.getTypeAllocSize(Param->getType());
   }
+  IIRB.returnAllocas({AI});
   return AI;
 }
 
@@ -986,7 +997,6 @@ static void readValuePack(const Range &R, Value &Pack,
   auto *Fn = IIRB.IRB.GetInsertBlock()->getParent();
   auto &DL = Fn->getDataLayout();
   SmallVector<Value *> ParameterValues;
-  auto *PtrTy = IIRB.IRB.getPtrTy();
   unsigned Offset = 0;
   for (const auto &[Idx, Param] : enumerate(R)) {
     Offset += 8;
@@ -1252,6 +1262,38 @@ Value *CallIO::setCallParameters(Value &V, Value &NewV,
   });
   return &CI;
 }
+Value *CallIO::isDefinition(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                            InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<CallInst>(V);
+  return getCI(&Ty, !CI.getCalledFunction()->isDeclaration());
+}
+
+Value *ICmpIO::getCmpPredicate(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                               InstrumentorIRBuilderTy &IIRB) {
+  auto &II = cast<ICmpInst>(V);
+  return getCI(&Ty, II.getCmpPredicate());
+}
+Value *ICmpIO::isPtrCmp(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                        InstrumentorIRBuilderTy &IIRB) {
+  auto &II = cast<ICmpInst>(V);
+  return getCI(&Ty, II.getOperand(0)->getType()->isPointerTy());
+}
+Value *ICmpIO::getLHS(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                      InstrumentorIRBuilderTy &IIRB) {
+  auto &II = cast<ICmpInst>(V);
+  return tryToCast(IIRB.IRB, II.getOperand(0), &Ty, IIRB.DL);
+}
+Value *ICmpIO::getRHS(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                      InstrumentorIRBuilderTy &IIRB) {
+  auto &II = cast<ICmpInst>(V);
+  return tryToCast(IIRB.IRB, II.getOperand(1), &Ty, IIRB.DL);
+}
+
+Value *PtrToIntIO::getPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                          InstrumentorIRBuilderTy &IIRB) {
+  auto &PI = cast<PtrToIntInst>(V);
+  return PI.getPointerOperand();
+}
 
 Value *BasePointerIO::getPointerKind(Value &V, Type &Ty,
                                      InstrumentationConfig &IConf,
@@ -1338,7 +1380,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
   SmallVector<Use *> Worklist(make_pointer_range(GV.uses()));
 
   GlobalVariable *ShadowGV = nullptr;
-  auto ShadowName = getRTName(IConf.getRTName(), "shadow.", GV.getName());
+  auto ShadowName = IConf.getRTName("shadow.", GV.getName());
   auto &DL = GV.getDataLayout();
   if (GV.isDeclaration()) {
     ShadowGV = new GlobalVariable(*GV.getParent(), GV.getType(), false,
