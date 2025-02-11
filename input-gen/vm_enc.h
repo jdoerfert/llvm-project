@@ -1,0 +1,540 @@
+#include <algorithm>
+#include <bit>
+#include <cassert>
+#include <climits>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <exception>
+#include <sys/types.h>
+#include <tuple>
+#include <type_traits>
+
+#ifndef VM_ENC_H
+#define VM_ENC_H
+
+namespace __ig {
+
+enum AccessKind { READ, WRITE, TEST, TEST_READ };
+
+#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
+#define BYTE_TO_BINARY(byte)                                                   \
+  ((byte) & 0x80 ? '1' : '0'), ((byte) & 0x40 ? '1' : '0'),                    \
+      ((byte) & 0x20 ? '1' : '0'), ((byte) & 0x10 ? '1' : '0'),                \
+      ((byte) & 0x08 ? '1' : '0'), ((byte) & 0x04 ? '1' : '0'),                \
+      ((byte) & 0x02 ? '1' : '0'), ((byte) & 0x01 ? '1' : '0')
+
+enum BitsKind {
+  InitBit,
+  PtrBit,
+  RecordBit,
+  SavedBit,
+};
+static uint64_t BitsTable[4][8][2] = {
+    {
+        {0x01, 0x1},
+        {0x011, 0x11},
+        {0x0111, 0x111},
+        {0x01111, 0x1111},
+        {0x011111, 0x11111},
+        {0x0111111, 0x111111},
+        {0x01111111, 0x1111111},
+        {0x011111111, 0x111111101},
+    },
+    {
+        {0x02, 0x2},
+        {0x022, 0x22},
+        {0x0222, 0x222},
+        {0x02222, 0x2222},
+        {0x022222, 0x22222},
+        {0x0222222, 0x222222},
+        {0x02222222, 0x2222222},
+        {0x022222222, 0x222222202},
+    },
+    {
+        {0x04, 0x4},
+        {0x044, 0x44},
+        {0x0444, 0x444},
+        {0x04444, 0x4444},
+        {0x044444, 0x44444},
+        {0x0444444, 0x444444},
+        {0x04444444, 0x4444444},
+        {0x044444444, 0x444444404},
+    },
+    {
+        {0x08, 0x8},
+        {0x088, 0x88},
+        {0x0888, 0x888},
+        {0x08888, 0x8888},
+        {0x088888, 0x88888},
+        {0x0888888, 0x888888},
+        {0x08888888, 0x8888888},
+        {0x088888888, 0x888888808},
+    },
+};
+
+template <typename T, typename MASK_TYPE = typename std::remove_const<T>::type>
+static constexpr int leadingN(const T &DATA) {
+  int BITSN{sizeof(T) * CHAR_BIT}, I{BITSN};
+  MASK_TYPE MASK{1u << (BITSN - 1)};
+  for (; I && !(DATA & MASK); I--, MASK >>= 1) {
+  }
+  return BITSN - I;
+}
+
+static constexpr uint32_t NumEncodingBits = 2;
+constexpr uint32_t MAGIC = 0b101;
+static constexpr uint32_t NumMagicBits = (8 * sizeof(MAGIC)) - leadingN(MAGIC);
+
+struct ObjectManager;
+
+struct EncodingSchemeTy {
+  ObjectManager &OM;
+  EncodingSchemeTy(ObjectManager &OM) : OM(OM) {}
+
+  union EncTy {
+    char *VPtr;
+    struct __attribute__((packed)) {
+      uint64_t Bits : (sizeof(char *) * 8) - NumEncodingBits;
+      uint32_t EncodingId : NumEncodingBits;
+    } Bits;
+    EncTy(char *VPtr) : VPtr(VPtr) {}
+  };
+
+  static uint32_t getEncoding(char *VPtr) {
+    EncTy E(VPtr);
+    return E.Bits.EncodingId;
+  }
+
+  [[noreturn]] void error(uint32_t ErrorCode);
+
+  virtual void reset() = 0;
+  virtual bool isEncoded(char *VPtr) = 0;
+  virtual std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) = 0;
+  virtual char *getBasePtrInfo(char *VPtr) = 0;
+};
+
+template <uint32_t EncodingNo, uint32_t OffsetBits, uint32_t BucketBits,
+          uint32_t RealPtrBits>
+struct BucketSchemeTy : public EncodingSchemeTy {
+  BucketSchemeTy(ObjectManager &OM) : EncodingSchemeTy(OM) {}
+  ~BucketSchemeTy() {
+#ifndef NDEBUG
+    fprintf(stderr, "Buckets used: %i\n", NumBucketsUsed);
+#endif
+  }
+
+  static constexpr uint32_t NumOffsetBits = OffsetBits;
+  static constexpr uint32_t NumBucketBits = BucketBits;
+  static constexpr uint32_t NumRealPtrBits = RealPtrBits;
+
+  static_assert(NumEncodingBits + NumMagicBits + NumOffsetBits * 2 +
+                        NumBucketBits + NumRealPtrBits ==
+                    (8 * sizeof(char *)),
+                "Size missmatch!");
+
+  static constexpr uint32_t NumBuckets = 1 << BucketBits;
+  uint32_t Buckets[NumBuckets];
+  uint32_t NumBucketsUsed = 0;
+
+  void reset() override {
+    for (uint32_t I = 0; I < NumBucketsUsed; ++I)
+      Buckets[I] = 0;
+    NumBucketsUsed = 0;
+  }
+
+  union EncTy {
+    char *VPtr;
+    struct __attribute__((packed)) {
+      int32_t Offset : NumOffsetBits;
+      uint32_t Magic : NumMagicBits;
+      uint32_t Size : NumOffsetBits;
+      uint32_t BuckedIdx : NumBucketBits;
+      uint32_t RealPtr : NumRealPtrBits;
+      uint32_t EncodingId : NumEncodingBits;
+    } Bits;
+
+    EncTy(uint32_t Size, uint32_t BuckedIdx, uint32_t RealPtr) {
+      Bits.Offset = 0;
+      Bits.Magic = MAGIC;
+      Bits.Size = Size;
+      Bits.BuckedIdx = BuckedIdx;
+      Bits.RealPtr = RealPtr;
+      Bits.EncodingId = EncodingNo;
+    }
+    EncTy(char *VPtr) : VPtr(VPtr) {}
+  };
+  static_assert(sizeof(EncTy) == sizeof(char *), "bad size");
+
+  static constexpr uint32_t NumBucketValueBits =
+      (8 * sizeof(char *) - NumRealPtrBits);
+  static_assert(NumBucketValueBits <= 32, "Bucket value too large!");
+
+  union DecTy {
+    char *Ptr;
+    struct __attribute__((packed)) {
+      uint32_t RealPtr : NumRealPtrBits;
+      uint32_t BucketValue : NumBucketValueBits;
+    } Bits;
+
+    DecTy(char *Ptr) : Ptr(Ptr) {}
+    DecTy(uint32_t RealPtr, uint32_t BucketValue) {
+      Bits.RealPtr = RealPtr;
+      Bits.BucketValue = BucketValue;
+    }
+  };
+  static_assert(sizeof(DecTy) == sizeof(char *), "bad size");
+
+  char *encode(char *Ptr, uint32_t Size) {
+    DecTy D(Ptr);
+    uint32_t BucketIdx = ~0u;
+    for (uint32_t Idx = 0; Idx < NumBucketsUsed; ++Idx) {
+      if (Buckets[Idx] == D.Bits.BucketValue) {
+        BucketIdx = Idx;
+        break;
+      }
+    }
+    if (BucketIdx == ~0u) {
+      if (NumBucketsUsed == NumBuckets) {
+        fprintf(stderr, "out of buckets!\n");
+        error(3);
+        std::terminate();
+      }
+      BucketIdx = NumBucketsUsed++;
+      Buckets[BucketIdx] = D.Bits.BucketValue;
+    }
+    EncTy E(Size, BucketIdx, D.Bits.RealPtr);
+    return E.VPtr;
+  }
+
+  std::tuple<char *, uint32_t, int32_t> decode(char *VPtr) {
+    EncTy E(VPtr);
+    DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
+    return std::make_tuple(D.Ptr, (uint32_t)E.Bits.Size,
+                           (uint32_t)E.Bits.Offset);
+  }
+
+  char *access(char *VPtr, uint32_t AccessSize, uint32_t TypeId, bool Write) {
+    EncTy E(VPtr);
+    DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
+    if (E.Bits.Offset < 0 || E.Bits.Offset + AccessSize > E.Bits.Size) {
+      fprintf(stderr, "User memory out-of-bound!\n");
+      error(4);
+      std::terminate();
+    }
+    return D.Ptr;
+  }
+
+  bool isEncoded(char *VPtr) override {
+    EncTy E(VPtr);
+    return E.Bits.Magic == MAGIC && E.Bits.EncodingId == EncodingNo;
+  }
+
+  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) override {
+    return {-1, -1};
+  }
+  char *getBasePtrInfo(char *VPtr) override {
+    return (char *)(uint64_t)EncodingNo;
+  }
+};
+
+struct TableSchemeBaseTy : public EncodingSchemeTy {
+  TableSchemeBaseTy(ObjectManager &OM) : EncodingSchemeTy(OM) {}
+
+  struct TableEntryTy {
+    char *Base;
+    char *Shadow;
+    uint32_t NegativeSize;
+    bool AnyRead = false;
+    bool AnyAccess = false;
+    bool IsNull = false;
+    bool AnyPtrRead = false;
+    char *SavedValues = nullptr;
+
+    TableEntryTy(char *Base, uint32_t PositiveSize, uint32_t NegativeSize)
+        : Base(Base), Shadow(Base + PositiveSize + NegativeSize),
+          NegativeSize(NegativeSize) {}
+    char *getBase() const { return Base; }
+    char *getShadow() const { return Shadow; }
+    uint32_t getShadowSize() const { return (getSize() + 1) / 2; }
+    uint32_t getSize() const { return Shadow - Base; }
+    uint32_t getPositiveSize() const { return Shadow - Base - NegativeSize; }
+    uint32_t getNegativeSize() const { return NegativeSize; }
+
+    void grow(uint32_t NewPositiveSize, uint32_t NewNegativeSize) {
+      uint32_t OldSize = getSize();
+      uint32_t NewSize = NewPositiveSize + NewNegativeSize;
+      uint32_t NegativeDifference = NewNegativeSize - getNegativeSize();
+      uint32_t NewTotalSize = (NewSize + 1) / 2 + NewSize;
+      char *NewBase;
+      if (false && NegativeDifference == 0) {
+        NewBase = (char *)realloc(Base, NewTotalSize);
+        __builtin_memcpy(NewBase + NewPositiveSize + NewNegativeSize,
+                         NewBase + OldSize, getShadowSize());
+        __builtin_memset(NewBase + NewPositiveSize + NewNegativeSize +
+                             getShadowSize(),
+                         0, (NewTotalSize - NewSize) - getShadowSize());
+      } else {
+        NewBase = (char *)calloc(NewTotalSize, 1);
+        __builtin_memcpy(NewBase + NegativeDifference, Base, OldSize);
+        __builtin_memcpy(NewBase + NewSize + NegativeDifference / 2,
+                         getShadow(), getShadowSize());
+        free(Base);
+      }
+      Base = NewBase;
+      Shadow = NewBase + NewPositiveSize + NewNegativeSize;
+      NegativeSize = NewNegativeSize;
+      // TODO: resize the SavedValues
+    }
+
+    void printStats() const {
+      fprintf(stderr, "- %p:%u [%p]\n", (void *)getBase(), getSize(),
+              SavedValues);
+      auto ShadowSize = getShadowSize();
+      char *Shadow = getShadow();
+      for (uint32_t I = 0; I < ShadowSize; ++I) {
+        fprintf(stderr, BYTE_TO_BINARY_PATTERN, BYTE_TO_BINARY(Shadow[I]));
+      }
+      puts("\n");
+    }
+  };
+};
+
+template <uint32_t EncodingNo, uint32_t OffsetBits>
+struct TableSchemeTy : public TableSchemeBaseTy {
+  static constexpr uint32_t NumOffsetBits = OffsetBits;
+  static constexpr uint32_t NumTableIdxBits =
+      (sizeof(char *) * 8) - NumOffsetBits - NumMagicBits - NumEncodingBits;
+  static constexpr uint32_t DefaultOffset = 1 << (NumOffsetBits - 1);
+
+  TableEntryTy *Table;
+  uint32_t TableEntryCnt = 0;
+
+  TableSchemeTy(ObjectManager &OM)
+      : TableSchemeBaseTy(OM),
+        Table((TableEntryTy *)malloc(sizeof(TableEntryTy) *
+                                     (1 << NumTableIdxBits))) {}
+
+  void reset() override {
+    // TODO reuse memory?
+    for (uint32_t I = 0; I < TableEntryCnt; ++I) {
+      free(Table[I].getBase());
+      free(Table[I].SavedValues);
+    }
+    TableEntryCnt = 0;
+  }
+
+  union EncDecTy {
+    char *VPtr;
+    struct __attribute__((packed)) {
+      uint32_t Offset : NumOffsetBits;
+      uint32_t Magic : NumMagicBits;
+      uint32_t TableIdx : NumTableIdxBits;
+      uint32_t EncodingId : NumEncodingBits;
+    } Bits;
+
+    EncDecTy(uint32_t Offset, uint32_t TableIdx) {
+      Bits.Offset = Offset;
+      Bits.Magic = MAGIC;
+      Bits.TableIdx = TableIdx;
+      Bits.EncodingId = EncodingNo;
+    }
+    EncDecTy(char *VPtr) : VPtr(VPtr) {}
+  };
+
+  static_assert(sizeof(EncDecTy) == sizeof(char *), "bad size");
+
+  uint64_t getValue(uint32_t TypeId, uint32_t TypeSize) {
+    float f = 3.14;
+    double d = 3.14;
+    switch (TypeId) {
+    case 2:
+      return std::bit_cast<uint32_t>(f);
+    case 3:
+      return std::bit_cast<uint64_t>(d);
+    case 12:
+      return 100;
+    case 14:
+      return (uint64_t)create(8, /*TODO */ 0);
+    default:
+      fprintf(stderr, "unknown type id %i\n", TypeId);
+      error(5);
+      std::terminate();
+    }
+  }
+
+  char *create(uint32_t Size, uint32_t Seed) {
+    assert(std::has_single_bit(Size));
+    auto TEC = TableEntryCnt++;
+    uint32_t NegativeSize = 0;
+    uint32_t PositiveSize = Size * 8;
+    uint32_t TotalSize = PositiveSize + PositiveSize / 2;
+    char *Base = (char *)calloc(TotalSize, 1);
+    Table[TEC] = TableEntryTy(Base, PositiveSize, NegativeSize);
+    EncDecTy ED(DefaultOffset, TEC);
+    return ED.VPtr;
+  }
+
+  std::tuple<char *, uint32_t, int32_t> decode(char *VPtr) {
+    EncDecTy ED(VPtr);
+    TableEntryTy &TE = Table[ED.Bits.TableIdx];
+    if (TE.IsNull)
+      return {nullptr, 0, 0};
+    int32_t RelOffset = (uint32_t)ED.Bits.Offset - DefaultOffset;
+    return {TE.Base + RelOffset + TE.NegativeSize, 0, RelOffset};
+  }
+
+  __attribute__((always_inline)) uint64_t
+  readVariableSize(char *ShadowP, uint32_t AccessSize) {
+    switch (AccessSize) {
+    case 1:
+      return *ShadowP;
+    case 2:
+      return *(uint16_t *)ShadowP;
+    case 4:
+      return *(uint32_t *)ShadowP;
+    case 8:
+      return *(uint64_t *)ShadowP;
+    default:
+      __builtin_unreachable();
+    }
+  }
+
+  __attribute__((always_inline)) void
+  writeVariableSize(char *ShadowP, uint32_t AccessSize, uint64_t Value) {
+    switch (AccessSize) {
+    case 1:
+      *ShadowP = Value;
+      break;
+    case 2:
+      *(uint16_t *)ShadowP = Value;
+      break;
+    case 4:
+      *(uint32_t *)ShadowP = Value;
+      break;
+    case 8:
+      *(uint64_t *)ShadowP = Value;
+      break;
+    default:
+      __builtin_unreachable();
+    }
+  }
+
+  __attribute__((always_inline)) void
+  checkAndWrite(TableEntryTy &TE, char *MemP, char *ShadowP,
+                uint32_t AccessSize, uint32_t TypeId, AccessKind AK,
+                uint32_t Rem, bool &AnyInitialized) {
+    assert(AccessSize <= 8);
+
+    if (TE.IsNull) {
+      if (AK == TEST || AK == TEST_READ) {
+        AnyInitialized = true;
+        return;
+      }
+      fprintf(stderr, "access to nullptr (object) detected: %p; UB!\n", MemP);
+      error(42);
+      std::terminate();
+    }
+
+    uint64_t ShadowVal = readVariableSize(ShadowP, AccessSize / 2);
+    uint64_t InitBits = BitsTable[InitBit][AccessSize - 1][Rem];
+    bool IsInitialized = ShadowVal & InitBits;
+    if (AK == TEST) {
+      AnyInitialized |= IsInitialized;
+      return;
+    }
+
+    TE.AnyAccess = true;
+    uint64_t PtrBits = BitsTable[PtrBit][AccessSize - 1][Rem];
+    uint64_t RecordBits = BitsTable[RecordBit][AccessSize - 1][Rem];
+    uint64_t SavedBits = BitsTable[SavedBit][AccessSize - 1][Rem];
+    if (!IsInitialized) {
+      if (AK == READ) {
+        TE.AnyRead = true;
+        if (TypeId == 14)
+          TE.AnyPtrRead = true;
+      }
+      if (AK == WRITE) {
+        ShadowVal |= InitBits;
+      } else {
+        ShadowVal |= InitBits | RecordBits | ((TypeId == 14) ? PtrBits : 0);
+        if (AK != TEST_READ)
+          writeVariableSize(MemP, AccessSize, getValue(TypeId, AccessSize));
+      }
+      writeVariableSize(ShadowP, AccessSize / 2, ShadowVal);
+    } else if (AK == WRITE && (ShadowVal & RecordBits) &&
+               !(ShadowVal & SavedBits)) {
+      ShadowVal |= SavedBits;
+      if (!TE.SavedValues) {
+        char *P = (char *)calloc(TE.getSize(), 1);
+        memcpy(P + ((char *)MemP - TE.getBase()), MemP, AccessSize);
+        TE.SavedValues = P;
+      }
+      writeVariableSize(ShadowP, AccessSize / 2, ShadowVal);
+    }
+  }
+  __attribute__((always_inline)) char *access(char *VPtr, uint32_t AccessSize,
+                                              uint32_t TypeId, AccessKind AK,
+                                              bool &IsInitialized) {
+    EncDecTy ED(VPtr);
+    TableEntryTy &TE = Table[ED.Bits.TableIdx];
+
+    int32_t RelOffset = (uint32_t)ED.Bits.Offset - DefaultOffset;
+
+    auto PositiveSize = TE.getPositiveSize();
+    auto NegativeSize = TE.getNegativeSize();
+    if (RelOffset < 0 && (uint32_t)(-RelOffset) > NegativeSize) [[unlikely]] {
+      uint32_t NewNegativeSize =
+          std::max(4 * NegativeSize, std::bit_ceil((uint32_t)4 * RelOffset));
+      assert(std::has_single_bit(NewNegativeSize));
+      TE.grow(PositiveSize, NewNegativeSize);
+    } else if (RelOffset > 0 && (uint32_t)RelOffset + AccessSize > PositiveSize)
+        [[unlikely]] {
+      uint32_t NewPositiveSize =
+          std::max(4 * PositiveSize, std::bit_ceil((uint32_t)4 * RelOffset));
+      assert(std::has_single_bit(NewPositiveSize));
+      TE.grow(NewPositiveSize, NegativeSize);
+    }
+    auto OffsetFromBase = RelOffset + NegativeSize;
+    auto Div = OffsetFromBase >> 1;
+    auto Mod = OffsetFromBase & 1;
+    char *ShadowP = (TE.getShadow() + Div);
+    char *MemP = (TE.Base + OffsetFromBase);
+
+    if (Mod == 0 && AccessSize == 8) [[likely]]
+      checkAndWrite(TE, MemP, ShadowP, 8, TypeId, AK, 0, IsInitialized);
+    else if (Mod == 0 && AccessSize == 4) [[likely]]
+      checkAndWrite(TE, MemP, ShadowP, 4, TypeId, AK, 0, IsInitialized);
+    else [[unlikely]] {
+      while (AccessSize > 8) {
+        checkAndWrite(TE, MemP, ShadowP, 8, TypeId, AK, Mod, IsInitialized);
+        MemP += 8;
+        ShadowP += 8;
+        AccessSize -= 8;
+      }
+      checkAndWrite(TE, MemP, ShadowP, AccessSize, TypeId, AK, Mod,
+                    IsInitialized);
+    }
+
+    return MemP;
+  }
+
+  bool isEncoded(char *VPtr) override {
+    EncDecTy ED(VPtr);
+    return ED.Bits.Magic == MAGIC && ED.Bits.EncodingId == EncodingNo;
+  }
+
+  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) override {
+    EncDecTy ED(VPtr);
+    int32_t RelOffset = (uint32_t)ED.Bits.Offset - DefaultOffset;
+    return {(uint32_t)ED.Bits.TableIdx, RelOffset};
+  }
+  char *getBasePtrInfo(char *VPtr) override {
+    return (char *)(uint64_t)EncodingNo;
+  }
+};
+
+} // namespace __ig
+
+#endif

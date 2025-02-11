@@ -49,8 +49,11 @@ struct InstrumentorIRBuilderTy {
             IRBuilderCallbackInserter(
                 [&](Instruction *I) { NewInsts[I] = Epoche; })) {}
   ~InstrumentorIRBuilderTy() {
-    for (auto *I : ToBeErased)
+    for (auto *I : ToBeErased) {
+      if (!I->getType()->isVoidTy())
+        I->replaceAllUsesWith(PoisonValue::get(I->getType()));
       I->eraseFromParent();
+    }
   }
 
   /// Get a temporary alloca to communicate (large) values with the runtime.
@@ -99,8 +102,8 @@ struct InstrumentorIRBuilderTy {
   DenseMap<std::pair<Function *, unsigned>, SmallVector<AllocaInst *>>
       AllocaMap;
 
-  void eraseLater(Instruction *I) { ToBeErased.push_back(I); }
-  SmallVector<Instruction *> ToBeErased;
+  void eraseLater(Instruction *I) { ToBeErased.insert(I); }
+  SmallPtrSet<Instruction *, 32> ToBeErased;
 
   TLIGetterTy TLIGetter;
 
@@ -156,7 +159,7 @@ struct IRTArg {
 
 struct InstrumentationOpportunity;
 struct IRTCallDescription {
-  IRTCallDescription(InstrumentationOpportunity &IConf);
+  IRTCallDescription(InstrumentationOpportunity &IConf, Type *RetTy = nullptr);
 
   std::pair<std::string, std::string>
   createCBodies(InstrumentationConfig &IConf, const DataLayout &DL);
@@ -183,6 +186,7 @@ struct IRTCallDescription {
   bool MightRequireIndirection = false;
   unsigned NumReplaceableArgs = 0;
   InstrumentationOpportunity &IO;
+  Type *RetTy = nullptr;
 };
 
 struct InstrumentationLocation {
@@ -339,8 +343,13 @@ struct InstrumentationConfig {
         "Demangle functions names passed to the runtime.", true);
   }
 
-  void populate(LLVMContext &Ctx);
+  virtual void populate(LLVMContext &Ctx);
   StringRef getRTName() const { return RuntimePrefix->getString(); }
+
+  std::string getRTName(StringRef Prefix, StringRef Name,
+                        StringRef Suffix = "") {
+    return (getRTName() + Prefix + Name + Suffix).str();
+  }
 
   void addBaseChoice(BaseConfigurationOpportunity *BCO) {
     BaseConfigurationOpportunities.push_back(BCO);
@@ -401,8 +410,6 @@ struct InstrumentationOpportunity {
   static Value *forceCast(Value &V, Type &Ty, InstrumentorIRBuilderTy &IIRB);
   static Value *getValue(Value &V, Type &Ty, InstrumentationConfig &IConf,
                          InstrumentorIRBuilderTy &IIRB) {
-    if (V.getType()->isVoidTy())
-      return Constant::getNullValue(&Ty);
     return forceCast(V, Ty, IIRB);
   }
 
@@ -417,10 +424,11 @@ struct InstrumentationOpportunity {
       return nullptr;
 
     const DataLayout &DL = IIRB.IRB.GetInsertBlock()->getDataLayout();
-    IRTCallDescription IRTCallDesc(*this);
+    IRTCallDescription IRTCallDesc(*this, getRetTy(V->getContext()));
     return IRTCallDesc.createLLVMCall(V, IConf, IIRB, DL);
   }
 
+  virtual Type *getRetTy(LLVMContext &Ctx) const { return nullptr; }
   virtual StringRef getName() const = 0;
 
   unsigned getOpcode() const { return IP.getOpcode(); }
@@ -453,9 +461,10 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
   virtual ~AllocaIO() {};
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
-            bool ReplaceAddr = true, bool ReplaceSize = true) {
+            bool ReplaceAddr = true, bool ReplaceSize = true,
+            bool PassAlignment = true) {
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    if (!IsPRE)
+    if (!IsPRE && ReplaceAddr)
       IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
                                "The allocated memory address.",
                                ReplaceAddr ? IRTArg::REPLACABLE : IRTArg::NONE,
@@ -492,39 +501,57 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
   virtual ~StoreIO() {};
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
-            bool ReplacePointer = true) {
+            bool PassPointer = true, bool ReplacePointer = true,
+            bool PassPointerAS = true, bool PassBasePointerInfo = true,
+            bool PassStoredValue = true, bool PassStoredValueSize = true,
+            bool PassAlignment = true, bool PassValueTypeId = true,
+            bool PassAtomicityOrdering = true, bool PassSyncScopeId = true,
+            bool PassIsVolatile = true) {
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    IRTArgs.push_back(
-        IRTArg(PointerType::getUnqual(Ctx), "pointer", "The accessed pointer.",
-               (IsPRE && ReplacePointer) ? IRTArg::REPLACABLE : IRTArg::NONE,
-               getPointer, setPointer));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "pointer_as",
-                             "The address space of the accessed pointer.",
-                             IRTArg::NONE, getPointerAS));
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "base_pointer_info",
-                             "The runtime provided base pointer info.",
-                             IRTArg::NONE, getBasePointerInfo));
-    IRTArgs.push_back(IRTArg(
-        IntegerType::getInt64Ty(Ctx), "value", "The stored value.",
-        IRTArg::POTENTIALLY_INDIRECT | IRTArg::INDIRECT_HAS_SIZE, getValue));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_size",
-                             "The size of the stored value.", IRTArg::NONE,
-                             getValueSize));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
-                             "The known access alignment.", IRTArg::NONE,
-                             getAlignment));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_type_id",
-                             "The type id of the stored value.", IRTArg::NONE,
-                             getValueTypeId));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "atomicity_ordering",
-                             "The atomicity ordering of the store.",
-                             IRTArg::NONE, getAtomicityOrdering));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "sync_scope_id",
-                             "The sync scope id of the store.", IRTArg::NONE,
-                             getSyncScopeId));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_volatile",
-                             "Flag indicating a volatile store.", IRTArg::NONE,
-                             isVolatile));
+    if (PassPointer)
+      IRTArgs.push_back(IRTArg(
+          PointerType::getUnqual(Ctx), "pointer", "The accessed pointer.",
+          (IsPRE && ReplacePointer) ? IRTArg::REPLACABLE : IRTArg::NONE,
+          getPointer, setPointer));
+    if (PassPointerAS)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "pointer_as",
+                               "The address space of the accessed pointer.",
+                               IRTArg::NONE, getPointerAS));
+    if (PassBasePointerInfo)
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "base_pointer_info",
+                               "The runtime provided base pointer info.",
+                               IRTArg::NONE, getBasePointerInfo));
+    if (PassStoredValue)
+      IRTArgs.push_back(IRTArg(
+          IntegerType::getInt64Ty(Ctx), "value", "The stored value.",
+          IRTArg::POTENTIALLY_INDIRECT |
+              (PassStoredValueSize ? IRTArg::INDIRECT_HAS_SIZE : IRTArg::NONE),
+          getValue));
+    if (PassStoredValueSize)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_size",
+                               "The size of the stored value.", IRTArg::NONE,
+                               getValueSize));
+    if (PassAlignment)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
+                               "The known access alignment.", IRTArg::NONE,
+                               getAlignment));
+    if (PassValueTypeId)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_type_id",
+                               "The type id of the stored value.", IRTArg::NONE,
+                               getValueTypeId));
+    if (PassAtomicityOrdering)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx),
+                               "atomicity_ordering",
+                               "The atomicity ordering of the store.",
+                               IRTArg::NONE, getAtomicityOrdering));
+    if (PassSyncScopeId)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "sync_scope_id",
+                               "The sync scope id of the store.", IRTArg::NONE,
+                               getSyncScopeId));
+    if (PassIsVolatile)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_volatile",
+                               "Flag indicating a volatile store.",
+                               IRTArg::NONE, isVolatile));
 
     IConf.addChoice(*this);
   }
@@ -567,42 +594,57 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
   virtual ~LoadIO() {};
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
-            bool ReplacePointer = true) {
+            bool PassPointer = true, bool ReplacePointer = true,
+            bool PassPointerAS = true, bool PassBasePointerInfo = true,
+            bool PassValue = true, bool ReplaceValue = true,
+            bool PassValueSize = true, bool PassAlignment = true,
+            bool PassValueTypeId = true, bool PassAtomicityOrdering = true,
+            bool PassSyncScopeId = true, bool PassIsVolatile = true) {
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    IRTArgs.push_back(
-        IRTArg(PointerType::getUnqual(Ctx), "pointer", "The accessed pointer.",
-               (IsPRE && ReplacePointer) ? IRTArg::REPLACABLE : IRTArg::NONE,
-               getPointer, setPointer));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "pointer_as",
-                             "The address space of the accessed pointer.",
-                             IRTArg::NONE, getPointerAS));
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "base_pointer_info",
-                             "The runtime provided base pointer info.",
-                             IRTArg::NONE, getBasePointerInfo));
-    if (!IsPRE)
+    if (PassPointer)
+      IRTArgs.push_back(IRTArg(
+          PointerType::getUnqual(Ctx), "pointer", "The accessed pointer.",
+          (IsPRE && ReplacePointer) ? IRTArg::REPLACABLE : IRTArg::NONE,
+          getPointer, setPointer));
+    if (PassPointerAS)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "pointer_as",
+                               "The address space of the accessed pointer.",
+                               IRTArg::NONE, getPointerAS));
+    if (PassBasePointerInfo)
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "base_pointer_info",
+                               "The runtime provided base pointer info.",
+                               IRTArg::NONE, getBasePointerInfo));
+    if (!IsPRE && PassValue)
       IRTArgs.push_back(
           IRTArg(IntegerType::getInt64Ty(Ctx), "value", "The loaded value.",
                  IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT |
                      IRTArg::INDIRECT_HAS_SIZE,
                  getValue, replaceValue));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_size",
-                             "The size of the loaded value.", IRTArg::NONE,
-                             getValueSize));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
-                             "The known access alignment.", IRTArg::NONE,
-                             getAlignment));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_type_id",
-                             "The type id of the loaded value.", IRTArg::NONE,
-                             getValueTypeId));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "atomicity_ordering",
-                             "The atomicity ordering of the load.",
-                             IRTArg::NONE, getAtomicityOrdering));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "sync_scope_id",
-                             "The sync scope id of the load.", IRTArg::NONE,
-                             getSyncScopeId));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_volatile",
-                             "Flag indicating a volatile load.", IRTArg::NONE,
-                             isVolatile));
+    if (PassValueSize)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_size",
+                               "The size of the loaded value.", IRTArg::NONE,
+                               getValueSize));
+    if (PassAlignment)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
+                               "The known access alignment.", IRTArg::NONE,
+                               getAlignment));
+    if (PassValueTypeId)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_type_id",
+                               "The type id of the loaded value.", IRTArg::NONE,
+                               getValueTypeId));
+    if (PassAtomicityOrdering)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx),
+                               "atomicity_ordering",
+                               "The atomicity ordering of the load.",
+                               IRTArg::NONE, getAtomicityOrdering));
+    if (PassSyncScopeId)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "sync_scope_id",
+                               "The sync scope id of the load.", IRTArg::NONE,
+                               getSyncScopeId));
+    if (PassIsVolatile)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_volatile",
+                               "Flag indicating a volatile load.", IRTArg::NONE,
+                               isVolatile));
 
     IConf.addChoice(*this);
   }
@@ -644,36 +686,58 @@ struct CallIO : public InstructionIO<Instruction::Call> {
   CallIO(bool IsPRE) : InstructionIO(IsPRE) {}
   virtual ~CallIO() {};
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            bool PassCallee = true, bool PassCalleeName = true,
+            bool PassIntrinsicId = true, bool PassAllocationInfo = true,
+            bool PassReturnedValue = true, bool PassReturnedValueSize = true,
+            bool PassNumParameters = true, bool PassParameters = true,
+            bool PassIsDefinition = true) {
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "callee",
-                             "The callee address, or nullptr if an intrinsic.",
-                             IRTArg::NONE, getCallee));
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "callee_name",
-                             "The callee name (if available).", IRTArg::STRING,
-                             getCalleeName));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "intrinsic_id",
-                             "The intrinsic id, or 0 if not an intrinsic.",
-                             IRTArg::NONE, getIntrinsicId));
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "allocation_info",
-                             "Encoding of the allocation made by the call, if "
-                             "any, or nullptr otherwise.",
-                             IRTArg::NONE, getAllocationInfo));
-    if (!IsPRE) {
-      IRTArgs.push_back(IRTArg(
-          IntegerType::getInt64Ty(Ctx), "return_value", "The returned value.",
-          IRTArg::POTENTIALLY_INDIRECT | IRTArg::INDIRECT_HAS_SIZE, getValue));
+    if (PassCallee)
       IRTArgs.push_back(
-          IRTArg(IntegerType::getInt32Ty(Ctx), "return_value_size",
-                 "The size of the returned value", IRTArg::NONE, getValueSize));
+          IRTArg(PointerType::getUnqual(Ctx), "callee",
+                 "The callee address, or nullptr if an intrinsic.",
+                 IRTArg::NONE, getCallee));
+    if (PassCalleeName)
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "callee_name",
+                               "The callee name (if available).",
+                               IRTArg::STRING, getCalleeName));
+    if (PassIntrinsicId)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "intrinsic_id",
+                               "The intrinsic id, or 0 if not an intrinsic.",
+                               IRTArg::NONE, getIntrinsicId));
+    if (PassAllocationInfo)
+      IRTArgs.push_back(
+          IRTArg(PointerType::getUnqual(Ctx), "allocation_info",
+                 "Encoding of the allocation made by the call, if "
+                 "any, or nullptr otherwise.",
+                 IRTArg::NONE, getAllocationInfo));
+    if (!IsPRE) {
+      if (PassReturnedValue)
+        IRTArgs.push_back(IRTArg(
+            IntegerType::getInt64Ty(Ctx), "return_value", "The returned value.",
+            IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT |
+                (PassReturnedValueSize ? IRTArg::INDIRECT_HAS_SIZE
+                                       : IRTArg::NONE),
+            getValue, replaceValue));
+      if (PassReturnedValueSize)
+        IRTArgs.push_back(IRTArg(
+            IntegerType::getInt32Ty(Ctx), "return_value_size",
+            "The size of the returned value", IRTArg::NONE, getValueSize));
     }
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "num_parameters",
-                             "Number of call parameters.", IRTArg::NONE,
-                             getNumCallParameters));
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "parameters",
-                             "Description of the call parameters.",
-                             IsPRE ? IRTArg::REPLACABLE_CUSTOM : IRTArg::NONE,
-                             getCallParameters, setCallParameters));
+    if (PassNumParameters)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "num_parameters",
+                               "Number of call parameters.", IRTArg::NONE,
+                               getNumCallParameters));
+    if (PassParameters)
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "parameters",
+                               "Description of the call parameters.",
+                               IsPRE ? IRTArg::REPLACABLE_CUSTOM : IRTArg::NONE,
+                               getCallParameters, setCallParameters));
+    if (PassIsDefinition)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_definition",
+                               "Flag to indicate calls to definitions.",
+                               IRTArg::NONE, isDefinition));
     IConf.addChoice(*this);
   }
 
@@ -697,6 +761,8 @@ struct CallIO : public InstructionIO<Instruction::Call> {
   static Value *setCallParameters(Value &V, Value &NewV,
                                   InstrumentationConfig &IConf,
                                   InstrumentorIRBuilderTy &IIRB);
+  static Value *isDefinition(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {
@@ -717,6 +783,77 @@ struct UnreachableIO : public InstructionIO<Instruction::Unreachable> {
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     auto *AIC = new (IConf.ChoiceAllocator.Allocate()) UnreachableIO();
     AIC->init(IConf, Ctx);
+  }
+};
+
+struct ICmpIO : public InstructionIO<Instruction::ICmp> {
+  ICmpIO(bool IsPRE) : InstructionIO<Instruction::ICmp>(IsPRE) {}
+  virtual ~ICmpIO() {};
+
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
+    if (!IsPRE)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "value",
+                               "Result of an integer compare.",
+                               IRTArg::REPLACABLE, getValue, replaceValue));
+    IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_ptr_cmp",
+                             "Flag to indicate a pointer compare.",
+                             IRTArg::NONE, isPtrCmp));
+    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "cmp_predicate_kind",
+                             "Predicate kind of an integer compare.",
+                             IRTArg::NONE, getCmpPredicate));
+    IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "lhs",
+                             "Left hand side of an integer compare.",
+                             IRTArg::POTENTIALLY_INDIRECT, getLHS));
+    IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "rhs",
+                             "Right hand side of an integer compare.",
+                             IRTArg::POTENTIALLY_INDIRECT, getRHS));
+    IConf.addChoice(*this);
+  }
+
+  static Value *getCmpPredicate(Value &V, Type &Ty,
+                                InstrumentationConfig &IConf,
+                                InstrumentorIRBuilderTy &IIRB);
+  static Value *isPtrCmp(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                         InstrumentorIRBuilderTy &IIRB);
+  static Value *getLHS(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB);
+  static Value *getRHS(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB);
+
+  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    for (auto IsPRE : {true, false}) {
+      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) ICmpIO(IsPRE);
+      AIC->init(IConf, Ctx);
+    }
+  }
+};
+
+struct PtrToIntIO : public InstructionIO<Instruction::PtrToInt> {
+  PtrToIntIO(bool IsPRE) : InstructionIO<Instruction::PtrToInt>(IsPRE) {}
+  virtual ~PtrToIntIO() {};
+
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
+    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "pointer",
+                             "Input pointer of the ptr to int.",
+                             IRTArg::POTENTIALLY_INDIRECT, getPtr));
+    if (!IsPRE)
+      IRTArgs.push_back(IRTArg(
+          IntegerType::getInt64Ty(Ctx), "value", "Result of the ptr to int.",
+          IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT, getValue,
+          replaceValue));
+    IConf.addChoice(*this);
+  }
+
+  static Value *getPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB);
+
+  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    for (auto IsPRE : {true, false}) {
+      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) PtrToIntIO(IsPRE);
+      AIC->init(IConf, Ctx);
+    }
   }
 };
 

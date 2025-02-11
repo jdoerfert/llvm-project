@@ -62,6 +62,7 @@
 #include "llvm/Transforms/IPO/IROutliner.h"
 #include "llvm/Transforms/IPO/InferFunctionAttrs.h"
 #include "llvm/Transforms/IPO/Inliner.h"
+#include "llvm/Transforms/IPO/InputGen.h"
 #include "llvm/Transforms/IPO/LowerTypeTests.h"
 #include "llvm/Transforms/IPO/MemProfContextDisambiguation.h"
 #include "llvm/Transforms/IPO/MergeFunctions.h"
@@ -77,6 +78,7 @@
 #include "llvm/Transforms/Instrumentation/ControlHeightReduction.h"
 #include "llvm/Transforms/Instrumentation/InstrOrderFile.h"
 #include "llvm/Transforms/Instrumentation/InstrProfiling.h"
+#include "llvm/Transforms/Instrumentation/Instrumentor.h"
 #include "llvm/Transforms/Instrumentation/MemProfiler.h"
 #include "llvm/Transforms/Instrumentation/PGOCtxProfFlattening.h"
 #include "llvm/Transforms/Instrumentation/PGOCtxProfLowering.h"
@@ -211,6 +213,14 @@ static cl::opt<bool> EnableUnrollAndJam("enable-unroll-and-jam",
 static cl::opt<bool> EnableLoopFlatten("enable-loop-flatten", cl::init(false),
                                        cl::Hidden,
                                        cl::desc("Enable the LoopFlatten Pass"));
+
+static cl::opt<bool> EnableInstrumentor("enable-instrumentor", cl::init(false),
+                                       cl::Hidden,
+                                       cl::desc("Enable the Instrumentor Pass"));
+
+static cl::opt<bool> EnableInputGen("enable-input-gen", cl::init(false),
+                                       cl::Hidden,
+                                       cl::desc("Enable the InputGen Pass"));
 
 // Experimentally allow loop header duplication. This should allow for better
 // optimization at Oz, since loop-idiom recognition can then recognize things
@@ -1564,6 +1574,14 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
                                                 PTO.EagerlyInvalidateAnalyses));
 
   invokeOptimizerLastEPCallbacks(MPM, Level, LTOPhase);
+
+  // Run the Instrumentor pass late.
+  if (EnableInstrumentor)
+    MPM.addPass(InstrumentorPass());
+
+  // Run the InputGen pass late.
+  if (EnableInputGen)
+    MPM.addPass(InputGenPass());
 
   // Split out cold code. Splitting is done late to avoid hiding context from
   // other optimizations and inadvertently regressing performance. The tradeoff
