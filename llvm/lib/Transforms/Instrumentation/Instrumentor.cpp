@@ -607,7 +607,8 @@ void InstrumentationConfig::addChoice(InstrumentationOpportunity &IO) {
   ICPtr = &IO;
 }
 
-void InstrumentationConfig::addCache(InstrumentationOpportunity &IO, InstrumentationCache *Cache) {
+void InstrumentationConfig::addCache(InstrumentationOpportunity &IO,
+                                     InstrumentationCache *Cache) {
   auto *&ICPtr = ICaches[IO.getLocationKind()][IO.getName()];
   if (ICPtr) {
     errs() << "WARNING: registered two instrumentation caches for the "
@@ -872,13 +873,17 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
                                              const DataLayout &DL) {
   SmallVector<Value *> CallParams;
 
+  InstrumentationCache &ICaches =
+      *IConf.ICaches[IO.getLocationKind()][IO.getName()];
+
   bool ForceIndirection = RequiresIndirection;
   for (auto &It : IO.IRTArgs) {
     if (!It.Enabled)
       continue;
-    auto *&Param = IConf.DirectArgumentCache[{IIRB.Epoche, It.Name}];
+    auto *&Param = ICaches.DirectArgCache[{IIRB.Epoche, It.Name}];
     if (!Param)
       Param = It.GetterCB(*V, *It.Ty, IConf, IIRB);
+
     if (Param->getType()->isVoidTy()) {
       Param = Constant::getNullValue(It.Ty);
     } else if (Param->getType()->isAggregateType() ||
@@ -900,23 +905,27 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
   SmallVector<AllocaInst *> IndirectionAllocas;
   if (ForceIndirection) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    for (unsigned I = 0, Offset = 0, E = IO.IRTArgs.size(); I < E; ++I) {
-      if (!IO.IRTArgs[I].Enabled)
+
+    unsigned Offset = 0;
+    for (auto &It : IO.IRTArgs) {
+      if (!It.Enabled)
         continue;
-      if (!isPotentiallyIndirect(IO.IRTArgs[I]))
+
+      auto *&CallParam = CallParams[Offset++];
+      if (!isPotentiallyIndirect(It))
         continue;
-      auto *&CallParam = CallParams[I + Offset];
-      if (!(IO.IRTArgs[I].Flags & IRTArg::INDIRECT_HAS_SIZE)) {
+      if (!(It.Flags & IRTArg::INDIRECT_HAS_SIZE)) {
         CallParams.insert(&CallParam + 1, IIRB.IRB.getInt32(DL.getTypeStoreSize(
                                               CallParam->getType())));
         Offset += 1;
       }
-      auto *&CachedParam =
-          IConf.IndirectArgumentCache[{IIRB.Epoche, IO.IRTArgs[I].Name}];
+
+      auto *&CachedParam = ICaches.IndirectArgCache[{IIRB.Epoche, It.Name}];
       if (CachedParam) {
         CallParam = CachedParam;
         continue;
       }
+
       auto *AI = IIRB.getAlloca(Fn, CallParam->getType());
       IndirectionAllocas.push_back(AI);
       IIRB.IRB.CreateStore(CallParam, AI);
@@ -941,13 +950,13 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     bool IsCustomReplaceable = IO.IRTArgs[I].Flags & IRTArg::REPLACABLE_CUSTOM;
     Value *NewValue =
         FnTy->isVoidTy() || IsCustomReplaceable
-            ? IConf.DirectArgumentCache[{IIRB.Epoche, IO.IRTArgs[I].Name}]
+            ? ICaches.DirectArgCache[{IIRB.Epoche, IO.IRTArgs[I].Name}]
             : CI;
     assert(NewValue);
     if (ForceIndirection && !IsCustomReplaceable &&
         isPotentiallyIndirect(IO.IRTArgs[I])) {
-      auto *Q = IConf.IndirectArgumentCache[{IIRB.Epoche, IO.IRTArgs[I].Name}];
-      NewValue = IIRB.IRB.CreateLoad(IO.IRTArgs[I].Ty, Q);
+      auto *Q = ICaches.IndirectArgCache[{IIRB.Epoche, IO.IRTArgs[I].Name}];
+      NewValue = IIRB.IRB.CreateLoad(V->getType(), Q);
     }
     V = IO.IRTArgs[I].SetterCB(*V, *NewValue, IConf, IIRB);
   }
