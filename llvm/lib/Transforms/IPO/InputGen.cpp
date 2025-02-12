@@ -11,6 +11,7 @@
 #include "llvm/Transforms/IPO/InputGen.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/PostDominators.h"
@@ -29,6 +30,7 @@
 #include "llvm/Transforms/Instrumentation/Instrumentor.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <cstdint>
+#include <functional>
 
 using namespace llvm;
 using namespace llvm::instrumentor;
@@ -174,9 +176,9 @@ struct BranchConditionIO : public InstructionIO<Instruction::Br> {
     return InstructionIO::instrument(V, IConf, IIRB);
   }
 
-//  Type *getRetTy(LLVMContext &Ctx) const override {
-//    return Type::getInt1Ty(Ctx);
-//  }
+  //  Type *getRetTy(LLVMContext &Ctx) const override {
+  //    return Type::getInt1Ty(Ctx);
+  //  }
 };
 
 uint32_t BranchConditionIO::BranchConditionNo = 0;
@@ -197,8 +199,8 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
   auto AddValue = [&](Instruction *I, uint32_t IncUses) {
     Worklist.push_back(I);
     UseCountMap[I] += IncUses ? 1 : -1;
-//    if (IncUses && UseCountMap[I] == I->getNumUses())
-//      IIRB.eraseLater(I);
+    //    if (IncUses && UseCountMap[I] == I->getNumUses())
+    //      IIRB.eraseLater(I);
   };
   AddValue(cast<Instruction>(BI.getCondition()), /*IncUses=*/true);
 
@@ -249,12 +251,33 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
   Instruction *IP = nullptr;
   auto &DT = IConf.DTGetter(*BI.getFunction());
 
+  std::function<void(Instruction *)> HoistInsts = [&](Instruction *I) {
+    if (I->mayHaveSideEffects() || I->mayReadFromMemory())
+      return;
+    SmallVector<Instruction *> OpInsts;
+    for (auto *Op : I->operand_values())
+      if (auto *OpI = dyn_cast<Instruction>(Op)) {
+        HoistInsts(OpI);
+        OpInsts.push_back(OpI);
+      }
+    Instruction *IP = nullptr;
+    for (auto *OpI : OpInsts) {
+      if (!IP || DT.dominates(IP, OpI))
+        IP = OpI;
+    }
+    if (!IP)
+      IP = &*I->getFunction()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
+    I->moveAfter(IP);
+  };
+
   auto AdjustIP = [&](Instruction *I) {
     if (!IP || DT.dominates(IP, I)) {
-      if (isa<PHINode>(I))
+      if (isa<PHINode>(I)) {
         IP = I->getParent()->getFirstNonPHIOrDbgOrLifetime();
-      else
+      } else {
+        HoistInsts(I);
         IP = I->getNextNode();
+      }
       return;
     }
     assert(DT.dominates(I, IP));
@@ -279,7 +302,6 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
   }
   if (!IP)
     IP = &*BI.getFunction()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
-  IP->dump();
 
   auto *RetTy = Type::getInt8Ty(Ctx);
   Function *BCIFn = Function::Create(
@@ -325,8 +347,9 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
   RemapFunction(*BCIFn, VM, RF_IgnoreMissingLocals);
 
   IRB.CreateBr(ComputeBB);
-  ReturnInst::Create(
-      Ctx, new ZExtInst(VM[BI.getCondition()], RetTy, "", ComputeBB), ComputeBB);
+  ReturnInst::Create(Ctx,
+                     new ZExtInst(VM[BI.getCondition()], RetTy, "", ComputeBB),
+                     ComputeBB);
   BCIFn->dump();
   BCI.Fn = BCIFn;
   return IP;
@@ -362,7 +385,8 @@ Value *BranchConditionIO::getArguments(Value &V, Type &Ty,
     }
   }
 
-  StructType *STy = StructType::get(IIRB.Ctx, ParameterTypes, /*isPacked=*/true);
+  StructType *STy =
+      StructType::get(IIRB.Ctx, ParameterTypes, /*isPacked=*/true);
   auto *AI = IIRB.getAlloca(BI.getFunction(), STy);
   for (auto [Idx, V] : enumerate(ParameterValues)) {
     auto *Ptr = IIRB.IRB.CreateStructGEP(STy, AI, Idx);
@@ -398,6 +422,7 @@ bool InputGenImpl::shouldInstrumentStore(StoreInst &SI) {
 }
 
 bool InputGenImpl::shouldInstrumentAlloca(AllocaInst &AI) {
+  // TODO: look trough transitive users.
   auto IsUseOK = [&](Use &U) -> bool {
     if (auto *SI = dyn_cast<StoreInst>(U.getUser())) {
       if (SI->getPointerOperandIndex() == U.getOperandNo() &&
@@ -500,6 +525,7 @@ InputGenInstrumentationConfig::InputGenInstrumentationConfig(InputGenImpl &IGI)
       PDTGetter([&](Function &F) -> PostDominatorTree & {
         return IGI.getFAM().getResult<PostDominatorTreeAnalysis>(F);
       }) {
+  ReadConfig = false;
   RuntimePrefix->setString("__ig_");
   RuntimeStubsFile->setString("ig.test.cpp");
 }

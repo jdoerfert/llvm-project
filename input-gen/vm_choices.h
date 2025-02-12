@@ -25,7 +25,7 @@ struct ChoiceTrace {
 
   bool addBooleanChoice(uint32_t ChoiceNo) {
     if (ChoiceNo >= Decisions.size()) {
-      fprintf(stderr, "Run out of choices!\n");
+      fprintf(stderr, "Run out of choice space!\n");
       __builtin_trap();
     }
 
@@ -34,7 +34,6 @@ struct ChoiceTrace {
       ChoicesToMake.set(ChoiceNo);
     return Decisions[ChoiceNo];
   }
-
 };
 
 struct ChoiceManager {
@@ -47,15 +46,16 @@ struct ChoiceManager {
   ChoiceTrace *initializeChoices(uint32_t I) {
     assert(Choices.size() == I);
     auto *CT = new ChoiceTrace(I, LastChoice);
+#ifndef NDEBUG
     std::cout << "INITIAL STATE" << "\n";
     std::cout << CT->Decisions << "\n";
-    // std::cout << CT->ChoicesToMake << "\n";
+// std::cout << CT->ChoicesToMake << "\n";
+#endif
     Choices.push_back(CT);
     return CT;
   }
 
   bool returnChoices(uint32_t I) {
-    printf("%u : %zu\n", I, Choices.size());
     ChoiceTrace *CT = Choices[I];
     uint32_t ChoiceToFlip = -1u;
     for (int32_t I = CT->MaxRecordedChoices; I >= 0; --I) {
@@ -65,18 +65,19 @@ struct ChoiceManager {
       }
     }
 
-    if (ChoiceToFlip == -1u) {
-      printf("Done\n");
+    if (ChoiceToFlip == -1u)
       return false;
-    }
+#ifndef NDEBUG
     printf("Flip %u\n", ChoiceToFlip);
+#endif
     CT->Decisions.flip(ChoiceToFlip);
     CT->ChoicesToMake.flip(ChoiceToFlip);
     for (int32_t I = ChoiceToFlip + 1, E = CT->ChoicesToMake.size(); I < E; ++I)
       CT->ChoicesToMake.set(I);
     CT->CurrentChoice = ChoiceToFlip;
+#ifndef NDEBUG
     std::cout << CT->Decisions << "\n";
-    // std::cout << CT->ChoicesToMake << "\n";
+#endif
     return true;
   }
 };

@@ -1575,13 +1575,13 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
 
   invokeOptimizerLastEPCallbacks(MPM, Level, LTOPhase);
 
-  // Run the Instrumentor pass late.
-  if (EnableInstrumentor)
-    MPM.addPass(InstrumentorPass());
-
   // Run the InputGen pass late.
   if (EnableInputGen)
     MPM.addPass(InputGenPass());
+
+  // Run the Instrumentor pass late.
+  if (EnableInstrumentor)
+    MPM.addPass(InstrumentorPass());
 
   // Split out cold code. Splitting is done late to avoid hiding context from
   // other optimizations and inadvertently regressing performance. The tradeoff
