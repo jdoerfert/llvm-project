@@ -607,17 +607,27 @@ void InstrumentationConfig::addChoice(InstrumentationOpportunity &IO) {
   ICPtr = &IO;
 }
 
+void InstrumentationConfig::addCache(InstrumentationOpportunity &IO, InstrumentationCache *Cache) {
+  auto *&ICPtr = ICaches[IO.getLocationKind()][IO.getName()];
+  if (ICPtr) {
+    errs() << "WARNING: registered two instrumentation caches for the "
+              "same location!\n";
+  }
+  ICPtr = Cache;
+}
+
 Value *
 InstrumentationConfig::getBasePointerInfo(Value &V,
                                           InstrumentorIRBuilderTy &IIRB) {
   Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
+
   Value *VPtr = &V;
   VPtr = const_cast<Value *>(getUnderlyingObjectAggressive(VPtr));
   Value *&BPI = BasePointerInfoMap[{VPtr, Fn}];
   if (!BPI) {
     auto *BPIO =
         IChoices[InstrumentationLocation::SPECIAL_VALUE]["base_pointer_info"];
-    if (!BPIO) {
+    if (!BPIO->Enabled) {
       errs() << "WARNING: Base pointer info disabled but required, passing "
                 "nullptr.\n";
       return BPI = Constant::getNullValue(IIRB.IRB.getVoidTy());
