@@ -157,6 +157,11 @@ struct IRTArg {
   SetterCallbackTy SetterCB;
 };
 
+struct InstrumentationCache {
+  DenseMap<std::pair<unsigned, StringRef>, Value *> DirectArgCache;
+  DenseMap<std::pair<unsigned, StringRef>, Value *> IndirectArgCache;
+};
+
 struct InstrumentationOpportunity;
 struct IRTCallDescription {
   IRTCallDescription(InstrumentationOpportunity &IConf, Type *RetTy = nullptr);
@@ -360,15 +365,18 @@ struct InstrumentationConfig {
   BaseConfigurationOpportunity *RuntimeStubsFile;
   BaseConfigurationOpportunity *DemangleFunctionNames;
 
-  DenseMap<std::pair<unsigned, StringRef>, Value *> DirectArgumentCache;
-  DenseMap<std::pair<unsigned, StringRef>, Value *> IndirectArgumentCache;
-
   EnumeratedArray<StringMap<InstrumentationOpportunity *>,
                   InstrumentationLocation::KindTy>
       IChoices;
   void addChoice(InstrumentationOpportunity &IO);
 
+  EnumeratedArray<StringMap<InstrumentationCache *>,
+                  InstrumentationLocation::KindTy>
+      ICaches;
+  void addCache(InstrumentationOpportunity &IO, InstrumentationCache *Cache);
+
   SpecificBumpPtrAllocator<InstrumentationOpportunity> ChoiceAllocator;
+  SpecificBumpPtrAllocator<InstrumentationCache> CacheAllocator;
 
   BumpPtrAllocator StringAllocator;
   StringSaver SS;
@@ -489,9 +497,13 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
                              InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     for (auto IsPRE : {true, false}) {
       auto *AIC = new (IConf.ChoiceAllocator.Allocate()) AllocaIO(IsPRE);
       AIC->init(IConf, Ctx);
+
+      IConf.addCache(*AIC, Cache);
     }
   }
 };
@@ -582,9 +594,13 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
                            InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     for (auto IsPRE : {true, false}) {
       auto *AIC = new (IConf.ChoiceAllocator.Allocate()) StoreIO(IsPRE);
       AIC->init(IConf, Ctx);
+
+      IConf.addCache(*AIC, Cache);
     }
   }
 };
@@ -675,9 +691,13 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
                            InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     for (auto IsPRE : {true, false}) {
       auto *AIC = new (IConf.ChoiceAllocator.Allocate()) LoadIO(IsPRE);
       AIC->init(IConf, Ctx);
+
+      IConf.addCache(*AIC, Cache);
     }
   }
 };
@@ -765,9 +785,13 @@ struct CallIO : public InstructionIO<Instruction::Call> {
                              InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     for (auto IsPRE : {true, false}) {
       auto *AIC = new (IConf.ChoiceAllocator.Allocate()) CallIO(IsPRE);
       AIC->init(IConf, Ctx);
+
+      IConf.addCache(*AIC, Cache);
     }
   }
 };
@@ -781,8 +805,12 @@ struct UnreachableIO : public InstructionIO<Instruction::Unreachable> {
   }
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     auto *AIC = new (IConf.ChoiceAllocator.Allocate()) UnreachableIO();
     AIC->init(IConf, Ctx);
+
+    IConf.addCache(*AIC, Cache);
   }
 };
 
@@ -885,8 +913,12 @@ struct BasePointerIO : public InstrumentationOpportunity {
   }
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     auto *AIC = new (IConf.ChoiceAllocator.Allocate()) BasePointerIO();
     AIC->init(IConf, Ctx);
+
+    IConf.addCache(*AIC, Cache);
   }
 };
 
@@ -931,8 +963,12 @@ struct FunctionIO : public InstrumentationOpportunity {
                              InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     auto *AIC = new (IConf.ChoiceAllocator.Allocate()) FunctionIO();
     AIC->init(IConf, Ctx);
+
+    IConf.addCache(*AIC, Cache);
   }
 };
 
@@ -962,9 +998,13 @@ struct ModuleIO : public InstrumentationOpportunity {
                                 InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     for (auto IsPRE : {true, false}) {
       auto *AIC = new (IConf.ChoiceAllocator.Allocate()) ModuleIO(IsPRE);
       AIC->init(IConf, Ctx);
+
+      IConf.addCache(*AIC, Cache);
     }
   }
 };
@@ -1014,8 +1054,12 @@ struct GlobalIO : public InstrumentationOpportunity {
                            InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    auto *Cache = new (IConf.CacheAllocator.Allocate()) InstrumentationCache();
+
     auto *AIC = new (IConf.ChoiceAllocator.Allocate()) GlobalIO();
     AIC->init(IConf, Ctx);
+
+    IConf.addCache(*AIC, Cache);
   }
 };
 
