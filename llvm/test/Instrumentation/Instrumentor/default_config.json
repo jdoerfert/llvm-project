@@ -1,118 +1,264 @@
 {
-  "Base": {
-    "RuntimeName": "__instrumentor_",
-    "PrintRuntimeSignatures": true,
-    "StubRuntimePath": "rt.c"
+  "configuration": {
+    "runtime_prefix": "__instrumentor_",
+    "runtime_prefix.description": "The runtime API prefix.",
+    "runtime_stubs_file": "test.c",
+    "runtime_stubs_file.description": "The file into which runtime stubs should be written.",
+    "demangle_function_names": true,
+    "demangle_function_names.description": "Demangle functions names passed to the runtime."
   },
-  "alloca": {
-    "EnabledPost": true,
-    "Value": true,
-    "AllocationSize": true,
-    "Alignment": true,
-    "ReplaceValue": true
+  "module_pre": {
+    "module": {
+      "enabled": true,
+      "module_name": true,
+      "module_name.description": "The module/translation unit name.",
+      "name": true,
+      "name.description": "The target triple."
+    }
   },
-  "store": {
-    "EnabledPre": true,
-    "PointerOperand": true,
-    "PointerOperandAddressSpace": true,
-    "ValueOperand": true,
-    "ValueOperandSize": true,
-    "ValueOperandTypeId": true,
-    "Alignment": true,
-    "AtomicityOrdering": true,
-    "SyncScopeId": true,
-    "IsVolatile": true,
-    "BasePointerInfo": true,
-    "ReplacePointerOperand": true,
-    "SkipSafeAccess": false
+  "module_post": {
+    "module": {
+      "enabled": true,
+      "module_name": true,
+      "module_name.description": "The module/translation unit name.",
+      "name": true,
+      "name.description": "The target triple."
+    }
   },
-  "load": {
-    "EnabledPre": true,
-    "EnabledPost": true,
-    "PointerOperand": true,
-    "PointerOperandAddressSpace": true,
-    "Value": true,
-    "ValueSize": true,
-    "ValueTypeId": true,
-    "Alignment": true,
-    "AtomicityOrdering": true,
-    "SyncScopeId": true,
-    "IsVolatile": true,
-    "BasePointerInfo": true,
-    "ReplacePointerOperand": true,
-    "ReplaceValue": true,
-    "SkipSafeAccess": false
+  "global_pre": {
+    "globals": {
+      "enabled": true,
+      "address": true,
+      "address.replace": true,
+      "address.description": "The address of the global.",
+      "name": true,
+      "name.description": "The name of the global.",
+      "initial_value": true,
+      "initial_value.description": "The initial value of the global.",
+      "initial_value_size": true,
+      "initial_value_size.description": "The size of the initial value of the global.",
+      "is_constant": true,
+      "is_constant.description": "Flag to indicate constant globals."
+    }
   },
-  "allocation_call": {
-    "EnabledPost": true,
-    "MemoryPointer": true,
-    "MemorySize": true,
-    "Alignment": true,
-    "Family": true,
-    "InitializerKind": true,
-    "ReplaceValue": true
+  "function_pre": {
+    "function": {
+      "enabled": true,
+      "address": true,
+      "address.description": "The function address.",
+      "name": true,
+      "name.description": "The function name.",
+      "num_arguments": true,
+      "num_arguments.description": "Number of function arguments (without varargs).",
+      "arguments": true,
+      "arguments.replace": true,
+      "arguments.description": "Description of the arguments."
+    }
   },
-  "memory_intrinsic": {
-    "EnabledPre": true,
-    "EnabledPost": true,
-    "KindId": true,
-    "DestinationPointer": true,
-    "DestinationPointerAddressSpace": true,
-    "SourcePointer": true,
-    "SourcePointerAddressSpace": true,
-    "MemsetValue": true,
-    "Length": true,
-    "IsVolatile": true,
-    "AtomicElementSize": true,
-    "ReplaceValue": true
+  "instruction_pre": {
+    "unreachable": {
+      "enabled": true
+    },
+    "call": {
+      "enabled": true,
+      "callee": true,
+      "callee.description": "The callee address, or nullptr if an intrinsic.",
+      "callee_name": true,
+      "callee_name.description": "The callee name (if available).",
+      "intrinsic_id": true,
+      "intrinsic_id.description": "The intrinsic id, or 0 if not an intrinsic.",
+      "allocation_info": true,
+      "allocation_info.description": "Encoding of the allocation made by the call, if any, or nullptr otherwise.",
+      "num_parameters": true,
+      "num_parameters.description": "Number of call parameters.",
+      "parameters": true,
+      "parameters.replace": true,
+      "parameters.description": "Description of the call parameters.",
+      "is_definition": true,
+      "is_definition.description": "Flag to indicate calls to definitions."
+    },
+    "load": {
+      "enabled": true,
+      "pointer": true,
+      "pointer.replace": true,
+      "pointer.description": "The accessed pointer.",
+      "pointer_as": true,
+      "pointer_as.description": "The address space of the accessed pointer.",
+      "base_pointer_info": true,
+      "base_pointer_info.description": "The runtime provided base pointer info.",
+      "value_size": true,
+      "value_size.description": "The size of the loaded value.",
+      "alignment": true,
+      "alignment.description": "The known access alignment.",
+      "value_type_id": true,
+      "value_type_id.description": "The type id of the loaded value.",
+      "atomicity_ordering": true,
+      "atomicity_ordering.description": "The atomicity ordering of the load.",
+      "sync_scope_id": true,
+      "sync_scope_id.description": "The sync scope id of the load.",
+      "is_volatile": true,
+      "is_volatile.description": "Flag indicating a volatile load."
+    },
+    "ptrtoint": {
+      "enabled": true,
+      "pointer": true,
+      "pointer.description": "Input pointer of the ptr to int."
+    },
+    "alloca": {
+      "enabled": true,
+      "size": true,
+      "size.replace": true,
+      "size.description": "The allocation size.",
+      "alignment": true,
+      "alignment.description": "The allocation alignment."
+    },
+    "store": {
+      "enabled": true,
+      "pointer": true,
+      "pointer.replace": true,
+      "pointer.description": "The accessed pointer.",
+      "pointer_as": true,
+      "pointer_as.description": "The address space of the accessed pointer.",
+      "base_pointer_info": true,
+      "base_pointer_info.description": "The runtime provided base pointer info.",
+      "value": true,
+      "value.description": "The stored value.",
+      "value_size": true,
+      "value_size.description": "The size of the stored value.",
+      "alignment": true,
+      "alignment.description": "The known access alignment.",
+      "value_type_id": true,
+      "value_type_id.description": "The type id of the stored value.",
+      "atomicity_ordering": true,
+      "atomicity_ordering.description": "The atomicity ordering of the store.",
+      "sync_scope_id": true,
+      "sync_scope_id.description": "The sync scope id of the store.",
+      "is_volatile": true,
+      "is_volatile.description": "Flag indicating a volatile store."
+    },
+    "icmp": {
+      "enabled": true,
+      "is_ptr_cmp": true,
+      "is_ptr_cmp.description": "Flag to indicate a pointer compare.",
+      "cmp_predicate_kind": true,
+      "cmp_predicate_kind.description": "Predicate kind of an integer compare.",
+      "lhs": true,
+      "lhs.description": "Left hand side of an integer compare.",
+      "rhs": true,
+      "rhs.description": "Right hand side of an integer compare."
+    }
   },
-  "intrinsic": {
-    "EnabledPre": true,
-    "KindId": true
+  "instruction_post": {
+    "call": {
+      "enabled": true,
+      "callee": true,
+      "callee.description": "The callee address, or nullptr if an intrinsic.",
+      "callee_name": true,
+      "callee_name.description": "The callee name (if available).",
+      "intrinsic_id": true,
+      "intrinsic_id.description": "The intrinsic id, or 0 if not an intrinsic.",
+      "allocation_info": true,
+      "allocation_info.description": "Encoding of the allocation made by the call, if any, or nullptr otherwise.",
+      "return_value": true,
+      "return_value.replace": true,
+      "return_value.description": "The returned value.",
+      "return_value_size": true,
+      "return_value_size.description": "The size of the returned value",
+      "num_parameters": true,
+      "num_parameters.description": "Number of call parameters.",
+      "parameters": true,
+      "parameters.description": "Description of the call parameters.",
+      "is_definition": true,
+      "is_definition.description": "Flag to indicate calls to definitions."
+    },
+    "load": {
+      "enabled": true,
+      "pointer": true,
+      "pointer.description": "The accessed pointer.",
+      "pointer_as": true,
+      "pointer_as.description": "The address space of the accessed pointer.",
+      "base_pointer_info": true,
+      "base_pointer_info.description": "The runtime provided base pointer info.",
+      "value": true,
+      "value.replace": true,
+      "value.description": "The loaded value.",
+      "value_size": true,
+      "value_size.description": "The size of the loaded value.",
+      "alignment": true,
+      "alignment.description": "The known access alignment.",
+      "value_type_id": true,
+      "value_type_id.description": "The type id of the loaded value.",
+      "atomicity_ordering": true,
+      "atomicity_ordering.description": "The atomicity ordering of the load.",
+      "sync_scope_id": true,
+      "sync_scope_id.description": "The sync scope id of the load.",
+      "is_volatile": true,
+      "is_volatile.description": "Flag indicating a volatile load."
+    },
+    "ptrtoint": {
+      "enabled": true,
+      "pointer": true,
+      "pointer.description": "Input pointer of the ptr to int.",
+      "value": true,
+      "value.replace": true,
+      "value.description": "Result of the ptr to int."
+    },
+    "alloca": {
+      "enabled": true,
+      "address": true,
+      "address.replace": true,
+      "address.description": "The allocated memory address.",
+      "size": true,
+      "size.description": "The allocation size.",
+      "alignment": true,
+      "alignment.description": "The allocation alignment."
+    },
+    "store": {
+      "enabled": true,
+      "pointer": true,
+      "pointer.description": "The accessed pointer.",
+      "pointer_as": true,
+      "pointer_as.description": "The address space of the accessed pointer.",
+      "base_pointer_info": true,
+      "base_pointer_info.description": "The runtime provided base pointer info.",
+      "value": true,
+      "value.description": "The stored value.",
+      "value_size": true,
+      "value_size.description": "The size of the stored value.",
+      "alignment": true,
+      "alignment.description": "The known access alignment.",
+      "value_type_id": true,
+      "value_type_id.description": "The type id of the stored value.",
+      "atomicity_ordering": true,
+      "atomicity_ordering.description": "The atomicity ordering of the store.",
+      "sync_scope_id": true,
+      "sync_scope_id.description": "The sync scope id of the store.",
+      "is_volatile": true,
+      "is_volatile.description": "Flag indicating a volatile store."
+    },
+    "icmp": {
+      "enabled": true,
+      "value": true,
+      "value.replace": true,
+      "value.description": "Result of an integer compare.",
+      "is_ptr_cmp": true,
+      "is_ptr_cmp.description": "Flag to indicate a pointer compare.",
+      "cmp_predicate_kind": true,
+      "cmp_predicate_kind.description": "Predicate kind of an integer compare.",
+      "lhs": true,
+      "lhs.description": "Left hand side of an integer compare.",
+      "rhs": true,
+      "rhs.description": "Right hand side of an integer compare."
+    }
   },
-  "unreachable": {
-    "EnabledPre": true
-  },
-  "global_var": {
-    "EnabledPost": true,
-    "Value": true,
-    "Size": true,
-    "Alignment": true,
-    "IsConstant": true,
-    "UnnamedAddress": true,
-    "Name": true,
-    "InitializerKind": true,
-    "ReplaceValue": true
-  },
-  "module": {
-    "EnabledPre": true,
-    "EnabledPost": true,
-    "ModuleName": true,
-    "ModuleTargetTriple": true
-  },
-  "main_function": {
-    "EnabledPre": true,
-    "EnabledPost": true,
-    "ArgC": true,
-    "ArgV": true,
-    "ReturnValue": true,
-    "ReplaceArgumentValues": true,
-    "ReplaceReturnValue": true
-  },
-  "call": {
-    "EnabledPre": true,
-    "EnabledPost": true,
-    "CalleePtr": true,
-    "CalleeName": true,
-    "Values": true,
-    "ValueSizes": true,
-    "ValueTypeIds": true,
-    "NumValues": true,
-    "ReplaceValues": true
-  },
-  "base_pointer": {
-    "EnabledPost": true,
-    "Value": true,
-    "SkipUnused": true
+  "special_value": {
+    "base_pointer_info": {
+      "enabled": true,
+      "base_pointer": true,
+      "base_pointer.replace": true,
+      "base_pointer.description": "The base pointer in question.",
+      "base_pointer_kind": true,
+      "base_pointer_kind.description": "The base pointer kind (argument, global, instruction, unknown)."
+    }
   }
 }
