@@ -218,7 +218,8 @@ bool readInstrumentorConfigFromJSON(InstrumentationConfig &IConf) {
       auto *IO = IChoiceMap.lookup(ObjIt.first);
       if (!IO) {
         errs() << "WARNING: malformed JSON configuration, expected an object "
-                  "matching an instrumentor choice.\n";
+                  "matching an instrumentor choice, got "
+               << ObjIt.first << ".\n";
         continue;
       }
       SeenIOs.insert(IO);
@@ -394,7 +395,8 @@ protected:
 bool InstrumentorImpl::shouldInstrumentFunction(Function &Fn) {
   if (Fn.isDeclaration())
     return false;
-  return !Fn.getName().starts_with(IConf.getRTName()) || Fn.hasFnAttribute("instrument");
+  return !Fn.getName().starts_with(IConf.getRTName()) ||
+         Fn.hasFnAttribute("instrument");
 }
 
 bool InstrumentorImpl::shouldInstrumentGlobalVariable(GlobalVariable &GV) {
@@ -404,7 +406,7 @@ bool InstrumentorImpl::shouldInstrumentGlobalVariable(GlobalVariable &GV) {
 
 bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   bool Changed = false;
-  if (!shouldInstrumentFunction(Fn)) 
+  if (!shouldInstrumentFunction(Fn))
     return Changed;
 
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
@@ -541,7 +543,7 @@ PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
   IConf.populate(M.getContext());
 
   InstrumentorImpl Impl(IConf, M, MAM);
-  if (!readInstrumentorConfigFromJSON(IConf))
+  if (IConf.ReadConfig && !readInstrumentorConfigFromJSON(IConf))
     return PreservedAnalyses::all();
   writeInstrumentorConfig(IConf);
 
@@ -998,12 +1000,12 @@ static Value *createValuePack(const Range &R, InstrumentationConfig &IConf,
   }
 
   auto *AI = IIRB.getAlloca(Fn, STy);
-  //unsigned Offset = 0;
+  // unsigned Offset = 0;
   for (auto [Idx, Param] : enumerate(Values)) {
     auto *Ptr = IIRB.IRB.CreateStructGEP(STy, AI, Idx);
-    //auto *Ptr = IIRB.IRB.CreateConstInBoundsGEP1_32(IIRB.Int8Ty, AI, Offset);
+    // auto *Ptr = IIRB.IRB.CreateConstInBoundsGEP1_32(IIRB.Int8Ty, AI, Offset);
     IIRB.IRB.CreateStore(Param, Ptr);
-    //Offset += DL.getTypeAllocSize(Param->getType());
+    // Offset += DL.getTypeAllocSize(Param->getType());
   }
   IIRB.returnAllocas({AI});
   return AI;

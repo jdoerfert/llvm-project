@@ -28,8 +28,7 @@ struct __init_ty {
   bool has_main = false;
 } __state;
 
-void __instrumentor_pre_function(void *address, char *name,
-                                 int32_t num_arguments, void *arguments) {
+void __instrumentor_pre_function(void *address, char *name) {
   if (__state.callee == address && !__state.callee_found) {
     llvm::timeTraceProfilerBegin(llvm::demangle(name), "");
     __state.callee_found = true;

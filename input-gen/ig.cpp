@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdint.h>
@@ -38,10 +39,6 @@ struct AllocationInfoTy {
   uint32_t InitialValue;
 };
 
-struct Config {
-  Config() {}
-};
-
 extern thread_local ObjectManager ThreadOM;
 
 extern "C" {
@@ -49,7 +46,7 @@ extern "C" {
 IG_API_ATTRS
 void __ig_pre_function(char *address, char *name, int32_t num_arguments,
                        char *arguments) {
-  PRINTF("function pre -- address: %p, name: %p, num_arguments: %i, arguments: "
+  PRINTF("function pre -- address: %p, name: %s, num_arguments: %i, arguments: "
          "%p\n",
          address, name, num_arguments, arguments);
 
@@ -149,7 +146,6 @@ char *__ig_pre_store(char *pointer, char *base_pointer_info, int64_t value,
 }
 
 IG_API_ATTRS
-
 char *__ig_pre_store_ind(char *pointer, char *base_pointer_info,
                          int64_t *value_ptr, int32_t value_size,
                          int64_t alignment, int32_t value_type_id) {
@@ -250,7 +246,6 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
 
   for (auto I = 0; I < num_branch_condition_arguments; ++I) {
     auto *BCVPtr = (BranchConditionValuePackTy *)arguments;
-    printf("I %i : %i %u\n", I, BCVPtr->Kind, BCVPtr->TypeId);
     if (ArgMemSize + BCVPtr->Size > MaxSize) {
       MaxSize *= 4;
       auto *NewArgMemPtr = (char *)malloc(MaxSize);
@@ -284,7 +279,6 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
     return;
   }
 
-  printf("bci fvi %zu\n", BCI->FreeValueInfos.size());
   BCI->ArgMemPtr = ArgMemPtr;
   for (auto &FVI : BCI->FreeValueInfos)
     ThreadOM.BranchConditions[FVI.VPtr].push_back(BCI);

@@ -350,6 +350,8 @@ struct InstrumentationConfig {
         "Demangle functions names passed to the runtime.", true);
   }
 
+  bool ReadConfig = true;
+
   virtual void populate(LLVMContext &Ctx);
   StringRef getRTName() const { return RuntimePrefix->getString(); }
 

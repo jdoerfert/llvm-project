@@ -20,17 +20,17 @@
 #include <sys/types.h>
 #include <tuple>
 #include <type_traits>
+#include <unordered_set>
 
 #include "logging.h"
 #include "vm_choices.h"
 #include "vm_enc.h"
 
 namespace __ig {
-
-using TableScheme20Ty = TableSchemeTy<1, 30>;
 using BucketScheme10Ty = BucketSchemeTy</*EncodingNo=*/0,
                                         /*OffsetBits=*/12, /*BucketBits=*/3,
                                         /*RealPtrBits=*/32>;
+using TableScheme20Ty = TableSchemeTy<1, 30>;
 
 struct ObjectManager {
   ~ObjectManager();
@@ -230,79 +230,169 @@ struct ObjectManager {
     if (BCIs.empty())
       return;
 
-    VERBOSE("Got {} BCIs\n", BCIs.size());
-    int32_t BestValue = 0;
-    uint32_t BestNumDesired = 0;
-    for (auto I = 0; I < 1 << 10; ++I) {
-      auto Value = I - (1 << 4);
+    int32_t I32Values[] = {-100, -64, -32, -8,  -4,  -3,  -2,  -1, 0,
+                           1,    2,   3,   4,   8,   12,  16,  22, 24,
+                           26,   32,  64,  128, 256, 512, 1024};
+    uint32_t NumValues = sizeof(I32Values) / sizeof(I32Values[0]);
 
-      uint32_t NumDesired = 0;
-      for (auto *BCI : BCIs) {
-        uint32_t NumFreeLoads = 0;
-        for (auto &FVI : BCI->FreeValueInfos) {
-          auto *ArgPtr = BCI->ArgMemPtr + FVI.Offset;
-          switch (FVI.TypeId) {
-          case 2:
-            *((float *)ArgPtr) = 3.14;
-            break;
-          case 3:
-            *((double *)ArgPtr) = 3.14;
-            break;
-          case 12: {
-            bool IsInitialized;
-            auto *MPtr =
-                decodeAndCheckInitialized(FVI.VPtr, FVI.Size, IsInitialized);
-            if (IsInitialized) {
-              VERBOSE("Is initialied {} [{}]\n", *((int *)MPtr), FVI.Offset);
-              __builtin_memcpy(ArgPtr, MPtr, FVI.Size);
-              break;
-            }
-            VERBOSE("Trying {} for {} [{}]\n", Value, I, FVI.Offset);
-            NumFreeLoads++;
-            __builtin_memcpy(ArgPtr, &Value, 4);
-            if (FVI.Size > 4)
-              __builtin_memset(ArgPtr + 4, 0, FVI.Size - 4);
-            break;
-          }
-          case 14:
-            *((void **)ArgPtr) = 0;
-            break;
-          default:
-            __builtin_memset(ArgPtr, 0, FVI.Size);
-          }
+    std::set<BranchConditionInfo *> BadBCIs;
+    std::map<char *, uint32_t> VIdxMap;
+    std::map<char *,
+             std::vector<std::pair<BranchConditionInfo *,
+                                   BranchConditionInfo::FreeValueInfo *>>>
+        VPtrBCIMap;
+
+    auto SetValue = [&](BranchConditionInfo &BCI,
+                        BranchConditionInfo::FreeValueInfo &FVI) {
+      auto *ArgPtr = BCI.ArgMemPtr + FVI.Offset;
+      switch (FVI.TypeId) {
+      case 2:
+        *((float *)ArgPtr) = 3.14;
+        return false;
+        break;
+      case 3:
+        *((double *)ArgPtr) = 3.14;
+        return false;
+        break;
+      case 12: {
+        bool IsInitialized;
+        auto *MPtr =
+            decodeAndCheckInitialized(FVI.VPtr, FVI.Size, IsInitialized);
+        if (IsInitialized) {
+          __builtin_memcpy(ArgPtr, MPtr, FVI.Size);
+          return false;
+          break;
         }
-        char Outcome = BCI->Fn(BCI->ArgMemPtr);
-        char DesiredOutcome = getDesiredOutcome(BCI->No);
-        VERBOSE(" want {}, got {} [free {}]\n", DesiredOutcome, Outcome,
-                NumFreeLoads);
-        if (Outcome == DesiredOutcome)
-          NumDesired++;
+        uint32_t VIdx = getRandomNumber() % NumValues;
+        auto [It, New] = VIdxMap.insert({FVI.VPtr, VIdx});
+        if (New) {
+        } else {
+          VIdx = It->second;
+        }
+        __builtin_memcpy(ArgPtr, &I32Values[VIdx], std::min(FVI.Size, 4u));
+        if (FVI.Size > 4)
+          __builtin_memset(ArgPtr + 4, 0, FVI.Size - 4);
+        return true;
+        break;
+      }
+      case 14:
+        *((void **)ArgPtr) = 0;
+        return false;
+        break;
+      default:
+        __builtin_memset(ArgPtr, 0, FVI.Size);
+        return false;
+      }
+    };
+
+    auto EvaluateBCI = [&](BranchConditionInfo &BCI) {
+      char Outcome = BCI.Fn(BCI.ArgMemPtr);
+      char DesiredOutcome = getDesiredOutcome(BCI.No);
+      return Outcome == DesiredOutcome;
+    };
+
+    auto IncAndEvaluate = [&](char *VPtr,
+                              std::set<BranchConditionInfo *> &TestedBCIs,
+                              std::set<BranchConditionInfo *> &BrokenBCIs) {
+      TestedBCIs.clear();
+      BrokenBCIs.clear();
+      auto &VIdx = VIdxMap[VPtr];
+      VIdx = (++VIdx % NumValues);
+      auto BCIs = VPtrBCIMap[VPtr];
+      for (auto [BCI, FVI] : BCIs) {
+        TestedBCIs.insert(BCI);
+        SetValue(*BCI, *FVI);
+        if (!EvaluateBCI(*BCI))
+          BrokenBCIs.insert(BCI);
+      }
+      return BrokenBCIs.empty();
+    };
+
+    auto WorkOnBCI = [&](BranchConditionInfo &BCI) {
+      std::set<BranchConditionInfo *> AllBCIs;
+      AllBCIs.insert(&BCI);
+
+      std::vector<BranchConditionInfo::FreeValueInfo *> FVIs;
+      for (auto &FVI : BCI.FreeValueInfos)
+        if (VIdxMap.count(FVI.VPtr))
+          FVIs.push_back(&FVI);
+      for (uint32_t I = 0; I < FVIs.size(); ++I) {
+        for (auto [OtherBCI, _] : VPtrBCIMap[FVIs[I]->VPtr]) {
+          if (AllBCIs.insert(OtherBCI).second)
+            for (auto &OtherFVI : OtherBCI->FreeValueInfos)
+              if (VIdxMap.count(OtherFVI.VPtr))
+                FVIs.push_back(&OtherFVI);
+        }
       }
 
-      if (NumDesired < BestNumDesired)
-        continue;
-      BestNumDesired = NumDesired;
-      BestValue = Value;
-      if (NumDesired == BCIs.size())
-        break;
-    }
+      std::set<BranchConditionInfo *> TestedBCIs, BrokenBCIs;
+      auto TestAllBCIs = [&]() {
+        for (auto *BCI : AllBCIs) {
+          if (TestedBCIs.count(BCI))
+            continue;
+          if (!EvaluateBCI(*BCI))
+            return false;
+        }
+        for (auto *BCI : AllBCIs)
+          BadBCIs.erase(BCI);
+        return true;
+      };
 
-    VERBOSE("BND {} out of {} : {}\n", BestNumDesired, BCIs.size(), BestValue);
-    if (BestNumDesired == 0)
-      return;
+      std::set<char *> VPtrSet;
+      for (auto *FVI : FVIs) {
+        if (!VPtrSet.insert(FVI->VPtr).second)
+          continue;
+        for (uint32_t I = 0; I < NumValues; ++I) {
+          if (IncAndEvaluate(FVI->VPtr, TestedBCIs, BrokenBCIs) &&
+              TestAllBCIs())
+            return true;
+          for (auto *OtherFVI : FVIs) {
+            if (OtherFVI->VPtr == FVI->VPtr)
+              continue;
+            for (uint32_t J = 0; J < NumValues; ++J)
+              if (IncAndEvaluate(OtherFVI->VPtr, TestedBCIs, BrokenBCIs) &&
+                  TestAllBCIs())
+                return true;
+          }
+        }
+      }
+      return false;
+    };
 
     for (auto *BCI : BCIs) {
+      uint32_t NumFreeLoads = 0;
       for (auto &FVI : BCI->FreeValueInfos) {
-        if (FVI.TypeId == 12) {
-          bool IsInitialized;
-          auto *MPtr = RTObjs.access(VPtr, FVI.Size, FVI.TypeId, TEST_READ,
-                                     IsInitialized);
-          if (!IsInitialized)
-            continue;
-          __builtin_memcpy(MPtr, &BestValue, 4);
-          if (FVI.Size > 4)
-            __builtin_memset(MPtr + 4, 0, FVI.Size - 4);
-        }
+        VPtrBCIMap[FVI.VPtr].push_back({BCI, &FVI});
+        NumFreeLoads += SetValue(*BCI, FVI);
+      }
+      if (EvaluateBCI(*BCI))
+        continue;
+      if (!NumFreeLoads) {
+        UserBS10.error(101);
+      }
+      BadBCIs.insert(BCI);
+    }
+
+    while (!BadBCIs.empty()) {
+      auto *BadBCI = *BadBCIs.begin();
+      BadBCIs.erase(BadBCIs.begin());
+      if (!WorkOnBCI(*BadBCI)) {
+        UserBS10.error(102);
+      }
+    }
+
+    for (auto [VPtr, VIdx] : VIdxMap) {
+      auto BCIs = VPtrBCIMap[VPtr];
+      // TODO the FVIs for different BCIs could be different (size, typeid etc).
+      auto *FVI = BCIs.front().second;
+      if (FVI->TypeId == 12) {
+        bool IsInitialized;
+        auto *MPtr = RTObjs.access(VPtr, FVI->Size, FVI->TypeId, TEST_READ,
+                                   IsInitialized);
+        auto &VIdx = VIdxMap[FVI->VPtr];
+        __builtin_memcpy(MPtr, &I32Values[VIdx], std::min(FVI->Size, 4u));
+        if (FVI->Size > 4)
+          __builtin_memset(MPtr + 4, 0, FVI->Size - 4);
       }
     }
   }
