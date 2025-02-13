@@ -17,7 +17,13 @@
 
 namespace llvm {
 
-enum class IGIMode : unsigned { Disabled, Record, Generate, Replay };
+enum class IGIMode : unsigned {
+  Disabled,
+  Record,
+  Generate,
+  ReplayGenerated,
+  ReplayRecorded
+};
 
 class InputGenInstrumentEntriesPass
     : public PassInfoMixin<InputGenInstrumentEntriesPass> {

@@ -13,6 +13,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -21,13 +22,16 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Regex.h"
 #include "llvm/Transforms/Instrumentation/Instrumentor.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <cstdint>
 #include <functional>
@@ -37,24 +41,35 @@ using namespace llvm::instrumentor;
 
 #define DEBUG_TYPE "input-gen"
 
+cl::OptionCategory InputGenCat("input-gen Options");
+
 static cl::opt<IGIMode> ClInstrumentationMode(
     "input-gen-mode", cl::desc("input-gen instrumentation mode"), cl::Hidden,
     cl::init(IGIMode::Disabled),
     cl::values(clEnumValN(IGIMode::Disabled, "disable", ""),
                clEnumValN(IGIMode::Record, "record", ""),
                clEnumValN(IGIMode::Generate, "generate", ""),
-               clEnumValN(IGIMode::Replay, "replay", "")));
+               clEnumValN(IGIMode::ReplayGenerated, "replay_generated", ""),
+               clEnumValN(IGIMode::ReplayRecorded, "replay_recorded", "")),
+    cl::cat(InputGenCat));
+
+static cl::list<std::string>
+    AllowedExternalFuncs("input-gen-allow-external-funcs",
+                         cl::desc("Specify allowed external function(s)"),
+                         cl::Hidden, cl::cat(InputGenCat));
 
 #ifndef NDEBUG
 static cl::opt<std::string>
     ClGenerateStubs("input-gen-generate-stubs",
-                    cl::desc("Generate the stubs for the input-gen runtime"),
-                    cl::Hidden);
+                    cl::desc("Filename to generate the stubs for the input-gen "
+                             "runtime in. Leave blank to disable."),
+                    cl::Hidden, cl::cat(InputGenCat));
 #else
 static constexpr std::string ClGenerateStubs = "";
 #endif
 
 static constexpr char InputGenRuntimePrefix[] = "__ig_";
+static constexpr char InputGenRenamePrefix[] = "__renamed_ig_";
 
 namespace {
 
@@ -128,7 +143,7 @@ struct InputGenMemoryImpl {
 private:
   Module &M;
   ModuleAnalysisManager &MAM;
-  IGIMode Mode;
+  const IGIMode Mode;
   FunctionAnalysisManager &FAM;
   InputGenInstrumentationConfig IConf;
   const DataLayout &DL = M.getDataLayout();
@@ -141,17 +156,21 @@ struct InputGenEntriesImpl {
   }
 
   bool instrument();
+
+private:
   bool createEntryPoint();
+  bool processFunctions();
+  bool processOtherFunctions();
 
   FunctionAnalysisManager &getFAM() { return FAM; };
 
-private:
   Module &M;
   ModuleAnalysisManager &MAM;
-  IGIMode Mode;
+  const IGIMode Mode;
   FunctionAnalysisManager &FAM;
   const DataLayout &DL = M.getDataLayout();
   SmallVector<Function *> UserFunctions;
+  SmallVector<Function *> OtherFunctions;
 };
 
 struct BranchConditionIO : public InstructionIO<Instruction::Br> {
@@ -525,18 +544,104 @@ bool InputGenMemoryImpl::instrument() {
 }
 
 bool InputGenEntriesImpl::instrument() {
-  if (!(Mode == IGIMode::Generate || Mode == IGIMode::Replay))
+  if (Mode == IGIMode::Generate || Mode == IGIMode::ReplayGenerated ||
+      Mode == IGIMode::ReplayRecorded) {
+    bool Changed = false;
+
+    for (auto &Fn : M.functions()) {
+      if (Fn.hasFnAttribute(Attribute::InputGenEntry)) {
+        UserFunctions.push_back(&Fn);
+      } else {
+        OtherFunctions.push_back(&Fn);
+      }
+    }
+
+    Changed |= createEntryPoint();
+    Changed |= processFunctions();
+
+    return Changed;
+  } else {
     return false;
+  }
+}
 
-  bool Changed = false;
+static bool isPersonalityFunction(Function &F) {
+  return !F.use_empty() && all_of(F.uses(), [&](Use &U) {
+    if (auto *UserF = dyn_cast<Function>(U.getUser()))
+      if (UserF->getPersonalityFn() == &F)
+        return true;
+    return false;
+  });
+}
 
-  for (auto &Fn : M.functions())
-    if (Fn.hasFnAttribute(Attribute::InputGenEntry))
-      UserFunctions.push_back(&Fn);
+static bool shouldPreserveName(Function *F) {
+  StringRef Name = F->getName();
+  bool UserAllowedExternal = llvm::any_of(
+      AllowedExternalFuncs, [&](std::string N) { return N == Name; });
+  bool IsCxaThrow = Name == "__cxa_throw";
+  return isPersonalityFunction(*F) || UserAllowedExternal || IsCxaThrow ||
+         F->isIntrinsic();
+}
 
-  Changed |= createEntryPoint();
+// TODO instrumentor needs to instrument memory functions such as malloc calloc
+// free memcpy etc. If we rename them it can't do that? We probably want to do
+// the renaming in the memory pass and not the entries pass.
+static void processFunctionDeclarationForGeneration(Function *F) {
+  assert(F->isDeclaration());
+  // We need to rename external functions that we will be stubbing so as not to
+  // clash with an existing definition somewhere.
+  if (!shouldPreserveName(F))
+    F->setName(InputGenRenamePrefix + F->getName());
+}
 
-  return Changed;
+static void processFunctionDefinitionForGenerate(Function *F) {
+  assert(!F->isDeclaration());
+  // We want to aggressively inline to strengthen the InputGenMemory
+  // instrumentation analysis.
+  F->addFnAttr(Attribute::AlwaysInline);
+  // TODO also look at the callsites for noinline
+  F->removeFnAttr(Attribute::NoInline);
+
+  // We do not want any definitions to clash with any other modules we may link
+  // in.
+  F->setLinkage(GlobalValue::PrivateLinkage);
+  F->setVisibility(GlobalValue::DefaultVisibility);
+}
+
+static void processFunctionDefinitionForReplayGenerated(Function *F) {
+  // We do not want any definitions to clash with any other modules we may link
+  // in.
+  F->setLinkage(GlobalValue::PrivateLinkage);
+  F->setVisibility(GlobalValue::DefaultVisibility);
+}
+
+bool InputGenEntriesImpl::processFunctions() {
+  for (Function *F : UserFunctions) {
+    if (Mode == IGIMode::Generate)
+      processFunctionDefinitionForGenerate(F);
+    if (Mode == IGIMode::ReplayGenerated)
+      processFunctionDefinitionForReplayGenerated(F);
+  }
+  for (Function *F : OtherFunctions) {
+    if (!F->isDeclaration()) {
+      if (Mode == IGIMode::Generate) {
+        processFunctionDefinitionForGenerate(F);
+      } else if (Mode == IGIMode::ReplayGenerated) {
+        processFunctionDefinitionForReplayGenerated(F);
+      }
+    }
+  }
+
+  // Since the OtherFunctions may be unused, we need to make sure they do not
+  // get optimized away before we have a chance to consider them for indirect
+  // call candidates later.
+  if (Mode == IGIMode::Generate || Mode == IGIMode::ReplayGenerated)
+    appendToCompilerUsed(M,
+                         llvm::map_to_vector(OtherFunctions, [](Function *F) {
+                           return cast<GlobalValue>(F);
+                         }));
+
+  return true;
 }
 
 bool InputGenEntriesImpl::createEntryPoint() {
