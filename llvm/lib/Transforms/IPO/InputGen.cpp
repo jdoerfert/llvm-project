@@ -545,6 +545,7 @@ bool InputGenEntriesImpl::createEntryPoint() {
       FunctionType::get(Type::getVoidTy(Ctx), {I32Ty, PtrTy}, false),
       GlobalValue::ExternalLinkage,
       std::string(InputGenRuntimePrefix) + "entry", M);
+  // Tell Instrumentor not to ignore this function
   IGEntry->addFnAttr("instrument");
 
   auto *EntryChoice = IGEntry->getArg(0);
@@ -555,6 +556,8 @@ bool InputGenEntriesImpl::createEntryPoint() {
   auto *SI = SwitchInst::Create(EntryChoice, ReturnBB, NumEntryPoints, EntryBB);
   ReturnInst::Create(Ctx, ReturnBB);
 
+  SmallVector<Constant *> Names;
+  IRBuilder<> IRB(SI);
   for (uint32_t I = 0; I < NumEntryPoints; ++I) {
     Value *ObjPtr = InitialObj;
     auto *DispatchBB = BasicBlock::Create(Ctx, "dispatch", IGEntry);
@@ -579,9 +582,16 @@ bool InputGenEntriesImpl::createEntryPoint() {
     SI->addCase(ConstantInt::get(I32Ty, I), DispatchBB);
 
     BranchInst::Create(ReturnBB, DispatchBB);
-  }
 
-  UserFunctions.push_back(IGEntry);
+    Names.push_back(IRB.CreateGlobalString(EntryPoint->getName()));
+  }
+  ArrayType *NameArrayTy = ArrayType::get(PtrTy, NumEntryPoints);
+  Constant *NameArray = ConstantArray::get(NameArrayTy, Names);
+
+  new GlobalVariable(M, NameArrayTy, true, GlobalValue::ExternalLinkage,
+                     NameArray,
+                     std::string(InputGenRuntimePrefix) + "entry_point_names");
+
   return true;
 }
 

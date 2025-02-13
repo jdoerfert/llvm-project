@@ -1,17 +1,23 @@
 
-#include "vm_storage.h"
+#include "common.h"
+#include "logging.h"
 #include "timer.h"
+#include "vm_storage.h"
 
 #include <cstdint>
 #include <cstdio>
 
+extern "C" char *__ig_entry_point_names[];
 extern "C" uint32_t __ig_num_entry_points;
 extern "C" void __ig_entry(uint32_t, void *);
 
 int main(int argc, char **argv) {
   if (argc < 2) {
-    fprintf(stderr, "Usage: %s <file.inp> [<entry_no>]\n", argv[0]);
-    exit(1);
+    ERR("Usage: {} <file.inp> [<entry_no>]\n", argv[0]);
+    ERR("  Available functions:\n");
+    for (uint32_t I = 0; I < __ig_num_entry_points; I++)
+      ERR("    {}: {}\n", I, __ig_entry_point_names[I]);
+    exit(static_cast<int>(ExitStatus::WrongUsage));
   }
 
   uint32_t EntryNo = 0;
@@ -20,7 +26,7 @@ int main(int argc, char **argv) {
   if (EntryNo >= __ig_num_entry_points) {
     fprintf(stderr, "Entry %u is out of bounds, %u available\n", EntryNo,
             __ig_num_entry_points);
-    exit(1);
+    exit(static_cast<int>(ExitStatus::EntryNoOutOfBounds));
   }
 
   void *P;
@@ -38,4 +44,5 @@ int main(int argc, char **argv) {
     Timer T("replay");
     __ig_entry(EntryNo, P);
   }
+  exit(static_cast<int>(ExitStatus::Success));
 }

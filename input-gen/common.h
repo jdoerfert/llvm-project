@@ -4,9 +4,10 @@
 namespace __ig {
 
 enum class ExitStatus : int {
-  Success = 1,
-  EntryNoOutOfBounds = 1,
+  Success = 0,
+  EntryNoOutOfBounds,
   NoInputs,
+  WrongUsage,
 };
 
 } // namespace __ig
