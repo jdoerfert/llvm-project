@@ -109,8 +109,8 @@ struct InputGenInstrumentationConfig : public InstrumentationConfig {
 struct InputGenInstrumentationConfig;
 
 struct InputGenMemoryImpl {
-  InputGenMemoryImpl(Module &M, ModuleAnalysisManager &MAM)
-      : M(M), MAM(MAM),
+  InputGenMemoryImpl(Module &M, ModuleAnalysisManager &MAM, IGIMode Mode)
+      : M(M), MAM(MAM), Mode(Mode),
         FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()),
         IConf(*this) {}
 
@@ -128,14 +128,15 @@ struct InputGenMemoryImpl {
 private:
   Module &M;
   ModuleAnalysisManager &MAM;
+  IGIMode Mode;
   FunctionAnalysisManager &FAM;
   InputGenInstrumentationConfig IConf;
   const DataLayout &DL = M.getDataLayout();
 };
 
 struct InputGenEntriesImpl {
-  InputGenEntriesImpl(Module &M, ModuleAnalysisManager &MAM)
-      : M(M), MAM(MAM),
+  InputGenEntriesImpl(Module &M, ModuleAnalysisManager &MAM, IGIMode Mode)
+      : M(M), MAM(MAM), Mode(Mode),
         FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()) {
   }
 
@@ -147,6 +148,7 @@ struct InputGenEntriesImpl {
 private:
   Module &M;
   ModuleAnalysisManager &MAM;
+  IGIMode Mode;
   FunctionAnalysisManager &FAM;
   const DataLayout &DL = M.getDataLayout();
   SmallVector<Function *> UserFunctions;
@@ -154,7 +156,7 @@ private:
 
 struct BranchConditionIO : public InstructionIO<Instruction::Br> {
   BranchConditionIO() : InstructionIO<Instruction::Br>(/*IsPRE*/ true) {}
-  virtual ~BranchConditionIO() {};
+  virtual ~BranchConditionIO(){};
 
   Instruction *analyzeBranch(BranchInst &BI,
                              InputGenInstrumentationConfig &IConf,
@@ -439,7 +441,7 @@ Value *BranchConditionIO::getArguments(Value &V, Type &Ty,
       ParameterValues.push_back(IIRB.IRB.getInt32(PI.Size));
       ParameterTypes.push_back(PI.Ptr1->getType());
       ParameterValues.push_back(PI.Ptr1);
-    } 
+    }
     if (PI.Ptr2) {
       ParameterTypes.push_back(PI.Ptr2->getType());
       ParameterValues.push_back(PI.Ptr2);
@@ -508,6 +510,9 @@ bool InputGenMemoryImpl::shouldInstrumentCall(CallInst &CI) {
 }
 
 bool InputGenMemoryImpl::instrument() {
+  if (Mode != IGIMode::Generate || Mode == IGIMode::Record)
+    return false;
+
   bool Changed = false;
 
   InstrumentorPass IP(&IConf);
@@ -520,10 +525,13 @@ bool InputGenMemoryImpl::instrument() {
 }
 
 bool InputGenEntriesImpl::instrument() {
+  if (!(Mode == IGIMode::Generate || Mode == IGIMode::Replay))
+    return false;
+
   bool Changed = false;
 
   for (auto &Fn : M.functions())
-    if (!Fn.isDeclaration())
+    if (Fn.hasFnAttribute(Attribute::InputGenEntry))
       UserFunctions.push_back(&Fn);
 
   Changed |= createEntryPoint();
@@ -663,47 +671,32 @@ void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
 
 PreservedAnalyses
 InputGenInstrumentEntriesPass::run(Module &M, AnalysisManager<Module> &MAM) {
-  switch (ClInstrumentationMode) {
-  default:
+  IGIMode Mode = ClInstrumentationMode;
+  InputGenEntriesImpl Impl(M, MAM, Mode);
+
+  bool Changed = Impl.instrument();
+  if (!Changed)
     return PreservedAnalyses::all();
 
-  case IGIMode::Generate:
-  case IGIMode::Replay: {
+  if (verifyModule(M))
+    M.dump();
+  assert(!verifyModule(M, &errs()));
 
-    InputGenEntriesImpl Impl(M, MAM);
-
-    bool Changed = Impl.instrument();
-    if (!Changed)
-      return PreservedAnalyses::all();
-
-    if (verifyModule(M))
-      M.dump();
-    assert(!verifyModule(M, &errs()));
-
-    return PreservedAnalyses::none();
-  }
-  }
+  return PreservedAnalyses::none();
 }
 
 PreservedAnalyses
 InputGenInstrumentMemoryPass::run(Module &M, AnalysisManager<Module> &MAM) {
-  switch (ClInstrumentationMode) {
-  default:
+  IGIMode Mode = ClInstrumentationMode;
+  InputGenMemoryImpl Impl(M, MAM, Mode);
+
+  bool Changed = Impl.instrument();
+  if (!Changed)
     return PreservedAnalyses::all();
 
-  case IGIMode::Generate: {
+  if (verifyModule(M))
+    M.dump();
+  assert(!verifyModule(M, &errs()));
 
-    InputGenMemoryImpl Impl(M, MAM);
-
-    bool Changed = Impl.instrument();
-    if (!Changed)
-      return PreservedAnalyses::all();
-
-    if (verifyModule(M))
-      M.dump();
-    assert(!verifyModule(M, &errs()));
-
-    return PreservedAnalyses::none();
-  }
-  }
+  return PreservedAnalyses::none();
 }
