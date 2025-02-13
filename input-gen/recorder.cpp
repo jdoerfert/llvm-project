@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
   uint32_t NumInputsPerThread = NumInputs / NumThreads;
   INFO("Generating {} inputs for entry {} with {} threads, starting with {}; "
        "Seed: {}\n",
-         NumInputs, EntryNo, NumThreads, FirstInput, Seed);
+       NumInputs, EntryNo, NumThreads, FirstInput, Seed);
 
   std::mt19937 Generator(Seed);
   std::vector<uint32_t> Seeds;
