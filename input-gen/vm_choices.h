@@ -39,17 +39,14 @@ struct ChoiceTrace {
 struct ChoiceManager {
   std::vector<ChoiceTrace *> Choices;
 
-  ChoiceManager(uint32_t NumThreads)
-      : LastChoice(std::bit_floor(NumThreads - 1)) {}
+  ChoiceManager(uint32_t NumThreads) : LastChoice(NumThreads - 1) {}
   int32_t LastChoice;
 
   ChoiceTrace *initializeChoices(uint32_t I) {
-    assert(Choices.size() == I);
     auto *CT = new ChoiceTrace(I, LastChoice);
 #ifndef NDEBUG
-    std::cout << "INITIAL STATE" << "\n";
-    std::cout << CT->Decisions << "\n";
-// std::cout << CT->ChoicesToMake << "\n";
+    std::cout << "INITIAL CHOICES: " << CT->Decisions << "\n";
+    std::cout << "CHOICES TO MAKE: " << CT->ChoicesToMake << "\n";
 #endif
     Choices.push_back(CT);
     return CT;
@@ -76,7 +73,7 @@ struct ChoiceManager {
       CT->ChoicesToMake.set(I);
     CT->CurrentChoice = ChoiceToFlip;
 #ifndef NDEBUG
-    std::cout << CT->Decisions << "\n";
+    std::cout << "CHOICES: " << CT->Decisions << "\n";
 #endif
     return true;
   }

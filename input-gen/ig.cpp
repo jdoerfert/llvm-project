@@ -262,12 +262,16 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
       __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
       ArgMemSize += BCVPtr->Size;
       break;
-    case /*Load*/ 2:
+    case /*Load*/ 2: {
       auto *VPtr = *(char **)BCVPtr->Value;
       BCI->FreeValueInfos.emplace_back(ArgMemSize, BCVPtr->TypeId, BCVPtr->Size,
                                        VPtr);
       ArgMemSize += BCVPtr->Size;
       break;
+    }
+    case /*Memcmp*/ 3: {
+      break;
+    }
     }
     arguments += sizeof(BranchConditionValuePackTy) +
                  (BCVPtr->Kind == 2 ? sizeof(void *) : BCVPtr->Size);
