@@ -4,6 +4,7 @@
 #include "vm_obj.h"
 #include "logging.h"
 
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <stdio.h>
@@ -111,7 +112,7 @@ int main(int argc, char **argv) {
   if (argc > 2)
     NumInputs = std::atoi(argv[2]);
   if (argc > 3)
-    NumThreads = std::atoi(argv[3]);
+    NumThreads = std::bit_floor((uint32_t)std::atoi(argv[3]));
   if (argc > 4)
     FirstInput = std::atoi(argv[4]);
   if (argc > 5)
@@ -123,7 +124,9 @@ int main(int argc, char **argv) {
     exit(static_cast<int>(ExitStatus::EntryNoOutOfBounds));
   }
 
-  uint32_t NumInputsPerThread = (NumInputs + NumThreads - 1) / NumThreads;
+  NumThreads = std::min(NumThreads, NumInputs);
+
+  uint32_t NumInputsPerThread = NumInputs / NumThreads;
   INFO("Generating {} inputs for entry {} with {} threads, starting with {}; "
        "Seed: {}\n",
          NumInputs, EntryNo, NumThreads, FirstInput, Seed);
@@ -134,15 +137,14 @@ int main(int argc, char **argv) {
     Seeds.push_back(Generator());
 
   SharedState SS(NumThreads, Seeds);
-  for (uint32_t I = FirstInput; I < NumInputs + FirstInput;
+  for (uint32_t I = FirstInput; I < NumInputs + FirstInput - NumInputsPerThread;
        I += NumInputsPerThread) {
-    auto E = std::min(I + NumInputsPerThread, NumInputs);
-    if (E == NumInputs) {
-      GenerationThread::start(&SS, argv[0], I, E, EntryNo);
-    } else {
-      new std::thread(GenerationThread::start, &SS, argv[0], I, E, EntryNo);
-    }
+    new std::thread(GenerationThread::start, &SS, argv[0], I,
+                    I + NumInputsPerThread, EntryNo);
   }
+  GenerationThread::start(&SS, argv[0],
+                          NumInputs + FirstInput - NumInputsPerThread,
+                          NumInputs + FirstInput, EntryNo);
 
   fprintf(stderr, "No Inputs to process\n");
   return static_cast<int>(ExitStatus::NoInputs);

@@ -609,16 +609,6 @@ void InstrumentationConfig::addChoice(InstrumentationOpportunity &IO) {
   ICPtr = &IO;
 }
 
-void InstrumentationConfig::addCache(InstrumentationOpportunity &IO,
-                                     InstrumentationCache *Cache) {
-  auto *&ICPtr = ICaches[IO.getLocationKind()][IO.getName()];
-  if (ICPtr) {
-    errs() << "WARNING: registered two instrumentation caches for the "
-              "same location!\n";
-  }
-  ICPtr = Cache;
-}
-
 Value *
 InstrumentationConfig::getBasePointerInfo(Value &V,
                                           InstrumentorIRBuilderTy &IIRB) {
@@ -875,14 +865,11 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
                                              const DataLayout &DL) {
   SmallVector<Value *> CallParams;
 
-  InstrumentationCache &ICaches =
-      *IConf.ICaches[IO.getLocationKind()][IO.getName()];
-
   bool ForceIndirection = RequiresIndirection;
   for (auto &It : IO.IRTArgs) {
     if (!It.Enabled)
       continue;
-    auto *&Param = ICaches.DirectArgCache[{IIRB.Epoche, It.Name}];
+    auto *&Param = IO.DirectArgCache[{IIRB.Epoche, It.Name}];
     if (!Param)
       Param = It.GetterCB(*V, *It.Ty, IConf, IIRB);
 
@@ -922,7 +909,7 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
         Offset += 1;
       }
 
-      auto *&CachedParam = ICaches.IndirectArgCache[{IIRB.Epoche, It.Name}];
+      auto *&CachedParam = IO.IndirectArgCache[{IIRB.Epoche, It.Name}];
       if (CachedParam) {
         CallParam = CachedParam;
         continue;
@@ -952,12 +939,12 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     bool IsCustomReplaceable = IO.IRTArgs[I].Flags & IRTArg::REPLACABLE_CUSTOM;
     Value *NewValue =
         FnTy->isVoidTy() || IsCustomReplaceable
-            ? ICaches.DirectArgCache[{IIRB.Epoche, IO.IRTArgs[I].Name}]
+            ? IO.DirectArgCache[{IIRB.Epoche, IO.IRTArgs[I].Name}]
             : CI;
     assert(NewValue);
     if (ForceIndirection && !IsCustomReplaceable &&
         isPotentiallyIndirect(IO.IRTArgs[I])) {
-      auto *Q = ICaches.IndirectArgCache[{IIRB.Epoche, IO.IRTArgs[I].Name}];
+      auto *Q = IO.IndirectArgCache[{IIRB.Epoche, IO.IRTArgs[I].Name}];
       NewValue = IIRB.IRB.CreateLoad(V->getType(), Q);
     }
     V = IO.IRTArgs[I].SetterCB(*V, *NewValue, IConf, IIRB);

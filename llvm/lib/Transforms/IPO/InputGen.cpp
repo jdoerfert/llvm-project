@@ -62,17 +62,21 @@ struct InputGenMemoryImpl;
 
 struct BranchConditionInfo {
   struct ParameterInfo {
-    enum { INST, ARG, LOAD } Kind;
+    enum { INST, ARG, LOAD, MEMCMP } Kind;
     Value *const V;
-    Value *const Ptr = nullptr;
+    Value *const Ptr1 = nullptr;
+    Value *const Ptr2 = nullptr;
     const uint32_t TypeId = 0;
     const uint32_t Size = 0;
     ParameterInfo(Argument &A) : Kind(ARG), V(&A) {}
     ParameterInfo(Instruction &I) : Kind(INST), V(&I) {}
     ParameterInfo(LoadInst &LI, CallInst &CI, const DataLayout &DL)
-        : Kind(LOAD), V(&LI), Ptr(CI.getArgOperand(0)),
+        : Kind(LOAD), V(&LI), Ptr1(CI.getArgOperand(0)),
           TypeId(LI.getType()->getTypeID()),
           Size(DL.getTypeStoreSize(LI.getType())) {}
+    ParameterInfo(CallInst &CI, Value &Size)
+        : Kind(MEMCMP), V(CI.getArgOperand(2)), Ptr1(CI.getArgOperand(0)),
+          Ptr2(CI.getArgOperand(1)), TypeId(Type::TypeID::IntegerTyID) {}
   };
   uint32_t No;
   SmallVector<ParameterInfo> ParameterInfos;
@@ -263,6 +267,18 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
         continue;
       }
     }
+    if (auto *CI = dyn_cast<CallInst>(V)) {
+      // TODO: use target library info here
+      if (CI->getName() == "memcmp") {
+        CI->getFunction()->dump();
+        CI->dump();
+        if (!ArgumentMap.contains(CI)) {
+          ArgumentMap[CI] = BCI.ParameterInfos.size();
+          BCI.ParameterInfos.emplace_back(*CI);
+          HasLoad = true;
+        }
+      }
+    }
     if (auto *I = dyn_cast<Instruction>(V)) {
       if (I->mayHaveSideEffects() || I->mayReadFromMemory() ||
           isa<PHINode>(I)) {
@@ -279,7 +295,6 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
     }
     assert(isa<Constant>(V));
   }
-  errs() << "Has Load : " << HasLoad << "\n";
   if (!HasLoad)
     return nullptr;
 
@@ -325,8 +340,14 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
     switch (PI.Kind) {
     case BranchConditionInfo::ParameterInfo::ARG:
       break;
+    case BranchConditionInfo::ParameterInfo::MEMCMP: {
+      auto *PtrI = dyn_cast<Instruction>(PI.Ptr2);
+      if (PtrI)
+        AdjustIP(PtrI);
+      break;
+    }
     case BranchConditionInfo::ParameterInfo::LOAD: {
-      auto *PtrI = dyn_cast<Instruction>(PI.Ptr);
+      auto *PtrI = dyn_cast<Instruction>(PI.Ptr1);
       if (PtrI)
         AdjustIP(PtrI);
       break;
@@ -407,7 +428,7 @@ Value *BranchConditionIO::getArguments(Value &V, Type &Ty,
     ParameterValues.push_back(IIRB.IRB.getInt32(PI.Kind));
     ParameterTypes.push_back(IIRB.IRB.getInt32Ty());
     ParameterValues.push_back(IIRB.IRB.getInt32(PI.TypeId));
-    if (!PI.Ptr) {
+    if (!PI.Ptr1) {
       ParameterTypes.push_back(IIRB.IRB.getInt32Ty());
       ParameterValues.push_back(
           IIRB.IRB.getInt32(IIRB.DL.getTypeAllocSize(PI.V->getType())));
@@ -416,8 +437,12 @@ Value *BranchConditionIO::getArguments(Value &V, Type &Ty,
     } else {
       ParameterTypes.push_back(IIRB.IRB.getInt32Ty());
       ParameterValues.push_back(IIRB.IRB.getInt32(PI.Size));
-      ParameterTypes.push_back(PI.Ptr->getType());
-      ParameterValues.push_back(PI.Ptr);
+      ParameterTypes.push_back(PI.Ptr1->getType());
+      ParameterValues.push_back(PI.Ptr1);
+    } 
+    if (PI.Ptr2) {
+      ParameterTypes.push_back(PI.Ptr2->getType());
+      ParameterValues.push_back(PI.Ptr2);
     }
   }
 
