@@ -8,24 +8,54 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <type_traits>
 
 using namespace __ig;
 
+template <typename T> static char *ccast(T *Ptr) {
+  return reinterpret_cast<char *>(Ptr);
+}
+
+template <typename T> static T readV(std::ifstream &Input) {
+  T El;
+  Input.read(ccast(&El), sizeof(El));
+  return El;
+}
+
+template <typename T> static T writeV(std::ofstream &Output, T El) {
+  Output.write(ccast(&El), sizeof(El));
+  return El;
+}
+
+#ifndef NDEBUG
+#define DEFINE_READV(S)                                                        \
+  do {                                                                         \
+  } while (0)
+#define DEFINE_WRITEV(S)                                                       \
+  do {                                                                         \
+  } while (0)
+#define READV(V)                                                               \
+  do {                                                                         \
+    V = readV<decltype(V)>(IFS);                                               \
+    DEBUG("read {}\n", V);                                                     \
+  } while (0)
+#define WRITEV(V)                                                              \
+  do {                                                                         \
+    writeV<decltype(V)>(OFS, V);                                               \
+    DEBUG("wrote {}\n", V);                                                    \
+  } while (0)
+#else
+#define DEFINE_READV(S) auto READV = [&S]<typename T>(T &V) { V = readV<T>(S); }
+#define DEFINE_WRITEV(S) auto WRITEV = [&S]<typename T>(T V) { writeV(S, V); };
+#endif
+
 Range::Range(std::ifstream &IFS) {
-  char C;
-  IFS >> ObjIdx;
-  IFS >> C;
-  assert(C == ',');
-  IFS >> NegativeSize;
-  IFS >> C;
-  assert(C == ',');
-  IFS >> AnyRecorded;
-  IFS >> C;
-  assert(C == ',');
+  DEFINE_READV(IFS);
+  READV(ObjIdx);
+  READV(NegativeSize);
+  READV(AnyRecorded);
   ptrdiff_t Length;
-  IFS >> Length;
-  IFS >> C;
-  assert(C == ',');
+  READV(Length);
   if (Length) {
     Begin = (char *)malloc(Length);
     End = Begin + Length;
@@ -34,36 +64,34 @@ Range::Range(std::ifstream &IFS) {
   } else {
     Begin = End = nullptr;
   }
-  IFS >> C;
-  assert(C == ',');
 }
 
 void Range::write(std::ofstream &OFS) {
-  OFS << ObjIdx << ',' << NegativeSize << ',' << AnyRecorded << ','
-      << (End - Begin) << ',';
-  if (AnyRecorded)
-    OFS.write(Begin, End - Begin);
-  OFS << ',';
+  DEFINE_WRITEV(OFS);
+  WRITEV(ObjIdx);
+  WRITEV(NegativeSize);
+  WRITEV(AnyRecorded);
+  ptrdiff_t Length = End - Begin;
+  WRITEV(Length);
+  if (Length)
+    if (AnyRecorded)
+      OFS.write(Begin, Length);
 }
 
 Ptr::Ptr(std::ifstream &IFS) {
-  char C;
-  IFS >> ObjIdx;
-  IFS >> C;
-  assert(C == ',');
-  IFS >> Offset;
-  IFS >> C;
-  assert(C == ',');
-  IFS >> TgtObjIdx;
-  IFS >> C;
-  assert(C == ',');
-  IFS >> TgtOffset;
-  IFS >> C;
-  assert(C == ',');
+  DEFINE_READV(IFS);
+  READV(ObjIdx);
+  READV(Offset);
+  READV(TgtObjIdx);
+  READV(TgtOffset);
 }
 
 void Ptr::write(std::ofstream &OFS) {
-  OFS << ObjIdx << ',' << Offset << ',' << TgtObjIdx << ',' << TgtOffset << ',';
+  DEFINE_WRITEV(OFS);
+  WRITEV(ObjIdx);
+  WRITEV(Offset);
+  WRITEV(TgtObjIdx);
+  WRITEV(TgtOffset);
 }
 
 StorageManager::StorageManager() { std::ios::sync_with_stdio(false); }
@@ -116,37 +144,27 @@ void StorageManager::encode(ObjectManager &OM, uint32_t ObjIdx,
 }
 
 void StorageManager::write(std::ofstream &OFS) {
+  DEFINE_WRITEV(OFS);
   uint32_t NRanges = Ranges.size();
-  OFS << NRanges;
-  OFS << ',';
+  WRITEV(NRanges);
   for (auto &Range : Ranges)
     Range.write(OFS);
   uint32_t NPtrs = Ptrs.size();
-  OFS << 'p' << NPtrs << ',';
+  WRITEV(NPtrs);
   for (auto &Ptr : Ptrs)
     Ptr.write(OFS);
 }
 
 void *StorageManager::read(std::ifstream &IFS) {
-  const int BufferSize = 65536; // Example: 64KB
-  char *Buffer = new char[BufferSize];
-  IFS.rdbuf()->pubsetbuf(Buffer, BufferSize);
-  IFS.tie(nullptr);
+  DEFINE_READV(IFS);
 
-  char r;
   uint32_t NRanges;
-  IFS >> NRanges;
-  IFS >> r;
-  assert(r == ',');
+  READV(NRanges);
   for (uint32_t I = 0; I < NRanges; ++I) {
     Ranges.emplace_back(IFS);
   }
-  IFS >> r;
-  assert(r == 'p');
   uint32_t NPtrs;
-  IFS >> NPtrs;
-  IFS >> r;
-  assert(r == ',');
+  READV(NPtrs);
   for (uint32_t I = 0; I < NPtrs; ++I) {
     Ptrs.emplace_back(IFS);
   }

@@ -28,6 +28,10 @@ int main(int argc, char **argv) {
     Timer T("init");
     StorageManager SM;
     std::ifstream IFS(argv[1], std::ios_base::in | std::ios_base::binary);
+    const int BufferSize = 65536; // Example: 64KB
+    char *Buffer = new char[BufferSize];
+    IFS.rdbuf()->pubsetbuf(Buffer, BufferSize);
+    IFS.tie(nullptr);
     P = SM.read(IFS);
   }
   {

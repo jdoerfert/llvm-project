@@ -33,9 +33,11 @@ void ObjectManager::reset() {
 
 void ObjectManager::saveInput(uint32_t InputIdx, uint32_t ExitCode) {
 #ifndef NDEBUG
-  printf("\n\nRuntime objects (%u):\n", RTObjs.TableEntryCnt);
-  for (uint32_t I = 0; I < RTObjs.TableEntryCnt; ++I) {
-    RTObjs.Table[I].printStats();
+  if (getenv("PRINT_RUNTIME_OBJECTS")) {
+    printf("\n\nRuntime objects (%u):\n", RTObjs.TableEntryCnt);
+    for (uint32_t I = 0; I < RTObjs.TableEntryCnt; ++I) {
+      RTObjs.Table[I].printStats();
+    }
   }
 #endif
 
