@@ -41,8 +41,6 @@ using namespace llvm::instrumentor;
 
 #define DEBUG_TYPE "input-gen"
 
-cl::OptionCategory InputGenCat("input-gen Options");
-
 static cl::opt<IGIMode> ClInstrumentationMode(
     "input-gen-mode", cl::desc("input-gen instrumentation mode"), cl::Hidden,
     cl::init(IGIMode::Disabled),
@@ -50,20 +48,19 @@ static cl::opt<IGIMode> ClInstrumentationMode(
                clEnumValN(IGIMode::Record, "record", ""),
                clEnumValN(IGIMode::Generate, "generate", ""),
                clEnumValN(IGIMode::ReplayGenerated, "replay_generated", ""),
-               clEnumValN(IGIMode::ReplayRecorded, "replay_recorded", "")),
-    cl::cat(InputGenCat));
+               clEnumValN(IGIMode::ReplayRecorded, "replay_recorded", "")));
 
 static cl::list<std::string>
     AllowedExternalFuncs("input-gen-allow-external-funcs",
                          cl::desc("Specify allowed external function(s)"),
-                         cl::Hidden, cl::cat(InputGenCat));
+                         cl::Hidden);
 
 #ifndef NDEBUG
 static cl::opt<std::string>
     ClGenerateStubs("input-gen-generate-stubs",
                     cl::desc("Filename to generate the stubs for the input-gen "
                              "runtime in. Leave blank to disable."),
-                    cl::Hidden, cl::cat(InputGenCat));
+                    cl::Hidden);
 #else
 static constexpr std::string ClGenerateStubs = "";
 #endif
