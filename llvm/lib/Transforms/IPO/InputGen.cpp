@@ -62,7 +62,7 @@ static cl::opt<std::string>
                              "runtime in. Leave blank to disable."),
                     cl::Hidden);
 #else
-static constexpr std::string ClGenerateStubs = "";
+static constexpr char ClGenerateStubs[] = "";
 #endif
 
 static constexpr char InputGenRuntimePrefix[] = "__ig_";
