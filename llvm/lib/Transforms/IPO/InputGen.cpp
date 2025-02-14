@@ -80,6 +80,7 @@ struct BranchConditionInfo {
     Value *const Ptr2 = nullptr;
     const uint32_t TypeId = 0;
     const uint32_t Size = 0;
+    using ArgumentMapTy = DenseMap<Value *, uint32_t>;
     ParameterInfo(Argument &A) : Kind(ARG), V(&A) {}
     ParameterInfo(Instruction &I) : Kind(INST), V(&I) {}
     ParameterInfo(LoadInst &LI, CallInst &CI, const DataLayout &DL)
@@ -173,7 +174,7 @@ private:
 
 struct BranchConditionIO : public InstructionIO<Instruction::Br> {
   BranchConditionIO() : InstructionIO<Instruction::Br>(/*IsPRE*/ true) {}
-  virtual ~BranchConditionIO(){};
+  virtual ~BranchConditionIO() {};
 
   Instruction *analyzeBranch(BranchInst &BI,
                              InputGenInstrumentationConfig &IConf,
@@ -269,40 +270,36 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
     if (auto *A = dyn_cast<Argument>(V)) {
       if (!ArgumentMap.contains(A)) {
         ArgumentMap[A] = BCI.ParameterInfos.size();
-        BCI.ParameterInfos.emplace_back(*A);
+        BCI.ParameterInfos.emplace_back(ArgumentMap, *A);
       }
       continue;
     }
+    bool ReadIsOK = false;
     if (auto *LI = dyn_cast<LoadInst>(V)) {
       auto *CI = dyn_cast<CallInst>(LI->getPointerOperand());
       if (CI && CI->getCalledFunction() &&
           CI->getCalledFunction()->getName() ==
               IConf.getRTName("pre_", "load")) {
-        if (!ArgumentMap.contains(LI)) {
-          ArgumentMap[LI] = BCI.ParameterInfos.size();
-          BCI.ParameterInfos.emplace_back(*LI, *CI, DL);
-          HasLoad = true;
-        }
-        continue;
+        BCI.ParameterInfos.emplace_back(*LI, *CI, DL);
+        HasLoad = true;
+        ReadIsOK = true;
       }
     }
     if (auto *CI = dyn_cast<CallInst>(V)) {
       // TODO: use target library info here
       if (CI->getCalledFunction() &&
           CI->getCalledFunction()->getName() == IConf.getRTName("", "memcmp")) {
-        if (!ArgumentMap.contains(CI)) {
-          ArgumentMap[CI] = BCI.ParameterInfos.size();
-          BCI.ParameterInfos.emplace_back(*CI, DL);
-          HasLoad = true;
-        }
+        BCI.ParameterInfos.emplace_back(*CI, DL);
+        HasLoad = true;
+        ReadIsOK = true;
       }
     }
     if (auto *I = dyn_cast<Instruction>(V)) {
-      if (I->mayHaveSideEffects() || I->mayReadFromMemory() ||
-          isa<PHINode>(I)) {
+      if (I->mayHaveSideEffects() || isa<PHINode>(I) ||
+          (!ReadIsOK && I->mayReadFromMemory())) {
         if (!ArgumentMap.contains(I)) {
           ArgumentMap[I] = BCI.ParameterInfos.size();
-          BCI.ParameterInfos.emplace_back(*I);
+          BCI.ParameterInfos.emplace_back(ArgumentMap, *I);
         }
         continue;
       }
