@@ -5,8 +5,15 @@ set(LLVM_LINK_COMPONENTS
   IPO
   IRReader
   IRPrinter
+  InstCombine
+  ScalarOpts
   Passes
   Support
+  Target
+  TargetParser
+  TransformUtils
+  Scalar
+  Core
   )
 
 add_llvm_tool(llvm-extract-loops
