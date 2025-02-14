@@ -38,6 +38,51 @@ static cl::opt<UnrollAdvisorMode> ClUnrollAdvisorMode(
 
 namespace llvm {
 
+UnrollCostEstimator::UnrollCostEstimator(
+    const Loop *L, const TargetTransformInfo &TTI,
+    const SmallPtrSetImpl<const Value *> &EphValues, unsigned BEInsns) {
+  CodeMetrics Metrics;
+  for (BasicBlock *BB : L->blocks())
+    Metrics.analyzeBasicBlock(BB, TTI, EphValues, /* PrepareForLTO= */ false,
+                              L);
+  NumInlineCandidates = Metrics.NumInlineCandidates;
+  NotDuplicatable = Metrics.notDuplicatable;
+  Convergence = Metrics.Convergence;
+  LoopSize = Metrics.NumInsts;
+  ConvergenceAllowsRuntime =
+      Metrics.Convergence != ConvergenceKind::Uncontrolled &&
+      !getLoopConvergenceHeart(L);
+
+  // Don't allow an estimate of size zero.  This would allows unrolling of loops
+  // with huge iteration counts, which is a compile time problem even if it's
+  // not a problem for code quality. Also, the code using this size may assume
+  // that each loop has at least three instructions (likely a conditional
+  // branch, a comparison feeding that branch, and some kind of loop increment
+  // feeding that comparison instruction).
+  if (LoopSize.isValid() && LoopSize < BEInsns + 1)
+    // This is an open coded max() on InstructionCost
+    LoopSize = BEInsns + 1;
+}
+
+bool UnrollCostEstimator::canUnroll() const {
+  switch (Convergence) {
+  case ConvergenceKind::ExtendedLoop:
+    LLVM_DEBUG(dbgs() << "  Convergence prevents unrolling.\n");
+    return false;
+  default:
+    break;
+  }
+  if (!LoopSize.isValid()) {
+    LLVM_DEBUG(dbgs() << "  Invalid loop size prevents unrolling.\n");
+    return false;
+  }
+  if (NotDuplicatable) {
+    LLVM_DEBUG(dbgs() << "  Non-duplicatable blocks prevent unrolling.\n");
+    return false;
+  }
+  return true;
+}
+
 uint64_t UnrollCostEstimator::getUnrolledLoopSize(
     const TargetTransformInfo::UnrollingPreferences &UP,
     unsigned CountOverwrite) const {
