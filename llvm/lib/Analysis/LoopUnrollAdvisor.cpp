@@ -38,6 +38,17 @@ static cl::opt<UnrollAdvisorMode> ClUnrollAdvisorMode(
 
 namespace llvm {
 
+uint64_t UnrollCostEstimator::getUnrolledLoopSize(
+    const TargetTransformInfo::UnrollingPreferences &UP,
+    unsigned CountOverwrite) const {
+  unsigned LS = *LoopSize.getValue();
+  assert(LS >= UP.BEInsns && "LoopSize should not be less than BEInsns!");
+  if (CountOverwrite)
+    return static_cast<uint64_t>(LS - UP.BEInsns) * CountOverwrite + UP.BEInsns;
+  else
+    return static_cast<uint64_t>(LS - UP.BEInsns) * UP.Count + UP.BEInsns;
+}
+
 std::optional<unsigned>
 shouldPartialUnroll(const unsigned LoopSize, const unsigned TripCount,
                     const UnrollCostEstimator UCE,

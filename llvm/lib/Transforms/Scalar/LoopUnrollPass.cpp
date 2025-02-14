@@ -747,6 +747,15 @@ uint64_t UnrollCostEstimator::getUnrolledLoopSize(
     return static_cast<uint64_t>(LS - UP.BEInsns) * UP.Count + UP.BEInsns;
 }
 
+// Returns the loop hint metadata node with the given name (for example,
+// "llvm.loop.unroll.count").  If no such metadata node exists, then nullptr is
+// returned.
+static MDNode *getUnrollMetadataForLoop(const Loop *L, StringRef Name) {
+  if (MDNode *LoopID = L->getLoopID())
+    return GetUnrollMetadata(LoopID, Name);
+  return nullptr;
+}
+
 // Returns true if the loop has an unroll(full) pragma.
 static bool hasUnrollFullPragma(const Loop *L) {
   return getUnrollMetadataForLoop(L, "llvm.loop.unroll.full");
