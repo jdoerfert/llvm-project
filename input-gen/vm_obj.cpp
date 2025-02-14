@@ -4,17 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <functional>
 
 using namespace __ig;
-
-void EncodingSchemeTy::error(uint32_t ErrorCode) {
-  if (!OM.StopFn) {
-    printf("Encountered error %u but no stop function available\n", ErrorCode);
-    std::terminate();
-  }
-  OM.StopFn(ErrorCode);
-  std::terminate();
-}
 
 ObjectManager::~ObjectManager() {}
 
@@ -23,12 +15,8 @@ void *ObjectManager::getObj(uint32_t Seed) { return add(0, 8, Seed); }
 void ObjectManager::reset() {
   UserBS10.reset();
   RTObjs.reset();
+  FVM.reset();
   std::set<char *> ArgMemPtrs;
-  for (auto &It : BranchConditions)
-    for (auto &ItIt : It.second)
-      if (ArgMemPtrs.insert(ItIt->ArgMemPtr).second)
-        free(ItIt->ArgMemPtr);
-  BranchConditions.clear();
 }
 
 void ObjectManager::saveInput(uint32_t InputIdx, uint32_t ExitCode) {
@@ -51,4 +39,14 @@ void ObjectManager::saveInput(uint32_t InputIdx, uint32_t ExitCode) {
                            std::to_string(ExitCode) + ".inp";
   std::ofstream OFS(OutputName, std::ios_base::out | std::ios_base::binary);
   SM.write(OFS);
+}
+
+std::function<void(uint32_t)> __ig::ErrorFn;
+void __ig::error(uint32_t ErrorCode) {
+  printf("EF %p %i\n", &ErrorFn, !!ErrorFn);
+  if (ErrorFn)
+    ErrorFn(ErrorCode);
+  else
+    printf("Encountered error %u but no stop function available\n", ErrorCode);
+  std::terminate();
 }

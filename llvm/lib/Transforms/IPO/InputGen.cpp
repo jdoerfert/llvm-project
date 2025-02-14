@@ -86,9 +86,10 @@ struct BranchConditionInfo {
         : Kind(LOAD), V(&LI), Ptr1(CI.getArgOperand(0)),
           TypeId(LI.getType()->getTypeID()),
           Size(DL.getTypeStoreSize(LI.getType())) {}
-    ParameterInfo(CallInst &CI, Value &Size)
+    ParameterInfo(CallInst &CI, const DataLayout &DL)
         : Kind(MEMCMP), V(CI.getArgOperand(2)), Ptr1(CI.getArgOperand(0)),
-          Ptr2(CI.getArgOperand(1)), TypeId(Type::TypeID::IntegerTyID) {}
+          Ptr2(CI.getArgOperand(1)), TypeId(Type::TypeID::TokenTyID),
+          Size(DL.getTypeStoreSize(CI.getType())) {}
   };
   uint32_t No;
   SmallVector<ParameterInfo> ParameterInfos;
@@ -287,12 +288,11 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
     }
     if (auto *CI = dyn_cast<CallInst>(V)) {
       // TODO: use target library info here
-      if (CI->getName() == "memcmp") {
-        CI->getFunction()->dump();
-        CI->dump();
+      if (CI->getCalledFunction() &&
+          CI->getCalledFunction()->getName() == IConf.getRTName("", "memcmp")) {
         if (!ArgumentMap.contains(CI)) {
           ArgumentMap[CI] = BCI.ParameterInfos.size();
-          BCI.ParameterInfos.emplace_back(*CI);
+          BCI.ParameterInfos.emplace_back(*CI, DL);
           HasLoad = true;
         }
       }
@@ -359,6 +359,9 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
     case BranchConditionInfo::ParameterInfo::ARG:
       break;
     case BranchConditionInfo::ParameterInfo::MEMCMP: {
+      auto *SizeI = dyn_cast<Instruction>(PI.V);
+      if (SizeI)
+        AdjustIP(SizeI);
       auto *PtrI = dyn_cast<Instruction>(PI.Ptr2);
       if (PtrI)
         AdjustIP(PtrI);
@@ -446,21 +449,32 @@ Value *BranchConditionIO::getArguments(Value &V, Type &Ty,
     ParameterValues.push_back(IIRB.IRB.getInt32(PI.Kind));
     ParameterTypes.push_back(IIRB.IRB.getInt32Ty());
     ParameterValues.push_back(IIRB.IRB.getInt32(PI.TypeId));
-    if (!PI.Ptr1) {
+    switch (PI.Kind) {
+    case BranchConditionInfo::ParameterInfo::INST:
+    case BranchConditionInfo::ParameterInfo::ARG:
       ParameterTypes.push_back(IIRB.IRB.getInt32Ty());
       ParameterValues.push_back(
           IIRB.IRB.getInt32(IIRB.DL.getTypeAllocSize(PI.V->getType())));
       ParameterTypes.push_back(PI.V->getType());
       ParameterValues.push_back(PI.V);
-    } else {
+      break;
+    case BranchConditionInfo::ParameterInfo::LOAD:
       ParameterTypes.push_back(IIRB.IRB.getInt32Ty());
       ParameterValues.push_back(IIRB.IRB.getInt32(PI.Size));
       ParameterTypes.push_back(PI.Ptr1->getType());
       ParameterValues.push_back(PI.Ptr1);
-    }
-    if (PI.Ptr2) {
+      break;
+    case BranchConditionInfo::ParameterInfo::MEMCMP:
+      ParameterTypes.push_back(IIRB.IRB.getInt32Ty());
+      ParameterValues.push_back(
+          IIRB.IRB.getInt32(IIRB.DL.getTypeAllocSize(IIRB.IRB.getInt32Ty())));
+      ParameterTypes.push_back(PI.V->getType());
+      ParameterValues.push_back(PI.V);
+      ParameterTypes.push_back(PI.Ptr1->getType());
+      ParameterValues.push_back(PI.Ptr1);
       ParameterTypes.push_back(PI.Ptr2->getType());
       ParameterValues.push_back(PI.Ptr2);
+      break;
     }
   }
 
@@ -522,6 +536,15 @@ bool InputGenMemoryImpl::shouldInstrumentAlloca(AllocaInst &AI) {
 bool InputGenMemoryImpl::shouldInstrumentCall(CallInst &CI) {
   if (CI.getCaller()->getName().starts_with(IConf.getRTName()))
     return false;
+  auto *Callee = CI.getCalledFunction();
+  if (!Callee)
+    return true;
+  // Rewrite some known functions instead of instrumenting them.
+  if (Callee->getName() == "memcmp") {
+    CI.setCalledFunction(M.getOrInsertFunction(IConf.getRTName("", "memcmp"),
+                                               Callee->getFunctionType()));
+    return false;
+  }
   return true;
 }
 

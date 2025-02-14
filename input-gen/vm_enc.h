@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <functional>
 #include <sys/types.h>
 #include <tuple>
 #include <type_traits>
@@ -89,6 +90,9 @@ static constexpr uint32_t NumMagicBits = (8 * sizeof(MAGIC)) - leadingN(MAGIC);
 
 struct ObjectManager;
 
+extern std::function<void(uint32_t)> ErrorFn;
+[[noreturn]] void error(uint32_t ErrorCode);
+
 struct EncodingSchemeTy {
   ObjectManager &OM;
   EncodingSchemeTy(ObjectManager &OM) : OM(OM) {}
@@ -106,8 +110,6 @@ struct EncodingSchemeTy {
     EncTy E(VPtr);
     return E.Bits.EncodingId;
   }
-
-  [[noreturn]] void error(uint32_t ErrorCode);
 
   virtual void reset() = 0;
   virtual bool isEncoded(char *VPtr) = 0;

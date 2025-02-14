@@ -9,6 +9,7 @@
 #include <stdio.h>
 
 #include "vm_obj.h"
+#include "vm_values.h"
 
 using namespace __ig;
 
@@ -108,8 +109,6 @@ void __ig_pre_call(char *callee, char *callee_name, int64_t intrinsic_id,
          "allocation_info: %p, num_parameters: %i, parameters: %p\n",
          callee, callee_name, intrinsic_id, allocation_info, num_parameters,
          parameters);
-  if (!intrinsic_id)
-    return;
 
   for (int32_t idx = 0; idx < num_parameters; ++idx) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
@@ -237,9 +236,9 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
 
   uint32_t MaxSize = 256;
   uint32_t ArgMemSize = 0;
-  char *ArgMemPtr = (char *)malloc(MaxSize);
+  auto *ArgMemPtr = (char *)new char[MaxSize];
 
-  auto *BCI = new decltype(ThreadOM)::BranchConditionInfo;
+  auto *BCI = new BranchConditionInfo;
   BCI->Fn = ((char (*)(void *))branch_condition_fn);
   BCI->FreeValueInfos.reserve(num_branch_condition_arguments);
   BCI->No = branch_condition_no;
@@ -248,43 +247,75 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
     auto *BCVPtr = (BranchConditionValuePackTy *)arguments;
     if (ArgMemSize + BCVPtr->Size > MaxSize) {
       MaxSize *= 4;
-      auto *NewArgMemPtr = (char *)malloc(MaxSize);
+      auto *NewArgMemPtr = (char *)new char[MaxSize];
       __builtin_memcpy(NewArgMemPtr, ArgMemPtr, ArgMemSize);
-      free(ArgMemPtr);
+      delete[] ArgMemPtr;
       ArgMemPtr = NewArgMemPtr;
     }
     switch (BCVPtr->Kind) {
     case /*Instruction*/ 0:
       __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
       ArgMemSize += BCVPtr->Size;
+      arguments += BCVPtr->Size;
       break;
     case /*Argument*/ 1:
       __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
       ArgMemSize += BCVPtr->Size;
+      arguments += BCVPtr->Size;
       break;
     case /*Load*/ 2: {
       auto *VPtr = *(char **)BCVPtr->Value;
-      BCI->FreeValueInfos.emplace_back(ArgMemSize, BCVPtr->TypeId, BCVPtr->Size,
-                                       VPtr);
+      BCI->FreeValueInfos.push_back(
+          FreeValueInfo(ArgMemSize, BCVPtr->TypeId, BCVPtr->Size, VPtr));
       ArgMemSize += BCVPtr->Size;
+      arguments += sizeof(void *);
       break;
     }
     case /*Memcmp*/ 3: {
+      auto *CPtr = (char *)&BCVPtr->Value;
+      auto *SizePtr = (size_t *)CPtr;
+      auto *VPtr = (char **)(CPtr + sizeof(*SizePtr));
+      BCI->FreeValueInfos.push_back(FreeValueInfo(ArgMemSize, BCVPtr->TypeId,
+                                                  BCVPtr->Size, VPtr[0],
+                                                  VPtr[1], *SizePtr));
+      ArgMemSize += BCVPtr->Size;
+      arguments += sizeof(void *) * 2 + sizeof(size_t);
       break;
     }
     }
-    arguments += sizeof(BranchConditionValuePackTy) +
-                 (BCVPtr->Kind == 2 ? sizeof(void *) : BCVPtr->Size);
+    arguments += sizeof(BranchConditionValuePackTy);
+    ;
   }
 
   if (BCI->FreeValueInfos.empty()) {
-    free(ArgMemPtr);
+    delete[] ArgMemPtr;
     delete BCI;
     return;
   }
 
   BCI->ArgMemPtr = ArgMemPtr;
-  for (auto &FVI : BCI->FreeValueInfos)
-    ThreadOM.BranchConditions[FVI.VPtr].push_back(BCI);
+  for (auto &FVI : BCI->FreeValueInfos) {
+    assert(FVI.VPtr);
+    ThreadOM.addBranchCondition(FVI.VPtr, BCI);
+    if (FVI.VCmpPtr)
+      ThreadOM.addBranchCondition(FVI.VCmpPtr, BCI);
+  }
+}
+
+int __ig_memcmp(char *s1, char *s2, size_t n) {
+  PRINTF("memcmp -- s1: %p, s2: %p, n: %zu\n", s1, s2, n);
+  auto *BPI1 = __ig_post_base_pointer_info(s1, 0);
+  auto *BPI2 = __ig_post_base_pointer_info(s2, 0);
+  PRINTF("memcmp -- b1: %p, b2: %p, n: %zu\n", BPI1, BPI2, n);
+  // TODO: Workaround until global supported.
+  if (BPI1 || BPI2)
+    ThreadOM.checkBranchConditions(s1, s2);
+  auto *MPtr1 =
+      BPI1 ? ThreadOM.decodeForAccess(s1, n, 12, READ, BPI1, false) : s1;
+  auto *MPtr2 =
+      BPI2 ? ThreadOM.decodeForAccess(s2, n, 12, READ, BPI2, false) : s2;
+  PRINTF("memcmp -- s1: %p, s2: %p, n: %zu\n", MPtr1, MPtr2, n);
+  PRINTF("memcmp -- s1: %s, s2: %s, n: %zu\n", MPtr1, MPtr2, n);
+  return memcmp(MPtr1, MPtr2, n);
 }
 }
