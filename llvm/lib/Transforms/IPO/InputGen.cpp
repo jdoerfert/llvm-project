@@ -10,8 +10,11 @@
 
 #include "llvm/Transforms/IPO/InputGen.h"
 
+#include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
@@ -28,8 +31,10 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/Allocator.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Regex.h"
+#include "llvm/Support/StringSaver.h"
 #include "llvm/Transforms/Instrumentation/Instrumentor.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
@@ -81,8 +86,10 @@ struct BranchConditionInfo {
     const uint32_t TypeId = 0;
     const uint32_t Size = 0;
     using ArgumentMapTy = DenseMap<Value *, uint32_t>;
-    ParameterInfo(Argument &A) : Kind(ARG), V(&A) {}
-    ParameterInfo(Instruction &I) : Kind(INST), V(&I) {}
+    ParameterInfo(Argument &A)
+        : Kind(ARG), V(&A), TypeId(A.getType()->getTypeID()) {}
+    ParameterInfo(Instruction &I)
+        : Kind(INST), V(&I), TypeId(I.getType()->getTypeID()) {}
     ParameterInfo(LoadInst &LI, CallInst &CI, const DataLayout &DL)
         : Kind(LOAD), V(&LI), Ptr1(CI.getArgOperand(0)),
           TypeId(LI.getType()->getTypeID()),
@@ -118,6 +125,8 @@ struct InputGenInstrumentationConfig : public InstrumentationConfig {
   DTGetterTy DTGetter;
   using PDTGetterTy = std::function<PostDominatorTree &(Function &F)>;
   PDTGetterTy PDTGetter;
+
+  DenseMap<BranchInst *, uint32_t> BranchMap;
 };
 
 struct InputGenInstrumentationConfig;
@@ -129,7 +138,9 @@ struct InputGenMemoryImpl {
         IConf(*this) {}
 
   bool instrument();
-  bool analyzeFunction(Function &Fn, InputGenInstrumentationConfig &IConf);
+
+  bool createPathTable();
+  void createPathTable(Function &Fn);
 
   bool shouldInstrumentCall(CallInst &CI);
   bool shouldInstrumentLoad(LoadInst &LI);
@@ -269,12 +280,12 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
     auto *V = Worklist.pop_back_val();
     if (auto *A = dyn_cast<Argument>(V)) {
       if (!ArgumentMap.contains(A)) {
-        ArgumentMap[A] = BCI.ParameterInfos.size();
-        BCI.ParameterInfos.emplace_back(ArgumentMap, *A);
+        ArgumentMap[A] = ArgumentMap.size();
+        BCI.ParameterInfos.emplace_back(*A);
       }
       continue;
     }
-    bool ReadIsOK = false;
+    bool InstIsOK = false;
     if (auto *LI = dyn_cast<LoadInst>(V)) {
       auto *CI = dyn_cast<CallInst>(LI->getPointerOperand());
       if (CI && CI->getCalledFunction() &&
@@ -282,7 +293,7 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
               IConf.getRTName("pre_", "load")) {
         BCI.ParameterInfos.emplace_back(*LI, *CI, DL);
         HasLoad = true;
-        ReadIsOK = true;
+        InstIsOK = true;
       }
     }
     if (auto *CI = dyn_cast<CallInst>(V)) {
@@ -291,21 +302,24 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
           CI->getCalledFunction()->getName() == IConf.getRTName("", "memcmp")) {
         BCI.ParameterInfos.emplace_back(*CI, DL);
         HasLoad = true;
-        ReadIsOK = true;
+        InstIsOK = true;
       }
     }
     if (auto *I = dyn_cast<Instruction>(V)) {
-      if (I->mayHaveSideEffects() || isa<PHINode>(I) ||
-          (!ReadIsOK && I->mayReadFromMemory())) {
+      if (!InstIsOK && (I->mayHaveSideEffects() || isa<PHINode>(I) ||
+                        I->mayReadFromMemory())) {
         if (!ArgumentMap.contains(I)) {
-          ArgumentMap[I] = BCI.ParameterInfos.size();
-          BCI.ParameterInfos.emplace_back(ArgumentMap, *I);
+          ArgumentMap[I] = ArgumentMap.size();
+          BCI.ParameterInfos.emplace_back(*I);
         }
         continue;
       }
-      for (auto *Op : I->operand_values())
+      for (auto *Op : I->operand_values()) {
         if (auto *OpI = dyn_cast<Instruction>(Op))
           AddValue(OpI, /*IncUses=*/true);
+        if (auto *OpA = dyn_cast<Argument>(Op))
+          Worklist.push_back(OpA);
+      }
       continue;
     }
     assert(isa<Constant>(V));
@@ -351,17 +365,20 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
 
   SmallVector<Type *> ParameterTypes;
   for (auto &PI : BCI.ParameterInfos) {
-    ParameterTypes.push_back(PI.V->getType());
     switch (PI.Kind) {
     case BranchConditionInfo::ParameterInfo::ARG:
+      ParameterTypes.push_back(PI.V->getType());
       break;
     case BranchConditionInfo::ParameterInfo::MEMCMP: {
       auto *SizeI = dyn_cast<Instruction>(PI.V);
       if (SizeI)
         AdjustIP(SizeI);
-      auto *PtrI = dyn_cast<Instruction>(PI.Ptr2);
-      if (PtrI)
-        AdjustIP(PtrI);
+      auto *Ptr1I = dyn_cast<Instruction>(PI.Ptr1);
+      if (Ptr1I)
+        AdjustIP(Ptr1I);
+      auto *Ptr2I = dyn_cast<Instruction>(PI.Ptr2);
+      if (Ptr2I)
+        AdjustIP(Ptr2I);
       break;
     }
     case BranchConditionInfo::ParameterInfo::LOAD: {
@@ -371,6 +388,7 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
       break;
     }
     case BranchConditionInfo::ParameterInfo::INST:
+      ParameterTypes.push_back(PI.V->getType());
       AdjustIP(cast<Instruction>(PI.V));
       break;
     }
@@ -413,10 +431,19 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
     auto *I = cast<Instruction>(V);
     auto *CloneI = I->clone();
     CloneI->insertInto(ComputeBB, ComputeBB->begin());
+    if (auto *CI = dyn_cast<CallInst>(CloneI))
+      if (auto *Callee = CI->getCalledFunction())
+        if (Callee->getName().starts_with(IConf.getRTName()))
+          CI->setCalledFunction(
+              CI->getModule()->getOrInsertFunction((Callee->getName() + "2").str(), Callee->getFunctionType()));
+    // Callee->getName().drop_front(IConf.getRTName().size())));
+
     VM[I] = CloneI;
     for (auto *Op : I->operand_values()) {
       if (auto *OpI = dyn_cast<Instruction>(Op))
         AddValue(OpI, /*IncUses=*/false);
+      if (auto *OpA = dyn_cast<Argument>(Op))
+        Worklist.push_back(OpA);
     }
   }
   RemapFunction(*BCIFn, VM, RF_IgnoreMissingLocals);
@@ -425,7 +452,6 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
   ReturnInst::Create(Ctx,
                      new ZExtInst(VM[BI.getCondition()], RetTy, "", ComputeBB),
                      ComputeBB);
-  BCIFn->dump();
   BCI.Fn = BCIFn;
   return IP;
 }
@@ -545,6 +571,49 @@ bool InputGenMemoryImpl::shouldInstrumentCall(CallInst &CI) {
   return true;
 }
 
+void InputGenMemoryImpl::createPathTable(Function &Fn) {
+
+  // DenseMap<BasicBlock *, SmallVector<StringRef, 4>> PathMap;
+
+  // ReversePostOrderTraversal<Function *> RPOT(&Fn);
+  // for (auto *BB : RPOT) {
+  //   auto *BI = dyn_cast<BranchInst>(BB->getTerminator());
+  //   if (!BI || !BI->isConditional() || !IConf.BranchMap.contains(BI))
+  //     continue;
+  //   uint32_t Idx = IConf.BranchMap[BI];
+
+  //   auto AddSuccessor = [&](BranchInst &BI, uint32_t SuccIdx) {
+  //     auto *SuccBB = BI.getSuccessor(SuccIdx);
+  //     auto &Succ = PathMap[SuccBB];
+  //   };
+
+  //   AddSuccessor(*BI, 0);
+  //   AddSuccessor(*BI, 1);
+  // }
+}
+
+bool InputGenMemoryImpl::createPathTable() {
+  bool Changed = false;
+
+  // auto *GV = M.getGlobalVariable(std::string(InputGenRuntimePrefix) +
+  //                                "entry_point_names");
+  // errs() << GV << "\n";
+  // if (GV)
+  //   errs() << *GV << "\n";
+  //  auto *NameArray = cast<ConstantArray>(
+  //          ->getInitializer());
+  //  NameArray->dump();
+  //  for (auto *NameGV : NameArray->operand_values()) {
+  //    NameGV->dump();
+  //    auto Name =
+  //        cast<ConstantDataArray>(cast<GlobalVariable>(NameGV)->getInitializer())
+  //            ->getRawDataValues();
+  //    createPathTable(*M.getFunction(Name));
+  //  }
+
+  return Changed;
+}
+
 bool InputGenMemoryImpl::instrument() {
   if (Mode != IGIMode::Generate || Mode == IGIMode::Record)
     return false;
@@ -557,6 +626,8 @@ bool InputGenMemoryImpl::instrument() {
   if (!PA.areAllPreserved())
     Changed = true;
 
+  Changed |= createPathTable();
+
   return Changed;
 }
 
@@ -568,7 +639,7 @@ bool InputGenEntriesImpl::instrument() {
     for (auto &Fn : M.functions()) {
       if (Fn.hasFnAttribute(Attribute::InputGenEntry)) {
         UserFunctions.push_back(&Fn);
-      } else {
+      } else if (!Fn.isDeclaration()) {
         OtherFunctions.push_back(&Fn);
       }
     }
@@ -705,6 +776,7 @@ bool InputGenEntriesImpl::createEntryPoint() {
 
     auto *CI = CallInst::Create(EntryPoint->getFunctionType(), EntryPoint,
                                 Parameters, "", DispatchBB);
+    CI->addFnAttr(Attribute::NoInline);
     if (!CI->getType()->isVoidTy())
       new StoreInst(CI, ObjPtr, DispatchBB);
     else if (auto *I = dyn_cast<Instruction>(ObjPtr))

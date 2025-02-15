@@ -1,291 +1,232 @@
 
 #include "vm_values.h"
+#include "logging.h"
 #include "vm_obj.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <string_view>
 
 using namespace __ig;
 
 extern thread_local ObjectManager ThreadOM;
 
-bool FreeValueDecisionTy::isConsistent(FreeValueInfo &FVI, char *Ptr1,
-                                       char *Ptr2) {
-  auto Result = __builtin_memcmp(Ptr1, Ptr2, FVI.getManifestSize());
-  printf("Comparing %p : %p : %zu, got %i\n", Ptr1, Ptr2, FVI.getManifestSize(),
-         Result);
-  if (FVI.TypeId != 11)
-    return !Result;
-  Result = (Result > 0 ? 1 : (Result < 0 ? -1 : 0));
-  printf("Comparing '%s' : '%s' :: Idx %i Res %i --> %i\n", Ptr1, Ptr2, Idx,
-         Result, Result == ((int32_t)Idx - 1) * (IsSwappedMemcmp ? -1 : 1));
-  return Result == ((int32_t)Idx - 1) * (IsSwappedMemcmp ? -1 : 1);
+FreeValueInfo::FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr)
+    : TypeId(TypeId), Size(Size), VPtr(VPtr), MPtr(nullptr) {}
+FreeValueInfo::FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr,
+                             char *VCmpPtr, size_t CmpSize)
+    : TypeId(TypeId), Size(Size), VPtr(VPtr), MPtr(nullptr), VCmpPtr(VCmpPtr),
+      MCmpPtr(nullptr), CmpSize(CmpSize) {}
+
+uint32_t FreeValueInfo::getNumValues(FreeValueManager &FVM) const {
+  if (!UsesIndirectValues)
+    return NumValues;
+  return FVM.StringCache.size();
+}
+char *FreeValueInfo::getValuePtr(FreeValueManager &FVM) const {
+  if (!UsesIndirectValues)
+    return &Values[Idx * ValueSize];
+  return FVM.StringCache[Idx].data();
+}
+size_t FreeValueInfo::getValueSize(FreeValueManager &FVM) const {
+  if (!UsesIndirectValues)
+    return ValueSize;
+  return std::min(FVM.StringCache[Idx].size(), CmpSize);
 }
 
-bool FreeValueDecisionTy::isConsistent(FreeValueInfo &FVI,
-                                       FreeValueDecisionTy &OtherFVD,
-                                       FreeValueInfo &OtherFVI) {
-  char *MPtr = getSrcMPtr(FVI);
-  char *OtherMPtr = OtherFVD.getSrcMPtr(OtherFVI);
-  if (!FVI.isMemcmp() && !OtherFVI.isMemcmp()) {
-    assert(FVI.VPtr == OtherFVI.VPtr && "TODO offsets");
-    return isConsistent(FVI, MPtr, OtherMPtr);
-  }
-
-  // TODO offsets
-  assert(getDstVPtr(FVI) == OtherFVD.getDstVPtr(OtherFVI) && "TODO offsets");
-  if (FVI.VPtr == OtherFVI.VPtr || FVI.VCmpPtr == OtherFVI.VCmpPtr)
-    return isConsistent(FVI, OtherMPtr, MPtr);
-  return isConsistent(FVI, MPtr, OtherMPtr);
-}
-
-bool FreeValueDecisionTy::isFixed(FreeValueInfo &FVI, bool &Consistent) {
+bool FreeValueInfo::isFixed() {
   if (IsFixed)
     return true;
-  switch (FVI.TypeId) {
-  case /*TokenTy -> memcmp */ 11:
-  case 12:
+
+  switch (TypeId) {
+  case /*memcmp */ 11:
+  case /*IntegerTy*/ 12:
     break;
   default:
     return IsFixed = true;
   }
 
-  bool IsMemcmp = FVI.VCmpPtr;
-  if (!IsMemcmp) {
+  if (!isMemcmp()) {
     bool IsInitialized;
-    char *MPtr =
-        ThreadOM.decodeAndCheckInitialized(FVI.VPtr, FVI.Size, IsInitialized);
-    printf("LOAD %i : %p\n", IsInitialized, FVI.VPtr);
-    if (IsInitialized) {
-      Consistent &= isConsistent(FVI, MPtr, getSrcMPtr(FVI));
+    auto *BP = ThreadOM.getBasePtrInfo(VPtr);
+    MPtr = ThreadOM.decodeForAccess(VPtr, Size, TypeId, CHECK_INITIALIZED, BP,
+                                    IsInitialized);
+    if (IsInitialized)
       return IsFixed = true;
-    }
   } else {
-    if (FVI.CmpSize == 0) {
+    if (CmpSize == 0) {
       // 0-length strings are equal.
-      Idx = 1;
       return IsFixed = true;
     }
-    bool IsInitialized1, IsInitialized2;
-    char *MPtr1 = ThreadOM.decodeAndCheckInitialized(FVI.VPtr, FVI.CmpSize,
-                                                     IsInitialized1);
-    char *MPtr2 = ThreadOM.decodeAndCheckInitialized(FVI.VCmpPtr, FVI.CmpSize,
-                                                     IsInitialized2);
-    printf("MEMCMP %i %i : %p : %p\n", IsInitialized1, IsInitialized2, FVI.VPtr,
-           FVI.VCmpPtr);
-    if (IsInitialized1 == IsInitialized2) {
-      Consistent &= isConsistent(FVI, MPtr1, MPtr2);
+    bool IsInitialized1 = true, IsInitialized2 = true;
+    MPtr = VPtr;
+    MCmpPtr = VCmpPtr;
+    auto *BP1 = ThreadOM.getBasePtrInfo(VPtr);
+    if (BP1)
+      MPtr = ThreadOM.decodeForAccess(VPtr, CmpSize, TypeId, CHECK_INITIALIZED,
+                                      BP1, IsInitialized1);
+    auto *BP2 = ThreadOM.getBasePtrInfo(VCmpPtr);
+    if (BP2)
+      MCmpPtr = ThreadOM.decodeForAccess(
+          VCmpPtr, CmpSize, TypeId, CHECK_INITIALIZED, BP2, IsInitialized2);
+    MCmpPtr = VCmpPtr;
+    if (IsInitialized1 == IsInitialized2)
       return IsFixed = true;
+    if (IsInitialized1) {
+      std::swap(MPtr, MCmpPtr);
+      std::swap(VPtr, VCmpPtr);
     }
-    IsSwappedMemcmp = IsInitialized1;
   }
   return false;
 }
 
-char *FreeValueDecisionTy::write(char *DstMPtr, FreeValueInfo &FVI,
-                                 bool IsManifest) {
-  if (IsManifest && !willManifest(FVI))
-    return nullptr;
-
-  switch (FVI.TypeId) {
+char *FreeValueInfo::write(FreeValueManager &FVM) {
+  size_t ValueSize = getValueSize(FVM);
+  switch (TypeId) {
   case 2:
-    *((float *)DstMPtr) = 3.14;
+    *((float *)MPtr) = 3.14;
     break;
   case 3:
-    *((double *)DstMPtr) = 3.14;
+    *((double *)MPtr) = 3.14;
     break;
   case /*TokenTy -> memcmp */ 11: {
-    assert(FVI.VCmpPtr && FVI.Size == sizeof(int));
-    if (!IsManifest) {
-      __builtin_memcpy(DstMPtr, getValuePtr(), ValueSize);
-      return getValuePtr();
-    }
-    auto *SrcMPtr = getSrcMPtr(FVI);
-    __builtin_memcpy(DstMPtr, SrcMPtr, FVI.CmpSize);
-    return SrcMPtr;
+    assert(VCmpPtr);
+    __builtin_memcpy(MPtr, getValuePtr(FVM), ValueSize);
+    if (ValueSize < CmpSize)
+      __builtin_memset(MPtr + ValueSize, 0, CmpSize - ValueSize);
+    DEBUG("Written '{}' @ {} - {} [{} {}]\n", MPtr, (void *)MPtr,
+          (void *)(MPtr + std::max(ValueSize, CmpSize)), ValueSize, CmpSize);
+    return getValuePtr(FVM);
   }
   case 12:
-    __builtin_memcpy(DstMPtr, getValuePtr(), ValueSize);
-    if (ValueSize < FVI.Size)
-      __builtin_memset(DstMPtr + ValueSize, 0, FVI.Size - ValueSize);
-    return getValuePtr();
+    __builtin_memcpy(MPtr, getValuePtr(FVM), ValueSize);
+    if (ValueSize < Size)
+      __builtin_memset(MPtr + ValueSize, 0, Size - ValueSize);
+    DEBUG("Written '{}' @ {} - {}\n", *(uint32_t *)MPtr, (void *)MPtr,
+          (void *)(MPtr + ValueSize));
+    return getValuePtr(FVM);
   case 14:
-    *((void **)DstMPtr) = 0;
+    *((void **)MPtr) = 0;
     break;
   default:
-    __builtin_memset(DstMPtr, 0, FVI.Size);
+    __builtin_memset(MPtr, 0, Size);
   }
   return nullptr;
 }
 
-char *FreeValueDecisionTy::getSrcMPtr(FreeValueInfo &FVI) {
-  auto *SrcVPtr = getSrcVPtr(FVI);
-  if (auto *SrcBasePtrInfo = ThreadOM.getBasePtrInfo(SrcVPtr))
-    return ThreadOM.decodeForAccess(SrcVPtr, FVI.Size, FVI.TypeId, TEST,
-                                    SrcBasePtrInfo);
-  return SrcVPtr;
+void FreeValueInfo::markInitialized(FreeValueManager &FVM, char *VP,
+                                    char *VPC) {
+  bool IsInitialized;
+  if (auto *BP1 = ThreadOM.getBasePtrInfo(VPtr))
+    ThreadOM.decodeForAccess(VPtr, CmpSize, TypeId, BCI_READ, BP1,
+                             IsInitialized);
+  if (auto *BP1 = ThreadOM.getBasePtrInfo(VCmpPtr))
+    ThreadOM.decodeForAccess(VPtr, CmpSize, TypeId, BCI_READ, BP1,
+                             IsInitialized);
 }
 
-void FreeValueDecisionTy::manifest(BranchConditionInfo &BCI,
-                                   FreeValueInfo &FVI) {
-  auto *VPtr = getDstVPtr(FVI);
-  printf("Manifest BCI %u -> %u\n", BCI.No, Idx);
-  auto *MPtr = ThreadOM.decodeForAccess(VPtr, FVI.Size, FVI.TypeId, TEST_READ,
-                                        ThreadOM.getBasePtrInfo(VPtr));
-  auto *SrcMPtr = write(MPtr, FVI, /*IsManifest=*/true);
+void FreeValueManager::checkBranchConditions(char *VP, char *VPBP, char *VCP,
+                                             char *VCPBP) {
 
-  switch (FVI.TypeId) {
-  case 11:
-    printf("Wrote %i (%s) to %p\n", *(int *)MPtr, SrcMPtr, FVI.VPtr);
-    break;
-  case 12:
-    printf("Wrote %i (%i) to %p\n", *(int *)MPtr, *((int *)SrcMPtr), FVI.VPtr);
-    break;
-  default:
-    break;
-  }
-}
-
-void FreeValueManager::checkBranchConditions(char *VP, char *VCP) {
-  BCISetTy BCIs;
+  BCISetTy SeenBCIs;
+  BCIVecTy FreeBCIs;
+  FreeValueVecTy FVVec;
 
   auto CollectBCIs = [&](char *VPtr) {
     if (auto *BCIVec = lookupBCIVec(VPtr))
-      BCIs.insert(BCIVec->begin(), BCIVec->end());
+      for (auto *BCI : *BCIVec) {
+        if (!SeenBCIs.insert(BCI).second)
+          continue;
+        bool HasFreeValues = false;
+        for (auto &FVI : BCI->FreeValueInfos) {
+          if (isFreeValue(*BCI, FVI)) {
+            HasFreeValues = true;
+            FVVec.push_back(&FVI);
+          }
+        }
+        if (HasFreeValues) {
+          FreeBCIs.push_back(BCI);
+        } else if (!evaluate(*BCI)) {
+          INFO("Inconsistent branch condition found, abort\n");
+          error(103);
+        }
+      }
   };
-  CollectBCIs(VP);
-  if (VCP)
+  if ((uint64_t)VPBP == 2)
+    CollectBCIs(VP);
+  if ((uint64_t)VCPBP == 2)
     CollectBCIs(VCP);
 
-  if (BCIs.empty())
+  if (FreeBCIs.empty())
     return;
 
-  BCISetTy BadBCIs;
-  DecisionInfluenceMapTy DecisionInfluenceMap;
-  FreeDecisionMapTy FreeDecisionMap;
-  WriteMapTy WriteMap;
-
-  for (auto *BCI : BCIs) {
-    for (auto &FVI : BCI->FreeValueInfos) {
-      bool Consistent = true;
-      if (auto *FVD = identifyFreeValueDecision(*BCI, FVI, Consistent)) {
-        DecisionInfluenceMap[FVD].push_back({BCI, &FVI});
-        FreeDecisionMap[BCI].push_back({&FVI, FVD});
-
-        auto *DstVPtr = FVD->getDstVPtr(FVI);
-        for (uint32_t I = 0, E = FVI.getManifestSize(); I < E; ++I)
-          WriteMap[DstVPtr + I].push_back({FVD, &FVI, BCI});
-      }
-
-      if (!Consistent) {
-        fprintf(stderr, "Inconsistent fixed value decision found, abort\n");
-        error(103);
-      }
-    }
-  }
-
-  printf("Got %zu BCIs, checking\n", BCIs.size());
-  for (auto *BCI : BCIs) {
+  DEBUG("Got {} free BCIs out of {} total, checking\n", FreeBCIs.size(),
+        SeenBCIs.size());
+  bool AllWork = true;
+  for (auto *BCI : FreeBCIs) {
     bool Result = evaluate(*BCI);
     if (Result)
       continue;
-    if (FreeDecisionMap[BCI].empty())
-      error(101);
-    BadBCIs.insert(BCI);
+    AllWork = false;
+    break;
   }
 
-  std::set<FreeValueInfo *> SeenFVIs;
-  for (auto [VPtr, It] : WriteMap) {
-    if (It.size() < 2)
-      continue;
-    uint32_t ManifestIdx = ~0;
-    for (uint32_t I = 0, E = It.size(); I < E; ++I) {
-      auto [FVDPtr, FVIPtr, BCIPtr] = It[I];
-      if (!FVDPtr->willManifest(*FVIPtr))
-        continue;
-      ManifestIdx = I;
-      break;
-    }
-    if (ManifestIdx == ~0U)
-      continue;
-    SeenFVIs.clear();
-    auto [FVDPtr, FVIPtr, BCIPtr] = It[ManifestIdx];
-    for (uint32_t I = 0, E = It.size(); I < E; ++I) {
-      if (I == ManifestIdx)
-        continue;
-      auto [OtherFVDPtr, OtherFVIPtr, OtherBCIPtr] = It[I];
-      if (!SeenFVIs.insert(OtherFVIPtr).second)
-        continue;
-      if (!OtherFVDPtr->isConsistent(*OtherFVIPtr, *FVDPtr, *FVIPtr)) {
-        BadBCIs.insert(BCIPtr);
-        BadBCIs.insert(OtherBCIPtr);
-      }
-    }
+  if (!AllWork && !workOn(FVVec, FreeBCIs)) {
+    INFO("Could not make all BCIs work, abort\n");
+    error(102);
   }
 
-  while (!BadBCIs.empty()) {
-    auto *BadBCI = *BadBCIs.begin();
-    printf("Got %zu BadBCIs; work on %u\n", BadBCIs.size(), BadBCI->No);
-    BadBCIs.erase(BadBCIs.begin());
-    if (!workOn(*BadBCI, FreeDecisionMap, DecisionInfluenceMap, WriteMap,
-                BadBCIs)) {
-      error(102);
-    }
-  }
-
-  printf("No more bad BCIs, manifest decisions\n");
-  for (auto *BCIPtr : BCIs)
-    for (auto [FVIPtr, FVDPtr] : FreeDecisionMap[BCIPtr])
-      FVDPtr->manifest(*BCIPtr, *FVIPtr);
+  for (auto *FVI : FVVec)
+    FVI->markInitialized(*this, VP, VCP);
 }
 
-FreeValueDecisionTy *FreeValueManager::identifyFreeValueDecision(
-    BranchConditionInfo &BCI, FreeValueInfo &FVI, bool &Consistent) {
-  auto &FVD = getOrCreateFreeValueDecision(FVI);
-  if (FVD.isInitialized()) {
-    // Write the fixed value into the argument buffer.
-    FVD.write(BCI, FVI);
-    if (FVD.isFixed(FVI, Consistent))
-      return nullptr;
-    return &FVD;
-  }
+bool FreeValueManager::isFreeValue(BranchConditionInfo &BCI,
+                                   FreeValueInfo &FVI) {
+  if (FVI.isFixed())
+    return false;
+
+  if (FVI.isInitialized())
+    return true;
 
   // Initialize the new FVD.
   switch (FVI.TypeId) {
   case /*TokenTy -> memcmp */ 11: {
     assert(FVI.VCmpPtr && FVI.Size == sizeof(int));
-    FVD.setValues(MemcmpValues, NumMemcmpValues);
+    FVI.UsesIndirectValues = true;
+    // TODO: this is not good we should register globals instead.
+    auto [It, New] = StringCacheSet.insert(FVI.MCmpPtr);
+    if (New) {
+      StringCache.push_back(FVI.MCmpPtr);
+      auto ItNode = StringCacheSet.extract(It);
+      ItNode.value() = std::string_view(StringCache.back());
+      StringCacheSet.insert(std::move(ItNode));
+    }
     break;
   }
   case 12: {
-    FVD.setValues(I32Values, NumI32Values);
+    FVI.setValues(I32Values, NumI32Values);
     break;
   }
   default:
-    fprintf(stderr, "unexpected type id\n");
+    ERR("unexpected type id: {}\n", FVI.TypeId);
     __builtin_trap();
   }
 
   // Write the initial value into the argument buffer.
-  FVD.write(BCI, FVI);
-  return &FVD;
+  FVI.write(*this);
+  return true;
 }
 
-bool FreeValueManager::workOn(BranchConditionInfo &BCI,
-                              FreeDecisionMapTy &FreeDecisionMap,
-                              DecisionInfluenceMapTy &DecisionInfluenceMap,
-                              WriteMapTy &WriteMap, BCISetTy &BadBSIs) {
-  const auto &BCIFreeDecisionsVec = FreeDecisionMap[&BCI];
-  for (auto [FVIPtr, FVDPtr] : BCIFreeDecisionsVec) {
-    for (uint32_t I = 0, E = FVDPtr->NumValues; I < E; ++I) {
-      if (modifyAndEvaluate(*FVDPtr, *FVIPtr, DecisionInfluenceMap, WriteMap,
-                            BadBSIs))
+bool FreeValueManager::workOn(FreeValueVecTy &FVVec, BCIVecTy &FreeBCIs) {
+  for (auto *FVIPtr : FVVec) {
+    for (uint32_t I = 0, E = FVIPtr->getNumValues(*this); I < E; ++I) {
+      if (modifyAndEvaluate(*FVIPtr, FreeBCIs))
         return true;
-      for (auto [OtherFVIPtr, OtherFVDPtr] : BCIFreeDecisionsVec) {
-        if (OtherFVDPtr == FVDPtr)
+      for (auto *OtherFVIPtr : FVVec) {
+        if (FVIPtr == OtherFVIPtr)
           continue;
-        for (uint32_t J = 0, E = FVDPtr->NumValues; J < E; ++J)
-          if (modifyAndEvaluate(*OtherFVDPtr, *OtherFVIPtr,
-                                DecisionInfluenceMap, WriteMap, BadBSIs))
+        for (uint32_t J = 0, E = OtherFVIPtr->getNumValues(*this); J < E; ++J)
+          if (modifyAndEvaluate(*OtherFVIPtr, FreeBCIs))
             return true;
       }
     }
@@ -294,66 +235,26 @@ bool FreeValueManager::workOn(BranchConditionInfo &BCI,
   return false;
 }
 
-bool FreeValueManager::modifyAndEvaluate(
-    FreeValueDecisionTy &FVD, FreeValueInfo &FVI,
-    DecisionInfluenceMapTy &DecisionInfluenceMap, WriteMapTy &WriteMap,
-    BCISetTy &BadBSIs) {
+bool FreeValueManager::modifyAndEvaluate(FreeValueInfo &FVI,
+                                         BCIVecTy &FreeBCIs) {
   // Change the value by chaning the index.
-  FVD.Idx = (++FVD.Idx) % FVD.NumValues;
+  FVI.Idx = (++FVI.Idx) % FVI.getNumValues(*this);
+  FVI.write(*this);
 
-  // Evaluate all impacted BCIs.
-  for (auto [BCIPtr, FVIPtr] : DecisionInfluenceMap[&FVD]) {
-    printf("Modify BCU %u, offset %u uses idx: %u\n", BCIPtr->No,
-           FVIPtr->Offset, FVD.Idx);
-    FVD.write(*BCIPtr, *FVIPtr);
-    if (!evaluate(*BCIPtr))
-      return false;
-  }
-
-  return checkConsistency(FVD, FVI, WriteMap, BadBSIs);
-}
-
-bool FreeValueManager::checkConsistency(FreeValueDecisionTy &FVD,
-                                        FreeValueInfo &FVI,
-                                        WriteMapTy &WriteMap,
-                                        BCISetTy &BadBSIs) {
-  std::set<FreeValueInfo *> SeenFVIs;
-  char *DstVPtr = FVD.getDstVPtr(FVI);
-  bool WillManifest = FVD.willManifest(FVI);
-  for (uint32_t Offset = 0; Offset < FVI.getManifestSize(); ++Offset) {
-    auto It = WriteMap[DstVPtr + Offset];
-    if (It.size() < 2)
-      continue;
-    for (uint32_t I = 0, E = It.size(); I < E; ++I) {
-      auto [OtherFVDPtr, OtherFVIPtr, OtherBCIPtr] = It[I];
-      if (OtherFVIPtr == &FVI || !SeenFVIs.insert(OtherFVIPtr).second)
-        continue;
-      printf("WM %i : OWM %i\n", WillManifest,
-             OtherFVDPtr->willManifest(*OtherFVIPtr));
-      // TODO Offset is missing
-      if (OtherFVDPtr->willManifest(*OtherFVIPtr)) {
-        if (!FVD.isConsistent(FVI, *OtherFVDPtr, *OtherFVIPtr))
-          return false;
-      } else if (WillManifest &&
-                 !OtherFVDPtr->isConsistent(*OtherFVIPtr, FVD, FVI))
-        BadBSIs.insert(OtherBCIPtr);
-    }
-  }
-
-  return true;
+  // Evaluate all BCIs.
+  return std::all_of(FreeBCIs.begin(), FreeBCIs.end(),
+                     [&](BranchConditionInfo *BCI) { return evaluate(*BCI); });
 }
 
 bool FreeValueManager::evaluate(BranchConditionInfo &BCI) {
-  char Outcome = BCI.Fn(BCI.ArgMemPtr);
-  char DesiredOutcome = ThreadOM.getDesiredOutcome(BCI.No);
-  printf("BCI %u: %i vs %i\n", BCI.No, Outcome, DesiredOutcome);
+  uint32_t Outcome = BCI.Fn(BCI.ArgMemPtr);
+  uint32_t DesiredOutcome = ThreadOM.getDesiredOutcome(BCI.No);
+  VERBOSE("BCI {}: {} vs {} :: '{}'\n", BCI.No, Outcome, DesiredOutcome,
+          *(char **)BCI.ArgMemPtr);
   return (Outcome == DesiredOutcome);
 }
 
 void FreeValueManager::reset() {
-  for (auto &It : FreeValueDecisions)
-    delete It.second;
-  FreeValueDecisions.clear();
   std::set<BranchConditionInfo *> FreedBCIs;
   for (auto &[VPtr, BCIs] : BranchConditions)
     for (auto *BCIPtr : BCIs)

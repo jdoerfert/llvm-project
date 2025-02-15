@@ -56,7 +56,7 @@ struct GenerationThread {
 
   static void start(SharedState *SS, std::string_view OutputName, uint32_t I,
                     uint32_t E, uint32_t EntryNo) {
-    printf("thread generating %u inputs\n", E - I);
+    fprintf(stderr, "thread generating %u inputs\n", E - I);
     auto *GT = new GenerationThread(*SS, I, E, EntryNo);
     auto *ChoiceTrace = SS->CM.initializeChoices(GT->ID);
     ThreadOM.init(ChoiceTrace, OutputName,
@@ -87,12 +87,12 @@ struct GenerationThread {
     }
 
     if (++I < E) {
-      printf("reset and restart %u of %u\n", I, E);
+      fprintf(stderr, "reset and restart %u of %u\n", I, E);
       if (SS.CM.returnChoices(ID)) {
         ThreadOM.reset();
         startGeneration();
       }
-      printf("No more choices to explore!\n");
+      fprintf(stderr, "No more choices to explore!\n");
     }
 
     // Done

@@ -128,8 +128,10 @@ char *__ig_pre_load(char *pointer, char *base_pointer_info, int32_t value_size,
          "alignment: %lli, "
          "value_type_id: %i\n",
          pointer, base_pointer_info, value_size, alignment, value_type_id);
+  ThreadOM.checkBranchConditions(pointer, base_pointer_info);
+  bool IsInitialized;
   return ThreadOM.decodeForAccess(pointer, value_size, value_type_id, READ,
-                                  base_pointer_info);
+                                  base_pointer_info, IsInitialized);
 }
 
 IG_API_ATTRS
@@ -140,8 +142,9 @@ char *__ig_pre_store(char *pointer, char *base_pointer_info, int64_t value,
          "value_size: %i, alignment: %lli, value_type_id: %i\n",
          pointer, base_pointer_info, value, value_size, alignment,
          value_type_id);
+  bool IsInitialized;
   return ThreadOM.decodeForAccess(pointer, value_size, value_type_id, WRITE,
-                                  base_pointer_info);
+                                  base_pointer_info, IsInitialized);
 }
 
 IG_API_ATTRS
@@ -152,8 +155,9 @@ char *__ig_pre_store_ind(char *pointer, char *base_pointer_info,
          "value_size: %i, alignment: %lli, value_type_id: %i\n",
          pointer, base_pointer_info, (void *)value_ptr, value_size, alignment,
          value_type_id);
+  bool IsInitialized;
   return ThreadOM.decodeForAccess(pointer, value_size, value_type_id, WRITE,
-                                  base_pointer_info);
+                                  base_pointer_info, IsInitialized);
 }
 
 IG_API_ATTRS
@@ -253,21 +257,36 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
       ArgMemPtr = NewArgMemPtr;
     }
     switch (BCVPtr->Kind) {
-    case /*Instruction*/ 0:
-      __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
+    case /*Instruction*/ 0: {
+      if (BCVPtr->TypeId == 14) {
+        char *Value = *((char **)&BCVPtr->Value);
+        Value = std::get<0>(ThreadOM.decode(Value));
+        __builtin_memcpy(ArgMemPtr + ArgMemSize, &Value, BCVPtr->Size);
+      } else {
+        __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
+      }
       ArgMemSize += BCVPtr->Size;
       arguments += BCVPtr->Size;
       break;
-    case /*Argument*/ 1:
-      __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
+    }
+    case /*Argument*/ 1: {
+      if (BCVPtr->TypeId == 14) {
+        char *Value = *((char **)&BCVPtr->Value);
+        Value = std::get<0>(ThreadOM.decode(Value));
+        printf("Arg %p - %p\n", ArgMemPtr + ArgMemSize,
+               ArgMemPtr + ArgMemSize + BCVPtr->Size);
+        __builtin_memcpy(ArgMemPtr + ArgMemSize, &Value, BCVPtr->Size);
+      } else {
+        __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
+      }
       ArgMemSize += BCVPtr->Size;
       arguments += BCVPtr->Size;
       break;
+    }
     case /*Load*/ 2: {
       auto *VPtr = *(char **)BCVPtr->Value;
       BCI->FreeValueInfos.push_back(
-          FreeValueInfo(ArgMemSize, BCVPtr->TypeId, BCVPtr->Size, VPtr));
-      ArgMemSize += BCVPtr->Size;
+          FreeValueInfo(BCVPtr->TypeId, BCVPtr->Size, VPtr));
       arguments += sizeof(void *);
       break;
     }
@@ -275,10 +294,8 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
       auto *CPtr = (char *)&BCVPtr->Value;
       auto *SizePtr = (size_t *)CPtr;
       auto *VPtr = (char **)(CPtr + sizeof(*SizePtr));
-      BCI->FreeValueInfos.push_back(FreeValueInfo(ArgMemSize, BCVPtr->TypeId,
-                                                  BCVPtr->Size, VPtr[0],
-                                                  VPtr[1], *SizePtr));
-      ArgMemSize += BCVPtr->Size;
+      BCI->FreeValueInfos.push_back(FreeValueInfo(BCVPtr->TypeId, BCVPtr->Size,
+                                                  VPtr[0], VPtr[1], *SizePtr));
       arguments += sizeof(void *) * 2 + sizeof(size_t);
       break;
     }
@@ -306,16 +323,24 @@ int __ig_memcmp(char *s1, char *s2, size_t n) {
   PRINTF("memcmp -- s1: %p, s2: %p, n: %zu\n", s1, s2, n);
   auto *BPI1 = __ig_post_base_pointer_info(s1, 0);
   auto *BPI2 = __ig_post_base_pointer_info(s2, 0);
-  PRINTF("memcmp -- b1: %p, b2: %p, n: %zu\n", BPI1, BPI2, n);
   // TODO: Workaround until global supported.
+
   if (BPI1 || BPI2)
-    ThreadOM.checkBranchConditions(s1, s2);
+    ThreadOM.checkBranchConditions(s1, BPI1, s2, BPI2);
+
+  bool IsInitialized1 = false, IsInitialized2 = false;
   auto *MPtr1 =
-      BPI1 ? ThreadOM.decodeForAccess(s1, n, 12, READ, BPI1, false) : s1;
+      BPI1 ? ThreadOM.decodeForAccess(s1, n, 12, READ, BPI1, IsInitialized1)
+           : s1;
   auto *MPtr2 =
-      BPI2 ? ThreadOM.decodeForAccess(s2, n, 12, READ, BPI2, false) : s2;
-  PRINTF("memcmp -- s1: %p, s2: %p, n: %zu\n", MPtr1, MPtr2, n);
-  PRINTF("memcmp -- s1: %s, s2: %s, n: %zu\n", MPtr1, MPtr2, n);
+      BPI2 ? ThreadOM.decodeForAccess(s2, n, 12, READ, BPI2, IsInitialized2)
+           : s2;
+  PRINTF("memcmp -- s1: '%s', s2: '%s', n: %zu\n", MPtr1, MPtr2, n);
   return memcmp(MPtr1, MPtr2, n);
+}
+int __ig_memcmp2(char *s1, char *s2, size_t n) {
+  PRINTF("memcmp2 -- s1: %p, s2: %p, n: %zu\n", s1, s2, n);
+  PRINTF("memcmp2 -- s1: '%s', s2: '%s', n: %zu\n", s1, s2, n);
+  return memcmp(s1, s2, n);
 }
 }

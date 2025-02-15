@@ -11,7 +11,7 @@ public:
     auto duration =
         std::chrono::duration_cast<std::chrono::microseconds>(end_ - start_)
             .count();
-    std::cout << name_ << ": " << duration << " microseconds" << std::endl;
+    std::cerr << name_ << ": " << duration << " microseconds" << std::endl;
   }
 
 private:

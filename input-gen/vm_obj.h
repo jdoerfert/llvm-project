@@ -51,9 +51,7 @@ struct ObjectManager {
             std::function<void(uint32_t)> StopFn) {
     this->CT = CT;
     this->ProgramName = ProgramName;
-    printf("Init %p : %i\n", &ErrorFn, !!StopFn);
     ErrorFn = StopFn;
-    printf("Init %p : %i\n", &ErrorFn, !!ErrorFn);
   }
   void setSeed(uint32_t Seed) { Generator.seed(Seed); }
 
@@ -78,15 +76,13 @@ struct ObjectManager {
 
   __attribute__((always_inline)) char *
   decodeForAccess(char *VPtr, uint32_t AccessSize, uint32_t TypeId,
-                  AccessKind AK, char *BasePtrInfo,
-                  bool CheckBranchCond = true) {
+                  AccessKind AK, char *BasePtrInfo, bool &IsInitialized) {
     switch ((uint64_t)BasePtrInfo) {
     case 1:
+      IsInitialized = true;
       return UserBS10.access(VPtr, AccessSize, TypeId, AK == WRITE);
     case 2:
-      bool IsInitialized;
-      if (AK == READ && CheckBranchCond)
-        checkBranchConditions(VPtr);
+      IsInitialized = false;
       return RTObjs.access(VPtr, AccessSize, TypeId, AK, IsInitialized);
     default:
       ERR("unknown encoding {}\n", getEncoding(VPtr));
@@ -131,7 +127,8 @@ struct ObjectManager {
     case 2:
       return RTObjs.getBasePtrInfo(VPtr);
     default:
-      ERR("unknown encoding {}\n", getEncoding(VPtr));
+      WARN("unknown encoding {} (allowed until global support)\n",
+           getEncoding(VPtr));
       // TODO: Workaround until global supported.
       return 0;
       error(8);
@@ -202,7 +199,7 @@ struct ObjectManager {
       return std::get<0>(RTObjs.decode(VPtr));
     case 2:
       Initialized = false;
-      return RTObjs.access(VPtr, Size, 0, TEST, Initialized);
+      return RTObjs.access(VPtr, Size, 0, CHECK_INITIALIZED, Initialized);
     default:
       Initialized = true;
       return VPtr;
@@ -215,8 +212,9 @@ struct ObjectManager {
 
   FreeValueManager FVM;
 
-  void checkBranchConditions(char *VP, char *VCP = nullptr) {
-    return FVM.checkBranchConditions(VP, VCP);
+  void checkBranchConditions(char *VP, char *VPBP, char *VCP = nullptr,
+                             char *VCPBP = nullptr) {
+    return FVM.checkBranchConditions(VP, VPBP, VCP, VCPBP);
   }
   void addBranchCondition(char *VPtr, BranchConditionInfo *BCI) {
     FVM.BranchConditions[VPtr].push_back(BCI);
