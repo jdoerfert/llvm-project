@@ -3,7 +3,7 @@
 
 declare noalias ptr @malloc(i64) allockind("alloc,uninitialized") allocsize(0) "alloc-family"="malloc"
 declare noalias ptr @calloc(i64, i64) allockind("alloc,zeroed") allocsize(0,1) "alloc-family"="malloc"
-declare noalias ptr @realloc(ptr nocapture, i64) allockind("realloc") allocsize(1) "alloc-family"="malloc"
+declare noalias ptr @realloc(ptr captures(none), i64) allockind("realloc") allocsize(1) "alloc-family"="malloc"
 declare noalias nonnull ptr @_Znam(i64) ; throwing version of 'new'
 declare noalias nonnull ptr @_Znwm(i64) ; throwing version of 'new'
 declare noalias ptr @strdup(ptr)

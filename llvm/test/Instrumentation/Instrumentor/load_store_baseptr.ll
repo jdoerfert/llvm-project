@@ -4,9 +4,9 @@
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
 
 
-define noundef zeroext i1 @_Z15store_load_boolPb(ptr nocapture noundef initializes((0, 1)) %A) {
+define noundef zeroext i1 @_Z15store_load_boolPb(ptr captures(none) noundef initializes((0, 1)) %A) {
 ; CHECK-LABEL: define noundef zeroext i1 @_Z15store_load_boolPb(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 1)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 1)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, ptr [[TMP0]], i64 1, i32 1, i64 1, i32 12, i32 0, i8 1, i8 0)
@@ -30,9 +30,9 @@ entry:
 }
 
 
-define noundef signext i8 @_Z15store_load_charPc(ptr nocapture noundef initializes((0, 1)) %A) {
+define noundef signext i8 @_Z15store_load_charPc(ptr captures(none) noundef initializes((0, 1)) %A) {
 ; CHECK-LABEL: define noundef signext i8 @_Z15store_load_charPc(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 1)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 1)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, ptr [[TMP0]], i64 1, i32 1, i64 1, i32 12, i32 0, i8 1, i8 0)
@@ -54,9 +54,9 @@ entry:
 }
 
 
-define noundef signext i16 @_Z16store_load_shortPs(ptr nocapture noundef initializes((0, 2)) %A) {
+define noundef signext i16 @_Z16store_load_shortPs(ptr captures(none) noundef initializes((0, 2)) %A) {
 ; CHECK-LABEL: define noundef signext i16 @_Z16store_load_shortPs(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 2)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 2)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, ptr [[TMP0]], i64 2, i32 2, i64 2, i32 12, i32 0, i8 1, i8 0)
@@ -78,9 +78,9 @@ entry:
 }
 
 
-define noundef i32 @_Z14store_load_intPi(ptr nocapture noundef initializes((0, 4)) %A) {
+define noundef i32 @_Z14store_load_intPi(ptr captures(none) noundef initializes((0, 4)) %A) {
 ; CHECK-LABEL: define noundef i32 @_Z14store_load_intPi(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 4)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 4)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, ptr [[TMP0]], i64 3, i32 4, i64 4, i32 12, i32 0, i8 1, i8 0)
@@ -102,9 +102,9 @@ entry:
 }
 
 
-define noundef i64 @_Z15store_load_longPl(ptr nocapture noundef initializes((0, 8)) %A) {
+define noundef i64 @_Z15store_load_longPl(ptr captures(none) noundef initializes((0, 8)) %A) {
 ; CHECK-LABEL: define noundef i64 @_Z15store_load_longPl(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 8)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 8)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, ptr [[TMP0]], i64 4, i32 8, i64 8, i32 12, i32 0, i8 1, i8 0)
@@ -124,9 +124,9 @@ entry:
 }
 
 
-define noundef i128 @_Z20store_load_long_longPx(ptr nocapture noundef initializes((0, 16)) %A) {
+define noundef i128 @_Z20store_load_long_longPx(ptr captures(none) noundef initializes((0, 16)) %A) {
 ; CHECK-LABEL: define noundef i128 @_Z20store_load_long_longPx(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 16)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 16)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = alloca i128, align 16
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)
@@ -150,9 +150,9 @@ entry:
 }
 
 
-define noundef float @_Z16store_load_floatPf(ptr nocapture noundef initializes((0, 4)) %A) {
+define noundef float @_Z16store_load_floatPf(ptr captures(none) noundef initializes((0, 4)) %A) {
 ; CHECK-LABEL: define noundef float @_Z16store_load_floatPf(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 4)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 4)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, ptr [[TMP0]], i64 1086324736, i32 4, i64 4, i32 2, i32 0, i8 1, i8 0)
@@ -176,9 +176,9 @@ entry:
 }
 
 
-define noundef double @_Z17store_load_doublePd(ptr nocapture noundef initializes((0, 8)) %A) {
+define noundef double @_Z17store_load_doublePd(ptr captures(none) noundef initializes((0, 8)) %A) {
 ; CHECK-LABEL: define noundef double @_Z17store_load_doublePd(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 8)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 8)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, ptr [[TMP0]], i64 4619567317775286272, i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
@@ -200,9 +200,9 @@ entry:
 }
 
 
-define noundef x86_fp80 @_Z22store_load_long_doublePe(ptr nocapture noundef initializes((0, 10)) %A) {
+define noundef x86_fp80 @_Z22store_load_long_doublePe(ptr captures(none) noundef initializes((0, 10)) %A) {
 ; CHECK-LABEL: define noundef x86_fp80 @_Z22store_load_long_doublePe(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 10)) [[A:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 10)) [[A:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = alloca x86_fp80, align 16
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_post_base_pointer_info(ptr [[A]], i32 0)

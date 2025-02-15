@@ -4,9 +4,9 @@
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
 
 
-define noundef zeroext i1 @_Z15store_load_boolPbb(ptr nocapture noundef initializes((0, 1)) %A, i1 noundef zeroext %Val) {
+define noundef zeroext i1 @_Z15store_load_boolPbb(ptr captures(none) noundef initializes((0, 1)) %A, i1 noundef zeroext %Val) {
 ; CHECK-LABEL: define noundef zeroext i1 @_Z15store_load_boolPbb(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 1)) [[A:%.*]], i1 noundef zeroext [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 1)) [[A:%.*]], i1 noundef zeroext [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[STOREDV:%.*]] = zext i1 [[VAL]] to i8
 ; CHECK-NEXT:    [[TMP0:%.*]] = zext i8 [[STOREDV]] to i64
@@ -32,9 +32,9 @@ entry:
 }
 
 
-define noundef signext i8 @_Z15store_load_charPcc(ptr nocapture noundef initializes((0, 1)) %A, i8 noundef signext %Val) {
+define noundef signext i8 @_Z15store_load_charPcc(ptr captures(none) noundef initializes((0, 1)) %A, i8 noundef signext %Val) {
 ; CHECK-LABEL: define noundef signext i8 @_Z15store_load_charPcc(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 1)) [[A:%.*]], i8 noundef signext [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 1)) [[A:%.*]], i8 noundef signext [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = zext i8 [[VAL]] to i64
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i32 1, i64 1, i32 12, i32 0, i8 1, i8 0)
@@ -56,9 +56,9 @@ entry:
 }
 
 
-define noundef signext i16 @_Z16store_load_shortPss(ptr nocapture noundef initializes((0, 2)) %A, i16 noundef signext %Val) {
+define noundef signext i16 @_Z16store_load_shortPss(ptr captures(none) noundef initializes((0, 2)) %A, i16 noundef signext %Val) {
 ; CHECK-LABEL: define noundef signext i16 @_Z16store_load_shortPss(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 2)) [[A:%.*]], i16 noundef signext [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 2)) [[A:%.*]], i16 noundef signext [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = zext i16 [[VAL]] to i64
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i32 2, i64 2, i32 12, i32 0, i8 1, i8 0)
@@ -80,9 +80,9 @@ entry:
 }
 
 
-define noundef i32 @_Z14store_load_intPii(ptr nocapture noundef initializes((0, 4)) %A, i32 noundef %Val) {
+define noundef i32 @_Z14store_load_intPii(ptr captures(none) noundef initializes((0, 4)) %A, i32 noundef %Val) {
 ; CHECK-LABEL: define noundef i32 @_Z14store_load_intPii(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 4)) [[A:%.*]], i32 noundef [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 4)) [[A:%.*]], i32 noundef [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = zext i32 [[VAL]] to i64
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i32 4, i64 4, i32 12, i32 0, i8 1, i8 0)
@@ -104,9 +104,9 @@ entry:
 }
 
 
-define noundef i64 @_Z15store_load_longPll(ptr nocapture noundef initializes((0, 8)) %A, i64 noundef %Val) {
+define noundef i64 @_Z15store_load_longPll(ptr captures(none) noundef initializes((0, 8)) %A, i64 noundef %Val) {
 ; CHECK-LABEL: define noundef i64 @_Z15store_load_longPll(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 8)) [[A:%.*]], i64 noundef [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 8)) [[A:%.*]], i64 noundef [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[VAL]], i32 8, i64 8, i32 12, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store i64 [[VAL]], ptr [[TMP0]], align 8
@@ -125,9 +125,9 @@ entry:
 }
 
 
-define noundef i128 @_Z20store_load_long_longPxx(ptr nocapture noundef initializes((0, 16)) %A, i128 noundef %Val) {
+define noundef i128 @_Z20store_load_long_longPxx(ptr captures(none) noundef initializes((0, 16)) %A, i128 noundef %Val) {
 ; CHECK-LABEL: define noundef i128 @_Z20store_load_long_longPxx(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 16)) [[A:%.*]], i128 noundef [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 16)) [[A:%.*]], i128 noundef [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = alloca i128, align 16
 ; CHECK-NEXT:    store i128 [[VAL]], ptr [[TMP0]], align 16
@@ -150,9 +150,9 @@ entry:
 }
 
 
-define noundef float @_Z16store_load_floatPff(ptr nocapture noundef initializes((0, 4)) %A, float noundef %Val) {
+define noundef float @_Z16store_load_floatPff(ptr captures(none) noundef initializes((0, 4)) %A, float noundef %Val) {
 ; CHECK-LABEL: define noundef float @_Z16store_load_floatPff(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 4)) [[A:%.*]], float noundef [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 4)) [[A:%.*]], float noundef [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = bitcast float [[VAL]] to i32
 ; CHECK-NEXT:    [[TMP1:%.*]] = zext i32 [[TMP0]] to i64
@@ -177,9 +177,9 @@ entry:
 }
 
 
-define noundef double @_Z17store_load_doublePdd(ptr nocapture noundef initializes((0, 8)) %A, double noundef %Val) {
+define noundef double @_Z17store_load_doublePdd(ptr captures(none) noundef initializes((0, 8)) %A, double noundef %Val) {
 ; CHECK-LABEL: define noundef double @_Z17store_load_doublePdd(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 8)) [[A:%.*]], double noundef [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 8)) [[A:%.*]], double noundef [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = bitcast double [[VAL]] to i64
 ; CHECK-NEXT:    [[TMP1:%.*]] = call ptr @__instrumentor_pre_store(ptr [[A]], i32 0, i64 [[TMP0]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
@@ -201,9 +201,9 @@ entry:
 }
 
 
-define noundef x86_fp80 @_Z22store_load_long_doublePee(ptr nocapture noundef initializes((0, 10)) %A, x86_fp80 noundef %Val) {
+define noundef x86_fp80 @_Z22store_load_long_doublePee(ptr captures(none) noundef initializes((0, 10)) %A, x86_fp80 noundef %Val) {
 ; CHECK-LABEL: define noundef x86_fp80 @_Z22store_load_long_doublePee(
-; CHECK-SAME: ptr nocapture noundef initializes((0, 10)) [[A:%.*]], x86_fp80 noundef [[VAL:%.*]]) {
+; CHECK-SAME: ptr noundef captures(none) initializes((0, 10)) [[A:%.*]], x86_fp80 noundef [[VAL:%.*]]) {
 ; CHECK-NEXT:  [[ENTRY:.*:]]
 ; CHECK-NEXT:    [[TMP0:%.*]] = alloca x86_fp80, align 16
 ; CHECK-NEXT:    store x86_fp80 [[VAL]], ptr [[TMP0]], align 16
