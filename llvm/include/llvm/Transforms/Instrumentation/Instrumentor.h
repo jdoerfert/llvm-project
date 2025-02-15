@@ -35,6 +35,7 @@
 
 #include <functional>
 #include <string>
+#include <tuple>
 
 namespace llvm {
 namespace instrumentor {
@@ -157,6 +158,12 @@ struct IRTArg {
   SetterCallbackTy SetterCB;
 };
 
+struct InstrumentationCaches {
+  DenseMap<std::tuple<unsigned, StringRef, StringRef>, Value *> DirectArgCache;
+  DenseMap<std::tuple<unsigned, StringRef, StringRef>, Value *>
+      IndirectArgCache;
+};
+
 struct InstrumentationOpportunity;
 struct IRTCallDescription {
   IRTCallDescription(InstrumentationOpportunity &IConf, Type *RetTy = nullptr);
@@ -171,7 +178,8 @@ struct IRTCallDescription {
                                     LLVMContext &Ctx, const DataLayout &DL,
                                     bool ForceIndirection);
   CallInst *createLLVMCall(Value *&V, InstrumentationConfig &IConf,
-                           InstrumentorIRBuilderTy &IIRB, const DataLayout &DL);
+                           InstrumentorIRBuilderTy &IIRB, const DataLayout &DL,
+                           InstrumentationCaches &ICaches);
 
   bool isReplacable(IRTArg &IRTA) {
     return (IRTA.Flags & (IRTArg::REPLACABLE | IRTArg::REPLACABLE_CUSTOM));
@@ -402,9 +410,6 @@ struct InstrumentationOpportunity {
 
   struct InstrumentationLocation IP;
 
-  DenseMap<std::pair<unsigned, StringRef>, Value *> DirectArgCache;
-  DenseMap<std::pair<unsigned, StringRef>, Value *> IndirectArgCache;
-
   SmallVector<IRTArg> IRTArgs;
   bool Enabled = true;
 
@@ -423,13 +428,14 @@ struct InstrumentationOpportunity {
   ///}
 
   virtual Value *instrument(Value *&V, InstrumentationConfig &IConf,
-                            InstrumentorIRBuilderTy &IIRB) {
+                            InstrumentorIRBuilderTy &IIRB,
+                            InstrumentationCaches &ICaches) {
     if (CB && !CB(*V))
       return nullptr;
 
     const DataLayout &DL = IIRB.IRB.GetInsertBlock()->getDataLayout();
     IRTCallDescription IRTCallDesc(*this, getRetTy(V->getContext()));
-    return IRTCallDesc.createLLVMCall(V, IConf, IIRB, DL);
+    return IRTCallDesc.createLLVMCall(V, IConf, IIRB, DL, ICaches);
   }
 
   virtual Type *getRetTy(LLVMContext &Ctx) const { return nullptr; }

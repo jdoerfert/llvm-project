@@ -409,6 +409,8 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   if (!shouldInstrumentFunction(Fn))
     return Changed;
 
+  InstrumentationCaches ICaches;
+
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
   for (auto &It : RPOT) {
     for (auto &I : *It) {
@@ -422,12 +424,12 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       Value *IPtr = &I;
       if (auto *IO = InstChoicesPRE.lookup(I.getOpcode())) {
         IIRB.IRB.SetInsertPoint(&I);
-        Changed |= bool(IO->instrument(IPtr, IConf, IIRB));
+        Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
       }
 
       if (auto *IO = InstChoicesPOST.lookup(I.getOpcode())) {
         IIRB.IRB.SetInsertPoint(I.getNextNonDebugInstruction());
-        Changed |= bool(IO->instrument(IPtr, IConf, IIRB));
+        Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
       }
     }
   }
@@ -440,7 +442,7 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
     ++IIRB.Epoche;
 
     IIRB.IRB.SetInsertPointPastAllocas(cast<Function>(FPtr));
-    ChoiceIt.second->instrument(FPtr, IConf, IIRB);
+    ChoiceIt.second->instrument(FPtr, IConf, IIRB, ICaches);
   }
 
   return Changed;
@@ -465,6 +467,8 @@ bool InstrumentorImpl::instrumentModule() {
     return YtorFn;
   };
 
+  InstrumentationCaches ICaches;
+
   Function *CtorFn = nullptr, *DtorFn = nullptr;
   bool Changed = false;
   for (auto Loc : {InstrumentationLocation::MODULE_PRE,
@@ -483,7 +487,7 @@ bool InstrumentorImpl::instrumentModule() {
       // Count epochs eagerly.
       ++IIRB.Epoche;
 
-      Changed |= bool(IO->instrument(YtorPtr, IConf, IIRB));
+      Changed |= bool(IO->instrument(YtorPtr, IConf, IIRB, ICaches));
     }
   }
 
@@ -509,7 +513,7 @@ bool InstrumentorImpl::instrumentModule() {
         // Count epochs eagerly.
         ++IIRB.Epoche;
 
-        Changed |= bool(IO->instrument(GVPtr, IConf, IIRB));
+        Changed |= bool(IO->instrument(GVPtr, IConf, IIRB, ICaches));
       }
     }
   }
@@ -637,7 +641,11 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
       VPtr->dump();
       llvm_unreachable("Unexpected base pointer!");
     }
-    BPI = BPIO->instrument(VPtr, *this, IIRB);
+
+    // Use fresh caches for safety, as this function may be called from another
+    // instrumentation opportunity.
+    InstrumentationCaches ICaches;
+    BPI = BPIO->instrument(VPtr, *this, IIRB, ICaches);
   }
   return BPI;
 }
@@ -862,15 +870,17 @@ IRTCallDescription::createLLVMSignature(InstrumentationConfig &IConf,
 CallInst *IRTCallDescription::createLLVMCall(Value *&V,
                                              InstrumentationConfig &IConf,
                                              InstrumentorIRBuilderTy &IIRB,
-                                             const DataLayout &DL) {
+                                             const DataLayout &DL,
+                                             InstrumentationCaches &ICaches) {
   SmallVector<Value *> CallParams;
 
   bool ForceIndirection = RequiresIndirection;
   for (auto &It : IO.IRTArgs) {
     if (!It.Enabled)
       continue;
-    auto *&Param = IO.DirectArgCache[{IIRB.Epoche, It.Name}];
+    auto *&Param = ICaches.DirectArgCache[{IIRB.Epoche, IO.getName(), It.Name}];
     if (!Param)
+      // Avoid passing the caches to the getter.
       Param = It.GetterCB(*V, *It.Ty, IConf, IIRB);
 
     if (Param->getType()->isVoidTy()) {
@@ -909,7 +919,8 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
         Offset += 1;
       }
 
-      auto *&CachedParam = IO.IndirectArgCache[{IIRB.Epoche, It.Name}];
+      auto *&CachedParam =
+          ICaches.IndirectArgCache[{IIRB.Epoche, IO.getName(), It.Name}];
       if (CachedParam) {
         CallParam = CachedParam;
         continue;
@@ -937,14 +948,15 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     if (!isReplacable(IO.IRTArgs[I]))
       continue;
     bool IsCustomReplaceable = IO.IRTArgs[I].Flags & IRTArg::REPLACABLE_CUSTOM;
-    Value *NewValue =
-        FnTy->isVoidTy() || IsCustomReplaceable
-            ? IO.DirectArgCache[{IIRB.Epoche, IO.IRTArgs[I].Name}]
-            : CI;
+    Value *NewValue = FnTy->isVoidTy() || IsCustomReplaceable
+                          ? ICaches.DirectArgCache[{IIRB.Epoche, IO.getName(),
+                                                    IO.IRTArgs[I].Name}]
+                          : CI;
     assert(NewValue);
     if (ForceIndirection && !IsCustomReplaceable &&
         isPotentiallyIndirect(IO.IRTArgs[I])) {
-      auto *Q = IO.IndirectArgCache[{IIRB.Epoche, IO.IRTArgs[I].Name}];
+      auto *Q = ICaches.IndirectArgCache[{IIRB.Epoche, IO.getName(),
+                                          IO.IRTArgs[I].Name}];
       NewValue = IIRB.IRB.CreateLoad(V->getType(), Q);
     }
     V = IO.IRTArgs[I].SetterCB(*V, *NewValue, IConf, IIRB);

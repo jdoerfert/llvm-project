@@ -234,7 +234,8 @@ struct BranchConditionIO : public InstructionIO<Instruction::Br> {
                       InstrumentorIRBuilderTy &IIRB);
 
   Value *instrument(Value *&V, InstrumentationConfig &IConf,
-                    InstrumentorIRBuilderTy &IIRB) override {
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
     if (CB && !CB(*V))
       return nullptr;
     auto *BI = cast<BranchInst>(V);
@@ -244,7 +245,7 @@ struct BranchConditionIO : public InstructionIO<Instruction::Br> {
       return nullptr;
     IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
     IIRB.IRB.SetInsertPoint(IP);
-    return InstructionIO::instrument(V, IConf, IIRB);
+    return InstructionIO::instrument(V, IConf, IIRB, ICaches);
   }
 
   //  Type *getRetTy(LLVMContext &Ctx) const override {
