@@ -13,7 +13,8 @@ ObjectManager::~ObjectManager() {}
 void *ObjectManager::getObj(uint32_t Seed) { return add(0, 8, Seed); }
 
 void ObjectManager::reset() {
-  UserBS10.reset();
+  UserObjSmall.reset();
+  UserObjLarge.reset();
   RTObjs.reset();
   FVM.reset();
   std::set<char *> ArgMemPtrs;
@@ -43,7 +44,6 @@ void ObjectManager::saveInput(uint32_t InputIdx, uint32_t ExitCode) {
 
 std::function<void(uint32_t)> __ig::ErrorFn;
 void __ig::error(uint32_t ErrorCode) {
-  printf("EF %p %i\n", &ErrorFn, !!ErrorFn);
   if (ErrorFn)
     ErrorFn(ErrorCode);
   else

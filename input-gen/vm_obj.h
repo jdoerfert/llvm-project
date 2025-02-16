@@ -32,14 +32,18 @@ using BucketScheme10Ty = BucketSchemeTy</*EncodingNo=*/1,
                                         /*OffsetBits=*/12, /*BucketBits=*/3,
                                         /*RealPtrBits=*/32>;
 using TableScheme20Ty = TableSchemeTy<2, 30>;
+using BigObjScheme10Ty = BigObjSchemeTy</*EncodingNo=*/3, /*ObjectBits=*/10>;
 
 struct ObjectManager {
   ~ObjectManager();
 
-  ObjectManager() : UserBS10(*this), RTObjs(*this), Distribution(-100, 128) {}
+  ObjectManager()
+      : UserObjLarge(*this), UserObjSmall(*this), RTObjs(*this),
+        Distribution(-100, 128) {}
 
   ChoiceTrace *CT = nullptr;
-  BucketScheme10Ty UserBS10;
+  BigObjScheme10Ty UserObjLarge;
+  BucketScheme10Ty UserObjSmall;
   TableScheme20Ty RTObjs;
 
   std::string ProgramName;
@@ -61,14 +65,20 @@ struct ObjectManager {
   void reset();
 
   void *getObj(uint32_t Seed);
-  char *encode(char *Ptr, uint32_t Size) { return UserBS10.encode(Ptr, Size); }
+  char *encode(char *Ptr, uint32_t Size) {
+    if (Size < (1 << 10))
+      return UserObjSmall.encode(Ptr, Size);
+    return UserObjLarge.encode(Ptr, Size);
+  }
 
   std::tuple<char *, uint32_t, uint32_t> decode(char *VPtr) {
     switch (getEncoding(VPtr)) {
     case 1:
-      return UserBS10.decode(VPtr);
+      return UserObjSmall.decode(VPtr);
     case 2:
       return RTObjs.decode(VPtr);
+    case 3:
+      return UserObjLarge.decode(VPtr);
     default:
       return {VPtr, 0, 0};
     }
@@ -80,13 +90,20 @@ struct ObjectManager {
     switch ((uint64_t)BasePtrInfo) {
     case 1:
       IsInitialized = true;
-      return UserBS10.access(VPtr, AccessSize, TypeId, AK == WRITE);
+      return UserObjSmall.access(VPtr, AccessSize, TypeId, AK == WRITE);
     case 2:
       IsInitialized = false;
       return RTObjs.access(VPtr, AccessSize, TypeId, AK, IsInitialized);
+    case 3:
+      IsInitialized = true;
+      return UserObjLarge.access(VPtr, AccessSize, TypeId, AK == WRITE);
     default:
+      WARN("unknown encoding {} (allowed until global support)\n",
+           getEncoding(VPtr));
+      // TODO: Workaround until global supported.
+      return VPtr;
       ERR("unknown encoding {}\n", getEncoding(VPtr));
-      error(6);
+      error(1003);
       std::terminate();
     }
   }
@@ -94,9 +111,11 @@ struct ObjectManager {
   int32_t getEncoding(char *VPtr) {
     switch (EncodingSchemeTy::getEncoding(VPtr)) {
     case 1:
-      return UserBS10.isEncoded(VPtr) ? 1 : ~0;
+      return UserObjSmall.isEncoded(VPtr) ? 1 : ~0;
     case 2:
       return RTObjs.isEncoded(VPtr) ? 2 : ~0;
+    case 3:
+      return UserObjLarge.isEncoded(VPtr) ? 3 : ~0;
     default:
       return ~0;
     }
@@ -109,29 +128,37 @@ struct ObjectManager {
   std::pair<int32_t, int32_t> getPtrInfo(char *VPtr, bool AllowToFail) {
     switch (getEncoding(VPtr)) {
     case 1:
-      return UserBS10.getPtrInfo(VPtr);
+      return UserObjSmall.getPtrInfo(VPtr);
     case 2:
       return RTObjs.getPtrInfo(VPtr);
+    case 3:
+      return UserObjLarge.getPtrInfo(VPtr);
     default:
       if (AllowToFail)
         return {-2, -2};
+      WARN("unknown encoding {} (allowed until global support)\n",
+           getEncoding(VPtr));
+      // TODO: Workaround until global supported.
+      return {-2, -2};
       ERR("unknown encoding {}\n", getEncoding(VPtr));
-      error(7);
+      error(1004);
       std::terminate();
     }
   }
   char *getBasePtrInfo(char *VPtr) {
     switch (getEncoding(VPtr)) {
     case 1:
-      return UserBS10.getBasePtrInfo(VPtr);
+      return UserObjSmall.getBasePtrInfo(VPtr);
     case 2:
       return RTObjs.getBasePtrInfo(VPtr);
+    case 3:
+      return UserObjLarge.getBasePtrInfo(VPtr);
     default:
       WARN("unknown encoding {} (allowed until global support)\n",
            getEncoding(VPtr));
       // TODO: Workaround until global supported.
       return 0;
-      error(8);
+      error(1005);
       std::terminate();
     }
   }
@@ -167,7 +194,7 @@ struct ObjectManager {
       ERR("comparison of user object and runtime object! C/C++ UB detected! "
           "({}[{}] {}[{}])\n",
           LHSInfo, LHSOffset, RHSInfo, RHSOffset);
-      error(43);
+      error(1006);
       std::terminate();
     }
 
@@ -196,10 +223,13 @@ struct ObjectManager {
     switch (getEncoding(VPtr)) {
     case 1:
       Initialized = true;
-      return std::get<0>(RTObjs.decode(VPtr));
+      return std::get<0>(UserObjSmall.decode(VPtr));
     case 2:
       Initialized = false;
       return RTObjs.access(VPtr, Size, 0, CHECK_INITIALIZED, Initialized);
+    case 3:
+      Initialized = true;
+      return std::get<0>(UserObjLarge.decode(VPtr));
     default:
       Initialized = true;
       return VPtr;
@@ -217,7 +247,11 @@ struct ObjectManager {
     return FVM.checkBranchConditions(VP, VPBP, VCP, VCPBP);
   }
   void addBranchCondition(char *VPtr, BranchConditionInfo *BCI) {
+    FVM.BranchConditionMap[BCI->No] = BCI;
     FVM.BranchConditions[VPtr].push_back(BCI);
+  }
+  BranchConditionInfo *getBranchCondition(uint32_t No) {
+    return FVM.BranchConditionMap[No];
   }
 };
 

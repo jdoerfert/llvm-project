@@ -123,7 +123,7 @@ struct BucketSchemeTy : public EncodingSchemeTy {
                 "Size missmatch!");
 
   static constexpr uint32_t NumBuckets = 1 << BucketBits;
-  uint32_t Buckets[NumBuckets];
+  uint64_t Buckets[NumBuckets];
   uint32_t NumBucketsUsed = 0;
 
   void reset() override {
@@ -142,6 +142,7 @@ struct BucketSchemeTy : public EncodingSchemeTy {
       uint32_t RealPtr : NumRealPtrBits;
       uint32_t EncodingId : NumEncodingBits;
     } Bits;
+    static_assert(sizeof(Bits) == sizeof(char *), "bad size");
 
     EncTy(uint32_t Size, uint32_t BuckedIdx, uint32_t RealPtr) {
       Bits.Offset = 0;
@@ -157,7 +158,8 @@ struct BucketSchemeTy : public EncodingSchemeTy {
 
   static constexpr uint32_t NumBucketValueBits =
       (8 * sizeof(char *) - NumRealPtrBits);
-  static_assert(NumBucketValueBits <= 32, "Bucket value too large!");
+  static_assert(NumBucketValueBits <= sizeof(Buckets[0]) * 8,
+                "Bucket value too large!");
 
   union DecTy {
     char *Ptr;
@@ -175,6 +177,7 @@ struct BucketSchemeTy : public EncodingSchemeTy {
   static_assert(sizeof(DecTy) == sizeof(char *), "bad size");
 
   char *encode(char *Ptr, uint32_t Size) {
+    assert(Size < (1ULL << NumOffsetBits));
     DecTy D(Ptr);
     uint32_t BucketIdx = ~0u;
     for (uint32_t Idx = 0; Idx < NumBucketsUsed; ++Idx) {
@@ -186,7 +189,7 @@ struct BucketSchemeTy : public EncodingSchemeTy {
     if (BucketIdx == ~0u) {
       if (NumBucketsUsed == NumBuckets) {
         fprintf(stderr, "out of buckets!\n");
-        error(3);
+        error(1000);
         std::terminate();
       }
       BucketIdx = NumBucketsUsed++;
@@ -199,7 +202,7 @@ struct BucketSchemeTy : public EncodingSchemeTy {
   std::tuple<char *, uint32_t, int32_t> decode(char *VPtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
-    return std::make_tuple(D.Ptr, (uint32_t)E.Bits.Size,
+    return std::make_tuple(D.Ptr + E.Bits.Offset, (uint32_t)E.Bits.Size,
                            (uint32_t)E.Bits.Offset);
   }
 
@@ -207,11 +210,102 @@ struct BucketSchemeTy : public EncodingSchemeTy {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
     if (E.Bits.Offset < 0 || E.Bits.Offset + AccessSize > E.Bits.Size) {
-      fprintf(stderr, "User memory out-of-bound!\n");
-      error(4);
+      fprintf(stderr, "Small user object memory out-of-bound %i vs %i! (Base %p)\n", E.Bits.Offset,
+              E.Bits.Size, D.Ptr);
+      error(1001);
       std::terminate();
     }
-    return D.Ptr;
+    return D.Ptr + E.Bits.Offset;
+  }
+
+  bool isEncoded(char *VPtr) override {
+    EncTy E(VPtr);
+    return E.Bits.Magic == MAGIC && E.Bits.EncodingId == EncodingNo;
+  }
+
+  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) override {
+    return {-1, -1};
+  }
+  char *getBasePtrInfo(char *VPtr) override {
+    return (char *)(uint64_t)EncodingNo;
+  }
+};
+
+template <uint32_t EncodingNo, uint32_t ObjectBits>
+struct BigObjSchemeTy : public EncodingSchemeTy {
+  BigObjSchemeTy(ObjectManager &OM) : EncodingSchemeTy(OM) {}
+  ~BigObjSchemeTy() {
+#ifndef NDEBUG
+    fprintf(stderr, "Buckets used: %i\n", NumObjectsUsed);
+#endif
+  }
+
+  struct ObjDescTy {
+    char *Base;
+    uint64_t Size;
+  };
+
+  static constexpr uint32_t NumObjectBits = ObjectBits;
+  static constexpr uint32_t NumOffsetBits =
+      (sizeof(void *) * 8) - NumObjectBits - NumEncodingBits - NumMagicBits;
+  static constexpr uint32_t NumObjects = 1 << ObjectBits;
+  ObjDescTy Objects[NumObjects];
+  uint32_t NumObjectsUsed = 0;
+
+  void reset() override {
+    NumObjectsUsed = 0;
+  }
+
+  union EncTy {
+    char *VPtr;
+    struct __attribute__((packed)) {
+      int64_t Offset : NumOffsetBits;
+      uint32_t Magic : NumMagicBits;
+      uint32_t ObjectIdx : NumObjectBits;
+      uint32_t EncodingId : NumEncodingBits;
+    } Bits;
+    static_assert(sizeof(Bits) == sizeof(char *), "bad size");
+
+    EncTy(uint32_t Size, uint32_t ObjectIdx) {
+      Bits.Offset = 0;
+      Bits.Magic = MAGIC;
+      Bits.ObjectIdx = ObjectIdx;
+      Bits.EncodingId = EncodingNo;
+    }
+    EncTy(char *VPtr) : VPtr(VPtr) {}
+  };
+  static_assert(sizeof(EncTy) == sizeof(char *), "bad size");
+
+  char *encode(char *Ptr, uint32_t Size) {
+    assert(Size < (1ULL << NumOffsetBits));
+    if (NumObjectsUsed == NumObjects) {
+      fprintf(stderr, "out of objects!\n");
+      error(1000);
+      std::terminate();
+    }
+    uint32_t ObjectIdx = NumObjectsUsed++;
+    Objects[ObjectIdx] = {Ptr, Size};
+    EncTy E(Size, ObjectIdx);
+    return E.VPtr;
+  }
+
+  std::tuple<char *, uint32_t, int32_t> decode(char *VPtr) {
+    EncTy E(VPtr);
+    auto [Base, Size] = Objects[E.Bits.ObjectIdx];
+    return std::make_tuple(Base + E.Bits.Offset, (uint32_t)Size,
+                           (uint32_t)E.Bits.Offset);
+  }
+
+  char *access(char *VPtr, uint32_t AccessSize, uint32_t TypeId, bool Write) {
+    EncTy E(VPtr);
+    auto [Base, Size] = Objects[E.Bits.ObjectIdx];
+    if (E.Bits.Offset < 0 || E.Bits.Offset + AccessSize > Size) {
+      fprintf(stderr, "Large user memory out-of-bound %lli vs %lli (Base %p)!\n", E.Bits.Offset,
+              Size, Base);
+      error(1001);
+      std::terminate();
+    }
+    return Base + E.Bits.Offset;
   }
 
   bool isEncoded(char *VPtr) override {
@@ -342,12 +436,12 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     case 3:
       return std::bit_cast<uint64_t>(d);
     case 12:
-      return 100;
+      return TypeSize == 1 ? 'q' : 100;
     case 14:
       return (uint64_t)create(8, /*TODO */ 0);
     default:
       fprintf(stderr, "unknown type id %i\n", TypeId);
-      error(5);
+      error(1002);
       std::terminate();
     }
   }
@@ -425,7 +519,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
       if (AK == CHECK_INITIALIZED || AK == BCI_READ)
         return;
       fprintf(stderr, "access to nullptr (object) detected: %p; UB!\n", MemP);
-      error(42);
+      error(1002);
       std::terminate();
     }
 

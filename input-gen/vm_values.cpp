@@ -28,6 +28,11 @@ char *FreeValueInfo::getValuePtr(FreeValueManager &FVM) const {
     return &Values[Idx * ValueSize];
   return FVM.StringCache[Idx].data();
 }
+size_t FreeValueInfo::getWrittenSize(FreeValueManager &FVM) const {
+  if (!UsesIndirectValues)
+    return ValueSize;
+  return CmpSize;
+}
 size_t FreeValueInfo::getValueSize(FreeValueManager &FVM) const {
   if (!UsesIndirectValues)
     return ValueSize;
@@ -40,7 +45,8 @@ bool FreeValueInfo::isFixed() {
 
   switch (TypeId) {
   case /*memcmp */ 11:
-  case /*IntegerTy*/ 12:
+  case /*integer*/ 12:
+  case /*pointer*/ 14:
     break;
   default:
     return IsFixed = true;
@@ -51,8 +57,12 @@ bool FreeValueInfo::isFixed() {
     auto *BP = ThreadOM.getBasePtrInfo(VPtr);
     MPtr = ThreadOM.decodeForAccess(VPtr, Size, TypeId, CHECK_INITIALIZED, BP,
                                     IsInitialized);
-    if (IsInitialized)
+    printf("%s %p : %p : %i: %i\n", TypeId == 14 ? "ptr" : "int", VPtr, MPtr,
+           Size, IsInitialized);
+    if (IsInitialized) {
+      printf("--> %p\n", *(void **)MPtr);
       return IsFixed = true;
+    }
   } else {
     if (CmpSize == 0) {
       // 0-length strings are equal.
@@ -61,14 +71,16 @@ bool FreeValueInfo::isFixed() {
     bool IsInitialized1 = true, IsInitialized2 = true;
     MPtr = VPtr;
     MCmpPtr = VCmpPtr;
+    bool UnknownSize = (CmpSize == (size_t)-1);
     auto *BP1 = ThreadOM.getBasePtrInfo(VPtr);
     if (BP1)
-      MPtr = ThreadOM.decodeForAccess(VPtr, CmpSize, TypeId, CHECK_INITIALIZED,
-                                      BP1, IsInitialized1);
+      MPtr = ThreadOM.decodeForAccess(VPtr, UnknownSize ? 1 : CmpSize, TypeId,
+                                      CHECK_INITIALIZED, BP1, IsInitialized1);
     auto *BP2 = ThreadOM.getBasePtrInfo(VCmpPtr);
     if (BP2)
-      MCmpPtr = ThreadOM.decodeForAccess(
-          VCmpPtr, CmpSize, TypeId, CHECK_INITIALIZED, BP2, IsInitialized2);
+      MCmpPtr =
+          ThreadOM.decodeForAccess(VCmpPtr, UnknownSize ? 1 : CmpSize, TypeId,
+                                   CHECK_INITIALIZED, BP2, IsInitialized2);
     MCmpPtr = VCmpPtr;
     if (IsInitialized1 == IsInitialized2)
       return IsFixed = true;
@@ -76,6 +88,8 @@ bool FreeValueInfo::isFixed() {
       std::swap(MPtr, MCmpPtr);
       std::swap(VPtr, VCmpPtr);
     }
+    if (UnknownSize)
+      CmpSize = strlen(MCmpPtr) + 1;
   }
   return false;
 }
@@ -94,20 +108,19 @@ char *FreeValueInfo::write(FreeValueManager &FVM) {
     __builtin_memcpy(MPtr, getValuePtr(FVM), ValueSize);
     if (ValueSize < CmpSize)
       __builtin_memset(MPtr + ValueSize, 0, CmpSize - ValueSize);
-    DEBUG("Written '{}' @ {} - {} [{} {}]\n", MPtr, (void *)MPtr,
-          (void *)(MPtr + std::max(ValueSize, CmpSize)), ValueSize, CmpSize);
+    DEBUG("Written '{}' @ {} - {} [{} {}] ({})\n", MPtr, (void *)MPtr,
+          (void *)(MPtr + std::max(ValueSize, CmpSize)), ValueSize, CmpSize,
+          (void *)VPtr);
     return getValuePtr(FVM);
   }
   case 12:
+  case 14:
     __builtin_memcpy(MPtr, getValuePtr(FVM), ValueSize);
     if (ValueSize < Size)
       __builtin_memset(MPtr + ValueSize, 0, Size - ValueSize);
     DEBUG("Written '{}' @ {} - {}\n", *(uint32_t *)MPtr, (void *)MPtr,
           (void *)(MPtr + ValueSize));
     return getValuePtr(FVM);
-  case 14:
-    *((void **)MPtr) = 0;
-    break;
   default:
     __builtin_memset(MPtr, 0, Size);
   }
@@ -118,10 +131,10 @@ void FreeValueInfo::markInitialized(FreeValueManager &FVM, char *VP,
                                     char *VPC) {
   bool IsInitialized;
   if (auto *BP1 = ThreadOM.getBasePtrInfo(VPtr))
-    ThreadOM.decodeForAccess(VPtr, CmpSize, TypeId, BCI_READ, BP1,
+    ThreadOM.decodeForAccess(VPtr, getWrittenSize(FVM), TypeId, BCI_READ, BP1,
                              IsInitialized);
   if (auto *BP1 = ThreadOM.getBasePtrInfo(VCmpPtr))
-    ThreadOM.decodeForAccess(VPtr, CmpSize, TypeId, BCI_READ, BP1,
+    ThreadOM.decodeForAccess(VPtr, getWrittenSize(FVM), TypeId, BCI_READ, BP1,
                              IsInitialized);
 }
 
@@ -148,7 +161,7 @@ void FreeValueManager::checkBranchConditions(char *VP, char *VPBP, char *VCP,
           FreeBCIs.push_back(BCI);
         } else if (!evaluate(*BCI)) {
           INFO("Inconsistent branch condition found, abort\n");
-          error(103);
+          error(1007);
         }
       }
   };
@@ -160,11 +173,14 @@ void FreeValueManager::checkBranchConditions(char *VP, char *VPBP, char *VCP,
   if (FreeBCIs.empty())
     return;
 
+  for (auto *FVI : FVVec)
+    FVI->write(*this);
+
   DEBUG("Got {} free BCIs out of {} total, checking\n", FreeBCIs.size(),
         SeenBCIs.size());
   bool AllWork = true;
   for (auto *BCI : FreeBCIs) {
-    bool Result = evaluate(*BCI);
+    bool Result = evaluate(*BCI, FreeBCIs.size() == 10);
     if (Result)
       continue;
     AllWork = false;
@@ -173,7 +189,7 @@ void FreeValueManager::checkBranchConditions(char *VP, char *VPBP, char *VCP,
 
   if (!AllWork && !workOn(FVVec, FreeBCIs)) {
     INFO("Could not make all BCIs work, abort\n");
-    error(102);
+    error(1008);
   }
 
   for (auto *FVI : FVVec)
@@ -191,7 +207,7 @@ bool FreeValueManager::isFreeValue(BranchConditionInfo &BCI,
   // Initialize the new FVD.
   switch (FVI.TypeId) {
   case /*TokenTy -> memcmp */ 11: {
-    assert(FVI.VCmpPtr && FVI.Size == sizeof(int));
+    assert(FVI.VCmpPtr);
     FVI.UsesIndirectValues = true;
     // TODO: this is not good we should register globals instead.
     auto [It, New] = StringCacheSet.insert(FVI.MCmpPtr);
@@ -207,13 +223,16 @@ bool FreeValueManager::isFreeValue(BranchConditionInfo &BCI,
     FVI.setValues(I32Values, NumI32Values);
     break;
   }
+  case 14: {
+    FVI.setValues(PtrValues, 1);
+    break;
+  }
   default:
     ERR("unexpected type id: {}\n", FVI.TypeId);
     __builtin_trap();
   }
 
   // Write the initial value into the argument buffer.
-  FVI.write(*this);
   return true;
 }
 
@@ -246,19 +265,18 @@ bool FreeValueManager::modifyAndEvaluate(FreeValueInfo &FVI,
                      [&](BranchConditionInfo *BCI) { return evaluate(*BCI); });
 }
 
-bool FreeValueManager::evaluate(BranchConditionInfo &BCI) {
+bool FreeValueManager::evaluate(BranchConditionInfo &BCI, bool B) {
   uint32_t Outcome = BCI.Fn(BCI.ArgMemPtr);
   uint32_t DesiredOutcome = ThreadOM.getDesiredOutcome(BCI.No);
-  VERBOSE("BCI {}: {} vs {} :: '{}'\n", BCI.No, Outcome, DesiredOutcome,
-          *(char **)BCI.ArgMemPtr);
+  VERBOSE("BCI {}: {} vs {}\n", BCI.No, Outcome, DesiredOutcome);
   return (Outcome == DesiredOutcome);
 }
 
 void FreeValueManager::reset() {
-  std::set<BranchConditionInfo *> FreedBCIs;
-  for (auto &[VPtr, BCIs] : BranchConditions)
-    for (auto *BCIPtr : BCIs)
-      if (FreedBCIs.insert(BCIPtr).second)
-        delete BCIPtr;
+  for (auto &[No, BCIPtr] : BranchConditionMap) {
+    delete[] BCIPtr->ArgMemPtr;
+    delete BCIPtr;
+  }
+  BranchConditionMap.clear();
   BranchConditions.clear();
 }

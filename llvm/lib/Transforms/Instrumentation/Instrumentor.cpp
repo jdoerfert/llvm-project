@@ -36,13 +36,16 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/Alignment.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -970,41 +973,48 @@ template <typename Range>
 static Value *createValuePack(const Range &R, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
   auto *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-  auto &DL = Fn->getDataLayout();
   auto *I32Ty = IIRB.IRB.getInt32Ty();
-  SmallVector<Value *> Values;
+  SmallVector<Constant *> ConstantValues;
+  SmallVector<std::pair<Value *, uint32_t>> Values;
   SmallVector<Type *> Types;
-  bool AllConstant = true;
   for (auto &V : R) {
-    Values.push_back(getCI(I32Ty, DL.getTypeStoreSize(V->getType())));
+    if (!V->getType()->isSized())
+      continue;
+    auto VSize = IIRB.DL.getTypeAllocSize(V->getType());
+    ConstantValues.push_back(getCI(I32Ty, VSize));
     Types.push_back(I32Ty);
-    Values.push_back(getCI(I32Ty, V->getType()->getTypeID()));
+    ConstantValues.push_back(getCI(I32Ty, V->getType()->getTypeID()));
     Types.push_back(I32Ty);
-    Values.push_back(V);
+    if (uint32_t MisAlign = VSize % 8) {
+      Types.push_back(ArrayType::get(IIRB.Int8Ty, 8 - MisAlign));
+      ConstantValues.push_back(ConstantArray::getNullValue(Types.back()));
+    }
     Types.push_back(V->getType());
-    AllConstant &= isa<Constant>(V);
+    if (auto *C = dyn_cast<Constant>(V)) {
+      ConstantValues.push_back(C);
+      continue;
+    }
+    Values.push_back({V, ConstantValues.size()});
+    ConstantValues.push_back(Constant::getNullValue(V->getType()));
   }
-  StructType *STy = StructType::get(Fn->getContext(), Types);
-  if (AllConstant) {
-    Constant *Initializer = ConstantStruct::get(
-        STy, SmallVector<Constant *>(llvm::map_range(
-                 Values, [](Value *V) { return cast<Constant>(V); })));
+  if (Types.empty())
+    return ConstantPointerNull::get(PointerType::getUnqual(IIRB.Ctx));
 
-    GlobalVariable *&GV = IConf.ConstantGlobalsCache[Initializer];
-    if (!GV)
-      GV = new GlobalVariable(*Fn->getParent(), STy, true,
-                              GlobalValue::InternalLinkage, Initializer,
-                              IConf.getRTName().str() + "value_pack");
-    return GV;
-  }
+  StructType *STy = StructType::get(Fn->getContext(), Types, /*isPacked=*/true);
+  Constant *Initializer = ConstantStruct::get(STy, ConstantValues);
+
+  GlobalVariable *&GV = IConf.ConstantGlobalsCache[Initializer];
+  if (!GV)
+    GV = new GlobalVariable(*Fn->getParent(), STy, false,
+                            GlobalValue::InternalLinkage, Initializer,
+                            IConf.getRTName("", "value_pack"));
 
   auto *AI = IIRB.getAlloca(Fn, STy);
-  // unsigned Offset = 0;
-  for (auto [Idx, Param] : enumerate(Values)) {
+  IIRB.IRB.CreateMemCpy(AI, AI->getAlign(), GV, MaybeAlign(GV->getAlignment()),
+                        IIRB.DL.getTypeAllocSize(STy));
+  for (auto [Param, Idx] : Values) {
     auto *Ptr = IIRB.IRB.CreateStructGEP(STy, AI, Idx);
-    // auto *Ptr = IIRB.IRB.CreateConstInBoundsGEP1_32(IIRB.Int8Ty, AI, Offset);
     IIRB.IRB.CreateStore(Param, Ptr);
-    // Offset += DL.getTypeAllocSize(Param->getType());
   }
   IIRB.returnAllocas({AI});
   return AI;
@@ -1019,11 +1029,14 @@ static void readValuePack(const Range &R, Value &Pack,
   SmallVector<Value *> ParameterValues;
   unsigned Offset = 0;
   for (const auto &[Idx, Param] : enumerate(R)) {
+    if (!Param->getType()->isSized())
+      continue;
     Offset += 8;
     auto *Ptr = IIRB.IRB.CreateConstInBoundsGEP1_32(IIRB.Int8Ty, &Pack, Offset);
     auto *NewV = IIRB.IRB.CreateLoad(Param->getType(), Ptr);
     SetterCB(Idx, NewV);
-    Offset += DL.getTypeAllocSize(Param->getType());
+    auto VSize = DL.getTypeAllocSize(Param->getType());
+    Offset += alignTo(VSize, 8);
   }
 }
 
@@ -1217,9 +1230,10 @@ Value *CallIO::getAllocationInfo(Value &V, Type &Ty,
 
   auto &Ctx = CI.getContext();
 
-  StructType *STy =
-      StructType::get(Ctx, {IIRB.PtrTy, IIRB.Int32Ty, IIRB.Int32Ty,
-                            IIRB.Int32Ty, IIRB.Int8Ty, IIRB.Int32Ty});
+  StructType *STy = StructType::get(Ctx,
+                                    {IIRB.PtrTy, IIRB.Int32Ty, IIRB.Int32Ty,
+                                     IIRB.Int32Ty, IIRB.Int8Ty, IIRB.Int32Ty},
+                                    /*isPacked=*/true);
   SmallVector<Constant *> Values;
 
   if (ACI->Family)

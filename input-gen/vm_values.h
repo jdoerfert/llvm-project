@@ -18,7 +18,7 @@ struct FreeValueInfo {
   char *MPtr;
   char *VCmpPtr = nullptr;
   char *MCmpPtr = nullptr;
-  const size_t CmpSize = 0;
+  size_t CmpSize = 0;
 
   FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr);
   FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr, char *VCmpPtr,
@@ -33,6 +33,7 @@ struct FreeValueInfo {
   uint32_t getNumValues(FreeValueManager &FVM) const;
   char *getValuePtr(FreeValueManager &FVM) const;
   size_t getValueSize(FreeValueManager &FVM) const;
+  size_t getWrittenSize(FreeValueManager &FVM) const;
 
   bool isInitialized() const { return UsesIndirectValues || !!Values; }
   bool isFixed();
@@ -50,8 +51,6 @@ private:
   bool IsFixed = false;
 
   bool isMemcmp() const { return VCmpPtr; }
-
-  size_t getManifestSize() const { return isMemcmp() ? CmpSize : Size; }
 };
 
 struct BranchConditionInfo {
@@ -64,9 +63,11 @@ struct BranchConditionInfo {
 
 struct FreeValueDecisionTy {};
 
-static int32_t I32Values[] = {-100, -64, -32, -8,  -4,  -3,  -2,  -1, 0,
-                              1,    2,   3,   4,   8,   12,  16,  22, 24,
-                              26,   32,  64,  128, 256, 512, 1024};
+static char *PtrValues[] = {0};
+static int32_t I32Values[] = {
+    0,   1,   2,   3,    4,    8,   12,  16, 22, 24, 26, 32, 64,
+    128, 256, 512, 1024, -100, -64, -32, -8, -4, -3, -2, -1,
+};
 static uint32_t NumI32Values = sizeof(I32Values) / sizeof(I32Values[0]);
 
 struct FreeValueManager {
@@ -82,6 +83,7 @@ struct FreeValueManager {
 
   void reset();
 
+  std::map<uint32_t, BranchConditionInfo *> BranchConditionMap;
   std::map<char *, BCIVecTy> BranchConditions;
   std::set<std::string_view> StringCacheSet;
   std::deque<std::string> StringCache;
@@ -94,12 +96,13 @@ struct FreeValueManager {
   }
 
   bool isFreeValue(BranchConditionInfo &BCI, FreeValueInfo &FVI);
-  void checkBranchConditions(char *VPtr, char *VPBP, char *VCmpPtr, char *VCPBP);
+  void checkBranchConditions(char *VPtr, char *VPBP, char *VCmpPtr,
+                             char *VCPBP);
 
   bool workOn(FreeValueVecTy &FVVec, BCIVecTy &BCIs);
   bool modifyAndEvaluate(FreeValueInfo &FVI, BCIVecTy &BCIs);
 
-  bool evaluate(BranchConditionInfo &BCI);
+  bool evaluate(BranchConditionInfo &BCI, bool B = false);
 };
 
 } // namespace __ig

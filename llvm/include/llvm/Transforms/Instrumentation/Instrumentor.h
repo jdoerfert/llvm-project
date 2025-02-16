@@ -397,7 +397,7 @@ struct InstrumentationConfig {
   DenseMap<Constant *, GlobalVariable *> ConstantGlobalsCache;
 
   Constant *getGlobalString(StringRef S, InstrumentorIRBuilderTy &IIRB) {
-    Constant *&V = GlobalStringsMap[S];
+    Constant *&V = GlobalStringsMap[SS.save(S)];
     if (!V) {
       auto &M = *IIRB.IRB.GetInsertBlock()->getModule();
       V = IIRB.IRB.CreateGlobalString(
