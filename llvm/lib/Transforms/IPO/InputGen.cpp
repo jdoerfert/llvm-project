@@ -816,20 +816,20 @@ void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
   UnreachableIO::populate(*this, Ctx);
   BasePointerIO::populate(*this, Ctx);
 
-  auto *BIC = new (ChoiceAllocator.Allocate()) BranchConditionIO;
+  auto *BIC = InstrumentationConfig::allocate<BranchConditionIO>();
   BIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentBranch(cast<BranchInst>(V));
   };
   BIC->init(*this, Ctx);
 
-  auto *AIC = new (ChoiceAllocator.Allocate()) AllocaIO(/*IsPRE=*/false);
+  auto *AIC = InstrumentationConfig::allocate<AllocaIO>(/*IsPRE=*/false);
   AIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentAlloca(cast<AllocaInst>(V));
   };
   AIC->init(*this, Ctx, /*ReplaceAddr=*/true, /*ReplaceSize=*/false,
             /*PassAlignment*/ true);
 
-  auto *LIC = new (ChoiceAllocator.Allocate()) LoadIO(/*IsPRE=*/true);
+  auto *LIC = InstrumentationConfig::allocate<LoadIO>(/*IsPRE=*/true);
   LIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentLoad(cast<LoadInst>(V));
   };
@@ -840,7 +840,7 @@ void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
             /*PassValueTypeId=*/true, /*PassAtomicityOrdering=*/false,
             /*PassSyncScopeId=*/false, /*PassIsVolatile=*/false);
 
-  auto *SIC = new (ChoiceAllocator.Allocate()) StoreIO(/*IsPRE=*/true);
+  auto *SIC = InstrumentationConfig::allocate<StoreIO>(/*IsPRE=*/true);
   SIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentStore(cast<StoreInst>(V));
   };
@@ -851,7 +851,7 @@ void InputGenInstrumentationConfig::populate(LLVMContext &Ctx) {
             /*PassValueTypeId=*/true, /*PassAtomicityOrdering=*/false,
             /*PassSyncScopeId=*/false, /*PassIsVolatile=*/false);
 
-  auto *CIC = new (ChoiceAllocator.Allocate()) CallIO(/*IsPRE=*/true);
+  auto *CIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/true);
   CIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentCall(cast<CallInst>(V));
   };

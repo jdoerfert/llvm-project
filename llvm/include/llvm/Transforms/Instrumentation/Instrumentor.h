@@ -377,7 +377,13 @@ struct InstrumentationConfig {
       IChoices;
   void addChoice(InstrumentationOpportunity &IO);
 
-  SpecificBumpPtrAllocator<InstrumentationOpportunity> ChoiceAllocator;
+  template <typename Ty, typename... ArgsTy>
+  static Ty *allocate(ArgsTy &&...Args) {
+    static SpecificBumpPtrAllocator<Ty> Allocator;
+    Ty *Obj = Allocator.Allocate();
+    new (Obj) Ty(std::forward<ArgsTy>(Args)...);
+    return Obj;
+  }
 
   BumpPtrAllocator StringAllocator;
   StringSaver SS;
@@ -500,7 +506,7 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {
-      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) AllocaIO(IsPRE);
+      auto *AIC = IConf.allocate<AllocaIO>(IsPRE);
       AIC->init(IConf, Ctx);
     }
   }
@@ -593,7 +599,7 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {
-      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) StoreIO(IsPRE);
+      auto *AIC = IConf.allocate<StoreIO>(IsPRE);
       AIC->init(IConf, Ctx);
     }
   }
@@ -686,7 +692,7 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {
-      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) LoadIO(IsPRE);
+      auto *AIC = IConf.allocate<LoadIO>(IsPRE);
       AIC->init(IConf, Ctx);
     }
   }
@@ -776,7 +782,7 @@ struct CallIO : public InstructionIO<Instruction::Call> {
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {
-      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) CallIO(IsPRE);
+      auto *AIC = IConf.allocate<CallIO>(IsPRE);
       AIC->init(IConf, Ctx);
     }
   }
@@ -791,7 +797,7 @@ struct UnreachableIO : public InstructionIO<Instruction::Unreachable> {
   }
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
-    auto *AIC = new (IConf.ChoiceAllocator.Allocate()) UnreachableIO();
+    auto *AIC = IConf.allocate<UnreachableIO>();
     AIC->init(IConf, Ctx);
   }
 };
@@ -833,7 +839,7 @@ struct ICmpIO : public InstructionIO<Instruction::ICmp> {
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {
-      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) ICmpIO(IsPRE);
+      auto *AIC = IConf.allocate<ICmpIO>(IsPRE);
       AIC->init(IConf, Ctx);
     }
   }
@@ -861,7 +867,7 @@ struct PtrToIntIO : public InstructionIO<Instruction::PtrToInt> {
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {
-      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) PtrToIntIO(IsPRE);
+      auto *AIC = IConf.allocate<PtrToIntIO>(IsPRE);
       AIC->init(IConf, Ctx);
     }
   }
@@ -895,7 +901,7 @@ struct BasePointerIO : public InstrumentationOpportunity {
   }
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
-    auto *AIC = new (IConf.ChoiceAllocator.Allocate()) BasePointerIO();
+    auto *AIC = IConf.allocate<BasePointerIO>();
     AIC->init(IConf, Ctx);
   }
 };
@@ -941,7 +947,7 @@ struct FunctionIO : public InstrumentationOpportunity {
                              InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
-    auto *AIC = new (IConf.ChoiceAllocator.Allocate()) FunctionIO();
+    auto *AIC = IConf.allocate<FunctionIO>();
     AIC->init(IConf, Ctx);
   }
 };
@@ -973,7 +979,7 @@ struct ModuleIO : public InstrumentationOpportunity {
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {
-      auto *AIC = new (IConf.ChoiceAllocator.Allocate()) ModuleIO(IsPRE);
+      auto *AIC = IConf.allocate<ModuleIO>(IsPRE);
       AIC->init(IConf, Ctx);
     }
   }
@@ -1024,7 +1030,7 @@ struct GlobalIO : public InstrumentationOpportunity {
                            InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
-    auto *AIC = new (IConf.ChoiceAllocator.Allocate()) GlobalIO();
+    auto *AIC = IConf.allocate<GlobalIO>();
     AIC->init(IConf, Ctx);
   }
 };
