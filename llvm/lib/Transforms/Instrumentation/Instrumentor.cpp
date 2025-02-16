@@ -13,6 +13,7 @@
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
@@ -28,6 +29,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
@@ -53,6 +55,7 @@
 #include <cassert>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -308,9 +311,16 @@ public:
                    ModuleAnalysisManager &MAM)
       : IConf(IConf), M(M),
         FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()),
-        IIRB(M, [this](Function &F) -> TargetLibraryInfo & {
-          return FAM.getResult<TargetLibraryAnalysis>(F);
-        }) {}
+        IIRB(
+            M,
+            [this](Function &F) -> TargetLibraryInfo & {
+              return FAM.getResult<TargetLibraryAnalysis>(F);
+            },
+            [this](Function &F) -> DominatorTree & {
+              return FAM.getResult<DominatorTreeAnalysis>(F);
+            }) {
+    IConf.populate(IIRB);
+  }
 
   void printRuntimeSignatures() {
     auto *OutPtr = getStubRuntimeOut();
@@ -544,11 +554,97 @@ bool InstrumentorImpl::instrument() {
   return Changed;
 }
 
+static BasicBlock::iterator getBestHoistPoint(Instruction &I,
+                                              HoistKindTy HoistKind) {
+  auto IP = I.getIterator();
+  auto BlockIP = I.getParent()->getFirstNonPHIOrDbgOrAlloca();
+  switch (HoistKind) {
+  case DO_NOT_HOIST:
+    return IP;
+  case HOIST_WHEN_EXECUTED:
+    if (HoistKind == HOIST_WHEN_EXECUTED) {
+      while (IP != BlockIP) {
+        if (!(*IP).willReturn())
+          break;
+        --IP;
+      }
+    }
+    return IP;
+  case HOIST_IN_BLOCK:
+    return BlockIP;
+  case HOIST_MAXIMALLY:
+    return I.getFunction()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
+  }
+}
+
+BasicBlock::iterator InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(
+    Instruction &I, HoistKindTy HoistKind,
+    std::optional<BasicBlock::iterator> InitialIP) {
+  auto *Fn = I.getFunction();
+  const auto &DT = DTGetter(*Fn);
+
+  BasicBlock::iterator BestIP = getBestHoistPoint(I, HoistKind);
+  if (BestIP == I.getIterator() || BestIP == std::next(I.getIterator()))
+    return *I.getInsertionPointAfterDef();
+
+  auto IP = InitialIP ? *InitialIP : BestIP;
+  bool UsedBestInitialIP = IP == BestIP;
+
+  if (HoistedInsts.lookup(&I) >= HoistKind) {
+    if (DT.dominates(&I, IP))
+      return IP;
+    return *I.getInsertionPointAfterDef();
+  }
+
+  SetVector<Instruction *> MovableInst, UnmovableInst;
+  SmallVector<Instruction *> Worklist;
+  Worklist.push_back(&I);
+
+  while (!Worklist.empty()) {
+    auto *I = Worklist.pop_back_val();
+    if (HoistedInsts.lookup(I) >= HoistKind ||
+        (!HoistableInsts.count(I) &&
+         (I->mayHaveSideEffects() || I->mayReadFromMemory() ||
+          isa<PHINode>(I)))) {
+      UnmovableInst.insert(I);
+      continue;
+    }
+    if (!MovableInst.insert(I))
+      continue;
+    for (auto *Op : I->operand_values())
+      if (auto *OpI = dyn_cast<Instruction>(Op))
+        Worklist.push_back(OpI);
+  }
+
+  for (auto *I : UnmovableInst) {
+    if (!DT.dominates(I, IP))
+      IP = *I->getInsertionPointAfterDef();
+  }
+
+  for (auto *I : reverse(MovableInst)) {
+    if (DT.dominates(I, IP))
+      continue;
+
+    for (auto *Op : I->operand_values()) {
+      if (auto *OpI = dyn_cast<Instruction>(Op)) {
+        if (!DT.dominates(OpI, IP))
+          IP = *OpI->getInsertionPointAfterDef();
+      }
+    }
+    if (IP == I->getIterator())
+      IP = *I->getInsertionPointAfterDef();
+    else
+      I->moveBefore(IP);
+  }
+
+  if (UsedBestInitialIP)
+    HoistedInsts[&I] = HoistKind;
+  return IP;
+}
+
 PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
   InstrumentationConfig &IConf =
       UserIConf ? *UserIConf : *new InstrumentationConfig();
-  IConf.populate(M.getContext());
-
   InstrumentorImpl Impl(IConf, M, MAM);
   if (IConf.ReadConfig && !readInstrumentorConfigFromJSON(IConf))
     return PreservedAnalyses::all();
@@ -591,19 +687,19 @@ BaseConfigurationOpportunity *BaseConfigurationOpportunity::getStringOption(
   return BCO;
 }
 
-void InstrumentationConfig::populate(LLVMContext &Ctx) {
+void InstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   /// List of all instrumentation opportunities.
-  UnreachableIO::populate(*this, Ctx);
-  BasePointerIO::populate(*this, Ctx);
-  FunctionIO::populate(*this, Ctx);
-  PtrToIntIO::populate(*this, Ctx);
-  ModuleIO::populate(*this, Ctx);
-  GlobalIO::populate(*this, Ctx);
-  AllocaIO::populate(*this, Ctx);
-  StoreIO::populate(*this, Ctx);
-  LoadIO::populate(*this, Ctx);
-  CallIO::populate(*this, Ctx);
-  ICmpIO::populate(*this, Ctx);
+  UnreachableIO::populate(*this, IIRB.Ctx);
+  BasePointerIO::populate(*this, IIRB.Ctx);
+  FunctionIO::populate(*this, IIRB.Ctx);
+  PtrToIntIO::populate(*this, IIRB.Ctx);
+  ModuleIO::populate(*this, IIRB.Ctx);
+  GlobalIO::populate(*this, IIRB.Ctx);
+  AllocaIO::populate(*this, IIRB.Ctx);
+  StoreIO::populate(*this, IIRB.Ctx);
+  LoadIO::populate(*this, IIRB.Ctx);
+  CallIO::populate(*this, IIRB.Ctx);
+  ICmpIO::populate(*this, IIRB.Ctx);
 }
 
 void InstrumentationConfig::addChoice(InstrumentationOpportunity &IO) {
@@ -645,8 +741,8 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
       llvm_unreachable("Unexpected base pointer!");
     }
 
-    // Use fresh caches for safety, as this function may be called from another
-    // instrumentation opportunity.
+    // Use fresh caches for safety, as this function may be called from
+    // another instrumentation opportunity.
     InstrumentationCaches ICaches;
     BPI = BPIO->instrument(VPtr, *this, IIRB, ICaches);
   }
@@ -944,6 +1040,7 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
   auto FC = IIRB.IRB.GetInsertBlock()->getModule()->getOrInsertFunction(
       CompleteName, FnTy);
   auto *CI = IIRB.IRB.CreateCall(FC, CallParams);
+  CI->addFnAttr(Attribute::get(IIRB.Ctx, Attribute::WillReturn));
 
   for (unsigned I = 0, E = IO.IRTArgs.size(); I < E; ++I) {
     if (!IO.IRTArgs[I].Enabled)
@@ -963,6 +1060,11 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
       NewValue = IIRB.IRB.CreateLoad(V->getType(), Q);
     }
     V = IO.IRTArgs[I].SetterCB(*V, *NewValue, IConf, IIRB);
+  }
+
+  if (IO.HoistKind && !ForceIndirection) {
+    IIRB.HoistableInsts.insert(CI);
+    IIRB.hoistInstructionsAndAdjustIP(*CI, IO.HoistKind);
   }
 
   IIRB.returnAllocas(std::move(IndirectionAllocas));
@@ -1028,14 +1130,14 @@ static void readValuePack(const Range &R, Value &Pack,
   auto &DL = Fn->getDataLayout();
   SmallVector<Value *> ParameterValues;
   unsigned Offset = 0;
-  for (const auto &[Idx, Param] : enumerate(R)) {
-    if (!Param->getType()->isSized())
+  for (const auto &[Idx, V] : enumerate(R)) {
+    if (!V->getType()->isSized())
       continue;
     Offset += 8;
     auto *Ptr = IIRB.IRB.CreateConstInBoundsGEP1_32(IIRB.Int8Ty, &Pack, Offset);
-    auto *NewV = IIRB.IRB.CreateLoad(Param->getType(), Ptr);
+    auto *NewV = IIRB.IRB.CreateLoad(V->getType(), Ptr);
     SetterCB(Idx, NewV);
-    auto VSize = DL.getTypeAllocSize(Param->getType());
+    auto VSize = DL.getTypeAllocSize(V->getType());
     Offset += alignTo(VSize, 8);
   }
 }
@@ -1276,24 +1378,39 @@ Value *CallIO::getNumCallParameters(Value &V, Type &Ty,
                                     InstrumentationConfig &IConf,
                                     InstrumentorIRBuilderTy &IIRB) {
   auto &CI = cast<CallInst>(V);
-  return getCI(&Ty, CI.arg_size());
+  if (!Config.ArgFilter)
+    return getCI(&Ty, CI.arg_size());
+  auto FRange = make_filter_range(CI.args(), Config.ArgFilter);
+  return getCI(&Ty, std::distance(FRange.begin(), FRange.end()));
 }
 Value *CallIO::getCallParameters(Value &V, Type &Ty,
                                  InstrumentationConfig &IConf,
                                  InstrumentorIRBuilderTy &IIRB) {
   auto &CI = cast<CallInst>(V);
-  return createValuePack(CI.args(), IConf, IIRB);
+  if (!Config.ArgFilter)
+    return createValuePack(CI.args(), IConf, IIRB);
+  return createValuePack(make_filter_range(CI.args(), Config.ArgFilter), IConf,
+                         IIRB);
 }
 Value *CallIO::setCallParameters(Value &V, Value &NewV,
                                  InstrumentationConfig &IConf,
                                  InstrumentorIRBuilderTy &IIRB) {
   auto &CI = cast<CallInst>(V);
-  readValuePack(CI.args(), NewV, IIRB, [&](int Idx, Value *ReplV) {
+  auto *CIt = CI.arg_begin();
+  auto CB = [&](int Idx, Value *ReplV) {
+    while (Config.ArgFilter && !Config.ArgFilter(*CIt))
+      ++CIt;
     // Do not replace `immarg` operands with a non-immediate.
-    if (CI.getParamAttr(Idx, Attribute::ImmArg).isValid())
+    if (CI.getParamAttr(CIt->getOperandNo(), Attribute::ImmArg).isValid())
       return;
-    CI.setArgOperand(Idx, ReplV);
-  });
+    CIt->set(ReplV);
+    ++CIt;
+  };
+  if (!Config.ArgFilter)
+    readValuePack(CI.args(), NewV, IIRB, CB);
+  else
+    readValuePack(make_filter_range(CI.args(), Config.ArgFilter), NewV, IIRB,
+                  CB);
   return &CI;
 }
 Value *CallIO::isDefinition(Value &V, Type &Ty, InstrumentationConfig &IConf,
