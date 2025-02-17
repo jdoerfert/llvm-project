@@ -815,7 +815,6 @@ bool InputGenEntriesImpl::createEntryPoint() {
     // Tell Instrumentor not to ignore these functions.
     EntryPoint->addFnAttr("instrument");
     EntryPointWrapper->addFnAttr("instrument");
-
     EntryPointWrapper->addFnAttr(Attribute::NoInline);
 
     auto *WrapperEntryBB = BasicBlock::Create(Ctx, "entry", EntryPointWrapper);
@@ -838,8 +837,8 @@ bool InputGenEntriesImpl::createEntryPoint() {
       ReturnInst::Create(Ctx, WrapperEntryBB);
     else
       ReturnInst::Create(Ctx, CI, WrapperEntryBB);
-    CI->addFnAttr(Attribute::AlwaysInline);
     EntryPoint->addFnAttr(Attribute::AlwaysInline);
+    EntryPoint->removeFnAttr(Attribute::NoInline);
 
     ObjPtr = InitialObj;
     auto *DispatchBB = BasicBlock::Create(Ctx, "dispatch", IGEntry);
