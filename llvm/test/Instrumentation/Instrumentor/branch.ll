@@ -12,12 +12,13 @@ define i32 @foo(i1 %c) {
 ; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds i8, ptr [[TMP0]], i32 8
 ; CHECK-NEXT:    [[TMP5:%.*]] = load i1, ptr [[TMP4]], align 1
 ; CHECK-NEXT:    [[TMP6:%.*]] = zext i1 [[TMP5]] to i8
-; CHECK-NEXT:    [[TMP7:%.*]] = call i8 @__instrumentor_pre_br(i8 1, i8 [[TMP6]], i64 2) #[[ATTR1]]
-; CHECK-NEXT:    br i1 [[TMP5]], label %[[A:.*]], label %[[B:.*]]
+; CHECK-NEXT:    [[TMP8:%.*]] = call i8 @__instrumentor_pre_br(i8 1, i8 [[TMP6]], i64 2) #[[ATTR1]]
+; CHECK-NEXT:    [[TMP9:%.*]] = trunc i8 [[TMP8]] to i1
+; CHECK-NEXT:    br i1 [[TMP9]], label %[[A:.*]], label %[[B:.*]]
 ; CHECK:       [[A]]:
 ; CHECK-NEXT:    ret i32 0
 ; CHECK:       [[B]]:
-; CHECK-NEXT:    [[TMP8:%.*]] = call i8 @__instrumentor_pre_br(i8 0, i8 1, i64 1) #[[ATTR1]]
+; CHECK-NEXT:    [[TMP7:%.*]] = call i8 @__instrumentor_pre_br(i8 0, i8 1, i64 1) #[[ATTR1]]
 ; CHECK-NEXT:    br label %[[D:.*]]
 ; CHECK:       [[D]]:
 ; CHECK-NEXT:    ret i32 1

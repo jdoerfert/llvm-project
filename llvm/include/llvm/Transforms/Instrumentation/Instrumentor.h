@@ -923,7 +923,7 @@ struct BranchIO : public InstructionIO<Instruction::Br> {
                              IRTArg::NONE, isConditional));
     IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "value",
                              "Value of condition.", IRTArg::REPLACABLE,
-                             getValue, replaceValue));
+                             getValue, setValue));
     IRTArgs.push_back(IRTArg(PointerType::getInt64Ty(Ctx), "num_successors",
                              "Number of branch successors.", IRTArg::NONE,
                              getNumSuccessors));
@@ -938,6 +938,8 @@ struct BranchIO : public InstructionIO<Instruction::Br> {
   static Value *isConditional(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB);
   static Value *getValue(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                         InstrumentorIRBuilderTy &IIRB);
+  static Value *setValue(Value &V, Value &NewV, InstrumentationConfig &IConf,
                          InstrumentorIRBuilderTy &IIRB);
   static Value *getNumSuccessors(Value &V, Type &Ty,
                                  InstrumentationConfig &IConf,
