@@ -199,11 +199,10 @@ struct BucketSchemeTy : public EncodingSchemeTy {
     return E.VPtr;
   }
 
-  std::tuple<char *, uint32_t, int32_t> decode(char *VPtr) {
+  char* decode(char *VPtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
-    return std::make_tuple(D.Ptr + E.Bits.Offset, (uint32_t)E.Bits.Size,
-                           (uint32_t)E.Bits.Offset);
+    return D.Ptr + E.Bits.Offset;
   }
 
   char *access(char *VPtr, uint32_t AccessSize, uint32_t TypeId, bool Write) {
@@ -216,6 +215,10 @@ struct BucketSchemeTy : public EncodingSchemeTy {
       std::terminate();
     }
     return D.Ptr + E.Bits.Offset;
+  }
+
+  bool checkSize(char *VPtr, uint32_t AccessSize) {
+    return access(VPtr, AccessSize, 0, 0);
   }
 
   bool isEncoded(char *VPtr) override {
@@ -289,11 +292,10 @@ struct BigObjSchemeTy : public EncodingSchemeTy {
     return E.VPtr;
   }
 
-  std::tuple<char *, uint32_t, int32_t> decode(char *VPtr) {
+  char * decode(char *VPtr) {
     EncTy E(VPtr);
     auto [Base, Size] = Objects[E.Bits.ObjectIdx];
-    return std::make_tuple(Base + E.Bits.Offset, (uint32_t)Size,
-                           (uint32_t)E.Bits.Offset);
+    return Base + E.Bits.Offset;
   }
 
   char *access(char *VPtr, uint32_t AccessSize, uint32_t TypeId, bool Write) {
@@ -306,6 +308,10 @@ struct BigObjSchemeTy : public EncodingSchemeTy {
       std::terminate();
     }
     return Base + E.Bits.Offset;
+  }
+
+  bool checkSize(char *VPtr, uint32_t AccessSize) {
+    return access(VPtr, AccessSize, 0, 0);
   }
 
   bool isEncoded(char *VPtr) override {
@@ -458,13 +464,13 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     return ED.VPtr;
   }
 
-  std::tuple<char *, uint32_t, int32_t> decode(char *VPtr) {
+  char* decode(char *VPtr) {
     EncDecTy ED(VPtr);
     TableEntryTy &TE = Table[ED.Bits.TableIdx];
     if (TE.IsNull)
-      return {nullptr, 0, 0};
+      return nullptr;
     int32_t RelOffset = (uint32_t)ED.Bits.Offset - DefaultOffset;
-    return {TE.Base + RelOffset + TE.NegativeSize, 0, RelOffset};
+    return TE.Base + RelOffset;
   }
 
   __attribute__((always_inline)) uint64_t

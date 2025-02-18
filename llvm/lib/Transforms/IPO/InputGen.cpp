@@ -148,9 +148,9 @@ struct InputGenMemoryImpl {
   void createPathTable(Function &Fn);
 
   bool shouldInstrumentCall(CallInst &CI);
-  bool shouldInstrumentLoad(LoadInst &LI);
-  bool shouldInstrumentStore(StoreInst &SI);
-  bool shouldInstrumentAlloca(AllocaInst &AI);
+  bool shouldInstrumentLoad(LoadInst &LI, InstrumentorIRBuilderTy &IIRB);
+  bool shouldInstrumentStore(StoreInst &SI, InstrumentorIRBuilderTy &IIRB);
+  bool shouldInstrumentAlloca(AllocaInst &AI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentBranch(BranchInst &BI);
 
   FunctionAnalysisManager &getFAM() { return FAM; };
@@ -361,21 +361,23 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
       break;
     case BranchConditionInfo::ParameterInfo::MEMCMP:
       if (auto *SizeI = dyn_cast<Instruction>(PI.V))
-        IP = IIRB.hoistInstructionsAndAdjustIP(*SizeI, HOIST_MAXIMALLY, IP);
+        IP = IIRB.hoistInstructionsAndAdjustIP(*SizeI, HoistKind, IP).IP;
       LLVM_FALLTHROUGH;
     case BranchConditionInfo::ParameterInfo::STRCMP:
       if (auto *Ptr1I = dyn_cast<Instruction>(PI.Ptr1))
-        IP = IIRB.hoistInstructionsAndAdjustIP(*Ptr1I, HOIST_MAXIMALLY, IP);
+        IP = IIRB.hoistInstructionsAndAdjustIP(*Ptr1I, HoistKind, IP).IP;
       if (auto *Ptr2I = dyn_cast<Instruction>(PI.Ptr2))
-        IP = IIRB.hoistInstructionsAndAdjustIP(*Ptr2I, HOIST_MAXIMALLY, IP);
+        IP = IIRB.hoistInstructionsAndAdjustIP(*Ptr2I, HoistKind, IP).IP;
       break;
     case BranchConditionInfo::ParameterInfo::LOAD:
       if (auto *PtrI = dyn_cast<Instruction>(PI.Ptr1))
-        IP = IIRB.hoistInstructionsAndAdjustIP(*PtrI, HOIST_MAXIMALLY, IP);
+        IP = IIRB.hoistInstructionsAndAdjustIP(*PtrI, HoistKind, IP).IP;
       break;
     case BranchConditionInfo::ParameterInfo::INST:
       ParameterTypes.push_back(PI.V->getType());
-      IP = IIRB.hoistInstructionsAndAdjustIP(*cast<Instruction>(PI.V), HOIST_MAXIMALLY, IP);
+      IP = IIRB.hoistInstructionsAndAdjustIP(*cast<Instruction>(PI.V),
+                                             HoistKind, IP)
+               .IP;
       break;
     }
   }
@@ -534,28 +536,22 @@ bool InputGenMemoryImpl::shouldInstrumentBranch(BranchInst &BI) {
   return BI.isConditional() && isa<Instruction>(BI.getCondition());
 }
 
-bool InputGenMemoryImpl::shouldInstrumentLoad(LoadInst &LI) {
-  const Value *UnderlyingPtr =
-      getUnderlyingObjectAggressive(LI.getPointerOperand());
-  if (auto *AI = dyn_cast<AllocaInst>(UnderlyingPtr)) {
-    if (AI->getAllocationSize(DL) >= DL.getTypeStoreSize(LI.getType()))
-      return false;
-  }
+bool InputGenMemoryImpl::shouldInstrumentLoad(LoadInst &LI,
+                                              InstrumentorIRBuilderTy &IIRB) {
+  if (auto *AI = dyn_cast<AllocaInst>(LI.getPointerOperand()))
+    return shouldInstrumentAlloca(*AI, IIRB);
   return true;
 }
 
-bool InputGenMemoryImpl::shouldInstrumentStore(StoreInst &SI) {
-  const Value *UnderlyingPtr =
-      getUnderlyingObjectAggressive(SI.getPointerOperand());
-  if (auto *AI = dyn_cast<AllocaInst>(UnderlyingPtr)) {
-    if (AI->getAllocationSize(DL) >=
-        DL.getTypeStoreSize(SI.getValueOperand()->getType()))
-      return false;
-  }
+bool InputGenMemoryImpl::shouldInstrumentStore(StoreInst &SI,
+                                               InstrumentorIRBuilderTy &IIRB) {
+  if (auto *AI = dyn_cast<AllocaInst>(SI.getPointerOperand()))
+    return shouldInstrumentAlloca(*AI, IIRB);
   return true;
 }
 
-bool InputGenMemoryImpl::shouldInstrumentAlloca(AllocaInst &AI) {
+bool InputGenMemoryImpl::shouldInstrumentAlloca(AllocaInst &AI,
+                                                InstrumentorIRBuilderTy &IIRB) {
   // TODO: look trough transitive users.
   auto IsUseOK = [&](Use &U) -> bool {
     if (auto *SI = dyn_cast<StoreInst>(U.getUser())) {
@@ -883,8 +879,10 @@ InputGenInstrumentationConfig::InputGenInstrumentationConfig(
 void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   UnreachableIO::populate(*this, IIRB.Ctx);
   BasePointerIO::populate(*this, IIRB.Ctx);
+  LoopValueRangeIO::populate(*this, IIRB);
 
   auto *BIC = InstrumentationConfig::allocate<BranchConditionIO>();
+  BIC->HoistKind = HOIST_MAXIMALLY;
   BIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentBranch(cast<BranchInst>(V));
   };
@@ -892,7 +890,7 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
 
   auto *AIC = InstrumentationConfig::allocate<AllocaIO>(/*IsPRE=*/false);
   AIC->CB = [&](Value &V) {
-    return IGMI.shouldInstrumentAlloca(cast<AllocaInst>(V));
+    return IGMI.shouldInstrumentAlloca(cast<AllocaInst>(V), IIRB);
   };
   AIC->init(*this, IIRB.Ctx, /*ReplaceAddr=*/true, /*ReplaceSize=*/false,
             /*PassAlignment*/ true);
@@ -905,23 +903,24 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   LICConfig.PassSyncScopeId = false;
   LICConfig.PassIsVolatile = false;
   auto *LIC = InstrumentationConfig::allocate<LoadIO>(/*IsPRE=*/true);
-  LIC->HoistKind = HOIST_IN_BLOCK;
+  LIC->HoistKind = HOIST_MAXIMALLY;
   LIC->CB = [&](Value &V) {
-    return IGMI.shouldInstrumentLoad(cast<LoadInst>(V));
+    return IGMI.shouldInstrumentLoad(cast<LoadInst>(V), IIRB);
   };
-  LIC->init(*this, IIRB.Ctx, &LICConfig);
+  LIC->init(*this, IIRB, &LICConfig);
 
   StoreIO::ConfigTy SICConfig;
   SICConfig.PassPointerAS = false;
   SICConfig.PassAtomicityOrdering = false;
   SICConfig.PassSyncScopeId = false;
   SICConfig.PassIsVolatile = false;
+  SICConfig.PassStoredValue = false;
   auto *SIC = InstrumentationConfig::allocate<StoreIO>(/*IsPRE=*/true);
-  SIC->HoistKind = HOIST_IN_BLOCK;
+  SIC->HoistKind = HOIST_MAXIMALLY;
   SIC->CB = [&](Value &V) {
-    return IGMI.shouldInstrumentStore(cast<StoreInst>(V));
+    return IGMI.shouldInstrumentStore(cast<StoreInst>(V), IIRB);
   };
-  SIC->init(*this, IIRB.Ctx, &SICConfig);
+  SIC->init(*this, IIRB, &SICConfig);
 
   CallIO::ConfigTy CICConfig;
   CICConfig.ArgFilter = [&](Use &Op) {

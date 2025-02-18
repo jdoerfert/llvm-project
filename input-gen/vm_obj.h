@@ -71,7 +71,7 @@ struct ObjectManager {
     return UserObjLarge.encode(Ptr, Size);
   }
 
-  std::tuple<char *, uint32_t, uint32_t> decode(char *VPtr) {
+  char *decode(char *VPtr) {
     switch (getEncoding(VPtr)) {
     case 1:
       return UserObjSmall.decode(VPtr);
@@ -80,7 +80,7 @@ struct ObjectManager {
     case 3:
       return UserObjLarge.decode(VPtr);
     default:
-      return {VPtr, 0, 0};
+      return VPtr;
     }
   }
 
@@ -218,18 +218,34 @@ struct ObjectManager {
     return Value;
   }
 
+  bool checkRange(char *VPtr, uint32_t Size) {
+    switch (getEncoding(VPtr)) {
+    case 1:
+      return UserObjSmall.checkSize(VPtr, Size);
+    case 2: {
+      bool IsInitialized = false;
+      RTObjs.access(VPtr, Size, 0, CHECK_INITIALIZED, IsInitialized);
+      return IsInitialized;
+    }
+    case 3:
+      return UserObjLarge.checkSize(VPtr, Size);
+    default:
+      return true;
+    }
+  }
+
   char *decodeAndCheckInitialized(char *VPtr, uint32_t Size,
                                   bool &Initialized) {
     switch (getEncoding(VPtr)) {
     case 1:
       Initialized = true;
-      return std::get<0>(UserObjSmall.decode(VPtr));
+      return UserObjSmall.decode(VPtr);
     case 2:
       Initialized = false;
       return RTObjs.access(VPtr, Size, 0, CHECK_INITIALIZED, Initialized);
     case 3:
       Initialized = true;
-      return std::get<0>(UserObjLarge.decode(VPtr));
+      return UserObjLarge.decode(VPtr);
     default:
       Initialized = true;
       return VPtr;

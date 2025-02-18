@@ -17,6 +17,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -36,6 +37,7 @@
 #include "llvm/Support/StringSaver.h"
 #include "llvm/Transforms/Utils/Instrumentation.h"
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
@@ -45,22 +47,25 @@ namespace llvm {
 namespace instrumentor {
 enum HoistKindTy {
   DO_NOT_HOIST = 0,
-  HOIST_WHEN_EXECUTED,
   HOIST_IN_BLOCK,
   HOIST_MAXIMALLY,
 };
 
 struct InstrumentationConfig;
+struct InstrumentationOpportunity;
+
 struct InstrumentorIRBuilderTy {
   using TLIGetterTy = std::function<TargetLibraryInfo &(Function &F)>;
   using DTGetterTy = std::function<DominatorTree &(Function &F)>;
+  using SEGetterTy = std::function<ScalarEvolution &(Function &F)>;
 
   InstrumentorIRBuilderTy(Module &M, TLIGetterTy &&TLIGetter,
-                          DTGetterTy &&DTGetter)
+                          DTGetterTy &&DTGetter, SEGetterTy &&SEGetter)
       : M(M), Ctx(M.getContext()), TLIGetter(TLIGetter), DTGetter(DTGetter),
-        IRB(Ctx, ConstantFolder(),
-            IRBuilderCallbackInserter(
-                [&](Instruction *I) { NewInsts[I] = Epoche; })) {}
+        SEGetter(SEGetter), IRB(Ctx, ConstantFolder(),
+                                IRBuilderCallbackInserter([&](Instruction *I) {
+                                  NewInsts[I] = Epoche;
+                                })) {}
   ~InstrumentorIRBuilderTy() {
     for (auto *I : ToBeErased) {
       if (!I->getType()->isVoidTy())
@@ -95,9 +100,35 @@ struct InstrumentorIRBuilderTy {
   DenseMap<Instruction *, HoistKindTy> HoistedInsts;
   DenseSet<Instruction *> HoistableInsts;
 
-  BasicBlock::iterator hoistInstructionsAndAdjustIP(
-      Instruction &I, HoistKindTy HoistKind,
-      std::optional<BasicBlock::iterator> InititalIP = std::nullopt);
+  BasicBlock::iterator getBestHoistPoint(BasicBlock::iterator,
+                                         HoistKindTy HoistKind);
+
+  DenseMap<Instruction *, std::pair<Value *, Value *>> MinMaxMap;
+  struct HoistResult {
+    HoistResult(BasicBlock::iterator IP, Value *MinVal, Value *MaxVal)
+        : IP(IP), MinVal(MinVal), MaxVal(MaxVal) {}
+
+    BasicBlock::iterator IP;
+    Value *MinVal;
+    Value *MaxVal;
+  };
+  HoistResult hoistInstructionsAndAdjustIP(Instruction &I,
+                                           HoistKindTy HoistKind,
+                                           BasicBlock::iterator IP);
+
+  bool isKnownDereferenceableAccess(Instruction &I, Value &Ptr,
+                                    uint32_t AccessSize);
+
+  DenseMap<Value *, std::pair<Value *, Value *>> LoopRangeValueMap;
+
+  std::pair<BasicBlock::iterator, bool> computeLoopRangeValues(Value &V);
+
+  Value *getInitialLoopValue(Value &V) {
+    return std::get<0>(LoopRangeValueMap[&V]);
+  }
+  Value *getFinalLoopValue(Value &V) {
+    return std::get<1>(LoopRangeValueMap[&V]);
+  }
 
   /// Commonly used values for IR inspection and creation.
   ///{
@@ -127,6 +158,7 @@ struct InstrumentorIRBuilderTy {
 
   TLIGetterTy TLIGetter;
   DTGetterTy DTGetter;
+  SEGetterTy SEGetter;
 
   IRBuilder<ConstantFolder, IRBuilderCallbackInserter> IRB;
   /// Each instrumentation, i.a., of an instruction, is happening in a dedicated
@@ -158,6 +190,7 @@ struct IRTArg {
     REPLACABLE_CUSTOM = 1 << 2,
     POTENTIALLY_INDIRECT = 1 << 3,
     INDIRECT_HAS_SIZE = 1 << 4,
+    MIN_MAX_HOISTABLE = 1 << 5,
 
     LAST,
   };
@@ -184,7 +217,6 @@ struct InstrumentationCaches {
       IndirectArgCache;
 };
 
-struct InstrumentationOpportunity;
 struct IRTCallDescription {
   IRTCallDescription(InstrumentationOpportunity &IConf, Type *RetTy = nullptr);
 
@@ -379,8 +411,8 @@ struct InstrumentationConfig {
   StringRef getRTName() const { return RuntimePrefix->getString(); }
 
   std::string getRTName(StringRef Prefix, StringRef Name,
-                        StringRef Suffix = "") {
-    return (getRTName() + Prefix + Name + Suffix).str();
+                        StringRef Suffix1 = "", StringRef Suffix2 = "") {
+    return (getRTName() + Prefix + Name + Suffix1 + Suffix2).str();
   }
 
   void addBaseChoice(BaseConfigurationOpportunity *BCO) {
@@ -410,6 +442,9 @@ struct InstrumentationConfig {
 
   DenseMap<std::pair<Value *, Function *>, Value *> BasePointerInfoMap;
   Value *getBasePointerInfo(Value &V, InstrumentorIRBuilderTy &IIRB);
+
+  DenseMap<std::pair<const SCEV *, Function *>, Value *> LoopValueRangeMap;
+  Value *getLoopValueRange(Value &V, InstrumentorIRBuilderTy &IIRB);
 
   /// Mapping to remember global strings passed to the runtime.
   DenseMap<StringRef, Constant *> GlobalStringsMap;
@@ -543,6 +578,7 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
     bool ReplacePointer = true;
     bool PassPointerAS = true;
     bool PassBasePointerInfo = true;
+    bool PassLoopValueRangeInfo = true;
     bool PassStoredValue = true;
     bool PassStoredValueSize = true;
     bool PassAlignment = true;
@@ -552,54 +588,58 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
     bool PassIsVolatile = true;
   } Config;
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
             ConfigTy *UserConfig = nullptr) {
     if (UserConfig)
       Config = *UserConfig;
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
     if (Config.PassPointer)
-      IRTArgs.push_back(IRTArg(
-          PointerType::getUnqual(Ctx), "pointer", "The accessed pointer.",
-          (IsPRE && Config.ReplacePointer) ? IRTArg::REPLACABLE : IRTArg::NONE,
-          getPointer, setPointer));
+      IRTArgs.push_back(
+          IRTArg(IIRB.PtrTy, "pointer", "The accessed pointer.",
+                 ((IsPRE && Config.ReplacePointer) ? IRTArg::REPLACABLE
+                                                   : IRTArg::NONE),
+                 getPointer, setPointer));
     if (Config.PassPointerAS)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "pointer_as",
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "pointer_as",
                                "The address space of the accessed pointer.",
                                IRTArg::NONE, getPointerAS));
     if (Config.PassBasePointerInfo)
-      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "base_pointer_info",
+      IRTArgs.push_back(IRTArg(IIRB.PtrTy, "base_pointer_info",
                                "The runtime provided base pointer info.",
                                IRTArg::NONE, getBasePointerInfo));
+    if (Config.PassLoopValueRangeInfo)
+      IRTArgs.push_back(IRTArg(IIRB.PtrTy, "loop_value_range_info",
+                               "The runtime provided loop value range info.",
+                               IRTArg::NONE, getLoopValueRangeInfo));
     if (Config.PassStoredValue)
       IRTArgs.push_back(
-          IRTArg(IntegerType::getInt64Ty(Ctx), "value", "The stored value.",
+          IRTArg(IIRB.Int64Ty, "value", "The stored value.",
                  IRTArg::POTENTIALLY_INDIRECT |
                      (Config.PassStoredValueSize ? IRTArg::INDIRECT_HAS_SIZE
                                                  : IRTArg::NONE),
                  getValue));
     if (Config.PassStoredValueSize)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_size",
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_size",
                                "The size of the stored value.", IRTArg::NONE,
                                getValueSize));
     if (Config.PassAlignment)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
+      IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "alignment",
                                "The known access alignment.", IRTArg::NONE,
                                getAlignment));
     if (Config.PassValueTypeId)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_type_id",
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_type_id",
                                "The type id of the stored value.", IRTArg::NONE,
                                getValueTypeId));
     if (Config.PassAtomicityOrdering)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx),
-                               "atomicity_ordering",
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "atomicity_ordering",
                                "The atomicity ordering of the store.",
                                IRTArg::NONE, getAtomicityOrdering));
     if (Config.PassSyncScopeId)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "sync_scope_id",
+      IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "sync_scope_id",
                                "The sync scope id of the store.", IRTArg::NONE,
                                getSyncScopeId));
     if (Config.PassIsVolatile)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_volatile",
+      IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "is_volatile",
                                "Flag indicating a volatile store.",
                                IRTArg::NONE, isVolatile));
 
@@ -615,6 +655,9 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
   static Value *getBasePointerInfo(Value &V, Type &Ty,
                                    InstrumentationConfig &IConf,
                                    InstrumentorIRBuilderTy &IIRB);
+  static Value *getLoopValueRangeInfo(Value &V, Type &Ty,
+                                      InstrumentationConfig &IConf,
+                                      InstrumentorIRBuilderTy &IIRB);
   static Value *getValue(Value &V, Type &Ty, InstrumentationConfig &IConf,
                          InstrumentorIRBuilderTy &IIRB);
   static Value *getValueSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
@@ -631,10 +674,11 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
   static Value *isVolatile(Value &V, Type &Ty, InstrumentationConfig &IConf,
                            InstrumentorIRBuilderTy &IIRB);
 
-  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
     for (auto IsPRE : {true, false}) {
       auto *AIC = IConf.allocate<StoreIO>(IsPRE);
-      AIC->init(IConf, Ctx);
+      AIC->init(IConf, IIRB);
     }
   }
 };
@@ -648,6 +692,7 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
     bool ReplacePointer = true;
     bool PassPointerAS = true;
     bool PassBasePointerInfo = true;
+    bool PassLoopValueRangeInfo = true;
     bool PassValue = true;
     bool ReplaceValue = true;
     bool PassValueSize = true;
@@ -658,53 +703,57 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
     bool PassIsVolatile = true;
   } Config;
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
             ConfigTy *UserConfig = nullptr) {
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
     if (UserConfig)
       Config = *UserConfig;
     if (Config.PassPointer)
-      IRTArgs.push_back(IRTArg(
-          PointerType::getUnqual(Ctx), "pointer", "The accessed pointer.",
-          (IsPRE && Config.ReplacePointer) ? IRTArg::REPLACABLE : IRTArg::NONE,
-          getPointer, setPointer));
+      IRTArgs.push_back(
+          IRTArg(IIRB.PtrTy, "pointer", "The accessed pointer.",
+                 ((IsPRE && Config.ReplacePointer) ? IRTArg::REPLACABLE
+                                                   : IRTArg::NONE),
+                 getPointer, setPointer));
     if (Config.PassPointerAS)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "pointer_as",
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "pointer_as",
                                "The address space of the accessed pointer.",
                                IRTArg::NONE, getPointerAS));
     if (Config.PassBasePointerInfo)
-      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "base_pointer_info",
+      IRTArgs.push_back(IRTArg(IIRB.PtrTy, "base_pointer_info",
                                "The runtime provided base pointer info.",
                                IRTArg::NONE, getBasePointerInfo));
+    if (Config.PassLoopValueRangeInfo)
+      IRTArgs.push_back(IRTArg(IIRB.PtrTy, "loop_value_range_info",
+                               "The runtime provided loop value range info.",
+                               IRTArg::NONE, getLoopValueRangeInfo));
     if (!IsPRE && Config.PassValue)
-      IRTArgs.push_back(
-          IRTArg(IntegerType::getInt64Ty(Ctx), "value", "The loaded value.",
-                 IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT |
-                     IRTArg::INDIRECT_HAS_SIZE,
-                 getValue, replaceValue));
+      IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "value", "The loaded value.",
+                               IRTArg::REPLACABLE |
+                                   IRTArg::POTENTIALLY_INDIRECT |
+                                   IRTArg::INDIRECT_HAS_SIZE,
+                               getValue, replaceValue));
     if (Config.PassValueSize)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_size",
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_size",
                                "The size of the loaded value.", IRTArg::NONE,
                                getValueSize));
     if (Config.PassAlignment)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
+      IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "alignment",
                                "The known access alignment.", IRTArg::NONE,
                                getAlignment));
     if (Config.PassValueTypeId)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "value_type_id",
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_type_id",
                                "The type id of the loaded value.", IRTArg::NONE,
                                getValueTypeId));
     if (Config.PassAtomicityOrdering)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx),
-                               "atomicity_ordering",
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "atomicity_ordering",
                                "The atomicity ordering of the load.",
                                IRTArg::NONE, getAtomicityOrdering));
     if (Config.PassSyncScopeId)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "sync_scope_id",
+      IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "sync_scope_id",
                                "The sync scope id of the load.", IRTArg::NONE,
                                getSyncScopeId));
     if (Config.PassIsVolatile)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_volatile",
+      IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "is_volatile",
                                "Flag indicating a volatile load.", IRTArg::NONE,
                                isVolatile));
 
@@ -720,6 +769,9 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
   static Value *getBasePointerInfo(Value &V, Type &Ty,
                                    InstrumentationConfig &IConf,
                                    InstrumentorIRBuilderTy &IIRB);
+  static Value *getLoopValueRangeInfo(Value &V, Type &Ty,
+                                      InstrumentationConfig &IConf,
+                                      InstrumentorIRBuilderTy &IIRB);
   static Value *getValue(Value &V, Type &Ty, InstrumentationConfig &IConf,
                          InstrumentorIRBuilderTy &IIRB);
   static Value *getValueSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
@@ -736,10 +788,11 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
   static Value *isVolatile(Value &V, Type &Ty, InstrumentationConfig &IConf,
                            InstrumentorIRBuilderTy &IIRB);
 
-  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
     for (auto IsPRE : {true, false}) {
       auto *AIC = IConf.allocate<LoadIO>(IsPRE);
-      AIC->init(IConf, Ctx);
+      AIC->init(IConf, IIRB);
     }
   }
 };
@@ -992,6 +1045,58 @@ struct BasePointerIO : public InstrumentationOpportunity {
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     auto *AIC = IConf.allocate<BasePointerIO>();
     AIC->init(IConf, Ctx);
+  }
+
+  virtual Type *getRetTy(LLVMContext &Ctx) const override {
+    return PointerType::getUnqual(Ctx);
+  }
+};
+
+struct LoopValueRangeIO : public InstrumentationOpportunity {
+  LoopValueRangeIO()
+      : InstrumentationOpportunity(
+            InstrumentationLocation(InstrumentationLocation::SPECIAL_VALUE)) {}
+  virtual ~LoopValueRangeIO() {};
+
+  StringRef getName() const override { return "loop_value_range"; }
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "initial_loop_val",
+                             "The value in the first loop iteration.",
+                             IRTArg::NONE, getInitialLoopValue));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "final_loop_val",
+                             "The value in the last loop iteration.",
+                             IRTArg::NONE, getFinalLoopValue));
+    IConf.addChoice(*this);
+  }
+
+  static Value *getInitialLoopValue(Value &V, Type &Ty,
+                                    InstrumentationConfig &IConf,
+                                    InstrumentorIRBuilderTy &IIRB);
+  static Value *getFinalLoopValue(Value &V, Type &Ty,
+                                  InstrumentationConfig &IConf,
+                                  InstrumentorIRBuilderTy &IIRB);
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto *LVRIO = IConf.allocate<LoopValueRangeIO>();
+    LVRIO->init(IConf, IIRB);
+  }
+
+  virtual Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                            InstrumentorIRBuilderTy &IIRB,
+                            InstrumentationCaches &ICaches) override {
+    if (CB && !CB(*V))
+      return nullptr;
+    auto [IP, Success] = IIRB.computeLoopRangeValues(*V);
+    if (!Success)
+      return nullptr;
+    IIRB.IRB.SetInsertPoint(IP);
+    return InstrumentationOpportunity::instrument(V, IConf, IIRB, ICaches);
+  }
+
+  virtual Type *getRetTy(LLVMContext &Ctx) const override {
+    return PointerType::getUnqual(Ctx);
   }
 };
 

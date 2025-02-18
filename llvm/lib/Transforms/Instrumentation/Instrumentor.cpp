@@ -18,7 +18,10 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/iterator.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -50,7 +53,9 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
+#include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 
 #include <cassert>
 #include <cstdint>
@@ -318,6 +323,9 @@ public:
             },
             [this](Function &F) -> DominatorTree & {
               return FAM.getResult<DominatorTreeAnalysis>(F);
+            },
+            [this](Function &F) -> ScalarEvolution & {
+              return FAM.getResult<ScalarEvolutionAnalysis>(F);
             }) {
     IConf.populate(IIRB);
   }
@@ -536,6 +544,15 @@ bool InstrumentorImpl::instrumentModule() {
 
 bool InstrumentorImpl::instrument() {
   bool Changed = false;
+  for (auto &Fn : M) {
+    if (Fn.isDeclaration())
+      continue;
+    auto &LI = FAM.getResult<LoopAnalysis>(Fn);
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(Fn);
+    for (auto *L : LI)
+      if (!L->getLoopPreheader())
+        InsertPreheaderForLoop(L, &DT, &LI, nullptr, true);
+  }
 
   for (auto &ChoiceIt :
        IConf.IChoices[InstrumentationLocation::INSTRUCTION_PRE])
@@ -554,63 +571,47 @@ bool InstrumentorImpl::instrument() {
   return Changed;
 }
 
-static BasicBlock::iterator getBestHoistPoint(Instruction &I,
-                                              HoistKindTy HoistKind) {
-  auto IP = I.getIterator();
-  auto BlockIP = I.getParent()->getFirstNonPHIOrDbgOrAlloca();
+BasicBlock::iterator
+InstrumentorIRBuilderTy::getBestHoistPoint(BasicBlock::iterator IP,
+                                           HoistKindTy HoistKind) {
+  auto BlockIP = IP.getNodeParent()->getFirstNonPHIOrDbgOrAlloca();
   switch (HoistKind) {
   case DO_NOT_HOIST:
-    return IP;
-  case HOIST_WHEN_EXECUTED:
-    if (HoistKind == HOIST_WHEN_EXECUTED) {
-      while (IP != BlockIP) {
-        if (!(*IP).willReturn())
-          break;
-        --IP;
-      }
-    }
     return IP;
   case HOIST_IN_BLOCK:
     return BlockIP;
   case HOIST_MAXIMALLY:
-    return I.getFunction()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
+    return IP->getFunction()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
   }
 }
-
-BasicBlock::iterator InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(
-    Instruction &I, HoistKindTy HoistKind,
-    std::optional<BasicBlock::iterator> InitialIP) {
+InstrumentorIRBuilderTy::HoistResult
+InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(Instruction &I,
+                                                      HoistKindTy HoistKind,
+                                                      BasicBlock::iterator IP) {
   auto *Fn = I.getFunction();
   const auto &DT = DTGetter(*Fn);
 
-  BasicBlock::iterator BestIP = getBestHoistPoint(I, HoistKind);
-  if (BestIP == I.getIterator() || BestIP == std::next(I.getIterator()))
-    return *I.getInsertionPointAfterDef();
+  if (DT.dominates(&I, IP))
+    return {IP, &I, &I};
 
-  auto IP = InitialIP ? *InitialIP : BestIP;
-  bool UsedBestInitialIP = IP == BestIP;
-
-  if (HoistedInsts.lookup(&I) >= HoistKind) {
-    if (DT.dominates(&I, IP))
-      return IP;
-    return *I.getInsertionPointAfterDef();
-  }
-
-  SetVector<Instruction *> MovableInst, UnmovableInst;
+  SmallVector<Instruction *> Stack;
+  SmallPtrSet<Instruction *, 8> UnmovableInst;
   SmallVector<Instruction *> Worklist;
   Worklist.push_back(&I);
 
   while (!Worklist.empty()) {
     auto *I = Worklist.pop_back_val();
-    if (HoistedInsts.lookup(I) >= HoistKind ||
-        (!HoistableInsts.count(I) &&
-         (I->mayHaveSideEffects() || I->mayReadFromMemory() ||
-          isa<PHINode>(I)))) {
+    if (isa<PHINode>(I)) {
       UnmovableInst.insert(I);
       continue;
     }
-    if (!MovableInst.insert(I))
+    if (!HoistableInsts.count(I) &&
+        (I->mayHaveSideEffects() || I->mayReadFromMemory())) {
+      UnmovableInst.insert(I);
       continue;
+    }
+
+    Stack.push_back(I);
     for (auto *Op : I->operand_values())
       if (auto *OpI = dyn_cast<Instruction>(Op))
         Worklist.push_back(OpI);
@@ -621,25 +622,104 @@ BasicBlock::iterator InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(
       IP = *I->getInsertionPointAfterDef();
   }
 
-  for (auto *I : reverse(MovableInst)) {
+  UnreachableInst *UI = new UnreachableInst(I.getContext(), IP);
+  IP = UI->getIterator();
+
+  SmallPtrSet<Instruction *, 8> Seen;
+  for (auto *I : reverse(Stack)) {
+    if (!Seen.insert(I).second)
+      continue;
+    if (UnmovableInst.count(I))
+      continue;
     if (DT.dominates(I, IP))
       continue;
-
-    for (auto *Op : I->operand_values()) {
-      if (auto *OpI = dyn_cast<Instruction>(Op)) {
-        if (!DT.dominates(OpI, IP))
-          IP = *OpI->getInsertionPointAfterDef();
-      }
-    }
-    if (IP == I->getIterator())
-      IP = *I->getInsertionPointAfterDef();
-    else
-      I->moveBefore(IP);
+    I->moveBefore(IP);
   }
 
-  if (UsedBestInitialIP)
-    HoistedInsts[&I] = HoistKind;
-  return IP;
+  IP = std::next(IP);
+  UI->eraseFromParent();
+
+  return {IP, &I, &I};
+}
+
+std::pair<BasicBlock::iterator, bool>
+InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V) {
+  std::pair<Value *, Value *> &Values = LoopRangeValueMap[&V];
+  if (Values.first)
+    return {BasicBlock::iterator(), false};
+  auto &SE = SEGetter(*IRB.GetInsertBlock()->getParent());
+  auto *VSCEV = SE.getSCEV(&V);
+  if (isa<SCEVCouldNotCompute>(VSCEV)) {
+    LLVM_DEBUG(errs() << " - loop evaluation not computable for " << V << "\n");
+    return {BasicBlock::iterator(), false};
+  }
+
+  SmallPtrSet<const Loop *, 8> Loops;
+  SE.getUsedLoops(VSCEV, Loops);
+  if (Loops.empty()) {
+    LLVM_DEBUG(errs() << " - no loops in value " << *VSCEV << "\n");
+    return {BasicBlock::iterator(), false};
+  }
+
+  SmallVector<const Loop *, 8> LoopsOrdered;
+  for (auto *L : Loops) {
+    auto Depth = L->getLoopDepth();
+    if (Depth >= LoopsOrdered.size())
+      LoopsOrdered.resize(Depth + 1);
+    assert(!LoopsOrdered[Depth]);
+    LoopsOrdered[Depth] = L;
+  }
+
+  auto *MinSCEV = VSCEV;
+  auto *MaxSCEV = VSCEV;
+  auto *Ty = VSCEV->getType();
+  for (int32_t I = LoopsOrdered.size() - 1; I >= 0; --I) {
+    auto *L = LoopsOrdered[I];
+    if (!L)
+      continue;
+    if (!SE.hasComputableLoopEvolution(MinSCEV, L) ||
+        !SE.hasComputableLoopEvolution(MaxSCEV, L) ||
+        !SE.hasLoopInvariantBackedgeTakenCount(L) ||
+        isa<SCEVCouldNotCompute>(SE.getBackedgeTakenCount(L))) {
+      LLVM_DEBUG(errs() << " -- loop at depth " << I
+                        << " not computable:" << *MinSCEV << " : " << *MaxSCEV
+                        << " in " << L->getName() << "\n");
+      break;
+    }
+    LoopToScevMapT MinL2SMap, MaxL2SMap;
+    MinL2SMap[L] = SE.getZero(Ty);
+    MaxL2SMap[L] = SE.getBackedgeTakenCount(L);
+    LLVM_DEBUG(errs() << "L -> " << *MinL2SMap[L] << " : " << *MaxL2SMap[L]
+                      << "\n");
+    MinSCEV = SCEVLoopAddRecRewriter::rewrite(MinSCEV, MinL2SMap, SE);
+    MaxSCEV = SCEVLoopAddRecRewriter::rewrite(MaxSCEV, MaxL2SMap, SE);
+  }
+  if (MaxSCEV == VSCEV) {
+    LLVM_DEBUG(errs() << " - outermost loop not computable " << *VSCEV << "\n");
+    return {BasicBlock::iterator(), false};
+  }
+
+  SCEVExpander Expander(SE, DL, ".vrange");
+  auto IP = IRB.GetInsertPoint();
+  Expander.setInsertPoint(IP);
+  Value *MinVal = Expander.expandCodeFor(MinSCEV, Ty);
+  Value *MaxVal = Expander.expandCodeFor(MaxSCEV, Ty);
+  IP = getBestHoistPoint(IP, HOIST_MAXIMALLY);
+  if (auto *MinValI = dyn_cast<Instruction>(MinVal))
+    IP = hoistInstructionsAndAdjustIP(*MinValI, HOIST_MAXIMALLY, IP).IP;
+  if (auto *MaxValI = dyn_cast<Instruction>(MaxVal))
+    IP = hoistInstructionsAndAdjustIP(*MaxValI, HOIST_MAXIMALLY, IP).IP;
+  Values = {MinVal, MaxVal};
+  return {IP, true};
+}
+
+bool InstrumentorIRBuilderTy::isKnownDereferenceableAccess(
+    Instruction &I, Value &Ptr, uint32_t AccessSize) {
+  auto &TLI = TLIGetter(*I.getFunction());
+  uint64_t Size;
+  if (!getObjectSize(&Ptr, Size, DL, &TLI))
+    return false;
+  return Size >= AccessSize;
 }
 
 PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
@@ -689,6 +769,7 @@ BaseConfigurationOpportunity *BaseConfigurationOpportunity::getStringOption(
 
 void InstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   /// List of all instrumentation opportunities.
+  LoopValueRangeIO::populate(*this, IIRB);
   UnreachableIO::populate(*this, IIRB.Ctx);
   BasePointerIO::populate(*this, IIRB.Ctx);
   FunctionIO::populate(*this, IIRB.Ctx);
@@ -724,16 +805,14 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
   if (!BPI) {
     auto *BPIO =
         IChoices[InstrumentationLocation::SPECIAL_VALUE]["base_pointer_info"];
-    if (!BPIO->Enabled) {
+    if (!BPIO || !BPIO->Enabled) {
       errs() << "WARNING: Base pointer info disabled but required, passing "
                 "nullptr.\n";
-      return BPI = Constant::getNullValue(IIRB.IRB.getVoidTy());
+      return BPI = Constant::getNullValue(BPIO->getRetTy(IIRB.Ctx));
     }
     IRBuilderBase::InsertPointGuard IP(IIRB.IRB);
-    if (auto *BasePtrPHI = dyn_cast<PHINode>(VPtr))
-      IIRB.IRB.SetInsertPoint(BasePtrPHI->getParent()->getFirstNonPHIOrDbg());
-    else if (auto *BasePtrI = dyn_cast<Instruction>(VPtr))
-      IIRB.IRB.SetInsertPoint(BasePtrI->getNextNode());
+    if (auto *BasePtrI = dyn_cast<Instruction>(VPtr))
+      IIRB.IRB.SetInsertPoint(*BasePtrI->getInsertionPointAfterDef());
     else if (isa<GlobalValue>(VPtr) || isa<Argument>(VPtr))
       IIRB.IRB.SetInsertPointPastAllocas(
           IIRB.IRB.GetInsertBlock()->getParent());
@@ -746,8 +825,46 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
     // another instrumentation opportunity.
     InstrumentationCaches ICaches;
     BPI = BPIO->instrument(VPtr, *this, IIRB, ICaches);
+    if (!BPI)
+      return BPI = Constant::getNullValue(BPIO->getRetTy(IIRB.Ctx));
   }
   return BPI;
+}
+
+Value *InstrumentationConfig::getLoopValueRange(Value &V,
+                                                InstrumentorIRBuilderTy &IIRB) {
+  Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
+  auto &SE = IIRB.SEGetter(*Fn);
+
+  Value *VPtr = &V;
+  Value *&LVR = LoopValueRangeMap[{SE.getSCEV(VPtr), Fn}];
+  if (!LVR) {
+    auto *LVRIO =
+        IChoices[InstrumentationLocation::SPECIAL_VALUE]["loop_value_range"];
+    if (!LVRIO || !LVRIO->Enabled) {
+      errs() << "WARNING: Loop value range disabled but required, passing "
+                "nullptr.\n";
+      return LVR = Constant::getNullValue(LVRIO->getRetTy(IIRB.Ctx));
+    }
+    IRBuilderBase::InsertPointGuard IP(IIRB.IRB);
+    if (auto *BasePtrI = dyn_cast<Instruction>(VPtr))
+      IIRB.IRB.SetInsertPoint(*BasePtrI->getInsertionPointAfterDef());
+    else if (isa<GlobalValue>(VPtr) || isa<Argument>(VPtr))
+      IIRB.IRB.SetInsertPointPastAllocas(
+          IIRB.IRB.GetInsertBlock()->getParent());
+    else {
+      VPtr->dump();
+      llvm_unreachable("Unexpected base pointer!");
+    }
+
+    // Use fresh caches for safety, as this function may be called from
+    // another instrumentation opportunity.
+    InstrumentationCaches ICaches;
+    LVR = LVRIO->instrument(VPtr, *this, IIRB, ICaches);
+    if (!LVR)
+      return LVR = Constant::getNullValue(LVRIO->getRetTy(IIRB.Ctx));
+  }
+  return LVR;
 }
 
 Value *InstrumentationOpportunity::forceCast(Value &V, Type &Ty,
@@ -875,11 +992,8 @@ IRTCallDescription::createCBodies(InstrumentationConfig &IConf,
 
   std::string DirectBody = DirectFormat + "\\n\"" + DirectArg + ");\n";
   std::string IndirectBody = IndirectFormat + "\\n\"" + IndirectArg + ");\n";
-  if (RetTy) {
-    assert(DirectReturnValue.empty() && IndirectReturnValue.empty() &&
-           "Explicit return type but also implicit one!");
+  if (RetTy)
     IndirectReturnValue = DirectReturnValue = "0";
-  }
   if (!DirectReturnValue.empty())
     DirectBody += "  return " + DirectReturnValue + ";\n";
   if (!IndirectReturnValue.empty())
@@ -925,9 +1039,11 @@ IRTCallDescription::createCSignature(InstrumentationConfig &IConf,
   };
 
   if (RetTy) {
-    assert(DirectRetTy == "void " && IndirectRetTy == "void " &&
+    auto UserRetTy = getAsCType(RetTy, 0).first;
+    assert((DirectRetTy == UserRetTy || DirectRetTy == "void ") &&
+           (IndirectRetTy == UserRetTy || IndirectRetTy == "void ") &&
            "Explicit return type but also implicit one!");
-    IndirectRetTy = DirectRetTy = getAsCType(RetTy, 0).first;
+    IndirectRetTy = DirectRetTy = UserRetTy;
   }
   if (RequiresIndirection)
     return {"", MakeSignature(IndirectRetTy, IndirectName, IndirectArgs)};
@@ -1010,9 +1126,11 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
       if (!It.Enabled)
         continue;
 
-      auto *&CallParam = CallParams[Offset++];
-      if (!isPotentiallyIndirect(It))
+      if (!isPotentiallyIndirect(It)) {
+        ++Offset;
         continue;
+      }
+      auto *&CallParam = CallParams[Offset++];
       if (!(It.Flags & IRTArg::INDIRECT_HAS_SIZE)) {
         CallParams.insert(&CallParam + 1, IIRB.IRB.getInt32(DL.getTypeStoreSize(
                                               CallParam->getType())));
@@ -1061,11 +1179,6 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
       NewValue = IIRB.IRB.CreateLoad(V->getType(), Q);
     }
     V = IO.IRTArgs[I].SetterCB(*V, *NewValue, IConf, IIRB);
-  }
-
-  if (IO.HoistKind && !ForceIndirection) {
-    IIRB.HoistableInsts.insert(CI);
-    IIRB.hoistInstructionsAndAdjustIP(*CI, IO.HoistKind);
   }
 
   IIRB.returnAllocas(std::move(IndirectionAllocas));
@@ -1203,6 +1316,12 @@ Value *StoreIO::getBasePointerInfo(Value &V, Type &Ty,
   auto &SI = cast<StoreInst>(V);
   return IConf.getBasePointerInfo(*SI.getPointerOperand(), IIRB);
 }
+Value *StoreIO::getLoopValueRangeInfo(Value &V, Type &Ty,
+                                      InstrumentationConfig &IConf,
+                                      InstrumentorIRBuilderTy &IIRB) {
+  auto &SI = cast<StoreInst>(V);
+  return IConf.getLoopValueRange(*SI.getPointerOperand(), IIRB);
+}
 Value *StoreIO::getValue(Value &V, Type &Ty, InstrumentationConfig &IConf,
                          InstrumentorIRBuilderTy &IIRB) {
   auto &SI = cast<StoreInst>(V);
@@ -1262,6 +1381,12 @@ Value *LoadIO::getBasePointerInfo(Value &V, Type &Ty,
                                   InstrumentorIRBuilderTy &IIRB) {
   auto &LI = cast<LoadInst>(V);
   return IConf.getBasePointerInfo(*LI.getPointerOperand(), IIRB);
+}
+Value *LoadIO::getLoopValueRangeInfo(Value &V, Type &Ty,
+                                     InstrumentationConfig &IConf,
+                                     InstrumentorIRBuilderTy &IIRB) {
+  auto &LI = cast<LoadInst>(V);
+  return IConf.getLoopValueRange(*LI.getPointerOperand(), IIRB);
 }
 Value *LoadIO::getValue(Value &V, Type &Ty, InstrumentationConfig &IConf,
                         InstrumentorIRBuilderTy &IIRB) {
@@ -1478,6 +1603,22 @@ Value *BasePointerIO::getPointerKind(Value &V, Type &Ty,
   if (isa<Instruction>(V))
     return getCI(&Ty, 2);
   return getCI(&Ty, 3);
+}
+
+Value *LoopValueRangeIO::getInitialLoopValue(Value &V, Type &Ty,
+                                             InstrumentationConfig &IConf,
+                                             InstrumentorIRBuilderTy &IIRB) {
+  if (auto *IV = IIRB.getInitialLoopValue(V))
+    return tryToCast(IIRB.IRB, IV, &Ty, IIRB.DL);
+  return Constant::getNullValue(&Ty);
+}
+
+Value *LoopValueRangeIO::getFinalLoopValue(Value &V, Type &Ty,
+                                           InstrumentationConfig &IConf,
+                                           InstrumentorIRBuilderTy &IIRB) {
+  if (auto *FV = IIRB.getFinalLoopValue(V))
+    return tryToCast(IIRB.IRB, FV, &Ty, IIRB.DL);
+  return Constant::getNullValue(&Ty);
 }
 
 Value *FunctionIO::getFunctionAddress(Value &V, Type &Ty,

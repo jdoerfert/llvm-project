@@ -88,11 +88,11 @@ void __ig_pre_call(char *callee, char *callee_name, int64_t intrinsic_id,
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
     if (VP->TypeId == 14) {
       char *VPtr = *(char **)&VP->Value;
-      auto [P, Size, Offset] = ThreadOM.decode(VPtr);
-      PRINTF("Call arg %p -> %p [%u:%u]\n", VPtr, P, Size, Offset);
+      char *MPtr = ThreadOM.decode(VPtr);
+      PRINTF("Call arg %p -> %p\n", VPtr, MPtr);
       if (!strcmp(callee_name, "__sprintf_chk"))
-        PRINTF(" --> '%s'\n", P);
-      *(char **)&VP->Value = P;
+        PRINTF(" --> '%s'\n", MPtr);
+      *(char **)&VP->Value = MPtr;
     } else if (VP->TypeId == 12) {
       PRINTF("Call arg %llu @ %p\n", *(uint64_t *)&VP->Value, &VP->Value);
     }
@@ -102,46 +102,41 @@ void __ig_pre_call(char *callee, char *callee_name, int64_t intrinsic_id,
 }
 
 IG_API_ATTRS
-char *__ig_pre_load(char *pointer, char *base_pointer_info, int32_t value_size,
+void *__ig_pre_load(char *pointer, char *base_pointer_info,
+                    char *loop_value_range_info, int32_t value_size,
                     int64_t alignment, int32_t value_type_id) {
-  PRINTF("load pre -- pointer: %p, base_pointer_info: %p, value_size: %i, "
-         "alignment: %lli, "
-         "value_type_id: %i\n",
-         pointer, base_pointer_info, value_size, alignment, value_type_id);
+  PRINTF(
+      "load pre -- pointer: %p, base_pointer_info: %p, loop_value_range_info: "
+      "%p, value_size: %i, alignment: %lli, value_type_id: %i\n",
+      pointer, base_pointer_info, loop_value_range_info, value_size, alignment,
+      value_type_id);
+  if ((uint64_t)loop_value_range_info & 1)
+    return ThreadOM.decode(pointer);
   ThreadOM.checkBranchConditions(pointer, base_pointer_info);
   bool IsInitialized;
-  auto *P = ThreadOM.decodeForAccess(pointer, value_size, value_type_id, READ,
-                                     base_pointer_info, IsInitialized);
-  return P;
+  auto *MPtr = ThreadOM.decodeForAccess(pointer, value_size, value_type_id,
+                                        READ, base_pointer_info, IsInitialized);
+  PRINTF("--> %p\n", MPtr);
+  return MPtr;
 }
 
 IG_API_ATTRS
-char *__ig_pre_store(char *pointer, char *base_pointer_info, int64_t value,
-                     int32_t value_size, int64_t alignment,
-                     int32_t value_type_id) {
-  PRINTF("store pre -- pointer: %p, base_pointer_info: %p, value: %lli, "
-         "value_size: %i, alignment: %lli, value_type_id: %i\n",
-         pointer, base_pointer_info, value, value_size, alignment,
-         value_type_id);
+void *__ig_pre_store(char *pointer, char *base_pointer_info,
+                     char *loop_value_range_info, int32_t value_size,
+                     int64_t alignment, int32_t value_type_id) {
+  PRINTF(
+      "store pre -- pointer: %p, base_pointer_info: %p, loop_value_range_info: "
+      "%p, value_size: %i, alignment: %lli, value_type_id: %i\n",
+      pointer, base_pointer_info, loop_value_range_info, value_size, alignment,
+      value_type_id);
+  if ((uint64_t)loop_value_range_info & 2)
+    return ThreadOM.decode(pointer);
   bool IsInitialized;
   auto *MPtr =
       ThreadOM.decodeForAccess(pointer, value_size, value_type_id, WRITE,
                                base_pointer_info, IsInitialized);
   PRINTF("--> %p\n", MPtr);
   return MPtr;
-}
-
-IG_API_ATTRS
-char *__ig_pre_store_ind(char *pointer, char *base_pointer_info,
-                         int64_t *value_ptr, int32_t value_size,
-                         int64_t alignment, int32_t value_type_id) {
-  PRINTF("store pre -- pointer: %p, base_pointer_info: %p, value_ptr: %p, "
-         "value_size: %i, alignment: %lli, value_type_id: %i\n",
-         pointer, base_pointer_info, (void *)value_ptr, value_size, alignment,
-         value_type_id);
-  bool IsInitialized;
-  return ThreadOM.decodeForAccess(pointer, value_size, value_type_id, WRITE,
-                                  base_pointer_info, IsInitialized);
 }
 
 IG_API_ATTRS
@@ -199,6 +194,23 @@ char *__ig_post_base_pointer_info(char *base_pointer,
 }
 
 IG_API_ATTRS
+void *__ig_post_loop_value_range(int64_t initial_loop_val,
+                                 int64_t final_loop_val) {
+  PRINTF(
+      "loop_value_range post -- initial_loop_val: %lli, final_loop_val: %lli\n",
+      initial_loop_val, final_loop_val);
+  char *VPtrBegin = (char *)initial_loop_val;
+  // char *VPtrEnd = (char *)final_loop_val;
+  int64_t Size = final_loop_val - initial_loop_val;
+  if (Size <= 0)
+    return (char *)-1;
+  bool IsInitialized = false;
+  ThreadOM.decodeAndCheckInitialized(VPtrBegin, Size, IsInitialized);
+  uint64_t Return = 2 + IsInitialized;
+  return (char *)Return;
+}
+
+IG_API_ATTRS
 int8_t __ig_post_icmp(int8_t value, int8_t is_ptr_cmp,
                       int32_t cmp_predicate_kind, int64_t lhs, int64_t rhs) {
   PRINTF("icmp post -- value %i, cmp_predicate_kind: %i, is_ptr_cmp: %i, lhs: "
@@ -221,9 +233,7 @@ int64_t __ig_post_ptrtoint(char *pointer, int64_t value) {
   return ThreadOM.ptrToInt((char *)pointer, value);
 }
 
-char *__ig_decode(char *pointer) {
-  return std::get<0>(ThreadOM.decode(pointer));
-}
+char *__ig_decode(char *pointer) { return ThreadOM.decode(pointer); }
 
 void __ig_pre_branch_condition_info(int32_t branch_condition_no,
                                     char *branch_condition_fn,
@@ -265,7 +275,7 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
       arguments += BCVPtr->Size;
       if (BCVPtr->TypeId == 14) {
         char *Value = *((char **)&BCVPtr->Value);
-        Value = std::get<0>(ThreadOM.decode(Value));
+        Value = ThreadOM.decode(Value);
         PRINTF("Inst %u:: %p -> %p [%i @ %u]\n", ArgMemSize,
                *((char **)&BCVPtr->Value), Value, BCVPtr->Size, ArgMemSize);
         __builtin_memcpy(ArgMemPtr + ArgMemSize, &Value, BCVPtr->Size);
@@ -281,7 +291,7 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
       arguments += BCVPtr->Size;
       if (BCVPtr->TypeId == 14) {
         char *Value = *((char **)&BCVPtr->Value);
-        Value = std::get<0>(ThreadOM.decode(Value));
+        Value = ThreadOM.decode(Value);
         PRINTF("Arg %u:: %p -> %p [%i @ %u]\n", ArgMemSize,
                *((char **)&BCVPtr->Value), Value, BCVPtr->Size, ArgMemSize);
         __builtin_memcpy(ArgMemPtr + ArgMemSize, &Value, BCVPtr->Size);
