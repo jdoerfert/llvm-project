@@ -104,6 +104,16 @@
       "pointer": true,
       "pointer.description": "Input pointer of the ptr to int."
     },
+    "br": {
+      "enabled": true,
+      "is_conditional": true,
+      "is_conditional.description": "Flag indicating a conditional branch.",
+      "value": true,
+      "value.replace": true,
+      "value.description": "Value of condition.",
+      "num_successors": true,
+      "num_successors.description": "Number of branch successors."
+    },
     "alloca": {
       "enabled": true,
       "size": true,
