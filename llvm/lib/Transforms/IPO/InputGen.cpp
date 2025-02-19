@@ -22,6 +22,7 @@
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
+#include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
@@ -64,6 +65,16 @@ static cl::list<std::string>
     AllowedExternalFuncs("input-gen-allow-external-funcs",
                          cl::desc("Specify allowed external function(s)"),
                          cl::Hidden);
+
+static cl::list<std::string>
+    EntryFunctionNames("input-gen-entry-function",
+                       cl::desc("Tag the provided functions as entries."),
+                       cl::Hidden);
+
+static cl::opt<bool>
+    EntryAllFunctions("input-gen-entry-all-functions",
+                      cl::desc("Tag all function definitions as entries."),
+                      cl::init(false), cl::Hidden);
 
 #ifndef NDEBUG
 static cl::opt<std::string>
@@ -185,8 +196,15 @@ private:
   const IGIMode Mode;
   FunctionAnalysisManager &FAM;
   const DataLayout &DL = M.getDataLayout();
-  SmallVector<Function *> UserFunctions;
+
+  // The below three vectors contain all Functions in the module.
+
+  /// The entry point functions.
+  SmallVector<Function *> EntryFunctions;
+  /// Other function definitions in the module.
   SmallVector<Function *> OtherFunctions;
+  /// The function declarations.
+  SmallVector<Function *> DeclaredFunctions;
 };
 
 struct BranchConditionIO : public InstructionIO<Instruction::Br> {
@@ -704,9 +722,11 @@ bool InputGenEntriesImpl::instrument() {
     bool Changed = false;
 
     for (auto &Fn : M.functions()) {
-      if (Fn.hasFnAttribute(Attribute::InputGenEntry)) {
-        UserFunctions.push_back(&Fn);
-      } else if (!Fn.isDeclaration()) {
+      if (Fn.hasFnAttribute(Attribute::InputGenEntry) && !Fn.isDeclaration()) {
+        EntryFunctions.push_back(&Fn);
+      } else if (Fn.isDeclaration()) {
+        DeclaredFunctions.push_back(&Fn);
+      } else {
         OtherFunctions.push_back(&Fn);
       }
     }
@@ -771,19 +791,17 @@ static void processFunctionDefinitionForReplayGenerated(Function *F) {
 }
 
 bool InputGenEntriesImpl::processFunctions() {
-  for (Function *F : UserFunctions) {
+  for (Function *F : EntryFunctions) {
     if (Mode == IGIMode::Generate)
       processFunctionDefinitionForGenerate(F);
     if (Mode == IGIMode::ReplayGenerated)
       processFunctionDefinitionForReplayGenerated(F);
   }
   for (Function *F : OtherFunctions) {
-    if (!F->isDeclaration()) {
-      if (Mode == IGIMode::Generate) {
-        processFunctionDefinitionForGenerate(F);
-      } else if (Mode == IGIMode::ReplayGenerated) {
-        processFunctionDefinitionForReplayGenerated(F);
-      }
+    if (Mode == IGIMode::Generate) {
+      processFunctionDefinitionForGenerate(F);
+    } else if (Mode == IGIMode::ReplayGenerated) {
+      processFunctionDefinitionForReplayGenerated(F);
     }
   }
 
@@ -804,7 +822,7 @@ bool InputGenEntriesImpl::createEntryPoint() {
   auto *I32Ty = IntegerType::getInt32Ty(Ctx);
   auto *PtrTy = PointerType::getUnqual(Ctx);
 
-  uint32_t NumEntryPoints = UserFunctions.size();
+  uint32_t NumEntryPoints = EntryFunctions.size();
   new GlobalVariable(M, I32Ty, true, GlobalValue::ExternalLinkage,
                      ConstantInt::get(I32Ty, NumEntryPoints),
                      std::string(InputGenRuntimePrefix) + "num_entry_points");
@@ -825,7 +843,7 @@ bool InputGenEntriesImpl::createEntryPoint() {
   SmallVector<Constant *> Names;
   IRBuilder<> IRB(SI);
   for (uint32_t I = 0; I < NumEntryPoints; ++I) {
-    Function *EntryPoint = UserFunctions[I];
+    Function *EntryPoint = EntryFunctions[I];
     Names.push_back(IRB.CreateGlobalString(EntryPoint->getName()));
     EntryPoint->setName(std::string(InputGenRuntimePrefix) +
                         EntryPoint->getName());
@@ -952,12 +970,37 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
 
 } // namespace
 
+static bool tagEntries(Module &M) {
+  bool Changed = false;
+  if (EntryAllFunctions) {
+    for (auto &F : M) {
+      if (!F.isDeclaration()) {
+        F.addFnAttr(Attribute::InputGenEntry);
+        Changed = true;
+      }
+    }
+  } else {
+    for (std::string &Name : EntryFunctionNames) {
+      Function *F = M.getFunction(Name);
+      if (!F->isDeclaration()) {
+        F->addFnAttr(Attribute::InputGenEntry);
+        Changed = true;
+      }
+    }
+  }
+  return Changed;
+}
+
 PreservedAnalyses
 InputGenInstrumentEntriesPass::run(Module &M, AnalysisManager<Module> &MAM) {
   IGIMode Mode = ClInstrumentationMode;
   InputGenEntriesImpl Impl(M, MAM, Mode);
 
-  bool Changed = Impl.instrument();
+  bool Changed = false;
+
+  Changed |= tagEntries(M);
+  Changed |= Impl.instrument();
+
   if (!Changed)
     return PreservedAnalyses::all();
 
