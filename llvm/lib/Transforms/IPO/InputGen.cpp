@@ -872,7 +872,8 @@ bool InputGenEntriesImpl::createEntryPoint() {
 
     auto *CI = CallInst::Create(EntryPoint->getFunctionType(), EntryPoint,
                                 Parameters, "", WrapperEntryBB);
-    new StoreInst(CI, WrapperObjPtr, WrapperEntryBB);
+    if (!CI->getType()->isVoidTy())
+      new StoreInst(CI, WrapperObjPtr, WrapperEntryBB);
     ReturnInst::Create(Ctx, WrapperEntryBB);
 
     EntryPoint->addFnAttr(Attribute::AlwaysInline);
