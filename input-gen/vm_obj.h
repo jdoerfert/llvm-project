@@ -39,7 +39,9 @@ struct ObjectManager {
 
   ObjectManager()
       : UserObjLarge(*this), UserObjSmall(*this), RTObjs(*this),
-        Distribution(-100, 128) {}
+        Distribution(-100, 128) {
+    FVM.BranchConditionMap.reserve(1024);
+  }
 
   ChoiceTrace *CT = nullptr;
   BigObjScheme10Ty UserObjLarge;
@@ -87,7 +89,7 @@ struct ObjectManager {
   __attribute__((always_inline)) char *
   decodeForAccess(char *VPtr, uint32_t AccessSize, uint32_t TypeId,
                   AccessKind AK, char *BasePtrInfo, bool &IsInitialized) {
-    switch ((uint64_t)BasePtrInfo) {
+    switch ((uint64_t)BasePtrInfo & 3) {
     case 1:
       IsInitialized = true;
       return UserObjSmall.access(VPtr, AccessSize, TypeId, AK == WRITE);
@@ -111,11 +113,11 @@ struct ObjectManager {
   int32_t getEncoding(char *VPtr) {
     switch (EncodingSchemeTy::getEncoding(VPtr)) {
     case 1:
-      return UserObjSmall.isEncoded(VPtr) ? 1 : ~0;
+      return UserObjSmall.isMagicIntact(VPtr) ? 1 : ~0;
     case 2:
-      return RTObjs.isEncoded(VPtr) ? 2 : ~0;
+      return RTObjs.isMagicIntact(VPtr) ? 2 : ~0;
     case 3:
-      return UserObjLarge.isEncoded(VPtr) ? 3 : ~0;
+      return UserObjLarge.isMagicIntact(VPtr) ? 3 : ~0;
     default:
       return ~0;
     }
@@ -158,6 +160,40 @@ struct ObjectManager {
            getEncoding(VPtr));
       // TODO: Workaround until global supported.
       return 0;
+      error(1005);
+      std::terminate();
+    }
+  }
+  char *getBase(char *VPtr) {
+    switch (getEncoding(VPtr)) {
+    case 1:
+      return UserObjSmall.getBase(VPtr);
+    case 2:
+      return RTObjs.getBase(VPtr);
+    case 3:
+      return UserObjLarge.getBase(VPtr);
+    default:
+      WARN("unknown encoding {} (allowed until global support)\n",
+           getEncoding(VPtr));
+      // TODO: Workaround until global supported.
+      return VPtr;
+      error(1005);
+      std::terminate();
+    }
+  }
+  char *getBaseVPtr(char *VPtr) {
+    switch (getEncoding(VPtr)) {
+    case 1:
+      return UserObjSmall.getBaseVPtr(VPtr);
+    case 2:
+      return RTObjs.getBaseVPtr(VPtr);
+    case 3:
+      return UserObjLarge.getBaseVPtr(VPtr);
+    default:
+      WARN("unknown encoding {} (allowed until global support)\n",
+           getEncoding(VPtr));
+      // TODO: Workaround until global supported.
+      return VPtr;
       error(1005);
       std::terminate();
     }
@@ -260,14 +296,23 @@ struct ObjectManager {
 
   void checkBranchConditions(char *VP, char *VPBP, char *VCP = nullptr,
                              char *VCPBP = nullptr) {
-    return FVM.checkBranchConditions(VP, VPBP, VCP, VCPBP);
+    if (((uint64_t)VPBP & 3) == 2 || ((uint64_t)VCPBP & 3) == 2)
+      FVM.checkBranchConditions(VP, VPBP, VCP, VCPBP);
+    else if (((uint64_t)VPBP & 3) == 2)
+      FVM.checkBranchConditions(VP, VPBP, nullptr, nullptr);
+    else if (((uint64_t)VCPBP & 3) == 2)
+      FVM.checkBranchConditions(VCP, VCPBP, nullptr, nullptr);
   }
   void addBranchCondition(char *VPtr, BranchConditionInfo *BCI) {
-    FVM.BranchConditionMap[BCI->No] = BCI;
     FVM.BranchConditions[VPtr].push_back(BCI);
   }
-  BranchConditionInfo *getBranchCondition(uint32_t No) {
-    return FVM.BranchConditionMap[No];
+  BranchConditionInfo *getOrCreateBranchCondition(uint32_t No) {
+    if (FVM.BranchConditionMap.size() <= No)
+      FVM.BranchConditionMap.resize(std::bit_ceil(No + 1));
+    auto *&BCI = FVM.BranchConditionMap[No];
+    if (!BCI)
+      BCI = new BranchConditionInfo;
+    return BCI;
   }
 };
 

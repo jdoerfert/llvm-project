@@ -59,6 +59,7 @@ struct BranchConditionInfo {
   using FnTy = char (*)(void *);
   FnTy Fn;
   char *ArgMemPtr;
+  bool IsFixed = false;
 };
 
 struct FreeValueDecisionTy {};
@@ -83,7 +84,7 @@ struct FreeValueManager {
 
   void reset();
 
-  std::map<uint32_t, BranchConditionInfo *> BranchConditionMap;
+  std::vector<BranchConditionInfo *> BranchConditionMap;
   std::map<char *, BCIVecTy> BranchConditions;
   std::set<std::string_view> StringCacheSet;
   std::deque<std::string> StringCache;

@@ -326,6 +326,9 @@ public:
             },
             [this](Function &F) -> ScalarEvolution & {
               return FAM.getResult<ScalarEvolutionAnalysis>(F);
+            },
+            [this](Function &F) -> LoopInfo & {
+              return FAM.getResult<LoopAnalysis>(F);
             }) {
     IConf.populate(IIRB);
   }
@@ -647,8 +650,16 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V) {
   std::pair<Value *, Value *> &Values = LoopRangeValueMap[&V];
   if (Values.first)
     return {BasicBlock::iterator(), false};
-  auto &SE = SEGetter(*IRB.GetInsertBlock()->getParent());
-  auto *VSCEV = SE.getSCEV(&V);
+  auto *BB = IRB.GetInsertBlock();
+  auto *Fn = BB->getParent();
+  auto &SE = SEGetter(*Fn);
+  auto &LI = LIGetter(*Fn);
+  auto *BBLoop = LI.getLoopFor(BB);
+  if (!BBLoop) {
+    LLVM_DEBUG(errs() << " - value not in a loop " << V << "\n");
+    return {BasicBlock::iterator(), false};
+  }
+  auto *VSCEV = SE.getSCEVAtScope(&V, BBLoop);
   if (isa<SCEVCouldNotCompute>(VSCEV)) {
     LLVM_DEBUG(errs() << " - loop evaluation not computable for " << V << "\n");
     return {BasicBlock::iterator(), false};
@@ -663,6 +674,8 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V) {
 
   SmallVector<const Loop *, 8> LoopsOrdered;
   for (auto *L : Loops) {
+    if (!L->contains(BBLoop))
+      continue;
     auto Depth = L->getLoopDepth();
     if (Depth >= LoopsOrdered.size())
       LoopsOrdered.resize(Depth + 1);
@@ -1542,7 +1555,9 @@ Value *CallIO::setCallParameters(Value &V, Value &NewV,
 Value *CallIO::isDefinition(Value &V, Type &Ty, InstrumentationConfig &IConf,
                             InstrumentorIRBuilderTy &IIRB) {
   auto &CI = cast<CallInst>(V);
-  return getCI(&Ty, !CI.getCalledFunction()->isDeclaration());
+  if (auto *Fn = CI.getCalledFunction())
+    return getCI(&Ty, !Fn->isDeclaration());
+  return getCI(&Ty, 0);
 }
 
 Value *BranchIO::isConditional(Value &V, Type &Ty, InstrumentationConfig &IConf,

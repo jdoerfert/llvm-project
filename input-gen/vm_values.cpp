@@ -9,7 +9,7 @@
 
 using namespace __ig;
 
-extern thread_local ObjectManager ThreadOM;
+extern ObjectManager ThreadOM;
 
 FreeValueInfo::FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr)
     : TypeId(TypeId), Size(Size), VPtr(VPtr), MPtr(nullptr) {}
@@ -57,10 +57,7 @@ bool FreeValueInfo::isFixed() {
     auto *BP = ThreadOM.getBasePtrInfo(VPtr);
     MPtr = ThreadOM.decodeForAccess(VPtr, Size, TypeId, CHECK_INITIALIZED, BP,
                                     IsInitialized);
-    printf("%s %p : %p : %i: %i\n", TypeId == 14 ? "ptr" : "int", VPtr, MPtr,
-           Size, IsInitialized);
     if (IsInitialized) {
-      printf("--> %p\n", *(void **)MPtr);
       return IsFixed = true;
     }
   } else {
@@ -148,6 +145,8 @@ void FreeValueManager::checkBranchConditions(char *VP, char *VPBP, char *VCP,
   auto CollectBCIs = [&](char *VPtr) {
     if (auto *BCIVec = lookupBCIVec(VPtr))
       for (auto *BCI : *BCIVec) {
+        if (BCI->IsFixed)
+          continue;
         if (!SeenBCIs.insert(BCI).second)
           continue;
         bool HasFreeValues = false;
@@ -159,15 +158,18 @@ void FreeValueManager::checkBranchConditions(char *VP, char *VPBP, char *VCP,
         }
         if (HasFreeValues) {
           FreeBCIs.push_back(BCI);
-        } else if (!evaluate(*BCI)) {
-          INFO("Inconsistent branch condition found, abort\n");
-          error(1007);
+        } else {
+          BCI->IsFixed = true;
+          if (!evaluate(*BCI)) {
+            INFO("Inconsistent branch condition found, abort\n");
+            error(1007);
+          }
         }
       }
   };
-  if ((uint64_t)VPBP == 2)
+  if (VP)
     CollectBCIs(VP);
-  if ((uint64_t)VCPBP == 2)
+  if (VCP)
     CollectBCIs(VCP);
 
   if (FreeBCIs.empty())
@@ -273,7 +275,7 @@ bool FreeValueManager::evaluate(BranchConditionInfo &BCI, bool B) {
 }
 
 void FreeValueManager::reset() {
-  for (auto &[No, BCIPtr] : BranchConditionMap) {
+  for (auto *BCIPtr : BranchConditionMap) {
     delete[] BCIPtr->ArgMemPtr;
     delete BCIPtr;
   }

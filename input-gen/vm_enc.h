@@ -96,11 +96,6 @@ struct EncodingSchemeTy {
     EncTy E(VPtr);
     return E.Bits.EncodingId;
   }
-
-  virtual void reset() = 0;
-  virtual bool isEncoded(char *VPtr) = 0;
-  virtual std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) = 0;
-  virtual char *getBasePtrInfo(char *VPtr) = 0;
 };
 
 template <uint32_t EncodingNo, uint32_t OffsetBits, uint32_t BucketBits,
@@ -126,7 +121,7 @@ struct BucketSchemeTy : public EncodingSchemeTy {
   uint64_t Buckets[NumBuckets];
   uint32_t NumBucketsUsed = 0;
 
-  void reset() override {
+  void reset() {
     for (uint32_t I = 0; I < NumBucketsUsed; ++I)
       Buckets[I] = 0;
     NumBucketsUsed = 0;
@@ -199,7 +194,7 @@ struct BucketSchemeTy : public EncodingSchemeTy {
     return E.VPtr;
   }
 
-  char* decode(char *VPtr) {
+  char *decode(char *VPtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
     return D.Ptr + E.Bits.Offset;
@@ -209,8 +204,9 @@ struct BucketSchemeTy : public EncodingSchemeTy {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
     if (E.Bits.Offset < 0 || E.Bits.Offset + AccessSize > E.Bits.Size) {
-      fprintf(stderr, "Small user object memory out-of-bound %i vs %i! (Base %p)\n", E.Bits.Offset,
-              E.Bits.Size, D.Ptr);
+      fprintf(stderr,
+              "Small user object memory out-of-bound %i vs %i! (Base %p)\n",
+              E.Bits.Offset, E.Bits.Size, D.Ptr);
       error(1001);
       std::terminate();
     }
@@ -221,16 +217,23 @@ struct BucketSchemeTy : public EncodingSchemeTy {
     return access(VPtr, AccessSize, 0, 0);
   }
 
-  bool isEncoded(char *VPtr) override {
+  bool isMagicIntact(char *VPtr) {
     EncTy E(VPtr);
-    return E.Bits.Magic == MAGIC && E.Bits.EncodingId == EncodingNo;
+    return E.Bits.Magic == MAGIC;
   }
 
-  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) override {
-    return {-1, -1};
+  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) { return {-1, -1}; }
+  char *getBasePtrInfo(char *VPtr) {
+    return (char *)((uint64_t)getBase(VPtr) | (uint64_t)EncodingNo);
   }
-  char *getBasePtrInfo(char *VPtr) override {
-    return (char *)(uint64_t)EncodingNo;
+  char *getBase(char *VPtr) {
+    EncTy E(VPtr);
+    DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
+    return D.Ptr;
+  }
+  char *getBaseVPtr(char *VPtr) {
+    EncTy ED(VPtr);
+    return VPtr - ED.Bits.Offset;
   }
 };
 
@@ -255,9 +258,7 @@ struct BigObjSchemeTy : public EncodingSchemeTy {
   ObjDescTy Objects[NumObjects];
   uint32_t NumObjectsUsed = 0;
 
-  void reset() override {
-    NumObjectsUsed = 0;
-  }
+  void reset() { NumObjectsUsed = 0; }
 
   union EncTy {
     char *VPtr;
@@ -292,7 +293,7 @@ struct BigObjSchemeTy : public EncodingSchemeTy {
     return E.VPtr;
   }
 
-  char * decode(char *VPtr) {
+  char *decode(char *VPtr) {
     EncTy E(VPtr);
     auto [Base, Size] = Objects[E.Bits.ObjectIdx];
     return Base + E.Bits.Offset;
@@ -302,8 +303,9 @@ struct BigObjSchemeTy : public EncodingSchemeTy {
     EncTy E(VPtr);
     auto [Base, Size] = Objects[E.Bits.ObjectIdx];
     if (E.Bits.Offset < 0 || E.Bits.Offset + AccessSize > Size) {
-      fprintf(stderr, "Large user memory out-of-bound %lli vs %lli (Base %p)!\n", E.Bits.Offset,
-              Size, Base);
+      fprintf(stderr,
+              "Large user memory out-of-bound %lli vs %lli (Base %p)!\n",
+              E.Bits.Offset, Size, Base);
       error(1001);
       std::terminate();
     }
@@ -314,16 +316,23 @@ struct BigObjSchemeTy : public EncodingSchemeTy {
     return access(VPtr, AccessSize, 0, 0);
   }
 
-  bool isEncoded(char *VPtr) override {
+  bool isMagicIntact(char *VPtr) {
     EncTy E(VPtr);
-    return E.Bits.Magic == MAGIC && E.Bits.EncodingId == EncodingNo;
+    return E.Bits.Magic == MAGIC;
   }
 
-  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) override {
-    return {-1, -1};
+  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) { return {-1, -1}; }
+  char *getBasePtrInfo(char *VPtr) {
+    return (char *)((uint64_t)getBase(VPtr) | (uint64_t)EncodingNo);
   }
-  char *getBasePtrInfo(char *VPtr) override {
-    return (char *)(uint64_t)EncodingNo;
+  char *getBase(char *VPtr) {
+    EncTy E(VPtr);
+    auto [Base, Size] = Objects[E.Bits.ObjectIdx];
+    return Base;
+  }
+  char *getBaseVPtr(char *VPtr) {
+    EncTy E(VPtr);
+    return VPtr - E.Bits.Offset;
   }
 };
 
@@ -404,7 +413,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
         Table((TableEntryTy *)malloc(sizeof(TableEntryTy) *
                                      (1 << NumTableIdxBits))) {}
 
-  void reset() override {
+  void reset() {
     // TODO reuse memory?
     for (uint32_t I = 0; I < TableEntryCnt; ++I) {
       free(Table[I].getBase());
@@ -464,7 +473,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     return ED.VPtr;
   }
 
-  char* decode(char *VPtr) {
+  char *decode(char *VPtr) {
     EncDecTy ED(VPtr);
     TableEntryTy &TE = Table[ED.Bits.TableIdx];
     if (TE.IsNull)
@@ -625,18 +634,27 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     return (TE.Base + OffsetFromBase);
   }
 
-  bool isEncoded(char *VPtr) override {
+  bool isMagicIntact(char *VPtr) {
     EncDecTy ED(VPtr);
-    return ED.Bits.Magic == MAGIC && ED.Bits.EncodingId == EncodingNo;
+    return ED.Bits.Magic == MAGIC;
   }
 
-  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) override {
+  std::pair<int32_t, int32_t> getPtrInfo(char *VPtr) {
     EncDecTy ED(VPtr);
     int32_t RelOffset = (uint32_t)ED.Bits.Offset - DefaultOffset;
     return {(uint32_t)ED.Bits.TableIdx, RelOffset};
   }
-  char *getBasePtrInfo(char *VPtr) override {
-    return (char *)(uint64_t)EncodingNo;
+  char *getBasePtrInfo(char *VPtr) {
+    return (char *)((uint64_t)getBase(VPtr) | (uint64_t)EncodingNo);
+  }
+  char *getBase(char *VPtr) {
+    EncDecTy ED(VPtr);
+    TableEntryTy &TE = Table[ED.Bits.TableIdx];
+    return TE.Base;
+  }
+  char *getBaseVPtr(char *VPtr) {
+    EncDecTy ED(VPtr);
+    return VPtr - ED.Bits.Offset;
   }
 };
 

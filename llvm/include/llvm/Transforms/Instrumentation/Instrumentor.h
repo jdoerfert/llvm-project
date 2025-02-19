@@ -58,14 +58,16 @@ struct InstrumentorIRBuilderTy {
   using TLIGetterTy = std::function<TargetLibraryInfo &(Function &F)>;
   using DTGetterTy = std::function<DominatorTree &(Function &F)>;
   using SEGetterTy = std::function<ScalarEvolution &(Function &F)>;
+  using LIGetterTy = std::function<LoopInfo &(Function &F)>;
 
   InstrumentorIRBuilderTy(Module &M, TLIGetterTy &&TLIGetter,
-                          DTGetterTy &&DTGetter, SEGetterTy &&SEGetter)
+                          DTGetterTy &&DTGetter, SEGetterTy &&SEGetter,
+                          LIGetterTy &&LIGetter)
       : M(M), Ctx(M.getContext()), TLIGetter(TLIGetter), DTGetter(DTGetter),
-        SEGetter(SEGetter), IRB(Ctx, ConstantFolder(),
-                                IRBuilderCallbackInserter([&](Instruction *I) {
-                                  NewInsts[I] = Epoche;
-                                })) {}
+        SEGetter(SEGetter), LIGetter(LIGetter),
+        IRB(Ctx, ConstantFolder(),
+            IRBuilderCallbackInserter(
+                [&](Instruction *I) { NewInsts[I] = Epoche; })) {}
   ~InstrumentorIRBuilderTy() {
     for (auto *I : ToBeErased) {
       if (!I->getType()->isVoidTy())
@@ -159,6 +161,7 @@ struct InstrumentorIRBuilderTy {
   TLIGetterTy TLIGetter;
   DTGetterTy DTGetter;
   SEGetterTy SEGetter;
+  LIGetterTy LIGetter;
 
   IRBuilder<ConstantFolder, IRBuilderCallbackInserter> IRB;
   /// Each instrumentation, i.a., of an instruction, is happening in a dedicated

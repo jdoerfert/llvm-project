@@ -28,6 +28,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -662,6 +663,30 @@ bool InputGenMemoryImpl::instrument() {
   for (auto *Fn : OldFunctions)
     Fn->eraseFromParent();
 
+  // TODO: HACK for qsort, we need to actually check the functions we rename
+  // here and qsort explicitly.
+  for (auto &Fn : M) {
+    if (Fn.isDeclaration() || !Fn.hasLocalLinkage())
+      continue;
+    bool HasNonQSortUses = false;
+    for (auto &U : Fn.uses()) {
+      if (auto *CU = dyn_cast<Constant>(U.getUser()))
+        if (CU->getNumUses() == 1)
+          if (auto *GV = dyn_cast<GlobalVariable>(CU->user_back()))
+            if (GV->getName() == "llvm.compiler.used" ||
+                GV->getName() == "llvm.used")
+              continue;
+      auto *CI = dyn_cast<CallInst>(U.getUser());
+      if (!CI || &CI->getCalledOperandUse() == &U || !CI->getCalledFunction() ||
+          CI->getCalledFunction()->getName() != "qsort") {
+        HasNonQSortUses = true;
+        break;
+      }
+    }
+    if (!HasNonQSortUses)
+      Fn.setName(IConf.getRTName() + Fn.getName());
+  }
+
   InstrumentorPass IP(&IConf);
 
   auto PA = IP.run(M, MAM);
@@ -790,7 +815,7 @@ bool InputGenEntriesImpl::createEntryPoint() {
       std::string(InputGenRuntimePrefix) + "entry", M);
 
   auto *EntryChoice = IGEntry->getArg(0);
-  auto *InitialObj = IGEntry->getArg(1);
+  auto *EntryObj = IGEntry->getArg(1);
 
   auto *EntryBB = BasicBlock::Create(Ctx, "entry", IGEntry);
   auto *ReturnBB = BasicBlock::Create(Ctx, "return", IGEntry);
@@ -806,7 +831,7 @@ bool InputGenEntriesImpl::createEntryPoint() {
                         EntryPoint->getName());
 
     Function *EntryPointWrapper = Function::Create(
-        FunctionType::get(EntryPoint->getReturnType(), {PtrTy}, false),
+        FunctionType::get(Type::getVoidTy(Ctx), {PtrTy}, false),
         GlobalValue::InternalLinkage, EntryPoint->getName() + ".wrapper", M);
     // Tell Instrumentor not to ignore these functions.
     EntryPoint->addFnAttr("instrument");
@@ -816,41 +841,28 @@ bool InputGenEntriesImpl::createEntryPoint() {
     auto *WrapperEntryBB = BasicBlock::Create(Ctx, "entry", EntryPointWrapper);
 
     SmallVector<Value *> Parameters;
-    Value *ObjPtr = EntryPointWrapper->getArg(0);
+    Value *WrapperObjPtr = EntryPointWrapper->getArg(0);
     for (auto &Arg : EntryPoint->args()) {
-      auto *LI =
-          new LoadInst(Arg.getType(), ObjPtr, Arg.getName(), WrapperEntryBB);
+      auto *LI = new LoadInst(Arg.getType(), WrapperObjPtr, Arg.getName(),
+                              WrapperEntryBB);
       Parameters.push_back(LI);
-      ObjPtr = GetElementPtrInst::Create(
-          PtrTy, ObjPtr,
+      WrapperObjPtr = GetElementPtrInst::Create(
+          PtrTy, WrapperObjPtr,
           {ConstantInt::get(I32Ty, DL.getTypeStoreSize(Arg.getType()))}, "",
           WrapperEntryBB);
     }
 
     auto *CI = CallInst::Create(EntryPoint->getFunctionType(), EntryPoint,
                                 Parameters, "", WrapperEntryBB);
-    if (CI->getType()->isVoidTy())
-      ReturnInst::Create(Ctx, WrapperEntryBB);
-    else
-      ReturnInst::Create(Ctx, CI, WrapperEntryBB);
+    new StoreInst(CI, WrapperObjPtr, WrapperEntryBB);
+    ReturnInst::Create(Ctx, WrapperEntryBB);
+
     EntryPoint->addFnAttr(Attribute::AlwaysInline);
     EntryPoint->removeFnAttr(Attribute::NoInline);
 
-    ObjPtr = InitialObj;
     auto *DispatchBB = BasicBlock::Create(Ctx, "dispatch", IGEntry);
-    if (!EntryPoint->getReturnType()->isVoidTy())
-      ObjPtr = GetElementPtrInst::Create(
-          PtrTy, ObjPtr,
-          {ConstantInt::get(I32Ty,
-                            DL.getTypeStoreSize(EntryPoint->getReturnType()))},
-          "", DispatchBB);
-    auto *WrapperCI =
-        CallInst::Create(EntryPointWrapper->getFunctionType(),
-                         EntryPointWrapper, {ObjPtr}, "", DispatchBB);
-    if (!WrapperCI->getType()->isVoidTy())
-      new StoreInst(WrapperCI, InitialObj, DispatchBB);
-    else if (auto *I = dyn_cast<Instruction>(ObjPtr))
-      I->eraseFromParent();
+    CallInst::Create(EntryPointWrapper->getFunctionType(), EntryPointWrapper,
+                     {EntryObj}, "", DispatchBB);
     SI->addCase(ConstantInt::get(I32Ty, I), DispatchBB);
 
     BranchInst::Create(ReturnBB, DispatchBB);

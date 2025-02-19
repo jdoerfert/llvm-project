@@ -18,7 +18,7 @@ extern "C" void __ig_entry(uint32_t, void *);
 
 using namespace __ig;
 
-thread_local ObjectManager ThreadOM;
+ObjectManager ThreadOM;
 
 struct SharedState {
   SharedState(uint32_t NumThreads, std::vector<uint32_t> &Seeds)
