@@ -373,6 +373,24 @@ private:
   bool instrumentFunction(Function &Fn);
   bool instrumentModule();
 
+  bool preprocessLoops(Function &Fn) {
+    bool Changed = false;
+    auto *LVRIO =
+        IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]["loop_value_range"];
+    if (!LVRIO || !LVRIO->Enabled)
+      return Changed;
+
+    auto &LI = FAM.getResult<LoopAnalysis>(Fn);
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(Fn);
+    for (auto *L : LI) {
+      if (!L->getLoopPreheader()) {
+        InsertPreheaderForLoop(L, &DT, &LI, nullptr, true);
+        Changed = true;
+      }
+    }
+    return Changed;
+  }
+
   template <typename MemoryInstTy> bool analyzeAccess(MemoryInstTy &I);
 
   DenseMap<unsigned, InstrumentationOpportunity *> InstChoicesPRE,
@@ -432,6 +450,8 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   bool Changed = false;
   if (!shouldInstrumentFunction(Fn))
     return Changed;
+
+  Changed |= preprocessLoops(Fn);
 
   InstrumentationCaches ICaches;
 
@@ -547,15 +567,6 @@ bool InstrumentorImpl::instrumentModule() {
 
 bool InstrumentorImpl::instrument() {
   bool Changed = false;
-  for (auto &Fn : M) {
-    if (Fn.isDeclaration())
-      continue;
-    auto &LI = FAM.getResult<LoopAnalysis>(Fn);
-    auto &DT = FAM.getResult<DominatorTreeAnalysis>(Fn);
-    for (auto *L : LI)
-      if (!L->getLoopPreheader())
-        InsertPreheaderForLoop(L, &DT, &LI, nullptr, true);
-  }
 
   for (auto &ChoiceIt :
        IConf.IChoices[InstrumentationLocation::INSTRUCTION_PRE])
