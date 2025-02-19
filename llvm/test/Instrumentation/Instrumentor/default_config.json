@@ -86,6 +86,8 @@
       "pointer_as.description": "The address space of the accessed pointer.",
       "base_pointer_info": true,
       "base_pointer_info.description": "The runtime provided base pointer info.",
+      "loop_value_range_info": true,
+      "loop_value_range_info.description": "The runtime provided loop value range info.",
       "value_size": true,
       "value_size.description": "The size of the loaded value.",
       "alignment": true,
@@ -131,6 +133,8 @@
       "pointer_as.description": "The address space of the accessed pointer.",
       "base_pointer_info": true,
       "base_pointer_info.description": "The runtime provided base pointer info.",
+      "loop_value_range_info": true,
+      "loop_value_range_info.description": "The runtime provided loop value range info.",
       "value": true,
       "value.description": "The stored value.",
       "value_size": true,
@@ -189,6 +193,8 @@
       "pointer_as.description": "The address space of the accessed pointer.",
       "base_pointer_info": true,
       "base_pointer_info.description": "The runtime provided base pointer info.",
+      "loop_value_range_info": true,
+      "loop_value_range_info.description": "The runtime provided loop value range info.",
       "value": true,
       "value.replace": true,
       "value.description": "The loaded value.",
@@ -231,6 +237,8 @@
       "pointer_as.description": "The address space of the accessed pointer.",
       "base_pointer_info": true,
       "base_pointer_info.description": "The runtime provided base pointer info.",
+      "loop_value_range_info": true,
+      "loop_value_range_info.description": "The runtime provided loop value range info.",
       "value": true,
       "value.description": "The stored value.",
       "value_size": true,
@@ -269,6 +277,13 @@
       "base_pointer.description": "The base pointer in question.",
       "base_pointer_kind": true,
       "base_pointer_kind.description": "The base pointer kind (argument, global, instruction, unknown)."
+    },
+    "loop_value_range": {
+      "enabled": true,
+      "initial_loop_val": true,
+      "initial_loop_val.description": "The value in the first loop iteration.",
+      "final_loop_val": true,
+      "final_loop_val.description": "The value in the last loop iteration."
     }
   }
 }
