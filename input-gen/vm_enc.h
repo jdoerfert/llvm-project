@@ -34,29 +34,33 @@ enum BitsKind {
 };
 // TODO: I am unsure if the first row second element (remainder 1), should be
 // 0x0N or 0xN0.
-static uint64_t BitsTable[4][4][2] = {
+static uint64_t BitsTable[4][5][2] = {
     {
-        {0x10, 0x01},
+        {0x01, 0x10},
         {0x11, 0x0},
         {0x1111, 0x0},
+        {0x0, 0x0},
         {0x11111111, 0x0},
     },
     {
         {0x20, 0x02},
         {0x22, 0x0},
         {0x2222, 0x0},
+        {0x0, 0x0},
         {0x22222222, 0x0},
     },
     {
         {0x40, 0x04},
         {0x44, 0x0},
         {0x4444, 0x0},
+        {0x0, 0x0},
         {0x44444444, 0x0},
     },
     {
         {0x80, 0x08},
         {0x88, 0x0},
         {0x8888, 0x0},
+        {0x0, 0x0},
         {0x88888888, 0x0},
     },
 };
@@ -520,13 +524,12 @@ struct TableSchemeTy : public TableSchemeBaseTy {
       ERR("unexpected access size {}\n", AccessSize);
       __builtin_trap();
     }
-    assert(readVariableSize(MPtr, AccessSize) == Value);
   }
 
   __attribute__((always_inline)) void
   checkAndWrite(TableEntryTy &TE, char *MemP, char *ShadowP,
                 uint32_t AccessSize, uint32_t TypeId, AccessKind AK,
-                uint32_t Rem, bool &AnyInitialized) {
+                uint32_t Rem, bool &AnyInitialized, bool &AllInitialized) {
     assert(AccessSize <= 8 && std::has_single_bit(AccessSize));
 
     if (TE.IsNull) {
@@ -541,8 +544,9 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     uint64_t ShadowVal = readVariableSize(ShadowP, AccessSize / 2);
     uint64_t InitBits = BitsTable[InitBit][AccessSize / 2][Rem];
     uint64_t ShadowInit = ShadowVal & InitBits;
-    bool FullyInit = ShadowInit == InitBits;
+    bool FullInit = ShadowInit == InitBits;
     bool PartialInit = ShadowInit;
+    AllInitialized &= FullInit;
     AnyInitialized |= PartialInit;
     if (AK == CHECK_INITIALIZED)
       return;
@@ -551,37 +555,90 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     uint64_t PtrBits = BitsTable[PtrBit][AccessSize / 2][Rem];
     uint64_t RecordBits = BitsTable[RecordBit][AccessSize / 2][Rem];
     uint64_t SavedBits = BitsTable[SavedBit][AccessSize / 2][Rem];
-    if (!FullyInit) {
+
+    uint64_t FullRecord =
+        (ShadowVal & RecordBits) == RecordBits;
+    uint64_t PartialSaved =
+        (ShadowVal & SavedBits) != SavedBits;
+    [[maybe_unused]] uint64_t FullSaved = (ShadowVal & SavedBits) == SavedBits;
+
+    assert (SavedBits = RecordBits + 1);
+    uint64_t PartiallyUnsaved =
+        ((ShadowVal & RecordBits) << 1) != (ShadowVal & SavedBits);
+
+    ShadowVal |= InitBits;
+
+    if (!FullInit) {
       if (AK == READ) {
         TE.AnyRead = true;
         if (TypeId == 14)
           TE.AnyPtrRead = true;
       }
-      if (AK == WRITE) {
-        ShadowVal |= InitBits;
-      } else {
-        ShadowVal |= InitBits | RecordBits | ((TypeId == 14) ? PtrBits : 0);
-        assert(ShadowVal & InitBits);
+    }
+
+    // Order:
+    // - not initialized first,
+    // - [skipped] a fully initialized read,
+    // - a partially initialized read,
+    // - [skipped] a write over a non-recorded region,
+    // - a write over an entire recorded region without any saved parts,
+    // - a write over partially recorded unsaved parts.
+    if (!PartialInit) {
+      if (AK != WRITE) {
+        ShadowVal |= RecordBits | ((TypeId == 14) ? PtrBits : 0);
         if (AK != BCI_READ)
           writeVariableSize(MemP, AccessSize, getValue(TypeId, AccessSize));
       }
-      writeVariableSize(ShadowP, AccessSize / 2, ShadowVal);
-      ShadowVal = readVariableSize(ShadowP, AccessSize / 2);
-      assert(ShadowVal & InitBits);
-    } else if (AK == WRITE && (ShadowVal & RecordBits) &&
-               !(ShadowVal & SavedBits)) {
-      ShadowVal |= SavedBits;
-      if (!TE.SavedValues) {
-        char *P = (char *)calloc(TE.getSize(), 1);
-        memcpy(P + ((char *)MemP - TE.getBase()), MemP, AccessSize);
-        TE.SavedValues = P;
+    } else if (AK != WRITE && !FullInit) {
+      assert(!FullInit && PartialInit);
+      ShadowVal |= RecordBits | ((TypeId == 14) ? PtrBits : 0);
+      // TODO: PtrBits?
+      if (AK != BCI_READ) {
+        __builtin_assume(AccessSize <= 8);
+        uint64_t SingleInitBits = BitsTable[InitBits][0][0];
+        for (uint32_t Byte = 0; Byte < AccessSize; ++Byte) {
+          uint64_t InitByteBits = SingleInitBits << (AccessSize - Byte - 1);
+          if (!(ShadowVal & InitByteBits))
+            writeVariableSize(MemP + Byte, 1, getValue(TypeId, 1));
+        }
       }
-      writeVariableSize(ShadowP, AccessSize / 2, ShadowVal);
+    } else if (AK == WRITE && FullRecord && !PartialSaved) {
+      if (!TE.SavedValues)
+        TE.SavedValues = (char *)calloc(TE.getSize(), 1);
+      __builtin_memcpy(TE.SavedValues + (MemP - TE.getBase()), MemP,
+                       AccessSize);
+      ShadowVal |= SavedBits;
+    } else if (AK == WRITE && PartiallyUnsaved) {
+      assert(PartialInit && !FullSaved && (PartialSaved || !FullRecord));
+      if (!TE.SavedValues)
+        TE.SavedValues = (char *)calloc(TE.getSize(), 1);
+      __builtin_assume(AccessSize <= 8);
+      uint64_t SingleSavedBits = BitsTable[RecordBits][0][0];
+      uint64_t SingleRecordBits = BitsTable[RecordBits][0][0];
+      for (uint32_t Byte = 0; Byte < AccessSize; ++Byte) {
+        uint64_t SavedByteBits = SingleSavedBits << (AccessSize - Byte - 1);
+        uint64_t RecordByteBits = SingleRecordBits << (AccessSize - Byte - 1);
+        if (!(ShadowVal & RecordByteBits) || (ShadowVal & SavedByteBits))
+          continue;
+        __builtin_memcpy(TE.SavedValues + (MemP - TE.getBase() + Byte),
+                         MemP + Byte, 1);
+        ShadowVal |= SavedByteBits;
+      }
     }
+
+    writeVariableSize(ShadowP, AccessSize / 2, ShadowVal);
+    assert((ShadowVal & InitBits) == InitBits);
+    if (!((readVariableSize(ShadowP, AccessSize / 2) & InitBits) == InitBits)) {
+      printf("%llu %llu %llu\n", InitBits,
+             readVariableSize(ShadowP, AccessSize / 2),
+             (readVariableSize(ShadowP, AccessSize / 2) & InitBits));
+    }
+    assert((readVariableSize(ShadowP, AccessSize / 2) & InitBits) == InitBits);
   }
   __attribute__((always_inline)) char *access(char *VPtr, uint32_t AccessSize,
                                               uint32_t TypeId, AccessKind AK,
-                                              bool &IsInitialized) {
+                                              bool &AnyInitialized,
+                                              bool &AllInitialized) {
     EncDecTy ED(VPtr);
     TableEntryTy &TE = Table[ED.Bits.TableIdx];
 
@@ -590,6 +647,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     auto PositiveSize = TE.getPositiveSize();
     auto NegativeSize = TE.getNegativeSize();
     if (RelOffset < 0 && (uint32_t)(-RelOffset) > NegativeSize) [[unlikely]] {
+      RelOffset *= -1;
       uint32_t NewNegativeSize =
           std::max(4 * NegativeSize, std::bit_ceil((uint32_t)4 * RelOffset));
       assert(std::has_single_bit(NewNegativeSize));
@@ -608,19 +666,23 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     char *MemP = (TE.Base + OffsetFromBase);
 
     if (Mod) [[unlikely]] {
-      checkAndWrite(TE, MemP, ShadowP, 1, TypeId, AK, Mod, IsInitialized);
+      checkAndWrite(TE, MemP, ShadowP, 1, TypeId, AK, Mod, AnyInitialized,
+                    AllInitialized);
       MemP += 1;
       ShadowP += 1;
       AccessSize -= 1;
     }
     if (AccessSize == 8) [[likely]]
-      checkAndWrite(TE, MemP, ShadowP, 8, TypeId, AK, 0, IsInitialized);
+      checkAndWrite(TE, MemP, ShadowP, 8, TypeId, AK, 0, AnyInitialized,
+                    AllInitialized);
     else if (AccessSize == 4) [[likely]]
-      checkAndWrite(TE, MemP, ShadowP, 4, TypeId, AK, 0, IsInitialized);
+      checkAndWrite(TE, MemP, ShadowP, 4, TypeId, AK, 0, AnyInitialized,
+                    AllInitialized);
     else [[unlikely]] {
       for (uint32_t Bytes : {8, 4, 2}) {
-        while (AccessSize > Bytes) {
-          checkAndWrite(TE, MemP, ShadowP, Bytes, TypeId, AK, 0, IsInitialized);
+        while (AccessSize >= Bytes) {
+          checkAndWrite(TE, MemP, ShadowP, Bytes, TypeId, AK, 0, AnyInitialized,
+                        AllInitialized);
           MemP += Bytes;
           ShadowP += (Bytes / 2);
           AccessSize -= Bytes;
@@ -628,7 +690,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
       }
       if (AccessSize)
         checkAndWrite(TE, MemP, ShadowP, AccessSize, TypeId, AK, 0,
-                      IsInitialized);
+                      AnyInitialized, AllInitialized);
     }
 
     return (TE.Base + OffsetFromBase);

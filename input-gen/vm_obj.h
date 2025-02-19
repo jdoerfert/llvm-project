@@ -28,7 +28,7 @@
 #include "vm_values.h"
 
 namespace __ig {
-using BucketScheme10Ty = BucketSchemeTy</*EncodingNo=*/1,
+using BucketScheme12Ty = BucketSchemeTy</*EncodingNo=*/1,
                                         /*OffsetBits=*/12, /*BucketBits=*/3,
                                         /*RealPtrBits=*/32>;
 using TableScheme20Ty = TableSchemeTy<2, 30>;
@@ -45,7 +45,7 @@ struct ObjectManager {
 
   ChoiceTrace *CT = nullptr;
   BigObjScheme10Ty UserObjLarge;
-  BucketScheme10Ty UserObjSmall;
+  BucketScheme12Ty UserObjSmall;
   TableScheme20Ty RTObjs;
 
   std::string ProgramName;
@@ -88,16 +88,17 @@ struct ObjectManager {
 
   __attribute__((always_inline)) char *
   decodeForAccess(char *VPtr, uint32_t AccessSize, uint32_t TypeId,
-                  AccessKind AK, char *BasePtrInfo, bool &IsInitialized) {
+                  AccessKind AK, char *BasePtrInfo, bool &AnyInitialized,
+                  bool &AllInitialized) {
+    AnyInitialized = false;
+    AllInitialized = true;
     switch ((uint64_t)BasePtrInfo & 3) {
     case 1:
-      IsInitialized = true;
       return UserObjSmall.access(VPtr, AccessSize, TypeId, AK == WRITE);
     case 2:
-      IsInitialized = false;
-      return RTObjs.access(VPtr, AccessSize, TypeId, AK, IsInitialized);
+      return RTObjs.access(VPtr, AccessSize, TypeId, AK, AnyInitialized,
+                           AllInitialized);
     case 3:
-      IsInitialized = true;
       return UserObjLarge.access(VPtr, AccessSize, TypeId, AK == WRITE);
     default:
       WARN("unknown encoding {} (allowed until global support)\n",
@@ -259,9 +260,10 @@ struct ObjectManager {
     case 1:
       return UserObjSmall.checkSize(VPtr, Size);
     case 2: {
-      bool IsInitialized = false;
-      RTObjs.access(VPtr, Size, 0, CHECK_INITIALIZED, IsInitialized);
-      return IsInitialized;
+      bool AnyInitialized = false, AllInitialized = true;
+      RTObjs.access(VPtr, Size, 0, CHECK_INITIALIZED, AnyInitialized,
+                    AllInitialized);
+      return AllInitialized;
     }
     case 3:
       return UserObjLarge.checkSize(VPtr, Size);
@@ -271,19 +273,22 @@ struct ObjectManager {
   }
 
   char *decodeAndCheckInitialized(char *VPtr, uint32_t Size,
-                                  bool &Initialized) {
+                                  bool &AllInitialized) {
     switch (getEncoding(VPtr)) {
     case 1:
-      Initialized = true;
+      AllInitialized = true;
       return UserObjSmall.decode(VPtr);
-    case 2:
-      Initialized = false;
-      return RTObjs.access(VPtr, Size, 0, CHECK_INITIALIZED, Initialized);
+    case 2: {
+      AllInitialized = true;
+      bool AnyInitialized = false;
+      return RTObjs.access(VPtr, Size, 0, CHECK_INITIALIZED, AnyInitialized,
+                           AllInitialized);
+    }
     case 3:
-      Initialized = true;
+      AllInitialized = true;
       return UserObjLarge.decode(VPtr);
     default:
-      Initialized = true;
+      AllInitialized = true;
       return VPtr;
     }
   }

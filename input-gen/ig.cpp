@@ -39,12 +39,6 @@ struct __attribute__((packed)) AllocationInfoTy {
   uint8_t InitialValueKind;
   uint32_t InitialValue;
 };
-struct LVRTy {
-  char *MPtr;
-  char *VPtrBegin;
-  bool IsInitialized;
-};
-std::map<std::pair<int64_t, int64_t>, LVRTy *> LVRMap;
 
 extern ObjectManager ThreadOM;
 
@@ -120,9 +114,10 @@ void *__ig_pre_load_slow(char *pointer, char *base_pointer_info,
       pointer, base_pointer_info, loop_value_range_info, value_size, alignment,
       value_type_id);
   ThreadOM.checkBranchConditions(pointer, base_pointer_info);
-  bool IsInitialized;
+  bool AnyInitialized = false, AllInitialized = true;
   auto *MPtr = ThreadOM.decodeForAccess(pointer, value_size, value_type_id,
-                                        READ, base_pointer_info, IsInitialized);
+                                        READ, base_pointer_info, AnyInitialized,
+                                        AllInitialized);
   PRINTF("--> %p\n", MPtr);
   return MPtr;
 }
@@ -131,12 +126,9 @@ IG_API_ATTRS
 void *__ig_pre_load(char *pointer, char *base_pointer_info,
                     char *loop_value_range_info, int32_t value_size,
                     int64_t alignment, int32_t value_type_id) {
-  //  auto *LVR = (LVRTy *)loop_value_range_info;
-  //  if (LVR && LVR->IsInitialized)
-  //    return LVR->MPtr + (pointer - LVR->VPtrBegin);
   if (base_pointer_info && loop_value_range_info) {
-    // printf("l %p %p %p %lu\n", base_pointer_info, loop_value_range_info,
-    // pointer, (pointer - loop_value_range_info ));
+    PRINTF("l %p %p %p %lu\n", base_pointer_info, loop_value_range_info,
+           pointer, (pointer - loop_value_range_info));
     return (char *)((uint64_t)base_pointer_info & ~3) +
            (pointer - loop_value_range_info);
   }
@@ -148,19 +140,15 @@ IG_API_ATTRS
 void *__ig_pre_store_slow(char *pointer, char *base_pointer_info,
                           char *loop_value_range_info, int32_t value_size,
                           int64_t alignment, int32_t value_type_id) {
-  // printf("s %p %p %p\n", base_pointer_info, loop_value_range_info, pointer);
-  //  auto *LVR = (LVRTy *)loop_value_range_info;
-  //  if (LVR)
-  //    return LVR->MPtr + (pointer - LVR->VPtrBegin);
   PRINTF(
       "store pre -- pointer: %p, base_pointer_info: %p, loop_value_range_info: "
       "%p, value_size: %i, alignment: %lli, value_type_id: %i\n",
       pointer, base_pointer_info, loop_value_range_info, value_size, alignment,
       value_type_id);
-  bool IsInitialized;
-  auto *MPtr =
-      ThreadOM.decodeForAccess(pointer, value_size, value_type_id, WRITE,
-                               base_pointer_info, IsInitialized);
+  bool AnyInitialized = false, AllInitialized = true;
+  auto *MPtr = ThreadOM.decodeForAccess(pointer, value_size, value_type_id,
+                                        WRITE, base_pointer_info,
+                                        AnyInitialized, AllInitialized);
   PRINTF("--> %p\n", MPtr);
   return MPtr;
 }
@@ -170,8 +158,8 @@ void *__ig_pre_store(char *pointer, char *base_pointer_info,
                      char *loop_value_range_info, int32_t value_size,
                      int64_t alignment, int32_t value_type_id) {
   if (base_pointer_info && loop_value_range_info) {
-    // printf("s %p %p %p %lu\n", base_pointer_info, loop_value_range_info,
-    // pointer, (pointer - loop_value_range_info ));
+    PRINTF("s %p %p %p %lu\n", base_pointer_info, loop_value_range_info,
+           pointer, (pointer - loop_value_range_info));
     return (char *)((uint64_t)base_pointer_info & ~3) +
            (pointer - loop_value_range_info);
   }
@@ -236,31 +224,19 @@ char *__ig_post_base_pointer_info(char *base_pointer,
 IG_API_ATTRS
 void *__ig_post_loop_value_range(int64_t initial_loop_val,
                                  int64_t final_loop_val) {
-  PRINTF(
-      "loop_value_range post -- initial_loop_val: %lli, final_loop_val: %lli\n",
-      initial_loop_val, final_loop_val);
-  //  auto *&LVR = LVRMap[{initial_loop_val, final_loop_val}];
-  //  if (!LVR) {
-  //    LVR = new LVRTy;
-  //    char *VPtrBegin = (char *)initial_loop_val;
-  //    LVR->VPtrBegin = VPtrBegin;
-  //    int64_t Size = final_loop_val - initial_loop_val;
-  //    if (Size > 0) {
-  //      LVR->MPtr = ThreadOM.decodeAndCheckInitialized(VPtrBegin, Size,
-  //                                                     LVR->IsInitialized);
-  //    }
-  //  }
-  //  return (char *)LVR;
+  PRINTF("loop_value_range post -- initial_loop_val: %p, final_loop_val: %p\n",
+         (void *)initial_loop_val, (void *)final_loop_val);
 
   char *VPtrBegin = (char *)initial_loop_val;
-  char *BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
   int64_t Size = final_loop_val - initial_loop_val;
-  bool IsInitialized = true;
-  if (Size > 0)
-    IsInitialized = ThreadOM.checkRange(VPtrBegin, Size);
-  if (!IsInitialized)
+  char *BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
+  printf("%p %p %lli\n", VPtrBegin, BaseVPtr, Size);
+  bool AllInitialized = ThreadOM.checkRange(VPtrBegin, Size);
+  BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
+  printf("%p %p %lli -> %i\n", VPtrBegin, BaseVPtr, Size, AllInitialized);
+  if (!AllInitialized)
     return 0;
-  return BaseVPtr;
+  return VPtrBegin;
 }
 
 IG_API_ATTRS
@@ -398,6 +374,7 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
     arguments += sizeof(BranchConditionValuePackTy);
   }
 
+  printf("FVIs %zu \n", BCI->FreeValueInfos.size());
   if (IsKnown)
     return;
 
@@ -425,13 +402,16 @@ int __ig_memcmp(char *s1, char *s2, size_t n) {
   if (BPI1 || BPI2)
     ThreadOM.checkBranchConditions(s1, BPI1, s2, BPI2);
 
-  bool IsInitialized1 = false, IsInitialized2 = false;
-  auto *MPtr1 =
-      BPI1 ? ThreadOM.decodeForAccess(s1, n, 12, READ, BPI1, IsInitialized1)
-           : s1;
-  auto *MPtr2 =
-      BPI2 ? ThreadOM.decodeForAccess(s2, n, 12, READ, BPI2, IsInitialized2)
-           : s2;
+  bool AnyInitialized1 = false, AllInitialized1 = true;
+  bool AnyInitialized2 = false, AllInitialized2 = true;
+  auto *MPtr1 = BPI1
+                    ? ThreadOM.decodeForAccess(s1, n, 12, READ, BPI1,
+                                               AnyInitialized1, AllInitialized1)
+                    : s1;
+  auto *MPtr2 = BPI2
+                    ? ThreadOM.decodeForAccess(s2, n, 12, READ, BPI2,
+                                               AnyInitialized2, AllInitialized2)
+                    : s2;
   PRINTF("memcmp -- s1: '%s', s2: '%s', n: %zu\n", MPtr1, MPtr2, n);
   return memcmp(MPtr1, MPtr2, n);
 }
@@ -453,12 +433,15 @@ int __ig_strcmp(char *s1, char *s2) {
     ThreadOM.checkBranchConditions(s1, BPI1, s2, BPI2);
 
   do {
-    bool IsInitialized1 = false, IsInitialized2 = false;
+    bool AnyInitialized1 = false, AllInitialized1 = true;
+    bool AnyInitialized2 = false, AllInitialized2 = true;
     auto *MPtr1 =
-        BPI1 ? ThreadOM.decodeForAccess(s1, 1, 12, READ, BPI1, IsInitialized1)
+        BPI1 ? ThreadOM.decodeForAccess(s1, 1, 12, READ, BPI1, AnyInitialized1,
+                                        AllInitialized1)
              : s1;
     auto *MPtr2 =
-        BPI2 ? ThreadOM.decodeForAccess(s2, 1, 12, READ, BPI2, IsInitialized2)
+        BPI2 ? ThreadOM.decodeForAccess(s2, 1, 12, READ, BPI2, AnyInitialized2,
+                                        AllInitialized2)
              : s2;
     if (*MPtr1 != *MPtr2)
       return *MPtr1 - *MPtr2;

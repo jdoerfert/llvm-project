@@ -849,7 +849,7 @@ bool InputGenEntriesImpl::createEntryPoint() {
                         EntryPoint->getName());
 
     Function *EntryPointWrapper = Function::Create(
-        FunctionType::get(Type::getVoidTy(Ctx), {PtrTy}, false),
+        FunctionType::get(Type::getVoidTy(Ctx), {I32Ty, PtrTy}, false),
         GlobalValue::InternalLinkage, EntryPoint->getName() + ".wrapper", M);
     // Tell Instrumentor not to ignore these functions.
     EntryPoint->addFnAttr("instrument");
@@ -859,7 +859,7 @@ bool InputGenEntriesImpl::createEntryPoint() {
     auto *WrapperEntryBB = BasicBlock::Create(Ctx, "entry", EntryPointWrapper);
 
     SmallVector<Value *> Parameters;
-    Value *WrapperObjPtr = EntryPointWrapper->getArg(0);
+    Value *WrapperObjPtr = EntryPointWrapper->getArg(1);
     for (auto &Arg : EntryPoint->args()) {
       auto *LI = new LoadInst(Arg.getType(), WrapperObjPtr, Arg.getName(),
                               WrapperEntryBB);
@@ -880,11 +880,14 @@ bool InputGenEntriesImpl::createEntryPoint() {
     EntryPoint->removeFnAttr(Attribute::NoInline);
 
     auto *DispatchBB = BasicBlock::Create(Ctx, "dispatch", IGEntry);
-    CallInst::Create(EntryPointWrapper->getFunctionType(), EntryPointWrapper,
-                     {EntryObj}, "", DispatchBB);
+    auto *WrapperCI = CallInst::Create(EntryPointWrapper->getFunctionType(),
+                                       EntryPointWrapper,
+                                       {EntryChoice, EntryObj}, "", DispatchBB);
+    // Force must tail to avoid IPO, especially Argument promotion.
+    WrapperCI->setTailCallKind(CallInst::TCK_MustTail);
     SI->addCase(ConstantInt::get(I32Ty, I), DispatchBB);
 
-    BranchInst::Create(ReturnBB, DispatchBB);
+    ReturnInst::Create(Ctx, DispatchBB);
   }
   ArrayType *NameArrayTy = ArrayType::get(PtrTy, NumEntryPoints);
   Constant *NameArray = ConstantArray::get(NameArrayTy, Names);

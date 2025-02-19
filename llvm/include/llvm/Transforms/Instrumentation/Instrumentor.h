@@ -48,6 +48,7 @@ namespace instrumentor {
 enum HoistKindTy {
   DO_NOT_HOIST = 0,
   HOIST_IN_BLOCK,
+  HOIST_OUT_OF_LOOPS,
   HOIST_MAXIMALLY,
 };
 
@@ -123,7 +124,8 @@ struct InstrumentorIRBuilderTy {
 
   DenseMap<Value *, std::pair<Value *, Value *>> LoopRangeValueMap;
 
-  std::pair<BasicBlock::iterator, bool> computeLoopRangeValues(Value &V);
+  std::pair<BasicBlock::iterator, bool>
+  computeLoopRangeValues(Value &V, uint32_t AdditionalSize);
 
   Value *getInitialLoopValue(Value &V) {
     return std::get<0>(LoopRangeValueMap[&V]);
@@ -447,7 +449,8 @@ struct InstrumentationConfig {
   Value *getBasePointerInfo(Value &V, InstrumentorIRBuilderTy &IIRB);
 
   DenseMap<std::pair<const SCEV *, Function *>, Value *> LoopValueRangeMap;
-  Value *getLoopValueRange(Value &V, InstrumentorIRBuilderTy &IIRB);
+  Value *getLoopValueRange(Value &V, InstrumentorIRBuilderTy &IIRB,
+                           uint32_t AdditionalSize);
 
   /// Mapping to remember global strings passed to the runtime.
   DenseMap<StringRef, Constant *> GlobalStringsMap;
@@ -1093,7 +1096,7 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
                             InstrumentationCaches &ICaches) override {
     if (CB && !CB(*V))
       return nullptr;
-    auto [IP, Success] = IIRB.computeLoopRangeValues(*V);
+    auto [IP, Success] = IIRB.computeLoopRangeValues(*V, AdditionalSize);
     if (!Success)
       return nullptr;
     IIRB.IRB.SetInsertPoint(IP);
@@ -1103,6 +1106,10 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
   virtual Type *getRetTy(LLVMContext &Ctx) const override {
     return PointerType::getUnqual(Ctx);
   }
+
+  void setAdditionalSize(uint32_t AS) { AdditionalSize = AS; }
+
+  uint32_t AdditionalSize = 0;
 };
 
 struct FunctionIO : public InstrumentationOpportunity {
