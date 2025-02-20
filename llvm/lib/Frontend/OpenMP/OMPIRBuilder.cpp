@@ -7431,7 +7431,7 @@ static int32_t computeHeuristicUnrollFactor(CanonicalLoopInfo *CLI) {
   unsigned TripMultiple = 0;
 
   // TODO do we also want to hook up the ML model here?
-  auto Advisor = getDefaultModeUnrollAdvisor();
+  auto Advisor = getDefaultModeUnrollAdvisor(L->getHeader()->getContext());
   auto Advice = Advisor->getAdvice({(unsigned)TripCount, UCE, UP, SE, LI, *L});
   Advice->recordUnattemptedUnrolling();
   bool UseUpperBound = false;

@@ -1301,7 +1301,7 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
 
   // TODO in the future we will move this up and get recommendation on whether
   // we want to also fully unroll from the same advice object.
-  UnrollAdvisor &Advisor = getUnrollAdvisor();
+  UnrollAdvisor &Advisor = getUnrollAdvisor(L->getHeader()->getContext());
   auto Advice = Advisor.getAdvice({TripCount, UCE, UP, SE, *LI, *L});
   struct {
     FunctionCallee BeginF;

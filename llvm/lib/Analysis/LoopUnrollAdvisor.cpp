@@ -13,6 +13,7 @@
 #include "llvm/Analysis/TensorSpec.h"
 #include "llvm/Analysis/UnrollAdvisor.h"
 #include "llvm/Analysis/Utils/TrainingLogger.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -161,20 +162,23 @@ std::unique_ptr<UnrollAdvice> UnrollAdvisor::getAdvice(UnrollAdviceInfo UAI) {
   return getAdviceImpl(UAI);
 }
 
-std::unique_ptr<UnrollAdvisor> getDefaultModeUnrollAdvisor() {
+std::unique_ptr<UnrollAdvisor> getDefaultModeUnrollAdvisor(LLVMContext &Ctx) {
   return std::make_unique<DefaultUnrollAdvisor>();
 }
 
-UnrollAdvisor &getUnrollAdvisor() {
+UnrollAdvisor &getUnrollAdvisor(LLVMContext &Ctx) {
+  // TODO Not sure if this is safe as if the LLVMContext that we pass in here
+  // _could_ change from call to call to this function. It seems to currently
+  // only be used to emit errors so it should be fine.
   static std::unique_ptr<UnrollAdvisor> Advisor =
-      []() -> std::unique_ptr<UnrollAdvisor> {
+      [&Ctx]() -> std::unique_ptr<UnrollAdvisor> {
     switch (ClUnrollAdvisorMode) {
     case UnrollAdvisorMode::Default:
-      return getDefaultModeUnrollAdvisor();
+      return getDefaultModeUnrollAdvisor(Ctx);
     case UnrollAdvisorMode::Release:
       llvm_unreachable("Release mode for UnrollAdvisor not yet implemented");
     case UnrollAdvisorMode::Development:
-      return getDevelopmentModeUnrollAdvisor();
+      return getDevelopmentModeUnrollAdvisor(Ctx);
     }
     llvm_unreachable("Unknown mode");
   }();

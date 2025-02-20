@@ -153,7 +153,11 @@ public:
 
 class DevelopmentUnrollAdvisor : public UnrollAdvisor {
 public:
-  DevelopmentUnrollAdvisor() {}
+  DevelopmentUnrollAdvisor(LLVMContext &Ctx)
+      : ModelRunner(std::make_unique<UnrollInteractiveModelRunner>(
+            Ctx, mlgo::UnrollFeatureMap, mlgo::UnrollDecisionSpec,
+            InteractiveChannelBaseName + ".out",
+            InteractiveChannelBaseName + ".in")) {}
   ~DevelopmentUnrollAdvisor() {}
 
   UnrollAdvice::InstrumentationInfo onAction() {
@@ -171,13 +175,13 @@ protected:
 private:
   UnrollInteractiveModelRunner *getModelRunner() { return ModelRunner.get(); }
   std::unique_ptr<UnrollInteractiveModelRunner> ModelRunner;
-  LLVMContext *Ctx;
 };
 
 class DevelopmentUnrollAdvice : public UnrollAdvice {
 public:
   using UnrollAdvice::UnrollAdvice;
-  UnrollAdvice::InstrumentationInfo recordUnrollingImpl() override {
+  UnrollAdvice::InstrumentationInfo
+  recordUnrollingImpl(const LoopUnrollResult &Result) override {
     LLVM_DEBUG(DBGS() << "unrolled\n");
     return getAdvisor()->onAction();
   }
@@ -199,17 +203,6 @@ private:
 
 std::unique_ptr<UnrollAdvice>
 DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
-  if (!ModelRunner) {
-    Ctx = &UAI.L.getHeader()->getContext();
-    // TODO Not sure if this is safe as if the LLVMContext that we pass in
-    // here _could_ change from call to call to this function. It seems to
-    // currently only be used to emit errors so it should be fine.
-    ModelRunner = std::make_unique<UnrollInteractiveModelRunner>(
-        *Ctx, mlgo::UnrollFeatureMap, mlgo::UnrollDecisionSpec,
-        InteractiveChannelBaseName + ".out",
-        InteractiveChannelBaseName + ".in");
-  }
-
   LoopPropertiesInfo LPI =
       LoopPropertiesInfo::getLoopPropertiesInfo(&UAI.L, &UAI.LI, &UAI.SE);
 
@@ -260,8 +253,9 @@ DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
 
 } // namespace
 
-std::unique_ptr<UnrollAdvisor> llvm::getDevelopmentModeUnrollAdvisor() {
-  return std::make_unique<DevelopmentUnrollAdvisor>();
+std::unique_ptr<UnrollAdvisor>
+llvm::getDevelopmentModeUnrollAdvisor(LLVMContext &Ctx) {
+  return std::make_unique<DevelopmentUnrollAdvisor>(Ctx);
 }
 
 // clang-format off

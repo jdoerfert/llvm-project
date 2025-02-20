@@ -156,7 +156,7 @@ static bool computeUnrollAndJamCount(
   unsigned MaxTripCount = 0;
   bool UseUpperBound = false;
   // TODO do we also want to hook up the ML model here?
-  auto Advisor = getDefaultModeUnrollAdvisor();
+  auto Advisor = getDefaultModeUnrollAdvisor(L->getHeader()->getContext());
   auto Advice = Advisor->getAdvice({OuterTripCount, OuterUCE, UP, SE, *LI, *L});
   Advice->recordUnattemptedUnrolling();
   bool ExplicitUnroll = computeUnrollCount(
