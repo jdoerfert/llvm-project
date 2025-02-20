@@ -27,7 +27,9 @@ def parse_args_and_run():
     parser.add_argument('--save-temps', action='store_true', default=False)
     parser.add_argument('--temp-dir', default=None)
     parser.add_argument('--output-dataset', required=True)
-    parser.add_argument('--num', default=3, type=int)
+    parser.add_argument('--begin', default=0, type=int)
+    parser.add_argument('--end', default=3, type=int)
+    parser.add_argument('--parquet-start', default=0, type=int)
     args = parser.parse_args()
     LoopExtractor(args).main()
 
@@ -41,10 +43,10 @@ class LoopExtractor:
 
         self.dfs = []
         self.total_pfile_size = 0
-        self.first_in_parquet = 0
-        self.parquet_id = 0
+        self.parquet_id = args.parquet_start
         self.should_break = False
-        self.i = 0
+        self.i = args.begin
+        self.first_in_parquet = self.i
 
         signal.signal(signal.SIGUSR2, self.receive_should_break)
         signal.signal(signal.SIGUSR1, self.receive)
@@ -56,44 +58,61 @@ class LoopExtractor:
         print(f'Will break')
         self.should_break = True
 
+    def get_current_parquet_name(self):
+        return os.path.join(self.args.output_dataset, 'train-' + str(self.parquet_id) + '.parquet')
+
     def write_parquet(self):
-        name = os.path.join(self.args.output_dataset, 'train-' + str(self.parquet_id) + '.parquet')
+        name = self.get_current_parquet_name()
+        json_name = name + '.json'
         if len(self.dfs) == 0:
             return
         print(f'Writing intermediate parquet {self.parquet_id} with estimated size {self.total_pfile_size} for modules {self.first_in_parquet} to {self.i}')
         df = pandas.concat(self.dfs)
         table = pyarrow.Table.from_pandas(df, preserve_index=False)
         parquet.write_table(table, name, compression='NONE')
+        with open(json_name, 'w') as fp:
+            fp.write(json.dumps({
+                'estimated_size' : self.total_pfile_size,
+                'first' : self.first_in_parquet,
+                'last' : self.i,
+                'num' : self.i - self.first_in_parquet + 1,
+            }, indent=4) + '\n')
 
         self.dfs = []
         self.total_pfile_size = 0
-        self.first_in_parquet = self.i
+        self.first_in_parquet = self.i + 1
         self.parquet_id += 1
 
     def main(self):
         args = self.args
         ds = load_dataset(os.path.join(args.dataset, args.language), split='train', streaming=True)
-        os.mkdir(args.output_dataset)
+        os.makedirs(args.output_dataset, exist_ok=True)
 
-        i = 0
+        curparname = self.get_current_parquet_name()
+        if os.path.exists(curparname):
+            print(f'The parquet name {curparname} already exists. Aborting.')
+            return
 
-        for i, data in enumerate(ds):
-            self.i = i
+        data = ds.skip(self.i)
+
+        for data in ds:
             module = data['content']
             language = data['language']
-            new_df, size_estimate = process_module(module, language, i, args)
+            new_df, size_estimate = process_module(module, language, self.i, args)
             self.total_pfile_size += size_estimate
             if new_df is not None:
                 self.dfs.append(new_df)
             if self.total_pfile_size > PARQUET_SIZE:
                 self.write_parquet()
-            if i == args.num:
-                print(f'Finished all {args.num}')
+            if self.i == args.end:
+                print(f'Finished all {args.end}')
                 break
             if self.should_break:
-                print(f'Stopping at {i}')
+                print(f'Stopping at {self.i}')
                 break
-        print(f'Writing final parquet {i}')
+            self.i += 1
+
+        print(f'Writing final parquet {self.i}')
         self.write_parquet()
 
 def process_module(module, language, idx, args):
