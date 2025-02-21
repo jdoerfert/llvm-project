@@ -49,17 +49,17 @@ public:
   using InstrumentationInfo = std::optional<InstrumentationNames>;
 
   InstrumentationInfo recordUnrolling(const LoopUnrollResult &Result) {
-    markRecorded();
     if (!AdviceGiven)
       return recordUnattemptedUnrolling();
+    markRecorded();
     return recordUnrollingImpl(Result);
   }
 
   InstrumentationInfo
   recordUnsuccessfulUnrolling(const LoopUnrollResult &Result) {
-    markRecorded();
     if (!AdviceGiven)
       return recordUnattemptedUnrolling();
+    markRecorded();
     return recordUnsuccessfulUnrollingImpl(Result);
   }
 
