@@ -776,6 +776,8 @@ static void processFunctionDefinitionForGenerate(Function *F) {
   F->addFnAttr(Attribute::AlwaysInline);
   // TODO also look at the callsites for noinline
   F->removeFnAttr(Attribute::NoInline);
+  // opt_none is incompatible with always_inline
+  F->removeFnAttr(Attribute::OptimizeNone);
 
   // We do not want any definitions to clash with any other modules we may link
   // in.
@@ -791,18 +793,11 @@ static void processFunctionDefinitionForReplayGenerated(Function *F) {
 }
 
 bool InputGenEntriesImpl::processFunctions() {
-  for (Function *F : EntryFunctions) {
+  for (Function *F : llvm::concat<Function *>(EntryFunctions, OtherFunctions)) {
     if (Mode == IGIMode::Generate)
       processFunctionDefinitionForGenerate(F);
     if (Mode == IGIMode::ReplayGenerated)
       processFunctionDefinitionForReplayGenerated(F);
-  }
-  for (Function *F : OtherFunctions) {
-    if (Mode == IGIMode::Generate) {
-      processFunctionDefinitionForGenerate(F);
-    } else if (Mode == IGIMode::ReplayGenerated) {
-      processFunctionDefinitionForReplayGenerated(F);
-    }
   }
 
   // Since the OtherFunctions may be unused, we need to make sure they do not
