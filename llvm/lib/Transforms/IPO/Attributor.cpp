@@ -33,6 +33,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -238,10 +239,12 @@ bool AA::isDynamicallyUnique(Attributor &A, const AbstractAttribute &QueryingAA,
   return InstanceInfoAA && InstanceInfoAA->isAssumedUniqueForAnalysis();
 }
 
-Constant *
-AA::getInitialValueForObj(Attributor &A, const AbstractAttribute &QueryingAA,
-                          Value &Obj, Type &Ty, const TargetLibraryInfo *TLI,
-                          const DataLayout &DL, AA::RangeTy *RangePtr) {
+Constant *AA::getInitialValueForObj(Attributor &A,
+                                    const AbstractAttribute &QueryingAA,
+                                    Value &Obj, Type &Ty,
+                                    const TargetLibraryInfo *TLI,
+                                    const DataLayout &DL,
+                                    const AA::AccessRangeTy *RangePtr) {
   if (isa<AllocaInst>(Obj))
     return UndefValue::get(&Ty);
   if (Constant *Init = getInitialValueOfAllocation(&Obj, TLI, &Ty))
@@ -269,8 +272,10 @@ AA::getInitialValueForObj(Attributor &A, const AbstractAttribute &QueryingAA,
       Initializer = GV->getInitializer();
   }
 
-  if (RangePtr && !RangePtr->offsetOrSizeAreUnknown()) {
-    APInt Offset = APInt(64, RangePtr->Offset);
+  if (RangePtr && !RangePtr->PtrRange.offsetOrSizeAreUnknown()) {
+    assert(RangePtr->AccessSize &&
+           uint64_t(RangePtr->AccessSize) == DL.getTypeStoreSize(&Ty));
+    APInt Offset = APInt(64, RangePtr->PtrRange.Offset);
     return ConstantFoldLoadFromConst(Initializer, &Ty, Offset, DL);
   }
 
@@ -523,14 +528,14 @@ static bool getPotentialCopiesOfMemoryValue(
     // object.
     bool HasBeenWrittenTo = false;
 
-    AA::RangeTy Range;
+    AA::AccessRangeListTy RangeList;
     auto *PI = A.getAAFor<AAPointerInfo>(QueryingAA, IRPosition::value(Obj),
                                          DepClassTy::NONE);
     if (!PI || !PI->forallInterferingAccesses(
                    A, QueryingAA, I,
                    /* FindInterferingWrites */ IsLoad,
                    /* FindInterferingReads */ !IsLoad, CheckAccess,
-                   HasBeenWrittenTo, Range, SkipCB)) {
+                   HasBeenWrittenTo, RangeList, SkipCB)) {
       LLVM_DEBUG(
           dbgs()
           << "Failed to verify all interfering accesses for underlying object: "
@@ -538,10 +543,11 @@ static bool getPotentialCopiesOfMemoryValue(
       return false;
     }
 
-    if (IsLoad && !HasBeenWrittenTo && !Range.isUnassigned()) {
+    if (IsLoad && !HasBeenWrittenTo && !RangeList.isEmpty()) {
       const DataLayout &DL = A.getDataLayout();
-      Value *InitialValue = AA::getInitialValueForObj(
-          A, QueryingAA, Obj, *I.getType(), TLI, DL, &Range);
+      auto *InitialValue =
+          AA::getInitialValueForObj(A, QueryingAA, Obj, *I.getType(), TLI, DL,
+                                    RangeList.getSingleExactRange());
       if (!InitialValue) {
         LLVM_DEBUG(dbgs() << "Could not determine required initial value of "
                              "underlying object, abort!\n");
