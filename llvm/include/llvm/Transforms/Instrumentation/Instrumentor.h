@@ -343,8 +343,8 @@ struct InstrumentationLocation {
   bool isPRE() const { return isPRE(Kind); }
 
   unsigned getOpcode() const {
-    assert(Kind == INSTRUCTION_PRE ||
-           Kind == INSTRUCTION_POST && "Expected instruction!");
+    assert((Kind == INSTRUCTION_PRE || Kind == INSTRUCTION_POST) &&
+           "Expected instruction!");
     return Opcode;
   }
 
