@@ -1282,8 +1282,7 @@ define i32 @assume_read_global_good() {
 ; TUNIT-NEXT:    call void @llvm.assume(i1 noundef [[C]]) #[[ATTR7]]
 ; TUNIT-NEXT:    [[LGS2:%.*]] = load i32, ptr @Gstatic_int1, align 4
 ; TUNIT-NEXT:    store i32 17, ptr @Gstatic_int1, align 4
-; TUNIT-NEXT:    [[LGS3:%.*]] = load i32, ptr @Gstatic_int1, align 4
-; TUNIT-NEXT:    [[ADD:%.*]] = add i32 [[LGS2]], [[LGS3]]
+; TUNIT-NEXT:    [[ADD:%.*]] = add i32 [[LGS2]], 17
 ; TUNIT-NEXT:    ret i32 [[ADD]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
@@ -1294,8 +1293,7 @@ define i32 @assume_read_global_good() {
 ; CGSCC-NEXT:    call void @llvm.assume(i1 noundef [[C]]) #[[ATTR8]]
 ; CGSCC-NEXT:    [[LGS2:%.*]] = load i32, ptr @Gstatic_int1, align 4
 ; CGSCC-NEXT:    store i32 17, ptr @Gstatic_int1, align 4
-; CGSCC-NEXT:    [[LGS3:%.*]] = load i32, ptr @Gstatic_int1, align 4
-; CGSCC-NEXT:    [[ADD:%.*]] = add i32 [[LGS2]], [[LGS3]]
+; CGSCC-NEXT:    [[ADD:%.*]] = add i32 [[LGS2]], 17
 ; CGSCC-NEXT:    ret i32 [[ADD]]
 ;
   %lgs1 = load i32, ptr @Gstatic_int1

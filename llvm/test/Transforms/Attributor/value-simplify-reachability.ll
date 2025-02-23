@@ -55,8 +55,7 @@ define void @entry1(i1 %c, i32 %v) {
 ; TUNIT-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; TUNIT:       T:
 ; TUNIT-NEXT:    store i32 [[V]], ptr @GInt1, align 4
-; TUNIT-NEXT:    [[L2:%.*]] = load i32, ptr @GInt1, align 4
-; TUNIT-NEXT:    call void @useI32(i32 [[L2]])
+; TUNIT-NEXT:    call void @useI32(i32 [[V]])
 ; TUNIT-NEXT:    br label [[F]]
 ; TUNIT:       F:
 ; TUNIT-NEXT:    [[L3:%.*]] = load i32, ptr @GInt1, align 4
@@ -77,8 +76,7 @@ define void @entry1(i1 %c, i32 %v) {
 ; CGSCC-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; CGSCC:       T:
 ; CGSCC-NEXT:    store i32 [[V]], ptr @GInt1, align 4
-; CGSCC-NEXT:    [[L2:%.*]] = load i32, ptr @GInt1, align 4
-; CGSCC-NEXT:    call void @useI32(i32 [[L2]])
+; CGSCC-NEXT:    call void @useI32(i32 [[V]])
 ; CGSCC-NEXT:    br label [[F]]
 ; CGSCC:       F:
 ; CGSCC-NEXT:    [[L3:%.*]] = load i32, ptr @GInt1, align 4
@@ -120,8 +118,7 @@ define void @entry2(i1 %c, i32 %v) {
 ; TUNIT-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; TUNIT:       T:
 ; TUNIT-NEXT:    store i32 [[V]], ptr @GInt2, align 4
-; TUNIT-NEXT:    [[L2:%.*]] = load i32, ptr @GInt2, align 4
-; TUNIT-NEXT:    call void @useI32(i32 [[L2]])
+; TUNIT-NEXT:    call void @useI32(i32 [[V]])
 ; TUNIT-NEXT:    br label [[F]]
 ; TUNIT:       F:
 ; TUNIT-NEXT:    [[L3:%.*]] = load i32, ptr @GInt2, align 4
@@ -142,8 +139,7 @@ define void @entry2(i1 %c, i32 %v) {
 ; CGSCC-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; CGSCC:       T:
 ; CGSCC-NEXT:    store i32 [[V]], ptr @GInt2, align 4
-; CGSCC-NEXT:    [[L2:%.*]] = load i32, ptr @GInt2, align 4
-; CGSCC-NEXT:    call void @useI32(i32 [[L2]])
+; CGSCC-NEXT:    call void @useI32(i32 [[V]])
 ; CGSCC-NEXT:    br label [[F]]
 ; CGSCC:       F:
 ; CGSCC-NEXT:    [[L3:%.*]] = load i32, ptr @GInt2, align 4
