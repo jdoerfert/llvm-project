@@ -607,6 +607,7 @@ InstrumentorIRBuilderTy::getBestHoistPoint(BasicBlock::iterator IP,
   case HOIST_MAXIMALLY:
     return IP->getFunction()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
   }
+  llvm_unreachable("Unknown kind!");
 }
 InstrumentorIRBuilderTy::HoistResult
 InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(Instruction &I,

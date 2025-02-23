@@ -267,7 +267,7 @@ struct InstrumentationLocation {
     INSTRUCTION_PRE,
     INSTRUCTION_POST,
     SPECIAL_VALUE,
-    Last,
+    Last = SPECIAL_VALUE,
   };
 
   InstrumentationLocation(KindTy Kind) : Kind(Kind) {
@@ -302,10 +302,8 @@ struct InstrumentationLocation {
       return "instruction_post";
     case SPECIAL_VALUE:
       return "special_value";
-    case Last:
-      llvm_unreachable("Invalid kind!");
-    };
-    return "<unknown>";
+    }
+    llvm_unreachable("Invalid kind!");
   }
   static KindTy getKindFromStr(StringRef S) {
     return StringSwitch<KindTy>(S)
@@ -336,9 +334,8 @@ struct InstrumentationLocation {
     case INSTRUCTION_POST:
     case SPECIAL_VALUE:
       return false;
-    case Last:
-      llvm_unreachable("Invalid kind!");
-    };
+    }
+    llvm_unreachable("Invalid kind!");
   }
   bool isPRE() const { return isPRE(Kind); }
 
