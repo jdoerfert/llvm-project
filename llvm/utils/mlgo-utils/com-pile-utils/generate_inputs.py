@@ -7,6 +7,7 @@
 
 import argparse
 import tempfile
+import re
 import os
 import json
 import subprocess
@@ -14,11 +15,14 @@ from datasets import load_dataset
 import dataclasses
 import collections
 import sys
+import stat
+import logging
+import glob
 from typing import Dict, Tuple, BinaryIO, Union, List, Optional, Iterable
 
-from absl import logging
+logger = logging.getLogger(__name__)
 
-if not (sys.version_info.major == 3 and sys.version_info.minor >= 12):
+if sys.version_info.major == 3 and sys.version_info.minor < 12:
     absl.error('This script needs python version >= 3.12')
     exit(1)
 
@@ -27,71 +31,152 @@ def parse_args_and_run():
         description='Generating inputs for ComPileLoop'
     )
     parser.add_argument('--dataset', required=True)
-    parser.add_argument('--num', default=3, type=int)
     parser.add_argument('--temp-dir', default=None)
     parser.add_argument('--save-temps', action='store_true', default=False)
     parser.add_argument('-mclang', default=[], action='append')
+    parser.add_argument('-mllvm', default=[], action='append')
+    parser.add_argument('-debug', default=False, action='store_true')
     args = parser.parse_args()
     main(args)
 
 def main(args):
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+
     ds = load_dataset(args.dataset, split='train', streaming=True)
     l = []
     for i, data in enumerate(ds):
         with tempfile.TemporaryDirectory(dir=args.temp_dir, delete=(not args.save_temps)) as tmpdir:
-            process_module(data, tmpdir, args.save_temps, args.mclang)
-    print(collections.Counter(l))
+            process_module(data, tmpdir, args.save_temps, args.mclang, args.mllvm)
 
-def get_output(cmd, mod):
-    logging.debug(f'cmd: {" ".join(cmd)}.')
-    with subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        stdin=subprocess.PIPE) as proc:
+def process_module(data: Dict, working_dir: str, save_temps, mclang: List, mllvm: List):
+    igm = InputGenModule(data['module'], working_dir, save_temps, mclang, mllvm, ['__llvm_extracted_loop'])
+    if not igm.prepare():
+        return
+    assert igm.get_num_entries() == 1
+    igm.generate()
 
-        outs, errs = proc.communicate(
-            input=mod)
-        status = proc.wait()
+class InputGenModule:
+    def __init__(self, mod, working_dir, save_temps, mclang, mllvm, entries='marked'):
+        self.mclang = mclang
+        self.mllvm = mllvm
+        self.save_temps = save_temps
+        self.mod = mod
+        self.working_dir = working_dir
+        self.entries = entries
 
-        if status != 0:
-            logging.error(f'Exit with status {status}')
-            logging.error(f'cmd: {" ".join(cmd)}')
-            logging.error(f'output:')
-            logging.error(errs.decode('utf-8'))
-            raise Exception(f'Command failed: {cmd}')
+        self.num_entries = None
 
-        return outs
+        self.gen_mod, self.gen_exec = None, None
+        self.repl_mod, self.repl_exec = None, None
 
-def get_instrumented_module(mod, mode):
-    cmd = f'opt -O3 --input-gen-mode={mode}'.split(' ')
-    return get_output(cmd, mod)
+        self.save_temps_counter = 0
 
-def get_executable_for_mode(mod, mode, rt, flags):
-    cmd = f'opt -O3 --input-gen-mode={mode}'.split(' ')
-    instrumented_mod = get_output(cmd, mod)
-    cmd = f'clang++ -x ir - -O3 {rt} -lpthread -flto -fuse-ld=lld -fno-exceptions -DNDEBUG -o -'.split(' ') + flags
-    exe = get_output(cmd, instrumented_mod)
-    return mod, exe
+    def save_temp(self, content, name='', binary=True):
+        if not self.save_temps:
+            return
 
-def process_module(data: Dict, working_dir: str, save_temps, flags: str):
-    mod = data['module']
+        self.save_temps_counter += 1
+        if binary:
+            mode = 'wb'
+        else:
+            mode = 'w'
+        fn = os.path.join(self.working_dir, 'intermediate_' + name + '_' + str(self.save_temps_counter))
+        logger.info(f'Saving temp {fn}')
+        with open(fn, mode) as f:
+            f.write(content)
 
-    _, gen_exec = get_executable_for_mode(mod, 'generate', '-linputgen.generate', flags)
-    repl_mod, repl_exec = get_executable_for_mode(mod, 'replay_generated', '-linputgen.replay', flags)
+    def get_output(self, cmd, stdin=None, allow_fail=False):
+        logger.debug(f'Running cmd: {" ".join(cmd)}.')
+        with subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=(subprocess.PIPE if stdin is not None else None)) as proc:
 
-    gen_exec_path = os.path.join(working_dir, 'gen')
-    with open(gen_exec_path, 'wb') as f:
-        f.write(gen_exec)
+            outs, errs = proc.communicate(
+                input=stdin)
+            status = proc.wait()
 
-    cmd = [gen_exec_path]
+            if status != 0 and not allow_fail:
+                logger.debug(f'Exit with status {status}')
+                logger.debug(f'cmd: {" ".join(cmd)}')
+                logger.debug(f'output:')
+                logger.debug(errs.decode('utf-8'))
+                raise Exception(f'Command failed: {cmd}')
 
-    print(cmd)
+            return outs, errs
 
-    del data['module']
-    data['repl_module'] = repl_mod
+    def get_instrumented_module(self, mod, mode):
+        cmd = f'opt -O3 --input-gen-mode={mode}'.split(' ') + self.mllvm
 
-    return data
+        if self.entries == 'all':
+            cmd.append('--input-gen-entry-all-functions')
+        elif self.entries == 'marked':
+            pass
+        else:
+            for func_name in self.entries:
+                cmd.append('--input-gen-entry-function=' + func_name)
+
+        return self.get_output(cmd, mod)
+
+    def get_executable_for_mode(self, mod, mode, rt):
+        instrumented_mod, _ = self.get_instrumented_module(mod, mode)
+        cmd = f'clang++ -x ir - -O3 {rt} -lpthread -flto -fuse-ld=lld -fno-exceptions -DNDEBUG -o -'.split(' ') + self.mclang
+        exe, _ = self.get_output(cmd, instrumented_mod)
+        self.save_temp(exe, mode + '_exe', binary=True);
+        return instrumented_mod, exe
+
+    def prepare(self):
+        self.save_temp(self.mod, 'original_module', binary=True);
+
+        self.gen_mod, self.gen_exec = self.get_executable_for_mode(self.mod, 'generate', '-linputgen.generate')
+        self.repl_mod, self.repl_exec = self.get_executable_for_mode(self.mod, 'replay_generated', '-linputgen.replay')
+
+        # Write the generation executable to file
+        self.gen_exec_path = os.path.join(self.working_dir, 'gen')
+        with open(self.gen_exec_path, 'wb') as f:
+            f.write(self.gen_exec)
+
+        # Make executable by user
+        st = os.stat(self.gen_exec_path)
+        os.chmod(self.gen_exec_path, st.st_mode | stat.S_IXUSR)
+
+        cmd = [self.gen_exec_path, '-1']
+        _, errs = self.get_output(cmd, allow_fail=True)
+        re_match = re.search('  Num available functions: ([0-9]+)', errs.decode('utf-8'))
+
+        if re_match is None:
+            return False
+
+        self.num_entries = int(re_match.group(1))
+
+        return True
+
+    def generate(self, entry_no=0, num_inputs=1, num_threads=1, first_input=0, seed=42):
+        cmd = [
+            self.gen_exec_path,
+            str(entry_no),
+            str(num_inputs),
+            str(num_threads),
+            str(first_input),
+            str(seed)
+        ]
+        outs, errs = self.get_output(cmd)
+
+        logger.debug(f'Outs: {outs.decode("utf-8")}')
+        logger.debug(f'Errs: {errs.decode("utf-8")}')
+
+        inputs = glob.glob(self.gen_exec_path + '*.inp')
+        logger.debug(f'Inputs: {inputs}')
+
+    def get_num_entries(self):
+        return self.num_entries
+
+    def get_repl_mod(self):
+        return self.repl_mod
 
 if __name__ == '__main__':
     parse_args_and_run()

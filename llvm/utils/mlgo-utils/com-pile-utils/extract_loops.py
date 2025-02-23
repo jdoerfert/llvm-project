@@ -11,12 +11,17 @@ import tempfile
 import subprocess
 import json
 import signal
+import sys
 
 import pandas
 import pyarrow
 
 from pyarrow import parquet
 from datasets import load_dataset
+
+if sys.version_info.major == 3 and sys.version_info.minor < 12:
+    absl.error('This script needs python version >= 3.12')
+    exit(1)
 
 def parse_args_and_run():
     parser = argparse.ArgumentParser(
