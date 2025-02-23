@@ -1141,7 +1141,8 @@ struct AAPointerInfoImpl
     // given instruction, for now it is sufficient to avoid any potential
     // threading effects as we cannot deal with them anyway.
     auto CanIgnoreThreading = [&](const Access &Acc) -> bool {
-      return CanIgnoreThreadingForInst(*Acc.getRemoteInst()) ||
+      return (HasBeenWrittenTo && IsAssumedNoSync) ||
+             CanIgnoreThreadingForInst(*Acc.getRemoteInst()) ||
              (Acc.getRemoteInst() != Acc.getLocalInst() &&
               CanIgnoreThreadingForInst(*Acc.getLocalInst()));
     };
@@ -1258,12 +1259,20 @@ struct AAPointerInfoImpl
       }
     }
 
+    auto CanSkipAccessIsApplicable = [&]() {
+      return AllInSameNoSyncFn || IsThreadLocalObj || ExecDomainAA ||
+             (HasBeenWrittenTo && IsAssumedNoSync);
+    };
+
     // Helper to determine if we can skip a specific write access.
     auto CanSkipAccess = [&](const Access &Acc, bool Exact) {
       if (SkipCB && SkipCB(Acc))
         return true;
       if (!CanIgnoreThreading(Acc))
         return false;
+      if (DT && UseDominanceReasoning && DominatingWrites.count(&Acc) &&
+          LeastDominatingWriteInst != Acc.getRemoteInst())
+        return true;
 
       // Check read (RAW) dependences and write (WAR) dependences as necessary.
       // If we successfully excluded all effects we are interested in, the
@@ -1321,18 +1330,14 @@ struct AAPointerInfoImpl
       if (ReadChecked && WriteChecked)
         return true;
 
-      if (!DT || !UseDominanceReasoning)
-        return false;
-      if (!DominatingWrites.count(&Acc))
-        return false;
-      return LeastDominatingWriteInst != Acc.getRemoteInst();
+      return false;
     };
 
     // Run the user callback on all accesses we cannot skip and return if
     // that succeeded for all or not.
+    bool UseCanSkipAccess = CanSkipAccessIsApplicable();
     for (auto &It : InterferingAccesses) {
-      if ((!AllInSameNoSyncFn && !IsThreadLocalObj && !ExecDomainAA) ||
-          !CanSkipAccess(*It.first, It.second)) {
+      if (!UseCanSkipAccess || !CanSkipAccess(*It.first, It.second)) {
         if (!UserCB(*It.first, It.second))
           return false;
       }
