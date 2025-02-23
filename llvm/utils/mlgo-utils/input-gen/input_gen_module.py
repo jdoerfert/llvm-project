@@ -2,7 +2,7 @@
 # Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-"""tool for making a corpus of loops from compile
+"""Tool for generating inputs for an llvm module
 """
 
 import argparse
@@ -26,38 +26,6 @@ if sys.version_info.major == 3 and sys.version_info.minor < 12:
     absl.error('This script needs python version >= 3.12')
     exit(1)
 
-def parse_args_and_run():
-    parser = argparse.ArgumentParser(
-        description='Generating inputs for ComPileLoop'
-    )
-    parser.add_argument('--dataset', required=True)
-    parser.add_argument('--temp-dir', default=None)
-    parser.add_argument('--save-temps', action='store_true', default=False)
-    parser.add_argument('-mclang', default=[], action='append')
-    parser.add_argument('-mllvm', default=[], action='append')
-    parser.add_argument('-debug', default=False, action='store_true')
-    args = parser.parse_args()
-    main(args)
-
-def main(args):
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
-
-    ds = load_dataset(args.dataset, split='train', streaming=True)
-    l = []
-    for i, data in enumerate(ds):
-        with tempfile.TemporaryDirectory(dir=args.temp_dir, delete=(not args.save_temps)) as tmpdir:
-            process_module(data, tmpdir, args.save_temps, args.mclang, args.mllvm)
-
-def process_module(data: Dict, working_dir: str, save_temps, mclang: List, mllvm: List):
-    igm = InputGenModule(data['module'], working_dir, save_temps, mclang, mllvm, ['__llvm_extracted_loop'])
-    if not igm.prepare():
-        return
-    assert igm.get_num_entries() == 1
-    igm.generate()
-
 class InputGenModule:
     def __init__(self, mod, working_dir, save_temps, mclang, mllvm, entries='marked'):
         self.mclang = mclang
@@ -74,7 +42,7 @@ class InputGenModule:
 
         self.save_temps_counter = 0
 
-    def save_temp(self, content, name='', binary=True):
+    def save_temp(self, content, name='temp', binary=True):
         if not self.save_temps:
             return
 
@@ -83,7 +51,7 @@ class InputGenModule:
             mode = 'wb'
         else:
             mode = 'w'
-        fn = os.path.join(self.working_dir, 'intermediate_' + name + '_' + str(self.save_temps_counter))
+        fn = os.path.join(self.working_dir, str(self.save_temps_counter) + '_intermediate_' + name)
         logger.info(f'Saving temp {fn}')
         with open(fn, mode) as f:
             f.write(content)
@@ -126,7 +94,8 @@ class InputGenModule:
         instrumented_mod, _ = self.get_instrumented_module(mod, mode)
         cmd = f'clang++ -x ir - -O3 {rt} -lpthread -flto -fuse-ld=lld -fno-exceptions -DNDEBUG -o -'.split(' ') + self.mclang
         exe, _ = self.get_output(cmd, instrumented_mod)
-        self.save_temp(exe, mode + '_exe', binary=True);
+        self.save_temp(exe, mode + '.exe', binary=True);
+        self.save_temp(exe, mode + 'instrumented_mod', binary=True);
         return instrumented_mod, exe
 
     def prepare(self):
@@ -177,6 +146,50 @@ class InputGenModule:
 
     def get_repl_mod(self):
         return self.repl_mod
+
+def parse_args_and_run():
+    parser = argparse.ArgumentParser(
+        description='Generating inputs for a module'
+    )
+    parser.add_argument('--module', required=True)
+    parser.add_argument('--temp-dir', default=None)
+    parser.add_argument('--save-temps', action='store_true', default=False)
+    parser.add_argument('-mclang', default=[], action='append')
+    parser.add_argument('-mllvm', default=[], action='append')
+    parser.add_argument('-debug', default=False, action='store_true')
+    parser.add_argument('--entry-function', default=[], action='append')
+    parser.add_argument('--entry-all', default=False, action='store_true')
+    parser.add_argument('--entry-marked', default=False, action='store_true')
+    args = parser.parse_args()
+    main(args)
+
+def main(args):
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+
+    if int(args.entry_marked) + int(args.entry_all) + int(len(args.entry_function) > 0) != 1:
+        logger.error('Exactly one of `--entry-function`, `--entry-all`, or `--entry-marked` must be specified')
+        return
+
+    mode = 'invalid'
+    if args.entry_marked:
+        mode = 'marked'
+    elif args.entry_all:
+        mode = 'all'
+    else:
+        mode = args.entry_function
+
+    with open(args.module, 'rb') as f:
+        mod = f.read()
+
+    with tempfile.TemporaryDirectory(dir=args.temp_dir, delete=(not args.save_temps)) as tmpdir:
+        igm = InputGenModule(mod, tmpdir, args.save_temps, args.mclang, args.mllvm, mode)
+        if not igm.prepare():
+            logger.error('Module preparation failed')
+            return
+        igm.generate()
 
 if __name__ == '__main__':
     parse_args_and_run()
