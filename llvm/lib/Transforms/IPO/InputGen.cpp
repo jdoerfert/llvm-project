@@ -937,6 +937,10 @@ bool InputGenEntriesImpl::processFunctions() {
 
   collectIndirectCalleeCandidates();
 
+  // Clean up the inputgen_entry attributes now that they are no longer needed
+  for (Function &F : M)
+    F.removeFnAttr(Attribute::InputGenEntry);
+
   return true;
 }
 
