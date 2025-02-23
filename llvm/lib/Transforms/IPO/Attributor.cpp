@@ -830,6 +830,12 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
         return true;
     }
 
+    // If we do not go backwards from the FromFn we are done here and so far we
+    // could not find a way to reach ToFn/ToI. Otherwise we check if we can reach
+    // a return.
+    if (GoBackwardsCB && !GoBackwardsCB(*FromFn))
+      continue;
+
     // TODO: Check assumed nounwind.
     const auto *ReachabilityAA = A.getAAFor<AAIntraFnReachability>(
         QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
@@ -855,11 +861,6 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
                         << " is not checked backwards, abort\n");
       return true;
     }
-
-    // If we do not go backwards from the FromFn we are done here and so far we
-    // could not find a way to reach ToFn/ToI.
-    if (!GoBackwardsCB(*FromFn))
-      continue;
 
     LLVM_DEBUG(dbgs() << "Stepping backwards to the call sites of @"
                       << FromFn->getName() << "\n");
