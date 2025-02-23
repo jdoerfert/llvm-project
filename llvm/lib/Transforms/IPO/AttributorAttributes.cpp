@@ -1148,7 +1148,7 @@ struct AAPointerInfoImpl
 
     // TODO: Use inter-procedural reachability and dominance.
     bool IsKnownNoRecurse;
-    AA::hasAssumedIRAttr<Attribute::NoRecurse>(
+    bool IsAssumedNoRecurse = AA::hasAssumedIRAttr<Attribute::NoRecurse>(
         A, this, IRPosition::function(Scope), DepClassTy::OPTIONAL,
         IsKnownNoRecurse);
 
@@ -1158,7 +1158,7 @@ struct AAPointerInfoImpl
     bool InstInKernel = A.getInfoCache().isKernel(Scope);
     bool ObjHasKernelLifetime = false;
     const bool UseDominanceReasoning =
-        FindInterferingWrites && IsKnownNoRecurse;
+        FindInterferingWrites && IsAssumedNoRecurse;
     const DominatorTree *DT =
         InfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(Scope);
 
@@ -1252,6 +1252,15 @@ struct AAPointerInfoImpl
                                Acc->getRemoteInst())) {
         LeastDominatingWriteInst = Acc->getRemoteInst();
       }
+    }
+
+    if (HasBeenWrittenTo && IsAssumedNoRecurse) {
+      IsLiveInCalleeCB = [PriorCB = IsLiveInCalleeCB,
+                          &Scope](const Function &Fn) {
+        if (&Fn == &Scope)
+          return false;
+        return !PriorCB || PriorCB(Fn);
+      };
     }
 
     auto CanSkipAccessIsApplicable = [&]() {
