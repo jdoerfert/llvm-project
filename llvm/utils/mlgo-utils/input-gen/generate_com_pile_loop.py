@@ -32,6 +32,7 @@ def parse_args_and_run():
     parser.add_argument('--save-temps', action='store_true', default=False)
     parser.add_argument('--temp-dir', default=None)
     parser.add_argument('--output-dataset', required=True)
+    parser.add_argument('--output-dataset-json', required=True)
     parser.add_argument('--begin', default=0, type=int)
     parser.add_argument('--end', default=3, type=int)
     parser.add_argument('--parquet-start', default=0, type=int)
@@ -66,9 +67,12 @@ class LoopExtractor:
     def get_current_parquet_name(self):
         return os.path.join(self.args.output_dataset, 'train-' + str(self.parquet_id) + '.parquet')
 
+    def get_current_parquet_json_name(self):
+        return os.path.join(self.args.output_dataset_json, 'train-' + str(self.parquet_id) + '.parquet.json')
+
     def write_parquet(self):
         name = self.get_current_parquet_name()
-        json_name = name + '.json'
+        json_name = self.get_current_parquet_json_name()
         if len(self.dfs) == 0:
             return
         print(f'Writing intermediate parquet {self.parquet_id} with estimated size {self.total_pfile_size} for modules {self.first_in_parquet} to {self.i}')
@@ -92,10 +96,15 @@ class LoopExtractor:
         args = self.args
         ds = load_dataset(os.path.join(args.dataset, args.language), split='train', streaming=True)
         os.makedirs(args.output_dataset, exist_ok=True)
+        os.makedirs(args.output_dataset_json, exist_ok=True)
 
         curparname = self.get_current_parquet_name()
         if os.path.exists(curparname):
-            print(f'The parquet name {curparname} already exists. Aborting.')
+            print(f'The parquet file {curparname} already exists. Aborting.')
+            return
+        curjsonname = self.get_current_parquet_json_name()
+        if os.path.exists(curjsonname):
+            print(f'The parquet json file {curjsonname} already exists. Aborting.')
             return
 
         data = ds.skip(self.i)
