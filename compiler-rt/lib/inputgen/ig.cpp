@@ -25,9 +25,26 @@ struct __attribute__((packed)) ParameterValuePackTy {
   int32_t TypeId;
   char Value[0];
 };
-
-struct __attribute__((packed)) BranchConditionValuePackTy {
+struct __attribute__((packed)) FreeValueInfoTy {
   int32_t Kind;
+  union {
+    struct __attribute__((packed)) Load {
+      uint32_t TypeId;
+      uint32_t Size;
+      char *VPtr;
+    } L;
+    struct __attribute__((packed)) Memcmp {
+      size_t Size;
+      char *VPtr1;
+      char *VPtr2;
+    } M;
+    struct __attribute__((packed)) Strcmp {
+      char *VPtr1;
+      char *VPtr2;
+    } S;
+  } Value;
+};
+struct __attribute__((packed)) BranchConditionValuePackTy {
   int32_t TypeId;
   int32_t Size;
   char Value[0];
@@ -228,11 +245,11 @@ void *__ig_post_loop_value_range(int64_t initial_loop_val,
 
   char *VPtrBegin = (char *)initial_loop_val;
   int64_t Size = final_loop_val - initial_loop_val;
-  char *BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
-  printf("%p %p %lli\n", VPtrBegin, BaseVPtr, Size);
+  [[maybe_unused]] char *BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
+  PRINTF("%p %p %lli\n", VPtrBegin, BaseVPtr, Size);
   bool AllInitialized = ThreadOM.checkRange(VPtrBegin, Size);
   BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
-  printf("%p %p %lli -> %i\n", VPtrBegin, BaseVPtr, Size, AllInitialized);
+  PRINTF("%p %p %lli -> %i\n", VPtrBegin, BaseVPtr, Size, AllInitialized);
   if (!AllInitialized)
     return 0;
   return VPtrBegin;
@@ -266,133 +283,124 @@ IG_API_ATTRS
 char *__ig_decode(char *pointer) { return ThreadOM.decode(pointer); }
 
 IG_API_ATTRS
-void __ig_pre_branch_condition_info(int32_t branch_condition_no,
-                                    char *branch_condition_fn,
-                                    int32_t num_branch_condition_arguments,
-                                    char *arguments) {
-  PRINTF("branch_condition_info pre -- branch_condition_no: %i, "
-         "branch_condition_fn: %p, num_branch_condition_arguments: %i, "
-         "arguments: %p\n",
-         branch_condition_no, branch_condition_fn,
-         num_branch_condition_arguments, arguments);
+void *__ig_register_branch_condition_info(uint32_t bci_no, uint32_t num_fvi,
+                                          char *fvi_ptr) {
+  PRINTF("register_branch_condition_info -- bci_no: %u, num_fvi: %u, fvi_ptr: "
+         "%p\n",
+         bci_no, num_fvi, fvi_ptr);
 
-  uint32_t MaxSize = 256;
-  uint32_t ArgMemSize = 0;
-  char *ArgMemPtr;
-  auto *BCI = ThreadOM.getOrCreateBranchCondition(branch_condition_no);
-  bool IsKnown = BCI->Fn;
-  if (IsKnown) {
-    if (BCI->IsFixed)
-      return;
-    ArgMemPtr = BCI->ArgMemPtr;
-  } else {
-    ArgMemPtr = (char *)new char[MaxSize];
-    BCI->Fn = ((char (*)(void *))branch_condition_fn);
-    BCI->FreeValueInfos.reserve(num_branch_condition_arguments);
-    BCI->No = branch_condition_no;
-  }
+  auto *BCI = ThreadOM.getOrCreateBranchCondition(bci_no);
+  if (BCI->IsFixed)
+    return nullptr;
 
-  for (auto I = 0; I < num_branch_condition_arguments; ++I) {
-    auto *BCVPtr = (BranchConditionValuePackTy *)arguments;
-    if (!IsKnown && ArgMemSize + BCVPtr->Size > MaxSize) {
-      MaxSize *= 4;
-      auto *NewArgMemPtr = (char *)new char[MaxSize];
-      __builtin_memcpy(NewArgMemPtr, ArgMemPtr, ArgMemSize);
-      delete[] ArgMemPtr;
-      ArgMemPtr = NewArgMemPtr;
-    }
-    switch (BCVPtr->Kind) {
-    case /*instruction*/ 0: {
-      arguments += BCVPtr->Size;
-      if (BCVPtr->TypeId == 14) {
-        char *Value = *((char **)&BCVPtr->Value);
-        Value = ThreadOM.decode(Value);
-        PRINTF("Inst %u:: %p -> %p [%i @ %u]\n", ArgMemSize,
-               *((char **)&BCVPtr->Value), Value, BCVPtr->Size, ArgMemSize);
-        __builtin_memcpy(ArgMemPtr + ArgMemSize, &Value, BCVPtr->Size);
-      } else {
-        PRINTF("Inst %u:: %i [%i @ %u]\n", ArgMemSize, *((int *)&BCVPtr->Value),
-               BCVPtr->Size, ArgMemSize);
-        __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
-      }
-      ArgMemSize += BCVPtr->Size;
-      break;
-    }
-    case /*argument*/ 1: {
-      arguments += BCVPtr->Size;
-      if (BCVPtr->TypeId == 14) {
-        char *Value = *((char **)&BCVPtr->Value);
-        Value = ThreadOM.decode(Value);
-        PRINTF("Arg %u:: %p -> %p [%i @ %u]\n", ArgMemSize,
-               *((char **)&BCVPtr->Value), Value, BCVPtr->Size, ArgMemSize);
-        __builtin_memcpy(ArgMemPtr + ArgMemSize, &Value, BCVPtr->Size);
-      } else {
-        PRINTF("Arg %u:: %i [%i @ %u]\n", ArgMemSize, *((int *)&BCVPtr->Value),
-               BCVPtr->Size, ArgMemSize);
-        __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
-      }
-      ArgMemSize += BCVPtr->Size;
-      break;
-    }
+  bool IsKnown = BCI->FreeValueInfos.size();
+  if (!IsKnown)
+    BCI->FreeValueInfos.resize(num_fvi);
+
+  uint32_t NumFree = 0;
+  for (uint32_t I = 0; I < num_fvi; ++I) {
+    auto *FVI = (FreeValueInfoTy *)fvi_ptr;
+    fvi_ptr += sizeof(FVI->Kind);
+    switch (FVI->Kind) {
     case /*load*/ 2: {
-      arguments += sizeof(void *);
-      if (IsKnown)
-        break;
-      auto *VPtr = *(char **)BCVPtr->Value;
-      PRINTF("Load %i: %p\n", BCVPtr->TypeId, VPtr);
-      BCI->FreeValueInfos.push_back(
-          FreeValueInfo(BCVPtr->TypeId, BCVPtr->Size, VPtr));
-      if (BCI->FreeValueInfos.back().isFixed())
-        BCI->FreeValueInfos.pop_back();
+      fvi_ptr += sizeof(FreeValueInfoTy::Value.L);
+      uint32_t TypeId = FVI->Value.L.TypeId;
+      uint32_t Size = FVI->Value.L.Size;
+      char *VPtr = FVI->Value.L.VPtr;
+      PRINTF("Load %i: %p [%u]\n", TypeId, VPtr, Size);
+      BCI->FreeValueInfos[I] = FreeValueInfo(TypeId, Size, VPtr);
+      NumFree += !BCI->FreeValueInfos[I].isFixed();
       break;
     }
     case /*memcmp*/ 3: {
-      arguments += sizeof(void *) * 2 + sizeof(size_t);
-      if (IsKnown)
-        break;
-      auto *CPtr = (char *)&BCVPtr->Value;
-      auto *SizePtr = (size_t *)CPtr;
-      auto *VPtr = (char **)(CPtr + sizeof(*SizePtr));
-      PRINTF("MEMCMP %i: %p %p\n", BCVPtr->TypeId, VPtr[0], VPtr[1]);
-      BCI->FreeValueInfos.push_back(FreeValueInfo(BCVPtr->TypeId, BCVPtr->Size,
-                                                  VPtr[0], VPtr[1], *SizePtr));
-      if (BCI->FreeValueInfos.back().isFixed())
-        BCI->FreeValueInfos.pop_back();
+      fvi_ptr += sizeof(FreeValueInfoTy::Value.M);
+      size_t Size = FVI->Value.M.Size;
+      char *VPtr1 = FVI->Value.M.VPtr1;
+      char *VPtr2 = FVI->Value.M.VPtr2;
+      PRINTF("MEMCMP: %p %p [%zu]\n", VPtr1, VPtr2, Size);
+      BCI->FreeValueInfos[I] = FreeValueInfo(11, VPtr1, VPtr2, Size);
+      NumFree += !BCI->FreeValueInfos[I].isFixed();
       break;
     }
     case /*strcmp*/ 4: {
-      arguments += sizeof(void *) * 2;
-      if (IsKnown)
-        break;
-      auto *VPtr = (char **)&BCVPtr->Value;
-      PRINTF("STRCMP %i: %p %p\n", BCVPtr->TypeId, VPtr[0], VPtr[1]);
-      BCI->FreeValueInfos.push_back(
-          FreeValueInfo(BCVPtr->TypeId, BCVPtr->Size, VPtr[0], VPtr[1], -1));
-      if (BCI->FreeValueInfos.back().isFixed())
-        BCI->FreeValueInfos.pop_back();
+      fvi_ptr += sizeof(FreeValueInfoTy::Value.S);
+      char *VPtr1 = FVI->Value.S.VPtr1;
+      char *VPtr2 = FVI->Value.S.VPtr2;
+      PRINTF("Strcmp: %p %p\n", VPtr1, VPtr2);
+      BCI->FreeValueInfos[I] = FreeValueInfo(11, VPtr1, VPtr2, -1);
+      NumFree += !BCI->FreeValueInfos[I].isFixed();
       break;
     }
     }
-    arguments += sizeof(BranchConditionValuePackTy);
   }
 
-  printf("FVIs %zu \n", BCI->FreeValueInfos.size());
-  if (IsKnown)
-    return;
-
-  if (BCI->FreeValueInfos.empty()) {
-    delete[] ArgMemPtr;
+  if (!NumFree) {
     BCI->IsFixed = true;
-    return;
+    return nullptr;
   }
 
-  BCI->ArgMemPtr = ArgMemPtr;
+  BCI->No = bci_no;
+
   for (auto &FVI : BCI->FreeValueInfos) {
     assert(FVI.VPtr);
     ThreadOM.addBranchCondition(FVI.VPtr, BCI);
     if (FVI.VCmpPtr)
       ThreadOM.addBranchCondition(FVI.VCmpPtr, BCI);
   }
+  return BCI;
+}
+
+IG_API_ATTRS
+void __ig_pre_branch_condition_info(char *branch_condition_fn,
+                                    BranchConditionInfo *BCI,
+                                    uint32_t num_arguments, char *arguments) {
+  PRINTF("branch_condition_info pre -- "
+         "branch_condition_fn: %p, BCI: %p, num_arguments: %u, "
+         "arguments: %p\n",
+         branch_condition_fn, BCI, num_arguments, arguments);
+
+  if (!BCI || BCI->IsFixed)
+    return;
+  uint32_t MaxSize = num_arguments * sizeof(char*);
+  uint32_t ArgMemSize = 0;
+  char *ArgMemPtr;
+  bool IsKnown = BCI->Fn;
+  if (IsKnown) {
+    ArgMemPtr = BCI->ArgMemPtr;
+  } else {
+    ArgMemPtr = (char *)new char[MaxSize];
+    BCI->Fn = ((char (*)(void *))branch_condition_fn);
+  }
+
+  for (uint32_t I = 0; I < num_arguments; ++I) {
+    auto *BCVPtr = (BranchConditionValuePackTy *)arguments;
+    if (!IsKnown && ArgMemSize + BCVPtr->Size > MaxSize) {
+      MaxSize *= 2;
+      auto *NewArgMemPtr = (char *)new char[MaxSize];
+      __builtin_memcpy(NewArgMemPtr, ArgMemPtr, ArgMemSize);
+      delete[] ArgMemPtr;
+      ArgMemPtr = NewArgMemPtr;
+    }
+    if (BCVPtr->TypeId == 14) {
+      char *Value = *((char **)&BCVPtr->Value);
+      Value = ThreadOM.decode(Value);
+      PRINTF("Arg %u:: %p -> %p [%i @ %u]\n", ArgMemSize,
+             *((char **)&BCVPtr->Value), Value, BCVPtr->Size, ArgMemSize);
+      __builtin_memcpy(ArgMemPtr + ArgMemSize, &Value, BCVPtr->Size);
+    } else {
+      PRINTF("Arg %u:: %i [%i @ %u]\n", ArgMemSize, *((int *)&BCVPtr->Value),
+             BCVPtr->Size, ArgMemSize);
+      __builtin_memcpy(ArgMemPtr + ArgMemSize, &BCVPtr->Value, BCVPtr->Size);
+    }
+    ArgMemSize += BCVPtr->Size;
+    arguments += BCVPtr->Size;
+    arguments += sizeof(BranchConditionValuePackTy);
+  }
+
+  if (IsKnown)
+    return;
+
+  BCI->ArgMemPtr = ArgMemPtr;
 }
 
 IG_API_ATTRS

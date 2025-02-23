@@ -377,18 +377,23 @@ private:
 
   bool preprocessLoops(Function &Fn) {
     bool Changed = false;
-    auto *LVRIO =
-        IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]["loop_value_range"];
+    auto *LVRIO = IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]
+                                ["loop_value_range"];
     if (!LVRIO || !LVRIO->Enabled)
       return Changed;
 
     auto &LI = FAM.getResult<LoopAnalysis>(Fn);
     auto &DT = FAM.getResult<DominatorTreeAnalysis>(Fn);
-    for (auto *L : LI) {
-      if (!L->getLoopPreheader()) {
-        InsertPreheaderForLoop(L, &DT, &LI, nullptr, true);
-        Changed = true;
-      }
+
+    SmallVector<Loop *> Worklist;
+    Worklist.append(LI.begin(), LI.end());
+
+    while (!Worklist.empty()) {
+      auto *L = Worklist.pop_back_val();
+      if (!L->getLoopPreheader())
+        if (InsertPreheaderForLoop(L, &DT, &LI, nullptr, true))
+          Changed = true;
+      Worklist.append(L->begin(), L->end());
     }
     return Changed;
   }
@@ -499,6 +504,7 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
         IIRB.IRB.SetInsertPoint(I.getNextNonDebugInstruction());
         Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
       }
+      IIRB.returnAllocas();
     }
   }
 
@@ -511,6 +517,7 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
 
     IIRB.IRB.SetInsertPointPastAllocas(cast<Function>(FPtr));
     ChoiceIt.second->instrument(FPtr, IConf, IIRB, ICaches);
+    IIRB.returnAllocas();
   }
 
   return Changed;
@@ -556,6 +563,7 @@ bool InstrumentorImpl::instrumentModule() {
       ++IIRB.Epoche;
 
       Changed |= bool(IO->instrument(YtorPtr, IConf, IIRB, ICaches));
+      IIRB.returnAllocas();
     }
   }
 
@@ -582,6 +590,7 @@ bool InstrumentorImpl::instrumentModule() {
         ++IIRB.Epoche;
 
         Changed |= bool(IO->instrument(GVPtr, IConf, IIRB, ICaches));
+        IIRB.returnAllocas();
       }
     }
   }
@@ -614,18 +623,18 @@ bool InstrumentorImpl::instrument() {
 BasicBlock::iterator
 InstrumentorIRBuilderTy::getBestHoistPoint(BasicBlock::iterator IP,
                                            HoistKindTy HoistKind) {
-  auto BlockIP = IP.getNodeParent()->getFirstNonPHIOrDbgOrAlloca();
   switch (HoistKind) {
   case DO_NOT_HOIST:
     return IP;
   case HOIST_IN_BLOCK:
-    return BlockIP;
+    return IP.getNodeParent()->getFirstNonPHIOrDbgOrAlloca();
   case HOIST_OUT_OF_LOOPS: {
+    auto BlockIP = IP.getNodeParent()->getFirstNonPHIOrDbgOrAlloca();
     auto &LI = LIGetter(*BlockIP->getFunction());
     auto *L = LI.getLoopFor(BlockIP->getParent());
     while (L) {
-      assert(L->getLoopPreheader());
-      IP = L->getLoopPreheader()->getFirstNonPHIOrDbgOrAlloca();
+      if (L->getLoopPreheader())
+        IP = L->getLoopPreheader()->getFirstNonPHIOrDbgOrAlloca();
       L = L->getParentLoop();
     }
     return IP;
@@ -895,6 +904,7 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
     // another instrumentation opportunity.
     InstrumentationCaches ICaches;
     BPI = BPIO->instrument(VPtr, *this, IIRB, ICaches);
+    IIRB.returnAllocas();
     if (!BPI)
       return BPI = Constant::getNullValue(BPIO->getRetTy(IIRB.Ctx));
   }
@@ -933,6 +943,7 @@ Value *InstrumentationConfig::getLoopValueRange(Value &V,
     InstrumentationCaches ICaches;
     static_cast<LoopValueRangeIO *>(LVRIO)->setAdditionalSize(AdditionalSize);
     LVR = LVRIO->instrument(VPtr, *this, IIRB, ICaches);
+    IIRB.returnAllocas();
     if (!LVR)
       return LVR = Constant::getNullValue(LVRIO->getRetTy(IIRB.Ctx));
   }
@@ -1189,7 +1200,6 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     CallParams.push_back(Param);
   }
 
-  SmallVector<AllocaInst *> IndirectionAllocas;
   if (ForceIndirection) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
 
@@ -1217,7 +1227,6 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
       }
 
       auto *AI = IIRB.getAlloca(Fn, CallParam->getType());
-      IndirectionAllocas.push_back(AI);
       IIRB.IRB.CreateStore(CallParam, AI);
       CallParam = CachedParam = AI;
     }
@@ -1252,8 +1261,6 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     }
     V = IO.IRTArgs[I].SetterCB(*V, *NewValue, IConf, IIRB);
   }
-
-  IIRB.returnAllocas(std::move(IndirectionAllocas));
   return CI;
 }
 
@@ -1304,7 +1311,6 @@ static Value *createValuePack(const Range &R, InstrumentationConfig &IConf,
     auto *Ptr = IIRB.IRB.CreateStructGEP(STy, AI, Idx);
     IIRB.IRB.CreateStore(Param, Ptr);
   }
-  IIRB.returnAllocas({AI});
   return AI;
 }
 

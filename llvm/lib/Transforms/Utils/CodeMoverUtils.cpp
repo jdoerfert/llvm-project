@@ -16,6 +16,7 @@
 #include "llvm/Analysis/DependenceAnalysis.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Dominators.h"
 
 using namespace llvm;
@@ -28,6 +29,14 @@ STATISTIC(MayThrowException, "Cannot move across instructions that may throw");
 STATISTIC(NotMovedPHINode, "Movement of PHINodes are not supported");
 STATISTIC(NotMovedTerminator, "Movement of Terminator are not supported");
 
+#ifndef NDEBUG
+raw_ostream &llvm::operator<<(raw_ostream &OS, const ControlCondition &C) {
+  OS << "[" << *C.getPointer() << ", " << (C.getInt() ? "true" : "false")
+     << "]";
+  return OS;
+}
+#endif
+
 static bool domTreeLevelBefore(DominatorTree *DT, const Instruction *InstA,
                                const Instruction *InstB) {
   // Use ordered basic block in case the 2 instructions are in the same
@@ -38,6 +47,177 @@ static bool domTreeLevelBefore(DominatorTree *DT, const Instruction *InstA,
   DomTreeNode *DA = DT->getNode(InstA->getParent());
   DomTreeNode *DB = DT->getNode(InstB->getParent());
   return DA->getLevel() < DB->getLevel();
+}
+
+const std::optional<ControlConditions>
+ControlConditions::collectControlConditions(const BasicBlock &BB,
+                                            const BasicBlock &Dominator,
+                                            const DominatorTree &DT,
+                                            const PostDominatorTree &PDT,
+                                            unsigned MaxLookup) {
+  assert(DT.dominates(&Dominator, &BB) && "Expecting Dominator to dominate BB");
+
+  ControlConditions Conditions;
+  unsigned NumConditions = 0;
+
+  // BB is executed unconditional from itself.
+  if (&Dominator == &BB)
+    return Conditions;
+
+  const BasicBlock *CurBlock = &BB;
+  // Walk up the dominator tree from the associated DT node for BB to the
+  // associated DT node for Dominator.
+  do {
+    assert(DT.getNode(CurBlock) && "Expecting a valid DT node for CurBlock");
+    BasicBlock *IDom = DT.getNode(CurBlock)->getIDom()->getBlock();
+    assert(DT.dominates(&Dominator, IDom) &&
+           "Expecting Dominator to dominate IDom");
+
+    // Limitation: can only handle branch instruction currently.
+    BranchInst *BI = dyn_cast<BranchInst>(IDom->getTerminator());
+    if (!BI)
+      return std::nullopt;
+
+    bool Inserted = false;
+    if (PDT.dominates(CurBlock, IDom)) {
+      LLVM_DEBUG(dbgs() << CurBlock->getName()
+                        << " is executed unconditionally from "
+                        << IDom->getName() << "\n");
+    } else if (PDT.dominates(CurBlock, BI->getSuccessor(0))) {
+      LLVM_DEBUG(dbgs() << CurBlock->getName() << " is executed when \""
+                        << *BI->getCondition() << "\" is true from "
+                        << IDom->getName() << "\n");
+      Inserted = Conditions.addControlCondition(
+          ControlCondition(BI, true));
+    } else if (PDT.dominates(CurBlock, BI->getSuccessor(1))) {
+      LLVM_DEBUG(dbgs() << CurBlock->getName() << " is executed when \""
+                        << *BI->getCondition() << "\" is false from "
+                        << IDom->getName() << "\n");
+      Inserted = Conditions.addControlCondition(
+          ControlCondition(BI, false));
+    } else if (!MaxLookup) {
+      for (auto *PredBB : predecessors(CurBlock)) {
+        const BranchInst *BI = dyn_cast<BranchInst>(PredBB->getTerminator());
+        if (!BI)
+          return std::nullopt;
+        return std::nullopt;
+      }
+    } else
+      return std::nullopt;
+
+    if (Inserted)
+      ++NumConditions;
+
+    if (MaxLookup != 0 && NumConditions > MaxLookup)
+      return std::nullopt;
+
+    CurBlock = IDom;
+  } while (CurBlock != &Dominator);
+
+  return Conditions;
+}
+
+bool ControlConditions::addControlCondition(ControlCondition C) {
+  bool Inserted = false;
+  if (none_of(Conditions, [&](ControlCondition &Exists) {
+        return ControlConditions::isEquivalent(C, Exists);
+      })) {
+    Conditions.push_back(C);
+    Inserted = true;
+  }
+
+  LLVM_DEBUG(dbgs() << (Inserted ? "Inserted " : "Not inserted ") << C << "\n");
+  return Inserted;
+}
+
+bool ControlConditions::isEquivalent(const ControlConditions &Other) const {
+  if (Conditions.empty() && Other.Conditions.empty())
+    return true;
+
+  if (Conditions.size() != Other.Conditions.size())
+    return false;
+
+  return all_of(Conditions, [&](const ControlCondition &C) {
+    return any_of(Other.Conditions, [&](const ControlCondition &OtherC) {
+      return ControlConditions::isEquivalent(C, OtherC);
+    });
+  });
+}
+
+bool ControlConditions::isEquivalent(const ControlCondition &C1,
+                                     const ControlCondition &C2) {
+  if (C1.getInt() == C2.getInt()) {
+    if (isEquivalent(*C1.getPointer(), *C2.getPointer()))
+      return true;
+  } else if (isInverse(*C1.getPointer(), *C2.getPointer()))
+    return true;
+
+  return false;
+}
+
+// FIXME: Use SCEV and reuse GVN/CSE logic to check for equivalence between
+// Values.
+// Currently, isEquivalent rely on other passes to ensure equivalent conditions
+// have the same value, e.g. GVN.
+bool ControlConditions::isEquivalent(const Value &V1, const Value &V2) {
+  return cast<BranchInst>(V1).getCondition() ==
+         cast<BranchInst>(V2).getCondition();
+}
+
+bool ControlConditions::isInverse(const Value &V1, const Value &V2) {
+  auto* Cmp1 = dyn_cast<CmpInst>(cast<BranchInst>(V1).getCondition());
+  auto* Cmp2 = dyn_cast<CmpInst>(cast<BranchInst>(V2).getCondition());
+  if (Cmp1 && Cmp2) {
+    if (Cmp1->getPredicate() == Cmp2->getInversePredicate() &&
+        Cmp1->getOperand(0) == Cmp2->getOperand(0) &&
+        Cmp1->getOperand(1) == Cmp2->getOperand(1))
+      return true;
+
+    if (Cmp1->getPredicate() ==
+            CmpInst::getSwappedPredicate(Cmp2->getInversePredicate()) &&
+        Cmp1->getOperand(0) == Cmp2->getOperand(1) &&
+        Cmp1->getOperand(1) == Cmp2->getOperand(0))
+      return true;
+  }
+  return false;
+}
+
+bool llvm::isControlFlowEquivalent(const Instruction &I0, const Instruction &I1,
+                                   const DominatorTree &DT,
+                                   const PostDominatorTree &PDT) {
+  return isControlFlowEquivalent(*I0.getParent(), *I1.getParent(), DT, PDT);
+}
+
+bool llvm::isControlFlowEquivalent(const BasicBlock &BB0, const BasicBlock &BB1,
+                                   const DominatorTree &DT,
+                                   const PostDominatorTree &PDT) {
+  if (&BB0 == &BB1)
+    return true;
+
+  if ((DT.dominates(&BB0, &BB1) && PDT.dominates(&BB1, &BB0)) ||
+      (PDT.dominates(&BB0, &BB1) && DT.dominates(&BB1, &BB0)))
+    return true;
+
+  // If the set of conditions required to execute BB0 and BB1 from their common
+  // dominator are the same, then BB0 and BB1 are control flow equivalent.
+  const BasicBlock *CommonDominator = DT.findNearestCommonDominator(&BB0, &BB1);
+  LLVM_DEBUG(dbgs() << "The nearest common dominator of " << BB0.getName()
+                    << " and " << BB1.getName() << " is "
+                    << CommonDominator->getName() << "\n");
+
+  const std::optional<ControlConditions> BB0Conditions =
+      ControlConditions::collectControlConditions(BB0, *CommonDominator, DT,
+                                                  PDT);
+  if (BB0Conditions == std::nullopt)
+    return false;
+
+  const std::optional<ControlConditions> BB1Conditions =
+      ControlConditions::collectControlConditions(BB1, *CommonDominator, DT,
+                                                  PDT);
+  if (BB1Conditions == std::nullopt)
+    return false;
+
+  return BB0Conditions->isEquivalent(*BB1Conditions);
 }
 
 static bool reportInvalidCandidate(const Instruction &I,

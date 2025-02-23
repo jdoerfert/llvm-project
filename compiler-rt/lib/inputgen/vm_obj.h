@@ -309,7 +309,7 @@ struct ObjectManager {
       FVM.checkBranchConditions(VCP, VCPBP, nullptr, nullptr);
   }
   void addBranchCondition(char *VPtr, BranchConditionInfo *BCI) {
-    FVM.BranchConditions[VPtr].push_back(BCI);
+    FVM.BranchConditions[VPtr].insert(BCI);
   }
   BranchConditionInfo *getOrCreateBranchCondition(uint32_t No) {
     if (FVM.BranchConditionMap.size() <= No)

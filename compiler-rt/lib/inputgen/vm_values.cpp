@@ -13,9 +13,9 @@ extern ObjectManager ThreadOM;
 
 FreeValueInfo::FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr)
     : TypeId(TypeId), Size(Size), VPtr(VPtr), MPtr(nullptr) {}
-FreeValueInfo::FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr,
-                             char *VCmpPtr, size_t CmpSize)
-    : TypeId(TypeId), Size(Size), VPtr(VPtr), MPtr(nullptr), VCmpPtr(VCmpPtr),
+FreeValueInfo::FreeValueInfo(uint32_t TypeId, char *VPtr, char *VCmpPtr,
+                             size_t CmpSize)
+    : TypeId(TypeId), Size(0), VPtr(VPtr), MPtr(nullptr), VCmpPtr(VCmpPtr),
       MCmpPtr(nullptr), CmpSize(CmpSize) {}
 
 uint32_t FreeValueInfo::getNumValues(FreeValueManager &FVM) const {
@@ -65,21 +65,21 @@ bool FreeValueInfo::isFixed() {
       // 0-length strings are equal.
       return IsFixed = true;
     }
-    bool AnyInitialized1 = false, AllInitialized1 = true;
-    bool AnyInitialized2 = false, AllInitialized2 = true;
+    bool AnyInitialized1 = true, AllInitialized1 = false;
+    bool AnyInitialized2 = true, AllInitialized2 = false;
     MPtr = VPtr;
     MCmpPtr = VCmpPtr;
     bool UnknownSize = (CmpSize == (size_t)-1);
     auto *BP1 = ThreadOM.getBasePtrInfo(VPtr);
     if (BP1)
       MPtr = ThreadOM.decodeForAccess(VPtr, UnknownSize ? 1 : CmpSize, TypeId,
-                                      CHECK_INITIALIZED, BP1, AnyInitialized1, AllInitialized1);
+                                      CHECK_INITIALIZED, BP1, AnyInitialized1,
+                                      AllInitialized1);
     auto *BP2 = ThreadOM.getBasePtrInfo(VCmpPtr);
     if (BP2)
-      MCmpPtr =
-          ThreadOM.decodeForAccess(VCmpPtr, UnknownSize ? 1 : CmpSize, TypeId,
-                                   CHECK_INITIALIZED, BP2, AnyInitialized2, AllInitialized2);
-    MCmpPtr = VCmpPtr;
+      MCmpPtr = ThreadOM.decodeForAccess(VCmpPtr, UnknownSize ? 1 : CmpSize,
+                                         TypeId, CHECK_INITIALIZED, BP2,
+                                         AnyInitialized2, AllInitialized2);
     // TODO: Deal with partially initialized memory.
     if (AnyInitialized1 == AnyInitialized2)
       return IsFixed = true;
@@ -147,7 +147,7 @@ void FreeValueManager::checkBranchConditions(char *VP, char *VPBP, char *VCP,
   auto CollectBCIs = [&](char *VPtr) {
     if (auto *BCIVec = lookupBCIVec(VPtr))
       for (auto *BCI : *BCIVec) {
-        if (BCI->IsFixed)
+        if (BCI->IsFixed || !BCI->Fn)
           continue;
         if (!SeenBCIs.insert(BCI).second)
           continue;

@@ -14,17 +14,21 @@ namespace __ig {
 
 struct FreeValueManager;
 struct FreeValueInfo {
-  const uint32_t TypeId;
-  const uint32_t Size;
-  char *VPtr;
-  char *MPtr;
+  uint32_t TypeId = 0;
+  uint32_t Size = 0;
+  char *VPtr = nullptr;
+  char *MPtr = nullptr;
   char *VCmpPtr = nullptr;
   char *MCmpPtr = nullptr;
   size_t CmpSize = 0;
 
+  FreeValueInfo() {}
   FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr);
-  FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr, char *VCmpPtr,
-                size_t CmpSize);
+  FreeValueInfo(uint32_t TypeId, char *VPtr, char *VCmpPtr, size_t CmpSize);
+  FreeValueInfo(const FreeValueInfo &Other)
+      : TypeId(Other.TypeId), Size(Other.Size), VPtr(Other.VPtr),
+        MPtr(Other.MPtr), VCmpPtr(Other.VCmpPtr), MCmpPtr(Other.MCmpPtr),
+        CmpSize(Other.CmpSize) {}
 
   template <typename Ty> void setValues(Ty *V, uint32_t NV) {
     Values = (char *)V;
@@ -57,10 +61,10 @@ private:
 
 struct BranchConditionInfo {
   std::vector<FreeValueInfo> FreeValueInfos;
-  uint32_t No;
+  uint32_t No = -1;
   using FnTy = char (*)(void *);
-  FnTy Fn;
-  char *ArgMemPtr;
+  FnTy Fn = nullptr;
+  char *ArgMemPtr = nullptr;
   bool IsFixed = false;
 };
 
@@ -87,11 +91,11 @@ struct FreeValueManager {
   void reset();
 
   std::vector<BranchConditionInfo *> BranchConditionMap;
-  std::map<char *, BCIVecTy> BranchConditions;
+  std::map<char *, BCISetTy> BranchConditions;
   std::set<std::string_view> StringCacheSet;
   std::deque<std::string> StringCache;
 
-  BCIVecTy *lookupBCIVec(char *VPtr) {
+  BCISetTy *lookupBCIVec(char *VPtr) {
     auto BCIt = BranchConditions.find(VPtr);
     if (BCIt == BranchConditions.end())
       return nullptr;

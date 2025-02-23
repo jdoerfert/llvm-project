@@ -81,23 +81,20 @@ struct InstrumentorIRBuilderTy {
   AllocaInst *getAlloca(Function *Fn, Type *Ty) {
     const DataLayout &DL = Fn->getDataLayout();
     auto &AllocaList = AllocaMap[{Fn, DL.getTypeAllocSize(Ty)}];
+    AllocaInst *AI;
     if (AllocaList.empty())
-      return new AllocaInst(Ty, DL.getAllocaAddrSpace(), "",
+      AI= new AllocaInst(Ty, DL.getAllocaAddrSpace(), "",
                             Fn->getEntryBlock().begin());
-    return AllocaList.pop_back_val();
+    else
+      AI = AllocaList.pop_back_val();
+    UsedAllocas[AI] = &AllocaList;
+    return AI;
   }
 
   /// Return the temporary allocas.
-  void returnAllocas(SmallVector<AllocaInst *> &&TmpAllocas) {
-    if (TmpAllocas.empty())
-      return;
-
-    const DataLayout &DL = TmpAllocas.front()->getDataLayout();
-    for (AllocaInst *AI : TmpAllocas) {
-      auto &AllocaList = AllocaMap[{
-          AI->getFunction(), DL.getTypeAllocSize(AI->getAllocatedType())}];
-      AllocaList.push_back(AI);
-    }
+  void returnAllocas() {
+    for (auto [AI, List] : UsedAllocas)
+      List->push_back(AI);
   }
 
   DenseMap<Instruction *, HoistKindTy> HoistedInsts;
@@ -156,6 +153,7 @@ struct InstrumentorIRBuilderTy {
   /// Mapping to remember temporary allocas for reuse.
   DenseMap<std::pair<Function *, unsigned>, SmallVector<AllocaInst *>>
       AllocaMap;
+  DenseMap<AllocaInst *, SmallVector<AllocaInst *>*> UsedAllocas;
 
   void eraseLater(Instruction *I) { ToBeErased.insert(I); }
   SmallPtrSet<Instruction *, 32> ToBeErased;
@@ -511,7 +509,8 @@ struct InstrumentationOpportunity {
 
     const DataLayout &DL = IIRB.IRB.GetInsertBlock()->getDataLayout();
     IRTCallDescription IRTCallDesc(*this, getRetTy(V->getContext()));
-    return IRTCallDesc.createLLVMCall(V, IConf, IIRB, DL, ICaches);
+    auto *CI = IRTCallDesc.createLLVMCall(V, IConf, IIRB, DL, ICaches);
+    return CI;
   }
 
   virtual Type *getRetTy(LLVMContext &Ctx) const { return nullptr; }
