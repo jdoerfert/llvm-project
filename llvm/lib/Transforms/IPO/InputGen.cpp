@@ -177,6 +177,8 @@ private:
   bool handleDeclaration(Function &F);
   bool shouldPreserveDeclaration(Function &F);
   void stubDeclaration(Function &F);
+  bool isKnownDeclaration(Function &F);
+  bool rewriteKnownDeclaration(Function &F);
 
   Module &M;
   ModuleAnalysisManager &MAM;
@@ -186,6 +188,9 @@ private:
   const DataLayout &DL = M.getDataLayout();
 
   LLVMContext &getCtx() { return M.getContext(); }
+
+  bool isRTFunc(StringRef Name) { return Name.starts_with(IConf.getRTName()); }
+  bool isRTFunc(Function &F) { return isRTFunc(F.getName()); }
 
   /// Generates a function declaration
   /// void gen_value(void *pointer,
@@ -374,13 +379,13 @@ BranchConditionIO::analyzeBranch(BranchInst &BI,
       assert(!(CI->getCalledFunction() && CI->getCalledFunction()->getName() ==
                                               IConf.getRTName("pre_", "load")));
       if (CI->getCalledFunction() &&
-          CI->getCalledFunction()->getName() == IConf.getRTName("", "memcmp")) {
+          CI->getCalledFunction()->getName() == IConf.getRTName("known_", "memcmp")) {
         BCI.ParameterInfos.emplace_back(*CI, DL);
         HasLoad = true;
         InstIsOK = true;
       }
       if (CI->getCalledFunction() &&
-          CI->getCalledFunction()->getName() == IConf.getRTName("", "strcmp")) {
+          CI->getCalledFunction()->getName() == IConf.getRTName("known_", "strcmp")) {
         BCI.ParameterInfos.emplace_back(
             BranchConditionInfo::ParameterInfo::STRCMP, nullptr,
             CI->getArgOperand(0), CI->getArgOperand(1));
@@ -631,7 +636,7 @@ bool InputGenMemoryImpl::shouldInstrumentAlloca(AllocaInst &AI,
 }
 
 bool InputGenMemoryImpl::shouldInstrumentCall(CallInst &CI) {
-  if (CI.getCaller()->getName().starts_with(IConf.getRTName()) &&
+  if (isRTFunc(*CI.getCaller()) &&
       !CI.getCaller()->hasFnAttribute("instrument"))
     return false;
   auto *Callee = CI.getCalledFunction();
@@ -647,18 +652,8 @@ bool InputGenMemoryImpl::shouldInstrumentCall(CallInst &CI) {
     if (II->isAssumeLikeIntrinsic())
       return false;
   }
-  if (Callee->getName().starts_with(IConf.getRTName()))
+  if (isRTFunc(*Callee))
     return false;
-  // Rewrite some known functions instead of instrumenting them.
-  if (StringSwitch<bool>(Callee->getName())
-          .Case("memcmp", true)
-          .Case("strcmp", true)
-          //          .Case("__sprintf_chk", true)
-          .Default(false)) {
-    CI.setCalledFunction(M.getOrInsertFunction(
-        IConf.getRTName("", Callee->getName()), Callee->getFunctionType()));
-    return false;
-  }
   return true;
 }
 
@@ -719,9 +714,8 @@ bool InputGenMemoryImpl::shouldPreserveDeclaration(Function &F) {
   bool UserAllowedExternal = llvm::any_of(
       AllowedExternalFuncs, [&](std::string N) { return N == Name; });
   bool IsCxaThrow = Name == "__cxa_throw";
-  bool IsInputGenRTFunc = Name.starts_with(InputGenRuntimePrefix);
-  return isPersonalityFunction(F) || F.isIntrinsic() || UserAllowedExternal ||
-         IsCxaThrow || IsInputGenRTFunc;
+  return isPersonalityFunction(F) || F.isIntrinsic() || isRTFunc(F) ||
+         UserAllowedExternal || IsCxaThrow;
 }
 
 void InputGenMemoryImpl::stubDeclaration(Function &F) {
@@ -758,10 +752,29 @@ void InputGenMemoryImpl::stubDeclaration(Function &F) {
   }
 }
 
+bool InputGenMemoryImpl::isKnownDeclaration(Function &F) {
+  return StringSwitch<bool>(F.getName())
+      .Case("memcmp", true)
+      .Case("strcmp", true)
+      // .Case("__sprintf_chk", true)
+      .Default(false);
+}
+
+bool InputGenMemoryImpl::rewriteKnownDeclaration(Function &F) {
+  assert(F.isDeclaration());
+  if (isKnownDeclaration(F)) {
+    F.setName(IConf.getRTName("known_", F.getName()));
+    F.setComdat(nullptr);
+    return true;
+  }
+  return false;
+}
+
 bool InputGenMemoryImpl::handleDeclaration(Function &F) {
   if (shouldPreserveDeclaration(F))
     return false;
-
+  if (rewriteKnownDeclaration(F))
+    return true;
   stubDeclaration(F);
   return true;
 }

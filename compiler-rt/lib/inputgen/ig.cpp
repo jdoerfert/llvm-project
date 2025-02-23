@@ -397,7 +397,7 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
 }
 
 IG_API_ATTRS
-int __ig_memcmp(char *s1, char *s2, size_t n) {
+int __ig_known_memcmp(char *s1, char *s2, size_t n) {
   PRINTF("memcmp -- s1: %p, s2: %p, n: %zu\n", s1, s2, n);
   auto *BPI1 = ThreadOM.getBasePtrInfo(s1);
   auto *BPI2 = ThreadOM.getBasePtrInfo(s2);
@@ -421,7 +421,7 @@ int __ig_memcmp(char *s1, char *s2, size_t n) {
 }
 
 IG_API_ATTRS
-int __ig_memcmp2(char *s1, char *s2, size_t n) {
+int __ig_known_memcmp2(char *s1, char *s2, size_t n) {
   PRINTF("memcmp2 -- s1: %p, s2: %p, n: %zu\n", s1, s2, n);
   auto *MPtr1 = __ig_decode(s1);
   auto *MPtr2 = __ig_decode(s2);
@@ -431,7 +431,7 @@ int __ig_memcmp2(char *s1, char *s2, size_t n) {
 }
 
 IG_API_ATTRS
-int __ig_strcmp(char *s1, char *s2) {
+int __ig_known_strcmp(char *s1, char *s2) {
   PRINTF("strcmp -- s1: %p, s2: %p\n", s1, s2);
   auto *BPI1 = ThreadOM.getBasePtrInfo(s1);
   auto *BPI2 = ThreadOM.getBasePtrInfo(s2);
@@ -461,7 +461,7 @@ int __ig_strcmp(char *s1, char *s2) {
 }
 
 IG_API_ATTRS
-int __ig_strcmp2(char *s1, char *s2) {
+int __ig_known_strcmp2(char *s1, char *s2) {
   PRINTF("strcmp2 -- s1: %p, s2: %p\n", s1, s2);
   auto *MPtr1 = __ig_decode(s1);
   auto *MPtr2 = __ig_decode(s2);
@@ -471,7 +471,7 @@ int __ig_strcmp2(char *s1, char *s2) {
 }
 
 IG_API_ATTRS
-int __ig___sprintf_chk(char *s, int flags, size_t slen, const char *format,
+int __ig_known___sprintf_chk(char *s, int flags, size_t slen, const char *format,
                        ...) {
   PRINTF("sprintf_chk -- s: %p, flags: %i, slen: %zu, format %p\n", s, flags,
          slen, format);
