@@ -12,6 +12,8 @@
 #include <tuple>
 #include <type_traits>
 
+#include "logging.h"
+
 #ifndef VM_ENC_H
 #define VM_ENC_H
 
