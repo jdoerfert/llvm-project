@@ -30,9 +30,11 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
@@ -88,6 +90,9 @@ static constexpr char ClGenerateStubs[] = "";
 
 static constexpr char InputGenRuntimePrefix[] = "__ig_";
 static constexpr char InputGenRenamePrefix[] = "__renamed_ig_";
+
+static constexpr char InputGenIndirectCalleeCandidateGlobalName[] =
+    "__ig_indirect_callee_candidates";
 
 namespace {
 
@@ -168,12 +173,47 @@ struct InputGenMemoryImpl {
   FunctionAnalysisManager &getFAM() { return FAM; };
 
 private:
+  bool handleDeclarations();
+  bool handleDeclaration(Function &F);
+  bool shouldPreserveDeclaration(Function &F);
+  void stubDeclaration(Function &F);
+
   Module &M;
   ModuleAnalysisManager &MAM;
   const IGIMode Mode;
   FunctionAnalysisManager &FAM;
   InputGenInstrumentationConfig IConf;
   const DataLayout &DL = M.getDataLayout();
+
+  LLVMContext &getCtx() { return M.getContext(); }
+
+  /// Generates a function declaration
+  /// void gen_value(void *pointer,
+  ///                int32_t value_size,
+  ///                int64_t alignment,
+  ///                int32_t value_type_id);
+  FunctionCallee getGenValueFunc() {
+    if (!StubFunction)
+      StubFunction = M.getOrInsertFunction(
+          IConf.getRTName("", "gen_value"), Type::getVoidTy(getCtx()),
+          PointerType::get(getCtx(), 0), IntegerType::get(getCtx(), 32),
+          IntegerType::get(getCtx(), 64), IntegerType::get(getCtx(), 32));
+    return StubFunction;
+  }
+  FunctionCallee StubFunction;
+
+  Value *genValue(IRBuilderBase &IRB, Type *Ty) {
+    AllocaInst *Ptr = IRB.CreateAlloca(Ty);
+    IRB.CreateCall(
+        getGenValueFunc(),
+        {Ptr,
+         ConstantInt::get(IntegerType::get(getCtx(), 32),
+                          DL.getTypeStoreSize(Ty)),
+         ConstantInt::get(IntegerType::get(getCtx(), 64),
+                          Ptr->getAlign().value()),
+         ConstantInt::get(IntegerType::get(getCtx(), 32), Ty->getTypeID())});
+    return IRB.CreateLoad(Ty, Ptr);
+  }
 };
 
 struct InputGenEntriesImpl {
@@ -188,6 +228,7 @@ private:
   bool createEntryPoint();
   bool processFunctions();
   bool processOtherFunctions();
+  void collectIndirectCalleeCandidates();
 
   FunctionAnalysisManager &getFAM() { return FAM; };
 
@@ -209,7 +250,7 @@ private:
 
 struct BranchConditionIO : public InstructionIO<Instruction::Br> {
   BranchConditionIO() : InstructionIO<Instruction::Br>(/*IsPRE*/ true) {}
-  virtual ~BranchConditionIO() {};
+  virtual ~BranchConditionIO(){};
 
   std::optional<BasicBlock::iterator>
   analyzeBranch(BranchInst &BI, InputGenInstrumentationConfig &IConf,
@@ -664,22 +705,112 @@ bool InputGenMemoryImpl::createPathTable() {
   return Changed;
 }
 
+bool isPersonalityFunction(Function &F) {
+  return !F.use_empty() && all_of(F.uses(), [&](Use &U) {
+    if (auto *UserF = dyn_cast<Function>(U.getUser()))
+      if (UserF->getPersonalityFn() == &F)
+        return true;
+    return false;
+  });
+}
+
+bool InputGenMemoryImpl::shouldPreserveDeclaration(Function &F) {
+  StringRef Name = F.getName();
+  bool UserAllowedExternal = llvm::any_of(
+      AllowedExternalFuncs, [&](std::string N) { return N == Name; });
+  bool IsCxaThrow = Name == "__cxa_throw";
+  bool IsInputGenRTFunc = Name.starts_with(InputGenRuntimePrefix);
+  return isPersonalityFunction(F) || F.isIntrinsic() || UserAllowedExternal ||
+         IsCxaThrow || IsInputGenRTFunc;
+}
+
+void InputGenMemoryImpl::stubDeclaration(Function &F) {
+  F.setLinkage(GlobalValue::PrivateLinkage);
+  F.setVisibility(GlobalValue::DefaultVisibility);
+  F.setMetadata(LLVMContext::MD_dbg, nullptr);
+
+  auto *EntryBB = BasicBlock::Create(getCtx(), "entry", &F);
+
+  IRBuilder<> IRB(EntryBB);
+  auto *RTy = F.getReturnType();
+  if (RTy->isVoidTy()) {
+    IRB.CreateRetVoid();
+    return;
+  }
+
+  IRB.CreateRet(genValue(IRB, RTy));
+
+  // To generate branch hints we need to generate the value at the call site
+  // scope. The above stub is still required in cases where the function's
+  // address is taken so we leave it as is.
+  // TODO We can make this work for invoke as well but it is slightly more
+  // annoying.
+  SmallVector<CallInst *> ToStub;
+  for (auto *User : F.users())
+    if (auto *CI = dyn_cast<CallInst>(User))
+      if (CI->getCalledFunction() == &F)
+        ToStub.push_back(CI);
+  for (auto *CI : ToStub) {
+    IRBuilder<> IRB(CI);
+    Value *V = genValue(IRB, RTy);
+    CI->replaceAllUsesWith(V);
+    CI->eraseFromParent();
+  }
+}
+
+bool InputGenMemoryImpl::handleDeclaration(Function &F) {
+  if (shouldPreserveDeclaration(F))
+    return false;
+
+  stubDeclaration(F);
+  return true;
+}
+
+bool InputGenMemoryImpl::handleDeclarations() {
+  bool Changed = false;
+  SmallVector<Function *> Decls;
+  for (Function &F : M)
+    if (F.isDeclaration())
+      Decls.push_back(&F);
+  for (Function *F : Decls)
+    Changed |= handleDeclaration(*F);
+  return Changed;
+}
+
 bool InputGenMemoryImpl::instrument() {
-  if (Mode != IGIMode::Generate || Mode == IGIMode::Record)
+  if (!(Mode == IGIMode::Generate || Mode == IGIMode::ReplayGenerated))
     return false;
 
   bool Changed = false;
 
-  SmallVector<Function *> OldFunctions;
-  removeFromUsedLists(M, [&](Constant *C) {
-    auto *Fn = dyn_cast<Function>(C);
-    if (!Fn || Fn->getNumUses() > 1)
-      return false;
-    OldFunctions.push_back(Fn);
-    return true;
-  });
-  for (auto *Fn : OldFunctions)
-    Fn->eraseFromParent();
+  {
+    SmallSetVector<Function *, 16> IndirectCalleeCandidates;
+    if (GlobalVariable *GV =
+            M.getGlobalVariable(InputGenIndirectCalleeCandidateGlobalName)) {
+      if (GV->hasInitializer()) {
+        auto *CA = cast<ConstantArray>(GV->getInitializer());
+        for (Use &Op : CA->operands())
+          IndirectCalleeCandidates.insert(cast<Function>(Op));
+      }
+      assert(GV->use_empty());
+      GV->eraseFromParent();
+      Changed = true;
+    }
+
+    // For now we get rid of them if they are not used. We can use them once we
+    // decide to implement faking indirect callees.
+    for (Function *F : IndirectCalleeCandidates) {
+      if (F->use_empty()) {
+        F->eraseFromParent();
+        Changed = true;
+      }
+    }
+  }
+
+  Changed |= handleDeclarations();
+
+  if (Mode != IGIMode::Generate)
+    return Changed;
 
   // TODO: HACK for qsort, we need to actually check the functions we rename
   // here and qsort explicitly.
@@ -735,41 +866,12 @@ bool InputGenEntriesImpl::instrument() {
     Changed |= processFunctions();
 
     return Changed;
-  } else {
-    return false;
   }
+
+  return false;
 }
 
-static bool isPersonalityFunction(Function &F) {
-  return !F.use_empty() && all_of(F.uses(), [&](Use &U) {
-    if (auto *UserF = dyn_cast<Function>(U.getUser()))
-      if (UserF->getPersonalityFn() == &F)
-        return true;
-    return false;
-  });
-}
-
-static bool shouldPreserveName(Function *F) {
-  StringRef Name = F->getName();
-  bool UserAllowedExternal = llvm::any_of(
-      AllowedExternalFuncs, [&](std::string N) { return N == Name; });
-  bool IsCxaThrow = Name == "__cxa_throw";
-  return isPersonalityFunction(*F) || UserAllowedExternal || IsCxaThrow ||
-         F->isIntrinsic();
-}
-
-// TODO instrumentor needs to instrument memory functions such as malloc calloc
-// free memcpy etc. If we rename them it can't do that? We probably want to do
-// the renaming in the memory pass and not the entries pass.
-static void processFunctionDeclarationForGeneration(Function *F) {
-  assert(F->isDeclaration());
-  // We need to rename external functions that we will be stubbing so as not to
-  // clash with an existing definition somewhere.
-  if (!shouldPreserveName(F))
-    F->setName(InputGenRenamePrefix + F->getName());
-}
-
-static void processFunctionDefinitionForGenerate(Function *F) {
+void processFunctionDefinitionForGenerate(Function *F) {
   assert(!F->isDeclaration());
   // We want to aggressively inline to strengthen the InputGenMemory
   // instrumentation analysis.
@@ -792,6 +894,26 @@ static void processFunctionDefinitionForReplayGenerated(Function *F) {
   F->setVisibility(GlobalValue::DefaultVisibility);
 }
 
+void InputGenEntriesImpl::collectIndirectCalleeCandidates() {
+  // Since the OtherFunctions may be unused and the EntryFunctions may get
+  // inlined and deleted, we need to make sure they do not get optimized away
+  // before we have a chance to consider them for indirect call candidates
+  // later.
+  // TODO we can be smarter about it, for example only collect the external
+  // functions and the internal ones that have their address taken.
+  Type *ArrayEltTy = llvm::PointerType::getUnqual(M.getContext());
+  SmallSetVector<Constant *, 16> Init;
+  for (Function *F : llvm::concat<Function *>(EntryFunctions, OtherFunctions)) {
+    assert(!F->isDeclaration());
+    Init.insert(ConstantExpr::getPointerBitCastOrAddrSpaceCast(F, ArrayEltTy));
+  }
+
+  ArrayType *ATy = ArrayType::get(ArrayEltTy, Init.size());
+  new llvm::GlobalVariable(M, ATy, false, GlobalValue::AppendingLinkage,
+                           ConstantArray::get(ATy, Init.getArrayRef()),
+                           InputGenIndirectCalleeCandidateGlobalName);
+}
+
 bool InputGenEntriesImpl::processFunctions() {
   for (Function *F : llvm::concat<Function *>(EntryFunctions, OtherFunctions)) {
     if (Mode == IGIMode::Generate)
@@ -800,14 +922,7 @@ bool InputGenEntriesImpl::processFunctions() {
       processFunctionDefinitionForReplayGenerated(F);
   }
 
-  // Since the OtherFunctions may be unused, we need to make sure they do not
-  // get optimized away before we have a chance to consider them for indirect
-  // call candidates later.
-  if (Mode == IGIMode::Generate || Mode == IGIMode::ReplayGenerated)
-    appendToCompilerUsed(M,
-                         llvm::map_to_vector(OtherFunctions, [](Function *F) {
-                           return cast<GlobalValue>(F);
-                         }));
+  collectIndirectCalleeCandidates();
 
   return true;
 }

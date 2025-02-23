@@ -485,6 +485,15 @@ int __ig___sprintf_chk(char *s, int flags, size_t slen, const char *format,
 }
 
 IG_API_ATTRS
+void __ig_gen_value(void *pointer, int32_t value_size, int64_t alignment,
+                    int32_t value_type_id) {
+  PRINTF("load pre -- pointer: %p, value_size: %i, alignment: %lli, "
+         "value_type_id: %i\n",
+         pointer, value_size, alignment, value_type_id);
+  memset(pointer, 0, value_size);
+}
+
+IG_API_ATTRS
 void __ig_exit(int exit_code) {
   PRINTF("User exit %i\n", exit_code);
   error(exit_code);
