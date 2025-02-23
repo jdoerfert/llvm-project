@@ -257,13 +257,16 @@ int8_t __ig_post_icmp(int8_t value, int8_t is_ptr_cmp,
   return value;
 }
 
+IG_API_ATTRS
 int64_t __ig_post_ptrtoint(char *pointer, int64_t value) {
   PRINTF("ptrtoint post -- pointer: %p, value: %lli\n", pointer, value);
   return ThreadOM.ptrToInt((char *)pointer, value);
 }
 
+IG_API_ATTRS
 char *__ig_decode(char *pointer) { return ThreadOM.decode(pointer); }
 
+IG_API_ATTRS
 void __ig_pre_branch_condition_info(int32_t branch_condition_no,
                                     char *branch_condition_fn,
                                     int32_t num_branch_condition_arguments,
@@ -393,6 +396,7 @@ void __ig_pre_branch_condition_info(int32_t branch_condition_no,
   }
 }
 
+IG_API_ATTRS
 int __ig_memcmp(char *s1, char *s2, size_t n) {
   PRINTF("memcmp -- s1: %p, s2: %p, n: %zu\n", s1, s2, n);
   auto *BPI1 = ThreadOM.getBasePtrInfo(s1);
@@ -415,6 +419,8 @@ int __ig_memcmp(char *s1, char *s2, size_t n) {
   PRINTF("memcmp -- s1: '%s', s2: '%s', n: %zu\n", MPtr1, MPtr2, n);
   return memcmp(MPtr1, MPtr2, n);
 }
+
+IG_API_ATTRS
 int __ig_memcmp2(char *s1, char *s2, size_t n) {
   PRINTF("memcmp2 -- s1: %p, s2: %p, n: %zu\n", s1, s2, n);
   auto *MPtr1 = __ig_decode(s1);
@@ -423,6 +429,8 @@ int __ig_memcmp2(char *s1, char *s2, size_t n) {
   PRINTF("memcmp2 -- s1: '%s', s2: '%s', n: %zu\n", MPtr1, MPtr2, n);
   return memcmp(MPtr1, MPtr2, n);
 }
+
+IG_API_ATTRS
 int __ig_strcmp(char *s1, char *s2) {
   PRINTF("strcmp -- s1: %p, s2: %p\n", s1, s2);
   auto *BPI1 = ThreadOM.getBasePtrInfo(s1);
@@ -452,6 +460,7 @@ int __ig_strcmp(char *s1, char *s2) {
   } while (true);
 }
 
+IG_API_ATTRS
 int __ig_strcmp2(char *s1, char *s2) {
   PRINTF("strcmp2 -- s1: %p, s2: %p\n", s1, s2);
   auto *MPtr1 = __ig_decode(s1);
@@ -461,6 +470,7 @@ int __ig_strcmp2(char *s1, char *s2) {
   return strcmp(MPtr1, MPtr2);
 }
 
+IG_API_ATTRS
 int __ig___sprintf_chk(char *s, int flags, size_t slen, const char *format,
                        ...) {
   PRINTF("sprintf_chk -- s: %p, flags: %i, slen: %zu, format %p\n", s, flags,
@@ -474,6 +484,7 @@ int __ig___sprintf_chk(char *s, int flags, size_t slen, const char *format,
   return 0;
 }
 
+IG_API_ATTRS
 void __ig_exit(int exit_code) {
   PRINTF("User exit %i\n", exit_code);
   error(exit_code);
