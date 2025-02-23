@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "common.h"
 #include "vm_obj.h"
 #include "vm_values.h"
 
@@ -18,8 +19,6 @@ using namespace __ig;
 #else
 #define PRINTF(...)
 #endif
-
-#define IG_API_ATTRS __attribute__((always_inline))
 
 struct __attribute__((packed)) ParameterValuePackTy {
   int32_t Size;

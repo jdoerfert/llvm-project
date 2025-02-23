@@ -103,7 +103,7 @@ struct GenerationThread {
 int main(int argc, char **argv) {
 
   uint32_t Seed = 42;
-  uint32_t EntryNo = 0;
+  int32_t EntryNo = 0;
   uint32_t NumInputs = 1;
   uint32_t FirstInput = 0;
   uint32_t NumThreads = 1;
@@ -118,7 +118,13 @@ int main(int argc, char **argv) {
   if (argc > 5)
     Seed = std::atoi(argv[5]);
 
-  if (EntryNo >= __ig_num_entry_points) {
+  if (EntryNo == -1) {
+    printNumAvailableFunctions();
+    printAvailableFunctions();
+    exit(static_cast<int>(ExitStatus::WrongUsage));
+  }
+
+  if (static_cast<uint32_t>(EntryNo) >= __ig_num_entry_points) {
     ERR("Entry {} is out of bounds, {} available\n", EntryNo,
             __ig_num_entry_points);
     exit(static_cast<int>(ExitStatus::EntryNoOutOfBounds));

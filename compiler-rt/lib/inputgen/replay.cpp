@@ -7,16 +7,30 @@
 #include <cstdint>
 #include <cstdio>
 
-extern "C" char *__ig_entry_point_names[];
-extern "C" uint32_t __ig_num_entry_points;
+#ifndef NDEBUG
+#define PRINTF(...) printf(__VA_ARGS__)
+#else
+#define PRINTF(...)
+#endif
+
+extern "C" {
+IG_API_ATTRS
+void __ig_gen_value(void *pointer, int32_t value_size, int64_t alignment,
+                    int32_t value_type_id) {
+  PRINTF("load pre -- pointer: %p, value_size: %i, alignment: %lli, "
+         "value_type_id: %i\n",
+         pointer, value_size, alignment, value_type_id);
+  memset(pointer, 0, value_size);
+}
+}
+
 extern "C" void __ig_entry(uint32_t, void *);
 
 int main(int argc, char **argv) {
   if (argc < 2) {
     ERR("Usage: {} <file.inp> [<entry_no>]\n", argv[0]);
-    ERR("  Available functions:\n");
-    for (uint32_t I = 0; I < __ig_num_entry_points; I++)
-      ERR("    {}: {}\n", I, __ig_entry_point_names[I]);
+    printNumAvailableFunctions();
+    printAvailableFunctions();
     exit(static_cast<int>(ExitStatus::WrongUsage));
   }
 
