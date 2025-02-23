@@ -1001,6 +1001,8 @@ bool InputGenEntriesImpl::createEntryPoint() {
 
     EntryPoint->addFnAttr(Attribute::AlwaysInline);
     EntryPoint->removeFnAttr(Attribute::NoInline);
+    // opt_none is incompatible with always_inline
+    EntryPoint->removeFnAttr(Attribute::OptimizeNone);
 
     auto *DispatchBB = BasicBlock::Create(Ctx, "dispatch", IGEntry);
     auto *WrapperCI = CallInst::Create(EntryPointWrapper->getFunctionType(),
