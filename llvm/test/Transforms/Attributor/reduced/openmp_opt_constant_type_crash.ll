@@ -76,7 +76,7 @@ cond.end:                                         ; preds = %cond.true, %entry
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[EXTENTS11:%.*]] = alloca [0 x [0 x %"struct.Kokkos::Impl::SubviewExtents.448"]], i32 0, align 8, addrspace(5)
 ; CHECK-NEXT:    [[EXTENTS_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[EXTENTS11]] to ptr
-; CHECK-NEXT:    call void @_ZN6Kokkos4Impl14SubviewExtentsILj2ELj1EEC2IJLm0ELm0EEJNS0_5ALL_tEiEEERKNS0_13ViewDimensionIJXspT_EEEEDpT0_.internalized(ptr [[EXTENTS_ASCAST]])
+; CHECK-NEXT:    call void @_ZN6Kokkos4Impl14SubviewExtentsILj2ELj1EEC2IJLm0ELm0EEJNS0_5ALL_tEiEEERKNS0_13ViewDimensionIJXspT_EEEEDpT0_.internalized(ptr writeonly [[EXTENTS_ASCAST]])
 ; CHECK-NEXT:    ret void
 ;
 ;
@@ -91,9 +91,9 @@ cond.end:                                         ; preds = %cond.true, %entry
 ;
 ; CHECK: Function Attrs: norecurse nosync nounwind memory(argmem: write)
 ; CHECK-LABEL: define {{[^@]+}}@_ZN6Kokkos4Impl14SubviewExtentsILj2ELj1EEC2IJLm0ELm0EEJNS0_5ALL_tEiEEERKNS0_13ViewDimensionIJXspT_EEEEDpT0_.internalized
-; CHECK-SAME: (ptr [[THIS:%.*]]) #[[ATTR1:[0-9]+]] {
+; CHECK-SAME: (ptr writeonly captures(none) [[THIS:%.*]]) #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[CALL:%.*]] = call i1 @_ZN6Kokkos4Impl14SubviewExtentsILj2ELj1EE3setIJLm0ELm0EEJiEEEbjjRKNS0_13ViewDimensionIJXspT_EEEENS0_5ALL_tEDpT0_.internalized(ptr writeonly [[THIS]])
+; CHECK-NEXT:    [[CALL:%.*]] = call i1 @_ZN6Kokkos4Impl14SubviewExtentsILj2ELj1EE3setIJLm0ELm0EEJiEEEbjjRKNS0_13ViewDimensionIJXspT_EEEENS0_5ALL_tEDpT0_.internalized(ptr writeonly captures(none) [[THIS]])
 ; CHECK-NEXT:    ret void
 ;
 ;

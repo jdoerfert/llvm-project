@@ -26,7 +26,7 @@ define i32 @fputs() {
 
 define internal i32 @__kmpc_target_init(ptr %0, ptr %dyn) {
 ; AMDGPU-LABEL: define {{[^@]+}}@__kmpc_target_init
-; AMDGPU-SAME: (ptr [[TMP0:%.*]], ptr [[DYN:%.*]]) #[[ATTR1:[0-9]+]] {
+; AMDGPU-SAME: (ptr noalias readnone captures(none) [[TMP0:%.*]], ptr [[DYN:%.*]]) #[[ATTR1:[0-9]+]] {
 ; AMDGPU-NEXT:    [[TMP2:%.*]] = addrspacecast ptr getelementptr (i8, ptr addrspacecast (ptr addrspace(1) @__omp_offloading_10302_b20a40e_main_l4_kernel_environment to ptr), i64 2) to ptr addrspace(1)
 ; AMDGPU-NEXT:    [[TMP3:%.*]] = load i8, ptr addrspace(1) [[TMP2]], align 2
 ; AMDGPU-NEXT:    [[TMP4:%.*]] = and i8 [[TMP3]], 2
@@ -79,7 +79,7 @@ declare void @__kmpc_target_deinit()
 define amdgpu_kernel void @__omp_offloading_10302_b20a40e_main_l4(ptr %dyn) {
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_10302_b20a40e_main_l4
 ; AMDGPU-SAME: (ptr [[DYN:%.*]]) {
-; AMDGPU-NEXT:    [[TMP1:%.*]] = tail call i32 @__kmpc_target_init(ptr addrspacecast (ptr addrspace(1) @__omp_offloading_10302_b20a40e_main_l4_kernel_environment to ptr), ptr [[DYN]]) #[[ATTR4:[0-9]+]]
+; AMDGPU-NEXT:    [[TMP1:%.*]] = tail call i32 @__kmpc_target_init(ptr noalias readnone addrspacecast (ptr addrspace(1) @__omp_offloading_10302_b20a40e_main_l4_kernel_environment to ptr), ptr [[DYN]]) #[[ATTR4:[0-9]+]]
 ; AMDGPU-NEXT:    br label [[TMP2:%.*]]
 ; AMDGPU:       2:
 ; AMDGPU-NEXT:    [[TMP3:%.*]] = call i32 @fputs() #[[ATTR0]]

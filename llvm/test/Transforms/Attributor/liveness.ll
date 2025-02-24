@@ -2514,7 +2514,7 @@ define i32 @main() {
 ; CHECK-NEXT:    [[INC]] = add nuw nsw i32 [[G_0]], 1
 ; CHECK-NEXT:    br label [[FOR_COND_0]]
 ; CHECK:       for.end.0:
-; CHECK-NEXT:    [[CALL:%.*]] = call ptr @malloc(i64 noundef 8)
+; CHECK-NEXT:    [[CALL:%.*]] = call noalias ptr @malloc(i64 noundef 8)
 ; CHECK-NEXT:    store ptr [[CALL]], ptr @e, align 8
 ; CHECK-NEXT:    store ptr null, ptr [[CALL]], align 8
 ; CHECK-NEXT:    br label [[FOR_COND_1:%.*]]

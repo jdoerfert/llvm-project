@@ -370,7 +370,7 @@ static bool getPotentialCopiesOfMemoryValue(
     Attributor &A, Ty &I, SmallSetVector<Value *, 4> &PotentialCopies,
     SmallSetVector<Instruction *, 4> *PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact) {
+    bool OnlyExact, bool RequireAllPotentialCopies) {
   LLVM_DEBUG(dbgs() << "Trying to determine the potential copies of " << I
                     << " (only exact: " << OnlyExact << ")\n";);
 
@@ -401,22 +401,16 @@ static bool getPotentialCopiesOfMemoryValue(
           dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
       return false;
     }
-    // TODO: Use assumed noalias return.
-    if (!isa<AllocaInst>(&Obj) && !isa<GlobalVariable>(&Obj) &&
-        !(IsLoad ? isAllocationFn(&Obj, TLI) : isNoAliasCall(&Obj)) &&
-        !(isa<Argument>(Obj) && cast<Argument>(Obj).hasByValAttr())) {
-      LLVM_DEBUG(dbgs() << "Underlying object is not supported yet: " << Obj
-                        << "\n";);
-      return false;
-    }
-    if (auto *GV = dyn_cast<GlobalVariable>(&Obj))
-      if (!GV->hasLocalLinkage() &&
-          !(GV->isConstant() && GV->hasInitializer())) {
-        LLVM_DEBUG(dbgs() << "Underlying object is global with external "
-                             "linkage, not supported yet: "
-                          << Obj << "\n";);
+
+    if (RequireAllPotentialCopies) {
+      auto [Aliases, WritesOutlive] =
+          AAPointerInfo::hasAssumedAliasingPointersOrWritesOutlivesScope(Obj);
+      if (Aliases || (!IsLoad && WritesOutlive)) {
+        LLVM_DEBUG(dbgs() << "Underlying object has potential out-of-scope "
+                             "accesses, giving up.\n";);
         return false;
       }
+    }
 
     bool NullOnly = true;
     bool NullRequired = false;
@@ -524,15 +518,17 @@ static bool getPotentialCopiesOfMemoryValue(
     AA::AccessRangeListTy RangeList;
     auto *PI = A.getAAFor<AAPointerInfo>(QueryingAA, IRPosition::value(Obj),
                                          DepClassTy::NONE);
-    if (!PI || !PI->forallInterferingAccesses(
-                   A, QueryingAA, I,
-                   /* FindInterferingWrites */ IsLoad,
-                   /* FindInterferingReads */ !IsLoad, CheckAccess,
-                   HasBeenWrittenTo, RangeList, SkipCB)) {
-      LLVM_DEBUG(
-          dbgs()
-          << "Failed to verify all interfering accesses for underlying object: "
-          << Obj << "\n");
+    if (!PI || PI->hasPotentiallyAliasingPointers() ||
+        (RequireAllPotentialCopies && !IsLoad &&
+         PI->writesOutliveCurrentScope()) ||
+        !PI->forallInterferingAccesses(A, QueryingAA, I,
+                                       /* FindInterferingWrites */ IsLoad,
+                                       /* FindInterferingReads */ !IsLoad,
+                                       CheckAccess, HasBeenWrittenTo, RangeList,
+                                       SkipCB)) {
+      LLVM_DEBUG(dbgs() << "Failed to verify all interfering accesses for "
+                           "underlying object: "
+                        << Obj << "\n");
       return false;
     }
 
@@ -590,19 +586,19 @@ bool AA::getPotentiallyLoadedValues(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialValues,
     SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact) {
+    bool OnlyExact, bool RequireAllPotentialCopies) {
   return getPotentialCopiesOfMemoryValue</* IsLoad */ true>(
       A, LI, PotentialValues, &PotentialValueOrigins, QueryingAA,
-      UsedAssumedInformation, OnlyExact);
+      UsedAssumedInformation, OnlyExact, RequireAllPotentialCopies);
 }
 
 bool AA::getPotentialCopiesOfStoredValue(
     Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact) {
+    bool OnlyExact, bool RequireAllPotentialCopies) {
   return getPotentialCopiesOfMemoryValue</* IsLoad */ false>(
       A, SI, PotentialCopies, nullptr, QueryingAA, UsedAssumedInformation,
-      OnlyExact);
+      OnlyExact, RequireAllPotentialCopies);
 }
 
 static bool isAssumedReadOnlyOrReadNone(Attributor &A, const IRPosition &IRP,
@@ -750,8 +746,8 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
     }
 
     // If we do not go backwards from the FromFn we are done here and so far we
-    // could not find a way to reach ToFn/ToI. Otherwise we check if we can reach
-    // a return.
+    // could not find a way to reach ToFn/ToI. Otherwise we check if we can
+    // reach a return.
     if (GoBackwardsCB && !GoBackwardsCB(*FromFn))
       continue;
 
@@ -1831,7 +1827,7 @@ bool Attributor::checkForAllUses(
         SmallSetVector<Value *, 4> PotentialCopies;
         if (AA::getPotentialCopiesOfStoredValue(
                 *this, *SI, PotentialCopies, QueryingAA, UsedAssumedInformation,
-                /* OnlyExact */ true)) {
+                /* OnlyExact */ true, /*RequireAllPotentialCopies=*/true)) {
           DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE,
                           dbgs()
                               << "[Attributor] Value is stored, continue with "

@@ -839,6 +839,10 @@ struct AA::PointerInfo::State : public AbstractState {
   }
 
 protected:
+  bool HasPotentiallyAliasingPointers = false;
+  bool WritesOutliveCurrentScope = false;
+  SmallPtrSet<const Use *, 8> UnknownUses;
+
   // Every memory instruction results in an Access object. We maintain a list of
   // all Access objects that we own, along with the following maps:
   //
@@ -981,6 +985,24 @@ ChangeStatus AA::PointerInfo::State::addAccess(
   return ChangeStatus::CHANGED;
 }
 
+std::pair<bool, bool>
+AAPointerInfo::hasAssumedAliasingPointersOrWritesOutlivesScope(Value &Obj) {
+  if (isa<AllocaInst>(Obj))
+    return {false, false};
+  if (auto *GV = dyn_cast<GlobalVariable>(&Obj)) {
+    if (!GV->hasLocalLinkage()) 
+      return {!GV->isConstant(), !GV->isConstant()};
+    return {false, false};
+  }
+  if (isa<Argument>(&Obj) || isa<CallBase>(Obj)) {
+    // Arguments and call site return values might not have out-of-scope
+    // accesses, i.a., if they are noalias, for now we assume they don't but it
+    // has to be checked later.
+    return {false, false};
+  }
+  return {true, true};
+}
+
 namespace {
 
 #ifndef NDEBUG
@@ -1000,6 +1022,14 @@ struct AAPointerInfoImpl
     : public StateWrapper<AA::PointerInfo::State, AAPointerInfo> {
   using BaseTy = StateWrapper<AA::PointerInfo::State, AAPointerInfo>;
   AAPointerInfoImpl(const IRPosition &IRP, Attributor &A) : BaseTy(IRP) {}
+
+  void initialize(Attributor &A) override {
+    auto &Obj = getAssociatedValue();
+    auto [AliasingPointers, OutlivesScope] =
+        AAPointerInfo::hasAssumedAliasingPointersOrWritesOutlivesScope(Obj);
+    setHasPotentiallyAliasingPointers(AliasingPointers);
+    WritesOutliveCurrentScope = OutlivesScope;
+  }
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr(Attributor *A) const override {
@@ -1049,6 +1079,26 @@ struct AAPointerInfoImpl
     OI = std::move(MergedOI);
   }
 
+  virtual bool hasPotentiallyAliasingPointers() const override {
+    return HasPotentiallyAliasingPointers;
+  }
+  virtual bool writesOutliveCurrentScope() const override {
+    return WritesOutliveCurrentScope;
+  }
+
+  ChangeStatus addUnknownUses(const Use &U) {
+    ChangeStatus Changed = setHasPotentiallyAliasingPointers(true);
+    if (UnknownUses.insert(&U).second)
+      return ChangeStatus::CHANGED;
+    return Changed;
+  }
+
+  ChangeStatus setHasPotentiallyAliasingPointers(bool HPAP) {
+    if (!HPAP || HasPotentiallyAliasingPointers)
+      return ChangeStatus::UNCHANGED;
+    HasPotentiallyAliasingPointers = true;
+    return ChangeStatus::CHANGED;
+  }
   ChangeStatus setReachesReturn(const OffsetInfo &ReachedReturnedOffsets) {
     if (ReturnedOffsets.isUnknown())
       return ChangeStatus::UNCHANGED;
@@ -1365,6 +1415,8 @@ struct AAPointerInfoImpl
     const auto &OtherAAImpl = static_cast<const AAPointerInfoImpl &>(OtherAA);
     bool IsByval = OtherAAImpl.getAssociatedArgument()->hasByValAttr();
     Changed |= setReachesReturn(OtherAAImpl.ReturnedOffsets);
+    for (const auto *U : OtherAAImpl.UnknownUses)
+      Changed |= addUnknownUses(*U);
 
     // Combine the accesses bin by bin.
     const auto &State = OtherAAImpl.getState();
@@ -1394,10 +1446,12 @@ struct AAPointerInfoImpl
     if (!OtherAA.getState().isValidState() || !isValidState())
       return indicatePessimisticFixpoint();
 
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
     const auto &OtherAAImpl = static_cast<const AAPointerInfoImpl &>(OtherAA);
+    for (const auto *U : OtherAAImpl.UnknownUses)
+      Changed |= addUnknownUses(*U);
 
     // Combine the accesses bin by bin.
-    ChangeStatus Changed = ChangeStatus::UNCHANGED;
     const auto &State = OtherAAImpl.getState();
     for (const auto &It : State) {
       for (auto Index : It.getSecond()) {
@@ -1428,6 +1482,16 @@ struct AAPointerInfoImpl
 
   /// Dump the state into \p O.
   void dumpState(raw_ostream &O) {
+    if (HasPotentiallyAliasingPointers)
+      O << "Has potentially aliasing pointers.\n";
+    if (WritesOutliveCurrentScope)
+      O << "Writes outlive current scope.\n";
+    if (!UnknownUses.empty()) {
+      O << "Unknown uses:\n";
+      for (const auto *U : UnknownUses) {
+        O << " - " << **U << " in " << *U->getUser() << "\n";
+      }
+    }
     for (auto &It : OffsetBins) {
       O << "[" << It.first.PtrRange << ":" << It.first.AccessSize
         << "] : " << It.getSecond().size() << "\n";
@@ -1455,6 +1519,13 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
   using AccessKind = AAPointerInfo::AccessKind;
   AAPointerInfoFloating(const IRPosition &IRP, Attributor &A)
       : AAPointerInfoImpl(IRP, A) {}
+
+  ChangeStatus checkNoAliasStatus(Attributor &A, bool &IsKnownNoAlias) {
+    if (!AA::hasAssumedIRAttr<Attribute::NoAlias>(
+            A, this, getIRPosition(), DepClassTy::OPTIONAL, IsKnownNoAlias))
+      return setHasPotentiallyAliasingPointers(true);
+    return ChangeStatus::UNCHANGED;
+  }
 
   /// Deal with an access and signal if it was handled successfully.
   bool handleAccess(Attributor &A, Instruction &I,
@@ -1634,7 +1705,8 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
       if (!isa<GEPOperator>(CE)) {
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled constant user " << *CE
                           << "\n");
-        return false;
+        Changed |= addUnknownUses(U);
+        return true;
       }
     }
     if (auto *GEP = dyn_cast<GEPOperator>(Usr)) {
@@ -1655,20 +1727,23 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
       Follow = collectConstantsForGEP(A, DL, UsrOI, PtrOI, GEP);
       return true;
     }
-    if (isa<PtrToIntInst>(Usr))
-      return false;
+    if (isa<PtrToIntInst>(Usr)) {
+      Changed |= addUnknownUses(U);
+      return true;
+    }
     if (isa<CastInst>(Usr) || isa<SelectInst>(Usr))
       return HandlePassthroughUser(Usr, CurPtr, Follow);
     // Returns are allowed if they are in the associated functions. Users can
     // then check the call site return. Returns from other functions can't be
-    // tracked and are cause for invalidation.
+    // tracked and are treated as unknown uses.
     if (auto *RI = dyn_cast<ReturnInst>(Usr)) {
       if (RI->getFunction() == getAssociatedFunction()) {
         auto &PtrOI = OffsetInfoMap[CurPtr];
         Changed |= setReachesReturn(PtrOI);
         return true;
       }
-      return false;
+      Changed |= addUnknownUses(U);
+      return true;
     }
 
     // For PHIs we need to take care of the recurrence explicitly as the value
@@ -1853,7 +1928,8 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
               dbgs()
               << "[AAPointerInfo] Escaping use in store like instruction " << I
               << "\n");
-          return false;
+          Changed |= addUnknownUses(U);
+          return true;
         }
       }
 
@@ -1897,8 +1973,13 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
         const auto *CSArgPI = A.getAAFor<AAPointerInfo>(
             *this, IRPosition::callsite_argument(*CB, ArgNo),
             DepClassTy::REQUIRED);
-        if (!CSArgPI)
-          return false;
+        if (!CSArgPI) {
+          LLVM_DEBUG(dbgs() << "[AAPointerInfo] Call user not handled "
+                               "(argument info missing) "
+                            << *CB << "\n");
+          Changed |= addUnknownUses(U);
+          return true;
+        }
         bool IsArgMustAcc = (getUnderlyingObject(CurPtr) == &AssociatedValue);
         Changed = translateAndAddState(A, *CSArgPI, OffsetInfoMap[CurPtr], *CB,
                                        IsArgMustAcc) |
@@ -1907,8 +1988,13 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
           return isValidState();
 
         Function *Callee = CB->getCalledFunction();
-        if (!Callee || Callee->arg_size() <= ArgNo)
-          return false;
+        if (!Callee || Callee->arg_size() <= ArgNo) {
+          LLVM_DEBUG(dbgs()
+                     << "[AAPointerInfo] Call user not handled (varargs) "
+                     << *CB << "\n");
+          Changed |= addUnknownUses(U);
+          return true;
+        }
         bool UsedAssumedInformation = false;
         auto ReturnedValue = A.getAssumedSimplified(
             IRPosition::returned(*Callee), *this, UsedAssumedInformation,
@@ -1921,8 +2007,14 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
         bool IsRetMustAcc = IsArgMustAcc && (ReturnedArg == Arg);
         const auto *CSRetPI = A.getAAFor<AAPointerInfo>(
             *this, IRPosition::callsite_returned(*CB), DepClassTy::REQUIRED);
-        if (!CSRetPI)
-          return false;
+        if (!CSRetPI) {
+          LLVM_DEBUG(
+              dbgs()
+              << "[AAPointerInfo] Call user not handled (return info missing) "
+              << *CB << "\n");
+          Changed |= addUnknownUses(U);
+          return true;
+        }
         OffsetInfo OI = OffsetInfoMap[CurPtr];
         CSArgPI->addReturnedOffsetsTo(OI);
         Changed =
@@ -1931,11 +2023,13 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
       }
       LLVM_DEBUG(dbgs() << "[AAPointerInfo] Call user not handled " << *CB
                         << "\n");
-      return false;
+      Changed |= addUnknownUses(U);
+      return true;
     }
 
     LLVM_DEBUG(dbgs() << "[AAPointerInfo] User not handled " << *Usr << "\n");
-    return false;
+    Changed |= addUnknownUses(U);
+    return true;
   };
   auto EquivalentUseCB = [&](const Use &OldU, const Use &NewU) {
     assert(OffsetInfoMap.count(OldU) && "Old use should be known already!");
@@ -1983,23 +2077,57 @@ struct AAPointerInfoReturned final : AAPointerInfoImpl {
   }
 };
 
-struct AAPointerInfoArgument final : AAPointerInfoFloating {
+struct AAPointerInfoArgument : AAPointerInfoFloating {
   AAPointerInfoArgument(const IRPosition &IRP, Attributor &A)
       : AAPointerInfoFloating(IRP, A) {}
+
+  void initialize(Attributor &A) override {
+    auto *Arg = getAssociatedArgument();
+    if (!Arg) {
+      indicatePessimisticFixpoint();
+      return;
+    }
+    if (Arg->hasByValAttr())
+      return;
+    WritesOutliveCurrentScope = true;
+    if (Arg->hasNoAliasAttr())
+      return;
+    bool IsKnownNoAlias;
+    checkNoAliasStatus(A, IsKnownNoAlias);
+    IsAssumedNoAlias = !IsKnownNoAlias && !HasPotentiallyAliasingPointers;
+  }
+
+  virtual ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    if (IsAssumedNoAlias) {
+      bool IsKnownNoAlias;
+      Changed = checkNoAliasStatus(A, IsKnownNoAlias);
+      IsAssumedNoAlias = !IsKnownNoAlias && !HasPotentiallyAliasingPointers;
+    }
+    return AAPointerInfoFloating::updateImpl(A) | Changed;
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
     AAPointerInfoImpl::trackPointerInfoStatistics(getIRPosition());
   }
+  bool IsAssumedNoAlias = false;
 };
 
-struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
+struct AAPointerInfoCallSiteArgument final : AAPointerInfoArgument {
   AAPointerInfoCallSiteArgument(const IRPosition &IRP, Attributor &A)
-      : AAPointerInfoFloating(IRP, A) {}
+      : AAPointerInfoArgument(IRP, A) {}
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
     using namespace AA::PointerInfo;
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    if (IsAssumedNoAlias) {
+      bool IsKnownNoAlias;
+      Changed = checkNoAliasStatus(A, IsKnownNoAlias);
+      IsAssumedNoAlias = !IsKnownNoAlias && !HasPotentiallyAliasingPointers;
+    }
+
     // We handle memory intrinsics explicitly, at least the first (=
     // destination) and second (=source) arguments as we know how they are
     // accessed.
@@ -2009,7 +2137,6 @@ struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
       if (Length)
         LengthVal = Length->getSExtValue();
       unsigned ArgNo = getIRPosition().getCallSiteArgNo();
-      ChangeStatus Changed = ChangeStatus::UNCHANGED;
       if (ArgNo > 1) {
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] Unhandled memory intrinsic "
                           << *MI << "\n");
@@ -2039,7 +2166,8 @@ struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
           A.getAAFor<AAPointerInfo>(*this, ArgPos, DepClassTy::REQUIRED);
       if (ArgAA && ArgAA->getState().isValidState())
         return translateAndAddStateFromCallee(A, *ArgAA,
-                                              *cast<CallBase>(getCtxI()));
+                                              *cast<CallBase>(getCtxI())) |
+               Changed;
       if (!Arg->getParent()->isDeclaration())
         return indicatePessimisticFixpoint();
     }
@@ -2051,12 +2179,13 @@ struct AAPointerInfoCallSiteArgument final : AAPointerInfoFloating {
 
     bool IsKnown = false;
     if (AA::isAssumedReadNone(A, getIRPosition(), *this, IsKnown))
-      return ChangeStatus::UNCHANGED;
+      return Changed;
     bool ReadOnly = AA::isAssumedReadOnly(A, getIRPosition(), *this, IsKnown);
     auto Kind =
         ReadOnly ? AccessKind::AK_MAY_READ : AccessKind::AK_MAY_READ_WRITE;
-    return addAccess(A, OffsetInfo::getUnknown(), AA::RangeTy::Unknown,
-                     *getCtxI(), nullptr, Kind, nullptr);
+    Changed |= addAccess(A, OffsetInfo::getUnknown(), AA::RangeTy::Unknown,
+                         *getCtxI(), nullptr, Kind, nullptr);
+    return Changed;
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -2069,10 +2198,45 @@ struct AAPointerInfoCallSiteReturned final : AAPointerInfoFloating {
   AAPointerInfoCallSiteReturned(const IRPosition &IRP, Attributor &A)
       : AAPointerInfoFloating(IRP, A) {}
 
+  void initialize(Attributor &A) override {
+    auto &CB = cast<CallBase>(getAssociatedValue());
+    bool IsKnownNoCapture;
+    if (!AA::hasAssumedIRAttr<Attribute::Captures>(
+            A, this, getIRPosition(), DepClassTy::OPTIONAL, IsKnownNoCapture))
+      WritesOutliveCurrentScope = true;
+    IsAssumedNoCapture = !IsKnownNoCapture && !WritesOutliveCurrentScope;
+    const auto *TLI =
+        A.getInfoCache().getTargetLibraryInfoForFunction(*CB.getFunction());
+    if (isAllocationFn(&CB, TLI))
+      return;
+    bool IsKnownNoAlias;
+    checkNoAliasStatus(A, IsKnownNoAlias);
+    IsAssumedNoAlias = !IsKnownNoAlias && !HasPotentiallyAliasingPointers;
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    if (IsAssumedNoAlias) {
+      bool IsKnownNoAlias;
+      Changed = checkNoAliasStatus(A, IsKnownNoAlias);
+      IsAssumedNoAlias = !IsKnownNoAlias && !HasPotentiallyAliasingPointers;
+    }
+    if (IsAssumedNoCapture) {
+      bool IsKnownNoCapture;
+      if (!AA::hasAssumedIRAttr<Attribute::Captures>(
+              A, this, getIRPosition(), DepClassTy::OPTIONAL, IsKnownNoCapture))
+        WritesOutliveCurrentScope = true;
+      IsAssumedNoCapture = !IsKnownNoCapture && !WritesOutliveCurrentScope;
+    }
+    return AAPointerInfoFloating::updateImpl(A) | Changed;
+  }
+
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
     AAPointerInfoImpl::trackPointerInfoStatistics(getIRPosition());
   }
+  bool IsAssumedNoAlias = false;
+  bool IsAssumedNoCapture = false;
 };
 } // namespace
 
@@ -11166,10 +11330,10 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     SmallSetVector<Value *, 4> PotentialCopies;
     SmallSetVector<Instruction *, 4> PotentialValueOrigins;
     bool UsedAssumedInformation = false;
-    if (!AA::getPotentiallyLoadedValues(A, LI, PotentialCopies,
-                                        PotentialValueOrigins, *this,
-                                        UsedAssumedInformation,
-                                        /* OnlyExact */ true)) {
+    if (!AA::getPotentiallyLoadedValues(
+            A, LI, PotentialCopies, PotentialValueOrigins, *this,
+            UsedAssumedInformation,
+            /* OnlyExact */ true, /*RequireAllPotentialCopies=*/false)) {
       LLVM_DEBUG(dbgs() << "[AAPotentialValues] Failed to get potentially "
                            "loaded values for load instruction "
                         << LI << "\n");
@@ -12814,7 +12978,8 @@ struct AAAllocationInfoImpl : public AAAllocationInfo {
     if (!PI)
       return indicatePessimisticFixpoint();
 
-    if (!PI->getState().isValidState() || PI->reachesReturn())
+    if (!PI->getState().isValidState() || PI->reachesReturn() ||
+        PI->hasPotentiallyAliasingPointers() || PI->writesOutliveCurrentScope())
       return indicatePessimisticFixpoint();
 
     const DataLayout &DL = A.getDataLayout();

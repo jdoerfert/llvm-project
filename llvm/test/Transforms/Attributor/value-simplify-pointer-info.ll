@@ -2374,6 +2374,8 @@ entry:
 define dso_local i32 @round_trip_malloc_constant() {
 ; CHECK-LABEL: define {{[^@]+}}@round_trip_malloc_constant() {
 ; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[CALL_H2S:%.*]] = alloca i8, i64 4, align 1
+; CHECK-NEXT:    store i32 7, ptr [[CALL_H2S]], align 4
 ; CHECK-NEXT:    ret i32 7
 ;
 entry:
@@ -2485,6 +2487,7 @@ define dso_local i32 @conditional_calloc_zero(i1 %c) {
 ; CHECK-NEXT:    call void @llvm.memset.p0.i64(ptr [[CALL_H2S]], i8 0, i64 4, i1 false)
 ; CHECK-NEXT:    br i1 [[C]], label [[IF_END:%.*]], label [[IF_THEN:%.*]]
 ; CHECK:       if.then:
+; CHECK-NEXT:    store i32 0, ptr [[CALL_H2S]], align 4
 ; CHECK-NEXT:    br label [[IF_END]]
 ; CHECK:       if.end:
 ; CHECK-NEXT:    ret i32 0
@@ -2535,13 +2538,12 @@ define dso_local i32 @round_trip_malloc_like(i32 %x) {
 ; TUNIT-NEXT:    ret i32 [[TMP0]]
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@round_trip_malloc_like
-; CGSCC-SAME: (i32 [[X:%.*]]) {
+; CGSCC-SAME: (i32 returned [[X:%.*]]) {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[CALL:%.*]] = call noalias ptr @malloc_like(i32 noundef 4) #[[ATTR23]]
 ; CGSCC-NEXT:    store i32 [[X]], ptr [[CALL]], align 4
-; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr [[CALL]], align 4
 ; CGSCC-NEXT:    call void @free(ptr noundef nonnull align 4 dereferenceable(4) [[CALL]]) #[[ATTR23]]
-; CGSCC-NEXT:    ret i32 [[TMP0]]
+; CGSCC-NEXT:    ret i32 [[X]]
 ;
 entry:
   %call = call ptr @malloc_like(i32 4) norecurse
@@ -2553,22 +2555,20 @@ entry:
 
 define dso_local i32 @round_trip_unknown_alloc(i32 %x) {
 ; TUNIT-LABEL: define {{[^@]+}}@round_trip_unknown_alloc
-; TUNIT-SAME: (i32 [[X:%.*]]) {
+; TUNIT-SAME: (i32 returned [[X:%.*]]) {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    [[CALL:%.*]] = call noalias ptr @unknown_alloc(i32 noundef 4) #[[ATTR20]]
 ; TUNIT-NEXT:    store i32 [[X]], ptr [[CALL]], align 4
-; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr [[CALL]], align 4
 ; TUNIT-NEXT:    call void @free(ptr noundef nonnull align 4 dereferenceable(4) [[CALL]]) #[[ATTR20]]
-; TUNIT-NEXT:    ret i32 [[TMP0]]
+; TUNIT-NEXT:    ret i32 [[X]]
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@round_trip_unknown_alloc
-; CGSCC-SAME: (i32 [[X:%.*]]) {
+; CGSCC-SAME: (i32 returned [[X:%.*]]) {
 ; CGSCC-NEXT:  entry:
 ; CGSCC-NEXT:    [[CALL:%.*]] = call noalias ptr @unknown_alloc(i32 noundef 4) #[[ATTR23]]
 ; CGSCC-NEXT:    store i32 [[X]], ptr [[CALL]], align 4
-; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr [[CALL]], align 4
 ; CGSCC-NEXT:    call void @free(ptr noundef nonnull align 4 dereferenceable(4) [[CALL]]) #[[ATTR23]]
-; CGSCC-NEXT:    ret i32 [[TMP0]]
+; CGSCC-NEXT:    ret i32 [[X]]
 ;
 entry:
   %call = call ptr @unknown_alloc(i32 4) norecurse

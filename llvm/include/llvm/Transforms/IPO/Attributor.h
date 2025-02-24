@@ -447,13 +447,15 @@ bool getPotentiallyLoadedValues(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialValues,
     SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact = false);
+    bool OnlyExact = false, bool RequireAllPotentialCopies = true);
 
 /// Collect all potential values of the one stored by \p SI into
 /// \p PotentialCopies. That is, the only copies that were made via the
 /// store are assumed to be known and all are in \p PotentialCopies. Dependences
 /// onto \p QueryingAA are properly tracked, \p UsedAssumedInformation will
-/// inform the caller if assumed information was used.
+/// inform the caller if assumed information was used. Only if
+/// \p RequireAllPotentialCopies is false, we allow objects that might have
+/// users not tracked by the analysis.
 ///
 /// \returns True if the assumed potential copies are all in \p PotentialCopies,
 ///          false if something went wrong and the copies could not be
@@ -461,7 +463,7 @@ bool getPotentiallyLoadedValues(
 bool getPotentialCopiesOfStoredValue(
     Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact = false);
+    bool OnlyExact = false, bool RequireAllPotentialCopies = true);
 
 /// Return true if \p IRP is readonly. This will query respective AAs that
 /// deduce the information and introduce dependences for \p QueryingAA.
@@ -6176,6 +6178,17 @@ struct AAPointerInfo : public AbstractAttribute {
   virtual int64_t numOffsetBins() const = 0;
   virtual bool reachesReturn() const = 0;
   virtual void addReturnedOffsetsTo(OffsetInfo &) const = 0;
+
+  /// Return true if the underlying pointer might have non-use aliases.
+  virtual bool hasPotentiallyAliasingPointers() const = 0;
+
+  /// Return true if the underlying pointer outlives the current scope.
+  virtual bool writesOutliveCurrentScope() const = 0;
+
+  /// Check if an object \p Obj is known to have potential (non-use) aliasing
+  /// pointers and/or wirtes outlive the current scope.
+  static std::pair<bool, bool>
+  hasAssumedAliasingPointersOrWritesOutlivesScope(Value &Obj);
 
   /// Call \p CB on all accesses that might interfere with \p RangeList and
   /// return true if all such accesses were known and the callback returned true
