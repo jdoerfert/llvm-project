@@ -52,6 +52,7 @@
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Regex.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -367,6 +368,7 @@ public:
   bool instrument();
 
 private:
+  bool shouldInstrumentTarget();
   bool shouldInstrumentFunction(Function &Fn);
   bool shouldInstrumentGlobalVariable(GlobalVariable &GV);
 
@@ -433,6 +435,28 @@ protected:
 };
 
 } // end anonymous namespace
+
+bool InstrumentorImpl::shouldInstrumentTarget() {
+  const auto &TripleStr = M.getTargetTriple();
+  Triple T(TripleStr);
+  const bool IsGPU = T.isAMDGPU() || T.isNVPTX();
+
+  bool RegexMatches = true;
+  const auto TargetRegexStr = IConf.TargetRegex->getString();
+  if (!TargetRegexStr.empty()) {
+    llvm::Regex TargetRegex(TargetRegexStr);
+    std::string ErrMsg;
+    if (!TargetRegex.isValid(ErrMsg)) {
+      errs() << "WARNING: failed to parse target regex: " << ErrMsg << "\n";
+      return false;
+    }
+    RegexMatches = TargetRegex.match(TripleStr);
+  }
+
+  return ((IsGPU && IConf.GPUEnabled->getBool()) ||
+          (!IsGPU && IConf.HostEnabled->getBool())) &&
+         RegexMatches;
+}
 
 bool InstrumentorImpl::shouldInstrumentFunction(Function &Fn) {
   if (Fn.isDeclaration())
@@ -567,6 +591,8 @@ bool InstrumentorImpl::instrumentModule() {
 
 bool InstrumentorImpl::instrument() {
   bool Changed = false;
+  if (!shouldInstrumentTarget())
+    return Changed;
 
   for (auto &ChoiceIt :
        IConf.IChoices[InstrumentationLocation::INSTRUCTION_PRE])

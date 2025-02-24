@@ -405,6 +405,15 @@ struct InstrumentationConfig {
     DemangleFunctionNames = BaseConfigurationOpportunity::getBoolOption(
         *this, "demangle_function_names",
         "Demangle functions names passed to the runtime.", true);
+    TargetRegex = BaseConfigurationOpportunity::getStringOption(
+        *this, "target_regex",
+        "Regular expression to be matched against the module target. "
+        "Only targets that match this regex will be instrumented",
+        "");
+    HostEnabled = BaseConfigurationOpportunity::getBoolOption(
+        *this, "host_enabled", "Instrument non-GPU targets", true);
+    GPUEnabled = BaseConfigurationOpportunity::getBoolOption(
+        *this, "gpu_enabled", "Instrument GPU targets", true);
   }
 
   bool ReadConfig = true;
@@ -425,6 +434,9 @@ struct InstrumentationConfig {
   BaseConfigurationOpportunity *RuntimePrefix;
   BaseConfigurationOpportunity *RuntimeStubsFile;
   BaseConfigurationOpportunity *DemangleFunctionNames;
+  BaseConfigurationOpportunity *TargetRegex;
+  BaseConfigurationOpportunity *HostEnabled;
+  BaseConfigurationOpportunity *GPUEnabled;
 
   EnumeratedArray<StringMap<InstrumentationOpportunity *>,
                   InstrumentationLocation::KindTy>

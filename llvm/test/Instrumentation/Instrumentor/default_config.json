@@ -5,7 +5,13 @@
     "runtime_stubs_file": "test.c",
     "runtime_stubs_file.description": "The file into which runtime stubs should be written.",
     "demangle_function_names": true,
-    "demangle_function_names.description": "Demangle functions names passed to the runtime."
+    "demangle_function_names.description": "Demangle functions names passed to the runtime.",
+    "target_regex": "",
+    "target_regex.description": "Regular expression to be matched against the module target. Only targets that match this regex will be instrumented",
+    "host_enabled": true,
+    "host_enabled.description": "Instrument non-GPU targets",
+    "gpu_enabled": true,
+    "gpu_enabled.description": "Instrument GPU targets"
   },
   "module_pre": {
     "module": {
