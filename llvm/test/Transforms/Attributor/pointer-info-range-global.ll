@@ -9,7 +9,7 @@
 ; CHECK: @A = internal unnamed_addr global [101 x i32] zeroinitializer, align 4
 ;.
 define range(i32 -2147483645, -2147483648) i32 @range_no_overlap() local_unnamed_addr #0 {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
 ; CHECK-LABEL: define {{[^@]+}}@range_no_overlap
 ; CHECK-SAME: () local_unnamed_addr #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:  entry:
@@ -17,15 +17,11 @@ define range(i32 -2147483645, -2147483648) i32 @range_no_overlap() local_unnamed
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
 ; CHECK-NEXT:    br label [[FOR_BODY:%.*]]
 ; CHECK:       for.cond.cleanup:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
-; CHECK-NEXT:    [[A:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[A]]
-; CHECK-NEXT:    ret i32 [[ADD]]
+; CHECK-NEXT:    ret i32 8
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 1, [[ENTRY:%.*]] ], [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY]] ]
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw [101 x i32], ptr @A, i64 0, i64 [[INDVARS_IV]]
-; CHECK-NEXT:    [[TMP1:%.*]] = trunc nuw nsw i64 [[INDVARS_IV]] to i32
-; CHECK-NEXT:    store i32 [[TMP1]], ptr [[ARRAYIDX]], align 4
+; CHECK-NEXT:    [[TMP0:%.*]] = trunc nuw nsw i64 [[INDVARS_IV]] to i32
 ; CHECK-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
 ; CHECK-NEXT:    [[EXITCOND_NOT:%.*]] = icmp eq i64 [[INDVARS_IV_NEXT]], 100
 ; CHECK-NEXT:    br i1 [[EXITCOND_NOT]], label [[FOR_COND_CLEANUP:%.*]], label [[FOR_BODY]]
@@ -53,7 +49,7 @@ for.body:                                         ; preds = %entry, %for.body
 
 ; Function Attrs: nofree norecurse nosync nounwind ssp memory(readwrite, argmem: none, inaccessiblemem: none) uwtable(sync)
 define i32 @range_no_overlap_char() local_unnamed_addr #0 {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
 ; CHECK-LABEL: define {{[^@]+}}@range_no_overlap_char
 ; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
@@ -61,15 +57,11 @@ define i32 @range_no_overlap_char() local_unnamed_addr #0 {
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
 ; CHECK-NEXT:    br label [[FOR_BODY:%.*]]
 ; CHECK:       for.cond.cleanup:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP1]], [[TMP0]]
-; CHECK-NEXT:    ret i32 [[ADD]]
+; CHECK-NEXT:    ret i32 8
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 4, [[ENTRY:%.*]] ], [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY]] ]
 ; CHECK-NEXT:    [[CONV2:%.*]] = trunc i64 [[INDVARS_IV]] to i8
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw i8, ptr @A, i64 [[INDVARS_IV]]
-; CHECK-NEXT:    store i8 [[CONV2]], ptr [[ARRAYIDX]], align 1
 ; CHECK-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
 ; CHECK-NEXT:    [[EXITCOND_NOT:%.*]] = icmp eq i64 [[INDVARS_IV_NEXT]], 400
 ; CHECK-NEXT:    br i1 [[EXITCOND_NOT]], label [[FOR_COND_CLEANUP:%.*]], label [[FOR_BODY]]
@@ -99,21 +91,20 @@ for.body:                                         ; preds = %entry, %for.body
 define i32 @range_overlap_1() local_unnamed_addr #0 {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@range_overlap_1
-; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
+; CHECK-SAME: () local_unnamed_addr #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 3, ptr @A, align 4
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
 ; CHECK-NEXT:    br label [[FOR_BODY:%.*]]
 ; CHECK:       for.cond.cleanup:
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP1]], [[TMP0]]
+; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 5, [[TMP0]]
 ; CHECK-NEXT:    ret i32 [[ADD]]
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 0, [[ENTRY:%.*]] ], [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY]] ]
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw [101 x i32], ptr @A, i64 0, i64 [[INDVARS_IV]]
-; CHECK-NEXT:    [[TMP2:%.*]] = trunc nuw nsw i64 [[INDVARS_IV]] to i32
-; CHECK-NEXT:    store i32 [[TMP2]], ptr [[ARRAYIDX]], align 4
+; CHECK-NEXT:    [[TMP1:%.*]] = trunc nuw nsw i64 [[INDVARS_IV]] to i32
+; CHECK-NEXT:    store i32 [[TMP1]], ptr [[ARRAYIDX]], align 4
 ; CHECK-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
 ; CHECK-NEXT:    [[EXITCOND_NOT:%.*]] = icmp eq i64 [[INDVARS_IV_NEXT]], 100
 ; CHECK-NEXT:    br i1 [[EXITCOND_NOT]], label [[FOR_COND_CLEANUP:%.*]], label [[FOR_BODY]]
@@ -143,7 +134,7 @@ for.body:                                         ; preds = %entry, %for.body
 define range(i32 -2147483645, -2147483648) i32 @range_overlap_2() local_unnamed_addr #0 {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@range_overlap_2
-; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
+; CHECK-SAME: () local_unnamed_addr #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 3, ptr @A, align 4
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
@@ -185,15 +176,14 @@ for.body:                                         ; preds = %entry, %for.body
 define i32 @range_overlap_char_1() local_unnamed_addr #0 {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@range_overlap_char_1
-; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
+; CHECK-SAME: () local_unnamed_addr #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 3, ptr @A, align 4
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
 ; CHECK-NEXT:    br label [[FOR_BODY:%.*]]
 ; CHECK:       for.cond.cleanup:
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP1]], [[TMP0]]
+; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 5, [[TMP0]]
 ; CHECK-NEXT:    ret i32 [[ADD]]
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 3, [[ENTRY:%.*]] ], [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY]] ]
@@ -229,15 +219,14 @@ for.body:                                         ; preds = %entry, %for.body
 define i32 @range_overlap_char_2() local_unnamed_addr #0 {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@range_overlap_char_2
-; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
+; CHECK-SAME: () local_unnamed_addr #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 3, ptr @A, align 4
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
 ; CHECK-NEXT:    br label [[FOR_BODY:%.*]]
 ; CHECK:       for.cond.cleanup:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP1]], [[TMP0]]
+; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
+; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], 3
 ; CHECK-NEXT:    ret i32 [[ADD]]
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 4, [[ENTRY:%.*]] ], [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY]] ]
@@ -271,7 +260,7 @@ for.body:                                         ; preds = %entry, %for.body
 
 ; Function Attrs: nofree norecurse nosync nounwind ssp memory(readwrite, argmem: none, inaccessiblemem: none) uwtable(sync)
 define range(i32 -2147483645, -2147483648) i32 @range_no_overlap_2d() local_unnamed_addr #0 {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
 ; CHECK-LABEL: define {{[^@]+}}@range_no_overlap_2d
 ; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
 ; CHECK-NEXT:  entry:
@@ -283,20 +272,17 @@ define range(i32 -2147483645, -2147483648) i32 @range_no_overlap_2d() local_unna
 ; CHECK-NEXT:    [[TMP0:%.*]] = mul nuw nsw i64 [[INDVARS_IV21]], 10
 ; CHECK-NEXT:    br label [[FOR_BODY4:%.*]]
 ; CHECK:       for.cond.cleanup:
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
-; CHECK-NEXT:    [[ADD9:%.*]] = add nsw i32 [[TMP1]], 3
-; CHECK-NEXT:    ret i32 [[ADD9]]
+; CHECK-NEXT:    ret i32 8
 ; CHECK:       for.cond.cleanup3:
 ; CHECK-NEXT:    [[INDVARS_IV_NEXT22]] = add nuw nsw i64 [[INDVARS_IV21]], 1
 ; CHECK-NEXT:    [[EXITCOND25_NOT:%.*]] = icmp eq i64 [[INDVARS_IV_NEXT22]], 10
 ; CHECK-NEXT:    br i1 [[EXITCOND25_NOT]], label [[FOR_COND_CLEANUP:%.*]], label [[FOR_COND1_PREHEADER]]
 ; CHECK:       for.body4:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 1, [[FOR_COND1_PREHEADER]] ], [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY4]] ]
-; CHECK-NEXT:    [[TMP2:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], [[INDVARS_IV21]]
-; CHECK-NEXT:    [[TMP3:%.*]] = add nuw nsw i64 [[INDVARS_IV]], [[TMP0]]
-; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw [101 x i32], ptr @A, i64 0, i64 [[TMP3]]
-; CHECK-NEXT:    [[TMP4:%.*]] = trunc nuw nsw i64 [[TMP2]] to i32
-; CHECK-NEXT:    store i32 [[TMP4]], ptr [[ARRAYIDX]], align 4
+; CHECK-NEXT:    [[TMP1:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], [[INDVARS_IV21]]
+; CHECK-NEXT:    [[TMP2:%.*]] = add nuw nsw i64 [[INDVARS_IV]], [[TMP0]]
+; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw [101 x i32], ptr @A, i64 0, i64 [[TMP2]]
+; CHECK-NEXT:    [[TMP3:%.*]] = trunc nuw nsw i64 [[TMP1]] to i32
 ; CHECK-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
 ; CHECK-NEXT:    [[EXITCOND_NOT:%.*]] = icmp eq i64 [[INDVARS_IV_NEXT]], 10
 ; CHECK-NEXT:    br i1 [[EXITCOND_NOT]], label [[FOR_COND_CLEANUP3]], label [[FOR_BODY4]]
@@ -337,7 +323,7 @@ for.body4:                                        ; preds = %for.cond1.preheader
 define i32 @range_overlap_2d_1() local_unnamed_addr #0 {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@range_overlap_2d_1
-; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
+; CHECK-SAME: () local_unnamed_addr #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 3, ptr @A, align 4
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
@@ -348,8 +334,7 @@ define i32 @range_overlap_2d_1() local_unnamed_addr #0 {
 ; CHECK-NEXT:    br label [[FOR_BODY4:%.*]]
 ; CHECK:       for.cond.cleanup:
 ; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP2:%.*]] = load i32, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
-; CHECK-NEXT:    [[ADD9:%.*]] = add nsw i32 [[TMP2]], [[TMP1]]
+; CHECK-NEXT:    [[ADD9:%.*]] = add nsw i32 5, [[TMP1]]
 ; CHECK-NEXT:    ret i32 [[ADD9]]
 ; CHECK:       for.cond.cleanup3:
 ; CHECK-NEXT:    [[INDVARS_IV_NEXT22]] = add nuw nsw i64 [[INDVARS_IV21]], 1
@@ -357,11 +342,11 @@ define i32 @range_overlap_2d_1() local_unnamed_addr #0 {
 ; CHECK-NEXT:    br i1 [[EXITCOND25_NOT]], label [[FOR_COND_CLEANUP:%.*]], label [[FOR_COND1_PREHEADER]]
 ; CHECK:       for.body4:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 0, [[FOR_COND1_PREHEADER]] ], [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY4]] ]
-; CHECK-NEXT:    [[TMP3:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], [[INDVARS_IV21]]
-; CHECK-NEXT:    [[TMP4:%.*]] = add nuw nsw i64 [[INDVARS_IV]], [[TMP0]]
-; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw [101 x i32], ptr @A, i64 0, i64 [[TMP4]]
-; CHECK-NEXT:    [[TMP5:%.*]] = trunc nuw nsw i64 [[TMP3]] to i32
-; CHECK-NEXT:    store i32 [[TMP5]], ptr [[ARRAYIDX]], align 4
+; CHECK-NEXT:    [[TMP2:%.*]] = mul nuw nsw i64 [[INDVARS_IV]], [[INDVARS_IV21]]
+; CHECK-NEXT:    [[TMP3:%.*]] = add nuw nsw i64 [[INDVARS_IV]], [[TMP0]]
+; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds nuw [101 x i32], ptr @A, i64 0, i64 [[TMP3]]
+; CHECK-NEXT:    [[TMP4:%.*]] = trunc nuw nsw i64 [[TMP2]] to i32
+; CHECK-NEXT:    store i32 [[TMP4]], ptr [[ARRAYIDX]], align 4
 ; CHECK-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
 ; CHECK-NEXT:    [[EXITCOND_NOT:%.*]] = icmp eq i64 [[INDVARS_IV_NEXT]], 10
 ; CHECK-NEXT:    br i1 [[EXITCOND_NOT]], label [[FOR_COND_CLEANUP3]], label [[FOR_BODY4]]
@@ -403,7 +388,7 @@ for.body4:                                        ; preds = %for.cond1.preheader
 define range(i32 -2147483645, -2147483648) i32 @range_overlap_2d_2a() local_unnamed_addr #0 {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@range_overlap_2d_2a
-; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
+; CHECK-SAME: () local_unnamed_addr #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 3, ptr @A, align 4
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
@@ -467,7 +452,7 @@ for.body4:                                        ; preds = %for.cond1.preheader
 define range(i32 -2147483645, -2147483648) i32 @range_overlap_2d_2b() local_unnamed_addr #0 {
 ; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; CHECK-LABEL: define {{[^@]+}}@range_overlap_2d_2b
-; CHECK-SAME: () local_unnamed_addr #[[ATTR0]] {
+; CHECK-SAME: () local_unnamed_addr #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 3, ptr @A, align 4
 ; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds nuw (i8, ptr @A, i64 400), align 4
@@ -529,7 +514,8 @@ for.body4:                                        ; preds = %for.cond1.preheader
   br i1 %exitcond.not, label %for.cond.cleanup3, label %for.body4
 }
 ;.
-; CHECK: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn }
+; CHECK: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(write) }
+; CHECK: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn }
 ;.
 ;; NOTE: These prefixes are unused and the list is autogenerated. Do not add tests below this line:
 ; CGSCC: {{.*}}

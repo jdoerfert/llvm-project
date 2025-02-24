@@ -8,40 +8,70 @@
 ; CHECK: @A = internal global [101 x i32] zeroinitializer, align 4
 ;.
 define i32 @range_no_overlap_a() {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
-; CHECK-LABEL: define {{[^@]+}}@range_no_overlap_a
-; CHECK-SAME: () #[[ATTR0:[0-9]+]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    store i32 3, ptr @A, align 4
-; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    br label [[FOR_COND_I:%.*]]
-; CHECK:       for.cond.i:
-; CHECK-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
-; CHECK-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
-; CHECK-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
-; CHECK:       for.body.i:
-; CHECK-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 1), i64 [[IDXPROM_I]]
-; CHECK-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
-; CHECK-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I]]
-; CHECK:       write10.exit:
-; CHECK-NEXT:    br label [[FOR_COND_I1:%.*]]
-; CHECK:       for.cond.i1:
-; CHECK-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
-; CHECK-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
-; CHECK-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
-; CHECK:       for.body.i4:
-; CHECK-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 90), i64 [[IDXPROM_I5]]
-; CHECK-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
-; CHECK-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I1]]
-; CHECK:       write10.exit8:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
-; CHECK-NEXT:    ret i32 [[ADD]]
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
+; TUNIT-LABEL: define {{[^@]+}}@range_no_overlap_a
+; TUNIT-SAME: () #[[ATTR0:[0-9]+]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    store i32 3, ptr @A, align 4
+; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
+; TUNIT:       for.cond.i:
+; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
+; TUNIT:       for.body.i:
+; TUNIT-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 1), i64 [[IDXPROM_I]]
+; TUNIT-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I]]
+; TUNIT:       write10.exit:
+; TUNIT-NEXT:    br label [[FOR_COND_I1:%.*]]
+; TUNIT:       for.cond.i1:
+; TUNIT-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
+; TUNIT:       for.body.i4:
+; TUNIT-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 90), i64 [[IDXPROM_I5]]
+; TUNIT-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I1]]
+; TUNIT:       write10.exit8:
+; TUNIT-NEXT:    ret i32 8
+;
+; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CGSCC-LABEL: define {{[^@]+}}@range_no_overlap_a
+; CGSCC-SAME: () #[[ATTR0:[0-9]+]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    store i32 3, ptr @A, align 4
+; CGSCC-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    br label [[FOR_COND_I:%.*]]
+; CGSCC:       for.cond.i:
+; CGSCC-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
+; CGSCC:       for.body.i:
+; CGSCC-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 1), i64 [[IDXPROM_I]]
+; CGSCC-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
+; CGSCC-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I]]
+; CGSCC:       write10.exit:
+; CGSCC-NEXT:    br label [[FOR_COND_I1:%.*]]
+; CGSCC:       for.cond.i1:
+; CGSCC-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
+; CGSCC:       for.body.i4:
+; CGSCC-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 90), i64 [[IDXPROM_I5]]
+; CGSCC-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
+; CGSCC-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I1]]
+; CGSCC:       write10.exit8:
+; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
+; CGSCC-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; CGSCC-NEXT:    ret i32 [[ADD]]
 ;
 entry:
   store i32 3, ptr @A, align 4
@@ -83,13 +113,13 @@ write10.exit8:                                    ; preds = %for.cond.i1
 }
 
 define i32 @range_no_overlap_b() {
-; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
 ; TUNIT-LABEL: define {{[^@]+}}@range_no_overlap_b
 ; TUNIT-SAME: () #[[ATTR0]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    store i32 3, ptr @A, align 4
 ; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get1Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR2:[0-9]+]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get1Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR3:[0-9]+]]
 ; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
 ; TUNIT:       for.cond.i:
 ; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
@@ -110,14 +140,10 @@ define i32 @range_no_overlap_b() {
 ; TUNIT:       for.body.i4:
 ; TUNIT-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
 ; TUNIT-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 90), i64 [[IDXPROM_I5]]
-; TUNIT-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
 ; TUNIT-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
 ; TUNIT-NEXT:    br label [[FOR_COND_I1]]
 ; TUNIT:       write10.exit8:
-; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; TUNIT-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
-; TUNIT-NEXT:    ret i32 [[ADD]]
+; TUNIT-NEXT:    ret i32 8
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn
 ; CGSCC-LABEL: define {{[^@]+}}@range_no_overlap_b
@@ -216,40 +242,73 @@ entry:
 }
 
 define i32 @range_overlap_1_a() {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
-; CHECK-LABEL: define {{[^@]+}}@range_overlap_1_a
-; CHECK-SAME: () #[[ATTR0]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    store i32 3, ptr @A, align 4
-; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    br label [[FOR_COND_I:%.*]]
-; CHECK:       for.cond.i:
-; CHECK-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
-; CHECK-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
-; CHECK-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
-; CHECK:       for.body.i:
-; CHECK-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr @A, i64 [[IDXPROM_I]]
-; CHECK-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
-; CHECK-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I]]
-; CHECK:       write10.exit:
-; CHECK-NEXT:    br label [[FOR_COND_I1:%.*]]
-; CHECK:       for.cond.i1:
-; CHECK-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
-; CHECK-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
-; CHECK-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
-; CHECK:       for.body.i4:
-; CHECK-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 90), i64 [[IDXPROM_I5]]
-; CHECK-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
-; CHECK-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I1]]
-; CHECK:       write10.exit8:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
-; CHECK-NEXT:    ret i32 [[ADD]]
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; TUNIT-LABEL: define {{[^@]+}}@range_overlap_1_a
+; TUNIT-SAME: () #[[ATTR2:[0-9]+]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    store i32 3, ptr @A, align 4
+; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
+; TUNIT:       for.cond.i:
+; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
+; TUNIT:       for.body.i:
+; TUNIT-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr @A, i64 [[IDXPROM_I]]
+; TUNIT-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
+; TUNIT-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I]]
+; TUNIT:       write10.exit:
+; TUNIT-NEXT:    br label [[FOR_COND_I1:%.*]]
+; TUNIT:       for.cond.i1:
+; TUNIT-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
+; TUNIT:       for.body.i4:
+; TUNIT-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 90), i64 [[IDXPROM_I5]]
+; TUNIT-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I1]]
+; TUNIT:       write10.exit8:
+; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
+; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], 5
+; TUNIT-NEXT:    ret i32 [[ADD]]
+;
+; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CGSCC-LABEL: define {{[^@]+}}@range_overlap_1_a
+; CGSCC-SAME: () #[[ATTR0]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    store i32 3, ptr @A, align 4
+; CGSCC-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    br label [[FOR_COND_I:%.*]]
+; CGSCC:       for.cond.i:
+; CGSCC-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
+; CGSCC:       for.body.i:
+; CGSCC-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr @A, i64 [[IDXPROM_I]]
+; CGSCC-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
+; CGSCC-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I]]
+; CGSCC:       write10.exit:
+; CGSCC-NEXT:    br label [[FOR_COND_I1:%.*]]
+; CGSCC:       for.cond.i1:
+; CGSCC-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
+; CGSCC:       for.body.i4:
+; CGSCC-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 90), i64 [[IDXPROM_I5]]
+; CGSCC-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
+; CGSCC-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I1]]
+; CGSCC:       write10.exit8:
+; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
+; CGSCC-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; CGSCC-NEXT:    ret i32 [[ADD]]
 ;
 entry:
   store i32 3, ptr @A, align 4
@@ -293,7 +352,7 @@ write10.exit8:                                    ; preds = %for.cond.i1
 define i32 @range_overlap_1_b() {
 ; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; TUNIT-LABEL: define {{[^@]+}}@range_overlap_1_b
-; TUNIT-SAME: () #[[ATTR0]] {
+; TUNIT-SAME: () #[[ATTR2]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    store i32 3, ptr @A, align 4
 ; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
@@ -317,13 +376,11 @@ define i32 @range_overlap_1_b() {
 ; TUNIT:       for.body.i4:
 ; TUNIT-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
 ; TUNIT-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 90), i64 [[IDXPROM_I5]]
-; TUNIT-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
 ; TUNIT-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
 ; TUNIT-NEXT:    br label [[FOR_COND_I1]]
 ; TUNIT:       write10.exit8:
 ; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; TUNIT-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], 5
 ; TUNIT-NEXT:    ret i32 [[ADD]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn
@@ -420,40 +477,73 @@ entry:
 }
 
 define i32 @range_overlap_2_a() {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
-; CHECK-LABEL: define {{[^@]+}}@range_overlap_2_a
-; CHECK-SAME: () #[[ATTR0]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    store i32 3, ptr @A, align 4
-; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    br label [[FOR_COND_I:%.*]]
-; CHECK:       for.cond.i:
-; CHECK-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
-; CHECK-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
-; CHECK-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
-; CHECK:       for.body.i:
-; CHECK-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 1), i64 [[IDXPROM_I]]
-; CHECK-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
-; CHECK-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I]]
-; CHECK:       write10.exit:
-; CHECK-NEXT:    br label [[FOR_COND_I1:%.*]]
-; CHECK:       for.cond.i1:
-; CHECK-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
-; CHECK-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
-; CHECK-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
-; CHECK:       for.body.i4:
-; CHECK-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 91), i64 [[IDXPROM_I5]]
-; CHECK-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
-; CHECK-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I1]]
-; CHECK:       write10.exit8:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
-; CHECK-NEXT:    ret i32 [[ADD]]
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; TUNIT-LABEL: define {{[^@]+}}@range_overlap_2_a
+; TUNIT-SAME: () #[[ATTR2]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    store i32 3, ptr @A, align 4
+; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
+; TUNIT:       for.cond.i:
+; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
+; TUNIT:       for.body.i:
+; TUNIT-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 1), i64 [[IDXPROM_I]]
+; TUNIT-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I]]
+; TUNIT:       write10.exit:
+; TUNIT-NEXT:    br label [[FOR_COND_I1:%.*]]
+; TUNIT:       for.cond.i1:
+; TUNIT-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
+; TUNIT:       for.body.i4:
+; TUNIT-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 91), i64 [[IDXPROM_I5]]
+; TUNIT-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
+; TUNIT-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I1]]
+; TUNIT:       write10.exit8:
+; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 3, [[TMP0]]
+; TUNIT-NEXT:    ret i32 [[ADD]]
+;
+; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CGSCC-LABEL: define {{[^@]+}}@range_overlap_2_a
+; CGSCC-SAME: () #[[ATTR0]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    store i32 3, ptr @A, align 4
+; CGSCC-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    br label [[FOR_COND_I:%.*]]
+; CGSCC:       for.cond.i:
+; CGSCC-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10_EXIT:%.*]]
+; CGSCC:       for.body.i:
+; CGSCC-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[I_0_I]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 1), i64 [[IDXPROM_I]]
+; CGSCC-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
+; CGSCC-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I]]
+; CGSCC:       write10.exit:
+; CGSCC-NEXT:    br label [[FOR_COND_I1:%.*]]
+; CGSCC:       for.cond.i1:
+; CGSCC-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10_EXIT]] ], [ [[INC_I7:%.*]], [[FOR_BODY_I4:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10_EXIT8:%.*]]
+; CGSCC:       for.body.i4:
+; CGSCC-NEXT:    [[IDXPROM_I5:%.*]] = sext i32 [[I_0_I2]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I6:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 91), i64 [[IDXPROM_I5]]
+; CGSCC-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I6]], align 4
+; CGSCC-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I1]]
+; CGSCC:       write10.exit8:
+; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
+; CGSCC-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; CGSCC-NEXT:    ret i32 [[ADD]]
 ;
 entry:
   store i32 3, ptr @A, align 4
@@ -497,11 +587,11 @@ write10.exit8:                                    ; preds = %for.cond.i1
 define i32 @range_overlap_2_b() {
 ; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; TUNIT-LABEL: define {{[^@]+}}@range_overlap_2_b
-; TUNIT-SAME: () #[[ATTR0]] {
+; TUNIT-SAME: () #[[ATTR2]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    store i32 3, ptr @A, align 4
 ; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get1Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR2]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get1Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR3]]
 ; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
 ; TUNIT:       for.cond.i:
 ; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
@@ -526,9 +616,8 @@ define i32 @range_overlap_2_b() {
 ; TUNIT-NEXT:    [[INC_I7]] = add nsw i32 [[I_0_I2]], 1
 ; TUNIT-NEXT:    br label [[FOR_COND_I1]]
 ; TUNIT:       write10.exit8:
-; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; TUNIT-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 3, [[TMP0]]
 ; TUNIT-NEXT:    ret i32 [[ADD]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn
@@ -608,42 +697,74 @@ write10.exit8:                                    ; preds = %for.cond.i1
 }
 
 define i32 @range_no_overlap_negative_a() {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
-; CHECK-LABEL: define {{[^@]+}}@range_no_overlap_negative_a
-; CHECK-SAME: () #[[ATTR0]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    store i32 3, ptr @A, align 4
-; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    br label [[FOR_COND_I:%.*]]
-; CHECK:       for.cond.i:
-; CHECK-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
-; CHECK-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
-; CHECK-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
-; CHECK:       for.body.i:
-; CHECK-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
-; CHECK-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 10), i64 [[IDXPROM_I]]
-; CHECK-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
-; CHECK-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I]]
-; CHECK:       write10negative.exit:
-; CHECK-NEXT:    br label [[FOR_COND_I1:%.*]]
-; CHECK:       for.cond.i1:
-; CHECK-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
-; CHECK-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
-; CHECK-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
-; CHECK:       for.body.i4:
-; CHECK-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
-; CHECK-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 99), i64 [[IDXPROM_I6]]
-; CHECK-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
-; CHECK-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I1]]
-; CHECK:       write10negative.exit9:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
-; CHECK-NEXT:    ret i32 [[ADD]]
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
+; TUNIT-LABEL: define {{[^@]+}}@range_no_overlap_negative_a
+; TUNIT-SAME: () #[[ATTR0]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    store i32 3, ptr @A, align 4
+; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
+; TUNIT:       for.cond.i:
+; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
+; TUNIT:       for.body.i:
+; TUNIT-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
+; TUNIT-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 10), i64 [[IDXPROM_I]]
+; TUNIT-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I]]
+; TUNIT:       write10negative.exit:
+; TUNIT-NEXT:    br label [[FOR_COND_I1:%.*]]
+; TUNIT:       for.cond.i1:
+; TUNIT-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
+; TUNIT:       for.body.i4:
+; TUNIT-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
+; TUNIT-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 99), i64 [[IDXPROM_I6]]
+; TUNIT-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I1]]
+; TUNIT:       write10negative.exit9:
+; TUNIT-NEXT:    ret i32 8
+;
+; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CGSCC-LABEL: define {{[^@]+}}@range_no_overlap_negative_a
+; CGSCC-SAME: () #[[ATTR0]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    store i32 3, ptr @A, align 4
+; CGSCC-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    br label [[FOR_COND_I:%.*]]
+; CGSCC:       for.cond.i:
+; CGSCC-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
+; CGSCC:       for.body.i:
+; CGSCC-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
+; CGSCC-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 10), i64 [[IDXPROM_I]]
+; CGSCC-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
+; CGSCC-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I]]
+; CGSCC:       write10negative.exit:
+; CGSCC-NEXT:    br label [[FOR_COND_I1:%.*]]
+; CGSCC:       for.cond.i1:
+; CGSCC-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
+; CGSCC:       for.body.i4:
+; CGSCC-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
+; CGSCC-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 99), i64 [[IDXPROM_I6]]
+; CGSCC-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
+; CGSCC-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I1]]
+; CGSCC:       write10negative.exit9:
+; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
+; CGSCC-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; CGSCC-NEXT:    ret i32 [[ADD]]
 ;
 entry:
   store i32 3, ptr @A, align 4
@@ -687,13 +808,13 @@ write10negative.exit9:                            ; preds = %for.cond.i1
 }
 
 define i32 @range_no_overlap_negative_b() {
-; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(write)
 ; TUNIT-LABEL: define {{[^@]+}}@range_no_overlap_negative_b
 ; TUNIT-SAME: () #[[ATTR0]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    store i32 3, ptr @A, align 4
 ; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get10Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR2]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get10Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR3]]
 ; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
 ; TUNIT:       for.cond.i:
 ; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
@@ -716,14 +837,10 @@ define i32 @range_no_overlap_negative_b() {
 ; TUNIT-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
 ; TUNIT-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
 ; TUNIT-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 99), i64 [[IDXPROM_I6]]
-; TUNIT-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
 ; TUNIT-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
 ; TUNIT-NEXT:    br label [[FOR_COND_I1]]
 ; TUNIT:       write10negative.exit9:
-; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; TUNIT-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
-; TUNIT-NEXT:    ret i32 [[ADD]]
+; TUNIT-NEXT:    ret i32 8
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn
 ; CGSCC-LABEL: define {{[^@]+}}@range_no_overlap_negative_b
@@ -826,42 +943,77 @@ entry:
 }
 
 define i32 @range_overlap_1_negative_a() {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
-; CHECK-LABEL: define {{[^@]+}}@range_overlap_1_negative_a
-; CHECK-SAME: () #[[ATTR0]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    store i32 3, ptr @A, align 4
-; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    br label [[FOR_COND_I:%.*]]
-; CHECK:       for.cond.i:
-; CHECK-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
-; CHECK-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
-; CHECK-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
-; CHECK:       for.body.i:
-; CHECK-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
-; CHECK-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 9), i64 [[IDXPROM_I]]
-; CHECK-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
-; CHECK-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I]]
-; CHECK:       write10negative.exit:
-; CHECK-NEXT:    br label [[FOR_COND_I1:%.*]]
-; CHECK:       for.cond.i1:
-; CHECK-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
-; CHECK-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
-; CHECK-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
-; CHECK:       for.body.i4:
-; CHECK-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
-; CHECK-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 99), i64 [[IDXPROM_I6]]
-; CHECK-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
-; CHECK-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I1]]
-; CHECK:       write10negative.exit9:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
-; CHECK-NEXT:    ret i32 [[ADD]]
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; TUNIT-LABEL: define {{[^@]+}}@range_overlap_1_negative_a
+; TUNIT-SAME: () #[[ATTR2]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    store i32 3, ptr @A, align 4
+; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
+; TUNIT:       for.cond.i:
+; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
+; TUNIT:       for.body.i:
+; TUNIT-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
+; TUNIT-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 9), i64 [[IDXPROM_I]]
+; TUNIT-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
+; TUNIT-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I]]
+; TUNIT:       write10negative.exit:
+; TUNIT-NEXT:    br label [[FOR_COND_I1:%.*]]
+; TUNIT:       for.cond.i1:
+; TUNIT-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
+; TUNIT:       for.body.i4:
+; TUNIT-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
+; TUNIT-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 99), i64 [[IDXPROM_I6]]
+; TUNIT-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I1]]
+; TUNIT:       write10negative.exit9:
+; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
+; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], 5
+; TUNIT-NEXT:    ret i32 [[ADD]]
+;
+; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CGSCC-LABEL: define {{[^@]+}}@range_overlap_1_negative_a
+; CGSCC-SAME: () #[[ATTR0]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    store i32 3, ptr @A, align 4
+; CGSCC-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    br label [[FOR_COND_I:%.*]]
+; CGSCC:       for.cond.i:
+; CGSCC-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
+; CGSCC:       for.body.i:
+; CGSCC-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
+; CGSCC-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 9), i64 [[IDXPROM_I]]
+; CGSCC-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
+; CGSCC-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I]]
+; CGSCC:       write10negative.exit:
+; CGSCC-NEXT:    br label [[FOR_COND_I1:%.*]]
+; CGSCC:       for.cond.i1:
+; CGSCC-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
+; CGSCC:       for.body.i4:
+; CGSCC-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
+; CGSCC-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 99), i64 [[IDXPROM_I6]]
+; CGSCC-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
+; CGSCC-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I1]]
+; CGSCC:       write10negative.exit9:
+; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
+; CGSCC-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; CGSCC-NEXT:    ret i32 [[ADD]]
 ;
 entry:
   store i32 3, ptr @A, align 4
@@ -907,11 +1059,11 @@ write10negative.exit9:                            ; preds = %for.cond.i1
 define i32 @range_overlap_1_negative_b() {
 ; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; TUNIT-LABEL: define {{[^@]+}}@range_overlap_1_negative_b
-; TUNIT-SAME: () #[[ATTR0]] {
+; TUNIT-SAME: () #[[ATTR2]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    store i32 3, ptr @A, align 4
 ; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get9Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR2]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get9Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR3]]
 ; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
 ; TUNIT:       for.cond.i:
 ; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
@@ -934,13 +1086,11 @@ define i32 @range_overlap_1_negative_b() {
 ; TUNIT-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
 ; TUNIT-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
 ; TUNIT-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 99), i64 [[IDXPROM_I6]]
-; TUNIT-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
 ; TUNIT-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
 ; TUNIT-NEXT:    br label [[FOR_COND_I1]]
 ; TUNIT:       write10negative.exit9:
 ; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; TUNIT-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], 5
 ; TUNIT-NEXT:    ret i32 [[ADD]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn
@@ -1044,42 +1194,77 @@ entry:
 }
 
 define i32 @range_overlap_2_negative_a() {
-; CHECK: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
-; CHECK-LABEL: define {{[^@]+}}@range_overlap_2_negative_a
-; CHECK-SAME: () #[[ATTR0]] {
-; CHECK-NEXT:  entry:
-; CHECK-NEXT:    store i32 3, ptr @A, align 4
-; CHECK-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    br label [[FOR_COND_I:%.*]]
-; CHECK:       for.cond.i:
-; CHECK-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
-; CHECK-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
-; CHECK-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
-; CHECK:       for.body.i:
-; CHECK-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
-; CHECK-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 10), i64 [[IDXPROM_I]]
-; CHECK-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
-; CHECK-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I]]
-; CHECK:       write10negative.exit:
-; CHECK-NEXT:    br label [[FOR_COND_I1:%.*]]
-; CHECK:       for.cond.i1:
-; CHECK-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
-; CHECK-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
-; CHECK-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
-; CHECK:       for.body.i4:
-; CHECK-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
-; CHECK-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
-; CHECK-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), i64 [[IDXPROM_I6]]
-; CHECK-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
-; CHECK-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
-; CHECK-NEXT:    br label [[FOR_COND_I1]]
-; CHECK:       write10negative.exit9:
-; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; CHECK-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; CHECK-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
-; CHECK-NEXT:    ret i32 [[ADD]]
+; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; TUNIT-LABEL: define {{[^@]+}}@range_overlap_2_negative_a
+; TUNIT-SAME: () #[[ATTR2]] {
+; TUNIT-NEXT:  entry:
+; TUNIT-NEXT:    store i32 3, ptr @A, align 4
+; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
+; TUNIT:       for.cond.i:
+; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
+; TUNIT:       for.body.i:
+; TUNIT-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
+; TUNIT-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 10), i64 [[IDXPROM_I]]
+; TUNIT-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I]]
+; TUNIT:       write10negative.exit:
+; TUNIT-NEXT:    br label [[FOR_COND_I1:%.*]]
+; TUNIT:       for.cond.i1:
+; TUNIT-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
+; TUNIT-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; TUNIT-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
+; TUNIT:       for.body.i4:
+; TUNIT-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
+; TUNIT-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
+; TUNIT-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), i64 [[IDXPROM_I6]]
+; TUNIT-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
+; TUNIT-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
+; TUNIT-NEXT:    br label [[FOR_COND_I1]]
+; TUNIT:       write10negative.exit9:
+; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 3, [[TMP0]]
+; TUNIT-NEXT:    ret i32 [[ADD]]
+;
+; CGSCC: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
+; CGSCC-LABEL: define {{[^@]+}}@range_overlap_2_negative_a
+; CGSCC-SAME: () #[[ATTR0]] {
+; CGSCC-NEXT:  entry:
+; CGSCC-NEXT:    store i32 3, ptr @A, align 4
+; CGSCC-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    br label [[FOR_COND_I:%.*]]
+; CGSCC:       for.cond.i:
+; CGSCC-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I:%.*]] = icmp slt i32 [[I_0_I]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I]], label [[FOR_BODY_I]], label [[WRITE10NEGATIVE_EXIT:%.*]]
+; CGSCC:       for.body.i:
+; CGSCC-NEXT:    [[SUB_I:%.*]] = sub nsw i32 0, [[I_0_I]]
+; CGSCC-NEXT:    [[IDXPROM_I:%.*]] = sext i32 [[SUB_I]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 10), i64 [[IDXPROM_I]]
+; CGSCC-NEXT:    store i32 [[I_0_I]], ptr [[ARRAYIDX_I]], align 4
+; CGSCC-NEXT:    [[INC_I]] = add nsw i32 [[I_0_I]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I]]
+; CGSCC:       write10negative.exit:
+; CGSCC-NEXT:    br label [[FOR_COND_I1:%.*]]
+; CGSCC:       for.cond.i1:
+; CGSCC-NEXT:    [[I_0_I2:%.*]] = phi i32 [ 0, [[WRITE10NEGATIVE_EXIT]] ], [ [[INC_I8:%.*]], [[FOR_BODY_I4:%.*]] ]
+; CGSCC-NEXT:    [[CMP_I3:%.*]] = icmp slt i32 [[I_0_I2]], 10
+; CGSCC-NEXT:    br i1 [[CMP_I3]], label [[FOR_BODY_I4]], label [[WRITE10NEGATIVE_EXIT9:%.*]]
+; CGSCC:       for.body.i4:
+; CGSCC-NEXT:    [[SUB_I5:%.*]] = sub nsw i32 0, [[I_0_I2]]
+; CGSCC-NEXT:    [[IDXPROM_I6:%.*]] = sext i32 [[SUB_I5]] to i64
+; CGSCC-NEXT:    [[ARRAYIDX_I7:%.*]] = getelementptr inbounds i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), i64 [[IDXPROM_I6]]
+; CGSCC-NEXT:    store i32 [[I_0_I2]], ptr [[ARRAYIDX_I7]], align 4
+; CGSCC-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
+; CGSCC-NEXT:    br label [[FOR_COND_I1]]
+; CGSCC:       write10negative.exit9:
+; CGSCC-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
+; CGSCC-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; CGSCC-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; CGSCC-NEXT:    ret i32 [[ADD]]
 ;
 entry:
   store i32 3, ptr @A, align 4
@@ -1125,11 +1310,11 @@ write10negative.exit9:                            ; preds = %for.cond.i1
 define i32 @range_overlap_2_negative_b() {
 ; TUNIT: Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
 ; TUNIT-LABEL: define {{[^@]+}}@range_overlap_2_negative_b
-; TUNIT-SAME: () #[[ATTR0]] {
+; TUNIT-SAME: () #[[ATTR2]] {
 ; TUNIT-NEXT:  entry:
 ; TUNIT-NEXT:    store i32 3, ptr @A, align 4
 ; TUNIT-NEXT:    store i32 5, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get10Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR2]]
+; TUNIT-NEXT:    [[CALL:%.*]] = call ptr @get10Offset(ptr noalias nofree noundef nonnull readnone align 4 dereferenceable(404) "no-capture-maybe-returned" @A) #[[ATTR3]]
 ; TUNIT-NEXT:    br label [[FOR_COND_I:%.*]]
 ; TUNIT:       for.cond.i:
 ; TUNIT-NEXT:    [[I_0_I:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_I:%.*]], [[FOR_BODY_I:%.*]] ]
@@ -1156,9 +1341,8 @@ define i32 @range_overlap_2_negative_b() {
 ; TUNIT-NEXT:    [[INC_I8]] = add nsw i32 [[I_0_I2]], 1
 ; TUNIT-NEXT:    br label [[FOR_COND_I1]]
 ; TUNIT:       write10negative.exit9:
-; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr @A, align 4
-; TUNIT-NEXT:    [[TMP1:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
-; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 [[TMP0]], [[TMP1]]
+; TUNIT-NEXT:    [[TMP0:%.*]] = load i32, ptr getelementptr inbounds ([101 x i32], ptr @A, i64 0, i64 100), align 4
+; TUNIT-NEXT:    [[ADD:%.*]] = add nsw i32 3, [[TMP0]]
 ; TUNIT-NEXT:    ret i32 [[ADD]]
 ;
 ; CGSCC: Function Attrs: mustprogress nofree nosync nounwind willreturn
@@ -1241,12 +1425,15 @@ write10negative.exit9:                            ; preds = %for.cond.i1
   ret i32 %add
 }
 ;.
-; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(write) }
 ; TUNIT: attributes #[[ATTR1]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
-; TUNIT: attributes #[[ATTR2]] = { nofree nosync nounwind willreturn memory(none) }
+; TUNIT: attributes #[[ATTR2]] = { mustprogress nofree norecurse nosync nounwind willreturn }
+; TUNIT: attributes #[[ATTR3]] = { nofree nosync nounwind willreturn memory(none) }
 ;.
 ; CGSCC: attributes #[[ATTR0]] = { mustprogress nofree norecurse nosync nounwind willreturn }
 ; CGSCC: attributes #[[ATTR1]] = { mustprogress nofree nosync nounwind willreturn }
 ; CGSCC: attributes #[[ATTR2]] = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
 ; CGSCC: attributes #[[ATTR3]] = { nofree nosync willreturn }
 ;.
+;; NOTE: These prefixes are unused and the list is autogenerated. Do not add tests below this line:
+; CHECK: {{.*}}
