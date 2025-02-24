@@ -724,11 +724,10 @@ define internal void @exclusion_set3_helper(i1 %c, ptr %p) {
 ; CGSCC-NEXT:    store i32 77, ptr [[P]], align 4
 ; CGSCC-NEXT:    call void @exclusion_set3_helper(i1 noundef true, ptr noalias nofree noundef nonnull align 4 captures(none) dereferenceable(4) [[P]]) #[[ATTR5]]
 ; CGSCC-NEXT:    [[USE2:%.*]] = load i32, ptr [[P]], align 4
-; CGSCC-NEXT:    call void @usei32(i32 [[USE2]])
+; CGSCC-NEXT:    call void @usei32(i32 noundef [[USE2]])
 ; CGSCC-NEXT:    br label [[T]]
 ; CGSCC:       m:
-; CGSCC-NEXT:    [[USE3:%.*]] = load i32, ptr [[P]], align 4
-; CGSCC-NEXT:    call void @usei32(i32 [[USE3]])
+; CGSCC-NEXT:    call void @usei32(i32 noundef 42)
 ; CGSCC-NEXT:    ret void
 ;
   br i1 %c, label %t, label %f

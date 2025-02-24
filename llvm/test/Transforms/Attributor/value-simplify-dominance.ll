@@ -147,11 +147,10 @@ define internal i32 @remote_write_and_read(ptr %p) norecurse {
 ;
 ; CGSCC: Function Attrs: norecurse
 ; CGSCC-LABEL: define {{[^@]+}}@remote_write_and_read
-; CGSCC-SAME: (ptr noalias nofree noundef nonnull align 4 captures(none) dereferenceable(4) [[P:%.*]]) #[[ATTR2]] {
+; CGSCC-SAME: (ptr noalias nofree noundef nonnull writeonly align 4 captures(none) dereferenceable(4) [[P:%.*]]) #[[ATTR2]] {
 ; CGSCC-NEXT:    store i32 42, ptr [[P]], align 4
-; CGSCC-NEXT:    [[L:%.*]] = load i32, ptr [[P]], align 4
-; CGSCC-NEXT:    call void @usei32(i32 [[L]])
-; CGSCC-NEXT:    ret i32 [[L]]
+; CGSCC-NEXT:    call void @usei32(i32 noundef 42)
+; CGSCC-NEXT:    ret i32 42
 ;
   store i32 42, ptr %p
   %l = load i32, ptr %p
@@ -171,7 +170,7 @@ define i32 @local_stack_remote_write_and_read() norecurse {
 ; CGSCC-LABEL: define {{[^@]+}}@local_stack_remote_write_and_read
 ; CGSCC-SAME: () #[[ATTR2]] {
 ; CGSCC-NEXT:    [[A:%.*]] = alloca i32, align 4
-; CGSCC-NEXT:    [[R:%.*]] = call i32 @remote_write_and_read(ptr noalias nofree noundef nonnull align 4 captures(none) dereferenceable(4) [[A]])
+; CGSCC-NEXT:    [[R:%.*]] = call noundef i32 @remote_write_and_read(ptr noalias nofree noundef nonnull writeonly align 4 captures(none) dereferenceable(4) [[A]])
 ; CGSCC-NEXT:    ret i32 [[R]]
 ;
   %a = alloca i32
