@@ -1467,8 +1467,6 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
 
     VectorType *VT = dyn_cast<VectorType>(&Ty);
     if (!VT || VT->getElementCount().isScalable() ||
-        !Content.value_or(nullptr) || !isa<Constant>(*Content) ||
-        (*Content)->getType() != VT ||
         DL.getTypeStoreSize(VT->getElementType()).isScalable()) {
       auto Size = AA::RangeTy::Unknown;
       if (!AccessSize.isScalable())
@@ -1483,13 +1481,21 @@ struct AAPointerInfoFloating : public AAPointerInfoImpl {
       //       ranges. ranges. Hence, support vectors storing different values.
       Type *ElementType = VT->getElementType();
       int64_t ElementSize = DL.getTypeStoreSize(ElementType).getFixedValue();
-      auto *ConstContent = cast<Constant>(*Content);
+      Constant *ConstContent = nullptr;
+      if (auto *C = dyn_cast_if_present<Constant>(Content.value_or(nullptr))) {
+        if (C->getType() == VT)
+          ConstContent = C;
+        else if (C->isNullValue())
+          ConstContent = Constant::getNullValue(VT);
+      }
       Type *Int32Ty = Type::getInt32Ty(ElementType->getContext());
 
       OffsetInfo ElementOffsets = Offsets;
       for (int i = 0, e = VT->getElementCount().getFixedValue(); i != e; ++i) {
-        Value *ElementContent = ConstantExpr::getExtractElement(
-            ConstContent, ConstantInt::get(Int32Ty, i));
+        Value *ElementContent = nullptr;
+        if (ConstContent)
+          ElementContent = ConstantExpr::getExtractElement(
+              ConstContent, ConstantInt::get(Int32Ty, i));
 
         // Add the element access.
         Changed = Changed | addAccess(A, ElementOffsets, ElementSize, I,
