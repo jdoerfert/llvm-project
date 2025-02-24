@@ -456,9 +456,6 @@ static bool getPotentialCopiesOfMemoryValue(
   SmallSetVector<Value *, 8> NewCopies;
   SmallSetVector<Instruction *, 8> NewCopyOrigins;
 
-  const auto *TLI =
-      A.getInfoCache().getTargetLibraryInfoForFunction(*I.getFunction());
-
   auto Pred = [&](Value &Obj) {
     LLVM_DEBUG(dbgs() << "Visit underlying object " << Obj << "\n");
     if (isa<UndefValue>(&Obj))
@@ -608,6 +605,8 @@ static bool getPotentialCopiesOfMemoryValue(
 
     if (IsLoad && !HasBeenWrittenTo && !RangeList.isEmpty()) {
       const DataLayout &DL = A.getDataLayout();
+      const auto *TLI =
+          A.getInfoCache().getTargetLibraryInfoForFunction(*I.getFunction());
       auto *InitialValue =
           AA::getInitialValueForObj(A, QueryingAA, Obj, *I.getType(), TLI, DL,
                                     RangeList.getSingleExactRange());
