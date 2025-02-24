@@ -1625,30 +1625,59 @@ bool AAPointerInfoFloating::collectConstantsForGEP(Attributor &A,
   // combination of elements, picked one each from these sets, is separately
   // added to the original set of offsets, thus resulting in more offsets.
   for (const auto &VI : VariableOffsets) {
-    auto *PotentialConstantsAA = A.getAAFor<AAPotentialConstantValues>(
+    auto *PotentialValuesAA = A.getAAFor<AAPotentialValues>(
         *this, IRPosition::value(*VI.first), DepClassTy::OPTIONAL);
-    if (!PotentialConstantsAA || !PotentialConstantsAA->isValidState()) {
+    if (!PotentialValuesAA || !PotentialValuesAA->isValidState()) {
       UsrOI.setUnknown();
       return true;
     }
 
     // UndefValue is treated as a zero, which leaves Union as is.
-    if (PotentialConstantsAA->undefIsContained())
+    if (PotentialValuesAA->undefIsContained())
       continue;
 
     // We need at least one constant in every set to compute an actual offset.
     // Otherwise, we end up pessimizing AAPointerInfo by respecting offsets that
     // don't actually exist. In other words, the absence of constant values
     // implies that the operation can be assumed dead for now.
-    auto &AssumedSet = PotentialConstantsAA->getAssumedSet();
+    auto &AssumedSet = PotentialValuesAA->getAssumedSet();
     if (AssumedSet.empty())
       return false;
 
     OffsetInfo Product;
-    for (const auto &ConstOffset : AssumedSet) {
+    for (const auto &[ValAndCtx, VacScope] : AssumedSet) {
+      // Ignore all intraprocedural values since we want the most simplified
+      // ones.
+      if (!(VacScope & AA::Interprocedural))
+        continue;
+      if (auto *C = dyn_cast<ConstantInt>(ValAndCtx.first)) {
+        auto CopyPerOffset = Union;
+        CopyPerOffset.addToAll(
+            {C->getSExtValue() * VI.second.getSExtValue(), 0});
+        Product.merge(CopyPerOffset);
+        continue;
+      }
+      // If the value was not a constant, try to find a constant range to
+      // approximate the offset (range).
+      auto *ConstantRangeAA = A.getAAFor<AAValueConstantRange>(
+          *this, IRPosition::value(*ValAndCtx.first), DepClassTy::OPTIONAL);
+      if (!ConstantRangeAA || !ConstantRangeAA->getState().isValidState()) {
+        UsrOI.setUnknown();
+        return true;
+      }
+      const auto &ConstantRangeState = ConstantRangeAA->getState();
+      ConstantRange CR = ConstantRangeState.getAssumed();
+      auto Min = CR.getSignedMin().getSExtValue();
+      auto Max = CR.getSignedMax().getSExtValue();
+      auto Scale = VI.second.getSExtValue();
+      if (MulOverflow(Min, Scale, Min) || MulOverflow(Max, Scale, Max)) {
+        UsrOI.setUnknown();
+        return true;
+      }
       auto CopyPerOffset = Union;
-      CopyPerOffset.addToAll(
-          {ConstOffset.getSExtValue() * VI.second.getSExtValue(), 0});
+      // For now, we have RangeTy set up as a Offset, Size pair, so substract
+      // the Min from the Max.
+      CopyPerOffset.addToAll({Min, (Max - Min)});
       Product.merge(CopyPerOffset);
     }
     Union = Product;
