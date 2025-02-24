@@ -422,13 +422,12 @@ static bool getPotentialCopiesOfMemoryValue(
     bool NullRequired = false;
     auto CheckForNullOnlyAndUndef = [&](std::optional<Value *> V,
                                         bool IsExact) {
+      NullRequired |= !IsExact && OnlyExact;
       if (!V || *V == nullptr)
         NullOnly = false;
       else if (isa<UndefValue>(*V))
         /* No op */;
-      else if (isa<Constant>(*V) && cast<Constant>(*V)->isNullValue())
-        NullRequired = !IsExact;
-      else
+      else if (!isa<Constant>(*V) || !cast<Constant>(*V)->isNullValue())
         NullOnly = false;
     };
 
@@ -474,12 +473,6 @@ static bool getPotentialCopiesOfMemoryValue(
       if (IsLoad && Acc.isWrittenValueYetUndetermined())
         return true;
       CheckForNullOnlyAndUndef(Acc.getContent(), IsExact);
-      if (OnlyExact && !IsExact && !NullOnly &&
-          !isa_and_nonnull<UndefValue>(Acc.getWrittenValue())) {
-        LLVM_DEBUG(dbgs() << "Non exact access " << *Acc.getRemoteInst()
-                          << ", abort!\n");
-        return false;
-      }
       if (NullRequired && !NullOnly) {
         LLVM_DEBUG(dbgs() << "Required all `null` accesses due to non exact "
                              "one, however found non-null one: "
