@@ -10,17 +10,8 @@
 
 #include "llvm/Transforms/Instrumentation/LightSan.h"
 
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/SmallVectorExtras.h"
-#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
-#include "llvm/Analysis/PostDominators.h"
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -35,16 +26,11 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
-#include "llvm/Support/Allocator.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/Regex.h"
-#include "llvm/Support/StringSaver.h"
 #include "llvm/Transforms/Instrumentation/Instrumentor.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <cstdint>
 #include <functional>
-#include <optional>
 
 using namespace llvm;
 using namespace llvm::instrumentor;
@@ -73,6 +59,7 @@ struct LightSanImpl {
 
   bool instrument();
 
+  bool shouldInstrumentFunction(Function &Fn);
   bool shouldInstrumentCall(CallInst &CI);
   bool shouldInstrumentLoad(LoadInst &LI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentStore(StoreInst &SI, InstrumentorIRBuilderTy &IIRB);
@@ -87,43 +74,28 @@ private:
 
 bool LightSanImpl::shouldInstrumentLoad(LoadInst &LI,
                                               InstrumentorIRBuilderTy &IIRB) {
-  if (auto *AI = dyn_cast<AllocaInst>(LI.getPointerOperand()))
-    return shouldInstrumentAlloca(*AI, IIRB);
   return true;
 }
 
 bool LightSanImpl::shouldInstrumentStore(StoreInst &SI,
                                                InstrumentorIRBuilderTy &IIRB) {
-  if (auto *AI = dyn_cast<AllocaInst>(SI.getPointerOperand()))
-    return shouldInstrumentAlloca(*AI, IIRB);
   return true;
 }
 
 bool LightSanImpl::shouldInstrumentAlloca(AllocaInst &AI,
                                                 InstrumentorIRBuilderTy &IIRB) {
-  // TODO: look trough transitive users.
-  auto IsUseOK = [&](Use &U) -> bool {
-    if (auto *SI = dyn_cast<StoreInst>(U.getUser())) {
-      if (SI->getPointerOperandIndex() == U.getOperandNo() &&
-          AI.getAllocationSize(DL) >=
-              DL.getTypeStoreSize(SI->getValueOperand()->getType()))
-        return false;
-    }
-    if (auto *LI = dyn_cast<LoadInst>(U.getUser())) {
-      if (LI->getPointerOperandIndex() == U.getOperandNo() &&
-          AI.getAllocationSize(DL) >= DL.getTypeStoreSize(LI->getType()))
-        return false;
-    }
-    return true;
-  };
-  return all_of(AI.uses(), IsUseOK);
+  return true;
+}
+
+bool LightSanImpl::shouldInstrumentFunction(Function &Fn) {
+  return Fn.getName() == "main";
 }
 
 bool LightSanImpl::shouldInstrumentCall(CallInst &CI) {
-  if (CI.getCaller()->getName().starts_with(IConf.getRTName()) &&
-      !CI.getCaller()->hasFnAttribute("instrument"))
-    return false;
-  return true;
+  Function *CalledFn = CI.getCalledFunction();
+  if (!CalledFn && CalledFn->isDeclaration())
+    return true;
+  return false;
 }
 
 bool LightSanImpl::instrument() {
@@ -151,11 +123,14 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ModuleIO::populate(*this, IIRB.Ctx);
   GlobalIO::populate(*this, IIRB.Ctx);
 
+  AllocaIO::ConfigTy AICConfig;
+  AICConfig.ReplaceSize = false;
+  AICConfig.PassAlignment = false;
   auto *AIC = InstrumentationConfig::allocate<AllocaIO>(/*IsPRE=*/false);
   AIC->CB = [&](Value &V) {
     return LSI.shouldInstrumentAlloca(cast<AllocaInst>(V), IIRB);
   };
-  AIC->init(*this, IIRB.Ctx, /*ReplaceAddr=*/true, /*ReplaceSize=*/false);
+  AIC->init(*this, IIRB.Ctx, &AICConfig);
 
   LoadIO::ConfigTy LICConfig;
   LICConfig.PassPointerAS = false;
@@ -206,6 +181,14 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
     return LSI.shouldInstrumentCall(cast<CallInst>(V));
   };
   CIC->init(*this, IIRB.Ctx, &CICConfig);
+
+  FunctionIO::ConfigTy FICConfig;
+  FICConfig.PassAddress = false;
+  auto *FIC = InstrumentationConfig::allocate<FunctionIO>();
+  FIC->CB = [&](Value &V) {
+    return LSI.shouldInstrumentFunction(cast<Function>(V));
+  };
+  FIC->init(*this, IIRB.Ctx, &FICConfig);
 }
 
 } // namespace

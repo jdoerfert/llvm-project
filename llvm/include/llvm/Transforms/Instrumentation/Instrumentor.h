@@ -548,23 +548,35 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
   AllocaIO(bool IsPRE) : InstructionIO(IsPRE) {}
   virtual ~AllocaIO() {};
 
+  struct ConfigTy {
+    bool PassAddress = true;
+    bool ReplaceAddress = true;
+    bool PassSize = true;
+    bool ReplaceSize = true;
+    bool PassAlignment = true;
+  } Config;
+
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
-            bool ReplaceAddr = true, bool ReplaceSize = true,
-            bool PassAlignment = true) {
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
+
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    if (!IsPRE && ReplaceAddr)
+    if (!IsPRE && Config.PassAddress)
       IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
                                "The allocated memory address.",
-                               ReplaceAddr ? IRTArg::REPLACABLE : IRTArg::NONE,
+                               Config.ReplaceAddress ? IRTArg::REPLACABLE : IRTArg::NONE,
                                InstrumentationOpportunity::getValue,
                                InstrumentationOpportunity::replaceValue));
-    IRTArgs.push_back(
-        IRTArg(IntegerType::getInt64Ty(Ctx), "size", "The allocation size.",
-               (ReplaceSize && IsPRE) ? IRTArg::REPLACABLE : IRTArg::NONE,
-               getSize, setSize));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
-                             "The allocation alignment.", IRTArg::NONE,
-                             getAlignment));
+    if (Config.PassSize)
+      IRTArgs.push_back(
+          IRTArg(IntegerType::getInt64Ty(Ctx), "size", "The allocation size.",
+                 (IsPRE && Config.ReplaceSize) ? IRTArg::REPLACABLE : IRTArg::NONE,
+                 getSize, setSize));
+    if (Config.PassAlignment)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
+                               "The allocation alignment.", IRTArg::NONE,
+                               getAlignment));
 
     IConf.addChoice(*this);
   }
@@ -1127,22 +1139,41 @@ struct FunctionIO : public InstrumentationOpportunity {
             InstrumentationLocation(InstrumentationLocation::FUNCTION_PRE)) {}
   virtual ~FunctionIO() {};
 
+  struct ConfigTy {
+    bool PassAddress = true;
+    bool PassName = true;
+    bool PassNumArguments = true;
+    bool PassArguments = true;
+    bool ReplaceArguments = true;
+  } Config;
+
   StringRef getName() const override { return "function"; }
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
-                             "The function address.", IRTArg::NONE,
-                             getFunctionAddress));
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "name",
-                             "The function name.", IRTArg::STRING,
-                             getFunctionName));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "num_arguments",
-                             "Number of function arguments (without varargs).",
-                             IRTArg::NONE, getNumArguments));
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "arguments",
-                             "Description of the arguments.",
-                             IRTArg::REPLACABLE_CUSTOM, getArguments,
-                             setArguments));
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    using namespace std::placeholders;
+    if (UserConfig)
+      Config = *UserConfig;
+
+    if (Config.PassAddress)
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
+                               "The function address.", IRTArg::NONE,
+                               getFunctionAddress));
+    if (Config.PassName)
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "name",
+                               "The function name.", IRTArg::STRING,
+                               getFunctionName));
+    if (Config.PassNumArguments)
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "num_arguments",
+                               "Number of function arguments (without varargs).",
+                               IRTArg::NONE,
+                               std::bind(&FunctionIO::getNumArguments, this, _1, _2, _3, _4)));
+    if (Config.PassArguments)
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "arguments",
+                               "Description of the arguments.",
+                               Config.ReplaceArguments ? IRTArg::REPLACABLE_CUSTOM : IRTArg::NONE,
+                               std::bind(&FunctionIO::getArguments, this, _1, _2, _3, _4),
+                               std::bind(&FunctionIO::setArguments, this, _1, _2, _3, _4)));
     IConf.addChoice(*this);
   }
 
@@ -1152,12 +1183,12 @@ struct FunctionIO : public InstrumentationOpportunity {
   static Value *getFunctionName(Value &V, Type &Ty,
                                 InstrumentationConfig &IConf,
                                 InstrumentorIRBuilderTy &IIRB);
-  static Value *getNumArguments(Value &V, Type &Ty,
+  Value *getNumArguments(Value &V, Type &Ty,
                                 InstrumentationConfig &IConf,
                                 InstrumentorIRBuilderTy &IIRB);
-  static Value *getArguments(Value &V, Type &Ty, InstrumentationConfig &IConf,
+  Value *getArguments(Value &V, Type &Ty, InstrumentationConfig &IConf,
                              InstrumentorIRBuilderTy &IIRB);
-  static Value *setArguments(Value &V, Value &NewV,
+  Value *setArguments(Value &V, Value &NewV,
                              InstrumentationConfig &IConf,
                              InstrumentorIRBuilderTy &IIRB);
 

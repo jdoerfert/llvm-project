@@ -1051,12 +1051,13 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   };
   BIC->init(*this, IIRB.Ctx);
 
+  AllocaIO::ConfigTy AICConfig;
+  AICConfig.ReplaceSize = false;
   auto *AIC = InstrumentationConfig::allocate<AllocaIO>(/*IsPRE=*/false);
   AIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentAlloca(cast<AllocaInst>(V), IIRB);
   };
-  AIC->init(*this, IIRB.Ctx, /*ReplaceAddr=*/true, /*ReplaceSize=*/false,
-            /*PassAlignment*/ true);
+  AIC->init(*this, IIRB.Ctx, &AICConfig);
 
   LoadIO::ConfigTy LICConfig;
   LICConfig.PassPointerAS = false;
