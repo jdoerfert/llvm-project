@@ -11,16 +11,19 @@ import re
 import os
 import json
 import subprocess
-from datasets import load_dataset
 import dataclasses
 import collections
 import sys
 import stat
 import logging
 import glob
+import pandas
+
+from datasets import load_dataset
 from typing import Dict, Tuple, BinaryIO, Union, List, Optional, Iterable
 
-from input_gen_module import InputGenModule
+from input_gen_module import InputGenModule, Input
+from dataset_writer import DatasetWriter
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +35,19 @@ def parse_args_and_run():
     parser = argparse.ArgumentParser(
         description='Generating inputs for ComPileLoop'
     )
-    parser.add_argument('--dataset', required=True)
     parser.add_argument('--temp-dir', default=None)
     parser.add_argument('--save-temps', action='store_true', default=False)
     parser.add_argument('-mclang', default=[], action='append')
     parser.add_argument('-mllvm', default=[], action='append')
     parser.add_argument('-debug', default=False, action='store_true')
+
+    parser.add_argument('--dataset', required=True)
+    parser.add_argument('--output-dataset', required=True)
+    parser.add_argument('--output-dataset-json', required=True)
+    parser.add_argument('--begin', default=0, type=int)
+    parser.add_argument('--end', default=3, type=int)
+    parser.add_argument('--parquet-start', default=0, type=int)
+
     args = parser.parse_args()
     main(args)
 
@@ -48,21 +58,48 @@ def main(args):
         logging.basicConfig(level=logging.INFO)
 
     ds = load_dataset(args.dataset, split='train', streaming=True)
-    l = []
-    for i, data in enumerate(ds):
-        with tempfile.TemporaryDirectory(dir=args.temp_dir, delete=(not args.save_temps)) as tmpdir:
-            process_module(data, tmpdir, args.save_temps, args.mclang, args.mllvm)
+    dw = DatasetWriter(args.begin, args.end, args.parquet_start, args.output_dataset, args.output_dataset_json)
+    le = ComPileLoopInput(args)
+    dw.process(le.process_module_wrapper, ds)
 
-def process_module(data: Dict, working_dir: str, save_temps, mclang: List, mllvm: List):
-    igm = InputGenModule(data['module'], working_dir, save_temps, mclang, mllvm, ['__llvm_extracted_loop'])
-    if not igm.prepare():
-        return
-    assert igm.get_num_entries() == 1
-    igm.generate()
+class ComPileLoopInput:
+    def __init__(self, args):
+        self.args = args
 
-    # TODO obtain inputs and package them
-    # TODO we want to gather some info on the inputs such as size, est. runtime,
-    # exit status, etc
+    def process_module_wrapper(self, i, data):
+        try:
+            igm = InputGenModule(
+                data['module'],
+                working_dir=None,
+                save_temps=self.args.save_temps,
+                mclang=self.args.mclang,
+                mllvm=self.args.mllvm,
+                entries=['__llvm_extracted_loop'])
+
+            igm.prepare()
+            assert igm.get_num_entries() == 1
+            igm.generate(entry_no=0, num_inputs=5)
+
+            data['inputs'] = None
+            data['module'] = igm.get_repl_mod()
+            size = len(data['module'])
+            inputs = [dataclasses.asdict(i) for i in igm.get_generated_inputs()]
+
+            logger.debug(data['module'])
+            logger.debug(inputs)
+
+            df = pandas.DataFrame(data, index=[0])
+            df.at[0, 'inputs'] = inputs
+
+            # TODO we want to gather some info on the inputs such as size, est. runtime,
+            # We should also probably run the generated inputs and make sure they
+            # run successfully.
+
+            return df, size
+
+        except Exception as e:
+            logging.debug(f'InputGenModule failed: {e}')
+            return None, 0
 
 if __name__ == '__main__':
     parse_args_and_run()

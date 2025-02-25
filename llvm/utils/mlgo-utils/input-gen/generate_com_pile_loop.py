@@ -12,12 +12,10 @@ import subprocess
 import json
 import signal
 import sys
-
 import pandas
-import pyarrow
 
-from pyarrow import parquet
 from datasets import load_dataset
+from dataset_writer import DatasetWriter
 
 if sys.version_info.major == 3 and sys.version_info.minor < 12:
     absl.error('This script needs python version >= 3.12')
@@ -27,107 +25,31 @@ def parse_args_and_run():
     parser = argparse.ArgumentParser(
         description='A tool for making a LLVM IR loop dataset'
     )
-    parser.add_argument('--dataset', required=True)
     parser.add_argument('--language', default='c')
     parser.add_argument('--save-temps', action='store_true', default=False)
     parser.add_argument('--temp-dir', default=None)
+
+    parser.add_argument('--dataset', required=True)
     parser.add_argument('--output-dataset', required=True)
     parser.add_argument('--output-dataset-json', required=True)
     parser.add_argument('--begin', default=0, type=int)
     parser.add_argument('--end', default=3, type=int)
     parser.add_argument('--parquet-start', default=0, type=int)
-    args = parser.parse_args()
-    LoopExtractor(args).main()
 
-# 100MB
-PARQUET_SIZE = 100 * 1000 * 1000
-#PARQUET_SIZE = 10000
+    args = parser.parse_args()
+
+    ds = load_dataset(os.path.join(args.dataset, args.language), split='train', streaming=True)
+
+    dw = DatasetWriter(args.begin, args.end, args.parquet_start, args.output_dataset, args.output_dataset_json)
+    le = LoopExtractor(args)
+    dw.process(le.process_module_wrapper, ds)
 
 class LoopExtractor:
     def __init__(self, args):
         self.args = args
 
-        self.dfs = []
-        self.total_pfile_size = 0
-        self.parquet_id = args.parquet_start
-        self.should_break = False
-        self.i = args.begin
-        self.first_in_parquet = self.i
-
-        signal.signal(signal.SIGUSR2, self.receive_should_break)
-        signal.signal(signal.SIGUSR1, self.receive)
-
-    def receive(self, signum, stack):
-        print(f'Progress: module {self.i} size {self.total_pfile_size}')
-
-    def receive_should_break(self, signum, stack):
-        print(f'Will break')
-        self.should_break = True
-
-    def get_current_parquet_name(self):
-        return os.path.join(self.args.output_dataset, 'train-' + str(self.parquet_id) + '.parquet')
-
-    def get_current_parquet_json_name(self):
-        return os.path.join(self.args.output_dataset_json, 'train-' + str(self.parquet_id) + '.parquet.json')
-
-    def write_parquet(self):
-        name = self.get_current_parquet_name()
-        json_name = self.get_current_parquet_json_name()
-        if len(self.dfs) == 0:
-            return
-        print(f'Writing intermediate parquet {self.parquet_id} with estimated size {self.total_pfile_size} for modules {self.first_in_parquet} to {self.i}')
-        df = pandas.concat(self.dfs)
-        table = pyarrow.Table.from_pandas(df, preserve_index=False)
-        parquet.write_table(table, name, compression='NONE')
-        with open(json_name, 'w') as fp:
-            fp.write(json.dumps({
-                'estimated_size' : self.total_pfile_size,
-                'first' : self.first_in_parquet,
-                'last' : self.i,
-                'num' : self.i - self.first_in_parquet + 1,
-            }, indent=4) + '\n')
-
-        self.dfs = []
-        self.total_pfile_size = 0
-        self.first_in_parquet = self.i + 1
-        self.parquet_id += 1
-
-    def main(self):
-        args = self.args
-        ds = load_dataset(os.path.join(args.dataset, args.language), split='train', streaming=True)
-        os.makedirs(args.output_dataset, exist_ok=True)
-        os.makedirs(args.output_dataset_json, exist_ok=True)
-
-        curparname = self.get_current_parquet_name()
-        if os.path.exists(curparname):
-            print(f'The parquet file {curparname} already exists. Aborting.')
-            return
-        curjsonname = self.get_current_parquet_json_name()
-        if os.path.exists(curjsonname):
-            print(f'The parquet json file {curjsonname} already exists. Aborting.')
-            return
-
-        data = ds.skip(self.i)
-
-        for data in ds:
-            module = data['content']
-            language = data['language']
-            new_df, size_estimate = process_module(module, language, self.i, args)
-            self.total_pfile_size += size_estimate
-            if new_df is not None:
-                self.dfs.append(new_df)
-            if self.total_pfile_size > PARQUET_SIZE:
-                self.write_parquet()
-            if self.i == args.end:
-                print(f'Finished all {args.end}')
-                break
-            if self.should_break:
-                print(f'Stopping at {self.i}')
-                break
-            self.i += 1
-
-        print(f'Writing final parquet {self.i}')
-        self.write_parquet()
+    def process_module_wrapper(self, i, data):
+        return process_module(data['content'], data['language'], i, self.args)
 
 def process_module(module, language, idx, args):
     with tempfile.TemporaryDirectory(dir=args.temp_dir, delete=(not args.save_temps)) as outdir:

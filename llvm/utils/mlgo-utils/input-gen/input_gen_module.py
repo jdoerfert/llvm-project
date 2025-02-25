@@ -26,21 +26,46 @@ if sys.version_info.major == 3 and sys.version_info.minor < 12:
     absl.error('This script needs python version >= 3.12')
     exit(1)
 
+@dataclasses.dataclass(frozen=True)
+class Input:
+    entry_no: int
+    index: int
+    status: int
+    data: bytes
+
 class InputGenModule:
-    def __init__(self, mod, working_dir, save_temps, mclang, mllvm, entries='marked'):
-        self.mclang = mclang
-        self.mllvm = mllvm
-        self.save_temps = save_temps
+    def __init__(self, mod, working_dir=None, save_temps=False, mclang=None, mllvm=None, entries='marked'):
         self.mod = mod
-        self.working_dir = working_dir
+        self.save_temps = save_temps
         self.entries = entries
 
+        if mclang is not None:
+            self.mclang = mclang
+        else:
+            self.mclang = []
+        if mllvm is not None:
+            self.mllvm = mllvm
+        else:
+            self.mllvm = []
+
+        if working_dir is not None:
+            self.temp_dir = None
+            self.working_dir = working_dir
+        else:
+            self.temp_dir = tempfile.TemporaryDirectory(delete=(not save_temps))
+            self.working_dir = self.temp_dir.name
+
         self.num_entries = None
+        self.preparation_done = False
 
         self.gen_mod, self.gen_exec = None, None
         self.repl_mod, self.repl_exec = None, None
 
         self.save_temps_counter = 0
+
+    def __del__(self):
+        if self.temp_dir is not None:
+            self.temp_dir.cleanup()
 
     def save_temp(self, content, name='temp', binary=True):
         if not self.save_temps:
@@ -118,13 +143,17 @@ class InputGenModule:
         re_match = re.search('  Num available functions: ([0-9]+)', errs.decode('utf-8'))
 
         if re_match is None:
-            return False
+            raise Exception('Could not recognize input file name format')
 
         self.num_entries = int(re_match.group(1))
+        self.preparation_done = True
 
-        return True
+    def check_prep_done(self):
+        if not self.preparation_done:
+            raise Exception("Preparation not done");
 
     def generate(self, entry_no=0, num_inputs=1, num_threads=1, first_input=0, seed=42):
+        self.check_prep_done()
         cmd = [
             self.gen_exec_path,
             str(entry_no),
@@ -138,13 +167,37 @@ class InputGenModule:
         logger.debug(f'Outs: {outs.decode("utf-8")}')
         logger.debug(f'Errs: {errs.decode("utf-8")}')
 
-        inputs = glob.glob(self.gen_exec_path + '*.inp')
-        logger.debug(f'Inputs: {inputs}')
+    def get_generated_inputs(self):
+        self.check_prep_done()
+        input_files = glob.glob(self.gen_exec_path + '*.inp')
+        logger.debug(f'input_files: {input_files}')
+
+        inputs = []
+        for input_file in input_files:
+            uint_regex = '([0-9]+)'
+            int_regex = '(-?[0-9]+)'
+            dot = '\\.'
+            re_match = re.match(f'.*{dot}{uint_regex}{dot}{uint_regex}{dot}{int_regex}{dot}inp', input_file)
+            if re_match is None:
+                raise Exception(f'Could not match {input_file}')
+
+            entry_no = int(re_match.group(1))
+            input_idx = int(re_match.group(2))
+            exit_code = int(re_match.group(3))
+
+            with open(input_file, 'rb') as f:
+                data = f.read()
+
+            inputs.append(Input(entry_no, input_idx, exit_code, data))
+
+        return inputs
 
     def get_num_entries(self):
+        self.check_prep_done()
         return self.num_entries
 
     def get_repl_mod(self):
+        self.check_prep_done()
         return self.repl_mod
 
 def parse_args_and_run():
@@ -184,12 +237,9 @@ def main(args):
     with open(args.module, 'rb') as f:
         mod = f.read()
 
-    with tempfile.TemporaryDirectory(dir=args.temp_dir, delete=(not args.save_temps)) as tmpdir:
-        igm = InputGenModule(mod, tmpdir, args.save_temps, args.mclang, args.mllvm, mode)
-        if not igm.prepare():
-            logger.error('Module preparation failed')
-            return
-        igm.generate()
+    igm = InputGenModule(mod, args.temp_dir, args.save_temps, args.mclang, args.mllvm, mode)
+    igm.prepare()
+    igm.generate()
 
 if __name__ == '__main__':
     parse_args_and_run()

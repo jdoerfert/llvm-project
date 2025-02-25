@@ -27,5 +27,7 @@ python3 input_gen_module.py --module input_module.ll {--entry-all,--entry-functi
 ## Generating ComPileLoop+Inputs from ComPileLoop
 
 ``` shell
-python3 generate_com_pile_loop_inputs.py --module --dataset path/to/ComPileLoop/
+python3 generate_com_pile_loop_inputs.py --dataset path/to/ComPileLoop/ --output-dataset ./ComPileLoopInputs/ --output-dataset-json ./ComPileLoopInputsJson
 ```
+
+The `process_com_pile_loop_demo.py` script can also be used with ComPileLoop+Inputs.
