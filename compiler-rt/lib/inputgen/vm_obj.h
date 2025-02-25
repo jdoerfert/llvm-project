@@ -63,7 +63,7 @@ struct ObjectManager {
 
   int32_t getRandomNumber() { return Distribution(Generator); }
 
-  void saveInput(uint32_t InputIdx, uint32_t ExitCode);
+  void saveInput(uint32_t EntryNo, uint32_t InputIdx, uint32_t ExitCode);
   void reset();
 
   void *getObj(uint32_t Seed);

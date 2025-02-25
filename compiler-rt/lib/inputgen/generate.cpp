@@ -83,7 +83,7 @@ struct GenerationThread {
   void stopGeneration(uint32_t ExitCode) {
     {
       Timer T("save " + std::to_string(I));
-      ThreadOM.saveInput(I, ExitCode);
+      ThreadOM.saveInput(EntryNo, I, ExitCode);
     }
 
     if (++I < E) {

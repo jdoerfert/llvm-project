@@ -20,7 +20,8 @@ void ObjectManager::reset() {
   std::set<char *> ArgMemPtrs;
 }
 
-void ObjectManager::saveInput(uint32_t InputIdx, uint32_t ExitCode) {
+void ObjectManager::saveInput(uint32_t EntryNo, uint32_t InputIdx,
+                              uint32_t ExitCode) {
 #ifndef NDEBUG
   if (getenv("PRINT_RUNTIME_OBJECTS")) {
     printf("\n\nRuntime objects (%u):\n", RTObjs.TableEntryCnt);
@@ -36,7 +37,8 @@ void ObjectManager::saveInput(uint32_t InputIdx, uint32_t ExitCode) {
     SM.encode(*this, I, RTObjs.Table[I]);
   }
 
-  std::string OutputName = ProgramName + "." + std::to_string(InputIdx) + "." +
+  std::string OutputName = ProgramName + "." + std::to_string(EntryNo) + "." +
+                           std::to_string(InputIdx) + "." +
                            std::to_string(ExitCode) + ".inp";
   std::ofstream OFS(OutputName, std::ios_base::out | std::ios_base::binary);
   SM.write(OFS);
