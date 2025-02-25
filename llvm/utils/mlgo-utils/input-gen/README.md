@@ -12,12 +12,6 @@ The script also generates JSON files containing a summary of each generated
 parquet file. This information can be used to continue generation of the
 database from where the process was interrupted. 
 
-## Demo of how to process ComPileLoop
-
-``` shell
-python3 process_com_pile_loop_demo.py --dataset path/to/ComPileLoop/
-```
-
 ## Generating inputs for a module
 
 ``` shell
@@ -30,4 +24,16 @@ python3 input_gen_module.py --module input_module.ll {--entry-all,--entry-functi
 python3 generate_com_pile_loop_inputs.py --dataset path/to/ComPileLoop/ --output-dataset ./ComPileLoopInputs/ --output-dataset-json ./ComPileLoopInputsJson
 ```
 
-The `process_com_pile_loop_demo.py` script can also be used with ComPileLoop+Inputs.
+## Demo of how to process ComPileLoop
+
+``` shell
+python3 process_com_pile_loop_demo.py --dataset path/to/ComPileLoop/
+```
+
+## Demo of how to process ComPileLoop+Inputs
+
+``` shell
+python3 process_com_pile_loop_inputs_demo.py --dataset path/to/ComPileLoopInputs/
+```
+
+This will read the dataset and replay all inputs in it.

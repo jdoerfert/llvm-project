@@ -18,6 +18,7 @@ import sys
 import stat
 import logging
 import glob
+import time
 from typing import Dict, Tuple, BinaryIO, Union, List, Optional, Iterable
 
 logger = logging.getLogger(__name__)
@@ -33,11 +34,14 @@ class Input:
     status: int
     data: bytes
 
-class InputGenModule:
-    def __init__(self, mod, working_dir=None, save_temps=False, mclang=None, mllvm=None, entries='marked'):
-        self.mod = mod
+@dataclasses.dataclass(frozen=True)
+class ReplayResult:
+    outs: bytes
+    errs: bytes
+
+class InputGenUtils:
+    def __init__(self, working_dir=None, save_temps=False, mclang=None, mllvm=None, temp_dir=None):
         self.save_temps = save_temps
-        self.entries = entries
 
         if mclang is not None:
             self.mclang = mclang
@@ -52,14 +56,8 @@ class InputGenModule:
             self.temp_dir = None
             self.working_dir = working_dir
         else:
-            self.temp_dir = tempfile.TemporaryDirectory(delete=(not save_temps))
+            self.temp_dir = tempfile.TemporaryDirectory(dir=temp_dir, delete=(not save_temps))
             self.working_dir = self.temp_dir.name
-
-        self.num_entries = None
-        self.preparation_done = False
-
-        self.gen_mod, self.gen_exec = None, None
-        self.repl_mod, self.repl_exec = None, None
 
         self.save_temps_counter = 0
 
@@ -115,13 +113,110 @@ class InputGenModule:
 
         return self.get_output(cmd, mod)
 
-    def get_executable_for_mode(self, mod, mode, rt):
-        instrumented_mod, _ = self.get_instrumented_module(mod, mode)
+    def get_executable_for_mode(self, mod, mode, rt, already_instrumented=False):
+        if already_instrumented:
+            instrumented_mod = mod
+        else:
+            instrumented_mod, _ = self.get_instrumented_module(mod, mode)
         cmd = f'clang++ -x ir - -O3 {rt} -lpthread -flto -fuse-ld=lld -fno-exceptions -DNDEBUG -o -'.split(' ') + self.mclang
         exe, _ = self.get_output(cmd, instrumented_mod)
         self.save_temp(exe, mode + '.exe', binary=True);
         self.save_temp(exe, mode + 'instrumented_mod', binary=True);
         return instrumented_mod, exe
+
+class InputGenReplay(InputGenUtils):
+    def __init__(self, mod, working_dir=None, save_temps=False, mclang=None, mllvm=None, temp_dir=None):
+        self.mod = mod
+
+        self.num_entries = None
+        self.preparation_done = False
+
+        self.repl_mod, self.repl_exec = None, None
+
+        self.inputs_written = 0
+
+        super().__init__(working_dir, save_temps, mclang, mllvm, temp_dir)
+
+    def check_prep_done(self):
+        if not self.preparation_done:
+            raise Exception("Preparation not done");
+
+    def check_entry_no(self, entry_no):
+        if entry_no < 0 or entry_no >= self.num_entries:
+            raise Exception(f'Entry no {entry_no} out of range. {self.num_entries} available.');
+
+    def prepare(self):
+        self.save_temp(self.mod, 'original_module', binary=True);
+
+        self.repl_mod, self.repl_exec = self.get_executable_for_mode(
+            self.mod, 'replay_generated', '-linputgen.replay', already_instrumented=True)
+
+        # Write the replay executable to file
+        self.repl_exec_path = os.path.join(self.working_dir, 'repl')
+        with open(self.repl_exec_path, 'wb') as f:
+            f.write(self.repl_exec)
+
+        # Make executable by user
+        st = os.stat(self.repl_exec_path)
+        os.chmod(self.repl_exec_path, st.st_mode | stat.S_IXUSR)
+
+        cmd = [self.repl_exec_path]
+        _, errs = self.get_output(cmd, allow_fail=True)
+        re_match = re.search('  Num available functions: ([0-9]+)', errs.decode('utf-8'))
+
+        if re_match is None:
+            raise Exception('Could not parse number of available entries')
+
+        self.num_entries = int(re_match.group(1))
+        self.preparation_done = True
+
+    def get_num_entries(self):
+        self.check_prep_done()
+        return self.num_entries
+
+    def replay_input(self, inpt, entry_no=0, num=1):
+        self.check_prep_done()
+        self.check_entry_no(entry_no)
+
+        # TODO keep track of files we've written to disk? or return an input
+        # 'handle' which can then be used to replay?
+        fn = os.path.join(self.working_dir, f'{entry_no}.{self.inputs_written}.inp')
+        self.inputs_written += 1
+        with open(fn, 'wb') as f:
+            f.write(inpt)
+
+        return self.replay_input_path(fn, entry_no, num)
+
+    def replay_input_path(self, inpt_path, entry_no=0, num=1):
+        self.check_prep_done()
+        self.check_entry_no(entry_no)
+
+        cmd = [
+            self.repl_exec_path,
+            inpt_path,
+            str(entry_no),
+        ]
+
+        i = 0
+        while True:
+            if num is not None and i == num:
+                break
+            outs, errs = self.get_output(cmd, allow_fail=True)
+            yield ReplayResult(outs, errs)
+            i += 1
+
+class InputGenGenerate(InputGenUtils):
+    def __init__(self, mod, working_dir=None, save_temps=False, mclang=None, mllvm=None, entries='marked', temp_dir=None):
+        self.mod = mod
+        self.entries = entries
+
+        self.num_entries = None
+        self.preparation_done = False
+
+        self.gen_mod, self.gen_exec = None, None
+        self.repl_mod, self.repl_exec = None, None
+
+        super().__init__(working_dir, save_temps, mclang, mllvm, temp_dir)
 
     def prepare(self):
         self.save_temp(self.mod, 'original_module', binary=True);
@@ -143,7 +238,7 @@ class InputGenModule:
         re_match = re.search('  Num available functions: ([0-9]+)', errs.decode('utf-8'))
 
         if re_match is None:
-            raise Exception('Could not recognize input file name format')
+            raise Exception('Could not parse number of available entries')
 
         self.num_entries = int(re_match.group(1))
         self.preparation_done = True
@@ -204,15 +299,18 @@ def parse_args_and_run():
     parser = argparse.ArgumentParser(
         description='Generating inputs for a module'
     )
-    parser.add_argument('--module', required=True)
     parser.add_argument('--temp-dir', default=None)
     parser.add_argument('--save-temps', action='store_true', default=False)
     parser.add_argument('-mclang', default=[], action='append')
     parser.add_argument('-mllvm', default=[], action='append')
-    parser.add_argument('-debug', default=False, action='store_true')
+
+    parser.add_argument('--module', required=True)
     parser.add_argument('--entry-function', default=[], action='append')
     parser.add_argument('--entry-all', default=False, action='store_true')
     parser.add_argument('--entry-marked', default=False, action='store_true')
+
+    parser.add_argument('-debug', default=False, action='store_true')
+
     args = parser.parse_args()
     main(args)
 
@@ -237,7 +335,7 @@ def main(args):
     with open(args.module, 'rb') as f:
         mod = f.read()
 
-    igm = InputGenModule(mod, args.temp_dir, args.save_temps, args.mclang, args.mllvm, mode)
+    igm = InputGenGenerate(mod, args.temp_dir, args.save_temps, args.mclang, args.mllvm, mode, args.temp_dir)
     igm.prepare()
     igm.generate()
 

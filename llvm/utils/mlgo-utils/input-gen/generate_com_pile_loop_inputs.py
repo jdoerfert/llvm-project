@@ -22,7 +22,7 @@ import pandas
 from datasets import load_dataset
 from typing import Dict, Tuple, BinaryIO, Union, List, Optional, Iterable
 
-from input_gen_module import InputGenModule, Input
+from input_gen_module import InputGenGenerate, Input
 from dataset_writer import DatasetWriter
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,6 @@ def parse_args_and_run():
     parser.add_argument('--save-temps', action='store_true', default=False)
     parser.add_argument('-mclang', default=[], action='append')
     parser.add_argument('-mllvm', default=[], action='append')
-    parser.add_argument('-debug', default=False, action='store_true')
 
     parser.add_argument('--dataset', required=True)
     parser.add_argument('--output-dataset', required=True)
@@ -47,6 +46,8 @@ def parse_args_and_run():
     parser.add_argument('--begin', default=0, type=int)
     parser.add_argument('--end', default=3, type=int)
     parser.add_argument('--parquet-start', default=0, type=int)
+
+    parser.add_argument('-debug', default=False, action='store_true')
 
     args = parser.parse_args()
     main(args)
@@ -68,13 +69,14 @@ class ComPileLoopInput:
 
     def process_module_wrapper(self, i, data):
         try:
-            igm = InputGenModule(
+            igm = InputGenGenerate(
                 data['module'],
                 working_dir=None,
                 save_temps=self.args.save_temps,
                 mclang=self.args.mclang,
                 mllvm=self.args.mllvm,
-                entries=['__llvm_extracted_loop'])
+                entries=['__llvm_extracted_loop'],
+                temp_dir=self.args.temp_dir)
 
             igm.prepare()
             assert igm.get_num_entries() == 1
@@ -98,7 +100,7 @@ class ComPileLoopInput:
             return df, size
 
         except Exception as e:
-            logging.debug(f'InputGenModule failed: {e}')
+            logging.debug(f'InputGenGenerate failed: {e}')
             return None, 0
 
 if __name__ == '__main__':
