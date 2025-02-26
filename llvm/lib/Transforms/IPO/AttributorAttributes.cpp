@@ -940,7 +940,7 @@ ChangeStatus AA::PointerInfo::State::addAccess(
 
     for (const auto &Offsets : ToAdd) {
       LLVM_DEBUG(dbgs() << "    offsets " << Offsets << "\n");
-      OffsetBins[AA::AccessRangeTy(Offsets, AccessSize)].insert(AccIndex);
+      OffsetBins[AA::AccessRangeTy(Offsets, AccessSize)].push_back(AccIndex);
     }
   };
 
@@ -949,7 +949,7 @@ ChangeStatus AA::PointerInfo::State::addAccess(
     assert((AccessList.size() == AccIndex + 1) &&
            "New Access should have been at AccIndex");
     LocalList.push_back(AccIndex);
-    AddToBins(AccessList[AccIndex].getRanges());
+    AddToBins(Ranges);
     return ChangeStatus::CHANGED;
   }
 
@@ -978,9 +978,7 @@ ChangeStatus AA::PointerInfo::State::addAccess(
     AccessRangeTy AR(Offsets, AccessSize);
     assert(OffsetBins.count(AR) && "Existing Access must be in some bin.");
     auto &Bin = OffsetBins[AR];
-    assert(Bin.count(AccIndex) &&
-           "Expected bin to actually contain the Access.");
-    Bin.erase(AccIndex);
+    erase_if(Bin, [&](unsigned Idx) { return Idx == AccIndex; });
   }
 
   // Ranges that are in the new access but not the old access need to be added
@@ -1283,7 +1281,7 @@ struct AAPointerInfoImpl
 
       // Track if all interesting accesses are in the same `nosync` function as
       // the given instruction.
-      AllInSameNoSyncFn &= Acc.getRemoteInst()->getFunction() == &Scope;
+      AllInSameNoSyncFn &= AccScope == &Scope;
 
       InterferingAccesses.push_back({&Acc, Exact});
       return true;
@@ -1324,8 +1322,9 @@ struct AAPointerInfoImpl
         return true;
       if (!CanIgnoreThreading(Acc))
         return false;
+      Instruction *RemoteI = Acc.getRemoteInst();
       if (DT && UseDominanceReasoning && DominatingWrites.count(&Acc) &&
-          LeastDominatingWriteInst != Acc.getRemoteInst())
+          LeastDominatingWriteInst != RemoteI)
         return true;
 
       // Check read (RAW) dependences and write (WAR) dependences as necessary.
@@ -1337,14 +1336,14 @@ struct AAPointerInfoImpl
       // If the instruction cannot reach the access, the former does not
       // interfere with what the access reads.
       if (!ReadChecked) {
-        if (!AA::isPotentiallyReachable(A, I, *Acc.getRemoteInst(), QueryingAA,
+        if (!AA::isPotentiallyReachable(A, I, *RemoteI, QueryingAA,
                                         &ExclusionSet, IsLiveInCalleeCB))
           ReadChecked = true;
       }
       // If the instruction cannot be reach from the access, the latter does not
       // interfere with what the instruction reads.
       if (!WriteChecked) {
-        if (!AA::isPotentiallyReachable(A, *Acc.getRemoteInst(), I, QueryingAA,
+        if (!AA::isPotentiallyReachable(A, *RemoteI, I, QueryingAA,
                                         &ExclusionSet, IsLiveInCalleeCB))
           WriteChecked = true;
       }
@@ -1360,8 +1359,8 @@ struct AAPointerInfoImpl
       // might reach the instruction without going through another access
       // (ExclusionSet) and at the same time might reach the access. However,
       // that is all part of AAInterFnReachability.
-      if (!WriteChecked && HasBeenWrittenTo &&
-          Acc.getRemoteInst()->getFunction() != &Scope) {
+      Function *AccScope = RemoteI->getFunction();
+      if (!WriteChecked && HasBeenWrittenTo && AccScope != &Scope) {
 
         const auto *FnReachabilityAA = A.getAAFor<AAInterFnReachability>(
             QueryingAA, IRPosition::function(Scope), DepClassTy::OPTIONAL);
@@ -1372,8 +1371,7 @@ struct AAPointerInfoImpl
           bool Inserted = ExclusionSet.insert(&I).second;
 
           if (!FnReachabilityAA->instructionCanReach(
-                  A, *LeastDominatingWriteInst,
-                  *Acc.getRemoteInst()->getFunction(), &ExclusionSet))
+                  A, *LeastDominatingWriteInst, *AccScope, &ExclusionSet))
             WriteChecked = true;
 
           if (Inserted)
@@ -1880,8 +1878,8 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
         if (IntrI.getIntrinsicID() != Intrinsic::assume)
           return false;
         BasicBlock *IntrBB = IntrI.getParent();
-        if (IntrI.getParent() == BB) {
-          if (IsImpactedInRange(LoadI->getNextNode(), &IntrI))
+        if (IntrBB == BB) {
+          if (IsImpactedInRange(LoadI->getNextNonDebugInstruction(), &IntrI))
             return false;
         } else {
           auto PredIt = pred_begin(IntrBB);

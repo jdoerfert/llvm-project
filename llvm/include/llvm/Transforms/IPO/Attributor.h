@@ -6234,7 +6234,7 @@ struct AAPointerInfo : public AbstractAttribute {
   /// See AbstractAttribute::getIdAddr()
   const char *getIdAddr() const override { return &ID; }
 
-  using OffsetBinsTy = DenseMap<AA::AccessRangeTy, SmallSet<unsigned, 4>>;
+  using OffsetBinsTy = DenseMap<AA::AccessRangeTy, SmallVector<unsigned, 16>>;
   using const_bin_iterator = OffsetBinsTy::const_iterator;
   virtual const_bin_iterator begin() const = 0;
   virtual const_bin_iterator end() const = 0;
