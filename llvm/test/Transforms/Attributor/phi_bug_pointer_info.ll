@@ -8,15 +8,15 @@
 
 ; CHECK: Accesses by bin after update:
 ; CHECK: [<8, 0>:4] : 2
+; CHECK:    - 6 -   %ret = load i32, ptr %x, align 4
+; CHECK:      - c: <unknown>
 ; CHECK:    - 9 -   store i32 %0, ptr %field2, align 4
 ; CHECK:      - c:   %0 = load i32, ptr %val, align 4
+; CHECK: [<32, 0>:4] : 2
 ; CHECK:    - 6 -   %ret = load i32, ptr %x, align 4
 ; CHECK:      - c: <unknown>
-; CHECK: [<32, 0>:4] : 2
 ; CHECK:    - 9 -   store i32 %1, ptr %field8, align 4
 ; CHECK:      - c:   %1 = load i32, ptr %val2, align 4
-; CHECK:    - 6 -   %ret = load i32, ptr %x, align 4
-; CHECK:      - c: <unknown>
 ;.
 ; CHECK: @globalBytes = internal global [1024 x i8] zeroinitializer
 ; CHECK: @globalBytes = internal global [1024 x i8] zeroinitializer

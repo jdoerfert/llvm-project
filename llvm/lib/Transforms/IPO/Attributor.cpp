@@ -272,10 +272,10 @@ Constant *AA::getInitialValueForObj(Attributor &A,
       Initializer = GV->getInitializer();
   }
 
-  if (RangePtr && !RangePtr->PtrRange.offsetOrSizeAreUnknown()) {
+  if (RangePtr && !RangePtr->PtrRange.isUnknown()) {
     assert(RangePtr->AccessSize &&
            uint64_t(RangePtr->AccessSize) == DL.getTypeStoreSize(&Ty));
-    APInt Offset = APInt(64, RangePtr->PtrRange.Offset);
+    APInt Offset = APInt(64, RangePtr->PtrRange.getOffset());
     return ConstantFoldLoadFromConst(Initializer, &Ty, Offset, DL);
   }
 
@@ -434,29 +434,29 @@ static bool getPotentialCopiesOfMemoryValue(
       return AdjV;
     };
 
-    auto SkipCB = [&](const AAPointerInfo::Access &Acc) {
-      if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))
+    auto LoadSkipCB = [&](const AAPointerInfo::Access &Acc) {
+      assert(IsLoad && Acc.isWriteOrAssumption());
+      if (Acc.isWrittenValueYetUndetermined())
         return true;
-      if (IsLoad) {
-        if (Acc.isWrittenValueYetUndetermined())
-          return true;
-        if (PotentialValueOrigins && !isa<AssumeInst>(Acc.getRemoteInst()))
-          return false;
-        if (!Acc.isWrittenValueUnknown())
-          if (Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue()))
-            if (NewCopies.count(V)) {
-              NewCopyOrigins.insert(Acc.getRemoteInst());
-              return true;
-            }
-        if (auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst()))
-          if (Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand()))
-            if (NewCopies.count(V)) {
-              NewCopyOrigins.insert(Acc.getRemoteInst());
-              return true;
-            }
-      }
+      if (PotentialValueOrigins && !isa<AssumeInst>(Acc.getRemoteInst()))
+        return false;
+      if (!Acc.isWrittenValueUnknown())
+        if (Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue()))
+          if (NewCopies.count(V)) {
+            NewCopyOrigins.insert(Acc.getRemoteInst());
+            return true;
+          }
+      if (auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst()))
+        if (Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand()))
+          if (NewCopies.count(V)) {
+            NewCopyOrigins.insert(Acc.getRemoteInst());
+            return true;
+          }
       return false;
     };
+    function_ref<bool(const AAPointerInfo::Access &)> SkipCB;
+    if (IsLoad)
+      SkipCB = LoadSkipCB;
 
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
       if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))

@@ -729,10 +729,11 @@ private:
       if (!PointerInfoAA || !PointerInfoAA->getState().isValidState())
         return false;
 
+      AAPointerInfo::AccessKind AK = AAPointerInfo::AccessKind::AK_ANY;
       return PointerInfoAA->forallInterferingAccesses(
           RangeList, [](const AAPointerInfo::Access &Acc, bool IsExact) {
             return Acc.getRemoteInst()->isDroppable();
-          });
+          }, AK);
     };
 
     bool UsedAssumedInformation = false;
