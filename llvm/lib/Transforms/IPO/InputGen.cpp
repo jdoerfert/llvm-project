@@ -1050,7 +1050,7 @@ void InputGenEntriesImpl::collectIndirectCalleeCandidates() {
   }
 
   ArrayType *ATy = ArrayType::get(ArrayEltTy, Init.size());
-  new llvm::GlobalVariable(M, ATy, false, GlobalValue::AppendingLinkage,
+  new llvm::GlobalVariable(M, ATy, false, GlobalValue::ExternalLinkage,
                            ConstantArray::get(ATy, Init.getArrayRef()),
                            InputGenIndirectCalleeCandidateGlobalName);
 }
