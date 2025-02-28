@@ -244,7 +244,10 @@ DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
     UnrollFactor = ArgMax + UnrollFactorOffset;
     LLVM_DEBUG(DBGS() << "got advice factor " << *UnrollFactor << "\n");
   } else {
-    UnrollFactor = std::nullopt;
+    // Returning std::nullopt means that we made no decision, i.e. we delegated
+    // the decision to later handlers. Thus, we need to return 0 meaning "we
+    // decided we should not unroll".
+    UnrollFactor = 0;
     LLVM_DEBUG(DBGS() << "got advice nounroll\n");
   }
 
