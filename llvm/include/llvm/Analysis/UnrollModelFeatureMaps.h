@@ -11,6 +11,7 @@
 
 #include "llvm/Analysis/TensorSpec.h"
 
+#include <cstddef>
 #include <vector>
 
 namespace llvm {
@@ -45,9 +46,10 @@ static constexpr unsigned UnrollFactorOffset = 2;
 static constexpr unsigned UnrollModelOutputLength =
     1 + MaxUnrollFactor - UnrollFactorOffset;
 
-struct __attribute__((packed)) UnrollDecisionTy {
+struct UnrollDecisionTy {
   float Out[UnrollModelOutputLength];
 };
+static_assert(offsetof(UnrollDecisionTy, Out) == 0);
 
 extern const std::vector<TensorSpec> UnrollFeatureMap;
 
