@@ -123,25 +123,21 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ModuleIO::populate(*this, IIRB.Ctx);
   GlobalIO::populate(*this, IIRB.Ctx);
 
-  AllocaIO::ConfigTy AICConfig;
-  AICConfig.ReplaceSize = false;
-  AICConfig.PassAlignment = false;
+  AllocaIO::ConfigTy AICConfig(/*Enable=*/false);
+  AICConfig.set(AllocaIO::PassAddress);
+  AICConfig.set(AllocaIO::ReplaceAddress);
+  AICConfig.set(AllocaIO::PassSize);
   auto *AIC = InstrumentationConfig::allocate<AllocaIO>(/*IsPRE=*/false);
   AIC->CB = [&](Value &V) {
     return LSI.shouldInstrumentAlloca(cast<AllocaInst>(V), IIRB);
   };
   AIC->init(*this, IIRB.Ctx, &AICConfig);
 
-  LoadIO::ConfigTy LICConfig;
-  LICConfig.PassPointerAS = false;
-  LICConfig.PassLoopValueRangeInfo = false;
-  LICConfig.PassValue = false;
-  LICConfig.ReplaceValue = false;
-  LICConfig.PassAlignment = false;
-  LICConfig.PassValueTypeId = false;
-  LICConfig.PassAtomicityOrdering = false;
-  LICConfig.PassSyncScopeId = false;
-  LICConfig.PassIsVolatile = false;
+  LoadIO::ConfigTy LICConfig(/*Enable=*/false);
+  LICConfig.set(LoadIO::PassPointer);
+  LICConfig.set(LoadIO::ReplacePointer);
+  LICConfig.set(LoadIO::PassBasePointerInfo);
+  LICConfig.set(LoadIO::PassValueSize);
   auto *LIC = InstrumentationConfig::allocate<LoadIO>(/*IsPRE=*/true);
   LIC->HoistKind = HOIST_MAXIMALLY;
   LIC->CB = [&](Value &V) {
@@ -149,15 +145,11 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   };
   LIC->init(*this, IIRB, &LICConfig);
 
-  StoreIO::ConfigTy SICConfig;
-  SICConfig.PassPointerAS = false;
-  SICConfig.PassLoopValueRangeInfo = false;
-  SICConfig.PassStoredValue = false;
-  SICConfig.PassAlignment = false;
-  SICConfig.PassValueTypeId = false;
-  SICConfig.PassAtomicityOrdering = false;
-  SICConfig.PassSyncScopeId = false;
-  SICConfig.PassIsVolatile = false;
+  StoreIO::ConfigTy SICConfig(/*Enable=*/false);
+  SICConfig.set(StoreIO::PassPointer);
+  SICConfig.set(StoreIO::ReplacePointer);
+  SICConfig.set(StoreIO::PassBasePointerInfo);
+  SICConfig.set(StoreIO::PassStoredValueSize);
   auto *SIC = InstrumentationConfig::allocate<StoreIO>(/*IsPRE=*/true);
   SIC->HoistKind = HOIST_MAXIMALLY;
   SIC->CB = [&](Value &V) {
@@ -165,11 +157,12 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   };
   SIC->init(*this, IIRB, &SICConfig);
 
-  CallIO::ConfigTy CICConfig;
-  CICConfig.PassCallee = false;
-  CICConfig.PassCalleeName = false;
-  CICConfig.PassReturnedValue = false;
-  CICConfig.PassReturnedValueSize = false;
+  CallIO::ConfigTy CICConfig(/*Enable=*/false);
+  CICConfig.set(CallIO::PassIntrinsicId);
+  CICConfig.set(CallIO::PassAllocationInfo);
+  CICConfig.set(CallIO::PassNumParameters);
+  CICConfig.set(CallIO::PassParameters);
+  CICConfig.set(CallIO::PassIsDefinition);
   CICConfig.ArgFilter = [&](Use &Op) {
     auto *CI = cast<CallInst>(Op.getUser());
     auto &TLI = IIRB.TLIGetter(*CI->getFunction());
@@ -182,8 +175,11 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   };
   CIC->init(*this, IIRB.Ctx, &CICConfig);
 
-  FunctionIO::ConfigTy FICConfig;
-  FICConfig.PassAddress = false;
+  FunctionIO::ConfigTy FICConfig(/*Enable=*/false);
+  FICConfig.set(FunctionIO::PassName);
+  FICConfig.set(FunctionIO::PassNumArguments);
+  FICConfig.set(FunctionIO::PassArguments);
+  FICConfig.set(FunctionIO::ReplaceArguments);
   auto *FIC = InstrumentationConfig::allocate<FunctionIO>();
   FIC->CB = [&](Value &V) {
     return LSI.shouldInstrumentFunction(cast<Function>(V));

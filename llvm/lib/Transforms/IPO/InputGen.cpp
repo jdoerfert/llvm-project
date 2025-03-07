@@ -1175,21 +1175,25 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   BIC->CB = [&](Value &V) { return BranchMap.count(&cast<BranchInst>(V)); };
   BIC->init(*this, IIRB.Ctx);
 
-  AllocaIO::ConfigTy AICConfig;
-  AICConfig.ReplaceSize = false;
+  AllocaIO::ConfigTy AICConfig(/*Enable=*/false);
+  AICConfig.set(AllocaIO::PassAddress);
+  AICConfig.set(AllocaIO::ReplaceAddress);
+  AICConfig.set(AllocaIO::PassSize);
+  AICConfig.set(AllocaIO::PassAlignment);
   auto *AIC = InstrumentationConfig::allocate<AllocaIO>(/*IsPRE=*/false);
   AIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentAlloca(cast<AllocaInst>(V), IIRB);
   };
   AIC->init(*this, IIRB.Ctx, &AICConfig);
 
-  LoadIO::ConfigTy LICConfig;
-  LICConfig.PassPointerAS = false;
-  LICConfig.PassValue = false;
-  LICConfig.ReplaceValue = false;
-  LICConfig.PassAtomicityOrdering = false;
-  LICConfig.PassSyncScopeId = false;
-  LICConfig.PassIsVolatile = false;
+  LoadIO::ConfigTy LICConfig(/*Enable=*/false);
+  LICConfig.set(LoadIO::PassPointer);
+  LICConfig.set(LoadIO::ReplacePointer);
+  LICConfig.set(LoadIO::PassBasePointerInfo);
+  LICConfig.set(LoadIO::PassLoopValueRangeInfo);
+  LICConfig.set(LoadIO::PassValueSize);
+  LICConfig.set(LoadIO::PassAlignment);
+  LICConfig.set(LoadIO::PassValueTypeId);
   auto *LIC = InstrumentationConfig::allocate<LoadIO>(/*IsPRE=*/true);
   LIC->HoistKind = HOIST_MAXIMALLY;
   LIC->CB = [&](Value &V) {
@@ -1197,12 +1201,14 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   };
   LIC->init(*this, IIRB, &LICConfig);
 
-  StoreIO::ConfigTy SICConfig;
-  SICConfig.PassPointerAS = false;
-  SICConfig.PassAtomicityOrdering = false;
-  SICConfig.PassSyncScopeId = false;
-  SICConfig.PassIsVolatile = false;
-  SICConfig.PassStoredValue = false;
+  StoreIO::ConfigTy SICConfig(/*Enable=*/false);
+  SICConfig.set(StoreIO::PassPointer);
+  SICConfig.set(StoreIO::ReplacePointer);
+  SICConfig.set(StoreIO::PassBasePointerInfo);
+  SICConfig.set(StoreIO::PassLoopValueRangeInfo);
+  SICConfig.set(StoreIO::PassStoredValueSize);
+  SICConfig.set(StoreIO::PassAlignment);
+  SICConfig.set(StoreIO::PassValueTypeId);
   auto *SIC = InstrumentationConfig::allocate<StoreIO>(/*IsPRE=*/true);
   SIC->HoistKind = HOIST_MAXIMALLY;
   SIC->CB = [&](Value &V) {

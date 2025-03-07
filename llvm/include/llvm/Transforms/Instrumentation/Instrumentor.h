@@ -478,6 +478,18 @@ struct InstrumentationConfig {
   }
 };
 
+template <size_t N> struct BaseConfigTy {
+  std::bitset<N> Options;
+
+  BaseConfigTy(bool Enable = true) {
+    if (Enable)
+      Options.set();
+  }
+
+  bool has(size_t Opt) const { return Options.test(Opt); }
+  void set(size_t Opt, bool Value = true) { Options.set(Opt, Value); }
+};
+
 struct InstrumentationOpportunity {
   InstrumentationOpportunity(const InstrumentationLocation IP) : IP(IP) {}
   virtual ~InstrumentationOpportunity() {}
@@ -547,13 +559,17 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
   AllocaIO(bool IsPRE) : InstructionIO(IsPRE) {}
   virtual ~AllocaIO() {};
 
-  struct ConfigTy {
-    bool PassAddress = true;
-    bool ReplaceAddress = true;
-    bool PassSize = true;
-    bool ReplaceSize = true;
-    bool PassAlignment = true;
-  } Config;
+  enum ConfigKind {
+    PassAddress = 0,
+    ReplaceAddress,
+    PassSize,
+    ReplaceSize,
+    PassAlignment,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
             ConfigTy *UserConfig = nullptr) {
@@ -561,18 +577,20 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
       Config = *UserConfig;
 
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    if (!IsPRE && Config.PassAddress)
-      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
-                               "The allocated memory address.",
-                               Config.ReplaceAddress ? IRTArg::REPLACABLE : IRTArg::NONE,
-                               InstrumentationOpportunity::getValue,
-                               InstrumentationOpportunity::replaceValue));
-    if (Config.PassSize)
+    if (!IsPRE && Config.has(PassAddress))
+      IRTArgs.push_back(
+          IRTArg(PointerType::getUnqual(Ctx), "address",
+                 "The allocated memory address.",
+                 Config.has(ReplaceAddress) ? IRTArg::REPLACABLE : IRTArg::NONE,
+                 InstrumentationOpportunity::getValue,
+                 InstrumentationOpportunity::replaceValue));
+    if (Config.has(PassSize))
       IRTArgs.push_back(
           IRTArg(IntegerType::getInt64Ty(Ctx), "size", "The allocation size.",
-                 (IsPRE && Config.ReplaceSize) ? IRTArg::REPLACABLE : IRTArg::NONE,
+                 (IsPRE && Config.has(ReplaceSize)) ? IRTArg::REPLACABLE
+                                                    : IRTArg::NONE,
                  getSize, setSize));
-    if (Config.PassAlignment)
+    if (Config.has(PassAlignment))
       IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "alignment",
                                "The allocation alignment.", IRTArg::NONE,
                                getAlignment));
@@ -599,72 +617,76 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
   StoreIO(bool IsPRE) : InstructionIO(IsPRE) {}
   virtual ~StoreIO() {};
 
-  struct ConfigTy {
-    bool PassPointer = true;
-    bool ReplacePointer = true;
-    bool PassPointerAS = true;
-    bool PassBasePointerInfo = true;
-    bool PassLoopValueRangeInfo = true;
-    bool PassStoredValue = true;
-    bool PassStoredValueSize = true;
-    bool PassAlignment = true;
-    bool PassValueTypeId = true;
-    bool PassAtomicityOrdering = true;
-    bool PassSyncScopeId = true;
-    bool PassIsVolatile = true;
-  } Config;
+  enum ConfigKind {
+    PassPointer = 0,
+    ReplacePointer,
+    PassPointerAS,
+    PassBasePointerInfo,
+    PassLoopValueRangeInfo,
+    PassStoredValue,
+    PassStoredValueSize,
+    PassAlignment,
+    PassValueTypeId,
+    PassAtomicityOrdering,
+    PassSyncScopeId,
+    PassIsVolatile,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
             ConfigTy *UserConfig = nullptr) {
     if (UserConfig)
       Config = *UserConfig;
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    if (Config.PassPointer)
+    if (Config.has(PassPointer))
       IRTArgs.push_back(
           IRTArg(IIRB.PtrTy, "pointer", "The accessed pointer.",
-                 ((IsPRE && Config.ReplacePointer) ? IRTArg::REPLACABLE
-                                                   : IRTArg::NONE),
+                 ((IsPRE && Config.has(ReplacePointer)) ? IRTArg::REPLACABLE
+                                                        : IRTArg::NONE),
                  getPointer, setPointer));
-    if (Config.PassPointerAS)
+    if (Config.has(PassPointerAS))
       IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "pointer_as",
                                "The address space of the accessed pointer.",
                                IRTArg::NONE, getPointerAS));
-    if (Config.PassBasePointerInfo)
+    if (Config.has(PassBasePointerInfo))
       IRTArgs.push_back(IRTArg(IIRB.PtrTy, "base_pointer_info",
                                "The runtime provided base pointer info.",
                                IRTArg::NONE, getBasePointerInfo));
-    if (Config.PassLoopValueRangeInfo)
+    if (Config.has(PassLoopValueRangeInfo))
       IRTArgs.push_back(IRTArg(IIRB.PtrTy, "loop_value_range_info",
                                "The runtime provided loop value range info.",
                                IRTArg::NONE, getLoopValueRangeInfo));
-    if (Config.PassStoredValue)
+    if (Config.has(PassStoredValue))
       IRTArgs.push_back(
           IRTArg(IIRB.Int64Ty, "value", "The stored value.",
-                 IRTArg::POTENTIALLY_INDIRECT |
-                     (Config.PassStoredValueSize ? IRTArg::INDIRECT_HAS_SIZE
-                                                 : IRTArg::NONE),
+                 IRTArg::POTENTIALLY_INDIRECT | (Config.has(PassStoredValueSize)
+                                                     ? IRTArg::INDIRECT_HAS_SIZE
+                                                     : IRTArg::NONE),
                  getValue));
-    if (Config.PassStoredValueSize)
+    if (Config.has(PassStoredValueSize))
       IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_size",
                                "The size of the stored value.", IRTArg::NONE,
                                getValueSize));
-    if (Config.PassAlignment)
+    if (Config.has(PassAlignment))
       IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "alignment",
                                "The known access alignment.", IRTArg::NONE,
                                getAlignment));
-    if (Config.PassValueTypeId)
+    if (Config.has(PassValueTypeId))
       IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_type_id",
                                "The type id of the stored value.", IRTArg::NONE,
                                getValueTypeId));
-    if (Config.PassAtomicityOrdering)
+    if (Config.has(PassAtomicityOrdering))
       IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "atomicity_ordering",
                                "The atomicity ordering of the store.",
                                IRTArg::NONE, getAtomicityOrdering));
-    if (Config.PassSyncScopeId)
+    if (Config.has(PassSyncScopeId))
       IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "sync_scope_id",
                                "The sync scope id of the store.", IRTArg::NONE,
                                getSyncScopeId));
-    if (Config.PassIsVolatile)
+    if (Config.has(PassIsVolatile))
       IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "is_volatile",
                                "Flag indicating a volatile store.",
                                IRTArg::NONE, isVolatile));
@@ -713,72 +735,76 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
   LoadIO(bool IsPRE) : InstructionIO(IsPRE) {}
   virtual ~LoadIO() {};
 
-  struct ConfigTy {
-    bool PassPointer = true;
-    bool ReplacePointer = true;
-    bool PassPointerAS = true;
-    bool PassBasePointerInfo = true;
-    bool PassLoopValueRangeInfo = true;
-    bool PassValue = true;
-    bool ReplaceValue = true;
-    bool PassValueSize = true;
-    bool PassAlignment = true;
-    bool PassValueTypeId = true;
-    bool PassAtomicityOrdering = true;
-    bool PassSyncScopeId = true;
-    bool PassIsVolatile = true;
-  } Config;
+  enum ConfigKind {
+    PassPointer = 0,
+    ReplacePointer,
+    PassPointerAS,
+    PassBasePointerInfo,
+    PassLoopValueRangeInfo,
+    PassValue,
+    ReplaceValue,
+    PassValueSize,
+    PassAlignment,
+    PassValueTypeId,
+    PassAtomicityOrdering,
+    PassSyncScopeId,
+    PassIsVolatile,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
             ConfigTy *UserConfig = nullptr) {
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
     if (UserConfig)
       Config = *UserConfig;
-    if (Config.PassPointer)
+    if (Config.has(PassPointer))
       IRTArgs.push_back(
           IRTArg(IIRB.PtrTy, "pointer", "The accessed pointer.",
-                 ((IsPRE && Config.ReplacePointer) ? IRTArg::REPLACABLE
-                                                   : IRTArg::NONE),
+                 ((IsPRE && Config.has(ReplacePointer)) ? IRTArg::REPLACABLE
+                                                        : IRTArg::NONE),
                  getPointer, setPointer));
-    if (Config.PassPointerAS)
+    if (Config.has(PassPointerAS))
       IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "pointer_as",
                                "The address space of the accessed pointer.",
                                IRTArg::NONE, getPointerAS));
-    if (Config.PassBasePointerInfo)
+    if (Config.has(PassBasePointerInfo))
       IRTArgs.push_back(IRTArg(IIRB.PtrTy, "base_pointer_info",
                                "The runtime provided base pointer info.",
                                IRTArg::NONE, getBasePointerInfo));
-    if (Config.PassLoopValueRangeInfo)
+    if (Config.has(PassLoopValueRangeInfo))
       IRTArgs.push_back(IRTArg(IIRB.PtrTy, "loop_value_range_info",
                                "The runtime provided loop value range info.",
                                IRTArg::NONE, getLoopValueRangeInfo));
-    if (!IsPRE && Config.PassValue)
+    if (!IsPRE && Config.has(PassValue))
       IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "value", "The loaded value.",
                                IRTArg::REPLACABLE |
                                    IRTArg::POTENTIALLY_INDIRECT |
                                    IRTArg::INDIRECT_HAS_SIZE,
                                getValue, replaceValue));
-    if (Config.PassValueSize)
+    if (Config.has(PassValueSize))
       IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_size",
                                "The size of the loaded value.", IRTArg::NONE,
                                getValueSize));
-    if (Config.PassAlignment)
+    if (Config.has(PassAlignment))
       IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "alignment",
                                "The known access alignment.", IRTArg::NONE,
                                getAlignment));
-    if (Config.PassValueTypeId)
+    if (Config.has(PassValueTypeId))
       IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_type_id",
                                "The type id of the loaded value.", IRTArg::NONE,
                                getValueTypeId));
-    if (Config.PassAtomicityOrdering)
+    if (Config.has(PassAtomicityOrdering))
       IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "atomicity_ordering",
                                "The atomicity ordering of the load.",
                                IRTArg::NONE, getAtomicityOrdering));
-    if (Config.PassSyncScopeId)
+    if (Config.has(PassSyncScopeId))
       IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "sync_scope_id",
                                "The sync scope id of the load.", IRTArg::NONE,
                                getSyncScopeId));
-    if (Config.PassIsVolatile)
+    if (Config.has(PassIsVolatile))
       IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "is_volatile",
                                "Flag indicating a volatile load.", IRTArg::NONE,
                                isVolatile));
@@ -827,17 +853,23 @@ struct CallIO : public InstructionIO<Instruction::Call> {
   CallIO(bool IsPRE) : InstructionIO(IsPRE) {}
   virtual ~CallIO() {};
 
-  struct ConfigTy {
-    bool PassCallee = true;
-    bool PassCalleeName = true;
-    bool PassIntrinsicId = true;
-    bool PassAllocationInfo = true;
-    bool PassReturnedValue = true;
-    bool PassReturnedValueSize = true;
-    bool PassNumParameters = true;
-    bool PassParameters = true;
-    bool PassIsDefinition = true;
+  enum ConfigKind {
+    PassCallee,
+    PassCalleeName,
+    PassIntrinsicId,
+    PassAllocationInfo,
+    PassReturnedValue,
+    PassReturnedValueSize,
+    PassNumParameters,
+    PassParameters,
+    PassIsDefinition,
+    NumConfig,
+  };
+
+  struct ConfigTy final : public BaseConfigTy<ConfigKind::NumConfig> {
     std::function<bool(Use &)> ArgFilter;
+
+    ConfigTy(bool Enable = true) : BaseConfigTy(Enable) {}
   } Config;
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
@@ -846,51 +878,51 @@ struct CallIO : public InstructionIO<Instruction::Call> {
     if (UserConfig)
       Config = *UserConfig;
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    if (Config.PassCallee)
+    if (Config.has(PassCallee))
       IRTArgs.push_back(
           IRTArg(PointerType::getUnqual(Ctx), "callee",
                  "The callee address, or nullptr if an intrinsic.",
                  IRTArg::NONE, getCallee));
-    if (Config.PassCalleeName)
+    if (Config.has(PassCalleeName))
       IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "callee_name",
                                "The callee name (if available).",
                                IRTArg::STRING, getCalleeName));
-    if (Config.PassIntrinsicId)
+    if (Config.has(PassIntrinsicId))
       IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "intrinsic_id",
                                "The intrinsic id, or 0 if not an intrinsic.",
                                IRTArg::NONE, getIntrinsicId));
-    if (Config.PassAllocationInfo)
+    if (Config.has(PassAllocationInfo))
       IRTArgs.push_back(
           IRTArg(PointerType::getUnqual(Ctx), "allocation_info",
                  "Encoding of the allocation made by the call, if "
                  "any, or nullptr otherwise.",
                  IRTArg::NONE, getAllocationInfo));
     if (!IsPRE) {
-      if (Config.PassReturnedValue)
+      if (Config.has(PassReturnedValue))
         IRTArgs.push_back(IRTArg(
             IntegerType::getInt64Ty(Ctx), "return_value", "The returned value.",
             IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT |
-                (Config.PassReturnedValueSize ? IRTArg::INDIRECT_HAS_SIZE
-                                              : IRTArg::NONE),
+                (Config.has(PassReturnedValueSize) ? IRTArg::INDIRECT_HAS_SIZE
+                                                   : IRTArg::NONE),
             getValue, replaceValue));
-      if (Config.PassReturnedValueSize)
+      if (Config.has(PassReturnedValueSize))
         IRTArgs.push_back(IRTArg(
             IntegerType::getInt32Ty(Ctx), "return_value_size",
             "The size of the returned value", IRTArg::NONE, getValueSize));
     }
-    if (Config.PassNumParameters)
+    if (Config.has(PassNumParameters))
       IRTArgs.push_back(IRTArg(
           IntegerType::getInt32Ty(Ctx), "num_parameters",
           "Number of call parameters.", IRTArg::NONE,
           std::bind(&CallIO::getNumCallParameters, this, _1, _2, _3, _4)));
-    if (Config.PassParameters)
+    if (Config.has(PassParameters))
       IRTArgs.push_back(
           IRTArg(PointerType::getUnqual(Ctx), "parameters",
                  "Description of the call parameters.",
                  IsPRE ? IRTArg::REPLACABLE_CUSTOM : IRTArg::NONE,
                  std::bind(&CallIO::getCallParameters, this, _1, _2, _3, _4),
                  std::bind(&CallIO::setCallParameters, this, _1, _2, _3, _4)));
-    if (Config.PassIsDefinition)
+    if (Config.has(PassIsDefinition))
       IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_definition",
                                "Flag to indicate calls to definitions.",
                                IRTArg::NONE, isDefinition));
@@ -1138,13 +1170,17 @@ struct FunctionIO : public InstrumentationOpportunity {
             InstrumentationLocation(InstrumentationLocation::FUNCTION_PRE)) {}
   virtual ~FunctionIO() {};
 
-  struct ConfigTy {
-    bool PassAddress = true;
-    bool PassName = true;
-    bool PassNumArguments = true;
-    bool PassArguments = true;
-    bool ReplaceArguments = true;
-  } Config;
+  enum ConfigKind {
+    PassAddress = 0,
+    PassName,
+    PassNumArguments,
+    PassArguments,
+    ReplaceArguments,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
 
   StringRef getName() const override { return "function"; }
 
@@ -1154,25 +1190,27 @@ struct FunctionIO : public InstrumentationOpportunity {
     if (UserConfig)
       Config = *UserConfig;
 
-    if (Config.PassAddress)
+    if (Config.has(PassAddress))
       IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
                                "The function address.", IRTArg::NONE,
                                getFunctionAddress));
-    if (Config.PassName)
+    if (Config.has(PassName))
       IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "name",
                                "The function name.", IRTArg::STRING,
                                getFunctionName));
-    if (Config.PassNumArguments)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "num_arguments",
-                               "Number of function arguments (without varargs).",
-                               IRTArg::NONE,
-                               std::bind(&FunctionIO::getNumArguments, this, _1, _2, _3, _4)));
-    if (Config.PassArguments)
-      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "arguments",
-                               "Description of the arguments.",
-                               Config.ReplaceArguments ? IRTArg::REPLACABLE_CUSTOM : IRTArg::NONE,
-                               std::bind(&FunctionIO::getArguments, this, _1, _2, _3, _4),
-                               std::bind(&FunctionIO::setArguments, this, _1, _2, _3, _4)));
+    if (Config.has(PassNumArguments))
+      IRTArgs.push_back(IRTArg(
+          IntegerType::getInt32Ty(Ctx), "num_arguments",
+          "Number of function arguments (without varargs).", IRTArg::NONE,
+          std::bind(&FunctionIO::getNumArguments, this, _1, _2, _3, _4)));
+    if (Config.has(PassArguments))
+      IRTArgs.push_back(
+          IRTArg(PointerType::getUnqual(Ctx), "arguments",
+                 "Description of the arguments.",
+                 Config.has(ReplaceArguments) ? IRTArg::REPLACABLE_CUSTOM
+                                              : IRTArg::NONE,
+                 std::bind(&FunctionIO::getArguments, this, _1, _2, _3, _4),
+                 std::bind(&FunctionIO::setArguments, this, _1, _2, _3, _4)));
     IConf.addChoice(*this);
   }
 
