@@ -56,11 +56,10 @@ char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
 }
 
 OBJSAN_BIG_API_ATTRS
-int64_t __objsan_post_call(char *callee, char *callee_name,
-                           int64_t intrinsic_id, char *allocation_info,
-                           int64_t return_value, int32_t return_value_size,
-                           int32_t num_parameters, char *parameters,
-                           int8_t is_definition) {
+int64_t __objsan_post_allocation_call(
+    char *callee, char *callee_name, int64_t intrinsic_id,
+    char *allocation_info, int64_t return_value, int32_t return_value_size,
+    int32_t num_parameters, char *parameters, int8_t is_definition) {
   // TODO: translate return pointers back
 
   if (!allocation_info)
@@ -107,37 +106,47 @@ uint8_t __objsan_get_encoding(char *VPtr) {
 
 OBJSAN_SMALL_API_ATTRS
 char *__objsan_post_base_pointer_info(char *VPtr, uint64_t *SizePtr,
-                                      uint8_t *EncodingNoPtr, int64_t *OffsetPtr) {
+                                      uint8_t *EncodingNoPtr,
+                                      int64_t *OffsetPtr) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
   *EncodingNoPtr = EncodingNo;
-  ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, SizePtr);
+  ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, SizePtr,
+                     OffsetPtr);
 }
 
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
                                      int64_t FinalLoopValue, char *BaseMPtr,
-                                     uint64_t ObjSize, int8_t EncodingNo) {
+                                     uint64_t ObjSize, int64_t BaseOffset,
+                                     int8_t EncodingNo) {
   char *VPtr = (char *)InitialLoopValue;
   int64_t AccessSize = FinalLoopValue - InitialLoopValue;
-  ENCODING_NO_SWITCH(checkAccessRange, EncodingNo, 0, BaseMPtr, AccessSize,
-                     VPtr, ObjSize, /*FailOnError*/ false);
+  if ([&]() -> void * {
+        ENCODING_NO_SWITCH(checkAccessRange, EncodingNo, 0, BaseMPtr,
+                           AccessSize, VPtr, ObjSize, BaseOffset,
+                           /*FailOnError*/ false);
+      }())
+    return VPtr;
+  return nullptr;
 }
 
 OBJSAN_SMALL_API_ATTRS
-void *__objsan_pre_store(char *VPtr, char *BaseMPtr, uint64_t ObjSize,
-                         char *LVRI, uint64_t AccessSize, int8_t EncodingNo) {
+void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
+                        uint64_t AccessSize, uint64_t ObjSize,
+                        int64_t BaseOffset, int8_t EncodingNo) {
   if (BaseMPtr && LVRI)
     return BaseMPtr + (VPtr - LVRI);
   ENCODING_NO_SWITCH(checkAccessRange, EncodingNo, VPtr, BaseMPtr, AccessSize,
-                     VPtr, ObjSize);
+                     VPtr, ObjSize, BaseOffset);
 }
 
 OBJSAN_SMALL_API_ATTRS
-void *__objsan_pre_load(char *VPtr, char *BaseMPtr, uint64_t ObjSize,
-                        char *LVRI, uint64_t AccessSize, int8_t EncodingNo) {
+void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
+                         uint64_t AccessSize, uint64_t ObjSize,
+                         int64_t BaseOffset, int8_t EncodingNo) {
   if (BaseMPtr && LVRI)
     return BaseMPtr + (VPtr - LVRI);
   ENCODING_NO_SWITCH(checkAccessRange, EncodingNo, VPtr, BaseMPtr, AccessSize,
-                     VPtr, ObjSize);
+                     VPtr, ObjSize, BaseOffset);
 }
 }

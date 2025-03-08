@@ -36,7 +36,8 @@ template <uint64_t EncodingNo> struct EncodingBaseTy {
 
   static char *checkAndAdjust(char *MPtr, uint64_t AccessSize, int64_t Offset,
                               uint64_t ObjSize, bool FailOnError) {
-    printf("%p:%llu --- %llu @ %lli\n", MPtr, ObjSize, AccessSize, Offset);
+    printf("Check %p size %llu -- access %llu @ %lli\n", MPtr, ObjSize,
+           AccessSize, Offset);
     if (Offset < 0 || Offset + AccessSize > ObjSize) {
       if (!FailOnError)
         return nullptr;
@@ -44,6 +45,7 @@ template <uint64_t EncodingNo> struct EncodingBaseTy {
               Offset, AccessSize, ObjSize, (void *)MPtr);
       __builtin_trap();
     }
+    printf("--> %p\n", MPtr + Offset);
     return MPtr + Offset;
   }
 };
@@ -156,7 +158,8 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
   }
 
   char *checkAccessRange(char *BaseMPtr, uint64_t AccessSize, char *VPtr,
-                         uint64_t ObjSize, bool FailOnError = true) {
+                         uint64_t ObjSize, int64_t BaseOffset,
+                         bool FailOnError = true) {
     EncTy E(VPtr);
     if (ObjSize == ~0ULL)
       ObjSize = E.Bits.ObjSize;
@@ -174,10 +177,11 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
     return E.Bits.ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *SizePtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *SizePtr, int64_t *OffsetPtr) {
     EncTy E(VPtr);
-    *SizePtr = E.Bits.ObjSize;
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
+    *SizePtr = E.Bits.ObjSize;
+    *OffsetPtr = E.Bits.Offset;
     return D.MPtr;
   }
 
@@ -265,7 +269,8 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
   }
 
   char *checkAccessRange(char *BaseMPtr, uint64_t AccessSize, char *VPtr,
-                         uint64_t ObjSize, bool FailOnError = true) {
+                         uint64_t ObjSize, int64_t BaseOffset,
+                         bool FailOnError = true) {
     EncTy E(VPtr);
     if (ObjSize == ~0ULL)
       ObjSize = Objects[E.Bits.ObjectIdx].ObjSize;
@@ -284,10 +289,11 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     return ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *SizePtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *SizePtr, int64_t *OffsetPtr) {
     EncTy E(VPtr);
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
     *SizePtr = Obj.ObjSize;
+    *OffsetPtr = E.Bits.Offset;
     return Obj.Base;
   }
 

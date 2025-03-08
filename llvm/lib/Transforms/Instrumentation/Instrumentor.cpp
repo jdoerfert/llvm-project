@@ -878,8 +878,13 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
                                           InstrumentorIRBuilderTy &IIRB) {
   Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
 
-  Value *VPtr = &V;
-  VPtr = const_cast<Value *>(getUnderlyingObjectAggressive(VPtr));
+  Value *VPtr;
+  Value *NewVPtr = &V;
+  do {
+    VPtr = NewVPtr;
+    NewVPtr = const_cast<Value *>(getUnderlyingObjectAggressive(VPtr));
+  } while (NewVPtr != VPtr);
+
   Value *&BPI = BasePointerInfoMap[{VPtr, Fn}];
   if (!BPI) {
     auto *BPIO =
@@ -887,7 +892,7 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
     if (!BPIO || !BPIO->Enabled) {
       errs() << "WARNING: Base pointer info disabled but required, passing "
                 "nullptr.\n";
-      return BPI = Constant::getNullValue(BPIO->getRetTy(IIRB.Ctx));
+      return BPI = Constant::getNullValue(IIRB.PtrTy);
     }
     IRBuilderBase::InsertPointGuard IP(IIRB.IRB);
     if (auto *BasePtrI = dyn_cast<Instruction>(VPtr))
@@ -925,7 +930,7 @@ Value *InstrumentationConfig::getLoopValueRange(Value &V,
     if (!LVRIO || !LVRIO->Enabled) {
       errs() << "WARNING: Loop value range disabled but required, passing "
                 "nullptr.\n";
-      return LVR = Constant::getNullValue(LVRIO->getRetTy(IIRB.Ctx));
+      return LVR = Constant::getNullValue(IIRB.PtrTy);
     }
     IRBuilderBase::InsertPointGuard IP(IIRB.IRB);
     if (auto *BasePtrI = dyn_cast<Instruction>(VPtr))

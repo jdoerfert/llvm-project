@@ -83,8 +83,8 @@ struct InstrumentorIRBuilderTy {
     auto &AllocaList = AllocaMap[{Fn, DL.getTypeAllocSize(Ty)}];
     AllocaInst *AI;
     if (AllocaList.empty())
-      AI= new AllocaInst(Ty, DL.getAllocaAddrSpace(), "",
-                            Fn->getEntryBlock().begin());
+      AI = new AllocaInst(Ty, DL.getAllocaAddrSpace(), "",
+                          Fn->getEntryBlock().begin());
     else
       AI = AllocaList.pop_back_val();
     UsedAllocas[AI] = &AllocaList;
@@ -153,7 +153,7 @@ struct InstrumentorIRBuilderTy {
   /// Mapping to remember temporary allocas for reuse.
   DenseMap<std::pair<Function *, unsigned>, SmallVector<AllocaInst *>>
       AllocaMap;
-  DenseMap<AllocaInst *, SmallVector<AllocaInst *>*> UsedAllocas;
+  DenseMap<AllocaInst *, SmallVector<AllocaInst *> *> UsedAllocas;
 
   void eraseLater(Instruction *I) { ToBeErased.insert(I); }
   SmallPtrSet<Instruction *, 32> ToBeErased;
@@ -973,7 +973,7 @@ struct UnreachableIO : public InstructionIO<Instruction::Unreachable> {
 
 struct BranchIO : public InstructionIO<Instruction::Br> {
   BranchIO() : InstructionIO<Instruction::Br>(/*IsPRE*/ true) {}
-  virtual ~BranchIO(){};
+  virtual ~BranchIO() {};
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_conditional",
@@ -1081,16 +1081,30 @@ struct BasePointerIO : public InstrumentationOpportunity {
             InstrumentationLocation(InstrumentationLocation::SPECIAL_VALUE)) {}
   virtual ~BasePointerIO() {};
 
+  enum ConfigKind {
+    PassPointer = 0,
+    PassPointerKind,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
+
   StringRef getName() const override { return "base_pointer_info"; }
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "base_pointer",
-                             "The base pointer in question.",
-                             IRTArg::REPLACABLE, getValue, setValueNoop));
-    IRTArgs.push_back(IRTArg(
-        IntegerType::getInt32Ty(Ctx), "base_pointer_kind",
-        "The base pointer kind (argument, global, instruction, unknown).",
-        IRTArg::NONE, getPointerKind));
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
+    if (Config.has(PassPointer))
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "base_pointer",
+                               "The base pointer in question.",
+                               IRTArg::REPLACABLE, getValue, setValueNoop));
+    if (Config.has(PassPointerKind))
+      IRTArgs.push_back(IRTArg(
+          IntegerType::getInt32Ty(Ctx), "base_pointer_kind",
+          "The base pointer kind (argument, global, instruction, unknown).",
+          IRTArg::NONE, getPointerKind));
     IConf.addChoice(*this);
   }
 
@@ -1220,14 +1234,12 @@ struct FunctionIO : public InstrumentationOpportunity {
   static Value *getFunctionName(Value &V, Type &Ty,
                                 InstrumentationConfig &IConf,
                                 InstrumentorIRBuilderTy &IIRB);
-  Value *getNumArguments(Value &V, Type &Ty,
-                                InstrumentationConfig &IConf,
-                                InstrumentorIRBuilderTy &IIRB);
+  Value *getNumArguments(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                         InstrumentorIRBuilderTy &IIRB);
   Value *getArguments(Value &V, Type &Ty, InstrumentationConfig &IConf,
-                             InstrumentorIRBuilderTy &IIRB);
-  Value *setArguments(Value &V, Value &NewV,
-                             InstrumentationConfig &IConf,
-                             InstrumentorIRBuilderTy &IIRB);
+                      InstrumentorIRBuilderTy &IIRB);
+  Value *setArguments(Value &V, Value &NewV, InstrumentationConfig &IConf,
+                      InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     auto *AIC = IConf.allocate<FunctionIO>();
