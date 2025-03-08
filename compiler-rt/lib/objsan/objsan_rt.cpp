@@ -44,6 +44,12 @@ extern "C" {
 OBJSAN_BIG_API_ATTRS
 char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
                                bool RequiresTemporalCheck) {
+  static int X = 0;
+  static int NumToSanitize = 0;
+  if (auto *NS = getenv("NUM_SAN"))
+    NumToSanitize = atoi(NS);
+  if (++X > NumToSanitize)
+    return MPtr;
   if (ObjSize < SmallObjectsTy::getMaxSize() && !RequiresTemporalCheck)
     return SmallObjects.encode(MPtr, ObjSize);
   return LargeObjects.encode(MPtr, ObjSize);
