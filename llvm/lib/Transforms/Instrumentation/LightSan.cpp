@@ -90,7 +90,7 @@ struct LightSanImpl {
   bool instrument();
 
   bool shouldInstrumentFunction(Function &Fn);
-  bool shouldInstrumentCall(CallInst &CI);
+  bool shouldInstrumentCall(CallInst &CI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentLoad(LoadInst &LI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentStore(StoreInst &SI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentAlloca(AllocaInst &AI, InstrumentorIRBuilderTy &IIRB);
@@ -121,11 +121,321 @@ bool LightSanImpl::shouldInstrumentFunction(Function &Fn) {
   return Fn.getName() == "main";
 }
 
-bool LightSanImpl::shouldInstrumentCall(CallInst &CI) {
+bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
+                                        InstrumentorIRBuilderTy &IIRB) {
   Function *CalledFn = CI.getCalledFunction();
-  if (!CalledFn && CalledFn->isDeclaration())
+  if (!CalledFn)
     return true;
-  return false;
+  if (!CalledFn->isDeclaration())
+    return false;
+  FunctionType *CalledFnTy = CalledFn->getFunctionType();
+  if (!CalledFnTy->getReturnType()->isPtrOrPtrVectorTy() &&
+      none_of(CalledFnTy->params(),
+              [&](Type *ArgTy) { return ArgTy->isPtrOrPtrVectorTy(); }))
+    return false;
+  LibFunc TheLibFunc;
+  auto &TLI = IIRB.TLIGetter(*CalledFn);
+  if (!(TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc)))
+    return true;
+  switch (TheLibFunc) {
+  case LibFunc_ZdaPv:
+  case LibFunc_ZdaPvRKSt9nothrow_t:
+  case LibFunc_ZdaPvSt11align_val_t:
+  case LibFunc_ZdaPvSt11align_val_tRKSt9nothrow_t:
+  case LibFunc_ZdaPvj:
+  case LibFunc_ZdaPvjSt11align_val_t:
+  case LibFunc_ZdaPvm:
+  case LibFunc_ZdaPvmSt11align_val_t:
+  case LibFunc_ZdlPv:
+  case LibFunc_ZdlPvRKSt9nothrow_t:
+  case LibFunc_ZdlPvSt11align_val_t:
+  case LibFunc_ZdlPvSt11align_val_tRKSt9nothrow_t:
+  case LibFunc_ZdlPvj:
+  case LibFunc_ZdlPvjSt11align_val_t:
+  case LibFunc_ZdlPvm:
+  case LibFunc_ZdlPvmSt11align_val_t:
+    // TODO: Deletes
+    break;
+  case LibFunc_Znaj:
+  case LibFunc_ZnajRKSt9nothrow_t:
+  case LibFunc_ZnajSt11align_val_t:
+  case LibFunc_ZnajSt11align_val_tRKSt9nothrow_t:
+  case LibFunc_Znam:
+  case LibFunc_Znam12__hot_cold_t:
+  case LibFunc_ZnamRKSt9nothrow_t:
+  case LibFunc_ZnamRKSt9nothrow_t12__hot_cold_t:
+  case LibFunc_ZnamSt11align_val_t:
+  case LibFunc_ZnamSt11align_val_t12__hot_cold_t:
+  case LibFunc_ZnamSt11align_val_tRKSt9nothrow_t:
+  case LibFunc_ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t:
+  case LibFunc_Znwj:
+  case LibFunc_ZnwjRKSt9nothrow_t:
+  case LibFunc_ZnwjSt11align_val_t:
+  case LibFunc_ZnwjSt11align_val_tRKSt9nothrow_t:
+  case LibFunc_Znwm:
+  case LibFunc_Znwm12__hot_cold_t:
+  case LibFunc_ZnwmRKSt9nothrow_t:
+  case LibFunc_ZnwmRKSt9nothrow_t12__hot_cold_t:
+  case LibFunc_ZnwmSt11align_val_t:
+  case LibFunc_ZnwmSt11align_val_t12__hot_cold_t:
+  case LibFunc_ZnwmSt11align_val_tRKSt9nothrow_t:
+  case LibFunc_ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t:
+  case LibFunc_size_returning_new:
+  case LibFunc_size_returning_new_hot_cold:
+  case LibFunc_size_returning_new_aligned:
+  case LibFunc_size_returning_new_aligned_hot_cold:
+    // TODO: Allocate
+    break;
+  case LibFunc_atomic_load:
+  case LibFunc_atomic_store:
+    // TODO: Mem access
+    break;
+  case LibFunc_dunder_isoc99_scanf:
+  case LibFunc_dunder_isoc99_sscanf:
+    // TODO: Mem access
+    break;
+  case LibFunc___kmpc_alloc_shared:
+  case LibFunc___kmpc_free_shared:
+    // TODO: allocate
+    break;
+  case LibFunc_memccpy_chk:
+  case LibFunc_memcpy_chk:
+  case LibFunc_memmove_chk:
+  case LibFunc_mempcpy_chk:
+  case LibFunc_memset_chk:
+    // TODO: Mem access
+    break;
+  case LibFunc_sincospi_stret:
+  case LibFunc_sincospif_stret:
+    // TODO: Mem access
+    break;
+  case LibFunc_small_fprintf:
+  case LibFunc_small_printf:
+  case LibFunc_small_sprintf:
+  case LibFunc_snprintf_chk:
+  case LibFunc_sprintf_chk:
+  case LibFunc_stpcpy_chk:
+  case LibFunc_stpncpy_chk:
+  case LibFunc_strcat_chk:
+  case LibFunc_strcpy_chk:
+  case LibFunc_dunder_strdup:
+  case LibFunc_strlcat_chk:
+  case LibFunc_strlcpy_chk:
+  case LibFunc_strlen_chk:
+  case LibFunc_strncat_chk:
+  case LibFunc_strncpy_chk:
+  case LibFunc_dunder_strndup:
+  case LibFunc_dunder_strtok_r:
+  case LibFunc_vsnprintf_chk:
+  case LibFunc_vsprintf_chk:
+  case LibFunc_access:
+    // TODO: Mem access
+    break;
+  case LibFunc_aligned_alloc:
+    // TODO: Allocate
+    break;
+  case LibFunc_bcmp:
+  case LibFunc_bcopy:
+  case LibFunc_bzero:
+    // TODO: Mem access
+    break;
+  case LibFunc_calloc:
+    // TODO: Allocate
+    break;
+  case LibFunc_fclose:
+    // TODO: Free
+    break;
+  case LibFunc_fdopen:
+  case LibFunc_fopen64:
+  case LibFunc_fopen:
+    // TODO: Allocate
+    break;
+  case LibFunc_fgetc:
+  case LibFunc_fgetc_unlocked:
+  case LibFunc_fgetpos:
+  case LibFunc_fgets:
+  case LibFunc_fgets_unlocked:
+  case LibFunc_fileno:
+  case LibFunc_fiprintf:
+  case LibFunc_fprintf:
+  case LibFunc_fputc:
+  case LibFunc_fputc_unlocked:
+  case LibFunc_fputs:
+  case LibFunc_fputs_unlocked:
+  case LibFunc_fread:
+  case LibFunc_fread_unlocked:
+    // TODO: Mem access
+    break;
+  case LibFunc_free:
+    // TODO: free
+  case LibFunc_fscanf:
+  case LibFunc_fseek:
+  case LibFunc_fseeko:
+  case LibFunc_fseeko64:
+  case LibFunc_fsetpos:
+  case LibFunc_fstat:
+  case LibFunc_fstat64:
+  case LibFunc_fstatvfs:
+  case LibFunc_fstatvfs64:
+  case LibFunc_ftell:
+  case LibFunc_ftello:
+  case LibFunc_ftello64:
+  case LibFunc_ftrylockfile:
+  case LibFunc_funlockfile:
+  case LibFunc_fwrite:
+  case LibFunc_fwrite_unlocked:
+  case LibFunc_getc:
+  case LibFunc_getc_unlocked:
+  case LibFunc_getchar:
+  case LibFunc_getchar_unlocked:
+  case LibFunc_getenv:
+  case LibFunc_getitimer:
+  case LibFunc_getlogin_r:
+  case LibFunc_getpwnam:
+  case LibFunc_gets:
+  case LibFunc_gettimeofday:
+  case LibFunc_iprintf:
+  case LibFunc_lstat:
+  case LibFunc_lstat64:
+    // TODO: Mem access
+    break;
+  case LibFunc_malloc:
+    // TODO: allocate
+    break;
+  case LibFunc_memalign:
+  case LibFunc_posix_memalign:
+    break;
+  case LibFunc_memccpy:
+  case LibFunc_memchr:
+  case LibFunc_memcmp:
+  case LibFunc_memcpy:
+  case LibFunc_memmove:
+  case LibFunc_mempcpy:
+  case LibFunc_memrchr:
+  case LibFunc_memset:
+  case LibFunc_memset_pattern16:
+  case LibFunc_memset_pattern4:
+  case LibFunc_memset_pattern8:
+    // TODO: Mem access
+    break;
+  case LibFunc_open:
+  case LibFunc_open64:
+  case LibFunc_opendir:
+  case LibFunc_popen:
+    // TODO: Allocate
+    break;
+  case LibFunc_pclose:
+  case LibFunc_perror:
+  case LibFunc_pread:
+  case LibFunc_printf:
+  case LibFunc_putc:
+  case LibFunc_putc_unlocked:
+  case LibFunc_putchar:
+  case LibFunc_putchar_unlocked:
+  case LibFunc_puts:
+  case LibFunc_pwrite:
+    // TODO: 
+    break;
+  case LibFunc_qsort:
+  case LibFunc_read:
+  case LibFunc_readlink:
+    // TODO: mem access
+    break;
+  case LibFunc_realloc:
+  case LibFunc_reallocf:
+  case LibFunc_reallocarray:
+    // TODO: free + allocate
+    break;
+  case LibFunc_realpath:
+  case LibFunc_remquo:
+  case LibFunc_remquof:
+  case LibFunc_remquol:
+  case LibFunc_remove:
+  case LibFunc_rename:
+  case LibFunc_rewind:
+  case LibFunc_rmdir:
+  case LibFunc_scanf:
+  case LibFunc_setbuf:
+  case LibFunc_setitimer:
+  case LibFunc_setvbuf:
+  case LibFunc_sincos:
+  case LibFunc_sincosf:
+  case LibFunc_sincosl:
+  case LibFunc_siprintf:
+  case LibFunc_snprintf:
+  case LibFunc_sprintf:
+  case LibFunc_sscanf:
+  case LibFunc_stat:
+  case LibFunc_stat64:
+  case LibFunc_statvfs:
+  case LibFunc_statvfs64:
+  case LibFunc_stpcpy:
+  case LibFunc_stpncpy:
+  case LibFunc_strcasecmp:
+  case LibFunc_strcat:
+  case LibFunc_strchr:
+  case LibFunc_strcmp:
+  case LibFunc_strcoll:
+  case LibFunc_strcpy:
+  case LibFunc_strcspn:
+  case LibFunc_strdup:
+  case LibFunc_strlcat:
+  case LibFunc_strlcpy:
+  case LibFunc_strlen:
+  case LibFunc_strncasecmp:
+  case LibFunc_strncat:
+  case LibFunc_strncmp:
+  case LibFunc_strncpy:
+  case LibFunc_strndup:
+  case LibFunc_strnlen:
+  case LibFunc_strpbrk:
+  case LibFunc_strrchr:
+  case LibFunc_strspn:
+  case LibFunc_strstr:
+  case LibFunc_strtod:
+  case LibFunc_strtof:
+  case LibFunc_strtok:
+  case LibFunc_strtok_r:
+  case LibFunc_strtol:
+  case LibFunc_strtold:
+  case LibFunc_strtoll:
+  case LibFunc_strtoul:
+  case LibFunc_strtoull:
+  case LibFunc_strxfrm:
+  case LibFunc_system:
+  case LibFunc_times:
+  case LibFunc_tmpfile:
+  case LibFunc_tmpfile64:
+  case LibFunc_uname:
+  case LibFunc_ungetc:
+  case LibFunc_unlink:
+  case LibFunc_unsetenv:
+  case LibFunc_utime:
+  case LibFunc_utimes:
+    // TODO: mem access
+    break;
+  case LibFunc_valloc:
+  case LibFunc_vec_calloc:
+  case LibFunc_vec_free:
+  case LibFunc_vec_malloc:
+  case LibFunc_vec_realloc:
+    // TODO: allocate
+    break;
+  case LibFunc_vfprintf:
+  case LibFunc_vfscanf:
+  case LibFunc_vprintf:
+  case LibFunc_vscanf:
+  case LibFunc_vsnprintf:
+  case LibFunc_vsprintf:
+  case LibFunc_vsscanf:
+  case LibFunc_wcslen:
+  case LibFunc_write:
+    // TODO: mem access
+    break;
+  default:
+    break;
+  }
+  return true;
 }
 
 bool LightSanImpl::instrument() {
@@ -513,7 +823,7 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   };
   auto *CIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/true);
   CIC->CB = [&](Value &V) {
-    return LSI.shouldInstrumentCall(cast<CallInst>(V));
+    return LSI.shouldInstrumentCall(cast<CallInst>(V), IIRB);
   };
   CIC->init(*this, IIRB.Ctx, &CICConfig);
 
