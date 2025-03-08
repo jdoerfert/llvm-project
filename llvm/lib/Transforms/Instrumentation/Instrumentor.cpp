@@ -646,7 +646,6 @@ InstrumentorIRBuilderTy::getBestHoistPoint(BasicBlock::iterator IP,
 }
 InstrumentorIRBuilderTy::HoistResult
 InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(Instruction &I,
-                                                      HoistKindTy HoistKind,
                                                       BasicBlock::iterator IP) {
   auto *Fn = I.getFunction();
   const auto &DT = DTGetter(*Fn);
@@ -705,9 +704,11 @@ InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(Instruction &I,
 std::pair<BasicBlock::iterator, bool>
 InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
                                                 uint32_t AdditionalSize) {
-  std::pair<Value *, Value *> &Values = LoopRangeValueMap[&V];
-  if (Values.first)
+  LoopRangeInfo &LRI = LoopRangeInfoMap[&V];
+  if (LRI.Min) {
+    LRI.AdditionalSize = std::max(LRI.AdditionalSize, AdditionalSize);
     return {BasicBlock::iterator(), false};
+  }
   auto *BB = IRB.GetInsertBlock();
   auto *Fn = BB->getParent();
   auto &SE = SEGetter(*Fn);
@@ -778,17 +779,14 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   FirstSCEV = SE.getUMinExpr(TmpSCEV, LastSCEV);
   LastSCEV = SE.getUMaxExpr(TmpSCEV, LastSCEV);
 
-  auto *AdditionalSizeSCEV = SE.getConstant(Ty, AdditionalSize, true);
-  LastSCEV = SE.getAddExpr(LastSCEV, AdditionalSizeSCEV);
-
   Value *FirstVal = Expander.expandCodeFor(FirstSCEV, Ty);
   Value *LastVal = Expander.expandCodeFor(LastSCEV, Ty);
   IP = getBestHoistPoint(IP, HOIST_OUT_OF_LOOPS);
   if (auto *FirstValI = dyn_cast<Instruction>(FirstVal))
-    IP = hoistInstructionsAndAdjustIP(*FirstValI, HOIST_OUT_OF_LOOPS, IP).IP;
+    IP = hoistInstructionsAndAdjustIP(*FirstValI, IP).IP;
   if (auto *LastValI = dyn_cast<Instruction>(LastVal))
-    IP = hoistInstructionsAndAdjustIP(*LastValI, HOIST_OUT_OF_LOOPS, IP).IP;
-  Values = {FirstVal, LastVal};
+    IP = hoistInstructionsAndAdjustIP(*LastValI, IP).IP;
+  LRI = {FirstVal, LastVal, AdditionalSize};
   return {IP, true};
 }
 
@@ -1178,6 +1176,9 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
                                              InstrumentationCaches &ICaches) {
   SmallVector<Value *> CallParams;
 
+  IRBuilderBase::InsertPointGuard IRP(IIRB.IRB);
+  auto IP = IIRB.getBestHoistPoint(IIRB.IRB.GetInsertPoint(), IO.HoistKind);
+
   bool ForceIndirection = RequiresIndirection;
   for (auto &It : IO.IRTArgs) {
     if (!It.Enabled)
@@ -1202,6 +1203,9 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     } else {
       Param = tryToCast(IIRB.IRB, Param, It.Ty, DL);
     }
+    if (IO.HoistKind != DO_NOT_HOIST)
+      if (auto *ParamI = dyn_cast<Instruction>(Param))
+        IP = IIRB.hoistInstructionsAndAdjustIP(*ParamI, IP).IP;
     CallParams.push_back(Param);
   }
 
@@ -1236,6 +1240,9 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
       CallParam = CachedParam = AI;
     }
   }
+
+  if (!ForceIndirection)
+    IIRB.IRB.SetInsertPoint(IP);
 
   auto *FnTy =
       createLLVMSignature(IConf, V->getContext(), DL, ForceIndirection);
@@ -1716,6 +1723,14 @@ Value *LoopValueRangeIO::getFinalLoopValue(Value &V, Type &Ty,
                                            InstrumentationConfig &IConf,
                                            InstrumentorIRBuilderTy &IIRB) {
   if (auto *FV = IIRB.getFinalLoopValue(V))
+    return tryToCast(IIRB.IRB, FV, &Ty, IIRB.DL);
+  return Constant::getNullValue(&Ty);
+}
+
+Value *LoopValueRangeIO::getMaxOffset(Value &V, Type &Ty,
+                                      InstrumentationConfig &IConf,
+                                      InstrumentorIRBuilderTy &IIRB) {
+  if (auto *FV = IIRB.getMaxOffset(V, Ty))
     return tryToCast(IIRB.IRB, FV, &Ty, IIRB.DL);
   return Constant::getNullValue(&Ty);
 }

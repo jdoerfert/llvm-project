@@ -4,8 +4,8 @@
 
 #include "include/obj_encoding.h"
 
-#define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
+#define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
 using namespace __objsan;
 
@@ -116,15 +116,16 @@ char *__objsan_post_base_pointer_info(char *VPtr, uint64_t *SizePtr,
 
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
-                                     int64_t FinalLoopValue, char *BaseMPtr,
-                                     uint64_t ObjSize, int64_t BaseOffset,
-                                     int8_t EncodingNo) {
+                                     int64_t FinalLoopValue, int64_t MaxOffset,
+                                     char *BaseMPtr, uint64_t ObjSize,
+                                     int64_t BaseOffset, int8_t EncodingNo,
+                                     int8_t IsDefinitivelyExecuted) {
   char *VPtr = (char *)InitialLoopValue;
-  int64_t AccessSize = FinalLoopValue - InitialLoopValue;
+  int64_t LoopSize = FinalLoopValue - InitialLoopValue;
   if ([&]() -> void * {
         ENCODING_NO_SWITCH(checkAccessRange, EncodingNo, 0, BaseMPtr,
-                           AccessSize, VPtr, ObjSize, BaseOffset,
-                           /*FailOnError*/ false);
+                           LoopSize + MaxOffset, VPtr, ObjSize, BaseOffset,
+                           /*FailOnError*/ IsDefinitivelyExecuted);
       }())
     return VPtr;
   return nullptr;
@@ -133,8 +134,9 @@ void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, uint64_t ObjSize,
-                        int64_t BaseOffset, int8_t EncodingNo) {
-  if (BaseMPtr && LVRI)
+                        int64_t BaseOffset, int8_t EncodingNo,
+                        int8_t WasChecked) {
+  if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
     return BaseMPtr + (VPtr - LVRI);
   ENCODING_NO_SWITCH(checkAccessRange, EncodingNo, VPtr, BaseMPtr, AccessSize,
                      VPtr, ObjSize, BaseOffset);
@@ -143,8 +145,9 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, uint64_t ObjSize,
-                         int64_t BaseOffset, int8_t EncodingNo) {
-  if (BaseMPtr && LVRI)
+                         int64_t BaseOffset, int8_t EncodingNo,
+                         int8_t WasChecked) {
+  if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
     return BaseMPtr + (VPtr - LVRI);
   ENCODING_NO_SWITCH(checkAccessRange, EncodingNo, VPtr, BaseMPtr, AccessSize,
                      VPtr, ObjSize, BaseOffset);

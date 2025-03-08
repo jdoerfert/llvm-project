@@ -10,6 +10,7 @@
 
 #include "llvm/Transforms/Instrumentation/LightSan.h"
 
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
@@ -135,6 +136,46 @@ bool LightSanImpl::instrument() {
   auto PA = IP.run(M, MAM);
   if (!PA.areAllPreserved())
     Changed = true;
+
+  auto &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+  auto CheckForRequiredRanged = [&](StringRef Name) {
+    auto *FC = M.getFunction(IConf.getRTName("pre_", Name));
+    for (auto *U : FC->users()) {
+      auto *CI = cast<CallInst>(U);
+      auto *BB = CI->getParent();
+      auto *Fn = BB->getParent();
+      auto &LI = FAM.getResult<LoopAnalysis>(*Fn);
+      auto *L = LI.getLoopFor(BB);
+      if (!L)
+        continue;
+      auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
+      // TODO: we need to use the must-be-executed stuff in
+      // llvm/include/llvm/Analysis/MustExecute.h to avoid weird exits
+      auto *ExitBB = L->getExitBlock();
+      if (!ExitBB || !(BB == ExitBB || DT.dominates(BB, ExitBB)))
+        continue;
+      auto *LVRI = CI->getArgOperand(2);
+      if (isa<ConstantPointerNull>(LVRI))
+        continue;
+      auto *LVRICI = cast<CallInst>(LVRI);
+      auto MaxOffset =
+          cast<ConstantInt>(LVRICI->getArgOperand(2))->getSExtValue();
+      auto IsExecuted =
+          cast<ConstantInt>(LVRICI->getArgOperand(7))->getSExtValue();
+      if (!IsExecuted) {
+        auto Offset = cast<ConstantInt>(CI->getArgOperand(3))->getSExtValue();
+        if (MaxOffset > Offset)
+          continue;
+        LVRICI->setArgOperand(
+            7, ConstantInt::get(Type::getInt8Ty(M.getContext()), 1));
+      }
+      CI->setArgOperand(7,
+                        ConstantInt::get(Type::getInt8Ty(M.getContext()), 1));
+    }
+  };
+  CheckForRequiredRanged("load");
+  CheckForRequiredRanged("store");
 
   return Changed;
 }
@@ -281,6 +322,10 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
                              "The encoding number used for the pointer.",
                              IRTArg::NONE, getEncodingNo));
+    IRTArgs.push_back(
+        IRTArg(IIRB.Int8Ty, "is_definitively_executed",
+               "Flag to indicate the range is definitively executed.",
+               IRTArg::NONE, getIsDefinitivelyExecuted));
   }
 
   static Value *getBasePointerInfo(Value &V, Type &Ty,
@@ -303,10 +348,16 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     return LSIConf.getBasePointerEncodingNo(V, IIRB);
   }
+  static Value *getIsDefinitivelyExecuted(Value &V, Type &Ty,
+                                          InstrumentationConfig &IConf,
+                                          InstrumentorIRBuilderTy &IIRB) {
+    return ConstantInt::get(&Ty, 0);
+  }
 
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *LVRIO = IConf.allocate<ExtendedLoopValueRangeIO>();
+    LVRIO->HoistKind = HOIST_IN_BLOCK;
     LVRIO->init(IConf, IIRB);
   }
 };
@@ -334,6 +385,9 @@ struct ExtendedLoadIO : public LoadIO {
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
                              "The encoding number used for the pointer.",
                              IRTArg::NONE, getEncodingNo));
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "was_checked",
+                             "Flag to indicate the access range was checked.",
+                             IRTArg::NONE, getWasChecked));
   }
 
   static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
@@ -354,10 +408,15 @@ struct ExtendedLoadIO : public LoadIO {
     return LSIConf.getBasePointerEncodingNo(
         *cast<LoadInst>(V).getPointerOperand(), IIRB);
   }
+  static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    return ConstantInt::get(&Ty, 0);
+  }
 
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *ESIO = IConf.allocate<ExtendedLoadIO>(/*IsPRE*/ true);
+    ESIO->HoistKind = HOIST_IN_BLOCK;
     ESIO->init(IConf, IIRB);
   }
 };
@@ -385,6 +444,9 @@ struct ExtendedStoreIO : public StoreIO {
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
                              "The encoding number used for the pointer.",
                              IRTArg::NONE, getEncodingNo));
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "was_checked",
+                             "Flag to indicate the access range was checked.",
+                             IRTArg::NONE, getWasChecked));
   }
 
   static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
@@ -405,10 +467,15 @@ struct ExtendedStoreIO : public StoreIO {
     return LSIConf.getBasePointerEncodingNo(
         *cast<StoreInst>(V).getPointerOperand(), IIRB);
   }
+  static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    return ConstantInt::get(&Ty, 0);
+  }
 
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *ESIO = IConf.allocate<ExtendedStoreIO>(/*IsPRE*/ true);
+    ESIO->HoistKind = HOIST_IN_BLOCK;
     ESIO->init(IConf, IIRB);
   }
 };

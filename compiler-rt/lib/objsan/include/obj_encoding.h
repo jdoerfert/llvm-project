@@ -36,16 +36,20 @@ template <uint64_t EncodingNo> struct EncodingBaseTy {
 
   static char *checkAndAdjust(char *MPtr, uint64_t AccessSize, int64_t Offset,
                               uint64_t ObjSize, bool FailOnError) {
+    #if 0
     printf("Check %p size %llu -- access %llu @ %lli\n", MPtr, ObjSize,
            AccessSize, Offset);
-    if (Offset < 0 || Offset + AccessSize > ObjSize) {
+    #endif
+    if (Offset < 0 || Offset + AccessSize > ObjSize) [[unlikely]] {
       if (!FailOnError)
         return nullptr;
       fprintf(stderr, "memory out-of-bound %llu + %llu vs %llu! (Base %p)\n",
               Offset, AccessSize, ObjSize, (void *)MPtr);
       __builtin_trap();
     }
+    #if 0
     printf("--> %p\n", MPtr + Offset);
+    #endif
     return MPtr + Offset;
   }
 };
@@ -161,7 +165,7 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
                          uint64_t ObjSize, int64_t BaseOffset,
                          bool FailOnError = true) {
     EncTy E(VPtr);
-    if (ObjSize == ~0ULL)
+    if (ObjSize == ~0ULL) [[unlikely]]
       ObjSize = E.Bits.ObjSize;
     return Base::checkAndAdjust(BaseMPtr, AccessSize, E.Bits.Offset, ObjSize,
                                 FailOnError);
@@ -272,7 +276,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
                          uint64_t ObjSize, int64_t BaseOffset,
                          bool FailOnError = true) {
     EncTy E(VPtr);
-    if (ObjSize == ~0ULL)
+    if (ObjSize == ~0ULL) [[unlikely]]
       ObjSize = Objects[E.Bits.ObjectIdx].ObjSize;
     return Base::checkAndAdjust(BaseMPtr, AccessSize, E.Bits.Offset, ObjSize,
                                 FailOnError);

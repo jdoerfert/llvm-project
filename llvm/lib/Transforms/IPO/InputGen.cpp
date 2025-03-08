@@ -592,7 +592,7 @@ Value *BranchConditionIO::getFreeValues(Value &V, Type &Ty,
     ParameterTypes.push_back(GetTypeOrEquivInt(V->getType()));
     ParameterValues.push_back(V);
     if (auto *I = dyn_cast<Instruction>(V))
-      IP = IIRB.hoistInstructionsAndAdjustIP(*I, HOIST_MAXIMALLY, IP).IP;
+      IP = IIRB.hoistInstructionsAndAdjustIP(*I, IP).IP;
   };
 
   uint32_t NumFVIs = 0;

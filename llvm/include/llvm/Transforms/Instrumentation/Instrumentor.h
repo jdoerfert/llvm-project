@@ -113,22 +113,29 @@ struct InstrumentorIRBuilderTy {
     Value *MaxVal;
   };
   HoistResult hoistInstructionsAndAdjustIP(Instruction &I,
-                                           HoistKindTy HoistKind,
                                            BasicBlock::iterator IP);
 
   bool isKnownDereferenceableAccess(Instruction &I, Value &Ptr,
                                     uint32_t AccessSize);
 
-  DenseMap<Value *, std::pair<Value *, Value *>> LoopRangeValueMap;
+  struct LoopRangeInfo {
+    Value *Min;
+    Value *Max;
+    uint32_t AdditionalSize;
+  };
+  DenseMap<Value *, LoopRangeInfo> LoopRangeInfoMap;
 
   std::pair<BasicBlock::iterator, bool>
   computeLoopRangeValues(Value &V, uint32_t AdditionalSize);
 
   Value *getInitialLoopValue(Value &V) {
-    return std::get<0>(LoopRangeValueMap[&V]);
+    return LoopRangeInfoMap[&V].Min;
   }
   Value *getFinalLoopValue(Value &V) {
-    return std::get<1>(LoopRangeValueMap[&V]);
+    return LoopRangeInfoMap[&V].Max;
+  }
+  Value *getMaxOffset(Value &V, Type &Ty) {
+    return ConstantInt::get(&Ty, LoopRangeInfoMap[&V].AdditionalSize);
   }
 
   /// Commonly used values for IR inspection and creation.
@@ -667,7 +674,7 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
                                                      : IRTArg::NONE),
                  getValue));
     if (Config.has(PassStoredValueSize))
-      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_size",
+      IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "value_size",
                                "The size of the stored value.", IRTArg::NONE,
                                getValueSize));
     if (Config.has(PassAlignment))
@@ -785,7 +792,7 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
                                    IRTArg::INDIRECT_HAS_SIZE,
                                getValue, replaceValue));
     if (Config.has(PassValueSize))
-      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "value_size",
+      IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "value_size",
                                "The size of the loaded value.", IRTArg::NONE,
                                getValueSize));
     if (Config.has(PassAlignment))
@@ -1141,6 +1148,9 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
     IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "final_loop_val",
                              "The value in the last loop iteration.",
                              IRTArg::NONE, getFinalLoopValue));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "max_offset",
+                             "The maximal offset inside the loop.",
+                             IRTArg::NONE, getMaxOffset));
     IConf.addChoice(*this);
   }
 
@@ -1148,6 +1158,9 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
                                     InstrumentationConfig &IConf,
                                     InstrumentorIRBuilderTy &IIRB);
   static Value *getFinalLoopValue(Value &V, Type &Ty,
+                                  InstrumentationConfig &IConf,
+                                  InstrumentorIRBuilderTy &IIRB);
+  static Value *getMaxOffset(Value &V, Type &Ty,
                                   InstrumentationConfig &IConf,
                                   InstrumentorIRBuilderTy &IIRB);
 

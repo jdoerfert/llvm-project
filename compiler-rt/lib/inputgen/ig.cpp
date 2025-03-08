@@ -121,12 +121,12 @@ void __ig_pre_call(char *callee, char *callee_name, int64_t intrinsic_id,
 
 IG_API_ATTRS
 void *__ig_pre_load_slow(char *pointer, char *base_pointer_info,
-                         char *loop_value_range_info, int32_t value_size,
+                         char *loop_value_range_info, int64_t value_size,
                          int64_t alignment, int32_t value_type_id) {
   // printf("l %p %p %p\n", base_pointer_info, loop_value_range_info, pointer);
   PRINTF(
       "load pre -- pointer: %p, base_pointer_info: %p, loop_value_range_info: "
-      "%p, value_size: %i, alignment: %lli, value_type_id: %i\n",
+      "%p, value_size: %lli, alignment: %lli, value_type_id: %i\n",
       pointer, base_pointer_info, loop_value_range_info, value_size, alignment,
       value_type_id);
   ThreadOM.checkBranchConditions(pointer, base_pointer_info);
@@ -140,7 +140,7 @@ void *__ig_pre_load_slow(char *pointer, char *base_pointer_info,
 
 IG_API_ATTRS
 void *__ig_pre_load(char *pointer, char *base_pointer_info,
-                    char *loop_value_range_info, int32_t value_size,
+                    char *loop_value_range_info, int64_t value_size,
                     int64_t alignment, int32_t value_type_id) {
   if (base_pointer_info && loop_value_range_info) {
     PRINTF("l %p %p %p %lu\n", base_pointer_info, loop_value_range_info,
@@ -154,11 +154,11 @@ void *__ig_pre_load(char *pointer, char *base_pointer_info,
 
 IG_API_ATTRS
 void *__ig_pre_store_slow(char *pointer, char *base_pointer_info,
-                          char *loop_value_range_info, int32_t value_size,
+                          char *loop_value_range_info, int64_t value_size,
                           int64_t alignment, int32_t value_type_id) {
   PRINTF(
       "store pre -- pointer: %p, base_pointer_info: %p, loop_value_range_info: "
-      "%p, value_size: %i, alignment: %lli, value_type_id: %i\n",
+      "%p, value_size: %lli, alignment: %lli, value_type_id: %i\n",
       pointer, base_pointer_info, loop_value_range_info, value_size, alignment,
       value_type_id);
   bool AnyInitialized = false, AllInitialized = true;
@@ -171,7 +171,7 @@ void *__ig_pre_store_slow(char *pointer, char *base_pointer_info,
 
 IG_API_ATTRS
 void *__ig_pre_store(char *pointer, char *base_pointer_info,
-                     char *loop_value_range_info, int32_t value_size,
+                     char *loop_value_range_info, int64_t value_size,
                      int64_t alignment, int32_t value_type_id) {
   if (base_pointer_info && loop_value_range_info) {
     PRINTF("s %p %p %p %lu\n", base_pointer_info, loop_value_range_info,
@@ -239,12 +239,12 @@ char *__ig_post_base_pointer_info(char *base_pointer,
 
 IG_API_ATTRS
 void *__ig_post_loop_value_range(int64_t initial_loop_val,
-                                 int64_t final_loop_val) {
+                                 int64_t final_loop_val, int64_t max_offset) {
   PRINTF("loop_value_range post -- initial_loop_val: %p, final_loop_val: %p\n",
          (void *)initial_loop_val, (void *)final_loop_val);
 
   char *VPtrBegin = (char *)initial_loop_val;
-  int64_t Size = final_loop_val - initial_loop_val;
+  int64_t Size = final_loop_val - initial_loop_val + max_offset;
   [[maybe_unused]] char *BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
   PRINTF("%p %p %lli\n", VPtrBegin, BaseVPtr, Size);
   bool AllInitialized = ThreadOM.checkRange(VPtrBegin, Size);
@@ -361,7 +361,7 @@ void __ig_pre_branch_condition_info(char *branch_condition_fn,
 
   if (!BCI || BCI->IsFixed)
     return;
-  uint32_t MaxSize = num_arguments * sizeof(char*);
+  uint32_t MaxSize = num_arguments * sizeof(char *);
   uint32_t ArgMemSize = 0;
   char *ArgMemPtr;
   bool IsKnown = BCI->Fn;
@@ -478,8 +478,8 @@ int __ig_known_strcmp2(char *s1, char *s2) {
 }
 
 IG_API_ATTRS
-int __ig_known___sprintf_chk(char *s, int flags, size_t slen, const char *format,
-                       ...) {
+int __ig_known___sprintf_chk(char *s, int flags, size_t slen,
+                             const char *format, ...) {
   PRINTF("sprintf_chk -- s: %p, flags: %i, slen: %zu, format %p\n", s, flags,
          slen, format);
   [[maybe_unused]] auto *MPtr1 = __ig_decode(s);
