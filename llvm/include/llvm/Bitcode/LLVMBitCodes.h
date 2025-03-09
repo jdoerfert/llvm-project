@@ -817,6 +817,7 @@ enum AttributeKindCodes {
   ATTR_KIND_NOOUTLINE = 107,
   ATTR_KIND_FLATTEN = 108,
   ATTR_KIND_INPUTGEN_ENTRY = 109,
+  ATTR_KIND_SANITIZE_OBJECT = 110,
 };
 
 enum ComdatSelectionKindCodes {

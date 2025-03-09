@@ -22,7 +22,7 @@ SanitizerMetadata::SanitizerMetadata(CodeGenModule &CGM) : CGM(CGM) {}
 static bool isAsanHwasanMemTagOrTysan(const SanitizerSet &SS) {
   return SS.hasOneOf(SanitizerKind::Address | SanitizerKind::KernelAddress |
                      SanitizerKind::HWAddress | SanitizerKind::MemTag |
-                     SanitizerKind::Type);
+                     SanitizerKind::Type | SanitizerKind::Object);
 }
 
 static SanitizerMask expandKernelSanitizerMasks(SanitizerMask Mask) {
@@ -50,9 +50,11 @@ void SanitizerMetadata::reportGlobal(llvm::GlobalVariable *GV,
   if (GV->hasSanitizerMetadata())
     Meta = GV->getSanitizerMetadata();
 
-  Meta.NoAddress |= NoSanitizeAttrSet.hasOneOf(SanitizerKind::Address);
+  Meta.NoAddress |= NoSanitizeAttrSet.hasOneOf(SanitizerKind::Address |
+                                               SanitizerKind::Object);
   Meta.NoAddress |= CGM.isInNoSanitizeList(
-      FsanitizeArgument.Mask & SanitizerKind::Address, GV, Loc, Ty);
+      FsanitizeArgument.Mask & (SanitizerKind::Address | SanitizerKind::Object),
+      GV, Loc, Ty);
 
   Meta.NoHWAddress |= NoSanitizeAttrSet.hasOneOf(SanitizerKind::HWAddress);
   Meta.NoHWAddress |= CGM.isInNoSanitizeList(
@@ -64,11 +66,13 @@ void SanitizerMetadata::reportGlobal(llvm::GlobalVariable *GV,
   Meta.Memtag &= !CGM.isInNoSanitizeList(
       FsanitizeArgument.Mask & SanitizerKind::MemTag, GV, Loc, Ty);
 
-  Meta.IsDynInit = IsDynInit && !Meta.NoAddress &&
-                   FsanitizeArgument.has(SanitizerKind::Address) &&
-                   !CGM.isInNoSanitizeList(SanitizerKind::Address |
-                                               SanitizerKind::KernelAddress,
-                                           GV, Loc, Ty, "init");
+  Meta.IsDynInit =
+      IsDynInit && !Meta.NoAddress &&
+      FsanitizeArgument.has(SanitizerKind::Address | SanitizerKind::Object) &&
+      !CGM.isInNoSanitizeList(SanitizerKind::Address |
+                                  SanitizerKind::KernelAddress |
+                                  SanitizerKind::Object,
+                              GV, Loc, Ty, "init");
 
   GV->setSanitizerMetadata(Meta);
 

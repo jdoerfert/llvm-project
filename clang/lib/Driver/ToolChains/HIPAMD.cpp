@@ -12,6 +12,8 @@
 #include "SPIRV.h"
 #include "clang/Basic/Cuda.h"
 #include "clang/Driver/CommonArgs.h"
+#include "clang/Basic/Sanitizers.h"
+#include "clang/Basic/TargetID.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/InputInfo.h"
@@ -231,6 +233,17 @@ HIPAMDToolChain::HIPAMDToolChain(const Driver &D, const llvm::Triple &Triple,
   // Lookup binaries into the driver directory, this is used to
   // discover the clang-offload-bundler executable.
   getProgramPaths().push_back(getDriver().Dir);
+
+  // Diagnose unsupported sanitizer options only once.
+  if (!Args.hasFlag(options::OPT_fgpu_sanitize, options::OPT_fno_gpu_sanitize,
+                    true))
+    return;
+  for (auto *A : Args.filtered(options::OPT_fsanitize_EQ)) {
+    SanitizerMask K = parseSanitizerValue(A->getValue(), /*AllowGroups=*/false);
+    if (K != SanitizerKind::Address && K != SanitizerKind::Object)
+      D.getDiags().Report(clang::diag::warn_drv_unsupported_option_for_target)
+          << A->getAsString(Args) << getTriple().str();
+  }
 }
 
 void HIPAMDToolChain::addClangTargetOptions(

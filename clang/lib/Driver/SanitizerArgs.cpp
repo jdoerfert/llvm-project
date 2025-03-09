@@ -204,6 +204,7 @@ static void addDefaultIgnorelists(const Driver &D, SanitizerMask Kinds,
                      {"nsan_ignorelist.txt", SanitizerKind::NumericalStability},
                      {"tsan_ignorelist.txt", SanitizerKind::Thread},
                      {"tysan_blacklist.txt", SanitizerKind::Type},
+                     {"objsan_blacklist.txt", SanitizerKind::Object},
                      {"dfsan_abilist.txt", SanitizerKind::DataFlow},
                      {"cfi_ignorelist.txt", SanitizerKind::CFI},
                      {"alloc_token_ignorelist.txt", SanitizerKind::AllocToken},
@@ -629,6 +630,10 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
       std::make_pair(SanitizerKind::Address,
                      SanitizerKind::Thread | SanitizerKind::Memory),
       std::make_pair(SanitizerKind::Type,
+                     SanitizerKind::Address | SanitizerKind::KernelAddress |
+                         SanitizerKind::Memory | SanitizerKind::Leak |
+                         SanitizerKind::Thread | SanitizerKind::KernelAddress),
+      std::make_pair(SanitizerKind::Object,
                      SanitizerKind::Address | SanitizerKind::KernelAddress |
                          SanitizerKind::Memory | SanitizerKind::Leak |
                          SanitizerKind::Thread | SanitizerKind::KernelAddress),

@@ -11,7 +11,10 @@
 namespace __objsan {
 
 struct EncodingCommonTy {
+  static constexpr uint64_t MAGIC = 0b101;
+  static constexpr uint64_t NumMagicBits = 3;
   static constexpr uint64_t NumEncodingBits = 2;
+
   union EncTy {
     char *VPtr;
     struct __attribute__((packed)) {
@@ -25,33 +28,40 @@ struct EncodingCommonTy {
     EncTy E(VPtr);
     return E.Bits.EncodingId;
   }
-};
 
-template <uint64_t EncodingNo> struct EncodingBaseTy {
-  static constexpr uint64_t NumEncodingBits = EncodingCommonTy::NumEncodingBits;
-  static_assert(EncodingNo < (1UL << NumEncodingBits), "Encoding out-of-range");
+  static bool checkMagic(char *VPtr, uint64_t OffsetBits) {
+    uint64_t PtrMagic =
+        ((((uint64_t)VPtr) >> OffsetBits) & ((1ULL << NumMagicBits) - 1));
+    return PtrMagic == MAGIC;
+  }
 
-  static constexpr uint64_t MAGIC = 0b101;
-  static constexpr uint64_t NumMagicBits = 3;
-
-  static char *checkAndAdjust(char *MPtr, uint64_t AccessSize, int64_t Offset,
+  static char *checkAndAdjust(char *VPtr, uint64_t NumOffsetBits, char *MPtr,
+                              uint64_t AccessSize, int64_t Offset,
                               uint64_t ObjSize, bool FailOnError) {
-    #if 0
+#if 0
     printf("Check %p size %llu -- access %llu @ %lli\n", MPtr, ObjSize,
            AccessSize, Offset);
-    #endif
-    if (Offset < 0 || Offset + AccessSize > ObjSize) [[unlikely]] {
+#endif
+    if (!checkMagic(VPtr, NumOffsetBits) || Offset < 0 ||
+        Offset + AccessSize > ObjSize) [[unlikely]] {
       if (!FailOnError)
         return nullptr;
       fprintf(stderr, "memory out-of-bound %llu + %llu vs %llu! (Base %p)\n",
               Offset, AccessSize, ObjSize, (void *)MPtr);
       __builtin_trap();
     }
-    #if 0
+#if 0
     printf("--> %p\n", MPtr + Offset);
-    #endif
+#endif
     return MPtr + Offset;
   }
+};
+
+template <uint64_t EncodingNo> struct EncodingBaseTy {
+  static constexpr uint64_t NumEncodingBits = EncodingCommonTy::NumEncodingBits;
+  static_assert(EncodingNo < (1UL << NumEncodingBits), "Encoding out-of-range");
+  static constexpr uint64_t NumMagicBits = EncodingCommonTy::NumMagicBits;
+  static constexpr uint64_t MAGIC = EncodingCommonTy::MAGIC;
 };
 
 template <uint64_t EncodingNo, uint64_t OffsetBits, uint64_t BucketBits,
@@ -157,18 +167,19 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
   char *checkAccess(char *VPtr, uint64_t AccessSize) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
-    return Base::checkAndAdjust(D.MPtr, AccessSize, E.Bits.Offset,
-                                E.Bits.ObjSize);
+    return EncodingCommonTy::checkAndAdjust(
+        VPtr, NumOffsetBits, D.MPtr, AccessSize, E.Bits.Offset, E.Bits.ObjSize);
   }
 
   char *checkAccessRange(char *BaseMPtr, uint64_t AccessSize, char *VPtr,
-                         uint64_t ObjSize, int64_t BaseOffset,
+                         uint64_t ObjSize, int64_t Offset,
                          bool FailOnError = true) {
     EncTy E(VPtr);
     if (ObjSize == ~0ULL) [[unlikely]]
       ObjSize = E.Bits.ObjSize;
-    return Base::checkAndAdjust(BaseMPtr, AccessSize, E.Bits.Offset, ObjSize,
-                                FailOnError);
+    return EncodingCommonTy::checkAndAdjust(VPtr, NumOffsetBits, BaseMPtr,
+                                            AccessSize, Offset, ObjSize,
+                                            FailOnError);
   }
 
   bool isMagicIntact(char *VPtr) {
@@ -181,11 +192,12 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
     return E.Bits.ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *SizePtr, int64_t *OffsetPtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *SizePtr,
+                           uint64_t *NumOffsetBitsPtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
     *SizePtr = E.Bits.ObjSize;
-    *OffsetPtr = E.Bits.Offset;
+    *NumOffsetBitsPtr = NumOffsetBits;
     return D.MPtr;
   }
 
@@ -269,17 +281,19 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
   char *checkAccess(char *VPtr, uint64_t AccessSize) {
     EncTy E(VPtr);
     auto [Base, ObjSize] = Objects[E.Bits.ObjectIdx];
-    return Base::checkAndAdjust(Base, AccessSize, E.Bits.Offset, ObjSize);
+    return EncodingCommonTy::checkAndAdjust(VPtr, NumOffsetBits, Base,
+                                            AccessSize, E.Bits.Offset, ObjSize);
   }
 
   char *checkAccessRange(char *BaseMPtr, uint64_t AccessSize, char *VPtr,
-                         uint64_t ObjSize, int64_t BaseOffset,
+                         uint64_t ObjSize, int64_t Offset,
                          bool FailOnError = true) {
     EncTy E(VPtr);
     if (ObjSize == ~0ULL) [[unlikely]]
       ObjSize = Objects[E.Bits.ObjectIdx].ObjSize;
-    return Base::checkAndAdjust(BaseMPtr, AccessSize, E.Bits.Offset, ObjSize,
-                                FailOnError);
+    return EncodingCommonTy::checkAndAdjust(VPtr, NumOffsetBits, BaseMPtr,
+                                            AccessSize, Offset, ObjSize,
+                                            FailOnError);
   }
 
   bool isMagicIntact(char *VPtr) {
@@ -293,11 +307,12 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     return ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *SizePtr, int64_t *OffsetPtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *SizePtr,
+                           uint64_t *NumOffsetBitsPtr) {
     EncTy E(VPtr);
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
     *SizePtr = Obj.ObjSize;
-    *OffsetPtr = E.Bits.Offset;
+    *NumOffsetBitsPtr = NumOffsetBits;
     return Obj.Base;
   }
 

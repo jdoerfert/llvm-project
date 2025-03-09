@@ -1728,6 +1728,8 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
     }
     if (Sanitize.needsTysanRt())
       AddLinkSanitizerLibArgs(Args, CmdArgs, "tysan");
+    if (Sanitize.needsObjRt())
+      AddLinkSanitizerLibArgs(Args, CmdArgs, "objsan");
     if (Sanitize.needsFuzzer() && !Args.hasArg(options::OPT_dynamiclib)) {
       AddLinkSanitizerLibArgs(Args, CmdArgs, "fuzzer", /*shared=*/false);
 
@@ -4019,6 +4021,7 @@ SanitizerMask Darwin::getSupportedSanitizers() const {
   Res |= SanitizerKind::Fuzzer;
   Res |= SanitizerKind::FuzzerNoLink;
   Res |= SanitizerKind::ObjCCast;
+  Res |= SanitizerKind::Object;
 
   ensureTargetInitialized();
   if (!isTargetInitialized())
