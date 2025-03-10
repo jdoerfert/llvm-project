@@ -18,6 +18,9 @@ set(OBJSAN_SOURCES
 set(OBJSAN_HEADERS
   include/obj_encoding.h
 )
+set(OBJSAN_IR_SOURCES
+  objsan_ir_rt.cpp
+)
 
 add_compiler_rt_component(objsan)
 
@@ -26,15 +29,33 @@ set_target_properties(clang_rt.objsan PROPERTIES FOLDER "Compiler-RT Misc")
 
 foreach(arch ${OBJSAN_SUPPORTED_ARCH})
   foreach(os ${SANITIZER_COMMON_SUPPORTED_OS})
-    add_compiler_rt_runtime(clang_rt.objsan-${arch}
+    add_compiler_rt_runtime(clang_rt.objsan-ir-${arch}
       STATIC
       OS ${os}
       ARCHS ${arch}
-      SOURCES ${OBJSAN_SOURCES}
+      SOURCES ${OBJSAN_IR_SOURCES}
 
-      ADDITIONAL_HEADERS ${ASAN_HEADERS}
+      ADDITIONAL_HEADERS ${OBJSAN_HEADERS}
       CFLAGS ${OBJSAN_CFLAGS}
       LINK_FLAGS ${OBJSAN_LINK_FLAGS}
       PARENT_TARGET objsan)
   endforeach()
 endforeach()
+
+add_compiler_rt_runtime(clang_rt.objsan
+  SHARED
+  OS ${SANITIZER_COMMON_SUPPORTED_OS}
+  ARCHS ${OBJSAN_SUPPORTED_ARCH}
+  SOURCES ${OBJSAN_SOURCES}
+
+  ADDITIONAL_HEADERS ${OBJSAN_HEADERS}
+  CFLAGS ${OBJSAN_CFLAGS}
+  LINK_FLAGS ${OBJSAN_LINK_FLAGS}
+  PARENT_TARGET objsan)
+
+add_compiler_rt_runtime(clang_rt.objsan_static
+    STATIC
+    ARCHS ${OBJSAN_SUPPORTED_ARCH}
+    OBJECT_LIBS ${OBJSAN_SOURCES}
+    CFLAGS ${OBJSAN_CFLAGS}
+    PARENT_TARGET objsan)
