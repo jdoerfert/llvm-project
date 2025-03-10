@@ -52,6 +52,51 @@ enum HoistKindTy {
   HOIST_MAXIMALLY,
 };
 
+template <typename IRBTy>
+Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL,
+                 bool AllowTruncate = false) {
+  if (!V)
+    return Constant::getAllOnesValue(Ty);
+  auto *VTy = V->getType();
+  if (VTy == Ty)
+    return V;
+  if (VTy->isAggregateType())
+    return V;
+  auto RequestedSize = DL.getTypeSizeInBits(Ty);
+  auto ValueSize = DL.getTypeSizeInBits(VTy);
+  bool IsTruncate = RequestedSize < ValueSize;
+  if (IsTruncate && !AllowTruncate)
+    return V;
+  if (IsTruncate && AllowTruncate)
+    return tryToCast(IRB,
+                     IRB.CreateIntCast(V, IRB.getIntNTy(RequestedSize),
+                                       /*IsSigned=*/false),
+                     Ty, DL, AllowTruncate);
+  if (VTy->isPointerTy() && Ty->isPointerTy())
+    return IRB.CreatePointerBitCastOrAddrSpaceCast(V, Ty);
+  if (VTy->isIntegerTy() && Ty->isIntegerTy())
+    return IRB.CreateIntCast(V, Ty, /*IsSigned=*/false);
+  if (VTy->isFloatingPointTy() && Ty->isIntOrPtrTy()) {
+    switch (ValueSize) {
+    case 64:
+      return tryToCast(IRB, IRB.CreateBitCast(V, IRB.getInt64Ty()), Ty, DL,
+                       AllowTruncate);
+    case 32:
+      return tryToCast(IRB, IRB.CreateBitCast(V, IRB.getInt32Ty()), Ty, DL,
+                       AllowTruncate);
+    case 16:
+      return tryToCast(IRB, IRB.CreateBitCast(V, IRB.getInt16Ty()), Ty, DL,
+                       AllowTruncate);
+    case 8:
+      return tryToCast(IRB, IRB.CreateBitCast(V, IRB.getInt8Ty()), Ty, DL,
+                       AllowTruncate);
+    default:
+      llvm_unreachable("unsupported floating point size");
+    }
+  }
+  return IRB.CreateBitOrPointerCast(V, Ty);
+}
+
 struct InstrumentationConfig;
 struct InstrumentationOpportunity;
 

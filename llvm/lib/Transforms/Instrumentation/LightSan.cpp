@@ -10,6 +10,8 @@
 
 #include "llvm/Transforms/Instrumentation/LightSan.h"
 
+#include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -19,6 +21,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
@@ -28,6 +31,7 @@
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <functional>
+#include <string>
 
 using namespace llvm;
 using namespace llvm::instrumentor;
@@ -48,7 +52,7 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   void populate(InstrumentorIRBuilderTy &IRB) override;
 
   struct ExtendedBasePointerInfo {
-    Value *ObjectSize = nullptr;
+    Value *ObjectSizePtr = nullptr;
     Value *EncodingNo = nullptr;
     Value *NumOffsetBits = nullptr;
   };
@@ -67,12 +71,12 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   Value *getBasePointerObjectSize(Value &V, InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     Value *Ptr = getUnderlyingObject(&V);
-    return BasePointerSizeOffsetMap[{Ptr, Fn}].ObjectSize;
+    return IIRB.IRB.CreateLoad(
+        IIRB.Int64Ty, BasePointerSizeOffsetMap[{Ptr, Fn}].ObjectSizePtr);
   }
-  Value *getBasePointerEncodingNo(Value &V, InstrumentorIRBuilderTy &IIRB) {
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
+  Value *getBasePointerEncodingNo(Value &V, Function &Fn) {
     Value *Ptr = getUnderlyingObject(&V);
-    return BasePointerSizeOffsetMap[{Ptr, Fn}].EncodingNo;
+    return BasePointerSizeOffsetMap[{Ptr, &Fn}].EncodingNo;
   }
   Value *getNumOffsetBits(Value &V, InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
@@ -80,12 +84,26 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     return BasePointerSizeOffsetMap[{Ptr, Fn}].NumOffsetBits;
   }
 
+  /// Get a size alloca.
+  AllocaInst *getSizeAlloca(Function &Fn, Type &Ty, Value &Obj) {
+    const DataLayout &DL = Fn.getDataLayout();
+    auto *AI = new AllocaInst(&Ty, DL.getAllocaAddrSpace(), "size",
+                              Fn.getEntryBlock().begin());
+    SizeAllocas[&Fn].push_back({&Obj, AI});
+    return AI;
+  }
+  DenseMap<Function *, SmallVector<std::pair<Value *, AllocaInst *>>>
+      SizeAllocas;
+  SmallVector<std::pair<Function *, CallInst *>> PotentiallyFreeCalls;
+
   LightSanImpl &LSI;
 };
 
 struct LightSanImpl {
   LightSanImpl(Module &M, ModuleAnalysisManager &MAM)
-      : M(M), MAM(MAM), IConf(*this) {}
+      : M(M), MAM(MAM),
+        FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()),
+        IConf(*this) {}
 
   bool instrument();
 
@@ -96,8 +114,13 @@ struct LightSanImpl {
   bool shouldInstrumentAlloca(AllocaInst &AI, InstrumentorIRBuilderTy &IIRB);
 
 private:
+  bool updateSizesAfterPotentialFree();
+  bool hoistLoopLoads(Loop &L);
+  void foreachRTCaller(StringRef Name, function_ref<void(CallInst &)> CB);
+
   Module &M;
   ModuleAnalysisManager &MAM;
+  FunctionAnalysisManager &FAM;
   LightSanInstrumentationConfig IConf;
   const DataLayout &DL = M.getDataLayout();
 };
@@ -124,9 +147,14 @@ bool LightSanImpl::shouldInstrumentFunction(Function &Fn) {
 bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
                                         InstrumentorIRBuilderTy &IIRB) {
   Function *CalledFn = CI.getCalledFunction();
+  if (!CI.hasFnAttr(Attribute::NoFree))
+    IConf.PotentiallyFreeCalls.push_back({CI.getCaller(), &CI});
+
   if (!CalledFn)
     return true;
   if (!CalledFn->isDeclaration())
+    return false;
+  if (CalledFn->getName().starts_with(LightSanRuntimePrefix))
     return false;
   FunctionType *CalledFnTy = CalledFn->getFunctionType();
   if (!CalledFnTy->getReturnType()->isPtrOrPtrVectorTy() &&
@@ -438,19 +466,171 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
   return true;
 }
 
+bool LightSanImpl::hoistLoopLoads(Loop &L) {
+  bool Changed = false;
+  for (auto *ChildL : L)
+    Changed |= hoistLoopLoads(*ChildL);
+
+  auto *LatchBB = L.getLoopLatch();
+  auto *PreHeaderBB = L.getLoopPreheader();
+  if (!LatchBB || !PreHeaderBB)
+    return Changed;
+  auto *HeaderBB = L.getHeader();
+
+  // auto *Int64Ty = IntegerType::getInt64Ty(M.getContext());
+  // auto *PtrTy = PointerType::get(M.getContext(), 0);
+
+  SmallVector<std::tuple<LoadInst *, PHINode *, APInt>> Loads;
+  DenseMap<LoadInst *, std::pair<LoadInst *, APInt>> LoadMap;
+  for (auto *BB : L.blocks())
+    for (auto &I : *BB)
+      if (auto *LI = dyn_cast<LoadInst>(&I)) {
+        auto *Ty = LI->getType();
+        auto AccessSize = DL.getTypeStoreSize(Ty);
+        if (AccessSize != 1 && AccessSize != 2 && AccessSize != 4 &&
+            AccessSize != 8)
+          continue;
+        auto *Ptr = LI->getPointerOperand();
+        APInt Offset(
+            DL.getIndexSizeInBits(Ptr->getType()->getPointerAddressSpace()), 0);
+        auto *UnderlyingPtr = Ptr->stripAndAccumulateConstantOffsets(
+            DL, Offset, /*AllowNonInbounds=*/true,
+            /* AllowInvariant */ true);
+        if (auto *ULI = dyn_cast<LoadInst>(UnderlyingPtr)) {
+          LoadMap[ULI] = {LI, Offset};
+          continue;
+        }
+        auto *UPtrPHI = dyn_cast<PHINode>(UnderlyingPtr);
+        if (!UPtrPHI || UPtrPHI->getParent() != HeaderBB)
+          continue;
+        Loads.push_back({LI, UPtrPHI, Offset});
+      }
+
+  while (!Loads.empty()) {
+    auto [LI, UPtrPHI, Offset] = Loads.pop_back_val();
+    auto It = LoadMap.find(LI);
+    if (It == LoadMap.end())
+      continue;
+    auto *Ty = LI->getType();
+    //    auto AccessSize = DL.getTypeStoreSize(Ty);
+
+    auto *InitialPtrVal = UPtrPHI->getIncomingValueForBlock(PreHeaderBB);
+    auto *LatchPtrValI =
+        dyn_cast<Instruction>(UPtrPHI->getIncomingValueForBlock(LatchBB));
+    if (!LatchPtrValI)
+      continue;
+    auto *ValPHI = PHINode::Create(Ty, 2, LI->getName() + ".spec_val",
+                                   UPtrPHI->getIterator());
+    LI->replaceAllUsesWith(ValPHI);
+    if (LatchPtrValI == LI)
+      LatchPtrValI = ValPHI;
+
+    //    auto SpecLoadFC = M.getOrInsertFunction(
+    //        IConf.getRTName("pre_spec_", "load_", std::to_string(AccessSize)),
+    //        FunctionType::get(Int64Ty, {PtrTy, Int64Ty}, false));
+
+    auto *LatchLI = LI->clone();
+    LI->removeFromParent();
+
+    IRBuilder<> IRB(LatchBB->getTerminator());
+    LI->addAnnotationMetadata("speculated");
+    LatchLI->addAnnotationMetadata("speculated");
+    auto *OffsetVal = IRB.getInt64(Offset.getSExtValue());
+    //    Value *InitialVal = IRB.CreateCall(SpecLoadFC, {InitialPtrVal,
+    //    OffsetVal},
+    //                                       LI->getName() + ".spec_pre");
+    //    InitialVal = tryToCast(IRB, InitialVal, Ty, DL);
+    ValPHI->addIncoming(LI, PreHeaderBB);
+
+    //    Value *LatchVal = IRB.CreateCall(SpecLoadFC, {LatchPtrValI,
+    //    OffsetVal},
+    //                                     LI->getName() + ".spec_latch");
+    //    LatchVal = tryToCast(IRB, LatchVal, Ty, DL);
+    ValPHI->addIncoming(LatchLI, LatchBB);
+
+    auto *LatchPtrWithOffset =
+        IRB.CreateGEP(IRB.getInt8Ty(), LatchPtrValI, {OffsetVal});
+    IRB.Insert(LatchLI);
+    LatchLI->setOperand(LI->getPointerOperandIndex(), LatchPtrWithOffset);
+
+    IRB.SetInsertPoint(PreHeaderBB->getTerminator());
+    auto *InitialPtrWithOffset =
+        IRB.CreateGEP(IRB.getInt8Ty(), InitialPtrVal, {OffsetVal});
+    IRB.Insert(LI);
+    LI->setOperand(LI->getPointerOperandIndex(), InitialPtrWithOffset);
+
+    //      LI->replaceUsesWithIf(LatchVal, [&](Use &U) {
+    //        return isa<PHINode>(U.getUser()) &&
+    //               cast<PHINode>(U.getUser())->getParent() == HeaderBB;
+    //      });
+    //    LI->eraseFromParent();
+    Changed = true;
+    Loads.push_back({It->second.first, ValPHI, It->second.second});
+  }
+  return Changed;
+}
+
+void LightSanImpl::foreachRTCaller(StringRef Name,
+                                   function_ref<void(CallInst &)> CB) {
+  auto *FC = M.getFunction(Name);
+  if (!FC)
+    return;
+  for (auto *U : FC->users()) {
+    auto *CI = cast<CallInst>(U);
+    CB(*CI);
+  }
+}
+
+bool LightSanImpl::updateSizesAfterPotentialFree() {
+  bool Changed = false;
+  auto &Ctx = M.getContext();
+  auto *PtrTy = PointerType::get(Ctx, 0);
+  auto *Int8Ty = IntegerType::getInt8Ty(Ctx);
+  auto *Int64Ty = IntegerType::getInt64Ty(Ctx);
+  auto GetSizeFC =
+      M.getOrInsertFunction(IConf.getRTName("", "get_object_size"),
+                            FunctionType::get(Int64Ty, {PtrTy, Int8Ty}, false));
+  for (auto [Fn, CI] : IConf.PotentiallyFreeCalls) {
+    CI->dump();
+    IRBuilder<> IRB(CI->getNextNode());
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
+    for (auto [Obj, SizeAI] : IConf.SizeAllocas[Fn]) {
+      LoadInst *EncodingNo =
+          cast<LoadInst>(IConf.getBasePointerEncodingNo(*Obj, *Fn));
+      if (!DT.dominates(EncodingNo, CI))
+        continue;
+      Obj->dump();
+      SizeAI->dump();
+      Value *NewSizeVal = IRB.CreateCall(GetSizeFC, {Obj, EncodingNo}, "size");
+      IRB.CreateStore(NewSizeVal, SizeAI);
+      Changed = true;
+    }
+  }
+  return Changed;
+}
+
 bool LightSanImpl::instrument() {
   bool Changed = false;
 
-  InstrumentorPass IP(&IConf);
+#if 0
+  for (auto &Fn : M) {
+    if (Fn.isDeclaration())
+      continue;
+    auto &LI = FAM.getResult<LoopAnalysis>(Fn);
+    for (auto *L : LI)
+      Changed |= hoistLoopLoads(*L);
+  }
+#endif
 
+  InstrumentorPass IP(&IConf);
   auto PA = IP.run(M, MAM);
   if (!PA.areAllPreserved())
     Changed = true;
 
-  auto &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
-
   auto CheckForRequiredRanged = [&](StringRef Name) {
     auto *FC = M.getFunction(IConf.getRTName("pre_", Name));
+    if (!FC)
+      return;
     for (auto *U : FC->users()) {
       auto *CI = cast<CallInst>(U);
       auto *BB = CI->getParent();
@@ -487,6 +667,73 @@ bool LightSanImpl::instrument() {
   CheckForRequiredRanged("load");
   CheckForRequiredRanged("store");
 
+#if 0
+  auto CheckForBasePtrInLoop = [&]() {
+    auto *FC = M.getFunction(IConf.getRTName("post_", "base_pointer_info"));
+    for (auto *U : FC->users()) {
+      auto *CI = cast<CallInst>(U);
+      auto *PHI = dyn_cast<PHINode>(CI->getArgOperand(0));
+      if (!PHI)
+        continue;
+      auto *BB = CI->getParent();
+      auto *Fn = BB->getParent();
+      auto &LI = FAM.getResult<LoopAnalysis>(*Fn);
+      auto *L = LI.getLoopFor(BB);
+      if (!L || L->getHeader() != BB)
+        continue;
+      // TODO:check no free loop
+      auto *PreHeaderBB = L->getLoopPreheader();
+      auto *LatchBB = L->getLoopLatch();
+      if (!PreHeaderBB | !LatchBB)
+        continue;
+      auto *InitialVal = PHI->getIncomingValueForBlock(PreHeaderBB);
+      auto *LatchValI =
+          dyn_cast<Instruction>(PHI->getIncomingValueForBlock(LatchBB));
+      if (!LatchValI || !L->contains(LatchValI))
+        continue;
+      auto *InitCI = cast<CallInst>(CI->clone());
+      InitCI->setArgOperand(0, InitialVal);
+      auto PreheaderTI = PreHeaderBB->getTerminator()->getIterator();
+      InitCI->insertBefore(PreheaderTI);
+      auto *SizeLI = cast<LoadInst>(CI->getNextNode());
+      auto *EncLI = cast<LoadInst>(SizeLI->getNextNode());
+      auto *OffLI = cast<LoadInst>(EncLI->getNextNode());
+      SizeLI->moveBefore(PreheaderTI);
+      EncLI->moveBefore(PreheaderTI);
+      OffLI->moveBefore(PreheaderTI);
+      auto *MPtrPHI = PHINode::Create(CI->getType(), 2, "", PHI->getIterator());
+      auto *EncPHI =
+          PHINode::Create(EncLI->getType(), 2, "", PHI->getIterator());
+      auto *SizePHI =
+          PHINode::Create(SizeLI->getType(), 2, "", PHI->getIterator());
+      auto *OffPHI =
+          PHINode::Create(OffLI->getType(), 2, "", PHI->getIterator());
+      CI->replaceAllUsesWith(MPtrPHI);
+      SizeLI->replaceAllUsesWith(SizePHI);
+      EncLI->replaceAllUsesWith(EncPHI);
+      OffLI->replaceAllUsesWith(OffPHI);
+      MPtrPHI->addIncoming(InitCI, PreHeaderBB);
+      EncPHI->addIncoming(EncLI, PreHeaderBB);
+      SizePHI->addIncoming(SizeLI, PreHeaderBB);
+      OffPHI->addIncoming(OffLI, PreHeaderBB);
+      CI->moveAfter(LatchValI);
+      CI->setArgOperand(0, LatchValI);
+      auto *NewSizeLI = SizeLI->clone();
+      auto *NewEncLI = EncLI->clone();
+      auto *NewOffLI = OffLI->clone();
+      NewOffLI->insertAfter(CI);
+      NewEncLI->insertAfter(CI);
+      NewSizeLI->insertAfter(CI);
+      MPtrPHI->addIncoming(CI, LatchBB);
+      SizePHI->addIncoming(NewSizeLI, LatchBB);
+      EncPHI->addIncoming(NewEncLI, LatchBB);
+      OffPHI->addIncoming(NewOffLI, LatchBB);
+    }
+  };
+  CheckForBasePtrInLoop();
+#endif
+
+  Changed |= updateSizesAfterPotentialFree();
   return Changed;
 }
 
@@ -560,16 +807,21 @@ struct ExtendedBasePointerIO : public BasePointerIO {
                                  InstrumentationConfig &IConf,
                                  InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    return IIRB.getAlloca(Fn, IIRB.Int64Ty);
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    /// TODO: check if the size of base ptr can change in the function, if not,
+    /// use a temporary alloca. Globals and allocas don't change size in the
+    /// function.
+    if (isa<GlobalValue>(V) || isa<AllocaInst>(V))
+      return IIRB.getAlloca(Fn, &Ty);
+    return LSIConf.getSizeAlloca(*Fn, *IIRB.Int64Ty, V);
   }
   static Value *setObjectSize(Value &V, Value &NewV,
                               InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    auto *ObjectSize = IIRB.IRB.CreateLoad(IIRB.Int64Ty, &NewV);
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *BasePtr = cast<CallInst>(V).getArgOperand(0);
-    LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}].ObjectSize = ObjectSize;
+    LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}].ObjectSizePtr = &NewV;
     return &V;
   }
   static Value *getEncodingNoPtr(Value &V, Type &Ty,
@@ -605,7 +857,6 @@ struct ExtendedBasePointerIO : public BasePointerIO {
         NumOffsetBits;
     return &V;
   }
-
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *EVPIO = IConf.allocate<ExtendedBasePointerIO>();
@@ -659,7 +910,8 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    return LSIConf.getBasePointerEncodingNo(V, IIRB);
+    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
+    return LSIConf.getBasePointerEncodingNo(V, *Fn);
   }
   static Value *getIsDefinitivelyExecuted(Value &V, Type &Ty,
                                           InstrumentationConfig &IConf,
@@ -718,8 +970,9 @@ struct ExtendedLoadIO : public LoadIO {
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     return LSIConf.getBasePointerEncodingNo(
-        *cast<LoadInst>(V).getPointerOperand(), IIRB);
+        *cast<LoadInst>(V).getPointerOperand(), *Fn);
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
@@ -777,8 +1030,9 @@ struct ExtendedStoreIO : public StoreIO {
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     return LSIConf.getBasePointerEncodingNo(
-        *cast<StoreInst>(V).getPointerOperand(), IIRB);
+        *cast<StoreInst>(V).getPointerOperand(), *Fn);
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
@@ -806,29 +1060,43 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   AICConfig.set(AllocaIO::PassAddress);
   AICConfig.set(AllocaIO::ReplaceAddress);
   AICConfig.set(AllocaIO::PassSize);
+  // TODO: Add the "RequiresTemporalChecks" argument
   auto *AIC = InstrumentationConfig::allocate<AllocaIO>(/*IsPRE=*/false);
   AIC->CB = [&](Value &V) {
     return LSI.shouldInstrumentAlloca(cast<AllocaInst>(V), IIRB);
   };
   AIC->init(*this, IIRB.Ctx, &AICConfig);
 
-  CallIO::ConfigTy CICConfig(/*Enable=*/false);
-  CICConfig.set(CallIO::PassIntrinsicId);
-  CICConfig.set(CallIO::PassAllocationInfo);
-  CICConfig.set(CallIO::PassNumParameters);
-  CICConfig.set(CallIO::PassParameters);
-  CICConfig.set(CallIO::PassIsDefinition);
-  CICConfig.ArgFilter = [&](Use &Op) {
+  CallIO::ConfigTy PreCICConfig(/*Enable=*/false);
+  PreCICConfig.set(CallIO::PassIntrinsicId);
+  PreCICConfig.set(CallIO::PassNumParameters);
+  PreCICConfig.set(CallIO::PassParameters);
+  PreCICConfig.set(CallIO::PassIsDefinition);
+  PreCICConfig.ArgFilter = [&](Use &Op) {
     auto *CI = cast<CallInst>(Op.getUser());
     auto &TLI = IIRB.TLIGetter(*CI->getFunction());
     auto ACI = getAllocationCallInfo(CI, &TLI);
     return Op->getType()->isPointerTy() || ACI;
   };
-  auto *CIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/true);
-  CIC->CB = [&](Value &V) {
+  auto *PreCIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/true);
+  PreCIC->CB = [&](Value &V) {
     return LSI.shouldInstrumentCall(cast<CallInst>(V), IIRB);
   };
-  CIC->init(*this, IIRB.Ctx, &CICConfig);
+  PreCIC->init(*this, IIRB.Ctx, &PreCICConfig);
+
+  CallIO::ConfigTy PostCICConfig(/*Enable=*/false);
+  PostCICConfig.set(CallIO::PassAllocationInfo);
+  PostCICConfig.set(CallIO::PassNumParameters);
+  PostCICConfig.set(CallIO::PassParameters);
+  PostCICConfig.set(CallIO::PassReturnedValue);
+  auto *PostCIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/false);
+  PostCIC->CB = [&](Value &V) {
+    auto &CI = cast<CallInst>(V);
+    auto &TLI = IIRB.TLIGetter(*CI.getFunction());
+    auto ACI = getAllocationCallInfo(&CI, &TLI);
+    return !!ACI;
+  };
+  PostCIC->init(*this, IIRB.Ctx, &PostCICConfig);
 
   //  FunctionIO::ConfigTy FICConfig(/*Enable=*/false);
   //  FICConfig.set(FunctionIO::PassName);
