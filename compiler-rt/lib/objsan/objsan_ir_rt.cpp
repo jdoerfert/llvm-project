@@ -10,17 +10,6 @@
 
 using namespace __objsan;
 
-using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
-                                      /*OffsetBits=*/12, /*BucketBits=*/3,
-                                      /*RealPtrBits=*/32>;
-using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/20>;
-using FixedObjectsTy =
-    FixedLedgerSchemeTy</*EncodingNo=*/3, /*ObjectBits=*/20, 16>;
-
-extern SmallObjectsTy SmallObjects;
-extern LargeObjectsTy LargeObjects;
-extern FixedObjectsTy FixedObjects;
-
 struct __attribute__((packed)) ParameterValuePackTy {
   int32_t Size;
   int32_t TypeId;

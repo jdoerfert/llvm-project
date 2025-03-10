@@ -1,12 +1,19 @@
 #ifndef OBJSAN_OBJ_ENCODING_H
 #define OBJSAN_OBJ_ENCODING_H
 
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdatomic.h>
+
+#if __has_builtin(__builtin_assume)
+#define ASSUME(E) __builtin_assume((E));
+#else
+#define ASSUME(E)
+#endif
 
 namespace __objsan {
 
@@ -262,13 +269,13 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 
   void free(char *VPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     Objects[E.Bits.ObjectIdx].ObjSize = 0;
   }
 
   char *decode(char *VPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     auto [ObjSize, Base] = Objects[E.Bits.ObjectIdx];
     return Base + E.Bits.Offset;
   }
@@ -280,7 +287,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 
   uint64_t getSize(char *VPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     auto [ObjSize, Base] = Objects[E.Bits.ObjectIdx];
     return ObjSize;
   }
@@ -288,7 +295,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
   char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr,
                            uint64_t *__restrict NumOffsetBitsPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
     __builtin_prefetch(&Obj + 8, 0, 3);
     __builtin_prefetch(&Obj + 16, 0, 3);
@@ -300,7 +307,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 
   char *getBase(char *VPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     auto [ObjSize, Base] = Objects[E.Bits.ObjectIdx];
     return Base;
   }
@@ -367,13 +374,13 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 
   void free(char *VPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     Objects[E.Bits.ObjectIdx].Base = 0;
   }
 
   char *decode(char *VPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     auto *Base = Objects[E.Bits.ObjectIdx];
     return Base + E.Bits.Offset;
   }
@@ -391,7 +398,7 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
   char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr,
                            uint64_t *__restrict NumOffsetBitsPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
     *SizePtr = ObjSize;
     *NumOffsetBitsPtr = NumOffsetBits;
@@ -400,7 +407,7 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 
   char *getBase(char *VPtr) {
     EncTy E(VPtr);
-    __builtin_assume(E.Bits.ObjectIdx < NumObjects);
+    ASSUME(E.Bits.ObjectIdx < NumObjects);
     auto *Base = Objects[E.Bits.ObjectIdx];
     return Base;
   }
@@ -411,6 +418,16 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
   }
 };
 
-} // namespace __objsan
+using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
+                                      /*OffsetBits=*/12, /*BucketBits=*/3,
+                                      /*RealPtrBits=*/32>;
+using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/20>;
+using FixedObjectsTy =
+    FixedLedgerSchemeTy</*EncodingNo=*/3, /*ObjectBits=*/20, 16>;
 
+extern SmallObjectsTy SmallObjects;
+extern LargeObjectsTy LargeObjects;
+extern FixedObjectsTy FixedObjects;
+} // namespace __objsan
+//
 #endif // OBJSAN_OBJ_ENCODING_H

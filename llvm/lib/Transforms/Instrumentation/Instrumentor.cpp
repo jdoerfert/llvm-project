@@ -942,10 +942,8 @@ Value *InstrumentationConfig::getLoopValueRange(Value &V,
     else if (isa<GlobalValue>(VPtr) || isa<Argument>(VPtr))
       IIRB.IRB.SetInsertPointPastAllocas(
           IIRB.IRB.GetInsertBlock()->getParent());
-    else {
-      VPtr->dump();
-      llvm_unreachable("Unexpected base pointer!");
-    }
+    else 
+      return LVR = Constant::getNullValue(IIRB.PtrTy);
     ensureDbgLoc(IIRB.IRB);
 
     // Use fresh caches for safety, as this function may be called from

@@ -56,8 +56,8 @@ template <typename IRBuilderTy> void ensureDbgLoc(IRBuilderTy &IRB) {
   if (IRB.getCurrentDebugLocation())
     return;
   auto *BB = IRB.GetInsertBlock();
-  IRB.SetCurrentDebugLocation(DILocation::get(
-      BB->getContext(), 0, 0, BB->getParent()->getSubprogram()));
+  if (auto *SP = BB->getParent()->getSubprogram())
+    IRB.SetCurrentDebugLocation(DILocation::get(BB->getContext(), 0, 0, SP));
 }
 
 template <typename IRBTy>
