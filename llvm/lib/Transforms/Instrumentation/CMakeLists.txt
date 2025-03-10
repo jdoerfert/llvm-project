@@ -28,7 +28,6 @@ add_llvm_component_library(LLVMInstrumentation
   TypeSanitizer.cpp
   HWAddressSanitizer.cpp
   RealtimeSanitizer.cpp
-  LightSan.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Transforms

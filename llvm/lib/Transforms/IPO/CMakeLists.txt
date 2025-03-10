@@ -29,6 +29,7 @@ add_llvm_component_library(LLVMipo
   Inliner.cpp
   InputGen.cpp
   Internalize.cpp
+  LightSan.cpp
   LoopExtractor.cpp
   LowerTypeTests.cpp
   MemProfContextDisambiguation.cpp

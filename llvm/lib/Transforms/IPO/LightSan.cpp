@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/Instrumentation/LightSan.h"
+#include "llvm/Transforms/IPO/LightSan.h"
 
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/Analysis/CaptureTracking.h"

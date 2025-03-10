@@ -1,4 +1,4 @@
-//===- Transforms/Instrumentation/LightSan.h ------------------------------===//
+//===- Transforms/IPO/LightSan.h ------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TRANSFORMS_INSTRUMENTATION_LIGHTSAN_H
-#define LLVM_TRANSFORMS_INSTRUMENTATION_LIGHTSAN_H
+#ifndef LLVM_TRANSFORMS_IPO_LIGHTSAN_H
+#define LLVM_TRANSFORMS_IPO_LIGHTSAN_H
 
 #include "llvm/IR/PassManager.h"
 
@@ -25,4 +25,4 @@ public:
 
 } // end namespace llvm
 
-#endif // LLVM_TRANSFORMS_INSTRUMENTATION_LIGHTSAN_H
+#endif // LLVM_TRANSFORMS_IPO_LIGHTSAN_H
