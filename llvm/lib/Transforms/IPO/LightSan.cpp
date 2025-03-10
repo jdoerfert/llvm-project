@@ -645,7 +645,7 @@ bool LightSanImpl::updateSizesAfterPotentialFree() {
   for (const auto &[Fn, AIs] : EscapedAllocasMap) {
     for (auto &BB : *Fn) {
       auto *TI = BB.getTerminator();
-      if (TI->getNumSuccessors())
+      if (TI->getNumSuccessors() || isa<UnreachableInst>(TI))
         continue;
       IRBuilder<> IRB(TI);
       for (auto *AI : AIs) {
