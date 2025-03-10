@@ -34,19 +34,19 @@ define dso_local double @foo(i64 noundef %j, i64 noundef %N) local_unnamed_addr 
 ; CHECK-NEXT:    [[MUL_EPIL:%.*]] = fmul double [[CONV_EPIL]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX_EPIL:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[I_06_EPIL]]
 ; CHECK-NEXT:    [[TMP7:%.*]] = bitcast double [[MUL_EPIL]] to i64
-; CHECK-NEXT:    [[TMP8:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX_EPIL]], i32 0, ptr [[TMP5]], i64 [[TMP7]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP8:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX_EPIL]], i32 0, ptr [[TMP5]], i64 [[TMP7]], i64 8, i64 8, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL_EPIL]], ptr [[TMP8]], align 8
-; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX_EPIL]], i32 0, ptr [[TMP5]], i64 [[TMP7]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX_EPIL]], i32 0, ptr [[TMP5]], i64 [[TMP7]], i64 8, i64 8, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[INC_EPIL]] = add nuw nsw i64 [[I_06_EPIL]], 1
 ; CHECK-NEXT:    [[EPIL_ITER_NEXT]] = add i64 [[EPIL_ITER]], 1
 ; CHECK-NEXT:    [[EPIL_ITER_CMP_NOT:%.*]] = icmp eq i64 [[EPIL_ITER_NEXT]], [[XTRAITER]]
 ; CHECK-NEXT:    br i1 [[EPIL_ITER_CMP_NOT]], label %[[FOR_COND_CLEANUP]], label %[[FOR_BODY_EPIL]]
 ; CHECK:       [[FOR_COND_CLEANUP]]:
 ; CHECK-NEXT:    [[ARRAYIDX1:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[J]]
-; CHECK-NEXT:    [[TMP9:%.*]] = call ptr @__instrumentor_pre_load(ptr [[ARRAYIDX1]], i32 0, ptr [[TMP5]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP9:%.*]] = call ptr @__instrumentor_pre_load(ptr [[ARRAYIDX1]], i32 0, ptr [[TMP5]], i64 8, i64 8, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP10:%.*]] = load double, ptr [[TMP9]], align 8
 ; CHECK-NEXT:    [[TMP11:%.*]] = bitcast double [[TMP10]] to i64
-; CHECK-NEXT:    [[TMP12:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX1]], i32 0, ptr [[TMP5]], i64 [[TMP11]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP12:%.*]] = call i64 @__instrumentor_post_load(ptr [[ARRAYIDX1]], i32 0, ptr [[TMP5]], i64 [[TMP11]], i64 8, i64 8, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[TMP19:%.*]] = bitcast i64 [[TMP12]] to double
 ; CHECK-NEXT:    tail call void @llvm.stackrestore.p0(ptr [[TMP0]])
 ; CHECK-NEXT:    ret double [[TMP19]]
@@ -57,33 +57,33 @@ define dso_local double @foo(i64 noundef %j, i64 noundef %N) local_unnamed_addr 
 ; CHECK-NEXT:    [[MUL:%.*]] = fmul double [[CONV]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[I_06]]
 ; CHECK-NEXT:    [[TMP14:%.*]] = bitcast double [[MUL]] to i64
-; CHECK-NEXT:    [[TMP15:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX]], i32 0, ptr [[TMP5]], i64 [[TMP14]], i32 8, i64 16, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP15:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX]], i32 0, ptr [[TMP5]], i64 [[TMP14]], i64 8, i64 16, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL]], ptr [[TMP15]], align 16
-; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX]], i32 0, ptr [[TMP5]], i64 [[TMP14]], i32 8, i64 16, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX]], i32 0, ptr [[TMP5]], i64 [[TMP14]], i64 8, i64 16, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[INC:%.*]] = or i64 [[I_06]], 1
 ; CHECK-NEXT:    [[CONV_1:%.*]] = sitofp i64 [[INC]] to double
 ; CHECK-NEXT:    [[MUL_1:%.*]] = fmul double [[CONV_1]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX_1:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[INC]]
 ; CHECK-NEXT:    [[TMP16:%.*]] = bitcast double [[MUL_1]] to i64
-; CHECK-NEXT:    [[TMP17:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX_1]], i32 0, ptr [[TMP5]], i64 [[TMP16]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP17:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX_1]], i32 0, ptr [[TMP5]], i64 [[TMP16]], i64 8, i64 8, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL_1]], ptr [[TMP17]], align 8
-; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX_1]], i32 0, ptr [[TMP5]], i64 [[TMP16]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX_1]], i32 0, ptr [[TMP5]], i64 [[TMP16]], i64 8, i64 8, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[INC_1:%.*]] = or i64 [[I_06]], 2
 ; CHECK-NEXT:    [[CONV_2:%.*]] = sitofp i64 [[INC_1]] to double
 ; CHECK-NEXT:    [[MUL_2:%.*]] = fmul double [[CONV_2]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX_2:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[INC_1]]
 ; CHECK-NEXT:    [[TMP18:%.*]] = bitcast double [[MUL_2]] to i64
-; CHECK-NEXT:    [[TMP22:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX_2]], i32 0, ptr [[TMP5]], i64 [[TMP18]], i32 8, i64 16, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP22:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX_2]], i32 0, ptr [[TMP5]], i64 [[TMP18]], i64 8, i64 16, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL_2]], ptr [[TMP22]], align 16
-; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX_2]], i32 0, ptr [[TMP5]], i64 [[TMP18]], i32 8, i64 16, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX_2]], i32 0, ptr [[TMP5]], i64 [[TMP18]], i64 8, i64 16, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[INC_2:%.*]] = or i64 [[I_06]], 3
 ; CHECK-NEXT:    [[CONV_3:%.*]] = sitofp i64 [[INC_2]] to double
 ; CHECK-NEXT:    [[MUL_3:%.*]] = fmul double [[CONV_3]], 3.140000e+00
 ; CHECK-NEXT:    [[ARRAYIDX_3:%.*]] = getelementptr inbounds double, ptr [[TMP2]], i64 [[INC_2]]
 ; CHECK-NEXT:    [[TMP20:%.*]] = bitcast double [[MUL_3]] to i64
-; CHECK-NEXT:    [[TMP21:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX_3]], i32 0, ptr [[TMP5]], i64 [[TMP20]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    [[TMP21:%.*]] = call ptr @__instrumentor_pre_store(ptr [[ARRAYIDX_3]], i32 0, ptr [[TMP5]], i64 [[TMP20]], i64 8, i64 8, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    store double [[MUL_3]], ptr [[TMP21]], align 8
-; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX_3]], i32 0, ptr [[TMP5]], i64 [[TMP20]], i32 8, i64 8, i32 3, i32 0, i8 1, i8 0)
+; CHECK-NEXT:    call void @__instrumentor_post_store(ptr [[ARRAYIDX_3]], i32 0, ptr [[TMP5]], i64 [[TMP20]], i64 8, i64 8, i32 3, i32 0, i8 1, i8 0)
 ; CHECK-NEXT:    [[INC_3]] = add nuw nsw i64 [[I_06]], 4
 ; CHECK-NEXT:    [[NITER_NEXT_3]] = add i64 [[NITER]], 4
 ; CHECK-NEXT:    [[NITER_NCMP_3:%.*]] = icmp eq i64 [[NITER_NEXT_3]], [[UNROLL_ITER]]
