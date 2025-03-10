@@ -123,15 +123,22 @@ struct InstrumentorIRBuilderTy {
   }
 
   /// Get a temporary alloca to communicate (large) values with the runtime.
-  AllocaInst *getAlloca(Function *Fn, Type *Ty) {
+  AllocaInst *getAlloca(Function *Fn, Type *Ty, bool MatchType = false) {
     const DataLayout &DL = Fn->getDataLayout();
     auto &AllocaList = AllocaMap[{Fn, DL.getTypeAllocSize(Ty)}];
-    AllocaInst *AI;
-    if (AllocaList.empty())
+    AllocaInst *AI = nullptr;
+    for (auto *&ListAI : AllocaList) {
+      if (MatchType && ListAI->getAllocatedType() != Ty)
+        continue;
+      AI = ListAI;
+      ListAI = *AllocaList.rbegin();
+      break;
+    }
+    if (AI)
+      AllocaList.pop_back();
+    else
       AI = new AllocaInst(Ty, DL.getAllocaAddrSpace(), "",
                           Fn->getEntryBlock().begin());
-    else
-      AI = AllocaList.pop_back_val();
     UsedAllocas[AI] = &AllocaList;
     return AI;
   }
@@ -173,12 +180,8 @@ struct InstrumentorIRBuilderTy {
   std::pair<BasicBlock::iterator, bool>
   computeLoopRangeValues(Value &V, uint32_t AdditionalSize);
 
-  Value *getInitialLoopValue(Value &V) {
-    return LoopRangeInfoMap[&V].Min;
-  }
-  Value *getFinalLoopValue(Value &V) {
-    return LoopRangeInfoMap[&V].Max;
-  }
+  Value *getInitialLoopValue(Value &V) { return LoopRangeInfoMap[&V].Min; }
+  Value *getFinalLoopValue(Value &V) { return LoopRangeInfoMap[&V].Max; }
   Value *getMaxOffset(Value &V, Type &Ty) {
     return ConstantInt::get(&Ty, LoopRangeInfoMap[&V].AdditionalSize);
   }
@@ -1205,9 +1208,8 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
   static Value *getFinalLoopValue(Value &V, Type &Ty,
                                   InstrumentationConfig &IConf,
                                   InstrumentorIRBuilderTy &IIRB);
-  static Value *getMaxOffset(Value &V, Type &Ty,
-                                  InstrumentationConfig &IConf,
-                                  InstrumentorIRBuilderTy &IIRB);
+  static Value *getMaxOffset(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {

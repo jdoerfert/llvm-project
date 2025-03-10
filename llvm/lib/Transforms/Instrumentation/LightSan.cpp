@@ -30,9 +30,9 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Transforms/Instrumentation/Instrumentor.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <functional>
-#include <string>
 
 using namespace llvm;
 using namespace llvm::instrumentor;
@@ -53,6 +53,7 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   void populate(InstrumentorIRBuilderTy &IRB) override;
 
   struct ExtendedBasePointerInfo {
+    Value *ObjectSize = nullptr;
     Value *ObjectSizePtr = nullptr;
     Value *EncodingNo = nullptr;
     Value *NumOffsetBits = nullptr;
@@ -72,8 +73,10 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   Value *getBasePointerObjectSize(Value &V, InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     Value *Ptr = getUnderlyingObject(&V);
-    return IIRB.IRB.CreateLoad(
-        IIRB.Int64Ty, BasePointerSizeOffsetMap[{Ptr, Fn}].ObjectSizePtr);
+    auto &EBPI = BasePointerSizeOffsetMap[{Ptr, Fn}];
+    if (EBPI.ObjectSizePtr)
+      return IIRB.IRB.CreateLoad(IIRB.Int64Ty, EBPI.ObjectSizePtr);
+    return EBPI.ObjectSize;
   }
   Value *getBasePointerEncodingNo(Value &V, Function &Fn) {
     Value *Ptr = getUnderlyingObject(&V);
@@ -86,15 +89,26 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   }
 
   /// Get a size alloca.
-  AllocaInst *getSizeAlloca(Function &Fn, Type &Ty, Value &Obj) {
+  AllocaInst *getSizeAlloca(Function &Fn, InstrumentorIRBuilderTy &IIRB,
+                            Value &Obj) {
     const DataLayout &DL = Fn.getDataLayout();
-    auto *AI = new AllocaInst(&Ty, DL.getAllocaAddrSpace(), "size",
-                              Fn.getEntryBlock().begin());
-    SizeAllocas[&Fn].push_back({&Obj, AI});
-    return AI;
+    /// TODO: check if the size of base ptr can change in the function, if not,
+    /// use a temporary alloca. Globals and allocas don't change size in the
+    /// function.
+    auto *TmpAI = IIRB.getAlloca(&Fn, IIRB.Int64Ty, /*MatchType=*/true);
+    if (isa<GlobalValue>(Obj) || isa<AllocaInst>(Obj)) {
+      return TmpAI;
+    }
+    auto *SizeAI = new AllocaInst(IIRB.Int64Ty, DL.getAllocaAddrSpace(), "size",
+                                  Fn.getEntryBlock().begin());
+    SizeAllocas[&Fn].push_back({&Obj, SizeAI});
+    TmpToSizeAllocas[TmpAI] = SizeAI;
+    return TmpAI;
   }
   DenseMap<Function *, SmallVector<std::pair<Value *, AllocaInst *>>>
       SizeAllocas;
+  DenseMap<AllocaInst *, AllocaInst *> TmpToSizeAllocas;
+
   SmallVector<std::pair<Function *, CallInst *>> PotentiallyFreeCalls;
 
   LightSanImpl &LSI;
@@ -593,8 +607,8 @@ bool LightSanImpl::updateSizesAfterPotentialFree() {
   auto GetSizeFC =
       M.getOrInsertFunction(IConf.getRTName("", "get_object_size"),
                             FunctionType::get(Int64Ty, {PtrTy, Int8Ty}, false));
+  SmallVector<CallInst *> GetObjSizeCalls;
   for (auto [Fn, CI] : IConf.PotentiallyFreeCalls) {
-    CI->dump();
     auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
     IRBuilder<> IRB(CI->getNextNode());
     for (auto [Obj, SizeAI] : IConf.SizeAllocas[Fn]) {
@@ -602,13 +616,22 @@ bool LightSanImpl::updateSizesAfterPotentialFree() {
           cast<LoadInst>(IConf.getBasePointerEncodingNo(*Obj, *Fn));
       if (!DT.dominates(EncodingNo, CI))
         continue;
-      Obj->dump();
-      SizeAI->dump();
-      Value *NewSizeVal = IRB.CreateCall(GetSizeFC, {Obj, EncodingNo}, "size");
+      CallInst *NewSizeVal =
+          IRB.CreateCall(GetSizeFC, {Obj, EncodingNo}, "size");
+      GetObjSizeCalls.push_back(NewSizeVal);
       IRB.CreateStore(NewSizeVal, SizeAI);
       Changed = true;
     }
   }
+  for (const auto &It : IConf.SizeAllocas) {
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*It.first);
+    for (auto [Obj, SizeAI] : It.second) {
+      PromoteMemToReg({SizeAI}, DT);
+    }
+  }
+  for (auto *SizeCall : GetObjSizeCalls)
+    if (SizeCall->use_empty())
+      SizeCall->eraseFromParent();
 
   auto FreeFC = M.getOrInsertFunction(
       IConf.getRTName("", "free_alloca"),
@@ -833,20 +856,22 @@ struct ExtendedBasePointerIO : public BasePointerIO {
                                  InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    /// TODO: check if the size of base ptr can change in the function, if not,
-    /// use a temporary alloca. Globals and allocas don't change size in the
-    /// function.
-    if (isa<GlobalValue>(V) || isa<AllocaInst>(V))
-      return IIRB.getAlloca(Fn, &Ty);
-    return LSIConf.getSizeAlloca(*Fn, *IIRB.Int64Ty, V);
+    return LSIConf.getSizeAlloca(*Fn, IIRB, V);
   }
   static Value *setObjectSize(Value &V, Value &NewV,
                               InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto *ObjSize = IIRB.IRB.CreateLoad(IIRB.Int64Ty, &NewV);
     auto *BasePtr = cast<CallInst>(V).getArgOperand(0);
-    LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}].ObjectSizePtr = &NewV;
+    auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}];
+    EBPI.ObjectSize = ObjSize;
+    auto *SizeAI = LSIConf.TmpToSizeAllocas.lookup(cast<AllocaInst>(&NewV));
+    if (SizeAI) {
+      IIRB.IRB.CreateStore(ObjSize, SizeAI);
+      EBPI.ObjectSizePtr = SizeAI;
+    }
     return &V;
   }
   static Value *getEncodingNoPtr(Value &V, Type &Ty,
