@@ -14,6 +14,7 @@
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -111,7 +112,6 @@ struct LightSanImpl {
   bool shouldInstrumentCall(CallInst &CI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentLoad(LoadInst &LI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentStore(StoreInst &SI, InstrumentorIRBuilderTy &IIRB);
-  bool shouldInstrumentAlloca(AllocaInst &AI, InstrumentorIRBuilderTy &IIRB);
 
 private:
   bool updateSizesAfterPotentialFree();
@@ -135,11 +135,6 @@ bool LightSanImpl::shouldInstrumentStore(StoreInst &SI,
   return true;
 }
 
-bool LightSanImpl::shouldInstrumentAlloca(AllocaInst &AI,
-                                          InstrumentorIRBuilderTy &IIRB) {
-  return true;
-}
-
 bool LightSanImpl::shouldInstrumentFunction(Function &Fn) {
   return Fn.hasFnAttribute(Attribute::SanitizeObj);
 }
@@ -147,8 +142,16 @@ bool LightSanImpl::shouldInstrumentFunction(Function &Fn) {
 bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
                                         InstrumentorIRBuilderTy &IIRB) {
   Function *CalledFn = CI.getCalledFunction();
-  if (!CI.hasFnAttr(Attribute::NoFree))
+  if (!CI.hasFnAttr(Attribute::NoFree)) {
     IConf.PotentiallyFreeCalls.push_back({CI.getCaller(), &CI});
+    auto &TLI = IIRB.TLIGetter(*CI.getFunction());
+    if (auto *FreedPtr = getFreedOperand(&CI, &TLI)) {
+      auto FreeFC = M.getOrInsertFunction(
+          IConf.getRTName("", "free_object"),
+          FunctionType::get(IIRB.VoidTy, {IIRB.PtrTy}, false));
+      IIRB.IRB.CreateCall(FreeFC, {FreedPtr});
+    }
+  }
 
   if (!CalledFn)
     return true;
@@ -592,8 +595,8 @@ bool LightSanImpl::updateSizesAfterPotentialFree() {
                             FunctionType::get(Int64Ty, {PtrTy, Int8Ty}, false));
   for (auto [Fn, CI] : IConf.PotentiallyFreeCalls) {
     CI->dump();
-    IRBuilder<> IRB(CI->getNextNode());
     auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
+    IRBuilder<> IRB(CI->getNextNode());
     for (auto [Obj, SizeAI] : IConf.SizeAllocas[Fn]) {
       LoadInst *EncodingNo =
           cast<LoadInst>(IConf.getBasePointerEncodingNo(*Obj, *Fn));
@@ -606,6 +609,28 @@ bool LightSanImpl::updateSizesAfterPotentialFree() {
       Changed = true;
     }
   }
+
+  auto FreeFC = M.getOrInsertFunction(
+      IConf.getRTName("", "free_alloca"),
+      FunctionType::get(Type::getVoidTy(Ctx), {PtrTy}, false));
+
+  DenseMap<Function *, SmallVector<CallInst *>> EscapedAllocasMap;
+  foreachRTCaller(IConf.getRTName("post_", "alloca"), [&](CallInst &CI) {
+    EscapedAllocasMap[CI.getFunction()].push_back(&CI);
+  });
+
+  for (const auto &[Fn, AIs] : EscapedAllocasMap) {
+    for (auto &BB : *Fn) {
+      auto *TI = BB.getTerminator();
+      if (TI->getNumSuccessors())
+        continue;
+      IRBuilder<> IRB(TI);
+      for (auto *AI : AIs) {
+        IRB.CreateCall(FreeFC, {AI});
+      }
+    }
+  }
+
   return Changed;
 }
 
@@ -1053,19 +1078,9 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedStoreIO::populate(*this, IIRB);
   ExtendedLoadIO::populate(*this, IIRB);
   ExtendedLoopValueRangeIO::populate(*this, IIRB);
+  ExtendedAllocaIO::populate(*this, IIRB);
   //  ModuleIO::populate(*this, IIRB.Ctx);
   //  GlobalIO::populate(*this, IIRB.Ctx);
-
-  AllocaIO::ConfigTy AICConfig(/*Enable=*/false);
-  AICConfig.set(AllocaIO::PassAddress);
-  AICConfig.set(AllocaIO::ReplaceAddress);
-  AICConfig.set(AllocaIO::PassSize);
-  // TODO: Add the "RequiresTemporalChecks" argument
-  auto *AIC = InstrumentationConfig::allocate<AllocaIO>(/*IsPRE=*/false);
-  AIC->CB = [&](Value &V) {
-    return LSI.shouldInstrumentAlloca(cast<AllocaInst>(V), IIRB);
-  };
-  AIC->init(*this, IIRB.Ctx, &AICConfig);
 
   CallIO::ConfigTy PreCICConfig(/*Enable=*/false);
   PreCICConfig.set(CallIO::PassIntrinsicId);

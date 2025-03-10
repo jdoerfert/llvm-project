@@ -82,15 +82,27 @@ char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
 }
 
 OBJSAN_BIG_API_ATTRS
-char *__objsan_post_alloca(char *MPtr, int64_t ObjSize) {
-  return __objsan_register_object(MPtr, ObjSize,
-                                  /*RequiresTemporalCheck=*/true);
+char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
+                           int8_t RequiresTemporalCheck) {
+  return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
 OBJSAN_BIG_API_ATTRS
 void __objsan_pre_call(int64_t IntrinsicId, int32_t num_parameters,
                        char *parameters, int8_t is_definition) {
-  // TODO: implement this
+  for (int32_t I = 0; I < num_parameters; ++I) {
+    ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
+    if (VP->TypeId == 14) {
+      char **PtrAddr = reinterpret_cast<char **>(&VP->Value);
+      uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(*PtrAddr);
+      if (EncodingNo)
+        *PtrAddr = [&]() -> char * {
+          ENCODING_NO_SWITCH(decode, EncodingNo, nullptr, *PtrAddr);
+        }();
+    }
+    parameters += sizeof(ParameterValuePackTy) + VP->Size +
+                  (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
+  }
 }
 
 OBJSAN_BIG_API_ATTRS
@@ -117,17 +129,28 @@ int64_t __objsan_post_call(char *allocation_info, int64_t return_value,
   char *MPtr = reinterpret_cast<char *>(return_value);
   return reinterpret_cast<int64_t>(
       __objsan_register_object(MPtr, ObjSize,
-                               /*RequiresTemporalCheck*/true));
+                               /*RequiresTemporalCheck*/ true));
 }
 
 OBJSAN_SMALL_API_ATTRS
-void __objsan_free_object(char *__restrict VPtr, uint8_t EncodingNo) {
+void __objsan_free_object(char *__restrict VPtr) {
+  uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
+  if (!EncodingNo)
+    return;
   ENCODING_NO_SWITCH(free, EncodingNo, , VPtr);
+}
+
+OBJSAN_SMALL_API_ATTRS
+void __objsan_free_alloca(char *__restrict VPtr) {
+  ENCODING_NO_SWITCH(free, 2, , VPtr);
 }
 
 OBJSAN_HIDDEN_API_ATTRS
 uint64_t __objsan_get_object_size(char *__restrict VPtr, uint8_t EncodingNo) {
-  ENCODING_NO_SWITCH(getSize, EncodingNo, 0, VPtr);
+  auto Size = [&]() -> uint64_t {
+    ENCODING_NO_SWITCH(getSize, EncodingNo, 0, VPtr)
+  }();
+  return Size;
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -142,6 +165,7 @@ char *__objsan_post_base_pointer_info(char *__restrict VPtr,
                                       uint64_t *__restrict NumOffsetBitsPtr) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
   *EncodingNoPtr = EncodingNo;
+  *SizePtr = 0;
   ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, SizePtr,
                      NumOffsetBitsPtr);
 }
@@ -234,8 +258,8 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
     return BaseMPtr + Offset;
   //  if (!sizeIsKnown(ObjSize)) [[unlikely]]
   //    ObjSize = __objsan_get_object_size(VPtr, EncodingNo);
-  return EncodingCommonTy::checkAndAdjust(VPtr, Magic, BaseMPtr,
-                                          AccessSize, Offset, ObjSize,
+  return EncodingCommonTy::checkAndAdjust(VPtr, Magic, BaseMPtr, AccessSize,
+                                          Offset, ObjSize,
                                           /*FailOnError=*/false);
 }
 }
