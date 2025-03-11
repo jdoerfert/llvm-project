@@ -28,8 +28,9 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/Attributor.h"
-#include "llvm/Transforms/Instrumentation/Instrumentor.h"
+#include "llvm/Transforms/IPO/Instrumentor.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
@@ -60,38 +61,30 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     Value *NumOffsetBits = nullptr;
   };
 
-  Value *getUnderlyingObject(Value *Ptr) {
-    auto *NewVPtr = const_cast<Value *>(getUnderlyingObjectAggressive(Ptr));
-    while (NewVPtr != Ptr) {
-      Ptr = NewVPtr;
-      NewVPtr = const_cast<Value *>(getUnderlyingObjectAggressive(Ptr));
-    }
-    return Ptr;
-  }
-
   DenseMap<std::pair<Value *, Function *>, ExtendedBasePointerInfo>
       BasePointerSizeOffsetMap;
   Value *getBasePointerObjectSize(Value &V, InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    Value *Ptr = getUnderlyingObject(&V);
+    Value *Ptr = instrumentor::getUnderlyingObjectRecursive(&V);
     auto &EBPI = BasePointerSizeOffsetMap[{Ptr, Fn}];
     if (EBPI.ObjectSizePtr)
       return IIRB.IRB.CreateLoad(IIRB.Int64Ty, EBPI.ObjectSizePtr);
     return EBPI.ObjectSize;
   }
   Value *getBasePointerEncodingNo(Value &V, Function &Fn) {
-    Value *Ptr = getUnderlyingObject(&V);
+    Value *Ptr = instrumentor::getUnderlyingObjectRecursive(&V);
     return BasePointerSizeOffsetMap[{Ptr, &Fn}].EncodingNo;
   }
   Value *getNumOffsetBits(Value &V, InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    Value *Ptr = getUnderlyingObject(&V);
+    Value *Ptr = instrumentor::getUnderlyingObjectRecursive(&V);
     return BasePointerSizeOffsetMap[{Ptr, Fn}].NumOffsetBits;
   }
 
   /// Get a size alloca.
   AllocaInst *getSizeAlloca(Function &Fn, InstrumentorIRBuilderTy &IIRB,
                             Value &Obj) {
+    errs() << &Obj << " : " << Obj << "\n";
     const DataLayout &DL = Fn.getDataLayout();
     /// TODO: check if the size of base ptr can change in the function, if not,
     /// use a temporary alloca. Globals and allocas don't change size in the
@@ -607,23 +600,19 @@ bool LightSanImpl::updateSizesAfterPotentialFree() {
   bool Changed = false;
   auto &Ctx = M.getContext();
   auto *PtrTy = PointerType::get(Ctx, 0);
-  auto *Int8Ty = IntegerType::getInt8Ty(Ctx);
   auto *Int64Ty = IntegerType::getInt64Ty(Ctx);
   auto GetSizeFC =
       M.getOrInsertFunction(IConf.getRTName("", "get_object_size"),
-                            FunctionType::get(Int64Ty, {PtrTy, Int8Ty}, false));
+                            FunctionType::get(Int64Ty, {PtrTy}, false));
   SmallVector<CallInst *> GetObjSizeCalls;
   for (auto [Fn, CI] : IConf.PotentiallyFreeCalls) {
     auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
     IRBuilder<> IRB(CI->getNextNode());
     ensureDbgLoc(IRB);
     for (auto [Obj, SizeAI] : IConf.SizeAllocas[Fn]) {
-      LoadInst *EncodingNo =
-          cast<LoadInst>(IConf.getBasePointerEncodingNo(*Obj, *Fn));
-      if (!DT.dominates(EncodingNo, CI))
+      if (!DT.dominates(Obj, CI))
         continue;
-      CallInst *NewSizeVal =
-          IRB.CreateCall(GetSizeFC, {Obj, EncodingNo}, "size");
+      CallInst *NewSizeVal = IRB.CreateCall(GetSizeFC, {Obj}, "size");
       GetObjSizeCalls.push_back(NewSizeVal);
       IRB.CreateStore(NewSizeVal, SizeAI);
       Changed = true;
@@ -908,12 +897,33 @@ struct ExtendedBasePointerIO : public BasePointerIO {
                IRTArg::REPLACABLE_CUSTOM, getNumOffsetBits, setNumOffsetBits));
   }
 
+  static Value *stripRegisterCall(Value *V, InstrumentationConfig &IConf) {
+    V = V->stripPointerCasts();
+    if (auto *CI = dyn_cast<CallInst>(V)) {
+      assert(CI->getCalledFunction());
+      auto CalleeName = CI->getCalledFunction()->getName();
+      if (CalleeName == IConf.getRTName("post_", "alloca")) {
+        return CI->getArgOperand(0);
+      }
+      if (CalleeName == IConf.getRTName("post_", "call")) {
+        auto *P2I = cast<PtrToIntInst>(CI->getArgOperand(1));
+        return P2I->getOperand(0);
+      }
+      errs() << "ERROR: unexpected call " << *CI << "\n";
+      llvm_unreachable("TODO");
+    }
+    if (auto *I2P = dyn_cast<IntToPtrInst>(V))
+      return stripRegisterCall(I2P->getOperand(0), IConf);
+    V->dump();
+    return V;
+  }
+
   static Value *getObjectSizePtr(Value &V, Type &Ty,
                                  InstrumentationConfig &IConf,
                                  InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    return LSIConf.getSizeAlloca(*Fn, IIRB, V);
+    return LSIConf.getSizeAlloca(*Fn, IIRB, *stripRegisterCall(&V, IConf));
   }
   static Value *setObjectSize(Value &V, Value &NewV,
                               InstrumentationConfig &IConf,
@@ -921,6 +931,9 @@ struct ExtendedBasePointerIO : public BasePointerIO {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *ObjSize = IIRB.IRB.CreateLoad(IIRB.Int64Ty, &NewV);
+    assert(isa<CallInst>(V) &&
+           cast<CallInst>(V).getCalledFunction()->getName() ==
+               IConf.getRTName("post_", "base_pointer_info"));
     auto *BasePtr = cast<CallInst>(V).getArgOperand(0);
     auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}];
     EBPI.ObjectSize = ObjSize;
@@ -1215,6 +1228,13 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
   bool Changed = Impl.instrument();
   if (!Changed)
     return PreservedAnalyses::all();
+
+  SmallVector<Function *> DeadFns;
+  for (Function &Fn : M)
+    if (Fn.use_empty() && Fn.getName().starts_with(LightSanRuntimePrefix))
+      DeadFns.push_back(&Fn);
+  for (auto *Fn : DeadFns)
+    Fn->eraseFromParent();
 
   if (verifyModule(M))
     M.dump();

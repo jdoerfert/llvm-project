@@ -60,6 +60,9 @@ template <typename IRBuilderTy> void ensureDbgLoc(IRBuilderTy &IRB) {
     IRB.SetCurrentDebugLocation(DILocation::get(BB->getContext(), 0, 0, SP));
 }
 
+
+Value *getUnderlyingObjectRecursive(Value *Ptr);
+
 template <typename IRBTy>
 Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL,
                  bool AllowTruncate = false) {
@@ -155,6 +158,7 @@ struct InstrumentorIRBuilderTy {
   void returnAllocas() {
     for (auto [AI, List] : UsedAllocas)
       List->push_back(AI);
+    UsedAllocas.clear();
   }
 
   DenseMap<Instruction *, HoistKindTy> HoistedInsts;

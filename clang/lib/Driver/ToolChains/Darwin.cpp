@@ -1729,7 +1729,7 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
     if (Sanitize.needsTysanRt())
       AddLinkSanitizerLibArgs(Args, CmdArgs, "tysan");
     if (Sanitize.needsObjRt())
-      AddLinkSanitizerLibArgs(Args, CmdArgs, "objsan");
+      AddLinkSanitizerLibArgs(Args, CmdArgs, "objsan", /*Shared=*/false);
     if (Sanitize.needsFuzzer() && !Args.hasArg(options::OPT_dynamiclib)) {
       AddLinkSanitizerLibArgs(Args, CmdArgs, "fuzzer", /*shared=*/false);
 

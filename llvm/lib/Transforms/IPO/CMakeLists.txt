@@ -28,6 +28,7 @@ add_llvm_component_library(LLVMipo
   InferFunctionAttrs.cpp
   Inliner.cpp
   InputGen.cpp
+  Instrumentor.cpp
   Internalize.cpp
   LightSan.cpp
   LoopExtractor.cpp
@@ -64,6 +65,7 @@ add_llvm_component_library(LLVMipo
   BitReader
   BitWriter
   Core
+  Demangle
   FrontendOpenMP
   InstCombine
   IRReader

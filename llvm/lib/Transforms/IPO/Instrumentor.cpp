@@ -8,13 +8,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/Instrumentation/Instrumentor.h"
+#include "llvm/Transforms/IPO/Instrumentor.h"
 
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/iterator.h"
@@ -46,6 +47,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/Linker/Linker.h"
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -55,8 +58,11 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/Internalize.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 
 #include <cassert>
@@ -83,6 +89,12 @@ static cl::opt<std::string> ReadJSONConfig(
     cl::desc(
         "Read the instrumentor configuration from the specified JSON file"),
     cl::init(""));
+
+static cl::opt<std::string>
+    RuntimeBitcode("instrumentor-runtime-bitcode",
+                   cl::desc("Read runtime bitcode to be linked in, "
+                            "alwaysinline functions are inlined"),
+                   cl::init(""));
 
 namespace {
 
@@ -369,6 +381,8 @@ public:
   bool instrument();
 
 private:
+  void linkRuntime();
+
   bool shouldInstrumentTarget();
   bool shouldInstrumentFunction(Function &Fn);
   bool shouldInstrumentGlobalVariable(GlobalVariable &GV);
@@ -441,6 +455,15 @@ protected:
 };
 
 } // end anonymous namespace
+//
+Value *instrumentor::getUnderlyingObjectRecursive(Value *Ptr) {
+  auto *NewVPtr = const_cast<Value *>(getUnderlyingObjectAggressive(Ptr));
+  while (NewVPtr != Ptr) {
+    Ptr = NewVPtr;
+    NewVPtr = const_cast<Value *>(getUnderlyingObjectAggressive(Ptr));
+  }
+  return Ptr;
+}
 
 bool InstrumentorImpl::shouldInstrumentTarget() {
   const auto &TripleStr = M.getTargetTriple();
@@ -603,6 +626,54 @@ bool InstrumentorImpl::instrumentModule() {
   return Changed;
 }
 
+void InstrumentorImpl::linkRuntime() {
+  if (RuntimeBitcode.empty())
+    return;
+
+  SMDiagnostic Err;
+  auto RTM = parseIRFile(RuntimeBitcode, Err, M.getContext());
+  if (!RTM) {
+    errs() << "ERROR: failed to parse runtime bitcode file '" << RuntimeBitcode
+           << "':\n";
+    Err.print(M.getName().data(), errs());
+    return;
+  }
+
+  auto InternalizeCallback = [&](Module &M, const StringSet<> &GVS) {
+    internalizeModule(M, [&GVS](const GlobalValue &GV) {
+      return !GV.hasName() || !GVS.count(GV.getName());
+    });
+  };
+
+  if (Linker::linkModules(M, std::move(RTM), 0, InternalizeCallback))
+    llvm_unreachable("failed to link in runtime bitcode");
+
+  for (auto [I, _] : IIRB.NewInsts) {
+    auto *CI = dyn_cast<CallInst>(I);
+    if (!CI || isa<IntrinsicInst>(CI))
+      continue;
+
+    InlineFunctionInfo IFI;
+    auto InlineResult = InlineFunction(*CI, IFI);
+    if (!InlineResult.isSuccess()) {
+      errs() << "WARNING: inlining of runtime call failed: "
+             << CI->getCalledFunction()->getName() << "\n";
+      errs() << "Reason: " << InlineResult.getFailureReason() << "\n";
+      errs() << "Signatures: " << *CI->getFunctionType() << " vs "
+             << *CI->getCalledFunction()->getFunctionType() << "\n";
+    }
+  }
+
+  for (auto It : IIRB.AllocaMap) {
+    auto *Fn = It.first.first;
+    DominatorTree DT(*Fn);
+    auto &Allocas = It.second;
+    erase_if(Allocas,
+             [](const AllocaInst *AI) { return !isAllocaPromotable(AI); });
+    PromoteMemToReg(Allocas, DT);
+  }
+}
+
 bool InstrumentorImpl::instrument() {
   bool Changed = false;
   if (!shouldInstrumentTarget())
@@ -621,6 +692,9 @@ bool InstrumentorImpl::instrument() {
     Changed |= instrumentFunction(Fn);
 
   Changed |= instrumentModule();
+
+  if (Changed)
+    linkRuntime();
 
   return Changed;
 }
@@ -881,12 +955,7 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
                                           InstrumentorIRBuilderTy &IIRB) {
   Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
 
-  Value *VPtr;
-  Value *NewVPtr = &V;
-  do {
-    VPtr = NewVPtr;
-    NewVPtr = const_cast<Value *>(getUnderlyingObjectAggressive(VPtr));
-  } while (NewVPtr != VPtr);
+  Value *VPtr = getUnderlyingObjectRecursive(&V);
 
   Value *&BPI = BasePointerInfoMap[{VPtr, Fn}];
   if (!BPI) {

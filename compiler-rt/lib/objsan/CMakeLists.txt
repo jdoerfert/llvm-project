@@ -33,36 +33,15 @@ add_compiler_rt_component(objsan)
 add_custom_target(clang_rt.objsan)
 set_target_properties(clang_rt.objsan PROPERTIES FOLDER "Compiler-RT Misc")
 
-## foreach(arch ${OBJSAN_SUPPORTED_ARCH})
-##   foreach(os ${SANITIZER_COMMON_SUPPORTED_OS})
-##     add_compiler_rt_runtime(clang_rt.objsan-ir-${arch}
-##       STATIC
-##       OS ${os}
-##       ARCHS ${arch}
-##       SOURCES ${OBJSAN_IR_SOURCES}
-## 
-##       ADDITIONAL_HEADERS ${OBJSAN_HEADERS}
-##       CFLAGS ${OBJSAN_CFLAGS}
-##       LINK_FLAGS ${OBJSAN_LINK_FLAGS}
-##       PARENT_TARGET objsan)
-##   endforeach()
-## endforeach()
-
-add_compiler_rt_runtime(clang_rt.objsan
-  STATIC
-  ARCHS ${OBJSAN_SUPPORTED_ARCH}
-  SOURCES ${OBJSAN_SOURCES}
-
-  ADDITIONAL_HEADERS ${OBJSAN_HEADERS}
-  CFLAGS ${OBJSAN_CFLAGS}
-  LINK_FLAGS ${OBJSAN_LINK_FLAGS}
-  PARENT_TARGET objsan)
-
-add_compiler_rt_runtime(clang_rt.objsan-ir
+foreach(os ${SANITIZER_COMMON_SUPPORTED_OS})
+  add_compiler_rt_runtime(clang_rt.objsan
     STATIC
+    OS ${os}
     ARCHS ${OBJSAN_SUPPORTED_ARCH}
-    SOURCES ${OBJSAN_IR_SOURCES}
+    SOURCES ${OBJSAN_SOURCES}
 
     ADDITIONAL_HEADERS ${OBJSAN_HEADERS}
-    CFLAGS ${OBJSAN_IR_CFLAGS}
+    CFLAGS ${OBJSAN_CFLAGS}
+    LINK_FLAGS ${OBJSAN_LINK_FLAGS}
     PARENT_TARGET objsan)
+endforeach()

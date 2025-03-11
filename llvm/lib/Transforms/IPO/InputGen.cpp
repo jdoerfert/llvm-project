@@ -54,7 +54,7 @@
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/StringSaver.h"
-#include "llvm/Transforms/Instrumentation/Instrumentor.h"
+#include "llvm/Transforms/IPO/Instrumentor.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/CodeMoverUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"

@@ -4,7 +4,6 @@
 
 #include "include/obj_encoding.h"
 
-#define OBJSAN_HIDDEN_API_ATTRS [[gnu::flatten, clang::noinline]]
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
@@ -45,22 +44,11 @@ getOffsetAndMagic(char *VPtr, uint64_t OffsetBits) {
 //  return ObjSize != ~0ULL;
 //}
 
-static int NumToSanitize = ~0;
-static __attribute__((constructor(0))) void __init(void) {
-  if (auto *NS = getenv("NUM_SAN"))
-    NumToSanitize = atoi(NS);
-}
-
 extern "C" {
 
 OBJSAN_BIG_API_ATTRS
 char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
                                bool RequiresTemporalCheck) {
-  if (NumToSanitize != ~0) [[unlikely]] {
-    static int X = 0;
-    if (++X > NumToSanitize)
-      return MPtr;
-  }
   if (ObjSize < SmallObjectsTy::getMaxSize() && !RequiresTemporalCheck)
       [[likely]]
     if (auto *VPtr = SmallObjects.encode(MPtr, ObjSize)) [[likely]]
@@ -134,12 +122,12 @@ void __objsan_free_alloca(char *__restrict VPtr) {
   ENCODING_NO_SWITCH(free, 2, , VPtr);
 }
 
-OBJSAN_HIDDEN_API_ATTRS
-uint64_t __objsan_get_object_size(char *__restrict VPtr, uint8_t EncodingNo) {
-  auto Size = [&]() -> uint64_t {
-    ENCODING_NO_SWITCH(getSize, EncodingNo, 0, VPtr)
-  }();
-  return Size;
+OBJSAN_SMALL_API_ATTRS
+uint64_t __objsan_get_object_size(char *__restrict VPtr) {
+  uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
+  if (!EncodingNo)
+    return 0;
+  ENCODING_NO_SWITCH(getSize, EncodingNo, 0, VPtr)
 }
 
 OBJSAN_SMALL_API_ATTRS
