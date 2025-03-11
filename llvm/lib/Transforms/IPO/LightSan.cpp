@@ -28,6 +28,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/Instrumentation/Instrumentor.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
@@ -112,6 +113,8 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   SmallVector<std::pair<Function *, CallInst *>> PotentiallyFreeCalls;
 
   LightSanImpl &LSI;
+
+  Attributor *A = nullptr;
 };
 
 struct LightSanImpl {
@@ -673,6 +676,56 @@ bool LightSanImpl::instrument() {
       Changed |= hoistLoopLoads(*L);
   }
 #endif
+
+  // Set up attributor
+  FunctionAnalysisManager &FAM =
+      MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+  CallGraphUpdater CGUpdater;
+  BumpPtrAllocator Allocator;
+  AnalysisGetter AG(FAM);
+
+  InformationCache InfoCache(M, AG, Allocator, /*CGSCC=*/nullptr);
+
+  // FIXME: Do we need more stuff here or just allow everything?
+  DenseSet<const char *> Allowed(
+      {&AAPointerInfo::ID, &AAUnderlyingObjects::ID, &AAPotentialValues::ID,
+       &AAPotentialConstantValues::ID, &AAInstanceInfo::ID});
+
+  AttributorConfig AC(CGUpdater);
+  AC.Allowed = &Allowed;
+  AC.DefaultInitializeLiveInternals = false;
+  AC.IsModulePass = true;
+  AC.RewriteSignatures = false;
+  AC.MaxFixpointIterations = 32;
+  AC.PassName = DEBUG_TYPE;
+
+  SetVector<Function *> Functions;
+  for (Function &F : M) {
+    if (!F.isIntrinsic())
+      Functions.insert(&F);
+  }
+
+  Attributor A(Functions, InfoCache, AC);
+  IConf.A = &A;
+
+  // Register AAs
+  for (Function *F : Functions) {
+    for (BasicBlock &BB : *F) {
+      for (Instruction &I : BB) {
+        if (auto *LI = dyn_cast<LoadInst>(&I))
+          A.getOrCreateAAFor<AAPointerInfo>(
+              IRPosition::value(*LI->getPointerOperand()),
+              /*QueryingAA=*/nullptr, DepClassTy::REQUIRED);
+        else if (auto *SI = dyn_cast<StoreInst>(&I))
+          A.getOrCreateAAFor<AAPointerInfo>(
+              IRPosition::value(*SI->getPointerOperand()),
+              /*QueryingAA=*/nullptr, DepClassTy::REQUIRED);
+      }
+    }
+  }
+
+  Changed |= A.run() == ChangeStatus::CHANGED;
 
   InstrumentorPass IP(&IConf);
   auto PA = IP.run(M, MAM);
