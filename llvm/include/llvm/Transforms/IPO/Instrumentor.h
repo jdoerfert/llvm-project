@@ -548,9 +548,7 @@ struct InstrumentationConfig {
     return V;
   }
 
-  virtual void startFunction() {
-
-  }
+  virtual void startFunction() {}
 };
 
 template <size_t N> struct BaseConfigTy {
@@ -1370,26 +1368,47 @@ struct GlobalIO : public InstrumentationOpportunity {
             InstrumentationLocation(InstrumentationLocation::GLOBAL_PRE)) {}
   virtual ~GlobalIO() {};
 
-  StringRef getName() const override { return "globals"; }
+  enum ConfigKind {
+    PassAddress = 0,
+    PassName,
+    PassInitialValue,
+    PassInitialValueSize,
+    PassIsConstant,
+    NumConfig,
+  };
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
-                             "The address of the global.", IRTArg::REPLACABLE,
-                             getAddress, setAddress));
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "name",
-                             "The name of the global.", IRTArg::STRING,
-                             getSymbolName));
-    IRTArgs.push_back(
-        IRTArg(IntegerType::getInt64Ty(Ctx), "initial_value",
-               "The initial value of the global.",
-               IRTArg::POTENTIALLY_INDIRECT | IRTArg::INDIRECT_HAS_SIZE,
-               getInitialValue));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "initial_value_size",
-                             "The size of the initial value of the global.",
-                             IRTArg::NONE, getInitialValueSize));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_constant",
-                             "Flag to indicate constant globals.", IRTArg::NONE,
-                             isConstant));
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
+
+  StringRef getName() const override { return "global"; }
+
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
+    if (Config.has(PassAddress))
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
+                               "The address of the global.", IRTArg::REPLACABLE,
+                               getAddress, setAddress));
+    if (Config.has(PassName))
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "name",
+                               "The name of the global.", IRTArg::STRING,
+                               getSymbolName));
+    if (Config.has(PassInitialValue))
+      IRTArgs.push_back(
+          IRTArg(IntegerType::getInt64Ty(Ctx), "initial_value",
+                 "The initial value of the global.",
+                 IRTArg::POTENTIALLY_INDIRECT | IRTArg::INDIRECT_HAS_SIZE,
+                 getInitialValue));
+    if (Config.has(PassInitialValueSize))
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx),
+                               "initial_value_size",
+                               "The size of the initial value of the global.",
+                               IRTArg::NONE, getInitialValueSize));
+    if (Config.has(PassIsConstant))
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_constant",
+                               "Flag to indicate constant globals.",
+                               IRTArg::NONE, isConstant));
     IConf.addChoice(*this);
   }
 

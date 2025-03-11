@@ -1926,25 +1926,63 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
     IIRB.IRB.CreateStore(&NewV, ShadowGV);
   }
 
+  DenseMap<User *, Instruction *> UserMap;
+  std::function<Instruction *(User *)> MakeConstantsInstructions =
+      [&](User *Usr) -> Instruction * {
+    if (auto *NewI = UserMap.lookup(Usr))
+      return NewI;
+    assert(isa<ConstantExpr>(Usr));
+    auto *CE = cast<ConstantExpr>(Usr);
+    auto *I = CE->getAsInstruction();
+    UserMap[CE] = I;
+    bool First = true;
+    for (auto &U : make_early_inc_range(CE->uses())) {
+      Instruction *UI = dyn_cast<Instruction>(U.getUser());
+      if (!UI) {
+        if (auto *NewUI = UserMap.lookup(U.getUser()))
+          UI = NewUI;
+        else if (auto *CE = dyn_cast<ConstantExpr>(U.getUser())) {
+          UI = MakeConstantsInstructions(CE);
+        } else {
+          errs() << "ERROR: Unknown user " << *U.getUser() << " for " << *U
+                 << "\n";
+          llvm_unreachable("TODO");
+        }
+      }
+      if (!First)
+        I = I->clone();
+      I->insertBefore(UI->getIterator());
+      U.set(I);
+      First = false;
+    }
+    if (First) {
+      I->deleteValue();
+      return nullptr;
+    }
+    return I;
+  };
+
   DenseMap<Function *, Value *> FunctionReloadMap;
   while (!Worklist.empty()) {
     Use *U = Worklist.pop_back_val();
     if (!Visited.insert(U).second)
       continue;
     auto *I = dyn_cast<Instruction>(U->getUser());
-    if (!I) {
-      for (auto &UU : (*U)->uses())
-        Worklist.push_back(&UU);
-      continue;
+    if (I) {
+      if (IIRB.NewInsts.lookup(I) == IIRB.Epoche)
+        continue;
+    } else {
+      I = MakeConstantsInstructions(U->getUser());
+      if (!I)
+        continue;
     }
-    if (IIRB.NewInsts.lookup(I) == IIRB.Epoche)
-      continue;
-    IIRB.IRB.SetInsertPointPastAllocas(I->getFunction());
-    ensureDbgLoc(IIRB.IRB);
     auto *&Reload = FunctionReloadMap[I->getFunction()];
-    if (!Reload)
+    if (!Reload) {
+      IIRB.IRB.SetInsertPointPastAllocas(I->getFunction());
+      ensureDbgLoc(IIRB.IRB);
       Reload = IIRB.IRB.CreateLoad(NewV.getType(), ShadowGV);
-    U->set(Reload);
+    }
+    I->setOperand(U->getOperandNo(), Reload);
   }
   return &V;
 }

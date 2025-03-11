@@ -66,6 +66,11 @@ char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
 }
 
 OBJSAN_BIG_API_ATTRS
+char *__objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t RequiresTemporalCheck) {
+  return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
+}
+
+OBJSAN_BIG_API_ATTRS
 void __objsan_pre_call(int64_t IntrinsicId, int32_t num_parameters,
                        char *parameters, int8_t is_definition) {
   for (int32_t I = 0; I < num_parameters; ++I) {

@@ -834,6 +834,41 @@ struct ExtendedAllocaIO : public AllocaIO {
   }
 };
 
+struct ExtendedGlobalIO : public GlobalIO {
+  ExtendedGlobalIO() : GlobalIO() {}
+  virtual ~ExtendedGlobalIO() {};
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    GlobalIO::ConfigTy PreGlobalConfig(/*Enable=*/false);
+    PreGlobalConfig.set(GlobalIO::PassAddress);
+    PreGlobalConfig.set(GlobalIO::PassInitialValueSize);
+    GlobalIO::init(IConf, IIRB.Ctx, &PreGlobalConfig);
+
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "requires_temporal_check",
+                             "Flag to indicate that the global might be "
+                             "accessed after it was freed.",
+                             IRTArg::NONE, getRequiresTemporalCheck));
+  }
+
+  static Value *getRequiresTemporalCheck(Value &V, Type &Ty,
+                                         InstrumentationConfig &IConf,
+                                         InstrumentorIRBuilderTy &IIRB) {
+    // TODO: Be smarter about this, e.g., AAPointerInfo.
+    bool MayEscape = !all_of(V.uses(), [](const Use &U) {
+      return isa<LoadInst>(U.getUser()) ||
+             (isa<StoreInst>(U.getUser()) &&
+              U.getOperandNo() != StoreInst::getPointerOperandIndex());
+    });
+    return ConstantInt::get(&Ty, MayEscape);
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto *EAIO = IConf.allocate<ExtendedGlobalIO>();
+    EAIO->init(IConf, IIRB);
+  }
+};
+
 struct ExtendedBasePointerIO : public BasePointerIO {
   ExtendedBasePointerIO() : BasePointerIO() {}
   virtual ~ExtendedBasePointerIO() {};
@@ -1172,22 +1207,22 @@ struct ExtendedFunctionIO : public FunctionIO {
                     InstrumentorIRBuilderTy &IIRB,
                     InstrumentationCaches &ICaches) override {
 
-    //auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    //Function *Fn = cast<Function>(V);
-    //auto GetSizeFC = Fn->getParent()->getOrInsertFunction(
-    //    IConf.getRTName("", "get_object_size"),
-    //    FunctionType::get(IIRB.Int64Ty, {IIRB.PtrTy}, false));
+    // auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    // Function *Fn = cast<Function>(V);
+    // auto GetSizeFC = Fn->getParent()->getOrInsertFunction(
+    //     IConf.getRTName("", "get_object_size"),
+    //     FunctionType::get(IIRB.Int64Ty, {IIRB.PtrTy}, false));
     //{
-    //  IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
-    //  for (auto *CI : LSIConf.PotentiallyFreeCalls) {
-    //    for (auto [Obj, SizeAI] : LSIConf.SizeAllocas) {
-    //      IIRB.IRB.SetInsertPoint(CI->getNextNode());
-    //      ensureDbgLoc(IIRB.IRB);
-    //      CallInst *NewSizeVal = IIRB.IRB.CreateCall(GetSizeFC, {Obj}, "size");
-    //      IIRB.IRB.CreateStore(NewSizeVal, SizeAI);
-    //    }
-    //  }
-    //}
+    //   IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
+    //   for (auto *CI : LSIConf.PotentiallyFreeCalls) {
+    //     for (auto [Obj, SizeAI] : LSIConf.SizeAllocas) {
+    //       IIRB.IRB.SetInsertPoint(CI->getNextNode());
+    //       ensureDbgLoc(IIRB.IRB);
+    //       CallInst *NewSizeVal = IIRB.IRB.CreateCall(GetSizeFC, {Obj},
+    //       "size"); IIRB.IRB.CreateStore(NewSizeVal, SizeAI);
+    //     }
+    //   }
+    // }
     return FunctionIO::instrument(V, IConf, IIRB, ICaches);
   }
 
@@ -1213,8 +1248,8 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedLoopValueRangeIO::populate(*this, IIRB);
   ExtendedAllocaIO::populate(*this, IIRB);
   ExtendedFunctionIO::populate(*this, IIRB);
-  //  ModuleIO::populate(*this, IIRB.Ctx);
-  //  GlobalIO::populate(*this, IIRB.Ctx);
+  ExtendedGlobalIO::populate(*this, IIRB);
+  // ModuleIO::populate(*this, IIRB.Ctx);
 
   CallIO::ConfigTy PreCICConfig(/*Enable=*/false);
   PreCICConfig.set(CallIO::PassIntrinsicId);
@@ -1246,17 +1281,6 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
     return !!ACI;
   };
   PostCIC->init(*this, IIRB.Ctx, &PostCICConfig);
-
-  //  FunctionIO::ConfigTy FICConfig(/*Enable=*/false);
-  //  FICConfig.set(FunctionIO::PassName);
-  //  FICConfig.set(FunctionIO::PassNumArguments);
-  //  FICConfig.set(FunctionIO::PassArguments);
-  //  FICConfig.set(FunctionIO::ReplaceArguments);
-  //  auto *FIC = InstrumentationConfig::allocate<FunctionIO>();
-  //  FIC->CB = [&](Value &V) {
-  //    return LSI.shouldInstrumentFunction(cast<Function>(V));
-  //  };
-  //  FIC->init(*this, IIRB.Ctx, &FICConfig);
 }
 
 } // namespace

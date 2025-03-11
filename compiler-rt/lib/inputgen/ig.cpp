@@ -61,9 +61,9 @@ extern ObjectManager ThreadOM;
 extern "C" {
 
 IG_API_ATTRS
-char *__ig_pre_globals(char *address, char *name, int64_t initial_value,
+char *__ig_pre_global(char *address, char *name, int64_t initial_value,
                        int32_t initial_value_size, int8_t is_constant) {
-  PRINTF("globals pre -- address: %p, name: %s, initial_value: %lli, "
+  PRINTF("global pre -- address: %p, name: %s, initial_value: %lli, "
          "initial_value_size: %i, is_constant: %i\n",
          address, name, initial_value, initial_value_size, is_constant);
   __builtin_memcpy(address, &initial_value, initial_value_size);
@@ -72,10 +72,10 @@ char *__ig_pre_globals(char *address, char *name, int64_t initial_value,
 }
 
 IG_API_ATTRS
-char *__ig_pre_globals_ind(char *address, char *name,
+char *__ig_pre_global_ind(char *address, char *name,
                            int64_t *initial_value_ptr,
                            int32_t initial_value_size, int8_t is_constant) {
-  PRINTF("globals pre -- address: %p, name: %s, initial_value: %p, "
+  PRINTF("global pre -- address: %p, name: %s, initial_value: %p, "
          "initial_value_size: %i, is_constant: %i\n",
          address, name, (void *)initial_value_ptr, initial_value_size,
          is_constant);
