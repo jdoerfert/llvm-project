@@ -60,7 +60,6 @@ template <typename IRBuilderTy> void ensureDbgLoc(IRBuilderTy &IRB) {
     IRB.SetCurrentDebugLocation(DILocation::get(BB->getContext(), 0, 0, SP));
 }
 
-
 Value *getUnderlyingObjectRecursive(Value *Ptr);
 
 template <typename IRBTy>
@@ -327,6 +326,7 @@ struct InstrumentationLocation {
     GLOBAL_PRE,
     GLOBAL_POST,
     FUNCTION_PRE,
+    FUNCTION_POST,
     BASIC_BLOCK_PRE,
     BASIC_BLOCK_POST,
     INSTRUCTION_PRE,
@@ -357,6 +357,8 @@ struct InstrumentationLocation {
       return "global_post";
     case FUNCTION_PRE:
       return "function_pre";
+    case FUNCTION_POST:
+      return "function_post";
     case BASIC_BLOCK_PRE:
       return "basic_block_pre";
     case BASIC_BLOCK_POST:
@@ -377,6 +379,7 @@ struct InstrumentationLocation {
         .Case("global_pre", GLOBAL_PRE)
         .Case("global_post", GLOBAL_POST)
         .Case("function_pre", FUNCTION_PRE)
+        .Case("function_post", FUNCTION_POST)
         .Case("basic_block_pre", BASIC_BLOCK_PRE)
         .Case("basic_block_post", BASIC_BLOCK_POST)
         .Case("instruction_pre", INSTRUCTION_PRE)
@@ -395,6 +398,7 @@ struct InstrumentationLocation {
       return true;
     case MODULE_POST:
     case GLOBAL_POST:
+    case FUNCTION_POST:
     case BASIC_BLOCK_POST:
     case INSTRUCTION_POST:
     case SPECIAL_VALUE:
@@ -542,6 +546,10 @@ struct InstrumentationConfig {
         V = ConstantExpr::getAddrSpaceCast(V, IIRB.IRB.getPtrTy());
     }
     return V;
+  }
+
+  virtual void startFunction() {
+
   }
 };
 
@@ -1251,9 +1259,11 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
 };
 
 struct FunctionIO : public InstrumentationOpportunity {
-  FunctionIO()
+  FunctionIO(bool IsPRE)
       : InstrumentationOpportunity(
-            InstrumentationLocation(InstrumentationLocation::FUNCTION_PRE)) {}
+            InstrumentationLocation(InstrumentationLocation(
+                IsPRE ? InstrumentationLocation::FUNCTION_PRE
+                      : InstrumentationLocation::FUNCTION_POST))) {}
   virtual ~FunctionIO() {};
 
   enum ConfigKind {
@@ -1314,8 +1324,10 @@ struct FunctionIO : public InstrumentationOpportunity {
                       InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
-    auto *AIC = IConf.allocate<FunctionIO>();
-    AIC->init(IConf, Ctx);
+    for (auto IsPRE : {true, false}) {
+      auto *AIC = IConf.allocate<FunctionIO>(IsPRE);
+      AIC->init(IConf, Ctx);
+    }
   }
 };
 

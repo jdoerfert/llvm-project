@@ -1,6 +1,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 
 #include "include/obj_encoding.h"
 
@@ -70,7 +71,8 @@ void __objsan_pre_call(int64_t IntrinsicId, int32_t num_parameters,
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
     if (VP->TypeId == 14) {
-      char **PtrAddr = reinterpret_cast<char **>(&VP->Value);
+      char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
+      char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
       uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(*PtrAddr);
       if (EncodingNo)
         *PtrAddr = [&]() -> char * {
@@ -92,16 +94,17 @@ int64_t __objsan_post_call(char *allocation_info, int64_t return_value,
   uint64_t ObjSize = 1;
   for (int32_t I = 0; I < std::min(MaxSizeArg, num_parameters); ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
+    uint32_t Padding = (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
     if (I == AI->SizeLHSArgNo || I == AI->SizeRHSArgNo) {
+      char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
       if (VP->Size == 4)
-        ObjSize *= *(uint32_t *)&VP->Value;
+        ObjSize *= *(uint32_t *)(VPValuePtr + Padding);
       else if (VP->Size == 8) {
-        ObjSize *= *(uint64_t *)&VP->Value;
+        ObjSize *= *(uint64_t *)VPValuePtr;
       } else
         __builtin_trap();
     }
-    parameters += sizeof(ParameterValuePackTy) + VP->Size +
-                  (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
+    parameters += sizeof(ParameterValuePackTy) + VP->Size + Padding;
   }
   char *MPtr = reinterpret_cast<char *>(return_value);
   return reinterpret_cast<int64_t>(
@@ -120,6 +123,39 @@ void __objsan_free_object(char *__restrict VPtr) {
 OBJSAN_SMALL_API_ATTRS
 void __objsan_free_alloca(char *__restrict VPtr) {
   ENCODING_NO_SWITCH(free, 2, , VPtr);
+}
+
+OBJSAN_SMALL_API_ATTRS
+void __objsan_post_function(int32_t NumAllocas,
+                            char *__restrict *__restrict Allocas) {
+  for (int32_t I = 0; I < NumAllocas; ++I)
+    __objsan_free_alloca(Allocas[I]);
+}
+
+OBJSAN_SMALL_API_ATTRS
+void __objsan_pre_function(int32_t NumArgs, char *__restrict Arguments) {
+  // This is for main only!
+  if (NumArgs != 2)
+    return;
+  ParameterValuePackTy *ArgCVP = (ParameterValuePackTy *)Arguments;
+  if (ArgCVP->Size != 4 || ArgCVP->TypeId != 12)
+    return;
+  char *ArgCVPVPtr = reinterpret_cast<char *>(&ArgCVP->Value);
+  int32_t ArgC = *reinterpret_cast<int32_t *>(ArgCVPVPtr + 4);
+  Arguments += sizeof(ParameterValuePackTy) + 8;
+  ParameterValuePackTy *ArgVVP = (ParameterValuePackTy *)Arguments;
+  if (ArgVVP->Size != 8 || ArgVVP->TypeId != 14)
+    return;
+  auto ArgVSize = sizeof(char *) * ArgC;
+  char **ArgV = *reinterpret_cast<char ***>(&ArgVVP->Value);
+  for (int32_t I = 0; I < ArgC; ++I) {
+    auto StrSize = strlen(ArgV[I]) + 1;
+    ArgV[I] = __objsan_register_object(ArgV[I], StrSize,
+                                       /*RequiresTemporalCheck=*/false);
+  }
+  *reinterpret_cast<char **>(&ArgVVP->Value) =
+      __objsan_register_object(reinterpret_cast<char *>(ArgV), ArgVSize,
+                               /*RequiresTemporalCheck*/ false);
 }
 
 OBJSAN_SMALL_API_ATTRS

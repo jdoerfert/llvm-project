@@ -504,10 +504,12 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   if (!shouldInstrumentFunction(Fn))
     return Changed;
 
+  IConf.startFunction();
   Changed |= preprocessLoops(Fn);
 
   InstrumentationCaches ICaches;
 
+  SmallVector<Instruction *> FinalTIs;
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
   for (auto &It : RPOT) {
     for (auto &I : *It) {
@@ -532,6 +534,10 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       }
       IIRB.returnAllocas();
     }
+
+    auto *TI = It->getTerminator();
+    if (!TI->getNumSuccessors())
+      FinalTIs.push_back(TI);
   }
 
   Value *FPtr = &Fn;
@@ -542,8 +548,24 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
     ++IIRB.Epoche;
 
     IIRB.IRB.SetInsertPointPastAllocas(cast<Function>(FPtr));
+    ensureDbgLoc(IIRB.IRB);
     ChoiceIt.second->instrument(FPtr, IConf, IIRB, ICaches);
     IIRB.returnAllocas();
+  }
+
+  for (auto &ChoiceIt :
+       IConf.IChoices[InstrumentationLocation::FUNCTION_POST]) {
+    if (!ChoiceIt.second->Enabled)
+      continue;
+    // Count epochs eagerly.
+    ++IIRB.Epoche;
+
+    for (auto *FinalTI : FinalTIs) {
+      IIRB.IRB.SetInsertPoint(FinalTI);
+      ensureDbgLoc(IIRB.IRB);
+      ChoiceIt.second->instrument(FPtr, IConf, IIRB, ICaches);
+      IIRB.returnAllocas();
+    }
   }
 
   return Changed;
@@ -584,6 +606,7 @@ bool InstrumentorImpl::instrumentModule() {
       if (!YtorFn)
         YtorFn = CreateYtor(IsPRE);
       IIRB.IRB.SetInsertPointPastAllocas(YtorFn);
+      ensureDbgLoc(IIRB.IRB);
       Value *YtorPtr = YtorFn;
 
       // Count epochs eagerly.
@@ -1011,7 +1034,7 @@ Value *InstrumentationConfig::getLoopValueRange(Value &V,
     else if (isa<GlobalValue>(VPtr) || isa<Argument>(VPtr))
       IIRB.IRB.SetInsertPointPastAllocas(
           IIRB.IRB.GetInsertBlock()->getParent());
-    else 
+    else
       return LVR = Constant::getNullValue(IIRB.PtrTy);
     ensureDbgLoc(IIRB.IRB);
 
@@ -1414,11 +1437,13 @@ static void readValuePack(const Range &R, Value &Pack,
     if (!V->getType()->isSized())
       continue;
     Offset += 8;
+    auto VSize = DL.getTypeAllocSize(V->getType());
+    auto Padding = alignTo(VSize, 8) - VSize;
+    Offset += Padding;
     auto *Ptr = IIRB.IRB.CreateConstInBoundsGEP1_32(IIRB.Int8Ty, &Pack, Offset);
     auto *NewV = IIRB.IRB.CreateLoad(V->getType(), Ptr);
     SetterCB(Idx, NewV);
-    auto VSize = DL.getTypeAllocSize(V->getType());
-    Offset += alignTo(VSize, 8);
+    Offset += VSize;
   }
 }
 
@@ -1915,6 +1940,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
     if (IIRB.NewInsts.lookup(I) == IIRB.Epoche)
       continue;
     IIRB.IRB.SetInsertPointPastAllocas(I->getFunction());
+    ensureDbgLoc(IIRB.IRB);
     auto *&Reload = FunctionReloadMap[I->getFunction()];
     if (!Reload)
       Reload = IIRB.IRB.CreateLoad(NewV.getType(), ShadowGV);

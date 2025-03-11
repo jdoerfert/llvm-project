@@ -95,15 +95,21 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     }
     auto *SizeAI = new AllocaInst(IIRB.Int64Ty, DL.getAllocaAddrSpace(), "size",
                                   Fn.getEntryBlock().begin());
-    SizeAllocas[&Fn].push_back({&Obj, SizeAI});
+    SizeAllocas.push_back({&Obj, SizeAI});
     TmpToSizeAllocas[TmpAI] = SizeAI;
     return TmpAI;
   }
-  DenseMap<Function *, SmallVector<std::pair<Value *, AllocaInst *>>>
-      SizeAllocas;
+  SmallVector<std::pair<Value *, AllocaInst *>> SizeAllocas;
   DenseMap<AllocaInst *, AllocaInst *> TmpToSizeAllocas;
 
-  SmallVector<std::pair<Function *, CallInst *>> PotentiallyFreeCalls;
+  void startFunction() override {
+    EscapedAllocas.clear();
+    SizeAllocas.clear();
+    PotentiallyFreeCalls.clear();
+  }
+
+  SmallVector<CallInst *> EscapedAllocas;
+  SmallVector<CallInst *> PotentiallyFreeCalls;
 
   LightSanImpl &LSI;
 
@@ -151,9 +157,8 @@ bool LightSanImpl::shouldInstrumentFunction(Function &Fn) {
 
 bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
                                         InstrumentorIRBuilderTy &IIRB) {
-  Function *CalledFn = CI.getCalledFunction();
   if (!CI.hasFnAttr(Attribute::NoFree)) {
-    IConf.PotentiallyFreeCalls.push_back({CI.getCaller(), &CI});
+    IConf.PotentiallyFreeCalls.push_back(&CI);
     auto &TLI = IIRB.TLIGetter(*CI.getFunction());
     if (auto *FreedPtr = getFreedOperand(&CI, &TLI)) {
       auto FreeFC = M.getOrInsertFunction(
@@ -163,6 +168,7 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
     }
   }
 
+  Function *CalledFn = CI.getCalledFunction();
   if (!CalledFn)
     return true;
   if (!CalledFn->isDeclaration())
@@ -596,63 +602,6 @@ void LightSanImpl::foreachRTCaller(StringRef Name,
   }
 }
 
-bool LightSanImpl::updateSizesAfterPotentialFree() {
-  bool Changed = false;
-  auto &Ctx = M.getContext();
-  auto *PtrTy = PointerType::get(Ctx, 0);
-  auto *Int64Ty = IntegerType::getInt64Ty(Ctx);
-  auto GetSizeFC =
-      M.getOrInsertFunction(IConf.getRTName("", "get_object_size"),
-                            FunctionType::get(Int64Ty, {PtrTy}, false));
-  SmallVector<CallInst *> GetObjSizeCalls;
-  for (auto [Fn, CI] : IConf.PotentiallyFreeCalls) {
-    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
-    IRBuilder<> IRB(CI->getNextNode());
-    ensureDbgLoc(IRB);
-    for (auto [Obj, SizeAI] : IConf.SizeAllocas[Fn]) {
-      if (!DT.dominates(Obj, CI))
-        continue;
-      CallInst *NewSizeVal = IRB.CreateCall(GetSizeFC, {Obj}, "size");
-      GetObjSizeCalls.push_back(NewSizeVal);
-      IRB.CreateStore(NewSizeVal, SizeAI);
-      Changed = true;
-    }
-  }
-  for (const auto &It : IConf.SizeAllocas) {
-    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*It.first);
-    for (auto [Obj, SizeAI] : It.second) {
-      PromoteMemToReg({SizeAI}, DT);
-    }
-  }
-  for (auto *SizeCall : GetObjSizeCalls)
-    if (SizeCall->use_empty())
-      SizeCall->eraseFromParent();
-
-  auto FreeFC = M.getOrInsertFunction(
-      IConf.getRTName("", "free_alloca"),
-      FunctionType::get(Type::getVoidTy(Ctx), {PtrTy}, false));
-
-  DenseMap<Function *, SmallVector<CallInst *>> EscapedAllocasMap;
-  foreachRTCaller(IConf.getRTName("post_", "alloca"), [&](CallInst &CI) {
-    EscapedAllocasMap[CI.getFunction()].push_back(&CI);
-  });
-
-  for (const auto &[Fn, AIs] : EscapedAllocasMap) {
-    for (auto &BB : *Fn) {
-      auto *TI = BB.getTerminator();
-      if (TI->getNumSuccessors() || isa<UnreachableInst>(TI))
-        continue;
-      IRBuilder<> IRB(TI);
-      ensureDbgLoc(IRB);
-      for (auto *AI : AIs) {
-        IRB.CreateCall(FreeFC, {AI});
-      }
-    }
-  }
-
-  return Changed;
-}
-
 bool LightSanImpl::instrument() {
   bool Changed = false;
 
@@ -679,7 +628,8 @@ bool LightSanImpl::instrument() {
   // FIXME: Do we need more stuff here or just allow everything?
   DenseSet<const char *> Allowed(
       {&AAPointerInfo::ID, &AAUnderlyingObjects::ID, &AAPotentialValues::ID,
-       &AAPotentialConstantValues::ID, &AAInstanceInfo::ID});
+       &AAPotentialConstantValues::ID, &AAValueConstantRange::ID,
+       &AAInstanceInfo::ID});
 
   AttributorConfig AC(CGUpdater);
   AC.Allowed = &Allowed;
@@ -827,7 +777,6 @@ bool LightSanImpl::instrument() {
   CheckForBasePtrInLoop();
 #endif
 
-  Changed |= updateSizesAfterPotentialFree();
   return Changed;
 }
 
@@ -865,6 +814,17 @@ struct ExtendedAllocaIO : public AllocaIO {
               U.getOperandNo() != StoreInst::getPointerOperandIndex());
     });
     return ConstantInt::get(&Ty, MayEscape);
+  }
+
+  Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
+    if (auto *CI = AllocaIO::instrument(V, IConf, IIRB, ICaches)) {
+      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+      LSIConf.EscapedAllocas.push_back(cast<CallInst>(CI));
+      return CI;
+    }
+    return nullptr;
   }
 
   static void populate(InstrumentationConfig &IConf,
@@ -909,12 +869,10 @@ struct ExtendedBasePointerIO : public BasePointerIO {
         auto *P2I = cast<PtrToIntInst>(CI->getArgOperand(1));
         return P2I->getOperand(0);
       }
-      errs() << "ERROR: unexpected call " << *CI << "\n";
-      llvm_unreachable("TODO");
+      return CI;
     }
     if (auto *I2P = dyn_cast<IntToPtrInst>(V))
       return stripRegisterCall(I2P->getOperand(0), IConf);
-    V->dump();
     return V;
   }
 
@@ -1167,6 +1125,86 @@ struct ExtendedStoreIO : public StoreIO {
   }
 };
 
+struct ExtendedFunctionIO : public FunctionIO {
+  ExtendedFunctionIO(bool IsPRE) : FunctionIO(IsPRE) {}
+  virtual ~ExtendedFunctionIO() {};
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    FunctionIO::ConfigTy FCConfig(/*Enable=*/false);
+    bool IsPRE = getLocationKind() == InstrumentationLocation::FUNCTION_PRE;
+    if (IsPRE) {
+      FCConfig.set(FunctionIO::PassArguments);
+      FCConfig.set(FunctionIO::PassNumArguments);
+      FCConfig.set(FunctionIO::ReplaceArguments);
+    } else {
+      IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "num_allocas",
+                               "The number of allocas that are deallocated.",
+                               IRTArg::NONE, getNumAllocas));
+      IRTArgs.push_back(
+          IRTArg(IIRB.PtrTy, "allocas_ptr",
+                 "Pointer to the array of allocas that are deallocated.",
+                 IRTArg::NONE, getAllocaPtr));
+    }
+    FunctionIO::init(IConf, IIRB.Ctx, &FCConfig);
+  }
+
+  static Value *getNumAllocas(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    return IIRB.IRB.getInt32(LSIConf.EscapedAllocas.size());
+  }
+
+  static Value *getAllocaPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+
+    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
+    auto *ATy = ArrayType::get(IIRB.PtrTy, LSIConf.EscapedAllocas.size());
+    auto *AllocasAI = IIRB.getAlloca(Fn, ATy);
+    for (auto [Idx, AI] : enumerate(LSIConf.EscapedAllocas)) {
+      auto *Ptr = IIRB.IRB.CreateConstGEP1_32(IIRB.PtrTy, AllocasAI, Idx);
+      IIRB.IRB.CreateStore(AI, Ptr);
+    }
+    return AllocasAI;
+  }
+
+  Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
+
+    //auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    //Function *Fn = cast<Function>(V);
+    //auto GetSizeFC = Fn->getParent()->getOrInsertFunction(
+    //    IConf.getRTName("", "get_object_size"),
+    //    FunctionType::get(IIRB.Int64Ty, {IIRB.PtrTy}, false));
+    //{
+    //  IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
+    //  for (auto *CI : LSIConf.PotentiallyFreeCalls) {
+    //    for (auto [Obj, SizeAI] : LSIConf.SizeAllocas) {
+    //      IIRB.IRB.SetInsertPoint(CI->getNextNode());
+    //      ensureDbgLoc(IIRB.IRB);
+    //      CallInst *NewSizeVal = IIRB.IRB.CreateCall(GetSizeFC, {Obj}, "size");
+    //      IIRB.IRB.CreateStore(NewSizeVal, SizeAI);
+    //    }
+    //  }
+    //}
+    return FunctionIO::instrument(V, IConf, IIRB, ICaches);
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    for (auto IsPRE : {true, false}) {
+      auto *EAIO = IConf.allocate<ExtendedFunctionIO>(IsPRE);
+      if (IsPRE)
+        EAIO->CB = [](Value &V) { return V.getName() == "main"; };
+      else
+        EAIO->CB = [&](Value &V) { return !LSIConf.EscapedAllocas.empty(); };
+      EAIO->init(IConf, IIRB);
+    }
+  }
+};
+
 void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   UnreachableIO::populate(*this, IIRB.Ctx);
   ExtendedBasePointerIO::populate(*this, IIRB);
@@ -1174,6 +1212,7 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedLoadIO::populate(*this, IIRB);
   ExtendedLoopValueRangeIO::populate(*this, IIRB);
   ExtendedAllocaIO::populate(*this, IIRB);
+  ExtendedFunctionIO::populate(*this, IIRB);
   //  ModuleIO::populate(*this, IIRB.Ctx);
   //  GlobalIO::populate(*this, IIRB.Ctx);
 

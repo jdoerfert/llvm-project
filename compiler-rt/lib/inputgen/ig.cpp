@@ -103,7 +103,8 @@ void __ig_pre_call(char *callee, char *callee_name, int64_t intrinsic_id,
   for (int32_t idx = 0; idx < num_parameters; ++idx) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
     if (VP->TypeId == 14) {
-      char *VPtr = *(char **)&VP->Value;
+      char *VPVPtr = reinterpret_cast<char *>(&VP->Value);
+      char *VPtr = *(char **)VPVPtr;
       char *MPtr = ThreadOM.decode(VPtr);
       PRINTF("Call arg %p -> %p\n", VPtr, MPtr);
 #ifndef NDEBUG
@@ -201,16 +202,17 @@ int64_t __ig_post_call(char *callee, char *callee_name, int64_t intrinsic_id,
     int Size = 1;
     for (int32_t I = 0; I < std::min(MaxSizeArg, num_parameters); ++I) {
       ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
+      uint32_t Padding = (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
       if (I == AI->SizeLHSArgNo || I == AI->SizeRHSArgNo) {
+        char *VPVPtr = reinterpret_cast<char *>(&VP->Value);
         if (VP->Size == 4)
-          Size *= *(uint32_t *)&VP->Value;
+          Size *= *(uint32_t *)(VPVPtr + Padding);
         else if (VP->Size == 8) {
-          Size *= *(uint64_t *)&VP->Value;
+          Size *= *(uint64_t *)VPVPtr;
         } else
           __builtin_trap();
       }
-      parameters += sizeof(ParameterValuePackTy) + VP->Size +
-                    (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
+      parameters += sizeof(ParameterValuePackTy) + VP->Size + Padding;
     }
     char *VPtr = ThreadOM.encode((char *)return_value, Size);
     PRINTF("allocation (%s) %p -> %p [%i]\n", callee_name, (void *)return_value,

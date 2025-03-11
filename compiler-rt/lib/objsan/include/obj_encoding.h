@@ -52,9 +52,9 @@ struct EncodingCommonTy {
 #endif
     if (Magic != MAGIC || Offset < 0 || Offset + AccessSize > ObjSize)
         [[unlikely]] {
+      fprintf(stderr, "memory out-of-bound %llu + %llu vs %llu! (Base %p)\n",
+              Offset, AccessSize, ObjSize, (void *)MPtr);
       if (FailOnError) {
-        fprintf(stderr, "memory out-of-bound %llu + %llu vs %llu! (Base %p)\n",
-                Offset, AccessSize, ObjSize, (void *)MPtr);
         // TODO: Configure this to report if requested
         __builtin_trap();
       }
