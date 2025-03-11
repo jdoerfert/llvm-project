@@ -52,6 +52,14 @@ enum HoistKindTy {
   HOIST_MAXIMALLY,
 };
 
+template <typename IRBuilderTy> void ensureDbgLoc(IRBuilderTy &IRB) {
+  if (IRB.getCurrentDebugLocation())
+    return;
+  auto *BB = IRB.GetInsertBlock();
+  IRB.SetCurrentDebugLocation(DILocation::get(
+      BB->getContext(), 0, 0, BB->getParent()->getSubprogram()));
+}
+
 template <typename IRBTy>
 Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL,
                  bool AllowTruncate = false) {

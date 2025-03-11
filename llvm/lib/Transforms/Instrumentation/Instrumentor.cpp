@@ -31,6 +31,7 @@
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
@@ -497,11 +498,13 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       Value *IPtr = &I;
       if (auto *IO = InstChoicesPRE.lookup(I.getOpcode())) {
         IIRB.IRB.SetInsertPoint(&I);
+        ensureDbgLoc(IIRB.IRB);
         Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
       }
 
       if (auto *IO = InstChoicesPOST.lookup(I.getOpcode())) {
         IIRB.IRB.SetInsertPoint(I.getNextNonDebugInstruction());
+        ensureDbgLoc(IIRB.IRB);
         Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
       }
       IIRB.returnAllocas();
@@ -533,6 +536,7 @@ bool InstrumentorImpl::instrumentModule() {
 
     auto *EntryBB = BasicBlock::Create(IIRB.Ctx, "entry", YtorFn);
     IIRB.IRB.SetInsertPoint(EntryBB, EntryBB->begin());
+    ensureDbgLoc(IIRB.IRB);
     IIRB.IRB.CreateRetVoid();
 
     if (Ctor)
@@ -584,6 +588,7 @@ bool InstrumentorImpl::instrumentModule() {
           IIRB.IRB.SetInsertPoint(YtorFn->getEntryBlock().getTerminator());
         else
           IIRB.IRB.SetInsertPointPastAllocas(YtorFn);
+        ensureDbgLoc(IIRB.IRB);
         Value *GVPtr = GV;
 
         // Count epochs eagerly.
@@ -902,6 +907,7 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
       VPtr->dump();
       llvm_unreachable("Unexpected base pointer!");
     }
+    ensureDbgLoc(IIRB.IRB);
 
     // Use fresh caches for safety, as this function may be called from
     // another instrumentation opportunity.
@@ -940,6 +946,7 @@ Value *InstrumentationConfig::getLoopValueRange(Value &V,
       VPtr->dump();
       llvm_unreachable("Unexpected base pointer!");
     }
+    ensureDbgLoc(IIRB.IRB);
 
     // Use fresh caches for safety, as this function may be called from
     // another instrumentation opportunity.
@@ -971,6 +978,7 @@ Value *InstrumentationOpportunity::replaceValue(Value &V, Value &NewV,
   if (auto *I = dyn_cast<Instruction>(&NewV)) {
     IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
     IIRB.IRB.SetInsertPoint(I->getNextNode());
+    ensureDbgLoc(IIRB.IRB);
     NewVCasted = tryToCast(IIRB.IRB, &NewV, V.getType(), IIRB.DL,
                            /*AllowTruncate=*/true);
   }
@@ -1243,6 +1251,7 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
 
   if (!ForceIndirection)
     IIRB.IRB.SetInsertPoint(IP);
+  ensureDbgLoc(IIRB.IRB);
 
   auto *FnTy =
       createLLVMSignature(IConf, V->getContext(), DL, ForceIndirection);

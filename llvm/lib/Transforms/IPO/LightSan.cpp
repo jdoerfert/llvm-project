@@ -550,6 +550,7 @@ bool LightSanImpl::hoistLoopLoads(Loop &L) {
     LI->removeFromParent();
 
     IRBuilder<> IRB(LatchBB->getTerminator());
+    ensureDbgLoc(IRB);
     LI->addAnnotationMetadata("speculated");
     LatchLI->addAnnotationMetadata("speculated");
     auto *OffsetVal = IRB.getInt64(Offset.getSExtValue());
@@ -571,6 +572,7 @@ bool LightSanImpl::hoistLoopLoads(Loop &L) {
     LatchLI->setOperand(LI->getPointerOperandIndex(), LatchPtrWithOffset);
 
     IRB.SetInsertPoint(PreHeaderBB->getTerminator());
+    ensureDbgLoc(IRB);
     auto *InitialPtrWithOffset =
         IRB.CreateGEP(IRB.getInt8Ty(), InitialPtrVal, {OffsetVal});
     IRB.Insert(LI);
@@ -611,6 +613,7 @@ bool LightSanImpl::updateSizesAfterPotentialFree() {
   for (auto [Fn, CI] : IConf.PotentiallyFreeCalls) {
     auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
     IRBuilder<> IRB(CI->getNextNode());
+    ensureDbgLoc(IRB);
     for (auto [Obj, SizeAI] : IConf.SizeAllocas[Fn]) {
       LoadInst *EncodingNo =
           cast<LoadInst>(IConf.getBasePointerEncodingNo(*Obj, *Fn));
@@ -648,6 +651,7 @@ bool LightSanImpl::updateSizesAfterPotentialFree() {
       if (TI->getNumSuccessors() || isa<UnreachableInst>(TI))
         continue;
       IRBuilder<> IRB(TI);
+      ensureDbgLoc(IRB);
       for (auto *AI : AIs) {
         IRB.CreateCall(FreeFC, {AI});
       }
