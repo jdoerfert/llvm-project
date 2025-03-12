@@ -29,12 +29,14 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/Instrumentor.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
+#include <cstdint>
 #include <functional>
 
 using namespace llvm;
@@ -53,15 +55,34 @@ class AttributorInfoCache {
 public:
   AttributorInfoCache(Attributor &A) : A(A) {}
 
+  Value *getSafeAccessObj(Instruction *I) const {
+    return SafeAccesses.lookup(I);
+  }
+  bool isAccessSafe(Instruction *I) const { return SafeAccesses.lookup(I); }
+  bool insertSafeAccess(Instruction *I, Value *Obj) {
+    return SafeAccesses[I] = Obj;
+  }
+
   bool insertSafeObject(Value *Obj) { return SafeObjects.insert(Obj); }
 
   bool isObjectSafe(Value *Obj) const { return SafeObjects.contains(Obj); }
 
+  bool insertNonEscapingObj(Value *Obj) {
+    return NonEscapingObjects.insert(Obj);
+  }
+
+  bool isNonEscapingObj(Value *Obj) const {
+    return NonEscapingObjects.contains(Obj);
+  }
+
   Attributor &getAttributor() const { return A; }
 
 private:
+  SetVector<Value *> NonEscapingObjects;
   /// Objects that have been verified that all their accesses are safe.
   SetVector<Value *> SafeObjects;
+  /// Accesses that are known safe.
+  DenseMap<Instruction *, Value *> SafeAccesses;
 
   Attributor &A;
 };
@@ -642,28 +663,49 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
                                       DepClassTy::REQUIRED);
   };
 
-  auto HandleMallocLikeFn = [&](CallInst *CI) {
-    Value *SizeOp = CI->getArgOperand(0);
-    WorkList.push_back({CI, SizeOp});
+  auto HandleMallocLikeFn = [&](CallInst *CI, AllocationCallInfo &ACI) {
+    uint64_t Size = 1;
+    if (ACI.SizeLHSArgNo >= 0) {
+      auto *SizeCI = dyn_cast<ConstantInt>(CI->getArgOperand(ACI.SizeLHSArgNo));
+      if (!SizeCI)
+        return;
+      Size *= SizeCI->getSExtValue();
+    }
+    if (ACI.SizeRHSArgNo >= 0) {
+      auto *SizeCI = dyn_cast<ConstantInt>(CI->getArgOperand(ACI.SizeRHSArgNo));
+      if (!SizeCI)
+        return;
+      Size *= SizeCI->getSExtValue();
+    }
+    WorkList.push_back({CI, ConstantInt::get(Int64Ty, Size)});
     A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*CI),
                                       /*QueryingAA=*/nullptr,
                                       DepClassTy::REQUIRED);
   };
 
+  DenseMap<Instruction *, const AAUnderlyingObjects *> InstToAAUOMap;
   for (Function &F : M) {
     if (F.isIntrinsic())
       continue;
 
     for (BasicBlock &BB : F) {
       for (Instruction &I : BB) {
-        if (auto *AI = dyn_cast<AllocaInst>(&I)) {
+        if (auto *SI = dyn_cast<StoreInst>(&I)) {
+          auto *AAUO = A.getOrCreateAAFor<AAUnderlyingObjects>(
+              IRPosition::value(*SI->getPointerOperand()));
+          InstToAAUOMap[SI] = AAUO;
+        } else if (auto *LI = dyn_cast<LoadInst>(&I)) {
+          auto *AAUO = A.getOrCreateAAFor<AAUnderlyingObjects>(
+              IRPosition::value(*LI->getPointerOperand()));
+          InstToAAUOMap[LI] = AAUO;
+        } else if (auto *AI = dyn_cast<AllocaInst>(&I)) {
           HandleAllocaInst(AI);
         } else if (auto *CI = dyn_cast<CallInst>(&I)) {
           const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(
               *CI->getCalledFunction());
           assert(TLI);
-          if (llvm::isMallocOrCallocLikeFn(CI->getCalledFunction(), TLI))
-            HandleMallocLikeFn(CI);
+          if (auto ACI = getAllocationCallInfo(CI, TLI))
+            HandleMallocLikeFn(CI, *ACI);
         }
       }
     }
@@ -671,10 +713,9 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
 
   ChangeStatus Changed = A.run();
 
-  AA::AccessRangeTy Range(/*Offset=*/std::numeric_limits<int64_t>::min(),
-                          /*AccessSize=*/std::numeric_limits<int64_t>::max());
+  AA::AccessRangeTy Range(AA::RangeTy::getUnknown(),
+                          AA::RangeTy::getUnknownSize());
   AA::AccessRangeListTy RangeList(Range);
-  AAPointerInfo::AccessKind AK = AAPointerInfo::AccessKind::AK_ANY;
 
   for (auto [Obj, Size] : WorkList) {
     auto *SizeC = dyn_cast<ConstantInt>(Size);
@@ -683,26 +724,52 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
     if (!SizeC)
       continue;
 
-    auto CheckAccessCB = [SizeC](const AAPointerInfo::Access &Acc,
-                                 bool) -> bool {
+    auto *ObjPtr = Obj;
+    bool AnyAccessIsProblematic = false;
+    auto CheckAccessCB = [&](const AAPointerInfo::Access &Acc, bool) -> bool {
       for (auto &R : Acc) {
+        if (R.isUnknown() || !R.isSizeKnown() ||
+            Acc.getAccessSize() == AA::RangeTy::getUnknownSize())
+          return AnyAccessIsProblematic = true;
         int64_t AccOffset = R.getOffset();
         int64_t AccSize = R.getSize();
         if (AccOffset < 0)
-          return false;
+          return AnyAccessIsProblematic = true;
         // TODO: Consider wrap here?
-        if (AccOffset + AccSize >= SizeC->getSExtValue())
-          return false;
+        if (AccOffset + AccSize + Acc.getAccessSize() > SizeC->getSExtValue())
+          return AnyAccessIsProblematic = true;
       }
+      auto *AAUO = InstToAAUOMap.lookup(Acc.getRemoteInst());
+      if (!AAUO || !AAUO->getState().isValidState() ||
+          !AAUO->forallUnderlyingObjects([ObjPtr](Value &V) {
+            return &V == ObjPtr || isa<UndefValue>(V);
+          }))
+        return AnyAccessIsProblematic = true;
+
+      LLVM_DEBUG(errs() << "Safe Acc " << *ObjPtr << " : " << Acc << "\n");
+      Cache.insertSafeAccess(Acc.getRemoteInst(), ObjPtr);
       return true;
     };
 
     auto *AA = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*Obj),
                                                  /*QueryingAA=*/nullptr,
                                                  DepClassTy::REQUIRED);
-    if (!AA->forallInterferingAccesses(RangeList, CheckAccessCB, AK))
+    AA->forallInterferingAccesses(RangeList, CheckAccessCB,
+                                  AAPointerInfo::AK_NONE,
+                                  AAPointerInfo::AK_ANY);
+    if (AA->getState().isValidState() &&
+        !AA->hasPotentiallyAliasingPointers()) {
+      LLVM_DEBUG(errs() << "Noescape Obj " << *Obj << " : " << *AA << "\n";
+                 AA->dump(););
+      Cache.insertNonEscapingObj(Obj);
+    }
+
+    if (!AA->getState().isValidState() ||
+        AA->hasPotentiallyAliasingPointers() || AnyAccessIsProblematic)
       continue;
 
+    LLVM_DEBUG(errs() << "Safe Obj " << *Obj << " : " << *AA << "\n";
+               AA->dump(););
     Cache.insertSafeObject(Obj);
   }
 
@@ -910,12 +977,8 @@ struct ExtendedAllocaIO : public AllocaIO {
   static Value *getRequiresTemporalCheck(Value &V, Type &Ty,
                                          InstrumentationConfig &IConf,
                                          InstrumentorIRBuilderTy &IIRB) {
-    // TODO: Be smarter about this, e.g., AAPointerInfo.
-    bool MayEscape = !all_of(V.uses(), [](const Use &U) {
-      return isa<LoadInst>(U.getUser()) ||
-             (isa<StoreInst>(U.getUser()) &&
-              U.getOperandNo() != StoreInst::getPointerOperandIndex());
-    });
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    bool MayEscape = !LSIConf.AIC->isNonEscapingObj(&V);
     return ConstantInt::get(&Ty, MayEscape);
   }
 
@@ -924,15 +987,17 @@ struct ExtendedAllocaIO : public AllocaIO {
                     InstrumentationCaches &ICaches) override {
     if (auto *CI = cast_if_present<CallInst>(
             AllocaIO::instrument(V, IConf, IIRB, ICaches))) {
-      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-      AllocaInst *AI;
-      {
-        IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
-        IIRB.IRB.SetInsertPointPastAllocas(CI->getFunction());
-        AI = IIRB.IRB.CreateAlloca(IIRB.PtrTy);
+      if (!cast<ConstantInt>(CI->getArgOperand(CI->arg_size() - 1))->isZero()) {
+        auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+        AllocaInst *AI;
+        {
+          IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
+          IIRB.IRB.SetInsertPointPastAllocas(CI->getFunction());
+          AI = IIRB.IRB.CreateAlloca(IIRB.PtrTy);
+        }
+        IIRB.IRB.CreateStore(CI, AI);
+        LSIConf.EscapedAllocas.push_back(AI);
       }
-      IIRB.IRB.CreateStore(CI, AI);
-      LSIConf.EscapedAllocas.push_back(AI);
       return CI;
     }
     return nullptr;
@@ -941,6 +1006,8 @@ struct ExtendedAllocaIO : public AllocaIO {
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *EAIO = IConf.allocate<ExtendedAllocaIO>(/*IsPRE*/ false);
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    EAIO->CB = [&](Value &V) { return !LSIConf.AIC->isObjectSafe(&V); };
     EAIO->init(IConf, IIRB);
   }
 };
@@ -964,19 +1031,18 @@ struct ExtendedGlobalIO : public GlobalIO {
   static Value *getRequiresTemporalCheck(Value &V, Type &Ty,
                                          InstrumentationConfig &IConf,
                                          InstrumentorIRBuilderTy &IIRB) {
-    // TODO: Be smarter about this, e.g., AAPointerInfo.
-    bool MayEscape = !all_of(V.uses(), [](const Use &U) {
-      return isa<LoadInst>(U.getUser()) ||
-             (isa<StoreInst>(U.getUser()) &&
-              U.getOperandNo() != StoreInst::getPointerOperandIndex());
-    });
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    bool MayEscape = !LSIConf.AIC->isNonEscapingObj(&V);
     return ConstantInt::get(&Ty, MayEscape);
   }
 
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *EAIO = IConf.allocate<ExtendedGlobalIO>();
-    EAIO->CB = [](Value &V) {
+    EAIO->CB = [&](Value &V) {
+      if (LSIConf.AIC->isObjectSafe(&V))
+        return false;
       auto &GV = cast<GlobalVariable>(V);
       return GV.getValueType()->isSized() && !GV.hasExternalWeakLinkage() &&
              GV.hasInitializer() && !GV.isInterposable();
@@ -1205,13 +1271,21 @@ struct ExtendedLoadIO : public LoadIO {
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
-    return ConstantInt::get(&Ty, 0);
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    return ConstantInt::get(&Ty,
+                            LSIConf.AIC->isAccessSafe(cast<Instruction>(&V)));
   }
 
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *ESIO = IConf.allocate<ExtendedLoadIO>(/*IsPRE*/ true);
     ESIO->HoistKind = HOIST_IN_BLOCK;
+    ESIO->CB = [&](Value &V) {
+      if (auto *Obj = LSIConf.AIC->getSafeAccessObj(cast<Instruction>(&V)))
+        return !LSIConf.AIC->isObjectSafe(Obj);
+      return true;
+    };
     ESIO->init(IConf, IIRB);
   }
 };
@@ -1265,13 +1339,21 @@ struct ExtendedStoreIO : public StoreIO {
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
-    return ConstantInt::get(&Ty, 0);
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    return ConstantInt::get(&Ty,
+                            LSIConf.AIC->isAccessSafe(cast<Instruction>(&V)));
   }
 
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *ESIO = IConf.allocate<ExtendedStoreIO>(/*IsPRE*/ true);
     ESIO->HoistKind = HOIST_IN_BLOCK;
+    ESIO->CB = [&](Value &V) {
+      if (auto *Obj = LSIConf.AIC->getSafeAccessObj(cast<Instruction>(&V)))
+        return !LSIConf.AIC->isObjectSafe(Obj);
+      return true;
+    };
     ESIO->init(IConf, IIRB);
   }
 };
@@ -1391,9 +1473,12 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   PostCICConfig.set(CallIO::PassReturnedValue);
   auto *PostCIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/false);
   PostCIC->CB = [&](Value &V) {
+    if (AIC->isObjectSafe(&V))
+      return false;
     auto &CI = cast<CallInst>(V);
     auto &TLI = IIRB.TLIGetter(*CI.getFunction());
     auto ACI = getAllocationCallInfo(&CI, &TLI);
+    // TODO: check for escaping -> temporal checks
     return !!ACI;
   };
   PostCIC->init(*this, IIRB.Ctx, &PostCICConfig);

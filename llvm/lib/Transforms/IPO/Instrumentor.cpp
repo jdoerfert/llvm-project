@@ -1993,6 +1993,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
     return I;
   };
 
+  IRBuilderBase::InsertPointGuard IRP(IIRB.IRB);
   DenseMap<Function *, Value *> FunctionReloadMap;
   while (!Worklist.empty()) {
     Use *U = Worklist.pop_back_val();
