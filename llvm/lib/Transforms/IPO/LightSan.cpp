@@ -669,7 +669,8 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
 
   ChangeStatus Changed = A.run();
 
-  AA::AccessRangeTy Range(/*Offset=*/0, /*AccessSize=*/0x7fffffffffffffffLL);
+  AA::AccessRangeTy Range(/*Offset=*/std::numeric_limits<int64_t>::min(),
+                          /*AccessSize=*/std::numeric_limits<int64_t>::max());
   AA::AccessRangeListTy RangeList(Range);
   AAPointerInfo::AccessKind AK = AAPointerInfo::AccessKind::AK_ANY;
 
