@@ -67,10 +67,16 @@ public:
 
   bool isObjectSafe(Value *Obj) const { return SafeObjects.contains(Obj); }
 
+  bool insertSanitizedObject(Value *Obj) {
+    return SanitizedObjects.insert(Obj);
+  }
+  bool isSanitizedObject(Value *Obj) const {
+    return SanitizedObjects.contains(Obj);
+  }
+
   bool insertNonEscapingObj(Value *Obj) {
     return NonEscapingObjects.insert(Obj);
   }
-
   bool isNonEscapingObj(Value *Obj) const {
     return NonEscapingObjects.contains(Obj);
   }
@@ -78,6 +84,7 @@ public:
   Attributor &getAttributor() const { return A; }
 
 private:
+  SetVector<Value *> SanitizedObjects;
   SetVector<Value *> NonEscapingObjects;
   /// Objects that have been verified that all their accesses are safe.
   SetVector<Value *> SafeObjects;
@@ -124,7 +131,6 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   /// Get a size alloca.
   AllocaInst *getSizeAlloca(Function &Fn, InstrumentorIRBuilderTy &IIRB,
                             Value &Obj) {
-    errs() << &Obj << " : " << Obj << "\n";
     const DataLayout &DL = Fn.getDataLayout();
     /// TODO: check if the size of base ptr can change in the function, if not,
     /// use a temporary alloca. Globals and allocas don't change size in the
@@ -217,8 +223,7 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
   if (CalledFn->getName().starts_with(LightSanRuntimePrefix))
     return false;
   FunctionType *CalledFnTy = CalledFn->getFunctionType();
-  if (!CalledFnTy->getReturnType()->isPtrOrPtrVectorTy() &&
-      none_of(CalledFnTy->params(),
+  if (none_of(CalledFnTy->params(),
               [&](Type *ArgTy) { return ArgTy->isPtrOrPtrVectorTy(); }))
     return false;
   LibFunc TheLibFunc;
@@ -634,24 +639,19 @@ bool LightSanImpl::hoistLoopLoads(Loop &L) {
 
 static bool collectAttributorInfo(Attributor &A, Module &M,
                                   AttributorInfoCache &Cache) {
-  LLVMContext &Ctx = M.getContext();
   const DataLayout &DL = M.getDataLayout();
-  Type *Int64Ty = Type::getInt64Ty(Ctx);
 
   // A list of pairs of objects and their size
-  SmallVector<std::pair<Value *, Value *>> WorkList;
+  SmallVector<std::tuple<Value *, int64_t, const AAPointerInfo *>> WorkList;
 
   for (GlobalVariable &GV : M.globals()) {
-    if (GV.isDeclaration() || GV.getType()->isPointerTy())
-      continue;
-    auto Size = DL.getTypeStoreSize(GV.getType());
-    if (!Size.isFixed())
-      continue;
-    WorkList.push_back(std::make_pair<Value *, Value *>(
-        &GV, ConstantInt::get(Int64Ty, Size.getFixedValue())));
-    A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(GV),
-                                      /*QueryingAA=*/nullptr,
-                                      DepClassTy::REQUIRED);
+    if (GV.getValueType()->isSized() && !GV.hasExternalWeakLinkage() &&
+        GV.hasInitializer() && !GV.isInterposable()) {
+      auto *AAPI = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(GV),
+                                                     /*QueryingAA=*/nullptr,
+                                                     DepClassTy::REQUIRED);
+      WorkList.emplace_back(&GV, DL.getTypeAllocSize(GV.getValueType()), AAPI);
+    }
   }
 
   auto HandleAllocaInst = [&](AllocaInst *AI) {
@@ -660,10 +660,10 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
     if (!Size || !Size->isFixed())
       return;
     auto SizeV = Size->getFixedValue();
-    WorkList.push_back({AI, ConstantInt::get(Int64Ty, SizeV)});
-    A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*AI),
-                                      /*QueryingAA=*/nullptr,
-                                      DepClassTy::REQUIRED);
+    auto *AAPI = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*AI),
+                                                   /*QueryingAA=*/nullptr,
+                                                   DepClassTy::REQUIRED);
+    WorkList.emplace_back(AI, SizeV, AAPI);
   };
 
   auto HandleMallocLikeFn = [&](CallInst *CI, AllocationCallInfo &ACI) {
@@ -680,10 +680,10 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
         return;
       Size *= SizeCI->getSExtValue();
     }
-    WorkList.push_back({CI, ConstantInt::get(Int64Ty, Size)});
-    A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*CI),
-                                      /*QueryingAA=*/nullptr,
-                                      DepClassTy::REQUIRED);
+    auto *AAPI = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*CI),
+                                                   /*QueryingAA=*/nullptr,
+                                                   DepClassTy::REQUIRED);
+    WorkList.emplace_back(CI, Size, AAPI);
   };
 
   DenseMap<Instruction *, const AAUnderlyingObjects *> InstToAAUOMap;
@@ -704,11 +704,13 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
         } else if (auto *AI = dyn_cast<AllocaInst>(&I)) {
           HandleAllocaInst(AI);
         } else if (auto *CI = dyn_cast<CallInst>(&I)) {
-          const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(
-              *CI->getCalledFunction());
-          assert(TLI);
-          if (auto ACI = getAllocationCallInfo(CI, TLI))
-            HandleMallocLikeFn(CI, *ACI);
+          if (CI->getCalledFunction()) {
+            const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(
+                *CI->getCalledFunction());
+            assert(TLI);
+            if (auto ACI = getAllocationCallInfo(CI, TLI))
+              HandleMallocLikeFn(CI, *ACI);
+          }
         }
       }
     }
@@ -720,13 +722,13 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
                           AA::RangeTy::getUnknownSize());
   AA::AccessRangeListTy RangeList(Range);
 
-  for (auto [Obj, Size] : WorkList) {
-    auto *SizeC = dyn_cast<ConstantInt>(Size);
+  for (auto [Obj, Size, AAPI] : WorkList) {
+    Cache.insertSanitizedObject(Obj);
 
-    // TODO: Deal with non-constant access size.
-    if (!SizeC)
+    if (!AAPI->getState().isValidState())
       continue;
 
+    int64_t ObjSize = Size;
     auto *ObjPtr = Obj;
     bool AnyAccessIsProblematic = false;
     auto CheckAccessCB = [&](const AAPointerInfo::Access &Acc, bool) -> bool {
@@ -739,7 +741,7 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
         if (AccOffset < 0)
           return AnyAccessIsProblematic = true;
         // TODO: Consider wrap here?
-        if (AccOffset + AccSize + Acc.getAccessSize() > SizeC->getSExtValue())
+        if (AccOffset + AccSize + Acc.getAccessSize() > ObjSize)
           return AnyAccessIsProblematic = true;
       }
       auto *AAUO = InstToAAUOMap.lookup(Acc.getRemoteInst());
@@ -749,30 +751,19 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
           }))
         return AnyAccessIsProblematic = true;
 
-      LLVM_DEBUG(errs() << "Safe Acc " << *ObjPtr << " : " << Acc << "\n");
       Cache.insertSafeAccess(Acc.getRemoteInst(), ObjPtr);
       return true;
     };
 
-    auto *AA = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*Obj),
-                                                 /*QueryingAA=*/nullptr,
-                                                 DepClassTy::REQUIRED);
-    AA->forallInterferingAccesses(RangeList, CheckAccessCB,
-                                  AAPointerInfo::AK_NONE,
-                                  AAPointerInfo::AK_ANY);
-    if (AA->getState().isValidState() &&
-        !AA->hasPotentiallyAliasingPointers()) {
-      LLVM_DEBUG(errs() << "Noescape Obj " << *Obj << " : " << *AA << "\n";
-                 AA->dump(););
+    AAPI->forallInterferingAccesses(RangeList, CheckAccessCB,
+                                    AAPointerInfo::AK_NONE,
+                                    AAPointerInfo::AK_ANY);
+    if (!AAPI->hasPotentiallyAliasingPointers())
       Cache.insertNonEscapingObj(Obj);
-    }
 
-    if (!AA->getState().isValidState() ||
-        AA->hasPotentiallyAliasingPointers() || AnyAccessIsProblematic)
+    if (AAPI->hasPotentiallyAliasingPointers() || AnyAccessIsProblematic)
       continue;
 
-    LLVM_DEBUG(errs() << "Safe Obj " << *Obj << " : " << *AA << "\n";
-               AA->dump(););
     Cache.insertSafeObject(Obj);
   }
 
@@ -1458,10 +1449,7 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   PreCICConfig.set(CallIO::PassParameters);
   PreCICConfig.set(CallIO::PassIsDefinition);
   PreCICConfig.ArgFilter = [&](Use &Op) {
-    auto *CI = cast<CallInst>(Op.getUser());
-    auto &TLI = IIRB.TLIGetter(*CI->getFunction());
-    auto ACI = getAllocationCallInfo(CI, &TLI);
-    return Op->getType()->isPointerTy() || ACI;
+    return Op->getType()->isPointerTy();
   };
   auto *PreCIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/true);
   PreCIC->CB = [&](Value &V) {
@@ -1490,7 +1478,11 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
 } // namespace
 
 PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
+  if (!M.getModuleFlag("sanitize_obj"))
+    return PreservedAnalyses::all();
+
   LightSanImpl Impl(M, MAM);
+  LLVM_DEBUG(dbgs() << "Running objsan\n");
 
   bool Changed = Impl.instrument();
   if (!Changed)

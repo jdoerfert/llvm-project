@@ -6,7 +6,7 @@
 #include "include/obj_encoding.h"
 
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
-#define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
+#define OBJSAN_BIG_API_ATTRS
 
 using namespace __objsan;
 
@@ -47,6 +47,9 @@ getOffsetAndMagic(char *VPtr, uint64_t OffsetBits) {
 
 extern "C" {
 
+OBJSAN_SMALL_API_ATTRS
+void __objsan_pre_unreachable() {}
+
 OBJSAN_BIG_API_ATTRS
 char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
                                bool RequiresTemporalCheck) {
@@ -66,7 +69,8 @@ char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
 }
 
 OBJSAN_BIG_API_ATTRS
-char *__objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t RequiresTemporalCheck) {
+char *__objsan_pre_global(char *MPtr, int32_t ObjSize,
+                          int8_t RequiresTemporalCheck) {
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
@@ -215,10 +219,13 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, uint64_t ObjSize,
                         int64_t NumOffsetBits, int8_t EncodingNo,
                         int8_t WasChecked) {
+  //  printf("pl %p %p %p %llu %llu %lli %i %i\n", VPtr, BaseMPtr, LVRI,
+  //  AccessSize,
+  //         ObjSize, NumOffsetBits, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;
   auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
-  __builtin_prefetch(BaseMPtr + Offset, 0, 1);
+  //  __builtin_prefetch(BaseMPtr + Offset, 0, 1);
   if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
     return BaseMPtr + Offset;
   //  if (!sizeIsKnown(ObjSize)) [[unlikely]]
@@ -251,7 +258,6 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
         return *reinterpret_cast<uint32_t *>(AccMPtr);                         \
       case 8:                                                                  \
         void *V = *reinterpret_cast<void **>(AccMPtr);                         \
-        __builtin_prefetch(V, 1, 1);                                           \
         return reinterpret_cast<uint64_t>(V);                                  \
       };                                                                       \
     }                                                                          \
@@ -268,10 +274,13 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, uint64_t ObjSize,
                          int64_t NumOffsetBits, int8_t EncodingNo,
                          int8_t WasChecked) {
+  //  printf("ps %p %p %p %llu %llu %lli %i %i\n", VPtr, BaseMPtr, LVRI,
+  //  AccessSize,
+  //         ObjSize, NumOffsetBits, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;
   auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
-  __builtin_prefetch(BaseMPtr + Offset, 1, 1);
+  //  __builtin_prefetch(BaseMPtr + Offset, 1, 1);
   if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
     return BaseMPtr + Offset;
   //  if (!sizeIsKnown(ObjSize)) [[unlikely]]

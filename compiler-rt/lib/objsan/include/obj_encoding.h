@@ -1,7 +1,6 @@
 #ifndef OBJSAN_OBJ_ENCODING_H
 #define OBJSAN_OBJ_ENCODING_H
 
-#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -195,7 +194,7 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
                            uint64_t *__restrict NumOffsetBitsPtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
-    __builtin_prefetch(D.MPtr, 0, 3);
+//    __builtin_prefetch(D.MPtr, 0, 3);
     *SizePtr = E.Bits.ObjSize;
     *NumOffsetBitsPtr = NumOffsetBits;
     return D.MPtr;
@@ -297,9 +296,9 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
-    __builtin_prefetch(&Obj + 8, 0, 3);
-    __builtin_prefetch(&Obj + 16, 0, 3);
-    __builtin_prefetch(Obj.Base, 0, 3);
+//    __builtin_prefetch(&Obj + 8, 0, 3);
+//    __builtin_prefetch(&Obj + 16, 0, 3);
+//    __builtin_prefetch(Obj.Base, 0, 3);
     *SizePtr = Obj.ObjSize;
     *NumOffsetBitsPtr = NumOffsetBits;
     return Obj.Base;

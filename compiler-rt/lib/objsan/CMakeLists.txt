@@ -3,7 +3,6 @@ set(OBJSAN_CFLAGS
   ${COMPILER_RT_COMMON_CFLAGS}
   -std=c++20
   -fno-exceptions
-  -flto
 )
 append_rtti_flag(OFF OBJSAN_CFLAGS)
 
