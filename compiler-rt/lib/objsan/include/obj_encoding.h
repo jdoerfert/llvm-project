@@ -190,13 +190,11 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
     return E.Bits.ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr,
-                           uint64_t *__restrict NumOffsetBitsPtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
 //    __builtin_prefetch(D.MPtr, 0, 3);
     *SizePtr = E.Bits.ObjSize;
-    *NumOffsetBitsPtr = NumOffsetBits;
     return D.MPtr;
   }
 
@@ -291,8 +289,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     return ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr,
-                           uint64_t *__restrict NumOffsetBitsPtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr) {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
@@ -300,7 +297,6 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 //    __builtin_prefetch(&Obj + 16, 0, 3);
 //    __builtin_prefetch(Obj.Base, 0, 3);
     *SizePtr = Obj.ObjSize;
-    *NumOffsetBitsPtr = NumOffsetBits;
     return Obj.Base;
   }
 
@@ -394,13 +390,11 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     return ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr,
-                           uint64_t *__restrict NumOffsetBitsPtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr) {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
     *SizePtr = ObjSize;
-    *NumOffsetBitsPtr = NumOffsetBits;
     return Obj.Base;
   }
 

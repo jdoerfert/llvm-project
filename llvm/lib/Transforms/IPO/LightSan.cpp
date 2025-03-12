@@ -45,6 +45,8 @@ using namespace llvm::instrumentor;
 #define DEBUG_TYPE "lightsan"
 
 static constexpr char LightSanRuntimePrefix[] = "__objsan_";
+static constexpr int64_t SmallObjectEnc = 1;
+static constexpr int64_t LargeObjectEnc = 2;
 
 namespace {
 
@@ -67,11 +69,14 @@ public:
 
   bool isObjectSafe(Value *Obj) const { return SafeObjects.contains(Obj); }
 
-  bool insertSanitizedObject(Value *Obj) {
-    return SanitizedObjects.insert(Obj);
+  bool insertSanitizedObject(Value *Obj, int64_t Size) {
+    return SanitizedObjects[Obj] = Size;
   }
   bool isSanitizedObject(Value *Obj) const {
     return SanitizedObjects.contains(Obj);
+  }
+  int64_t getSanitizedObjectSize(Value *Obj) const {
+    return SanitizedObjects.lookup(Obj);
   }
 
   bool insertNonEscapingObj(Value *Obj) {
@@ -84,7 +89,7 @@ public:
   Attributor &getAttributor() const { return A; }
 
 private:
-  SetVector<Value *> SanitizedObjects;
+  DenseMap<Value *, int64_t> SanitizedObjects;
   SetVector<Value *> NonEscapingObjects;
   /// Objects that have been verified that all their accesses are safe.
   SetVector<Value *> SafeObjects;
@@ -105,7 +110,6 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     Value *ObjectSize = nullptr;
     Value *ObjectSizePtr = nullptr;
     Value *EncodingNo = nullptr;
-    Value *NumOffsetBits = nullptr;
   };
 
   DenseMap<std::pair<Value *, Function *>, ExtendedBasePointerInfo>
@@ -118,16 +122,26 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
       return IIRB.IRB.CreateLoad(IIRB.Int64Ty, EBPI.ObjectSizePtr);
     return EBPI.ObjectSize;
   }
+
+  Value *getStaticBasePointerEncodingNo(Value *Ptr) {
+    if (!AIC->isNonEscapingObj(Ptr) ||
+        AIC->getSanitizedObjectSize(Ptr) >= (1LL << 12))
+      return ConstantInt::get(IntegerType::getInt8Ty(Ptr->getContext()),
+                              LargeObjectEnc);
+    return ConstantInt::get(IntegerType::getInt8Ty(Ptr->getContext()),
+                            SmallObjectEnc);
+  }
+  Value *getStaticBasePointerEncodingNo(Instruction &I) {
+    if (auto *Obj = AIC->getSafeAccessObj(&I))
+      return getStaticBasePointerEncodingNo(Obj);
+    return nullptr;
+  }
   Value *getBasePointerEncodingNo(Value &V, Function &Fn) {
     Value *Ptr = instrumentor::getUnderlyingObjectRecursive(&V);
+    if (auto *EncNo = getStaticBasePointerEncodingNo(Ptr))
+      return EncNo;
     return BasePointerSizeOffsetMap[{Ptr, &Fn}].EncodingNo;
   }
-  Value *getNumOffsetBits(Value &V, InstrumentorIRBuilderTy &IIRB) {
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    Value *Ptr = instrumentor::getUnderlyingObjectRecursive(&V);
-    return BasePointerSizeOffsetMap[{Ptr, Fn}].NumOffsetBits;
-  }
-
   /// Get a size alloca.
   AllocaInst *getSizeAlloca(Function &Fn, InstrumentorIRBuilderTy &IIRB,
                             Value &Obj) {
@@ -723,7 +737,7 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
   AA::AccessRangeListTy RangeList(Range);
 
   for (auto [Obj, Size, AAPI] : WorkList) {
-    Cache.insertSanitizedObject(Obj);
+    Cache.insertSanitizedObject(Obj, Size);
 
     if (!AAPI->getState().isValidState())
       continue;
@@ -860,15 +874,15 @@ bool LightSanImpl::instrument() {
       auto MaxOffset =
           cast<ConstantInt>(LVRICI->getArgOperand(2))->getSExtValue();
       auto IsExecuted =
-          cast<ConstantInt>(LVRICI->getArgOperand(7))->getSExtValue();
+          cast<ConstantInt>(LVRICI->getArgOperand(6))->getSExtValue();
       if (!IsExecuted) {
         auto Offset = cast<ConstantInt>(CI->getArgOperand(3))->getSExtValue();
         if (MaxOffset > Offset)
           continue;
         LVRICI->setArgOperand(
-            7, ConstantInt::get(Type::getInt8Ty(M.getContext()), 1));
+            6, ConstantInt::get(Type::getInt8Ty(M.getContext()), 1));
       }
-      CI->setArgOperand(7,
+      CI->setArgOperand(6,
                         ConstantInt::get(Type::getInt8Ty(M.getContext()), 1));
     }
   };
@@ -1062,10 +1076,6 @@ struct ExtendedBasePointerIO : public BasePointerIO {
         PointerType::getUnqual(Ctx), "encoding_no_ptr",
         "Return the encoding number of the object in question as uint8_t.",
         IRTArg::REPLACABLE_CUSTOM, getEncodingNoPtr, setEncodingNo));
-    IRTArgs.push_back(
-        IRTArg(PointerType::getUnqual(Ctx), "num_offset_bits_ptr",
-               "Return the number of offset bits of the pointer as int64_t.",
-               IRTArg::REPLACABLE_CUSTOM, getNumOffsetBits, setNumOffsetBits));
   }
 
   static Value *stripRegisterCall(Value *V, InstrumentationConfig &IConf) {
@@ -1129,23 +1139,6 @@ struct ExtendedBasePointerIO : public BasePointerIO {
     LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}].EncodingNo = EncodingNo;
     return &V;
   }
-  static Value *getNumOffsetBits(Value &V, Type &Ty,
-                                 InstrumentationConfig &IConf,
-                                 InstrumentorIRBuilderTy &IIRB) {
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    return IIRB.getAlloca(Fn, IIRB.Int64Ty);
-  }
-  static Value *setNumOffsetBits(Value &V, Value &NewV,
-                                 InstrumentationConfig &IConf,
-                                 InstrumentorIRBuilderTy &IIRB) {
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    auto *NumOffsetBits = IIRB.IRB.CreateLoad(IIRB.Int64Ty, &NewV);
-    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    auto *BasePtr = cast<CallInst>(V).getArgOperand(0);
-    LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}].NumOffsetBits =
-        NumOffsetBits;
-    return &V;
-  }
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *EVPIO = IConf.allocate<ExtendedBasePointerIO>();
@@ -1168,9 +1161,6 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
     IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
                              "The size of the underlying object.", IRTArg::NONE,
                              getObjectSize));
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "num_offset_bits",
-                             "The number of offset bits in the pointer.",
-                             IRTArg::NONE, getNumOffsetBits));
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
                              "The encoding number used for the pointer.",
                              IRTArg::NONE, getEncodingNo));
@@ -1189,12 +1179,6 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     return LSIConf.getBasePointerObjectSize(V, IIRB);
-  }
-  static Value *getNumOffsetBits(Value &V, Type &Ty,
-                                 InstrumentationConfig &IConf,
-                                 InstrumentorIRBuilderTy &IIRB) {
-    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    return LSIConf.getNumOffsetBits(V, IIRB);
   }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
@@ -1232,9 +1216,6 @@ struct ExtendedLoadIO : public LoadIO {
     IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
                              "The size of the underlying object.", IRTArg::NONE,
                              getObjectSize));
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "num_offset_bits",
-                             "The number of offset bits in the pointer.",
-                             IRTArg::NONE, getNumOffsetBits));
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
                              "The encoding number used for the pointer.",
                              IRTArg::NONE, getEncodingNo));
@@ -1249,19 +1230,14 @@ struct ExtendedLoadIO : public LoadIO {
     return LSIConf.getBasePointerObjectSize(
         *cast<LoadInst>(V).getPointerOperand(), IIRB);
   }
-  static Value *getNumOffsetBits(Value &V, Type &Ty,
-                                 InstrumentationConfig &IConf,
-                                 InstrumentorIRBuilderTy &IIRB) {
-    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    return LSIConf.getNumOffsetBits(*cast<LoadInst>(V).getPointerOperand(),
-                                    IIRB);
-  }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &LI = cast<LoadInst>(V);
+    if (auto *EncNo = LSIConf.getStaticBasePointerEncodingNo(LI))
+      return EncNo;
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    return LSIConf.getBasePointerEncodingNo(
-        *cast<LoadInst>(V).getPointerOperand(), *Fn);
+    return LSIConf.getBasePointerEncodingNo(*LI.getPointerOperand(), *Fn);
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
@@ -1300,9 +1276,6 @@ struct ExtendedStoreIO : public StoreIO {
     IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
                              "The size of the underlying object.", IRTArg::NONE,
                              getObjectSize));
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "num_offset_bits",
-                             "The number of offset bits in the pointer.",
-                             IRTArg::NONE, getNumOffsetBits));
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
                              "The encoding number used for the pointer.",
                              IRTArg::NONE, getEncodingNo));
@@ -1317,19 +1290,14 @@ struct ExtendedStoreIO : public StoreIO {
     return LSIConf.getBasePointerObjectSize(
         *cast<StoreInst>(V).getPointerOperand(), IIRB);
   }
-  static Value *getNumOffsetBits(Value &V, Type &Ty,
-                                 InstrumentationConfig &IConf,
-                                 InstrumentorIRBuilderTy &IIRB) {
-    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    return LSIConf.getNumOffsetBits(*cast<StoreInst>(V).getPointerOperand(),
-                                    IIRB);
-  }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &SI = cast<StoreInst>(V);
+    if (auto *EncNo = LSIConf.getStaticBasePointerEncodingNo(SI))
+      return EncNo;
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    return LSIConf.getBasePointerEncodingNo(
-        *cast<StoreInst>(V).getPointerOperand(), *Fn);
+    return LSIConf.getBasePointerEncodingNo(*SI.getPointerOperand(), *Fn);
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {

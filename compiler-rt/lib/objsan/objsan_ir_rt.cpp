@@ -160,11 +160,11 @@ void __objsan_pre_function(int32_t NumArgs, char *__restrict Arguments) {
   for (int32_t I = 0; I < ArgC; ++I) {
     auto StrSize = strlen(ArgV[I]) + 1;
     ArgV[I] = __objsan_register_object(ArgV[I], StrSize,
-                                       /*RequiresTemporalCheck=*/false);
+                                       /*RequiresTemporalCheck=*/true);
   }
   *reinterpret_cast<char **>(&ArgVVP->Value) =
       __objsan_register_object(reinterpret_cast<char *>(ArgV), ArgVSize,
-                               /*RequiresTemporalCheck*/ false);
+                               /*RequiresTemporalCheck=*/true);
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -183,25 +183,28 @@ uint8_t __objsan_get_encoding(char *__restrict VPtr) {
 OBJSAN_SMALL_API_ATTRS
 char *__objsan_post_base_pointer_info(char *__restrict VPtr,
                                       uint64_t *__restrict SizePtr,
-                                      uint8_t *__restrict EncodingNoPtr,
-                                      uint64_t *__restrict NumOffsetBitsPtr) {
+                                      uint8_t *__restrict EncodingNoPtr) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
   *EncodingNoPtr = EncodingNo;
   *SizePtr = 0;
-  ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, SizePtr,
-                     NumOffsetBitsPtr);
+  ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, SizePtr);
 }
 
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
                                      int64_t FinalLoopValue, int64_t MaxOffset,
                                      char *BaseMPtr, uint64_t ObjSize,
-                                     int64_t NumOffsetBits, int8_t EncodingNo,
+                                     int8_t EncodingNo,
                                      int8_t IsDefinitivelyExecuted) {
   char *VPtr = (char *)InitialLoopValue;
   int64_t LoopSize = FinalLoopValue - InitialLoopValue;
   if (!EncodingNo) [[unlikely]]
     return nullptr;
+  int64_t NumOffsetBits;
+  if (EncodingNo == 1)
+    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
+  else
+    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
   auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
   //  for (int I = 0; I < FinalLoopValue; I += 64)
   //    __builtin_prefetch(BaseMPtr + Offset + I, 0, 3);
@@ -217,13 +220,14 @@ void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, uint64_t ObjSize,
-                        int64_t NumOffsetBits, int8_t EncodingNo,
-                        int8_t WasChecked) {
-  //  printf("pl %p %p %p %llu %llu %lli %i %i\n", VPtr, BaseMPtr, LVRI,
-  //  AccessSize,
-  //         ObjSize, NumOffsetBits, EncodingNo, WasChecked);
+                        int8_t EncodingNo, int8_t WasChecked) {
   if (!EncodingNo) [[unlikely]]
     return VPtr;
+  int64_t NumOffsetBits;
+  if (EncodingNo == 1)
+    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
+  else
+    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
   auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
   //  __builtin_prefetch(BaseMPtr + Offset, 0, 1);
   if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
@@ -241,14 +245,12 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
     uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);                \
     if (!EncodingNo)                                                           \
       return 0;                                                                \
-    uint64_t ObjSize, NumOffsetBits;                                           \
+    uint64_t ObjSize;                                                          \
     auto *BaseMPtr = [&]() -> char * {                                         \
-      ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, &ObjSize,    \
-                         &NumOffsetBits);                                      \
+      ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, &ObjSize);   \
     }();                                                                       \
-    if (void *AccMPtr =                                                        \
-            __objsan_pre_load(VPtr, BaseMPtr, nullptr, SIZE, ObjSize,          \
-                              NumOffsetBits, EncodingNo, false)) {             \
+    if (void *AccMPtr = __objsan_pre_load(VPtr, BaseMPtr, nullptr, SIZE,       \
+                                          ObjSize, EncodingNo, false)) {       \
       switch (SIZE) {                                                          \
       case 1:                                                                  \
         return *reinterpret_cast<uint8_t *>(AccMPtr);                          \
@@ -272,13 +274,17 @@ SPEC_LOAD(8)
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, uint64_t ObjSize,
-                         int64_t NumOffsetBits, int8_t EncodingNo,
-                         int8_t WasChecked) {
+                         int8_t EncodingNo, int8_t WasChecked) {
   //  printf("ps %p %p %p %llu %llu %lli %i %i\n", VPtr, BaseMPtr, LVRI,
   //  AccessSize,
   //         ObjSize, NumOffsetBits, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;
+  int64_t NumOffsetBits;
+  if (EncodingNo == 1)
+    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
+  else
+    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
   auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
   //  __builtin_prefetch(BaseMPtr + Offset, 1, 1);
   if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
