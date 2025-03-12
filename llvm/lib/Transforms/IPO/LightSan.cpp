@@ -642,10 +642,13 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
   SmallVector<std::pair<Value *, Value *>> WorkList;
 
   for (GlobalVariable &GV : M.globals()) {
-    if (GV.isDeclaration())
+    if (GV.isDeclaration() || GV.getType()->isPointerTy())
+      continue;
+    auto Size = DL.getTypeStoreSize(GV.getType());
+    if (!Size.isFixed())
       continue;
     WorkList.push_back(std::make_pair<Value *, Value *>(
-        &GV, ConstantInt::getNullValue(Int64Ty)));
+        &GV, ConstantInt::get(Int64Ty, Size.getFixedValue())));
     A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(GV),
                                       /*QueryingAA=*/nullptr,
                                       DepClassTy::REQUIRED);
