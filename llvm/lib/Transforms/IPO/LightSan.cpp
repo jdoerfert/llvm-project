@@ -28,6 +28,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/Instrumentor.h"
@@ -126,7 +127,8 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     PotentiallyFreeCalls.clear();
   }
 
-  SmallVector<CallInst *> EscapedAllocas;
+  // This is a vector of allocas holding call inst that registered user allocas.
+  SmallVector<AllocaInst *> EscapedAllocas;
   SmallVector<CallInst *> PotentiallyFreeCalls;
 
   LightSanImpl &LSI;
@@ -920,9 +922,17 @@ struct ExtendedAllocaIO : public AllocaIO {
   Value *instrument(Value *&V, InstrumentationConfig &IConf,
                     InstrumentorIRBuilderTy &IIRB,
                     InstrumentationCaches &ICaches) override {
-    if (auto *CI = AllocaIO::instrument(V, IConf, IIRB, ICaches)) {
+    if (auto *CI = cast_if_present<CallInst>(
+            AllocaIO::instrument(V, IConf, IIRB, ICaches))) {
       auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-      LSIConf.EscapedAllocas.push_back(cast<CallInst>(CI));
+      AllocaInst *AI;
+      {
+        IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
+        IIRB.IRB.SetInsertPointPastAllocas(CI->getFunction());
+        AI = IIRB.IRB.CreateAlloca(IIRB.PtrTy);
+      }
+      IIRB.IRB.CreateStore(CI, AI);
+      LSIConf.EscapedAllocas.push_back(AI);
       return CI;
     }
     return nullptr;
@@ -966,6 +976,11 @@ struct ExtendedGlobalIO : public GlobalIO {
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *EAIO = IConf.allocate<ExtendedGlobalIO>();
+    EAIO->CB = [](Value &V) {
+      auto &GV = cast<GlobalVariable>(V);
+      return GV.getValueType()->isSized() && !GV.hasExternalWeakLinkage() &&
+             GV.hasInitializer() && !GV.isInterposable();
+    };
     EAIO->init(IConf, IIRB);
   }
 };
@@ -1299,7 +1314,7 @@ struct ExtendedFunctionIO : public FunctionIO {
     auto *AllocasAI = IIRB.getAlloca(Fn, ATy);
     for (auto [Idx, AI] : enumerate(LSIConf.EscapedAllocas)) {
       auto *Ptr = IIRB.IRB.CreateConstGEP1_32(IIRB.PtrTy, AllocasAI, Idx);
-      IIRB.IRB.CreateStore(AI, Ptr);
+      IIRB.IRB.CreateStore(IIRB.IRB.CreateLoad(IIRB.PtrTy, AI), Ptr);
     }
     return AllocasAI;
   }

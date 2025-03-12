@@ -1956,7 +1956,11 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
       [&](User *Usr) -> Instruction * {
     if (auto *NewI = UserMap.lookup(Usr))
       return NewI;
-    assert(isa<ConstantExpr>(Usr));
+    if (!isa<ConstantExpr>(Usr)) {
+      errs() << "WARNING: Ignoring constant user " << *Usr << "\n";
+      UserMap[Usr] = nullptr;
+      return nullptr;
+    }
     auto *CE = cast<ConstantExpr>(Usr);
     auto *I = CE->getAsInstruction();
     UserMap[CE] = I;
@@ -1973,6 +1977,8 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
                  << "\n";
           llvm_unreachable("TODO");
         }
+        if (!UI)
+          return nullptr;
       }
       if (!First)
         I = I->clone();
