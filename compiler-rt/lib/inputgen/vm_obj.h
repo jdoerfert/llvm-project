@@ -92,7 +92,7 @@ struct ObjectManager {
                   bool &AllInitialized) {
     AnyInitialized = false;
     AllInitialized = true;
-    switch ((uint64_t)BasePtrInfo & 3) {
+    switch ((uintptr_t)BasePtrInfo & 3) {
     case 1:
       return UserObjSmall.access(VPtr, AccessSize, TypeId, AK == WRITE);
     case 2:
