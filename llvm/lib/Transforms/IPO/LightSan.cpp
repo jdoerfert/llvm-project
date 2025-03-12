@@ -47,6 +47,24 @@ namespace {
 
 struct LightSanImpl;
 
+/// Information cache collected from attributor.
+class AttributorInfoCache {
+public:
+  AttributorInfoCache(Attributor &A) : A(A) {}
+
+  bool insertSafeObject(Value *Obj) { return SafeObjects.insert(Obj); }
+
+  bool isObjectSafe(Value *Obj) const { return SafeObjects.contains(Obj); }
+
+  Attributor &getAttributor() const { return A; }
+
+private:
+  /// Objects that have been verified that all their accesses are safe.
+  SetVector<Value *> SafeObjects;
+
+  Attributor &A;
+};
+
 struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
   LightSanInstrumentationConfig(LightSanImpl &LSI);
@@ -113,7 +131,7 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
   LightSanImpl &LSI;
 
-  Attributor *A = nullptr;
+  AttributorInfoCache *AIC = nullptr;
 };
 
 struct LightSanImpl {
@@ -591,6 +609,103 @@ bool LightSanImpl::hoistLoopLoads(Loop &L) {
   return Changed;
 }
 
+static bool collectAttributorInfo(Attributor &A, Module &M,
+                                  AttributorInfoCache &Cache) {
+  LLVMContext &Ctx = M.getContext();
+  const DataLayout &DL = M.getDataLayout();
+  Type *Int64Ty = Type::getInt64Ty(Ctx);
+
+  // A list of pairs of objects and their size
+  SmallVector<std::pair<Value *, Value *>> WorkList;
+
+  for (GlobalVariable &GV : M.globals()) {
+    if (GV.isDeclaration())
+      continue;
+    WorkList.push_back(std::make_pair<Value *, Value *>(
+        &GV, ConstantInt::getNullValue(Int64Ty)));
+    A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(GV),
+                                      /*QueryingAA=*/nullptr,
+                                      DepClassTy::REQUIRED);
+  }
+
+  auto HandleAllocaInst = [&](AllocaInst *AI) {
+    auto Size = AI->getAllocationSize(DL);
+    // TODO: Probably we can handle dynamic alloca?
+    if (!Size || !Size->isFixed())
+      return;
+    auto SizeV = Size->getFixedValue();
+    WorkList.push_back({AI, ConstantInt::get(Int64Ty, SizeV)});
+    A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*AI),
+                                      /*QueryingAA=*/nullptr,
+                                      DepClassTy::REQUIRED);
+  };
+
+  auto HandleMallocLikeFn = [&](CallInst *CI) {
+    Value *SizeOp = CI->getArgOperand(0);
+    WorkList.push_back({CI, SizeOp});
+    A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*CI),
+                                      /*QueryingAA=*/nullptr,
+                                      DepClassTy::REQUIRED);
+  };
+
+  for (Function &F : M) {
+    if (F.isIntrinsic())
+      continue;
+
+    for (BasicBlock &BB : F) {
+      for (Instruction &I : BB) {
+        if (auto *AI = dyn_cast<AllocaInst>(&I)) {
+          HandleAllocaInst(AI);
+        } else if (auto *CI = dyn_cast<CallInst>(&I)) {
+          const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(
+              *CI->getCalledFunction());
+          assert(TLI);
+          if (llvm::isMallocOrCallocLikeFn(CI->getCalledFunction(), TLI))
+            HandleMallocLikeFn(CI);
+        }
+      }
+    }
+  }
+
+  ChangeStatus Changed = A.run();
+
+  AA::AccessRangeTy Range(/*Offset=*/0, /*AccessSize=*/0x7fffffffffffffffLL);
+  AA::AccessRangeListTy RangeList(Range);
+  AAPointerInfo::AccessKind AK = AAPointerInfo::AccessKind::AK_ANY;
+
+  for (auto [Obj, Size] : WorkList) {
+    auto *SizeC = dyn_cast<ConstantInt>(Size);
+
+    // TODO: Deal with non-constant access size.
+    if (!SizeC)
+      continue;
+
+    auto CheckAccessCB = [SizeC](const AAPointerInfo::Access &Acc,
+                                 bool) -> bool {
+      for (auto &R : Acc) {
+        int64_t AccOffset = R.getOffset();
+        int64_t AccSize = R.getSize();
+        if (AccOffset < 0)
+          return false;
+        // TODO: Consider wrap here?
+        if (AccOffset + AccSize >= SizeC->getSExtValue())
+          return false;
+      }
+      return true;
+    };
+
+    auto *AA = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*Obj),
+                                                 /*QueryingAA=*/nullptr,
+                                                 DepClassTy::REQUIRED);
+    if (!AA->forallInterferingAccesses(RangeList, CheckAccessCB, AK))
+      continue;
+
+    Cache.insertSafeObject(Obj);
+  }
+
+  return Changed == ChangeStatus::CHANGED;
+}
+
 void LightSanImpl::foreachRTCaller(StringRef Name,
                                    function_ref<void(CallInst &)> CB) {
   auto *FC = M.getFunction(Name);
@@ -646,25 +761,10 @@ bool LightSanImpl::instrument() {
   }
 
   Attributor A(Functions, InfoCache, AC);
-  IConf.A = &A;
+  AttributorInfoCache Cache(A);
+  IConf.AIC = &Cache;
 
-  // Register AAs
-  for (Function *F : Functions) {
-    for (BasicBlock &BB : *F) {
-      for (Instruction &I : BB) {
-        if (auto *LI = dyn_cast<LoadInst>(&I))
-          A.getOrCreateAAFor<AAPointerInfo>(
-              IRPosition::value(*LI->getPointerOperand()),
-              /*QueryingAA=*/nullptr, DepClassTy::REQUIRED);
-        else if (auto *SI = dyn_cast<StoreInst>(&I))
-          A.getOrCreateAAFor<AAPointerInfo>(
-              IRPosition::value(*SI->getPointerOperand()),
-              /*QueryingAA=*/nullptr, DepClassTy::REQUIRED);
-      }
-    }
-  }
-
-  Changed |= A.run() == ChangeStatus::CHANGED;
+  Changed |= collectAttributorInfo(A, M, Cache);
 
   InstrumentorPass IP(&IConf);
   auto PA = IP.run(M, MAM);
