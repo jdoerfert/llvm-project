@@ -1270,11 +1270,15 @@ struct FunctionIO : public InstrumentationOpportunity {
     PassNumArguments,
     PassArguments,
     ReplaceArguments,
+    PassIsMain,
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
-  ConfigTy Config;
+  struct ConfigTy final : public BaseConfigTy<ConfigKind::NumConfig> {
+    std::function<bool(Argument &)> ArgFilter;
+
+    ConfigTy(bool Enable = true) : BaseConfigTy(Enable) {}
+  } Config;
 
   StringRef getName() const override { return "function"; }
 
@@ -1305,6 +1309,11 @@ struct FunctionIO : public InstrumentationOpportunity {
                                               : IRTArg::NONE,
                  std::bind(&FunctionIO::getArguments, this, _1, _2, _3, _4),
                  std::bind(&FunctionIO::setArguments, this, _1, _2, _3, _4)));
+    if (Config.has(PassIsMain))
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_main",
+                               "Flag to indicate it is the main function.",
+                               IRTArg::NONE, isMainFunction));
+
     IConf.addChoice(*this);
   }
 
@@ -1320,6 +1329,8 @@ struct FunctionIO : public InstrumentationOpportunity {
                       InstrumentorIRBuilderTy &IIRB);
   Value *setArguments(Value &V, Value &NewV, InstrumentationConfig &IConf,
                       InstrumentorIRBuilderTy &IIRB);
+  static Value *isMainFunction(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                               InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     for (auto IsPRE : {true, false}) {

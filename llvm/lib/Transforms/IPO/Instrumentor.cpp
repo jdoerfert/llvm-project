@@ -1375,6 +1375,13 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
   return CI;
 }
 
+template <typename Ty> constexpr Value *getValue(Ty &ValueOrUse) {
+  if constexpr (std::is_same<Ty, Use>::value)
+    return ValueOrUse.get();
+  else
+    return static_cast<Value *>(&ValueOrUse);
+}
+
 template <typename Range>
 static Value *createValuePack(const Range &R, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
@@ -1383,7 +1390,8 @@ static Value *createValuePack(const Range &R, InstrumentationConfig &IConf,
   SmallVector<Constant *> ConstantValues;
   SmallVector<std::pair<Value *, uint32_t>> Values;
   SmallVector<Type *> Types;
-  for (auto &V : R) {
+  for (auto &RE : R) {
+    Value *V = getValue(RE);
     if (!V->getType()->isSized())
       continue;
     auto VSize = IIRB.DL.getTypeAllocSize(V->getType());
@@ -1433,7 +1441,8 @@ static void readValuePack(const Range &R, Value &Pack,
   auto &DL = Fn->getDataLayout();
   SmallVector<Value *> ParameterValues;
   unsigned Offset = 0;
-  for (const auto &[Idx, V] : enumerate(R)) {
+  for (const auto &[Idx, RE] : enumerate(R)) {
+    Value *V = getValue(RE);
     if (!V->getType()->isSized())
       continue;
     Offset += 8;
@@ -1857,30 +1866,46 @@ Value *FunctionIO::getNumArguments(Value &V, Type &Ty,
                                    InstrumentationConfig &IConf,
                                    InstrumentorIRBuilderTy &IIRB) {
   auto &Fn = cast<Function>(V);
-  return getCI(&Ty, Fn.arg_size());
+  if (!Config.ArgFilter)
+    return getCI(&Ty, Fn.arg_size());
+  auto FRange = make_filter_range(Fn.args(), Config.ArgFilter);
+  return getCI(&Ty, std::distance(FRange.begin(), FRange.end()));
 }
 Value *FunctionIO::getArguments(Value &V, Type &Ty,
                                 InstrumentationConfig &IConf,
                                 InstrumentorIRBuilderTy &IIRB) {
   auto &Fn = cast<Function>(V);
-  if (Fn.arg_empty())
-    return Constant::getNullValue(&Ty);
-  return createValuePack(make_pointer_range(Fn.args()), IConf, IIRB);
+  if (!Config.ArgFilter)
+    return createValuePack(Fn.args(), IConf, IIRB);
+  return createValuePack(make_filter_range(Fn.args(), Config.ArgFilter), IConf,
+                         IIRB);
 }
 Value *FunctionIO::setArguments(Value &V, Value &NewV,
                                 InstrumentationConfig &IConf,
                                 InstrumentorIRBuilderTy &IIRB) {
   auto &Fn = cast<Function>(V);
-  if (Fn.arg_empty())
-    return &V;
-  readValuePack(
-      make_pointer_range(Fn.args()), NewV, IIRB, [&](int Idx, Value *ReplV) {
-        Fn.getArg(Idx)->replaceUsesWithIf(ReplV, [&](Use &U) {
-          return IIRB.NewInsts.lookup(cast<Instruction>(U.getUser())) !=
-                 IIRB.Epoche;
-        });
-      });
-  return &V;
+  auto *AIt = Fn.arg_begin();
+  auto CB = [&](int Idx, Value *ReplV) {
+    while (Config.ArgFilter && !Config.ArgFilter(*AIt))
+      ++AIt;
+    Fn.getArg(Idx)->replaceUsesWithIf(ReplV, [&](Use &U) {
+      return IIRB.NewInsts.lookup(cast<Instruction>(U.getUser())) !=
+             IIRB.Epoche;
+    });
+    ++AIt;
+  };
+  if (!Config.ArgFilter)
+    readValuePack(Fn.args(), NewV, IIRB, CB);
+  else
+    readValuePack(make_filter_range(Fn.args(), Config.ArgFilter), NewV, IIRB,
+                  CB);
+  return &Fn;
+}
+Value *FunctionIO::isMainFunction(Value &V, Type &Ty,
+                                  InstrumentationConfig &IConf,
+                                  InstrumentorIRBuilderTy &IIRB) {
+  auto &Fn = cast<Function>(V);
+  return getCI(&Ty, Fn.getName() == "main");
 }
 
 Value *ModuleIO::getModuleName(Value &V, Type &Ty, InstrumentationConfig &IConf,
