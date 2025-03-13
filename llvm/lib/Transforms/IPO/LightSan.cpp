@@ -275,9 +275,14 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
   if (CalledFn->isVarArg())
     return true;
 
-  // Rest of cases should be instrumented within adapters.
-  if (!CI.getFunction()->getName().starts_with(AdapterPrefix))
-    return false;
+  LibFunc TheLibFunc;
+  auto &TLI = IIRB.TLIGetter(*CalledFn);
+  // Known library functions are not wrapped (for now).
+  if (!(TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc))) {
+    // Rest of cases should be instrumented within adapters.
+    if (!CI.getFunction()->getName().starts_with(AdapterPrefix))
+      return false;
+  }
 
   FunctionType *CalledFnTy = CalledFn->getFunctionType();
   if (none_of(CalledFnTy->params(),
@@ -285,10 +290,6 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
     return false;
   return true;
 #if 0
-  LibFunc TheLibFunc;
-  auto &TLI = IIRB.TLIGetter(*CalledFn);
-  if (!(TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc)))
-    return true;
   switch (TheLibFunc) {
   case LibFunc_ZdaPv:
   case LibFunc_ZdaPvRKSt9nothrow_t:
@@ -826,10 +827,15 @@ bool LightSanImpl::createWeakAdapters() {
     if (!shouldImplementAdapter(Fn))
       continue;
 
-    if (Fn.isDeclaration())
+    if (Fn.isDeclaration()) {
+      auto &TLI = FAM.getResult<TargetLibraryAnalysis>(Fn);
+      LibFunc TheLibFunc;
+      if (TLI.getLibFunc(Fn, TheLibFunc) && TLI.has(TheLibFunc))
+        continue;
       FuncsForWeakAdapters.push_back(&Fn);
-    else if (!Fn.hasLocalLinkage())
+    } else if (!Fn.hasLocalLinkage()) {
       FuncsForAliasAdapters.push_back(&Fn);
+    }
   }
 
   if (FuncsForWeakAdapters.empty())
@@ -1023,11 +1029,14 @@ bool LightSanImpl::instrument() {
     auto *MinV = Expander.expandCodeFor(MinSCEV, PtrTy);
     auto *MaxV = Expander.expandCodeFor(MaxSCEV, PtrTy);
 
-    auto *RangeCI = CallInst::Create(LVRFC,
-                     {MinV, MaxV, ConstantInt::getNullValue(Int64Ty), BPI,
-                      ObjSize, EncNo, TrueInt8},
-                     "", IP);
+    auto *RangeCI =
+        CallInst::Create(LVRFC,
+                         {MinV, MaxV, ConstantInt::getNullValue(Int64Ty), BPI,
+                          ObjSize, EncNo, TrueInt8},
+                         "", IP);
     RangeCI->setDebugLoc(FirstCI->getDebugLoc());
+    LLVM_DEBUG(errs() << "Use range access in BB for " << Calls.size()
+                      << " checks\n");
   }
 #endif
 
