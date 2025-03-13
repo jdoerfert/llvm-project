@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iostream>
 #endif
+#include <string>
 
 class Timer {
 public:

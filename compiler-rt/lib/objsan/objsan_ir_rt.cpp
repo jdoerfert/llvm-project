@@ -240,6 +240,23 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                                           /*FailOnError=*/false);
 }
 
+OBJSAN_SMALL_API_ATTRS
+int8_t __objsan_check_ptr_load(char *VPtr, int64_t Offset) {
+  VPtr += Offset;
+  uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
+  if (!EncodingNo)
+    return 0;
+  uint64_t ObjSize;
+  auto *BaseMPtr = [&]() -> char * {
+    ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, &ObjSize);
+  }();
+  if (void *AccMPtr = __objsan_pre_load(VPtr, BaseMPtr, nullptr, sizeof(void *),
+                                        ObjSize, EncodingNo, false)) {
+    return 1;
+  }
+  return 0;
+}
+
 #define SPEC_LOAD(SIZE)                                                        \
   uint64_t __objsan_pre_spec_load_##SIZE(char *VPtr, int64_t Offset) {         \
     VPtr += Offset;                                                            \
@@ -276,7 +293,8 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, uint64_t ObjSize,
                          int8_t EncodingNo, int8_t WasChecked) {
-  //  printf("ps %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
+  //  printf("ps %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI,
+  //  AccessSize,
   //         ObjSize, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;

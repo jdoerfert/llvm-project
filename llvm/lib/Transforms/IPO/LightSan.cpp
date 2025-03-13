@@ -12,14 +12,17 @@
 
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/Analysis/CaptureTracking.h"
+#include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
@@ -34,6 +37,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/Instrumentor.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
@@ -215,7 +219,7 @@ struct LightSanImpl {
 
 private:
   bool updateSizesAfterPotentialFree();
-  bool hoistLoopLoads(Loop &L);
+  bool hoistLoopLoads(Loop &L, LoopInfo &LI, DominatorTree &DT);
   void foreachRTCaller(StringRef Name, function_ref<void(CallInst &)> CB);
 
   SmallVector<Function *> FuncsForWeakAdapters;
@@ -583,10 +587,10 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
 #endif
 }
 
-bool LightSanImpl::hoistLoopLoads(Loop &L) {
+bool LightSanImpl::hoistLoopLoads(Loop &L, LoopInfo &LI, DominatorTree &DT) {
   bool Changed = false;
   for (auto *ChildL : L)
-    Changed |= hoistLoopLoads(*ChildL);
+    Changed |= hoistLoopLoads(*ChildL, LI, DT);
 
   auto *LatchBB = L.getLoopLatch();
   auto *PreHeaderBB = L.getLoopPreheader();
@@ -597,94 +601,74 @@ bool LightSanImpl::hoistLoopLoads(Loop &L) {
   // auto *Int64Ty = IntegerType::getInt64Ty(M.getContext());
   // auto *PtrTy = PointerType::get(M.getContext(), 0);
 
-  SmallVector<std::tuple<LoadInst *, PHINode *, APInt>> Loads;
-  DenseMap<LoadInst *, std::pair<LoadInst *, APInt>> LoadMap;
+  SmallVector<std::tuple<LoadInst *, Value *, APInt>> Loads;
   for (auto *BB : L.blocks())
     for (auto &I : *BB)
-      if (auto *LI = dyn_cast<LoadInst>(&I)) {
-        auto *Ty = LI->getType();
-        auto AccessSize = DL.getTypeStoreSize(Ty);
-        if (AccessSize != 1 && AccessSize != 2 && AccessSize != 4 &&
-            AccessSize != 8)
+      if (auto *LoadI = dyn_cast<LoadInst>(&I)) {
+        auto *Ty = LoadI->getType();
+        if (!Ty->isPointerTy())
           continue;
-        auto *Ptr = LI->getPointerOperand();
+        auto *Ptr = LoadI->getPointerOperand();
         APInt Offset(
             DL.getIndexSizeInBits(Ptr->getType()->getPointerAddressSpace()), 0);
         auto *UnderlyingPtr = Ptr->stripAndAccumulateConstantOffsets(
             DL, Offset, /*AllowNonInbounds=*/true,
             /* AllowInvariant */ true);
-        if (auto *ULI = dyn_cast<LoadInst>(UnderlyingPtr)) {
-          LoadMap[ULI] = {LI, Offset};
-          continue;
+        if (!isa<Instruction>(UnderlyingPtr)) {
+          if (isa<Argument>(UnderlyingPtr))
+            Loads.push_back({LoadI, UnderlyingPtr, Offset});
+          if (auto *GV = dyn_cast<GlobalVariable>(UnderlyingPtr))
+            if (GV->hasInitializer())
+              Loads.push_back({LoadI, UnderlyingPtr, Offset});
+        } else if (auto *PtrI = dyn_cast<Instruction>(UnderlyingPtr)) {
+          if (!L.contains(PtrI))
+            Loads.push_back({LoadI, UnderlyingPtr, Offset});
         }
-        auto *UPtrPHI = dyn_cast<PHINode>(UnderlyingPtr);
-        if (!UPtrPHI || UPtrPHI->getParent() != HeaderBB)
-          continue;
-        Loads.push_back({LI, UPtrPHI, Offset});
       }
 
+  auto &Ctx = HeaderBB->getContext();
+  auto *Int1Ty = IntegerType::getInt1Ty(Ctx);
+  auto *Int8Ty = IntegerType::getInt8Ty(Ctx);
+  auto *Int64Ty = IntegerType::getInt64Ty(Ctx);
+  auto *PtrTy = PointerType::get(Ctx, 0);
+  auto CheckFC =
+      M.getOrInsertFunction(IConf.getRTName("", "check_ptr_load"),
+                            FunctionType::get(Int8Ty, {PtrTy, Int64Ty}, false));
+
+  DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
+  auto IP = PreHeaderBB->getTerminator()->getIterator();
   while (!Loads.empty()) {
-    auto [LI, UPtrPHI, Offset] = Loads.pop_back_val();
-    auto It = LoadMap.find(LI);
-    if (It == LoadMap.end())
-      continue;
-    auto *Ty = LI->getType();
-    //    auto AccessSize = DL.getTypeStoreSize(Ty);
+    auto [LoadI, Ptr, Offset] = Loads.pop_back_val();
+    auto *Ty = LoadI->getType();
 
-    auto *InitialPtrVal = UPtrPHI->getIncomingValueForBlock(PreHeaderBB);
-    auto *LatchPtrValI =
-        dyn_cast<Instruction>(UPtrPHI->getIncomingValueForBlock(LatchBB));
-    if (!LatchPtrValI)
-      continue;
-    auto *ValPHI = PHINode::Create(Ty, 2, LI->getName() + ".spec_val",
-                                   UPtrPHI->getIterator());
-    LI->replaceAllUsesWith(ValPHI);
-    if (LatchPtrValI == LI)
-      LatchPtrValI = ValPHI;
+    Instruction *CheckRetVal =
+        CallInst::Create(CheckFC, {Ptr, ConstantInt::get(Int64Ty, Offset)},
+                         LoadI->getName() + ".check", IP);
+    if (auto &DL = LoadI->getStableDebugLoc())
+      CheckRetVal->setDebugLoc(DL);
+    else if (auto *SP = LoadI->getFunction()->getSubprogram())
+      CheckRetVal->setDebugLoc(DILocation::get(Ctx, 0, 0, SP));
+    auto *Cond = new TruncInst(CheckRetVal, Int1Ty, "", IP);
+    auto *NewTI = SplitBlockAndInsertIfThen(
+        Cond, IP, /*Unreachable*/ false, /*BranchWeights=*/nullptr, &DTU, &LI);
+    auto *LoadCloneI = LoadI->clone();
+    LoadCloneI->insertBefore(NewTI->getIterator());
+    auto *EarlyPHI = PHINode::Create(Ty, 2, ".earlyPHI", IP);
+    EarlyPHI->addIncoming(LoadCloneI, NewTI->getParent());
+    EarlyPHI->addIncoming(ConstantInt::getNullValue(Ty), Cond->getParent());
 
-    //    auto SpecLoadFC = M.getOrInsertFunction(
-    //        IConf.getRTName("pre_spec_", "load_", std::to_string(AccessSize)),
-    //        FunctionType::get(Int64Ty, {PtrTy, Int64Ty}, false));
+    auto LoadIP = LoadI->getIterator();
+    auto *NotCond = new ICmpInst(LoadIP, ICmpInst::ICMP_EQ, Cond,
+                                 ConstantInt::getFalse(Ctx));
+    auto *ReloadTI =
+        SplitBlockAndInsertIfThen(NotCond, LoadIP, /*Unreachable*/ false,
+                                  /*BranchWeights=*/nullptr, &DTU, &LI);
+    auto *LatePHI = PHINode::Create(Ty, 2, ".latePHI", LoadIP);
+    LoadI->replaceAllUsesWith(LatePHI);
+    LatePHI->addIncoming(LoadI, ReloadTI->getParent());
+    LatePHI->addIncoming(EarlyPHI, NotCond->getParent());
 
-    auto *LatchLI = LI->clone();
-    LI->removeFromParent();
-
-    IRBuilder<> IRB(LatchBB->getTerminator());
-    ensureDbgLoc(IRB);
-    LI->addAnnotationMetadata("speculated");
-    LatchLI->addAnnotationMetadata("speculated");
-    auto *OffsetVal = IRB.getInt64(Offset.getSExtValue());
-    //    Value *InitialVal = IRB.CreateCall(SpecLoadFC, {InitialPtrVal,
-    //    OffsetVal},
-    //                                       LI->getName() + ".spec_pre");
-    //    InitialVal = tryToCast(IRB, InitialVal, Ty, DL);
-    ValPHI->addIncoming(LI, PreHeaderBB);
-
-    //    Value *LatchVal = IRB.CreateCall(SpecLoadFC, {LatchPtrValI,
-    //    OffsetVal},
-    //                                     LI->getName() + ".spec_latch");
-    //    LatchVal = tryToCast(IRB, LatchVal, Ty, DL);
-    ValPHI->addIncoming(LatchLI, LatchBB);
-
-    auto *LatchPtrWithOffset =
-        IRB.CreateGEP(IRB.getInt8Ty(), LatchPtrValI, {OffsetVal});
-    IRB.Insert(LatchLI);
-    LatchLI->setOperand(LI->getPointerOperandIndex(), LatchPtrWithOffset);
-
-    IRB.SetInsertPoint(PreHeaderBB->getTerminator());
-    ensureDbgLoc(IRB);
-    auto *InitialPtrWithOffset =
-        IRB.CreateGEP(IRB.getInt8Ty(), InitialPtrVal, {OffsetVal});
-    IRB.Insert(LI);
-    LI->setOperand(LI->getPointerOperandIndex(), InitialPtrWithOffset);
-
-    //      LI->replaceUsesWithIf(LatchVal, [&](Use &U) {
-    //        return isa<PHINode>(U.getUser()) &&
-    //               cast<PHINode>(U.getUser())->getParent() == HeaderBB;
-    //      });
-    //    LI->eraseFromParent();
-    Changed = true;
-    Loads.push_back({It->second.first, ValPHI, It->second.second});
+    LoadI->moveBefore(ReloadTI->getIterator());
   }
   return Changed;
 }
@@ -893,8 +877,9 @@ bool LightSanImpl::instrument() {
     if (Fn.isDeclaration())
       continue;
     auto &LI = FAM.getResult<LoopAnalysis>(Fn);
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(Fn);
     for (auto *L : LI)
-      Changed |= hoistLoopLoads(*L);
+      Changed |= hoistLoopLoads(*L, LI, DT);
   }
 #endif
 
@@ -1216,6 +1201,21 @@ struct ExtendedBasePointerIO : public BasePointerIO {
     LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}].EncodingNo = EncodingNo;
     return &V;
   }
+
+  Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
+    if (auto *I = dyn_cast<Instruction>(V)) {
+      auto &LI = IIRB.LIGetter(*I->getFunction());
+      if (auto *L = LI.getLoopFor(I->getParent())) {
+        errs() << "Base pointer " << *I << " in " << I->getFunction()->getName()
+               << "\n"
+               << *L << "\n";
+      }
+    }
+    return BasePointerIO::instrument(V, IConf, IIRB, ICaches);
+  }
+
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *EVPIO = IConf.allocate<ExtendedBasePointerIO>();
