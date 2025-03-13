@@ -1777,7 +1777,7 @@ Value *BranchIO::setValue(Value &V, Value &NewV, InstrumentationConfig &IConf,
                           InstrumentorIRBuilderTy &IIRB) {
   auto *BI = cast<BranchInst>(&V);
   if (BI->isConditional()) {
-    auto Cast = tryToCast(IIRB.IRB, &NewV, BI->getCondition()->getType(),
+    auto *Cast = tryToCast(IIRB.IRB, &NewV, BI->getCondition()->getType(),
                           IIRB.DL, true);
     BI->setCondition(Cast);
   }

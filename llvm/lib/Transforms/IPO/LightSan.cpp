@@ -28,6 +28,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
@@ -262,7 +263,7 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
   }
 
   Function *CalledFn = CI.getCalledFunction();
-  if (!CalledFn)
+  if (!CalledFn || isa<IntrinsicInst>(CI))
     return true;
   if (!CalledFn->isDeclaration())
     return false;
@@ -818,14 +819,13 @@ void LightSanImpl::foreachRTCaller(StringRef Name,
 }
 
 bool LightSanImpl::createWeakAdapters() {
-  // TODO: No need to take into account functions without external visibility
   for (Function &Fn : M) {
     if (!shouldImplementAdapter(Fn))
       continue;
 
     if (Fn.isDeclaration())
       FuncsForWeakAdapters.push_back(&Fn);
-    else
+    else if (!Fn.hasLocalLinkage())
       FuncsForAliasAdapters.push_back(&Fn);
   }
 
@@ -836,7 +836,8 @@ bool LightSanImpl::createWeakAdapters() {
     std::string FnName = Fn->getName().str();
     std::string AdapterFnName = AdapterPrefix + FnName;
 
-    auto *AdapterFn = Function::Create(Fn->getFunctionType(), Function::WeakAnyLinkage, AdapterFnName, M);
+    auto *AdapterFn = Function::Create(
+        Fn->getFunctionType(), Function::WeakAnyLinkage, AdapterFnName, M);
     AdapterFn->copyAttributesFrom(Fn);
     AdapterFn->setCallingConv(Fn->getCallingConv());
 
