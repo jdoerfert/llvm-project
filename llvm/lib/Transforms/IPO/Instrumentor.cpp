@@ -572,7 +572,16 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
 }
 
 bool InstrumentorImpl::instrumentModule() {
-  SmallVector<GlobalVariable *> Globals(make_pointer_range(M.globals()));
+  SmallVector<GlobalVariable *> Globals;
+  Globals.reserve(M.global_size());
+  for (GlobalVariable &GV : M.globals()) {
+    // llvm.metadata contains globals such as llvm.used
+    if (GV.getSection() == "llvm.metadata" ||
+        GV.getName() == "llvm.global_dtors" ||
+        GV.getName() == "llvm.global_ctors")
+      continue;
+    Globals.push_back(&GV);
+  }
 
   auto CreateYtor = [&](bool Ctor) {
     Function *YtorFn = Function::Create(
