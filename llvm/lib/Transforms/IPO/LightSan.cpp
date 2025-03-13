@@ -777,7 +777,7 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
   for (auto [Obj, Size, AAPI] : WorkList) {
     Cache.insertSanitizedObject(Obj, Size);
 
-    if (!AAPI->getState().isValidState())
+    if (!AAPI || !AAPI->getState().isValidState())
       continue;
 
     int64_t ObjSize = Size;
