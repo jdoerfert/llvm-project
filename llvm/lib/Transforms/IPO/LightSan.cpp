@@ -45,6 +45,7 @@ using namespace llvm::instrumentor;
 #define DEBUG_TYPE "lightsan"
 
 static constexpr char LightSanRuntimePrefix[] = "__objsan_";
+static constexpr char AdapterPrefix[] = "__adapter_";
 [[maybe_unused]] static constexpr int64_t SmallObjectEnc = 1;
 static constexpr int64_t LargeObjectEnc = 2;
 
@@ -206,7 +207,7 @@ struct LightSanImpl {
 
   bool instrument();
 
-  bool shouldInstrumentFunction(Function &Fn);
+  bool shouldImplementAdapter(Function &Fn);
   bool shouldInstrumentCall(CallInst &CI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentLoad(LoadInst &LI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentStore(StoreInst &SI, InstrumentorIRBuilderTy &IIRB);
@@ -215,6 +216,11 @@ private:
   bool updateSizesAfterPotentialFree();
   bool hoistLoopLoads(Loop &L);
   void foreachRTCaller(StringRef Name, function_ref<void(CallInst &)> CB);
+
+  SmallVector<Function *> FuncsForWeakAdapters;
+  SmallVector<Function *> FuncsForAliasAdapters;
+  bool createWeakAdapters();
+  bool createAliasAdapters();
 
   Module &M;
   ModuleAnalysisManager &MAM;
@@ -233,8 +239,8 @@ bool LightSanImpl::shouldInstrumentStore(StoreInst &SI,
   return true;
 }
 
-bool LightSanImpl::shouldInstrumentFunction(Function &Fn) {
-  return Fn.hasFnAttribute(Attribute::SanitizeObj);
+bool LightSanImpl::shouldImplementAdapter(Function &Fn) {
+  return !Fn.isVarArg();
 }
 
 bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
@@ -257,10 +263,19 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
     return false;
   if (CalledFn->getName().starts_with(LightSanRuntimePrefix))
     return false;
+  if (CalledFn->isVarArg())
+    return true;
+
+  // Rest of cases should be instrumented within adapters.
+  if (!CI.getFunction()->getName().starts_with(AdapterPrefix))
+    return false;
+
   FunctionType *CalledFnTy = CalledFn->getFunctionType();
   if (none_of(CalledFnTy->params(),
               [&](Type *ArgTy) { return ArgTy->isPtrOrPtrVectorTy(); }))
     return false;
+  return true;
+#if 0
   LibFunc TheLibFunc;
   auto &TLI = IIRB.TLIGetter(*CalledFn);
   if (!(TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc)))
@@ -564,6 +579,7 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
     break;
   }
   return true;
+#endif
 }
 
 bool LightSanImpl::hoistLoopLoads(Loop &L) {
@@ -816,6 +832,58 @@ void LightSanImpl::foreachRTCaller(StringRef Name,
   }
 }
 
+bool LightSanImpl::createWeakAdapters() {
+  // TODO: No need to take into account functions without external visibility
+  for (Function &Fn : M) {
+    if (!shouldImplementAdapter(Fn))
+      continue;
+
+    if (Fn.isDeclaration())
+      FuncsForWeakAdapters.push_back(&Fn);
+    else
+      FuncsForAliasAdapters.push_back(&Fn);
+  }
+
+  if (FuncsForWeakAdapters.empty())
+    return false;
+
+  for (Function *Fn : FuncsForWeakAdapters) {
+    std::string FnName = Fn->getName().str();
+    std::string AdapterFnName = AdapterPrefix + FnName;
+
+    auto *AdapterFn = Function::Create(Fn->getFunctionType(), Function::WeakAnyLinkage, AdapterFnName, M);
+    AdapterFn->copyAttributesFrom(Fn);
+    AdapterFn->setCallingConv(Fn->getCallingConv());
+
+    Fn->replaceAllUsesWith(AdapterFn);
+
+    SmallVector<Value *> AdapterArgs;
+    for (auto &Arg : AdapterFn->args())
+      AdapterArgs.push_back(&Arg);
+
+    auto FC = M.getOrInsertFunction(FnName, Fn->getFunctionType());
+
+    auto *EntryBB = BasicBlock::Create(M.getContext(), "entry", AdapterFn);
+    IRBuilder<> IRB(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
+    auto *CI = IRB.CreateCall(FC, AdapterArgs);
+    if (CI->getType()->isVoidTy())
+      IRB.CreateRetVoid();
+    else
+      IRB.CreateRet(CI);
+  }
+  return true;
+}
+
+bool LightSanImpl::createAliasAdapters() {
+  if (FuncsForAliasAdapters.empty())
+    return false;
+
+  for (Function *Fn : FuncsForAliasAdapters)
+    GlobalAlias::create(Fn->getLinkage(), AdapterPrefix + Fn->getName(), Fn);
+
+  return true;
+}
+
 bool LightSanImpl::instrument() {
   bool Changed = false;
 
@@ -828,6 +896,9 @@ bool LightSanImpl::instrument() {
       Changed |= hoistLoopLoads(*L);
   }
 #endif
+
+  // Create weak function adapters for external functions.
+  Changed |= createWeakAdapters();
 
   // Set up attributor
   FunctionAnalysisManager &FAM =
@@ -975,6 +1046,9 @@ bool LightSanImpl::instrument() {
   };
   CheckForBasePtrInLoop();
 #endif
+
+  // Create strong function aliases for exported functions.
+  Changed |= createAliasAdapters();
 
   return Changed;
 }
