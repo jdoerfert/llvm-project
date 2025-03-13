@@ -54,7 +54,6 @@ OBJSAN_BIG_API_ATTRS
 char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
                                bool RequiresTemporalCheck) {
   if (ObjSize < SmallObjectsTy::getMaxSize() && !RequiresTemporalCheck)
-      [[likely]]
     if (auto *VPtr = SmallObjects.encode(MPtr, ObjSize)) [[likely]]
       return VPtr;
   //  if (ObjSize == FixedObjectsTy::ObjSize)
@@ -221,6 +220,8 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, uint64_t ObjSize,
                         int8_t EncodingNo, int8_t WasChecked) {
+  //  printf("pl %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
+  //         ObjSize, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;
   int64_t NumOffsetBits;
@@ -275,9 +276,8 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, uint64_t ObjSize,
                          int8_t EncodingNo, int8_t WasChecked) {
-  //  printf("ps %p %p %p %llu %llu %lli %i %i\n", VPtr, BaseMPtr, LVRI,
-  //  AccessSize,
-  //         ObjSize, NumOffsetBits, EncodingNo, WasChecked);
+  //  printf("ps %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
+  //         ObjSize, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;
   int64_t NumOffsetBits;

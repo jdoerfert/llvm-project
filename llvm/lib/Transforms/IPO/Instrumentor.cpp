@@ -1957,7 +1957,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
     if (auto *NewI = UserMap.lookup(Usr))
       return NewI;
     if (!isa<ConstantExpr>(Usr)) {
-      errs() << "WARNING: Ignoring constant user " << *Usr << "\n";
+      //errs() << "WARNING: Ignoring constant user " << *Usr << "\n";
       UserMap[Usr] = nullptr;
       return nullptr;
     }

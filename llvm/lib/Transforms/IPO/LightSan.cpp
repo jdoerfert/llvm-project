@@ -45,10 +45,29 @@ using namespace llvm::instrumentor;
 #define DEBUG_TYPE "lightsan"
 
 static constexpr char LightSanRuntimePrefix[] = "__objsan_";
-static constexpr int64_t SmallObjectEnc = 1;
+[[maybe_unused]] static constexpr int64_t SmallObjectEnc = 1;
 static constexpr int64_t LargeObjectEnc = 2;
 
 namespace {
+
+static Value *stripRegisterCall(Value *V, InstrumentationConfig &IConf) {
+  V = V->stripPointerCasts();
+  if (auto *CI = dyn_cast<CallInst>(V)) {
+    assert(CI->getCalledFunction());
+    auto CalleeName = CI->getCalledFunction()->getName();
+    if (CalleeName == IConf.getRTName("post_", "alloca")) {
+      return CI->getArgOperand(0);
+    }
+    if (CalleeName == IConf.getRTName("post_", "call")) {
+      auto *P2I = cast<PtrToIntInst>(CI->getArgOperand(1));
+      return P2I->getOperand(0);
+    }
+    return CI;
+  }
+  if (auto *I2P = dyn_cast<IntToPtrInst>(V))
+    return stripRegisterCall(I2P->getOperand(0), IConf);
+  return V;
+}
 
 struct LightSanImpl;
 
@@ -124,12 +143,14 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   }
 
   Value *getStaticBasePointerEncodingNo(Value *Ptr) {
-    if (!AIC->isNonEscapingObj(Ptr) ||
-        AIC->getSanitizedObjectSize(Ptr) >= (1LL << 12))
+    Ptr = stripRegisterCall(Ptr, *this);
+    if ((AIC->isSanitizedObject(Ptr) &&
+         (!AIC->isNonEscapingObj(Ptr) ||
+          AIC->getSanitizedObjectSize(Ptr) >= (1LL << 12)))) {
       return ConstantInt::get(IntegerType::getInt8Ty(Ptr->getContext()),
                               LargeObjectEnc);
-    return ConstantInt::get(IntegerType::getInt8Ty(Ptr->getContext()),
-                            SmallObjectEnc);
+    }
+    return nullptr;
   }
   Value *getStaticBasePointerEncodingNo(Instruction &I) {
     if (auto *Obj = AIC->getSafeAccessObj(&I))
@@ -1076,25 +1097,6 @@ struct ExtendedBasePointerIO : public BasePointerIO {
         PointerType::getUnqual(Ctx), "encoding_no_ptr",
         "Return the encoding number of the object in question as uint8_t.",
         IRTArg::REPLACABLE_CUSTOM, getEncodingNoPtr, setEncodingNo));
-  }
-
-  static Value *stripRegisterCall(Value *V, InstrumentationConfig &IConf) {
-    V = V->stripPointerCasts();
-    if (auto *CI = dyn_cast<CallInst>(V)) {
-      assert(CI->getCalledFunction());
-      auto CalleeName = CI->getCalledFunction()->getName();
-      if (CalleeName == IConf.getRTName("post_", "alloca")) {
-        return CI->getArgOperand(0);
-      }
-      if (CalleeName == IConf.getRTName("post_", "call")) {
-        auto *P2I = cast<PtrToIntInst>(CI->getArgOperand(1));
-        return P2I->getOperand(0);
-      }
-      return CI;
-    }
-    if (auto *I2P = dyn_cast<IntToPtrInst>(V))
-      return stripRegisterCall(I2P->getOperand(0), IConf);
-    return V;
   }
 
   static Value *getObjectSizePtr(Value &V, Type &Ty,
