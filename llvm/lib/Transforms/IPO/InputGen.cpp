@@ -210,6 +210,8 @@ private:
   void stubDeclaration(Function &F);
   bool isKnownDeclaration(Function &F);
   bool rewriteKnownDeclaration(Function &F);
+  bool handleIndirectCalleeCandidates();
+  bool handleGlobals();
 
   Module &M;
   ModuleAnalysisManager &MAM;
@@ -918,37 +920,95 @@ bool InputGenMemoryImpl::handleDeclarations() {
   return Changed;
 }
 
+bool InputGenMemoryImpl::handleIndirectCalleeCandidates() {
+  bool Changed = false;
+  SmallSetVector<Function *, 16> IndirectCalleeCandidates;
+  if (GlobalVariable *GV =
+      M.getGlobalVariable(InputGenIndirectCalleeCandidateGlobalName)) {
+    if (GV->hasInitializer()) {
+      auto *CA = cast<ConstantArray>(GV->getInitializer());
+      for (Use &Op : CA->operands())
+        IndirectCalleeCandidates.insert(cast<Function>(Op));
+    }
+    assert(GV->use_empty());
+    GV->eraseFromParent();
+    Changed = true;
+  }
+
+  // For now we get rid of them if they are not used. We can use them once we
+  // decide to implement faking indirect callees.
+  for (Function *F : IndirectCalleeCandidates) {
+    if (F->use_empty()) {
+      F->eraseFromParent();
+      Changed = true;
+    }
+  }
+
+  return Changed;
+}
+
+// These are global variables that are never meant to be defined and are just
+// used to identify types in the source language
+static bool isLandingPadType(GlobalVariable &GV) {
+  return !GV.use_empty() && any_of(GV.uses(), [](Use &U) {
+    if (isa<LandingPadInst>(U.getUser()))
+      return true;
+    return false;
+  });
+}
+
+bool InputGenMemoryImpl::handleGlobals() {
+  bool Changed = false;
+
+  auto Erase = [&](StringRef Name) {
+    if (GlobalVariable *GV = M.getNamedGlobal(Name)) {
+      GV->eraseFromParent();
+      Changed = true;
+    }
+  };
+  Erase("llvm.global_ctors");
+  Erase("llvm.global_dtors");
+
+  for (auto &GV : M.globals()) {
+    if (GV.getSection() == "llvm.metadata")
+      continue;
+    if (GV.isConstant() && GV.hasInitializer())
+      continue;
+    if (isLandingPadType(GV))
+      continue;
+
+    // We need to be able to write to constant globals without initializers as
+    // the runtime will attempt to generate values for their initial state.
+    GV.setConstant(false);
+
+    // Make sure they don't clash with anything we may link in.
+    GV.setLinkage(GlobalValue::PrivateLinkage);
+    GV.setVisibility(GlobalValue::DefaultVisibility);
+
+    GV.setExternallyInitialized(false);
+
+    // Make them definitions (as opposed to declarations) by giving them an
+    // initial value.
+    if (GV.isDeclaration())
+      GV.setInitializer(Constant::getNullValue(GV.getValueType()));
+
+    // TODO need to register these GVs with the runtime
+
+    Changed = true;
+  }
+
+  return Changed;
+}
+
 bool InputGenMemoryImpl::instrument() {
   if (!(Mode == IGIMode::Generate || Mode == IGIMode::ReplayGenerated))
     return false;
 
   bool Changed = false;
 
-  {
-    SmallSetVector<Function *, 16> IndirectCalleeCandidates;
-    if (GlobalVariable *GV =
-            M.getGlobalVariable(InputGenIndirectCalleeCandidateGlobalName)) {
-      if (GV->hasInitializer()) {
-        auto *CA = cast<ConstantArray>(GV->getInitializer());
-        for (Use &Op : CA->operands())
-          IndirectCalleeCandidates.insert(cast<Function>(Op));
-      }
-      assert(GV->use_empty());
-      GV->eraseFromParent();
-      Changed = true;
-    }
-
-    // For now we get rid of them if they are not used. We can use them once we
-    // decide to implement faking indirect callees.
-    for (Function *F : IndirectCalleeCandidates) {
-      if (F->use_empty()) {
-        F->eraseFromParent();
-        Changed = true;
-      }
-    }
-  }
-
+  Changed |= handleIndirectCalleeCandidates();
   Changed |= handleDeclarations();
+  Changed |= handleGlobals();
 
   if (Mode != IGIMode::Generate)
     return Changed;
@@ -1232,9 +1292,7 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   }
 }
 
-} // namespace
-
-static bool tagEntries(Module &M) {
+bool tagEntries(Module &M) {
   bool Changed = false;
   if (EntryAllFunctions) {
     for (auto &F : M) {
@@ -1254,6 +1312,8 @@ static bool tagEntries(Module &M) {
   }
   return Changed;
 }
+
+} // namespace
 
 PreservedAnalyses
 InputGenInstrumentEntriesPass::run(Module &M, AnalysisManager<Module> &MAM) {
