@@ -1926,9 +1926,6 @@ ModulePassManager PassBuilder::buildThinLTODefaultPipeline(
   }
 
   MPM.addPass(LightSanPass(ThinOrFullLTOPhase::ThinLTOPostLink));
-  MPM.addPass(AlwaysInlinerPass(
-      /*InsertLifetimeIntrinsics=*/false));
-  MPM.addPass(createModuleToFunctionPassAdaptor(SROAPass(SROAOptions::ModifyCFG)));
 
   if (Level == OptimizationLevel::O0) {
     // Run a second time to clean up any type tests left behind by WPD for use
@@ -1986,9 +1983,6 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
     MPM.addPass(MemProfRemoveInfo());
 
   MPM.addPass(LightSanPass(ThinOrFullLTOPhase::FullLTOPostLink));
-  MPM.addPass(AlwaysInlinerPass(
-      /*InsertLifetimeIntrinsics=*/false));
-  MPM.addPass(createModuleToFunctionPassAdaptor(SROAPass(SROAOptions::ModifyCFG)));
 
   // Create a function that performs CFI checks for cross-DSO calls with targets
   // in the current module.

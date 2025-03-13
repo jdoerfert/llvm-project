@@ -261,6 +261,12 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
 }
 
 OBJSAN_SMALL_API_ATTRS
+void __objsan_check_non_zero(char *VPtr) {
+  if (!VPtr)
+    __builtin_trap();
+}
+
+OBJSAN_SMALL_API_ATTRS
 int8_t __objsan_check_ptr_load(char *VPtr, int64_t Offset) {
   VPtr += Offset;
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);

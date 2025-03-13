@@ -25,6 +25,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/GEPNoWrapFlags.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
@@ -38,12 +39,17 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/Instrumentor.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Scalar/SROA.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
+#include "llvm/Transforms/Utils/SimplifyCFGOptions.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <cstdint>
 #include <functional>
@@ -594,8 +600,6 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
 
 bool LightSanImpl::hoistLoopLoads(Loop &L, LoopInfo &LI, DominatorTree &DT) {
   bool Changed = false;
-  for (auto *ChildL : L)
-    Changed |= hoistLoopLoads(*ChildL, LI, DT);
 
   auto *LatchBB = L.getLoopLatch();
   auto *PreHeaderBB = L.getLoopPreheader();
@@ -632,6 +636,7 @@ bool LightSanImpl::hoistLoopLoads(Loop &L, LoopInfo &LI, DominatorTree &DT) {
       }
 
   auto &Ctx = HeaderBB->getContext();
+  auto *VoidTy = Type::getVoidTy(Ctx);
   auto *Int1Ty = IntegerType::getInt1Ty(Ctx);
   auto *Int8Ty = IntegerType::getInt8Ty(Ctx);
   auto *Int64Ty = IntegerType::getInt64Ty(Ctx);
@@ -639,6 +644,9 @@ bool LightSanImpl::hoistLoopLoads(Loop &L, LoopInfo &LI, DominatorTree &DT) {
   auto CheckFC =
       M.getOrInsertFunction(IConf.getRTName("", "check_ptr_load"),
                             FunctionType::get(Int8Ty, {PtrTy, Int64Ty}, false));
+  auto CheckNZFC =
+      M.getOrInsertFunction(IConf.getRTName("", "check_non_zero"),
+                            FunctionType::get(VoidTy, {PtrTy}, false));
 
   DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
   auto IP = PreHeaderBB->getTerminator()->getIterator();
@@ -659,22 +667,35 @@ bool LightSanImpl::hoistLoopLoads(Loop &L, LoopInfo &LI, DominatorTree &DT) {
     auto *LoadCloneI = LoadI->clone();
     LoadCloneI->insertBefore(NewTI->getIterator());
     auto *EarlyPHI = PHINode::Create(Ty, 2, ".earlyPHI", IP);
+    LoadI->replaceAllUsesWith(EarlyPHI);
     EarlyPHI->addIncoming(LoadCloneI, NewTI->getParent());
     EarlyPHI->addIncoming(ConstantInt::getNullValue(Ty), Cond->getParent());
 
-    auto LoadIP = LoadI->getIterator();
-    auto *NotCond = new ICmpInst(LoadIP, ICmpInst::ICMP_EQ, Cond,
-                                 ConstantInt::getFalse(Ctx));
-    auto *ReloadTI =
-        SplitBlockAndInsertIfThen(NotCond, LoadIP, /*Unreachable*/ false,
-                                  /*BranchWeights=*/nullptr, &DTU, &LI);
-    auto *LatePHI = PHINode::Create(Ty, 2, ".latePHI", LoadIP);
-    LoadI->replaceAllUsesWith(LatePHI);
-    LatePHI->addIncoming(LoadI, ReloadTI->getParent());
-    LatePHI->addIncoming(EarlyPHI, NotCond->getParent());
+    // TODO: Verify not zero at LoadI position
+    Instruction *CheckNZ =
+        CallInst::Create(CheckNZFC, {EarlyPHI}, "", LoadI->getIterator());
+    if (auto &DL = LoadI->getStableDebugLoc())
+      CheckNZ->setDebugLoc(DL);
+    else if (auto *SP = LoadI->getFunction()->getSubprogram())
+      CheckNZ->setDebugLoc(DILocation::get(Ctx, 0, 0, SP));
+    LoadI->eraseFromParent();
 
-    LoadI->moveBefore(ReloadTI->getIterator());
+    // auto LoadIP = LoadI->getIterator();
+    // auto *NotCond = new ICmpInst(LoadIP, ICmpInst::ICMP_EQ, Cond,
+    //                              ConstantInt::getFalse(Ctx));
+    // auto *ReloadTI =
+    //     SplitBlockAndInsertIfThen(NotCond, LoadIP, /*Unreachable*/ false,
+    //                               /*BranchWeights=*/nullptr, &DTU, &LI);
+    // auto *LatePHI = PHINode::Create(Ty, 2, ".latePHI", LoadIP);
+    // LoadI->replaceAllUsesWith(LatePHI);
+    // LatePHI->addIncoming(LoadI, ReloadTI->getParent());
+    // LatePHI->addIncoming(EarlyPHI, NotCond->getParent());
+
+    // LoadI->moveBefore(ReloadTI->getIterator());
   }
+
+  for (auto *ChildL : L)
+    Changed |= hoistLoopLoads(*ChildL, LI, DT);
   return Changed;
 }
 
@@ -885,7 +906,7 @@ bool LightSanImpl::instrument() {
   // Create weak function adapters for external functions.
   Changed |= createWeakAdapters();
 
-#if 0
+#if 1
   for (auto &Fn : M) {
     if (Fn.isDeclaration())
       continue;
@@ -938,7 +959,9 @@ bool LightSanImpl::instrument() {
   if (!PA.areAllPreserved())
     Changed = true;
 
-  DenseMap<std::pair<BasicBlock *, Value *>, SmallVector<CallInst *>> MergeMap;
+  DenseMap<Function *,
+           DenseMap<std::pair<BasicBlock *, Value *>, SmallVector<CallInst *>>>
+      MergeMap;
 
   auto CheckForRequiredRanged = [&](StringRef Name) {
     auto *FC = M.getFunction(IConf.getRTName("pre_", Name));
@@ -947,13 +970,13 @@ bool LightSanImpl::instrument() {
     for (auto *U : FC->users()) {
       auto *CI = cast<CallInst>(U);
       auto *BB = CI->getParent();
+      auto *Fn = BB->getParent();
       auto *LVRI = CI->getArgOperand(2);
       bool HasRangeInfo = !isa<ConstantPointerNull>(LVRI);
       if (!HasRangeInfo) {
-        MergeMap[{BB, CI->getArgOperand(1)}].push_back(CI);
+        MergeMap[Fn][{BB, CI->getArgOperand(1)}].push_back(CI);
         continue;
       }
-      auto *Fn = BB->getParent();
       auto &LI = FAM.getResult<LoopAnalysis>(*Fn);
       auto *L = LI.getLoopFor(BB);
       if (!L)
@@ -994,49 +1017,56 @@ bool LightSanImpl::instrument() {
                         {PtrTy, PtrTy, Int64Ty, PtrTy, Int64Ty, Int8Ty, Int8Ty},
                         false));
 
+  auto *TrueInt8 = ConstantInt::get(Int8Ty, 1, /*IsSigned*/ false);
   for (const auto &It : MergeMap) {
-    auto [BB, BPI] = It.first;
-    auto &Calls = It.second;
-    if (Calls.size() < 2)
-      continue;
-    auto *TrueInt8 = ConstantInt::get(Int8Ty, 1, /*IsSigned*/ false);
-    auto &SE = FAM.getResult<ScalarEvolutionAnalysis>(*BB->getParent());
-    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*BB->getParent());
-    const SCEV *MinSCEV = nullptr, *MaxSCEV = nullptr;
+    auto *Fn = It.first;
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
 
-    CallInst *FirstCI = nullptr;
-    for (auto *CI : Calls) {
-      if (!FirstCI || DT.dominates(CI, FirstCI))
-        FirstCI = CI;
-      CI->setArgOperand(6, TrueInt8);
-      auto *MinPtrSCEV = SE.getSCEV(CI->getArgOperand(0));
-      auto *MaxPtrSCEV = SE.getAddExpr(
-          MinPtrSCEV, SE.getSCEV(CI->getArgOperand(3)), SCEV::FlagNUW);
-      if (!MinSCEV) {
-        MinSCEV = MinPtrSCEV;
-        MaxSCEV = MaxPtrSCEV;
+    for (auto ItIt : It.second) {
+      auto [BB, BPI] = ItIt.first;
+      auto &Calls = ItIt.second;
+      if (Calls.size() < 2)
         continue;
+      SmallVector<Value *> MinPtrs, MaxPtrs;
+      CallInst *FirstCI = nullptr;
+      for (auto *CI : Calls)
+        if (!FirstCI || DT.dominates(CI, FirstCI))
+          FirstCI = CI;
+
+      IRBuilder<> IRB(FirstCI);
+      ensureDbgLoc(IRB);
+
+      for (auto *CI : Calls) {
+        auto *Ptr = CI->getArgOperand(0);
+        if (auto *PtrI = dyn_cast<Instruction>(Ptr))
+          if (!DT.dominates(PtrI, FirstCI))
+            continue;
+        CI->setArgOperand(6, TrueInt8);
+        MinPtrs.push_back(Ptr);
+        MaxPtrs.push_back(IRB.CreatePtrAdd(Ptr, CI->getArgOperand(3), "",
+                                           GEPNoWrapFlags::inBounds()));
       }
-      MinSCEV = SE.getUMinExpr(MinSCEV, MinPtrSCEV);
-      MaxSCEV = SE.getUMaxExpr(MaxSCEV, MaxPtrSCEV);
+      if (MinPtrs.size() < 2)
+        continue;
+
+      Value *MinV = MinPtrs.pop_back_val();
+      Value *MaxV = MaxPtrs.pop_back_val();
+      while (!MinPtrs.empty()) {
+        auto *MinVal = MinPtrs.pop_back_val();
+        auto *MaxVal = MaxPtrs.pop_back_val();
+        auto *MinC = IRB.CreateICmpULT(MinVal, MinV);
+        MinV = IRB.CreateSelect(MinC, MinVal, MinV);
+        auto *MaxC = IRB.CreateICmpUGT(MaxVal, MaxV);
+        MaxV = IRB.CreateSelect(MaxC, MaxVal, MaxV);
+      }
+      auto *ObjSize = FirstCI->getArgOperand(4);
+      auto *EncNo = FirstCI->getArgOperand(5);
+
+      IRB.CreateCall(LVRFC, {MinV, MaxV, ConstantInt::getNullValue(Int64Ty),
+                             BPI, ObjSize, EncNo, TrueInt8});
+      LLVM_DEBUG(errs() << "Use range access in BB for " << Calls.size()
+                        << " checks\n");
     }
-
-    auto *ObjSize = FirstCI->getArgOperand(4);
-    auto *EncNo = FirstCI->getArgOperand(5);
-    SCEVExpander Expander(SE, DL, ".blockrange");
-    auto IP = FirstCI->getIterator();
-    Expander.setInsertPoint(IP);
-    auto *MinV = Expander.expandCodeFor(MinSCEV, PtrTy);
-    auto *MaxV = Expander.expandCodeFor(MaxSCEV, PtrTy);
-
-    auto *RangeCI =
-        CallInst::Create(LVRFC,
-                         {MinV, MaxV, ConstantInt::getNullValue(Int64Ty), BPI,
-                          ObjSize, EncNo, TrueInt8},
-                         "", IP);
-    RangeCI->setDebugLoc(FirstCI->getDebugLoc());
-    LLVM_DEBUG(errs() << "Use range access in BB for " << Calls.size()
-                      << " checks\n");
   }
 #endif
 
@@ -1612,7 +1642,21 @@ PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM) {
 
   if (verifyModule(M))
     M.dump();
+
   assert(!verifyModule(M, &errs()));
+
+  ModulePassManager MPM;
+  MPM.addPass(AlwaysInlinerPass(/*InsertLifetimeIntrinsics=*/true));
+  auto GetFPM = [&]() -> FunctionPassManager {
+    FunctionPassManager FPM;
+    FPM.addPass(SROAPass(SROAOptions::ModifyCFG));
+    FPM.addPass(
+        SimplifyCFGPass(SimplifyCFGOptions().convertSwitchRangeToICmp(true)));
+    FPM.addPass(InstCombinePass());
+    return FPM;
+  };
+  MPM.addPass(createModuleToFunctionPassAdaptor(GetFPM()));
+  MPM.run(M, MAM);
 
   return PreservedAnalyses::none();
 }
