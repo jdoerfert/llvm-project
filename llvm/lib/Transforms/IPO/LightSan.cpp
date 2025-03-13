@@ -241,7 +241,7 @@ bool LightSanImpl::shouldInstrumentStore(StoreInst &SI,
 }
 
 bool LightSanImpl::shouldImplementAdapter(Function &Fn) {
-  return !Fn.isVarArg();
+  return !Fn.isVarArg() && !Fn.isIntrinsic();
 }
 
 bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
