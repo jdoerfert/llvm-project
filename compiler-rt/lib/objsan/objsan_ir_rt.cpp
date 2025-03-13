@@ -293,8 +293,7 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, uint64_t ObjSize,
                          int8_t EncodingNo, int8_t WasChecked) {
-  //  printf("ps %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI,
-  //  AccessSize,
+  //  printf("ps %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
   //         ObjSize, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;

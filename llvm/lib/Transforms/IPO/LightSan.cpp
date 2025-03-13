@@ -872,6 +872,9 @@ bool LightSanImpl::createAliasAdapters() {
 bool LightSanImpl::instrument() {
   bool Changed = false;
 
+  // Create weak function adapters for external functions.
+  Changed |= createWeakAdapters();
+
 #if 0
   for (auto &Fn : M) {
     if (Fn.isDeclaration())
@@ -882,9 +885,6 @@ bool LightSanImpl::instrument() {
       Changed |= hoistLoopLoads(*L, LI, DT);
   }
 #endif
-
-  // Create weak function adapters for external functions.
-  Changed |= createWeakAdapters();
 
   // Set up attributor
   FunctionAnalysisManager &FAM =
@@ -1512,6 +1512,8 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
     if (AIC->isObjectSafe(&V))
       return false;
     auto &CI = cast<CallInst>(V);
+    if (CI.getCalledFunction() && !CI.getCalledFunction()->isDeclaration())
+      return false;
     auto &TLI = IIRB.TLIGetter(*CI.getFunction());
     auto ACI = getAllocationCallInfo(&CI, &TLI);
     // TODO: check for escaping -> temporal checks
