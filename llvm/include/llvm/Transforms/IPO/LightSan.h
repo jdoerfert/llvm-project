@@ -14,12 +14,16 @@
 #define LLVM_TRANSFORMS_IPO_LIGHTSAN_H
 
 #include "llvm/IR/PassManager.h"
+#include "llvm/Pass.h"
 
 namespace llvm {
 
 class LightSanPass : public PassInfoMixin<LightSanPass> {
+private:
+  ThinOrFullLTOPhase Phase;
+
 public:
-  LightSanPass(){};
+  LightSanPass(ThinOrFullLTOPhase Phase) : Phase(Phase) {}
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
 };
 

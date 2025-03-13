@@ -736,11 +736,8 @@ static void addSanitizers(const Triple &TargetTriple,
     if (LangOpts.Sanitize.has(SanitizerKind::Type))
       MPM.addPass(TypeSanitizerPass());
 
-    if (LangOpts.Sanitize.has(SanitizerKind::Object)) {
-      TheModule->addModuleFlag(llvm::Module::Max, "sanitize_obj", 1);
-      if (Phase == ThinOrFullLTOPhase::None)
-        MPM.addPass(LightSanPass());
-    }
+    if (LangOpts.Sanitize.has(SanitizerKind::Object))
+      MPM.addPass(LightSanPass(Phase));
 
     if (LangOpts.Sanitize.has(SanitizerKind::NumericalStability))
       MPM.addPass(NumericalStabilitySanitizerPass());

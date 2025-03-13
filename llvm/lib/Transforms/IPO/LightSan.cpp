@@ -28,6 +28,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1519,12 +1520,7 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   PostCIC->init(*this, IIRB.Ctx, &PostCICConfig);
 }
 
-} // namespace
-
-PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
-  if (!M.getModuleFlag("sanitize_obj"))
-    return PreservedAnalyses::all();
-
+PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM) {
   LightSanImpl Impl(M, MAM);
   LLVM_DEBUG(dbgs() << "Running objsan\n");
 
@@ -1544,4 +1540,24 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
   assert(!verifyModule(M, &errs()));
 
   return PreservedAnalyses::none();
+}
+
+} // namespace
+
+PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
+  static constexpr char ModuleFlag[] = "sanitize_obj";
+  switch (Phase) {
+  case ThinOrFullLTOPhase::None:
+    return ::run(M, MAM);
+  case ThinOrFullLTOPhase::ThinLTOPreLink:
+  case ThinOrFullLTOPhase::FullLTOPreLink:
+    M.addModuleFlag(llvm::Module::Max, ModuleFlag, 1);
+    return PreservedAnalyses::all();
+  case ThinOrFullLTOPhase::ThinLTOPostLink:
+  case ThinOrFullLTOPhase::FullLTOPostLink:
+    if (M.getModuleFlag(ModuleFlag))
+      return ::run(M, MAM);
+    return PreservedAnalyses::all();
+  }
+  llvm_unreachable("Unknown LTO phase.");
 }
