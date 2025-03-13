@@ -680,6 +680,9 @@ void InstrumentorImpl::linkRuntime() {
   if (Linker::linkModules(M, std::move(RTM), 0, InternalizeCallback))
     llvm_unreachable("failed to link in runtime bitcode");
 
+  if (!IConf.InlineRuntimeEagerly->getBool())
+    return;
+
   for (auto [I, _] : IIRB.NewInsts) {
     auto *CI = dyn_cast<CallInst>(I);
     if (!CI || isa<IntrinsicInst>(CI))

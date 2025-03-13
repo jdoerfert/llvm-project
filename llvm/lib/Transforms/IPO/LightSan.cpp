@@ -15,6 +15,8 @@
 #include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
@@ -41,6 +43,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
+#include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <cstdint>
 #include <functional>
@@ -920,6 +923,7 @@ bool LightSanImpl::instrument() {
   Attributor A(Functions, InfoCache, AC);
   AttributorInfoCache Cache(A);
   IConf.AIC = &Cache;
+  IConf.InlineRuntimeEagerly->setBool(false);
 
   Changed |= collectAttributorInfo(A, M, Cache);
 
@@ -928,6 +932,8 @@ bool LightSanImpl::instrument() {
   if (!PA.areAllPreserved())
     Changed = true;
 
+  DenseMap<std::pair<BasicBlock *, Value *>, SmallVector<CallInst *>> MergeMap;
+
   auto CheckForRequiredRanged = [&](StringRef Name) {
     auto *FC = M.getFunction(IConf.getRTName("pre_", Name));
     if (!FC)
@@ -935,6 +941,12 @@ bool LightSanImpl::instrument() {
     for (auto *U : FC->users()) {
       auto *CI = cast<CallInst>(U);
       auto *BB = CI->getParent();
+      auto *LVRI = CI->getArgOperand(2);
+      bool HasRangeInfo = !isa<ConstantPointerNull>(LVRI);
+      if (!HasRangeInfo) {
+        MergeMap[{BB, CI->getArgOperand(1)}].push_back(CI);
+        continue;
+      }
       auto *Fn = BB->getParent();
       auto &LI = FAM.getResult<LoopAnalysis>(*Fn);
       auto *L = LI.getLoopFor(BB);
@@ -945,9 +957,6 @@ bool LightSanImpl::instrument() {
       // llvm/include/llvm/Analysis/MustExecute.h to avoid weird exits
       auto *ExitBB = L->getExitBlock();
       if (!ExitBB || !(BB == ExitBB || DT.dominates(BB, ExitBB)))
-        continue;
-      auto *LVRI = CI->getArgOperand(2);
-      if (isa<ConstantPointerNull>(LVRI))
         continue;
       auto *LVRICI = cast<CallInst>(LVRI);
       auto MaxOffset =
@@ -967,6 +976,60 @@ bool LightSanImpl::instrument() {
   };
   CheckForRequiredRanged("load");
   CheckForRequiredRanged("store");
+
+#if 1
+  auto &Ctx = M.getContext();
+  auto *Int8Ty = IntegerType::getInt8Ty(Ctx);
+  auto *Int64Ty = IntegerType::getInt64Ty(Ctx);
+  auto *PtrTy = PointerType::get(Ctx, 0);
+  auto LVRFC = M.getOrInsertFunction(
+      IConf.getRTName("post_", "loop_value_ptr_range"),
+      FunctionType::get(PtrTy,
+                        {PtrTy, PtrTy, Int64Ty, PtrTy, Int64Ty, Int8Ty, Int8Ty},
+                        false));
+
+  for (const auto &It : MergeMap) {
+    auto [BB, BPI] = It.first;
+    auto &Calls = It.second;
+    if (Calls.size() < 2)
+      continue;
+    auto *TrueInt8 = ConstantInt::get(Int8Ty, 1, /*IsSigned*/ false);
+    auto &SE = FAM.getResult<ScalarEvolutionAnalysis>(*BB->getParent());
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*BB->getParent());
+    const SCEV *MinSCEV = nullptr, *MaxSCEV = nullptr;
+
+    CallInst *FirstCI = nullptr;
+    for (auto *CI : Calls) {
+      if (!FirstCI || DT.dominates(CI, FirstCI))
+        FirstCI = CI;
+      CI->setArgOperand(6, TrueInt8);
+      auto *MinPtrSCEV = SE.getSCEV(CI->getArgOperand(0));
+      auto *MaxPtrSCEV = SE.getAddExpr(
+          MinPtrSCEV, SE.getSCEV(CI->getArgOperand(3)), SCEV::FlagNUW);
+      if (!MinSCEV) {
+        MinSCEV = MinPtrSCEV;
+        MaxSCEV = MaxPtrSCEV;
+        continue;
+      }
+      MinSCEV = SE.getUMinExpr(MinSCEV, MinPtrSCEV);
+      MaxSCEV = SE.getUMaxExpr(MaxSCEV, MaxPtrSCEV);
+    }
+
+    auto *ObjSize = FirstCI->getArgOperand(4);
+    auto *EncNo = FirstCI->getArgOperand(5);
+    SCEVExpander Expander(SE, DL, ".blockrange");
+    auto IP = FirstCI->getIterator();
+    Expander.setInsertPoint(IP);
+    auto *MinV = Expander.expandCodeFor(MinSCEV, PtrTy);
+    auto *MaxV = Expander.expandCodeFor(MaxSCEV, PtrTy);
+
+    auto *RangeCI = CallInst::Create(LVRFC,
+                     {MinV, MaxV, ConstantInt::getNullValue(Int64Ty), BPI,
+                      ObjSize, EncNo, TrueInt8},
+                     "", IP);
+    RangeCI->setDebugLoc(FirstCI->getDebugLoc());
+  }
+#endif
 
 #if 0
   auto CheckForBasePtrInLoop = [&]() {

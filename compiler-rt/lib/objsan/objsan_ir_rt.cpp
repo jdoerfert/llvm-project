@@ -223,6 +223,17 @@ void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
 }
 
 OBJSAN_SMALL_API_ATTRS
+void *__objsan_post_loop_value_ptr_range(char *InitialLoopValue,
+                                         char *FinalLoopValue,
+                                         int64_t MaxOffset, char *BaseMPtr,
+                                         uint64_t ObjSize, int8_t EncodingNo,
+                                         int8_t IsDefinitivelyExecuted) {
+  return __objsan_post_loop_value_range(
+      (int64_t)InitialLoopValue, (int64_t)FinalLoopValue, MaxOffset, BaseMPtr,
+      ObjSize, EncodingNo, IsDefinitivelyExecuted);
+}
+
+OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, uint64_t ObjSize,
                         int8_t EncodingNo, int8_t WasChecked) {

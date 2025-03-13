@@ -483,6 +483,8 @@ struct InstrumentationConfig {
         *this, "host_enabled", "Instrument non-GPU targets", true);
     GPUEnabled = BaseConfigurationOpportunity::getBoolOption(
         *this, "gpu_enabled", "Instrument GPU targets", true);
+    InlineRuntimeEagerly = BaseConfigurationOpportunity::getBoolOption(
+        *this, "inline_runtime", "Inline Runtime Eagerly", true);
   }
 
   bool ReadConfig = true;
@@ -506,6 +508,7 @@ struct InstrumentationConfig {
   BaseConfigurationOpportunity *TargetRegex;
   BaseConfigurationOpportunity *HostEnabled;
   BaseConfigurationOpportunity *GPUEnabled;
+  BaseConfigurationOpportunity *InlineRuntimeEagerly;
 
   EnumeratedArray<StringMap<InstrumentationOpportunity *>,
                   InstrumentationLocation::KindTy>
