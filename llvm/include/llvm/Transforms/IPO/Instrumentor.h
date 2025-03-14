@@ -1068,7 +1068,7 @@ struct UnreachableIO : public InstructionIO<Instruction::Unreachable> {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
@@ -1095,7 +1095,7 @@ struct BranchIO : public InstructionIO<Instruction::Br> {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
@@ -1141,7 +1141,7 @@ struct ICmpIO : public InstructionIO<Instruction::ICmp> {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
@@ -1196,7 +1196,7 @@ struct PtrToIntIO : public InstructionIO<Instruction::PtrToInt> {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
@@ -1292,7 +1292,7 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   StringRef getName() const override { return "loop_value_range"; }
@@ -1450,7 +1450,7 @@ struct ModuleIO : public InstrumentationOpportunity {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   StringRef getName() const override { return "module"; }
