@@ -554,16 +554,18 @@ struct InstrumentationConfig {
   virtual void startFunction() {}
 };
 
-template <size_t N> struct BaseConfigTy {
-  std::bitset<N> Options;
+template <typename EnumTy> struct BaseConfigTy {
+  std::bitset<static_cast<int>(EnumTy::NumConfig)> Options;
 
   BaseConfigTy(bool Enable = true) {
     if (Enable)
       Options.set();
   }
 
-  bool has(size_t Opt) const { return Options.test(Opt); }
-  void set(size_t Opt, bool Value = true) { Options.set(Opt, Value); }
+  bool has(EnumTy Opt) const { return Options.test(static_cast<int>(Opt)); }
+  void set(EnumTy Opt, bool Value = true) {
+    Options.set(static_cast<int>(Opt), Value);
+  }
 };
 
 struct InstrumentationOpportunity {
@@ -644,7 +646,7 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
@@ -709,7 +711,7 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
@@ -828,7 +830,7 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
@@ -942,7 +944,7 @@ struct CallIO : public InstructionIO<Instruction::Call> {
     NumConfig,
   };
 
-  struct ConfigTy final : public BaseConfigTy<ConfigKind::NumConfig> {
+  struct ConfigTy final : public BaseConfigTy<ConfigKind> {
     std::function<bool(Use &)> ArgFilter;
 
     ConfigTy(bool Enable = true) : BaseConfigTy(Enable) {}
@@ -1163,7 +1165,7 @@ struct BasePointerIO : public InstrumentationOpportunity {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   StringRef getName() const override { return "base_pointer_info"; }
@@ -1279,7 +1281,7 @@ struct FunctionIO : public InstrumentationOpportunity {
     NumConfig,
   };
 
-  struct ConfigTy final : public BaseConfigTy<ConfigKind::NumConfig> {
+  struct ConfigTy final : public BaseConfigTy<ConfigKind> {
     std::function<bool(Argument &)> ArgFilter;
 
     ConfigTy(bool Enable = true) : BaseConfigTy(Enable) {}
@@ -1394,7 +1396,7 @@ struct GlobalIO : public InstrumentationOpportunity {
     NumConfig,
   };
 
-  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
   StringRef getName() const override { return "global"; }
