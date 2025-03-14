@@ -272,7 +272,13 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
   }
 
   Function *CalledFn = CI.getCalledFunction();
-  if (!CalledFn || isa<IntrinsicInst>(CI))
+  if (!CalledFn)
+    return true;
+  FunctionType *CalledFnTy = CalledFn->getFunctionType();
+  if (none_of(CalledFnTy->params(),
+              [&](Type *ArgTy) { return ArgTy->isPtrOrPtrVectorTy(); }))
+    return false;
+  if (isa<IntrinsicInst>(CI))
     return true;
   if (!CalledFn->isDeclaration())
     return false;
@@ -289,11 +295,6 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
     if (!CI.getFunction()->getName().starts_with(AdapterPrefix))
       return false;
   }
-
-  FunctionType *CalledFnTy = CalledFn->getFunctionType();
-  if (none_of(CalledFnTy->params(),
-              [&](Type *ArgTy) { return ArgTy->isPtrOrPtrVectorTy(); }))
-    return false;
   return true;
 #if 0
   switch (TheLibFunc) {
@@ -981,13 +982,37 @@ bool LightSanImpl::instrument() {
       auto *L = LI.getLoopFor(BB);
       if (!L)
         continue;
+      auto *PreHeaderBB = L->getLoopPreheader();
+      if (!PreHeaderBB || !PreHeaderBB->getSingleSuccessor())
+        continue;
       auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
+      auto &PDT = FAM.getResult<PostDominatorTreeAnalysis>(*Fn);
+      auto *LVRICI = cast<CallInst>(LVRI);
+      // Try to sink the range check to make sure it can be enforced instead of
+      // the access check.
+      if (!PDT.dominates(CI, LVRICI)) {
+        BasicBlock *BestBB = BB;
+        do {
+          auto *DBB = DT.getNode(BestBB)->getIDom()->getBlock();
+          if (!PDT.dominates(BB, DBB))
+            break;
+          BestBB = DBB;
+        } while (1);
+        if (BestBB == BB)
+          continue;
+        auto *CloneLVRICI = cast<CallInst>(LVRICI->clone());
+        CloneLVRICI->insertBefore(BestBB->getTerminator()->getIterator());
+        LVRICI->replaceUsesWithIf(
+            CloneLVRICI, [&](Use &U) { return DT.dominates(BestBB, U); });
+        if (LVRICI->use_empty())
+          LVRICI->eraseFromParent();
+        LVRICI = CloneLVRICI;
+      }
       // TODO: we need to use the must-be-executed stuff in
       // llvm/include/llvm/Analysis/MustExecute.h to avoid weird exits
-      auto *ExitBB = L->getExitBlock();
-      if (!ExitBB || !(BB == ExitBB || DT.dominates(BB, ExitBB)))
+      auto *ExitingBB = L->getExitingBlock();
+      if (!ExitingBB || !(BB == ExitingBB || DT.dominates(BB, ExitingBB)))
         continue;
-      auto *LVRICI = cast<CallInst>(LVRI);
       auto MaxOffset =
           cast<ConstantInt>(LVRICI->getArgOperand(2))->getSExtValue();
       auto IsExecuted =

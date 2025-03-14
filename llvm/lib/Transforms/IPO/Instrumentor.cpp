@@ -821,6 +821,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   LoopRangeInfo &LRI = LoopRangeInfoMap[&V];
   if (LRI.Min) {
     LRI.AdditionalSize = std::max(LRI.AdditionalSize, AdditionalSize);
+    // TODO: This is not manifested in IR
     return {BasicBlock::iterator(), false};
   }
   auto *BB = IRB.GetInsertBlock();
@@ -887,6 +888,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
 
   SCEVExpander Expander(SE, DL, ".vrange");
   auto IP = IRB.GetInsertPoint();
+  assert(isa<LoadInst>(IP) || isa<StoreInst>(IP));
   Expander.setInsertPoint(IP);
 
   auto *TmpSCEV = FirstSCEV;
@@ -1040,15 +1042,6 @@ Value *InstrumentationConfig::getLoopValueRange(Value &V,
                 "nullptr.\n";
       return LVR = Constant::getNullValue(IIRB.PtrTy);
     }
-    IRBuilderBase::InsertPointGuard IP(IIRB.IRB);
-    if (auto *BasePtrI = dyn_cast<Instruction>(VPtr))
-      IIRB.IRB.SetInsertPoint(*BasePtrI->getInsertionPointAfterDef());
-    else if (isa<GlobalValue>(VPtr) || isa<Argument>(VPtr))
-      IIRB.IRB.SetInsertPointPastAllocas(
-          IIRB.IRB.GetInsertBlock()->getParent());
-    else
-      return LVR = Constant::getNullValue(IIRB.PtrTy);
-    ensureDbgLoc(IIRB.IRB);
 
     // Use fresh caches for safety, as this function may be called from
     // another instrumentation opportunity.

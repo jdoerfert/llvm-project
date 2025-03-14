@@ -1246,7 +1246,9 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
     auto [IP, Success] = IIRB.computeLoopRangeValues(*V, AdditionalSize);
     if (!Success)
       return nullptr;
+    IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
     IIRB.IRB.SetInsertPoint(IP);
+    ensureDbgLoc(IIRB.IRB);
     return InstrumentationOpportunity::instrument(V, IConf, IIRB, ICaches);
   }
 
