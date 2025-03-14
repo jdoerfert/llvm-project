@@ -266,10 +266,10 @@ struct IRTArg {
 
   IRTArg(Type *Ty, StringRef Name, StringRef Description, unsigned Flags,
          GetterCallbackTy GetterCB, SetterCallbackTy SetterCB = nullptr,
-         bool Enabled = true)
+         bool Enabled = true, bool NoCache = false)
       : Enabled(Enabled), Ty(Ty), Name(Name), Description(Description),
         Flags(Flags), GetterCB(std::move(GetterCB)),
-        SetterCB(std::move(SetterCB)) {}
+        SetterCB(std::move(SetterCB)), NoCache(NoCache) {}
 
   bool Enabled;
   Type *Ty;
@@ -278,6 +278,7 @@ struct IRTArg {
   unsigned Flags;
   GetterCallbackTy GetterCB;
   SetterCallbackTy SetterCB;
+  bool NoCache;
 };
 
 struct InstrumentationCaches {
@@ -618,6 +619,21 @@ struct InstrumentationOpportunity {
   CallbackTy CB = nullptr;
 
   HoistKindTy HoistKind = DO_NOT_HOIST;
+
+  static Value *getIdPre(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                         InstrumentorIRBuilderTy &IIRB);
+  static Value *getIdPost(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                          InstrumentorIRBuilderTy &IIRB);
+
+  void addCommonArgs(InstrumentationConfig &IConf, LLVMContext &Ctx,
+                     bool PassId) {
+    const auto CB = IP.isPRE() ? getIdPre : getIdPost;
+    if (PassId)
+      IRTArgs.push_back(
+          IRTArg(IntegerType::getInt32Ty(Ctx), "id",
+                 "A unique ID associated with the given instrumentor call",
+                 IRTArg::NONE, CB, nullptr, true, true));
+  }
 };
 
 template <unsigned Opcode>
@@ -643,6 +659,7 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
     PassSize,
     ReplaceSize,
     PassAlignment,
+    PassId,
     NumConfig,
   };
 
@@ -673,6 +690,7 @@ struct AllocaIO : public InstructionIO<Instruction::Alloca> {
                                "The allocation alignment.", IRTArg::NONE,
                                getAlignment));
 
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -708,6 +726,7 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
     PassAtomicityOrdering,
     PassSyncScopeId,
     PassIsVolatile,
+    PassId,
     NumConfig,
   };
 
@@ -718,6 +737,7 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
             ConfigTy *UserConfig = nullptr) {
     if (UserConfig)
       Config = *UserConfig;
+
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
     if (Config.has(PassPointer))
       IRTArgs.push_back(
@@ -769,6 +789,7 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
                                "Flag indicating a volatile store.",
                                IRTArg::NONE, isVolatile));
 
+    addCommonArgs(IConf, IIRB.Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -827,6 +848,7 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
     PassAtomicityOrdering,
     PassSyncScopeId,
     PassIsVolatile,
+    PassId,
     NumConfig,
   };
 
@@ -886,7 +908,7 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
       IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "is_volatile",
                                "Flag indicating a volatile load.", IRTArg::NONE,
                                isVolatile));
-
+    addCommonArgs(IConf, IIRB.Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -941,6 +963,7 @@ struct CallIO : public InstructionIO<Instruction::Call> {
     PassNumParameters,
     PassParameters,
     PassIsDefinition,
+    PassId,
     NumConfig,
   };
 
@@ -1004,6 +1027,7 @@ struct CallIO : public InstructionIO<Instruction::Call> {
       IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_definition",
                                "Flag to indicate calls to definitions.",
                                IRTArg::NONE, isDefinition));
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -1039,21 +1063,45 @@ struct UnreachableIO : public InstructionIO<Instruction::Unreachable> {
   UnreachableIO() : InstructionIO<Instruction::Unreachable>(/*IsPRE*/ true) {}
   virtual ~UnreachableIO() {};
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  enum ConfigKind {
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
+
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
-  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx,
+                       ConfigTy *UserConfig = nullptr) {
     auto *AIC = IConf.allocate<UnreachableIO>();
-    AIC->init(IConf, Ctx);
+    AIC->init(IConf, Ctx, UserConfig);
   }
 };
 
 struct BranchIO : public InstructionIO<Instruction::Br> {
   BranchIO() : InstructionIO<Instruction::Br>(/*IsPRE*/ true) {}
-  virtual ~BranchIO() {};
+  virtual ~BranchIO(){};
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  enum ConfigKind {
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
+
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
     IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_conditional",
                              "Flag indicating a conditional branch.",
                              IRTArg::NONE, isConditional));
@@ -1063,12 +1111,14 @@ struct BranchIO : public InstructionIO<Instruction::Br> {
     IRTArgs.push_back(IRTArg(PointerType::getInt64Ty(Ctx), "num_successors",
                              "Number of branch successors.", IRTArg::NONE,
                              getNumSuccessors));
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
-  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx,
+                       ConfigTy *UserConfig = nullptr) {
     auto *AIC = IConf.allocate<BranchIO>();
-    AIC->init(IConf, Ctx);
+    AIC->init(IConf, Ctx, UserConfig);
   }
 
   static Value *isConditional(Value &V, Type &Ty, InstrumentationConfig &IConf,
@@ -1086,7 +1136,18 @@ struct ICmpIO : public InstructionIO<Instruction::ICmp> {
   ICmpIO(bool IsPRE) : InstructionIO<Instruction::ICmp>(IsPRE) {}
   virtual ~ICmpIO() {};
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  enum ConfigKind {
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
+
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
     if (!IsPRE)
       IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "value",
@@ -1104,6 +1165,7 @@ struct ICmpIO : public InstructionIO<Instruction::ICmp> {
     IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "rhs",
                              "Right hand side of an integer compare.",
                              IRTArg::POTENTIALLY_INDIRECT, getRHS));
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -1129,7 +1191,18 @@ struct PtrToIntIO : public InstructionIO<Instruction::PtrToInt> {
   PtrToIntIO(bool IsPRE) : InstructionIO<Instruction::PtrToInt>(IsPRE) {}
   virtual ~PtrToIntIO() {};
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  enum ConfigKind {
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
+
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
     IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "pointer",
                              "Input pointer of the ptr to int.",
@@ -1139,6 +1212,7 @@ struct PtrToIntIO : public InstructionIO<Instruction::PtrToInt> {
           IntegerType::getInt64Ty(Ctx), "value", "Result of the ptr to int.",
           IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT, getValue,
           replaceValue));
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -1162,6 +1236,7 @@ struct BasePointerIO : public InstrumentationOpportunity {
   enum ConfigKind {
     PassPointer = 0,
     PassPointerKind,
+    PassId,
     NumConfig,
   };
 
@@ -1183,6 +1258,7 @@ struct BasePointerIO : public InstrumentationOpportunity {
           IntegerType::getInt32Ty(Ctx), "base_pointer_kind",
           "The base pointer kind (argument, global, instruction, unknown).",
           IRTArg::NONE, getPointerKind));
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -1194,9 +1270,10 @@ struct BasePointerIO : public InstrumentationOpportunity {
     return &NewV;
   }
 
-  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx,
+                       ConfigTy *UserConfig = nullptr) {
     auto *AIC = IConf.allocate<BasePointerIO>();
-    AIC->init(IConf, Ctx);
+    AIC->init(IConf, Ctx, UserConfig);
   }
 
   virtual Type *getRetTy(LLVMContext &Ctx) const override {
@@ -1210,9 +1287,20 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
             InstrumentationLocation(InstrumentationLocation::SPECIAL_VALUE)) {}
   virtual ~LoopValueRangeIO() {};
 
+  enum ConfigKind {
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
+
   StringRef getName() const override { return "loop_value_range"; }
 
-  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
     IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "initial_loop_val",
                              "The value in the first loop iteration.",
                              IRTArg::NONE, getInitialLoopValue));
@@ -1222,6 +1310,7 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
     IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "max_offset",
                              "The maximal offset inside the loop.",
                              IRTArg::NONE, getMaxOffset));
+    addCommonArgs(IConf, IIRB.Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -1235,9 +1324,10 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
                              InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf,
-                       InstrumentorIRBuilderTy &IIRB) {
+                       InstrumentorIRBuilderTy &IIRB,
+                       ConfigTy *UserConfig = nullptr) {
     auto *LVRIO = IConf.allocate<LoopValueRangeIO>();
-    LVRIO->init(IConf, IIRB);
+    LVRIO->init(IConf, IIRB, UserConfig);
   }
 
   virtual Value *instrument(Value *&V, InstrumentationConfig &IConf,
@@ -1278,6 +1368,7 @@ struct FunctionIO : public InstrumentationOpportunity {
     PassArguments,
     ReplaceArguments,
     PassIsMain,
+    PassId,
     NumConfig,
   };
 
@@ -1320,7 +1411,7 @@ struct FunctionIO : public InstrumentationOpportunity {
       IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_main",
                                "Flag to indicate it is the main function.",
                                IRTArg::NONE, isMainFunction));
-
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -1354,15 +1445,29 @@ struct ModuleIO : public InstrumentationOpportunity {
                   : InstrumentationLocation::MODULE_POST)) {}
   virtual ~ModuleIO() {};
 
+  enum ConfigKind {
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind::NumConfig>;
+  ConfigTy Config;
+
   StringRef getName() const override { return "module"; }
 
-  void init(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
+
     IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "module_name",
                              "The module/translation unit name.",
                              IRTArg::STRING, getModuleName));
     IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "name",
                              "The target triple.", IRTArg::STRING,
                              getTargetTriple));
+
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 
@@ -1393,6 +1498,7 @@ struct GlobalIO : public InstrumentationOpportunity {
     PassInitialValueSize,
     PassIsConstant,
     PassIsDefinition,
+    PassId,
     NumConfig,
   };
 
@@ -1432,6 +1538,7 @@ struct GlobalIO : public InstrumentationOpportunity {
       IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_definition",
                                "Flag to indicate global definitions.",
                                IRTArg::NONE, isDefinition));
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
 

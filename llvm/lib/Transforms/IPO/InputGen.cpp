@@ -1226,9 +1226,12 @@ InputGenInstrumentationConfig::InputGenInstrumentationConfig(
 }
 
 void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
-  UnreachableIO::populate(*this, IIRB.Ctx);
-  BasePointerIO::populate(*this, IIRB.Ctx);
-  LoopValueRangeIO::populate(*this, IIRB);
+  UnreachableIO::ConfigTy UIOConfig(/*Enable=*/false);
+  UnreachableIO::populate(*this, IIRB.Ctx, &UIOConfig);
+  BasePointerIO::ConfigTy BPIOConfig(/*Enable=*/false);
+  BasePointerIO::populate(*this, IIRB.Ctx, &BPIOConfig);
+  LoopValueRangeIO::ConfigTy LVRIOConfig(/*Enable=*/false);
+  LoopValueRangeIO::populate(*this, IIRB, &LVRIOConfig);
 
   auto *BIC = InstrumentationConfig::allocate<BranchConditionIO>();
   BIC->HoistKind = HOIST_MAXIMALLY;

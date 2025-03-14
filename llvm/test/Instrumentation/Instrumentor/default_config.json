@@ -19,7 +19,9 @@
       "module_name": true,
       "module_name.description": "The module/translation unit name.",
       "name": true,
-      "name.description": "The target triple."
+      "name.description": "The target triple.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     }
   },
   "module_post": {
@@ -28,7 +30,9 @@
       "module_name": true,
       "module_name.description": "The module/translation unit name.",
       "name": true,
-      "name.description": "The target triple."
+      "name.description": "The target triple.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     }
   },
   "global_pre": {
@@ -44,7 +48,9 @@
       "initial_value_size": true,
       "initial_value_size.description": "The size of the initial value of the global.",
       "is_constant": true,
-      "is_constant.description": "Flag to indicate constant globals."
+      "is_constant.description": "Flag to indicate constant globals.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     }
   },
   "function_pre": {
@@ -58,12 +64,16 @@
       "num_arguments.description": "Number of function arguments (without varargs).",
       "arguments": true,
       "arguments.replace": true,
-      "arguments.description": "Description of the arguments."
+      "arguments.description": "Description of the arguments.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     }
   },
   "instruction_pre": {
     "unreachable": {
-      "enabled": true
+      "enabled": true,
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "call": {
       "enabled": true,
@@ -81,7 +91,9 @@
       "parameters.replace": true,
       "parameters.description": "Description of the call parameters.",
       "is_definition": true,
-      "is_definition.description": "Flag to indicate calls to definitions."
+      "is_definition.description": "Flag to indicate calls to definitions.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "load": {
       "enabled": true,
@@ -105,12 +117,16 @@
       "sync_scope_id": true,
       "sync_scope_id.description": "The sync scope id of the load.",
       "is_volatile": true,
-      "is_volatile.description": "Flag indicating a volatile load."
+      "is_volatile.description": "Flag indicating a volatile load.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "ptrtoint": {
       "enabled": true,
       "pointer": true,
-      "pointer.description": "Input pointer of the ptr to int."
+      "pointer.description": "Input pointer of the ptr to int.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "br": {
       "enabled": true,
@@ -120,7 +136,9 @@
       "value.replace": true,
       "value.description": "Value of condition.",
       "num_successors": true,
-      "num_successors.description": "Number of branch successors."
+      "num_successors.description": "Number of branch successors.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "alloca": {
       "enabled": true,
@@ -128,7 +146,9 @@
       "size.replace": true,
       "size.description": "The allocation size.",
       "alignment": true,
-      "alignment.description": "The allocation alignment."
+      "alignment.description": "The allocation alignment.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "store": {
       "enabled": true,
@@ -154,7 +174,9 @@
       "sync_scope_id": true,
       "sync_scope_id.description": "The sync scope id of the store.",
       "is_volatile": true,
-      "is_volatile.description": "Flag indicating a volatile store."
+      "is_volatile.description": "Flag indicating a volatile store.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "icmp": {
       "enabled": true,
@@ -165,7 +187,9 @@
       "lhs": true,
       "lhs.description": "Left hand side of an integer compare.",
       "rhs": true,
-      "rhs.description": "Right hand side of an integer compare."
+      "rhs.description": "Right hand side of an integer compare.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     }
   },
   "instruction_post": {
@@ -189,7 +213,9 @@
       "parameters": true,
       "parameters.description": "Description of the call parameters.",
       "is_definition": true,
-      "is_definition.description": "Flag to indicate calls to definitions."
+      "is_definition.description": "Flag to indicate calls to definitions.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "load": {
       "enabled": true,
@@ -215,7 +241,9 @@
       "sync_scope_id": true,
       "sync_scope_id.description": "The sync scope id of the load.",
       "is_volatile": true,
-      "is_volatile.description": "Flag indicating a volatile load."
+      "is_volatile.description": "Flag indicating a volatile load.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "ptrtoint": {
       "enabled": true,
@@ -223,7 +251,9 @@
       "pointer.description": "Input pointer of the ptr to int.",
       "value": true,
       "value.replace": true,
-      "value.description": "Result of the ptr to int."
+      "value.description": "Result of the ptr to int.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "alloca": {
       "enabled": true,
@@ -233,7 +263,9 @@
       "size": true,
       "size.description": "The allocation size.",
       "alignment": true,
-      "alignment.description": "The allocation alignment."
+      "alignment.description": "The allocation alignment.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "store": {
       "enabled": true,
@@ -258,7 +290,9 @@
       "sync_scope_id": true,
       "sync_scope_id.description": "The sync scope id of the store.",
       "is_volatile": true,
-      "is_volatile.description": "Flag indicating a volatile store."
+      "is_volatile.description": "Flag indicating a volatile store.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "icmp": {
       "enabled": true,
@@ -272,7 +306,9 @@
       "lhs": true,
       "lhs.description": "Left hand side of an integer compare.",
       "rhs": true,
-      "rhs.description": "Right hand side of an integer compare."
+      "rhs.description": "Right hand side of an integer compare.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     }
   },
   "special_value": {
@@ -282,14 +318,18 @@
       "base_pointer.replace": true,
       "base_pointer.description": "The base pointer in question.",
       "base_pointer_kind": true,
-      "base_pointer_kind.description": "The base pointer kind (argument, global, instruction, unknown)."
+      "base_pointer_kind.description": "The base pointer kind (argument, global, instruction, unknown).",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     },
     "loop_value_range": {
       "enabled": true,
       "initial_loop_val": true,
       "initial_loop_val.description": "The value in the first loop iteration.",
       "final_loop_val": true,
-      "final_loop_val.description": "The value in the last loop iteration."
+      "final_loop_val.description": "The value in the last loop iteration.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
     }
   }
 }

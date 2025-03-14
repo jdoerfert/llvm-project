@@ -1055,6 +1055,28 @@ Value *InstrumentationConfig::getLoopValueRange(Value &V,
   return LVR;
 }
 
+// Converts instruction opportunity epoch to sequential ID
+static int32_t epocheToId(uint32_t Epoche) {
+  static DenseMap<uint32_t, int32_t> EpocheIdMap;
+  static int32_t ID = 0;
+  int32_t &EpochId = EpocheIdMap[Epoche];
+  if (EpochId == 0)
+    EpochId = ++ID;
+  return EpochId;
+}
+
+Value *InstrumentationOpportunity::getIdPre(Value &V, Type &Ty,
+                                            InstrumentationConfig &IConf,
+                                            InstrumentorIRBuilderTy &IIRB) {
+  return getCI(&Ty, epocheToId(IIRB.Epoche));
+}
+
+Value *InstrumentationOpportunity::getIdPost(Value &V, Type &Ty,
+                                             InstrumentationConfig &IConf,
+                                             InstrumentorIRBuilderTy &IIRB) {
+  return getCI(&Ty, -epocheToId(IIRB.Epoche));
+}
+
 Value *InstrumentationOpportunity::forceCast(Value &V, Type &Ty,
                                              InstrumentorIRBuilderTy &IIRB) {
   if (V.getType()->isVoidTy())
@@ -1287,7 +1309,7 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     if (!It.Enabled)
       continue;
     auto *&Param = ICaches.DirectArgCache[{IIRB.Epoche, IO.getName(), It.Name}];
-    if (!Param)
+    if (!Param || It.NoCache)
       // Avoid passing the caches to the getter.
       Param = It.GetterCB(*V, *It.Ty, IConf, IIRB);
 

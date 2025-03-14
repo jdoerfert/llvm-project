@@ -1607,7 +1607,8 @@ struct ExtendedFunctionIO : public FunctionIO {
 };
 
 void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
-  UnreachableIO::populate(*this, IIRB.Ctx);
+  UnreachableIO::ConfigTy UIOConfig(/*Enable=*/false);
+  UnreachableIO::populate(*this, IIRB.Ctx, &UIOConfig);
   ExtendedBasePointerIO::populate(*this, IIRB);
   ExtendedStoreIO::populate(*this, IIRB);
   ExtendedLoadIO::populate(*this, IIRB);
