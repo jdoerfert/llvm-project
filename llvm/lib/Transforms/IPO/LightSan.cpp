@@ -1237,6 +1237,7 @@ struct ExtendedGlobalIO : public GlobalIO {
     GlobalIO::ConfigTy PreGlobalConfig(/*Enable=*/false);
     PreGlobalConfig.set(GlobalIO::PassAddress);
     PreGlobalConfig.set(GlobalIO::PassInitialValueSize);
+    PreGlobalConfig.set(GlobalIO::PassIsDefinition);
     GlobalIO::init(IConf, IIRB.Ctx, &PreGlobalConfig);
 
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "requires_temporal_check",
@@ -1261,8 +1262,8 @@ struct ExtendedGlobalIO : public GlobalIO {
       if (LSIConf.AIC->isObjectSafe(&V))
         return false;
       auto &GV = cast<GlobalVariable>(V);
-      return GV.getValueType()->isSized() && !GV.hasExternalWeakLinkage() &&
-             GV.hasInitializer() && !GV.isInterposable();
+      return GV.getValueType()->isSized() && !GV.hasWeakLinkage() &&
+             !GV.isInterposable();
     };
     EAIO->init(IConf, IIRB);
   }

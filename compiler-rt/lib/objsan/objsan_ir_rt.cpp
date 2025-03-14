@@ -69,8 +69,10 @@ char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
 }
 
 OBJSAN_BIG_API_ATTRS
-char *__objsan_pre_global(char *MPtr, int32_t ObjSize,
+char *__objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t IsDefinition,
                           int8_t RequiresTemporalCheck) {
+  if (!IsDefinition)
+    return MPtr;
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 

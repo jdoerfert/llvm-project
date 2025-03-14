@@ -1943,7 +1943,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
   auto &DL = GV.getDataLayout();
   if (GV.isDeclaration()) {
     ShadowGV = new GlobalVariable(*GV.getParent(), GV.getType(), false,
-                                  GlobalVariable::WeakODRLinkage, &GV,
+                                  GlobalVariable::WeakAnyLinkage, &GV,
                                   ShadowName, &GV, GV.getThreadLocalMode(),
                                   DL.getDefaultGlobalsAddressSpace());
   } else {
@@ -2048,4 +2048,9 @@ Value *GlobalIO::isConstant(Value &V, Type &Ty, InstrumentationConfig &IConf,
                             InstrumentorIRBuilderTy &IIRB) {
   GlobalVariable &GV = cast<GlobalVariable>(V);
   return getCI(&Ty, GV.isConstant());
+}
+Value *GlobalIO::isDefinition(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+  GlobalVariable &GV = cast<GlobalVariable>(V);
+  return getCI(&Ty, !GV.isDeclaration());
 }

@@ -1390,6 +1390,7 @@ struct GlobalIO : public InstrumentationOpportunity {
     PassInitialValue,
     PassInitialValueSize,
     PassIsConstant,
+    PassIsDefinition,
     NumConfig,
   };
 
@@ -1425,6 +1426,10 @@ struct GlobalIO : public InstrumentationOpportunity {
       IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_constant",
                                "Flag to indicate constant globals.",
                                IRTArg::NONE, isConstant));
+    if (Config.has(PassIsDefinition))
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_definition",
+                               "Flag to indicate global definitions.",
+                               IRTArg::NONE, isDefinition));
     IConf.addChoice(*this);
   }
 
@@ -1442,6 +1447,8 @@ struct GlobalIO : public InstrumentationOpportunity {
                                     InstrumentorIRBuilderTy &IIRB);
   static Value *isConstant(Value &V, Type &Ty, InstrumentationConfig &IConf,
                            InstrumentorIRBuilderTy &IIRB);
+  static Value *isDefinition(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB);
 
   static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
     auto *AIC = IConf.allocate<GlobalIO>();
