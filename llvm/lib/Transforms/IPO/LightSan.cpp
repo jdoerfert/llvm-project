@@ -958,9 +958,8 @@ bool LightSanImpl::instrument() {
       auto *CI = cast<CallInst>(U);
       auto *BB = CI->getParent();
       auto *Fn = BB->getParent();
-      auto *BPI = IConf.BasePointerInfoMap[{
-          IConf.UnderlyingObjsMap.lookup(CI->getArgOperand(0)), Fn}];
-      assert(BPI);
+
+      auto *BPI = CI->getArgOperand(1);
       auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
 
       auto *LVRI = CI->getArgOperand(2);
@@ -1442,7 +1441,9 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
   StringRef getName() const override { return "loop_value_range"; }
 
   void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
-    LoopValueRangeIO::init(IConf, IIRB);
+    LoopValueRangeIO::ConfigTy Config(/*Enable=*/true);
+    Config.set(LoopValueRangeIO::PassId, false);
+    LoopValueRangeIO::init(IConf, IIRB, &Config);
 
     IRTArgs.push_back(IRTArg(IIRB.PtrTy, "base_pointer_info",
                              "The runtime provided base pointer info.",
