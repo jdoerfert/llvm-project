@@ -202,6 +202,8 @@ struct InputGenMemoryImpl {
   bool shouldInstrumentLoad(LoadInst &LI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentStore(StoreInst &SI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentAlloca(AllocaInst &AI, InstrumentorIRBuilderTy &IIRB);
+  bool shouldInstrumentGlobalVariable(GlobalVariable &GV,
+                                      InstrumentorIRBuilderTy &IIRB);
 
 private:
   bool handleDeclarations();
@@ -212,12 +214,6 @@ private:
   bool rewriteKnownDeclaration(Function &F);
   bool handleIndirectCalleeCandidates();
   bool handleGlobals();
-
-  Module &M;
-  ModuleAnalysisManager &MAM;
-  const IGIMode Mode;
-  InputGenInstrumentationConfig IConf;
-  const DataLayout &DL = M.getDataLayout();
 
   LLVMContext &getCtx() { return M.getContext(); }
 
@@ -251,6 +247,15 @@ private:
          ConstantInt::get(IntegerType::get(getCtx(), 32), Ty->getTypeID())});
     return IRB.CreateLoad(Ty, Ptr);
   }
+
+  Module &M;
+  ModuleAnalysisManager &MAM;
+  const IGIMode Mode;
+  InputGenInstrumentationConfig IConf;
+  const DataLayout &DL = M.getDataLayout();
+
+  /// Globals that require runtime handling.
+  SmallSet<GlobalVariable *, 8> RuntimeGlobals;
 };
 
 struct InputGenEntriesImpl {
@@ -701,6 +706,11 @@ bool InputGenMemoryImpl::shouldInstrumentCall(CallInst &CI) {
   return true;
 }
 
+bool InputGenMemoryImpl::shouldInstrumentGlobalVariable(
+    GlobalVariable &GV, InstrumentorIRBuilderTy &IIRB) {
+  return RuntimeGlobals.contains(&GV);
+}
+
 bool InputGenMemoryImpl::createPathTable(Function &Fn) {
   bool Changed = false;
 
@@ -970,9 +980,13 @@ bool InputGenMemoryImpl::handleGlobals() {
   Erase("llvm.global_dtors");
 
   for (auto &GV : M.globals()) {
-    if (GV.getSection() == "llvm.metadata")
+    if (GV.isConstant() && GV.hasInitializer()) {
+      // TODO We can avoid instrumenting some of the constant globals if we can
+      // prove we never access them out of bounds.
+      RuntimeGlobals.insert(&GV);
       continue;
-    if (GV.isConstant() && GV.hasInitializer())
+    }
+    if (GV.getSection() == "llvm.metadata")
       continue;
     if (isLandingPadType(GV))
       continue;
@@ -992,10 +1006,12 @@ bool InputGenMemoryImpl::handleGlobals() {
     if (GV.isDeclaration())
       GV.setInitializer(Constant::getNullValue(GV.getValueType()));
 
-    // TODO need to register these GVs with the runtime
+    RuntimeGlobals.insert(&GV);
 
     Changed = true;
   }
+
+  // TODO need to register these GVs with the runtime
 
   return Changed;
 }
@@ -1159,8 +1175,10 @@ bool InputGenEntriesImpl::createEntryPoint() {
   IRBuilder<> IRB(SI);
   for (uint32_t I = 0; I < NumEntryPoints; ++I) {
     Function *EntryPoint = EntryFunctions[I];
-    Names.push_back(IRB.CreateGlobalString(EntryPoint->getName()));
-    EntryPoint->setName(std::string(InputGenRuntimePrefix) +
+    Names.push_back(IRB.CreateGlobalString(
+        EntryPoint->getName(), std::string(InputGenRuntimePrefix) +
+                                   "ig_entry_name." + EntryPoint->getName()));
+    EntryPoint->setName(std::string(InputGenRuntimePrefix) + "ig_entry_func." +
                         EntryPoint->getName());
 
     Function *EntryPointWrapper = Function::Create(
@@ -1293,6 +1311,18 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
     };
     CIC->init(*this, IIRB.Ctx, &CICConfig);
   }
+
+  GlobalIO::ConfigTy GICConfig(/*Enable=*/false);
+  GICConfig.set(GlobalIO::PassAddress);
+  GICConfig.set(GlobalIO::PassName);
+  GICConfig.set(GlobalIO::PassInitialValue);
+  GICConfig.set(GlobalIO::PassInitialValueSize);
+  GICConfig.set(GlobalIO::PassIsConstant);
+  auto *GIC = InstrumentationConfig::allocate<GlobalIO>();
+  GIC->CB = [&](Value &V) {
+    return IGMI.shouldInstrumentGlobalVariable(cast<GlobalVariable>(V), IIRB);
+  };
+  GIC->init(*this, IIRB.Ctx, &GICConfig);
 }
 
 bool tagEntries(Module &M) {

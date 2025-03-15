@@ -11,7 +11,7 @@
 
 ; Check that we also generate the gen_value sequence at the callsite:
 
-; CHECK-LABEL: define private i32 @__ig_foo()
+; CHECK-LABEL: define private i32 @__ig_ig_entry_func.foo()
 ; CHECK-NEXT:    [[TMP1:%.*]] = alloca i32, align 4
 ; CHECK-NEXT:    call void @__ig_gen_value(ptr [[TMP1]], i32 4, i64 4, i32 12)
 ; CHECK-NEXT:    [[TMP2:%.*]] = load i32, ptr [[TMP1]], align 4

@@ -6,7 +6,7 @@
 ; CHECK: declare i32 @decl_1()
 ; CHECK: declare i32 @decl_2()
 
-; CHECK-LABEL: define private i32 @__ig_foo(
+; CHECK-LABEL: define private i32 @__ig_ig_entry_func.foo(
 ; CHECK-SAME: ) #[[ATTR0:[0-9]+]] {
 ; CHECK-NEXT:    [[A:%.*]] = call i32 @decl_1()
 ; CHECK-NEXT:    [[B:%.*]] = call i32 @decl_2()

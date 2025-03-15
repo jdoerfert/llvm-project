@@ -1,5 +1,9 @@
 ; RUN: opt -S --input-gen-mode=generate --passes=input-gen-instrument-entries,input-gen-instrument-memory %s | FileCheck %s
 
+; All non special globals should become private
+; CHECK: @external_global = private global i32 0
+; CHECK: @internal_global = private global i32 0
+
 @external_global = external global i32
 @internal_global = internal global i32 0
 
@@ -7,10 +11,9 @@
 ; CHECK: @external_constant_global = private global i32 0
 @external_constant_global = external constant i32
 
-
 ; We need to get rid of {c,d}tors
-; CHECK-NOT: @llvm.global_ctors
-; CHECK-NOT: @llvm.global_dtors
+; CHECK-NOT: @llvm.global_ctors{{.*}}ctorfunc
+; CHECK-NOT: @llvm.global_dtors{{.*}}ctorfunc
 @llvm.global_ctors = appending addrspace(1) global [1 x { i32, ptr, ptr  }] [{ i32, ptr, ptr  } { i32 1, ptr @ctorfunc, ptr null  }]
 @llvm.global_dtors = appending addrspace(1) global [1 x { i32, ptr, ptr  }] [{ i32, ptr, ptr  } { i32 1, ptr @ctorfunc, ptr null  }]
 define internal void @ctorfunc() {
