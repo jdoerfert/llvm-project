@@ -161,22 +161,14 @@ struct InstrumentorIRBuilderTy {
   }
 
   DenseMap<Instruction *, HoistKindTy> HoistedInsts;
-  DenseSet<Instruction *> HoistableInsts;
 
   BasicBlock::iterator getBestHoistPoint(BasicBlock::iterator,
                                          HoistKindTy HoistKind);
 
   DenseMap<Instruction *, std::pair<Value *, Value *>> MinMaxMap;
-  struct HoistResult {
-    HoistResult(BasicBlock::iterator IP, Value *MinVal, Value *MaxVal)
-        : IP(IP), MinVal(MinVal), MaxVal(MaxVal) {}
-
-    BasicBlock::iterator IP;
-    Value *MinVal;
-    Value *MaxVal;
-  };
-  HoistResult hoistInstructionsAndAdjustIP(Instruction &I,
-                                           BasicBlock::iterator IP);
+  static BasicBlock::iterator
+  hoistInstructionsAndAdjustIP(Instruction &I, BasicBlock::iterator IP,
+                               DominatorTree &DT, bool ForceInitial = false);
 
   bool isKnownDereferenceableAccess(Instruction &I, Value &Ptr,
                                     uint32_t AccessSize);
@@ -526,6 +518,8 @@ struct InstrumentationConfig {
 
   BumpPtrAllocator StringAllocator;
   StringSaver SS;
+
+  DenseMap<Value *, Value *> UnderlyingObjsMap;
 
   DenseMap<std::pair<Value *, Function *>, Value *> BasePointerInfoMap;
   Value *getBasePointerInfo(Value &V, InstrumentorIRBuilderTy &IIRB);
@@ -1274,10 +1268,6 @@ struct BasePointerIO : public InstrumentationOpportunity {
                        ConfigTy *UserConfig = nullptr) {
     auto *AIC = IConf.allocate<BasePointerIO>();
     AIC->init(IConf, Ctx, UserConfig);
-  }
-
-  virtual Type *getRetTy(LLVMContext &Ctx) const override {
-    return PointerType::getUnqual(Ctx);
   }
 };
 

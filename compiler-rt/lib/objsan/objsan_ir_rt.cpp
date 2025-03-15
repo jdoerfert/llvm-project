@@ -8,6 +8,7 @@
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
+#define PRINTF(...)
 
 using namespace __objsan;
 
@@ -65,6 +66,7 @@ char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
 OBJSAN_BIG_API_ATTRS
 char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
                            int8_t RequiresTemporalCheck) {
+  PRINTF("%s %p %lli\n", __PRETTY_FUNCTION__, MPtr, ObjSize);
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
@@ -73,30 +75,31 @@ char *__objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t IsDefinition,
                           int8_t RequiresTemporalCheck) {
   if (!IsDefinition)
     return MPtr;
+  PRINTF("%s %p %i\n", __PRETTY_FUNCTION__, MPtr, ObjSize);
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
 OBJSAN_BIG_API_ATTRS
 void __objsan_pre_call(int64_t IntrinsicId, int32_t num_parameters,
                        char *parameters, int8_t is_definition) {
-  // printf("%s start\n", __PRETTY_FUNCTION__);
+  PRINTF("%s start\n", __PRETTY_FUNCTION__);
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
     if (VP->TypeId == 14) {
       char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
       char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
       uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(*PtrAddr);
-      //   printf("-- %i %p\n", EncodingNo, *PtrAddr);
+      //   PRINTF("-- %i %p\n", EncodingNo, *PtrAddr);
       if (EncodingNo)
         *PtrAddr = [&]() -> char * {
           ENCODING_NO_SWITCH(decode, EncodingNo, nullptr, *PtrAddr);
         }();
-      //  printf("-> %p\n", *PtrAddr);
+      //  PRINTF("-> %p\n", *PtrAddr);
     }
     parameters += sizeof(ParameterValuePackTy) + VP->Size +
                   (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
   }
-  //  printf("%s done\n", __PRETTY_FUNCTION__);
+  //  PRINTF("%s done\n", __PRETTY_FUNCTION__);
 }
 
 OBJSAN_BIG_API_ATTRS
@@ -143,7 +146,7 @@ void __objsan_free_alloca(char *__restrict VPtr) {
 OBJSAN_SMALL_API_ATTRS
 void __objsan_post_function(int32_t NumAllocas,
                             char *__restrict *__restrict Allocas) {
-  // printf("%s start\n", __PRETTY_FUNCTION__);
+  // PRINTF("%s start\n", __PRETTY_FUNCTION__);
   for (int32_t I = 0; I < NumAllocas; ++I)
     __objsan_free_alloca(Allocas[I]);
 }
@@ -172,6 +175,7 @@ void __objsan_pre_function(int32_t NumArgs, char *__restrict Arguments) {
   *reinterpret_cast<char **>(&ArgVVP->Value) =
       __objsan_register_object(reinterpret_cast<char *>(ArgV), ArgVSize,
                                /*RequiresTemporalCheck=*/true);
+  PRINTF("argc %i, %p\n", ArgC, ArgV);
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -187,14 +191,37 @@ uint8_t __objsan_get_encoding(char *__restrict VPtr) {
   return EncodingCommonTy::getEncodingNo(VPtr);
 }
 
-OBJSAN_SMALL_API_ATTRS
-char *__objsan_post_base_pointer_info(char *__restrict VPtr,
-                                      uint64_t *__restrict SizePtr,
-                                      uint8_t *__restrict EncodingNoPtr) {
+OBJSAN_SMALL_API_ATTRS char *
+__objsan_post_base_pointer_info(char *__restrict VPtr, uint64_t *SizePtr,
+                                uint8_t *EncNoPtr) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
-  *EncodingNoPtr = EncodingNo;
+  *EncNoPtr = EncodingNo;
   *SizePtr = 0;
-  ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, SizePtr);
+  if (!EncodingNo)
+    return VPtr;
+  PRINTF("%s %p %llu start\n", __PRETTY_FUNCTION__, VPtr, EncodingNo);
+  char *MPtr = [&]() {
+    ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, VPtr, VPtr, SizePtr);
+  }();
+  return MPtr;
+}
+
+OBJSAN_SMALL_API_ATTRS
+void *__objsan_get_mptr(char *__restrict VPtr, char *__restrict BaseMPtr,
+                        uint8_t EncodingNo) {
+  [[maybe_unused]] uint8_t EncodingNo2 = EncodingCommonTy::getEncodingNo(VPtr);
+  PRINTF("%s %p %p %i %i start\n", __PRETTY_FUNCTION__, VPtr, BaseMPtr,
+         EncodingNo, EncodingNo2);
+  if (!EncodingNo) [[unlikely]]
+    return VPtr;
+  int64_t NumOffsetBits;
+  if (EncodingNo == 1)
+    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
+  else
+    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
+  auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
+  // TODO: Checm magic
+  return BaseMPtr + Offset;
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -203,7 +230,7 @@ void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
                                      char *BaseMPtr, uint64_t ObjSize,
                                      int8_t EncodingNo,
                                      int8_t IsDefinitivelyExecuted) {
-  // printf("%s start\n", __PRETTY_FUNCTION__);
+  PRINTF("%s start\n", __PRETTY_FUNCTION__);
   char *VPtr = (char *)InitialLoopValue;
   int64_t LoopSize = FinalLoopValue - InitialLoopValue;
   if (!EncodingNo) [[unlikely]]
@@ -214,6 +241,9 @@ void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
   else
     NumOffsetBits = LargeObjectsTy::NumOffsetBits;
   auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
+  PRINTF("%p %p -> %lli, %llu, %p, %llu :: %llu :: %llu\n", VPtr,
+         (char *)FinalLoopValue, LoopSize, MaxOffset, BaseMPtr, ObjSize, Offset,
+         Magic);
   //  for (int I = 0; I < FinalLoopValue; I += 64)
   //    __builtin_prefetch(BaseMPtr + Offset + I, 0, 3);
   //  if (!sizeIsKnown(ObjSize)) [[unlikely]]
@@ -237,12 +267,27 @@ void *__objsan_post_loop_value_ptr_range(char *InitialLoopValue,
 }
 
 OBJSAN_SMALL_API_ATTRS
+void *__objsan_pre_load_m(char *MPtr, char *BaseMPtr, char *LVRI,
+                          uint64_t AccessSize, uint64_t ObjSize,
+                          int8_t EncodingNo, int8_t WasChecked) {
+  PRINTF("%s start %p\n", __PRETTY_FUNCTION__, MPtr);
+  if (EncodingNo && !WasChecked && !(BaseMPtr && LVRI) &&
+      !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
+                               /*FailOnError=*/false)) [[unlikely]] {
+    fprintf(stderr, "l bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
+            AccessSize, ObjSize, EncodingNo, WasChecked);
+    return nullptr;
+  }
+  return MPtr;
+}
+
+OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, uint64_t ObjSize,
                         int8_t EncodingNo, int8_t WasChecked) {
-  //  printf("%s start\n", __PRETTY_FUNCTION__);
-  //  printf("pl %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
-  //         ObjSize, EncodingNo, WasChecked);
+  PRINTF("%s start\n", __PRETTY_FUNCTION__);
+  PRINTF("pl %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
+         ObjSize, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;
   int64_t NumOffsetBits;
@@ -251,7 +296,7 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
   else
     NumOffsetBits = LargeObjectsTy::NumOffsetBits;
   auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
-  //  printf("%lli %lli %p\n", Offset, Magic, BaseMPtr + Offset);
+  //  PRINTF("%lli %lli %p\n", Offset, Magic, BaseMPtr + Offset);
   //  __builtin_prefetch(BaseMPtr + Offset, 0, 1);
   if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
     return BaseMPtr + Offset;
@@ -278,8 +323,8 @@ int8_t __objsan_check_ptr_load(char *VPtr, int64_t Offset) {
   auto *BaseMPtr = [&]() -> char * {
     ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, &ObjSize);
   }();
-  if (void *AccMPtr = __objsan_pre_load(VPtr, BaseMPtr, nullptr, sizeof(void *),
-                                        ObjSize, EncodingNo, false)) {
+  if (__objsan_pre_load(VPtr, BaseMPtr, nullptr, sizeof(void *), ObjSize,
+                        EncodingNo, false)) {
     return 1;
   }
   return 0;
@@ -318,12 +363,27 @@ SPEC_LOAD(4)
 SPEC_LOAD(8)
 
 OBJSAN_SMALL_API_ATTRS
+void *__objsan_pre_store_m(char *MPtr, char *BaseMPtr, char *LVRI,
+                           uint64_t AccessSize, uint64_t ObjSize,
+                           int8_t EncodingNo, int8_t WasChecked) {
+  PRINTF("%s start %p\n", __PRETTY_FUNCTION__, MPtr);
+  if (EncodingNo && !WasChecked && !(BaseMPtr && LVRI) &&
+      !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
+                               /*FailOnError=*/false)) [[unlikely]] {
+    fprintf(stderr, "s bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
+            AccessSize, ObjSize, EncodingNo, WasChecked);
+    return nullptr;
+  }
+  return MPtr;
+}
+
+OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, uint64_t ObjSize,
                          int8_t EncodingNo, int8_t WasChecked) {
-  // printf("%s start\n", __PRETTY_FUNCTION__);
-  // printf("ps %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
-  //        ObjSize, EncodingNo, WasChecked);
+  PRINTF("%s start\n", __PRETTY_FUNCTION__);
+  PRINTF("ps %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
+         ObjSize, EncodingNo, WasChecked);
   if (!EncodingNo) [[unlikely]]
     return VPtr;
   int64_t NumOffsetBits;

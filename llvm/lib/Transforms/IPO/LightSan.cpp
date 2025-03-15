@@ -10,7 +10,10 @@
 
 #include "llvm/Transforms/IPO/LightSan.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/iterator.h"
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -19,6 +22,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/ExecutionEngine/GenericValue.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -33,6 +37,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Operator.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Pass.h"
@@ -62,28 +67,9 @@ using namespace llvm::instrumentor;
 static constexpr char LightSanRuntimePrefix[] = "__objsan_";
 static constexpr char AdapterPrefix[] = "__adapter_";
 [[maybe_unused]] static constexpr int64_t SmallObjectEnc = 1;
-static constexpr int64_t LargeObjectEnc = 2;
+[[maybe_unused]] static constexpr int64_t LargeObjectEnc = 2;
 
 namespace {
-
-static Value *stripRegisterCall(Value *V, InstrumentationConfig &IConf) {
-  V = V->stripPointerCasts();
-  if (auto *CI = dyn_cast<CallInst>(V)) {
-    assert(CI->getCalledFunction());
-    auto CalleeName = CI->getCalledFunction()->getName();
-    if (CalleeName == IConf.getRTName("post_", "alloca")) {
-      return CI->getArgOperand(0);
-    }
-    if (CalleeName == IConf.getRTName("post_", "call")) {
-      auto *P2I = cast<PtrToIntInst>(CI->getArgOperand(1));
-      return P2I->getOperand(0);
-    }
-    return CI;
-  }
-  if (auto *I2P = dyn_cast<IntToPtrInst>(V))
-    return stripRegisterCall(I2P->getOperand(0), IConf);
-  return V;
-}
 
 struct LightSanImpl;
 
@@ -149,35 +135,16 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
   DenseMap<std::pair<Value *, Function *>, ExtendedBasePointerInfo>
       BasePointerSizeOffsetMap;
-  Value *getBasePointerObjectSize(Value &V, InstrumentorIRBuilderTy &IIRB) {
+  Value *getBasePointerObjectSize(Value &Ptr, InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    Value *Ptr = instrumentor::getUnderlyingObjectRecursive(&V);
-    auto &EBPI = BasePointerSizeOffsetMap[{Ptr, Fn}];
+    auto &EBPI = BasePointerSizeOffsetMap[{&Ptr, Fn}];
     if (EBPI.ObjectSizePtr)
       return IIRB.IRB.CreateLoad(IIRB.Int64Ty, EBPI.ObjectSizePtr);
     return EBPI.ObjectSize;
   }
 
-  Value *getStaticBasePointerEncodingNo(Value *Ptr) {
-    Ptr = stripRegisterCall(Ptr, *this);
-    if ((AIC->isSanitizedObject(Ptr) &&
-         (!AIC->isNonEscapingObj(Ptr) ||
-          AIC->getSanitizedObjectSize(Ptr) >= (1LL << 12)))) {
-      return ConstantInt::get(IntegerType::getInt8Ty(Ptr->getContext()),
-                              LargeObjectEnc);
-    }
-    return nullptr;
-  }
-  Value *getStaticBasePointerEncodingNo(Instruction &I) {
-    if (auto *Obj = AIC->getSafeAccessObj(&I))
-      return getStaticBasePointerEncodingNo(Obj);
-    return nullptr;
-  }
-  Value *getBasePointerEncodingNo(Value &V, Function &Fn) {
-    Value *Ptr = instrumentor::getUnderlyingObjectRecursive(&V);
-    if (auto *EncNo = getStaticBasePointerEncodingNo(Ptr))
-      return EncNo;
-    return BasePointerSizeOffsetMap[{Ptr, &Fn}].EncodingNo;
+  Value *getBasePointerEncodingNo(Value &Ptr, Function &Fn) {
+    return BasePointerSizeOffsetMap[{&Ptr, &Fn}].EncodingNo;
   }
   /// Get a size alloca.
   AllocaInst *getSizeAlloca(Function &Fn, InstrumentorIRBuilderTy &IIRB,
@@ -208,6 +175,9 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   // This is a vector of allocas holding call inst that registered user allocas.
   SmallVector<AllocaInst *> EscapedAllocas;
   SmallVector<CallInst *> PotentiallyFreeCalls;
+
+  DenseMap<std::pair<Value *, Function *>, Instruction *> V2BPI;
+  DenseMap<std::pair<Value *, Function *>, Value *> V2M;
 
   LightSanImpl &LSI;
 
@@ -705,6 +675,7 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
   const DataLayout &DL = M.getDataLayout();
 
   // A list of pairs of objects and their size
+  // TODO: Use weak value handles
   SmallVector<std::tuple<Value *, int64_t, const AAPointerInfo *>> WorkList;
 
   for (GlobalVariable &GV : M.globals()) {
@@ -907,7 +878,7 @@ bool LightSanImpl::instrument() {
   // Create weak function adapters for external functions.
   Changed |= createWeakAdapters();
 
-#if 1
+#if 0
   for (auto &Fn : M) {
     if (Fn.isDeclaration())
       continue;
@@ -960,6 +931,21 @@ bool LightSanImpl::instrument() {
   if (!PA.areAllPreserved())
     Changed = true;
 
+  auto &Ctx = M.getContext();
+  auto *Int8Ty = IntegerType::getInt8Ty(Ctx);
+  auto *Int64Ty = IntegerType::getInt64Ty(Ctx);
+  auto *PtrTy = PointerType::get(Ctx, 0);
+  M.getOrInsertFunction(
+      IConf.getRTName("pre_", "load", "_m"),
+      FunctionType::get(PtrTy,
+                        {PtrTy, PtrTy, PtrTy, Int64Ty, Int64Ty, Int8Ty, Int8Ty},
+                        false));
+  M.getOrInsertFunction(
+      IConf.getRTName("pre_", "store", "_m"),
+      FunctionType::get(PtrTy,
+                        {PtrTy, PtrTy, PtrTy, Int64Ty, Int64Ty, Int8Ty, Int8Ty},
+                        false));
+
   DenseMap<Function *,
            DenseMap<std::pair<BasicBlock *, Value *>, SmallVector<CallInst *>>>
       MergeMap;
@@ -972,10 +958,15 @@ bool LightSanImpl::instrument() {
       auto *CI = cast<CallInst>(U);
       auto *BB = CI->getParent();
       auto *Fn = BB->getParent();
+      auto *BPI = IConf.BasePointerInfoMap[{
+          IConf.UnderlyingObjsMap.lookup(CI->getArgOperand(0)), Fn}];
+      assert(BPI);
+      auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
+
       auto *LVRI = CI->getArgOperand(2);
       bool HasRangeInfo = !isa<ConstantPointerNull>(LVRI);
       if (!HasRangeInfo) {
-        MergeMap[Fn][{BB, CI->getArgOperand(1)}].push_back(CI);
+        MergeMap[Fn][{BB, BPI}].push_back(CI);
         continue;
       }
       auto &LI = FAM.getResult<LoopAnalysis>(*Fn);
@@ -985,7 +976,6 @@ bool LightSanImpl::instrument() {
       auto *PreHeaderBB = L->getLoopPreheader();
       if (!PreHeaderBB || !PreHeaderBB->getSingleSuccessor())
         continue;
-      auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
       auto &PDT = FAM.getResult<PostDominatorTreeAnalysis>(*Fn);
       auto *LVRICI = cast<CallInst>(LVRI);
       // Try to sink the range check to make sure it can be enforced instead of
@@ -1032,10 +1022,6 @@ bool LightSanImpl::instrument() {
   CheckForRequiredRanged("store");
 
 #if 1
-  auto &Ctx = M.getContext();
-  auto *Int8Ty = IntegerType::getInt8Ty(Ctx);
-  auto *Int64Ty = IntegerType::getInt64Ty(Ctx);
-  auto *PtrTy = PointerType::get(Ctx, 0);
   auto LVRFC = M.getOrInsertFunction(
       IConf.getRTName("post_", "loop_value_ptr_range"),
       FunctionType::get(PtrTy,
@@ -1063,9 +1049,12 @@ bool LightSanImpl::instrument() {
 
       for (auto *CI : Calls) {
         auto *Ptr = CI->getArgOperand(0);
-        if (auto *PtrI = dyn_cast<Instruction>(Ptr))
+        if (auto *PtrI = dyn_cast<Instruction>(Ptr)) {
+          InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(
+              *PtrI, FirstCI->getIterator(), DT);
           if (!DT.dominates(PtrI, FirstCI))
             continue;
+        }
         CI->setArgOperand(6, TrueInt8);
         MinPtrs.push_back(Ptr);
         MaxPtrs.push_back(IRB.CreatePtrAdd(Ptr, CI->getArgOperand(3), "",
@@ -1093,6 +1082,41 @@ bool LightSanImpl::instrument() {
                         << " checks\n");
     }
   }
+#endif
+
+#if 1
+  auto UseMPtr = [&](StringRef Name) {
+    auto *FCm = M.getFunction(IConf.getRTName("pre_", Name, "_m"));
+    auto *FC = M.getFunction(IConf.getRTName("pre_", Name));
+    if (!FC)
+      return;
+    for (auto *U : make_early_inc_range(FC->users())) {
+      auto *CI = cast<CallInst>(U);
+      auto *Fn = CI->getFunction();
+      auto *VPtr = CI->getArgOperand(0);
+      auto IP = CI->getIterator();
+      auto *MPtr = IConf.V2M.lookup({VPtr, Fn});
+      if (!MPtr)
+        continue;
+      if (auto *WasCheckedCI = dyn_cast<ConstantInt>(CI->getArgOperand(6)))
+        if (WasCheckedCI->isOne()) {
+          CI->replaceAllUsesWith(MPtr);
+          CI->eraseFromParent();
+          continue;
+        }
+      if (auto *MPtrI = dyn_cast<Instruction>(MPtr)) {
+        auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
+        InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(
+            *MPtrI, IP, DT, /*ForceInitial=*/true);
+        if (!DT.dominates(MPtrI, CI))
+          CI->moveAfter(MPtrI);
+      }
+      CI->setCalledFunction(FCm);
+      CI->setArgOperand(0, MPtr);
+    }
+  };
+  UseMPtr("load");
+  UseMPtr("store");
 #endif
 
 #if 0
@@ -1277,58 +1301,27 @@ struct ExtendedBasePointerIO : public BasePointerIO {
     BasePointerIO::ConfigTy BaseConfig(/*Enable=*/false);
     BaseConfig.set(BasePointerIO::PassPointer, true);
     BasePointerIO::init(IConf, Ctx, &BaseConfig);
-
     IRTArgs.push_back(
         IRTArg(PointerType::getUnqual(Ctx), "object_size_ptr",
                "Return the size of the object in question as uint64_t.",
-               IRTArg::REPLACABLE_CUSTOM, getObjectSizePtr, setObjectSize));
+               IRTArg::NONE, getObjectSizePtr));
     IRTArgs.push_back(IRTArg(
         PointerType::getUnqual(Ctx), "encoding_no_ptr",
         "Return the encoding number of the object in question as uint8_t.",
-        IRTArg::REPLACABLE_CUSTOM, getEncodingNoPtr, setEncodingNo));
+        IRTArg::NONE, getEncodingNoPtr));
   }
 
   static Value *getObjectSizePtr(Value &V, Type &Ty,
                                  InstrumentationConfig &IConf,
                                  InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    return LSIConf.getSizeAlloca(*Fn, IIRB, *stripRegisterCall(&V, IConf));
-  }
-  static Value *setObjectSize(Value &V, Value &NewV,
-                              InstrumentationConfig &IConf,
-                              InstrumentorIRBuilderTy &IIRB) {
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    auto *ObjSize = IIRB.IRB.CreateLoad(IIRB.Int64Ty, &NewV);
-    assert(isa<CallInst>(V) &&
-           cast<CallInst>(V).getCalledFunction()->getName() ==
-               IConf.getRTName("post_", "base_pointer_info"));
-    auto *BasePtr = cast<CallInst>(V).getArgOperand(0);
-    auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}];
-    EBPI.ObjectSize = ObjSize;
-    auto *SizeAI = LSIConf.TmpToSizeAllocas.lookup(cast<AllocaInst>(&NewV));
-    if (SizeAI) {
-      IIRB.IRB.CreateStore(ObjSize, SizeAI);
-      EBPI.ObjectSizePtr = SizeAI;
-    }
-    return &V;
+    return IIRB.getAlloca(Fn, IIRB.Int64Ty);
   }
   static Value *getEncodingNoPtr(Value &V, Type &Ty,
                                  InstrumentationConfig &IConf,
                                  InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     return IIRB.getAlloca(Fn, IIRB.Int8Ty);
-  }
-  static Value *setEncodingNo(Value &V, Value &NewV,
-                              InstrumentationConfig &IConf,
-                              InstrumentorIRBuilderTy &IIRB) {
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    auto *EncodingNo = IIRB.IRB.CreateLoad(IIRB.Int8Ty, &NewV);
-    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    auto *BasePtr = cast<CallInst>(V).getArgOperand(0);
-    LSIConf.BasePointerSizeOffsetMap[{BasePtr, Fn}].EncodingNo = EncodingNo;
-    return &V;
   }
 
   Value *instrument(Value *&V, InstrumentationConfig &IConf,
@@ -1342,13 +1335,103 @@ struct ExtendedBasePointerIO : public BasePointerIO {
                << *L << "\n";
       }
     }
-    return BasePointerIO::instrument(V, IConf, IIRB, ICaches);
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto *NewV = BasePointerIO::instrument(V, IConf, IIRB, ICaches);
+    auto *CI = cast<CallInst>(NewV);
+    auto *VPtr = CI->getArgOperand(0);
+    Value *MPtr = nullptr, *ObjSize = nullptr, *Obj = nullptr;
+    Value *StrippedVPtr = VPtr;
+    if (auto *I2P = dyn_cast<IntToPtrInst>(VPtr))
+      StrippedVPtr = I2P->getOperand(0);
+    if (auto *VPtrCI = dyn_cast<CallInst>(StrippedVPtr)) {
+      auto *Callee = VPtrCI->getCalledFunction();
+      if (Callee && (Callee->getName() == IConf.getRTName("post_", "call"))) {
+        MPtr = cast<PtrToIntOperator>(VPtrCI->getArgOperand(1))->getOperand(0);
+        Obj = MPtr;
+        if (LSIConf.AIC->isSanitizedObject(Obj))
+          ObjSize = IIRB.IRB.getInt64(LSIConf.AIC->getSanitizedObjectSize(Obj));
+      }
+      if (Callee && (Callee->getName() == IConf.getRTName("post_", "alloca"))) {
+        MPtr = VPtrCI->getArgOperand(0);
+        Obj = MPtr;
+        ObjSize = VPtrCI->getArgOperand(1);
+      }
+      // TODO: load of shadow global
+    }
+
+    Function *Fn = CI->getFunction();
+    Value *MBasePtr = MPtr;
+    if (!MBasePtr)
+      MBasePtr = CI;
+
+    assert(IIRB.IRB.GetInsertPoint() == CI->getNextNode()->getIterator());
+    if (!ObjSize)
+      ObjSize = IIRB.IRB.CreateLoad(IIRB.Int64Ty, CI->getArgOperand(1));
+    auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{VPtr, Fn}];
+    EBPI.ObjectSize = ObjSize;
+    if (Obj && (LSIConf.AIC->isSanitizedObject(Obj) &&
+                (!LSIConf.AIC->isNonEscapingObj(Obj) ||
+                 LSIConf.AIC->getSanitizedObjectSize(Obj) >= (1LL << 12)))) {
+      EBPI.EncodingNo = IIRB.IRB.getInt8(LargeObjectEnc);
+    } else {
+      EBPI.EncodingNo = IIRB.IRB.CreateLoad(IIRB.Int8Ty, CI->getArgOperand(2));
+    }
+
+    if (!MPtr) {
+      auto MPtrFC = Fn->getParent()->getOrInsertFunction(
+          IConf.getRTName("", "get_mptr"),
+          FunctionType::get(IIRB.PtrTy, {IIRB.PtrTy, IIRB.PtrTy, IIRB.Int8Ty},
+                            false));
+      MPtr = IIRB.IRB.CreateCall(MPtrFC, {VPtr, MBasePtr, EBPI.EncodingNo});
+    }
+    assert(!LSIConf.V2M.count({VPtr, Fn}));
+    LSIConf.V2M[{VPtr, Fn}] = MPtr;
+    LSIConf.V2BPI[{VPtr, Fn}] = CI;
+
+    SmallVector<Use *> Worklist;
+    append_range(Worklist, make_pointer_range(VPtr->uses()));
+
+    while (!Worklist.empty()) {
+      Use *U = Worklist.pop_back_val();
+      User *Usr = U->getUser();
+      if (auto *CE = dyn_cast<ConstantExpr>(Usr)) {
+        if (CE->getOpcode() == Instruction::GetElementPtr) {
+          auto *GEP = CE->getAsInstruction();
+          IIRB.IRB.Insert(GEP);
+          GEP->setOperand(0, LSIConf.V2M[{*U, Fn}]);
+          LSIConf.V2M[{CE, Fn}] = GEP;
+          append_range(Worklist, make_pointer_range(Usr->uses()));
+        }
+        continue;
+      }
+      auto *UsrI = dyn_cast<Instruction>(Usr);
+      if (!UsrI)
+        continue;
+      switch (UsrI->getOpcode()) {
+      case Instruction::GetElementPtr: {
+        auto *GEP = cast<GetElementPtrInst>(UsrI)->clone();
+        GEP->insertAfter(UsrI);
+        GEP->setOperand(0, LSIConf.V2M[{*U, Fn}]);
+        LSIConf.V2M[{UsrI, Fn}] = GEP;
+        append_range(Worklist, make_pointer_range(Usr->uses()));
+        break;
+      }
+      default:
+        break;
+      }
+    }
+
+    return MBasePtr;
   }
 
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *EVPIO = IConf.allocate<ExtendedBasePointerIO>();
     EVPIO->init(IConf, IIRB.Ctx);
+  }
+
+  virtual Type *getRetTy(LLVMContext &Ctx) const override {
+    return PointerType::get(Ctx, 0);
   }
 };
 
@@ -1384,13 +1467,15 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
   static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    return LSIConf.getBasePointerObjectSize(V, IIRB);
+    return LSIConf.getBasePointerObjectSize(*getUnderlyingObjectRecursive(&V),
+                                            IIRB);
   }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    return LSIConf.getBasePointerEncodingNo(V, *Fn);
+    return LSIConf.getBasePointerEncodingNo(*getUnderlyingObjectRecursive(&V),
+                                            *Fn);
   }
   static Value *getIsDefinitivelyExecuted(Value &V, Type &Ty,
                                           InstrumentationConfig &IConf,
@@ -1433,17 +1518,17 @@ struct ExtendedLoadIO : public LoadIO {
   static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &LI = cast<LoadInst>(V);
     return LSIConf.getBasePointerObjectSize(
-        *cast<LoadInst>(V).getPointerOperand(), IIRB);
+        *getUnderlyingObjectRecursive(LI.getPointerOperand()), IIRB);
   }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto &LI = cast<LoadInst>(V);
-    if (auto *EncNo = LSIConf.getStaticBasePointerEncodingNo(LI))
-      return EncNo;
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    return LSIConf.getBasePointerEncodingNo(*LI.getPointerOperand(), *Fn);
+    return LSIConf.getBasePointerEncodingNo(
+        *getUnderlyingObjectRecursive(LI.getPointerOperand()),
+        *LI.getFunction());
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
@@ -1493,17 +1578,17 @@ struct ExtendedStoreIO : public StoreIO {
   static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &SI = cast<StoreInst>(V);
     return LSIConf.getBasePointerObjectSize(
-        *cast<StoreInst>(V).getPointerOperand(), IIRB);
+        *getUnderlyingObjectRecursive(SI.getPointerOperand()), IIRB);
   }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto &SI = cast<StoreInst>(V);
-    if (auto *EncNo = LSIConf.getStaticBasePointerEncodingNo(SI))
-      return EncNo;
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    return LSIConf.getBasePointerEncodingNo(*SI.getPointerOperand(), *Fn);
+    return LSIConf.getBasePointerEncodingNo(
+        *getUnderlyingObjectRecursive(SI.getPointerOperand()),
+        *SI.getFunction());
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {

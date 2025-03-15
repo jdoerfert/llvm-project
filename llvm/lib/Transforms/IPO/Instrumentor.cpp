@@ -758,19 +758,17 @@ InstrumentorIRBuilderTy::getBestHoistPoint(BasicBlock::iterator IP,
   }
   llvm_unreachable("Unknown kind!");
 }
-InstrumentorIRBuilderTy::HoistResult
-InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(Instruction &I,
-                                                      BasicBlock::iterator IP) {
-  auto *Fn = I.getFunction();
-  const auto &DT = DTGetter(*Fn);
 
-  if (DT.dominates(&I, IP))
-    return {IP, &I, &I};
+BasicBlock::iterator InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(
+    Instruction &InitialI, BasicBlock::iterator IP, DominatorTree &DT,
+    bool ForceInitial) {
+  if (DT.dominates(&InitialI, IP))
+    return IP;
 
   SmallVector<Instruction *> Stack;
   SmallPtrSet<Instruction *, 8> UnmovableInst;
   SmallVector<Instruction *> Worklist;
-  Worklist.push_back(&I);
+  Worklist.push_back(&InitialI);
 
   while (!Worklist.empty()) {
     auto *I = Worklist.pop_back_val();
@@ -778,7 +776,7 @@ InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(Instruction &I,
       UnmovableInst.insert(I);
       continue;
     }
-    if (!HoistableInsts.count(I) &&
+    if ((!ForceInitial || I != &InitialI) &&
         (I->mayHaveSideEffects() || I->mayReadFromMemory())) {
       UnmovableInst.insert(I);
       continue;
@@ -795,7 +793,7 @@ InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(Instruction &I,
       IP = *I->getInsertionPointAfterDef();
   }
 
-  UnreachableInst *UI = new UnreachableInst(I.getContext(), IP);
+  UnreachableInst *UI = new UnreachableInst(InitialI.getContext(), IP);
   IP = UI->getIterator();
 
   SmallPtrSet<Instruction *, 8> Seen;
@@ -812,7 +810,7 @@ InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(Instruction &I,
   IP = std::next(IP);
   UI->eraseFromParent();
 
-  return {IP, &I, &I};
+  return IP;
 }
 
 std::pair<BasicBlock::iterator, bool>
@@ -897,11 +895,12 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
 
   Value *FirstVal = Expander.expandCodeFor(FirstSCEV, Ty);
   Value *LastVal = Expander.expandCodeFor(LastSCEV, Ty);
+  auto &DT = DTGetter(*Fn);
   IP = getBestHoistPoint(IP, HOIST_OUT_OF_LOOPS);
   if (auto *FirstValI = dyn_cast<Instruction>(FirstVal))
-    IP = hoistInstructionsAndAdjustIP(*FirstValI, IP).IP;
+    IP = hoistInstructionsAndAdjustIP(*FirstValI, IP, DT);
   if (auto *LastValI = dyn_cast<Instruction>(LastVal))
-    IP = hoistInstructionsAndAdjustIP(*LastValI, IP).IP;
+    IP = hoistInstructionsAndAdjustIP(*LastValI, IP, DT);
   LRI = {FirstVal, LastVal, AdditionalSize};
   return {IP, true};
 }
@@ -992,7 +991,13 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
                                           InstrumentorIRBuilderTy &IIRB) {
   Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
 
-  Value *VPtr = getUnderlyingObjectRecursive(&V);
+  Value *VPtr;
+  {
+    Value *&UnderlyingVPtr = UnderlyingObjsMap[&V];
+    if (!UnderlyingVPtr)
+      UnderlyingVPtr = getUnderlyingObjectRecursive(&V);
+    VPtr = UnderlyingVPtr;
+  }
 
   Value *&BPI = BasePointerInfoMap[{VPtr, Fn}];
   if (!BPI) {
@@ -1278,7 +1283,7 @@ IRTCallDescription::createLLVMSignature(InstrumentationConfig &IConf,
       continue;
     if (!ForceIndirection || !isPotentiallyIndirect(It)) {
       ParamTypes.push_back(It.Ty);
-      if (NumReplaceableArgs == 1 && (It.Flags & IRTArg::REPLACABLE))
+      if (!RetTy && NumReplaceableArgs == 1 && (It.Flags & IRTArg::REPLACABLE))
         RetTy = It.Ty;
       continue;
     }
@@ -1319,9 +1324,10 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
                DL.getTypeSizeInBits(Param->getType()) >
                    DL.getTypeSizeInBits(It.Ty)) {
       if (!isPotentiallyIndirect(It)) {
-        errs() << "WARNING: Indirection needed for " << *V << " in "
-               << IO.getName()
-               << " call, but not indicated; instrumentation is skipped";
+        errs() << "WARNING: Indirection needed for " << It.Name << " of " << *V
+               << " in " << IO.getName() << ", but not indicated\n. Got "
+               << *Param << " expected " << *It.Ty
+               << "; instrumentation is skipped";
         return nullptr;
       }
       ForceIndirection = true;
@@ -1329,8 +1335,10 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
       Param = tryToCast(IIRB.IRB, Param, It.Ty, DL);
     }
     if (IO.HoistKind != DO_NOT_HOIST)
-      if (auto *ParamI = dyn_cast<Instruction>(Param))
-        IP = IIRB.hoistInstructionsAndAdjustIP(*ParamI, IP).IP;
+      if (auto *ParamI = dyn_cast<Instruction>(Param)) {
+        auto &DT = IIRB.DTGetter(*ParamI->getFunction());
+        IP = IIRB.hoistInstructionsAndAdjustIP(*ParamI, IP, DT);
+      }
     CallParams.push_back(Param);
   }
 
@@ -1796,7 +1804,7 @@ Value *BranchIO::setValue(Value &V, Value &NewV, InstrumentationConfig &IConf,
   auto *BI = cast<BranchInst>(&V);
   if (BI->isConditional()) {
     auto *Cast = tryToCast(IIRB.IRB, &NewV, BI->getCondition()->getType(),
-                          IIRB.DL, true);
+                           IIRB.DL, true);
     BI->setCondition(Cast);
   }
   return BI;
@@ -1984,7 +1992,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
     if (auto *NewI = UserMap.lookup(Usr))
       return NewI;
     if (!isa<ConstantExpr>(Usr)) {
-      //errs() << "WARNING: Ignoring constant user " << *Usr << "\n";
+      // errs() << "WARNING: Ignoring constant user " << *Usr << "\n";
       UserMap[Usr] = nullptr;
       return nullptr;
     }

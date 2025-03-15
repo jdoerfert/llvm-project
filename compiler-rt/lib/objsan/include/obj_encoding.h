@@ -41,18 +41,35 @@ struct EncodingCommonTy {
     return PtrMagic;
   }
 
+  static bool check(char *MPtr, char *MBasePtr, uint64_t AccessSize,
+                    uint64_t ObjSize, bool FailOnError) {
+    char *MEndPtr = MBasePtr + ObjSize;
+    char *MAccEndPtr = MPtr + AccessSize;
+    if (MPtr < MBasePtr || MAccEndPtr > MEndPtr) [[unlikely]] {
+      fprintf(stderr, "memory out-of-bound %lu + %llu vs %llu! (Base %p, %p, check)\n",
+              MPtr - MBasePtr, AccessSize, ObjSize, (void *)MBasePtr, MPtr);
+      if (FailOnError) {
+        // TODO: Configure this to report if requested
+        __builtin_trap();
+      }
+      // TODO: Configure this to trap or report if requested
+      return false;
+    }
+    return true;
+  }
+
   static char *checkAndAdjust(char *__restrict VPtr, uint64_t Magic,
-                              char *__restrict MPtr, uint64_t AccessSize,
+                              char *__restrict MBasePtr, uint64_t AccessSize,
                               int64_t Offset, uint64_t ObjSize,
                               bool FailOnError) {
 #if 0
-    printf("Check %p size %llu -- access %llu @ %lli\n", MPtr, ObjSize,
+    printf("Check %p size %llu -- access %llu @ %lli\n", MBasePtr, ObjSize,
            AccessSize, Offset);
 #endif
     if (Magic != MAGIC || Offset < 0 || Offset + AccessSize > ObjSize)
         [[unlikely]] {
-      fprintf(stderr, "memory out-of-bound %llu + %llu vs %llu! (Base %p)\n",
-              Offset, AccessSize, ObjSize, (void *)MPtr);
+      fprintf(stderr, "memory out-of-bound %llu + %llu vs %llu! (Base %p, %llu check&adjust)\n",
+              Offset, AccessSize, ObjSize, (void *)MBasePtr, Magic);
       if (FailOnError) {
         // TODO: Configure this to report if requested
         __builtin_trap();
@@ -61,9 +78,9 @@ struct EncodingCommonTy {
       return nullptr;
     }
 #if 0
-    printf("--> %p\n", MPtr + Offset);
+    printf("--> %p\n", MBasePtr + Offset);
 #endif
-    return MPtr + Offset;
+    return MBasePtr + Offset;
   }
 };
 
@@ -193,7 +210,7 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
   char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
-//    __builtin_prefetch(D.MPtr, 0, 3);
+    //    __builtin_prefetch(D.MPtr, 0, 3);
     *SizePtr = E.Bits.ObjSize;
     return D.MPtr;
   }
@@ -293,9 +310,9 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
-//    __builtin_prefetch(&Obj + 8, 0, 3);
-//    __builtin_prefetch(&Obj + 16, 0, 3);
-//    __builtin_prefetch(Obj.Base, 0, 3);
+    //    __builtin_prefetch(&Obj + 8, 0, 3);
+    //    __builtin_prefetch(&Obj + 16, 0, 3);
+    //    __builtin_prefetch(Obj.Base, 0, 3);
     *SizePtr = Obj.ObjSize;
     return Obj.Base;
   }
