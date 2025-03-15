@@ -83,7 +83,7 @@ public:
   }
   bool isAccessSafe(Instruction *I) const { return SafeAccesses.lookup(I); }
   bool insertSafeAccess(Instruction *I, Value *Obj) {
-    return SafeAccesses[I] = Obj;
+    return (SafeAccesses[I] = Obj);
   }
 
   bool insertSafeObject(Value *Obj) { return SafeObjects.insert(Obj); }
@@ -91,7 +91,7 @@ public:
   bool isObjectSafe(Value *Obj) const { return SafeObjects.contains(Obj); }
 
   bool insertSanitizedObject(Value *Obj, int64_t Size) {
-    return SanitizedObjects[Obj] = Size;
+    return (SanitizedObjects[Obj] = Size);
   }
   bool isSanitizedObject(Value *Obj) const {
     return SanitizedObjects.contains(Obj);
