@@ -1,12 +1,16 @@
-// RUN: %clangxx_inputgen_gen -c %s -o %t.gen.o
-// RUN: %clangxx_inputgen_replay_gen -c %s -o %t.repl.o
-// XFAIL: *
+// RUN: %clangxx_inputgen_full_gen
+// RUN: %clangxx_inputgen_full_replay_gen
 
-#include <stdio.h>
+// RUN: %inputgen_gen > %inputgen_gen.0.0.0.inp.gen.out
+//      Did we manage to generate a valid input?
+// RUN: ls %inputgen_gen.0.0.0.inp
+// RUN: %inputgen_repl_gen %inputgen_gen.0.0.0.inp > %inputgen_gen.0.0.0.inp.repl.out
+// RUN: diff %inputgen_gen.0.0.0.inp.gen.out %inputgen_gen.0.0.0.inp.repl.out
+
+extern "C" int printf(const char *__restrict __format, ...);
 
 __attribute__((inputgen_entry)) void matmul(double *a, double *b, double *m,
                                             int n) {
-
   for (int i = 0; i < n; ++i) {
     for (int j = 0; j < n; ++j) {
       double t = 0.0;

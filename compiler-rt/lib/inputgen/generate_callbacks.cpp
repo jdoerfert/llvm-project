@@ -1,21 +1,21 @@
-// LLVM Instrumentor stub runtime
-
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <stdint.h>
 #include <stdio.h>
 
 #include "common.h"
+#include "defer.h"
 #include "vm_obj.h"
 #include "vm_values.h"
 
 using namespace __ig;
 
 #ifndef NDEBUG
-#define PRINTF(...) printf(__VA_ARGS__)
+#define PRINTF(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define PRINTF(...)
 #endif
@@ -56,32 +56,42 @@ struct __attribute__((packed)) AllocationInfoTy {
   uint32_t InitialValue;
 };
 
-extern ObjectManager ThreadOM;
+namespace __ig {
+extern bool GM;
+extern DeferGlobalConstruction<ObjectManager, GM> ThreadOM;
+} // namespace __ig
 
 extern "C" {
 
 IG_API_ATTRS
-char *__ig_pre_global(char *address, char *name, int64_t initial_value,
-                       int32_t initial_value_size, int8_t is_constant) {
-  PRINTF("global pre -- address: %p, name: %s, initial_value: %lli, "
-         "initial_value_size: %i, is_constant: %i\n",
-         address, name, initial_value, initial_value_size, is_constant);
-  __builtin_memcpy(address, &initial_value, initial_value_size);
-  auto *P = ThreadOM.encode(address, initial_value_size);
-  return P;
+void __ig_pre_module(char *module_name, char *name, int32_t id) {
+  PRINTF("module pre -- module_name: %s, name: %s, id: %i\n", module_name, name,
+         id);
+  ThreadOM.init();
 }
 
 IG_API_ATTRS
-char *__ig_pre_global_ind(char *address, char *name,
-                           int64_t *initial_value_ptr,
-                           int32_t initial_value_size, int8_t is_constant) {
-  PRINTF("global pre -- address: %p, name: %s, initial_value: %p, "
+void __ig_post_module(char *module_name, char *name, int32_t id) {
+  PRINTF("module post -- module_name: %s, name: %s, id: %i\n", module_name,
+         name, id);
+}
+
+IG_API_ATTRS
+char *__ig_pre_global_ind(char *address, char *name, char *initial_value_ptr,
+                          int32_t initial_value_size, int8_t is_constant) {
+  if (is_constant)
+    return ThreadOM->encodeUserObj(address, initial_value_size);
+  return ThreadOM->addGlobal(address, name, initial_value_size);
+}
+
+IG_API_ATTRS
+char *__ig_pre_global(char *address, char *name, int64_t initial_value,
+                      int32_t initial_value_size, int8_t is_constant) {
+  PRINTF("global pre -- address: %p, name: %s, initial_value: %lli, "
          "initial_value_size: %i, is_constant: %i\n",
-         address, name, (void *)initial_value_ptr, initial_value_size,
-         is_constant);
-  __builtin_memcpy(address, initial_value_ptr, initial_value_size);
-  auto *P = ThreadOM.encode(address, initial_value_size);
-  return P;
+         address, name, initial_value, initial_value_size, is_constant);
+  return __ig_pre_global_ind(address, name, (char *)&initial_value,
+                             initial_value_size, is_constant);
 }
 
 IG_API_ATTRS
@@ -105,7 +115,7 @@ void __ig_pre_call(char *callee, char *callee_name, int64_t intrinsic_id,
     if (VP->TypeId == 14) {
       char *VPVPtr = reinterpret_cast<char *>(&VP->Value);
       char *VPtr = *(char **)VPVPtr;
-      char *MPtr = ThreadOM.decode(VPtr);
+      char *MPtr = ThreadOM->decode(VPtr);
       PRINTF("Call arg %p -> %p\n", VPtr, MPtr);
 #ifndef NDEBUG
       if (callee_name && !strcmp(callee_name, "__sprintf_chk"))
@@ -130,11 +140,11 @@ void *__ig_pre_load_slow(char *pointer, char *base_pointer_info,
       "%p, value_size: %lli, alignment: %lli, value_type_id: %i\n",
       pointer, base_pointer_info, loop_value_range_info, value_size, alignment,
       value_type_id);
-  ThreadOM.checkBranchConditions(pointer, base_pointer_info);
+  ThreadOM->checkBranchConditions(pointer, base_pointer_info);
   bool AnyInitialized = false, AllInitialized = true;
-  auto *MPtr = ThreadOM.decodeForAccess(pointer, value_size, value_type_id,
-                                        READ, base_pointer_info, AnyInitialized,
-                                        AllInitialized);
+  auto *MPtr = ThreadOM->decodeForAccess(pointer, value_size, value_type_id,
+                                         READ, base_pointer_info,
+                                         AnyInitialized, AllInitialized);
   PRINTF("--> %p\n", MPtr);
   return MPtr;
 }
@@ -163,9 +173,9 @@ void *__ig_pre_store_slow(char *pointer, char *base_pointer_info,
       pointer, base_pointer_info, loop_value_range_info, value_size, alignment,
       value_type_id);
   bool AnyInitialized = false, AllInitialized = true;
-  auto *MPtr = ThreadOM.decodeForAccess(pointer, value_size, value_type_id,
-                                        WRITE, base_pointer_info,
-                                        AnyInitialized, AllInitialized);
+  auto *MPtr = ThreadOM->decodeForAccess(pointer, value_size, value_type_id,
+                                         WRITE, base_pointer_info,
+                                         AnyInitialized, AllInitialized);
   PRINTF("--> %p\n", MPtr);
   return MPtr;
 }
@@ -214,7 +224,7 @@ int64_t __ig_post_call(char *callee, char *callee_name, int64_t intrinsic_id,
       }
       parameters += sizeof(ParameterValuePackTy) + VP->Size + Padding;
     }
-    char *VPtr = ThreadOM.encode((char *)return_value, Size);
+    char *VPtr = ThreadOM->encodeUserObj((char *)return_value, Size);
     PRINTF("allocation (%s) %p -> %p [%i]\n", callee_name, (void *)return_value,
            VPtr, Size);
     return (uint64_t)VPtr;
@@ -226,7 +236,7 @@ IG_API_ATTRS
 char *__ig_post_alloca(char *address, int64_t size, int64_t alignment) {
   PRINTF("alloca post -- address: %p, size: %lli, alignment: %lli\n", address,
          size, alignment);
-  char *VPtr = ThreadOM.encode(address, size);
+  char *VPtr = ThreadOM->encodeUserObj(address, size);
   PRINTF("--> %p\n", VPtr);
   return VPtr;
 }
@@ -236,7 +246,9 @@ char *__ig_post_base_pointer_info(char *base_pointer,
                                   int32_t base_pointer_kind) {
   PRINTF("base_pointer_info post -- base_pointer: %p, base_pointer_kind: %i\n",
          base_pointer, base_pointer_kind);
-  return ThreadOM.getBasePtrInfo(base_pointer);
+  char *BPI = ThreadOM->getBasePtrInfo(base_pointer);
+  PRINTF("base_pointer_info --> %p\n", BPI);
+  return BPI;
 }
 
 IG_API_ATTRS
@@ -247,10 +259,10 @@ void *__ig_post_loop_value_range(int64_t initial_loop_val,
 
   char *VPtrBegin = (char *)initial_loop_val;
   int64_t Size = final_loop_val - initial_loop_val + max_offset;
-  [[maybe_unused]] char *BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
+  [[maybe_unused]] char *BaseVPtr = ThreadOM->getBaseVPtr(VPtrBegin);
   PRINTF("%p %p %lli\n", VPtrBegin, BaseVPtr, Size);
-  bool AllInitialized = ThreadOM.checkRange(VPtrBegin, Size);
-  BaseVPtr = ThreadOM.getBaseVPtr(VPtrBegin);
+  bool AllInitialized = ThreadOM->checkRange(VPtrBegin, Size);
+  BaseVPtr = ThreadOM->getBaseVPtr(VPtrBegin);
   PRINTF("%p %p %lli -> %i\n", VPtrBegin, BaseVPtr, Size, AllInitialized);
   if (!AllInitialized)
     return 0;
@@ -266,11 +278,11 @@ int8_t __ig_post_icmp(int8_t value, int8_t is_ptr_cmp,
   if (!is_ptr_cmp)
     return value;
 
-  auto [LHSInfo, LHSOffset] = ThreadOM.getPtrInfo((char *)lhs, true);
-  auto [RHSInfo, RHSOffset] = ThreadOM.getPtrInfo((char *)rhs, true);
+  auto [LHSInfo, LHSOffset] = ThreadOM->getPtrInfo((char *)lhs, true);
+  auto [RHSInfo, RHSOffset] = ThreadOM->getPtrInfo((char *)rhs, true);
   if (LHSInfo >= 0 || RHSInfo >= 0)
-    return ThreadOM.comparePtrs(value, (char *)lhs, LHSInfo, LHSOffset,
-                                (char *)rhs, RHSInfo, RHSOffset);
+    return ThreadOM->comparePtrs(value, (char *)lhs, LHSInfo, LHSOffset,
+                                 (char *)rhs, RHSInfo, RHSOffset);
 
   return value;
 }
@@ -278,11 +290,11 @@ int8_t __ig_post_icmp(int8_t value, int8_t is_ptr_cmp,
 IG_API_ATTRS
 int64_t __ig_post_ptrtoint(char *pointer, int64_t value) {
   PRINTF("ptrtoint post -- pointer: %p, value: %lli\n", pointer, value);
-  return ThreadOM.ptrToInt((char *)pointer, value);
+  return ThreadOM->ptrToInt((char *)pointer, value);
 }
 
 IG_API_ATTRS
-char *__ig_decode(char *pointer) { return ThreadOM.decode(pointer); }
+char *__ig_decode(char *pointer) { return ThreadOM->decode(pointer); }
 
 IG_API_ATTRS
 void *__ig_register_branch_condition_info(uint32_t bci_no, uint32_t num_fvi,
@@ -291,7 +303,7 @@ void *__ig_register_branch_condition_info(uint32_t bci_no, uint32_t num_fvi,
          "%p\n",
          bci_no, num_fvi, fvi_ptr);
 
-  auto *BCI = ThreadOM.getOrCreateBranchCondition(bci_no);
+  auto *BCI = ThreadOM->getOrCreateBranchCondition(bci_no);
   if (BCI->IsFixed)
     return nullptr;
 
@@ -345,9 +357,9 @@ void *__ig_register_branch_condition_info(uint32_t bci_no, uint32_t num_fvi,
 
   for (auto &FVI : BCI->FreeValueInfos) {
     assert(FVI.VPtr);
-    ThreadOM.addBranchCondition(FVI.VPtr, BCI);
+    ThreadOM->addBranchCondition(FVI.VPtr, BCI);
     if (FVI.VCmpPtr)
-      ThreadOM.addBranchCondition(FVI.VCmpPtr, BCI);
+      ThreadOM->addBranchCondition(FVI.VCmpPtr, BCI);
   }
   return BCI;
 }
@@ -385,7 +397,7 @@ void __ig_pre_branch_condition_info(char *branch_condition_fn,
     }
     if (BCVPtr->TypeId == 14) {
       char *Value = *((char **)&BCVPtr->Value);
-      Value = ThreadOM.decode(Value);
+      Value = ThreadOM->decode(Value);
       PRINTF("Arg %u:: %p -> %p [%i @ %u]\n", ArgMemSize,
              *((char **)&BCVPtr->Value), Value, BCVPtr->Size, ArgMemSize);
       __builtin_memcpy(ArgMemPtr + ArgMemSize, &Value, BCVPtr->Size);
@@ -408,23 +420,23 @@ void __ig_pre_branch_condition_info(char *branch_condition_fn,
 IG_API_ATTRS
 int __ig_known_memcmp(char *s1, char *s2, size_t n) {
   PRINTF("memcmp -- s1: %p, s2: %p, n: %zu\n", s1, s2, n);
-  auto *BPI1 = ThreadOM.getBasePtrInfo(s1);
-  auto *BPI2 = ThreadOM.getBasePtrInfo(s2);
+  auto *BPI1 = ThreadOM->getBasePtrInfo(s1);
+  auto *BPI2 = ThreadOM->getBasePtrInfo(s2);
   // TODO: Workaround until global supported.
 
   if (BPI1 || BPI2)
-    ThreadOM.checkBranchConditions(s1, BPI1, s2, BPI2);
+    ThreadOM->checkBranchConditions(s1, BPI1, s2, BPI2);
 
   bool AnyInitialized1 = false, AllInitialized1 = true;
   bool AnyInitialized2 = false, AllInitialized2 = true;
-  auto *MPtr1 = BPI1
-                    ? ThreadOM.decodeForAccess(s1, n, 12, READ, BPI1,
-                                               AnyInitialized1, AllInitialized1)
-                    : s1;
-  auto *MPtr2 = BPI2
-                    ? ThreadOM.decodeForAccess(s2, n, 12, READ, BPI2,
-                                               AnyInitialized2, AllInitialized2)
-                    : s2;
+  auto *MPtr1 =
+      BPI1 ? ThreadOM->decodeForAccess(s1, n, 12, READ, BPI1, AnyInitialized1,
+                                       AllInitialized1)
+           : s1;
+  auto *MPtr2 =
+      BPI2 ? ThreadOM->decodeForAccess(s2, n, 12, READ, BPI2, AnyInitialized2,
+                                       AllInitialized2)
+           : s2;
   PRINTF("memcmp -- s1: '%s', s2: '%s', n: %zu\n", MPtr1, MPtr2, n);
   return memcmp(MPtr1, MPtr2, n);
 }
@@ -442,23 +454,23 @@ int __ig_known_memcmp2(char *s1, char *s2, size_t n) {
 IG_API_ATTRS
 int __ig_known_strcmp(char *s1, char *s2) {
   PRINTF("strcmp -- s1: %p, s2: %p\n", s1, s2);
-  auto *BPI1 = ThreadOM.getBasePtrInfo(s1);
-  auto *BPI2 = ThreadOM.getBasePtrInfo(s2);
+  auto *BPI1 = ThreadOM->getBasePtrInfo(s1);
+  auto *BPI2 = ThreadOM->getBasePtrInfo(s2);
   // TODO: Workaround until global supported.
 
   if (BPI1 || BPI2)
-    ThreadOM.checkBranchConditions(s1, BPI1, s2, BPI2);
+    ThreadOM->checkBranchConditions(s1, BPI1, s2, BPI2);
 
   do {
     bool AnyInitialized1 = false, AllInitialized1 = true;
     bool AnyInitialized2 = false, AllInitialized2 = true;
     auto *MPtr1 =
-        BPI1 ? ThreadOM.decodeForAccess(s1, 1, 12, READ, BPI1, AnyInitialized1,
-                                        AllInitialized1)
+        BPI1 ? ThreadOM->decodeForAccess(s1, 1, 12, READ, BPI1, AnyInitialized1,
+                                         AllInitialized1)
              : s1;
     auto *MPtr2 =
-        BPI2 ? ThreadOM.decodeForAccess(s2, 1, 12, READ, BPI2, AnyInitialized2,
-                                        AllInitialized2)
+        BPI2 ? ThreadOM->decodeForAccess(s2, 1, 12, READ, BPI2, AnyInitialized2,
+                                         AllInitialized2)
              : s2;
     if (*MPtr1 != *MPtr2)
       return *MPtr1 - *MPtr2;
@@ -496,7 +508,7 @@ int __ig_known___sprintf_chk(char *s, int flags, size_t slen,
 IG_API_ATTRS
 void __ig_gen_value(void *pointer, int32_t value_size, int64_t alignment,
                     int32_t value_type_id) {
-  PRINTF("load pre -- pointer: %p, value_size: %i, alignment: %lli, "
+  PRINTF("gen value -- pointer: %p, value_size: %i, alignment: %lli, "
          "value_type_id: %i\n",
          pointer, value_size, alignment, value_type_id);
   memset(pointer, 0, value_size);

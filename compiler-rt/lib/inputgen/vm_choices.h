@@ -45,8 +45,8 @@ struct ChoiceManager {
   ChoiceTrace *initializeChoices(uint32_t I) {
     auto *CT = new ChoiceTrace(I, LastChoice);
 #ifndef NDEBUG
-    std::cout << "INITIAL CHOICES: " << CT->Decisions << "\n";
-    std::cout << "CHOICES TO MAKE: " << CT->ChoicesToMake << "\n";
+    std::cerr << "INITIAL CHOICES: " << CT->Decisions << "\n";
+    std::cerr << "CHOICES TO MAKE: " << CT->ChoicesToMake << "\n";
 #endif
     Choices.push_back(CT);
     return CT;

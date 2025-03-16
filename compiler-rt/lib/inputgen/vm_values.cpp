@@ -9,7 +9,9 @@
 
 using namespace __ig;
 
+namespace __ig {
 extern ObjectManager ThreadOM;
+} // namespace __ig
 
 FreeValueInfo::FreeValueInfo(uint32_t TypeId, uint32_t Size, char *VPtr)
     : TypeId(TypeId), Size(Size), VPtr(VPtr), MPtr(nullptr) {}

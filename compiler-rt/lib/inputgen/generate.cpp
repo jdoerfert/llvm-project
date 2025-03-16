@@ -1,24 +1,34 @@
 #include "common.h"
+#include "defer.h"
+#include "logging.h"
 #include "timer.h"
 #include "vm_choices.h"
 #include "vm_obj.h"
-#include "logging.h"
 
 #include <bit>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <stdio.h>
 #include <string>
 #include <string_view>
 #include <thread>
-#include <condition_variable>
 
-extern "C" uint32_t __ig_num_entry_points;
-extern "C" void __ig_entry(uint32_t, void *);
+// We are depending on this = false to be embedded as an initial value in the
+// global of the binary so that we have it set to false before we get the call
+// to __ig_pre_module. It seems to work in the current state (but may break if
+// optimizations are off? Or does it work because the memory is initialized to
+// 0 by default?)
+//
+// In the current inputgen we assume we instrument for generation only a
+// single module so we should get exactly one call to init, so in theory we
+// don't need it.
+namespace __ig {
+bool GM = false;
+DeferGlobalConstruction<ObjectManager, GM> ThreadOM;
+} // namespace __ig
 
 using namespace __ig;
-
-ObjectManager ThreadOM;
 
 struct SharedState {
   SharedState(uint32_t NumThreads, std::vector<uint32_t> &Seeds)
@@ -59,9 +69,9 @@ struct GenerationThread {
     fprintf(stderr, "thread generating %u inputs\n", E - I);
     auto *GT = new GenerationThread(*SS, I, E, EntryNo);
     auto *ChoiceTrace = SS->CM.initializeChoices(GT->ID);
-    ThreadOM.init(ChoiceTrace, OutputName,
-                  std::bind(&GenerationThread::stopGeneration, GT,
-                            std::placeholders::_1));
+    ThreadOM->init(ChoiceTrace, OutputName,
+                   std::bind(&GenerationThread::stopGeneration, GT,
+                             std::placeholders::_1));
     GT->startGeneration();
   }
 
@@ -70,8 +80,8 @@ struct GenerationThread {
     {
       Timer T("init " + std::to_string(I));
       assert(I < E);
-      ThreadOM.setSeed(SS.getSeed(I));
-      Obj = ThreadOM.getObj(I);
+      ThreadOM->setSeed(SS.getSeed(I));
+      Obj = ThreadOM->getObj(I);
     }
     {
       Timer T("rec  " + std::to_string(I));
@@ -83,13 +93,13 @@ struct GenerationThread {
   void stopGeneration(uint32_t ExitCode) {
     {
       Timer T("save " + std::to_string(I));
-      ThreadOM.saveInput(EntryNo, I, ExitCode);
+      ThreadOM->saveInput(EntryNo, I, ExitCode);
     }
 
     if (++I < E) {
       fprintf(stderr, "reset and restart %u of %u\n", I, E);
       if (SS.CM.returnChoices(ID)) {
-        ThreadOM.reset();
+        ThreadOM->reset();
         startGeneration();
       }
       fprintf(stderr, "No more choices to explore!\n");
@@ -111,7 +121,10 @@ int main(int argc, char **argv) {
     EntryNo = std::atoi(argv[1]);
   if (argc > 2)
     NumInputs = std::atoi(argv[2]);
-  if (argc > 3)
+  // TODO Threading disabled for now. We need to make sure each thread gets its
+  // own deep copy of ThreadOM (i.e. also reallocate and copy over any dynamic
+  // memory in there)
+  if (false && argc > 3)
     NumThreads = std::bit_floor((uint32_t)std::atoi(argv[3]));
   if (argc > 4)
     FirstInput = std::atoi(argv[4]);
@@ -126,7 +139,7 @@ int main(int argc, char **argv) {
 
   if (static_cast<uint32_t>(EntryNo) >= __ig_num_entry_points) {
     ERR("Entry {} is out of bounds, {} available\n", EntryNo,
-            __ig_num_entry_points);
+        __ig_num_entry_points);
     exit(static_cast<int>(ExitStatus::EntryNoOutOfBounds));
   }
 

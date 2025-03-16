@@ -2,6 +2,9 @@
 #define COMMON_H
 
 #include <cstdint>
+#include <vector>
+
+extern "C" void __ig_entry(uint32_t, void *);
 
 extern "C" char *__ig_entry_point_names[];
 extern "C" uint32_t __ig_num_entry_points;

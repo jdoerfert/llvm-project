@@ -1,5 +1,5 @@
-
 #include "common.h"
+#include "global_manager.h"
 #include "logging.h"
 #include "timer.h"
 #include "vm_storage.h"
@@ -7,24 +7,12 @@
 #include <cstdint>
 #include <cstdio>
 
-#ifndef NDEBUG
-#define PRINTF(...) printf(__VA_ARGS__)
-#else
-#define PRINTF(...)
-#endif
+namespace __ig {
+bool GMInit = false;
+DeferGlobalConstruction<GlobalManager, GMInit> GM;
+} // namespace __ig
 
-extern "C" {
-IG_API_ATTRS
-void __ig_gen_value(void *pointer, int32_t value_size, int64_t alignment,
-                    int32_t value_type_id) {
-  PRINTF("load pre -- pointer: %p, value_size: %i, alignment: %lli, "
-         "value_type_id: %i\n",
-         pointer, value_size, alignment, value_type_id);
-  memset(pointer, 0, value_size);
-}
-}
-
-extern "C" void __ig_entry(uint32_t, void *);
+using namespace __ig;
 
 int main(int argc, char **argv) {
   if (argc < 2) {
@@ -44,15 +32,26 @@ int main(int argc, char **argv) {
   }
 
   void *P;
+  storage::StorageManager SM;
   {
     Timer T("init");
-    StorageManager SM;
     std::ifstream IFS(argv[1], std::ios_base::in | std::ios_base::binary);
     const int BufferSize = 65536; // Example: 64KB
     char *Buffer = new char[BufferSize];
     IFS.rdbuf()->pubsetbuf(Buffer, BufferSize);
     IFS.tie(nullptr);
-    P = SM.read(IFS);
+
+    SM.read(IFS, *GM);
+
+    P = SM.getEntryPtr();
+
+#ifndef NDEBUG
+    assert(GM.isConstructed());
+    for (auto G : GM->Globals)
+      std::cerr << G.Name << "\n";
+    for (auto G : SM.Globals)
+      std::cerr << G.Name << "\n";
+#endif
   }
   {
     Timer T("replay");

@@ -1,5 +1,6 @@
 
 #include "vm_storage.h"
+#include "global_manager.h"
 #include "vm_obj.h"
 
 #include <cassert>
@@ -49,6 +50,54 @@ template <typename T> static T writeV(std::ofstream &Output, T El) {
 #define DEFINE_WRITEV(S) auto WRITEV = [&S]<typename T>(T V) { writeV(S, V); };
 #endif
 
+namespace __ig::storage {
+
+Global::Global(std::ifstream &IFS, GlobalManager &GM) {
+  DEFINE_READV(IFS);
+  uint32_t NameSize;
+  READV(NameSize);
+  Name.resize(NameSize);
+  IFS.read(Name.data(), NameSize);
+  // TODO this can be optimized by sorting the globals
+  char *Memory = nullptr;
+  for (auto G : GM.Globals)
+    if (G.Name == Name)
+      Memory = G.Address;
+  if (!Memory) {
+    ERR("Could not find global with name {}\n", Name);
+    exit(1003);
+  }
+  R.init(Range(IFS, Memory));
+}
+
+void Global::write(std::ofstream &OFS) {
+  DEFINE_WRITEV(OFS);
+  uint32_t NameSize = Name.size();
+  WRITEV(NameSize);
+  OFS.write(Name.data(), NameSize);
+  R->write(OFS);
+}
+
+Range::Range(std::ifstream &IFS, char *Memory) {
+  DEFINE_READV(IFS);
+  READV(ObjIdx);
+  READV(NegativeSize);
+  READV(AnyRecorded);
+  ptrdiff_t Length;
+  READV(Length);
+  // TODO I am unsure if this offset it right
+  Begin = Memory + NegativeSize;
+  End = Begin + Length;
+  if (Length) {
+    if (AnyRecorded) {
+      assert(Memory);
+      IFS.read(Begin, Length);
+    }
+  } else {
+    Begin = End = nullptr;
+  }
+}
+
 Range::Range(std::ifstream &IFS) {
   DEFINE_READV(IFS);
   READV(ObjIdx);
@@ -96,11 +145,10 @@ void Ptr::write(std::ofstream &OFS) {
 
 StorageManager::StorageManager() { std::ios::sync_with_stdio(false); }
 
-void StorageManager::encode(ObjectManager &OM, uint32_t ObjIdx,
-                            TableSchemeBaseTy::TableEntryTy &TE) {
+Range StorageManager::encodeRange(ObjectManager &OM, uint32_t ObjIdx,
+                                  TableSchemeBaseTy::TableEntryTy &TE) {
   if (TE.IsNull) {
-    Ranges.emplace_back(ObjIdx, false, 0, nullptr, nullptr);
-    return;
+    return Range(ObjIdx, false, 0, nullptr, nullptr);
   }
   char *ValueP = TE.getBase();
   char *SavedP = TE.SavedValues;
@@ -139,40 +187,67 @@ void StorageManager::encode(ObjectManager &OM, uint32_t ObjIdx,
   }
 
   char *BaseP = SavedP ? SavedP : ValueP;
-  Ranges.emplace_back(ObjIdx, AnyRead, TE.getNegativeSize(), BaseP,
-                      BaseP + TE.getSize());
+  return Range(ObjIdx, AnyRead, TE.getNegativeSize(), BaseP,
+               BaseP + TE.getSize());
+}
+
+void StorageManager::encode(ObjectManager &OM, uint32_t ObjIdx,
+                            TableSchemeBaseTy::TableEntryTy &TE) {
+  Range R = encodeRange(OM, ObjIdx, TE);
+  if (TE.GlobalName) {
+    Globals.emplace_back(R, TE.GlobalName);
+  } else {
+    Ranges.push_back(R);
+  }
 }
 
 void StorageManager::write(std::ofstream &OFS) {
   DEFINE_WRITEV(OFS);
+
   uint32_t NRanges = Ranges.size();
   WRITEV(NRanges);
   for (auto &Range : Ranges)
     Range.write(OFS);
+
+  uint32_t NGlobals = Globals.size();
+  WRITEV(NGlobals);
+  for (auto &Global : Globals)
+    Global.write(OFS);
+
   uint32_t NPtrs = Ptrs.size();
   WRITEV(NPtrs);
   for (auto &Ptr : Ptrs)
     Ptr.write(OFS);
 }
 
-void *StorageManager::read(std::ifstream &IFS) {
+void StorageManager::read(std::ifstream &IFS, GlobalManager &GM) {
   DEFINE_READV(IFS);
 
   uint32_t NRanges;
   READV(NRanges);
-  for (uint32_t I = 0; I < NRanges; ++I) {
+  for (uint32_t I = 0; I < NRanges; ++I)
     Ranges.emplace_back(IFS);
-  }
+
+  uint32_t NGlobals;
+  READV(NGlobals);
+  for (uint32_t I = 0; I < NGlobals; ++I)
+    Globals.emplace_back(IFS, GM);
+
   uint32_t NPtrs;
   READV(NPtrs);
-  for (uint32_t I = 0; I < NPtrs; ++I) {
+  for (uint32_t I = 0; I < NPtrs; ++I)
     Ptrs.emplace_back(IFS);
-  }
+
   for (auto &Ptr : Ptrs) {
     auto &ObjRange = Ranges[Ptr.ObjIdx];
     auto &TgtObjRange = Ranges[Ptr.TgtObjIdx];
     *(char **)(&ObjRange.Begin[Ptr.Offset]) =
         &TgtObjRange.Begin[Ptr.TgtOffset + TgtObjRange.NegativeSize];
   }
+}
+
+void *StorageManager::getEntryPtr() {
   return Ranges[0].Begin + Ranges[0].NegativeSize;
 }
+
+} // namespace __ig::storage

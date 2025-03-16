@@ -8,13 +8,13 @@ namespace __ig {
 
 template <typename... Args>
 void INFO(const std::format_string<Args...> S, Args &&...As) {
-  std::cout << std::format(S, std::forward<Args>(As)...);
+  std::cerr << std::format(S, std::forward<Args>(As)...);
 }
 
 template <typename... Args>
 void VERBOSE(const std::format_string<Args...> S, Args &&...As) {
 #ifndef NDEBUG
-  std::cout << std::format(S, std::forward<Args>(As)...);
+  std::cerr << std::format(S, std::forward<Args>(As)...);
 #endif
 }
 

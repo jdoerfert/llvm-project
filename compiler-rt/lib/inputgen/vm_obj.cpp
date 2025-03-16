@@ -10,7 +10,7 @@ using namespace __ig;
 
 ObjectManager::~ObjectManager() {}
 
-void *ObjectManager::getObj(uint32_t Seed) { return add(0, 8, Seed); }
+void *ObjectManager::getObj(uint32_t Seed) { return add(8, Seed); }
 
 void ObjectManager::reset() {
   UserObjSmall.reset();
@@ -31,7 +31,7 @@ void ObjectManager::saveInput(uint32_t EntryNo, uint32_t InputIdx,
   }
 #endif
 
-  StorageManager SM;
+  storage::StorageManager SM;
 
   for (uint32_t I = 0, E = RTObjs.TableEntryCnt; I != E; ++I) {
     SM.encode(*this, I, RTObjs.Table[I]);

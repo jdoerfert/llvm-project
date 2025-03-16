@@ -162,7 +162,7 @@ struct BranchConditionInfo {
 struct InputGenInstrumentationConfig : public InstrumentationConfig {
 
   InputGenInstrumentationConfig(InputGenMemoryImpl &IGMI, Module &M,
-                                ModuleAnalysisManager &MAM);
+                                ModuleAnalysisManager &MAM, IGIMode Mode);
   virtual ~InputGenInstrumentationConfig() {}
 
   void populate(InstrumentorIRBuilderTy &IRB) override;
@@ -183,6 +183,7 @@ struct InputGenInstrumentationConfig : public InstrumentationConfig {
     return FAM.getResult<T>(F);
   }
 
+  IGIMode Mode;
   FunctionAnalysisManager &FAM;
   DenseMap<BranchInst *, uint32_t> BranchMap;
 };
@@ -191,7 +192,7 @@ struct InputGenInstrumentationConfig;
 
 struct InputGenMemoryImpl {
   InputGenMemoryImpl(Module &M, ModuleAnalysisManager &MAM, IGIMode Mode)
-      : M(M), MAM(MAM), Mode(Mode), IConf(*this, M, MAM) {}
+      : M(M), MAM(MAM), Mode(Mode), IConf(*this, M, MAM, Mode) {}
 
   bool instrument();
 
@@ -493,6 +494,7 @@ bool BranchConditionIO::analyzeBranch(BranchInst &BI,
     auto *I = cast<Instruction>(V);
     auto *CloneI = I->clone();
     CloneI->insertInto(ComputeBB, ComputeBB->begin());
+    CloneI->setMetadata(LLVMContext::MD_dbg, nullptr);
     if (auto *CI = dyn_cast<CallInst>(CloneI))
       if (auto *Callee = CI->getCalledFunction())
         if (Callee->getName().starts_with(IConf.getRTName()))
@@ -935,11 +937,10 @@ bool InputGenMemoryImpl::handleIndirectCalleeCandidates() {
   SmallSetVector<Function *, 16> IndirectCalleeCandidates;
   if (GlobalVariable *GV =
       M.getGlobalVariable(InputGenIndirectCalleeCandidateGlobalName)) {
-    if (GV->hasInitializer()) {
-      auto *CA = cast<ConstantArray>(GV->getInitializer());
-      for (Use &Op : CA->operands())
-        IndirectCalleeCandidates.insert(cast<Function>(Op));
-    }
+    if (GV->hasInitializer())
+      if (auto *CA = dyn_cast<ConstantArray>(GV->getInitializer()))
+        for (Use &Op : CA->operands())
+          IndirectCalleeCandidates.insert(cast<Function>(Op));
     assert(GV->use_empty());
     GV->eraseFromParent();
     Changed = true;
@@ -1026,36 +1027,37 @@ bool InputGenMemoryImpl::instrument() {
   Changed |= handleDeclarations();
   Changed |= handleGlobals();
 
-  if (Mode != IGIMode::Generate)
-    return Changed;
-
-  // TODO: HACK for qsort, we need to actually check the functions we rename
-  // here and qsort explicitly.
-  for (auto &Fn : M) {
-    if (Fn.isDeclaration() || !Fn.hasLocalLinkage())
-      continue;
-    bool HasNonQSortUses = false;
-    for (auto &U : Fn.uses()) {
-      if (auto *CU = dyn_cast<Constant>(U.getUser()))
-        if (CU->getNumUses() == 1)
-          if (auto *GV = dyn_cast<GlobalVariable>(CU->user_back()))
-            if (GV->getName() == "llvm.compiler.used" ||
-                GV->getName() == "llvm.used")
-              continue;
-      auto *CI = dyn_cast<CallInst>(U.getUser());
-      if (!CI || &CI->getCalledOperandUse() == &U || !CI->getCalledFunction() ||
-          CI->getCalledFunction()->getName() != "qsort") {
-        HasNonQSortUses = true;
-        break;
+  if (Mode == IGIMode::Generate) {
+    // TODO: HACK for qsort, we need to actually check the functions we rename
+    // here and qsort explicitly.
+    for (auto &Fn : M) {
+      if (Fn.isDeclaration() || !Fn.hasLocalLinkage())
+        continue;
+      bool HasNonQSortUses = false;
+      for (auto &U : Fn.uses()) {
+        if (auto *CU = dyn_cast<Constant>(U.getUser()))
+          if (CU->getNumUses() == 1)
+            if (auto *GV = dyn_cast<GlobalVariable>(CU->user_back()))
+              if (GV->getName() == "llvm.compiler.used" ||
+                  GV->getName() == "llvm.used")
+                continue;
+        auto *CI = dyn_cast<CallInst>(U.getUser());
+        if (!CI || &CI->getCalledOperandUse() == &U ||
+            !CI->getCalledFunction() ||
+            CI->getCalledFunction()->getName() != "qsort") {
+          HasNonQSortUses = true;
+          break;
+        }
       }
+      if (!HasNonQSortUses)
+        Fn.setName(IConf.getRTName() + Fn.getName());
     }
-    if (!HasNonQSortUses)
-      Fn.setName(IConf.getRTName() + Fn.getName());
   }
 
-  InstrumentorPass IP(&IConf);
+  if (Mode == IGIMode::Generate)
+    Changed |= createPathTable();
 
-  Changed |= createPathTable();
+  InstrumentorPass IP(&IConf);
 
   auto PA = IP.run(M, MAM);
   if (!PA.areAllPreserved())
@@ -1235,8 +1237,9 @@ bool InputGenEntriesImpl::createEntryPoint() {
 }
 
 InputGenInstrumentationConfig::InputGenInstrumentationConfig(
-    InputGenMemoryImpl &IGI, Module &M, ModuleAnalysisManager &MAM)
-    : InstrumentationConfig(), IGMI(IGI),
+    InputGenMemoryImpl &IGI, Module &M, ModuleAnalysisManager &MAM,
+    IGIMode Mode)
+    : InstrumentationConfig(), IGMI(IGI), Mode(Mode),
       FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()) {
   ReadConfig = false;
   RuntimePrefix->setString(InputGenRuntimePrefix);
@@ -1244,10 +1247,35 @@ InputGenInstrumentationConfig::InputGenInstrumentationConfig(
 }
 
 void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
+  assert(Mode != IGIMode::Disabled);
+
+  ModuleIO::populate(*this, IIRB.Ctx);
+
+  GlobalIO::ConfigTy GICConfig(/*Enable=*/false);
+  GICConfig.set(GlobalIO::PassAddress);
+  GICConfig.set(GlobalIO::PassName);
+  GICConfig.set(GlobalIO::PassInitialValue);
+  GICConfig.set(GlobalIO::PassInitialValueSize);
+  GICConfig.set(GlobalIO::PassIsConstant);
+  if (Mode == IGIMode::Generate)
+    GICConfig.set(GlobalIO::ReplaceAddress);
+  auto *GIC = InstrumentationConfig::allocate<GlobalIO>();
+  GIC->CB = [&](Value &V) {
+    return IGMI.shouldInstrumentGlobalVariable(cast<GlobalVariable>(V), IIRB);
+  };
+  GIC->init(*this, IIRB.Ctx, &GICConfig);
+
+  if (Mode != IGIMode::Generate)
+    return;
+
   UnreachableIO::ConfigTy UIOConfig(/*Enable=*/false);
   UnreachableIO::populate(*this, IIRB.Ctx, &UIOConfig);
+
   BasePointerIO::ConfigTy BPIOConfig(/*Enable=*/false);
+  BPIOConfig.set(BasePointerIO::PassPointer);
+  BPIOConfig.set(BasePointerIO::PassPointerKind);
   BasePointerIO::populate(*this, IIRB.Ctx, &BPIOConfig);
+
   LoopValueRangeIO::ConfigTy LVRIOConfig(/*Enable=*/false);
   LoopValueRangeIO::populate(*this, IIRB, &LVRIOConfig);
 
@@ -1311,18 +1339,6 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
     };
     CIC->init(*this, IIRB.Ctx, &CICConfig);
   }
-
-  GlobalIO::ConfigTy GICConfig(/*Enable=*/false);
-  GICConfig.set(GlobalIO::PassAddress);
-  GICConfig.set(GlobalIO::PassName);
-  GICConfig.set(GlobalIO::PassInitialValue);
-  GICConfig.set(GlobalIO::PassInitialValueSize);
-  GICConfig.set(GlobalIO::PassIsConstant);
-  auto *GIC = InstrumentationConfig::allocate<GlobalIO>();
-  GIC->CB = [&](Value &V) {
-    return IGMI.shouldInstrumentGlobalVariable(cast<GlobalVariable>(V), IIRB);
-  };
-  GIC->init(*this, IIRB.Ctx, &GICConfig);
 }
 
 bool tagEntries(Module &M) {
