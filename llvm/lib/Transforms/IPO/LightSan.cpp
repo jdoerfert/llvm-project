@@ -66,6 +66,7 @@ using namespace llvm::instrumentor;
 #define DEBUG_TYPE "lightsan"
 
 static constexpr char LightSanRuntimePrefix[] = "__objsan_";
+static constexpr char LightSanGlobalShadowPrefix[] = "__objsan_shadow.";
 static constexpr char AdapterPrefix[] = "__adapter_";
 [[maybe_unused]] static constexpr uint8_t SmallObjectEnc = 1;
 [[maybe_unused]] static constexpr uint8_t LargeObjectEnc = 2;
@@ -99,7 +100,9 @@ public:
     return SanitizedObjects.contains(Obj);
   }
   Value *getUnderlyingObject(Value *Obj) const {
-    if (auto *UO = RegisterCallsMap.lookup(Obj))
+    if (!Obj)
+      return nullptr;
+    if (auto *UO = getPreRegister(Obj))
       return UO;
     if (auto *AAUO = getAAUO(Obj)) {
       Value *UO = nullptr;
@@ -161,6 +164,19 @@ public:
 
   void insertRegisterCall(Value *Obj, CallInst *CI) {
     RegisterCallsMap[Obj] = CI;
+  }
+  Value *getPreRegister(Value *Obj) const {
+    if (!Obj)
+      return nullptr;
+    if (auto *UO = RegisterCallsMap.lookup(Obj))
+      return UO;
+    if (auto *LI = dyn_cast<LoadInst>(Obj)) {
+      if (auto *GV = dyn_cast<GlobalVariable>(LI->getPointerOperand()))
+        if (GV->getName().starts_with(LightSanGlobalShadowPrefix))
+          return GV->getParent()->getGlobalVariable(
+              GV->getName().drop_front(strlen(LightSanGlobalShadowPrefix)));
+    }
+    return nullptr;
   }
 
   Attributor &getAttributor() const { return A; }
@@ -1185,6 +1201,8 @@ bool LightSanImpl::instrument() {
       auto *Fn = CI->getFunction();
       auto *VPtr = CI->getArgOperand(0);
       auto IP = CI->getIterator();
+      if (auto *PReg = IConf.AIC->getPreRegister(VPtr))
+        VPtr = PReg;
       auto *MPtr = IConf.V2M.lookup({VPtr, Fn});
       if (!MPtr)
         continue;
@@ -1434,18 +1452,6 @@ struct AllocatorCallIO : public CallIO {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     bool MayEscape = !LSIConf.AIC->isNonEscapingObj(&V);
     return ConstantInt::get(&Ty, MayEscape);
-  }
-
-  Value *instrument(Value *&V, InstrumentationConfig &IConf,
-                    InstrumentorIRBuilderTy &IIRB,
-                    InstrumentationCaches &ICaches) override {
-    if (auto *CI = cast_if_present<CallInst>(
-            CallIO::instrument(V, IConf, IIRB, ICaches))) {
-      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-      LSIConf.AIC->insertRegisterCall(V, CI);
-      return CI;
-    }
-    return nullptr;
   }
 
   static void populate(InstrumentationConfig &IConf,
