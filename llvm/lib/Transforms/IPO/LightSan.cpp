@@ -230,6 +230,7 @@ bool LightSanImpl::shouldImplementAdapter(Function &Fn) {
 
 bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
                                         InstrumentorIRBuilderTy &IIRB) {
+#if 0
   if (!CI.hasFnAttr(Attribute::NoFree)) {
     IConf.PotentiallyFreeCalls.push_back(&CI);
     auto &TLI = IIRB.TLIGetter(*CI.getFunction());
@@ -240,6 +241,7 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
       IIRB.IRB.CreateCall(FreeFC, {FreedPtr});
     }
   }
+#endif
 
   Function *CalledFn = CI.getCalledFunction();
   if (!CalledFn)
@@ -853,6 +855,7 @@ bool LightSanImpl::createWeakAdapters() {
 
     auto *EntryBB = BasicBlock::Create(M.getContext(), "entry", AdapterFn);
     IRBuilder<> IRB(EntryBB, EntryBB->getFirstNonPHIOrDbgOrAlloca());
+    ensureDbgLoc(IRB);
     auto *CI = IRB.CreateCall(FC, AdapterArgs);
     if (CI->getType()->isVoidTy())
       IRB.CreateRetVoid();
@@ -1038,6 +1041,7 @@ bool LightSanImpl::instrument() {
       if (Calls.size() < 2)
         continue;
       SmallVector<Value *> MinPtrs, MaxPtrs;
+      SmallVector<CallInst *> CheckedCalls;
       CallInst *FirstCI = nullptr;
       for (auto *CI : Calls)
         if (!FirstCI || DT.dominates(CI, FirstCI))
@@ -1054,7 +1058,7 @@ bool LightSanImpl::instrument() {
           if (!DT.dominates(PtrI, FirstCI))
             continue;
         }
-        CI->setArgOperand(6, TrueInt8);
+        CheckedCalls.push_back(CI);
         MinPtrs.push_back(Ptr);
         MaxPtrs.push_back(IRB.CreatePtrAdd(Ptr, CI->getArgOperand(3), "",
                                            GEPNoWrapFlags::inBounds()));
@@ -1064,9 +1068,13 @@ bool LightSanImpl::instrument() {
 
       Value *MinV = MinPtrs.pop_back_val();
       Value *MaxV = MaxPtrs.pop_back_val();
+      auto *CheckedCI = CheckedCalls.pop_back_val();
+      CheckedCI->setArgOperand(6, TrueInt8);
       while (!MinPtrs.empty()) {
         auto *MinVal = MinPtrs.pop_back_val();
         auto *MaxVal = MaxPtrs.pop_back_val();
+        CheckedCI = CheckedCalls.pop_back_val();
+        CheckedCI->setArgOperand(6, TrueInt8);
         auto *MinC = IRB.CreateICmpULT(MinVal, MinV);
         MinV = IRB.CreateSelect(MinC, MinVal, MinV);
         auto *MaxC = IRB.CreateICmpUGT(MaxVal, MaxV);
@@ -1292,6 +1300,69 @@ struct ExtendedGlobalIO : public GlobalIO {
   }
 };
 
+struct AllocatorCallIO : public CallIO {
+  AllocatorCallIO() : CallIO(/*IsPRE*/ false) {}
+  virtual ~AllocatorCallIO() {};
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    CallIO::ConfigTy PostCICConfig(/*Enable=*/false);
+    PostCICConfig.set(CallIO::PassReturnedValue);
+    CallIO::init(IConf, IIRB.Ctx, &PostCICConfig);
+
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
+                             "The allocatdd object size.", IRTArg::NONE,
+                             getObjSize));
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "requires_temporal_check",
+                             "Flag to indicate that the global might be "
+                             "accessed after it was freed.",
+                             IRTArg::NONE, getRequiresTemporalCheck));
+  }
+
+  static Value *getObjSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                           InstrumentorIRBuilderTy &IIRB) {
+    auto &CI = cast<CallInst>(V);
+    auto &TLI = IIRB.TLIGetter(*CI.getFunction());
+    auto ACI = getAllocationCallInfo(&CI, &TLI);
+    Value *Size = nullptr;
+    for (auto Idx : {ACI->SizeLHSArgNo, ACI->SizeRHSArgNo}) {
+      if (Idx >= 0) {
+        auto *V = CI.getArgOperand(ACI->SizeLHSArgNo);
+        Size = Size ? IIRB.IRB.CreateMul(Size, V) : V;
+      }
+    }
+    return Size;
+  }
+  static Value *getRequiresTemporalCheck(Value &V, Type &Ty,
+                                         InstrumentationConfig &IConf,
+                                         InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    bool MayEscape = !LSIConf.AIC->isNonEscapingObj(&V);
+    return ConstantInt::get(&Ty, MayEscape);
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto *EAIO = IConf.allocate<AllocatorCallIO>();
+    EAIO->CB = [&](Value &V) {
+      if (LSIConf.AIC->isObjectSafe(&V))
+        return false;
+      auto &CI = cast<CallInst>(V);
+      if (CI.getCalledFunction() && !CI.getCalledFunction()->isDeclaration())
+        return false;
+      auto &TLI = IIRB.TLIGetter(*CI.getFunction());
+      auto ACI = getAllocationCallInfo(&CI, &TLI);
+      // TODO: check for escaping -> temporal checks
+      return !!ACI;
+    };
+    EAIO->init(IConf, IIRB);
+  }
+
+  virtual Type *getRetTy(LLVMContext &Ctx) const override {
+    return PointerType::getUnqual(Ctx);
+  }
+};
+
 struct ExtendedBasePointerIO : public BasePointerIO {
   ExtendedBasePointerIO() : BasePointerIO() {}
   virtual ~ExtendedBasePointerIO() {};
@@ -1339,16 +1410,12 @@ struct ExtendedBasePointerIO : public BasePointerIO {
     auto *CI = cast<CallInst>(NewV);
     auto *VPtr = CI->getArgOperand(0);
     Value *MPtr = nullptr, *ObjSize = nullptr, *Obj = nullptr;
-    Value *StrippedVPtr = VPtr;
-    if (auto *I2P = dyn_cast<IntToPtrInst>(VPtr))
-      StrippedVPtr = I2P->getOperand(0);
-    if (auto *VPtrCI = dyn_cast<CallInst>(StrippedVPtr)) {
+    if (auto *VPtrCI = dyn_cast<CallInst>(VPtr)) {
       auto *Callee = VPtrCI->getCalledFunction();
       if (Callee && (Callee->getName() == IConf.getRTName("post_", "call"))) {
-        MPtr = cast<PtrToIntOperator>(VPtrCI->getArgOperand(1))->getOperand(0);
+        MPtr = VPtrCI->getArgOperand(0);
         Obj = MPtr;
-        if (LSIConf.AIC->isSanitizedObject(Obj))
-          ObjSize = IIRB.IRB.getInt64(LSIConf.AIC->getSanitizedObjectSize(Obj));
+        ObjSize = VPtrCI->getArgOperand(1);
       }
       if (Callee && (Callee->getName() == IConf.getRTName("post_", "alloca"))) {
         MPtr = VPtrCI->getArgOperand(0);
@@ -1372,6 +1439,11 @@ struct ExtendedBasePointerIO : public BasePointerIO {
                 (!LSIConf.AIC->isNonEscapingObj(Obj) ||
                  LSIConf.AIC->getSanitizedObjectSize(Obj) >= (1LL << 12)))) {
       EBPI.EncodingNo = IIRB.IRB.getInt8(LargeObjectEnc);
+    } else if (Obj &&
+               (LSIConf.AIC->isSanitizedObject(Obj) &&
+                (LSIConf.AIC->isNonEscapingObj(Obj) &&
+                 LSIConf.AIC->getSanitizedObjectSize(Obj) < (1LL << 12)))) {
+      EBPI.EncodingNo = IIRB.IRB.getInt8(SmallObjectEnc);
     } else {
       EBPI.EncodingNo = IIRB.IRB.CreateLoad(IIRB.Int8Ty, CI->getArgOperand(2));
     }
@@ -1702,6 +1774,7 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedAllocaIO::populate(*this, IIRB);
   ExtendedFunctionIO::populate(*this, IIRB);
   ExtendedGlobalIO::populate(*this, IIRB);
+  AllocatorCallIO::populate(*this, IIRB);
   // ModuleIO::populate(*this, IIRB.Ctx);
 
   CallIO::ConfigTy PreCICConfig(/*Enable=*/false);
@@ -1717,25 +1790,6 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
     return LSI.shouldInstrumentCall(cast<CallInst>(V), IIRB);
   };
   PreCIC->init(*this, IIRB.Ctx, &PreCICConfig);
-
-  CallIO::ConfigTy PostCICConfig(/*Enable=*/false);
-  PostCICConfig.set(CallIO::PassAllocationInfo);
-  PostCICConfig.set(CallIO::PassNumParameters);
-  PostCICConfig.set(CallIO::PassParameters);
-  PostCICConfig.set(CallIO::PassReturnedValue);
-  auto *PostCIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/false);
-  PostCIC->CB = [&](Value &V) {
-    if (AIC->isObjectSafe(&V))
-      return false;
-    auto &CI = cast<CallInst>(V);
-    if (CI.getCalledFunction() && !CI.getCalledFunction()->isDeclaration())
-      return false;
-    auto &TLI = IIRB.TLIGetter(*CI.getFunction());
-    auto ACI = getAllocationCallInfo(&CI, &TLI);
-    // TODO: check for escaping -> temporal checks
-    return !!ACI;
-  };
-  PostCIC->init(*this, IIRB.Ctx, &PostCICConfig);
 }
 
 PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM) {

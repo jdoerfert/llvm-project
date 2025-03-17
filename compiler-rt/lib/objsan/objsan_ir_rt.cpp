@@ -103,31 +103,9 @@ void __objsan_pre_call(int64_t IntrinsicId, int32_t num_parameters,
 }
 
 OBJSAN_BIG_API_ATTRS
-int64_t __objsan_post_call(char *allocation_info, int64_t return_value,
-                           int32_t num_parameters, char *parameters) {
-  AllocationInfoTy *AI = (AllocationInfoTy *)allocation_info;
-  auto MaxSizeArg = 1 + std::max(AI->SizeLHSArgNo, AI->SizeRHSArgNo);
-  if ((unsigned)MaxSizeArg > (unsigned)num_parameters)
-    __builtin_trap();
-  uint64_t ObjSize = 1;
-  for (int32_t I = 0; I < std::min(MaxSizeArg, num_parameters); ++I) {
-    ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
-    uint32_t Padding = (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
-    if (I == AI->SizeLHSArgNo || I == AI->SizeRHSArgNo) {
-      char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
-      if (VP->Size == 4)
-        ObjSize *= *(uint32_t *)(VPValuePtr + Padding);
-      else if (VP->Size == 8) {
-        ObjSize *= *(uint64_t *)VPValuePtr;
-      } else
-        __builtin_trap();
-    }
-    parameters += sizeof(ParameterValuePackTy) + VP->Size + Padding;
-  }
-  char *MPtr = reinterpret_cast<char *>(return_value);
-  return reinterpret_cast<int64_t>(
-      __objsan_register_object(MPtr, ObjSize,
-                               /*RequiresTemporalCheck*/ true));
+char *__objsan_post_call(char *MPtr, uint64_t ObjSize,
+                         int8_t RequiresTemporalCheck) {
+  return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
 OBJSAN_SMALL_API_ATTRS

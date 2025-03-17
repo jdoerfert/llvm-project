@@ -46,7 +46,8 @@ struct EncodingCommonTy {
     char *MEndPtr = MBasePtr + ObjSize;
     char *MAccEndPtr = MPtr + AccessSize;
     if (MPtr < MBasePtr || MAccEndPtr > MEndPtr) [[unlikely]] {
-      fprintf(stderr, "memory out-of-bound %lu + %llu vs %llu! (Base %p, %p, check)\n",
+      fprintf(stderr,
+              "memory out-of-bound %lu + %llu vs %llu! (Base %p, %p, check)\n",
               MPtr - MBasePtr, AccessSize, ObjSize, (void *)MBasePtr, MPtr);
       if (FailOnError) {
         // TODO: Configure this to report if requested
@@ -68,7 +69,9 @@ struct EncodingCommonTy {
 #endif
     if (Magic != MAGIC || Offset < 0 || Offset + AccessSize > ObjSize)
         [[unlikely]] {
-      fprintf(stderr, "memory out-of-bound %llu + %llu vs %llu! (Base %p, %llu check&adjust)\n",
+      fprintf(stderr,
+              "memory out-of-bound %llu + %llu vs %llu! (Base %p, %llu "
+              "check&adjust)\n",
               Offset, AccessSize, ObjSize, (void *)MBasePtr, Magic);
       if (FailOnError) {
         // TODO: Configure this to report if requested
@@ -184,12 +187,12 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
       }
     }
     if (BucketIdx == ~0u) [[unlikely]]
-      return nullptr;
+      __builtin_trap();
     EncTy E(ObjSize, BucketIdx, D.Bits.RealPtr);
     return E.VPtr;
   }
 
-  void free(char *VPtr) { assert(0 && "bucket objects cannot be freed!"); }
+  void free(char *VPtr) { /* NoOp */}
 
   char *decode(char *VPtr) {
     EncTy E(VPtr);

@@ -993,13 +993,17 @@ struct CallIO : public InstructionIO<Instruction::Call> {
                  "any, or nullptr otherwise.",
                  IRTArg::NONE, getAllocationInfo));
     if (!IsPRE) {
-      if (Config.has(PassReturnedValue))
+      if (Config.has(PassReturnedValue)) {
+        Type *ReturnValueTy = IntegerType::getInt64Ty(Ctx);
+        if (auto *RTy = getRetTy(Ctx))
+          ReturnValueTy = RTy;
         IRTArgs.push_back(IRTArg(
-            IntegerType::getInt64Ty(Ctx), "return_value", "The returned value.",
+            ReturnValueTy, "return_value", "The returned value.",
             IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT |
                 (Config.has(PassReturnedValueSize) ? IRTArg::INDIRECT_HAS_SIZE
                                                    : IRTArg::NONE),
             getValue, replaceValue));
+      }
       if (Config.has(PassReturnedValueSize))
         IRTArgs.push_back(IRTArg(
             IntegerType::getInt32Ty(Ctx), "return_value_size",
@@ -1082,7 +1086,7 @@ struct UnreachableIO : public InstructionIO<Instruction::Unreachable> {
 
 struct BranchIO : public InstructionIO<Instruction::Br> {
   BranchIO() : InstructionIO<Instruction::Br>(/*IsPRE*/ true) {}
-  virtual ~BranchIO(){};
+  virtual ~BranchIO() {};
 
   enum ConfigKind {
     PassId,
