@@ -269,8 +269,7 @@ static bool isDenselyPacked(Type *Ty, const DataLayout &DL) {
 /// Get pointer operand of memory accessing instruction. If \p I is
 /// not a memory accessing instruction, return nullptr. If \p AllowVolatile,
 /// is set to false and the instruction is volatile, return nullptr.
-static const Value *getPointerOperand(const Instruction *I,
-                                      bool AllowVolatile) {
+Value *AA::getPointerOperand(Instruction *I, bool AllowVolatile) {
   if (!AllowVolatile && I->isVolatile())
     return nullptr;
 
@@ -291,6 +290,10 @@ static const Value *getPointerOperand(const Instruction *I,
   }
 
   return nullptr;
+}
+
+const Value *AA::getPointerOperand(const Instruction *I, bool AllowVolatile) {
+  return getPointerOperand(const_cast<Instruction *>(I), AllowVolatile);
 }
 
 /// Helper function to create a pointer based on \p Ptr, and advanced by \p
@@ -2053,7 +2056,7 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
         const auto *CSArgPI = A.getAAFor<AAPointerInfo>(
             *this, IRPosition::callsite_argument(*CB, ArgNo),
             DepClassTy::REQUIRED);
-        if (!CSArgPI) {
+        if (!CSArgPI || !CSArgPI->getState().isValidState()) {
           LLVM_DEBUG(dbgs() << "[AAPointerInfo] Call user not handled "
                                "(argument info missing) "
                             << *CB << "\n");
@@ -2087,7 +2090,7 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
         bool IsRetMustAcc = IsArgMustAcc && (ReturnedArg == Arg);
         const auto *CSRetPI = A.getAAFor<AAPointerInfo>(
             *this, IRPosition::callsite_returned(*CB), DepClassTy::REQUIRED);
-        if (!CSRetPI) {
+        if (!CSRetPI || !CSRetPI->getState().isValidState()) {
           LLVM_DEBUG(
               dbgs()
               << "[AAPointerInfo] Call user not handled (return info missing) "
@@ -3212,7 +3215,7 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
       // that accesses memory through a pointer operand,
       // for which getPointerOperand() should give it to us.
       Value *PtrOp =
-          const_cast<Value *>(getPointerOperand(&I, /* AllowVolatile */ true));
+          const_cast<Value *>(AA::getPointerOperand(&I, /* AllowVolatile */ true));
       assert(PtrOp &&
              "Expected pointer operand of memory accessing instruction");
 
@@ -9134,7 +9137,7 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
     return AccessedLocs.getAssumed();
   }
 
-  if (const Value *Ptr = getPointerOperand(&I, /* AllowVolatile */ true)) {
+  if (const Value *Ptr = AA::getPointerOperand(&I, /* AllowVolatile */ true)) {
     LLVM_DEBUG(
         dbgs() << "[AAMemoryLocation] Categorize memory access with pointer: "
                << I << " [" << *Ptr << "]\n");

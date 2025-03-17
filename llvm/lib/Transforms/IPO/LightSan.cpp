@@ -56,6 +56,7 @@
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 #include "llvm/Transforms/Utils/SimplifyCFGOptions.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
+#include <cassert>
 #include <cstdint>
 #include <functional>
 
@@ -66,8 +67,9 @@ using namespace llvm::instrumentor;
 
 static constexpr char LightSanRuntimePrefix[] = "__objsan_";
 static constexpr char AdapterPrefix[] = "__adapter_";
-[[maybe_unused]] static constexpr int64_t SmallObjectEnc = 1;
-[[maybe_unused]] static constexpr int64_t LargeObjectEnc = 2;
+[[maybe_unused]] static constexpr uint8_t SmallObjectEnc = 1;
+[[maybe_unused]] static constexpr uint8_t LargeObjectEnc = 2;
+[[maybe_unused]] static constexpr uint64_t SmallObjectSize = (1LL << 12);
 
 namespace {
 
@@ -90,16 +92,66 @@ public:
 
   bool isObjectSafe(Value *Obj) const { return SafeObjects.contains(Obj); }
 
-  bool insertSanitizedObject(Value *Obj, int64_t Size) {
+  bool insertKnownObject(Value *Obj, uint64_t Size) {
     return (SanitizedObjects[Obj] = Size);
   }
-  bool isSanitizedObject(Value *Obj) const {
+  bool isKnownObject(Value *Obj) const {
     return SanitizedObjects.contains(Obj);
   }
-  int64_t getSanitizedObjectSize(Value *Obj) const {
-    return SanitizedObjects.lookup(Obj);
+  Value *getUnderlyingObject(Value *Obj) const {
+    if (auto *UO = RegisterCallsMap.lookup(Obj))
+      return UO;
+    if (auto *AAUO = getAAUO(Obj)) {
+      Value *UO = nullptr;
+      if (AAUO->forallUnderlyingObjects([&](Value &V) {
+            if (UO && UO != &V)
+              return false;
+            UO = &V;
+            return true;
+          }))
+        return UO;
+    }
+    return nullptr;
   }
-
+  uint64_t getObjectSize(Value *Obj, const DataLayout *DL,
+                         const TargetLibraryInfo *TLI,
+                         bool *CanEscape = nullptr) const {
+    if (DL) {
+      if (auto *AAUO = getAAUO(Obj)) {
+        uint64_t Size = ~0U;
+        if (AAUO->forallUnderlyingObjects([&](Value &V) {
+              uint64_t VSize = SanitizedObjects.lookup(&V);
+              if (!isKnownObject(&V))
+                return false;
+              if (CanEscape)
+                *CanEscape = !isNonEscapingObj(&V);
+              if (Size != ~0U && VSize != Size)
+                return false;
+              Size = VSize;
+              return true;
+            }))
+          return Size;
+      }
+    }
+    if (isKnownObject(Obj)) {
+      if (CanEscape)
+        *CanEscape = !isNonEscapingObj(Obj);
+      return SanitizedObjects.lookup(Obj);
+    }
+    if (CanEscape)
+      *CanEscape = true;
+    return ~0UL;
+  }
+  uint64_t getEncodingNo(Value *Obj, const DataLayout *DL,
+                         const TargetLibraryInfo *TLI) const {
+    bool CanEscape = false;
+    uint64_t Size = getObjectSize(Obj, DL, TLI, &CanEscape);
+    if (Size == ~0UL)
+      return ~0UL;
+    if (Size > SmallObjectSize || CanEscape)
+      return LargeObjectEnc;
+    return SmallObjectEnc;
+  }
   bool insertNonEscapingObj(Value *Obj) {
     return NonEscapingObjects.insert(Obj);
   }
@@ -107,15 +159,27 @@ public:
     return NonEscapingObjects.contains(Obj);
   }
 
+  void insertRegisterCall(Value *Obj, CallInst *CI) {
+    RegisterCallsMap[Obj] = CI;
+  }
+
   Attributor &getAttributor() const { return A; }
 
 private:
-  DenseMap<Value *, int64_t> SanitizedObjects;
+  const AAUnderlyingObjects *getAAUO(Value *Obj) const {
+    if (Obj)
+      if (auto *AAUO =
+              A.lookupAAFor<AAUnderlyingObjects>(IRPosition::value(*Obj)))
+        return AAUO;
+    return nullptr;
+  }
+  DenseMap<Value *, uint64_t> SanitizedObjects;
   SetVector<Value *> NonEscapingObjects;
   /// Objects that have been verified that all their accesses are safe.
   SetVector<Value *> SafeObjects;
   /// Accesses that are known safe.
   DenseMap<Instruction *, Value *> SafeAccesses;
+  DenseMap<Value *, CallInst *> RegisterCallsMap;
 
   Attributor &A;
 };
@@ -135,16 +199,26 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
   DenseMap<std::pair<Value *, Function *>, ExtendedBasePointerInfo>
       BasePointerSizeOffsetMap;
+
   Value *getBasePointerObjectSize(Value &Ptr, InstrumentorIRBuilderTy &IIRB) {
     Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    auto &EBPI = BasePointerSizeOffsetMap[{&Ptr, Fn}];
+    auto Size = AIC->getObjectSize(&Ptr, &IIRB.DL, &IIRB.TLIGetter(*Fn));
+    if (Size != ~0UL)
+      return IIRB.IRB.getInt64(Size);
+    Value *Obj = getUnderlyingObjectRecursive(&Ptr);
+    auto &EBPI = BasePointerSizeOffsetMap[{Obj, Fn}];
     if (EBPI.ObjectSizePtr)
       return IIRB.IRB.CreateLoad(IIRB.Int64Ty, EBPI.ObjectSizePtr);
     return EBPI.ObjectSize;
   }
 
-  Value *getBasePointerEncodingNo(Value &Ptr, Function &Fn) {
-    return BasePointerSizeOffsetMap[{&Ptr, &Fn}].EncodingNo;
+  Value *getBasePointerEncodingNo(Value &Ptr, InstrumentorIRBuilderTy &IIRB) {
+    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
+    auto EncodingNo = AIC->getEncodingNo(&Ptr, &IIRB.DL, &IIRB.TLIGetter(*Fn));
+    if (EncodingNo != ~0UL)
+      return IIRB.IRB.getInt8(EncodingNo);
+    Value *Obj = getUnderlyingObjectRecursive(&Ptr);
+    return BasePointerSizeOffsetMap[{Obj, Fn}].EncodingNo;
   }
   /// Get a size alloca.
   AllocaInst *getSizeAlloca(Function &Fn, InstrumentorIRBuilderTy &IIRB,
@@ -678,7 +752,7 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
 
   // A list of pairs of objects and their size
   // TODO: Use weak value handles
-  SmallVector<std::tuple<Value *, int64_t, const AAPointerInfo *>> WorkList;
+  SmallVector<std::tuple<Value *, uint64_t, const AAPointerInfo *>> WorkList;
 
   for (GlobalVariable &GV : M.globals()) {
     if (GV.getValueType()->isSized() && !GV.hasExternalWeakLinkage() &&
@@ -702,51 +776,63 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
     WorkList.emplace_back(AI, SizeV, AAPI);
   };
 
-  auto HandleMallocLikeFn = [&](CallInst *CI, AllocationCallInfo &ACI) {
+  auto HandleMallocLikeFn = [&](CallBase *CB, AllocationCallInfo &ACI) {
     uint64_t Size = 1;
     if (ACI.SizeLHSArgNo >= 0) {
-      auto *SizeCI = dyn_cast<ConstantInt>(CI->getArgOperand(ACI.SizeLHSArgNo));
+      auto *SizeCI = dyn_cast<ConstantInt>(CB->getArgOperand(ACI.SizeLHSArgNo));
       if (!SizeCI)
         return;
       Size *= SizeCI->getSExtValue();
     }
     if (ACI.SizeRHSArgNo >= 0) {
-      auto *SizeCI = dyn_cast<ConstantInt>(CI->getArgOperand(ACI.SizeRHSArgNo));
+      auto *SizeCI = dyn_cast<ConstantInt>(CB->getArgOperand(ACI.SizeRHSArgNo));
       if (!SizeCI)
         return;
       Size *= SizeCI->getSExtValue();
     }
-    auto *AAPI = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*CI),
+    auto *AAPI = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(*CB),
                                                    /*QueryingAA=*/nullptr,
                                                    DepClassTy::REQUIRED);
-    WorkList.emplace_back(CI, Size, AAPI);
+    WorkList.emplace_back(CB, Size, AAPI);
+  };
+  auto HandleCallBase = [&](CallBase *CI) {
+    for (auto &U : CI->args()) {
+      if (U->getType()->isPtrOrPtrVectorTy()) {
+        A.getOrCreateAAFor<AAUnderlyingObjects>(IRPosition::value(*U));
+      }
+    }
   };
 
-  DenseMap<Instruction *, const AAUnderlyingObjects *> InstToAAUOMap;
+  for (auto &GV : M.globals()) {
+    uint64_t Size = 0;
+    if (!getObjectSize(&GV, Size, DL, /*TLI=*/nullptr))
+      continue;
+    auto *AAPI = A.getOrCreateAAFor<AAPointerInfo>(IRPosition::value(GV),
+                                                   /*QueryingAA=*/nullptr,
+                                                   DepClassTy::REQUIRED);
+    WorkList.emplace_back(&GV, Size, AAPI);
+  }
   for (Function &F : M) {
     if (F.isIntrinsic())
       continue;
 
     for (BasicBlock &BB : F) {
       for (Instruction &I : BB) {
-        if (auto *SI = dyn_cast<StoreInst>(&I)) {
-          auto *AAUO = A.getOrCreateAAFor<AAUnderlyingObjects>(
-              IRPosition::value(*SI->getPointerOperand()));
-          InstToAAUOMap[SI] = AAUO;
-        } else if (auto *LI = dyn_cast<LoadInst>(&I)) {
-          auto *AAUO = A.getOrCreateAAFor<AAUnderlyingObjects>(
-              IRPosition::value(*LI->getPointerOperand()));
-          InstToAAUOMap[LI] = AAUO;
+        if (auto *Ptr = AA::getPointerOperand(&I, /*AllowVolatile*/ true)) {
+          A.getOrCreateAAFor<AAUnderlyingObjects>(IRPosition::value(*Ptr));
         } else if (auto *AI = dyn_cast<AllocaInst>(&I)) {
           HandleAllocaInst(AI);
-        } else if (auto *CI = dyn_cast<CallInst>(&I)) {
-          if (CI->getCalledFunction()) {
+        } else if (auto *CB = dyn_cast<CallBase>(&I)) {
+          if (CB->getCalledFunction()) {
             const auto *TLI = A.getInfoCache().getTargetLibraryInfoForFunction(
-                *CI->getCalledFunction());
+                *CB->getCalledFunction());
             assert(TLI);
-            if (auto ACI = getAllocationCallInfo(CI, TLI))
-              HandleMallocLikeFn(CI, *ACI);
+            if (auto ACI = getAllocationCallInfo(CB, TLI)) {
+              HandleMallocLikeFn(CB, *ACI);
+              continue;
+            }
           }
+          HandleCallBase(CB);
         }
       }
     }
@@ -759,7 +845,7 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
   AA::AccessRangeListTy RangeList(Range);
 
   for (auto [Obj, Size, AAPI] : WorkList) {
-    Cache.insertSanitizedObject(Obj, Size);
+    Cache.insertKnownObject(Obj, Size);
 
     if (!AAPI || !AAPI->getState().isValidState())
       continue;
@@ -780,11 +866,8 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
         if (AccOffset + AccSize + Acc.getAccessSize() > ObjSize)
           return AnyAccessIsProblematic = true;
       }
-      auto *AAUO = InstToAAUOMap.lookup(Acc.getRemoteInst());
-      if (!AAUO || !AAUO->getState().isValidState() ||
-          !AAUO->forallUnderlyingObjects([ObjPtr](Value &V) {
-            return &V == ObjPtr || isa<UndefValue>(V);
-          }))
+      if (!Cache.getUnderlyingObject(AA::getPointerOperand(
+              Acc.getRemoteInst(), /*AllowVolatile*/ true)))
         return AnyAccessIsProblematic = true;
 
       Cache.insertSafeAccess(Acc.getRemoteInst(), ObjPtr);
@@ -1235,8 +1318,8 @@ struct ExtendedAllocaIO : public AllocaIO {
                     InstrumentationCaches &ICaches) override {
     if (auto *CI = cast_if_present<CallInst>(
             AllocaIO::instrument(V, IConf, IIRB, ICaches))) {
+      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
       if (!cast<ConstantInt>(CI->getArgOperand(CI->arg_size() - 1))->isZero()) {
-        auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
         AllocaInst *AI;
         {
           IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
@@ -1246,6 +1329,7 @@ struct ExtendedAllocaIO : public AllocaIO {
         IIRB.IRB.CreateStore(CI, AI);
         LSIConf.EscapedAllocas.push_back(AI);
       }
+      LSIConf.AIC->insertRegisterCall(V, CI);
       return CI;
     }
     return nullptr;
@@ -1283,6 +1367,18 @@ struct ExtendedGlobalIO : public GlobalIO {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     bool MayEscape = !LSIConf.AIC->isNonEscapingObj(&V);
     return ConstantInt::get(&Ty, MayEscape);
+  }
+
+  Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
+    if (auto *CI = cast_if_present<CallInst>(
+            GlobalIO::instrument(V, IConf, IIRB, ICaches))) {
+      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+      LSIConf.AIC->insertRegisterCall(V, CI);
+      return CI;
+    }
+    return nullptr;
   }
 
   static void populate(InstrumentationConfig &IConf,
@@ -1338,6 +1434,18 @@ struct AllocatorCallIO : public CallIO {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     bool MayEscape = !LSIConf.AIC->isNonEscapingObj(&V);
     return ConstantInt::get(&Ty, MayEscape);
+  }
+
+  Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
+    if (auto *CI = cast_if_present<CallInst>(
+            CallIO::instrument(V, IConf, IIRB, ICaches))) {
+      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+      LSIConf.AIC->insertRegisterCall(V, CI);
+      return CI;
+    }
+    return nullptr;
   }
 
   static void populate(InstrumentationConfig &IConf,
@@ -1435,14 +1543,15 @@ struct ExtendedBasePointerIO : public BasePointerIO {
       ObjSize = IIRB.IRB.CreateLoad(IIRB.Int64Ty, CI->getArgOperand(1));
     auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{VPtr, Fn}];
     EBPI.ObjectSize = ObjSize;
-    if (Obj && (LSIConf.AIC->isSanitizedObject(Obj) &&
-                (!LSIConf.AIC->isNonEscapingObj(Obj) ||
-                 LSIConf.AIC->getSanitizedObjectSize(Obj) >= (1LL << 12)))) {
+    if (Obj &&
+        (LSIConf.AIC->isKnownObject(Obj) &&
+         (!LSIConf.AIC->isNonEscapingObj(Obj) ||
+          LSIConf.AIC->getObjectSize(Obj, nullptr, nullptr) >= (1LL << 12)))) {
       EBPI.EncodingNo = IIRB.IRB.getInt8(LargeObjectEnc);
-    } else if (Obj &&
-               (LSIConf.AIC->isSanitizedObject(Obj) &&
-                (LSIConf.AIC->isNonEscapingObj(Obj) &&
-                 LSIConf.AIC->getSanitizedObjectSize(Obj) < (1LL << 12)))) {
+    } else if (Obj && (LSIConf.AIC->isKnownObject(Obj) &&
+                       (LSIConf.AIC->isNonEscapingObj(Obj) &&
+                        LSIConf.AIC->getObjectSize(Obj, nullptr, nullptr) <
+                            (1LL << 12)))) {
       EBPI.EncodingNo = IIRB.IRB.getInt8(SmallObjectEnc);
     } else {
       EBPI.EncodingNo = IIRB.IRB.CreateLoad(IIRB.Int8Ty, CI->getArgOperand(2));
@@ -1535,20 +1644,20 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
   static Value *getBasePointerInfo(Value &V, Type &Ty,
                                    InstrumentationConfig &IConf,
                                    InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    if (auto *UO = LSIConf.AIC->getUnderlyingObject(&V))
+      return IConf.getBasePointerInfo(*UO, IIRB);
     return IConf.getBasePointerInfo(V, IIRB);
   }
   static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    return LSIConf.getBasePointerObjectSize(*getUnderlyingObjectRecursive(&V),
-                                            IIRB);
+    return LSIConf.getBasePointerObjectSize(V, IIRB);
   }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-    Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-    return LSIConf.getBasePointerEncodingNo(*getUnderlyingObjectRecursive(&V),
-                                            *Fn);
+    return LSIConf.getBasePointerEncodingNo(V, IIRB);
   }
   static Value *getIsDefinitivelyExecuted(Value &V, Type &Ty,
                                           InstrumentationConfig &IConf,
@@ -1592,16 +1701,13 @@ struct ExtendedLoadIO : public LoadIO {
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto &LI = cast<LoadInst>(V);
-    return LSIConf.getBasePointerObjectSize(
-        *getUnderlyingObjectRecursive(LI.getPointerOperand()), IIRB);
+    return LSIConf.getBasePointerObjectSize(*LI.getPointerOperand(), IIRB);
   }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto &LI = cast<LoadInst>(V);
-    return LSIConf.getBasePointerEncodingNo(
-        *getUnderlyingObjectRecursive(LI.getPointerOperand()),
-        *LI.getFunction());
+    return LSIConf.getBasePointerEncodingNo(*LI.getPointerOperand(), IIRB);
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
@@ -1652,16 +1758,13 @@ struct ExtendedStoreIO : public StoreIO {
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto &SI = cast<StoreInst>(V);
-    return LSIConf.getBasePointerObjectSize(
-        *getUnderlyingObjectRecursive(SI.getPointerOperand()), IIRB);
+    return LSIConf.getBasePointerObjectSize(*SI.getPointerOperand(), IIRB);
   }
   static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto &SI = cast<StoreInst>(V);
-    return LSIConf.getBasePointerEncodingNo(
-        *getUnderlyingObjectRecursive(SI.getPointerOperand()),
-        *SI.getFunction());
+    return LSIConf.getBasePointerEncodingNo(*SI.getPointerOperand(), IIRB);
   }
   static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
                               InstrumentorIRBuilderTy &IIRB) {
