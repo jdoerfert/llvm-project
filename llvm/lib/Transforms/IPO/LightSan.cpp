@@ -1023,7 +1023,7 @@ void LightSanImpl::foreachRTCaller(StringRef Name,
   auto *FC = M.getFunction(Name);
   if (!FC)
     return;
-  for (auto *U : FC->users()) {
+  for (auto *U : make_early_inc_range(FC->users())) {
     auto *CI = cast<CallInst>(U);
     CB(*CI);
   }
@@ -1314,6 +1314,67 @@ bool LightSanImpl::instrument() {
   UseMPtr("load");
   UseMPtr("store");
 #endif
+
+  SmallVector<std::tuple<Instruction *, uint32_t, Value *, Value *>> ReplVec;
+  foreachRTCaller(IConf.getRTName("", "get_mptr"), [&](CallInst &CI) {
+    auto &Fn = *CI.getFunction();
+    auto *VPtr = CI.getArgOperand(0);
+    auto *BaseMPtr = CI.getArgOperand(1);
+    auto *EncNo = CI.getArgOperand(2);
+
+    SmallVector<Value *> Worklist;
+    Worklist.push_back(VPtr);
+
+    while (!Worklist.empty()) {
+      Value *Ptr = Worklist.pop_back_val();
+      auto *&MPtr = IConf.V2M[{Ptr, &Fn}];
+      if (MPtr && Ptr != VPtr)
+        continue;
+      if (auto *PtrI = dyn_cast<Instruction>(Ptr)) {
+        switch (PtrI->getOpcode()) {
+        case Instruction::GetElementPtr: {
+          auto *GEP = cast<GetElementPtrInst>(PtrI)->clone();
+          GEP->insertBefore(PtrI->getIterator());
+          ReplVec.push_back({GEP, 0, BaseMPtr, EncNo});
+          Worklist.push_back(GEP->getOperand(0));
+          MPtr = GEP;
+          if (Ptr == VPtr)
+            CI.replaceAllUsesWith(GEP);
+        }
+        };
+      }
+    }
+  });
+  for (auto [I, ArgNo, BaseMPtr, EncNo] : ReplVec) {
+    auto *Fn = I->getFunction();
+    auto *VPtr = I->getOperand(ArgNo);
+    auto *&MPtr = IConf.V2M[{VPtr, Fn}];
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
+    if (!MPtr) {
+      BasicBlock::iterator IP =
+          Fn->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
+      for (auto *V : {VPtr, BaseMPtr, EncNo})
+        if (auto *I = dyn_cast<Instruction>(V))
+          if (!DT.dominates(I, IP))
+            IP = *I->getInsertionPointAfterDef();
+      IRBuilder<> IRB(IP->getParent(), IP);
+      ensureDbgLoc(IRB);
+      MPtr = IRB.CreateCall(IConf.GetMPtrFC, {VPtr, BaseMPtr, EncNo});
+    }
+    I->setOperand(ArgNo, MPtr);
+  }
+  foreachRTCaller(IConf.getRTName("", "get_mptr"), [&](CallInst &CI) {
+    if (CI.use_empty()) {
+      CI.eraseFromParent();
+      return;
+    }
+    auto &Fn = *CI.getFunction();
+    BasicBlock::iterator IP = Fn.getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
+
+    auto &DT = FAM.getResult<DominatorTreeAnalysis>(Fn);
+    InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(
+        CI, IP, DT, /*ForceInitial=*/true);
+  });
 
 #if 0
   auto CheckForBasePtrInLoop = [&]() {
