@@ -1317,6 +1317,9 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     if (!Param || It.NoCache)
       // Avoid passing the caches to the getter.
       Param = It.GetterCB(*V, *It.Ty, IConf, IIRB);
+    if (!Param)
+      errs() << IO.getName() << " : " << It.Name << "\n";
+    assert(Param);
 
     if (Param->getType()->isVoidTy()) {
       Param = Constant::getNullValue(It.Ty);

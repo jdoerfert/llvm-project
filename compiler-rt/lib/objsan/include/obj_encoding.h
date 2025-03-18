@@ -60,11 +60,11 @@ struct EncodingCommonTy {
   }
 
   static char *checkAndAdjust(char *__restrict VPtr, uint64_t Magic,
-                              char *__restrict MBasePtr, uint64_t AccessSize,
+                              char *__restrict MPtr, uint64_t AccessSize,
                               int64_t Offset, uint64_t ObjSize,
                               bool FailOnError) {
 #if 0
-    printf("Check %p size %llu -- access %llu @ %lli\n", MBasePtr, ObjSize,
+    printf("Check %p size %llu -- access %llu @ %lli\n", MPtr, ObjSize,
            AccessSize, Offset);
 #endif
     if (Magic != MAGIC || Offset < 0 || Offset + AccessSize > ObjSize)
@@ -72,7 +72,7 @@ struct EncodingCommonTy {
       fprintf(stderr,
               "memory out-of-bound %llu + %llu vs %llu! (Base %p, %llu "
               "check&adjust)\n",
-              Offset, AccessSize, ObjSize, (void *)MBasePtr, Magic);
+              Offset, AccessSize, ObjSize, (void *)MPtr, Magic);
       if (FailOnError) {
         // TODO: Configure this to report if requested
         __builtin_trap();
@@ -81,9 +81,9 @@ struct EncodingCommonTy {
       return nullptr;
     }
 #if 0
-    printf("--> %p\n", MBasePtr + Offset);
+    printf("--> %p\n", MPtr + Offset);
 #endif
-    return MBasePtr + Offset;
+    return MPtr;
   }
 };
 

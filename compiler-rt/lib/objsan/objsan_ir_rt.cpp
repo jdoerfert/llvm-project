@@ -8,7 +8,11 @@
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
+#ifdef DEBUG
+#define PRINTF(...) printf(__VA_ARGS__)
+#else
 #define PRINTF(...)
+#endif
 
 using namespace __objsan;
 
@@ -177,10 +181,11 @@ __objsan_post_base_pointer_info(char *__restrict VPtr, uint64_t *SizePtr,
   *SizePtr = 0;
   if (!EncodingNo)
     return VPtr;
-  PRINTF("%s %p %llu start\n", __PRETTY_FUNCTION__, VPtr, EncodingNo);
   char *MPtr = [&]() {
     ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, VPtr, VPtr, SizePtr);
   }();
+  PRINTF("%s P: %p/%p Enc: %i OS: %llu\n", __PRETTY_FUNCTION__, VPtr, MPtr,
+         EncodingNo, *SizePtr);
   return MPtr;
 }
 
@@ -203,10 +208,9 @@ void *__objsan_get_mptr(char *__restrict VPtr, char *__restrict BaseMPtr,
 }
 
 OBJSAN_SMALL_API_ATTRS
-void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
+char *__objsan_post_loop_value_range(int64_t InitialLoopValue,
                                      int64_t FinalLoopValue, int64_t MaxOffset,
-                                     char *BaseMPtr, uint64_t ObjSize,
-                                     int8_t EncodingNo,
+                                     uint64_t ObjSize, int8_t EncodingNo,
                                      int8_t IsDefinitivelyExecuted) {
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
   char *VPtr = (char *)InitialLoopValue;
@@ -219,37 +223,51 @@ void *__objsan_post_loop_value_range(int64_t InitialLoopValue,
   else
     NumOffsetBits = LargeObjectsTy::NumOffsetBits;
   auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
-  PRINTF("%p %p -> %lli, %llu, %p, %llu :: %llu :: %llu\n", VPtr,
-         (char *)FinalLoopValue, LoopSize, MaxOffset, BaseMPtr, ObjSize, Offset,
-         Magic);
-  //  for (int I = 0; I < FinalLoopValue; I += 64)
-  //    __builtin_prefetch(BaseMPtr + Offset + I, 0, 3);
-  //  if (!sizeIsKnown(ObjSize)) [[unlikely]]
-  //    ObjSize = __objsan_get_object_size(VPtr, EncodingNo);
+  PRINTF("%p %p -> %lli, %llu, %llu :: %llu :: %llu\n", VPtr,
+         (char *)FinalLoopValue, LoopSize, MaxOffset, ObjSize, Offset, Magic);
   if (EncodingCommonTy::checkAndAdjust(
-          VPtr, Magic, BaseMPtr, LoopSize + MaxOffset, Offset, ObjSize,
+          VPtr, Magic, /*MPtr=*/nullptr, LoopSize + MaxOffset, Offset, ObjSize,
           /*FailOnError=*/IsDefinitivelyExecuted)) [[likely]]
-    return VPtr;
+    return /* not null */ (char *)(0x1);
   return nullptr;
 }
 
 OBJSAN_SMALL_API_ATTRS
-void *__objsan_post_loop_value_ptr_range(char *InitialLoopValue,
-                                         char *FinalLoopValue,
-                                         int64_t MaxOffset, char *BaseMPtr,
-                                         uint64_t ObjSize, int8_t EncodingNo,
-                                         int8_t IsDefinitivelyExecuted) {
-  return __objsan_post_loop_value_range(
-      (int64_t)InitialLoopValue, (int64_t)FinalLoopValue, MaxOffset, BaseMPtr,
-      ObjSize, EncodingNo, IsDefinitivelyExecuted);
+void __objsan_post_loop_value_ptr_range(char *InitialLoopValue,
+                                        char *FinalLoopValue, int64_t MaxOffset,
+                                        uint64_t ObjSize, int8_t EncodingNo) {
+  __objsan_post_loop_value_range((int64_t)InitialLoopValue,
+                                 (int64_t)FinalLoopValue, MaxOffset, ObjSize,
+                                 EncodingNo, /*IsDefinitivelyExecuted=*/true);
 }
 
 OBJSAN_SMALL_API_ATTRS
-void *__objsan_pre_load_m(char *MPtr, char *BaseMPtr, char *LVRI,
-                          uint64_t AccessSize, uint64_t ObjSize,
-                          int8_t EncodingNo, int8_t WasChecked) {
-  PRINTF("%s start %p\n", __PRETTY_FUNCTION__, MPtr);
-  if (EncodingNo && !WasChecked && !(BaseMPtr && LVRI) &&
+void __objsan_pre_ranged_access(char *VPtr, char *MPtr, int64_t Length,
+                                uint64_t ObjSize, int8_t EncodingNo,
+                                int8_t IsDefinitivelyExecuted) {
+  PRINTF("%s start\n", __PRETTY_FUNCTION__);
+  if (!EncodingNo) [[unlikely]]
+    return;
+  int64_t NumOffsetBits;
+  if (EncodingNo == 1)
+    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
+  else
+    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
+  auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
+  PRINTF("%p / %p-> %lli, %llu, %llu :: %llu\n", VPtr, MPtr, Length, ObjSize,
+         Offset, Magic);
+  EncodingCommonTy::checkAndAdjust(VPtr, Magic, MPtr, Length, Offset, ObjSize,
+                                   /*FailOnError=*/IsDefinitivelyExecuted);
+}
+
+OBJSAN_SMALL_API_ATTRS
+void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
+                        uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
+                        int8_t EncodingNo, int8_t WasChecked) {
+  PRINTF("%s start P: %p/%p B: %p L: %p AS: %llu OS: %llu Enc: %i C: %i\n",
+         __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
+         EncodingNo, WasChecked);
+  if (EncodingNo && !WasChecked && !LVRI &&
       !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
                                /*FailOnError=*/false)) [[unlikely]] {
     fprintf(stderr, "l bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
@@ -260,29 +278,20 @@ void *__objsan_pre_load_m(char *MPtr, char *BaseMPtr, char *LVRI,
 }
 
 OBJSAN_SMALL_API_ATTRS
-void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
-                        uint64_t AccessSize, uint64_t ObjSize,
-                        int8_t EncodingNo, int8_t WasChecked) {
-  PRINTF("%s start\n", __PRETTY_FUNCTION__);
-  PRINTF("pl %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
-         ObjSize, EncodingNo, WasChecked);
-  if (!EncodingNo) [[unlikely]]
-    return VPtr;
-  int64_t NumOffsetBits;
-  if (EncodingNo == 1)
-    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
-  else
-    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
-  auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
-  //  PRINTF("%lli %lli %p\n", Offset, Magic, BaseMPtr + Offset);
-  //  __builtin_prefetch(BaseMPtr + Offset, 0, 1);
-  if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
-    return BaseMPtr + Offset;
-  //  if (!sizeIsKnown(ObjSize)) [[unlikely]]
-  //    ObjSize = __objsan_get_object_size(VPtr, EncodingNo);
-  return EncodingCommonTy::checkAndAdjust(VPtr, Magic, BaseMPtr, AccessSize,
-                                          Offset, ObjSize,
-                                          /*FailOnError=*/false);
+void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
+                         uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
+                         int8_t EncodingNo, int8_t WasChecked) {
+  PRINTF("%s start P: %p/%p B: %p L: %p AS: %llu OS: %llu Enc: %i C: %i\n",
+         __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
+         EncodingNo, WasChecked);
+  if (EncodingNo && !WasChecked && !LVRI &&
+      !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
+                               /*FailOnError=*/false)) [[unlikely]] {
+    fprintf(stderr, "s bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
+            AccessSize, ObjSize, EncodingNo, WasChecked);
+    return nullptr;
+  }
+  return MPtr;
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -301,7 +310,8 @@ int8_t __objsan_check_ptr_load(char *VPtr, int64_t Offset) {
   auto *BaseMPtr = [&]() -> char * {
     ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, &ObjSize);
   }();
-  if (__objsan_pre_load(VPtr, BaseMPtr, nullptr, sizeof(void *), ObjSize,
+  char *MPtr = /* TODO */ nullptr;
+  if (__objsan_pre_load(VPtr, BaseMPtr, nullptr, sizeof(void *), MPtr, ObjSize,
                         EncodingNo, false)) {
     return 1;
   }
@@ -318,7 +328,8 @@ int8_t __objsan_check_ptr_load(char *VPtr, int64_t Offset) {
     auto *BaseMPtr = [&]() -> char * {                                         \
       ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, &ObjSize);   \
     }();                                                                       \
-    if (void *AccMPtr = __objsan_pre_load(VPtr, BaseMPtr, nullptr, SIZE,       \
+    char *MPtr = /* TODO */ nullptr;                                           \
+    if (void *AccMPtr = __objsan_pre_load(VPtr, BaseMPtr, nullptr, SIZE, MPtr, \
                                           ObjSize, EncodingNo, false)) {       \
       switch (SIZE) {                                                          \
       case 1:                                                                  \
@@ -339,44 +350,4 @@ SPEC_LOAD(1)
 SPEC_LOAD(2)
 SPEC_LOAD(4)
 SPEC_LOAD(8)
-
-OBJSAN_SMALL_API_ATTRS
-void *__objsan_pre_store_m(char *MPtr, char *BaseMPtr, char *LVRI,
-                           uint64_t AccessSize, uint64_t ObjSize,
-                           int8_t EncodingNo, int8_t WasChecked) {
-  PRINTF("%s start %p\n", __PRETTY_FUNCTION__, MPtr);
-  if (EncodingNo && !WasChecked && !(BaseMPtr && LVRI) &&
-      !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
-                               /*FailOnError=*/false)) [[unlikely]] {
-    fprintf(stderr, "s bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
-            AccessSize, ObjSize, EncodingNo, WasChecked);
-    return nullptr;
-  }
-  return MPtr;
-}
-
-OBJSAN_SMALL_API_ATTRS
-void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
-                         uint64_t AccessSize, uint64_t ObjSize,
-                         int8_t EncodingNo, int8_t WasChecked) {
-  PRINTF("%s start\n", __PRETTY_FUNCTION__);
-  PRINTF("ps %p %p %p %llu %llu %i %i\n", VPtr, BaseMPtr, LVRI, AccessSize,
-         ObjSize, EncodingNo, WasChecked);
-  if (!EncodingNo) [[unlikely]]
-    return VPtr;
-  int64_t NumOffsetBits;
-  if (EncodingNo == 1)
-    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
-  else
-    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
-  auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
-  //  __builtin_prefetch(BaseMPtr + Offset, 1, 1);
-  if (WasChecked || (BaseMPtr && LVRI)) [[likely]]
-    return BaseMPtr + Offset;
-  //  if (!sizeIsKnown(ObjSize)) [[unlikely]]
-  //    ObjSize = __objsan_get_object_size(VPtr, EncodingNo);
-  return EncodingCommonTy::checkAndAdjust(VPtr, Magic, BaseMPtr, AccessSize,
-                                          Offset, ObjSize,
-                                          /*FailOnError=*/false);
-}
 }
