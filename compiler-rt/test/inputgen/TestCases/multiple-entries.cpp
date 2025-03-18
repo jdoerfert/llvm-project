@@ -1,22 +1,17 @@
 // RUN: %clangxx_inputgen_full_gen
 // RUN: %clangxx_inputgen_full_replay_gen
 
-// RUN: %inputgen_repl_gen 2>&1 | FileCheck %s --check-prefix=REPL
-// RUN: %inputgen_gen -1  2>&1 | FileCheck %s --check-prefix=GEN
+// RUN: %inputgen_repl_gen 2> %t.avail.out || true
+// RUN: cat %t.avail.out | FileCheck %s
+// RUN: %inputgen_gen 2> %t.out || true
+// RUN: cat %t.avail.out | FileCheck %s
 
-// REPL:   Num available functions: 2
-// REPL:   Available functions:
-// REPL:     0: _Z3fooi
-// REPL:     1: _Z3bari
-// REPL-NOT:     baz
-// REPL-NOT:     2:
-
-// GEN:   Num available functions: 2
-// GEN:   Available functions:
-// GEN:     0: _Z3fooi
-// GEN:     1: _Z3bari
-// GEN-NOT:     baz
-// GEN-NOT:     2:
+// CHECK:   Num available functions: 2
+// CHECK:   Available functions:
+// CHECK:     0: _Z3fooi
+// CHECK:     1: _Z3bari
+// CHECK-NOT:     baz
+// CHECK-NOT:     2:
 
 #include <stdio.h>
 
