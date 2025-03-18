@@ -16,7 +16,7 @@ add_compiler_rt_runtime(inputgen.generate
   STATIC
   ARCHS ${INPUTGEN_SUPPORTED_ARCH}
   SOURCES
-    ig.cpp
+    generate_callbacks.cpp
     vm_obj.cpp
     vm_values.cpp
     vm_storage.cpp
@@ -49,6 +49,7 @@ add_compiler_rt_runtime(inputgen.replay
   STATIC
   ARCHS ${INPUTGEN_SUPPORTED_ARCH}
   SOURCES
+    replay_callbacks.cpp
     vm_storage.cpp
     replay.cpp
     common.cpp

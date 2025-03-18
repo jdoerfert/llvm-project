@@ -41,17 +41,21 @@ int main(int argc, char **argv) {
     IFS.rdbuf()->pubsetbuf(Buffer, BufferSize);
     IFS.tie(nullptr);
 
-    SM.read(IFS, *GM);
-
-    P = SM.getEntryPtr();
-
+    GM->sort();
 #ifndef NDEBUG
     assert(GM.isConstructed());
+    std::cerr << "Globals in replay module\n";
     for (auto G : GM->Globals)
       std::cerr << G.Name << "\n";
+#endif
+    SM.read(IFS, *GM);
+#ifndef NDEBUG
+    std::cerr << "Globals in input\n";
     for (auto G : SM.Globals)
       std::cerr << G.Name << "\n";
 #endif
+
+    P = SM.getEntryPtr();
   }
   {
     Timer T("replay");

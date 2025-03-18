@@ -3,10 +3,12 @@
 #include "global_manager.h"
 #include "vm_obj.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <type_traits>
@@ -52,22 +54,28 @@ template <typename T> static T writeV(std::ofstream &Output, T El) {
 
 namespace __ig::storage {
 
+struct GlobalComp {
+  bool operator()(const GlobalManager::GlobalTy &G, const std::string &Name) {
+    return G.Name < Name;
+  }
+  bool operator()(const std::string &Name, const GlobalManager::GlobalTy &G) {
+    return Name < G.Name;
+  }
+};
+
 Global::Global(std::ifstream &IFS, GlobalManager &GM) {
   DEFINE_READV(IFS);
   uint32_t NameSize;
   READV(NameSize);
   Name.resize(NameSize);
   IFS.read(Name.data(), NameSize);
-  // TODO this can be optimized by sorting the globals
-  char *Memory = nullptr;
-  for (auto G : GM.Globals)
-    if (G.Name == Name)
-      Memory = G.Address;
-  if (!Memory) {
+  auto Found = std::lower_bound(GM.Globals.begin(), GM.Globals.end(), Name,
+                                GlobalComp{});
+  if (Found == GM.Globals.end() || Found->Name != Name) {
     ERR("Could not find global with name {}\n", Name);
     exit(1003);
   }
-  R.init(Range(IFS, Memory));
+  R.init(Range(IFS, Found->Address));
 }
 
 void Global::write(std::ofstream &OFS) {
