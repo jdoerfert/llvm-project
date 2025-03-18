@@ -1483,6 +1483,7 @@ struct ExtendedGlobalIO : public GlobalIO {
     PreGlobalConfig.set(GlobalIO::PassAddress);
     PreGlobalConfig.set(GlobalIO::PassInitialValueSize);
     PreGlobalConfig.set(GlobalIO::PassIsDefinition);
+    PreGlobalConfig.set(GlobalIO::ReplaceAddress);
     GlobalIO::init(IConf, IIRB.Ctx, &PreGlobalConfig);
 
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "requires_temporal_check",

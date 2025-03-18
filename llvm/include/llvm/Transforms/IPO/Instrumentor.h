@@ -1493,6 +1493,7 @@ struct GlobalIO : public InstrumentationOpportunity {
     PassIsConstant,
     PassIsDefinition,
     PassId,
+    ReplaceAddress,
     NumConfig,
   };
 
@@ -1506,9 +1507,10 @@ struct GlobalIO : public InstrumentationOpportunity {
     if (UserConfig)
       Config = *UserConfig;
     if (Config.has(PassAddress))
-      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
-                               "The address of the global.", IRTArg::REPLACABLE,
-                               getAddress, setAddress));
+      IRTArgs.push_back(IRTArg(
+          PointerType::getUnqual(Ctx), "address", "The address of the global.",
+          Config.has(ReplaceAddress) ? IRTArg::REPLACABLE : IRTArg::NONE,
+          getAddress, setAddress));
     if (Config.has(PassName))
       IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "name",
                                "The name of the global.", IRTArg::STRING,
