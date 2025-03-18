@@ -140,10 +140,6 @@ struct ObjectManager {
     default:
       if (AllowToFail)
         return {-2, -2};
-      WARN("unknown encoding {} (allowed until global support)\n",
-           getEncoding(VPtr));
-      // TODO: Workaround until global supported.
-      return {-2, -2};
       ERR("unknown encoding {}\n", getEncoding(VPtr));
       error(1004);
       std::terminate();
@@ -158,10 +154,7 @@ struct ObjectManager {
     case 3:
       return UserObjLarge.getBasePtrInfo(VPtr);
     default:
-      WARN("unknown encoding {} (allowed until global support)\n",
-           getEncoding(VPtr));
-      // TODO: Workaround until global supported.
-      return 0;
+      ERR("unknown encoding {}\n", getEncoding(VPtr));
       error(1005);
       std::terminate();
     }
@@ -175,10 +168,7 @@ struct ObjectManager {
     case 3:
       return UserObjLarge.getBase(VPtr);
     default:
-      WARN("unknown encoding {} (allowed until global support)\n",
-           getEncoding(VPtr));
-      // TODO: Workaround until global supported.
-      return VPtr;
+      ERR("unknown encoding {}\n", getEncoding(VPtr));
       error(1005);
       std::terminate();
     }
@@ -192,10 +182,7 @@ struct ObjectManager {
     case 3:
       return UserObjLarge.getBaseVPtr(VPtr);
     default:
-      WARN("unknown encoding {} (allowed until global support)\n",
-           getEncoding(VPtr));
-      // TODO: Workaround until global supported.
-      return VPtr;
+      ERR("unknown encoding {}\n", getEncoding(VPtr));
       error(1005);
       std::terminate();
     }

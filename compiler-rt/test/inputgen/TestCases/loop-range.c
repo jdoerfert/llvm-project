@@ -2,21 +2,15 @@
 // RUN: %clangxx_inputgen_full_replay_gen
 
 // RUN: %inputgen_gen > %inputgen_gen.0.0.0.inp.gen.out
-// RUN: ls %inputgen_gen.0.0.0.inp
 // RUN: %inputgen_repl_gen %inputgen_gen.0.0.0.inp > %inputgen_gen.0.0.0.inp.repl.out
 // RUN: diff %inputgen_gen.0.0.0.inp.gen.out %inputgen_gen.0.0.0.inp.repl.out
 
+
 extern "C" int printf(const char *__restrict __format, ...);
 
-__attribute__((inputgen_entry)) void matmul(double *a, double *b, double *m,
-                                            int n) {
+__attribute__((inputgen_entry)) void vec_init(double *a, int n) {
   for (int i = 0; i < n; ++i) {
-    for (int j = 0; j < n; ++j) {
-      double t = 0.0;
-      for (int k = 0; k < n; ++k)
-        t += a[i * n + k] * b[k * n + j];
-      m[i * n + j] = t;
-    }
+      a[i] = 30104;
   }
-  printf("m[n/2] = m[%i] : %lf\n", n / 2, m[n / 2]);
+  printf("a[n/2] = a[%i] : %lf\n", n / 2, a[n / 2]);
 }

@@ -1,7 +1,6 @@
 
 #include "vm_storage.h"
 #include "global_manager.h"
-#include "vm_obj.h"
 
 #include <algorithm>
 #include <cassert>

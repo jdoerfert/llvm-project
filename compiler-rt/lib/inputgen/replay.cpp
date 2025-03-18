@@ -6,10 +6,17 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <exception>
 
 namespace __ig {
 bool GMInit = false;
 DeferGlobalConstruction<GlobalManager, GMInit> GM;
+
+void error(uint32_t ErrorCode) {
+  std::cerr << "This should never happen\n";
+  std::terminate();
+}
+
 } // namespace __ig
 
 using namespace __ig;
