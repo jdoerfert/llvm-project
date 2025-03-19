@@ -1968,8 +1968,6 @@ Value *GlobalIO::getAddress(Value &V, Type &Ty, InstrumentationConfig &IConf,
 Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
                             InstrumentorIRBuilderTy &IIRB) {
   GlobalVariable &GV = cast<GlobalVariable>(V);
-  SmallPtrSet<Use *, 8> Visited;
-  SmallVector<Use *> Worklist(make_pointer_range(GV.uses()));
 
   GlobalVariable *ShadowGV = nullptr;
   auto ShadowName = IConf.getRTName("shadow.", GV.getName());
@@ -1989,70 +1987,41 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
     IIRB.IRB.CreateStore(&NewV, ShadowGV);
   }
 
-  DenseMap<User *, Instruction *> UserMap;
-  std::function<Instruction *(User *)> MakeConstantsInstructions =
-      [&](User *Usr) -> Instruction * {
-    if (auto *NewI = UserMap.lookup(Usr))
-      return NewI;
-    if (!isa<ConstantExpr>(Usr)) {
-      // errs() << "WARNING: Ignoring constant user " << *Usr << "\n";
-      UserMap[Usr] = nullptr;
-      return nullptr;
-    }
-    auto *CE = cast<ConstantExpr>(Usr);
-    auto *I = CE->getAsInstruction();
-    UserMap[CE] = I;
-    bool First = true;
-    for (auto &U : make_early_inc_range(CE->uses())) {
-      Instruction *UI = dyn_cast<Instruction>(U.getUser());
-      if (!UI) {
-        if (auto *NewUI = UserMap.lookup(U.getUser()))
-          UI = NewUI;
-        else if (auto *CE = dyn_cast<ConstantExpr>(U.getUser())) {
-          UI = MakeConstantsInstructions(CE);
-        } else {
-          errs() << "ERROR: Unknown user " << *U.getUser() << " for " << *U
-                 << "\n";
-          llvm_unreachable("TODO");
-        }
-        if (!UI)
-          return nullptr;
+  SmallVector<Use *> Worklist(make_pointer_range(GV.uses()));
+  DenseMap<std::pair<Value *, Function *>, Value *> VMap;
+
+  auto GetFnCopy = [&](Use &U, Instruction &UserI) {
+    auto *Fn = UserI.getFunction();
+    auto *&NewV = VMap[{U, Fn}];
+    if (!NewV) {
+      auto &EntryBB = Fn->getEntryBlock();
+      IRBuilder<> IRB(&EntryBB, EntryBB.getFirstNonPHIOrDbgOrAlloca());
+      ensureDbgLoc(IRB);
+      if (U == &GV) {
+        NewV = IRB.CreateLoad(U->getType(), ShadowGV);
+      } else if (auto *CE = dyn_cast<ConstantExpr>(U)) {
+        auto *I = CE->getAsInstruction();
+        IRB.Insert(I);
+        NewV = I;
+        Worklist.push_back(&I->getOperandUse(U.getOperandNo()));
       }
-      if (!First)
-        I = I->clone();
-      I->insertBefore(UI->getIterator());
-      U.set(I);
-      First = false;
     }
-    if (First) {
-      I->deleteValue();
-      return nullptr;
-    }
-    return I;
+    return NewV;
   };
 
-  IRBuilderBase::InsertPointGuard IRP(IIRB.IRB);
-  DenseMap<Function *, Value *> FunctionReloadMap;
+  SmallPtrSet<Use *, 8> Visited;
   while (!Worklist.empty()) {
     Use *U = Worklist.pop_back_val();
-    if (!Visited.insert(U).second)
-      continue;
     auto *I = dyn_cast<Instruction>(U->getUser());
-    if (I) {
-      if (IIRB.NewInsts.lookup(I) == IIRB.Epoche)
-        continue;
-    } else {
-      I = MakeConstantsInstructions(U->getUser());
-      if (!I)
-        continue;
+    if (!I) {
+      if (isa<ConstantExpr>(U->getUser()) && Visited.insert(U).second) {
+        append_range(Worklist, make_pointer_range(U->getUser()->uses()));
+      }
+      continue;
     }
-    auto *&Reload = FunctionReloadMap[I->getFunction()];
-    if (!Reload) {
-      IIRB.IRB.SetInsertPointPastAllocas(I->getFunction());
-      ensureDbgLoc(IIRB.IRB);
-      Reload = IIRB.IRB.CreateLoad(NewV.getType(), ShadowGV);
-    }
-    I->setOperand(U->getOperandNo(), Reload);
+    if (IIRB.NewInsts.lookup(I) == IIRB.Epoche)
+      continue;
+    U->set(GetFnCopy(*U, *I));
   }
   return &V;
 }
