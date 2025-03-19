@@ -85,7 +85,7 @@ char *__objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t IsDefinition,
 
 OBJSAN_BIG_API_ATTRS
 void __objsan_pre_call(int64_t IntrinsicId, int32_t num_parameters,
-                       char *parameters, int8_t is_definition) {
+                       char *parameters) {
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
@@ -225,22 +225,15 @@ char *__objsan_post_loop_value_range(char *BeginPtr, char *EndPtr,
 }
 
 OBJSAN_SMALL_API_ATTRS
-void __objsan_pre_ranged_access(char *VPtr, char *MPtr, int64_t Length,
-                                uint64_t ObjSize, int8_t EncodingNo,
-                                int8_t IsDefinitivelyExecuted) {
-  PRINTF("%s start\n", __PRETTY_FUNCTION__);
-  if (!EncodingNo) [[unlikely]]
-    return;
-  int64_t NumOffsetBits;
-  if (EncodingNo == 1)
-    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
-  else
-    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
-  auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
-  PRINTF("%p / %p-> %lli, %llu, %llu :: %llu\n", VPtr, MPtr, Length, ObjSize,
-         Offset, Magic);
-  EncodingCommonTy::checkAndAdjust(VPtr, Magic, MPtr, Length, Offset, ObjSize,
-                                   /*FailOnError=*/IsDefinitivelyExecuted);
+void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr,
+                                int64_t AccessSize, uint64_t ObjSize,
+                                int8_t EncodingNo) {
+  PRINTF("%s start P: %p B: %p AS: %llu OS: %llu Enc: %i C: %i\n",
+         __PRETTY_FUNCTION__, MPtr, BaseMPtr, AccessSize, ObjSize,
+         EncodingNo, WasChecked);
+  if (EncodingNo)
+    EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
+                            /*FailOnError=*/true);
 }
 
 OBJSAN_SMALL_API_ATTRS

@@ -119,6 +119,11 @@ public:
     return nullptr;
   }
   uint64_t getObjectSize(Value *Obj, bool *CanEscape = nullptr) const {
+    if (isKnownObject(Obj)) {
+      if (CanEscape)
+        *CanEscape = !isNonEscapingObj(Obj);
+      return SanitizedObjects.lookup(Obj);
+    }
     if (auto *AAUO = getAAUO(Obj)) {
       uint64_t Size = ~0U;
       if (AAUO->forallUnderlyingObjects([&](Value &V) {
@@ -133,11 +138,6 @@ public:
             return true;
           }))
         return Size;
-    }
-    if (isKnownObject(Obj)) {
-      if (CanEscape)
-        *CanEscape = !isNonEscapingObj(Obj);
-      return SanitizedObjects.lookup(Obj);
     }
     if (CanEscape)
       *CanEscape = true;
@@ -171,7 +171,8 @@ public:
       if (auto *GV = dyn_cast<GlobalVariable>(LI->getPointerOperand()))
         if (GV->getName().starts_with(LightSanGlobalShadowPrefix))
           return GV->getParent()->getGlobalVariable(
-              GV->getName().drop_front(strlen(LightSanGlobalShadowPrefix)));
+              GV->getName().drop_front(strlen(LightSanGlobalShadowPrefix)),
+              /*AllowInternal=*/true);
     }
     return nullptr;
   }
@@ -516,10 +517,10 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
       for (auto *VPtr : {Src, Dst})
         if (VPtr) {
           IIRB.IRB.CreateCall(IConf.LRAFC,
-                              {VPtr, IConf.getMPtr(*VPtr, IIRB), Length,
+                              {IConf.getMPtr(*VPtr, IIRB),
+                               IConf.getBaseMPtr(*VPtr, IIRB), Length,
                                IConf.getBasePointerObjectSize(*VPtr, IIRB),
-                               IConf.getBasePointerEncodingNo(*VPtr, IIRB),
-                               IIRB.IRB.getInt8(1)});
+                               IConf.getBasePointerEncodingNo(*VPtr, IIRB)});
         }
     }
     return true;
@@ -1394,6 +1395,188 @@ bool LightSanImpl::instrument() {
   UseMPtr("store");
 #endif
 
+// Cleanup
+#if 1
+  foreachRTCaller(IConf.getRTName("post_", "base_pointer_info"),
+                  [&](CallInst &CI) {
+                    if (CI.use_empty())
+                      CI.eraseFromParent();
+                  });
+#endif
+
+#if 1
+  foreachRTCaller(IConf.getRTName("pre_", "call"), [&](CallInst &CI) {
+    auto NumParameters = cast<ConstantInt>(CI.getArgOperand(1))->getSExtValue();
+    auto *ParameterDesc = CI.getArgOperand(2);
+    SmallVector<Value *> Parameters;
+    SmallVector<LoadInst *> ParameterLoads;
+    SmallVector<StoreInst *> ParameterStores;
+    Parameters.resize(NumParameters);
+    ParameterLoads.resize(NumParameters);
+    ParameterStores.resize(NumParameters);
+    MemCpyInst *MCI = nullptr;
+
+    auto *PrevInst = CI.getPrevNode();
+    for (int I = 0; I < NumParameters * 3;
+         ++I, PrevInst = PrevInst->getPrevNode()) {
+      if (auto *MC = dyn_cast<MemCpyInst>(PrevInst)) {
+        MCI = MC;
+        break;
+      }
+      if (isa<GetElementPtrInst>(PrevInst))
+        continue;
+      auto *SI = dyn_cast<StoreInst>(PrevInst);
+      if (!SI)
+        return;
+      APInt Offset(DL.getIndexSizeInBits(SI->getPointerAddressSpace()), 0);
+      auto *Ptr = SI->getPointerOperand();
+      auto *StrippedPtr =
+          Ptr->stripAndAccumulateConstantOffsets(DL, Offset,
+                                                 /*AllowNonInbounds=*/true);
+      if (StrippedPtr != ParameterDesc)
+        return;
+      auto OffsetVal = Offset.getSExtValue();
+      if (OffsetVal % 8 || ((OffsetVal - 8) / 16) >= NumParameters)
+        return;
+      ParameterStores[((OffsetVal - 8) / 16)] = SI;
+    }
+    if (!MCI)
+      return;
+
+    auto *ConstParamDescGV = dyn_cast<GlobalVariable>(MCI->getArgOperand(1));
+    if (!ConstParamDescGV || !ConstParamDescGV->hasInitializer())
+      return;
+    auto *ConstParamDescSt =
+        dyn_cast<ConstantStruct>(ConstParamDescGV->getInitializer());
+    if (!ConstParamDescSt)
+      return;
+
+    for (int I = 0; I < NumParameters; ++I) {
+      if (ParameterStores[I])
+        continue;
+      Parameters[I] = ConstParamDescSt->getAggregateElement(I * 3 + 2);
+    }
+
+    int NumMissingLoads = NumParameters;
+    auto *SuccInst = CI.getNextNode();
+    for (; NumMissingLoads > 0; SuccInst = SuccInst->getNextNode()) {
+      if (isa<GetElementPtrInst>(SuccInst))
+        continue;
+      auto *LI = dyn_cast<LoadInst>(SuccInst);
+      if (!LI)
+        return;
+      APInt Offset(DL.getIndexSizeInBits(LI->getPointerAddressSpace()), 0);
+      auto *Ptr = LI->getPointerOperand();
+      auto *StrippedPtr =
+          Ptr->stripAndAccumulateConstantOffsets(DL, Offset,
+                                                 /*AllowNonInbounds=*/true);
+      if (StrippedPtr != ParameterDesc)
+        return;
+      auto OffsetVal = Offset.getSExtValue();
+      if (OffsetVal % 8 || ((OffsetVal - 8) / 16) >= NumParameters)
+        return;
+      ParameterLoads[((OffsetVal - 8) / 16)] = LI;
+      --NumMissingLoads;
+    }
+
+    IIRB.IRB.SetInsertPoint(&CI);
+    ensureDbgLoc(IIRB.IRB);
+
+    for (int I = 0; I < NumParameters; ++I) {
+      Value *MPtr = Parameters[I];
+      if (!MPtr) {
+        auto *SI = ParameterStores[I];
+        assert(SI);
+        MPtr = IConf.getMPtr(*SI->getOperand(0), IIRB);
+        SI->eraseFromParent();
+      }
+      auto *LI = ParameterLoads[I];
+      LI->replaceAllUsesWith(MPtr);
+      LI->eraseFromParent();
+    }
+
+    MCI->eraseFromParent();
+    CI.eraseFromParent();
+  });
+#endif
+
+  auto GetGlobalForShadowLoad = [&](Value *V) -> GlobalVariable * {
+    if (auto *LI = dyn_cast<LoadInst>(V))
+      if (auto *GV = dyn_cast<GlobalVariable>(LI->getPointerOperand()))
+        if (GV->getName().starts_with(LightSanGlobalShadowPrefix))
+          if (auto *MPtr = M.getGlobalVariable(
+                  GV->getName().drop_front(strlen(LightSanGlobalShadowPrefix)),
+                  /*AllowInternal=*/true))
+            return MPtr;
+    return nullptr;
+  };
+
+#if 1
+  foreachRTCaller(IConf.getRTName("", "get_mptr"), [&](CallInst &CI) {
+    if (auto *MPtr = GetGlobalForShadowLoad(CI.getArgOperand(0))) {
+      CI.replaceAllUsesWith(MPtr);
+      CI.eraseFromParent();
+    }
+  });
+#endif
+
+#if 1
+  foreachRTCaller(
+      IConf.getRTName("post_", "base_pointer_info"), [&](CallInst &CI) {
+        if (auto *MPtr = GetGlobalForShadowLoad(CI.getArgOperand(0))) {
+          if (IConf.AIC->getObjectSize(MPtr) != ~0UL &&
+              IConf.AIC->getEncodingNo(MPtr) != ~0UL) {
+            CI.replaceAllUsesWith(MPtr);
+            CI.eraseFromParent();
+          }
+        }
+      });
+#endif
+
+#if 1
+  foreachRTCaller(IConf.getRTName("post_", "alloca"), [&](CallInst &CI) {
+    for (auto *Usr : CI.users()) {
+      if (Usr->isDroppable() || isa<LifetimeIntrinsic>(Usr))
+        continue;
+      auto *UsrI = dyn_cast<Instruction>(Usr);
+      // TODO: We should remove dead instructions recursively before we do this.
+      if (UsrI && !UsrI->mayHaveSideEffects() && UsrI->use_empty())
+        continue;
+      return;
+    }
+
+    CI.replaceAllUsesWith(CI.getArgOperand(0));
+    CI.eraseFromParent();
+  });
+#endif
+
+#if 1
+  foreachRTCaller(IConf.getRTName("pre_", "ranged_access"), [&](CallInst &CI) {
+    auto *ObjectSizeCI = dyn_cast<ConstantInt>(CI.getArgOperand(3));
+    if (!ObjectSizeCI)
+      return;
+    auto *AccessSizeCI = dyn_cast<ConstantInt>(CI.getArgOperand(2));
+    if (!AccessSizeCI)
+      return;
+    Value *MPtr = CI.getArgOperand(0);
+    Value *BaseMPtr = CI.getArgOperand(1);
+    APInt Offset(
+        DL.getIndexSizeInBits(MPtr->getType()->getPointerAddressSpace()), 0);
+    auto *StrippedMPtr =
+        MPtr->stripAndAccumulateConstantOffsets(DL, Offset,
+                                                /*AllowNonInbounds=*/true);
+    if (StrippedMPtr != BaseMPtr)
+      return;
+    auto AccessSize = AccessSizeCI->getSExtValue();
+    auto ObjectSize = ObjectSizeCI->getSExtValue();
+    if (Offset.isNonNegative() &&
+        (Offset + AccessSize - ObjectSize).isNonPositive()) {
+      CI.eraseFromParent();
+    }
+  });
+#endif
+
+
 #if 0
   auto CheckForBasePtrInLoop = [&]() {
     auto *FC = M.getFunction(IConf.getRTName("post_", "base_pointer_info"));
@@ -1484,8 +1667,8 @@ void LightSanInstrumentationConfig::initializeFunctionCallees(Module &M) {
 
   LRAFC = M.getOrInsertFunction(
       getRTName("pre_", "ranged_access"),
-      FunctionType::get(
-          VoidTy, {PtrTy, PtrTy, Int64Ty, Int64Ty, Int8Ty, Int8Ty}, false));
+      FunctionType::get(VoidTy, {PtrTy, PtrTy, Int64Ty, Int64Ty, Int8Ty},
+                        false));
 
   LVRFC = M.getOrInsertFunction(
       getRTName("post_", "loop_value_range"),
@@ -1704,14 +1887,16 @@ struct ExtendedBasePointerIO : public BasePointerIO {
   Value *instrument(Value *&V, InstrumentationConfig &IConf,
                     InstrumentorIRBuilderTy &IIRB,
                     InstrumentationCaches &ICaches) override {
-    if (auto *I = dyn_cast<Instruction>(V)) {
-      auto &LI = IIRB.analysisGetter<LoopAnalysis>(*I->getFunction());
-      if (auto *L = LI.getLoopFor(I->getParent())) {
-        errs() << "Base pointer " << *I << " in " << I->getFunction()->getName()
-               << "\n"
-               << *L << "\n";
+    LLVM_DEBUG({
+      if (auto *I = dyn_cast<Instruction>(V)) {
+        auto &LI = IIRB.analysisGetter<LoopAnalysis>(*I->getFunction());
+        if (auto *L = LI.getLoopFor(I->getParent())) {
+          errs() << "Base pointer " << *I << " in "
+                 << I->getFunction()->getName() << "\n"
+                 << *L << "\n";
+        }
       }
-    }
+    });
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *NewV = BasePointerIO::instrument(V, IConf, IIRB, ICaches);
     auto *CI = cast<CallInst>(NewV);
@@ -2049,9 +2234,8 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   PreCICConfig.set(CallIO::PassIntrinsicId);
   PreCICConfig.set(CallIO::PassNumParameters);
   PreCICConfig.set(CallIO::PassParameters);
-  PreCICConfig.set(CallIO::PassIsDefinition);
   PreCICConfig.ArgFilter = [&](Use &Op) {
-    return Op->getType()->isPointerTy();
+    return Op->getType()->isPointerTy() && !isa<ConstantPointerNull>(Op);
   };
   auto *PreCIC = InstrumentationConfig::allocate<CallIO>(/*IsPRE=*/true);
   PreCIC->CB = [&](Value &V) {

@@ -41,6 +41,7 @@
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
@@ -1096,6 +1097,8 @@ Value *InstrumentationOpportunity::replaceValue(Value &V, Value &NewV,
   }
   V.replaceUsesWithIf(NewVCasted, [&](Use &U) {
     if (IIRB.NewInsts.lookup(cast<Instruction>(U.getUser())) == IIRB.Epoche)
+      return false;
+    if (isa<LifetimeIntrinsic>(U.getUser()) || U.getUser()->isDroppable())
       return false;
     return true;
   });
