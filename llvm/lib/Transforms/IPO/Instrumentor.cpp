@@ -326,24 +326,9 @@ template <typename Ty> Constant *getCI(Type *IT, Ty Val) {
 
 class InstrumentorImpl final {
 public:
-  InstrumentorImpl(InstrumentationConfig &IConf, Module &M,
-                   ModuleAnalysisManager &MAM)
-      : IConf(IConf), M(M),
-        FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()),
-        IIRB(
-            M,
-            [this](Function &F) -> TargetLibraryInfo & {
-              return FAM.getResult<TargetLibraryAnalysis>(F);
-            },
-            [this](Function &F) -> DominatorTree & {
-              return FAM.getResult<DominatorTreeAnalysis>(F);
-            },
-            [this](Function &F) -> ScalarEvolution & {
-              return FAM.getResult<ScalarEvolutionAnalysis>(F);
-            },
-            [this](Function &F) -> LoopInfo & {
-              return FAM.getResult<LoopAnalysis>(F);
-            }) {
+  InstrumentorImpl(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
+                   Module &M, FunctionAnalysisManager &FAM)
+      : IConf(IConf), M(M), FAM(FAM), IIRB(IIRB) {
     IConf.populate(IIRB);
   }
 
@@ -451,7 +436,7 @@ private:
 
 protected:
   /// A special IR builder that keeps track of the inserted instructions.
-  InstrumentorIRBuilderTy IIRB;
+  InstrumentorIRBuilderTy &IIRB;
 };
 
 } // end anonymous namespace
@@ -744,7 +729,7 @@ InstrumentorIRBuilderTy::getBestHoistPoint(BasicBlock::iterator IP,
     return IP.getNodeParent()->getFirstNonPHIOrDbgOrAlloca();
   case HOIST_OUT_OF_LOOPS: {
     auto BlockIP = IP.getNodeParent()->getFirstNonPHIOrDbgOrAlloca();
-    auto &LI = LIGetter(*BlockIP->getFunction());
+    auto &LI = analysisGetter<LoopAnalysis>(*BlockIP->getFunction());
     auto *L = LI.getLoopFor(BlockIP->getParent());
     while (L) {
       if (L->getLoopPreheader())
@@ -824,13 +809,15 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   }
   auto *BB = IRB.GetInsertBlock();
   auto *Fn = BB->getParent();
-  auto &SE = SEGetter(*Fn);
-  auto &LI = LIGetter(*Fn);
+  auto &SE = analysisGetter<ScalarEvolutionAnalysis>(*Fn);
+  auto &LI = analysisGetter<LoopAnalysis>(*Fn);
   auto *BBLoop = LI.getLoopFor(BB);
   if (!BBLoop) {
     LLVM_DEBUG(errs() << " - value not in a loop " << V << "\n");
     return {BasicBlock::iterator(), false};
   }
+  // TODO: This is a hack since SCEV somehow remembers values that we replaced.
+  SE.forgetValue(&V);
   auto *VSCEV = SE.getSCEVAtScope(&V, BBLoop);
   if (isa<SCEVCouldNotCompute>(VSCEV)) {
     LLVM_DEBUG(errs() << " - loop evaluation not computable for " << V << "\n");
@@ -895,7 +882,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
 
   Value *FirstVal = Expander.expandCodeFor(FirstSCEV, Ty);
   Value *LastVal = Expander.expandCodeFor(LastSCEV, Ty);
-  auto &DT = DTGetter(*Fn);
+  auto &DT = analysisGetter<DominatorTreeAnalysis>(*Fn);
   IP = getBestHoistPoint(IP, HOIST_OUT_OF_LOOPS);
   if (auto *FirstValI = dyn_cast<Instruction>(FirstVal))
     IP = hoistInstructionsAndAdjustIP(*FirstValI, IP, DT);
@@ -907,7 +894,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
 
 bool InstrumentorIRBuilderTy::isKnownDereferenceableAccess(
     Instruction &I, Value &Ptr, uint32_t AccessSize) {
-  auto &TLI = TLIGetter(*I.getFunction());
+  auto &TLI = analysisGetter<TargetLibraryAnalysis>(*I.getFunction());
   uint64_t Size;
   if (!getObjectSize(&Ptr, Size, DL, &TLI))
     return false;
@@ -917,7 +904,10 @@ bool InstrumentorIRBuilderTy::isKnownDereferenceableAccess(
 PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
   InstrumentationConfig &IConf =
       UserIConf ? *UserIConf : *new InstrumentationConfig();
-  InstrumentorImpl Impl(IConf, M, MAM);
+  auto &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  InstrumentorIRBuilderTy &IIRB =
+      UserIIRB ? *UserIIRB : *new InstrumentorIRBuilderTy(M, FAM);
+  InstrumentorImpl Impl(IConf, IIRB, M, FAM);
   if (IConf.ReadConfig && !readInstrumentorConfigFromJSON(IConf))
     return PreservedAnalyses::all();
   writeInstrumentorConfig(IConf);
@@ -1035,7 +1025,7 @@ Value *InstrumentationConfig::getLoopValueRange(Value &V,
                                                 InstrumentorIRBuilderTy &IIRB,
                                                 uint32_t AdditionalSize) {
   Function *Fn = IIRB.IRB.GetInsertBlock()->getParent();
-  auto &SE = IIRB.SEGetter(*Fn);
+  auto &SE = IIRB.analysisGetter<ScalarEvolutionAnalysis>(*Fn);
 
   Value *VPtr = &V;
   Value *&LVR = LoopValueRangeMap[{SE.getSCEV(VPtr), Fn}];
@@ -1339,7 +1329,8 @@ CallInst *IRTCallDescription::createLLVMCall(Value *&V,
     }
     if (IO.HoistKind != DO_NOT_HOIST)
       if (auto *ParamI = dyn_cast<Instruction>(Param)) {
-        auto &DT = IIRB.DTGetter(*ParamI->getFunction());
+        auto &DT =
+            IIRB.analysisGetter<DominatorTreeAnalysis>(*ParamI->getFunction());
         IP = IIRB.hoistInstructionsAndAdjustIP(*ParamI, IP, DT);
       }
     CallParams.push_back(Param);
@@ -1692,7 +1683,7 @@ Value *CallIO::getAllocationInfo(Value &V, Type &Ty,
                                  InstrumentationConfig &IConf,
                                  InstrumentorIRBuilderTy &IIRB) {
   auto &CI = cast<CallInst>(V);
-  auto &TLI = IIRB.TLIGetter(*CI.getFunction());
+  auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CI.getFunction());
   auto ACI = getAllocationCallInfo(&CI, &TLI);
   if (!ACI)
     return Constant::getNullValue(&Ty);

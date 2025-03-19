@@ -293,7 +293,7 @@ private:
 
 struct BranchConditionIO : public InstructionIO<Instruction::Br> {
   BranchConditionIO() : InstructionIO<Instruction::Br>(/*IsPRE*/ true) {}
-  virtual ~BranchConditionIO(){};
+  virtual ~BranchConditionIO() {};
 
   static bool analyzeBranch(BranchInst &BI,
                             InputGenInstrumentationConfig &IConf,
@@ -543,7 +543,7 @@ Value *BranchConditionIO::getArguments(Value &V, Type &Ty,
     ParameterValues.push_back(V);
   };
 
-  auto &DT = IIRB.DTGetter(*BI.getFunction());
+  auto &DT = IIRB.analysisGetter<DominatorTreeAnalysis>(*BI.getFunction());
   auto IP = IIRB.IRB.GetInsertPoint();
   for (auto &PI : BCI.ParameterInfos) {
     switch (PI.Kind) {
@@ -600,8 +600,10 @@ Value *BranchConditionIO::getFreeValues(Value &V, Type &Ty,
   auto PushValue = [&](Value *V) {
     ParameterTypes.push_back(GetTypeOrEquivInt(V->getType()));
     ParameterValues.push_back(V);
-    if (auto *I = dyn_cast<Instruction>(V))
-      IP = IIRB.hoistInstructionsAndAdjustIP(*I, IP, IIRB.DTGetter(*I->getFunction()));
+    if (auto *I = dyn_cast<Instruction>(V)) {
+      auto &DT = IIRB.analysisGetter<DominatorTreeAnalysis>(*I->getFunction());
+      IP = IIRB.hoistInstructionsAndAdjustIP(*I, IP, DT);
+    }
   };
 
   uint32_t NumFVIs = 0;
@@ -936,7 +938,7 @@ bool InputGenMemoryImpl::handleIndirectCalleeCandidates() {
   bool Changed = false;
   SmallSetVector<Function *, 16> IndirectCalleeCandidates;
   if (GlobalVariable *GV =
-      M.getGlobalVariable(InputGenIndirectCalleeCandidateGlobalName)) {
+          M.getGlobalVariable(InputGenIndirectCalleeCandidateGlobalName)) {
     if (GV->hasInitializer())
       if (auto *CA = dyn_cast<ConstantArray>(GV->getInitializer()))
         for (Use &Op : CA->operands())
@@ -1328,7 +1330,7 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   CallIO::ConfigTy CICConfig;
   CICConfig.ArgFilter = [&](Use &Op) {
     auto *CI = cast<CallInst>(Op.getUser());
-    auto &TLI = IIRB.TLIGetter(*CI->getFunction());
+    auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CI->getFunction());
     auto ACI = getAllocationCallInfo(CI, &TLI);
     return Op->getType()->isPointerTy() || ACI;
   };

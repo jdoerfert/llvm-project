@@ -208,37 +208,20 @@ void *__objsan_get_mptr(char *__restrict VPtr, char *__restrict BaseMPtr,
 }
 
 OBJSAN_SMALL_API_ATTRS
-char *__objsan_post_loop_value_range(int64_t InitialLoopValue,
-                                     int64_t FinalLoopValue, int64_t MaxOffset,
+char *__objsan_post_loop_value_range(char *BeginPtr, char *EndPtr,
+                                     int64_t MaxOffset, char *BasePtr,
                                      uint64_t ObjSize, int8_t EncodingNo,
                                      int8_t IsDefinitivelyExecuted) {
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
-  char *VPtr = (char *)InitialLoopValue;
-  int64_t LoopSize = FinalLoopValue - InitialLoopValue;
-  if (!EncodingNo) [[unlikely]]
+  int64_t LoopSize = EndPtr - BeginPtr;
+  if (EncodingNo && !EncodingCommonTy::check(
+                        BeginPtr, BasePtr, LoopSize + MaxOffset, ObjSize,
+                        /*FailOnError=*/IsDefinitivelyExecuted)) [[unlikely]] {
+    fprintf(stderr, "r bad %p %p %llu %llu %i\n", BeginPtr, BasePtr, LoopSize,
+            ObjSize, EncodingNo);
     return nullptr;
-  int64_t NumOffsetBits;
-  if (EncodingNo == 1)
-    NumOffsetBits = SmallObjectsTy::NumOffsetBits;
-  else
-    NumOffsetBits = LargeObjectsTy::NumOffsetBits;
-  auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
-  PRINTF("%p %p -> %lli, %llu, %llu :: %llu :: %llu\n", VPtr,
-         (char *)FinalLoopValue, LoopSize, MaxOffset, ObjSize, Offset, Magic);
-  if (EncodingCommonTy::checkAndAdjust(
-          VPtr, Magic, /*MPtr=*/nullptr, LoopSize + MaxOffset, Offset, ObjSize,
-          /*FailOnError=*/IsDefinitivelyExecuted)) [[likely]]
-    return /* not null */ (char *)(0x1);
-  return nullptr;
-}
-
-OBJSAN_SMALL_API_ATTRS
-void __objsan_post_loop_value_ptr_range(char *InitialLoopValue,
-                                        char *FinalLoopValue, int64_t MaxOffset,
-                                        uint64_t ObjSize, int8_t EncodingNo) {
-  __objsan_post_loop_value_range((int64_t)InitialLoopValue,
-                                 (int64_t)FinalLoopValue, MaxOffset, ObjSize,
-                                 EncodingNo, /*IsDefinitivelyExecuted=*/true);
+  }
+  return /* not null */ (char *)(0x1);
 }
 
 OBJSAN_SMALL_API_ATTRS

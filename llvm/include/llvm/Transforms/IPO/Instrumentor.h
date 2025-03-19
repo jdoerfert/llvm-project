@@ -111,16 +111,9 @@ struct InstrumentationConfig;
 struct InstrumentationOpportunity;
 
 struct InstrumentorIRBuilderTy {
-  using TLIGetterTy = std::function<TargetLibraryInfo &(Function &F)>;
-  using DTGetterTy = std::function<DominatorTree &(Function &F)>;
-  using SEGetterTy = std::function<ScalarEvolution &(Function &F)>;
-  using LIGetterTy = std::function<LoopInfo &(Function &F)>;
 
-  InstrumentorIRBuilderTy(Module &M, TLIGetterTy &&TLIGetter,
-                          DTGetterTy &&DTGetter, SEGetterTy &&SEGetter,
-                          LIGetterTy &&LIGetter)
-      : M(M), Ctx(M.getContext()), TLIGetter(TLIGetter), DTGetter(DTGetter),
-        SEGetter(SEGetter), LIGetter(LIGetter),
+  InstrumentorIRBuilderTy(Module &M, FunctionAnalysisManager &FAM)
+      : M(M), Ctx(M.getContext()), FAM(FAM),
         IRB(Ctx, ConstantFolder(),
             IRBuilderCallbackInserter(
                 [&](Instruction *I) { NewInsts[I] = Epoche; })) {}
@@ -216,10 +209,10 @@ struct InstrumentorIRBuilderTy {
   void eraseLater(Instruction *I) { ToBeErased.insert(I); }
   SmallPtrSet<Instruction *, 32> ToBeErased;
 
-  TLIGetterTy TLIGetter;
-  DTGetterTy DTGetter;
-  SEGetterTy SEGetter;
-  LIGetterTy LIGetter;
+  FunctionAnalysisManager &FAM;
+
+  template<typename T, typename R = typename T::Result>
+  R& analysisGetter(Function &F) { return FAM.getResult<T>(F); }
 
   IRBuilder<ConstantFolder, IRBuilderCallbackInserter> IRB;
   /// Each instrumentation, i.a., of an instruction, is happening in a dedicated
@@ -454,6 +447,7 @@ struct BaseConfigurationOpportunity {
   ValueTy V = {0};
 };
 
+struct InstrumentorIRBuilderTy;
 struct InstrumentationConfig {
 
   virtual ~InstrumentationConfig() {}
@@ -1291,14 +1285,18 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
 
   StringRef getName() const override { return "loop_value_range"; }
 
+  virtual Type *getValueType(LLVMContext &Ctx) const {
+    return IntegerType::getInt64Ty(Ctx);
+  }
+
   void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
             ConfigTy *UserConfig = nullptr) {
     if (UserConfig)
       Config = *UserConfig;
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "initial_loop_val",
+    IRTArgs.push_back(IRTArg(getValueType(IIRB.Ctx), "initial_loop_val",
                              "The value in the first loop iteration.",
                              IRTArg::NONE, getInitialLoopValue));
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "final_loop_val",
+    IRTArgs.push_back(IRTArg(getValueType(IIRB.Ctx), "final_loop_val",
                              "The value in the last loop iteration.",
                              IRTArg::NONE, getFinalLoopValue));
     IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "max_offset",
@@ -1565,10 +1563,14 @@ struct GlobalIO : public InstrumentationOpportunity {
 
 class InstrumentorPass : public PassInfoMixin<InstrumentorPass> {
   using InstrumentationConfig = instrumentor::InstrumentationConfig;
+  using InstrumentorIRBuilderTy = instrumentor::InstrumentorIRBuilderTy;
   InstrumentationConfig *UserIConf;
+  InstrumentorIRBuilderTy *UserIIRB;
 
 public:
-  InstrumentorPass(InstrumentationConfig *IC = nullptr) : UserIConf(IC) {}
+  InstrumentorPass(InstrumentationConfig *IC = nullptr,
+                   InstrumentorIRBuilderTy *IIRB = nullptr)
+      : UserIConf(IC), UserIIRB(IIRB) {}
 
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
 };
