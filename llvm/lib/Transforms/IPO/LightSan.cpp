@@ -49,6 +49,7 @@
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/Instrumentor.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Scalar/GVN.h"
 #include "llvm/Transforms/Scalar/SROA.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -281,48 +282,57 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
   Value *getMPtr(Value &VPtr, InstrumentorIRBuilderTy &IIRB) {
     auto *Fn = IIRB.IRB.GetInsertBlock()->getParent();
+    if (auto *MPtr = V2M.lookup({&VPtr, Fn}))
+      return MPtr;
 
-#if 0
-    IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
+    SmallVector<std::pair<Instruction *, unsigned>> ReplStack;
+    SmallVector<std::pair<Value *, BasicBlock::iterator>> Worklist;
+    SmallVector<std::pair<Instruction *, BasicBlock::iterator>> Stack;
+    Worklist.push_back({&VPtr, IIRB.IRB.GetInsertPoint()});
+
+    auto *BaseMPtr = getBaseMPtr(VPtr, IIRB);
+    auto *EncNo = getBasePointerEncodingNo(VPtr, IIRB);
+
+    auto &DT = IIRB.DTGetter(*Fn);
     auto BestIP = IIRB.getBestHoistPoint(IIRB.IRB.GetInsertPoint(),
                                          HoistKindTy::HOIST_MAXIMALLY);
-    DenseMap<std::pair<Instruction *, unsigned>, Value *> ReplaceMap;
-#endif
-    SmallVector<Value *> Worklist;
-    Worklist.push_back(&VPtr);
-
     while (!Worklist.empty()) {
-      Value *Ptr = Worklist.pop_back_val();
+      auto [Ptr, IP] = Worklist.pop_back_val();
       auto *&MPtr = V2M[{Ptr, Fn}];
       if (MPtr)
         continue;
-#if 0
-      // This does not work since stuff moves and we break dominance.
+
       if (auto *CE = dyn_cast<ConstantExpr>(Ptr)) {
         if (CE->getOpcode() == Instruction::GetElementPtr) {
           auto *GEP = CE->getAsInstruction();
-          GEP->insertBefore(BestIP);
-          auto *PtrOp = GEP->getOperand(0);
-          ReplaceMap[{GEP, 0}] = PtrOp;
-          Worklist.push_back(PtrOp);
+          Stack.push_back({GEP, IP});
+          Worklist.push_back({GEP->getOperand(0), IP});
+          ReplStack.push_back({GEP, 0});
           MPtr = GEP;
         }
         continue;
       }
       auto *PtrI = dyn_cast<Instruction>(Ptr);
-      errs() << "Ptr " << *Ptr << "\n";
       if (PtrI) {
-        IIRB.IRB.SetInsertPoint(*PtrI->getInsertionPointAfterDef());
-        ensureDbgLoc(IIRB.IRB);
         switch (PtrI->getOpcode()) {
+        case Instruction::PHI: {
+          auto *PHI = cast<PHINode>(PtrI->clone());
+          PHI->insertBefore(PtrI->getIterator());
+          for (auto [Idx, Op] : enumerate(PHI->operands())) {
+            Worklist.push_back(
+                {Op,
+                 PHI->getIncomingBlock(Idx)->getTerminator()->getIterator()});
+            ReplStack.push_back({PHI, Idx});
+          }
+          MPtr = PHI;
+          continue;
+        }
         case Instruction::GetElementPtr: {
-          auto *GEP = cast<GetElementPtrInst>(PtrI)->clone();
-          IIRB.IRB.Insert(GEP);
-          auto *PtrOp = GEP->getOperand(0);
-          ReplaceMap[{GEP, 0}] = PtrOp;
-          Worklist.push_back(PtrOp);
+          auto *GEP = cast<GetElementPtrInst>(PtrI->clone());
+          Stack.push_back({GEP, IP});
+          Worklist.push_back({GEP->getOperand(0), IP});
+          ReplStack.push_back({GEP, 0});
           MPtr = GEP;
-          errs() << " MPTR -> " << *GEP << "\n";
           continue;
         }
         default:
@@ -330,26 +340,26 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
           break;
         }
       } else {
-        IIRB.IRB.SetInsertPoint(BestIP);
-        ensureDbgLoc(IIRB.IRB);
         // TODO: Globals?
       }
-#endif
+
       // Fallback to rt call.
-      auto *BaseMPtr = getBaseMPtr(*Ptr, IIRB);
-      auto *EncNo = getBasePointerEncodingNo(*Ptr, IIRB);
       auto *CI = IIRB.IRB.CreateCall(GetMPtrFC, {Ptr, BaseMPtr, EncNo});
+      IIRB.hoistInstructionsAndAdjustIP(*CI, BestIP, DT);
       MPtr = CI;
+      MPtr->setName("Q");
+      errs() << *MPtr << " for " << *Ptr << "\n";
     }
 
-#if 0
-    auto &DT = IIRB.DTGetter(*Fn);
-    for (auto &It : ReplaceMap) {
-      It.first.first->setOperand(It.first.second, V2M.lookup({It.second, Fn}));
-      // Other stuff moves, so we need to move this too.
-      IIRB.hoistInstructionsAndAdjustIP(*It.first.first, BestIP, DT);
+    for (auto [I, OpNo] : ReplStack)
+      I->setOperand(OpNo, V2M.lookup({I->getOperand(OpNo), Fn}));
+
+    // We insert the new instructions late and hoist them.
+    for (auto [I, IP] : reverse(Stack)) {
+      I->insertBefore(IP);
+      IIRB.hoistInstructionsAndAdjustIP(*I, BestIP, DT);
     }
-#endif
+
     return V2M.lookup({&VPtr, Fn});
   }
 
@@ -1315,67 +1325,6 @@ bool LightSanImpl::instrument() {
   UseMPtr("store");
 #endif
 
-  SmallVector<std::tuple<Instruction *, uint32_t, Value *, Value *>> ReplVec;
-  foreachRTCaller(IConf.getRTName("", "get_mptr"), [&](CallInst &CI) {
-    auto &Fn = *CI.getFunction();
-    auto *VPtr = CI.getArgOperand(0);
-    auto *BaseMPtr = CI.getArgOperand(1);
-    auto *EncNo = CI.getArgOperand(2);
-
-    SmallVector<Value *> Worklist;
-    Worklist.push_back(VPtr);
-
-    while (!Worklist.empty()) {
-      Value *Ptr = Worklist.pop_back_val();
-      auto *&MPtr = IConf.V2M[{Ptr, &Fn}];
-      if (MPtr && Ptr != VPtr)
-        continue;
-      if (auto *PtrI = dyn_cast<Instruction>(Ptr)) {
-        switch (PtrI->getOpcode()) {
-        case Instruction::GetElementPtr: {
-          auto *GEP = cast<GetElementPtrInst>(PtrI)->clone();
-          GEP->insertBefore(PtrI->getIterator());
-          ReplVec.push_back({GEP, 0, BaseMPtr, EncNo});
-          Worklist.push_back(GEP->getOperand(0));
-          MPtr = GEP;
-          if (Ptr == VPtr)
-            CI.replaceAllUsesWith(GEP);
-        }
-        };
-      }
-    }
-  });
-  for (auto [I, ArgNo, BaseMPtr, EncNo] : ReplVec) {
-    auto *Fn = I->getFunction();
-    auto *VPtr = I->getOperand(ArgNo);
-    auto *&MPtr = IConf.V2M[{VPtr, Fn}];
-    auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
-    if (!MPtr) {
-      BasicBlock::iterator IP =
-          Fn->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
-      for (auto *V : {VPtr, BaseMPtr, EncNo})
-        if (auto *I = dyn_cast<Instruction>(V))
-          if (!DT.dominates(I, IP))
-            IP = *I->getInsertionPointAfterDef();
-      IRBuilder<> IRB(IP->getParent(), IP);
-      ensureDbgLoc(IRB);
-      MPtr = IRB.CreateCall(IConf.GetMPtrFC, {VPtr, BaseMPtr, EncNo});
-    }
-    I->setOperand(ArgNo, MPtr);
-  }
-  foreachRTCaller(IConf.getRTName("", "get_mptr"), [&](CallInst &CI) {
-    if (CI.use_empty()) {
-      CI.eraseFromParent();
-      return;
-    }
-    auto &Fn = *CI.getFunction();
-    BasicBlock::iterator IP = Fn.getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
-
-    auto &DT = FAM.getResult<DominatorTreeAnalysis>(Fn);
-    InstrumentorIRBuilderTy::hoistInstructionsAndAdjustIP(
-        CI, IP, DT, /*ForceInitial=*/true);
-  });
-
 #if 0
   auto CheckForBasePtrInLoop = [&]() {
     auto *FC = M.getFunction(IConf.getRTName("post_", "base_pointer_info"));
@@ -1710,7 +1659,9 @@ struct ExtendedBasePointerIO : public BasePointerIO {
         Obj = MPtr;
         ObjSize = VPtrCI->getArgOperand(1);
       }
-      // TODO: load of shadow global
+    } else if (isa<GlobalVariable>(VPtr)) {
+      MPtr = VPtr;
+      Obj = MPtr;
     }
 
     Function *Fn = CI->getFunction();
@@ -1807,7 +1758,7 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
   static void populate(InstrumentationConfig &IConf,
                        InstrumentorIRBuilderTy &IIRB) {
     auto *LVRIO = IConf.allocate<ExtendedLoopValueRangeIO>();
-    LVRIO->HoistKind = HOIST_IN_BLOCK;
+    //    LVRIO->HoistKind = HOIST_IN_BLOCK;
     LVRIO->init(IConf, IIRB);
   }
 };
@@ -1867,7 +1818,7 @@ struct ExtendedLoadIO : public LoadIO {
                        InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *ESIO = IConf.allocate<ExtendedLoadIO>(/*IsPRE*/ true);
-    ESIO->HoistKind = HOIST_IN_BLOCK;
+    //    ESIO->HoistKind = HOIST_IN_BLOCK;
     ESIO->CB = [&](Value &V) {
       if (auto *Obj = LSIConf.AIC->getSafeAccessObj(cast<Instruction>(&V)))
         return !LSIConf.AIC->isObjectSafe(Obj);
@@ -1932,7 +1883,7 @@ struct ExtendedStoreIO : public StoreIO {
                        InstrumentorIRBuilderTy &IIRB) {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *ESIO = IConf.allocate<ExtendedStoreIO>(/*IsPRE*/ true);
-    ESIO->HoistKind = HOIST_IN_BLOCK;
+    //    ESIO->HoistKind = HOIST_IN_BLOCK;
     ESIO->CB = [&](Value &V) {
       if (auto *Obj = LSIConf.AIC->getSafeAccessObj(cast<Instruction>(&V)))
         return !LSIConf.AIC->isObjectSafe(Obj);
@@ -2075,6 +2026,7 @@ PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM) {
   auto GetFPM = [&]() -> FunctionPassManager {
     FunctionPassManager FPM;
     FPM.addPass(SROAPass(SROAOptions::ModifyCFG));
+    FPM.addPass(GVNPass());
     FPM.addPass(
         SimplifyCFGPass(SimplifyCFGOptions().convertSwitchRangeToICmp(true)));
     FPM.addPass(InstCombinePass());
