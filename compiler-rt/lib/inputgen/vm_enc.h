@@ -2,6 +2,7 @@
 #include <bit>
 #include <cassert>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -12,6 +13,7 @@
 #include <tuple>
 #include <type_traits>
 
+#include "common.h"
 #include "logging.h"
 
 #ifndef VM_ENC_H
@@ -20,13 +22,6 @@
 namespace __ig {
 
 enum AccessKind { READ, WRITE, CHECK_INITIALIZED, BCI_READ };
-
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BINARY(byte)                                                   \
-  ((byte) & 0x80 ? '1' : '0'), ((byte) & 0x40 ? '1' : '0'),                    \
-      ((byte) & 0x20 ? '1' : '0'), ((byte) & 0x10 ? '1' : '0'),                \
-      ((byte) & 0x08 ? '1' : '0'), ((byte) & 0x04 ? '1' : '0'),                \
-      ((byte) & 0x02 ? '1' : '0'), ((byte) & 0x01 ? '1' : '0')
 
 enum BitsKind {
   InitBit,
@@ -109,9 +104,7 @@ template <uint32_t EncodingNo, uint32_t OffsetBits, uint32_t BucketBits,
 struct BucketSchemeTy : public EncodingSchemeTy {
   BucketSchemeTy(ObjectManager &OM) : EncodingSchemeTy(OM) {}
   ~BucketSchemeTy() {
-#ifndef NDEBUG
-    fprintf(stderr, "Buckets used: %i\n", NumBucketsUsed);
-#endif
+    INPUTGEN_DEBUG(fprintf(stderr, "Buckets used: %i\n", NumBucketsUsed));
   }
 
   static constexpr uint32_t ThisEncodingNo = EncodingNo;
@@ -249,9 +242,7 @@ template <uint32_t EncodingNo, uint32_t ObjectBits>
 struct BigObjSchemeTy : public EncodingSchemeTy {
   BigObjSchemeTy(ObjectManager &OM) : EncodingSchemeTy(OM) {}
   ~BigObjSchemeTy() {
-#ifndef NDEBUG
-    fprintf(stderr, "Buckets used: %i\n", NumObjectsUsed);
-#endif
+    INPUTGEN_DEBUG(fprintf(stderr, "Buckets used: %i\n", NumObjectsUsed));
   }
 
   struct ObjDescTy {
@@ -350,37 +341,46 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
   struct TableEntryTy {
     char *Base;
     char *Shadow;
-    uint32_t NegativeSize;
+    int32_t NegativeSize;
     bool AnyRead = false;
     bool AnyAccess = false;
     bool IsNull = false;
     bool AnyPtrRead = false;
-    bool FixedSize = false;
     char *SavedValues = nullptr;
     char *GlobalName = nullptr;
 
-    TableEntryTy(char *Base, uint32_t PositiveSize, uint32_t NegativeSize,
-                 bool FixedSize, char *GlobalName)
+    static uint64_t getTotalSizeStatic(uint64_t Size) {
+      return Size + getShadowSizeStatic(Size);
+    }
+    static uint64_t getShadowSizeStatic(uint64_t Size) {
+      return (Size + 1) / 2;
+    }
+
+    TableEntryTy(char *Base, int32_t PositiveSize, int32_t NegativeSize,
+                 char *GlobalName)
         : Base(Base), Shadow(Base + PositiveSize + NegativeSize),
-          NegativeSize(NegativeSize), FixedSize(FixedSize),
-          GlobalName(GlobalName) {}
+          NegativeSize(NegativeSize), GlobalName(GlobalName) {
+      DEBUG("TableEntryTy({}, {}, {}, {})", (void *)Base, PositiveSize,
+            NegativeSize, (bool)GlobalName);
+    }
     char *getBase() const { return Base; }
     char *getShadow() const { return Shadow; }
-    uint32_t getShadowSize() const { return (getSize() + 1) / 2; }
+    uint32_t getShadowSize() const { return getShadowSizeStatic(getSize()); }
     uint32_t getSize() const { return Shadow - Base; }
-    uint32_t getPositiveSize() const { return Shadow - Base - NegativeSize; }
-    uint32_t getNegativeSize() const { return NegativeSize; }
+    int32_t getPositiveSize() const { return Shadow - Base - NegativeSize; }
+    int32_t getNegativeSize() const { return NegativeSize; }
 
-    void grow(uint32_t NewPositiveSize, uint32_t NewNegativeSize) {
-      if (FixedSize) {
-        fprintf(stderr, "Out of bound detected: %p; UB!\n", Base);
+    void grow(int32_t NewPositiveSize, int32_t NewNegativeSize) {
+      if (GlobalName) {
+        fprintf(stderr, "Out of bound access on global detected: %p; UB!\n",
+                Base);
         error(1003);
         std::terminate();
       }
       uint32_t OldSize = getSize();
       uint32_t NewSize = NewPositiveSize + NewNegativeSize;
-      uint32_t NegativeDifference = NewNegativeSize - getNegativeSize();
-      uint32_t NewTotalSize = (NewSize + 1) / 2 + NewSize;
+      int32_t NegativeDifference = NewNegativeSize - getNegativeSize();
+      uint32_t NewTotalSize = getTotalSizeStatic(NewSize);
       char *NewBase;
       if (false && NegativeDifference == 0) {
         NewBase = (char *)realloc(Base, NewTotalSize);
@@ -399,18 +399,16 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
       Base = NewBase;
       Shadow = NewBase + NewPositiveSize + NewNegativeSize;
       NegativeSize = NewNegativeSize;
+      DEBUG("update TableEntryTy({}, {}, {}, {})\n", (void *)getBase(),
+            getPositiveSize(), getNegativeSize(), (bool)GlobalName);
       // TODO: resize the SavedValues
     }
 
     void printStats() const {
       fprintf(stderr, "- %p:%u [%p]\n", (void *)getBase(), getSize(),
               SavedValues);
-      auto ShadowSize = getShadowSize();
-      char *Shadow = getShadow();
-      for (uint32_t I = 0; I < ShadowSize; ++I) {
-        fprintf(stderr, BYTE_TO_BINARY_PATTERN, BYTE_TO_BINARY(Shadow[I]));
-      }
-      puts("\n");
+      dumpMemoryBinary(getShadow(), getShadowSize());
+      dumpMemoryHex(getBase(), getSize());
     }
   };
 };
@@ -478,24 +476,15 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     }
   }
 
-  char *createGlobal(char *Addr, char *Name, uint32_t Size, uint32_t Seed) {
+  char *create(uint32_t Size, uint32_t Seed, char *GlobalName = nullptr) {
     auto TEC = TableEntryCnt++;
-    uint32_t NegativeSize = 0;
-    uint32_t PositiveSize = Size;
-    Table[TEC] = TableEntryTy(Addr, PositiveSize, NegativeSize, true, Name);
-    EncDecTy ED(DefaultOffset, TEC);
-    return ED.VPtr;
-  }
-
-  char *create(uint32_t Size, uint32_t Seed) {
-    assert(std::has_single_bit(Size));
-    auto TEC = TableEntryCnt++;
-    uint32_t NegativeSize = 0;
-    uint32_t PositiveSize = Size * 8;
-    uint32_t TotalSize = PositiveSize + PositiveSize / 2;
+    int32_t NegativeSize = 0;
+    int32_t PositiveSize = Size * 8;
+    uint32_t TotalSize = TableEntryTy::getTotalSizeStatic(PositiveSize);
     char *Base = (char *)calloc(TotalSize, 1);
-    Table[TEC] = TableEntryTy(Base, PositiveSize, NegativeSize, false, nullptr);
+    Table[TEC] = TableEntryTy(Base, PositiveSize, NegativeSize, GlobalName);
     EncDecTy ED(DefaultOffset, TEC);
+    DEBUG("--> {}\n", (void *)ED.VPtr);
     return ED.VPtr;
   }
 
@@ -665,23 +654,32 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     TableEntryTy &TE = Table[ED.Bits.TableIdx];
 
     int32_t RelOffset = (uint32_t)ED.Bits.Offset - DefaultOffset;
+    DEBUG("access at offset {}\n", RelOffset);
 
+    auto Size = TE.getSize();
     auto PositiveSize = TE.getPositiveSize();
     auto NegativeSize = TE.getNegativeSize();
-    if (RelOffset < 0 && (uint32_t)(-RelOffset) > NegativeSize) [[unlikely]] {
-      RelOffset *= -1;
+    if (-RelOffset > NegativeSize) [[unlikely]] {
+      uint32_t Overshot = -RelOffset - NegativeSize;
       uint32_t NewNegativeSize =
-          std::max(4 * NegativeSize, std::bit_ceil((uint32_t)4 * RelOffset));
-      assert(std::has_single_bit(NewNegativeSize));
+          std::max(4 * Overshot, 4 * Size) + NegativeSize;
+      // TODO do we need this?
+      // assert(std::has_single_bit(NewNegativeSize));
       TE.grow(PositiveSize, NewNegativeSize);
-    } else if (RelOffset > 0 && (uint32_t)RelOffset + AccessSize > PositiveSize)
-        [[unlikely]] {
+      PositiveSize = TE.getPositiveSize();
+      NegativeSize = TE.getNegativeSize();
+    } else if (RelOffset + AccessSize > PositiveSize) [[unlikely]] {
+      uint32_t Overshot = (RelOffset + AccessSize) - PositiveSize;
       uint32_t NewPositiveSize =
-          std::max(4 * PositiveSize, std::bit_ceil((uint32_t)4 * RelOffset));
-      assert(std::has_single_bit(NewPositiveSize));
+          std::max(4 * Overshot, 4 * Size) + PositiveSize;
+      // TODO do we need this?
+      // assert(std::has_single_bit(NewPositiveSize));
       TE.grow(NewPositiveSize, NegativeSize);
+      PositiveSize = TE.getPositiveSize();
+      NegativeSize = TE.getNegativeSize();
     }
     auto OffsetFromBase = RelOffset + NegativeSize;
+    DEBUG("offset from base {}\n", OffsetFromBase);
     auto Div = OffsetFromBase >> 1;
     auto Mod = OffsetFromBase & 1;
     char *ShadowP = (TE.getShadow() + Div);

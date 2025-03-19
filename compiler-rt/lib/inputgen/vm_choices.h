@@ -1,6 +1,8 @@
 #ifndef VM_CHOICES_H
 #define VM_CHOICES_H
 
+#include "logging.h"
+
 #include <bit>
 #include <bitset>
 #include <cassert>
@@ -44,10 +46,10 @@ struct ChoiceManager {
 
   ChoiceTrace *initializeChoices(uint32_t I) {
     auto *CT = new ChoiceTrace(I, LastChoice);
-#ifndef NDEBUG
-    std::cerr << "INITIAL CHOICES: " << CT->Decisions << "\n";
-    std::cerr << "CHOICES TO MAKE: " << CT->ChoicesToMake << "\n";
-#endif
+    INPUTGEN_DEBUG({
+      std::cerr << "INITIAL CHOICES: " << CT->Decisions << "\n";
+      std::cerr << "CHOICES TO MAKE: " << CT->ChoicesToMake << "\n";
+    });
     Choices.push_back(CT);
     return CT;
   }
@@ -64,17 +66,13 @@ struct ChoiceManager {
 
     if (ChoiceToFlip == -1u)
       return false;
-#ifndef NDEBUG
-    printf("Flip %u\n", ChoiceToFlip);
-#endif
+    INPUTGEN_DEBUG({ printf("Flip %u\n", ChoiceToFlip); });
     CT->Decisions.flip(ChoiceToFlip);
     CT->ChoicesToMake.flip(ChoiceToFlip);
     for (int32_t I = ChoiceToFlip + 1, E = CT->ChoicesToMake.size(); I < E; ++I)
       CT->ChoicesToMake.set(I);
     CT->CurrentChoice = ChoiceToFlip;
-#ifndef NDEBUG
-    std::cout << "CHOICES: " << CT->Decisions << "\n";
-#endif
+    INPUTGEN_DEBUG({ std::cout << "CHOICES: " << CT->Decisions << "\n"; });
     return true;
   }
 };

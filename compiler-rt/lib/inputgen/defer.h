@@ -1,6 +1,8 @@
 #ifndef DEFER_H_
 #define DEFER_H_
 
+#include "logging.h"
+
 #include <cassert>
 #include <cstdio>
 #include <utility>
@@ -28,20 +30,16 @@ public:
 
   ~DeferGlobalConstruction() {
     if (Init) {
-#ifndef NDEBUG
-      fputs("DEFERRED CONSTRUCT\n", stderr);
-#endif
+      INPUTGEN_DEBUG(fputs("DEFERRED CONSTRUCT\n", stderr));
       V.~T();
     }
   }
 
   template <typename... ArgsTy> void init(ArgsTy &&...Args) {
     if (!Init) {
-#ifndef NDEBUG
-      // We cannot use c++ things here because we may have not run global
-      // constructors yet
-      fputs("DEFERRED DESTRUCT\n", stderr);
-#endif
+      // We cannot use std::cerr here because we may have not run global
+      // constructors yet.
+      INPUTGEN_DEBUG(fputs("DEFERRED DESTRUCT\n", stderr));
       new (&V) T(std::forward<ArgsTy>(Args)...);
       Init = true;
     }

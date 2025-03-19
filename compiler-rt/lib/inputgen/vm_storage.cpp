@@ -1,5 +1,6 @@
 
 #include "vm_storage.h"
+#include "common.h"
 #include "global_manager.h"
 
 #include <algorithm>
@@ -39,12 +40,12 @@ template <typename T> static T writeV(std::ofstream &Output, T El) {
 #define READV(V)                                                               \
   do {                                                                         \
     V = readV<decltype(V)>(IFS);                                               \
-    DEBUG("read {}\n", V);                                                     \
+    DEBUG("read " #V " {}\n", V);                                              \
   } while (0)
 #define WRITEV(V)                                                              \
   do {                                                                         \
     writeV<decltype(V)>(OFS, V);                                               \
-    DEBUG("wrote {}\n", V);                                                    \
+    DEBUG("wrote " #V " {}\n", V);                                             \
   } while (0)
 #else
 #define DEFINE_READV(S) auto READV = [&S]<typename T>(T &V) { V = readV<T>(S); }
@@ -114,9 +115,15 @@ Range::Range(std::ifstream &IFS) {
   READV(Length);
   if (Length) {
     Begin = (char *)malloc(Length);
+    DEBUG("malloc -- {}\n", (void *)Begin);
     End = Begin + Length;
-    if (AnyRecorded)
+    if (AnyRecorded) {
       IFS.read(Begin, Length);
+      INPUTGEN_DEBUG({
+        if (getenv("PRINT_RUNTIME_OBJECTS"))
+          dumpMemoryHex(Begin, Length);
+      });
+    }
   } else {
     Begin = End = nullptr;
   }
@@ -248,8 +255,12 @@ void StorageManager::read(std::ifstream &IFS, GlobalManager &GM) {
   for (auto &Ptr : Ptrs) {
     auto &ObjRange = Ranges[Ptr.ObjIdx];
     auto &TgtObjRange = Ranges[Ptr.TgtObjIdx];
-    *(char **)(&ObjRange.Begin[Ptr.Offset]) =
+    char *ObjPtr = &ObjRange.Begin[Ptr.Offset];
+    char *TgtObjPtr =
         &TgtObjRange.Begin[Ptr.TgtOffset + TgtObjRange.NegativeSize];
+    *(char **)(ObjPtr) = TgtObjPtr;
+    DEBUG("repoint #{} at {} --> #{} at {}\n", Ptr.ObjIdx, (void *)ObjPtr,
+          Ptr.TgtObjIdx, (void *)TgtObjPtr);
   }
 }
 

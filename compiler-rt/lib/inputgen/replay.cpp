@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
   }
 
   uint32_t EntryNo = 0;
-  if (argc > 2) 
+  if (argc > 2)
     EntryNo = std::atoi(argv[2]);
   if (EntryNo >= __ig_num_entry_points) {
     fprintf(stderr, "Entry %u is out of bounds, %u available\n", EntryNo,
@@ -49,18 +49,18 @@ int main(int argc, char **argv) {
     IFS.tie(nullptr);
 
     GM->sort();
-#ifndef NDEBUG
-    assert(GM.isConstructed());
-    std::cerr << "Globals in replay module\n";
-    for (auto G : GM->Globals)
-      std::cerr << G.Name << "\n";
-#endif
+    INPUTGEN_DEBUG({
+      assert(GM.isConstructed());
+      std::cerr << "Globals in replay module\n";
+      for (auto G : GM->Globals)
+        std::cerr << G.Name << "\n";
+    });
     SM.read(IFS, *GM);
-#ifndef NDEBUG
-    std::cerr << "Globals in input\n";
-    for (auto G : SM.Globals)
-      std::cerr << G.Name << "\n";
-#endif
+    INPUTGEN_DEBUG({
+      std::cerr << "Globals in input\n";
+      for (auto G : SM.Globals)
+        std::cerr << G.Name << "\n";
+    });
 
     P = SM.getEntryPtr();
   }

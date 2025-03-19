@@ -124,7 +124,7 @@ struct ObjectManager {
   }
 
   char *addGlobal(char *Addr, char *Name, int32_t Size) {
-    return RTObjs.createGlobal(Addr, Name, Size, /* TODO */ 0);
+    return RTObjs.create(Size, /* TODO */ 0, Name);
   }
 
   char *add(int32_t Size, uint32_t Seed) { return RTObjs.create(Size, Seed); }

@@ -117,10 +117,10 @@ void __ig_pre_call(char *callee, char *callee_name, int64_t intrinsic_id,
       char *VPtr = *(char **)VPVPtr;
       char *MPtr = ThreadOM->decode(VPtr);
       PRINTF("Call arg %p -> %p\n", VPtr, MPtr);
-#ifndef NDEBUG
-      if (callee_name && !strcmp(callee_name, "__sprintf_chk"))
-        PRINTF(" --> '%s'\n", MPtr);
-#endif
+      INPUTGEN_DEBUG({
+        if (callee_name && !strcmp(callee_name, "__sprintf_chk"))
+          PRINTF(" --> '%s'\n", MPtr);
+      });
       *(char **)&VP->Value = MPtr;
     } else if (VP->TypeId == 12) {
       PRINTF("Call arg %llu @ %p\n", *(uint64_t *)&VP->Value, &VP->Value);
