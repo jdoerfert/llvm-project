@@ -20,11 +20,19 @@ void ObjectManager::reset() {
   std::set<char *> ArgMemPtrs;
 }
 
+std::function<void(uint32_t)> __ig::ErrorFn;
+
 void ObjectManager::saveInput(uint32_t EntryNo, uint32_t InputIdx,
                               uint32_t ExitCode) {
+
+  ErrorFn = [](uint32_t Code) {
+    ERR("Encountered error while saving input with code {}. Aborting.\n", Code);
+    exit(1);
+  };
+
   INPUTGEN_DEBUG({
     if (getenv("PRINT_RUNTIME_OBJECTS")) {
-      printf("\n\nRuntime objects (%u):\n", RTObjs.TableEntryCnt);
+      fprintf(stderr, "\n\nRuntime objects (%u):\n", RTObjs.TableEntryCnt);
       for (uint32_t I = 0; I < RTObjs.TableEntryCnt; ++I) {
         RTObjs.Table[I].printStats();
       }
@@ -43,8 +51,6 @@ void ObjectManager::saveInput(uint32_t EntryNo, uint32_t InputIdx,
   std::ofstream OFS(OutputName, std::ios_base::out | std::ios_base::binary);
   SM.write(OFS);
 }
-
-std::function<void(uint32_t)> __ig::ErrorFn;
 void __ig::error(uint32_t ErrorCode) {
   if (ErrorFn)
     ErrorFn(ErrorCode);

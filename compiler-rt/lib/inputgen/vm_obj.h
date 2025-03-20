@@ -104,7 +104,7 @@ struct ObjectManager {
     case 3:
       return UserObjLarge.access(VPtr, AccessSize, TypeId, AK == WRITE);
     default:
-      ERR("unknown encoding {}\n", getEncoding(VPtr));
+      ERR("unknown encoding 1 {}\n", getEncoding(VPtr));
       error(1003);
       std::terminate();
     }
@@ -140,7 +140,7 @@ struct ObjectManager {
     default:
       if (AllowToFail)
         return {-2, -2};
-      ERR("unknown encoding {}\n", getEncoding(VPtr));
+      ERR("unknown encoding 2 {}\n", getEncoding(VPtr));
       error(1004);
       std::terminate();
     }
@@ -154,7 +154,7 @@ struct ObjectManager {
     case 3:
       return UserObjLarge.getBasePtrInfo(VPtr);
     default:
-      ERR("unknown encoding {}\n", getEncoding(VPtr));
+      ERR("unknown encoding 3 {}\n", getEncoding(VPtr));
       error(1005);
       std::terminate();
     }
@@ -168,7 +168,7 @@ struct ObjectManager {
     case 3:
       return UserObjLarge.getBase(VPtr);
     default:
-      ERR("unknown encoding {}\n", getEncoding(VPtr));
+      ERR("unknown encoding 4 {}\n", getEncoding(VPtr));
       error(1005);
       std::terminate();
     }
@@ -182,7 +182,7 @@ struct ObjectManager {
     case 3:
       return UserObjLarge.getBaseVPtr(VPtr);
     default:
-      ERR("unknown encoding {}\n", getEncoding(VPtr));
+      ERR("unknown encoding 5 {}\n", getEncoding(VPtr));
       error(1005);
       std::terminate();
     }

@@ -33,30 +33,30 @@ enum BitsKind {
 // 0x0N or 0xN0.
 static uint64_t BitsTable[4][5][2] = {
     {
-        {0x01, 0x10},
-        {0x11, 0x0},
-        {0x1111, 0x0},
+        {0x00000010, 0x01},
+        {0x00000011, 0x0},
+        {0x00001111, 0x0},
         {0x0, 0x0},
         {0x11111111, 0x0},
     },
     {
-        {0x20, 0x02},
-        {0x22, 0x0},
-        {0x2222, 0x0},
+        {0x00000020, 0x02},
+        {0x00000022, 0x0},
+        {0x00002222, 0x0},
         {0x0, 0x0},
         {0x22222222, 0x0},
     },
     {
-        {0x40, 0x04},
-        {0x44, 0x0},
-        {0x4444, 0x0},
+        {0x00000040, 0x04},
+        {0x00000044, 0x0},
+        {0x00004444, 0x0},
         {0x0, 0x0},
         {0x44444444, 0x0},
     },
     {
-        {0x80, 0x08},
-        {0x88, 0x0},
-        {0x8888, 0x0},
+        {0x00000080, 0x08},
+        {0x00000088, 0x0},
+        {0x00008888, 0x0},
         {0x0, 0x0},
         {0x88888888, 0x0},
     },
@@ -484,7 +484,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     char *Base = (char *)calloc(TotalSize, 1);
     Table[TEC] = TableEntryTy(Base, PositiveSize, NegativeSize, GlobalName);
     EncDecTy ED(DefaultOffset, TEC);
-    DEBUG("--> {}\n", (void *)ED.VPtr);
+    DEBUG(" --> {}\n", (void *)ED.VPtr);
     return ED.VPtr;
   }
 
@@ -569,8 +569,9 @@ struct TableSchemeTy : public TableSchemeBaseTy {
 
     uint64_t FullRecord =
         (ShadowVal & RecordBits) == RecordBits;
+    uint64_t NoneSaved = !(ShadowVal & SavedBits);
     uint64_t PartialSaved =
-        (ShadowVal & SavedBits) != SavedBits;
+        ((ShadowVal & SavedBits) != SavedBits) && !NoneSaved;
     [[maybe_unused]] uint64_t FullSaved = (ShadowVal & SavedBits) == SavedBits;
 
     assert (SavedBits = RecordBits + 1);
@@ -613,7 +614,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
             writeVariableSize(MemP + Byte, 1, getValue(TypeId, 1));
         }
       }
-    } else if (AK == WRITE && FullRecord && !PartialSaved) {
+    } else if (AK == WRITE && FullRecord && NoneSaved) {
       if (!TE.SavedValues)
         TE.SavedValues = (char *)calloc(TE.getSize(), 1);
       __builtin_memcpy(TE.SavedValues + (MemP - TE.getBase()), MemP,
@@ -624,8 +625,8 @@ struct TableSchemeTy : public TableSchemeBaseTy {
       if (!TE.SavedValues)
         TE.SavedValues = (char *)calloc(TE.getSize(), 1);
       __builtin_assume(AccessSize <= 8);
-      uint64_t SingleSavedBits = BitsTable[RecordBits][0][0];
-      uint64_t SingleRecordBits = BitsTable[RecordBits][0][0];
+      uint64_t SingleSavedBits = BitsTable[SavedBit][0][0];
+      uint64_t SingleRecordBits = BitsTable[RecordBit][0][0];
       for (uint32_t Byte = 0; Byte < AccessSize; ++Byte) {
         uint64_t SavedByteBits = SingleSavedBits << (AccessSize - Byte - 1);
         uint64_t RecordByteBits = SingleRecordBits << (AccessSize - Byte - 1);

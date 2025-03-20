@@ -1306,7 +1306,7 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   LICConfig.set(LoadIO::PassAlignment);
   LICConfig.set(LoadIO::PassValueTypeId);
   auto *LIC = InstrumentationConfig::allocate<LoadIO>(/*IsPRE=*/true);
-  LIC->HoistKind = HOIST_MAXIMALLY;
+  LIC->HoistKind = DO_NOT_HOIST;
   LIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentLoad(cast<LoadInst>(V), IIRB);
   };
@@ -1321,7 +1321,7 @@ void InputGenInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   SICConfig.set(StoreIO::PassAlignment);
   SICConfig.set(StoreIO::PassValueTypeId);
   auto *SIC = InstrumentationConfig::allocate<StoreIO>(/*IsPRE=*/true);
-  SIC->HoistKind = HOIST_MAXIMALLY;
+  SIC->HoistKind = DO_NOT_HOIST;
   SIC->CB = [&](Value &V) {
     return IGMI.shouldInstrumentStore(cast<StoreInst>(V), IIRB);
   };

@@ -24,26 +24,28 @@ enum class ExitStatus : int {
   WrongUsage,
 };
 
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c "
+#define BYTE_TO_BINARY_PATTERN "%c%c%c%c %c%c%c%c "
 #define BYTE_TO_BINARY(byte)                                                   \
-  ((byte) & 0x80 ? '1' : '0'), ((byte) & 0x40 ? '1' : '0'),                    \
-      ((byte) & 0x20 ? '1' : '0'), ((byte) & 0x10 ? '1' : '0'),                \
-      ((byte) & 0x08 ? '1' : '0'), ((byte) & 0x04 ? '1' : '0'),                \
-      ((byte) & 0x02 ? '1' : '0'), ((byte) & 0x01 ? '1' : '0')
+  ((byte) & 0x80 ? 'S' : '-'), ((byte) & 0x40 ? 'R' : '-'),                    \
+      ((byte) & 0x20 ? 'P' : '-'), ((byte) & 0x10 ? 'I' : '-'),                \
+      ((byte) & 0x08 ? 'S' : '-'), ((byte) & 0x04 ? 'R' : '-'),                \
+      ((byte) & 0x02 ? 'P' : '-'), ((byte) & 0x01 ? 'I' : '-')
 
 inline void dumpMemoryBinary(char *Memory, size_t Size) {
+  fprintf(stderr, "[%p] ", Memory);
   for (uint32_t I = 0; I < Size; ++I) {
     if (I % 16 == 0)
-      fprintf(stderr, "(%p) ", (void *)(Memory + I));
+      fprintf(stderr, "\n[+%d]\t", I);
     fprintf(stderr, BYTE_TO_BINARY_PATTERN, BYTE_TO_BINARY(Memory[I]));
   }
   fputs("\n", stderr);
 }
 
 inline void dumpMemoryHex(char *Memory, size_t Size) {
+  fprintf(stderr, "[%p] ", Memory);
   for (uint32_t I = 0; I < Size; ++I) {
     if (I % 16 == 0)
-      fprintf(stderr, "(%p) ", (void *)(Memory + I));
+      fprintf(stderr, "\n[+%d]\t", I);
     fprintf(stderr, "%02hhX ", Memory[I]);
   }
   fputs("\n", stderr);
