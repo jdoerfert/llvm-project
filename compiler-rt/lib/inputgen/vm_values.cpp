@@ -134,9 +134,10 @@ void FreeValueInfo::markInitialized(FreeValueManager &FVM, char *VP,
   if (auto *BP1 = ThreadOM.getBasePtrInfo(VPtr))
     ThreadOM.decodeForAccess(VPtr, getWrittenSize(FVM), TypeId, BCI_READ, BP1,
                              AnyInitialized, AllInitialized);
-  if (auto *BP1 = ThreadOM.getBasePtrInfo(VCmpPtr))
-    ThreadOM.decodeForAccess(VPtr, getWrittenSize(FVM), TypeId, BCI_READ, BP1,
-                             AnyInitialized, AllInitialized);
+  if (VCmpPtr)
+    if (auto *BP1 = ThreadOM.getBasePtrInfo(VCmpPtr))
+      ThreadOM.decodeForAccess(VPtr, getWrittenSize(FVM), TypeId, BCI_READ, BP1,
+                               AnyInitialized, AllInitialized);
 }
 
 void FreeValueManager::checkBranchConditions(char *VP, char *VPBP, char *VCP,

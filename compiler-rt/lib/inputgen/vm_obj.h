@@ -289,7 +289,7 @@ struct ObjectManager {
 
   void checkBranchConditions(char *VP, char *VPBP, char *VCP = nullptr,
                              char *VCPBP = nullptr) {
-    if (((uint64_t)VPBP & 3) == 2 || ((uint64_t)VCPBP & 3) == 2)
+    if (((uint64_t)VPBP & 3) == 2 && ((uint64_t)VCPBP & 3) == 2)
       FVM.checkBranchConditions(VP, VPBP, VCP, VCPBP);
     else if (((uint64_t)VPBP & 3) == 2)
       FVM.checkBranchConditions(VP, VPBP, nullptr, nullptr);
