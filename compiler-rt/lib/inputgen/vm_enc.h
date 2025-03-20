@@ -356,10 +356,30 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
       return (Size + 1) / 2;
     }
 
+    static void checkSizes(int32_t PositiveSize, int32_t NegativeSize) {
+      // We need the sizes to always be divisible by two because otherwide
+      // aligning the shadown correctly is very annoying (and inefficient)
+      assert(PositiveSize % 2 == 0);
+      assert(NegativeSize % 2 == 0);
+
+      //   16        0                   32
+      //   ------------------------------
+      //   ^         ^                   ^
+      //   |         |                   | PositiveSize = 32
+      //   |         | BasePtr
+      //   |
+      //   | NegativeSize = 16
+      //
+      // Check that the lower end of the object (NegativeSize) is actually on
+      // the left side of the higher end (PositiveSize)
+      assert(PositiveSize >= -NegativeSize);
+    }
+
     TableEntryTy(char *Base, int32_t PositiveSize, int32_t NegativeSize,
                  char *GlobalName)
         : Base(Base), Shadow(Base + PositiveSize + NegativeSize),
           NegativeSize(NegativeSize), GlobalName(GlobalName) {
+      checkSizes(PositiveSize, NegativeSize);
       DEBUG("TableEntryTy({}, {}, {}, {})", (void *)Base, PositiveSize,
             NegativeSize, (bool)GlobalName);
     }
@@ -371,6 +391,7 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
     int32_t getNegativeSize() const { return NegativeSize; }
 
     void grow(int32_t NewPositiveSize, int32_t NewNegativeSize) {
+      checkSizes(NewPositiveSize, NewNegativeSize);
       if (GlobalName) {
         fprintf(stderr, "Out of bound access on global detected: %p; UB!\n",
                 Base);
@@ -382,7 +403,9 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
       int32_t NegativeDifference = NewNegativeSize - getNegativeSize();
       uint32_t NewTotalSize = getTotalSizeStatic(NewSize);
       char *NewBase;
+      char *NewSavedValues;
       if (false && NegativeDifference == 0) {
+        // TODO
         NewBase = (char *)realloc(Base, NewTotalSize);
         __builtin_memcpy(NewBase + NewPositiveSize + NewNegativeSize,
                          NewBase + OldSize, getShadowSize());
@@ -395,20 +418,36 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
         __builtin_memcpy(NewBase + NewSize + NegativeDifference / 2,
                          getShadow(), getShadowSize());
         free(Base);
+        if (SavedValues) {
+          NewSavedValues = (char *)calloc(NewSize, 1);
+          __builtin_memcpy(NewSavedValues + NegativeDifference, SavedValues,
+                           OldSize);
+          free(SavedValues);
+        } else {
+          NewSavedValues = nullptr;
+        }
       }
       Base = NewBase;
       Shadow = NewBase + NewPositiveSize + NewNegativeSize;
       NegativeSize = NewNegativeSize;
       DEBUG("update TableEntryTy({}, {}, {}, {})\n", (void *)getBase(),
             getPositiveSize(), getNegativeSize(), (bool)GlobalName);
-      // TODO: resize the SavedValues
     }
 
+    void printShadow() const { dumpMemoryBinary(getShadow(), getShadowSize()); }
+    void printMemory() const { dumpMemoryHex(getBase(), getSize()); }
+    void printSavedValues() const {
+      if (SavedValues)
+        dumpMemoryHex(SavedValues, getSize());
+      else
+        fputs("(nil)\n", stderr);
+    }
     void printStats() const {
       fprintf(stderr, "- %p:%u [%p]\n", (void *)getBase(), getSize(),
               SavedValues);
-      dumpMemoryBinary(getShadow(), getShadowSize());
-      dumpMemoryHex(getBase(), getSize());
+      printShadow();
+      printMemory();
+      printShadow();
     }
   };
 };
@@ -573,8 +612,6 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     uint64_t PartialSaved =
         ((ShadowVal & SavedBits) != SavedBits) && !NoneSaved;
     [[maybe_unused]] uint64_t FullSaved = (ShadowVal & SavedBits) == SavedBits;
-
-    assert (SavedBits = RecordBits + 1);
     uint64_t PartiallyUnsaved =
         ((ShadowVal & RecordBits) << 1) != (ShadowVal & SavedBits);
 
@@ -664,7 +701,6 @@ struct TableSchemeTy : public TableSchemeBaseTy {
       uint32_t Overshot = -RelOffset - NegativeSize;
       uint32_t NewNegativeSize =
           std::max(4 * Overshot, 4 * Size) + NegativeSize;
-      // TODO do we need this?
       // assert(std::has_single_bit(NewNegativeSize));
       TE.grow(PositiveSize, NewNegativeSize);
       PositiveSize = TE.getPositiveSize();
