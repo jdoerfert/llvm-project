@@ -1,10 +1,10 @@
 // RUN: %clangxx_inputgen_full_gen
 // RUN: %clangxx_inputgen_full_replay_gen
 
-// RUN: for i in $(seq 0 7); do %inputgen_gen $i > %inputgen_gen.$i.0.0.inp.gen.out; done
-// RUN: for i in $(seq 0 7); do %inputgen_repl_gen %inputgen_gen.$i.0.0.inp $i > %inputgen_gen.$i.0.0.inp.repl.out; done
-// RUN: for i in $(seq 0 7); do diff %inputgen_gen.$i.0.0.inp.gen.out %inputgen_gen.$i.0.0.inp.repl.out; done
-// RUN: cat %inputgen_gen.*.0.0.inp.repl.out | FileCheck %s
+// RUN:  for i in $(seq 0 10); do %inputgen_gen $i > %inputgen_gen.$i.0.0.inp.gen.out; done
+// RUN:  for i in $(seq 0 10); do %inputgen_repl_gen %inputgen_gen.$i.0.0.inp $i > %inputgen_gen.$i.0.0.inp.repl.out; done
+// RUN:  for i in $(seq 0 10); do diff %inputgen_gen.$i.0.0.inp.gen.out %inputgen_gen.$i.0.0.inp.repl.out; done
+// RUN: (for i in $(seq 0 10); do cat %inputgen_gen.*.0.0.inp.repl.out; done) | FileCheck %s
 
 extern "C" int printf(const char *__restrict __format, ...);
 
@@ -41,4 +41,23 @@ __attribute__((inputgen_entry)) void load_after_store(double *n) {
 __attribute__((inputgen_entry)) void store_after_load(double *n) {
   printf("MEM7 %f\n", *n);
   *n = 30140;
+}
+// CHECK: MEM8
+__attribute__((inputgen_entry)) void store_after_load_partial(char *n) {
+  printf("MEM8 %f\n", *(float *)n);
+  *(double *)n = 301400;
+}
+// CHECK: MEM9
+// CHECK: MEM9
+__attribute__((inputgen_entry)) void char_store_rem_0(char *n) {
+  printf("MEM9 %c\n", *n);
+  *(int *)n = 39;
+  printf("MEM9 %d\n", *(int *)n);
+}
+// CHECK: MEM10
+// CHECK: MEM10
+__attribute__((inputgen_entry)) void char_store_rem_1(char *n) {
+  printf("MEM10 %c\n", *(n + 1));
+  *(int *)n = 39;
+  printf("MEM10 %d\n", *(int *)n);
 }

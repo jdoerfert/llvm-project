@@ -33,28 +33,28 @@ enum BitsKind {
 // 0x0N or 0xN0.
 static uint64_t BitsTable[4][5][2] = {
     {
-        {0x00000010, 0x01},
+        {0x00000001, 0x10},
         {0x00000011, 0x0},
         {0x00001111, 0x0},
         {0x0, 0x0},
         {0x11111111, 0x0},
     },
     {
-        {0x00000020, 0x02},
+        {0x00000002, 0x20},
         {0x00000022, 0x0},
         {0x00002222, 0x0},
         {0x0, 0x0},
         {0x22222222, 0x0},
     },
     {
-        {0x00000040, 0x04},
+        {0x00000004, 0x40},
         {0x00000044, 0x0},
         {0x00004444, 0x0},
         {0x0, 0x0},
         {0x44444444, 0x0},
     },
     {
-        {0x00000080, 0x08},
+        {0x00000008, 0x80},
         {0x00000088, 0x0},
         {0x00008888, 0x0},
         {0x0, 0x0},
@@ -445,9 +445,12 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
     void printStats() const {
       fprintf(stderr, "- %p:%u [%p]\n", (void *)getBase(), getSize(),
               SavedValues);
+      fputs("Shadow ", stderr);
       printShadow();
+      fputs("Memory ", stderr);
       printMemory();
-      printShadow();
+      fputs("Saved Values ", stderr);
+      printSavedValues();
     }
   };
 };
@@ -665,8 +668,8 @@ struct TableSchemeTy : public TableSchemeBaseTy {
       uint64_t SingleSavedBits = BitsTable[SavedBit][0][0];
       uint64_t SingleRecordBits = BitsTable[RecordBit][0][0];
       for (uint32_t Byte = 0; Byte < AccessSize; ++Byte) {
-        uint64_t SavedByteBits = SingleSavedBits << (AccessSize - Byte - 1);
-        uint64_t RecordByteBits = SingleRecordBits << (AccessSize - Byte - 1);
+        uint64_t SavedByteBits = SingleSavedBits << (4 * Byte);
+        uint64_t RecordByteBits = SingleRecordBits << (4 * Byte);
         if (!(ShadowVal & RecordByteBits) || (ShadowVal & SavedByteBits))
           continue;
         __builtin_memcpy(TE.SavedValues + (MemP - TE.getBase() + Byte),

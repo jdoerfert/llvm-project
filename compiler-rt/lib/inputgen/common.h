@@ -24,12 +24,18 @@ enum class ExitStatus : int {
   WrongUsage,
 };
 
+// clang-format off
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c %c%c%c%c "
-#define BYTE_TO_BINARY(byte)                                                   \
-  ((byte) & 0x80 ? 'S' : '-'), ((byte) & 0x40 ? 'R' : '-'),                    \
-      ((byte) & 0x20 ? 'P' : '-'), ((byte) & 0x10 ? 'I' : '-'),                \
-      ((byte) & 0x08 ? 'S' : '-'), ((byte) & 0x04 ? 'R' : '-'),                \
-      ((byte) & 0x02 ? 'P' : '-'), ((byte) & 0x01 ? 'I' : '-')
+#define BYTE_TO_BINARY(byte)  \
+  ((byte) & 0x08 ? 'S' : '-'),\
+  ((byte) & 0x04 ? 'R' : '-'),\
+  ((byte) & 0x02 ? 'P' : '-'),\
+  ((byte) & 0x01 ? 'I' : '-'),\
+  ((byte) & 0x80 ? 'S' : '-'),\
+  ((byte) & 0x40 ? 'R' : '-'),\
+  ((byte) & 0x20 ? 'P' : '-'),\
+  ((byte) & 0x10 ? 'I' : '-')
+// clang-format on
 
 inline void dumpMemoryBinary(char *Memory, size_t Size) {
   fprintf(stderr, "[%p] ", Memory);
