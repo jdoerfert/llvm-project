@@ -718,8 +718,7 @@ bool InstrumentorImpl::instrument() {
 
   Changed |= instrumentModule();
 
-  if (Changed)
-    linkRuntime();
+  linkRuntime();
 
   return Changed;
 }
@@ -837,20 +836,23 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   }
 
   SmallVector<const Loop *, 8> LoopsOrdered;
+  LoopsOrdered.resize(BBLoop->getLoopDepth() + 1);
   for (auto *L : Loops) {
     if (!L->contains(BBLoop))
       continue;
     auto Depth = L->getLoopDepth();
-    if (Depth >= LoopsOrdered.size())
-      LoopsOrdered.resize(Depth + 1);
     assert(!LoopsOrdered[Depth]);
     LoopsOrdered[Depth] = L;
   }
 
+  auto *PointerSCEV = SE.getPointerBase(VSCEV);
+  if (PointerSCEV != VSCEV)
+    VSCEV = SE.removePointerBase(VSCEV);
   auto *FirstSCEV = VSCEV;
   auto *LastSCEV = VSCEV;
   auto *Ty = VSCEV->getType();
-  for (int32_t I = LoopsOrdered.size() - 1; I >= 0; --I) {
+  int32_t I = LoopsOrdered.size() - 1;
+  for (; I >= 0; --I) {
     auto *L = LoopsOrdered[I];
     if (!L)
       continue;
@@ -866,6 +868,13 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
     LoopToScevMapT FirstL2SMap, LastL2SMap;
     FirstL2SMap[L] = SE.getZero(Ty);
     LastL2SMap[L] = SE.getBackedgeTakenCount(L);
+    SmallPtrSet<const Loop *, 8> BTCLoops;
+    SE.getUsedLoops(LastL2SMap[L], BTCLoops);
+    for (auto *L : BTCLoops) {
+      auto Depth = L->getLoopDepth();
+      if (Depth < LoopsOrdered.size() && LoopsOrdered[Depth] == L)
+        LoopsOrdered[Depth] = nullptr;
+    }
     LLVM_DEBUG(errs() << "L -> " << *FirstL2SMap[L] << " : " << *LastL2SMap[L]
                       << "\n");
     FirstSCEV = SCEVLoopAddRecRewriter::rewrite(FirstSCEV, FirstL2SMap, SE);
@@ -881,18 +890,31 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   assert(isa<LoadInst>(IP) || isa<StoreInst>(IP));
   Expander.setInsertPoint(IP);
 
-  auto *TmpSCEV = FirstSCEV;
-  FirstSCEV = SE.getUMinExpr(TmpSCEV, LastSCEV);
-  LastSCEV = SE.getUMaxExpr(TmpSCEV, LastSCEV);
+  auto &TTI = analysisGetter<TargetIRAnalysis>(*Fn);
+  auto *ExpansionLoop = I >= 0 ? const_cast<Loop *>(LoopsOrdered[I]) : nullptr;
+  if (ExpansionLoop)
+    if (Expander.isHighCostExpansion({FirstSCEV, LastSCEV}, ExpansionLoop, 7,
+                                     &TTI, &*IP))
+      return {BasicBlock::iterator(), false};
 
   Value *FirstVal = Expander.expandCodeFor(FirstSCEV, Ty);
   Value *LastVal = Expander.expandCodeFor(LastSCEV, Ty);
+  if (PointerSCEV != VSCEV) {
+    auto *Ptr = Expander.expandCodeFor(PointerSCEV, PointerSCEV->getType());
+    auto *TmpVal = FirstVal;
+    FirstVal = IRB.CreateIntrinsic(Intrinsic::umin, {Ty}, {TmpVal, LastVal});
+    LastVal = IRB.CreateIntrinsic(Intrinsic::umax, {Ty}, {TmpVal, LastVal});
+    FirstVal = IRB.CreatePtrAdd(Ptr, FirstVal);
+    LastVal = IRB.CreatePtrAdd(Ptr, LastVal);
+  }
+
   auto &DT = analysisGetter<DominatorTreeAnalysis>(*Fn);
   IP = getBestHoistPoint(IP, HOIST_OUT_OF_LOOPS);
   if (auto *FirstValI = dyn_cast<Instruction>(FirstVal))
     IP = hoistInstructionsAndAdjustIP(*FirstValI, IP, DT);
   if (auto *LastValI = dyn_cast<Instruction>(LastVal))
     IP = hoistInstructionsAndAdjustIP(*LastValI, IP, DT);
+
   LRI = {FirstVal, LastVal, AdditionalSize};
   return {IP, true};
 }
@@ -1985,14 +2007,13 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
   SmallVector<Use *> Worklist(make_pointer_range(GV.uses()));
   DenseMap<std::pair<Value *, Function *>, Instruction *> VMap;
   DenseMap<Value *, Instruction *> ConstToInstMap;
+  DenseMap<Function *, Instruction *> ReloadMap;
 
   auto MakeInstForConst = [&](Use &U) {
     Instruction *&I = ConstToInstMap[U];
     if (I)
       return;
     if (U == &GV) {
-      I = new LoadInst(U->getType(), ShadowGV, "", /*isVolatile=*/false,
-                       Align(1));
     } else if (auto *CE = dyn_cast<ConstantExpr>(U)) {
       I = CE->getAsInstruction();
     }
@@ -2000,6 +2021,13 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
 
   auto InsertConsts = [&](Instruction *UserI, Use &UserU) {
     SmallVector<std::pair<Instruction *, Use *>> Worklist;
+    auto *&Reload = ReloadMap[UserI->getFunction()];
+    if (!Reload) {
+      Reload = new LoadInst(
+          GV.getType(), ShadowGV, "",
+          UserI->getFunction()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca());
+      ConstToInstMap[&GV] = Reload;
+    }
     Worklist.push_back({UserI, &UserU});
     while (!Worklist.empty()) {
       auto [I, U] = Worklist.pop_back_val();
@@ -2037,11 +2065,12 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
     if (auto *II = dyn_cast<IntrinsicInst>(I))
       if (II->getIntrinsicID() == Intrinsic::eh_typeid_for)
         continue;
-    InsertConsts(I, *U);
+    if (I->getParent())
+      InsertConsts(I, *U);
   }
 
   for (auto &It : ConstToInstMap)
-    if (It.second)
+    if (It.second && !isa<LoadInst>(It.second))
       It.second->deleteValue();
 
   return &V;

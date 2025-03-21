@@ -498,6 +498,8 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
   }
 #endif
 
+  if (CI.isInlineAsm())
+    return false;
   Function *CalledFn = CI.getCalledFunction();
   if (!CalledFn)
     return true;
@@ -1258,6 +1260,32 @@ bool LightSanImpl::instrument() {
       });
 #endif
 
+#if 1
+  for (auto &GV : M.globals()) {
+    if (!GV.getName().starts_with(LightSanGlobalShadowPrefix))
+      continue;
+    DenseMap<Function *, SmallVector<LoadInst *>> LoadMap;
+    for (auto *Usr : GV.users()) {
+      if (auto *LI = dyn_cast<LoadInst>(Usr))
+        LoadMap[LI->getFunction()].push_back(LI);
+    }
+    for (auto &[Fn, Loads] : LoadMap) {
+      if (Loads.size() < 2)
+        continue;
+      auto &DT = FAM.getResult<DominatorTreeAnalysis>(*Fn);
+      auto *LI = Loads.pop_back_val();
+      BasicBlock *BB = LI->getParent();
+      for (auto *OtherLI : Loads)
+        BB = DT.findNearestCommonDominator(BB, OtherLI->getParent());
+      LI->moveBefore(BB->getFirstNonPHIOrDbgOrAlloca());
+      for (auto *OtherLI : Loads) {
+        OtherLI->replaceAllUsesWith(LI);
+        OtherLI->eraseFromParent();
+      }
+    }
+  }
+#endif
+
   DenseMap<Function *,
            DenseMap<std::pair<BasicBlock *, Value *>, SmallVector<CallInst *>>>
       MergeMap;
@@ -1418,6 +1446,57 @@ bool LightSanImpl::instrument() {
         LLVM_DEBUG(errs() << "Use range access in BB for " << Calls.size()
                           << " checks\n");
       }
+
+      SmallVector<CallInst *> UncheckedCalls;
+      for (auto *CI : Calls) {
+        auto *WasCheckedCI = dyn_cast<ConstantInt>(CI->getArgOperand(7));
+        if (!WasCheckedCI || WasCheckedCI->isOne())
+          continue;
+        UncheckedCalls.push_back(CI);
+      }
+      if (UncheckedCalls.size() < 2)
+        continue;
+      sort(UncheckedCalls, [&](CallInst *LHS, CallInst *RHS) {
+        return !DT.dominates(LHS, RHS);
+      });
+      auto *FirstCI = UncheckedCalls.pop_back_val();
+      erase_if(UncheckedCalls, [&](CallInst *CI) {
+        auto *MPtrI = dyn_cast<Instruction>(CI->getArgOperand(4));
+        if (!MPtrI)
+          return false;
+        IIRB.hoistInstructionsAndAdjustIP(*MPtrI, FirstCI->getIterator(), DT);
+        return !DT.dominates(MPtrI, FirstCI);
+      });
+      if (UncheckedCalls.size() < 2)
+        continue;
+      bool AllSameOffset = all_of(UncheckedCalls, [&](CallInst *OtherCI) {
+        return FirstCI->getArgOperand(2) == OtherCI->getArgOperand(2);
+      });
+
+      IIRB.IRB.SetInsertPoint(FirstCI);
+      ensureDbgLoc(IIRB.IRB);
+      auto *Ptr = FirstCI->getArgOperand(4);
+      Value *Min = IIRB.IRB.CreatePtrToInt(Ptr, IIRB.Int64Ty);
+      Value *Max = Min;
+      if (!AllSameOffset)
+        Max = IIRB.IRB.CreateAdd(Max, FirstCI->getArgOperand(3));
+      for (auto *CI : UncheckedCalls) {
+        auto *Ptr = CI->getArgOperand(4);
+        auto *CIMin = IIRB.IRB.CreatePtrToInt(Ptr, IIRB.Int64Ty);
+        Min = IIRB.IRB.CreateIntrinsic(Intrinsic::umin, {IIRB.Int64Ty},
+                                       {Min, CIMin});
+        auto *CIMax = CIMin;
+        if (!AllSameOffset)
+          CIMax = IIRB.IRB.CreateAdd(CIMax, CI->getArgOperand(3));
+        Max = IIRB.IRB.CreateIntrinsic(Intrinsic::umax, {IIRB.Int64Ty},
+                                       {Max, CIMax});
+        CI->setArgOperand(7, TrueInt8);
+      }
+      if (AllSameOffset)
+        Max = IIRB.IRB.CreateAdd(Max, FirstCI->getArgOperand(3));
+      auto *AccessSize = IIRB.IRB.CreateSub(Max, Min);
+      FirstCI->setArgOperand(4, IIRB.IRB.CreateIntToPtr(Min, IIRB.PtrTy));
+      FirstCI->setArgOperand(3, AccessSize);
     }
   }
 #endif
@@ -1438,6 +1517,58 @@ bool LightSanImpl::instrument() {
   };
   UseMPtr("load");
   UseMPtr("store");
+#endif
+
+#if 1
+  DenseMap<std::tuple<BasicBlock *, Value *, Value *>, SmallVector<CallInst *>>
+      LVRMap;
+  foreachRTCaller(
+      IConf.getRTName("post_", "loop_value_range"), [&](CallInst &CI) {
+        LVRMap[{CI.getParent(), CI.getArgOperand(3), CI.getArgOperand(7)}]
+            .push_back(&CI);
+      });
+  for (auto &It : LVRMap) {
+    if (It.second.size() < 2)
+      continue;
+    auto &DT = IIRB.analysisGetter<DominatorTreeAnalysis>(
+        *It.second.front()->getFunction());
+    sort(It.second,
+         [&](CallInst *LHS, CallInst *RHS) { return DT.dominates(LHS, RHS); });
+    auto *LastCI = It.second.pop_back_val();
+    bool AllSameOffset = all_of(It.second, [&](CallInst *OtherCI) {
+      return LastCI->getArgOperand(2) == OtherCI->getArgOperand(2);
+    });
+
+    IIRB.IRB.SetInsertPoint(LastCI);
+    ensureDbgLoc(IIRB.IRB);
+    Value *Min =
+        IIRB.IRB.CreatePtrToInt(LastCI->getArgOperand(0), IIRB.Int64Ty);
+    Value *Max =
+        IIRB.IRB.CreatePtrToInt(LastCI->getArgOperand(1), IIRB.Int64Ty);
+    if (!AllSameOffset)
+      Max = IIRB.IRB.CreateAdd(Max, LastCI->getArgOperand(2));
+    for (auto *CI : It.second) {
+      auto *CIMin = IIRB.IRB.CreatePtrToInt(CI->getArgOperand(0), IIRB.Int64Ty);
+      Min = IIRB.IRB.CreateIntrinsic(Intrinsic::umin, {IIRB.Int64Ty},
+                                     {Min, CIMin});
+      auto *CIMax = IIRB.IRB.CreatePtrToInt(CI->getArgOperand(1), IIRB.Int64Ty);
+      if (!AllSameOffset)
+        CIMax = IIRB.IRB.CreateAdd(CIMax, CI->getArgOperand(2));
+      Max = IIRB.IRB.CreateIntrinsic(Intrinsic::umax, {IIRB.Int64Ty},
+                                     {Max, CIMax});
+      CI->replaceAllUsesWith(LastCI);
+      CI->eraseFromParent();
+    }
+    // auto IP = IIRB.getBestHoistPoint(IIRB.IRB.GetInsertPoint(),
+    //                                  HoistKindTy::HOIST_MAXIMALLY);
+    //     for (auto *V : {Min, Max})
+    //       if (auto *I = dyn_cast<Instruction>(V))
+    //         IIRB.hoistInstructionsAndAdjustIP(*I, IP, DT);
+    LastCI->setArgOperand(0, IIRB.IRB.CreateIntToPtr(Min, IIRB.PtrTy));
+    LastCI->setArgOperand(1, IIRB.IRB.CreateIntToPtr(Max, IIRB.PtrTy));
+    if (!AllSameOffset)
+      LastCI->setArgOperand(2, IIRB.IRB.getInt64(0));
+  }
 #endif
 
 // Cleanup
@@ -1866,7 +1997,7 @@ struct AllocatorCallIO : public CallIO {
     Value *Size = nullptr;
     for (auto Idx : {ACI->SizeLHSArgNo, ACI->SizeRHSArgNo}) {
       if (Idx >= 0) {
-        auto *V = CI.getArgOperand(ACI->SizeLHSArgNo);
+        auto *V = CI.getArgOperand(Idx);
         Size = Size ? IIRB.IRB.CreateMul(Size, V) : V;
       }
     }

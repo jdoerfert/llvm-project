@@ -107,9 +107,6 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
     parameters += sizeof(ParameterValuePackTy) + VP->Size +
                   (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
   }
-  if (Callee == &strtod) {
-    assert(0);
-  }
 
   if (Callee == &execvp) {
     ParameterValuePackTy *VP =
