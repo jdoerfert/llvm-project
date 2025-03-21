@@ -7,6 +7,9 @@
 #include <functional>
 
 using namespace __ig;
+namespace __ig {
+extern uint32_t OriginalSeed;
+} // namespace __ig
 
 ObjectManager::~ObjectManager() {}
 
@@ -47,7 +50,8 @@ void ObjectManager::saveInput(uint32_t EntryNo, uint32_t InputIdx,
 
   std::string OutputName = ProgramName + "." + std::to_string(EntryNo) + "." +
                            std::to_string(InputIdx) + "." +
-                           std::to_string(ExitCode) + ".inp";
+                           std::to_string(ExitCode) + "." +
+                           std::to_string(OriginalSeed) + ".inp";
   std::ofstream OFS(OutputName, std::ios_base::out | std::ios_base::binary);
   SM.write(OFS);
 }

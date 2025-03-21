@@ -50,6 +50,7 @@ struct ObjectManager {
       setIntDistribution(*Min, *Max);
     else
       setIntDistribution(-100, 128);
+    setSeed(0);
   }
 
   ChoiceTrace *CT = nullptr;
@@ -59,6 +60,7 @@ struct ObjectManager {
 
   std::string ProgramName;
 
+  uint32_t Seed;
   std::mt19937 Generator;
   using SeedIntTy = decltype(RTObjs.IntDistribution.Min);
   std::uniform_int_distribution<SeedIntTy> RTObjSeedIncrementDistrib;
@@ -82,7 +84,11 @@ struct ObjectManager {
     this->ProgramName = ProgramName;
     ErrorFn = StopFn;
   }
-  void setSeed(uint32_t Seed) { Generator.seed(Seed); }
+
+  void setSeed(uint32_t Seed) {
+    this->Seed = Seed;
+    Generator.seed(Seed);
+  }
 
   RTObjScheme::SeedTy getRTObjSeed() {
     return RTObjScheme::SeedTy(RTObjSeedBeginDistrib(Generator),

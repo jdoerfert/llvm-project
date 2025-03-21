@@ -26,6 +26,7 @@
 namespace __ig {
 bool GM = false;
 DeferGlobalConstruction<ObjectManager, GM> ThreadOM;
+uint32_t OriginalSeed;
 } // namespace __ig
 
 using namespace __ig;
@@ -84,7 +85,7 @@ struct GenerationThread {
       Obj = ThreadOM->getEntryObj();
     }
     {
-      Timer T("rec  " + std::to_string(I));
+      Timer T("genr " + std::to_string(I));
       __ig_entry(EntryNo, Obj);
     }
     stopGeneration(0);
@@ -130,6 +131,8 @@ int main(int argc, char **argv) {
     FirstInput = std::atoi(argv[4]);
   if (argc > 5)
     Seed = std::atoi(argv[5]);
+
+  OriginalSeed = Seed;
 
   if (EntryNo == -1) {
     printNumAvailableFunctions();

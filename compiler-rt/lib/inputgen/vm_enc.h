@@ -643,7 +643,7 @@ struct TableSchemeTy : public EncodingSchemeTy {
 
     uint64_t FullRecord = (ShadowVal & RecordBits) == RecordBits;
     uint64_t NoneSaved = !(ShadowVal & SavedBits);
-    uint64_t PartialSaved =
+    [[maybe_unused]] uint64_t PartialSaved =
         ((ShadowVal & SavedBits) != SavedBits) && !NoneSaved;
     [[maybe_unused]] uint64_t FullSaved = (ShadowVal & SavedBits) == SavedBits;
     uint64_t PartiallyUnsaved =

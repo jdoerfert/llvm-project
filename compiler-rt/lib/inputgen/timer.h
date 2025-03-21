@@ -1,17 +1,22 @@
 #include <chrono>
 #include <iostream>
+#include <mutex>
 
 class Timer {
 public:
-  Timer(const std::string &name = "Timer")
+  Timer(const std::string &name = "InputGenTimer")
       : name_(name), start_(std::chrono::high_resolution_clock::now()) {}
 
   ~Timer() {
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> guard(mutex);
+
     auto end_ = std::chrono::high_resolution_clock::now();
     auto duration =
-        std::chrono::duration_cast<std::chrono::microseconds>(end_ - start_)
+        std::chrono::duration_cast<std::chrono::nanoseconds>(end_ - start_)
             .count();
-    std::cerr << name_ << ": " << duration << " microseconds" << std::endl;
+    std::cerr << "InputGenTimer " << name_ << ": " << duration << " nanoseconds"
+              << std::endl;
   }
 
 private:
