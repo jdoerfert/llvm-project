@@ -6,7 +6,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <stdatomic.h>
 
 #if __has_builtin(__builtin_assume)
 #define ASSUME(E) __builtin_assume((E));
@@ -15,6 +14,22 @@
 #endif
 
 namespace __objsan {
+
+enum OrderingTy {
+  relaxed = __ATOMIC_RELAXED,
+  aquire = __ATOMIC_ACQUIRE,
+  release = __ATOMIC_RELEASE,
+  acq_rel = __ATOMIC_ACQ_REL,
+  seq_cst = __ATOMIC_SEQ_CST,
+};
+
+enum MemScopeTy {
+  system = __MEMORY_SCOPE_SYSTEM,
+  device = __MEMORY_SCOPE_DEVICE,
+  workgroup = __MEMORY_SCOPE_WRKGRP,
+  wavefront = __MEMORY_SCOPE_WVFRNT,
+  single = __MEMORY_SCOPE_SINGLE,
+};
 
 struct EncodingCommonTy {
   static constexpr uint64_t MAGIC = 0b101;
@@ -172,16 +187,17 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
     for (uint64_t Idx = 0; Idx < NumBuckets; ++Idx) {
       uint64_t Zero = 0;
       uint64_t Desired = D.Bits.BucketValue;
-      auto BucketValue = atomic_load((atomic_uint_least64_t *)(&Buckets[Idx]));
+      auto BucketValue = __scoped_atomic_load_n(
+          &Buckets[Idx], OrderingTy::aquire, MemScopeTy::device);
       if (BucketValue == Desired) [[likely]] {
         BucketIdx = Idx;
         break;
       }
       if (BucketValue)
         continue;
-      if (atomic_compare_exchange_strong_explicit(
-              (atomic_uint_least64_t *)&Buckets[Idx], &Zero, Desired,
-              memory_order_release, memory_order_relaxed)) {
+      if (__scoped_atomic_compare_exchange(
+              &Buckets[Idx], &Zero, &Desired, false, OrderingTy::release,
+              OrderingTy::relaxed, MemScopeTy::device)) {
         BucketIdx = Idx;
         break;
       }
@@ -247,7 +263,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
   static constexpr uint64_t NumObjects = 1 << ObjectBits;
 
   ObjDescTy Objects[NumObjects];
-  atomic_uint_least64_t NumObjectsUsed = 0;
+  uint64_t NumObjectsUsed = 0;
 
   void reset() { NumObjectsUsed = 0; }
 
@@ -273,8 +289,8 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 
   char *encode(char *MPtr, uint64_t ObjSize) {
     assert(ObjSize < (1ULL << NumOffsetBits));
-    uint64_t ObjectIdx =
-        atomic_fetch_add_explicit(&NumObjectsUsed, 1, memory_order_relaxed);
+    uint64_t ObjectIdx = __scoped_atomic_fetch_add(
+        &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
       fprintf(stderr, "out of objects!\n");
       __builtin_trap();
@@ -350,7 +366,7 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
   static constexpr uint64_t NumObjects = 1 << ObjectBits;
 
   ObjDescTy Objects[NumObjects];
-  atomic_uint_least64_t NumObjectsUsed = 0;
+  uint64_t NumObjectsUsed = 0;
 
   void reset() { NumObjectsUsed = 0; }
 
@@ -376,8 +392,8 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 
   char *encode(char *MPtr, uint64_t ObjSize) {
     assert(ObjSize == FixedSize);
-    uint64_t ObjectIdx =
-        atomic_fetch_add_explicit(&NumObjectsUsed, 1, memory_order_relaxed);
+    uint64_t ObjectIdx = __scoped_atomic_fetch_add(
+        &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
       fprintf(stderr, "out of objects!\n");
       __builtin_trap();
