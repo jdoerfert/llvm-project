@@ -35,7 +35,6 @@ size_t strlen(const char *str);
 
 static inline void __assert_fail(const char *expr, const char *file,
                                  unsigned line, const char *function) {
-
   printf("%s:%u: %s: Assertion `%s` failed.\n", file, line, function, expr);
   __builtin_trap();
 }
