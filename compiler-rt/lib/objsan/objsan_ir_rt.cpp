@@ -11,8 +11,20 @@
 #define PRINTF(...)
 #endif
 
-extern "C" double strtod(const char *, char **);
-extern "C" int execvp(const char *__file, char *const *__argv);
+// Forward declaration
+extern "C" {
+// FIXME: This one is not used.
+// double strtod(const char *, char **);
+
+// FIXME: This is a function in <unistd.h>. It will prevent us from freestanding
+// build, and even on Windows.
+#ifndef __OBJSAN_DEVICE__
+int execvp(const char *__file, char *const *__argv);
+#endif
+
+void *malloc(size_t size);
+size_t strlen(const char *str);
+}
 
 using namespace __objsan;
 
@@ -94,7 +106,7 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
   PRINTF("%s start: %i\n", __PRETTY_FUNCTION__, num_parameters);
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
-    fflush(stdout);
+    FFLUSH(stdout);
     if (VP->TypeId == 14) {
       char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
       char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
@@ -108,6 +120,7 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
                   (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
   }
 
+#ifndef __OBJSAN_DEVICE__
   if (Callee == &execvp) {
     ParameterValuePackTy *VP =
         (ParameterValuePackTy *)(parameters - sizeof(ParameterValuePackTy) - 8);
@@ -124,6 +137,8 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
     }
     *PtrAddr = (char *)FakeEnv;
   }
+#endif
+
   PRINTF("%s done\n", __PRETTY_FUNCTION__);
 }
 

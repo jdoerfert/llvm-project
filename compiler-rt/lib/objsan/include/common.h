@@ -22,16 +22,17 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 
 #define FPRINTF(...) fprintf(stderr, __VA_ARGS__)
+#define FFLUSH(s) fflush((s))
 
 #else
 
 extern "C" {
 int printf(...);
-size_t strlen(const char *str);
 
 static inline void __assert_fail(const char *expr, const char *file,
                                  unsigned line, const char *function) {
@@ -41,6 +42,8 @@ static inline void __assert_fail(const char *expr, const char *file,
 }
 
 #define FPRINTF(...) printf(__VA_ARGS__)
+#define FFLUSH(...)
+
 #ifdef NDEBUG
 #define assert(expr) (__ASSERT_VOID_CAST(0))
 #else
