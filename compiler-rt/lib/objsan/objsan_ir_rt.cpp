@@ -217,20 +217,19 @@ char *__objsan_post_loop_value_range(char *BeginPtr, char *EndPtr,
   if (EncodingNo && !EncodingCommonTy::check(
                         BeginPtr, BasePtr, LoopSize + MaxOffset, ObjSize,
                         /*FailOnError=*/IsDefinitivelyExecuted)) [[unlikely]] {
-    fprintf(stderr, "r bad %p %p %llu %llu %i\n", BeginPtr, BasePtr, LoopSize,
-            ObjSize, EncodingNo);
+    FPRINTF("r bad %p %p %llu %llu %i\n", BeginPtr, BasePtr, LoopSize, ObjSize,
+            EncodingNo);
     return nullptr;
   }
   return /* not null */ (char *)(0x1);
 }
 
 OBJSAN_SMALL_API_ATTRS
-void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr,
-                                int64_t AccessSize, uint64_t ObjSize,
-                                int8_t EncodingNo) {
+void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr, int64_t AccessSize,
+                                uint64_t ObjSize, int8_t EncodingNo) {
   PRINTF("%s start P: %p B: %p AS: %llu OS: %llu Enc: %i C: %i\n",
-         __PRETTY_FUNCTION__, MPtr, BaseMPtr, AccessSize, ObjSize,
-         EncodingNo, WasChecked);
+         __PRETTY_FUNCTION__, MPtr, BaseMPtr, AccessSize, ObjSize, EncodingNo,
+         WasChecked);
   if (EncodingNo)
     EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
                             /*FailOnError=*/true);
@@ -246,7 +245,7 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
   if (EncodingNo && !WasChecked && !LVRI &&
       !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
                                /*FailOnError=*/false)) [[unlikely]] {
-    fprintf(stderr, "l bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
+    FPRINTF("l bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
             AccessSize, ObjSize, EncodingNo, WasChecked);
     return nullptr;
   }
@@ -263,7 +262,7 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
   if (EncodingNo && !WasChecked && !LVRI &&
       !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
                                /*FailOnError=*/false)) [[unlikely]] {
-    fprintf(stderr, "s bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
+    FPRINTF("s bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
             AccessSize, ObjSize, EncodingNo, WasChecked);
     return nullptr;
   }
