@@ -1,6 +1,7 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include "logging.h"
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -60,11 +61,8 @@ inline void dumpMemoryHex(char *Memory, size_t Size) {
 }
 
 inline std::optional<int> getIntEnv(const char *Name) {
-  fputs(Name, stderr);
-  fputs("\n", stderr);
   if (char *C = getenv(Name)) {
-    fputs(C, stderr);
-    fputs("\n", stderr);
+    INPUTGEN_DEBUG(fprintf(stderr, "Got env option %s: %s\n", Name, C));
     return std::atoi(C);
   }
   return std::nullopt;
