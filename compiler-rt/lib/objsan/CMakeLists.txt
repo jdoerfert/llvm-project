@@ -21,6 +21,7 @@ set(OBJSAN_SOURCES
   objsan_rt.cpp
 )
 set(OBJSAN_HEADERS
+  include/common.h
   include/obj_encoding.h
 )
 set(OBJSAN_IR_SOURCES

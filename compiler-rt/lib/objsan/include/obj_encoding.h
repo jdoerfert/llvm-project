@@ -1,11 +1,7 @@
 #ifndef OBJSAN_OBJ_ENCODING_H
 #define OBJSAN_OBJ_ENCODING_H
 
-#include <cassert>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include "common.h"
 
 #if __has_builtin(__builtin_assume)
 #define ASSUME(E) __builtin_assume((E));
@@ -13,29 +9,7 @@
 #define ASSUME(E)
 #endif
 
-#ifndef __OBJSAN_DEVICE__
-#define FPRINTF(...) fprintf(stderr, __VA_ARGS__)
-#else
-#define FPRINTF(...) printf(__VA_ARGS__)
-#endif
-
 namespace __objsan {
-
-enum OrderingTy {
-  relaxed = __ATOMIC_RELAXED,
-  aquire = __ATOMIC_ACQUIRE,
-  release = __ATOMIC_RELEASE,
-  acq_rel = __ATOMIC_ACQ_REL,
-  seq_cst = __ATOMIC_SEQ_CST,
-};
-
-enum MemScopeTy {
-  system = __MEMORY_SCOPE_SYSTEM,
-  device = __MEMORY_SCOPE_DEVICE,
-  workgroup = __MEMORY_SCOPE_WRKGRP,
-  wavefront = __MEMORY_SCOPE_WVFRNT,
-  single = __MEMORY_SCOPE_SINGLE,
-};
 
 struct EncodingCommonTy {
   static constexpr uint64_t MAGIC = 0b101;
