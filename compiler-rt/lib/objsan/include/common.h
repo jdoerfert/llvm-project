@@ -60,7 +60,8 @@ template <typename T1, typename T2> struct pair {
   T1 first;
   T2 second;
 
-  pair(T1 First, T2 Second) : first(First), second(Second) {}
+  template <typename U1, typename U2>
+  pair(U1 First, U2 Second) : first(First), second(Second) {}
 };
 
 } // namespace std

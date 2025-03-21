@@ -50,7 +50,7 @@ struct __attribute__((packed)) AllocationInfoTy {
 //  case 3:
 //    return FixedObjects.Function(__VA_ARGS__);
 
-__attribute__((always_inline)) static std::pair<uint64_t, uint64_t>
+__attribute__((always_inline)) static std::pair<int64_t, int64_t>
 getOffsetAndMagic(char *VPtr, uint64_t OffsetBits) {
   uint64_t V = ((uint64_t)VPtr) &
                ((1ULL << (OffsetBits + EncodingCommonTy::NumMagicBits)) - 1);
