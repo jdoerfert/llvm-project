@@ -13,6 +13,7 @@
 #include <fstream>
 #include <functional>
 #include <ios>
+#include <limits>
 #include <list>
 #include <map>
 #include <random>
@@ -39,10 +40,16 @@ using UserObjLargeScheme = BigObjSchemeTy</*EncodingNo=*/3, /*ObjectBits=*/10>;
 struct ObjectManager {
   ~ObjectManager();
 
-  ObjectManager()
-      : UserObjLarge(*this), UserObjSmall(*this), RTObjs(*this),
-        Distribution(-100, 128) {
+  ObjectManager() : UserObjLarge(*this), UserObjSmall(*this), RTObjs(*this) {
+
     FVM.BranchConditionMap.reserve(1024);
+
+    auto Min = getIntEnv("INPUTGEN_INT_MIN");
+    auto Max = getIntEnv("INPUTGEN_INT_MAX");
+    if (Min && Max)
+      setIntDistribution(*Min, *Max);
+    else
+      setIntDistribution(-100, 128);
   }
 
   ChoiceTrace *CT = nullptr;
@@ -53,7 +60,21 @@ struct ObjectManager {
   std::string ProgramName;
 
   std::mt19937 Generator;
-  std::uniform_int_distribution<int32_t> Distribution;
+  using SeedIntTy = decltype(RTObjs.IntDistribution.Min);
+  std::uniform_int_distribution<SeedIntTy> RTObjSeedIncrementDistrib;
+  std::uniform_int_distribution<SeedIntTy> RTObjSeedBeginDistrib;
+
+  void setIntDistribution(int32_t Min, int32_t Max) {
+    if (Min > Max)
+      std::swap(Min, Max);
+    RTObjs.IntDistribution.Min = Min;
+    RTObjs.IntDistribution.Max = Max;
+    RTObjSeedBeginDistrib =
+        decltype(RTObjSeedBeginDistrib){std::numeric_limits<SeedIntTy>::min(),
+                                        std::numeric_limits<SeedIntTy>::max()};
+    RTObjSeedIncrementDistrib =
+        decltype(RTObjSeedIncrementDistrib){1, Max - Min - 1};
+  }
 
   void init(ChoiceTrace *CT, std::string_view ProgramName,
             std::function<void(uint32_t)> StopFn) {
@@ -63,12 +84,16 @@ struct ObjectManager {
   }
   void setSeed(uint32_t Seed) { Generator.seed(Seed); }
 
-  int32_t getRandomNumber() { return Distribution(Generator); }
+  RTObjScheme::SeedTy getRTObjSeed() {
+    return RTObjScheme::SeedTy(RTObjSeedBeginDistrib(Generator),
+                               RTObjSeedIncrementDistrib(Generator));
+  }
 
   void saveInput(uint32_t EntryNo, uint32_t InputIdx, uint32_t ExitCode);
   void reset();
 
-  void *getObj(uint32_t Seed);
+  void *getEntryObj();
+
   char *encodeUserObj(char *Ptr, uint32_t Size) {
     if (Size < (1 << 10))
       return UserObjSmall.encode(Ptr, Size);
@@ -124,10 +149,12 @@ struct ObjectManager {
   }
 
   char *addGlobal(char *Addr, char *Name, int32_t Size) {
-    return RTObjs.create(Size, /* TODO */ 0, Name);
+    return RTObjs.create(Size, Name);
   }
 
-  char *add(int32_t Size, uint32_t Seed) { return RTObjs.create(Size, Seed); }
+  char *add(int32_t Size, RTObjScheme::SeedTy Seed) {
+    return RTObjs.create(Size);
+  }
 
   std::pair<int32_t, int32_t> getPtrInfo(char *VPtr, bool AllowToFail) {
     switch (getEncoding(VPtr)) {
@@ -196,7 +223,7 @@ struct ObjectManager {
       return CmpResult;
     }
 
-    auto TryToMakeObjNull = [&](char *Obj, TableSchemeBaseTy::TableEntryTy &TE,
+    auto TryToMakeObjNull = [&](char *Obj, RTObjScheme::TableEntryTy &TE,
                                 uint32_t Offset) {
       if (TE.AnyAccess)
         return CmpResult;

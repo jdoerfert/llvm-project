@@ -10,7 +10,7 @@ using namespace __ig;
 
 ObjectManager::~ObjectManager() {}
 
-void *ObjectManager::getObj(uint32_t Seed) { return add(8, Seed); }
+void *ObjectManager::getEntryObj() { return add(8, getRTObjSeed()); }
 
 void ObjectManager::reset() {
   UserObjSmall.reset();

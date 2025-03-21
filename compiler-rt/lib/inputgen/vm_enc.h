@@ -335,8 +335,40 @@ struct BigObjSchemeTy : public EncodingSchemeTy {
   }
 };
 
-struct TableSchemeBaseTy : public EncodingSchemeTy {
-  TableSchemeBaseTy(ObjectManager &OM) : EncodingSchemeTy(OM) {}
+template <uint32_t EncodingNo, uint32_t OffsetBits>
+struct TableSchemeTy : public EncodingSchemeTy {
+  static constexpr uint32_t NumOffsetBits = OffsetBits;
+  static constexpr uint32_t NumTableIdxBits =
+      (sizeof(char *) * 8) - NumOffsetBits - NumMagicBits - NumEncodingBits;
+  static constexpr uint32_t DefaultOffset = 1 << (NumOffsetBits - 1);
+
+  struct __attribute__((packed)) SeedTy {
+    uint32_t Begin;
+    int32_t Increment;
+    SeedTy() = delete;
+    SeedTy(uint32_t Begin, int32_t Increment)
+        : Begin(Begin), Increment(Increment) {}
+  };
+  template <typename T> struct GenDistribution {
+    GenDistribution() = delete;
+    GenDistribution(T Min, T Max) : Min(Min), Max(Max) {}
+
+    using OffsetTy = int32_t;
+    T Min, Max;
+    static_assert(std::is_signed<T>::value);
+    T get(SeedTy Seed, OffsetTy Offset) {
+      if constexpr (std::is_integral<T>::value)
+        return ((Seed.Begin + Seed.Increment * Offset) % (Max - Min)) + Min;
+      else if constexpr (std::is_floating_point<T>::value)
+        // TODO this fmod can potentially be slow? But I think it probably gets
+        // lost in the sea of memory accesses we make so it should be fine.
+        return (fmod(Seed.Begin + Seed.Increment * Offset, Max - Min)) + Min;
+      else
+        static_assert(false);
+    }
+  };
+  GenDistribution<int64_t> IntDistribution;
+  GenDistribution<float> FloatDistribution;
 
   struct TableEntryTy {
     char *Base;
@@ -348,6 +380,7 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
     bool AnyPtrRead = false;
     char *SavedValues = nullptr;
     char *GlobalName = nullptr;
+    SeedTy Seed;
 
     static uint64_t getTotalSizeStatic(uint64_t Size) {
       return Size + getShadowSizeStatic(Size);
@@ -357,11 +390,6 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
     }
 
     static void checkSizes(int32_t PositiveSize, int32_t NegativeSize) {
-      // We need the sizes to always be divisible by two because otherwide
-      // aligning the shadown correctly is very annoying (and inefficient)
-      assert(PositiveSize % 2 == 0);
-      assert(NegativeSize % 2 == 0);
-
       //   16        0                   32
       //   ------------------------------
       //   ^         ^                   ^
@@ -376,9 +404,9 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
     }
 
     TableEntryTy(char *Base, int32_t PositiveSize, int32_t NegativeSize,
-                 char *GlobalName)
+                 char *GlobalName, SeedTy Seed)
         : Base(Base), Shadow(Base + PositiveSize + NegativeSize),
-          NegativeSize(NegativeSize), GlobalName(GlobalName) {
+          NegativeSize(NegativeSize), GlobalName(GlobalName), Seed(Seed) {
       checkSizes(PositiveSize, NegativeSize);
       DEBUG("TableEntryTy({}, {}, {}, {})", (void *)Base, PositiveSize,
             NegativeSize, (bool)GlobalName);
@@ -390,14 +418,40 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
     int32_t getPositiveSize() const { return Shadow - Base - NegativeSize; }
     int32_t getNegativeSize() const { return NegativeSize; }
 
+    uint64_t getValue(TableSchemeTy<EncodingNo, OffsetBits> &TS,
+                      uint32_t TypeId, uint32_t TypeSize, uint32_t Offset) {
+      switch (TypeId) {
+      case 2:
+        return std::bit_cast<uint32_t>(TS.FloatDistribution.get(Seed, Offset));
+      case 3:
+        return std::bit_cast<uint64_t>(
+            (double)TS.FloatDistribution.get(Seed, Offset));
+      case 12:
+        return TS.IntDistribution.get(Seed, Offset);
+      case 14:
+        return (uint64_t)TS.create(8);
+      default:
+        fprintf(stderr, "unknown type id %i\n", TypeId);
+        error(1002);
+        std::terminate();
+      }
+    }
+
     void grow(int32_t NewPositiveSize, int32_t NewNegativeSize) {
-      checkSizes(NewPositiveSize, NewNegativeSize);
       if (GlobalName) {
         fprintf(stderr, "Out of bound access on global detected: %p; UB!\n",
                 Base);
         error(1003);
         std::terminate();
       }
+
+      // We need the sizes to always be divisible by two when resizing because
+      // otherwise aligning the shadown correctly is very annoying (and
+      // inefficient)
+      assert(NewPositiveSize % 2 == 0);
+      assert(NewNegativeSize % 2 == 0);
+
+      checkSizes(NewPositiveSize, NewNegativeSize);
       uint32_t OldSize = getSize();
       uint32_t NewSize = NewPositiveSize + NewNegativeSize;
       int32_t NegativeDifference = NewNegativeSize - getNegativeSize();
@@ -453,20 +507,13 @@ struct TableSchemeBaseTy : public EncodingSchemeTy {
       printSavedValues();
     }
   };
-};
-
-template <uint32_t EncodingNo, uint32_t OffsetBits>
-struct TableSchemeTy : public TableSchemeBaseTy {
-  static constexpr uint32_t NumOffsetBits = OffsetBits;
-  static constexpr uint32_t NumTableIdxBits =
-      (sizeof(char *) * 8) - NumOffsetBits - NumMagicBits - NumEncodingBits;
-  static constexpr uint32_t DefaultOffset = 1 << (NumOffsetBits - 1);
 
   TableEntryTy *Table;
   uint32_t TableEntryCnt = 0;
 
   TableSchemeTy(ObjectManager &OM)
-      : TableSchemeBaseTy(OM),
+      : EncodingSchemeTy(OM), IntDistribution(-100, 128),
+        FloatDistribution(-3.14, 4),
         Table((TableEntryTy *)malloc(sizeof(TableEntryTy) *
                                      (1 << NumTableIdxBits))) {}
 
@@ -499,32 +546,16 @@ struct TableSchemeTy : public TableSchemeBaseTy {
 
   static_assert(sizeof(EncDecTy) == sizeof(char *), "bad size");
 
-  uint64_t getValue(uint32_t TypeId, uint32_t TypeSize) {
-    float f = 3.14;
-    double d = 3.14;
-    switch (TypeId) {
-    case 2:
-      return std::bit_cast<uint32_t>(f);
-    case 3:
-      return std::bit_cast<uint64_t>(d);
-    case 12:
-      return TypeSize == 1 ? 'q' : 100;
-    case 14:
-      return (uint64_t)create(8, /*TODO */ 0);
-    default:
-      fprintf(stderr, "unknown type id %i\n", TypeId);
-      error(1002);
-      std::terminate();
-    }
-  }
+  SeedTy getRTObjSeed();
 
-  char *create(uint32_t Size, uint32_t Seed, char *GlobalName = nullptr) {
+  char *create(uint32_t Size, char *GlobalName = nullptr) {
     auto TEC = TableEntryCnt++;
     int32_t NegativeSize = 0;
-    int32_t PositiveSize = Size * 8;
+    int32_t PositiveSize = GlobalName ? Size : Size * 8;
     uint32_t TotalSize = TableEntryTy::getTotalSizeStatic(PositiveSize);
     char *Base = (char *)calloc(TotalSize, 1);
-    Table[TEC] = TableEntryTy(Base, PositiveSize, NegativeSize, GlobalName);
+    Table[TEC] = TableEntryTy(Base, PositiveSize, NegativeSize, GlobalName,
+                              getRTObjSeed());
     EncDecTy ED(DefaultOffset, TEC);
     DEBUG(" --> {}\n", (void *)ED.VPtr);
     return ED.VPtr;
@@ -582,7 +613,8 @@ struct TableSchemeTy : public TableSchemeBaseTy {
   __attribute__((always_inline)) void
   checkAndWrite(TableEntryTy &TE, char *MemP, char *ShadowP,
                 uint32_t AccessSize, uint32_t TypeId, AccessKind AK,
-                uint32_t Rem, bool &AnyInitialized, bool &AllInitialized) {
+                uint32_t Rem, bool &AnyInitialized, bool &AllInitialized,
+                int32_t Offset) {
     assert(AccessSize <= 8 && std::has_single_bit(AccessSize));
 
     if (TE.IsNull) {
@@ -609,8 +641,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
     uint64_t RecordBits = BitsTable[RecordBit][AccessSize / 2][Rem];
     uint64_t SavedBits = BitsTable[SavedBit][AccessSize / 2][Rem];
 
-    uint64_t FullRecord =
-        (ShadowVal & RecordBits) == RecordBits;
+    uint64_t FullRecord = (ShadowVal & RecordBits) == RecordBits;
     uint64_t NoneSaved = !(ShadowVal & SavedBits);
     uint64_t PartialSaved =
         ((ShadowVal & SavedBits) != SavedBits) && !NoneSaved;
@@ -639,7 +670,8 @@ struct TableSchemeTy : public TableSchemeBaseTy {
       if (AK != WRITE) {
         ShadowVal |= RecordBits | ((TypeId == 14) ? PtrBits : 0);
         if (AK != BCI_READ)
-          writeVariableSize(MemP, AccessSize, getValue(TypeId, AccessSize));
+          writeVariableSize(MemP, AccessSize,
+                            TE.getValue(*this, TypeId, AccessSize, Offset));
       }
     } else if (AK != WRITE && !FullInit) {
       assert(!FullInit && PartialInit);
@@ -651,7 +683,8 @@ struct TableSchemeTy : public TableSchemeBaseTy {
         for (uint32_t Byte = 0; Byte < AccessSize; ++Byte) {
           uint64_t InitByteBits = SingleInitBits << (AccessSize - Byte - 1);
           if (!(ShadowVal & InitByteBits))
-            writeVariableSize(MemP + Byte, 1, getValue(TypeId, 1));
+            writeVariableSize(MemP + Byte, 1,
+                              TE.getValue(*this, TypeId, 1, Offset));
         }
       }
     } else if (AK == WRITE && FullRecord && NoneSaved) {
@@ -727,22 +760,22 @@ struct TableSchemeTy : public TableSchemeBaseTy {
 
     if (Mod) [[unlikely]] {
       checkAndWrite(TE, MemP, ShadowP, 1, TypeId, AK, Mod, AnyInitialized,
-                    AllInitialized);
+                    AllInitialized, RelOffset);
       MemP += 1;
       ShadowP += 1;
       AccessSize -= 1;
     }
     if (AccessSize == 8) [[likely]]
       checkAndWrite(TE, MemP, ShadowP, 8, TypeId, AK, 0, AnyInitialized,
-                    AllInitialized);
+                    AllInitialized, RelOffset);
     else if (AccessSize == 4) [[likely]]
       checkAndWrite(TE, MemP, ShadowP, 4, TypeId, AK, 0, AnyInitialized,
-                    AllInitialized);
+                    AllInitialized, RelOffset);
     else [[unlikely]] {
       for (uint32_t Bytes : {8, 4, 2}) {
         while (AccessSize >= Bytes) {
           checkAndWrite(TE, MemP, ShadowP, Bytes, TypeId, AK, 0, AnyInitialized,
-                        AllInitialized);
+                        AllInitialized, RelOffset);
           MemP += Bytes;
           ShadowP += (Bytes / 2);
           AccessSize -= Bytes;
@@ -750,7 +783,7 @@ struct TableSchemeTy : public TableSchemeBaseTy {
       }
       if (AccessSize)
         checkAndWrite(TE, MemP, ShadowP, AccessSize, TypeId, AK, 0,
-                      AnyInitialized, AllInitialized);
+                      AnyInitialized, AllInitialized, RelOffset);
     }
 
     return (TE.Base + OffsetFromBase);

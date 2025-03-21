@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <optional>
 #include <vector>
 
 extern "C" void __ig_entry(uint32_t, void *);
@@ -55,6 +57,17 @@ inline void dumpMemoryHex(char *Memory, size_t Size) {
     fprintf(stderr, "%02hhX ", Memory[I]);
   }
   fputs("\n", stderr);
+}
+
+inline std::optional<int> getIntEnv(const char *Name) {
+  fputs(Name, stderr);
+  fputs("\n", stderr);
+  if (char *C = getenv(Name)) {
+    fputs(C, stderr);
+    fputs("\n", stderr);
+    return std::atoi(C);
+  }
+  return std::nullopt;
 }
 
 } // namespace __ig

@@ -61,10 +61,10 @@ struct StorageManager {
   StorageManager();
 
   Range encodeRange(ObjectManager &OM, uint32_t ObjIdx,
-                    TableSchemeBaseTy::TableEntryTy &TE);
+                    RTObjScheme::TableEntryTy &TE);
 
   void encode(ObjectManager &OM, uint32_t ObjIdx,
-              TableSchemeBaseTy::TableEntryTy &TE);
+              RTObjScheme::TableEntryTy &TE);
 
   void read(std::ifstream &IFS, GlobalManager &GM);
   void write(std::ofstream &OFS);

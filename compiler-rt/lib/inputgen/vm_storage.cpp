@@ -2,6 +2,7 @@
 #include "vm_storage.h"
 #include "common.h"
 #include "global_manager.h"
+#include "vm_obj.h"
 
 #include <algorithm>
 #include <cassert>
@@ -160,7 +161,7 @@ void Ptr::write(std::ofstream &OFS) {
 StorageManager::StorageManager() { std::ios::sync_with_stdio(false); }
 
 Range StorageManager::encodeRange(ObjectManager &OM, uint32_t ObjIdx,
-                                  TableSchemeBaseTy::TableEntryTy &TE) {
+                                  RTObjScheme::TableEntryTy &TE) {
   if (TE.IsNull) {
     return Range(ObjIdx, false, 0, nullptr, nullptr);
   }
@@ -206,7 +207,7 @@ Range StorageManager::encodeRange(ObjectManager &OM, uint32_t ObjIdx,
 }
 
 void StorageManager::encode(ObjectManager &OM, uint32_t ObjIdx,
-                            TableSchemeBaseTy::TableEntryTy &TE) {
+                            RTObjScheme::TableEntryTy &TE) {
   Range R = encodeRange(OM, ObjIdx, TE);
   if (TE.GlobalName) {
     Globals.emplace_back(R, TE.GlobalName);

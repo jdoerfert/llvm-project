@@ -20,6 +20,7 @@ add_compiler_rt_runtime(inputgen.generate
     vm_obj.cpp
     vm_values.cpp
     vm_storage.cpp
+    vm_enc.cpp
     generate.cpp
     common.cpp
 

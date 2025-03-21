@@ -12,6 +12,7 @@ extern int external_global_int;
 extern const int const_external_global_int;
 static int static_global_int = 42;
 int global_int_array[10];
+char global_char_array[11];
 
 __attribute__((inputgen_entry)) void foo(double *a, double *b, double *m,
                                          int n) {
@@ -19,6 +20,6 @@ __attribute__((inputgen_entry)) void foo(double *a, double *b, double *m,
     printf("EGI %d\n", external_global_int);
     printf("CEGI %d\n", const_external_global_int);
     printf("SGI %d\n", static_global_int);
-    // TODO fails:
-    // printf("GIA %d\n", global_int_array[2]);
+    printf("GIA %d\n", global_int_array[2]);
+    printf("GCA %d\n", (int)global_char_array[10]);
 }

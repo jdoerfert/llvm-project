@@ -81,7 +81,7 @@ struct GenerationThread {
       Timer T("init " + std::to_string(I));
       assert(I < E);
       ThreadOM->setSeed(SS.getSeed(I));
-      Obj = ThreadOM->getObj(I);
+      Obj = ThreadOM->getEntryObj();
     }
     {
       Timer T("rec  " + std::to_string(I));

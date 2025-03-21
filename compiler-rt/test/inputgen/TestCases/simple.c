@@ -50,14 +50,14 @@ __attribute__((inputgen_entry)) void store_after_load_partial(char *n) {
 // CHECK: MEM9
 // CHECK: MEM9
 __attribute__((inputgen_entry)) void char_store_rem_0(char *n) {
-  printf("MEM9 %c\n", *n);
+  printf("MEM9 %d\n", (int)*n);
   *(int *)n = 39;
   printf("MEM9 %d\n", *(int *)n);
 }
 // CHECK: MEM10
 // CHECK: MEM10
 __attribute__((inputgen_entry)) void char_store_rem_1(char *n) {
-  printf("MEM10 %c\n", *(n + 1));
+  printf("MEM10 %d\n", (int)*(n + 1));
   *(int *)n = 39;
   printf("MEM10 %d\n", *(int *)n);
 }
