@@ -41,9 +41,10 @@ struct EncodingCommonTy {
     char *MEndPtr = MBasePtr + ObjSize;
     char *MAccEndPtr = MPtr + AccessSize;
     if (MPtr < MBasePtr || MAccEndPtr > MEndPtr) [[unlikely]] {
-      FPRINTF("memory out-of-bound %lu + %llu vs %llu! (Base %p, %p, check)\n",
-              MPtr - MBasePtr, AccessSize, ObjSize, (void *)MBasePtr, MPtr);
       if (FailOnError) {
+        FPRINTF("memory out-of-bound %p + %llu vs %p + %llu! (Base %p, %p, "
+                "check)\n",
+                MPtr, AccessSize, MBasePtr, ObjSize, (void *)MBasePtr, MPtr);
         // TODO: Configure this to report if requested
         __builtin_trap();
       }
@@ -63,10 +64,10 @@ struct EncodingCommonTy {
 #endif
     if (Magic != MAGIC || Offset < 0 || Offset + AccessSize > ObjSize)
         [[unlikely]] {
-      FPRINTF("memory out-of-bound %llu + %llu vs %llu! (Base %p, %llu "
-              "check&adjust)\n",
-              Offset, AccessSize, ObjSize, (void *)MPtr, Magic);
       if (FailOnError) {
+        FPRINTF("memory out-of-bound %llu + %llu vs %llu! (Base %p, %llu "
+                 "check&adjust)\n",
+                 Offset, AccessSize, ObjSize, (void *)MPtr, Magic);
         // TODO: Configure this to report if requested
         __builtin_trap();
       }
@@ -270,7 +271,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     uint64_t ObjectIdx = __scoped_atomic_fetch_add(
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
-      FPRINTF("out of objects!\n");
+      FPRINTF("out of objects (large)!\n");
       __builtin_trap();
     }
     Objects[ObjectIdx] = {ObjSize, MPtr};

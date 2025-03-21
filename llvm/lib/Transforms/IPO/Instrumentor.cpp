@@ -491,6 +491,10 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
     return Changed;
 
   IConf.startFunction();
+
+  // Ensure there is at least one alloca to make the insertion point stable
+  IIRB.getAlloca(&Fn, IIRB.PtrTy);
+
   Changed |= preprocessLoops(Fn);
 
   InstrumentationCaches ICaches;
@@ -1002,7 +1006,7 @@ InstrumentationConfig::getBasePointerInfo(Value &V,
     IRBuilderBase::InsertPointGuard IP(IIRB.IRB);
     if (auto *BasePtrI = dyn_cast<Instruction>(VPtr))
       IIRB.IRB.SetInsertPoint(*BasePtrI->getInsertionPointAfterDef());
-    else if (isa<GlobalValue>(VPtr) || isa<Argument>(VPtr))
+    else if (isa<Constant>(VPtr) || isa<Argument>(VPtr))
       IIRB.IRB.SetInsertPointPastAllocas(
           IIRB.IRB.GetInsertBlock()->getParent());
     else {
@@ -1968,55 +1972,78 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
   auto &DL = GV.getDataLayout();
   if (GV.isDeclaration()) {
     ShadowGV = new GlobalVariable(*GV.getParent(), GV.getType(), false,
-                                  GlobalVariable::WeakAnyLinkage, &GV,
+                                  GlobalVariable::WeakODRLinkage, &GV,
                                   ShadowName, &GV, GV.getThreadLocalMode(),
                                   DL.getDefaultGlobalsAddressSpace());
   } else {
-    ShadowGV =
-        new GlobalVariable(*GV.getParent(), NewV.getType(), false,
-                           (GV.hasLocalLinkage() || GV.hasWeakLinkage())
-                               ? GV.getLinkage()
-                               : GlobalVariable::ExternalLinkage,
-                           PoisonValue::get(NewV.getType()), ShadowName, &GV);
+    ShadowGV = new GlobalVariable(
+        *GV.getParent(), NewV.getType(), false, GV.getLinkage(),
+        PoisonValue::get(NewV.getType()), ShadowName, &GV);
     IIRB.IRB.CreateStore(&NewV, ShadowGV);
   }
 
   SmallVector<Use *> Worklist(make_pointer_range(GV.uses()));
-  DenseMap<std::pair<Value *, Function *>, Value *> VMap;
+  DenseMap<std::pair<Value *, Function *>, Instruction *> VMap;
+  DenseMap<Value *, Instruction *> ConstToInstMap;
 
-  auto GetFnCopy = [&](Use &U, Instruction &UserI) {
-    auto *Fn = UserI.getFunction();
-    auto *&NewV = VMap[{U, Fn}];
-    if (!NewV) {
-      auto &EntryBB = Fn->getEntryBlock();
-      IRBuilder<> IRB(&EntryBB, EntryBB.getFirstNonPHIOrDbgOrAlloca());
-      ensureDbgLoc(IRB);
-      if (U == &GV) {
-        NewV = IRB.CreateLoad(U->getType(), ShadowGV);
-      } else if (auto *CE = dyn_cast<ConstantExpr>(U)) {
-        auto *I = CE->getAsInstruction();
-        IRB.Insert(I);
-        NewV = I;
-        Worklist.push_back(&I->getOperandUse(U.getOperandNo()));
+  auto MakeInstForConst = [&](Use &U) {
+    Instruction *&I = ConstToInstMap[U];
+    if (I)
+      return;
+    if (U == &GV) {
+      I = new LoadInst(U->getType(), ShadowGV, "", /*isVolatile=*/false,
+                       Align(1));
+    } else if (auto *CE = dyn_cast<ConstantExpr>(U)) {
+      I = CE->getAsInstruction();
+    }
+  };
+
+  auto InsertConsts = [&](Instruction *UserI, Use &UserU) {
+    SmallVector<std::pair<Instruction *, Use *>> Worklist;
+    Worklist.push_back({UserI, &UserU});
+    while (!Worklist.empty()) {
+      auto [I, U] = Worklist.pop_back_val();
+      if (auto *CI = ConstToInstMap[*U]) {
+        auto *CIClone = CI->clone();
+        if (auto *PHI = dyn_cast<PHINode>(I)) {
+          auto *BB = PHI->getIncomingBlock(U->getOperandNo());
+          CIClone->insertBefore(BB->getTerminator()->getIterator());
+        } else {
+          CIClone->insertBefore(I->getIterator());
+        }
+        U->set(CIClone);
+        if (*U == &GV)
+          continue;
+        for (auto &CICUse : CIClone->operands()) {
+          Worklist.push_back({CIClone, &CICUse});
+        }
       }
     }
-    return NewV;
   };
 
   SmallPtrSet<Use *, 8> Visited;
   while (!Worklist.empty()) {
     Use *U = Worklist.pop_back_val();
+    MakeInstForConst(*U);
     auto *I = dyn_cast<Instruction>(U->getUser());
     if (!I) {
-      if (isa<ConstantExpr>(U->getUser()) && Visited.insert(U).second) {
-        append_range(Worklist, make_pointer_range(U->getUser()->uses()));
-      }
+      append_range(Worklist, make_pointer_range(U->getUser()->uses()));
       continue;
     }
     if (IIRB.NewInsts.lookup(I) == IIRB.Epoche)
       continue;
-    U->set(GetFnCopy(*U, *I));
+    if (isa<LandingPadInst>(I))
+      continue;
+    if (auto *II = dyn_cast<IntrinsicInst>(I))
+      if (II->getIntrinsicID() == Intrinsic::eh_typeid_for)
+        continue;
+    InsertConsts(I, *U);
   }
+
+  for (auto &It : ConstToInstMap)
+    if (It.second)
+      It.second->deleteValue();
+
   return &V;
 }
 Value *GlobalIO::getSymbolName(Value &V, Type &Ty, InstrumentationConfig &IConf,

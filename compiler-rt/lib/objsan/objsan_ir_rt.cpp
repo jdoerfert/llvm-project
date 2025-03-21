@@ -1,4 +1,5 @@
 #include "include/common.h"
+
 #include "include/obj_encoding.h"
 
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
@@ -9,6 +10,9 @@
 #else
 #define PRINTF(...)
 #endif
+
+extern "C" double strtod(const char *, char **);
+extern "C" int execvp(const char *__file, char *const *__argv);
 
 using namespace __objsan;
 
@@ -70,36 +74,60 @@ char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
-OBJSAN_BIG_API_ATTRS
-char *__objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t IsDefinition,
-                          int8_t RequiresTemporalCheck) {
+// OBJSAN_BIG_API_ATTRS
+__attribute__((optnone, noinline)) char *
+__objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t IsDefinition,
+                    int8_t RequiresTemporalCheck) {
+  uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(MPtr);
+  PRINTF("%s %p %i [%i] (%i)\n", __PRETTY_FUNCTION__, MPtr, ObjSize, EncodingNo,
+         IsDefinition);
   if (!IsDefinition)
     return MPtr;
-  PRINTF("%s %p %i\n", __PRETTY_FUNCTION__, MPtr, ObjSize);
-  return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
+  auto *VPtr = __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
+  PRINTF(" -> %p\n", VPtr);
+  return VPtr;
 }
 
 OBJSAN_BIG_API_ATTRS
-void __objsan_pre_call(int64_t IntrinsicId, int32_t num_parameters,
-                       char *parameters) {
-  PRINTF("%s start\n", __PRETTY_FUNCTION__);
+void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
+                       int32_t num_parameters, char *parameters) {
+  PRINTF("%s start: %i\n", __PRETTY_FUNCTION__, num_parameters);
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
+    fflush(stdout);
     if (VP->TypeId == 14) {
       char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
       char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
       uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(*PtrAddr);
-      //   PRINTF("-- %i %p\n", EncodingNo, *PtrAddr);
       if (EncodingNo)
         *PtrAddr = [&]() -> char * {
           ENCODING_NO_SWITCH(decode, EncodingNo, nullptr, *PtrAddr);
         }();
-      //  PRINTF("-> %p\n", *PtrAddr);
     }
     parameters += sizeof(ParameterValuePackTy) + VP->Size +
                   (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
   }
-  //  PRINTF("%s done\n", __PRETTY_FUNCTION__);
+  if (Callee == &strtod) {
+    assert(0);
+  }
+
+  if (Callee == &execvp) {
+    ParameterValuePackTy *VP =
+        (ParameterValuePackTy *)(parameters - sizeof(ParameterValuePackTy) - 8);
+    char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
+    char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
+    int I = 0;
+    while (PtrAddr[I])
+      ++I;
+    char **FakeEnv = (char **)malloc(I * sizeof(char *));
+    I = 0;
+    while (PtrAddr[I]) {
+      FakeEnv[I] = LargeObjects.decode(PtrAddr[I]);
+      ++I;
+    }
+    *PtrAddr = (char *)FakeEnv;
+  }
+  PRINTF("%s done\n", __PRETTY_FUNCTION__);
 }
 
 OBJSAN_BIG_API_ATTRS
@@ -204,17 +232,18 @@ void *__objsan_get_mptr(char *__restrict VPtr, char *__restrict BaseMPtr,
 }
 
 OBJSAN_SMALL_API_ATTRS
-char *__objsan_post_loop_value_range(char *BeginPtr, char *EndPtr,
-                                     int64_t MaxOffset, char *BasePtr,
-                                     uint64_t ObjSize, int8_t EncodingNo,
+char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
+                                     int64_t MaxOffset, char *BaseVPtr,
+                                     char *BaseMPtr, uint64_t ObjSize,
+                                     int8_t EncodingNo,
                                      int8_t IsDefinitivelyExecuted) {
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
-  int64_t LoopSize = EndPtr - BeginPtr;
+  int64_t LoopSize = EndMPtr - BeginMPtr;
   if (EncodingNo && !EncodingCommonTy::check(
-                        BeginPtr, BasePtr, LoopSize + MaxOffset, ObjSize,
+                        BeginMPtr, BaseMPtr, LoopSize + MaxOffset, ObjSize,
                         /*FailOnError=*/IsDefinitivelyExecuted)) [[unlikely]] {
-    FPRINTF("r bad %p %p %llu %llu %i\n", BeginPtr, BasePtr, LoopSize, ObjSize,
-            EncodingNo);
+    FPRINTF("r bad %p-%p %p %llu %llu %i\n", BeginMPtr, EndMPtr, BaseMPtr,
+            LoopSize, ObjSize, EncodingNo);
     return nullptr;
   }
   return /* not null */ (char *)(0x1);
@@ -223,9 +252,8 @@ char *__objsan_post_loop_value_range(char *BeginPtr, char *EndPtr,
 OBJSAN_SMALL_API_ATTRS
 void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr, int64_t AccessSize,
                                 uint64_t ObjSize, int8_t EncodingNo) {
-  PRINTF("%s start P: %p B: %p AS: %llu OS: %llu Enc: %i C: %i\n",
-         __PRETTY_FUNCTION__, MPtr, BaseMPtr, AccessSize, ObjSize, EncodingNo,
-         WasChecked);
+  PRINTF("%s start P: %p B: %p AS: %llu OS: %llu Enc: %i\n",
+         __PRETTY_FUNCTION__, MPtr, BaseMPtr, AccessSize, ObjSize, EncodingNo);
   if (EncodingNo)
     EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
                             /*FailOnError=*/true);
@@ -243,6 +271,7 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                                /*FailOnError=*/false)) [[unlikely]] {
     FPRINTF("l bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
             AccessSize, ObjSize, EncodingNo, WasChecked);
+    __builtin_trap();
     return nullptr;
   }
   return MPtr;
@@ -260,6 +289,7 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                                /*FailOnError=*/false)) [[unlikely]] {
     FPRINTF("s bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
             AccessSize, ObjSize, EncodingNo, WasChecked);
+    __builtin_trap();
     return nullptr;
   }
   return MPtr;
@@ -269,6 +299,12 @@ OBJSAN_SMALL_API_ATTRS
 void __objsan_check_non_zero(char *VPtr) {
   if (!VPtr)
     __builtin_trap();
+}
+
+OBJSAN_SMALL_API_ATTRS
+void *__objsan_decode(char *VPtr) {
+  uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
+  ENCODING_NO_SWITCH(decode, EncodingNo, VPtr, VPtr);
 }
 
 OBJSAN_SMALL_API_ATTRS

@@ -804,29 +804,29 @@ struct AA::PointerInfo::State : public AbstractState {
     return ChangeStatus::CHANGED;
   }
 
-  State &operator=(const State &R) {
-    if (this == &R)
-      return *this;
-    BS = R.BS;
-    ReadAccessList = R.ReadAccessList;
-    WriteAccessList = R.WriteAccessList;
-    AssumeAccessList = R.AssumeAccessList;
-    RemoteIMap = R.RemoteIMap;
-    ReturnedOffsets = R.ReturnedOffsets;
-    return *this;
-  }
-
-  State &operator=(State &&R) {
-    if (this == &R)
-      return *this;
-    std::swap(BS, R.BS);
-    std::swap(ReadAccessList, R.ReadAccessList);
-    std::swap(WriteAccessList, R.WriteAccessList);
-    std::swap(AssumeAccessList, R.AssumeAccessList);
-    std::swap(RemoteIMap, R.RemoteIMap);
-    std::swap(ReturnedOffsets, R.ReturnedOffsets);
-    return *this;
-  }
+  //  State &operator=(const State &R) {
+  //    if (this == &R)
+  //      return *this;
+  //    BS = R.BS;
+  //    ReadAccessList = R.ReadAccessList;
+  //    WriteAccessList = R.WriteAccessList;
+  //    AssumeAccessList = R.AssumeAccessList;
+  //    RemoteIMap = R.RemoteIMap;
+  //    ReturnedOffsets = R.ReturnedOffsets;
+  //    return *this;
+  //  }
+  //
+  //  State &operator=(State &&R) {
+  //    if (this == &R)
+  //      return *this;
+  //    std::swap(BS, R.BS);
+  //    std::swap(ReadAccessList, R.ReadAccessList);
+  //    std::swap(WriteAccessList, R.WriteAccessList);
+  //    std::swap(AssumeAccessList, R.AssumeAccessList);
+  //    std::swap(RemoteIMap, R.RemoteIMap);
+  //    std::swap(ReturnedOffsets, R.ReturnedOffsets);
+  //    return *this;
+  //  }
 
   /// Add a new Access to the state at offset \p Offset and with size \p Size.
   /// The access is associated with \p I, writes \p Content (if anything), and
@@ -904,7 +904,7 @@ protected:
     bool RangeListIsExact = RangeList.isSingleExactRange();
 
     SmallPtrSet<const AAPointerInfo::Access *, 32> Seen;
-    auto ForAccessList = [&](const access_range AccessList) {
+    auto ForAccessList = [&](const access_range &AccessList) {
       for (const auto *Acc : AccessList) {
         if (!Seen.insert(Acc).second)
           continue;
@@ -1047,7 +1047,7 @@ struct AAPointerInfoImpl
            (isValidState()
                 ? (std::string("#") + std::to_string(ReadAccessList.size()) +
                    " reads, " + std::to_string(WriteAccessList.size()) +
-                   " reads, " + std::to_string(AssumeAccessList.size()) +
+                   " writes, " + std::to_string(AssumeAccessList.size()) +
                    " assumes.")
                 : "<invalid>") +
            (reachesReturn()
@@ -1490,6 +1490,14 @@ struct AAPointerInfoImpl
     using namespace AA::PointerInfo;
     if (!OtherAA.getState().isValidState() || !isValidState())
       return indicatePessimisticFixpoint();
+    if (&OtherAA == this) {
+      for (auto Offset : Offsets) {
+        if (Offset.getOffset() == 0 && Offset.getSize() == 0)
+          continue;
+        return indicatePessimisticFixpoint();
+      }
+      return ChangeStatus::UNCHANGED;
+    }
 
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     const auto &OtherAAImpl = static_cast<const AAPointerInfoImpl &>(OtherAA);
@@ -1540,7 +1548,7 @@ struct AAPointerInfoImpl
     // Sort the acceses by range for printing.
     DenseMap<AA::AccessRangeTy, SmallSetVector<AAPointerInfo::Access *, 8>>
         AccessMap;
-    auto ForAccessList = [&](const access_range AccessList) {
+    auto ForAccessList = [&](const access_range &AccessList) {
       for (auto *Acc : AccessList)
         for (auto &Range : Acc->getAccessRanges())
           AccessMap[Range].insert(Acc);
@@ -1723,6 +1731,10 @@ bool AAPointerInfoFloating::collectConstantsForGEP(Attributor &A,
       }
       const auto &ConstantRangeState = ConstantRangeAA->getState();
       ConstantRange CR = ConstantRangeState.getAssumed();
+      if (CR.isFullSet() || CR.isWrappedSet() || CR.isSignWrappedSet()) {
+        UsrOI.setUnknown();
+        return true;
+      }
       auto Min = CR.getSignedMin().getSExtValue();
       auto Max = CR.getSignedMax().getSExtValue();
       auto Scale = VI.second.getSExtValue();
@@ -3214,8 +3226,8 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
       // If we reach here, we know we have an instruction
       // that accesses memory through a pointer operand,
       // for which getPointerOperand() should give it to us.
-      Value *PtrOp =
-          const_cast<Value *>(AA::getPointerOperand(&I, /* AllowVolatile */ true));
+      Value *PtrOp = const_cast<Value *>(
+          AA::getPointerOperand(&I, /* AllowVolatile */ true));
       assert(PtrOp &&
              "Expected pointer operand of memory accessing instruction");
 

@@ -201,7 +201,8 @@ SCEVExpander::GetOptimalInsertionPointForCastOf(Value *V) const {
   // Cast the argument at the beginning of the entry block, after
   // any bitcasts of other arguments.
   if (Argument *A = dyn_cast<Argument>(V)) {
-    BasicBlock::iterator IP = A->getParent()->getEntryBlock().begin();
+    BasicBlock::iterator IP =
+        A->getParent()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
     while ((isa<BitCastInst>(IP) &&
             isa<Argument>(cast<BitCastInst>(IP)->getOperand(0)) &&
             cast<BitCastInst>(IP)->getOperand(0) != A))
