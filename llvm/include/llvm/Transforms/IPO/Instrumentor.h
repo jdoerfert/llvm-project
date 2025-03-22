@@ -128,21 +128,23 @@ struct InstrumentorIRBuilderTy {
   /// Get a temporary alloca to communicate (large) values with the runtime.
   AllocaInst *getAlloca(Function *Fn, Type *Ty, bool MatchType = false) {
     const DataLayout &DL = Fn->getDataLayout();
-    auto &AllocaList = AllocaMap[{Fn, DL.getTypeAllocSize(Ty)}];
+    auto *&AllocaList = AllocaMap[{Fn, DL.getTypeAllocSize(Ty)}];
+    if (!AllocaList)
+      AllocaList = new AllocaListTy;
     AllocaInst *AI = nullptr;
-    for (auto *&ListAI : AllocaList) {
+    for (auto *&ListAI : *AllocaList) {
       if (MatchType && ListAI->getAllocatedType() != Ty)
         continue;
       AI = ListAI;
-      ListAI = *AllocaList.rbegin();
+      ListAI = *AllocaList->rbegin();
       break;
     }
     if (AI)
-      AllocaList.pop_back();
+      AllocaList->pop_back();
     else
       AI = new AllocaInst(Ty, DL.getAllocaAddrSpace(), "",
                           Fn->getEntryBlock().begin());
-    UsedAllocas[AI] = &AllocaList;
+    UsedAllocas[AI] = AllocaList;
     return AI;
   }
 
@@ -202,8 +204,8 @@ struct InstrumentorIRBuilderTy {
   ///}
 
   /// Mapping to remember temporary allocas for reuse.
-  DenseMap<std::pair<Function *, unsigned>, SmallVector<AllocaInst *>>
-      AllocaMap;
+  using AllocaListTy = SmallVector<AllocaInst *>;
+  DenseMap<std::pair<Function *, unsigned>, AllocaListTy *> AllocaMap;
   DenseMap<AllocaInst *, SmallVector<AllocaInst *> *> UsedAllocas;
 
   void eraseLater(Instruction *I) { ToBeErased.insert(I); }
@@ -211,8 +213,10 @@ struct InstrumentorIRBuilderTy {
 
   FunctionAnalysisManager &FAM;
 
-  template<typename T, typename R = typename T::Result>
-  R& analysisGetter(Function &F) { return FAM.getResult<T>(F); }
+  template <typename T, typename R = typename T::Result>
+  R &analysisGetter(Function &F) {
+    return FAM.getResult<T>(F);
+  }
 
   IRBuilder<ConstantFolder, IRBuilderCallbackInserter> IRB;
   /// Each instrumentation, i.a., of an instruction, is happening in a dedicated
@@ -1129,6 +1133,12 @@ struct ICmpIO : public InstructionIO<Instruction::ICmp> {
   virtual ~ICmpIO() {};
 
   enum ConfigKind {
+    PassValue,
+    ReplaceValue,
+    PassIsPtrCmp,
+    PassCmpPredicate,
+    PassLHS,
+    PassRHS,
     PassId,
     NumConfig,
   };
@@ -1136,27 +1146,37 @@ struct ICmpIO : public InstructionIO<Instruction::ICmp> {
   using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
+  virtual Type *getValueType(LLVMContext &Ctx) const {
+    return IntegerType::getInt64Ty(Ctx);
+  }
+
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
             ConfigTy *UserConfig = nullptr) {
     if (UserConfig)
       Config = *UserConfig;
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    if (!IsPRE)
-      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "value",
-                               "Result of an integer compare.",
-                               IRTArg::REPLACABLE, getValue, replaceValue));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_ptr_cmp",
-                             "Flag to indicate a pointer compare.",
-                             IRTArg::NONE, isPtrCmp));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx), "cmp_predicate_kind",
-                             "Predicate kind of an integer compare.",
-                             IRTArg::NONE, getCmpPredicate));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "lhs",
-                             "Left hand side of an integer compare.",
-                             IRTArg::POTENTIALLY_INDIRECT, getLHS));
-    IRTArgs.push_back(IRTArg(IntegerType::getInt64Ty(Ctx), "rhs",
-                             "Right hand side of an integer compare.",
-                             IRTArg::POTENTIALLY_INDIRECT, getRHS));
+    if (!IsPRE && Config.has(PassValue))
+      IRTArgs.push_back(
+          IRTArg(IntegerType::getInt8Ty(Ctx), "value",
+                 "Result of an integer compare.", IRTArg::REPLACABLE, getValue,
+                 Config.has(ReplaceValue) ? replaceValue : nullptr));
+    if (Config.has(PassIsPtrCmp))
+      IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_ptr_cmp",
+                               "Flag to indicate a pointer compare.",
+                               IRTArg::NONE, isPtrCmp));
+    if (Config.has(PassCmpPredicate))
+      IRTArgs.push_back(IRTArg(IntegerType::getInt32Ty(Ctx),
+                               "cmp_predicate_kind",
+                               "Predicate kind of an integer compare.",
+                               IRTArg::NONE, getCmpPredicate));
+    if (Config.has(PassLHS))
+      IRTArgs.push_back(IRTArg(getValueType(Ctx), "lhs",
+                               "Left hand side of an integer compare.",
+                               IRTArg::POTENTIALLY_INDIRECT, getLHS));
+    if (Config.has(PassRHS))
+      IRTArgs.push_back(IRTArg(getValueType(Ctx), "rhs",
+                               "Right hand side of an integer compare.",
+                               IRTArg::POTENTIALLY_INDIRECT, getRHS));
     addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }

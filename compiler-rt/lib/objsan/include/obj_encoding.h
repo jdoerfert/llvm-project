@@ -2,6 +2,7 @@
 #define OBJSAN_OBJ_ENCODING_H
 
 #include "common.h"
+#include <cstdint>
 
 #if __has_builtin(__builtin_assume)
 #define ASSUME(E) __builtin_assume((E));
@@ -66,8 +67,8 @@ struct EncodingCommonTy {
         [[unlikely]] {
       if (FailOnError) {
         FPRINTF("memory out-of-bound %llu + %llu vs %llu! (Base %p, %llu "
-                 "check&adjust)\n",
-                 Offset, AccessSize, ObjSize, (void *)MPtr, Magic);
+                "check&adjust)\n",
+                Offset, AccessSize, ObjSize, (void *)MPtr, Magic);
         // TODO: Configure this to report if requested
         __builtin_trap();
       }
@@ -124,8 +125,9 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
     } Bits;
     static_assert(sizeof(Bits) == sizeof(char *), "bad size");
 
-    EncTy(uint64_t ObjSize, uint64_t BuckedIdx, uint64_t RealPtr) {
-      Bits.Offset = 0;
+    EncTy(uint64_t ObjSize, uint64_t BuckedIdx, uint64_t RealPtr,
+          uint64_t Offset) {
+      Bits.Offset = Offset;
       Bits.Magic = Base::MAGIC;
       Bits.ObjSize = ObjSize;
       Bits.BuckedIdx = BuckedIdx;
@@ -182,8 +184,9 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
       }
     }
     if (BucketIdx == ~0u) [[unlikely]]
-      __builtin_trap();
-    EncTy E(ObjSize, BucketIdx, D.Bits.RealPtr);
+      return MPtr;
+    EncTy M(MPtr);
+    EncTy E(ObjSize, BucketIdx, D.Bits.RealPtr, M.Bits.Offset);
     return E.VPtr;
   }
 
@@ -192,7 +195,8 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
   char *decode(char *VPtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
-    return D.MPtr + E.Bits.Offset;
+    EncTy M(D.MPtr);
+    return D.MPtr + E.Bits.Offset - M.Bits.Offset;
   }
 
   bool isMagicIntact(char *VPtr) {
@@ -256,8 +260,8 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     } Bits;
     static_assert(sizeof(Bits) == sizeof(char *), "bad size");
 
-    EncTy(uint64_t ObjSize, uint64_t ObjectIdx) {
-      Bits.Offset = 0;
+    EncTy(uint64_t ObjSize, uint64_t ObjectIdx, uint64_t Offset) {
+      Bits.Offset = Offset;
       Bits.Magic = Base::MAGIC;
       Bits.ObjectIdx = ObjectIdx;
       Bits.EncodingId = EncodingNo;
@@ -271,11 +275,12 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     uint64_t ObjectIdx = __scoped_atomic_fetch_add(
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
-      FPRINTF("out of objects (large)!\n");
-      __builtin_trap();
+      //FPRINTF("out of objects (large)!\n");
+      return MPtr;
     }
+    EncTy M(MPtr);
     Objects[ObjectIdx] = {ObjSize, MPtr};
-    EncTy E(ObjSize, ObjectIdx);
+    EncTy E(ObjSize, ObjectIdx, M.Bits.Offset);
     return E.VPtr;
   }
 
@@ -289,7 +294,8 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
     auto [ObjSize, Base] = Objects[E.Bits.ObjectIdx];
-    return Base + E.Bits.Offset;
+    EncTy M(Base);
+    return Base + E.Bits.Offset - M.Bits.Offset;
   }
 
   bool isMagicIntact(char *VPtr) {
@@ -374,7 +380,7 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     uint64_t ObjectIdx = __scoped_atomic_fetch_add(
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
-      FPRINTF("out of objects!\n");
+      //FPRINTF("out of objects!\n");
       __builtin_trap();
     }
     Objects[ObjectIdx] = {MPtr};
@@ -392,7 +398,8 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
     auto *Base = Objects[E.Bits.ObjectIdx];
-    return Base + E.Bits.Offset;
+    EncTy M(Base);
+    return Base + E.Bits.Offset - M.Bits.Offset;
   }
 
   bool isMagicIntact(char *VPtr) {
@@ -429,7 +436,7 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
                                       /*OffsetBits=*/12, /*BucketBits=*/3,
                                       /*RealPtrBits=*/32>;
-using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/20>;
+using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/24>;
 using FixedObjectsTy =
     FixedLedgerSchemeTy</*EncodingNo=*/3, /*ObjectBits=*/20, 16>;
 

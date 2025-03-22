@@ -124,18 +124,18 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
   if (Callee == &execvp) {
     ParameterValuePackTy *VP =
         (ParameterValuePackTy *)(parameters - sizeof(ParameterValuePackTy) - 8);
-    char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
-    char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
+    char **PtrAddr = *reinterpret_cast<char ***>(&VP->Value);
     int I = 0;
     while (PtrAddr[I])
       ++I;
-    char **FakeEnv = (char **)malloc(I * sizeof(char *));
+    char **FakeEnv = (char **)malloc((I + 1) * sizeof(char *));
     I = 0;
     while (PtrAddr[I]) {
       FakeEnv[I] = LargeObjects.decode(PtrAddr[I]);
       ++I;
     }
-    *PtrAddr = (char *)FakeEnv;
+    FakeEnv[I] = nullptr;
+    *reinterpret_cast<char **>(&VP->Value) = (char *)FakeEnv;
   }
 #endif
 
@@ -145,6 +145,8 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
 OBJSAN_BIG_API_ATTRS
 char *__objsan_post_call(char *MPtr, uint64_t ObjSize,
                          int8_t RequiresTemporalCheck) {
+  PRINTF("%s start: p: %p os: %llu rtc: %i\n", __PRETTY_FUNCTION__, MPtr,
+         ObjSize, RequiresTemporalCheck);
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
@@ -183,17 +185,17 @@ void __objsan_pre_function(int32_t NumArgs, char *__restrict Arguments) {
   ParameterValuePackTy *ArgVVP = (ParameterValuePackTy *)Arguments;
   if (ArgVVP->Size != 8 || ArgVVP->TypeId != 14)
     return;
-  auto ArgVSize = sizeof(char *) * ArgC;
+  auto ArgVSize = sizeof(char *) * (ArgC + 1);
   char **ArgV = *reinterpret_cast<char ***>(&ArgVVP->Value);
   for (int32_t I = 0; I < ArgC; ++I) {
     auto StrSize = strlen(ArgV[I]) + 1;
     ArgV[I] = __objsan_register_object(ArgV[I], StrSize,
                                        /*RequiresTemporalCheck=*/true);
   }
+  ArgV[ArgC] = nullptr;
   *reinterpret_cast<char **>(&ArgVVP->Value) =
       __objsan_register_object(reinterpret_cast<char *>(ArgV), ArgVSize,
                                /*RequiresTemporalCheck=*/true);
-  PRINTF("argc %i, %p\n", ArgC, ArgV);
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -238,9 +240,10 @@ void *__objsan_get_mptr(char *__restrict VPtr, char *__restrict BaseMPtr,
     NumOffsetBits = SmallObjectsTy::NumOffsetBits;
   else
     NumOffsetBits = LargeObjectsTy::NumOffsetBits;
-  auto [Offset, Magic] = getOffsetAndMagic(VPtr, NumOffsetBits);
+  auto [VOffset, VMagic] = getOffsetAndMagic(VPtr, NumOffsetBits);
+  auto [MOffset, MMagic] = getOffsetAndMagic(BaseMPtr, NumOffsetBits);
   // TODO: Checm magic
-  return BaseMPtr + Offset;
+  return BaseMPtr + VOffset - MOffset;
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -254,8 +257,8 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
   if (EncodingNo && !EncodingCommonTy::check(
                         BeginMPtr, BaseMPtr, LoopSize + MaxOffset, ObjSize,
                         /*FailOnError=*/IsDefinitivelyExecuted)) [[unlikely]] {
-    FPRINTF("r bad %p-%p %p %llu %llu %i\n", BeginMPtr, EndMPtr, BaseMPtr,
-            LoopSize, ObjSize, EncodingNo);
+    PRINTF("r bad %p-%p %p %llu %llu %i\n", BeginMPtr, EndMPtr, BaseMPtr,
+           LoopSize, ObjSize, EncodingNo);
     return nullptr;
   }
   return /* not null */ (char *)(0x1);
@@ -283,7 +286,6 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                                /*FailOnError=*/false)) [[unlikely]] {
     FPRINTF("l bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
             AccessSize, ObjSize, EncodingNo, WasChecked);
-    __builtin_trap();
     return nullptr;
   }
   return MPtr;
@@ -301,7 +303,6 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                                /*FailOnError=*/false)) [[unlikely]] {
     FPRINTF("s bad %p %p %p %llu %llu %i %i\n", MPtr, BaseMPtr, LVRI,
             AccessSize, ObjSize, EncodingNo, WasChecked);
-    __builtin_trap();
     return nullptr;
   }
   return MPtr;
@@ -317,6 +318,37 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_decode(char *VPtr) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
   ENCODING_NO_SWITCH(decode, EncodingNo, VPtr, VPtr);
+}
+
+OBJSAN_SMALL_API_ATTRS
+uint8_t __objsan_post_icmp(uint8_t Result, uint32_t Predicate, char *LHS,
+                           char *RHS) {
+  auto *MPtrLHS = __objsan_decode(LHS);
+  auto *MPtrRHS = __objsan_decode(RHS);
+  switch (Predicate) {
+  case 32:
+    return MPtrLHS == MPtrRHS; // ==
+  case 33:
+    return MPtrLHS != MPtrRHS; // !=
+  case 34:
+    return MPtrLHS > MPtrRHS; // >u
+  case 35:
+    return MPtrLHS >= MPtrRHS; // >=u
+  case 36:
+    return MPtrLHS < MPtrRHS; // <u
+  case 37:
+    return MPtrLHS >= MPtrRHS; // >=u
+  case 38:
+    return (intptr_t)MPtrLHS > (intptr_t)MPtrRHS; // >s
+  case 39:
+    return (intptr_t)MPtrLHS >= (intptr_t)MPtrRHS; // >=s
+  case 40:
+    return (intptr_t)MPtrLHS < (intptr_t)MPtrRHS; // <s
+  case 41:
+    return (intptr_t)MPtrLHS <= (intptr_t)MPtrRHS; // <=s
+  default:
+    return Result;
+  }
 }
 
 OBJSAN_SMALL_API_ATTRS

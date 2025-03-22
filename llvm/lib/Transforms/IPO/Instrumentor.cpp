@@ -692,11 +692,13 @@ void InstrumentorImpl::linkRuntime() {
   for (auto It : IIRB.AllocaMap) {
     auto *Fn = It.first.first;
     DominatorTree DT(*Fn);
-    auto &Allocas = It.second;
+    auto &Allocas = *It.second;
     erase_if(Allocas,
              [](const AllocaInst *AI) { return !isAllocaPromotable(AI); });
     PromoteMemToReg(Allocas, DT);
+    delete It.second;
   }
+  IIRB.AllocaMap.clear();
 }
 
 bool InstrumentorImpl::instrument() {

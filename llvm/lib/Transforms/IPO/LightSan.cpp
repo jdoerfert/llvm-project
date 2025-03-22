@@ -498,15 +498,18 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
   }
 #endif
 
-  if (CI.isInlineAsm())
+  if (CI.isInlineAsm() || isa<UndefValue>(CI.getCalledOperand()) ||
+      isa<ConstantPointerNull>(CI.getCalledOperand()))
     return false;
   Function *CalledFn = CI.getCalledFunction();
   if (!CalledFn)
     return true;
-  FunctionType *CalledFnTy = CalledFn->getFunctionType();
-  if (none_of(CalledFnTy->params(),
-              [&](Type *ArgTy) { return ArgTy->isPtrOrPtrVectorTy(); }))
+  if (!CalledFn->isDeclaration())
     return false;
+  if (CalledFn->getName().starts_with(LightSanRuntimePrefix))
+    return false;
+  if (CalledFn->isVarArg())
+    return true;
 #if 0
   // TODO: Move this into an extended pre call inst 
   if (auto *II = dyn_cast<IntrinsicInst>(&CI)) {
@@ -535,18 +538,16 @@ bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
     return true;
   }
 #endif
-  if (!CalledFn->isDeclaration())
-    return false;
-  if (CalledFn->getName().starts_with(LightSanRuntimePrefix))
-    return false;
-  if (CalledFn->isVarArg())
-    return true;
   if (auto *II = dyn_cast<IntrinsicInst>(&CI))
     if (II->isAssumeLikeIntrinsic())
       return false;
   if (CalledFn->getName().starts_with(AdapterPrefix))
     return false;
   if (CI.getFunction()->getName().starts_with(AdapterPrefix))
+    return false;
+  FunctionType *CalledFnTy = CalledFn->getFunctionType();
+  if (none_of(CalledFnTy->params(),
+              [&](Type *ArgTy) { return ArgTy->isPtrOrPtrVectorTy(); }))
     return false;
   return true;
 #if 0
@@ -1470,12 +1471,13 @@ bool LightSanImpl::instrument() {
       if (UncheckedCalls.size() < 2)
         continue;
       bool AllSameOffset = all_of(UncheckedCalls, [&](CallInst *OtherCI) {
-        return FirstCI->getArgOperand(2) == OtherCI->getArgOperand(2);
+        return FirstCI->getArgOperand(3) == OtherCI->getArgOperand(3);
       });
 
       IIRB.IRB.SetInsertPoint(FirstCI);
       ensureDbgLoc(IIRB.IRB);
       auto *Ptr = FirstCI->getArgOperand(4);
+      FirstCI->setArgOperand(7, TrueInt8);
       Value *Min = IIRB.IRB.CreatePtrToInt(Ptr, IIRB.Int64Ty);
       Value *Max = Min;
       if (!AllSameOffset)
@@ -1495,8 +1497,15 @@ bool LightSanImpl::instrument() {
       if (AllSameOffset)
         Max = IIRB.IRB.CreateAdd(Max, FirstCI->getArgOperand(3));
       auto *AccessSize = IIRB.IRB.CreateSub(Max, Min);
-      FirstCI->setArgOperand(4, IIRB.IRB.CreateIntToPtr(Min, IIRB.PtrTy));
-      FirstCI->setArgOperand(3, AccessSize);
+
+      IIRB.IRB.CreateCall(IConf.LRAFC,
+                          {
+                              IIRB.IRB.CreateIntToPtr(Min, IIRB.PtrTy),
+                              FirstCI->getArgOperand(1),
+                              AccessSize,
+                              FirstCI->getArgOperand(5),
+                              FirstCI->getArgOperand(6),
+                          });
     }
   }
 #endif
@@ -1582,6 +1591,10 @@ bool LightSanImpl::instrument() {
 
 #if 1
   foreachRTCaller(IConf.getRTName("pre_", "call"), [&](CallInst &CI) {
+    if (auto *Fn = dyn_cast_if_present<Function>(CI.getArgOperand(0))) {
+      if (Fn->getName().contains("execvp"))
+        return;
+    }
     auto NumParameters = cast<ConstantInt>(CI.getArgOperand(2))->getSExtValue();
     auto *ParameterDesc = CI.getArgOperand(3);
     SmallVector<Value *> Parameters;
@@ -2444,6 +2457,35 @@ struct ExtendedFunctionIO : public FunctionIO {
   }
 };
 
+struct ExtendedICmpIO : public ICmpIO {
+  ExtendedICmpIO() : ICmpIO(/*IsPRE*/ false) {}
+  virtual ~ExtendedICmpIO() {};
+
+  Type *getValueType(LLVMContext &Ctx) const override {
+    return PointerType::get(Ctx, 0);
+  }
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    ICmpIO::ConfigTy PreICmpConfig(/*Enable=*/false);
+    PreICmpConfig.set(ICmpIO::PassValue);
+    PreICmpConfig.set(ICmpIO::ReplaceValue);
+    PreICmpConfig.set(ICmpIO::PassCmpPredicate);
+    PreICmpConfig.set(ICmpIO::PassLHS);
+    PreICmpConfig.set(ICmpIO::PassRHS);
+    ICmpIO::init(IConf, IIRB.Ctx, &PreICmpConfig);
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto *EAIO = IConf.allocate<ExtendedICmpIO>();
+    EAIO->CB = [&](Value &V) {
+      auto &ICmpI = cast<ICmpInst>(V);
+      return ICmpI.getOperand(0)->getType()->isPointerTy();
+    };
+    EAIO->init(IConf, IIRB);
+  }
+};
+
 void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   UnreachableIO::ConfigTy UIOConfig(/*Enable=*/false);
   UnreachableIO::populate(*this, IIRB.Ctx, &UIOConfig);
@@ -2454,6 +2496,7 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedAllocaIO::populate(*this, IIRB);
   ExtendedFunctionIO::populate(*this, IIRB);
   ExtendedGlobalIO::populate(*this, IIRB);
+  ExtendedICmpIO::populate(*this, IIRB);
   AllocatorCallIO::populate(*this, IIRB);
   // ModuleIO::populate(*this, IIRB.Ctx);
 
