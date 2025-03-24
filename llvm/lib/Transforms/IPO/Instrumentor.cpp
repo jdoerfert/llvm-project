@@ -715,10 +715,10 @@ bool InstrumentorImpl::instrument() {
     if (ChoiceIt.second->Enabled)
       InstChoicesPOST[ChoiceIt.second->getOpcode()] = ChoiceIt.second;
 
+  Changed |= instrumentModule();
+
   for (Function &Fn : M)
     Changed |= instrumentFunction(Fn);
-
-  Changed |= instrumentModule();
 
   linkRuntime();
 
@@ -993,6 +993,7 @@ void InstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   LoadIO::populate(*this, IIRB.Ctx);
   CallIO::populate(*this, IIRB.Ctx);
   ICmpIO::populate(*this, IIRB.Ctx);
+  VAArgIO::populate(*this, IIRB.Ctx);
 }
 
 void InstrumentationConfig::addChoice(InstrumentationOpportunity &IO) {
@@ -1863,6 +1864,18 @@ Value *ICmpIO::getRHS(Value &V, Type &Ty, InstrumentationConfig &IConf,
   return tryToCast(IIRB.IRB, II.getOperand(1), &Ty, IIRB.DL);
 }
 
+Value *VAArgIO::getPointer(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                           InstrumentorIRBuilderTy &IIRB) {
+  auto &VI = cast<VAArgInst>(V);
+  return VI.getPointerOperand();
+}
+Value *VAArgIO::setPointer(Value &V, Value &NewV, InstrumentationConfig &IConf,
+                           InstrumentorIRBuilderTy &IIRB) {
+  auto &VI = cast<VAArgInst>(V);
+  VI.setOperand(VI.getPointerOperandIndex(), &NewV);
+  return &VI;
+}
+
 Value *PtrToIntIO::getPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
                           InstrumentorIRBuilderTy &IIRB) {
   auto &PI = cast<PtrToIntInst>(V);
@@ -2026,15 +2039,20 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
     auto *&Reload = ReloadMap[UserI->getFunction()];
     if (!Reload) {
       Reload = new LoadInst(
-          GV.getType(), ShadowGV, "",
+          GV.getType(), ShadowGV, GV.getName() + ".shadow_load",
           UserI->getFunction()->getEntryBlock().getFirstNonPHIOrDbgOrAlloca());
-      ConstToInstMap[&GV] = Reload;
+      IIRB.NewInsts.insert({Reload, IIRB.Epoche});
     }
     Worklist.push_back({UserI, &UserU});
     while (!Worklist.empty()) {
       auto [I, U] = Worklist.pop_back_val();
+      if (*U == &GV) {
+        U->set(ReloadMap[I->getFunction()]);
+        continue;
+      }
       if (auto *CI = ConstToInstMap[*U]) {
         auto *CIClone = CI->clone();
+        IIRB.NewInsts.insert({CIClone, IIRB.Epoche});
         if (auto *PHI = dyn_cast<PHINode>(I)) {
           auto *BB = PHI->getIncomingBlock(U->getOperandNo());
           CIClone->insertBefore(BB->getTerminator()->getIterator());
@@ -2042,8 +2060,6 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
           CIClone->insertBefore(I->getIterator());
         }
         U->set(CIClone);
-        if (*U == &GV)
-          continue;
         for (auto &CICUse : CIClone->operands()) {
           Worklist.push_back({CIClone, &CICUse});
         }
@@ -2072,7 +2088,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
   }
 
   for (auto &It : ConstToInstMap)
-    if (It.second && !isa<LoadInst>(It.second))
+    if (It.second)
       It.second->deleteValue();
 
   return &V;

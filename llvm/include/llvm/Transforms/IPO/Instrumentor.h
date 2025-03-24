@@ -1199,11 +1199,13 @@ struct ICmpIO : public InstructionIO<Instruction::ICmp> {
   }
 };
 
-struct PtrToIntIO : public InstructionIO<Instruction::PtrToInt> {
-  PtrToIntIO(bool IsPRE) : InstructionIO<Instruction::PtrToInt>(IsPRE) {}
-  virtual ~PtrToIntIO() {};
+struct VAArgIO : public InstructionIO<Instruction::VAArg> {
+  VAArgIO(bool IsPRE) : InstructionIO<Instruction::VAArg>(IsPRE) {}
+  virtual ~VAArgIO() {};
 
   enum ConfigKind {
+    PassPointer,
+    ReplacePointer,
     PassId,
     NumConfig,
   };
@@ -1216,14 +1218,57 @@ struct PtrToIntIO : public InstructionIO<Instruction::PtrToInt> {
     if (UserConfig)
       Config = *UserConfig;
     bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
-    IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "pointer",
-                             "Input pointer of the ptr to int.",
-                             IRTArg::POTENTIALLY_INDIRECT, getPtr));
-    if (!IsPRE)
+    if (Config.has(PassPointer))
+      IRTArgs.push_back(IRTArg(
+          PointerType::get(Ctx, 0), "pointer",
+          "Pointer of the va_arg instruction.", IRTArg::REPLACABLE, getPointer,
+          IsPRE && Config.has(ReplacePointer) ? setPointer : nullptr));
+    addCommonArgs(IConf, Ctx, Config.has(PassId));
+    IConf.addChoice(*this);
+  }
+
+  static Value *getPointer(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                           InstrumentorIRBuilderTy &IIRB);
+  static Value *setPointer(Value &V, Value &NewV, InstrumentationConfig &IConf,
+                           InstrumentorIRBuilderTy &IIRB);
+
+  static void populate(InstrumentationConfig &IConf, LLVMContext &Ctx) {
+    for (auto IsPRE : {true, false}) {
+      auto *AIC = IConf.allocate<VAArgIO>(IsPRE);
+      AIC->init(IConf, Ctx);
+    }
+  }
+};
+
+struct PtrToIntIO : public InstructionIO<Instruction::PtrToInt> {
+  PtrToIntIO(bool IsPRE) : InstructionIO<Instruction::PtrToInt>(IsPRE) {}
+  virtual ~PtrToIntIO() {};
+
+  enum ConfigKind {
+    PassPointer,
+    PassResult,
+    ReplaceResult,
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind>;
+  ConfigTy Config;
+
+  void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
+    bool IsPRE = getLocationKind() == InstrumentationLocation::INSTRUCTION_PRE;
+    if (Config.has(PassPointer))
+      IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "pointer",
+                               "Input pointer of the ptr to int.",
+                               IRTArg::POTENTIALLY_INDIRECT, getPtr));
+    if (!IsPRE && Config.has(PassResult))
       IRTArgs.push_back(IRTArg(
           IntegerType::getInt64Ty(Ctx), "value", "Result of the ptr to int.",
           IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT, getValue,
-          replaceValue));
+          Config.has(ReplaceResult) ? replaceValue : nullptr));
     addCommonArgs(IConf, Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }

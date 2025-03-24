@@ -13,6 +13,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/DomTreeUpdater.h"
@@ -68,6 +69,10 @@ using namespace llvm::instrumentor;
 
 #define DEBUG_TYPE "lightsan"
 
+STATISTIC(NumStores, "Number of stores");
+STATISTIC(NumPtrStores, "Number of pointer stores");
+STATISTIC(NumEscapingPtrStores, "Number of pointer stores (escapes)");
+
 static constexpr char LightSanRuntimePrefix[] = "__objsan_";
 static constexpr char LightSanGlobalShadowPrefix[] = "__objsan_shadow.";
 static constexpr char AdapterPrefix[] = "__adapter_";
@@ -76,6 +81,14 @@ static constexpr char AdapterPrefix[] = "__adapter_";
 [[maybe_unused]] static constexpr uint64_t SmallObjectSize = (1LL << 12);
 
 namespace {
+
+static bool isSpecialFunction(Function *Fn) {
+  return false;
+  if (Fn)
+    if (Fn->getName().contains("execvp") || Fn->getName().contains("getopt"))
+      return true;
+  return false;
+}
 
 struct LightSanImpl;
 
@@ -109,6 +122,8 @@ public:
       return UO;
     if (auto *AAUO = getAAUO(Obj)) {
       Value *UO = nullptr;
+      if (!AAUO->getState().isValidState())
+        return nullptr;
       if (AAUO->forallUnderlyingObjects([&](Value &V) {
             if (UO && UO != &V)
               return false;
@@ -127,6 +142,8 @@ public:
     }
     if (auto *AAUO = getAAUO(Obj)) {
       uint64_t Size = ~0U;
+      if (!AAUO->getState().isValidState())
+        return Size;
       if (AAUO->forallUnderlyingObjects([&](Value &V) {
             uint64_t VSize = SanitizedObjects.lookup(&V);
             if (!isKnownObject(&V))
@@ -160,7 +177,43 @@ public:
     return NonEscapingObjects.contains(Obj);
   }
 
-  void insertRegisterCall(Value *Obj, CallInst *CI) {
+  void insertRegisterCall(Value *Obj, CallInst *CI,
+                          InstrumentorIRBuilderTy &IIRB) {
+#if 0
+    if (!isNonEscapingObj(Obj)) {
+      if (auto *AI = dyn_cast<AllocaInst>(Obj)) {
+        AI->setAllocatedType(ArrayType::get(AI->getAllocatedType(), 2));
+
+      } else if (auto *GV = dyn_cast<GlobalVariable>(Obj)) {
+        GV->mutateType(ArrayType::get(GV->getValueType(), 2));
+      } else if (auto *CB = dyn_cast<CallBase>(Obj)) {
+        auto &TLI =
+            IIRB.analysisGetter<TargetLibraryAnalysis>(*CB->getFunction());
+        auto ACI = getAllocationCallInfo(CB, &TLI);
+        assert(ACI && (ACI->SizeLHSArgNo >= 0 || ACI->SizeRHSArgNo >= 0));
+        if (ACI->SizeLHSArgNo >= 0) {
+          auto *Mul = IIRB.IRB.CreateMul(
+              CB->getArgOperand(ACI->SizeLHSArgNo),
+              ConstantInt::get(CB->getArgOperand(ACI->SizeLHSArgNo)->getType(),
+                               2));
+          if (auto *MulI = dyn_cast<Instruction>(Mul))
+            MulI->moveBefore(CB->getIterator());
+          CB->setArgOperand(ACI->SizeLHSArgNo, Mul);
+        } else if (ACI->SizeRHSArgNo >= 0) {
+          auto *Mul = IIRB.IRB.CreateMul(
+              CB->getArgOperand(ACI->SizeRHSArgNo),
+              ConstantInt::get(CB->getArgOperand(ACI->SizeRHSArgNo)->getType(),
+                               2));
+          if (auto *MulI = dyn_cast<Instruction>(Mul))
+            MulI->moveBefore(CB->getIterator());
+          CB->setArgOperand(ACI->SizeRHSArgNo, Mul);
+        }
+      } else {
+        Obj->dump();
+        llvm_unreachable("TODO");
+      }
+    }
+#endif
     RegisterCallsMap[Obj] = CI;
   }
   Value *getPreRegister(Value *Obj) const {
@@ -378,7 +431,7 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
       if (isa<ConstantPointerNull>(Ptr) || isa<UndefValue>(Ptr)) {
         KnownMPtr = Ptr;
       } else {
-        stripRegisterCall(Ptr, KnownMPtr, KnownObjSize);
+        stripRegisterCall(Ptr, KnownMPtr, KnownObjSize, IIRB.DL, IIRB.M);
       }
 
       if (KnownMPtr) {
@@ -400,8 +453,11 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
       }
     }
 
-    for (auto [I, OpNo] : ReplStack)
-      I->setOperand(OpNo, V2M.lookup({I->getOperand(OpNo), Fn}));
+    for (auto [I, OpNo] : ReplStack) {
+      auto *NewOp = V2M.lookup({I->getOperand(OpNo), Fn});
+      if (NewOp)
+        I->setOperand(OpNo, NewOp);
+    }
 
     // We insert the new instructions late and hoist them.
     for (auto [I, IP] : reverse(Stack))
@@ -412,7 +468,28 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     return V2M.lookup({&VPtr, Fn});
   }
 
-  void stripRegisterCall(Value *Ptr, Value *&MPtr, Value *&ObjSize) {
+  GlobalVariable *getGlobalForShadowLoad(Value *V, Module &M) {
+    if (auto *LI = dyn_cast<LoadInst>(V))
+      if (auto *GV = dyn_cast<GlobalVariable>(LI->getPointerOperand()))
+        if (GV->getName().starts_with(LightSanGlobalShadowPrefix))
+          if (auto *MPtr = M.getGlobalVariable(
+                  GV->getName().drop_front(strlen(LightSanGlobalShadowPrefix)),
+                  /*AllowInternal=*/true))
+            return MPtr;
+    return nullptr;
+  };
+
+  void stripRegisterCall(Value *Ptr, Value *&MPtr, Value *&ObjSize,
+                         const DataLayout &DL, Module &M) {
+    if (auto *GV = getGlobalForShadowLoad(Ptr, M)) {
+      uint64_t Size = 0;
+      MPtr = GV;
+      if (getObjectSize(GV, Size, DL, /*TLI=*/nullptr)) {
+        ObjSize =
+            ConstantInt::get(IntegerType::getInt64Ty(Ptr->getContext()), Size);
+        return;
+      }
+    }
     if (auto *PtrCI = dyn_cast<CallInst>(Ptr)) {
       auto *Callee = PtrCI->getCalledFunction();
       if (Callee && (Callee->getName() == getRTName("post_", "call"))) {
@@ -480,6 +557,8 @@ bool LightSanImpl::shouldInstrumentStore(StoreInst &SI,
 }
 
 bool LightSanImpl::shouldImplementAdapter(Function &Fn) {
+  if (isSpecialFunction(&Fn))
+    return false;
   return !Fn.isVarArg() && !Fn.isIntrinsic() && !Fn.hasLocalLinkage();
 }
 
@@ -1074,8 +1153,8 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
         if (AccOffset + AccSize + Acc.getAccessSize() > ObjSize)
           return AnyAccessIsProblematic = true;
       }
-      if (!Cache.getUnderlyingObject(AA::getPointerOperand(
-              Acc.getRemoteInst(), /*AllowVolatile*/ true)))
+      if (ObjPtr != Cache.getUnderlyingObject(AA::getPointerOperand(
+                        Acc.getRemoteInst(), /*AllowVolatile*/ true)))
         return AnyAccessIsProblematic = true;
 
       Cache.insertSafeAccess(Acc.getRemoteInst(), ObjPtr);
@@ -1237,7 +1316,7 @@ bool LightSanImpl::instrument() {
   IConf.AIC = &Cache;
   IConf.InlineRuntimeEagerly->setBool(false);
 
-  Changed |= collectAttributorInfo(A, M, Cache);
+  //  Changed |= collectAttributorInfo(A, M, Cache);
 
   InstrumentorPass IP(&IConf, &IIRB);
   auto PA = IP.run(M, MAM);
@@ -1247,6 +1326,7 @@ bool LightSanImpl::instrument() {
   // Run this again as the calles might have changed.
   IConf.initializeFunctionCallees(M);
 
+#if 1
   auto &Ctx = M.getContext();
   auto *Int8Ty = IntegerType::getInt8Ty(Ctx);
 
@@ -1505,6 +1585,7 @@ bool LightSanImpl::instrument() {
                               AccessSize,
                               FirstCI->getArgOperand(5),
                               FirstCI->getArgOperand(6),
+                              FirstCI->getArgOperand(8),
                           });
     }
   }
@@ -1584,17 +1665,22 @@ bool LightSanImpl::instrument() {
 #if 1
   foreachRTCaller(IConf.getRTName("post_", "base_pointer_info"),
                   [&](CallInst &CI) {
-                    if (CI.use_empty())
-                      CI.eraseFromParent();
+                    if (!CI.use_empty())
+                      return;
+                    Value *VPtr = CI.getArgOperand(0);
+                    if (!IConf.AIC->isKnownObject(VPtr))
+                      return;
+                    if (IConf.AIC->getObjectSize(VPtr) == ~0UL ||
+                        IConf.AIC->getEncodingNo(VPtr) == ~0UL)
+                      return;
+                    CI.eraseFromParent();
                   });
 #endif
 
 #if 1
   foreachRTCaller(IConf.getRTName("pre_", "call"), [&](CallInst &CI) {
-    if (auto *Fn = dyn_cast_if_present<Function>(CI.getArgOperand(0))) {
-      if (Fn->getName().contains("execvp"))
-        return;
-    }
+    if (isSpecialFunction(dyn_cast<Function>(CI.getArgOperand(0))))
+      return;
     auto NumParameters = cast<ConstantInt>(CI.getArgOperand(2))->getSExtValue();
     auto *ParameterDesc = CI.getArgOperand(3);
     SmallVector<Value *> Parameters;
@@ -1689,20 +1775,9 @@ bool LightSanImpl::instrument() {
   });
 #endif
 
-  auto GetGlobalForShadowLoad = [&](Value *V) -> GlobalVariable * {
-    if (auto *LI = dyn_cast<LoadInst>(V))
-      if (auto *GV = dyn_cast<GlobalVariable>(LI->getPointerOperand()))
-        if (GV->getName().starts_with(LightSanGlobalShadowPrefix))
-          if (auto *MPtr = M.getGlobalVariable(
-                  GV->getName().drop_front(strlen(LightSanGlobalShadowPrefix)),
-                  /*AllowInternal=*/true))
-            return MPtr;
-    return nullptr;
-  };
-
 #if 1
   foreachRTCaller(IConf.getRTName("", "get_mptr"), [&](CallInst &CI) {
-    if (auto *MPtr = GetGlobalForShadowLoad(CI.getArgOperand(0))) {
+    if (auto *MPtr = IConf.getGlobalForShadowLoad(CI.getArgOperand(0), M)) {
       CI.replaceAllUsesWith(MPtr);
       CI.eraseFromParent();
     }
@@ -1712,7 +1787,7 @@ bool LightSanImpl::instrument() {
 #if 1
   foreachRTCaller(
       IConf.getRTName("post_", "base_pointer_info"), [&](CallInst &CI) {
-        if (auto *MPtr = GetGlobalForShadowLoad(CI.getArgOperand(0))) {
+        if (auto *MPtr = IConf.getGlobalForShadowLoad(CI.getArgOperand(0), M)) {
           if (IConf.AIC->getObjectSize(MPtr) != ~0UL &&
               IConf.AIC->getEncodingNo(MPtr) != ~0UL) {
             CI.replaceAllUsesWith(MPtr);
@@ -1831,6 +1906,7 @@ bool LightSanImpl::instrument() {
   };
   CheckForBasePtrInLoop();
 #endif
+#endif
 
   // Create strong function aliases for exported functions.
   Changed |= createAliasAdapters();
@@ -1852,12 +1928,13 @@ void LightSanInstrumentationConfig::initializeFunctionCallees(Module &M) {
   Type *VoidTy = Type::getVoidTy(Ctx);
   Type *PtrTy = PointerType::get(Ctx, 0);
   Type *Int8Ty = IntegerType::getInt8Ty(Ctx);
+  Type *Int32Ty = IntegerType::getInt32Ty(Ctx);
   Type *Int64Ty = IntegerType::getInt64Ty(Ctx);
 
   LRAFC = M.getOrInsertFunction(
       getRTName("pre_", "ranged_access"),
-      FunctionType::get(VoidTy, {PtrTy, PtrTy, Int64Ty, Int64Ty, Int8Ty},
-                        false));
+      FunctionType::get(
+          VoidTy, {PtrTy, PtrTy, Int64Ty, Int64Ty, Int8Ty, Int32Ty}, false));
 
   LVRFC = M.getOrInsertFunction(
       getRTName("post_", "loop_value_range"),
@@ -1914,7 +1991,7 @@ struct ExtendedAllocaIO : public AllocaIO {
         IIRB.IRB.CreateStore(CI, AI);
         LSIConf.EscapedAllocas.push_back(AI);
       }
-      LSIConf.AIC->insertRegisterCall(V, CI);
+      LSIConf.AIC->insertRegisterCall(V, CI, IIRB);
       return CI;
     }
     return nullptr;
@@ -1963,7 +2040,7 @@ struct ExtendedGlobalIO : public GlobalIO {
     if (auto *CI = cast_if_present<CallInst>(
             GlobalIO::instrument(V, IConf, IIRB, ICaches))) {
       auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-      LSIConf.AIC->insertRegisterCall(V, CI);
+      LSIConf.AIC->insertRegisterCall(V, CI, IIRB);
       return CI;
     }
     return nullptr;
@@ -2022,6 +2099,18 @@ struct AllocatorCallIO : public CallIO {
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     bool MayEscape = !LSIConf.AIC->isNonEscapingObj(&V);
     return ConstantInt::get(&Ty, MayEscape);
+  }
+
+  Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
+    if (auto *CI = cast_if_present<CallInst>(
+            CallIO::instrument(V, IConf, IIRB, ICaches))) {
+      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+      LSIConf.AIC->insertRegisterCall(V, CI, IIRB);
+      return CI;
+    }
+    return nullptr;
   }
 
   static void populate(InstrumentationConfig &IConf,
@@ -2098,7 +2187,7 @@ struct ExtendedBasePointerIO : public BasePointerIO {
     auto *CI = cast<CallInst>(NewV);
     auto *VPtr = CI->getArgOperand(0);
     Value *MPtr = nullptr, *ObjSize = nullptr;
-    LSIConf.stripRegisterCall(VPtr, MPtr, ObjSize);
+    LSIConf.stripRegisterCall(VPtr, MPtr, ObjSize, IIRB.DL, IIRB.M);
 
     Function *Fn = CI->getFunction();
     Value *BaseMPtr = MPtr;
@@ -2213,8 +2302,12 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
       return nullptr;
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto &LRI = IIRB.LoopRangeInfoMap[V];
-    LRI.Min = LSIConf.getMPtr(*LRI.Min, IIRB);
-    LRI.Max = LSIConf.getMPtr(*LRI.Max, IIRB);
+    auto *MPtrMin = LSIConf.getMPtr(*LRI.Min, IIRB);
+    auto *MPtrMax = LSIConf.getMPtr(*LRI.Max, IIRB);
+    assert(LRI.Min != MPtrMin);
+    assert(LRI.Max != MPtrMax);
+    LRI.Min = MPtrMin;
+    LRI.Max = MPtrMax;
 
     // Since we adjust the IP based on the result of computeLoopRangeValues
     // manually, we need to ensure it is dominated by all operands.
@@ -2271,6 +2364,7 @@ struct ExtendedLoadIO : public LoadIO {
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "was_checked",
                              "Flag to indicate the access range was checked.",
                              IRTArg::NONE, getWasChecked));
+    addCommonArgs(IConf, IIRB.Ctx, true);
   }
 
   static Value *getMPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
@@ -2336,6 +2430,7 @@ struct ExtendedStoreIO : public StoreIO {
     IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "was_checked",
                              "Flag to indicate the access range was checked.",
                              IRTArg::NONE, getWasChecked));
+    addCommonArgs(IConf, IIRB.Ctx, true);
   }
 
   static Value *getMPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
@@ -2369,7 +2464,22 @@ struct ExtendedStoreIO : public StoreIO {
     auto *ESIO = IConf.allocate<ExtendedStoreIO>(/*IsPRE*/ true);
     //    ESIO->HoistKind = HOIST_IN_BLOCK;
     ESIO->CB = [&](Value &V) {
-      if (auto *Obj = LSIConf.AIC->getSafeAccessObj(cast<Instruction>(&V)))
+      NumStores++;
+      auto &SI = cast<StoreInst>(V);
+      auto *StoredV = SI.getValueOperand();
+      if (StoredV->getType()->isPointerTy()) {
+        NumPtrStores++;
+        auto *Ptr = SI.getPointerOperand();
+        auto *UOPtr = LSIConf.AIC->getUnderlyingObject(Ptr);
+        if (!UOPtr)
+          UOPtr = getUnderlyingObjectRecursive(Ptr);
+        if (!LSIConf.AIC->isNonEscapingObj(UOPtr))
+          if (auto *StoredVMPtr = LSIConf.getMPtr(*StoredV, IIRB)) {
+            SI.setOperand(0, StoredVMPtr);
+            NumEscapingPtrStores++;
+          }
+      }
+      if (auto *Obj = LSIConf.AIC->getSafeAccessObj(&SI))
         return !LSIConf.AIC->isObjectSafe(Obj);
       return true;
     };
@@ -2423,6 +2533,8 @@ struct ExtendedFunctionIO : public FunctionIO {
   Value *instrument(Value *&V, InstrumentationConfig &IConf,
                     InstrumentorIRBuilderTy &IIRB,
                     InstrumentationCaches &ICaches) override {
+    if (isa<UnreachableInst>(V))
+      return nullptr;
 
     // auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     // Function *Fn = cast<Function>(V);
@@ -2440,7 +2552,10 @@ struct ExtendedFunctionIO : public FunctionIO {
     //     }
     //   }
     // }
-    return FunctionIO::instrument(V, IConf, IIRB, ICaches);
+    auto *CI = FunctionIO::instrument(V, IConf, IIRB, ICaches);
+    ICaches.DirectArgCache.clear();
+    ICaches.IndirectArgCache.clear();
+    return CI;
   }
 
   static void populate(InstrumentationConfig &IConf,
@@ -2480,8 +2595,28 @@ struct ExtendedICmpIO : public ICmpIO {
     auto *EAIO = IConf.allocate<ExtendedICmpIO>();
     EAIO->CB = [&](Value &V) {
       auto &ICmpI = cast<ICmpInst>(V);
-      return ICmpI.getOperand(0)->getType()->isPointerTy();
+      return ICmpI.getOperand(0)->getType()->isPointerTy() &&
+             !isa<ConstantPointerNull>(ICmpI.getOperand(0)) &&
+             !isa<ConstantPointerNull>(ICmpI.getOperand(1));
     };
+    EAIO->init(IConf, IIRB);
+  }
+};
+
+struct ExtendedVAArgIO : public VAArgIO {
+  ExtendedVAArgIO() : VAArgIO(/*IsPRE*/ true) {}
+  virtual ~ExtendedVAArgIO() {};
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    VAArgIO::ConfigTy PreICmpConfig(/*Enable=*/false);
+    PreICmpConfig.set(VAArgIO::PassPointer);
+    PreICmpConfig.set(VAArgIO::ReplacePointer);
+    VAArgIO::init(IConf, IIRB.Ctx, &PreICmpConfig);
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto *EAIO = IConf.allocate<ExtendedVAArgIO>();
     EAIO->init(IConf, IIRB);
   }
 };
@@ -2497,8 +2632,21 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedFunctionIO::populate(*this, IIRB);
   ExtendedGlobalIO::populate(*this, IIRB);
   ExtendedICmpIO::populate(*this, IIRB);
+  ExtendedVAArgIO::populate(*this, IIRB);
   AllocatorCallIO::populate(*this, IIRB);
   // ModuleIO::populate(*this, IIRB.Ctx);
+
+  PtrToIntIO::ConfigTy PostP2IIOConfig(/*Enable=*/false);
+  PostP2IIOConfig.set(PtrToIntIO::PassPointer);
+  PostP2IIOConfig.set(PtrToIntIO::PassResult);
+  PostP2IIOConfig.set(PtrToIntIO::ReplaceResult);
+  auto *PostP2IIO =
+      InstrumentationConfig::allocate<PtrToIntIO>(/*IsPRE=*/false);
+  PostP2IIO->CB = [&](Value &V) {
+    // TODO: If we just go back to int2ptr, we should not decode this.
+    return true;
+  };
+  PostP2IIO->init(*this, IIRB.Ctx, &PostP2IIOConfig);
 
   CallIO::ConfigTy PreCICConfig(/*Enable=*/false);
   PreCICConfig.set(CallIO::PassCallee);

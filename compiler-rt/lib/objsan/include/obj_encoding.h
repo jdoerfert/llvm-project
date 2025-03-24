@@ -43,9 +43,9 @@ struct EncodingCommonTy {
     char *MAccEndPtr = MPtr + AccessSize;
     if (MPtr < MBasePtr || MAccEndPtr > MEndPtr) [[unlikely]] {
       if (FailOnError) {
-        FPRINTF("memory out-of-bound %p + %llu vs %p + %llu! (Base %p, %p, "
+        FPRINTF("memory out-of-bound %p + %llu vs %p + %llu! [%i:%i] (Base %p, %p, "
                 "check)\n",
-                MPtr, AccessSize, MBasePtr, ObjSize, (void *)MBasePtr, MPtr);
+                MPtr, AccessSize, MBasePtr, ObjSize, MPtr < MBasePtr, MAccEndPtr > MEndPtr, (void *)MBasePtr, MPtr);
         // TODO: Configure this to report if requested
         __builtin_trap();
       }
