@@ -21,7 +21,8 @@ cudaError_t cudaMalloc(void **devPtr, size_t size) {
   using FuncTy = cudaError_t(void **, size_t);
   static FuncTy *FPtr = nullptr;
   if (!FPtr)
-    FPtr = objsan::getOriginalFunction<FuncTy>("cudaMalloc");
+    FPtr =
+        reinterpret_cast<FuncTy *>(objsan::getOriginalFunction("cudaMalloc"));
   assert(FPtr && "null cudaMalloc pointer");
   cudaError_t Err = FPtr(devPtr, size);
   if (Err != cudaSuccess)
@@ -47,7 +48,7 @@ cudaError_t cudaFree(void *devPtr) {
   using FuncTy = cudaError_t(void *);
   static FuncTy *FPtr = nullptr;
   if (!FPtr)
-    FPtr = objsan::getOriginalFunction<FuncTy>("cudaFree");
+    FPtr = reinterpret_cast<FuncTy *>(objsan::getOriginalFunction("cudaFree"));
   assert(FPtr && "null cudaFree pointer");
   return FPtr(devPtr);
 }
