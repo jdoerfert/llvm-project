@@ -83,7 +83,6 @@ static constexpr char AdapterPrefix[] = "__adapter_";
 namespace {
 
 static bool isSpecialFunction(Function *Fn) {
-  return false;
   if (Fn)
     if (Fn->getName().contains("execvp") || Fn->getName().contains("getopt"))
       return true;
