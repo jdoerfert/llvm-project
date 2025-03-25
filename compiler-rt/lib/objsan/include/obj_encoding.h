@@ -236,11 +236,6 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
     EncTy ED(VPtr);
     return VPtr - ED.Bits.Offset;
   }
-
-  static BucketSchemeTy &get() {
-    static BucketSchemeTy Scheme;
-    return Scheme;
-  }
 };
 
 template <uint64_t EncodingNo, uint64_t ObjectBits>
@@ -351,11 +346,6 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     EncTy E(VPtr);
     return VPtr - E.Bits.Offset;
   }
-
-  static LedgerSchemeTy &get() {
-    static LedgerSchemeTy Scheme;
-    return Scheme;
-  }
 };
 
 template <uint64_t EncodingNo, uint64_t ObjectBits, uint64_t FixedSize>
@@ -460,11 +450,6 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     EncTy E(VPtr);
     return VPtr - E.Bits.Offset;
   }
-
-  static FixedLedgerSchemeTy &get() {
-    static FixedLedgerSchemeTy Scheme;
-    return Scheme;
-  }
 };
 
 using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
@@ -472,6 +457,8 @@ using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
                                       /*RealPtrBits=*/32>;
 using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/24>;
 
+extern SmallObjectsTy SmallObjects;
+extern LargeObjectsTy LargeObjects;
 } // namespace __objsan
 //
 #endif // OBJSAN_OBJ_ENCODING_H
