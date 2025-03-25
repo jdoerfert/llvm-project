@@ -126,8 +126,20 @@ static inline void makeRealArgV(char *Ptr) {
 
 OBJSAN_BIG_API_ATTRS
 void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
-                       int32_t num_parameters, char *parameters) {
+                       int32_t num_parameters, char *parameters,
+                       int64_t AccessLength1, char *Obj1VPtr, char *Obj1MPtr,
+                       char *Obj1BaseMPtr, int64_t Obj1Size, int8_t Obj1EncNo,
+                       int64_t AccessLength2, char *Obj2VPtr, char *Obj2MPtr,
+                       char *Obj2BaseMPtr, int64_t Obj2Size, int8_t Obj2EncNo,
+                       int32_t ID) {
   PRINTF("%s start: %i\n", __PRETTY_FUNCTION__, num_parameters);
+  if (Obj1EncNo)
+    EncodingCommonTy::check(Obj1MPtr, Obj1BaseMPtr, AccessLength1, Obj1Size,
+                            /*FailOnError=*/true, ID, ID);
+  if (Obj2EncNo)
+    EncodingCommonTy::check(Obj2MPtr, Obj2BaseMPtr, AccessLength2, Obj2Size,
+                            /*FailOnError=*/true, ID, ID);
+
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
     if (VP->TypeId == 14) {
@@ -439,8 +451,8 @@ int8_t __objsan_check_ptr_load(char *VPtr, int64_t Offset) {
     uint8_t EncNo;                                                             \
     uint64_t ObjSize;                                                          \
     auto *BaseMPtr = [&]() -> char * {                                         \
-      ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, nullptr, VPtr, &ObjSize,    \
-                         &EncNo);                                              \
+      ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, nullptr, VPtr,        \
+                         &ObjSize, &EncNo);                                    \
     }();                                                                       \
     char *MPtr = /* TODO */ nullptr;                                           \
     if (void *AccMPtr = __objsan_pre_load(VPtr, BaseMPtr, nullptr, SIZE, MPtr, \
