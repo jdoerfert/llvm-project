@@ -366,8 +366,8 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
           Worklist.push_back({GEP->getOperand(0), IP});
           ReplStack.push_back({GEP, 0});
           MPtr = GEP;
+          continue;
         }
-        continue;
       }
       auto *PtrI = dyn_cast<Instruction>(Ptr);
       if (PtrI) {
