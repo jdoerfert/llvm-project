@@ -7,7 +7,7 @@
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
 #ifndef __DARWIN_ALIAS
-#define __DARWIN_ALIAS()
+#define __DARWIN_ALIAS(sym)
 #endif
 
 #ifdef DEBUG
@@ -168,7 +168,7 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
 OBJSAN_BIG_API_ATTRS
 char *__objsan_post_call(char *MPtr, uint64_t ObjSize,
                          int8_t RequiresTemporalCheck) {
-  PRINTF("%s start: p: %p os: %llu rtc: %i\n", __PRETTY_FUNCTION__, MPtr,
+  PRINTF("%s start: p: %p os: %" PRIu64 " rtc: %i\n", __PRETTY_FUNCTION__, MPtr,
          ObjSize, RequiresTemporalCheck);
   if (!MPtr)
     return nullptr;
@@ -249,8 +249,8 @@ __objsan_post_base_pointer_info(char *__restrict VPtr, uint64_t *SizePtr,
   char *MPtr = [&]() {
     ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, VPtr, VPtr, SizePtr);
   }();
-  PRINTF("%s P: %p/%p Enc: %i OS: %llu\n", __PRETTY_FUNCTION__, VPtr, MPtr,
-         EncodingNo, *SizePtr);
+  PRINTF("%s P: %p/%p Enc: %i OS: %" PRIu64 "\n", __PRETTY_FUNCTION__, VPtr,
+         MPtr, EncodingNo, *SizePtr);
   return MPtr;
 }
 
@@ -282,13 +282,13 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
                                      int8_t IsDefinitivelyExecuted) {
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
   int64_t LoopSize = EndMPtr - BeginMPtr;
-  PRINTF("range %p-%p (%p : %p) %llu %llu %i\n", BeginMPtr, EndMPtr, BaseMPtr,
-         BaseVPtr, LoopSize, ObjSize, EncodingNo);
+  PRINTF("range %p-%p (%p : %p) %" PRId64 " %" PRIu64 " %i\n", BeginMPtr,
+         EndMPtr, BaseMPtr, BaseVPtr, LoopSize, ObjSize, EncodingNo);
   if (EncodingNo && !EncodingCommonTy::check(
                         BeginMPtr, BaseMPtr, LoopSize + MaxOffset, ObjSize,
                         /*FailOnError=*/IsDefinitivelyExecuted)) [[unlikely]] {
-    PRINTF("r bad %p-%p %p %llu %llu %i\n", BeginMPtr, EndMPtr, BaseMPtr,
-           LoopSize, ObjSize, EncodingNo);
+    PRINTF("r bad %p-%p %p %" PRId64 " %" PRIu64 " %i\n", BeginMPtr, EndMPtr,
+           BaseMPtr, LoopSize, ObjSize, EncodingNo);
     return nullptr;
   }
   return /* not null */ (char *)(0x1);
@@ -297,7 +297,7 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
 OBJSAN_SMALL_API_ATTRS
 void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr, int64_t AccessSize,
                                 uint64_t ObjSize, int8_t EncodingNo, int ID) {
-  PRINTF("%s start P: %p B: %p AS: %llu OS: %llu Enc: %i [%i]\n",
+  PRINTF("%s start P: %p B: %p AS: %" PRId64 " OS: %" PRIu64 " Enc: %i [%i]\n",
          __PRETTY_FUNCTION__, MPtr, BaseMPtr, AccessSize, ObjSize, EncodingNo,
          ID);
   if (EncodingNo)
@@ -309,14 +309,15 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
                         int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
-  PRINTF("%s start P: %p/%p B: %p L: %p AS: %llu OS: %llu Enc: %i C: %i\n",
+  PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64 " Enc: %i C: %i\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
          EncodingNo, WasChecked);
   if (EncodingNo && !WasChecked && !LVRI &&
       !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
                                /*FailOnError=*/false)) [[unlikely]] {
-    FPRINTF("l bad (%p) %p %p %p %llu %llu %i %i [%i]\n", VPtr, MPtr, BaseMPtr,
-            LVRI, AccessSize, ObjSize, EncodingNo, WasChecked, ID);
+    FPRINTF("l bad (%p) %p %p %p %" PRIu64 " %" PRIu64 " %i %i [%i]\n", VPtr,
+            MPtr, BaseMPtr, LVRI, AccessSize, ObjSize, EncodingNo, WasChecked,
+            ID);
     return nullptr;
   }
   return MPtr;
@@ -326,14 +327,15 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
                          int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
-  PRINTF("%s start P: %p/%p B: %p L: %p AS: %llu OS: %llu Enc: %i C: %i\n",
+  PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64 " Enc: %i C: %i\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
          EncodingNo, WasChecked);
   if (EncodingNo && !WasChecked && !LVRI &&
       !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
                                /*FailOnError=*/false)) [[unlikely]] {
-    FPRINTF("s bad (%p) %p %p %p %llu %llu %i %i [%i]\n", VPtr, MPtr, BaseMPtr,
-            LVRI, AccessSize, ObjSize, EncodingNo, WasChecked, ID);
+    FPRINTF("s bad (%p) %p %p %p %" PRIu64 " %" PRIu64 " %i %i [%i]\n", VPtr,
+            MPtr, BaseMPtr, LVRI, AccessSize, ObjSize, EncodingNo, WasChecked,
+            ID);
     return nullptr;
   }
   return MPtr;

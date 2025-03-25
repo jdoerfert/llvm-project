@@ -16,6 +16,7 @@
 // Freestanding headers
 #include <stddef.h>
 #include <stdint.h>
+#include <inttypes.h>
 
 // Device compilation special handling headers
 #ifndef __OBJSAN_DEVICE__

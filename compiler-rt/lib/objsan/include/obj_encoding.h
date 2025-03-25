@@ -43,9 +43,10 @@ struct EncodingCommonTy {
     char *MAccEndPtr = MPtr + AccessSize;
     if (MPtr < MBasePtr || MAccEndPtr > MEndPtr) [[unlikely]] {
       if (FailOnError) {
-        FPRINTF("memory out-of-bound %p + %llu vs %p + %llu! [%i:%i] (Base %p, %p, "
-                "check)\n",
-                MPtr, AccessSize, MBasePtr, ObjSize, MPtr < MBasePtr, MAccEndPtr > MEndPtr, (void *)MBasePtr, MPtr);
+        FPRINTF("memory out-of-bound %p + %" PRIu64 " vs %p + %" PRIu64 "! "
+                "[%i:%i] (Base %p, %p, check)\n",
+                MPtr, AccessSize, MBasePtr, ObjSize, MPtr < MBasePtr,
+                MAccEndPtr > MEndPtr, (void *)MBasePtr, MPtr);
         // TODO: Configure this to report if requested
         __builtin_trap();
       }
@@ -60,14 +61,14 @@ struct EncodingCommonTy {
                               int64_t Offset, uint64_t ObjSize,
                               bool FailOnError) {
 #if 0
-    printf("Check %p size %llu -- access %llu @ %lli\n", MPtr, ObjSize,
-           AccessSize, Offset);
+    printf("Check %p size %" PRIu64 " -- access %" PRId64 " @ %lli\n", MPtr,
+           ObjSize, AccessSize, Offset);
 #endif
     if (Magic != MAGIC || Offset < 0 || Offset + AccessSize > ObjSize)
         [[unlikely]] {
       if (FailOnError) {
-        FPRINTF("memory out-of-bound %llu + %llu vs %llu! (Base %p, %llu "
-                "check&adjust)\n",
+        FPRINTF("memory out-of-bound %" PRId64 " + %" PRIu64 " vs %" PRIu64 "! "
+                "(Base %p, %" PRIu64 " check&adjust)\n",
                 Offset, AccessSize, ObjSize, (void *)MPtr, Magic);
         // TODO: Configure this to report if requested
         __builtin_trap();
