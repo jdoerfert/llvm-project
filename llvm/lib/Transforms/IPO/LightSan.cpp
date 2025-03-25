@@ -368,6 +368,8 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
           MPtr = GEP;
           continue;
         }
+        MPtr = CE;
+        continue;
       }
       auto *PtrI = dyn_cast<Instruction>(Ptr);
       if (PtrI) {
@@ -2173,6 +2175,7 @@ struct ExtendedBasePointerIO : public BasePointerIO {
         PointerType::getUnqual(Ctx), "encoding_no_ptr",
         "Return the encoding number of the object in question as uint8_t.",
         IRTArg::NONE, getEncodingNoPtr));
+    addCommonArgs(IConf, Ctx, true);
   }
 
   static Value *getObjectSizePtr(Value &V, Type &Ty,

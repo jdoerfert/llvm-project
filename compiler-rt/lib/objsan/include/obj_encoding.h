@@ -213,9 +213,14 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
     return E.Bits.ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr,
+                           uint8_t *__restrict EncNoPtr) {
     EncTy E(VPtr);
     DecTy D(E.Bits.RealPtr, Buckets[E.Bits.BuckedIdx]);
+    if (E.Bits.Magic != Base::MAGIC) {
+      return nullptr;
+    }
+    *EncNoPtr = EncodingNo;
     //    __builtin_prefetch(D.MPtr, 0, 3);
     *SizePtr = E.Bits.ObjSize;
     return D.MPtr;
@@ -314,13 +319,18 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     return ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr,
+                           uint8_t *__restrict EncNoPtr) {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
+    if (E.Bits.Magic != Base::MAGIC) {
+      return nullptr;
+    }
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
     //    __builtin_prefetch(&Obj + 8, 0, 3);
     //    __builtin_prefetch(&Obj + 16, 0, 3);
     //    __builtin_prefetch(Obj.Base, 0, 3);
+    *EncNoPtr = EncodingNo;
     *SizePtr = Obj.ObjSize;
     return Obj.Base;
   }
@@ -416,10 +426,15 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     return ObjSize;
   }
 
-  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr) {
+  char *getBasePointerInfo(char *VPtr, uint64_t *__restrict SizePtr,
+                           uint8_t *__restrict EncNoPtr) {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
+    if (E.Bits.Magic != Base::MAGIC) {
+      return nullptr;
+    }
     ObjDescTy &Obj = Objects[E.Bits.ObjectIdx];
+    *EncNoPtr = EncodingNo;
     *SizePtr = ObjSize;
     return Obj.Base;
   }

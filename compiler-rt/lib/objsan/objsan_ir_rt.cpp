@@ -239,14 +239,15 @@ uint8_t __objsan_get_encoding(char *__restrict VPtr) {
 
 OBJSAN_SMALL_API_ATTRS char *
 __objsan_post_base_pointer_info(char *__restrict VPtr, uint64_t *SizePtr,
-                                uint8_t *EncNoPtr) {
+                                uint8_t *EncNoPtr, int32_t ID) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
-  *EncNoPtr = EncodingNo;
   *SizePtr = 0;
+  *EncNoPtr = 0;
   if (!EncodingNo)
     return nullptr;
-  char *MPtr = [&]() {
-    ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, VPtr, VPtr, SizePtr);
+  char *MPtr = [&]() -> char * {
+    ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, nullptr, VPtr, SizePtr,
+                       EncNoPtr);
   }();
   PRINTF("%s P: %p/%p Enc: %i OS: %" PRIu64 "\n", __PRETTY_FUNCTION__, VPtr,
          MPtr, EncodingNo, *SizePtr);
@@ -256,10 +257,8 @@ __objsan_post_base_pointer_info(char *__restrict VPtr, uint64_t *SizePtr,
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_get_mptr(char *__restrict VPtr, char *__restrict BaseMPtr,
                         uint8_t EncodingNo) {
-  [[maybe_unused]] uint8_t EncodingNo2 = EncodingCommonTy::getEncodingNo(VPtr);
-  PRINTF("%s %p %p %i %i start\n", __PRETTY_FUNCTION__, VPtr, BaseMPtr,
-         EncodingNo, EncodingNo2);
-  assert(EncodingNo == EncodingNo2);
+  PRINTF("%s %p %p %i start\n", __PRETTY_FUNCTION__, VPtr, BaseMPtr,
+         EncodingNo);
   if (!EncodingNo) [[unlikely]]
     return VPtr;
   int64_t NumOffsetBits;
@@ -416,9 +415,11 @@ int8_t __objsan_check_ptr_load(char *VPtr, int64_t Offset) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
   if (!EncodingNo)
     return 0;
+  uint8_t EncNo;
   uint64_t ObjSize;
   auto *BaseMPtr = [&]() -> char * {
-    ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, &ObjSize);
+    ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, nullptr, VPtr, &ObjSize,
+                       &EncNo);
   }();
   char *MPtr = /* TODO */ nullptr;
   if (__objsan_pre_load(VPtr, BaseMPtr, nullptr, sizeof(void *), MPtr, ObjSize,
@@ -434,9 +435,11 @@ int8_t __objsan_check_ptr_load(char *VPtr, int64_t Offset) {
     uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);                \
     if (!EncodingNo)                                                           \
       return 0;                                                                \
+    uint8_t EncNo;                                                             \
     uint64_t ObjSize;                                                          \
     auto *BaseMPtr = [&]() -> char * {                                         \
-      ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, 0, VPtr, &ObjSize);   \
+      ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, nullptr, VPtr, &ObjSize,    \
+                         &EncNo);                                              \
     }();                                                                       \
     char *MPtr = /* TODO */ nullptr;                                           \
     if (void *AccMPtr = __objsan_pre_load(VPtr, BaseMPtr, nullptr, SIZE, MPtr, \
