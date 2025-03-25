@@ -50,13 +50,13 @@ struct __attribute__((packed)) AllocationInfoTy {
 
 #define ENCODING_NO_SWITCH(Function, EncodingNo, Default, ...)                 \
   if (EncodingNo == 2) [[likely]]                                              \
-    return LargeObjects.Function(__VA_ARGS__);                                 \
+    return LargeObjectsTy::get().Function(__VA_ARGS__);                        \
   if (EncodingNo == 1) [[likely]]                                              \
-    return SmallObjects.Function(__VA_ARGS__);                                 \
+    return SmallObjectsTy::get().Function(__VA_ARGS__);                        \
   return Default;
 
 //  case 3:
-//    return FixedObjects.Function(__VA_ARGS__);
+//    return FixedObjectsTy::get().Function(__VA_ARGS__);
 
 __attribute__((always_inline)) static std::pair<int64_t, int64_t>
 getOffsetAndMagic(char *VPtr, uint64_t OffsetBits) {
@@ -80,11 +80,11 @@ OBJSAN_BIG_API_ATTRS
 char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
                                bool RequiresTemporalCheck) {
   if (ObjSize < SmallObjectsTy::getMaxSize() && !RequiresTemporalCheck)
-    if (auto *VPtr = SmallObjects.encode(MPtr, ObjSize)) [[likely]]
+    if (auto *VPtr = SmallObjectsTy::get().encode(MPtr, ObjSize)) [[likely]]
       return VPtr;
   //  if (ObjSize == FixedObjectsTy::ObjSize)
-  //    return FixedObjects.encode(MPtr, ObjSize);
-  return LargeObjects.encode(MPtr, ObjSize);
+  //    return FixedObjectsTy::get().encode(MPtr, ObjSize);
+  return LargeObjectsTy::get().encode(MPtr, ObjSize);
 }
 
 OBJSAN_BIG_API_ATTRS
@@ -115,6 +115,7 @@ static inline void makeRealArgV(char *Ptr) {
     ++I;
   char **FakeEnv = (char **)malloc((I + 1) * sizeof(char *));
   I = 0;
+  LargeObjectsTy &LargeObjects = LargeObjectsTy::get();
   while (PtrAddr[I]) {
     FakeEnv[I] = LargeObjects.decode(PtrAddr[I]);
     ++I;
