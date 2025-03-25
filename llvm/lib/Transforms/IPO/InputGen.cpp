@@ -917,7 +917,7 @@ bool InputGenMemoryImpl::rewriteKnownDeclaration(Function &F) {
 bool InputGenMemoryImpl::handleDeclaration(Function &F) {
   if (shouldPreserveDeclaration(F))
     return false;
-  if (rewriteKnownDeclaration(F))
+  if (Mode == IGIMode::Generate && rewriteKnownDeclaration(F))
     return true;
   stubDeclaration(F);
   return true;
