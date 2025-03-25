@@ -2186,7 +2186,7 @@ struct ExtendedStoreIO : public StoreIO {
       NumStores++;
       auto &SI = cast<StoreInst>(V);
       auto *StoredV = SI.getValueOperand();
-      if (StoredV->getType()->isPointerTy()) {
+      if (!ClosedWorld && StoredV->getType()->isPointerTy()) {
         NumPtrStores++;
         auto *Ptr = SI.getPointerOperand();
         auto *UOPtr = LSIConf.AIC->getUnderlyingObject(Ptr);
@@ -2869,6 +2869,8 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   auto *PostP2IIO =
       InstrumentationConfig::allocate<PtrToIntIO>(/*IsPRE=*/false);
   PostP2IIO->CB = [&](Value &V) {
+    if (ClosedWorld)
+      return false;
     SmallVector<Instruction *> Worklist;
     auto &P2I = cast<PtrToIntInst>(V);
     append_range(Worklist, map_range(P2I.users(), [](User *Usr) {
