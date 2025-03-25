@@ -178,6 +178,8 @@ struct InstrumentorIRBuilderTy {
   std::pair<BasicBlock::iterator, bool>
   computeLoopRangeValues(Value &V, uint32_t AdditionalSize);
 
+  SmallVector<Instruction *> GeneratedInsts;
+
   Value *getInitialLoopValue(Value &V) { return LoopRangeInfoMap[&V].Min; }
   Value *getFinalLoopValue(Value &V) { return LoopRangeInfoMap[&V].Max; }
   Value *getMaxOffset(Value &V, Type &Ty) {

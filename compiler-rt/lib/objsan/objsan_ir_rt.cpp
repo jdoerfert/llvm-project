@@ -1,7 +1,6 @@
 #include "include/common.h"
 
 #include "include/obj_encoding.h"
-#include <cstdio>
 
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
@@ -245,7 +244,7 @@ __objsan_post_base_pointer_info(char *__restrict VPtr, uint64_t *SizePtr,
   *EncNoPtr = EncodingNo;
   *SizePtr = 0;
   if (!EncodingNo)
-    return VPtr;
+    return nullptr;
   char *MPtr = [&]() {
     ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, VPtr, VPtr, SizePtr);
   }();
@@ -279,16 +278,17 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
                                      int64_t MaxOffset, char *BaseVPtr,
                                      char *BaseMPtr, uint64_t ObjSize,
                                      int8_t EncodingNo,
-                                     int8_t IsDefinitivelyExecuted) {
+                                     int8_t IsDefinitivelyExecuted,
+                                     int32_t MinID, int32_t MaxID) {
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
   int64_t LoopSize = EndMPtr - BeginMPtr;
-  PRINTF("range %p-%p (%p : %p) %" PRId64 " %" PRIu64 " %i\n", BeginMPtr,
-         EndMPtr, BaseMPtr, BaseVPtr, LoopSize, ObjSize, EncodingNo);
   if (EncodingNo && !EncodingCommonTy::check(
                         BeginMPtr, BaseMPtr, LoopSize + MaxOffset, ObjSize,
-                        /*FailOnError=*/IsDefinitivelyExecuted)) [[unlikely]] {
-    PRINTF("r bad %p-%p %p %" PRId64 " %" PRIu64 " %i\n", BeginMPtr, EndMPtr,
-           BaseMPtr, LoopSize, ObjSize, EncodingNo);
+                        /*FailOnError=*/IsDefinitivelyExecuted, MinID, MaxID))
+      [[unlikely]] {
+    PRINTF("r bad %p-%p %p %" PRId64 " +%" PRIu64 " %" PRIu64 " %i [%i:%i]\n",
+           BeginMPtr, EndMPtr, BaseMPtr, LoopSize, MaxOffset, ObjSize,
+           EncodingNo, MinID, MaxID);
     return nullptr;
   }
   return /* not null */ (char *)(0x1);
@@ -302,19 +302,20 @@ void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr, int64_t AccessSize,
          ID);
   if (EncodingNo)
     EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
-                            /*FailOnError=*/true);
+                            /*FailOnError=*/true, ID);
 }
 
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
                         int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
-  PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64 " Enc: %i C: %i\n",
+  PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64
+         " Enc: %i C: %i\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
          EncodingNo, WasChecked);
   if (EncodingNo && !WasChecked && !LVRI &&
       !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
-                               /*FailOnError=*/false)) [[unlikely]] {
+                               /*FailOnError=*/false, ID)) [[unlikely]] {
     FPRINTF("l bad (%p) %p %p %p %" PRIu64 " %" PRIu64 " %i %i [%i]\n", VPtr,
             MPtr, BaseMPtr, LVRI, AccessSize, ObjSize, EncodingNo, WasChecked,
             ID);
@@ -327,12 +328,13 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
                          int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
-  PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64 " Enc: %i C: %i\n",
+  PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64
+         " Enc: %i C: %i\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
          EncodingNo, WasChecked);
   if (EncodingNo && !WasChecked && !LVRI &&
       !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
-                               /*FailOnError=*/false)) [[unlikely]] {
+                               /*FailOnError=*/false, ID)) [[unlikely]] {
     FPRINTF("s bad (%p) %p %p %p %" PRIu64 " %" PRIu64 " %i %i [%i]\n", VPtr,
             MPtr, BaseMPtr, LVRI, AccessSize, ObjSize, EncodingNo, WasChecked,
             ID);
@@ -360,7 +362,15 @@ void *__objsan_pre_va_arg(char *__restrict VPtr) {
 
 OBJSAN_SMALL_API_ATTRS
 uint8_t __objsan_post_icmp(uint8_t Result, uint32_t Predicate, char *LHS,
-                           char *RHS) {
+                           char *RHS, char *LHSBaseMPtr, char *RHSBaseMPtr,
+                           int32_t ID) {
+  if (LHSBaseMPtr != RHSBaseMPtr && LHSBaseMPtr && RHSBaseMPtr) {
+    // TODO: this triggers on vectorized inserted alias checks
+    //    FPRINTF("Pointer comparison of different objects (%p <> %p) [%p <> %p]
+    //    [%i]!",
+    //            LHS, RHS, LHSBaseMPtr, RHSBaseMPtr, ID);
+    //    __builtin_trap();
+  }
   auto *MPtrLHS = __objsan_decode(LHS);
   auto *MPtrRHS = __objsan_decode(RHS);
   switch (Predicate) {

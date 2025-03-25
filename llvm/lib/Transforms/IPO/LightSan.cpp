@@ -35,6 +35,7 @@
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -335,12 +336,14 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
   }
 
   Value *getMPtr(Value &VPtr, InstrumentorIRBuilderTy &IIRB) {
-    if (isa<ConstantPointerNull>(VPtr) || isa<UndefValue>(VPtr))
-      return &VPtr;
-
     auto *Fn = IIRB.IRB.GetInsertBlock()->getParent();
     if (auto *MPtr = V2M.lookup({&VPtr, Fn}))
       return MPtr;
+
+    if (isa<ConstantPointerNull>(VPtr) || isa<UndefValue>(VPtr)) {
+      return (V2M[{&VPtr, Fn}] =
+                  ConstantPointerNull::get(cast<PointerType>(VPtr.getType())));
+    }
 
     SmallVector<std::pair<Instruction *, unsigned>> ReplStack;
     SmallVector<std::pair<Value *, BasicBlock::iterator>> Worklist;
@@ -454,8 +457,12 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
     for (auto [I, OpNo] : ReplStack) {
       auto *NewOp = V2M.lookup({I->getOperand(OpNo), Fn});
-      if (NewOp)
-        I->setOperand(OpNo, NewOp);
+      if (!NewOp) {
+        I->dump();
+        I->getOperand(OpNo)->dump();
+      }
+      assert(NewOp);
+      I->setOperand(OpNo, NewOp);
     }
 
     // We insert the new instructions late and hoist them.
@@ -464,7 +471,11 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     for (auto [I, IP] : reverse(Stack))
       IIRB.hoistInstructionsAndAdjustIP(*I, BestIP, DT);
 
-    return V2M.lookup({&VPtr, Fn});
+    auto *MPtr = V2M.lookup({&VPtr, Fn});
+    if (!MPtr)
+      VPtr.dump();
+    assert(MPtr);
+    return MPtr;
   }
 
   GlobalVariable *getGlobalForShadowLoad(Value *V, Module &M) {
@@ -1412,8 +1423,15 @@ bool LightSanImpl::instrument() {
         } while (1);
         if (BestBB == BB)
           continue;
+        auto IP = BestBB->getTerminator()->getIterator();
+        for (auto *Op : LVRICI->operand_values()) {
+          if (auto *OpI = dyn_cast<Instruction>(Op))
+            IP = IIRB.hoistInstructionsAndAdjustIP(*OpI, IP, DT);
+        }
+        if (IP->getParent() == BB)
+          continue;
         auto *CloneLVRICI = cast<CallInst>(LVRICI->clone());
-        CloneLVRICI->insertBefore(BestBB->getTerminator()->getIterator());
+        CloneLVRICI->insertBefore(IP);
         LVRICI->replaceUsesWithIf(
             CloneLVRICI, [&](Use &U) { return DT.dominates(BestBB, U); });
         if (LVRICI->use_empty())
@@ -1522,7 +1540,8 @@ bool LightSanImpl::instrument() {
         // TODO: BaseVPtr is missing.
         IRB.CreateCall(IConf.LVRFC,
                        {MinPtr, MaxPtr, MaxCI->getArgOperand(3), BasePtr,
-                        BasePtr, ObjSize, EncNo, IRB.getInt8(1)});
+                        BasePtr, ObjSize, EncNo, IRB.getInt8(1),
+                        MinCI->getArgOperand(8), MaxCI->getArgOperand(8)});
         LLVM_DEBUG(errs() << "Use range access in BB for " << Calls.size()
                           << " checks\n");
       }
@@ -1937,9 +1956,10 @@ void LightSanInstrumentationConfig::initializeFunctionCallees(Module &M) {
 
   LVRFC = M.getOrInsertFunction(
       getRTName("post_", "loop_value_range"),
-      FunctionType::get(
-          PtrTy, {PtrTy, PtrTy, Int64Ty, PtrTy, PtrTy, Int64Ty, Int8Ty, Int8Ty},
-          false));
+      FunctionType::get(PtrTy,
+                        {PtrTy, PtrTy, Int64Ty, PtrTy, PtrTy, Int64Ty, Int8Ty,
+                         Int8Ty, Int32Ty, Int32Ty},
+                        false));
 
   GetMPtrFC = M.getOrInsertFunction(
       getRTName("", "get_mptr"),
@@ -2264,6 +2284,11 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
         IRTArg(IIRB.Int8Ty, "is_definitively_executed",
                "Flag to indicate the range is definitively executed.",
                IRTArg::NONE, getIsDefinitivelyExecuted));
+    IRTArgs.push_back(IRTArg(IIRB.Int32Ty, "min_id",
+                             "ID of the minimal access in this range check (or "
+                             "0 if not a merged access).",
+                             IRTArg::NONE, getMinID));
+    addCommonArgs(IConf, IIRB.Ctx, true);
   }
 
   static Value *getBaseVPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
@@ -2288,6 +2313,11 @@ struct ExtendedLoopValueRangeIO : public LoopValueRangeIO {
   static Value *getIsDefinitivelyExecuted(Value &V, Type &Ty,
                                           InstrumentationConfig &IConf,
                                           InstrumentorIRBuilderTy &IIRB) {
+    return ConstantInt::get(&Ty, 0);
+  }
+
+  static Value *getMinID(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                         InstrumentorIRBuilderTy &IIRB) {
     return ConstantInt::get(&Ty, 0);
   }
 
@@ -2587,6 +2617,30 @@ struct ExtendedICmpIO : public ICmpIO {
     PreICmpConfig.set(ICmpIO::PassLHS);
     PreICmpConfig.set(ICmpIO::PassRHS);
     ICmpIO::init(IConf, IIRB.Ctx, &PreICmpConfig);
+
+    IRTArgs.push_back(IRTArg(
+        IIRB.PtrTy, "lhs_base_mptr",
+        "The real base pointer for the left hand side of the comparison.",
+        IRTArg::NONE, getLHSBaseMPtr));
+    IRTArgs.push_back(IRTArg(
+        IIRB.PtrTy, "rhs_base_mptr",
+        "The real base pointer for the right hand side of the comparison.",
+        IRTArg::NONE, getRHSBaseMPtr));
+    addCommonArgs(IConf, IIRB.Ctx, true);
+  }
+
+  static Value *getLHSBaseMPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                               InstrumentorIRBuilderTy &IIRB) {
+    auto &ICmp = cast<ICmpInst>(V);
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    return LSIConf.getBaseMPtr(*ICmp.getOperand(0), IIRB);
+  }
+
+  static Value *getRHSBaseMPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                               InstrumentorIRBuilderTy &IIRB) {
+    auto &ICmp = cast<ICmpInst>(V);
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    return LSIConf.getBaseMPtr(*ICmp.getOperand(1), IIRB);
   }
 
   static void populate(InstrumentationConfig &IConf,
@@ -2642,8 +2696,34 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   auto *PostP2IIO =
       InstrumentationConfig::allocate<PtrToIntIO>(/*IsPRE=*/false);
   PostP2IIO->CB = [&](Value &V) {
-    // TODO: If we just go back to int2ptr, we should not decode this.
-    return true;
+    SmallVector<Instruction *> Worklist;
+    auto &P2I = cast<PtrToIntInst>(V);
+    append_range(Worklist, map_range(P2I.users(), [](User *Usr) {
+                   return cast<Instruction>(Usr);
+                 }));
+    while (!Worklist.empty()) {
+      Instruction *I = Worklist.pop_back_val();
+      if (isa<IntToPtrInst>(I))
+        continue;
+      if (auto *ICmp = dyn_cast<ICmpInst>(I)) {
+        if (ICmp->isEquality() &&
+            (isa<ConstantPointerNull>(ICmp->getOperand(0)) ||
+             isa<ConstantPointerNull>(ICmp->getOperand(1))))
+          continue;
+        return true;
+      }
+      if (auto *BO = dyn_cast<BinaryOperator>(I)) {
+        if (isa<ConstantInt>(BO->getOperand(0)) ||
+            isa<ConstantInt>(BO->getOperand(1))) {
+          append_range(Worklist, map_range(I->users(), [](User *Usr) {
+                         return cast<Instruction>(Usr);
+                       }));
+          continue;
+        }
+      }
+      return true;
+    }
+    return false;
   };
   PostP2IIO->init(*this, IIRB.Ctx, &PostP2IIOConfig);
 

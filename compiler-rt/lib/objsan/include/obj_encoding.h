@@ -38,15 +38,18 @@ struct EncodingCommonTy {
   }
 
   static bool check(char *MPtr, char *MBasePtr, uint64_t AccessSize,
-                    uint64_t ObjSize, bool FailOnError) {
+                    uint64_t ObjSize, bool FailOnError, int32_t ID0,
+                    int32_t ID1 = 0) {
     char *MEndPtr = MBasePtr + ObjSize;
     char *MAccEndPtr = MPtr + AccessSize;
     if (MPtr < MBasePtr || MAccEndPtr > MEndPtr) [[unlikely]] {
       if (FailOnError) {
-        FPRINTF("memory out-of-bound %p + %" PRIu64 " vs %p + %" PRIu64 "! "
-                "[%i:%i] (Base %p, %p, check)\n",
-                MPtr, AccessSize, MBasePtr, ObjSize, MPtr < MBasePtr,
-                MAccEndPtr > MEndPtr, (void *)MBasePtr, MPtr);
+        FPRINTF("memory out-of-bound %p + %" PRIu64 " vs %p + %" PRIu64
+                "! [%i:%i] (Base %p, %p, "
+                "check [%i:%i])\n",
+                MPtr, AccessSize, MBasePtr, ObjSize,
+                MPtr<MBasePtr, MAccEndPtr> MEndPtr, (void *)MBasePtr, MPtr, ID0,
+                ID1);
         // TODO: Configure this to report if requested
         __builtin_trap();
       }
@@ -276,7 +279,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     uint64_t ObjectIdx = __scoped_atomic_fetch_add(
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
-      //FPRINTF("out of objects (large)!\n");
+      // FPRINTF("out of objects (large)!\n");
       return MPtr;
     }
     EncTy M(MPtr);
@@ -381,7 +384,7 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     uint64_t ObjectIdx = __scoped_atomic_fetch_add(
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
-      //FPRINTF("out of objects!\n");
+      // FPRINTF("out of objects!\n");
       __builtin_trap();
     }
     Objects[ObjectIdx] = {MPtr};
@@ -438,12 +441,9 @@ using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
                                       /*OffsetBits=*/12, /*BucketBits=*/3,
                                       /*RealPtrBits=*/32>;
 using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/24>;
-using FixedObjectsTy =
-    FixedLedgerSchemeTy</*EncodingNo=*/3, /*ObjectBits=*/20, 16>;
 
 extern SmallObjectsTy SmallObjects;
 extern LargeObjectsTy LargeObjects;
-extern FixedObjectsTy FixedObjects;
 } // namespace __objsan
 //
 #endif // OBJSAN_OBJ_ENCODING_H

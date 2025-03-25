@@ -499,36 +499,43 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
 
   InstrumentationCaches ICaches;
 
+  auto InstrumentInst = [&](Instruction &I) {
+    // Skip instrumentation instructions.
+    if (IIRB.NewInsts.contains(&I))
+      return;
+
+    // Count epochs eagerly.
+    ++IIRB.Epoche;
+
+    Value *IPtr = &I;
+    if (auto *IO = InstChoicesPRE.lookup(I.getOpcode())) {
+      IIRB.IRB.SetInsertPoint(&I);
+      ensureDbgLoc(IIRB.IRB);
+      Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
+    }
+
+    if (auto *IO = InstChoicesPOST.lookup(I.getOpcode())) {
+      IIRB.IRB.SetInsertPoint(I.getNextNonDebugInstruction());
+      ensureDbgLoc(IIRB.IRB);
+      Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
+    }
+    IIRB.returnAllocas();
+  };
+
   SmallVector<Instruction *> FinalTIs;
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
   for (auto &It : RPOT) {
-    for (auto &I : *It) {
-      // Skip instrumentation instructions.
-      if (IIRB.NewInsts.contains(&I))
-        continue;
-
-      // Count epochs eagerly.
-      ++IIRB.Epoche;
-
-      Value *IPtr = &I;
-      if (auto *IO = InstChoicesPRE.lookup(I.getOpcode())) {
-        IIRB.IRB.SetInsertPoint(&I);
-        ensureDbgLoc(IIRB.IRB);
-        Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
-      }
-
-      if (auto *IO = InstChoicesPOST.lookup(I.getOpcode())) {
-        IIRB.IRB.SetInsertPoint(I.getNextNonDebugInstruction());
-        ensureDbgLoc(IIRB.IRB);
-        Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
-      }
-      IIRB.returnAllocas();
-    }
+    for (auto &I : *It) 
+      InstrumentInst(I);
 
     auto *TI = It->getTerminator();
     if (!TI->getNumSuccessors())
       FinalTIs.push_back(TI);
   }
+
+  for (auto *GenI : IIRB.GeneratedInsts)
+    InstrumentInst(*GenI);
+  IIRB.GeneratedInsts.clear();
 
   Value *FPtr = &Fn;
   for (auto &ChoiceIt : IConf.IChoices[InstrumentationLocation::FUNCTION_PRE]) {
@@ -823,7 +830,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
     return {BasicBlock::iterator(), false};
   }
   // TODO: This is a hack since SCEV somehow remembers values that we replaced.
-  SE.forgetValue(&V);
+  SE.forgetAllLoops();
   auto *VSCEV = SE.getSCEVAtScope(&V, BBLoop);
   if (isa<SCEVCouldNotCompute>(VSCEV)) {
     LLVM_DEBUG(errs() << " - loop evaluation not computable for " << V << "\n");
@@ -901,11 +908,12 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
 
   Value *FirstVal = Expander.expandCodeFor(FirstSCEV, Ty);
   Value *LastVal = Expander.expandCodeFor(LastSCEV, Ty);
+  auto *TmpVal = FirstVal;
+  FirstVal = IRB.CreateIntrinsic(Intrinsic::umin, {Ty}, {TmpVal, LastVal});
+  LastVal = IRB.CreateIntrinsic(Intrinsic::umax, {Ty}, {TmpVal, LastVal});
+
   if (PointerSCEV != VSCEV) {
     auto *Ptr = Expander.expandCodeFor(PointerSCEV, PointerSCEV->getType());
-    auto *TmpVal = FirstVal;
-    FirstVal = IRB.CreateIntrinsic(Intrinsic::umin, {Ty}, {TmpVal, LastVal});
-    LastVal = IRB.CreateIntrinsic(Intrinsic::umax, {Ty}, {TmpVal, LastVal});
     FirstVal = IRB.CreatePtrAdd(Ptr, FirstVal);
     LastVal = IRB.CreatePtrAdd(Ptr, LastVal);
   }
@@ -916,6 +924,8 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
     IP = hoistInstructionsAndAdjustIP(*FirstValI, IP, DT);
   if (auto *LastValI = dyn_cast<Instruction>(LastVal))
     IP = hoistInstructionsAndAdjustIP(*LastValI, IP, DT);
+
+  append_range(GeneratedInsts, Expander.getAllInsertedInstructions());
 
   LRI = {FirstVal, LastVal, AdditionalSize};
   return {IP, true};
