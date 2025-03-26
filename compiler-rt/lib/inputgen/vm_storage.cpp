@@ -16,14 +16,35 @@
 
 using namespace __ig;
 
+// INPUTGEN
+using FileMagicTy = uint64_t;
+static constexpr FileMagicTy FileMagic = 0x4e45475455504e49;
+
+static void FATAL() {
+  ERR("Malformed input!\n");
+  exit(1);
+}
+
 template <typename T> static char *ccast(T *Ptr) {
   return reinterpret_cast<char *>(Ptr);
 }
 
 template <typename T> static T readV(std::ifstream &Input) {
+  if (Input.eof())
+    FATAL();
   T El;
   Input.read(ccast(&El), sizeof(El));
+  if (Input.gcount() != sizeof(El))
+    FATAL();
   return El;
+}
+
+static void READMEM(std::ifstream &Input, char *Mem, size_t Size) {
+  if (Input.eof())
+    FATAL();
+  Input.read(Mem, Size);
+  if ((size_t)Input.gcount() != Size)
+    FATAL();
 }
 
 template <typename T> static T writeV(std::ofstream &Output, T El) {
@@ -69,7 +90,7 @@ Global::Global(std::ifstream &IFS, GlobalManager &GM) {
   uint32_t NameSize;
   READV(NameSize);
   Name.resize(NameSize);
-  IFS.read(Name.data(), NameSize);
+  READMEM(IFS, Name.data(), NameSize);
   auto Found = std::lower_bound(GM.Globals.begin(), GM.Globals.end(), Name,
                                 GlobalComp{});
   if (Found == GM.Globals.end() || Found->Name != Name) {
@@ -100,7 +121,7 @@ Range::Range(std::ifstream &IFS, char *Memory) {
   if (Length) {
     if (AnyRecorded) {
       assert(Memory);
-      IFS.read(Begin, Length);
+      READMEM(IFS, Begin, Length);
     }
   } else {
     Begin = End = nullptr;
@@ -119,7 +140,7 @@ Range::Range(std::ifstream &IFS) {
     DEBUG("malloc -- {}\n", (void *)Begin);
     End = Begin + Length;
     if (AnyRecorded) {
-      IFS.read(Begin, Length);
+      READMEM(IFS, Begin, Length);
       INPUTGEN_DEBUG({
         if (getenv("PRINT_RUNTIME_OBJECTS"))
           dumpMemoryHex(Begin, Length);
@@ -219,6 +240,8 @@ void StorageManager::encode(ObjectManager &OM, uint32_t ObjIdx,
 void StorageManager::write(std::ofstream &OFS) {
   DEFINE_WRITEV(OFS);
 
+  WRITEV(FileMagic);
+
   uint32_t NRanges = Ranges.size();
   WRITEV(NRanges);
   for (auto &Range : Ranges)
@@ -237,6 +260,11 @@ void StorageManager::write(std::ofstream &OFS) {
 
 void StorageManager::read(std::ifstream &IFS, GlobalManager &GM) {
   DEFINE_READV(IFS);
+
+  FileMagicTy Magic;
+  READV(Magic);
+  if (Magic != FileMagic)
+    FATAL();
 
   uint32_t NRanges;
   READV(NRanges);
