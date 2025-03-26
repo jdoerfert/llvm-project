@@ -24,10 +24,10 @@ etc_args = []
 
 inputgen_generate_lib_path = os.path.join(
             config.compiler_rt_libdir,
-            "libinputgen.generate-x86_64.a")
+            "libinputgen.generate.a")
 inputgen_replay_lib_path = os.path.join(
             config.compiler_rt_libdir,
-            "libinputgen.replay-x86_64.a")
+            "libinputgen.replay.a")
 
 gen_args = '-g -mllvm --input-gen-allow-external-funcs=printf -mllvm --input-gen-mode=generate -flto -O2'.split(' ') + etc_args
 replay_gen_args = '-g -mllvm --input-gen-allow-external-funcs=printf -mllvm --input-gen-mode=replay_generated -flto -O2'.split(' ') + etc_args

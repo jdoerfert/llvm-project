@@ -1,10 +1,10 @@
 // RUN: %clangxx_inputgen_full_gen
 // RUN: %clangxx_inputgen_full_replay_gen
 
-// RUN:  for i in $(seq 0 10); do %inputgen_gen $i > %inputgen_gen.$i.0.0.inp.gen.out; done
-// RUN:  for i in $(seq 0 10); do %inputgen_repl_gen %inputgen_gen.$i.0.0.inp $i > %inputgen_gen.$i.0.0.inp.repl.out; done
-// RUN:  for i in $(seq 0 10); do diff %inputgen_gen.$i.0.0.inp.gen.out %inputgen_gen.$i.0.0.inp.repl.out; done
-// RUN: (for i in $(seq 0 10); do cat %inputgen_gen.*.0.0.inp.repl.out; done) | FileCheck %s
+// RUN:  for i in $(seq 0 10); do %inputgen_gen $i > %inputgen_gen.$i.inp.gen.out; done
+// RUN:  for i in $(seq 0 10); do %inputgen_repl_gen %inputgen_gen.$i.0.0.42.inp $i > %inputgen_gen.$i.inp.repl.out; done
+// RUN:  for i in $(seq 0 10); do diff %inputgen_gen.$i.inp.gen.out %inputgen_gen.$i.inp.repl.out; done
+// RUN: (for i in $(seq 0 10); do cat %inputgen_gen.*.inp.repl.out; done) | FileCheck %s
 
 extern "C" int printf(const char *__restrict __format, ...);
 
