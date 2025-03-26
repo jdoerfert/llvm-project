@@ -94,6 +94,15 @@ char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
+OBJSAN_BIG_API_ATTRS
+void __objsan_pre_module(char *module_name, char *name, int32_t id) {
+  getOrConstructLargeObjects();
+  getOrConstructSmallObjects();
+}
+
+OBJSAN_SMALL_API_ATTRS
+void __objsan_post_module(char *module_name, char *name, int32_t id) {}
+
 // OBJSAN_BIG_API_ATTRS
 __attribute__((optnone, noinline)) char *
 __objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t IsDefinition,

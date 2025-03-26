@@ -2690,7 +2690,7 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedICmpIO::populate(*this, IIRB);
   ExtendedVAArgIO::populate(*this, IIRB);
   AllocatorCallIO::populate(*this, IIRB);
-  // ModuleIO::populate(*this, IIRB.Ctx);
+  ModuleIO::populate(*this, IIRB.Ctx);
 
   PtrToIntIO::ConfigTy PostP2IIOConfig(/*Enable=*/false);
   PostP2IIOConfig.set(PtrToIntIO::PassPointer);

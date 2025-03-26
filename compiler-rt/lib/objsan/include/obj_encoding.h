@@ -457,19 +457,17 @@ using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
                                       /*RealPtrBits=*/32>;
 using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/24>;
 
-extern SmallObjectsTy *SmallObjects;
-extern LargeObjectsTy *LargeObjects;
+extern SmallObjectsTy &SmallObjects;
+extern LargeObjectsTy &LargeObjects;
 
+SmallObjectsTy &getOrConstructSmallObjects();
 static inline SmallObjectsTy &getSmallObjects() {
-  if (!SmallObjects) [[unlikely]]
-    SmallObjects = new SmallObjectsTy();
-  return *SmallObjects;
+  return SmallObjects;
 }
 
+LargeObjectsTy &getOrConstructLargeObjects();
 static inline LargeObjectsTy &getLargeObjects() {
-  if (!LargeObjects) [[unlikely]]
-    LargeObjects = new LargeObjectsTy();
-  return *LargeObjects;
+  return LargeObjects;
 }
 
 } // namespace __objsan

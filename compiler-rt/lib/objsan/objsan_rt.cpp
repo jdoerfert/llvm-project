@@ -1,30 +1,51 @@
 #include "include/obj_encoding.h"
 
+#include <new>
+
 namespace __objsan {
 
-template <typename T> class ObjectDeallocator {
-  T *&ObjectPtr;
-
-public:
-  ObjectDeallocator(T *&Ptr) : ObjectPtr(Ptr) {}
-  ~ObjectDeallocator() {
-    if (ObjectPtr == nullptr)
-      delete ObjectPtr;
+template <class T> struct LazyConstruction {
+  static bool Init;
+  LazyConstruction() {}
+  ~LazyConstruction() {
+    if (Init)
+      V.~T();
   }
+  template <typename... ArgsTy> void construct(ArgsTy &&...Args) {
+    if (!Init) {
+      new (&V) T(std::forward<ArgsTy>(Args)...);
+      Init = true;
+    }
+  }
+  union {
+    T V;
+  };
 };
 
-__attribute__((visibility("default"))) SmallObjectsTy *SmallObjects = nullptr;
-__attribute__((visibility("default"))) LargeObjectsTy *LargeObjects = nullptr;
+static LazyConstruction<SmallObjectsTy> LazySmallObjects;
+static LazyConstruction<LargeObjectsTy> LazyLargeObjects;
+template <> bool LazyConstruction<SmallObjectsTy>::Init = false;
+template <> bool LazyConstruction<LargeObjectsTy>::Init = false;
 
-// These will ensure the objects are deallocated when the program ends.
-ObjectDeallocator<SmallObjectsTy> SODeallocator(SmallObjects);
-ObjectDeallocator<LargeObjectsTy> LODeallocator(LargeObjects);
+__attribute__((visibility("default"))) SmallObjectsTy &SmallObjects =
+    LazySmallObjects.V;
+__attribute__((visibility("default"))) LargeObjectsTy &LargeObjects =
+    LazyLargeObjects.V;
+
+SmallObjectsTy &getOrConstructSmallObjects() {
+  LazySmallObjects.construct();
+  return SmallObjects;
+}
+LargeObjectsTy &getOrConstructLargeObjects() {
+  LazyLargeObjects.construct();
+  return LargeObjects;
+}
 
 __attribute((constructor)) void initialize() {
   // Ensure the globals are constructed before the program begins. If it is
   // multithreaded, we do not want multiple threads to initialize the objects.
-  getSmallObjects();
-  getLargeObjects();
+  getOrConstructSmallObjects();
+  getOrConstructLargeObjects();
 }
 
 } // namespace __objsan
