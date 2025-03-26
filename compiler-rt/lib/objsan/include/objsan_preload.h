@@ -14,12 +14,13 @@
 #define OBJSAN_OBJSAN_PRELOAD_H
 
 #include <cstddef>
-
-#include <dlfcn.h>
+#include <vector>
 
 namespace objsan {
 
 namespace impl {
+
+void initializeSupportedFunctionList(std::vector<const char *> &List);
 
 bool launchRegisterKernel(void **MPtr, void *VPtr, size_t Size);
 

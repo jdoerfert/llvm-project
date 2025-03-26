@@ -15,6 +15,8 @@
 #include <mutex>
 #include <unordered_map>
 
+#include <dlfcn.h>
+
 void *objsan::registerDeviceMemory(void *VPtr, size_t Size) {
   void *MPtr = nullptr;
   return impl::launchRegisterKernel(&MPtr, VPtr, Size) ? MPtr : VPtr;
@@ -27,25 +29,26 @@ void *objsan::unregisterDeviceMemory(void *MPtr) {
 
 namespace {
 
-class FunctionMapTableTy {
-  std::unordered_map<const char *, void *> Table;
-  std::mutex TableLock;
+std::once_flag FunctionMapOnceFlag;
 
-public:
-  void *get(const char *SymName) {
-    std::lock_guard<std::mutex> LG(TableLock);
-    auto Itr = Table.find(SymName);
-    if (Itr != Table.end())
-      return Itr->second;
-    void *P = dlsym(RTLD_NEXT, SymName);
+std::unordered_map<const char *, void *> FunctionMap;
+
+void init() {
+  std::vector<const char *> List;
+  objsan::impl::initializeSupportedFunctionList(List);
+  for (const char *Name : List) {
+    void *P = dlsym(RTLD_NEXT, Name);
     if (!P)
-      return nullptr;
-    Table[SymName] = P;
-    return P;
+      FunctionMap[Name] = P;
   }
-} FunctionMapTable;
+}
+
 } // namespace
 
 void *objsan::getOriginalFunction(const char *Name) {
-  return FunctionMapTable.get(Name);
+  std::call_once(FunctionMapOnceFlag, init);
+  auto Itr = FunctionMap.find(Name);
+  if (Itr != FunctionMap.end())
+    return Itr->second;
+  return nullptr;
 }

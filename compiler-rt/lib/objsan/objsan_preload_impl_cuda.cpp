@@ -65,6 +65,10 @@ void freeDeviceMemory(void *Ptr) {
 
 namespace objsan {
 namespace impl {
+void initializeSupportedFunctionList(std::vector<const char *> &List) {
+  List = {"cudaMalloc", "cudaFree"};
+}
+
 bool launchRegisterKernel(void **MPtr, void *VPtr, size_t Size) {
   if (!MPtr)
     return false;
