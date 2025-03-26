@@ -50,9 +50,9 @@ struct __attribute__((packed)) AllocationInfoTy {
 
 #define ENCODING_NO_SWITCH(Function, EncodingNo, Default, ...)                 \
   if (EncodingNo == 2) [[likely]]                                              \
-    return getLargeObjects().Function(__VA_ARGS__);                            \
+    return LargeObjects.Function(__VA_ARGS__);                                 \
   if (EncodingNo == 1) [[likely]]                                              \
-    return getSmallObjects().Function(__VA_ARGS__);                            \
+    return SmallObjects.Function(__VA_ARGS__);                                 \
   return Default;
 
 //  case 3:
@@ -80,11 +80,11 @@ OBJSAN_BIG_API_ATTRS
 char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
                                bool RequiresTemporalCheck) {
   if (ObjSize < SmallObjectsTy::getMaxSize() && !RequiresTemporalCheck)
-    if (auto *VPtr = getSmallObjects().encode(MPtr, ObjSize)) [[likely]]
+    if (auto *VPtr = SmallObjects.encode(MPtr, ObjSize)) [[likely]]
       return VPtr;
   //  if (ObjSize == FixedObjectsTy::ObjSize)
   //    return FixedObjects.encode(MPtr, ObjSize);
-  return getLargeObjects().encode(MPtr, ObjSize);
+  return LargeObjects.encode(MPtr, ObjSize);
 }
 
 OBJSAN_BIG_API_ATTRS
@@ -115,7 +115,6 @@ static inline void makeRealArgV(char *Ptr) {
     ++I;
   char **FakeEnv = (char **)malloc((I + 1) * sizeof(char *));
   I = 0;
-  auto &LargeObjects = getLargeObjects();
   while (PtrAddr[I]) {
     FakeEnv[I] = LargeObjects.decode(PtrAddr[I]);
     ++I;
@@ -140,12 +139,15 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
     EncodingCommonTy::check(Obj2MPtr, Obj2BaseMPtr, AccessLength2, Obj2Size,
                             /*FailOnError=*/true, ID, ID);
 
+#ifndef __OBJSAN_DEVICE__
+  // TODO: this should switch on closed world
   if (IntrinsicId == 238 || IntrinsicId == 241) {
     if (Obj1EncNo && Obj2EncNo) {
       auto *Fn = IntrinsicId == 238 ? &memcpy : &memmove;
       Fn(Obj1MPtr + Obj1Size, Obj2MPtr + Obj2Size, AccessLength1);
     }
   }
+#endif
 
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
@@ -304,6 +306,7 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
                                      int8_t EncodingNo,
                                      int8_t IsDefinitivelyExecuted,
                                      int32_t MinID, int32_t MaxID) {
+#ifdef STATS
   if (!EncodingNo) {
     ++SLoopR.Enc0;
     return BaseMPtr;
@@ -314,6 +317,9 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
     ++SLoopR.Enc2;
   else
     ++SLoopR.EncX;
+#endif
+  if (!EncodingNo) 
+    return BaseMPtr;
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
   int64_t LoopSize = EndMPtr - BeginMPtr;
   if (EncodingNo && !EncodingCommonTy::check(
@@ -331,6 +337,7 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
 OBJSAN_SMALL_API_ATTRS
 void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr, int64_t AccessSize,
                                 uint64_t ObjSize, int8_t EncodingNo, int ID) {
+#ifdef STATS
   if (!EncodingNo) {
     ++SRange.Enc0;
     return;
@@ -341,6 +348,9 @@ void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr, int64_t AccessSize,
     ++SRange.Enc2;
   else
     ++SRange.EncX;
+#endif
+  if (!EncodingNo)
+    return;
   PRINTF("%s start P: %p B: %p AS: %" PRId64 " OS: %" PRIu64 " Enc: %i [%i]\n",
          __PRETTY_FUNCTION__, MPtr, BaseMPtr, AccessSize, ObjSize, EncodingNo,
          ID);
@@ -353,6 +363,7 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
                         int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
+#ifdef STATS
   if (!EncodingNo) {
     ++SLoads.Enc0;
     return MPtr;
@@ -363,6 +374,9 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
     ++SLoads.Enc2;
   else
     ++SLoads.EncX;
+#endif
+  if (!EncodingNo)
+    return MPtr;
   PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64
          " Enc: %i C: %i\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
@@ -382,6 +396,7 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
                          int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
+#ifdef STATS
   if (!EncodingNo) {
     ++SStores.Enc0;
     return MPtr;
@@ -392,6 +407,9 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
     ++SStores.Enc2;
   else
     ++SStores.EncX;
+#endif
+  if (!EncodingNo)
+    return MPtr;
   PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64
          " Enc: %i C: %i [%i]\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
@@ -430,8 +448,8 @@ void *__objsan_post_load(char *BaseMPtr, char *LoadedMPtr, char *MPtr,
   if (ShadowVPtrMptr == LoadedMPtr)
     return ShadowVPtr;
   if (ShadowVPtrMptr) {
-    PRINTF("%p != %p (%ld : %ld)\n", ShadowVPtrMptr, LoadedMPtr,
-           ShadowVPtrMptr - LoadedMPtr, LoadedMPtr - ShadowVPtrMptr);
+    PRINTF("%p != %p (%ld : %ld) [%i]\n", ShadowVPtrMptr, LoadedMPtr,
+           ShadowVPtrMptr - LoadedMPtr, LoadedMPtr - ShadowVPtrMptr, ID);
   }
   return LoadedMPtr;
 }

@@ -255,7 +255,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
   static constexpr uint64_t NumObjects = 1 << ObjectBits;
 
   ObjDescTy Objects[NumObjects];
-  uint64_t NumObjectsUsed = 0;
+  uint64_t NumObjectsUsed;
 
   void reset() { NumObjectsUsed = 0; }
 
@@ -457,21 +457,10 @@ using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
                                       /*RealPtrBits=*/32>;
 using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/24>;
 
-extern SmallObjectsTy *SmallObjects;
-extern LargeObjectsTy *LargeObjects;
+extern SmallObjectsTy SmallObjects;
+extern LargeObjectsTy LargeObjects;
 
-static inline SmallObjectsTy &getSmallObjects() {
-  if (!SmallObjects) [[unlikely]]
-    SmallObjects = new SmallObjectsTy();
-  return *SmallObjects;
-}
-
-static inline LargeObjectsTy &getLargeObjects() {
-  if (!LargeObjects) [[unlikely]]
-    LargeObjects = new LargeObjectsTy();
-  return *LargeObjects;
-}
-
+#ifdef STATS
 #ifndef __OBJSAN_DEVICE__
 struct StatsTy {
   uint64_t EncNull = 0;
@@ -492,6 +481,7 @@ extern StatsTy SLoads;
 extern StatsTy SStores;
 extern StatsTy SRange;
 extern StatsTy SLoopR;
+#endif
 #endif
 
 } // namespace __objsan
