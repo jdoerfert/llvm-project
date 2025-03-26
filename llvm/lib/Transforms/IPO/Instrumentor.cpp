@@ -861,9 +861,16 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   auto *LastSCEV = VSCEV;
   auto *Ty = VSCEV->getType();
   int32_t I = LoopsOrdered.size() - 1;
+
+  auto &DT = analysisGetter<DominatorTreeAnalysis>(*Fn);
+  auto IP = IRB.GetInsertPoint();
+
   for (; I >= 0; --I) {
     auto *L = LoopsOrdered[I];
     if (!L)
+      continue;
+    auto *ExitingBB = L->getExitingBlock();
+    if (!ExitingBB)
       continue;
     if (!SE.hasComputableLoopEvolution(FirstSCEV, L) ||
         !SE.hasComputableLoopEvolution(LastSCEV, L) ||
@@ -874,6 +881,9 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
                         << *LastSCEV << " in " << L->getName() << "\n");
       break;
     }
+    if (IP->getParent() != ExitingBB && !DT.dominates(IP->getParent(), ExitingBB))
+      break;
+
     LoopToScevMapT FirstL2SMap, LastL2SMap;
     FirstL2SMap[L] = SE.getZero(Ty);
     LastL2SMap[L] = SE.getBackedgeTakenCount(L);
@@ -895,7 +905,6 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   }
 
   SCEVExpander Expander(SE, DL, ".vrange");
-  auto IP = IRB.GetInsertPoint();
   assert(isa<LoadInst>(IP) || isa<StoreInst>(IP));
   Expander.setInsertPoint(IP);
 
@@ -918,7 +927,6 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
     LastVal = IRB.CreatePtrAdd(Ptr, LastVal);
   }
 
-  auto &DT = analysisGetter<DominatorTreeAnalysis>(*Fn);
   IP = getBestHoistPoint(IP, HOIST_OUT_OF_LOOPS);
   if (auto *FirstValI = dyn_cast<Instruction>(FirstVal))
     IP = hoistInstructionsAndAdjustIP(*FirstValI, IP, DT);
