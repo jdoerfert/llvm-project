@@ -27,4 +27,10 @@ __attribute((constructor)) void initialize() {
   getLargeObjects();
 }
 
+#ifndef __OBJSAN_DEVICE__
+__attribute__((visibility("default"))) StatsTy SLoads("loads");
+__attribute__((visibility("default"))) StatsTy SStores("stores");
+__attribute__((visibility("default"))) StatsTy SRange("range");
+__attribute__((visibility("default"))) StatsTy SLoopR("loopr");
+#endif
 } // namespace __objsan

@@ -472,6 +472,28 @@ static inline LargeObjectsTy &getLargeObjects() {
   return *LargeObjects;
 }
 
+#ifndef __OBJSAN_DEVICE__
+struct StatsTy {
+  uint64_t EncNull = 0;
+  uint64_t Enc0 = 0;
+  uint64_t Enc1 = 0;
+  uint64_t Enc2 = 0;
+  uint64_t EncX = 0;
+
+  StatsTy(const char *S) : S(S) {}
+  ~StatsTy() {
+    printf("Stats:\n%s [null: %llu] [0: %llu] [1: %llu] [2: %llu] "
+           "[3: %llu]\n",
+           S, EncNull, Enc0, Enc1, Enc2, EncX);
+  }
+  const char *S;
+};
+extern StatsTy SLoads;
+extern StatsTy SStores;
+extern StatsTy SRange;
+extern StatsTy SLoopR;
+#endif
+
 } // namespace __objsan
 //
 #endif // OBJSAN_OBJ_ENCODING_H

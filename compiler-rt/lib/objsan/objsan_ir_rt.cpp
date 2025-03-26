@@ -140,6 +140,13 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
     EncodingCommonTy::check(Obj2MPtr, Obj2BaseMPtr, AccessLength2, Obj2Size,
                             /*FailOnError=*/true, ID, ID);
 
+  if (IntrinsicId == 238 || IntrinsicId == 241) {
+    if (Obj1EncNo && Obj2EncNo) {
+      auto *Fn = IntrinsicId == 238 ? &memcpy : &memmove;
+      Fn(Obj1MPtr + Obj1Size, Obj2MPtr + Obj2Size, AccessLength1);
+    }
+  }
+
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
     if (VP->TypeId == 14) {
@@ -224,16 +231,21 @@ void __objsan_pre_function(int32_t NumArgs, char *__restrict Arguments) {
     return;
   auto ArgVSize = sizeof(char *) * (ArgC + 1);
   char **ArgV = *reinterpret_cast<char ***>(&ArgVVP->Value);
-#if 0
+  char **NewArgV = (char **)malloc(2 * ArgVSize);
+  // TODO: Use a global constant to determine if we assume closed world.
+  // this does not. In a closed world we don't need a new array (malloc)
+#if 1
   for (int32_t I = 0; I < ArgC; ++I) {
     auto StrSize = strlen(ArgV[I]) + 1;
-    ArgV[I] = __objsan_register_object(ArgV[I], StrSize,
-                                       /*RequiresTemporalCheck=*/true);
+    NewArgV[I] = ArgV[I];
+    NewArgV[I + ArgC + 1] =
+        __objsan_register_object(ArgV[I], StrSize,
+                                 /*RequiresTemporalCheck=*/true);
   }
 #endif
-  ArgV[ArgC] = nullptr;
+  NewArgV[2 * (ArgC + 1)] = nullptr;
   *reinterpret_cast<char **>(&ArgVVP->Value) =
-      __objsan_register_object(reinterpret_cast<char *>(ArgV), ArgVSize,
+      __objsan_register_object(reinterpret_cast<char *>(NewArgV), ArgVSize,
                                /*RequiresTemporalCheck=*/true);
 }
 
@@ -262,8 +274,8 @@ __objsan_post_base_pointer_info(char *__restrict VPtr, uint64_t *SizePtr,
     ENCODING_NO_SWITCH(getBasePointerInfo, EncodingNo, nullptr, VPtr, SizePtr,
                        EncNoPtr);
   }();
-  PRINTF("%s P: %p/%p Enc: %i OS: %" PRIu64 "\n", __PRETTY_FUNCTION__, VPtr,
-         MPtr, EncodingNo, *SizePtr);
+  PRINTF("%s P: %p/%p Enc: %i OS: %" PRIu64 " [%i]\n", __PRETTY_FUNCTION__,
+         VPtr, MPtr, EncodingNo, *SizePtr, ID);
   return MPtr;
 }
 
@@ -292,6 +304,16 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
                                      int8_t EncodingNo,
                                      int8_t IsDefinitivelyExecuted,
                                      int32_t MinID, int32_t MaxID) {
+  if (!EncodingNo) {
+    ++SLoopR.Enc0;
+    return BaseMPtr;
+  }
+  if (EncodingNo == 1)
+    ++SLoopR.Enc1;
+  else if (EncodingNo == 2)
+    ++SLoopR.Enc2;
+  else
+    ++SLoopR.EncX;
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
   int64_t LoopSize = EndMPtr - BeginMPtr;
   if (EncodingNo && !EncodingCommonTy::check(
@@ -309,6 +331,16 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
 OBJSAN_SMALL_API_ATTRS
 void __objsan_pre_ranged_access(char *MPtr, char *BaseMPtr, int64_t AccessSize,
                                 uint64_t ObjSize, int8_t EncodingNo, int ID) {
+  if (!EncodingNo) {
+    ++SRange.Enc0;
+    return;
+  }
+  if (EncodingNo == 1)
+    ++SRange.Enc1;
+  else if (EncodingNo == 2)
+    ++SRange.Enc2;
+  else
+    ++SRange.EncX;
   PRINTF("%s start P: %p B: %p AS: %" PRId64 " OS: %" PRIu64 " Enc: %i [%i]\n",
          __PRETTY_FUNCTION__, MPtr, BaseMPtr, AccessSize, ObjSize, EncodingNo,
          ID);
@@ -321,6 +353,16 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
                         uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
                         int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
+  if (!EncodingNo) {
+    ++SLoads.Enc0;
+    return MPtr;
+  }
+  if (EncodingNo == 1)
+    ++SLoads.Enc1;
+  else if (EncodingNo == 2)
+    ++SLoads.Enc2;
+  else
+    ++SLoads.EncX;
   PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64
          " Enc: %i C: %i\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
@@ -340,10 +382,20 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
                          uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
                          int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
+  if (!EncodingNo) {
+    ++SStores.Enc0;
+    return MPtr;
+  }
+  if (EncodingNo == 1)
+    ++SStores.Enc1;
+  else if (EncodingNo == 2)
+    ++SStores.Enc2;
+  else
+    ++SStores.EncX;
   PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64
-         " Enc: %i C: %i\n",
+         " Enc: %i C: %i [%i]\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
-         EncodingNo, WasChecked);
+         EncodingNo, WasChecked, ID);
   if (EncodingNo && !WasChecked && !LVRI &&
       !EncodingCommonTy::check(MPtr, BaseMPtr, AccessSize, ObjSize,
                                /*FailOnError=*/false, ID)) [[unlikely]] {
@@ -365,6 +417,32 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_decode(char *VPtr) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
   ENCODING_NO_SWITCH(decode, EncodingNo, VPtr, VPtr);
+}
+
+OBJSAN_SMALL_API_ATTRS
+void *__objsan_post_load(char *BaseMPtr, char *LoadedMPtr, char *MPtr,
+                         uint64_t ObjSize, int8_t EncodingNo, int32_t ID) {
+  if (!EncodingNo)
+    return LoadedMPtr;
+  auto **ShadowMPtr = (char **)(MPtr + ObjSize);
+  auto *ShadowVPtr = *ShadowMPtr;
+  char *ShadowVPtrMptr = (char *)__objsan_decode(ShadowVPtr);
+  if (ShadowVPtrMptr == LoadedMPtr)
+    return ShadowVPtr;
+  if (ShadowVPtrMptr) {
+    PRINTF("%p != %p (%ld : %ld)\n", ShadowVPtrMptr, LoadedMPtr,
+           ShadowVPtrMptr - LoadedMPtr, LoadedMPtr - ShadowVPtrMptr);
+  }
+  return LoadedMPtr;
+}
+
+OBJSAN_SMALL_API_ATTRS
+void __objsan_post_store(char *BaseMPtr, char *StoredVPtr, char *MPtr,
+                         uint64_t ObjSize, int8_t EncodingNo, int32_t ID) {
+  if (!EncodingNo)
+    return;
+  auto **ShadowMPtr = (char **)(MPtr + ObjSize);
+  *ShadowMPtr = StoredVPtr;
 }
 
 OBJSAN_SMALL_API_ATTRS

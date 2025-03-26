@@ -88,7 +88,7 @@ namespace {
 
 static bool isSpecialFunction(Function *Fn) {
   if (Fn)
-    if (Fn->getName().contains("execvp") || Fn->getName().contains("getopt"))
+    if (Fn->getName().contains("execvp") || Fn->getName().starts_with("getopt"))
       return true;
   return false;
 }
@@ -184,13 +184,17 @@ public:
 
   void insertRegisterCall(Value *Obj, CallInst *CI,
                           InstrumentorIRBuilderTy &IIRB) {
-#if 0
-    if (!isNonEscapingObj(Obj)) {
+    RegisterCallsMap[Obj] = CI;
+    if (!ClosedWorld && !isNonEscapingObj(Obj)) {
       if (auto *AI = dyn_cast<AllocaInst>(Obj)) {
         AI->setAllocatedType(ArrayType::get(AI->getAllocatedType(), 2));
 
       } else if (auto *GV = dyn_cast<GlobalVariable>(Obj)) {
-        GV->mutateType(ArrayType::get(GV->getValueType(), 2));
+        auto *ArrayTy = ArrayType::get(GV->getValueType(), 2);
+        GV->setValueType(ArrayTy);
+        if (GV->hasInitializer())
+          GV->setInitializer(ConstantArray::get(
+              ArrayTy, {GV->getInitializer(), GV->getInitializer()}));
       } else if (auto *CB = dyn_cast<CallBase>(Obj)) {
         auto &TLI =
             IIRB.analysisGetter<TargetLibraryAnalysis>(*CB->getFunction());
@@ -218,9 +222,8 @@ public:
         llvm_unreachable("TODO");
       }
     }
-#endif
-    RegisterCallsMap[Obj] = CI;
   }
+
   Value *getPreRegister(Value *Obj) const {
     if (!Obj)
       return nullptr;
@@ -502,6 +505,8 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
       uint64_t Size = 0;
       MPtr = GV;
       if (getObjectSize(GV, Size, DL, /*TLI=*/nullptr)) {
+        if (!ClosedWorld) 
+          Size = DL.getTypeAllocSize(GV->getValueType()->getArrayElementType());
         ObjSize =
             ConstantInt::get(IntegerType::getInt64Ty(Ptr->getContext()), Size);
         return;
@@ -1747,6 +1752,14 @@ struct ExtendedGlobalIO : public GlobalIO {
             GlobalIO::instrument(V, IConf, IIRB, ICaches))) {
       auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
       LSIConf.AIC->insertRegisterCall(V, CI, IIRB);
+      // if (ClosedWorld)
+      //   return CI;
+
+      // auto *GV = cast<GlobalVariable>(CI->getArgOperand(0));
+      // auto *GVTy = GV->getValueType()->getArrayElementType();
+      // IIRB.IRB.CreateStore(
+      //     CI, IIRB.IRB.CreateConstGEP1_32(IIRB.Int8Ty, GV,
+      //                                     IIRB.DL.getTypeAllocSize(GVTy)));
       return CI;
     }
     return nullptr;
@@ -2125,6 +2138,72 @@ struct ExtendedLoadIO : public LoadIO {
   }
 };
 
+struct PostLoadIO : public LoadIO {
+  PostLoadIO() : LoadIO(/*IsPRE*/ false) {}
+  virtual ~PostLoadIO() {};
+
+  Type *getValueType(LLVMContext &Ctx) const override {
+    return PointerType::get(Ctx, 0);
+  }
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    LoadIO::ConfigTy LICConfig(/*Enable=*/false);
+    LICConfig.set(LoadIO::PassValue);
+    LICConfig.set(LoadIO::ReplaceValue);
+    LICConfig.set(LoadIO::PassBasePointerInfo);
+    LoadIO::init(IConf, IIRB, &LICConfig);
+
+    IRTArgs.push_back(
+        IRTArg(IIRB.PtrTy, "mptr", "The real pointer.", IRTArg::NONE, getMPtr));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
+                             "The size of the underlying object.", IRTArg::NONE,
+                             getObjectSize));
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
+                             "The encoding number used for the pointer.",
+                             IRTArg::NONE, getEncodingNo));
+    addCommonArgs(IConf, IIRB.Ctx, true);
+  }
+
+  static Value *getMPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                        InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &LI = cast<LoadInst>(V);
+    return LSIConf.getMPtr(*LI.getPointerOperand(), IIRB);
+  }
+  static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &LI = cast<LoadInst>(V);
+    return LSIConf.getBasePointerObjectSize(*LI.getPointerOperand(), IIRB);
+  }
+  static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &LI = cast<LoadInst>(V);
+    return LSIConf.getBasePointerEncodingNo(*LI.getPointerOperand(), IIRB);
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto *ESIO = IConf.allocate<PostLoadIO>();
+    //    ESIO->HoistKind = HOIST_IN_BLOCK;
+    ESIO->CB = [&](Value &V) {
+      auto &LI = cast<LoadInst>(V);
+      if (!LI.getType()->isPointerTy())
+        return false;
+      auto *Ptr = LI.getPointerOperand();
+      auto *UOPtr = LSIConf.AIC->getUnderlyingObject(Ptr);
+      if (!UOPtr)
+        UOPtr = getUnderlyingObjectRecursive(Ptr);
+      if (LSIConf.AIC->isNonEscapingObj(UOPtr))
+        return false;
+      return true;
+    };
+    ESIO->init(IConf, IIRB);
+  }
+};
+
 struct ExtendedStoreIO : public StoreIO {
   ExtendedStoreIO(bool IsPRE) : StoreIO(IsPRE) {}
   virtual ~ExtendedStoreIO() {};
@@ -2183,23 +2262,90 @@ struct ExtendedStoreIO : public StoreIO {
     auto *ESIO = IConf.allocate<ExtendedStoreIO>(/*IsPRE*/ true);
     //    ESIO->HoistKind = HOIST_IN_BLOCK;
     ESIO->CB = [&](Value &V) {
-      NumStores++;
       auto &SI = cast<StoreInst>(V);
-      auto *StoredV = SI.getValueOperand();
-      if (!ClosedWorld && StoredV->getType()->isPointerTy()) {
-        NumPtrStores++;
-        auto *Ptr = SI.getPointerOperand();
-        auto *UOPtr = LSIConf.AIC->getUnderlyingObject(Ptr);
-        if (!UOPtr)
-          UOPtr = getUnderlyingObjectRecursive(Ptr);
-        if (!LSIConf.AIC->isNonEscapingObj(UOPtr))
-          if (auto *StoredVMPtr = LSIConf.getMPtr(*StoredV, IIRB)) {
-            SI.setOperand(0, StoredVMPtr);
-            NumEscapingPtrStores++;
-          }
-      }
       if (auto *Obj = LSIConf.AIC->getSafeAccessObj(&SI))
         return !LSIConf.AIC->isObjectSafe(Obj);
+      return true;
+    };
+    ESIO->init(IConf, IIRB);
+  }
+};
+
+struct PostStoreIO : public StoreIO {
+  PostStoreIO() : StoreIO(/*IsPRE*/ false) {}
+  virtual ~PostStoreIO() {};
+
+  Type *getValueType(LLVMContext &Ctx) const override {
+    return PointerType::get(Ctx, 0);
+  }
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    StoreIO::ConfigTy LICConfig(/*Enable=*/false);
+    LICConfig.set(StoreIO::PassBasePointerInfo);
+    LICConfig.set(StoreIO::PassStoredValue);
+    StoreIO::init(IConf, IIRB, &LICConfig);
+
+    IRTArgs.push_back(
+        IRTArg(IIRB.PtrTy, "mptr", "The real pointer.", IRTArg::NONE, getMPtr));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
+                             "The size of the underlying object.", IRTArg::NONE,
+                             getObjectSize));
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
+                             "The encoding number used for the pointer.",
+                             IRTArg::NONE, getEncodingNo));
+    addCommonArgs(IConf, IIRB.Ctx, true);
+  }
+
+  static Value *getMPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                        InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &LI = cast<StoreInst>(V);
+    return LSIConf.getMPtr(*LI.getPointerOperand(), IIRB);
+  }
+  static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &LI = cast<StoreInst>(V);
+    return LSIConf.getBasePointerObjectSize(*LI.getPointerOperand(), IIRB);
+  }
+  static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &LI = cast<StoreInst>(V);
+    return LSIConf.getBasePointerEncodingNo(*LI.getPointerOperand(), IIRB);
+  }
+
+  Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
+    auto *CI = StoreIO::instrument(V, IConf, IIRB, ICaches);
+    if (!CI)
+      return nullptr;
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto *SI = cast<StoreInst>(V);
+    if (auto *MPtr = LSIConf.getMPtr(*SI->getValueOperand(), IIRB))
+      SI->setOperand(0, MPtr);
+    return CI;
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto *ESIO = IConf.allocate<PostStoreIO>();
+    //    ESIO->HoistKind = HOIST_IN_BLOCK;
+    ESIO->CB = [&](Value &V) {
+      auto &SI = cast<StoreInst>(V);
+      NumStores++;
+      if (!SI.getValueOperand()->getType()->isPointerTy())
+        return false;
+      NumPtrStores++;
+      auto *Ptr = SI.getPointerOperand();
+      auto *UOPtr = LSIConf.AIC->getUnderlyingObject(Ptr);
+      if (!UOPtr)
+        UOPtr = getUnderlyingObjectRecursive(Ptr);
+      if (LSIConf.AIC->isNonEscapingObj(UOPtr))
+        return false;
+      NumEscapingPtrStores++;
       return true;
     };
     ESIO->init(IConf, IIRB);
@@ -2860,6 +3006,10 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedVAArgIO::populate(*this, IIRB);
   AllocatorCallIO::populate(*this, IIRB);
   ExtendedCallIO::populate(*this, IIRB);
+  if (!ClosedWorld) {
+    PostLoadIO::populate(*this, IIRB);
+    PostStoreIO::populate(*this, IIRB);
+  }
   // ModuleIO::populate(*this, IIRB.Ctx);
 
   PtrToIntIO::ConfigTy PostP2IIOConfig(/*Enable=*/false);

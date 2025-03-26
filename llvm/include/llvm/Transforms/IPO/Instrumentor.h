@@ -724,6 +724,10 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
     NumConfig,
   };
 
+  virtual Type *getValueType(LLVMContext &Ctx) const {
+    return IntegerType::getInt64Ty(Ctx);
+  }
+
   using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
@@ -753,7 +757,7 @@ struct StoreIO : public InstructionIO<Instruction::Store> {
                                IRTArg::NONE, getLoopValueRangeInfo));
     if (Config.has(PassStoredValue))
       IRTArgs.push_back(
-          IRTArg(IIRB.Int64Ty, "value", "The stored value.",
+          IRTArg(getValueType(IIRB.Ctx), "value", "The stored value.",
                  IRTArg::POTENTIALLY_INDIRECT | (Config.has(PassStoredValueSize)
                                                      ? IRTArg::INDIRECT_HAS_SIZE
                                                      : IRTArg::NONE),
@@ -846,6 +850,10 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
     NumConfig,
   };
 
+  virtual Type *getValueType(LLVMContext &Ctx) const {
+    return IntegerType::getInt64Ty(Ctx);
+  }
+
   using ConfigTy = BaseConfigTy<ConfigKind>;
   ConfigTy Config;
 
@@ -873,11 +881,14 @@ struct LoadIO : public InstructionIO<Instruction::Load> {
                                "The runtime provided loop value range info.",
                                IRTArg::NONE, getLoopValueRangeInfo));
     if (!IsPRE && Config.has(PassValue))
-      IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "value", "The loaded value.",
-                               IRTArg::REPLACABLE |
-                                   IRTArg::POTENTIALLY_INDIRECT |
-                                   IRTArg::INDIRECT_HAS_SIZE,
-                               getValue, replaceValue));
+      IRTArgs.push_back(IRTArg(
+          getValueType(IIRB.Ctx), "value", "The loaded value.",
+          Config.has(ReplaceValue)
+              ? IRTArg::REPLACABLE | IRTArg::POTENTIALLY_INDIRECT |
+                    (Config.has(PassValueSize) ? IRTArg::INDIRECT_HAS_SIZE
+                                               : IRTArg::NONE)
+              : IRTArg::NONE,
+          getValue, Config.has(ReplaceValue) ? replaceValue : nullptr));
     if (Config.has(PassValueSize))
       IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "value_size",
                                "The size of the loaded value.", IRTArg::NONE,
