@@ -37,6 +37,26 @@ cudaError_t cudaMalloc(void **devPtr, size_t size) {
   return cudaSuccess;
 }
 
+cudaError_t cudaMallocManaged(void **devPtr, size_t size, unsigned int flags) {
+  using FuncTy = cudaError_t(void **, size_t, unsigned int);
+  static FuncTy *FPtr = nullptr;
+  if (!FPtr)
+    FPtr = reinterpret_cast<FuncTy *>(
+        objsan::getOriginalFunction("cudaMallocManaged"));
+  assert(FPtr && "null cudaMallocManaged pointer");
+  cudaError_t Err = FPtr(devPtr, size, flags);
+  if (Err != cudaSuccess)
+    return Err;
+  void *MPtr = objsan::registerDeviceMemory(*devPtr, size);
+  if (!MPtr) {
+    // emit warning but we can't fail here.
+    fprintf(stderr, "failed to register device memory\n");
+  } else {
+    *devPtr = MPtr;
+  }
+  return cudaSuccess;
+}
+
 cudaError_t cudaFree(void *devPtr) {
   void *MPtr = objsan::unregisterDeviceMemory(devPtr);
   if (!MPtr) {
