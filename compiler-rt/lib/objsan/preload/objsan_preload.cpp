@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "include/objsan_preload.h"
+#include "objsan_preload.h"
 
 #include <mutex>
 #include <unordered_map>

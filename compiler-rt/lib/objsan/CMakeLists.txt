@@ -45,3 +45,7 @@ foreach(os ${SANITIZER_COMMON_SUPPORTED_OS})
     LINK_FLAGS ${OBJSAN_LINK_FLAGS}
     PARENT_TARGET objsan)
 endforeach()
+
+if(COMPILER_RT_OBJSAN_BUILD_PRELOAD_LIBRARY)
+  add_subdirectory(preload)
+endif()

@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "include/objsan_preload.h"
+#include "objsan_preload.h"
 
 #include <cassert>
 #include <cstddef>
