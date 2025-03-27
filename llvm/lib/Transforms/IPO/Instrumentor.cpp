@@ -91,12 +91,6 @@ static cl::opt<std::string> ReadJSONConfig(
         "Read the instrumentor configuration from the specified JSON file"),
     cl::init(""));
 
-static cl::opt<std::string>
-    RuntimeBitcode("instrumentor-runtime-bitcode",
-                   cl::desc("Read runtime bitcode to be linked in, "
-                            "alwaysinline functions are inlined"),
-                   cl::init(""));
-
 namespace {
 
 void writeInstrumentorConfig(InstrumentationConfig &IConf) {
@@ -656,6 +650,7 @@ bool InstrumentorImpl::instrumentModule() {
 }
 
 void InstrumentorImpl::linkRuntime() {
+  const auto RuntimeBitcode = IConf.RuntimeBitcode->getString();
   if (RuntimeBitcode.empty())
     return;
 
