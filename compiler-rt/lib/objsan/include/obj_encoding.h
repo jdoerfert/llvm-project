@@ -2,7 +2,6 @@
 #define OBJSAN_OBJ_ENCODING_H
 
 #include "common.h"
-#include <cstdint>
 
 #if __has_builtin(__builtin_assume)
 #define ASSUME(E) __builtin_assume((E));

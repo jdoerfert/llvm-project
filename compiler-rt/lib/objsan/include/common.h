@@ -16,12 +16,13 @@
 // Freestanding headers
 #include <stddef.h>
 #include <stdint.h>
-#include <inttypes.h>
 
 // Device compilation special handling headers
 #ifndef __OBJSAN_DEVICE__
 
 #include <cassert>
+#include <cinttypes>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -31,6 +32,9 @@
 #define FFLUSH(s) fflush((s))
 
 #else
+
+#define PRIu64 "lu"
+#define PRId64 "ld"
 
 extern "C" {
 int printf(...);
