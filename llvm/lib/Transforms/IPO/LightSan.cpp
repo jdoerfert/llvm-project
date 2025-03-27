@@ -84,6 +84,12 @@ static constexpr char AdapterPrefix[] = "__adapter_";
 // TODO: Make this a cmd line option
 static bool ClosedWorld = false;
 
+static cl::opt<std::string>
+    ObjsanRuntimeBitcode("objsan-runtime-bitcode",
+                         cl::desc("Read runtime bitcode to be linked in, "
+                                  "alwaysinline functions are inlined"),
+                         cl::init(""));
+
 namespace {
 
 static bool isSpecialFunction(Function *Fn) {
@@ -1630,6 +1636,7 @@ LightSanInstrumentationConfig::LightSanInstrumentationConfig(LightSanImpl &Impl,
   ReadConfig = false;
   RuntimePrefix->setString(LightSanRuntimePrefix);
   RuntimeStubsFile->setString("");
+  RuntimeBitcode->setString(ObjsanRuntimeBitcode);
   initializeFunctionCallees(M);
 }
 
