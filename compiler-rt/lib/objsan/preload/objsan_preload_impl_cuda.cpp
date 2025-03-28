@@ -18,8 +18,9 @@
 
 #include <cuda_runtime.h>
 
-extern __device__ char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
-                                                 bool RequiresTemporalCheck);
+extern "C" __device__ char *
+__objsan_register_object(char *MPtr, uint64_t ObjSize,
+                         bool RequiresTemporalCheck);
 
 namespace {
 
