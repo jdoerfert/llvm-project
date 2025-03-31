@@ -139,15 +139,15 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
     EncodingCommonTy::check(Obj2MPtr, Obj2BaseMPtr, AccessLength2, Obj2Size,
                             /*FailOnError=*/true, ID, ID);
 
-#ifndef __OBJSAN_DEVICE__
-  // TODO: this should switch on closed world
-  if (IntrinsicId == 238 || IntrinsicId == 241) {
-    if (Obj1EncNo && Obj2EncNo) {
-      auto *Fn = IntrinsicId == 238 ? &memcpy : &memmove;
-      Fn(Obj1MPtr + Obj1Size, Obj2MPtr + Obj2Size, AccessLength1);
-    }
-  }
-#endif
+//#ifndef __OBJSAN_DEVICE__
+//  // TODO: this should switch on closed world
+//  if (IntrinsicId == 238 || IntrinsicId == 241) {
+//    if (Obj1EncNo && Obj2EncNo) {
+//      auto *Fn = IntrinsicId == 238 ? &memcpy : &memmove;
+//      Fn(Obj1MPtr + Obj1Size, Obj2MPtr + Obj2Size, AccessLength1);
+//    }
+//  }
+//#endif
 
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
