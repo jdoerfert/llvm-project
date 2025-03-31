@@ -32,7 +32,7 @@ uint32_t OriginalSeed;
 using namespace __ig;
 
 struct SharedState {
-  SharedState(uint32_t NumThreads, std::vector<uint32_t> &Seeds)
+  SharedState(uint32_t NumThreads, std::span<uint32_t> Seeds)
       : CM(NumThreads), Counter(0), NumThreads(NumThreads), Seeds(Seeds) {}
 
   ChoiceManager CM;
@@ -53,7 +53,7 @@ struct SharedState {
   std::mutex Mutex;
 
   std::condition_variable FinishedCV;
-  std::vector<uint32_t> &Seeds;
+  std::span<uint32_t> Seeds;
 };
 
 static uint32_t ThreadID = 0;
@@ -157,8 +157,10 @@ int main(int argc, char **argv) {
   std::vector<uint32_t> Seeds;
   for (uint32_t I = 0; I < NumInputs; ++I)
     Seeds.push_back(Generator());
+  std::span<uint32_t> SeedsSpan{Seeds.data() - FirstInput,
+                                FirstInput + NumInputs};
 
-  SharedState SS(NumThreads, Seeds);
+  SharedState SS(NumThreads, SeedsSpan);
   for (uint32_t I = FirstInput; I < NumInputs + FirstInput - NumInputsPerThread;
        I += NumInputsPerThread) {
     new std::thread(GenerationThread::start, &SS, argv[0], I,
