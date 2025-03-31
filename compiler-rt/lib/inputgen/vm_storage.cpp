@@ -25,6 +25,10 @@ static void FATAL() {
   exit(1);
 }
 
+template <typename T> static const char *ccast(const T *Ptr) {
+  return reinterpret_cast<const char *>(Ptr);
+}
+
 template <typename T> static char *ccast(T *Ptr) {
   return reinterpret_cast<char *>(Ptr);
 }

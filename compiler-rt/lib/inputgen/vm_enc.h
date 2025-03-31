@@ -400,6 +400,7 @@ struct TableSchemeTy : public EncodingSchemeTy {
       //
       // Check that the lower end of the object (NegativeSize) is actually on
       // the left side of the higher end (PositiveSize)
+      DEBUG("check {} <= {}\n", -NegativeSize, PositiveSize);
       assert(PositiveSize >= -NegativeSize);
     }
 

@@ -257,11 +257,18 @@ void *__ig_post_loop_value_range(int64_t initial_loop_val,
   PRINTF("loop_value_range post -- initial_loop_val: %p, final_loop_val: %p\n",
          (void *)initial_loop_val, (void *)final_loop_val);
 
+  assert(max_offset >= 0);
+  int64_t bottom = initial_loop_val;
+  int64_t top = final_loop_val;
+  if (bottom > top)
+    std::swap(bottom, top);
   char *VPtrBegin = (char *)initial_loop_val;
-  int64_t Size = final_loop_val - initial_loop_val + max_offset;
+  char *VPtrBottom = (char *)bottom;
+  int64_t Size = top - bottom + max_offset;
+  assert(Size >= 0);
   [[maybe_unused]] char *BaseVPtr = ThreadOM->getBaseVPtr(VPtrBegin);
   PRINTF("%p %p %lli\n", VPtrBegin, BaseVPtr, Size);
-  bool AllInitialized = ThreadOM->checkRange(VPtrBegin, Size);
+  bool AllInitialized = ThreadOM->checkRange(VPtrBottom, Size);
   BaseVPtr = ThreadOM->getBaseVPtr(VPtrBegin);
   PRINTF("%p %p %lli -> %i\n", VPtrBegin, BaseVPtr, Size, AllInitialized);
   if (!AllInitialized)
