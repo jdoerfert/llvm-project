@@ -370,6 +370,7 @@ private:
 
   bool instrumentFunction(Function &Fn);
   bool instrumentModule();
+  bool prepareModule();
 
   bool preprocessLoops(Function &Fn) {
     bool Changed = false;
@@ -704,6 +705,53 @@ void InstrumentorImpl::linkRuntime() {
   IIRB.AllocaMap.clear();
 }
 
+bool InstrumentorImpl::prepareModule() {
+  // We need to make sure each invoke instruction first makes a jump to a basic
+  // block without any PHI nodes, so that there is a place where we can insert
+  // post-value instrumentation that could later be used in a PHI node in the
+  // original normal destination block.
+  //
+  // Example case:
+  //
+  // invoke_bb:
+  //   %invoke_res = invoke ... to label %normal ...
+  // normal:
+  //   %p = phi [%invoke_res, %invoke_bb]
+  //   ...
+  //
+  // This allow us to instrument the result of the invoke:
+  //
+  // invoke_bb:
+  //   %invoke_res = invoke ... to label %normal ...
+  // new_bb:
+  //   %post_invoke_res = __rt_post_invoke(%invoke_res)
+  //   br %normal
+  // normal:
+  //   %p = phi [%post_invoke_res, %new_bb]
+  //   %p2 = phi [%invoke_res, %new_bb]
+  //   ...
+  //
+  bool Changed = false;
+  for (Function &F : M) {
+    SmallVector<InvokeInst *> Invokes;
+    for (BasicBlock &BB : F)
+      if (InvokeInst *Invoke = dyn_cast<InvokeInst>(BB.getTerminator()))
+        Invokes.push_back(Invoke);
+    for (InvokeInst *Invoke : Invokes) {
+      BasicBlock *InvokeBB = Invoke->getParent();
+      BasicBlock *Normal = Invoke->getNormalDest();
+      BasicBlock *BeforeNormal =
+          BasicBlock::Create(M.getContext(), "invoke.split", &F, Normal);
+      BranchInst::Create(Normal, BeforeNormal->end());
+      Invoke->setNormalDest(BeforeNormal);
+      Normal->replacePhiUsesWith(InvokeBB, BeforeNormal);
+
+      Changed = true;
+    }
+  }
+  return Changed;
+}
+
 bool InstrumentorImpl::instrument() {
   bool Changed = false;
   if (!shouldInstrumentTarget())
@@ -718,6 +766,7 @@ bool InstrumentorImpl::instrument() {
     if (ChoiceIt.second->Enabled)
       InstChoicesPOST[ChoiceIt.second->getOpcode()] = ChoiceIt.second;
 
+  Changed |= prepareModule();
   Changed |= instrumentModule();
 
   for (Function &Fn : M)
