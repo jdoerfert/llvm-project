@@ -14,6 +14,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/StringExtras.h"
@@ -2034,6 +2035,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
   }
 
   SmallVector<Use *> Worklist(make_pointer_range(GV.uses()));
+  SmallPtrSet<Use *, 32> Done;
   DenseMap<std::pair<Value *, Function *>, Instruction *> VMap;
   DenseMap<Value *, Instruction *> ConstToInstMap;
   DenseMap<Function *, Instruction *> ReloadMap;
@@ -2084,6 +2086,8 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
   SmallPtrSet<Use *, 8> Visited;
   while (!Worklist.empty()) {
     Use *U = Worklist.pop_back_val();
+    if (!Done.insert(U).second)
+      continue;
     MakeInstForConst(*U);
     auto *I = dyn_cast<Instruction>(U->getUser());
     if (!I) {
