@@ -13,26 +13,71 @@
 #ifndef OBJSAN_OBJSAN_PRELOAD_H
 #define OBJSAN_OBJSAN_PRELOAD_H
 
+#include <cassert>
 #include <cstddef>
-#include <vector>
+#include <cstdio>
+#include <cstdlib>
+#include <dlfcn.h>
+#include <mutex>
+#include <unordered_map>
 
 namespace objsan {
 
 namespace impl {
 
-void initializeSupportedFunctionList(std::vector<const char *> &List);
+void *launchRegisterKernel(void *MPtr, size_t Size);
 
-bool launchRegisterKernel(void **MPtr, void *VPtr, size_t Size);
-
-bool launchUnregisterKernel(void **VPtr, void *MPtr);
+void *launchUnregisterKernel(void *VPtr);
 
 } // namespace impl
 
-void *getOriginalFunction(const char *Name);
+// A TLB that translates from VPtr to MPtr.
+class TLBTy {
+  std::unordered_map<void *, void *> Map;
+  std::mutex Lock;
 
-void *registerDeviceMemory(void *VPtr, size_t Size);
+public:
+  bool insert(void *MPtr, void *VPtr) {
+    assert(MPtr && "vptr is nullptr");
+    assert(VPtr && "mptr is nullptr");
+    std::lock_guard<std::mutex> LG(Lock);
+    return Map.try_emplace(VPtr, MPtr).second;
+  }
+
+  void *translate(const void *VPtr) {
+    if (!VPtr)
+      return nullptr;
+    std::lock_guard<std::mutex> LG(Lock);
+    auto Itr = Map.find(const_cast<void *>(VPtr));
+    return Itr == Map.end() ? nullptr : Itr->second;
+  }
+
+  void *pop(void *VPtr) {
+    if (!VPtr)
+      return nullptr;
+    std::lock_guard<std::mutex> LG(Lock);
+    auto Itr = Map.find(VPtr);
+    if (Itr == Map.end())
+      return nullptr;
+    void *P = Itr->second;
+    Map.erase(Itr);
+    return P;
+  }
+};
+
+void *registerDeviceMemory(void *MPtr, size_t Size);
 
 void *unregisterDeviceMemory(void *Ptr);
+
+template <typename FuncTy>
+FuncTy *getOriginalFunction(const char *Name) {
+  void *Symbol = dlsym(RTLD_NEXT, Name);
+  if (!Symbol) {
+    fprintf(stderr, "symbol %s not found\n", Name);
+    abort();
+  }
+  return reinterpret_cast<FuncTy *>(Symbol);
+}
 
 } // namespace objsan
 

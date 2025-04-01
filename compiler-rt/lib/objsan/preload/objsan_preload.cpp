@@ -12,43 +12,10 @@
 
 #include "objsan_preload.h"
 
-#include <mutex>
-#include <unordered_map>
-
-#include <dlfcn.h>
-
-void *objsan::registerDeviceMemory(void *VPtr, size_t Size) {
-  void *MPtr = nullptr;
-  return impl::launchRegisterKernel(&MPtr, VPtr, Size) ? MPtr : VPtr;
+void *objsan::registerDeviceMemory(void *MPtr, size_t Size) {
+  return impl::launchRegisterKernel(MPtr, Size);
 }
 
-void *objsan::unregisterDeviceMemory(void *MPtr) {
-  void *VPtr = nullptr;
-  return impl::launchUnregisterKernel(&MPtr, VPtr) ? VPtr : MPtr;
-}
-
-namespace {
-
-std::once_flag FunctionMapOnceFlag;
-
-std::unordered_map<const char *, void *> FunctionMap;
-
-void init() {
-  std::vector<const char *> List;
-  objsan::impl::initializeSupportedFunctionList(List);
-  for (const char *Name : List) {
-    void *P = dlsym(RTLD_NEXT, Name);
-    if (!P)
-      FunctionMap[Name] = P;
-  }
-}
-
-} // namespace
-
-void *objsan::getOriginalFunction(const char *Name) {
-  std::call_once(FunctionMapOnceFlag, init);
-  auto Itr = FunctionMap.find(Name);
-  if (Itr != FunctionMap.end())
-    return Itr->second;
-  return nullptr;
+void *objsan::unregisterDeviceMemory(void *VPtr) {
+  return impl::launchUnregisterKernel(VPtr);
 }
