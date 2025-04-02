@@ -2076,7 +2076,6 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
                                   ShadowName, &GV, GV.getThreadLocalMode(),
                                   DL.getDefaultGlobalsAddressSpace());
   } else {
-      auto *ArrayTy = ArrayType::get(GV.getValueType(), 2);
     ShadowGV = new GlobalVariable(
         *GV.getParent(), NewV.getType(), false, GV.getLinkage(),
         PoisonValue::get(NewV.getType()), ShadowName, &GV);
