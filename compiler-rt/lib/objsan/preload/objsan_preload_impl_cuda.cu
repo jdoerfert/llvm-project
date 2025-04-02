@@ -20,25 +20,10 @@
 
 extern "C" __device__ char *
 __objsan_register_object(char *MPtr, uint64_t ObjSize,
-                         bool RequiresTemporalCheck) {
-  /* STUB */
-  uint64_t VPtrInt = (uint64_t) 0xf << 60;
-  VPtrInt = VPtrInt | (uint64_t) MPtr;
-  char *VPtr = (char *) VPtrInt;
-  printf("registering %p size %llu: %p\n", MPtr, ObjSize, VPtr);
-  return VPtr;
-}
+                         bool RequiresTemporalCheck);
 
-extern "C" __device__ char *
-__objsan_free_object(char *VPtr) {
-  /* STUB */
-  uint64_t MPtrInt = (uint64_t) 0xf << 60;
-  MPtrInt = ~MPtrInt;
-  MPtrInt = MPtrInt & (uint64_t) VPtr;
-  char *MPtr = (char *) MPtrInt;
-  printf("unregistering %p: %p\n", VPtr, MPtr);
-  return MPtr;
-}
+extern "C" __device__ void
+__objsan_free_object(char *VPtr);
 
 namespace {
 
@@ -48,7 +33,8 @@ __global__ void registerKernel(void **VPtr, void *MPtr, size_t Size) {
 }
 
 __global__ void unregisterKernel(void **MPtr, void *VPtr) {
-  *MPtr = __objsan_free_object(reinterpret_cast<char *>(VPtr));
+  __objsan_free_object(reinterpret_cast<char *>(VPtr));
+  *MPtr = nullptr;
 }
 
 bool allocateDeviceMemory(void **DevPtr, size_t Size) {
