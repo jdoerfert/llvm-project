@@ -40,7 +40,7 @@ __global__ void unregisterKernel(void **MPtr, void *VPtr) {
 bool allocateDeviceMemory(void **DevPtr, size_t Size) {
   using FuncTy = cudaError_t(void **, size_t);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("cudaMalloc");
-  return (FPtr(DevPtr, sizeof(void *)) != cudaSuccess);
+  return (FPtr(DevPtr, Size) != cudaSuccess);
 }
 
 bool freeDeviceMemory(void *DevPtr) {
