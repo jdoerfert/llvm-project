@@ -206,7 +206,8 @@ void __objsan_free_object(char *__restrict VPtr) {
 
 OBJSAN_SMALL_API_ATTRS
 void __objsan_free_alloca(char *__restrict VPtr) {
-  ENCODING_NO_SWITCH(free, 2, , VPtr);
+  uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
+  ENCODING_NO_SWITCH(free, EncodingNo, , VPtr);
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -318,8 +319,8 @@ char *__objsan_post_loop_value_range(char *BeginMPtr, char *EndMPtr,
   else
     ++SLoopR.EncX;
 #endif
-  if (!EncodingNo) 
-    return BaseMPtr;
+  if (!EncodingNo)
+    return nullptr;
   PRINTF("%s start\n", __PRETTY_FUNCTION__);
   int64_t LoopSize = EndMPtr - BeginMPtr;
   if (EncodingNo && !EncodingCommonTy::check(
@@ -375,8 +376,6 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
   else
     ++SLoads.EncX;
 #endif
-  if (!EncodingNo)
-    return MPtr;
   PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64
          " Enc: %i C: %i\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,
@@ -408,8 +407,6 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
   else
     ++SStores.EncX;
 #endif
-  if (!EncodingNo)
-    return MPtr;
   PRINTF("%s start P: %p/%p B: %p L: %p AS: %" PRIu64 " OS: %" PRIu64
          " Enc: %i C: %i [%i]\n",
          __PRETTY_FUNCTION__, VPtr, MPtr, BaseMPtr, LVRI, AccessSize, ObjSize,

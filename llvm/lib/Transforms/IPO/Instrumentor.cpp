@@ -60,6 +60,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/Internalize.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
@@ -520,8 +521,18 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
 
   SmallVector<Instruction *> FinalTIs;
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
+
+  if (IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]
+                    ["loop_value_range"]) {
+    for (auto &It : RPOT) {
+      for (auto &I : *It)
+        if (auto *Ptr = AA::getPointerOperand(&I, /*AllowVolatile*/ true))
+          IIRB.computeLoopRangeValues(*Ptr, 0);
+    }
+  }
+
   for (auto &It : RPOT) {
-    for (auto &I : *It) 
+    for (auto &I : *It)
       InstrumentInst(I);
 
     auto *TI = It->getTerminator();
@@ -529,9 +540,9 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       FinalTIs.push_back(TI);
   }
 
-  for (auto *GenI : IIRB.GeneratedInsts)
-    InstrumentInst(*GenI);
-  IIRB.GeneratedInsts.clear();
+//  for (auto *GenI : IIRB.GeneratedInsts)
+//    InstrumentInst(*GenI);
+//  IIRB.GeneratedInsts.clear();
 
   Value *FPtr = &Fn;
   for (auto &ChoiceIt : IConf.IChoices[InstrumentationLocation::FUNCTION_PRE]) {
@@ -875,7 +886,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
     return {BasicBlock::iterator(), false};
   }
   // TODO: This is a hack since SCEV somehow remembers values that we replaced.
-  SE.forgetAllLoops();
+//  SE.forgetAllLoops();
   auto *VSCEV = SE.getSCEVAtScope(&V, BBLoop);
   if (isa<SCEVCouldNotCompute>(VSCEV)) {
     LLVM_DEBUG(errs() << " - loop evaluation not computable for " << V << "\n");
@@ -926,7 +937,8 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
                         << *LastSCEV << " in " << L->getName() << "\n");
       break;
     }
-    if (IP->getParent() != ExitingBB && !DT.dominates(IP->getParent(), ExitingBB))
+    if (IP->getParent() != ExitingBB &&
+        !DT.dominates(IP->getParent(), ExitingBB))
       break;
 
     LoopToScevMapT FirstL2SMap, LastL2SMap;
@@ -978,7 +990,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   if (auto *LastValI = dyn_cast<Instruction>(LastVal))
     IP = hoistInstructionsAndAdjustIP(*LastValI, IP, DT);
 
-  append_range(GeneratedInsts, Expander.getAllInsertedInstructions());
+//  append_range(GeneratedInsts, Expander.getAllInsertedInstructions());
 
   LRI = {FirstVal, LastVal, AdditionalSize};
   return {IP, true};

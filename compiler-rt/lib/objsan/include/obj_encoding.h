@@ -186,8 +186,10 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
         break;
       }
     }
-    if (BucketIdx == ~0u) [[unlikely]]
+    if (BucketIdx == ~0u) [[unlikely]] {
+      __builtin_trap();
       return MPtr;
+    }
     EncTy M(MPtr);
     EncTy E(ObjSize, BucketIdx, D.Bits.RealPtr, M.Bits.Offset);
     return E.VPtr;
@@ -283,6 +285,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     uint64_t ObjectIdx = __scoped_atomic_fetch_add(
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
+      __builtin_trap();
       // FPRINTF("out of objects (large)!\n");
       return MPtr;
     }
