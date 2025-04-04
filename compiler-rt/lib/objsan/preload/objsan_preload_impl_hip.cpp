@@ -93,7 +93,8 @@ void *launchUnregisterKernel(void *VPtr) {
   unregisterKernel<<<1, 1>>>(DevPtr, VPtr);
 
   void *MPtr = nullptr;
-  auto Err = hipMemcpy(&MPtr, DevPtr, sizeof(void *), hipMemcpyDeviceToHost);
+  auto Err =
+      copyDeviceMemory(&MPtr, DevPtr, sizeof(void *), hipMemcpyDeviceToHost);
   freeDeviceMemory(DevPtr);
 
   return (Err) ? nullptr : MPtr;

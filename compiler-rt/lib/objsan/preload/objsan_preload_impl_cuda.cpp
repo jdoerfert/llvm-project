@@ -90,7 +90,7 @@ void *launchUnregisterKernel(void *VPtr) {
   unregisterKernel<<<1, 1>>>(DevPtr, VPtr);
 
   void *MPtr = nullptr;
-  auto Err = cudaMemcpy(&MPtr, DevPtr, sizeof(void *), cudaMemcpyDeviceToHost);
+  auto Err = copyDeviceMemory(&MPtr, DevPtr, sizeof(void *), cudaMemcpyDeviceToHost);
   freeDeviceMemory(DevPtr);
 
   return (Err) ? nullptr : MPtr;
