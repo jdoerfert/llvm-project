@@ -11,7 +11,7 @@ all: libobjsan_preload_hip.so
 objsan_preload.o: preload/objsan_preload.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fPIC $< -c -o $@
 
-objsan_preload_impl_hip.o: preload/objsan_preload_impl_hip.cu
+objsan_preload_impl_hip.o: preload/objsan_preload_impl_hip.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x hip --offload-arch=gfx942 -fgpu-rdc -foffload-lto $< -c -o $@
 
 objsan_preload_hip.o: preload/objsan_preload_hip.cpp
