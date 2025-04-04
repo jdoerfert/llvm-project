@@ -68,6 +68,7 @@ void *launchRegisterKernel(void *MPtr, size_t Size) {
   if (auto Err = allocateDeviceMemory(reinterpret_cast<void **>(&DevPtr), sizeof(void *)))
     return nullptr;
 
+  printf("registering %p %zu\n", MPtr, Size);
   registerKernel<<<1, 1>>>(DevPtr, MPtr, Size);
 
   void *VPtr = nullptr;
@@ -85,6 +86,7 @@ void *launchUnregisterKernel(void *VPtr) {
   if (auto Err = allocateDeviceMemory(reinterpret_cast<void **>(&DevPtr), sizeof(void *)))
     return nullptr;
 
+  printf("unregistering %p\n", VPtr);
   unregisterKernel<<<1, 1>>>(DevPtr, VPtr);
 
   void *MPtr = nullptr;
