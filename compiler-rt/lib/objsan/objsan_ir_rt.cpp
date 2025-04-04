@@ -34,6 +34,9 @@ void *malloc(size_t size);
 size_t strlen(const char *str);
 }
 
+// Also in LightSan.cpp
+static uint32_t MaxObjSizeForShadow = 64;
+
 using namespace __objsan;
 
 struct __attribute__((packed)) ParameterValuePackTy {
@@ -139,15 +142,20 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
     EncodingCommonTy::check(Obj2MPtr, Obj2BaseMPtr, AccessLength2, Obj2Size,
                             /*FailOnError=*/true, ID, ID);
 
-//#ifndef __OBJSAN_DEVICE__
-//  // TODO: this should switch on closed world
-//  if (IntrinsicId == 238 || IntrinsicId == 241) {
-//    if (Obj1EncNo && Obj2EncNo) {
-//      auto *Fn = IntrinsicId == 238 ? &memcpy : &memmove;
-//      Fn(Obj1MPtr + Obj1Size, Obj2MPtr + Obj2Size, AccessLength1);
-//    }
-//  }
-//#endif
+#ifndef __OBJSAN_DEVICE__
+  //  TODO: this should switch on closed world
+  // Copy the shadow over as part of a memcpy/move
+  if (IntrinsicId == 238 || IntrinsicId == 241) {
+    if (Obj1EncNo && Obj2EncNo && Obj1Size <= MaxObjSizeForShadow) {
+      if (IntrinsicId == 238)
+        __builtin_memcpy(Obj1MPtr + Obj1Size, Obj2MPtr + Obj2Size,
+                         AccessLength1);
+      else
+        __builtin_memmove(Obj1MPtr + Obj1Size, Obj2MPtr + Obj2Size,
+                          AccessLength1);
+    }
+  }
+#endif
 
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
@@ -437,7 +445,7 @@ void *__objsan_decode(char *VPtr) {
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_post_load(char *BaseMPtr, char *LoadedMPtr, char *MPtr,
                          uint64_t ObjSize, int8_t EncodingNo, int32_t ID) {
-  if (!EncodingNo)
+  if (!EncodingNo || ObjSize > MaxObjSizeForShadow)
     return LoadedMPtr;
   auto **ShadowMPtr = (char **)(MPtr + ObjSize);
   auto *ShadowVPtr = *ShadowMPtr;
@@ -454,7 +462,7 @@ void *__objsan_post_load(char *BaseMPtr, char *LoadedMPtr, char *MPtr,
 OBJSAN_SMALL_API_ATTRS
 void __objsan_post_store(char *BaseMPtr, char *StoredVPtr, char *MPtr,
                          uint64_t ObjSize, int8_t EncodingNo, int32_t ID) {
-  if (!EncodingNo)
+  if (!EncodingNo || ObjSize > MaxObjSizeForShadow)
     return;
   auto **ShadowMPtr = (char **)(MPtr + ObjSize);
   *ShadowMPtr = StoredVPtr;

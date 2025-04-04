@@ -20,6 +20,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/iterator.h"
+#include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -62,6 +63,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 #include "llvm/Transforms/IPO/Internalize.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -540,9 +542,9 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
       FinalTIs.push_back(TI);
   }
 
-//  for (auto *GenI : IIRB.GeneratedInsts)
-//    InstrumentInst(*GenI);
-//  IIRB.GeneratedInsts.clear();
+  //  for (auto *GenI : IIRB.GeneratedInsts)
+  //    InstrumentInst(*GenI);
+  //  IIRB.GeneratedInsts.clear();
 
   Value *FPtr = &Fn;
   for (auto &ChoiceIt : IConf.IChoices[InstrumentationLocation::FUNCTION_PRE]) {
@@ -748,12 +750,17 @@ bool InstrumentorImpl::prepareModule() {
     for (BasicBlock &BB : F)
       if (InvokeInst *Invoke = dyn_cast<InvokeInst>(BB.getTerminator()))
         Invokes.push_back(Invoke);
+    if (Invokes.empty())
+      continue;
+    auto &LI = IIRB.analysisGetter<LoopAnalysis>(F);
+    auto &DT = IIRB.analysisGetter<DominatorTreeAnalysis>(F);
+    DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
     for (InvokeInst *Invoke : Invokes) {
       BasicBlock *InvokeBB = Invoke->getParent();
       BasicBlock *Normal = Invoke->getNormalDest();
-      BasicBlock *BeforeNormal =
-          BasicBlock::Create(M.getContext(), "invoke.split", &F, Normal);
-      BranchInst::Create(Normal, BeforeNormal->end());
+      BasicBlock *BeforeNormal = splitBlockBefore(Normal, Normal->begin(), &DTU,
+                                                  &LI, /*MSSAU*/ nullptr);
+      BeforeNormal->setName("invoke.split");
       Invoke->setNormalDest(BeforeNormal);
       Normal->replacePhiUsesWith(InvokeBB, BeforeNormal);
 
@@ -886,7 +893,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
     return {BasicBlock::iterator(), false};
   }
   // TODO: This is a hack since SCEV somehow remembers values that we replaced.
-//  SE.forgetAllLoops();
+  //  SE.forgetAllLoops();
   auto *VSCEV = SE.getSCEVAtScope(&V, BBLoop);
   if (isa<SCEVCouldNotCompute>(VSCEV)) {
     LLVM_DEBUG(errs() << " - loop evaluation not computable for " << V << "\n");
@@ -990,7 +997,7 @@ InstrumentorIRBuilderTy::computeLoopRangeValues(Value &V,
   if (auto *LastValI = dyn_cast<Instruction>(LastVal))
     IP = hoistInstructionsAndAdjustIP(*LastValI, IP, DT);
 
-//  append_range(GeneratedInsts, Expander.getAllInsertedInstructions());
+  //  append_range(GeneratedInsts, Expander.getAllInsertedInstructions());
 
   LRI = {FirstVal, LastVal, AdditionalSize};
   return {IP, true};

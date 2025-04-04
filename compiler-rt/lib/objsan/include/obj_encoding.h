@@ -109,7 +109,8 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
                 "Size mismatch!");
 
   static constexpr uint64_t NumBuckets = 1 << BucketBits;
-  uint64_t Buckets[NumBuckets];
+  using BucketEntryTy = uint32_t;
+  BucketEntryTy Buckets[NumBuckets];
 
   void reset() {
     for (uint64_t I = 0; I < NumBuckets; ++I)
@@ -145,6 +146,7 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
       (8 * sizeof(char *) - NumRealPtrBits);
   static_assert(NumBucketValueBits <= sizeof(Buckets[0]) * 8,
                 "Bucket value too large!");
+  static_assert(8 * sizeof(char *) - NumRealPtrBits <= 8 * sizeof(Buckets[0]));
 
   union DecTy {
     char *MPtr;
@@ -169,8 +171,8 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
     DecTy D(MPtr);
     uint64_t BucketIdx = ~0u;
     for (uint64_t Idx = 0; Idx < NumBuckets; ++Idx) {
-      uint64_t Zero = 0;
-      uint64_t Desired = D.Bits.BucketValue;
+      BucketEntryTy Zero = 0;
+      BucketEntryTy Desired = D.Bits.BucketValue;
       auto BucketValue = __scoped_atomic_load_n(
           &Buckets[Idx], OrderingTy::aquire, MemScopeTy::device);
       if (BucketValue == Desired) [[likely]] {
@@ -187,7 +189,7 @@ struct BucketSchemeTy : public EncodingBaseTy<EncodingNo> {
       }
     }
     if (BucketIdx == ~0u) [[unlikely]] {
-      __builtin_trap();
+      //      __builtin_trap();
       return MPtr;
     }
     EncTy M(MPtr);
@@ -257,8 +259,12 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
 
   ObjDescTy Objects[NumObjects];
   uint64_t NumObjectsUsed;
+  uint64_t NumFreedObjects;
 
-  void reset() { NumObjectsUsed = 0; }
+  void reset() {
+    NumObjectsUsed = 0;
+    NumFreedObjects = 0;
+  }
 
   union EncTy {
     char *VPtr;
@@ -285,9 +291,17 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     uint64_t ObjectIdx = __scoped_atomic_fetch_add(
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
-      __builtin_trap();
+      if (!NumFreedObjects)
+        return MPtr;
+      for (uint64_t OI = 0; OI < NumObjects; ++OI) {
+        if (Objects[OI].ObjSize)
+          continue;
+        ObjectIdx = OI;
+        break;
+      }
+      //      __builtin_trap();
       // FPRINTF("out of objects (large)!\n");
-      return MPtr;
+      //      return MPtr;
     }
     EncTy M(MPtr);
     Objects[ObjectIdx] = {ObjSize, MPtr};
@@ -299,6 +313,7 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     EncTy E(VPtr);
     ASSUME(E.Bits.ObjectIdx < NumObjects);
     Objects[E.Bits.ObjectIdx].ObjSize = 0;
+    ++NumFreedObjects;
   }
 
   char *decode(char *VPtr) {
@@ -397,7 +412,7 @@ struct FixedLedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
       // FPRINTF("out of objects!\n");
-      __builtin_trap();
+      //      __builtin_trap();
     }
     Objects[ObjectIdx] = {MPtr};
     EncTy E(ObjectIdx);

@@ -40,6 +40,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PassManager.h"
@@ -80,6 +81,9 @@ static constexpr char AdapterPrefix[] = "__adapter_";
 [[maybe_unused]] static constexpr uint8_t SmallObjectEnc = 1;
 [[maybe_unused]] static constexpr uint8_t LargeObjectEnc = 2;
 [[maybe_unused]] static constexpr uint64_t SmallObjectSize = (1LL << 12);
+
+// Also in objsan_ir_rt.cpp
+static uint32_t MaxObjSizeForShadow = 64;
 
 // TODO: Make this a cmd line option
 static bool ClosedWorld = false;
@@ -192,18 +196,25 @@ public:
                           InstrumentorIRBuilderTy &IIRB) {
     RegisterCallsMap[Obj] = CI;
     if (!ClosedWorld && !isNonEscapingObj(Obj)) {
+      uint64_t Size = 0;
+      auto &TLI =
+          IIRB.analysisGetter<TargetLibraryAnalysis>(*CI->getFunction());
+      // TODO: We should introduce dynamic checks for mallocs
+      if (::getObjectSize(Obj, Size, IIRB.DL, &TLI))
+        if (Size > MaxObjSizeForShadow)
+          return;
       if (auto *AI = dyn_cast<AllocaInst>(Obj)) {
         AI->setAllocatedType(ArrayType::get(AI->getAllocatedType(), 2));
 
       } else if (auto *GV = dyn_cast<GlobalVariable>(Obj)) {
-        auto *ArrayTy = ArrayType::get(GV->getValueType(), 2);
-        GV->setValueType(ArrayTy);
-        if (GV->hasInitializer())
+        if (GV->hasInitializer()) {
+          GV->addMetadata("ig_shadow", *MDNode::get(Obj->getContext(), {}));
+          auto *ArrayTy = ArrayType::get(GV->getValueType(), 2);
+          GV->setValueType(ArrayTy);
           GV->setInitializer(ConstantArray::get(
               ArrayTy, {GV->getInitializer(), GV->getInitializer()}));
+        }
       } else if (auto *CB = dyn_cast<CallBase>(Obj)) {
-        auto &TLI =
-            IIRB.analysisGetter<TargetLibraryAnalysis>(*CB->getFunction());
         auto ACI = getAllocationCallInfo(CB, &TLI);
         assert(ACI && (ACI->SizeLHSArgNo >= 0 || ACI->SizeRHSArgNo >= 0));
         if (ACI->SizeLHSArgNo >= 0) {
@@ -511,8 +522,8 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
       uint64_t Size = 0;
       MPtr = GV;
       if (getObjectSize(GV, Size, DL, /*TLI=*/nullptr)) {
-        if (!ClosedWorld) 
-          Size = DL.getTypeAllocSize(GV->getValueType()->getArrayElementType());
+        if (GV->hasMetadata("ig_shadow"))
+          Size /= 2;
         ObjSize =
             ConstantInt::get(IntegerType::getInt64Ty(Ptr->getContext()), Size);
         return;
@@ -825,6 +836,21 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
   }
 
   ChangeStatus Changed = A.run();
+  auto &AI = A.getInfoCache();
+
+  // Verify stuff
+  for (Function &F : M) {
+    if (F.isIntrinsic() || F.isDeclaration())
+      continue;
+    auto *DT = AI.getAnalysisResultForFunction<DominatorTreeAnalysis>(
+        F, /*CachedOnly=*/true);
+    if (DT)
+      DT->verify();
+    auto *LI =
+        AI.getAnalysisResultForFunction<LoopAnalysis>(F, /*CachedOnly=*/true);
+    if (LI && DT)
+      LI->verify(*DT);
+  }
 
   AA::AccessRangeTy Range(AA::RangeTy::getUnknown(),
                           AA::RangeTy::getUnknownSize());
@@ -1927,6 +1953,8 @@ struct ExtendedBasePointerIO : public BasePointerIO {
 
     auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{VPtr, Fn}];
     EBPI.ObjectSize = ObjSize;
+#if 0
+    // TODO: This needs to be enabled only if we do not hand out mptr once we run out of objects
     if (ClosedWorld && MPtr &&
         (LSIConf.AIC->isKnownObject(MPtr) &&
          (!LSIConf.AIC->isNonEscapingObj(MPtr) ||
@@ -1938,8 +1966,9 @@ struct ExtendedBasePointerIO : public BasePointerIO {
                  LSIConf.AIC->getObjectSize(MPtr) < (1LL << 12)))) {
       EBPI.EncodingNo = IIRB.IRB.getInt8(SmallObjectEnc);
     } else {
-      EBPI.EncodingNo = IIRB.IRB.CreateLoad(IIRB.Int8Ty, CI->getArgOperand(2));
     }
+#endif
+    EBPI.EncodingNo = IIRB.IRB.CreateLoad(IIRB.Int8Ty, CI->getArgOperand(2));
 
     if (!MPtr)
       MPtr = IIRB.IRB.CreateCall(LSIConf.GetMPtrFC,
