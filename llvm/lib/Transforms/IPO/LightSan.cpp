@@ -316,6 +316,7 @@ private:
 };
 
 struct LightSanInstrumentationConfig : public InstrumentationConfig {
+  std::string RuntimeBitcodeStr;
 
   LightSanInstrumentationConfig(LightSanImpl &LSI, Module &M);
   virtual ~LightSanInstrumentationConfig() {}
@@ -1739,10 +1740,11 @@ bool LightSanImpl::instrument() {
 LightSanInstrumentationConfig::LightSanInstrumentationConfig(LightSanImpl &Impl,
                                                              Module &M)
     : InstrumentationConfig(), LSI(Impl) {
+  RuntimeBitcodeStr = ObjsanRuntimeBitcode + "." + M.getTargetTriple();
   ReadConfig = false;
   RuntimePrefix->setString(LightSanRuntimePrefix);
   RuntimeStubsFile->setString("");
-  RuntimeBitcode->setString(ObjsanRuntimeBitcode);
+  RuntimeBitcode->setString(RuntimeBitcodeStr);
   initializeFunctionCallees(M);
 }
 
