@@ -514,10 +514,12 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
       auto *&MPtr2 = V2M[{Ptr, Fn}];
       if (!MPtr2) {
         // Fallback to rt call.
-        auto *CI = IIRB.IRB.CreateCall(GetMPtrFC, {Ptr, BaseMPtr, EncNo});
+        auto *CI = IIRB.IRB.CreateCall(
+            GetMPtrFC,
+            {IIRB.IRB.CreateAddrSpaceCast(Ptr, IIRB.PtrTy), BaseMPtr, EncNo});
         IIRB.hoistInstructionsAndAdjustIP(*CI, BestIP, DT,
                                           /*ForceInitial=*/true);
-        MPtr2 = CI;
+        MPtr2 = IIRB.IRB.CreateAddrSpaceCast(CI, Ptr->getType());
       }
     }
 
