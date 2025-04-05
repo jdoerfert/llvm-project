@@ -2035,7 +2035,18 @@ struct ExtendedBasePointerIO : public BasePointerIO {
     if (!ObjSize)
       ObjSize = IIRB.IRB.CreateLoad(IIRB.Int64Ty, CI->getArgOperand(1));
 
-    auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{VPtr, Fn}];
+    // TODO Not sure if getUnderlyingObjectRecursive(VPtr) is what we want.
+    // we are getting an issue when we use BasePointerSizeOffsetMap to get the
+    // info for a function argument (in getBasePointerEncodingNo) which is
+    // addrspace 4 and the above
+    //
+    // auto *VPtr = CI->getArgOperand(0);
+    //
+    // caused us to get the addrspacecast to 0 for passing into the rt.
+    // So our lookup resulted in a nullptr.
+    auto &EBPI =
+        LSIConf
+            .BasePointerSizeOffsetMap[{getUnderlyingObjectRecursive(VPtr), Fn}];
     EBPI.ObjectSize = ObjSize;
 #if 0
     // TODO: This needs to be enabled only if we do not hand out mptr once we run out of objects
