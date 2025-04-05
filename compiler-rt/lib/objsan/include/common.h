@@ -13,13 +13,11 @@
 #ifndef OBJSAN_INCLUDE_COMMON_H
 #define OBJSAN_INCLUDE_COMMON_H
 
-// Freestanding headers
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdint.h>
-
 // Device compilation special handling headers
 #ifndef __OBJSAN_DEVICE__
+
+#include <stddef.h>
+#include <stdint.h>
 
 #include <cassert>
 #include <cinttypes>
@@ -34,11 +32,24 @@
 
 #else
 
+typedef signed long int int64_t;
+typedef unsigned long int uint64_t;
+typedef signed int int32_t;
+typedef unsigned int uint32_t;
+typedef signed short int int16_t;
+typedef unsigned short int uint16_t;
+typedef signed char int8_t;
+typedef unsigned char uint8_t;
+
+// FIXME unsure if this is correct???
+typedef uint64_t size_t;
+typedef uint64_t intptr_t;
+
 #define PRIu64 "lu"
 #define PRId64 "ld"
 
 extern "C" {
-int printf(...);
+int printf (const char *__restrict __format, ...);
 int vprintf(const char *format, va_list vlist);
 
 static inline int gpu_printf(const char *format, ...) {
@@ -60,8 +71,14 @@ static inline void __assert_fail(const char *expr, const char *file,
 #define FFLUSH(...)
 
 #ifdef NDEBUG
+#define __ASSERT_VOID_CAST static_cast<void>
 #define assert(expr) (__ASSERT_VOID_CAST(0))
 #else
+static inline void __assert_fail(const char *expr, const char *file,
+                                 unsigned line, const char *function) {
+  printf("%s:%u: %s: Assertion `%s` failed.\n", file, line, function, expr);
+  __builtin_trap();
+}
 #define assert(expr)                                                           \
   {                                                                            \
     if (!(expr))                                                               \
