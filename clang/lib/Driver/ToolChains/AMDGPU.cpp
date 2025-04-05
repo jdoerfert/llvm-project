@@ -1092,7 +1092,9 @@ bool AMDGPUToolChain::shouldSkipSanitizeOption(
   assert(OptionalGpuArch && "Invalid Target ID");
   (void)OptionalGpuArch;
   auto Loc = FeatureMap.find("xnack");
-  if (Loc == FeatureMap.end() || !Loc->second) {
+  if (K == SanitizerKind::Address &&
+      (Loc == FeatureMap.end() || !Loc->second)) {
+    // asan needs xnack+.
     Diags.Report(
         clang::diag::warn_drv_unsupported_option_for_offload_arch_req_feature)
         << A->getAsString(DriverArgs) << TargetID << "xnack+";
