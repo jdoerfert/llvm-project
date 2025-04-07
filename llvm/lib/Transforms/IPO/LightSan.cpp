@@ -1742,7 +1742,10 @@ bool LightSanImpl::instrument() {
 LightSanInstrumentationConfig::LightSanInstrumentationConfig(LightSanImpl &Impl,
                                                              Module &M)
     : InstrumentationConfig(), LSI(Impl) {
-  RuntimeBitcodeStr = ObjsanRuntimeBitcode + "." + M.getTargetTriple();
+  if (ObjsanRuntimeBitcode.getNumOccurrences() > 0)
+    RuntimeBitcodeStr = ObjsanRuntimeBitcode + "." + M.getTargetTriple();
+  else
+    RuntimeBitcodeStr = "";
   ReadConfig = false;
   RuntimePrefix->setString(LightSanRuntimePrefix);
   RuntimeStubsFile->setString("");
