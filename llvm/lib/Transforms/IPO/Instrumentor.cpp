@@ -514,7 +514,12 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
     }
 
     if (auto *IO = InstChoicesPOST.lookup(I.getOpcode())) {
-      IIRB.IRB.SetInsertPoint(I.getNextNonDebugInstruction());
+      if (!I.getType()->isVoidTy())
+        IIRB.IRB.SetInsertPoint(*I.getInsertionPointAfterDef());
+      if (auto *II = dyn_cast<InvokeInst>(&I))
+        IIRB.IRB.SetInsertPoint(II->getNormalDest()->getFirstNonPHIOrDbgOrAlloca());
+      else
+        IIRB.IRB.SetInsertPoint(I.getNextNonDebugInstruction());
       ensureDbgLoc(IIRB.IRB);
       Changed |= bool(IO->instrument(IPtr, IConf, IIRB, ICaches));
     }
@@ -593,8 +598,9 @@ bool InstrumentorImpl::instrumentModule() {
     auto Name = IConf.getRTName(Ctor ? "ctor" : "dtor", "");
     Function *YtorFn = Function::Create(FunctionType::get(IIRB.VoidTy, false),
                                         GlobalValue::PrivateLinkage, Name, M);
-    auto *GV = new GlobalVariable(M, YtorFn->getType(), true,
-                                  GlobalValue::ExternalLinkage, YtorFn, "");
+    auto *GV = new GlobalVariable(
+        M, YtorFn->getType(), true, GlobalValue::ExternalLinkage, YtorFn,
+        M.getName() + "." + std::to_string(std::rand()));
     GV->setSection(Name);
 
     auto *EntryBB = BasicBlock::Create(IIRB.Ctx, "entry", YtorFn);
@@ -1075,6 +1081,7 @@ void InstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   AllocaIO::populate(*this, IIRB.Ctx);
   BranchIO::populate(*this, IIRB.Ctx);
   StoreIO::populate(*this, IIRB);
+  AtomicRMWIO::populate(*this, IIRB);
   LoadIO::populate(*this, IIRB);
   CallIO::populate(*this, IIRB.Ctx);
   ICmpIO::populate(*this, IIRB.Ctx);
@@ -1204,7 +1211,7 @@ Value *InstrumentationOpportunity::replaceValue(Value &V, Value &NewV,
   auto *NewVCasted = &NewV;
   if (auto *I = dyn_cast<Instruction>(&NewV)) {
     IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
-    IIRB.IRB.SetInsertPoint(I->getNextNode());
+    IIRB.IRB.SetInsertPoint(*I->getInsertionPointAfterDef());
     ensureDbgLoc(IIRB.IRB);
     NewVCasted = tryToCast(IIRB.IRB, &NewV, V.getType(), IIRB.DL,
                            /*AllowTruncate=*/true);
@@ -1774,6 +1781,74 @@ Value *LoadIO::isVolatile(Value &V, Type &Ty, InstrumentationConfig &IConf,
   return getCI(&Ty, LI.isVolatile());
 }
 
+Value *AtomicRMWIO::getPointer(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                           InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return ARMW.getPointerOperand();
+}
+Value *AtomicRMWIO::setPointer(Value &V, Value &NewV, InstrumentationConfig &IConf,
+                           InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  ARMW.setOperand(ARMW.getPointerOperandIndex(), &NewV);
+  return &ARMW;
+}
+Value *AtomicRMWIO::getPointerAS(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return getCI(&Ty, ARMW.getPointerAddressSpace());
+}
+Value *AtomicRMWIO::getBasePointerInfo(Value &V, Type &Ty,
+                                   InstrumentationConfig &IConf,
+                                   InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return IConf.getBasePointerInfo(*ARMW.getPointerOperand(), IIRB);
+}
+Value *AtomicRMWIO::getLoopValueRangeInfo(Value &V, Type &Ty,
+                                      InstrumentationConfig &IConf,
+                                      InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return IConf.getLoopValueRange(
+      *ARMW.getPointerOperand(), IIRB,
+      IIRB.DL.getTypeStoreSize(ARMW.getValOperand()->getType()));
+}
+Value *AtomicRMWIO::getValue(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                         InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return ARMW.getValOperand();
+}
+Value *AtomicRMWIO::getValueSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  auto &DL = ARMW.getDataLayout();
+  return getCI(&Ty, DL.getTypeStoreSize(ARMW.getValOperand()->getType()));
+}
+Value *AtomicRMWIO::getAlignment(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return getCI(&Ty, ARMW.getAlign().value());
+}
+Value *AtomicRMWIO::getValueTypeId(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                               InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return getCI(&Ty, ARMW.getValOperand()->getType()->getTypeID());
+}
+Value *AtomicRMWIO::getAtomicityOrdering(Value &V, Type &Ty,
+                                     InstrumentationConfig &IConf,
+                                     InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return getCI(&Ty, uint64_t(ARMW.getOrdering()));
+}
+Value *AtomicRMWIO::getSyncScopeId(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                               InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return getCI(&Ty, uint64_t(ARMW.getSyncScopeID()));
+}
+Value *AtomicRMWIO::isVolatile(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                           InstrumentorIRBuilderTy &IIRB) {
+  auto &ARMW = cast<AtomicRMWInst>(V);
+  return getCI(&Ty, ARMW.isVolatile());
+}
+
 Value *CallIO::getCallee(Value &V, Type &Ty, InstrumentationConfig &IConf,
                          InstrumentorIRBuilderTy &IIRB) {
   auto &CI = cast<CallInst>(V);
@@ -1891,6 +1966,128 @@ Value *CallIO::setCallParameters(Value &V, Value &NewV,
 Value *CallIO::isDefinition(Value &V, Type &Ty, InstrumentationConfig &IConf,
                             InstrumentorIRBuilderTy &IIRB) {
   auto &CI = cast<CallInst>(V);
+  if (auto *Fn = CI.getCalledFunction())
+    return getCI(&Ty, !Fn->isDeclaration());
+  return getCI(&Ty, 0);
+}
+
+Value *InvokeIO::getCallee(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                         InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
+  if (CI.getIntrinsicID() != Intrinsic::not_intrinsic)
+    return Constant::getNullValue(&Ty);
+  return CI.getCalledOperand();
+}
+Value *InvokeIO::getCalleeName(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
+  if (auto *Fn = CI.getCalledFunction())
+    return IConf.getGlobalString(IConf.DemangleFunctionNames->getBool()
+                                     ? demangle(Fn->getName())
+                                     : Fn->getName(),
+                                 IIRB);
+  return Constant::getNullValue(&Ty);
+}
+Value *InvokeIO::getIntrinsicId(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
+  return getCI(&Ty, CI.getIntrinsicID());
+}
+Value *InvokeIO::getAllocationInfo(Value &V, Type &Ty,
+                                 InstrumentationConfig &IConf,
+                                 InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
+  auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CI.getFunction());
+  auto ACI = getAllocationCallInfo(&CI, &TLI);
+  if (!ACI)
+    return Constant::getNullValue(&Ty);
+
+  auto &Ctx = CI.getContext();
+
+  StructType *STy = StructType::get(Ctx,
+                                    {IIRB.PtrTy, IIRB.Int32Ty, IIRB.Int32Ty,
+                                     IIRB.Int32Ty, IIRB.Int8Ty, IIRB.Int32Ty},
+                                    /*isPacked=*/true);
+  SmallVector<Constant *> Values;
+
+  if (ACI->Family)
+    Values.push_back(IConf.getGlobalString(*ACI->Family, IIRB));
+  else
+    Values.push_back(Constant::getNullValue(IIRB.PtrTy));
+
+  Values.push_back(getCI(IIRB.Int32Ty, ACI->SizeLHSArgNo));
+  Values.push_back(getCI(IIRB.Int32Ty, ACI->SizeRHSArgNo));
+  Values.push_back(getCI(IIRB.Int32Ty, ACI->AlignmentArgNo));
+
+  if (auto *InitialCI = dyn_cast_if_present<ConstantInt>(ACI->InitialValue)) {
+    Values.push_back(getCI(IIRB.Int8Ty, 1));
+    Values.push_back(getCI(IIRB.Int32Ty, InitialCI->getZExtValue()));
+  } else if (isa_and_present<UndefValue>(ACI->InitialValue)) {
+    Values.push_back(getCI(IIRB.Int8Ty, 2));
+    Values.push_back(getCI(IIRB.Int32Ty, 0));
+  } else {
+    Values.push_back(getCI(IIRB.Int8Ty, 0));
+    Values.push_back(getCI(IIRB.Int32Ty, 0));
+  }
+
+  Constant *Initializer = ConstantStruct::get(STy, Values);
+  GlobalVariable *&GV = IConf.ConstantGlobalsCache[Initializer];
+  if (!GV)
+    GV = new GlobalVariable(*CI.getModule(), STy, true,
+                            GlobalValue::InternalLinkage, Initializer,
+                            IConf.getRTName().str() + "allocation_call_info");
+  return GV;
+}
+Value *InvokeIO::getValueSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                            InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
+  if (CI.getType()->isVoidTy())
+    return getCI(&Ty, 0);
+  auto &DL = CI.getDataLayout();
+  return getCI(&Ty, DL.getTypeStoreSize(CI.getType()));
+}
+Value *InvokeIO::getNumCallParameters(Value &V, Type &Ty,
+                                    InstrumentationConfig &IConf,
+                                    InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
+  if (!Config.ArgFilter)
+    return getCI(&Ty, CI.arg_size());
+  auto FRange = make_filter_range(CI.args(), Config.ArgFilter);
+  return getCI(&Ty, std::distance(FRange.begin(), FRange.end()));
+}
+Value *InvokeIO::getCallParameters(Value &V, Type &Ty,
+                                 InstrumentationConfig &IConf,
+                                 InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
+  if (!Config.ArgFilter)
+    return createValuePack(CI.args(), IConf, IIRB);
+  return createValuePack(make_filter_range(CI.args(), Config.ArgFilter), IConf,
+                         IIRB);
+}
+Value *InvokeIO::setCallParameters(Value &V, Value &NewV,
+                                 InstrumentationConfig &IConf,
+                                 InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
+  auto *CIt = CI.arg_begin();
+  auto CB = [&](int Idx, Value *ReplV) {
+    while (Config.ArgFilter && !Config.ArgFilter(*CIt))
+      ++CIt;
+    // Do not replace `immarg` operands with a non-immediate.
+    if (CI.getParamAttr(CIt->getOperandNo(), Attribute::ImmArg).isValid())
+      return;
+    CIt->set(ReplV);
+    ++CIt;
+  };
+  if (!Config.ArgFilter)
+    readValuePack(CI.args(), NewV, IIRB, CB);
+  else
+    readValuePack(make_filter_range(CI.args(), Config.ArgFilter), NewV, IIRB,
+                  CB);
+  return &CI;
+}
+Value *InvokeIO::isDefinition(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                            InstrumentorIRBuilderTy &IIRB) {
+  auto &CI = cast<InvokeInst>(V);
   if (auto *Fn = CI.getCalledFunction())
     return getCI(&Ty, !Fn->isDeclaration());
   return getCI(&Ty, 0);
