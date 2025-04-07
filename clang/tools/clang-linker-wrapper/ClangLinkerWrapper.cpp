@@ -345,7 +345,8 @@ Error runLinker(ArrayRef<StringRef> Files, const ArgList &Args) {
   ArgStringList NewLinkerArgs;
   for (const opt::Arg *Arg : Args) {
     // Do not forward arguments only intended for the linker wrapper.
-    if (Arg->getOption().hasFlag(WrapperOnlyOption))
+    if (Arg->getOption().hasFlag(WrapperOnlyOption) &&
+        !(Arg->getOption().getName() == "mllvm" && LinkerPath.ends_with("lld")))
       continue;
 
     Arg->render(Args, NewLinkerArgs);
