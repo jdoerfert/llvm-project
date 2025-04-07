@@ -146,7 +146,8 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
   //  TODO: this should switch on closed world
   // Copy the shadow over as part of a memcpy/move
   if (IntrinsicId == 238 || IntrinsicId == 241) {
-    if (Obj1EncNo && Obj2EncNo && Obj1Size <= MaxObjSizeForShadow) {
+    if (Obj1EncNo && Obj2EncNo && Obj1Size <= MaxObjSizeForShadow &&
+        Obj1Size <= MaxObjSizeForShadow) {
       if (IntrinsicId == 238)
         __builtin_memcpy(Obj1MPtr + Obj1Size, Obj2MPtr + Obj2Size,
                          AccessLength1);
@@ -159,17 +160,15 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
 
   for (int32_t I = 0; I < num_parameters; ++I) {
     ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
-    if (VP->TypeId == 14) {
-      char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
-      char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
-      uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(*PtrAddr);
-      if (EncodingNo)
-        *PtrAddr = [&]() -> char * {
-          ENCODING_NO_SWITCH(decode, EncodingNo, nullptr, *PtrAddr);
-        }();
-    }
-    parameters += sizeof(ParameterValuePackTy) + VP->Size +
-                  (VP->Size % 8 ? 8 - VP->Size % 8 : 0);
+    assert(VP->TypeId == 14);
+    char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
+    char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
+    uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(*PtrAddr);
+    if (EncodingNo)
+      *PtrAddr = [&]() -> char * {
+        ENCODING_NO_SWITCH(decode, EncodingNo, nullptr, *PtrAddr);
+      }();
+    parameters += sizeof(ParameterValuePackTy) + sizeof(void *);
   }
 
 #ifndef __OBJSAN_DEVICE__
