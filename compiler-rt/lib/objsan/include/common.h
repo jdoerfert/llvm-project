@@ -67,7 +67,11 @@ static inline void __assert_fail(const char *expr, const char *file,
 }
 }
 
+#ifdef __OBJSAN_DEVICE_DISABLE_PRINTF__
 #define FPRINTF(...) gpu_printf(__VA_ARGS__)
+#else
+#define FPRINTF(...) printf(__VA_ARGS__)
+#endif
 #define FFLUSH(...)
 
 #ifdef NDEBUG
@@ -99,6 +103,12 @@ template <typename T1, typename T2> struct pair {
 } // namespace std
 
 #endif
+
+#define FATAL(...)                                                             \
+  do {                                                                         \
+    FPRINTF(__VA_ARGS__);                                                      \
+    __builtin_trap();                                                          \
+  } while (0)
 
 namespace __objsan {
 

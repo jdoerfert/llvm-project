@@ -16,7 +16,11 @@
 #endif
 
 #ifdef DEBUG
+#ifdef __OBJSAN_DEVICE_DISABLE_PRINTF__
 #define PRINTF(...) gpu_printf(__VA_ARGS__)
+#else
+#define PRINTF(...) printf(__VA_ARGS__)
+#endif
 #else
 #define PRINTF(...)
 #endif
@@ -586,7 +590,7 @@ uint8_t __objsan_post_icmp(uint8_t Result, uint32_t Predicate, char *LHS,
                            int32_t ID) {
   if (LHSBaseMPtr != RHSBaseMPtr && LHSBaseMPtr && RHSBaseMPtr) {
     // TODO: this triggers on vectorized inserted alias checks
-    //    FPRINTF("Pointer comparison of different objects (%p <> %p) [%p <> %p]
+    //    FATAL("Pointer comparison of different objects (%p <> %p) [%p <> %p]
     //    [%i]!",
     //            LHS, RHS, LHSBaseMPtr, RHSBaseMPtr, ID);
     //    __builtin_trap();

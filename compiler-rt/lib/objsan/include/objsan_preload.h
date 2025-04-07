@@ -41,7 +41,7 @@ public:
     assert(MPtr && "vptr is nullptr");
     assert(VPtr && "mptr is nullptr");
     std::lock_guard<std::mutex> LG(Lock);
-    return Map.try_emplace(VPtr, MPtr).second;
+    return Map.emplace(VPtr, MPtr).second;
   }
 
   void *translate(const void *VPtr) {
