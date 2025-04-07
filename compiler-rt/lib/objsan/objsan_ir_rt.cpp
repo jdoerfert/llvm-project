@@ -5,8 +5,14 @@
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
+#define USE_INV_POINTER
+
 #ifndef __DARWIN_ALIAS
 #define __DARWIN_ALIAS(sym)
+#endif
+
+#ifndef __OBJSAN_DEVICE__
+#include <new>
 #endif
 
 #ifdef DEBUG
@@ -14,6 +20,12 @@
 #else
 #define PRINTF(...)
 #endif
+
+static constexpr bool UseRealArgv = true;
+static constexpr bool UseShadowMemory = true;
+
+// Also in LightSan.cpp
+static constexpr uint32_t MaxObjSizeForShadow = 64;
 
 // Forward declaration
 extern "C" {
@@ -28,14 +40,22 @@ int getopt(int argc, char *const argv[], const char *optstring)
     __DARWIN_ALIAS(getopt);
 int getopt_long(int argc, char *const *argv, const char *optstring,
                 const struct option *longopts, int *longindex);
+
+#ifdef CXX_RT
+// void _ZdlPvj(void *, unsigned int);
+void _ZdlPvm(void *, unsigned long);
+// void _ZdaPvj(void *, unsigned int);
+void _ZdaPvm(void *, unsigned long);
+// void _ZdlPvjSt11align_val_t(void *, unsigned int, std::align_val_t);
+void _ZdlPvmSt11align_val_t(void *, unsigned long, std::align_val_t);
+// void _ZdaPvjSt11align_val_t(void *, unsigned int, std::align_val_t);
+void _ZdaPvmSt11align_val_t(void *, unsigned long, std::align_val_t);
+#endif
 #endif
 
 void *malloc(size_t size);
 size_t strlen(const char *str);
 }
-
-// Also in LightSan.cpp
-static uint32_t MaxObjSizeForShadow = 64;
 
 using namespace __objsan;
 
@@ -93,7 +113,7 @@ char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
 OBJSAN_BIG_API_ATTRS
 char *__objsan_post_alloca(char *MPtr, int64_t ObjSize,
                            int8_t RequiresTemporalCheck) {
-  PRINTF("%s %p %lli\n", __PRETTY_FUNCTION__, MPtr, ObjSize);
+  PRINTF("%s %p %li\n", __PRETTY_FUNCTION__, MPtr, ObjSize);
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
@@ -112,6 +132,8 @@ __objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t IsDefinition,
 }
 
 static inline void makeRealArgV(char *Ptr) {
+  if (UseRealArgv)
+    return;
   char **PtrAddr = *reinterpret_cast<char ***>(Ptr);
   int I = 0;
   while (PtrAddr[I])
@@ -143,9 +165,58 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
                             /*FailOnError=*/true, ID, ID);
 
 #ifndef __OBJSAN_DEVICE__
+#ifdef CXX_RT
+  if (Callee == &_ZdlPvm || Callee == &_ZdaPvm ||
+      Callee == &_ZdlPvmSt11align_val_t || Callee == &_ZdaPvmSt11align_val_t) {
+    ParameterValuePackTy *VP = (ParameterValuePackTy *)parameters;
+    char *VPValuePtr = reinterpret_cast<char *>(&VP->Value);
+    char **PtrAddr = reinterpret_cast<char **>(VPValuePtr);
+    char *VPtr = *PtrAddr;
+    VP = (ParameterValuePackTy *)(parameters + sizeof(ParameterValuePackTy) +
+                                  sizeof(void *));
+    VPValuePtr = reinterpret_cast<char *>(&VP->Value);
+    auto *SizeAddr = reinterpret_cast<uint64_t *>(VPValuePtr);
+    uint64_t Size = *SizeAddr;
+
+    uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
+    if (!EncodingNo) {
+      //      if (Callee == &_ZdlPvm )//|| Callee == &_ZdlPvmSt11align_val_t)
+      //	_ZdlPvm(VPtr, Size);
+      //      else if (Callee == &_ZdaPvm )//|| Callee ==
+      //      &_ZdaPvmSt11align_val_t)
+      //	_ZdaPvm(VPtr, Size);
+      return;
+    }
+
+    auto ObjSize = [&]() -> uint64_t {
+      ENCODING_NO_SWITCH(getSize, EncodingNo, 0, VPtr);
+    }();
+    if (ObjSize != Size) {
+      FPRINTF("Sized delete mismatch %lu vs %lu [%i]\n", Size, ObjSize, ID);
+      __builtin_trap();
+    }
+    if (UseShadowMemory && Size <= MaxObjSizeForShadow)
+      Size *= 2;
+    auto *MPtr = [&]() -> char * {
+      ENCODING_NO_SWITCH(decode, EncodingNo, VPtr, VPtr);
+    }();
+
+    *PtrAddr = MPtr;
+    //    if (Callee == &_ZdlPvm)
+    //      _ZdlPvm(MPtr, Size);
+    //    else if (Callee == &_ZdaPvm)
+    //      _ZdaPvm(MPtr, Size);
+
+    // TODO: Deal with the align versions
+    return;
+  }
+#endif
+#endif
+
+#ifndef __OBJSAN_DEVICE__
   //  TODO: this should switch on closed world
   // Copy the shadow over as part of a memcpy/move
-  if (IntrinsicId == 238 || IntrinsicId == 241) {
+  if (UseShadowMemory && (IntrinsicId == 238 || IntrinsicId == 241)) {
     if (Obj1EncNo && Obj2EncNo && Obj1Size <= MaxObjSizeForShadow &&
         Obj1Size <= MaxObjSizeForShadow) {
       if (IntrinsicId == 238)
@@ -194,6 +265,20 @@ void __objsan_pre_call(void *Callee, int64_t IntrinsicId,
 }
 
 OBJSAN_BIG_API_ATTRS
+void __objsan_pre_invoke(void *Callee, int64_t IntrinsicId,
+                         int32_t num_parameters, char *parameters,
+                         int64_t AccessLength1, char *Obj1VPtr, char *Obj1MPtr,
+                         char *Obj1BaseMPtr, int64_t Obj1Size, int8_t Obj1EncNo,
+                         int64_t AccessLength2, char *Obj2VPtr, char *Obj2MPtr,
+                         char *Obj2BaseMPtr, int64_t Obj2Size, int8_t Obj2EncNo,
+                         int32_t ID) {
+  __objsan_pre_call(Callee, IntrinsicId, num_parameters, parameters,
+                    AccessLength1, Obj1VPtr, Obj1MPtr, Obj1BaseMPtr, Obj1Size,
+                    Obj1EncNo, AccessLength2, Obj2VPtr, Obj2MPtr, Obj2BaseMPtr,
+                    Obj2Size, Obj2EncNo, ID);
+}
+
+OBJSAN_BIG_API_ATTRS
 char *__objsan_post_call(char *MPtr, uint64_t ObjSize,
                          int8_t RequiresTemporalCheck) {
   PRINTF("%s start: p: %p os: %" PRIu64 " rtc: %i\n", __PRETTY_FUNCTION__, MPtr,
@@ -203,11 +288,15 @@ char *__objsan_post_call(char *MPtr, uint64_t ObjSize,
   return __objsan_register_object(MPtr, ObjSize, RequiresTemporalCheck);
 }
 
+OBJSAN_BIG_API_ATTRS
+char *__objsan_post_invoke(char *MPtr, uint64_t ObjSize,
+                           int8_t RequiresTemporalCheck) {
+  return __objsan_post_call(MPtr, ObjSize, RequiresTemporalCheck);
+}
+
 OBJSAN_SMALL_API_ATTRS
 void __objsan_free_object(char *__restrict VPtr) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
-  if (!EncodingNo)
-    return;
   ENCODING_NO_SWITCH(free, EncodingNo, , VPtr);
 }
 
@@ -241,22 +330,25 @@ void __objsan_pre_function(int32_t NumArgs, char *__restrict Arguments) {
     return;
   auto ArgVSize = sizeof(char *) * (ArgC + 1);
   char **ArgV = *reinterpret_cast<char ***>(&ArgVVP->Value);
-  char **NewArgV = (char **)malloc(2 * ArgVSize);
-  // TODO: Use a global constant to determine if we assume closed world.
-  // this does not. In a closed world we don't need a new array (malloc)
+  if constexpr (UseRealArgv) {
+    char **NewArgV = (char **)malloc(2 * ArgVSize);
+    // TODO: Use a global constant to determine if we assume closed world.
+    // this does not. In a closed world we don't need a new array (malloc)
 #if 1
-  for (int32_t I = 0; I < ArgC; ++I) {
-    auto StrSize = strlen(ArgV[I]) + 1;
-    NewArgV[I] = ArgV[I];
-    NewArgV[I + ArgC + 1] =
-        __objsan_register_object(ArgV[I], StrSize,
-                                 /*RequiresTemporalCheck=*/true);
-  }
+    for (int32_t I = 0; I < ArgC; ++I) {
+      auto StrSize = strlen(ArgV[I]) + 1;
+      NewArgV[I] = ArgV[I];
+      NewArgV[I + ArgC + 1] =
+          __objsan_register_object(ArgV[I], StrSize,
+                                   /*RequiresTemporalCheck=*/true);
+    }
 #endif
-  NewArgV[2 * (ArgC + 1)] = nullptr;
-  *reinterpret_cast<char **>(&ArgVVP->Value) =
-      __objsan_register_object(reinterpret_cast<char *>(NewArgV), ArgVSize,
-                               /*RequiresTemporalCheck=*/true);
+    NewArgV[2 * (ArgC + 1)] = nullptr;
+    *reinterpret_cast<char **>(&ArgVVP->Value) =
+        __objsan_register_object(reinterpret_cast<char *>(NewArgV), ArgVSize,
+                                 /*RequiresTemporalCheck=*/true);
+  } else {
+  }
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -393,7 +485,11 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
     FPRINTF("l bad (%p) %p %p %p %" PRIu64 " %" PRIu64 " %i %i [%i]\n", VPtr,
             MPtr, BaseMPtr, LVRI, AccessSize, ObjSize, EncodingNo, WasChecked,
             ID);
-    return nullptr;
+#ifdef USE_INV_POINTER
+    return (char *)~0;
+#else
+    __builtin_trap();
+#endif
   }
   return MPtr;
 }
@@ -424,9 +520,21 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
     FPRINTF("s bad (%p) %p %p %p %" PRIu64 " %" PRIu64 " %i %i [%i]\n", VPtr,
             MPtr, BaseMPtr, LVRI, AccessSize, ObjSize, EncodingNo, WasChecked,
             ID);
-    return nullptr;
+#ifdef USE_INV_POINTER
+    return (char *)~0;
+#else
+    __builtin_trap();
+#endif
   }
   return MPtr;
+}
+
+OBJSAN_SMALL_API_ATTRS
+void *__objsan_pre_atomicrmw(char *VPtr, char *BaseMPtr, char *LVRI,
+                             uint64_t AccessSize, char *MPtr, uint64_t ObjSize,
+                             int8_t EncodingNo, int8_t WasChecked, int32_t ID) {
+  return __objsan_pre_store(VPtr, BaseMPtr, LVRI, AccessSize, MPtr, ObjSize,
+                            EncodingNo, WasChecked, ID);
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -444,7 +552,7 @@ void *__objsan_decode(char *VPtr) {
 OBJSAN_SMALL_API_ATTRS
 void *__objsan_post_load(char *BaseMPtr, char *LoadedMPtr, char *MPtr,
                          uint64_t ObjSize, int8_t EncodingNo, int32_t ID) {
-  if (!EncodingNo || ObjSize > MaxObjSizeForShadow)
+  if (!UseShadowMemory || !EncodingNo || ObjSize > MaxObjSizeForShadow)
     return LoadedMPtr;
   auto **ShadowMPtr = (char **)(MPtr + ObjSize);
   auto *ShadowVPtr = *ShadowMPtr;
@@ -461,7 +569,7 @@ void *__objsan_post_load(char *BaseMPtr, char *LoadedMPtr, char *MPtr,
 OBJSAN_SMALL_API_ATTRS
 void __objsan_post_store(char *BaseMPtr, char *StoredVPtr, char *MPtr,
                          uint64_t ObjSize, int8_t EncodingNo, int32_t ID) {
-  if (!EncodingNo || ObjSize > MaxObjSizeForShadow)
+  if (!UseShadowMemory || !EncodingNo || ObjSize > MaxObjSizeForShadow)
     return;
   auto **ShadowMPtr = (char **)(MPtr + ObjSize);
   *ShadowMPtr = StoredVPtr;

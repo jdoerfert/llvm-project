@@ -99,9 +99,14 @@ static cl::opt<bool> ObjsanGPUOnly("objsan-gpu-only", cl::desc("Sanitize GPU cod
 
 namespace {
 
-static bool isSpecialFunction(Function *Fn) {
-  if (Fn)
-    if (Fn->getName().contains("execvp") || Fn->getName().starts_with("getopt"))
+static bool isSpecialFunction(Function *Fn, TargetLibraryInfo &TLI) {
+  if (!Fn)
+    return false;
+  if (Fn->getName().contains("execvp") || Fn->getName().starts_with("getopt"))
+    return true;
+  LibFunc TheLibFunc;
+  if (TLI.getLibFunc(*Fn, TheLibFunc) && TLI.has(TheLibFunc))
+    if (isLibFreeFunction(Fn, TheLibFunc) && Fn->arg_size() > 1)
       return true;
   return false;
 }
@@ -249,6 +254,27 @@ public:
         Obj->dump();
         llvm_unreachable("TODO");
       }
+    }
+  }
+
+  void insertFreeCall(CallBase &CB, InstrumentorIRBuilderTy &IIRB) {
+    auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CB.getFunction());
+    auto *FreedPtr = getFreedOperand(&CB, &TLI);
+    assert(FreedPtr);
+    if (CB.getCalledFunction()->getName().starts_with("_ZdlPvj") ||
+        CB.getCalledFunction()->getName().starts_with("_ZdlPvm") ||
+        CB.getCalledFunction()->getName().starts_with("_ZdaPvj") ||
+        CB.getCalledFunction()->getName().starts_with("_ZdaPvm")) {
+      if (auto *SizeCI = dyn_cast<ConstantInt>(CB.getArgOperand(1))) {
+        if (SizeCI->getZExtValue() > MaxObjSizeForShadow)
+          return;
+      }
+      auto *Mul = IIRB.IRB.CreateMul(
+          CB.getArgOperand(1),
+          ConstantInt::get(CB.getArgOperand(1)->getType(), 2));
+      if (auto *MulI = dyn_cast<Instruction>(Mul))
+        MulI->moveBefore(CB.getIterator());
+      CB.setArgOperand(1, Mul);
     }
   }
 
@@ -573,8 +599,9 @@ struct LightSanImpl {
 
   bool instrument();
 
-  bool shouldImplementAdapter(Function &Fn);
-  static bool shouldInstrumentCall(CallInst &CI, InstrumentorIRBuilderTy &IIRB);
+  bool shouldImplementAdapter(Function &Fn, TargetLibraryInfo &TLI);
+  static bool shouldInstrumentCall(CallBase &CB, InstrumentationConfig &IConf,
+                                   InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentLoad(LoadInst &LI, InstrumentorIRBuilderTy &IIRB);
   bool shouldInstrumentStore(StoreInst &SI, InstrumentorIRBuilderTy &IIRB);
 
@@ -606,49 +633,84 @@ bool LightSanImpl::shouldInstrumentStore(StoreInst &SI,
   return true;
 }
 
-bool LightSanImpl::shouldImplementAdapter(Function &Fn) {
-  if (isSpecialFunction(&Fn))
+bool LightSanImpl::shouldImplementAdapter(Function &Fn,
+                                          TargetLibraryInfo &TLI) {
+  if (isSpecialFunction(&Fn, TLI))
     return false;
   return !Fn.isVarArg() && !Fn.isIntrinsic() && !Fn.hasLocalLinkage();
 }
 
-bool LightSanImpl::shouldInstrumentCall(CallInst &CI,
+bool LightSanImpl::shouldInstrumentCall(CallBase &CB,
+                                        InstrumentationConfig &IConf,
                                         InstrumentorIRBuilderTy &IIRB) {
-#if 0
-  if (!CI.hasFnAttr(Attribute::NoFree)) {
-    IConf.PotentiallyFreeCalls.push_back(&CI);
-    auto &TLI = IIRB.TLIGetter(*CI.getFunction());
-    if (auto *FreedPtr = getFreedOperand(&CI, &TLI)) {
-      auto FreeFC = M.getOrInsertFunction(
-          IConf.getRTName("", "free_object"),
-          FunctionType::get(IIRB.VoidTy, {IIRB.PtrTy}, false));
-      IIRB.IRB.CreateCall(FreeFC, {FreedPtr});
+  auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+  auto ArgV2Mptr = [&](auto Cond) {
+    for (auto [Idx, Arg] : enumerate(CB.args())) {
+      if (Cond(Idx, Arg))
+        CB.setArgOperand(Idx, LSIConf.getMPtr(*Arg, IIRB));
     }
-  }
-#endif
-
-  if (CI.isInlineAsm() || isa<UndefValue>(CI.getCalledOperand()) ||
-      isa<ConstantPointerNull>(CI.getCalledOperand()))
+  };
+  if (CB.isInlineAsm()) {
+    ArgV2Mptr([](uint32_t Idx, Value *ArgOp) {
+      return ArgOp->getType()->isPointerTy();
+    });
     return false;
-  Function *CalledFn = CI.getCalledFunction();
+  }
+  if (isa<UndefValue>(CB.getCalledOperand()) ||
+      isa<ConstantPointerNull>(CB.getCalledOperand()))
+    return false;
+  Function *CalledFn = CB.getCalledFunction();
   if (!CalledFn)
+    return true;
+  LibFunc TheLibFunc;
+  auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CB.getFunction());
+  if (TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc))
+    switch (TheLibFunc) {
+    case LibFunc_ZdlPvj:
+    case LibFunc_ZdlPvjSt11align_val_t:
+    case LibFunc_ZdlPvm:
+    case LibFunc_ZdlPvmSt11align_val_t:
+    case LibFunc_ZdaPvj:
+    case LibFunc_ZdaPvjSt11align_val_t:
+    case LibFunc_ZdaPvm:
+    case LibFunc_ZdaPvmSt11align_val_t: {
+//      auto FreeFC = IIRB.M.getOrInsertFunction(
+//	  IConf.getRTName("", "free_object"),
+//	  FunctionType::get(IIRB.VoidTy, {IIRB.PtrTy}, false));
+//      IIRB.IRB.CreateCall(FreeFC, {FreedPtr});
+//      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+//      LSIConf.AIC->insertFreeCall(CB, IIRB);
+//      IIRB.eraseLater(&CB);
+//      if (auto *II = dyn_cast<InvokeInst>(&CB)) 
+//	IIRB.IRB.CreateBr(II->getNormalDest());
+//    return false;
+      }
+    default:
+      break;
+    }
+  bool HasPtrArgs = false;
+  FunctionType *CalledFnTy = CalledFn->getFunctionType();
+  for (auto [Idx, ArgTy] : enumerate(CalledFnTy->params())) {
+    if (CB.isByValArgument(Idx)) {
+      CB.setArgOperand(Idx, LSIConf.getMPtr(*CB.getArgOperand(Idx), IIRB));
+      continue;
+    }
+    HasPtrArgs |= ArgTy->isPtrOrPtrVectorTy();
+  }
+  if (CalledFn->isVarArg())
     return true;
   if (!CalledFn->isDeclaration())
     return false;
   if (CalledFn->getName().starts_with(LightSanRuntimePrefix))
     return false;
-  if (CalledFn->isVarArg())
-    return true;
-  if (auto *II = dyn_cast<IntrinsicInst>(&CI))
+  if (auto *II = dyn_cast<IntrinsicInst>(&CB))
     if (II->isAssumeLikeIntrinsic())
       return false;
   if (CalledFn->getName().starts_with(AdapterPrefix))
     return false;
-  if (CI.getFunction()->getName().starts_with(AdapterPrefix))
+  if (CB.getFunction()->getName().starts_with(AdapterPrefix))
     return false;
-  FunctionType *CalledFnTy = CalledFn->getFunctionType();
-  if (none_of(CalledFnTy->params(),
-              [&](Type *ArgTy) { return ArgTy->isPtrOrPtrVectorTy(); }))
+  if (!HasPtrArgs)
     return false;
   return true;
 }
@@ -803,8 +865,8 @@ static bool collectAttributorInfo(Attributor &A, Module &M,
                                                    DepClassTy::REQUIRED);
     WorkList.emplace_back(CB, Size, AAPI);
   };
-  auto HandleCallBase = [&](CallBase *CI) {
-    for (auto &U : CI->args()) {
+  auto HandleCallBase = [&](CallBase *CB) {
+    for (auto &U : CB->args()) {
       if (U->getType()->isPtrOrPtrVectorTy()) {
         A.getOrCreateAAFor<AAUnderlyingObjects>(IRPosition::value(*U));
       }
@@ -925,11 +987,11 @@ void LightSanImpl::foreachRTCaller(StringRef Name,
 
 bool LightSanImpl::createWeakAdapters() {
   for (Function &Fn : M) {
-    if (!shouldImplementAdapter(Fn))
+    auto &TLI = FAM.getResult<TargetLibraryAnalysis>(Fn);
+    if (!shouldImplementAdapter(Fn, TLI))
       continue;
 
     if (Fn.isDeclaration()) {
-      auto &TLI = FAM.getResult<TargetLibraryAnalysis>(Fn);
       LibFunc TheLibFunc;
       if (TLI.getLibFunc(Fn, TheLibFunc) && TLI.has(TheLibFunc))
         continue;
@@ -1426,7 +1488,8 @@ bool LightSanImpl::instrument() {
 
 #if 1
   foreachRTCaller(IConf.getRTName("pre_", "call"), [&](CallInst &CI) {
-    if (isSpecialFunction(dyn_cast<Function>(CI.getArgOperand(0))))
+    auto &TLI = FAM.getResult<TargetLibraryAnalysis>(*CI.getFunction());
+    if (isSpecialFunction(dyn_cast<Function>(CI.getArgOperand(0)), TLI))
       return;
     auto NumParameters = cast<ConstantInt>(CI.getArgOperand(2))->getSExtValue();
     auto *ParameterDesc = CI.getArgOperand(3);
@@ -1828,27 +1891,27 @@ struct ExtendedGlobalIO : public GlobalIO {
   }
 };
 
-struct AllocatorCallIO : public CallIO {
-  AllocatorCallIO() : CallIO(/*IsPRE*/ false) {}
+template <typename BaseIO> struct AllocatorCallIO : public BaseIO {
+  AllocatorCallIO() : BaseIO(/*IsPRE*/ false) {}
   virtual ~AllocatorCallIO() {};
 
   void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
-    CallIO::ConfigTy PostCICConfig(/*Enable=*/false);
-    PostCICConfig.set(CallIO::PassReturnedValue);
-    CallIO::init(IConf, IIRB.Ctx, &PostCICConfig);
+    typename BaseIO::ConfigTy PostCICConfig(/*Enable=*/false);
+    PostCICConfig.set(BaseIO::PassReturnedValue);
+    BaseIO::init(IConf, IIRB.Ctx, &PostCICConfig);
 
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
-                             "The allocated object size.", IRTArg::NONE,
-                             getObjSize));
-    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "requires_temporal_check",
-                             "Flag to indicate that the global might be "
-                             "accessed after it was freed.",
-                             IRTArg::NONE, getRequiresTemporalCheck));
+    this->IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
+                                   "The allocated object size.", IRTArg::NONE,
+                                   getObjSize));
+    this->IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "requires_temporal_check",
+                                   "Flag to indicate that the global might be "
+                                   "accessed after it was freed.",
+                                   IRTArg::NONE, getRequiresTemporalCheck));
   }
 
   static Value *getObjSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
                            InstrumentorIRBuilderTy &IIRB) {
-    auto &CI = cast<CallInst>(V);
+    auto &CI = cast<CallBase>(V);
     auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CI.getFunction());
     auto ACI = getAllocationCallInfo(&CI, &TLI);
     Value *Size = nullptr;
@@ -1872,7 +1935,7 @@ struct AllocatorCallIO : public CallIO {
                     InstrumentorIRBuilderTy &IIRB,
                     InstrumentationCaches &ICaches) override {
     if (auto *CI = cast_if_present<CallInst>(
-            CallIO::instrument(V, IConf, IIRB, ICaches))) {
+            BaseIO::instrument(V, IConf, IIRB, ICaches))) {
       auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
       LSIConf.AIC->insertRegisterCall(V, CI, IIRB);
       return CI;
@@ -1887,7 +1950,7 @@ struct AllocatorCallIO : public CallIO {
     EAIO->CB = [&](Value &V) {
       if (LSIConf.AIC->isObjectSafe(&V))
         return false;
-      auto &CI = cast<CallInst>(V);
+      auto &CI = cast<CallBase>(V);
       if (CI.getCalledFunction() && !CI.getCalledFunction()->isDeclaration())
         return false;
       auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CI.getFunction());
@@ -2403,6 +2466,73 @@ struct PostStoreIO : public StoreIO {
   }
 };
 
+struct ExtendedAtomicRMWIO : public AtomicRMWIO {
+  ExtendedAtomicRMWIO(bool IsPRE) : AtomicRMWIO(IsPRE) {}
+  virtual ~ExtendedAtomicRMWIO() {};
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    AtomicRMWIO::ConfigTy ARMWCConfig(/*Enable=*/false);
+    ARMWCConfig.set(AtomicRMWIO::PassPointer);
+    ARMWCConfig.set(AtomicRMWIO::ReplacePointer);
+    ARMWCConfig.set(AtomicRMWIO::PassBasePointerInfo);
+    ARMWCConfig.set(AtomicRMWIO::PassLoopValueRangeInfo);
+    ARMWCConfig.set(AtomicRMWIO::PassStoredValueSize);
+    AtomicRMWIO::init(IConf, IIRB, &ARMWCConfig);
+
+    IRTArgs.push_back(
+        IRTArg(IIRB.PtrTy, "mptr", "The real pointer.", IRTArg::NONE, getMPtr));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size",
+                             "The size of the underlying object.", IRTArg::NONE,
+                             getObjectSize));
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "encoding_no",
+                             "The encoding number used for the pointer.",
+                             IRTArg::NONE, getEncodingNo));
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "was_checked",
+                             "Flag to indicate the access range was checked.",
+                             IRTArg::NONE, getWasChecked));
+    addCommonArgs(IConf, IIRB.Ctx, true);
+  }
+
+  static Value *getMPtr(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                        InstrumentorIRBuilderTy &IIRB) {
+    auto &LARMWConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &ARMW = cast<AtomicRMWInst>(V);
+    return LARMWConf.getMPtr(*ARMW.getPointerOperand(), IIRB);
+  }
+  static Value *getObjectSize(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    auto &LARMWConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &ARMW = cast<AtomicRMWInst>(V);
+    return LARMWConf.getBasePointerObjectSize(*ARMW.getPointerOperand(), IIRB);
+  }
+  static Value *getEncodingNo(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    auto &LARMWConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto &ARMW = cast<AtomicRMWInst>(V);
+    return LARMWConf.getBasePointerEncodingNo(*ARMW.getPointerOperand(), IIRB);
+  }
+  static Value *getWasChecked(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                              InstrumentorIRBuilderTy &IIRB) {
+    auto &LARMWConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    return ConstantInt::get(&Ty,
+                            LARMWConf.AIC->isAccessSafe(cast<Instruction>(&V)));
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto &LARMWConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    auto *EARMWO = IConf.allocate<ExtendedAtomicRMWIO>(/*IsPRE*/ true);
+    //    EARMWO->HoistKind = HOIST_IN_BLOCK;
+    EARMWO->CB = [&](Value &V) {
+      auto &ARMW = cast<AtomicRMWInst>(V);
+      if (auto *Obj = LARMWConf.AIC->getSafeAccessObj(&ARMW))
+        return !LARMWConf.AIC->isObjectSafe(Obj);
+      return true;
+    };
+    EARMWO->init(IConf, IIRB);
+  }
+};
+
 struct ExtendedFunctionIO : public FunctionIO {
   ExtendedFunctionIO(bool IsPRE) : FunctionIO(IsPRE) {}
   virtual ~ExtendedFunctionIO() {};
@@ -2543,59 +2673,84 @@ struct ExtendedICmpIO : public ICmpIO {
   }
 };
 
-struct ExtendedCallIO : public CallIO {
-  ExtendedCallIO() : CallIO(/*IsPRE*/ true) {}
+template <typename BaseIO> struct ExtendedCallIO : public BaseIO {
+  ExtendedCallIO() : BaseIO(/*IsPRE*/ true) {}
   virtual ~ExtendedCallIO() {};
 
   void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
-    CallIO::ConfigTy PreCICConfig(/*Enable=*/false);
-    PreCICConfig.set(CallIO::PassCallee);
-    PreCICConfig.set(CallIO::PassIntrinsicId);
-    PreCICConfig.set(CallIO::PassNumParameters);
-    PreCICConfig.set(CallIO::PassParameters);
+    typename BaseIO::ConfigTy PreCICConfig(/*Enable=*/false);
+    PreCICConfig.set(BaseIO::PassCallee);
+    PreCICConfig.set(BaseIO::PassIntrinsicId);
+    PreCICConfig.set(BaseIO::PassNumParameters);
+    PreCICConfig.set(BaseIO::PassParameters);
     PreCICConfig.ArgFilter = [&](Use &Op) {
+      LibFunc TheLibFunc;
+      auto *CB = dyn_cast<CallBase>(Op.getUser());
+      auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CB->getFunction());
+      auto *CalledFn = CB->getCalledFunction();
+      if (CalledFn && TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc))
+	switch (TheLibFunc) {
+	case LibFunc_ZdlPvj:
+	case LibFunc_ZdlPvjSt11align_val_t:
+	case LibFunc_ZdlPvm:
+	case LibFunc_ZdlPvmSt11align_val_t:
+	case LibFunc_ZdaPvj:
+	case LibFunc_ZdaPvjSt11align_val_t:
+	case LibFunc_ZdaPvm:
+	case LibFunc_ZdaPvmSt11align_val_t: {
+          return true;
+	default:
+	  break;
+        }
+      }
       return Op->getType()->isPointerTy() && !isa<ConstantPointerNull>(Op) &&
              !isa<UndefValue>(Op);
     };
-    CallIO::init(IConf, IIRB.Ctx, &PreCICConfig);
+    BaseIO::init(IConf, IIRB.Ctx, &PreCICConfig);
 
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "access_length_1",
-                             "The access length for objects 1 (if given).",
-                             IRTArg::NONE, getAccessLength1));
-    IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_vptr_1",
-                             "The allocated object vptr (for object 1).",
-                             IRTArg::NONE, getObjVPtr1));
-    IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_mptr_1",
-                             "The allocated object mptr (for object 1).",
-                             IRTArg::NONE, getObjMPtr1));
-    IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_base_mptr_1",
-                             "The allocated object base mptr (for object 1).",
-                             IRTArg::NONE, getObjBaseMPtr1));
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size_1",
-                             "The allocated object size (for object 1).",
-                             IRTArg::NONE, getObjSize1));
-    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "object_enc_no_1",
-                             "The allocated object encoding no (for object 1).",
-                             IRTArg::NONE, getObjEncNo1));
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "access_length_2",
-                             "The access length for objects 2 (if given).",
-                             IRTArg::NONE, getAccessLength2));
-    IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_vptr_2",
-                             "The allocated object vptr (for object 2).",
-                             IRTArg::NONE, getObjVPtr2));
-    IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_mptr_2",
-                             "The allocated object mptr (for object 2).",
-                             IRTArg::NONE, getObjMPtr2));
-    IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_base_mptr_2",
-                             "The allocated object base mptr (for object 2).",
-                             IRTArg::NONE, getObjBaseMPtr2));
-    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size_2",
-                             "The allocated object size (for object 2).",
-                             IRTArg::NONE, getObjSize2));
-    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "object_enc_no_2",
-                             "The allocated object encoding no (for object 2).",
-                             IRTArg::NONE, getObjEncNo2));
-    addCommonArgs(IConf, IIRB.Ctx, /*PassId=*/true);
+    this->IRTArgs.push_back(
+        IRTArg(IIRB.Int64Ty, "access_length_1",
+               "The access length for objects 1 (if given).", IRTArg::NONE,
+               getAccessLength1));
+    this->IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_vptr_1",
+                                   "The allocated object vptr (for object 1).",
+                                   IRTArg::NONE, getObjVPtr1));
+    this->IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_mptr_1",
+                                   "The allocated object mptr (for object 1).",
+                                   IRTArg::NONE, getObjMPtr1));
+    this->IRTArgs.push_back(
+        IRTArg(IIRB.PtrTy, "object_base_mptr_1",
+               "The allocated object base mptr (for object 1).", IRTArg::NONE,
+               getObjBaseMPtr1));
+    this->IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size_1",
+                                   "The allocated object size (for object 1).",
+                                   IRTArg::NONE, getObjSize1));
+    this->IRTArgs.push_back(
+        IRTArg(IIRB.Int8Ty, "object_enc_no_1",
+               "The allocated object encoding no (for object 1).", IRTArg::NONE,
+               getObjEncNo1));
+    this->IRTArgs.push_back(
+        IRTArg(IIRB.Int64Ty, "access_length_2",
+               "The access length for objects 2 (if given).", IRTArg::NONE,
+               getAccessLength2));
+    this->IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_vptr_2",
+                                   "The allocated object vptr (for object 2).",
+                                   IRTArg::NONE, getObjVPtr2));
+    this->IRTArgs.push_back(IRTArg(IIRB.PtrTy, "object_mptr_2",
+                                   "The allocated object mptr (for object 2).",
+                                   IRTArg::NONE, getObjMPtr2));
+    this->IRTArgs.push_back(
+        IRTArg(IIRB.PtrTy, "object_base_mptr_2",
+               "The allocated object base mptr (for object 2).", IRTArg::NONE,
+               getObjBaseMPtr2));
+    this->IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "object_size_2",
+                                   "The allocated object size (for object 2).",
+                                   IRTArg::NONE, getObjSize2));
+    this->IRTArgs.push_back(
+        IRTArg(IIRB.Int8Ty, "object_enc_no_2",
+               "The allocated object encoding no (for object 2).", IRTArg::NONE,
+               getObjEncNo2));
+    this->addCommonArgs(IConf, IIRB.Ctx, /*PassId=*/true);
   }
 
   struct AccessSummary {
@@ -3019,7 +3174,24 @@ struct ExtendedCallIO : public CallIO {
                        InstrumentorIRBuilderTy &IIRB) {
     auto *PreCIC = IConf.allocate<ExtendedCallIO>();
     PreCIC->CB = [&](Value &V) {
-      return LightSanImpl::shouldInstrumentCall(cast<CallInst>(V), IIRB);
+      auto &CB = cast<CallBase>(V);
+#if 0
+      if (!CB.hasFnAttr(Attribute::NoFree)) {
+        // IConf.PotentiallyFreeCalls.push_back(&CB);
+        auto &TLI =
+            IIRB.analysisGetter<TargetLibraryAnalysis>(*CB.getFunction());
+        if (auto *FreedPtr = getFreedOperand(&CB, &TLI)) {
+          auto FreeFC = IIRB.M.getOrInsertFunction(
+              IConf.getRTName("", "free_object"),
+              FunctionType::get(IIRB.VoidTy, {IIRB.PtrTy}, false));
+          IIRB.IRB.CreateCall(FreeFC, {FreedPtr});
+          auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+          LSIConf.AIC->insertFreeCall(CB, IIRB);
+        }
+      }
+#endif
+
+      return LightSanImpl::shouldInstrumentCall(CB, IConf, IIRB);
     };
     PreCIC->init(IConf, IIRB);
   }
@@ -3049,14 +3221,17 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedBasePointerIO::populate(*this, IIRB);
   ExtendedStoreIO::populate(*this, IIRB);
   ExtendedLoadIO::populate(*this, IIRB);
+  ExtendedAtomicRMWIO::populate(*this, IIRB);
   ExtendedLoopValueRangeIO::populate(*this, IIRB);
   ExtendedAllocaIO::populate(*this, IIRB);
   ExtendedFunctionIO::populate(*this, IIRB);
   ExtendedGlobalIO::populate(*this, IIRB);
   ExtendedICmpIO::populate(*this, IIRB);
   ExtendedVAArgIO::populate(*this, IIRB);
-  AllocatorCallIO::populate(*this, IIRB);
-  ExtendedCallIO::populate(*this, IIRB);
+  AllocatorCallIO<CallIO>::populate(*this, IIRB);
+  AllocatorCallIO<InvokeIO>::populate(*this, IIRB);
+  ExtendedCallIO<CallIO>::populate(*this, IIRB);
+  ExtendedCallIO<InvokeIO>::populate(*this, IIRB);
   if (!ClosedWorld) {
     PostLoadIO::populate(*this, IIRB);
     PostStoreIO::populate(*this, IIRB);

@@ -33,18 +33,16 @@ add_compiler_rt_component(objsan)
 add_custom_target(clang_rt.objsan)
 set_target_properties(clang_rt.objsan PROPERTIES FOLDER "Compiler-RT Misc")
 
-foreach(os ${SANITIZER_COMMON_SUPPORTED_OS})
-  add_compiler_rt_runtime(clang_rt.objsan
-    STATIC
-    OS ${os}
-    ARCHS ${OBJSAN_SUPPORTED_ARCH}
-    SOURCES ${OBJSAN_SOURCES}
+add_compiler_rt_runtime(clang_rt.objsan
+  STATIC
+  OS ${SANITIZER_COMMON_SUPPORTED_OS}
+  ARCHS ${OBJSAN_SUPPORTED_ARCH}
+  SOURCES ${OBJSAN_SOURCES}
 
-    ADDITIONAL_HEADERS ${OBJSAN_HEADERS}
-    CFLAGS ${OBJSAN_CFLAGS}
-    LINK_FLAGS ${OBJSAN_LINK_FLAGS}
-    PARENT_TARGET objsan)
-endforeach()
+  ADDITIONAL_HEADERS ${OBJSAN_HEADERS}
+  CFLAGS ${OBJSAN_CFLAGS}
+  LINK_FLAGS ${OBJSAN_LINK_FLAGS}
+  PARENT_TARGET objsan)
 
 if(COMPILER_RT_OBJSAN_BUILD_PRELOAD_LIBRARY)
   add_subdirectory(preload)
