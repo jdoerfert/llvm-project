@@ -195,7 +195,10 @@ public:
   void insertRegisterCall(Value *Obj, CallInst *CI,
                           InstrumentorIRBuilderTy &IIRB) {
     RegisterCallsMap[Obj] = CI;
-    if (!ClosedWorld && !isNonEscapingObj(Obj)) {
+    // TODO: && !isNonEscapingObj(Obj) if we have this property we could avoid
+    // doubling, but it is not clear we can always tell when we create the
+    // accesses into the shadow.
+    if (!ClosedWorld) {
       uint64_t Size = 0;
       auto &TLI =
           IIRB.analysisGetter<TargetLibraryAnalysis>(*CI->getFunction());
