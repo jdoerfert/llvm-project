@@ -590,19 +590,22 @@ bool InstrumentorImpl::instrumentModule() {
   }
 
   auto CreateYtor = [&](bool Ctor) {
-    Function *YtorFn = Function::Create(
-        FunctionType::get(IIRB.VoidTy, false), GlobalValue::PrivateLinkage,
-        IConf.getRTName(Ctor ? "ctor" : "dtor", ""), M);
+    auto Name = IConf.getRTName(Ctor ? "ctor" : "dtor", "");
+    Function *YtorFn = Function::Create(FunctionType::get(IIRB.VoidTy, false),
+                                        GlobalValue::PrivateLinkage, Name, M);
+    auto *GV = new GlobalVariable(M, YtorFn->getType(), true,
+                                  GlobalValue::ExternalLinkage, YtorFn, "");
+    GV->setSection(Name);
 
     auto *EntryBB = BasicBlock::Create(IIRB.Ctx, "entry", YtorFn);
     IIRB.IRB.SetInsertPoint(EntryBB, EntryBB->begin());
     ensureDbgLoc(IIRB.IRB);
     IIRB.IRB.CreateRetVoid();
 
-    if (Ctor)
-      appendToGlobalCtors(M, YtorFn, 1000);
-    else
-      appendToGlobalDtors(M, YtorFn, 1000);
+    //    if (Ctor)
+    //      appendToGlobalCtors(M, YtorFn, 1000);
+    //    else
+    //      appendToGlobalDtors(M, YtorFn, 1000);
     return YtorFn;
   };
 
