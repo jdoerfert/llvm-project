@@ -10,7 +10,7 @@
 #endif
 
 #ifdef DEBUG
-#define PRINTF(...) printf(__VA_ARGS__)
+#define PRINTF(...) gpu_printf(__VA_ARGS__)
 #else
 #define PRINTF(...)
 #endif
@@ -53,9 +53,9 @@ struct __attribute__((packed)) AllocationInfoTy {
 
 #define ENCODING_NO_SWITCH(Function, EncodingNo, Default, ...)                 \
   if (EncodingNo == 2) [[likely]]                                              \
-    return LargeObjects.Function(__VA_ARGS__);                                 \
+    return __objsan_LargeObjects.Function(__VA_ARGS__);                        \
   if (EncodingNo == 1) [[likely]]                                              \
-    return SmallObjects.Function(__VA_ARGS__);                                 \
+    return __objsan_SmallObjects.Function(__VA_ARGS__);                        \
   return Default;
 
 //  case 3:
@@ -83,11 +83,11 @@ OBJSAN_BIG_API_ATTRS
 char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
                                bool RequiresTemporalCheck) {
   if (ObjSize < SmallObjectsTy::getMaxSize() && !RequiresTemporalCheck)
-    if (auto *VPtr = SmallObjects.encode(MPtr, ObjSize)) [[likely]]
+    if (auto *VPtr = __objsan_SmallObjects.encode(MPtr, ObjSize)) [[likely]]
       return VPtr;
   //  if (ObjSize == FixedObjectsTy::ObjSize)
   //    return FixedObjects.encode(MPtr, ObjSize);
-  return LargeObjects.encode(MPtr, ObjSize);
+  return __objsan_LargeObjects.encode(MPtr, ObjSize);
 }
 
 OBJSAN_BIG_API_ATTRS
@@ -119,7 +119,7 @@ static inline void makeRealArgV(char *Ptr) {
   char **FakeEnv = (char **)malloc((I + 1) * sizeof(char *));
   I = 0;
   while (PtrAddr[I]) {
-    FakeEnv[I] = LargeObjects.decode(PtrAddr[I]);
+    FakeEnv[I] = __objsan_LargeObjects.decode(PtrAddr[I]);
     ++I;
   }
   FakeEnv[I] = nullptr;

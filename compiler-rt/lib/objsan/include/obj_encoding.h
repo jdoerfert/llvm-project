@@ -474,9 +474,6 @@ using SmallObjectsTy = BucketSchemeTy</*EncodingNo=*/1,
                                       /*RealPtrBits=*/32>;
 using LargeObjectsTy = LedgerSchemeTy</*EncodingNo=*/2, /*ObjectBits=*/24>;
 
-extern SmallObjectsTy SmallObjects;
-extern LargeObjectsTy LargeObjects;
-
 #ifdef STATS
 #ifndef __OBJSAN_DEVICE__
 struct StatsTy {
@@ -502,5 +499,11 @@ extern StatsTy SLoopR;
 #endif
 
 } // namespace __objsan
+
+extern "C" {
+extern __objsan::SmallObjectsTy __objsan_SmallObjects;
+extern __objsan::LargeObjectsTy __objsan_LargeObjects;
+};
+
 //
 #endif // OBJSAN_OBJ_ENCODING_H

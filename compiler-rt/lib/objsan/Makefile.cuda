@@ -1,14 +1,19 @@
 CXX=clang++
-CXXFLAGS=-std=c++20 -O3 -Wall -Wextra
+CXXFLAGS=-std=c++20 -O3 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
 CPPFLAGS=-I./include
 
 GPUARCH?=sm_70
 
+OBJSAN_IR_PATH=~/sources/llvm-project-dev/compiler-rt/lib/objsan
+OBJSAN_IR_CXXFLAGS=
+
 RT_OBJS=objsan_ir_rt.o objsan_rt.o
 PL_OBJS=objsan_preload.o objsan_preload_impl_cuda.o objsan_preload_cuda.o
-OBJS=$(RT_OBJS) $(PL_OBJS)
+OBJS=$(RT_OBJS) $(PL_OBJS) example.cuda.o
 
-all: libobjsan_preload_cuda.so
+PL_LIB=libobjsan_preload_cuda.a
+
+all: $(PL_LIB) example.cuda
 
 objsan_preload.o: preload/objsan_preload.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fPIC $< -c -o $@
@@ -25,8 +30,17 @@ objsan_ir_rt.o: objsan_ir_rt.cpp
 objsan_rt.o: objsan_rt.cpp
 	$(CXX) $(CPPFLAGS) -D__OBJSAN_DEVICE__ $(CXXFLAGS) --target=nvptx64-nvidia-unknown -march=$(GPUARCH) -nogpulib -nostdlibinc -fno-rtti -fno-exceptions -fconvergent-functions -Wno-unknown-cuda-version -flto $< -c -o $@
 
-libobjsan_preload_cuda.so: $(PL_OBJS) $(RT_OBJS)
-	$(CXX) -I$(CUDA_HOME)/include -shared -foffload-lto --offload-link --offload-arch=$(GPUARCH) -Xoffload-linker objsan_rt.o -Xoffload-linker objsan_ir_rt.o $(PL_OBJS) -o $@ -ldl -lcudart -L$(CUDA_HOME)/lib64
+libobjsan_preload_cuda.a: $(PL_OBJS) $(RT_OBJS)
+	$(CXX) -I$(CUDA_HOME)/include --emit-static-lib -foffload-lto --offload-arch=$(GPUARCH) $(PL_OBJS) -o $@
+
+example.cuda.o: example.cuda.cpp
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x cuda --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto $< -c -o $@
+
+example.cuda: example.cuda.o objsan_ir_rt.bc objsan_rt.o $(PL_LIB)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsanitize=object -mllvm -objsan-gpu-only=1 -mllvm -objsan-runtime-bitcode -mllvm objsan_ir_rt.bc --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto --offload-link -Xoffload-linker objsan_rt.o $< libobjsan_preload_cuda.a -o $@ -lcudart -L$(CUDA_HOME)/lib64
+
+objsan_ir_rt.bc: $(OBJSAN_IR_PATH)/objsan_ir_rt.cpp
+	$(CXX) -D__OBJSAN_DEVICE__ $(CXXFLAGS) $(OBJSAN_IR_CXXFLAGS) --target=nvptx64-nvidia-unknown -march=$(GPUARCH) -nogpulib -nostdlibinc -fno-rtti -fno-exceptions -fconvergent-functions -Wno-unknown-cuda-version -c -emit-llvm $< -o $@
 
 clean:
-	rm -f $(OBJS)
+	rm -f $(OBJS) $(PL_LIB) example.cuda objsan_ir_rt.bc

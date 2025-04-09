@@ -94,6 +94,9 @@ static cl::opt<std::string>
                                   "alwaysinline functions are inlined"),
                          cl::init(""));
 
+static cl::opt<bool> ObjsanCPUOnly("objsan-cpu-only", cl::desc("Sanitize CPU code only"), cl::init(false));
+static cl::opt<bool> ObjsanGPUOnly("objsan-gpu-only", cl::desc("Sanitize GPU code only"), cl::init(false));
+
 namespace {
 
 static bool isSpecialFunction(Function *Fn) {
@@ -101,6 +104,11 @@ static bool isSpecialFunction(Function *Fn) {
     if (Fn->getName().contains("execvp") || Fn->getName().starts_with("getopt"))
       return true;
   return false;
+}
+
+static bool isGPUTarget(const Module &M) {
+  Triple T(M.getTargetTriple());
+  return T.isAMDGPU() || T.isNVPTX();
 }
 
 struct LightSanImpl;
@@ -985,8 +993,11 @@ bool LightSanImpl::createAliasAdapters() {
 bool LightSanImpl::instrument() {
   bool Changed = false;
 
+  bool IsGPU = isGPUTarget(M);
+
   // Create weak function adapters for external functions.
-  Changed |= createWeakAdapters();
+  if (!IsGPU)
+    Changed |= createWeakAdapters();
 
 #if 0
   for (auto &Fn : M) {
@@ -1654,7 +1665,8 @@ bool LightSanImpl::instrument() {
 #endif
 
   // Create strong function aliases for exported functions.
-  Changed |= createAliasAdapters();
+  if (!IsGPU)
+    Changed |= createAliasAdapters();
 
   return Changed;
 }
@@ -3134,6 +3146,12 @@ PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM) {
 } // namespace
 
 PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
+  bool IsGPU = isGPUTarget(M);
+  if (ObjsanCPUOnly && IsGPU)
+    return PreservedAnalyses::all();
+  if (ObjsanGPUOnly && !IsGPU)
+    return PreservedAnalyses::all();
+
   static constexpr char ModuleFlag[] = "sanitize_obj";
   switch (Phase) {
   case ThinOrFullLTOPhase::None:
@@ -3144,7 +3162,8 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
     return PreservedAnalyses::all();
   case ThinOrFullLTOPhase::ThinLTOPostLink:
   case ThinOrFullLTOPhase::FullLTOPostLink:
-    if (M.getModuleFlag(ModuleFlag))
+    // TODO: Temporary workaround for GPU sanitizer.
+    if (M.getModuleFlag(ModuleFlag) || (ObjsanGPUOnly && IsGPU))
       return ::run(M, MAM);
     return PreservedAnalyses::all();
   }

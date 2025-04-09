@@ -1,9 +1,13 @@
 #include "include/obj_encoding.h"
 
-namespace __objsan {
+extern "C" {
 
-__attribute__((visibility("default"))) SmallObjectsTy SmallObjects;
-__attribute__((visibility("default"))) LargeObjectsTy LargeObjects;
+__attribute__((visibility("default"))) __objsan::SmallObjectsTy __objsan_SmallObjects;
+__attribute__((visibility("default"))) __objsan::LargeObjectsTy __objsan_LargeObjects;
+
+};
+
+namespace __objsan {
 
 #ifdef STATS
 #ifndef __OBJSAN_DEVICE__

@@ -14,6 +14,7 @@
 #define OBJSAN_INCLUDE_COMMON_H
 
 // Freestanding headers
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -38,15 +39,24 @@
 
 extern "C" {
 int printf(...);
+int vprintf(const char *format, va_list vlist);
+
+static inline int gpu_printf(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  int result = vprintf(format, args);
+  va_end(args);
+  return result;
+}
 
 static inline void __assert_fail(const char *expr, const char *file,
                                  unsigned line, const char *function) {
-  printf("%s:%u: %s: Assertion `%s` failed.\n", file, line, function, expr);
+  gpu_printf("%s:%u: %s: Assertion `%s` failed.\n", file, line, function, expr);
   __builtin_trap();
 }
 }
 
-#define FPRINTF(...) printf(__VA_ARGS__)
+#define FPRINTF(...) gpu_printf(__VA_ARGS__)
 #define FFLUSH(...)
 
 #ifdef NDEBUG
