@@ -2330,12 +2330,15 @@ void Attributor::registerForUpdate(AbstractAttribute &AA) {
 }
 
 ChangeStatus Attributor::manifestAttributes() {
+  ChangeStatus ManifestChange = ChangeStatus::UNCHANGED;
+  if (!Configuration.Manifest)
+    return ManifestChange;
+
   TimeTraceScope TimeScope("Attributor::manifestAttributes");
   size_t NumFinalAAs = DG.SyntheticRoot.Deps.size();
 
   unsigned NumManifested = 0;
   unsigned NumAtFixpoint = 0;
-  ChangeStatus ManifestChange = ChangeStatus::UNCHANGED;
   for (auto &DepAA : DG.SyntheticRoot.Deps) {
     AbstractAttribute *AA = cast<AbstractAttribute>(DepAA.getPointer());
     AbstractState &State = AA->getState();
@@ -2474,6 +2477,9 @@ void Attributor::identifyDeadInternalFunctions() {
 }
 
 ChangeStatus Attributor::cleanupIR() {
+  if (!Configuration.Manifest)
+    return ChangeStatus::UNCHANGED;
+
   TimeTraceScope TimeScope("Attributor::cleanupIR");
   // Delete stuff at the end to avoid invalid references and a nice order.
   LLVM_DEBUG(dbgs() << "\n[Attributor] Delete/replace at least "

@@ -1649,6 +1649,9 @@ struct AttributorConfig {
   /// Maximum number of iterations to run until fixpoint.
   std::optional<unsigned> MaxFixpointIterations;
 
+  ///
+  bool Manifest;
+
   /// A callback function that returns an ORE object from a Function pointer.
   ///{
   using OptimizationRemarkGetter =

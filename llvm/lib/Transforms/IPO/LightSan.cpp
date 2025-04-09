@@ -297,10 +297,11 @@ public:
 
 private:
   const AAUnderlyingObjects *getAAUO(Value *Obj) const {
-    if (Obj)
+    if (Obj) {
       if (auto *AAUO =
               A.lookupAAFor<AAUnderlyingObjects>(IRPosition::value(*Obj)))
         return AAUO;
+    }
     return nullptr;
   }
   DenseMap<Value *, uint64_t> SanitizedObjects;
@@ -1094,7 +1095,7 @@ bool LightSanImpl::instrument() {
 
   // FIXME: Do we need more stuff here or just allow everything?
   DenseSet<const char *> Allowed(
-      {&AAPointerInfo::ID, &AAUnderlyingObjects::ID, &AAPotentialValues::ID,
+      {&AAPointerInfo::ID, &AAUnderlyingObjects::ID, // &AAPotentialValues::ID,
        &AAPotentialConstantValues::ID, &AAValueConstantRange::ID,
        &AAInstanceInfo::ID});
 
@@ -1104,6 +1105,7 @@ bool LightSanImpl::instrument() {
   AC.IsModulePass = true;
   AC.RewriteSignatures = false;
   AC.MaxFixpointIterations = 32;
+  AC.Manifest = false;
   AC.PassName = DEBUG_TYPE;
 
   SetVector<Function *> Functions;
@@ -1117,7 +1119,7 @@ bool LightSanImpl::instrument() {
   IConf.AIC = &Cache;
   IConf.InlineRuntimeEagerly->setBool(false);
 
-  //  Changed |= collectAttributorInfo(A, M, Cache);
+  Changed |= collectAttributorInfo(A, M, Cache);
 
   InstrumentorPass IP(&IConf, &IIRB);
   auto PA = IP.run(M, MAM);

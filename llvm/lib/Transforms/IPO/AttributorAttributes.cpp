@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/Operator.h"
 #include "llvm/Transforms/IPO/Attributor.h"
 
 #include "llvm/ADT/APInt.h"
@@ -1690,24 +1691,24 @@ bool AAPointerInfoFloating::collectConstantsForGEP(Attributor &A,
   // combination of elements, picked one each from these sets, is separately
   // added to the original set of offsets, thus resulting in more offsets.
   for (const auto &VI : VariableOffsets) {
+    AAPotentialValues::SetTy AssumedSet;
     auto *PotentialValuesAA = A.getAAFor<AAPotentialValues>(
         *this, IRPosition::value(*VI.first), DepClassTy::OPTIONAL);
     if (!PotentialValuesAA || !PotentialValuesAA->isValidState()) {
-      UsrOI.setUnknown();
-      return true;
+      AssumedSet.insert({{*VI.first, nullptr}, AA::ValueScope::AnyScope});
+    } else {
+      // UndefValue is treated as a zero, which leaves Union as is.
+      if (PotentialValuesAA->undefIsContained())
+        continue;
+
+      // We need at least one constant in every set to compute an actual offset.
+      // Otherwise, we end up pessimizing AAPointerInfo by respecting offsets
+      // that don't actually exist. In other words, the absence of constant
+      // values implies that the operation can be assumed dead for now.
+      AssumedSet = PotentialValuesAA->getAssumedSet();
+      if (AssumedSet.empty())
+        return false;
     }
-
-    // UndefValue is treated as a zero, which leaves Union as is.
-    if (PotentialValuesAA->undefIsContained())
-      continue;
-
-    // We need at least one constant in every set to compute an actual offset.
-    // Otherwise, we end up pessimizing AAPointerInfo by respecting offsets that
-    // don't actually exist. In other words, the absence of constant values
-    // implies that the operation can be assumed dead for now.
-    auto &AssumedSet = PotentialValuesAA->getAssumedSet();
-    if (AssumedSet.empty())
-      return false;
 
     OffsetInfo Product;
     for (const auto &[ValAndCtx, VacScope] : AssumedSet) {
@@ -1788,13 +1789,17 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
   auto UsePred = [&](const Use &U, bool &Follow) -> bool {
     Value *CurPtr = U.get();
     User *Usr = U.getUser();
-    LLVM_DEBUG(dbgs() << "[AAPointerInfo] Analyze " << *CurPtr << " in " << *Usr
-                      << "\n");
+    LLVM_DEBUG(dbgs() << "[AAPointerInfo] Analyze " << *CurPtr << " in " << *Usr << "\n");
+    assert(isa<PtrToIntOperator>(CurPtr) ||
+           CurPtr->getType()->isPtrOrPtrVectorTy());
     assert(OffsetInfoMap.count(CurPtr) &&
            "The current pointer offset should have been seeded!");
     assert(!OffsetInfoMap[CurPtr].isUnassigned() &&
            "Current pointer should be assigned");
-
+    if (isa<PtrToIntOperator>(Usr)) {
+      Changed |= addUnknownUses(U);
+      return true;
+    }
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Usr)) {
       if (CE->isCast())
         return HandlePassthroughUser(Usr, CurPtr, Follow);
@@ -1821,10 +1826,6 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
       }
 
       Follow = collectConstantsForGEP(A, DL, UsrOI, PtrOI, GEP);
-      return true;
-    }
-    if (isa<PtrToIntInst>(Usr)) {
-      Changed |= addUnknownUses(U);
       return true;
     }
     if (isa<CastInst>(Usr) || isa<SelectInst>(Usr))
@@ -1867,6 +1868,7 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
         assert(!PtrOI.isUnassigned() &&
                "Cannot assign if the current Ptr was not visited!");
         LLVM_DEBUG(dbgs() << "[AAPointerInfo] PHI is invariant (so far)");
+        Follow = true;
         return true;
       }
 
