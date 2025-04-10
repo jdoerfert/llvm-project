@@ -51,7 +51,12 @@ static inline void __assert_fail(const char *expr, const char *file,
 #define FFLUSH(...)
 
 #ifdef NDEBUG
-#define assert(expr) (__ASSERT_VOID_CAST(0))
+#if defined __cplusplus && __GNUC_PREREQ(2, 95)
+#define __ASSERT_VOID_CAST static_cast<void>
+#else
+#define __ASSERT_VOID_CAST (void)
+#endif
+#define assert(expr) ((void)(0))
 #else
 #define assert(expr)                                                           \
   {                                                                            \
