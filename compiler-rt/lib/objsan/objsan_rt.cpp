@@ -20,6 +20,7 @@ __attribute__((visibility("default"))) StatsTy SLoopR("loopr");
 
 } // namespace __objsan
 
+#ifndef __OBJSAN_DEVICE__
 extern "C" {
 using CtorFn = void (*)(void);
 extern CtorFn __start___objsan_ctor;
@@ -34,3 +35,4 @@ __attribute__((constructor(1000))) void __objsan_ctor_init() {
     (*Ctor)();
 }
 }
+#endif

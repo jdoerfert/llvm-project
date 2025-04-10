@@ -601,7 +601,17 @@ bool InstrumentorImpl::instrumentModule() {
     auto *GV = new GlobalVariable(
         M, YtorFn->getType(), true, GlobalValue::ExternalLinkage, YtorFn,
         M.getName() + "." + std::to_string(std::rand()));
-    GV->setSection(Name);
+    if (!llvm::Triple(M.getTargetTriple()).isAMDGPU()) {
+      GV->setSection(Name);
+    } else {
+      if (GlobalVariable *ExistingGV = M.getGlobalVariable(Name)) {
+        // TODO we may need addrspace cast
+        //ExistingGV->setInitializer(ConstantExpr::getAddrSpaceCast(YtorFn, ExistingGV->getValueType()));
+        ExistingGV->setInitializer(YtorFn);
+      }else {
+        GV->setName(Name);
+      }
+    }
 
     auto *EntryBB = BasicBlock::Create(IIRB.Ctx, "entry", YtorFn);
     IIRB.IRB.SetInsertPoint(EntryBB, EntryBB->begin());

@@ -24,7 +24,15 @@ __objsan_register_object(char *MPtr, uint64_t ObjSize,
 
 extern "C" __device__ void __objsan_free_object(char *VPtr);
 
+using CtorFn = void (*)(void);
+extern "C" __device__ CtorFn *__objsan_ctor;
+
 namespace {
+
+__global__ void runConstructors() {
+  CtorFn *Ctor = __objsan_ctor;
+  (*Ctor)();
+}
 
 __global__ void registerKernel(void **VPtr, void *MPtr, size_t Size) {
   *VPtr = __objsan_register_object(reinterpret_cast<char *>(MPtr), Size,
@@ -101,3 +109,7 @@ void *launchUnregisterKernel(void *VPtr) {
 }
 } // namespace impl
 } // namespace objsan
+
+__attribute__((constructor(70000))) void __objsan_ctor_hip_init() {
+  runConstructors<<<1, 1>>>();
+}
