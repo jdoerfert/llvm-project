@@ -38,25 +38,16 @@
 #define PRId64 "ld"
 
 extern "C" {
-int printf(...);
-int vprintf(const char *format, va_list vlist);
-
-static inline int gpu_printf(const char *format, ...) {
-  va_list args;
-  va_start(args, format);
-  int result = vprintf(format, args);
-  va_end(args);
-  return result;
-}
+int printf(const char *format, ...);
 
 static inline void __assert_fail(const char *expr, const char *file,
                                  unsigned line, const char *function) {
-  gpu_printf("%s:%u: %s: Assertion `%s` failed.\n", file, line, function, expr);
+  printf("%s:%u: %s: Assertion `%s` failed.\n", file, line, function, expr);
   __builtin_trap();
 }
 }
 
-#define FPRINTF(...) gpu_printf(__VA_ARGS__)
+#define FPRINTF(...) printf(__VA_ARGS__)
 #define FFLUSH(...)
 
 #ifdef NDEBUG
