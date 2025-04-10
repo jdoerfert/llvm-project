@@ -15,8 +15,6 @@
 
 // Freestanding headers
 #include <stdarg.h>
-#include <stddef.h>
-#include <stdint.h>
 
 // Device compilation special handling headers
 #ifndef __OBJSAN_DEVICE__
@@ -34,8 +32,28 @@
 
 #else
 
-#define PRIu64 "lu"
-#define PRId64 "ld"
+#define PRIu64 "llu"
+#define PRId64 "lld"
+
+using int8_t = char;
+using uint8_t = unsigned char;
+
+using int16_t = short;
+using uint16_t = unsigned short;
+
+using int32_t = int;
+using uint32_t = unsigned;
+
+using int64_t = long long int;
+using uint64_t = long long unsigned;
+
+using intptr_t = int64_t;
+using size_t = uint64_t;
+
+static_assert(sizeof(int8_t) == 1, "int8_t size mismatch");
+static_assert(sizeof(int16_t) == 2, "int16_t size mismatch");
+static_assert(sizeof(int32_t) == 4, "int32_t size mismatch");
+static_assert(sizeof(int64_t) == 8, "uint64_t size mismatch");
 
 extern "C" {
 int printf(const char *format, ...);
@@ -51,11 +69,6 @@ static inline void __assert_fail(const char *expr, const char *file,
 #define FFLUSH(...)
 
 #ifdef NDEBUG
-#if defined __cplusplus && __GNUC_PREREQ(2, 95)
-#define __ASSERT_VOID_CAST static_cast<void>
-#else
-#define __ASSERT_VOID_CAST (void)
-#endif
 #define assert(expr) ((void)(0))
 #else
 #define assert(expr)                                                           \
