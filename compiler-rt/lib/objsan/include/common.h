@@ -56,11 +56,15 @@ int printf (const char *__restrict __format, ...);
 int vprintf(const char *format, va_list vlist);
 
 static inline int gpu_printf(const char *format, ...) {
+  #if 0
   va_list args;
   va_start(args, format);
   int result = vprintf(format, args);
   va_end(args);
   return result;
+  #else
+  return 0;
+  #endif
 }
 
 static inline void __assert_fail(const char *expr, const char *file,
