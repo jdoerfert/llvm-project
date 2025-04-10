@@ -13,6 +13,9 @@
 #ifndef OBJSAN_INCLUDE_COMMON_H
 #define OBJSAN_INCLUDE_COMMON_H
 
+#include <stdarg.h>
+#include <stddef.h>
+
 // Device compilation special handling headers
 #ifndef __OBJSAN_DEVICE__
 
