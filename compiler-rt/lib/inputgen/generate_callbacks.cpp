@@ -526,4 +526,14 @@ void __ig_exit(int exit_code) {
   PRINTF("User exit %i\n", exit_code);
   error(exit_code);
 }
+
+using CtorFn = void (*)(void);
+extern CtorFn __start___ig_ctor;
+extern CtorFn __stop___ig_ctor;
+
+__attribute__((constructor(1000))) void __ig_ctor_init() {
+  for (CtorFn *Ctor = &__start___ig_ctor, *E = &__stop___ig_ctor; Ctor != E;
+       ++Ctor)
+    (*Ctor)();
+}
 }
