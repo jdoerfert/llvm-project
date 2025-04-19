@@ -445,6 +445,22 @@ Constant *llvm::getInitialValueOfAllocation(const Value *V,
   return nullptr;
 }
 
+std::optional<AllocationCallInfo>
+llvm::getAllocationCallInfo(const CallBase *CB, const TargetLibraryInfo *TLI) {
+  std::optional<AllocFnsTy> FnData = getAllocationSize(CB, TLI);
+  if (!FnData)
+    return std::nullopt;
+
+  AllocationCallInfo ACI{};
+  ACI.Family = getAllocationFamily(CB, TLI);
+  ACI.AlignmentArgNo = FnData->AlignParam;
+  ACI.SizeLHSArgNo = FnData->FstParam;
+  ACI.SizeRHSArgNo = FnData->SndParam;
+  ACI.InitialValue = getInitialValueOfAllocation(CB, TLI, CB->getType());
+
+  return ACI;
+}
+
 struct FreeFnsTy {
   unsigned NumParams;
   // Name of default allocator function to group malloc/free calls by family

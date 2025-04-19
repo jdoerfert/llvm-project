@@ -193,6 +193,9 @@ struct ValueAndContext : public std::pair<Value *, const Instruction *> {
   const Instruction *getCtxI() const { return this->second; }
 };
 
+Value *getPointerOperand(Instruction *I, bool AllowVolatile);
+const Value *getPointerOperand(const Instruction *I, bool AllowVolatile);
+
 /// Return true if \p I is a `nosync` instruction. Use generic reasoning and
 /// potentially the corresponding AANoSync.
 bool isNoSyncInst(Attributor &A, const Instruction &I,
