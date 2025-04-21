@@ -121,7 +121,7 @@ struct InstrumentorIRBuilderTy {
   ~InstrumentorIRBuilderTy() {
     for (auto &V : ToBeErased) {
       if (!V)
-	continue;
+        continue;
       if (!V->getType()->isVoidTy())
         V->replaceAllUsesWith(PoisonValue::get(V->getType()));
       cast<Instruction>(V)->eraseFromParent();
