@@ -1,0 +1,28 @@
+{
+  "configuration": {
+    "runtime_prefix": "__instrumentor_",
+    "runtime_prefix.description": "The runtime API prefix."
+  },
+  "module_pre": {
+    "module": {
+      "enabled": true,
+      "module_name": true,
+      "module_name.description": "The module/translation unit name.",
+      "name": true,
+      "name.description": "The target triple.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
+    }
+  },
+  "module_post": {
+    "module": {
+      "enabled": true,
+      "module_name": true,
+      "module_name.description": "The module/translation unit name.",
+      "name": true,
+      "name.description": "The target triple.",
+      "id": true,
+      "id.description": "A unique ID associated with the given instrumentor call"
+    }
+  }
+}

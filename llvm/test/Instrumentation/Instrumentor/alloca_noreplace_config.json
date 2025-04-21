@@ -1,0 +1,32 @@
+{
+  "configuration": {
+    "runtime_prefix": "__instrumentor_",
+    "runtime_prefix.description": "The runtime API prefix.",
+    "runtime_stubs_file": "",
+    "runtime_stubs_file.description": "The file into which runtime stubs should be written.",
+    "demangle_function_names": true,
+    "demangle_function_names.description": "Demangle functions names passed to the runtime."
+  },
+  "instruction_pre": {
+    "alloca": {
+      "enabled": true,
+      "size": true,
+      "size.replace": false,
+      "size.description": "The allocation size.",
+      "alignment": true,
+      "alignment.description": "The allocation alignment."
+    }
+  },
+  "instruction_post": {
+    "alloca": {
+      "enabled": true,
+      "address": true,
+      "address.replace": false,
+      "address.description": "The allocated memory address.",
+      "size": true,
+      "size.description": "The allocation size.",
+      "alignment": true,
+      "alignment.description": "The allocation alignment."
+    }
+  }
+}
