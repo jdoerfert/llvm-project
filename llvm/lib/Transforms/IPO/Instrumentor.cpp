@@ -529,6 +529,7 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   SmallVector<Instruction *> FinalTIs;
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
 
+  IIRB.IRB.SetInsertPoint(Fn.getEntryBlock().getFirstNonPHIOrDbgOrAlloca());
   if (IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]
                     ["loop_value_range"]) {
     for (auto &It : RPOT) {
