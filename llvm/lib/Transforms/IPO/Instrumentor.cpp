@@ -131,7 +131,7 @@ void writeInstrumentorConfig(InstrumentationConfig &IConf) {
   J.objectEnd();
   J.attributeEnd();
 
-  for (unsigned KindVal = 0; KindVal != InstrumentationLocation::Last;
+  for (unsigned KindVal = 0; KindVal <= InstrumentationLocation::Last;
        ++KindVal) {
     auto Kind = InstrumentationLocation::KindTy(KindVal);
 
@@ -491,9 +491,6 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
 
   IConf.startFunction();
 
-  // Ensure there is at least one alloca to make the insertion point stable
-  IIRB.getAlloca(&Fn, IIRB.PtrTy);
-
   Changed |= preprocessLoops(Fn);
 
   InstrumentationCaches ICaches;
@@ -524,8 +521,8 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   SmallVector<Instruction *> FinalTIs;
   ReversePostOrderTraversal<Function *> RPOT(&Fn);
 
-  if (IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]
-                    ["loop_value_range"]) {
+  auto *LVRIO = IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]["loop_value_range"];
+  if (LVRIO && LVRIO->Enabled) {
     for (auto &It : RPOT) {
       for (auto &I : *It)
         if (auto *Ptr = AA::getPointerOperand(&I, /*AllowVolatile*/ true))
@@ -1012,12 +1009,9 @@ bool InstrumentorIRBuilderTy::isKnownDereferenceableAccess(
   return Size >= AccessSize;
 }
 
-PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
-  InstrumentationConfig &IConf =
-      UserIConf ? *UserIConf : *new InstrumentationConfig();
-  auto &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
-  InstrumentorIRBuilderTy &IIRB =
-      UserIIRB ? *UserIIRB : *new InstrumentorIRBuilderTy(M, FAM);
+PreservedAnalyses InstrumentorPass::run(Module &M, FunctionAnalysisManager &FAM,
+                                        InstrumentationConfig &IConf,
+                                        InstrumentorIRBuilderTy &IIRB) {
   InstrumentorImpl Impl(IConf, IIRB, M, FAM);
   if (IConf.ReadConfig && !readInstrumentorConfigFromJSON(IConf))
     return PreservedAnalyses::all();
@@ -1028,12 +1022,28 @@ PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
   bool Changed = Impl.instrument();
   if (!Changed)
     return PreservedAnalyses::all();
+  return PreservedAnalyses::none();
+}
+
+PreservedAnalyses InstrumentorPass::run(Module &M, ModuleAnalysisManager &MAM) {
+  auto &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  InstrumentationConfig *IConf =
+      UserIConf ? UserIConf : new InstrumentationConfig();
+  InstrumentorIRBuilderTy *IIRB =
+      UserIIRB ? UserIIRB : new InstrumentorIRBuilderTy(M, FAM);
+
+  auto PA = run(M, FAM, *IConf, *IIRB);
+
+  if (!UserIIRB)
+    delete IIRB;
+  if (!UserIConf)
+    delete IConf;
 
   if (verifyModule(M))
     M.dump();
   assert(!verifyModule(M, &errs()));
 
-  return PreservedAnalyses::none();
+  return PA;
 }
 
 BaseConfigurationOpportunity *

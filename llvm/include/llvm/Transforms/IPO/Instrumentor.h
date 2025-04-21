@@ -1459,6 +1459,7 @@ struct FunctionIO : public InstrumentationOpportunity {
     if (UserConfig)
       Config = *UserConfig;
 
+    bool IsPRE = getLocationKind() == InstrumentationLocation::FUNCTION_PRE;
     if (Config.has(PassAddress))
       IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
                                "The function address.", IRTArg::NONE,
@@ -1476,7 +1477,7 @@ struct FunctionIO : public InstrumentationOpportunity {
       IRTArgs.push_back(
           IRTArg(PointerType::getUnqual(Ctx), "arguments",
                  "Description of the arguments.",
-                 Config.has(ReplaceArguments) ? IRTArg::REPLACABLE_CUSTOM
+                 IsPRE && Config.has(ReplaceArguments) ? IRTArg::REPLACABLE_CUSTOM
                                               : IRTArg::NONE,
                  std::bind(&FunctionIO::getArguments, this, _1, _2, _3, _4),
                  std::bind(&FunctionIO::setArguments, this, _1, _2, _3, _4)));
@@ -1647,6 +1648,10 @@ class InstrumentorPass : public PassInfoMixin<InstrumentorPass> {
   using InstrumentorIRBuilderTy = instrumentor::InstrumentorIRBuilderTy;
   InstrumentationConfig *UserIConf;
   InstrumentorIRBuilderTy *UserIIRB;
+
+  PreservedAnalyses run(Module &M, FunctionAnalysisManager &FAM,
+                        InstrumentationConfig &IConf,
+                        InstrumentorIRBuilderTy &IIRB);
 
 public:
   InstrumentorPass(InstrumentationConfig *IC = nullptr,
