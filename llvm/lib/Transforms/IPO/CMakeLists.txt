@@ -27,6 +27,7 @@ add_llvm_component_library(LLVMipo
   InferFunctionAttrs.cpp
   Inliner.cpp
   Instrumentor.cpp
+  InstrumentorUser.cpp
   Internalize.cpp
   LoopExtractor.cpp
   LowerTypeTests.cpp
