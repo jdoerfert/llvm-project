@@ -203,23 +203,60 @@ private:
 
 std::unique_ptr<UnrollAdvice>
 DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
-  LoopPropertiesInfo LPI =
-      LoopPropertiesInfo::getLoopPropertiesInfo(&UAI.L, &UAI.LI, &UAI.SE);
+  LoopPropertiesInfo LPI = LoopPropertiesInfo::get(&UAI.L, &UAI.LI, &UAI.SE);
 
-#define SET(id, type, val)                                                     \
-  *ModelRunner->getTensor<type>(UnrollFeatureIndex::id) =                      \
-      static_cast<type>(val);
-  SET(loop_size, int64_t, UAI.UCE.getRolledLoopSize());
-  SET(trip_count, int64_t, UAI.TripCount);
-  SET(is_innermost_loop, int64_t, LPI.IsInnerMostLoop);
-  SET(preheader_blocksize, int64_t, LPI.PreheaderBlocksize);
-  SET(bb_count, int64_t, LPI.BasicBlockCount);
-  SET(num_of_loop_latch, int64_t, LPI.LoopLatchCount);
-  SET(load_inst_count, int64_t, LPI.LoadInstCount);
-  SET(store_inst_count, int64_t, LPI.StoreInstCount);
-  SET(logical_inst_count, int64_t, LPI.LogicalInstCount);
-  SET(cast_inst_count, int64_t, LPI.CastInstCount);
+#define SET(id, val)                                                           \
+  *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::id) =                   \
+      static_cast<int64_t>(val);
+  SET(loop_size, UAI.UCE.getRolledLoopSize());
+  SET(trip_count, UAI.TripCount);
 #undef SET
+#define SET_LPI(id)                                                            \
+  *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::id) =                   \
+      static_cast<int64_t>(LPI.id);
+  SET_LPI(HasLoopPreheader);
+  SET_LPI(IsCountableLoop);
+  SET_LPI(IsLoopBackEdgeConstant);
+  SET_LPI(PreheaderBlocksize);
+  SET_LPI(BasicBlockAllCount);
+  SET_LPI(BasicBlockCount);
+  SET_LPI(LoopDepth);
+  SET_LPI(NumInnerLoops);
+  SET_LPI(LoopLatchCount);
+  SET_LPI(LoadInstCount);
+  SET_LPI(LoadedBytes);
+  SET_LPI(StoreInstCount);
+  SET_LPI(StoredBytes);
+  SET_LPI(AtomicCount);
+  SET_LPI(FloatArithCount);
+  SET_LPI(IntArithCount);
+  SET_LPI(FloatDivRemCount);
+  SET_LPI(IntDivRemCount);
+  SET_LPI(LogicalInstCount);
+  SET_LPI(ExpensiveCastInstCount);
+  SET_LPI(FreeCastInstCount);
+  SET_LPI(AlmostFreeCastInstCount);
+  SET_LPI(FloatCmpCount);
+  SET_LPI(IntCmpCount);
+  SET_LPI(CondBrCount);
+  SET_LPI(VectorInstCount);
+  SET_LPI(InstCount);
+  SET_LPI(DirectCallDefCount);
+  SET_LPI(DirectCallDeclCount);
+  SET_LPI(IndirectCall);
+  SET_LPI(IntrinsicCount);
+#undef SET_LPI
+#define SET_APINT(id, VAL)                                                     \
+  do {                                                                         \
+    int64_t ToAssign;                                                          \
+    if (auto V = VAL.trySExtValue())                                           \
+      ToAssign = *V;                                                           \
+    else                                                                       \
+      ToAssign = std::numeric_limits<int64_t>::max();                          \
+    *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::id) = ToAssign;       \
+  } while (0)
+  SET_APINT(LoopBackEdgeCount, LPI.LoopBackEdgeCount);
+#undef SET_APINT
 
   ModelRunner->logInput();
 

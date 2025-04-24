@@ -84,8 +84,7 @@ for.inc:                                          ; preds = %for.body4, %if.end
         for (BasicBlock &BB : F) {
           if (BB.getName() == "for.body") {
             Loop *L = LI.getLoopFor(&BB);
-            LoopPropertiesInfo LPI =
-                LoopPropertiesInfo::getLoopPropertiesInfo(L, &LI, &SE);
+            LoopPropertiesInfo LPI = LoopPropertiesInfo::get(L, &LI, &SE);
             EXPECT_FALSE(LPI.IsInnerMostLoop);
             EXPECT_EQ(LPI.LoopDepth, 1);
             EXPECT_TRUE(LPI.HasLoopPreheader);
@@ -103,12 +102,11 @@ for.inc:                                          ; preds = %for.body4, %if.end
             EXPECT_EQ(LPI.StoreInstCount, 0);
             EXPECT_EQ(LPI.BinaryInstCount, 1);
             EXPECT_EQ(LPI.LogicalInstCount, 0);
-            EXPECT_EQ(LPI.CastInstCount, 0);
+            EXPECT_EQ(LPI.ExpensiveCastInstCount, 0);
           }
           if (BB.getName() == "for.body4") {
             Loop *L = LI.getLoopFor(&BB);
-            LoopPropertiesInfo LPI =
-                LoopPropertiesInfo::getLoopPropertiesInfo(L, &LI, &SE);
+            LoopPropertiesInfo LPI = LoopPropertiesInfo::get(L, &LI, &SE);
             EXPECT_TRUE(LPI.IsInnerMostLoop);
             EXPECT_EQ(LPI.LoopDepth, 2);
             EXPECT_TRUE(LPI.HasLoopPreheader);
@@ -128,7 +126,7 @@ for.inc:                                          ; preds = %for.body4, %if.end
             EXPECT_EQ(LPI.StoreInstCount, 0);
             EXPECT_EQ(LPI.BinaryInstCount, 1);
             EXPECT_EQ(LPI.LogicalInstCount, 1);
-            EXPECT_EQ(LPI.CastInstCount, 0);
+            EXPECT_EQ(LPI.ExpensiveCastInstCount, 0);
           }
         }
       });

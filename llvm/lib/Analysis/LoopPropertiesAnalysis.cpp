@@ -16,18 +16,22 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Module.h"
 
 using namespace llvm;
 
-LoopPropertiesInfo
-LoopPropertiesInfo::getLoopPropertiesInfo(Loop *L, LoopInfo *LI,
-                                          ScalarEvolution *SE) {
+LoopPropertiesInfo LoopPropertiesInfo::get(Loop *L, LoopInfo *LI,
+                                           ScalarEvolution *SE) {
+
+  auto &DL = L->getHeader()->getModule()->getDataLayout();
 
   LoopPropertiesInfo LPI;
 
-  LPI.IsInnerMostLoop = L->isInnermost();
   LPI.LoopDepth = L->getLoopDepth();
+  LPI.NumInnerLoops = L->getLoopsInPreorder().size();
 
   if (BasicBlock *Preheader = L->getLoopPreheader()) {
     LPI.HasLoopPreheader = true;
@@ -44,11 +48,10 @@ LoopPropertiesInfo::getLoopPropertiesInfo(Loop *L, LoopInfo *LI,
   }
 
   for (BasicBlock *BB : L->getBlocks()) {
-    // Ignore blocks in subloops.
-    if (LI->getLoopFor(BB) != L)
-      continue;
+    if (LI->getLoopFor(BB) == L)
+      ++LPI.BasicBlockCount;
 
-    ++LPI.BasicBlockCount;
+    ++LPI.BasicBlockAllCount;
     ++LPI.LoopBlocksizes[BB->size()];
 
     if (L->isLoopLatch(BB))
@@ -56,17 +59,78 @@ LoopPropertiesInfo::getLoopPropertiesInfo(Loop *L, LoopInfo *LI,
 
     for (Instruction &I : *BB) {
       unsigned Opcode = I.getOpcode();
+      Type *AccessTy = I.getAccessType();
+      uint64_t AccessSize = 0;
+      if (AccessTy)
+        AccessSize = DL.getTypeAllocSize(AccessTy);
       if (Opcode == Instruction::Load) {
         ++LPI.LoadInstCount;
+        LPI.LoadedBytes += AccessSize;
       } else if (Opcode == Instruction::Store) {
         ++LPI.StoreInstCount;
-      } else if (Instruction::Add <= Opcode && Opcode <= Instruction::FRem) {
-        ++LPI.BinaryInstCount;
+        LPI.StoredBytes += AccessSize;
+      } else if (Opcode == Instruction::AtomicRMW ||
+                 Opcode == Instruction::AtomicCmpXchg) {
+        ++LPI.StoreInstCount;
+        ++LPI.LoadInstCount;
+        LPI.StoredBytes += AccessSize;
+        LPI.LoadedBytes += AccessSize;
+        if (Opcode == Instruction::AtomicRMW) {
+        }
       } else if (Instruction::Shl <= Opcode && Opcode <= Instruction::Xor) {
         ++LPI.LogicalInstCount;
-      } else if (Instruction::Trunc <= Opcode &&
+      } else if (Instruction::GetElementPtr == Opcode) {
+        ++LPI.IntArithCount;
+      } else if (I.isBinaryOp()) {
+        if (I.getType()->isIntOrIntVectorTy()) {
+          if (I.isIntDivRem())
+            ++LPI.IntDivRemCount;
+          else
+            ++LPI.IntArithCount;
+        } else {
+          if (I.isFPDivRem())
+            ++LPI.FloatDivRemCount;
+          else
+            ++LPI.FloatArithCount;
+        }
+        if (I.getType()->isVectorTy())
+          ++LPI.VectorInstCount;
+      } else if (Instruction::Trunc <= Opcode && Opcode <= Instruction::SExt) {
+        ++LPI.AlmostFreeCastInstCount;
+      } else if (Instruction::PtrToInt <= Opcode &&
                  Opcode <= Instruction::AddrSpaceCast) {
-        ++LPI.CastInstCount;
+        ++LPI.FreeCastInstCount;
+      } else if (Instruction::FPToUI <= Opcode &&
+                 Opcode <= Instruction::FPExt) {
+        ++LPI.ExpensiveCastInstCount;
+      } else if (Instruction::FCmp == Opcode) {
+        ++LPI.FloatCmpCount;
+      } else if (Instruction::ICmp == Opcode) {
+        ++LPI.IntCmpCount;
+      } else if (auto *Br = dyn_cast<BranchInst>(&I)) {
+        if (Br->isConditional())
+          ++LPI.CondBrCount;
+      } else if (auto *CB = dyn_cast<CallBase>(&I)) {
+        if (auto *II = dyn_cast<IntrinsicInst>(CB)) {
+          if (!II->isAssumeLikeIntrinsic())
+            ++LPI.IntrinsicCount;
+        } else if (Function *F = CB->getCalledFunction()) {
+          if (F->isDeclaration()) {
+            ++LPI.DirectCallDeclCount;
+          } else {
+            ++LPI.DirectCallDefCount;
+          }
+        } else {
+          ++LPI.IndirectCall;
+        }
+      }
+
+      if (!I.isDebugOrPseudoInst() && !I.isLifetimeStartOrEnd()) {
+        ++LPI.InstCount;
+      }
+
+      if (I.isAtomic()) {
+        ++LPI.AtomicCount;
       }
     }
   }
@@ -74,34 +138,14 @@ LoopPropertiesInfo::getLoopPropertiesInfo(Loop *L, LoopInfo *LI,
   return LPI;
 }
 
-void LoopPropertiesInfo::print(raw_ostream &OS) const {
-  OS << "IsInnerMostLoop: " << IsInnerMostLoop << "\n"
-     << "LoopDepth: " << LoopDepth << "\n"
-     << "HasLoopPreheader: " << HasLoopPreheader << "\n"
-     << "PreheaderBlocksize: " << PreheaderBlocksize << "\n"
-     << "IsCountableLoop: " << IsCountableLoop << "\n"
-     << "IsLoopBackEdgeConstant: " << IsLoopBackEdgeConstant << "\n"
-     << "LoopBackEdgeCount: " << LoopBackEdgeCount << "\n"
-     << "BasicBlockCount: " << BasicBlockCount << "\n"
-     << "LoopBlocksizes: ";
-  for (auto Pair : LoopBlocksizes) {
-    OS << "{" << Pair.first << ", " << Pair.second << "} ";
-  }
-  OS << "\n";
-  OS << "LoopLatchCount: " << LoopLatchCount << "\n"
-     << "LoadInstCount: " << LoadInstCount << "\n"
-     << "StoreInstCount: " << StoreInstCount << "\n"
-     << "BinaryInstCount: " << BinaryInstCount << "\n"
-     << "LogicalInstCount: " << LogicalInstCount << "\n"
-     << "CastInstCount: " << CastInstCount << "\n\n";
-}
+void LoopPropertiesInfo::print(raw_ostream &OS) const {}
 
 AnalysisKey LoopPropertiesAnalysis::Key;
 
 LoopPropertiesInfo
 LoopPropertiesAnalysis::run(Loop &L, LoopAnalysisManager &AM,
                             LoopStandardAnalysisResults &AR) {
-  return LoopPropertiesInfo::getLoopPropertiesInfo(&L, &AR.LI, &AR.SE);
+  return LoopPropertiesInfo::get(&L, &AR.LI, &AR.SE);
 }
 
 PreservedAnalyses

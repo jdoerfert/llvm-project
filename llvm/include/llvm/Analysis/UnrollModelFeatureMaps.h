@@ -20,14 +20,38 @@ namespace mlgo {
 #define LOOP_UNROLL_FEATURE_ITERATOR(M)                                        \
   M(int64_t, {1}, loop_size, "size of loop")                                   \
   M(int64_t, {1}, trip_count, "static trip count of loop")                     \
-  M(int64_t, {1}, is_innermost_loop, "whether the loop is the innermost loop") \
-  M(int64_t, {1}, preheader_blocksize, "preheader blocksize (by instruction)") \
-  M(int64_t, {1}, bb_count, "number of basic blocks (ignoring subloops)")      \
-  M(int64_t, {1}, num_of_loop_latch, "number of loop latches")                 \
-  M(int64_t, {1}, load_inst_count, "load instruction count")                   \
-  M(int64_t, {1}, store_inst_count, "store instruction count")                 \
-  M(int64_t, {1}, logical_inst_count, "logical instruction count")             \
-  M(int64_t, {1}, cast_inst_count, "cast instruction count")
+  M(int64_t, {1}, LoopBackEdgeCount, "")                                       \
+  M(int64_t, {1}, HasLoopPreheader, "")                                        \
+  M(int64_t, {1}, IsCountableLoop, "")                                         \
+  M(int64_t, {1}, IsLoopBackEdgeConstant, "")                                  \
+  M(int64_t, {1}, PreheaderBlocksize, "")                                      \
+  M(int64_t, {1}, BasicBlockAllCount, "")                                      \
+  M(int64_t, {1}, BasicBlockCount, "")                                         \
+  M(int64_t, {1}, LoopDepth, "")                                               \
+  M(int64_t, {1}, NumInnerLoops, "")                                           \
+  M(int64_t, {1}, LoopLatchCount, "")                                          \
+  M(int64_t, {1}, LoadInstCount, "")                                           \
+  M(int64_t, {1}, LoadedBytes, "")                                             \
+  M(int64_t, {1}, StoreInstCount, "")                                          \
+  M(int64_t, {1}, StoredBytes, "")                                             \
+  M(int64_t, {1}, AtomicCount, "")                                             \
+  M(int64_t, {1}, FloatArithCount, "")                                         \
+  M(int64_t, {1}, IntArithCount, "")                                           \
+  M(int64_t, {1}, FloatDivRemCount, "")                                        \
+  M(int64_t, {1}, IntDivRemCount, "")                                          \
+  M(int64_t, {1}, LogicalInstCount, "")                                        \
+  M(int64_t, {1}, ExpensiveCastInstCount, "")                                  \
+  M(int64_t, {1}, FreeCastInstCount, "")                                       \
+  M(int64_t, {1}, AlmostFreeCastInstCount, "")                                 \
+  M(int64_t, {1}, FloatCmpCount, "")                                           \
+  M(int64_t, {1}, IntCmpCount, "")                                             \
+  M(int64_t, {1}, CondBrCount, "")                                             \
+  M(int64_t, {1}, InstCount, "")                                               \
+  M(int64_t, {1}, VectorInstCount, "")                                         \
+  M(int64_t, {1}, DirectCallDefCount, "")                                      \
+  M(int64_t, {1}, DirectCallDeclCount, "")                                     \
+  M(int64_t, {1}, IndirectCall, "")                                            \
+  M(int64_t, {1}, IntrinsicCount, "")
 
 // clang-format off
 enum class UnrollFeatureIndex : size_t {

@@ -30,51 +30,47 @@ class raw_ostream;
 
 class LoopPropertiesInfo {
 public:
-  static LoopPropertiesInfo getLoopPropertiesInfo(Loop *L, LoopInfo *LI,
-                                                  ScalarEvolution *SE);
+  static LoopPropertiesInfo get(Loop *L, LoopInfo *LI, ScalarEvolution *SE);
 
   void print(raw_ostream &OS) const;
 
-  /// Is Innermost Loop
-  bool IsInnerMostLoop = false;
-  uint64_t LoopDepth = 0;
-
-  /// Preheader Block Size (by instructions)
-  bool HasLoopPreheader = false;
-  uint64_t PreheaderBlocksize = 0;
-
-  /// Is Countable Loop
-  bool IsCountableLoop = false;
-
-  /// Loop Backedge Count (if countable)
-  bool IsLoopBackEdgeConstant = false;
   APInt LoopBackEdgeCount;
-
-  /// Number of basic blocks
-  /// Ignoring blocks for subloops
-  uint64_t BasicBlockCount = 0;
 
   /// Loop Block Sizes (block size, loop count)
   /// Ignoring blocks for subloops
   std::map<unsigned, unsigned> LoopBlocksizes;
 
-  /// Number of loop latches
+  bool HasLoopPreheader = false;
+  bool IsCountableLoop = false;
+  bool IsLoopBackEdgeConstant = false;
+  uint64_t PreheaderBlocksize = 0;
+  uint64_t BasicBlockAllCount = 0;
+  uint64_t BasicBlockCount = 0;
+  uint64_t LoopDepth = 0;
+  uint64_t NumInnerLoops = 0;
   uint64_t LoopLatchCount = 0;
-
-  /// Load Instruction Count
   uint64_t LoadInstCount = 0;
-
-  /// Store Instruction Count
+  uint64_t LoadedBytes = 0;
   uint64_t StoreInstCount = 0;
-
-  /// Binary instructions Count
-  uint64_t BinaryInstCount = 0;
-
-  /// Logical Instruction Count
+  uint64_t StoredBytes = 0;
+  uint64_t AtomicCount = 0;
+  uint64_t FloatArithCount = 0;
+  uint64_t IntArithCount = 0;
+  uint64_t FloatDivRemCount = 0;
+  uint64_t IntDivRemCount = 0;
   uint64_t LogicalInstCount = 0;
-
-  /// Cast Instruction Count
-  uint64_t CastInstCount = 0;
+  uint64_t ExpensiveCastInstCount = 0;
+  uint64_t FreeCastInstCount = 0;
+  uint64_t AlmostFreeCastInstCount = 0;
+  uint64_t FloatCmpCount = 0;
+  uint64_t IntCmpCount = 0;
+  uint64_t CondBrCount = 0;
+  uint64_t VectorInstCount = 0;
+  uint64_t InstCount = 0;
+  uint64_t DirectCallDefCount = 0;
+  uint64_t DirectCallDeclCount = 0;
+  uint64_t IndirectCall = 0;
+  uint64_t IntrinsicCount = 0;
 };
 
 // Analysis pass
