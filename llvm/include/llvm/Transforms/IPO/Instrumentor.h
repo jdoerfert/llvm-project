@@ -190,6 +190,11 @@ struct InstrumentorIRBuilderTy {
     return ConstantInt::get(&Ty, LoopRangeInfoMap[&V].AdditionalSize);
   }
 
+  DenseMap<BasicBlock *, uint64_t> LoopIds;
+  uint64_t getLoopId(BasicBlock *HeaderBB) {
+    return HeaderBB ? LoopIds[HeaderBB] : -1;
+  }
+
   /// Commonly used values for IR inspection and creation.
   ///{
 
@@ -327,6 +332,9 @@ struct InstrumentationLocation {
     BASIC_BLOCK_POST,
     INSTRUCTION_PRE,
     INSTRUCTION_POST,
+    LOOP_HEADER,
+    LOOP_PRE,
+    LOOP_POST,
     SPECIAL_VALUE,
     Last = SPECIAL_VALUE,
   };
@@ -363,11 +371,18 @@ struct InstrumentationLocation {
       return "instruction_pre";
     case INSTRUCTION_POST:
       return "instruction_post";
+    case LOOP_HEADER:
+      return "loop_header";
+    case LOOP_PRE:
+      return "loop_pre";
+    case LOOP_POST:
+      return "loop_post";
     case SPECIAL_VALUE:
       return "special_value";
     }
     llvm_unreachable("Invalid kind!");
   }
+
   static KindTy getKindFromStr(StringRef S) {
     return StringSwitch<KindTy>(S)
         .Case("module_pre", MODULE_PRE)
@@ -380,6 +395,9 @@ struct InstrumentationLocation {
         .Case("basic_block_post", BASIC_BLOCK_POST)
         .Case("instruction_pre", INSTRUCTION_PRE)
         .Case("instruction_post", INSTRUCTION_POST)
+        .Case("loop_header", LOOP_HEADER)
+        .Case("loop_pre", LOOP_PRE)
+        .Case("loop_post", LOOP_POST)
         .Case("special_value", SPECIAL_VALUE)
         .Default(Last);
   }
@@ -391,12 +409,15 @@ struct InstrumentationLocation {
     case FUNCTION_PRE:
     case BASIC_BLOCK_PRE:
     case INSTRUCTION_PRE:
+    case LOOP_PRE:
       return true;
     case MODULE_POST:
     case GLOBAL_POST:
     case FUNCTION_POST:
     case BASIC_BLOCK_POST:
     case INSTRUCTION_POST:
+    case LOOP_HEADER:
+    case LOOP_POST:
     case SPECIAL_VALUE:
       return false;
     }
@@ -1667,6 +1688,146 @@ struct LoopValueRangeIO : public InstrumentationOpportunity {
   uint32_t AdditionalSize = 0;
 };
 
+struct LoopIO : public InstrumentationOpportunity {
+  LoopIO(bool IsPRE)
+      : InstrumentationOpportunity(InstrumentationLocation(
+            IsPRE ? InstrumentationLocation::LOOP_PRE
+                  : InstrumentationLocation::LOOP_POST)) {}
+  virtual ~LoopIO() {};
+
+  enum ConfigKind {
+    LoopId,
+    ParentLoopId,
+    LoopDepth,
+    LoopTripCount,
+    IsConstantTripCount,
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind>;
+  ConfigTy Config;
+
+  StringRef getName() const override { return "loop"; }
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "loop_id",
+                             "The unique id of the loop in function.",
+                             IRTArg::NONE, getLoopId));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "parent_loop_id",
+                             "The unique id of the parent loop, or -1 if none.",
+                             IRTArg::NONE, getParentLoopId));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "loop_depth",
+                             "The loop depth (starting at 1).", IRTArg::NONE,
+                             getLoopDepth));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "loop_trip_count",
+                             "The loop trip count, or -1 if unknown.",
+                             IRTArg::NONE, getLoopTripCount));
+    IRTArgs.push_back(IRTArg(
+        IIRB.Int8Ty, "is_constant_trip_count",
+        "Flag to indicate the loop trip count is a statically known constant.",
+        IRTArg::NONE, isConstantTripCount));
+    addCommonArgs(IConf, IIRB.Ctx, Config.has(PassId));
+    IConf.addChoice(*this);
+  }
+
+  static const SCEV *getBackedgeTakenCount(BasicBlock &HeaderBB,
+                                           ScalarEvolution &SE,
+                                           InstrumentorIRBuilderTy &IIRB);
+
+  static Value *getLoopId(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                          InstrumentorIRBuilderTy &IIRB);
+
+  static Value *getParentLoopId(Value &V, Type &Ty,
+                                InstrumentationConfig &IConf,
+                                InstrumentorIRBuilderTy &IIRB);
+
+  static Value *getLoopDepth(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB);
+
+  static Value *getLoopTripCount(Value &V, Type &Ty,
+                                 InstrumentationConfig &IConf,
+                                 InstrumentorIRBuilderTy &IIRB);
+
+  static Value *isConstantTripCount(Value &V, Type &Ty,
+                                    InstrumentationConfig &IConf,
+                                    InstrumentorIRBuilderTy &IIRB);
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB,
+                       ConfigTy *UserConfig = nullptr) {
+    for (auto IsPRE : {true, false}) {
+      auto *LIO = IConf.allocate<LoopIO>(IsPRE);
+      LIO->init(IConf, IIRB, UserConfig);
+    }
+  }
+};
+
+struct LoopHeaderIO : public InstrumentationOpportunity {
+  LoopHeaderIO()
+      : InstrumentationOpportunity(
+            InstrumentationLocation(InstrumentationLocation::LOOP_HEADER)) {}
+  virtual ~LoopHeaderIO() {};
+
+  enum ConfigKind {
+    LoopId,
+    ParentLoopId,
+    LoopDepth,
+    LoopIteration,
+    PassId,
+    NumConfig,
+  };
+
+  using ConfigTy = BaseConfigTy<ConfigKind>;
+  ConfigTy Config;
+
+  StringRef getName() const override { return "loop_header"; }
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB,
+            ConfigTy *UserConfig = nullptr) {
+    if (UserConfig)
+      Config = *UserConfig;
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "loop_id",
+                             "The unique id of the loop in function.",
+                             IRTArg::NONE, getLoopId));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "parent_loop_id",
+                             "The unique id of the parent loop, or -1 if none.",
+                             IRTArg::NONE, getParentLoopId));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "loop_depth",
+                             "The loop depth (starting at 1).", IRTArg::NONE,
+                             getLoopDepth));
+    IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "loop_iteration",
+                             "The current loop iteration.", IRTArg::NONE,
+                             getLoopIteration));
+    addCommonArgs(IConf, IIRB.Ctx, Config.has(PassId));
+    IConf.addChoice(*this);
+  }
+
+  static Value *getLoopId(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                          InstrumentorIRBuilderTy &IIRB);
+
+  static Value *getParentLoopId(Value &V, Type &Ty,
+                                InstrumentationConfig &IConf,
+                                InstrumentorIRBuilderTy &IIRB);
+
+  static Value *getLoopDepth(Value &V, Type &Ty, InstrumentationConfig &IConf,
+                             InstrumentorIRBuilderTy &IIRB);
+
+  static Value *getLoopIteration(Value &V, Type &Ty,
+                                 InstrumentationConfig &IConf,
+                                 InstrumentorIRBuilderTy &IIRB);
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB,
+                       ConfigTy *UserConfig = nullptr) {
+    auto *LIO = IConf.allocate<LoopHeaderIO>();
+    LIO->init(IConf, IIRB, UserConfig);
+  }
+};
+
 struct FunctionIO : public InstrumentationOpportunity {
   FunctionIO(bool IsPRE)
       : InstrumentationOpportunity(
@@ -1700,6 +1861,7 @@ struct FunctionIO : public InstrumentationOpportunity {
     if (UserConfig)
       Config = *UserConfig;
 
+    bool IsPRE = getLocationKind() == InstrumentationLocation::FUNCTION_PRE;
     if (Config.has(PassAddress))
       IRTArgs.push_back(IRTArg(PointerType::getUnqual(Ctx), "address",
                                "The function address.", IRTArg::NONE,
@@ -1714,13 +1876,13 @@ struct FunctionIO : public InstrumentationOpportunity {
           "Number of function arguments (without varargs).", IRTArg::NONE,
           std::bind(&FunctionIO::getNumArguments, this, _1, _2, _3, _4)));
     if (Config.has(PassArguments))
-      IRTArgs.push_back(
-          IRTArg(PointerType::getUnqual(Ctx), "arguments",
-                 "Description of the arguments.",
-                 Config.has(ReplaceArguments) ? IRTArg::REPLACABLE_CUSTOM
-                                              : IRTArg::NONE,
-                 std::bind(&FunctionIO::getArguments, this, _1, _2, _3, _4),
-                 std::bind(&FunctionIO::setArguments, this, _1, _2, _3, _4)));
+      IRTArgs.push_back(IRTArg(
+          PointerType::getUnqual(Ctx), "arguments",
+          "Description of the arguments.",
+          IsPRE && Config.has(ReplaceArguments) ? IRTArg::REPLACABLE_CUSTOM
+                                                : IRTArg::NONE,
+          std::bind(&FunctionIO::getArguments, this, _1, _2, _3, _4),
+          std::bind(&FunctionIO::setArguments, this, _1, _2, _3, _4)));
     if (Config.has(PassIsMain))
       IRTArgs.push_back(IRTArg(IntegerType::getInt8Ty(Ctx), "is_main",
                                "Flag to indicate it is the main function.",
