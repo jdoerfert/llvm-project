@@ -94,8 +94,18 @@ static cl::opt<std::string>
                                   "alwaysinline functions are inlined"),
                          cl::init(""));
 
-static cl::opt<bool> ObjsanCPUOnly("objsan-cpu-only", cl::desc("Sanitize CPU code only"), cl::init(false));
-static cl::opt<bool> ObjsanGPUOnly("objsan-gpu-only", cl::desc("Sanitize GPU code only"), cl::init(false));
+static cl::opt<bool> ObjsanCPUOnly("objsan-cpu-only",
+                                   cl::desc("Sanitize CPU code only"),
+                                   cl::init(false));
+static cl::opt<bool> ObjsanGPUOnly("objsan-gpu-only",
+                                   cl::desc("Sanitize GPU code only"),
+                                   cl::init(false));
+static cl::opt<bool> ObjsanUseAttributor("objsan-use-attributor",
+                                         cl::desc("Use Attributor"),
+                                         cl::init(false));
+static cl::opt<bool> ObjsanSkipSafeObjs("objsan-use-skip-safe-objects",
+                                        cl::desc("Use Attributor"),
+                                        cl::init(false));
 
 namespace {
 
@@ -665,7 +675,7 @@ bool LightSanImpl::shouldInstrumentCall(CallBase &CB,
     return true;
   LibFunc TheLibFunc;
   auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CB.getFunction());
-  if (TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc))
+  if (TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc)) {
     switch (TheLibFunc) {
     case LibFunc_ZdlPvj:
     case LibFunc_ZdlPvjSt11align_val_t:
@@ -674,21 +684,21 @@ bool LightSanImpl::shouldInstrumentCall(CallBase &CB,
     case LibFunc_ZdaPvj:
     case LibFunc_ZdaPvjSt11align_val_t:
     case LibFunc_ZdaPvm:
-    case LibFunc_ZdaPvmSt11align_val_t: {
-//      auto FreeFC = IIRB.M.getOrInsertFunction(
-//	  IConf.getRTName("", "free_object"),
-//	  FunctionType::get(IIRB.VoidTy, {IIRB.PtrTy}, false));
-//      IIRB.IRB.CreateCall(FreeFC, {FreedPtr});
-//      auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
-//      LSIConf.AIC->insertFreeCall(CB, IIRB);
-//      IIRB.eraseLater(&CB);
-//      if (auto *II = dyn_cast<InvokeInst>(&CB)) 
-//	IIRB.IRB.CreateBr(II->getNormalDest());
-//    return false;
-      }
+    case LibFunc_ZdaPvmSt11align_val_t:
+      break;
     default:
+      if (auto *FreedPtr = getFreedOperand(&CB, &TLI)) {
+        auto FreeFC = IIRB.M.getOrInsertFunction(
+            IConf.getRTName("", "free_object"),
+            FunctionType::get(IIRB.VoidTy, {IIRB.PtrTy, IIRB.Int8Ty}, false));
+        auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+        IIRB.IRB.CreateCall(FreeFC, {FreedPtr, LSIConf.getBasePointerEncodingNo(
+                                                   *FreedPtr, IIRB)});
+        LSIConf.AIC->insertFreeCall(CB, IIRB);
+      }
       break;
     }
+  }
   bool HasPtrArgs = false;
   FunctionType *CalledFnTy = CalledFn->getFunctionType();
   for (auto [Idx, ArgTy] : enumerate(CalledFnTy->params())) {
@@ -1119,7 +1129,8 @@ bool LightSanImpl::instrument() {
   IConf.AIC = &Cache;
   IConf.InlineRuntimeEagerly->setBool(false);
 
-  Changed |= collectAttributorInfo(A, M, Cache);
+  if (ObjsanUseAttributor)
+    Changed |= collectAttributorInfo(A, M, Cache);
 
   InstrumentorPass IP(&IConf, &IIRB);
   auto PA = IP.run(M, MAM);
@@ -2246,8 +2257,9 @@ struct ExtendedLoadIO : public LoadIO {
     auto *ESIO = IConf.allocate<ExtendedLoadIO>(/*IsPRE*/ true);
     //    ESIO->HoistKind = HOIST_IN_BLOCK;
     ESIO->CB = [&](Value &V) {
-      if (auto *Obj = LSIConf.AIC->getSafeAccessObj(cast<Instruction>(&V)))
-        return !LSIConf.AIC->isObjectSafe(Obj);
+      if (ObjsanSkipSafeObjs)
+        if (auto *Obj = LSIConf.AIC->getSafeAccessObj(cast<Instruction>(&V)))
+          return !LSIConf.AIC->isObjectSafe(Obj);
       return true;
     };
     ESIO->init(IConf, IIRB);
@@ -2379,8 +2391,9 @@ struct ExtendedStoreIO : public StoreIO {
     //    ESIO->HoistKind = HOIST_IN_BLOCK;
     ESIO->CB = [&](Value &V) {
       auto &SI = cast<StoreInst>(V);
-      if (auto *Obj = LSIConf.AIC->getSafeAccessObj(&SI))
-        return !LSIConf.AIC->isObjectSafe(Obj);
+      if (ObjsanSkipSafeObjs)
+        if (auto *Obj = LSIConf.AIC->getSafeAccessObj(&SI))
+          return !LSIConf.AIC->isObjectSafe(Obj);
       return true;
     };
     ESIO->init(IConf, IIRB);
@@ -2527,8 +2540,9 @@ struct ExtendedAtomicRMWIO : public AtomicRMWIO {
     //    EARMWO->HoistKind = HOIST_IN_BLOCK;
     EARMWO->CB = [&](Value &V) {
       auto &ARMW = cast<AtomicRMWInst>(V);
-      if (auto *Obj = LARMWConf.AIC->getSafeAccessObj(&ARMW))
-        return !LARMWConf.AIC->isObjectSafe(Obj);
+      if (ObjsanSkipSafeObjs)
+        if (auto *Obj = LARMWConf.AIC->getSafeAccessObj(&ARMW))
+          return !LARMWConf.AIC->isObjectSafe(Obj);
       return true;
     };
     EARMWO->init(IConf, IIRB);
@@ -2688,23 +2702,25 @@ template <typename BaseIO> struct ExtendedCallIO : public BaseIO {
     PreCICConfig.ArgFilter = [&](Use &Op) {
       LibFunc TheLibFunc;
       auto *CB = dyn_cast<CallBase>(Op.getUser());
-      auto &TLI = IIRB.analysisGetter<TargetLibraryAnalysis>(*CB->getFunction());
+      auto &TLI =
+          IIRB.analysisGetter<TargetLibraryAnalysis>(*CB->getFunction());
       auto *CalledFn = CB->getCalledFunction();
-      if (CalledFn && TLI.getLibFunc(*CalledFn, TheLibFunc) && TLI.has(TheLibFunc))
-	switch (TheLibFunc) {
-	case LibFunc_ZdlPvj:
-	case LibFunc_ZdlPvjSt11align_val_t:
-	case LibFunc_ZdlPvm:
-	case LibFunc_ZdlPvmSt11align_val_t:
-	case LibFunc_ZdaPvj:
-	case LibFunc_ZdaPvjSt11align_val_t:
-	case LibFunc_ZdaPvm:
-	case LibFunc_ZdaPvmSt11align_val_t: {
+      if (CalledFn && TLI.getLibFunc(*CalledFn, TheLibFunc) &&
+          TLI.has(TheLibFunc))
+        switch (TheLibFunc) {
+        case LibFunc_ZdlPvj:
+        case LibFunc_ZdlPvjSt11align_val_t:
+        case LibFunc_ZdlPvm:
+        case LibFunc_ZdlPvmSt11align_val_t:
+        case LibFunc_ZdaPvj:
+        case LibFunc_ZdaPvjSt11align_val_t:
+        case LibFunc_ZdaPvm:
+        case LibFunc_ZdaPvmSt11align_val_t: {
           return true;
-	default:
-	  break;
+        default:
+          break;
         }
-      }
+        }
       return Op->getType()->isPointerTy() && !isa<ConstantPointerNull>(Op) &&
              !isa<UndefValue>(Op);
     };

@@ -9,6 +9,8 @@
 #define ASSUME(E)
 #endif
 
+static constexpr bool ReuseLedgerSlots = true;
+
 namespace __objsan {
 
 struct EncodingCommonTy {
@@ -294,6 +296,8 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
         &NumObjectsUsed, 1, OrderingTy::relaxed, MemScopeTy::device);
     if (ObjectIdx >= NumObjects) {
       // fprintf(stderr, "out of objects (large) (%lu)!\n", NumFreedObjects);
+      if constexpr (!ReuseLedgerSlots)
+        return MPtr;
       if (!NumFreedObjects)
         return MPtr;
       ObjectIdx = FreedObjs[--NumFreedObjects];
@@ -311,7 +315,8 @@ struct LedgerSchemeTy : public EncodingBaseTy<EncodingNo> {
     ASSUME(E.Bits.ObjectIdx < NumObjects);
     Objects[E.Bits.ObjectIdx].ObjSize = 0;
     // fprintf(stderr, "free (large) (%lu)!\n", NumFreedObjects);
-    FreedObjs[NumFreedObjects++] = E.Bits.ObjectIdx;
+    if constexpr (ReuseLedgerSlots)
+      FreedObjs[NumFreedObjects++] = E.Bits.ObjectIdx;
   }
 
   char *decode(char *VPtr) {

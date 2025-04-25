@@ -295,8 +295,7 @@ char *__objsan_post_invoke(char *MPtr, uint64_t ObjSize,
 }
 
 OBJSAN_SMALL_API_ATTRS
-void __objsan_free_object(char *__restrict VPtr) {
-  uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
+void __objsan_free_object(char *__restrict VPtr, uint8_t EncodingNo) {
   ENCODING_NO_SWITCH(free, EncodingNo, , VPtr);
 }
 
