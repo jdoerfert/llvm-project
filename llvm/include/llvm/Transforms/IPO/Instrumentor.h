@@ -1802,6 +1802,9 @@ struct LoopHeaderIO : public InstrumentationOpportunity {
     IRTArgs.push_back(IRTArg(IIRB.Int64Ty, "loop_iteration",
                              "The current loop iteration.", IRTArg::NONE,
                              getLoopIteration));
+    IRTArgs.push_back(IRTArg(IIRB.Int8Ty, "is_loop_trip_count_known",
+                             "Flag to indicate if the loop trip count is known (to pre_loopr.",
+                             IRTArg::NONE, isLoopTripCountKnown));
     addCommonArgs(IConf, IIRB.Ctx, Config.has(PassId));
     IConf.addChoice(*this);
   }
@@ -1817,6 +1820,10 @@ struct LoopHeaderIO : public InstrumentationOpportunity {
                              InstrumentorIRBuilderTy &IIRB);
 
   static Value *getLoopIteration(Value &V, Type &Ty,
+                                 InstrumentationConfig &IConf,
+                                 InstrumentorIRBuilderTy &IIRB);
+
+  static Value *isLoopTripCountKnown(Value &V, Type &Ty,
                                  InstrumentationConfig &IConf,
                                  InstrumentorIRBuilderTy &IIRB);
 

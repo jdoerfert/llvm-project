@@ -378,9 +378,22 @@ private:
 
   bool preprocessLoops(Function &Fn) {
     bool Changed = false;
-    auto *LVRIO = IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]
-                                ["loop_value_range"];
-    if (!LVRIO || !LVRIO->Enabled)
+    bool ShouldSkip = true;
+    for (auto ILoc : {InstrumentationLocation::LOOP_PRE,
+                      InstrumentationLocation::LOOP_POST})
+      if (any_of(IConf.IChoices[ILoc],
+                 [&](auto &It) { return It.second->Enabled; })) {
+        ShouldSkip = false;
+        break;
+      }
+
+    if (ShouldSkip) {
+      auto *LVRIO = IConf.IChoices[InstrumentationLocation::SPECIAL_VALUE]
+                                  ["loop_value_range"];
+      ShouldSkip = !LVRIO || !LVRIO->Enabled;
+    }
+
+    if (ShouldSkip)
       return Changed;
 
     auto &LI = FAM.getResult<LoopAnalysis>(Fn);
@@ -394,6 +407,14 @@ private:
       if (!L->getLoopPreheader())
         if (InsertPreheaderForLoop(L, &DT, &LI, nullptr, true))
           Changed = true;
+      if (!L->hasDedicatedExits()) {
+        SmallVector<Loop::Edge> ExitEdges;
+        L->getExitEdges(ExitEdges);
+        for (auto &ExitEdge : ExitEdges) {
+          if (SplitEdge(ExitEdge.first, ExitEdge.second, &DT, &LI))
+            Changed = true;
+        }
+      }
       Worklist.append(L->begin(), L->end());
     }
     return Changed;
@@ -556,7 +577,6 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
 
     append_range(Loops, *L);
   }
-
 
   auto InstrumentInst = [&](Instruction &I) {
     // Skip instrumentation instructions.
@@ -2378,6 +2398,24 @@ Value *LoopHeaderIO::getLoopIteration(Value &V, Type &Ty,
     return IV;
   // TODO: Create a canonical induction variable.
   return getCI(&Ty, -1);
+}
+
+Value *LoopHeaderIO::isLoopTripCountKnown(Value &V, Type &Ty,
+                                          InstrumentationConfig &IConf,
+                                          InstrumentorIRBuilderTy &IIRB) {
+  auto &HeaderBB = cast<BasicBlock>(V);
+  auto &LI = IIRB.analysisGetter<LoopAnalysis>(*HeaderBB.getParent());
+  auto *L = LI.getLoopFor(&HeaderBB);
+  assert(L && "Expected a loop");
+  auto *PreheaderBB = L->getLoopPreheader();
+  if (!PreheaderBB)
+    return getCI(&Ty, 0);
+  auto &SE =
+      IIRB.analysisGetter<ScalarEvolutionAnalysis>(*HeaderBB.getParent());
+  auto *BTC = LoopIO::getBackedgeTakenCount(HeaderBB, SE, IIRB);
+  if (!BTC || isa<SCEVCouldNotCompute>(BTC))
+    return getCI(&Ty, 0);
+  return getCI(&Ty, 1);
 }
 
 Value *FunctionIO::getFunctionAddress(Value &V, Type &Ty,
