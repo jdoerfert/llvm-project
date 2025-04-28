@@ -203,7 +203,7 @@ private:
 
 std::unique_ptr<UnrollAdvice>
 DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
-  LoopPropertiesInfo LPI = LoopPropertiesInfo::get(&UAI.L, &UAI.LI, &UAI.SE);
+  LoopPropertiesInfo LPI = LoopPropertiesInfo::get(UAI.L, UAI.LI, UAI.SE, /*TTI=*/nullptr);
 
 #define SET(id, val)                                                           \
   *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::id) =                   \

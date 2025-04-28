@@ -12,9 +12,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/LoopPropertiesAnalysis.h"
+#include "llvm/Analysis/IVUsers.h"
+#include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
@@ -23,41 +26,63 @@
 
 using namespace llvm;
 
-LoopPropertiesInfo LoopPropertiesInfo::get(Loop *L, LoopInfo *LI,
-                                           ScalarEvolution *SE) {
+static cl::opt<bool> PrintZeroValues(
+    "loop-propertiesprint-non-zero-values", cl::Hidden, cl::init(false),
+    cl::desc("Whether or not to print non-zero loop property values."));
 
-  auto &DL = L->getHeader()->getModule()->getDataLayout();
+LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
+                                           ScalarEvolution &SE,
+                                           TargetTransformInfo *TTI) {
+
+  auto &DL = L.getHeader()->getModule()->getDataLayout();
 
   LoopPropertiesInfo LPI;
 
-  LPI.LoopDepth = L->getLoopDepth();
-  LPI.NumInnerLoops = L->getLoopsInPreorder().size();
+  if (auto *ParentLoop = L.getParentLoop())
+    LPI.ParentLoop = ParentLoop->getName();
 
-  if (BasicBlock *Preheader = L->getLoopPreheader()) {
+  LPI.LoopDepth = L.getLoopDepth();
+  LPI.NumInnerLoops = L.getLoopsInPreorder().size();
+
+  if (BasicBlock *Preheader = L.getLoopPreheader()) {
     LPI.HasLoopPreheader = true;
     LPI.PreheaderBlocksize = Preheader->size();
   }
 
-  if (SE->hasLoopInvariantBackedgeTakenCount(L)) {
+  if (SE.hasLoopInvariantBackedgeTakenCount(&L)) {
     LPI.IsCountableLoop = true;
-    const SCEV *BECount = SE->getBackedgeTakenCount(L);
+    const SCEV *BECount = SE.getBackedgeTakenCount(&L);
     if (const SCEVConstant *BEConst = dyn_cast<SCEVConstant>(BECount)) {
       LPI.IsLoopBackEdgeConstant = true;
       LPI.LoopBackEdgeCount = BEConst->getAPInt();
     }
   }
 
-  for (BasicBlock *BB : L->getBlocks()) {
-    if (LI->getLoopFor(BB) == L)
+  for (BasicBlock *BB : L.getBlocks()) {
+    if (LI.getLoopFor(BB) == &L)
       ++LPI.BasicBlockCount;
 
     ++LPI.BasicBlockAllCount;
     ++LPI.LoopBlocksizes[BB->size()];
 
-    if (L->isLoopLatch(BB))
+    if (L.isLoopLatch(BB))
       ++LPI.LoopLatchCount;
 
     for (Instruction &I : *BB) {
+      if (TTI) {
+#define INSTCOST(KIND)                                                         \
+  {                                                                            \
+    const auto &ICost =                                                        \
+        TTI->getInstructionCost(&I, TargetTransformInfo::TCK_##KIND);          \
+    LPI.LoopInsts##KIND += ICost;                                              \
+    ++LPI.InstructionCosts##KIND[ICost.getValue().value_or(-1)];               \
+  }
+        INSTCOST(RecipThroughput)
+        INSTCOST(Latency)
+        INSTCOST(CodeSize)
+#undef INSTCOST
+      }
+
       unsigned Opcode = I.getOpcode();
       Type *AccessTy = I.getAccessType();
       uint64_t AccessSize = 0;
@@ -138,14 +163,75 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop *L, LoopInfo *LI,
   return LPI;
 }
 
-void LoopPropertiesInfo::print(raw_ostream &OS) const {}
+void LoopPropertiesInfo::print(raw_ostream &OS) const {
+
+#define PROPERTY(TY, NAME, DEFAULT)                                            \
+  if (PrintZeroValues || (NAME != DEFAULT))                                    \
+    OS << #NAME << " (" << #TY << ") " << NAME << "\n";
+
+  PROPERTY(APInt, LoopBackEdgeCount, APInt())
+  PROPERTY(bool, HasLoopPreheader, false)
+  PROPERTY(bool, IsCountableLoop, false)
+  PROPERTY(bool, IsLoopBackEdgeConstant, false)
+  PROPERTY(uint64_t, PreheaderBlocksize, 0)
+  PROPERTY(uint64_t, BasicBlockAllCount, 0)
+  PROPERTY(uint64_t, BasicBlockCount, 0)
+  PROPERTY(uint64_t, LoopDepth, 0)
+  PROPERTY(uint64_t, NumInnerLoops, 0)
+  PROPERTY(uint64_t, LoopLatchCount, 0)
+  PROPERTY(uint64_t, LoadInstCount, 0)
+  PROPERTY(uint64_t, LoadedBytes, 0)
+  PROPERTY(uint64_t, StoreInstCount, 0)
+  PROPERTY(uint64_t, StoredBytes, 0)
+  PROPERTY(uint64_t, AtomicCount, 0)
+  PROPERTY(uint64_t, FloatArithCount, 0)
+  PROPERTY(uint64_t, IntArithCount, 0)
+  PROPERTY(uint64_t, FloatDivRemCount, 0)
+  PROPERTY(uint64_t, IntDivRemCount, 0)
+  PROPERTY(uint64_t, LogicalInstCount, 0)
+  PROPERTY(uint64_t, ExpensiveCastInstCount, 0)
+  PROPERTY(uint64_t, FreeCastInstCount, 0)
+  PROPERTY(uint64_t, AlmostFreeCastInstCount, 0)
+  PROPERTY(uint64_t, FloatCmpCount, 0)
+  PROPERTY(uint64_t, IntCmpCount, 0)
+  PROPERTY(uint64_t, CondBrCount, 0)
+  PROPERTY(uint64_t, VectorInstCount, 0)
+  PROPERTY(uint64_t, InstCount, 0)
+  PROPERTY(uint64_t, DirectCallDefCount, 0)
+  PROPERTY(uint64_t, DirectCallDeclCount, 0)
+  PROPERTY(uint64_t, IndirectCall, 0)
+  PROPERTY(uint64_t, IntrinsicCount, 0)
+  PROPERTY(std::string, ParentLoop, "")
+
+#undef PROPERTY
+
+#define INSTCOST(KIND)                                                         \
+  OS << "Loop instruction costs (" #KIND "): ";                                \
+  if (LoopInsts##KIND.isValid())                                               \
+    OS << *LoopInsts##KIND.getValue() << "\n";                                 \
+  else                                                                         \
+    OS << "<invalid>\n";                                                       \
+  for (auto &It : InstructionCosts##KIND) {                                    \
+    OS << It.first << ": " << It.second << "\n";                               \
+  }
+
+  INSTCOST(RecipThroughput)
+  INSTCOST(Latency)
+  INSTCOST(CodeSize)
+#undef INSTCOST
+
+  OS << "Block sizes:\n";
+  for (auto &It : LoopBlocksizes) {
+    OS << It.first << ": " << It.second << "\n";
+  }
+}
 
 AnalysisKey LoopPropertiesAnalysis::Key;
 
 LoopPropertiesInfo
 LoopPropertiesAnalysis::run(Loop &L, LoopAnalysisManager &AM,
                             LoopStandardAnalysisResults &AR) {
-  return LoopPropertiesInfo::get(&L, &AR.LI, &AR.SE);
+  return LoopPropertiesInfo::get(L, AR.LI, AR.SE, &AR.TTI);
 }
 
 PreservedAnalyses
@@ -156,6 +242,6 @@ LoopPropertiesPrinterPass::run(Loop &L, LoopAnalysisManager &AM,
      << "\n";
   AM.getResult<LoopPropertiesAnalysis>(L, AR).print(OS);
   // AM.getResult<IVUsersAnalysis>(L, AR).print(OS);
-  // AM.getResult<LoopAccessAnalysis>(*L, LAR);
+  // AM.getResult<LoopAccessAnalysis>(L, AR);
   return PreservedAnalyses::all();
 }
