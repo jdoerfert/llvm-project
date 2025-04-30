@@ -43,6 +43,14 @@ public:
   /// Ignoring blocks for subloops
   std::map<unsigned, unsigned> LoopBlocksizes;
 
+  /// Access sizes (access size -> count)
+  /// Ignoring blocks for subloops
+  std::map<unsigned, unsigned> AccessSizes;
+
+  /// Accessed pointers mapped to (unroll) iteration and original pointer.
+  /// Ignoring blocks for subloops
+  DenseMap<const SCEV *, SmallVector<std::pair<unsigned, Value *>>> PtrSCEVs;
+
   /// Instruction costs (cost -> count)
   /// Ignoring blocks for subloops
 #define INSTCOST(KIND)                                                         \
@@ -101,8 +109,7 @@ class LoopPropertiesAnalysis
 public:
   using Result = const LoopPropertiesInfo;
 
-  LoopPropertiesInfo run(Loop &L, LoopAnalysisManager &AM,
-                         LoopStandardAnalysisResults &AR);
+  Result run(Loop &L, LoopAnalysisManager &AM, LoopStandardAnalysisResults &AR);
 };
 
 /// Printer pass for the LoopPropertiesAnalysis results.

@@ -12,6 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/LoopPropertiesAnalysis.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/IVUsers.h"
 #include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -23,12 +27,28 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Transforms/IPO/Attributor.h"
+#include <string>
 
 using namespace llvm;
 
 static cl::opt<bool> PrintZeroValues(
-    "loop-propertiesprint-non-zero-values", cl::Hidden, cl::init(false),
+    "loop-propertiesprint-print-non-zero-values", cl::Hidden, cl::init(false),
     cl::desc("Whether or not to print non-zero loop property values."));
+
+static cl::opt<bool> PrintAccessedPointers(
+    "loop-propertiesprint-print-accessed-pointers", cl::Hidden, cl::init(false),
+    cl::desc("Whether or not to print accessed pointers."));
+
+static cl::opt<bool> PrintSingletonPointers(
+    "loop-propertiesprint-print-singleton-pointers", cl::Hidden,
+    cl::init(false), cl::desc("Whether or not to print singleton pointers."));
+
+static cl::opt<int>
+    NumUnrollIterations("loop-propertiesprint-unroll-iterations", cl::Hidden,
+                        cl::init(32),
+                        cl::desc("Number of iterations that are (virtually) "
+                                 "unrolled to detect common pointers."));
 
 LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
                                            ScalarEvolution &SE,
@@ -86,21 +106,29 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
       unsigned Opcode = I.getOpcode();
       Type *AccessTy = I.getAccessType();
       uint64_t AccessSize = 0;
-      if (AccessTy)
+      Value *Ptr = nullptr;
+      if (AccessTy) {
         AccessSize = DL.getTypeAllocSize(AccessTy);
+        ++LPI.AccessSizes[AccessSize];
+      }
       if (Opcode == Instruction::Load) {
         ++LPI.LoadInstCount;
         LPI.LoadedBytes += AccessSize;
+        Ptr = cast<LoadInst>(I).getPointerOperand();
       } else if (Opcode == Instruction::Store) {
         ++LPI.StoreInstCount;
         LPI.StoredBytes += AccessSize;
+        Ptr = cast<StoreInst>(I).getPointerOperand();
       } else if (Opcode == Instruction::AtomicRMW ||
                  Opcode == Instruction::AtomicCmpXchg) {
         ++LPI.StoreInstCount;
         ++LPI.LoadInstCount;
         LPI.StoredBytes += AccessSize;
         LPI.LoadedBytes += AccessSize;
-        if (Opcode == Instruction::AtomicRMW) {
+        if (auto *RMWI = dyn_cast<AtomicRMWInst>(&I)) {
+          Ptr = RMWI->getPointerOperand();
+        } else if (auto *CXI = dyn_cast<AtomicCmpXchgInst>(&I)) {
+          Ptr = CXI->getPointerOperand();
         }
       } else if (Instruction::Shl <= Opcode && Opcode <= Instruction::Xor) {
         ++LPI.LogicalInstCount;
@@ -157,6 +185,26 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
       if (I.isAtomic()) {
         ++LPI.AtomicCount;
       }
+
+      if (Ptr && NumUnrollIterations) {
+        auto *PtrSCEV = SE.getSCEV(Ptr);
+        if (!SE.hasComputableLoopEvolution(PtrSCEV, &L))
+          continue;
+        SmallPtrSet<const Loop *, 4> UsedLoops;
+        SE.getUsedLoops(PtrSCEV, UsedLoops);
+        if (!UsedLoops.count(&L))
+          continue;
+        auto [InitSCEV, PostIncSCEV] = SE.SplitIntoInitAndPostInc(&L, PtrSCEV);
+        auto *PostIncLoopSCEV = SE.getMinusSCEV(PostIncSCEV, InitSCEV);
+        auto [LoopIncSCEV, _] = SE.SplitIntoInitAndPostInc(&L, PostIncLoopSCEV);
+
+        auto *IterationSCEV = InitSCEV;
+        for (auto I = 0; I <= NumUnrollIterations; ++I) {
+          auto &Iterations = LPI.PtrSCEVs[IterationSCEV];
+          Iterations.push_back({I, Ptr});
+          IterationSCEV = SE.getAddExpr(IterationSCEV, LoopIncSCEV);
+        }
+      }
     }
   }
 
@@ -165,11 +213,14 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
 
 void LoopPropertiesInfo::print(raw_ostream &OS) const {
 
+  OS << "LoopBackEdgeCount (APInt) ";
+  LoopBackEdgeCount.print(OS, /*isSigned=*/false);
+  OS << "\n";
+
 #define PROPERTY(TY, NAME, DEFAULT)                                            \
   if (PrintZeroValues || (NAME != DEFAULT))                                    \
     OS << #NAME << " (" << #TY << ") " << NAME << "\n";
 
-  PROPERTY(APInt, LoopBackEdgeCount, APInt())
   PROPERTY(bool, HasLoopPreheader, false)
   PROPERTY(bool, IsCountableLoop, false)
   PROPERTY(bool, IsLoopBackEdgeConstant, false)
@@ -221,14 +272,49 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
 #undef INSTCOST
 
   OS << "Block sizes:\n";
-  for (auto &It : LoopBlocksizes) {
+  for (auto &It : LoopBlocksizes)
     OS << It.first << ": " << It.second << "\n";
+
+  if (!AccessSizes.empty()) {
+    OS << "Access sizes:\n";
+    for (auto &It : AccessSizes)
+      OS << It.first << ": " << It.second << "\n";
   }
+
+  if (PrintAccessedPointers)
+    OS << "Accessed pointers (" << PtrSCEVs.size() << "):\n";
+
+  std::map<unsigned, SmallSet<std::pair<Value *, Value *>, 8>> ReuseDistances;
+  for (auto &It : PtrSCEVs) {
+    if (!PrintSingletonPointers && It.second.size() <= 1)
+      continue;
+
+    SmallVector<std::pair<unsigned, Value *>> Iterations = It.second;
+    sort(Iterations);
+
+    for (unsigned I1 = 0, E = Iterations.size(); I1 < E; ++I1)
+      for (unsigned I2 = I1 + 1; I2 < E; ++I2) {
+        auto Distance = Iterations[I2].first - Iterations[I1].first;
+        ReuseDistances[Distance].insert(
+            {Iterations[I2].second, Iterations[I1].second});
+      }
+
+    if (PrintAccessedPointers)
+      OS << *It.first << ":  "
+         << join(map_range(Iterations,
+                           [](auto &It) { return std::to_string(It.first); }),
+                 ",")
+         << "\n";
+  }
+
+  OS << "Reuse distances (" << ReuseDistances.size() << "):\n";
+  for (auto &It : ReuseDistances)
+    OS << "- " << It.first << " : " << It.second.size() << " pointer pairs\n";
 }
 
 AnalysisKey LoopPropertiesAnalysis::Key;
 
-LoopPropertiesInfo
+const LoopPropertiesInfo
 LoopPropertiesAnalysis::run(Loop &L, LoopAnalysisManager &AM,
                             LoopStandardAnalysisResults &AR) {
   return LoopPropertiesInfo::get(L, AR.LI, AR.SE, &AR.TTI);
