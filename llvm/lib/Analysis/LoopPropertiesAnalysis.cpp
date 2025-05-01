@@ -16,6 +16,9 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/Analysis/DependenceAnalysis.h"
+#include "llvm/Analysis/IVDescriptors.h"
 #include "llvm/Analysis/IVUsers.h"
 #include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -53,9 +56,10 @@ static cl::opt<int>
                         cl::desc("Number of iterations that are (virtually) "
                                  "unrolled to detect common pointers."));
 
-LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
-                                           ScalarEvolution &SE,
-                                           TargetTransformInfo *TTI) {
+LoopPropertiesInfo
+LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
+                        TargetTransformInfo *TTI, TargetLibraryInfo *TLI,
+                        AAResults *AA, DominatorTree *DT, AssumptionCache *AC) {
 
   auto &DL = L.getHeader()->getModule()->getDataLayout();
 
@@ -94,6 +98,7 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
     LPI.NumEarlyReturnExits += isa<ReturnInst>(TI);
     LPI.NumUnreachableExits += isa<UnreachableInst>(TI);
   }
+
   std::optional<Loop::LoopBounds> LoopBounds = L.getBounds(SE);
   if (LoopBounds) {
     LPI.BoundsAreSimple = true;
@@ -117,6 +122,20 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
         LPI.IsLoopBackEdgeCountLoopCarried = true;
     }
   }
+
+  LoopAccessInfo LAI(&L, &SE, TTI, TLI, AA, DT, &LI);
+  LPI.HasLoadStoreDepWithInvariantAddr =
+      LAI.hasLoadStoreDependenceInvolvingLoopInvariantAddress();
+  LPI.HasStoreStoreDepWithInvariantAddr =
+      LAI.hasStoreStoreDependenceInvolvingLoopInvariantAddress();
+  LPI.HasConvergentOp = LAI.hasConvergentOp();
+  LPI.NumRequiredRuntimePointerChecks = LAI.getNumRuntimePointerChecks();
+  LPI.CanVectorizeMemory = LAI.canVectorizeMemory();
+  auto &DepChecker = LAI.getDepChecker();
+  LPI.MaxSaveVectorWidthInBits = DepChecker.getMaxSafeVectorWidthInBits();
+  if (auto *Dependences = DepChecker.getDependences())
+    for (auto &Dep : *Dependences)
+      ++LPI.DependenceInfos[Dep.Type];
 
   SmallPtrSet<const SCEV *, 8> BasePointers;
   DenseMap<const SCEV *, SmallVector<const SCEV *>> SpacialPtrSCEVs;
@@ -146,10 +165,18 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
     return Cost;
   };
 
+  RecurrenceDescriptor RD;
   for (auto &I : *HeaderBB) {
     auto *PHI = dyn_cast<PHINode>(&I);
     if (!PHI)
       break;
+    if (RecurrenceDescriptor::isReductionPHI(PHI, &L, RD, /*DB=*/nullptr, AC,
+                                             DT, &SE)) {
+      ++LPI.RecurranceInfos[unsigned(RD.getRecurrenceKind())];
+      ++LPI.NumReductionPHIs;
+    } else {
+      ++LPI.NumNonReductionPHIs;
+    }
     for (auto *PredBB : predecessors(HeaderBB)) {
       if (!L.contains(PredBB))
         continue;
@@ -210,11 +237,15 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
       if (Opcode == Instruction::Load) {
         ++LPI.LoadInstCount;
         LPI.LoadedBytes += AccessSize;
-        Ptr = cast<LoadInst>(I).getPointerOperand();
+        auto &LI = cast<LoadInst>(I);
+        Ptr = LI.getPointerOperand();
+        ++LPI.AccessAlignments[LI.getAlign().value()];
       } else if (Opcode == Instruction::Store) {
         ++LPI.StoreInstCount;
         LPI.StoredBytes += AccessSize;
-        Ptr = cast<StoreInst>(I).getPointerOperand();
+        auto &SI = cast<StoreInst>(I);
+        Ptr = SI.getPointerOperand();
+        ++LPI.AccessAlignments[SI.getAlign().value()];
       } else if (Opcode == Instruction::AtomicRMW ||
                  Opcode == Instruction::AtomicCmpXchg) {
         ++LPI.StoreInstCount;
@@ -223,8 +254,10 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
         LPI.LoadedBytes += AccessSize;
         if (auto *RMWI = dyn_cast<AtomicRMWInst>(&I)) {
           Ptr = RMWI->getPointerOperand();
+          ++LPI.AccessAlignments[RMWI->getAlign().value()];
         } else if (auto *CXI = dyn_cast<AtomicCmpXchgInst>(&I)) {
           Ptr = CXI->getPointerOperand();
+          ++LPI.AccessAlignments[CXI->getAlign().value()];
         }
       } else if (Instruction::Shl <= Opcode && Opcode <= Instruction::Xor) {
         ++LPI.LogicalInstCount;
@@ -278,7 +311,7 @@ LoopPropertiesInfo LoopPropertiesInfo::get(Loop &L, LoopInfo &LI,
         }
       }
 
-      if (isAssumeLikeIntrinsic(&I)) {
+      if (!isAssumeLikeIntrinsic(&I)) {
         ++LPI.InstCount;
       }
 
@@ -413,6 +446,14 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
   PROPERTY(bool, IsInitialValueConstant, false)
   PROPERTY(bool, IsStepConstant, false)
   PROPERTY(bool, IsFinalValueConstant, false)
+  PROPERTY(bool, HasLoadStoreDepWithInvariantAddr, false)
+  PROPERTY(bool, HasStoreStoreDepWithInvariantAddr, false)
+  PROPERTY(bool, HasConvergentOp, false)
+  PROPERTY(bool, NumRequiredRuntimePointerChecks, false)
+  PROPERTY(bool, CanVectorizeMemory, false)
+  PROPERTY(uint64_t, MaxSaveVectorWidthInBits, 0)
+  PROPERTY(uint64_t, NumReductionPHIs, 0)
+  PROPERTY(uint64_t, NumNonReductionPHIs, 0)
   PROPERTY(uint64_t, NumPHIChains, 0)
   PROPERTY(uint64_t, MaxPHIChainLatency, 0)
   PROPERTY(uint64_t, MaxPHIChainRecipThroughput, 0)
@@ -487,6 +528,12 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
       OS << It.first << ": " << It.second << "\n";
   }
 
+  if (!AccessAlignments.empty()) {
+    OS << "Access alignments:\n";
+    for (auto &It : AccessAlignments)
+      OS << It.first << ": " << It.second << "\n";
+  }
+
   if (PrintAccessedPointers)
     OS << "Accessed pointers (" << TemporalPtrSCEVs.size() << "):\n";
 
@@ -502,8 +549,9 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
     for (unsigned I1 = 0, E = Iterations.size(); I1 < E; ++I1)
       for (unsigned I2 = I1 + 1; I2 < E; ++I2) {
         auto Distance = Iterations[I2].first - Iterations[I1].first;
-        TemporalReuseDistances[Distance].insert(
-            {Iterations[I2].second, Iterations[I1].second});
+        if (Distance)
+          TemporalReuseDistances[Distance].insert(
+              {Iterations[I2].second, Iterations[I1].second});
       }
 
     if (PrintAccessedPointers)
@@ -535,6 +583,49 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
     OS << "- <complex> : " << ComplexPtrStrides << "\n";
   if (UnknownPtrStrides || PrintZeroValues)
     OS << "- <unknown> : " << UnknownPtrStrides << "\n";
+
+  auto RecurKindToString = [](RecurKind RK) {
+    switch (RK) {
+#define RK_CASE(NAME)                                                          \
+  case RecurKind::NAME:                                                        \
+    return #NAME;
+      RK_CASE(None)
+      RK_CASE(Add)
+      RK_CASE(Mul)
+      RK_CASE(Or)
+      RK_CASE(And)
+      RK_CASE(Xor)
+      RK_CASE(SMin)
+      RK_CASE(SMax)
+      RK_CASE(UMin)
+      RK_CASE(UMax)
+      RK_CASE(FAdd)
+      RK_CASE(FMul)
+      RK_CASE(FMin)
+      RK_CASE(FMax)
+      RK_CASE(FMinimum)
+      RK_CASE(FMaximum)
+      RK_CASE(FMulAdd)
+      RK_CASE(IAnyOf)
+      RK_CASE(FAnyOf)
+      RK_CASE(IFindLastIV)
+      RK_CASE(FFindLastIV);
+#undef RK_CASE
+    };
+  };
+
+  if (!RecurranceInfos.empty()) {
+    OS << "Recurrance info:\n";
+    for (auto &It : RecurranceInfos)
+      OS << RecurKindToString(RecurKind(It.first)) << ": " << It.second << "\n";
+  }
+
+  if (!DependenceInfos.empty()) {
+    OS << "Dependence info:\n";
+    for (auto &It : DependenceInfos)
+      OS << MemoryDepChecker::Dependence::DepName[It.first] << ": " << It.second
+         << "\n";
+  }
 }
 
 AnalysisKey LoopPropertiesAnalysis::Key;
@@ -542,7 +633,8 @@ AnalysisKey LoopPropertiesAnalysis::Key;
 const LoopPropertiesInfo
 LoopPropertiesAnalysis::run(Loop &L, LoopAnalysisManager &AM,
                             LoopStandardAnalysisResults &AR) {
-  return LoopPropertiesInfo::get(L, AR.LI, AR.SE, &AR.TTI);
+  return LoopPropertiesInfo::get(L, AR.LI, AR.SE, &AR.TTI, &AR.TLI, &AR.AA,
+                                 &AR.DT, &AR.AC);
 }
 
 PreservedAnalyses

@@ -14,12 +14,18 @@
 #ifndef LLVM_ANALYSIS_LOOPPROPERTIESANALYSIS_H
 #define LLVM_ANALYSIS_LOOPPROPERTIESANALYSIS_H
 
+#include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/Analysis/IVDescriptors.h"
 #include "llvm/Analysis/LoopAnalysisManager.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/IR/FMF.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/InstructionCost.h"
 
@@ -33,8 +39,10 @@ class raw_ostream;
 
 class LoopPropertiesInfo {
 public:
-  static LoopPropertiesInfo get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
-                                TargetTransformInfo *TTI);
+  static LoopPropertiesInfo
+  get(Loop &L, LoopInfo &LI, ScalarEvolution &SE, TargetTransformInfo *TTI,
+      TargetLibraryInfo *TLI = nullptr, AAResults *AA = nullptr,
+      DominatorTree *DT = nullptr, AssumptionCache *AC = nullptr);
 
   void print(raw_ostream &OS) const;
 
@@ -46,6 +54,15 @@ public:
 
   /// Access sizes (access size -> count)
   std::map<unsigned, unsigned> AccessSizes;
+
+  /// Access alignments (access alignment -> count)
+  std::map<unsigned, unsigned> AccessAlignments;
+
+  /// Recurrence info map (recurrance info -> count)
+  std::map<unsigned, unsigned> RecurranceInfos;
+
+  /// Dependence info map (dependence info -> count)
+  std::map<unsigned, unsigned> DependenceInfos;
 
   /// Accessed pointers mapped to (unroll) iteration and original pointer.
   DenseMap<const SCEV *, SmallVector<std::pair<unsigned, Value *>>>
@@ -79,6 +96,14 @@ public:
   PROPERTY(bool, IsInitialValueConstant, false)
   PROPERTY(bool, IsStepConstant, false)
   PROPERTY(bool, IsFinalValueConstant, false)
+  PROPERTY(bool, HasLoadStoreDepWithInvariantAddr, false)
+  PROPERTY(bool, HasStoreStoreDepWithInvariantAddr, false)
+  PROPERTY(bool, HasConvergentOp, false)
+  PROPERTY(bool, NumRequiredRuntimePointerChecks, false)
+  PROPERTY(bool, CanVectorizeMemory, false)
+  PROPERTY(uint64_t, MaxSaveVectorWidthInBits, 0)
+  PROPERTY(uint64_t, NumReductionPHIs, 0)
+  PROPERTY(uint64_t, NumNonReductionPHIs, 0)
   PROPERTY(uint64_t, NumPHIChains, 0)
   PROPERTY(uint64_t, MaxPHIChainLatency, 0)
   PROPERTY(uint64_t, MaxPHIChainRecipThroughput, 0)
