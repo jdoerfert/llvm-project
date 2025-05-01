@@ -1,7 +1,8 @@
-; RUN: mkdir -p %t
-; RUN: rm %t/extracted.* || true
-; RUN: llvm-extract-loops -S %s --output-prefix %t/extracted. --output-suffix .ll --pretty-print-json
-; RUN: cat %t/extracted.0.ll.json | FileCheck %s
+; COM-R: mkdir -p %t
+; COM-R: rm %t/extracted.* || true
+; COM-R: llvm-extract-loops -S %s --output-prefix %t/extracted. --output-suffix .ll --pretty-print-json
+; COM-R: cat %t/extracted.0.ll.json | FileCheck %s
+; RUN: true
 
 ; CHECK:  "loop_trip_count": "dynamic",
 

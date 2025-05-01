@@ -63,14 +63,17 @@ static cl::opt<std::string> InputFilename(cl::Positional,
                                           cl::init("-"),
                                           cl::value_desc("filename"));
 
-static cl::opt<std::string> OutputFilenamePrefix(
-    "output-prefix", cl::desc("Specify output filename prefix"),
-    cl::value_desc("filename prefix"), cl::init("llvm_extracted_loop."),
-    cl::cat(ExtractLoopsCat));
+static cl::opt<std::string> OutputFilename("o",
+                                           cl::desc("Specify output filename"),
+                                           cl::value_desc("filename"),
+                                           cl::init("-"),
+                                           cl::cat(ExtractLoopsCat));
 
-static cl::opt<std::string> OutputFilenameSuffix(
-    "output-suffix", cl::desc("Specify output filename suffix"),
-    cl::value_desc("filename suffix"), cl::init(""), cl::cat(ExtractLoopsCat));
+static cl::opt<std::string>
+    MetadataOutputFilename("metadata",
+                           cl::desc("Specify metadata output filename"),
+                           cl::value_desc("metadata filename"), cl::init(""),
+                           cl::cat(ExtractLoopsCat));
 
 static cl::opt<bool> Force("f", cl::desc("Enable binary output on terminals"),
                            cl::cat(ExtractLoopsCat));
@@ -102,33 +105,8 @@ static cl::opt<bool>
                     cl::desc("Pretty print the loop metadata json"),
                     cl::init(false), cl::cat(ExtractLoopsCat));
 
-static void writeLoopMetadata(LoopInfo &LI, ScalarEvolution &SE, Loop &L,
-                              DenseMap<Loop *, unsigned> &LoopIDs,
-                              std::string Filename) {
-  std::string TripCount = "unknown";
-  if (SE.getSmallConstantTripCount(&L)) {
-    TripCount = "constant";
-  } else {
-    auto LoopBounds = L.getBounds(SE);
-    if (LoopBounds && LoopBounds->getStepValue())
-      TripCount = "dynamic";
-  }
-
-  int ParentID = -1;
-  Loop *ParentL = L.getParentLoop();
-  if (ParentL)
-    ParentID = LoopIDs[ParentL];
-  SmallVector<Loop *> InnerLoops;
-  L.getInnerLoopsInPreorder(L, InnerLoops);
-  unsigned NumInnerLoops = InnerLoops.size();
-
-  json::Object Json({{"loop_depth", L.getLoopDepth()},
-                     {"loop_trip_count", TripCount},
-                     {"parent_function", L.getHeader()->getParent()->getName()},
-                     {"loop_id", LoopIDs[&L]},
-                     {"parent_loop_id", ParentID},
-                     {"num_inner_loops", NumInnerLoops}});
-
+static void writeLoopMetadata(unsigned NumLoops, std::string Filename) {
+  json::Object Json({{"num_loops", NumLoops}});
   std::error_code EC;
   ToolOutputFile Out(Filename, EC, sys::fs::OF_None);
   json::OStream JOS(Out.os(), PrettyPrintJson ? 2 : 0);
@@ -137,12 +115,12 @@ static void writeLoopMetadata(LoopInfo &LI, ScalarEvolution &SE, Loop &L,
   Out.keep();
 }
 
-static void writeExtractedModuleInPlace(Module &M, Function &F,
+static void writeExtractedModuleInPlace(Module &M,
+                                        SmallVectorImpl<Function *> &Fs,
                                         std::string Filename) {
-  F.setName("__llvm_extracted_loop");
-
   SetVector<GlobalValue *> GVs;
-  GVs.insert(&F);
+  for (Function *F : Fs)
+    GVs.insert(F);
 
   if (Recursive) {
     std::vector<llvm::Function *> Workqueue;
@@ -237,12 +215,6 @@ int main(int argc, char **argv) {
     Err.print(argv[0], errs());
     return 1;
   }
-  if (OutputFilenameSuffix.getNumOccurrences() == 0) {
-    if (OutputAssembly)
-      OutputFilenameSuffix = ".ll";
-    else
-      OutputFilenameSuffix = ".bc";
-  }
 
   preprocessModule(*M);
   LLVM_DEBUG(llvm::dbgs() << "After preprocessing: \n" << *M << "\n");
@@ -250,6 +222,8 @@ int main(int argc, char **argv) {
   SmallVector<Function *> ToHandle;
   for (Function &F : *M)
     ToHandle.push_back(&F);
+
+  SmallVector<Function *> LoopFunctions;
 
   TargetLibraryInfoImpl TLII(Triple(M->getTargetTriple()));
   TargetLibraryInfo TLI(TLII);
@@ -268,38 +242,35 @@ int main(int argc, char **argv) {
     unsigned LoopInFunctionCounter = 0;
     for (Loop *L : LI.getLoopsInPreorder()) {
       LLVM_DEBUG(L->dump());
-      llvm::ValueToValueMapTy VMap;
-      // FIXME preferrably, we want to analyze the module and clone only the GVs
-      // that we need. However, we currently clone the entire module so that we
-      // can reuse the ExtractGVPass which deletes the unnecessary GVs.
-      auto ClonedM = CloneModule(*M, VMap);
-      Function *NewF = cast<Function>(VMap[F]);
       SmallVector<BasicBlock *> BBs;
       for (BasicBlock *BB : L->getBlocks())
-        BBs.push_back(cast<BasicBlock>(VMap[BB]));
-      std::string Suffix = "llvm_extracted_loop." + std::to_string(LoopCounter);
+        BBs.push_back(BB);
+      std::string Suffix =
+          "__llvm_extracted_loop." + std::to_string(LoopCounter);
       auto CE =
           CodeExtractor(BBs, /*DT=*/nullptr, /*AggregateArgs=*/false,
                         /*BFI=*/nullptr, /*BPI=*/nullptr, /*AC=*/nullptr,
                         /*AllowVarArgs=*/true, /*AllowAlloca=*/true,
                         /*AllocationBlock=*/nullptr,
                         /*Suffix=*/Suffix, /*ArgsInZeroAddressSpace=*/false);
-      CodeExtractorAnalysisCache CEAC(*NewF);
+      CodeExtractorAnalysisCache CEAC(*F);
       Function *OutlinedF = CE.extractCodeRegion(CEAC);
+      // Usually the failure reason is because there were varargs
+      if (!OutlinedF)
+        continue;
 
-      std::string ModuleFilename = OutputFilenamePrefix +
-                                   std::to_string(LoopCounter) +
-                                   OutputFilenameSuffix;
-      writeExtractedModuleInPlace(*ClonedM, *OutlinedF, ModuleFilename);
-
+      OutlinedF->setName(Suffix);
+      LoopFunctions.push_back(OutlinedF);
       LoopIDs[L] = LoopInFunctionCounter;
-      std::string JSONFilename = ModuleFilename + ".json";
-      writeLoopMetadata(LI, SE, *L, LoopIDs, JSONFilename);
-
       LoopInFunctionCounter++;
       LoopCounter++;
     }
   }
+
+  writeExtractedModuleInPlace(*M, LoopFunctions, OutputFilename);
+
+  if (MetadataOutputFilename.getNumOccurrences() > 0)
+    writeLoopMetadata(LoopCounter, MetadataOutputFilename);
 
   return 0;
 }
