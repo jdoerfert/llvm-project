@@ -23,7 +23,7 @@ namespace mlgo {
   M(int64_t, {1}, LoopBackEdgeCount, "")                                       \
   M(int64_t, {1}, HasLoopPreheader, "")                                        \
   M(int64_t, {1}, IsCountableLoop, "")                                         \
-  M(int64_t, {1}, IsLoopBackEdgeConstant, "")                                  \
+  M(int64_t, {1}, IsLoopBackEdgeCountConstant, "")                                  \
   M(int64_t, {1}, PreheaderBlocksize, "")                                      \
   M(int64_t, {1}, BasicBlockAllCount, "")                                      \
   M(int64_t, {1}, BasicBlockCount, "")                                         \

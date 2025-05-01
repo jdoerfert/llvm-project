@@ -216,7 +216,7 @@ DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
       static_cast<int64_t>(LPI.id);
   SET_LPI(HasLoopPreheader);
   SET_LPI(IsCountableLoop);
-  SET_LPI(IsLoopBackEdgeConstant);
+  SET_LPI(IsLoopBackEdgeCountConstant);
   SET_LPI(PreheaderBlocksize);
   SET_LPI(BasicBlockAllCount);
   SET_LPI(BasicBlockCount);

@@ -18,6 +18,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/InstructionCost.h"
@@ -44,15 +45,18 @@ public:
   std::map<unsigned, unsigned> LoopBlocksizes;
 
   /// Access sizes (access size -> count)
-  /// Ignoring blocks for subloops
   std::map<unsigned, unsigned> AccessSizes;
 
   /// Accessed pointers mapped to (unroll) iteration and original pointer.
-  /// Ignoring blocks for subloops
-  DenseMap<const SCEV *, SmallVector<std::pair<unsigned, Value *>>> PtrSCEVs;
+  DenseMap<const SCEV *, SmallVector<std::pair<unsigned, Value *>>>
+      TemporalPtrSCEVs;
+
+  std::map<uint64_t, uint64_t> SpacialReuseDistance;
+
+  /// Access strides (stride -> count)
+  std::map<uint64_t, uint64_t> PtrStides;
 
   /// Instruction costs (cost -> count)
-  /// Ignoring blocks for subloops
 #define INSTCOST(KIND)                                                         \
   std::map<unsigned, unsigned> InstructionCosts##KIND;                         \
   PROPERTY(InstructionCost, LoopInsts##KIND, InstructionCost())
@@ -64,15 +68,32 @@ public:
 #undef INSTCOST
 
   PROPERTY(APInt, LoopBackEdgeCount, APInt())
+  PROPERTY(bool, HasRotatedForm, false)
   PROPERTY(bool, HasLoopPreheader, false)
+  PROPERTY(bool, IsPerfectlyNested, false)
   PROPERTY(bool, IsCountableLoop, false)
-  PROPERTY(bool, IsLoopBackEdgeConstant, false)
+  PROPERTY(bool, IsLoopBackEdgeCountConstant, false)
+  PROPERTY(bool, IsLoopBackEdgeCountFixed, false)
+  PROPERTY(bool, IsLoopBackEdgeCountLoopCarried, false)
+  PROPERTY(bool, BoundsAreSimple, false)
+  PROPERTY(bool, IsInitialValueConstant, false)
+  PROPERTY(bool, IsStepConstant, false)
+  PROPERTY(bool, IsFinalValueConstant, false)
+  PROPERTY(uint64_t, NumPHIChains, 0)
+  PROPERTY(uint64_t, MaxPHIChainLatency, 0)
+  PROPERTY(uint64_t, MaxPHIChainRecipThroughput, 0)
   PROPERTY(uint64_t, PreheaderBlocksize, 0)
+  PROPERTY(uint64_t, NumExitBlocks, 0)
+  PROPERTY(uint64_t, NumExitingBlocks, 0)
+  PROPERTY(uint64_t, NumUnreachableExits, 0)
+  PROPERTY(uint64_t, NumEarlyReturnExits, 0)
   PROPERTY(uint64_t, BasicBlockAllCount, 0)
   PROPERTY(uint64_t, BasicBlockCount, 0)
   PROPERTY(uint64_t, LoopDepth, 0)
   PROPERTY(uint64_t, NumInnerLoops, 0)
+  PROPERTY(uint64_t, NumFMA, 0)
   PROPERTY(uint64_t, LoopLatchCount, 0)
+  PROPERTY(uint64_t, ContinueLatchCount, 0)
   PROPERTY(uint64_t, LoadInstCount, 0)
   PROPERTY(uint64_t, LoadedBytes, 0)
   PROPERTY(uint64_t, StoreInstCount, 0)
@@ -93,8 +114,22 @@ public:
   PROPERTY(uint64_t, InstCount, 0)
   PROPERTY(uint64_t, DirectCallDefCount, 0)
   PROPERTY(uint64_t, DirectCallDeclCount, 0)
+  PROPERTY(uint64_t, NonPureDirectCallCount, 0)
   PROPERTY(uint64_t, IndirectCall, 0)
   PROPERTY(uint64_t, IntrinsicCount, 0)
+  PROPERTY(uint64_t, UnknownBasePointers, 0)
+  PROPERTY(uint64_t, ComplexBasePointers, 0)
+  PROPERTY(uint64_t, GlobalBasePointers, 0)
+  PROPERTY(uint64_t, ArgumentBasePointers, 0)
+  PROPERTY(uint64_t, VariableBasePointers, 0)
+  PROPERTY(uint64_t, ParameterBasePointers, 0)
+  PROPERTY(uint64_t, LoopBasePointers, 0)
+  PROPERTY(uint64_t, OuterLoopBasePointers, 0)
+  PROPERTY(uint64_t, ComplexPtrStrides, 0)
+  PROPERTY(uint64_t, UnknownPtrStrides, 0)
+  PROPERTY(uint64_t, ParametricSpacialReuseDistance, 0)
+  PROPERTY(uint64_t, LoopCarriedSpacialReuseDistance, 0)
+  PROPERTY(uint64_t, UnknownSpacialReuseDistance, 0)
   PROPERTY(std::string, ParentLoop, "")
 
 #undef PROPERTY
