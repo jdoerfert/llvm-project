@@ -155,6 +155,8 @@ public:
   PROPERTY(uint64_t, ParametricSpacialReuseDistance, 0)
   PROPERTY(uint64_t, LoopCarriedSpacialReuseDistance, 0)
   PROPERTY(uint64_t, UnknownSpacialReuseDistance, 0)
+  PROPERTY(uint64_t, MaxLifeScalars, 0)
+  PROPERTY(uint64_t, MaxLifeVectors, 0)
   PROPERTY(std::string, ParentLoop, "")
 
 #undef PROPERTY

@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/LoopPropertiesAnalysis.h"
+#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -197,6 +198,11 @@ LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
     }
   }
 
+  DenseMap<std::pair<BasicBlock *, Instruction *>, Instruction *>
+      LastUserInBlockMap;
+  DenseMap<BasicBlock *, SmallPtrSet<Instruction *, 8>> LifeValues;
+  DenseMap<Instruction *, unsigned> ScalarLifeMap, VectorLifeMap;
+
   for (BasicBlock *BB : L.getBlocks()) {
     if (LI.getLoopFor(BB) == &L)
       ++LPI.BasicBlockCount;
@@ -211,6 +217,25 @@ LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
       });
     }
 
+    auto MarkLifeBlocks = [&](BasicBlock *SrcBB, BasicBlock *UseBB,
+                              Instruction *I) {
+      SmallVector<BasicBlock *> Worklist;
+      SmallPtrSet<BasicBlock *, 8> Visited;
+      auto AddPredecessors = [&](BasicBlock *BB) {
+        for (auto *PredBB : predecessors(BB))
+          if (PredBB != SrcBB && !DT->dominates(BB, PredBB))
+            Worklist.push_back(PredBB);
+      };
+      AddPredecessors(UseBB);
+      while (!Worklist.empty()) {
+        auto *BB = Worklist.pop_back_val();
+        if (!Visited.insert(BB).second)
+          continue;
+        LifeValues[BB].insert(I);
+        AddPredecessors(BB);
+      }
+    };
+
     for (Instruction &I : *BB) {
       if (TTI) {
 #define INSTCOST(KIND)                                                         \
@@ -224,6 +249,42 @@ LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
         INSTCOST(Latency)
         INSTCOST(CodeSize)
 #undef INSTCOST
+      }
+
+      if (!I.user_empty()) {
+        if (I.getType()->isVectorTy())
+          ++VectorLifeMap[&I];
+        else
+          ++ScalarLifeMap[&I];
+      }
+      DenseMap<PHINode *, unsigned> PHISkipMap;
+      for (auto *Usr : I.users()) {
+        auto *UsrI = cast<Instruction>(Usr);
+        if (auto *PHI = dyn_cast<PHINode>(UsrI)) {
+          unsigned Skips = PHISkipMap[PHI];
+          ++PHISkipMap[PHI];
+          for (unsigned U = 0, E = PHI->getNumIncomingValues(); U < E; U++)
+            if (PHI->getIncomingValue(U) == &I && (Skips--) == 0)
+              UsrI = PHI->getIncomingBlock(U)->getTerminator();
+        }
+        auto *UsrBB = UsrI->getParent();
+        auto *&LastUserInBlock = LastUserInBlockMap[{UsrBB, &I}];
+        if (!LastUserInBlock || DT->dominates(LastUserInBlock, UsrI))
+          LastUserInBlock = UsrI;
+        if (UsrBB == BB)
+          continue;
+        MarkLifeBlocks(BB, UsrI->getParent(), &I);
+      }
+      for (auto *Op : I.operand_values()) {
+        if (auto *OpI = dyn_cast<Instruction>(Op))
+          if (!L.contains(OpI)) {
+            MarkLifeBlocks(HeaderBB, BB, OpI);
+            if (BB != HeaderBB)
+              LifeValues[HeaderBB].insert(OpI);
+            auto *&LastUserInBlock = LastUserInBlockMap[{BB, OpI}];
+            if (!LastUserInBlock || DT->dominates(LastUserInBlock, &I))
+              LastUserInBlock = &I;
+          }
       }
 
       unsigned Opcode = I.getOpcode();
@@ -364,6 +425,50 @@ LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
     }
   }
 
+  unsigned MaxLifeScalars = 0, MaxLifeVectors = 0;
+  ReversePostOrderTraversal<Function *> RPO(HeaderBB->getParent());
+  unsigned NumLoopBlocks = 0;
+  for (auto *BB : RPO) {
+    if (!NumLoopBlocks && BB != HeaderBB)
+      continue;
+    if (NumLoopBlocks == LPI.BasicBlockAllCount)
+      break;
+    NumLoopBlocks += L.contains(BB);
+    DenseMap<Instruction *, unsigned> ScalarKillMap, VectorKillMap;
+    unsigned NumLifeScalars = 0, NumLifeVectors = 0;
+    for (auto *I : LifeValues.lookup(BB))
+      if (I->getType()->isVectorTy())
+        ++NumLifeVectors;
+      else
+        ++NumLifeScalars;
+    for (auto &It : LastUserInBlockMap) {
+      if (It.first.first != BB ||
+          LifeValues.lookup(It.first.first).count(It.first.second))
+        continue;
+      if (It.first.second->getParent() != BB) {
+        if (It.first.second->getType()->isVectorTy())
+          ++NumLifeVectors;
+        else
+          ++NumLifeScalars;
+      }
+      assert(It.second->getParent() == BB);
+      if (It.first.second->getType()->isVectorTy())
+        ++VectorKillMap[It.second];
+      else
+        ++ScalarKillMap[It.second];
+    }
+    for (auto &I : *BB) {
+      NumLifeScalars += ScalarLifeMap.lookup(&I);
+      NumLifeVectors += VectorLifeMap.lookup(&I);
+      NumLifeScalars -= ScalarKillMap.lookup(&I);
+      NumLifeVectors -= VectorKillMap.lookup(&I);
+      MaxLifeScalars = std::max(MaxLifeScalars, NumLifeScalars);
+      MaxLifeVectors = std::max(MaxLifeVectors, NumLifeVectors);
+    }
+  }
+  LPI.MaxLifeScalars = MaxLifeScalars;
+  LPI.MaxLifeVectors = MaxLifeVectors;
+
   for (auto &It : SpacialPtrSCEVs) {
     for (unsigned I1 = 0, E = It.second.size(); I1 < E; ++I1)
       for (unsigned I2 = I1 + 1; I2 < E; ++I2) {
@@ -499,6 +604,8 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
   PROPERTY(uint64_t, ParameterBasePointers, 0)
   PROPERTY(uint64_t, LoopBasePointers, 0)
   PROPERTY(uint64_t, OuterLoopBasePointers, 0)
+  PROPERTY(uint64_t, MaxLifeScalars, 0)
+  PROPERTY(uint64_t, MaxLifeVectors, 0)
   PROPERTY(std::string, ParentLoop, "")
 
 #undef PROPERTY
