@@ -275,16 +275,26 @@ LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
           continue;
         MarkLifeBlocks(BB, UsrI->getParent(), &I);
       }
-      for (auto *Op : I.operand_values()) {
-        if (auto *OpI = dyn_cast<Instruction>(Op))
-          if (!L.contains(OpI)) {
-            MarkLifeBlocks(HeaderBB, BB, OpI);
-            if (BB != HeaderBB)
-              LifeValues[HeaderBB].insert(OpI);
-            auto *&LastUserInBlock = LastUserInBlockMap[{BB, OpI}];
-            if (!LastUserInBlock || DT->dominates(LastUserInBlock, &I))
-              LastUserInBlock = &I;
-          }
+      SmallVector<Instruction *> Worklist;
+      append_range(Worklist, map_range(I.operand_values(), [](Value *V) {
+                     return dyn_cast<Instruction>(V);
+                   }));
+      while (!Worklist.empty()) {
+        auto *OpI = Worklist.pop_back_val();
+        if (!OpI || L.contains(OpI))
+          continue;
+        if (isa<GetElementPtrInst>(OpI)) {
+          append_range(Worklist, map_range(OpI->operand_values(), [](Value *V) {
+                         return dyn_cast<Instruction>(V);
+                       }));
+          continue;
+        }
+        MarkLifeBlocks(HeaderBB, BB, OpI);
+        if (BB != HeaderBB)
+          LifeValues[HeaderBB].insert(OpI);
+        auto *&LastUserInBlock = LastUserInBlockMap[{BB, OpI}];
+        if (!LastUserInBlock || DT->dominates(LastUserInBlock, &I))
+          LastUserInBlock = &I;
       }
 
       unsigned Opcode = I.getOpcode();
@@ -436,11 +446,12 @@ LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
     NumLoopBlocks += L.contains(BB);
     DenseMap<Instruction *, unsigned> ScalarKillMap, VectorKillMap;
     unsigned NumLifeScalars = 0, NumLifeVectors = 0;
-    for (auto *I : LifeValues.lookup(BB))
+    for (auto *I : LifeValues.lookup(BB)) {
       if (I->getType()->isVectorTy())
         ++NumLifeVectors;
       else
         ++NumLifeScalars;
+    }
     for (auto &It : LastUserInBlockMap) {
       if (It.first.first != BB ||
           LifeValues.lookup(It.first.first).count(It.first.second))
