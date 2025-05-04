@@ -21,6 +21,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
 #include "llvm/Analysis/CodeMetrics.h"
@@ -32,6 +33,7 @@
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/UnrollAdvisor.h"
 #include "llvm/IR/BasicBlock.h"
@@ -1145,7 +1147,7 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
                 std::optional<bool> ProvidedAllowPeeling,
                 std::optional<bool> ProvidedAllowProfileBasedPeeling,
                 std::optional<unsigned> ProvidedFullUnrollMaxCount,
-                AAResults *AA = nullptr) {
+                AAResults *AA, TargetLibraryInfo *TLI) {
 
   LLVM_DEBUG(dbgs() << "Loop Unroll: F["
                     << L->getHeader()->getParent()->getName() << "] Loop %"
@@ -1302,7 +1304,8 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
   // TODO in the future we will move this up and get recommendation on whether
   // we want to also fully unroll from the same advice object.
   UnrollAdvisor &Advisor = getUnrollAdvisor(L->getHeader()->getContext());
-  auto Advice = Advisor.getAdvice({TripCount, UCE, UP, SE, *LI, *L});
+  auto Advice = Advisor.getAdvice(
+      {TripCount, UCE, UP, SE, *LI, *L, &TTI, TLI, AA, &DT, &AC});
   struct {
     FunctionCallee BeginF;
     FunctionCallee EndF;
@@ -1511,12 +1514,15 @@ public:
     OptimizationRemarkEmitter ORE(&F);
     bool PreserveLCSSA = mustPreserveAnalysisID(LCSSAID);
 
+    llvm_unreachable("old PM not supported");
+
     LoopUnrollResult Result = tryToUnrollLoop(
         L, DT, LI, SE, TTI, AC, ORE, nullptr, nullptr, PreserveLCSSA, OptLevel,
         /*OnlyFullUnroll*/ false, OnlyWhenForced, ForgetAllSCEV, ProvidedCount,
         ProvidedThreshold, ProvidedAllowPartial, ProvidedRuntime,
         ProvidedUpperBound, ProvidedAllowPeeling,
-        ProvidedAllowProfileBasedPeeling, ProvidedFullUnrollMaxCount);
+        ProvidedAllowProfileBasedPeeling, ProvidedFullUnrollMaxCount, nullptr,
+        nullptr);
 
     if (Result == LoopUnrollResult::FullyUnrolled)
       LPM.markLoopAsDeleted(*L);
@@ -1590,8 +1596,8 @@ PreservedAnalyses LoopFullUnrollPass::run(Loop &L, LoopAnalysisManager &AM,
                       /*Runtime*/ false, /*UpperBound*/ false,
                       /*AllowPeeling*/ true,
                       /*AllowProfileBasedPeeling*/ false,
-                      /*FullUnrollMaxCount*/ std::nullopt) !=
-      LoopUnrollResult::Unmodified;
+                      /*FullUnrollMaxCount*/ std::nullopt, &AR.AA,
+                      &AR.TLI) != LoopUnrollResult::Unmodified;
   if (!Changed)
     return PreservedAnalyses::all();
 
@@ -1661,6 +1667,7 @@ PreservedAnalyses LoopUnrollPass::run(Function &F,
   auto &AC = AM.getResult<AssumptionAnalysis>(F);
   auto &ORE = AM.getResult<OptimizationRemarkEmitterAnalysis>(F);
   AAResults &AA = AM.getResult<AAManager>(F);
+  auto &TLI = AM.getResult<TargetLibraryAnalysis>(F);
 
   LoopAnalysisManager *LAM = nullptr;
   if (auto *LAMProxy = AM.getCachedResult<LoopAnalysisManagerFunctionProxy>(F))
@@ -1717,8 +1724,8 @@ PreservedAnalyses LoopUnrollPass::run(Function &F,
         /*Count*/ std::nullopt,
         /*Threshold*/ std::nullopt, UnrollOpts.AllowPartial,
         UnrollOpts.AllowRuntime, UnrollOpts.AllowUpperBound, LocalAllowPeeling,
-        UnrollOpts.AllowProfileBasedPeeling, UnrollOpts.FullUnrollMaxCount,
-        &AA);
+        UnrollOpts.AllowProfileBasedPeeling, UnrollOpts.FullUnrollMaxCount, &AA,
+        &TLI);
     Changed |= Result != LoopUnrollResult::Unmodified;
 
     // The parent must not be damaged by unrolling!

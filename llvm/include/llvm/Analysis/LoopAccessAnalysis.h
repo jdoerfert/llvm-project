@@ -146,7 +146,9 @@ public:
       // on MinDepDistBytes.
       BackwardVectorizable,
       // Same, but may prevent store-to-load forwarding.
-      BackwardVectorizableButPreventsForwarding
+      BackwardVectorizableButPreventsForwarding,
+
+      NumDepTypes
     };
 
     /// String version of the types.

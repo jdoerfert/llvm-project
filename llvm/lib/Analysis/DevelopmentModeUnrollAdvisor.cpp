@@ -25,6 +25,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/InteractiveModelRunner.h"
 #include "llvm/Analysis/LoopPropertiesAnalysis.h"
 #include "llvm/Analysis/MLModelRunner.h"
@@ -48,6 +49,7 @@
 #include "llvm/Transforms/Utils/UnrollLoop.h"
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 
 #define DEBUG_TYPE "loop-unroll-development-advisor"
@@ -203,60 +205,124 @@ private:
 
 std::unique_ptr<UnrollAdvice>
 DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
-  LoopPropertiesInfo LPI = LoopPropertiesInfo::get(UAI.L, UAI.LI, UAI.SE, /*TTI=*/nullptr);
+  // TODO need to pass the rest of the params, see if we can get them in the
+  // unroll pass
+  LoopPropertiesInfo LPI = LoopPropertiesInfo::get(
+      UAI.L, UAI.LI, UAI.SE, UAI.TTI, UAI.TLI, UAI.AA, UAI.DT, UAI.AC);
 
-#define SET(id, val)                                                           \
-  *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::id) =                   \
+#define SET(NAME, val)                                                         \
+  *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::NAME) =                 \
       static_cast<int64_t>(val);
   SET(loop_size, UAI.UCE.getRolledLoopSize());
   SET(trip_count, UAI.TripCount);
 #undef SET
-#define SET_LPI(id)                                                            \
-  *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::id) =                   \
-      static_cast<int64_t>(LPI.id);
-  SET_LPI(HasLoopPreheader);
-  SET_LPI(IsCountableLoop);
-  SET_LPI(IsLoopBackEdgeCountConstant);
-  SET_LPI(PreheaderBlocksize);
-  SET_LPI(BasicBlockAllCount);
-  SET_LPI(BasicBlockCount);
-  SET_LPI(LoopDepth);
-  SET_LPI(NumInnerLoops);
-  SET_LPI(LoopLatchCount);
-  SET_LPI(LoadInstCount);
-  SET_LPI(LoadedBytes);
-  SET_LPI(StoreInstCount);
-  SET_LPI(StoredBytes);
-  SET_LPI(AtomicCount);
-  SET_LPI(FloatArithCount);
-  SET_LPI(IntArithCount);
-  SET_LPI(FloatDivRemCount);
-  SET_LPI(IntDivRemCount);
-  SET_LPI(LogicalInstCount);
-  SET_LPI(ExpensiveCastInstCount);
-  SET_LPI(FreeCastInstCount);
-  SET_LPI(AlmostFreeCastInstCount);
-  SET_LPI(FloatCmpCount);
-  SET_LPI(IntCmpCount);
-  SET_LPI(CondBrCount);
-  SET_LPI(VectorInstCount);
-  SET_LPI(InstCount);
-  SET_LPI(DirectCallDefCount);
-  SET_LPI(DirectCallDeclCount);
-  SET_LPI(IndirectCall);
-  SET_LPI(IntrinsicCount);
-#undef SET_LPI
-#define SET_APINT(id, VAL)                                                     \
-  do {                                                                         \
+
+#define MAP_UINT_UINT_PROPERTY(NAME, DEFAULT)                                  \
+  {                                                                            \
+    auto BINS = llvm::mlgo::NAME##BinsNum;                                     \
+    uint64_t *Tensor =                                                         \
+        ModelRunner->getTensor<uint64_t>(UnrollFeatureIndex::NAME);            \
+    for (unsigned I = 0; I < (unsigned)BINS; I++)                              \
+      Tensor[I] = 0;                                                           \
+  }
+#define MAP_UINT64_UINT64_PROPERTY(NAME, DEFAULT)                              \
+  MAP_UINT_UINT_PROPERTY(NAME, DEFAULT)
+#define BOOL_PROPERTY(NAME, DEFAULT)                                           \
+  *ModelRunner->getTensor<uint64_t>(UnrollFeatureIndex::NAME) =                \
+      static_cast<uint64_t>(LPI.NAME);
+#define UINT64_PROPERTY(NAME, DEFAULT)                                         \
+  *ModelRunner->getTensor<uint64_t>(UnrollFeatureIndex::NAME) =                \
+      static_cast<uint64_t>(LPI.NAME);
+#define STRING_PROPERTY(NAME, DEFAULT)
+#define APINT_PROPERTY(NAME, DEFAULT)                                          \
+  {                                                                            \
     int64_t ToAssign;                                                          \
-    if (auto V = VAL.trySExtValue())                                           \
+    if (auto V = LPI.NAME.trySExtValue())                                      \
       ToAssign = *V;                                                           \
     else                                                                       \
       ToAssign = std::numeric_limits<int64_t>::max();                          \
-    *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::id) = ToAssign;       \
-  } while (0)
-  SET_APINT(LoopBackEdgeCount, LPI.LoopBackEdgeCount);
-#undef SET_APINT
+    *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::NAME) = ToAssign;     \
+  }
+#define INSTCOST_PROPERTY(NAME, DEFAULT)                                       \
+  {                                                                            \
+    int64_t ToAssign;                                                          \
+    if (auto V = LPI.NAME.getValue())                                          \
+      ToAssign = *V;                                                           \
+    else                                                                       \
+      ToAssign = -1;                                                           \
+    *ModelRunner->getTensor<int64_t>(UnrollFeatureIndex::NAME) = ToAssign;     \
+  }
+#include "llvm/Analysis/LoopProperties.def"
+#undef INSTCOST_PROPERTY
+#undef BOOL_PROPERTY
+#undef UINT64_PROPERTY
+#undef STRING_PROPERTY
+#undef APINT_PROPERTY
+#undef MAP_UINT_UINT_PROPERTY
+#undef MAP_UINT64_UINT64_PROPERTY
+
+#define ENUM_BINS(NAME)                                                        \
+  {                                                                            \
+    uint64_t *Tensor =                                                         \
+        ModelRunner->getTensor<uint64_t>(UnrollFeatureIndex::NAME);            \
+    auto BINS = llvm::mlgo::NAME##BinsNum;                                     \
+    for (unsigned I = 0; I < (unsigned)BINS; I++) {                            \
+      auto Found = LPI.NAME.find(I);                                           \
+      if (Found == LPI.NAME.end()) {                                           \
+        Tensor[I] = 0;                                                         \
+      } else {                                                                 \
+        Tensor[I] = Found->second;                                             \
+      }                                                                        \
+    }                                                                          \
+  }
+  ENUM_BINS(RecurranceInfos)
+  ENUM_BINS(DependenceInfos)
+
+#define EXACT_BINS(NAME)                                                       \
+  {                                                                            \
+    uint64_t *Tensor =                                                         \
+        ModelRunner->getTensor<uint64_t>(UnrollFeatureIndex::NAME);            \
+    unsigned LT = NAME##Bins.size();                                           \
+    unsigned GT = NAME##Bins.size() + 1;                                       \
+    assert(Tensor[LT] == 0);                                                   \
+    assert(Tensor[GT] == 0);                                                   \
+    for (auto [Key, Val] : LPI.NAME) {                                         \
+      const int *Found = llvm::find(NAME##Bins, Key);                          \
+      if (Found == NAME##Bins.end()) {                                         \
+        if ((int)Key < NAME##Bins.back())                                      \
+          Tensor[LT] += Val;                                                   \
+        else                                                                   \
+          Tensor[GT] += Val;                                                   \
+      } else {                                                                 \
+        auto I = std::distance(NAME##Bins.begin(), Found);                     \
+        Tensor[I] = Val;                                                       \
+      }                                                                        \
+    }                                                                          \
+  }
+  EXACT_BINS(AccessSizes)
+  EXACT_BINS(AccessAlignments)
+  EXACT_BINS(PtrStrides)
+  EXACT_BINS(SpacialReuseDistance)
+#undef EXACT_BINS
+
+#define INTERVAL_BINS(NAME)                                                    \
+  {                                                                            \
+    uint64_t *Tensor =                                                         \
+        ModelRunner->getTensor<uint64_t>(UnrollFeatureIndex::NAME);            \
+    unsigned GT = NAME##Intervals.size();                                      \
+    assert(Tensor[GT] == 0);                                                   \
+    for (auto [Key, Val] : LPI.NAME) {                                         \
+      unsigned I = 0;                                                          \
+      while (NAME##Intervals[I] < (int)Key && I < NAME##Intervals.size())      \
+        I++;                                                                   \
+      Tensor[I] += Val;                                                        \
+    }                                                                          \
+  }
+  INTERVAL_BINS(LoopBlocksizes)
+  INTERVAL_BINS(InstructionCostsRecipThroughput)
+  INTERVAL_BINS(InstructionCostsLatency)
+  INTERVAL_BINS(InstructionCostsCodeSize)
+#undef INTERVAL_BINS
 
   ModelRunner->logInput();
 
@@ -300,10 +366,28 @@ llvm::getDevelopmentModeUnrollAdvisor(LLVMContext &Ctx) {
 
 // clang-format off
 const std::vector<TensorSpec> llvm::mlgo::UnrollFeatureMap{
+
 #define POPULATE_NAMES(DTYPE, SHAPE, NAME, __) \
   TensorSpec::createSpec<DTYPE>(#NAME, SHAPE),
   LOOP_UNROLL_FEATURE_ITERATOR(POPULATE_NAMES)
 #undef POPULATE_NAMES
+
+#define MAP_UINT_UINT_PROPERTY(NAME, DEFAULT) TensorSpec::createSpec<uint64_t>(#NAME, {(unsigned)NAME##BinsNum}),
+#define MAP_UINT64_UINT64_PROPERTY(NAME, DEFAULT) TensorSpec::createSpec<uint64_t>(#NAME, {(unsigned)NAME##BinsNum}),
+#define BOOL_PROPERTY(NAME, DEFAULT) TensorSpec::createSpec<uint64_t>(#NAME, {1}),
+#define UINT64_PROPERTY(NAME, DEFAULT) TensorSpec::createSpec<uint64_t>(#NAME, {1}),
+#define STRING_PROPERTY(NAME, DEFAULT)
+#define APINT_PROPERTY(NAME, DEFAULT) TensorSpec::createSpec<int64_t>(#NAME, {1}),
+#define INSTCOST_PROPERTY(NAME, DEFAULT) TensorSpec::createSpec<int64_t>(#NAME, {1}),
+#include "llvm/Analysis/LoopProperties.def"
+#undef INSTCOST_PROPERTY
+#undef BOOL_PROPERTY
+#undef UINT64_PROPERTY
+#undef STRING_PROPERTY
+#undef APINT_PROPERTY
+#undef MAP_UINT_UINT_PROPERTY
+#undef MAP_UINT64_UINT64_PROPERTY
+
 };
 // clang-format on
 

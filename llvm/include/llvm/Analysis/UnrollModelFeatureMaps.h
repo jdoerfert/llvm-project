@@ -9,55 +9,185 @@
 #ifndef LLVM_ANALYSIS_UNROLLMODELFEATUREMAPS_H
 #define LLVM_ANALYSIS_UNROLLMODELFEATUREMAPS_H
 
+#include "llvm/Analysis/IVDescriptors.h"
+#include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/TensorSpec.h"
 
+#include <array>
 #include <cstddef>
 #include <vector>
 
 namespace llvm {
 namespace mlgo {
 
+template <typename T, size_t N>
+constexpr std::array<T, N> makeArray(const T (&A)[N]) {
+  std::array<T, N> Arr = {};
+  for (size_t I = 0; I < N; ++I)
+    Arr[I] = A[I];
+  return Arr;
+}
+
+// ---------------------- Exact Binning Tensors ---------------------- //
+
+/// The tensor holds the following constant sizes, (sizes other less than 64),
+/// (sizes other greater than 64).
+/// Mainly guided by x86_64 needs as AVX-512 allows up to 64 byte accesses.
+/// Multiples of 8 are also included? Not sure if we need them.
+constexpr auto AccessSizesBins = makeArray({
+    1,
+    2,
+    4,
+    8,
+    16,
+    24,
+    32,
+    40,
+    48,
+    56,
+    64,
+});
+constexpr unsigned AccessSizesBinsNum = AccessSizesBins.size() + 2;
+
+constexpr auto AccessAlignmentsBins = makeArray({
+    1,
+    2,
+    4,
+    8,
+    16,
+    24,
+    32,
+    40,
+    48,
+    56,
+    64,
+});
+constexpr unsigned AccessAlignmentsBinsNum = AccessAlignmentsBins.size() + 2;
+
+constexpr auto SpacialReuseDistanceBins = makeArray({
+    1,
+    2,
+    4,
+    8,
+    16,
+    24,
+    32,
+    40,
+    48,
+    56,
+    64,
+});
+constexpr unsigned SpacialReuseDistanceBinsNum =
+    SpacialReuseDistanceBins.size() + 2;
+
+constexpr auto PtrStridesBins = makeArray({
+    1,
+    2,
+    4,
+    8,
+    16,
+    24,
+    32,
+    40,
+    48,
+    56,
+    64,
+});
+constexpr unsigned PtrStridesBinsNum = PtrStridesBins.size() + 2;
+
+// ---------------------- Interval Binning Tensors ---------------------- //
+
+constexpr auto LoopBlocksizesIntervals = makeArray({
+    4,
+    8,
+    16,
+    24,
+    32,
+    40,
+    48,
+    56,
+    64,
+    128,
+    256,
+});
+constexpr unsigned LoopBlocksizesBinsNum = LoopBlocksizesIntervals.size() + 1;
+
+constexpr auto InstructionCostsRecipThroughputIntervals = makeArray({
+    0,
+    1,
+    2,
+    3,
+    4,
+    8,
+    16,
+    32,
+});
+constexpr unsigned InstructionCostsRecipThroughputBinsNum =
+    InstructionCostsRecipThroughputIntervals.size() + 1;
+
+constexpr auto InstructionCostsLatencyIntervals = makeArray({
+    0,
+    1,
+    2,
+    3,
+    4,
+    6,
+    8,
+    12,
+    16,
+    24,
+    32,
+});
+constexpr unsigned InstructionCostsLatencyBinsNum =
+    InstructionCostsLatencyIntervals.size() + 1;
+
+constexpr auto InstructionCostsCodeSizeIntervals = makeArray({
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+});
+constexpr unsigned InstructionCostsCodeSizeBinsNum =
+    InstructionCostsCodeSizeIntervals.size() + 1;
+
+// ---------------------- Enum Binning Tensors ---------------------- //
+
+constexpr unsigned RecurranceInfosBinsNum =
+    static_cast<unsigned>(llvm::RecurKind::NumRecurKinds);
+constexpr unsigned DependenceInfosBinsNum =
+    static_cast<unsigned>(llvm::MemoryDepChecker::Dependence::NumDepTypes);
+
 #define LOOP_UNROLL_FEATURE_ITERATOR(M)                                        \
   M(int64_t, {1}, loop_size, "size of loop")                                   \
-  M(int64_t, {1}, trip_count, "static trip count of loop")                     \
-  M(int64_t, {1}, LoopBackEdgeCount, "")                                       \
-  M(int64_t, {1}, HasLoopPreheader, "")                                        \
-  M(int64_t, {1}, IsCountableLoop, "")                                         \
-  M(int64_t, {1}, IsLoopBackEdgeCountConstant, "")                                  \
-  M(int64_t, {1}, PreheaderBlocksize, "")                                      \
-  M(int64_t, {1}, BasicBlockAllCount, "")                                      \
-  M(int64_t, {1}, BasicBlockCount, "")                                         \
-  M(int64_t, {1}, LoopDepth, "")                                               \
-  M(int64_t, {1}, NumInnerLoops, "")                                           \
-  M(int64_t, {1}, LoopLatchCount, "")                                          \
-  M(int64_t, {1}, LoadInstCount, "")                                           \
-  M(int64_t, {1}, LoadedBytes, "")                                             \
-  M(int64_t, {1}, StoreInstCount, "")                                          \
-  M(int64_t, {1}, StoredBytes, "")                                             \
-  M(int64_t, {1}, AtomicCount, "")                                             \
-  M(int64_t, {1}, FloatArithCount, "")                                         \
-  M(int64_t, {1}, IntArithCount, "")                                           \
-  M(int64_t, {1}, FloatDivRemCount, "")                                        \
-  M(int64_t, {1}, IntDivRemCount, "")                                          \
-  M(int64_t, {1}, LogicalInstCount, "")                                        \
-  M(int64_t, {1}, ExpensiveCastInstCount, "")                                  \
-  M(int64_t, {1}, FreeCastInstCount, "")                                       \
-  M(int64_t, {1}, AlmostFreeCastInstCount, "")                                 \
-  M(int64_t, {1}, FloatCmpCount, "")                                           \
-  M(int64_t, {1}, IntCmpCount, "")                                             \
-  M(int64_t, {1}, CondBrCount, "")                                             \
-  M(int64_t, {1}, InstCount, "")                                               \
-  M(int64_t, {1}, VectorInstCount, "")                                         \
-  M(int64_t, {1}, DirectCallDefCount, "")                                      \
-  M(int64_t, {1}, DirectCallDeclCount, "")                                     \
-  M(int64_t, {1}, IndirectCall, "")                                            \
-  M(int64_t, {1}, IntrinsicCount, "")
+  M(int64_t, {1}, trip_count, "static trip count of loop")
 
 // clang-format off
 enum class UnrollFeatureIndex : size_t {
+
 #define POPULATE_INDICES(DTYPE, SHAPE, NAME, DOC) NAME,
   LOOP_UNROLL_FEATURE_ITERATOR(POPULATE_INDICES)
 #undef POPULATE_INDICES
+
+#define MAP_UINT_UINT_PROPERTY(NAME, DEFAULT) NAME,
+#define MAP_UINT64_UINT64_PROPERTY(NAME, DEFAULT) NAME,
+#define BOOL_PROPERTY(NAME, DEFAULT) NAME,
+#define UINT64_PROPERTY(NAME, DEFAULT) NAME,
+#define STRING_PROPERTY(NAME, DEFAULT)
+#define APINT_PROPERTY(NAME, DEFAULT) NAME,
+#define INSTCOST_PROPERTY(NAME, DEFAULT) NAME,
+#include "llvm/Analysis/LoopProperties.def"
+#undef INSTCOST_PROPERTY
+#undef BOOL_PROPERTY
+#undef UINT64_PROPERTY
+#undef STRING_PROPERTY
+#undef APINT_PROPERTY
+#undef MAP_UINT_UINT_PROPERTY
+#undef MAP_UINT64_UINT64_PROPERTY
 
   NumberOfFeatures
 };

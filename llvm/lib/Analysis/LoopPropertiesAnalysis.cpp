@@ -59,7 +59,7 @@ static cl::opt<int>
 
 LoopPropertiesInfo
 LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
-                        TargetTransformInfo *TTI, TargetLibraryInfo *TLI,
+                        const TargetTransformInfo *TTI, TargetLibraryInfo *TLI,
                         AAResults *AA, DominatorTree *DT, AssumptionCache *AC) {
 
   auto &DL = L.getHeader()->getModule()->getDataLayout();
@@ -406,7 +406,7 @@ LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
         SmallPtrSet<const Loop *, 4> UsedLoops;
         SE.getUsedLoops(PtrSCEV, UsedLoops);
         if (!UsedLoops.count(&L)) {
-          ++LPI.PtrStides[0];
+          ++LPI.PtrStrides[0];
           continue;
         }
         auto [InitSCEV, PostIncSCEV] = SE.SplitIntoInitAndPostInc(&L, PtrSCEV);
@@ -418,7 +418,7 @@ LoopPropertiesInfo::get(Loop &L, LoopInfo &LI, ScalarEvolution &SE,
           if (AccessStride.isNegative())
             AccessStride.negate();
           AccessStride = AccessStride.udiv(AccessSize);
-          ++LPI.PtrStides[AccessStride.getZExtValue()];
+          ++LPI.PtrStrides[AccessStride.getZExtValue()];
         } else
           ++LPI.ComplexPtrStrides;
 
@@ -550,107 +550,39 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
 #define PROPERTY(TY, NAME, DEFAULT)                                            \
   if (PrintZeroValues || (NAME != DEFAULT))                                    \
     OS << #NAME << " (" << #TY << ") " << NAME << "\n";
+#define INSTCOST_PROP(NAME)                                                    \
+  OS << "Loop instruction costs (" #NAME "): ";                                \
+  if (NAME.isValid())                                                          \
+    OS << *NAME.getValue() << "\n";                                            \
+  else                                                                         \
+    OS << "<invalid>\n";
+#define MAP_PROP(NAME)                                                         \
+  OS << "Map (" #NAME "): ";                                                   \
+  if (PrintZeroValues || !NAME.empty()) {                                      \
+    for (auto &It : NAME) {                                                    \
+      OS << It.first << ": " << It.second << "\n";                             \
+    }                                                                          \
+  }
 
-  PROPERTY(bool, HasRotatedForm, false)
-  PROPERTY(bool, HasLoopPreheader, false)
-  PROPERTY(bool, IsPerfectlyNested, false)
-  PROPERTY(bool, IsCountableLoop, false)
-  PROPERTY(bool, IsLoopBackEdgeCountConstant, false)
-  PROPERTY(bool, IsLoopBackEdgeCountFixed, false)
-  PROPERTY(bool, IsLoopBackEdgeCountLoopCarried, false)
-  PROPERTY(bool, BoundsAreSimple, false)
-  PROPERTY(bool, IsInitialValueConstant, false)
-  PROPERTY(bool, IsStepConstant, false)
-  PROPERTY(bool, IsFinalValueConstant, false)
-  PROPERTY(bool, HasLoadStoreDepWithInvariantAddr, false)
-  PROPERTY(bool, HasStoreStoreDepWithInvariantAddr, false)
-  PROPERTY(bool, HasConvergentOp, false)
-  PROPERTY(bool, NumRequiredRuntimePointerChecks, false)
-  PROPERTY(bool, CanVectorizeMemory, false)
-  PROPERTY(uint64_t, MaxSaveVectorWidthInBits, 0)
-  PROPERTY(uint64_t, NumReductionPHIs, 0)
-  PROPERTY(uint64_t, NumNonReductionPHIs, 0)
-  PROPERTY(uint64_t, NumPHIChains, 0)
-  PROPERTY(uint64_t, MaxPHIChainLatency, 0)
-  PROPERTY(uint64_t, MaxPHIChainRecipThroughput, 0)
-  PROPERTY(uint64_t, PreheaderBlocksize, 0)
-  PROPERTY(uint64_t, NumExitBlocks, 0)
-  PROPERTY(uint64_t, NumExitingBlocks, 0)
-  PROPERTY(uint64_t, NumUnreachableExits, 0)
-  PROPERTY(uint64_t, NumEarlyReturnExits, 0)
-  PROPERTY(uint64_t, BasicBlockAllCount, 0)
-  PROPERTY(uint64_t, BasicBlockCount, 0)
-  PROPERTY(uint64_t, LoopDepth, 0)
-  PROPERTY(uint64_t, NumInnerLoops, 0)
-  PROPERTY(uint64_t, LoopLatchCount, 0)
-  PROPERTY(uint64_t, ContinueLatchCount, 0)
-  PROPERTY(uint64_t, LoadInstCount, 0)
-  PROPERTY(uint64_t, LoadedBytes, 0)
-  PROPERTY(uint64_t, StoreInstCount, 0)
-  PROPERTY(uint64_t, StoredBytes, 0)
-  PROPERTY(uint64_t, AtomicCount, 0)
-  PROPERTY(uint64_t, FloatArithCount, 0)
-  PROPERTY(uint64_t, IntArithCount, 0)
-  PROPERTY(uint64_t, FloatDivRemCount, 0)
-  PROPERTY(uint64_t, IntDivRemCount, 0)
-  PROPERTY(uint64_t, LogicalInstCount, 0)
-  PROPERTY(uint64_t, ExpensiveCastInstCount, 0)
-  PROPERTY(uint64_t, FreeCastInstCount, 0)
-  PROPERTY(uint64_t, AlmostFreeCastInstCount, 0)
-  PROPERTY(uint64_t, FloatCmpCount, 0)
-  PROPERTY(uint64_t, IntCmpCount, 0)
-  PROPERTY(uint64_t, CondBrCount, 0)
-  PROPERTY(uint64_t, VectorInstCount, 0)
-  PROPERTY(uint64_t, InstCount, 0)
-  PROPERTY(uint64_t, DirectCallDefCount, 0)
-  PROPERTY(uint64_t, DirectCallDeclCount, 0)
-  PROPERTY(uint64_t, NonPureDirectCallCount, 0)
-  PROPERTY(uint64_t, IndirectCall, 0)
-  PROPERTY(uint64_t, IntrinsicCount, 0)
-  PROPERTY(uint64_t, UnknownBasePointers, 0)
-  PROPERTY(uint64_t, ComplexBasePointers, 0)
-  PROPERTY(uint64_t, GlobalBasePointers, 0)
-  PROPERTY(uint64_t, ArgumentBasePointers, 0)
-  PROPERTY(uint64_t, VariableBasePointers, 0)
-  PROPERTY(uint64_t, ParameterBasePointers, 0)
-  PROPERTY(uint64_t, LoopBasePointers, 0)
-  PROPERTY(uint64_t, OuterLoopBasePointers, 0)
-  PROPERTY(uint64_t, MaxLifeScalars, 0)
-  PROPERTY(uint64_t, MaxLifeVectors, 0)
-  PROPERTY(std::string, ParentLoop, "")
+#define MAP_UINT_UINT_PROPERTY(NAME, DEFAULT) MAP_PROP(NAME)
+#define MAP_UINT64_UINT64_PROPERTY(NAME, DEFAULT) MAP_PROP(NAME)
+#define INSTCOST_PROPERTY(NAME, DEFAULT) INSTCOST_PROP(NAME)
+#define BOOL_PROPERTY(NAME, DEFAULT) PROPERTY(bool, NAME, DEFAULT)
+#define UINT64_PROPERTY(NAME, DEFAULT) PROPERTY(uint64_t, NAME, DEFAULT)
+#define STRING_PROPERTY(NAME, DEFAULT) PROPERTY(std::string, NAME, DEFAULT)
+#define APINT_PROPERTY(NAME, DEFAULT) PROPERTY(APInt, NAME, DEFAULT)
+#include "llvm/Analysis/LoopProperties.def"
+#undef INSTCOST_PROPERTY
+#undef BOOL_PROPERTY
+#undef UINT64_PROPERTY
+#undef STRING_PROPERTY
+#undef APINT_PROPERTY
+#undef MAP_UINT_UINT_PROPERTY
+#undef MAP_UINT64_UINT64_PROPERTY
 
 #undef PROPERTY
-
-#define INSTCOST(KIND)                                                         \
-  OS << "Loop instruction costs (" #KIND "): ";                                \
-  if (LoopInsts##KIND.isValid())                                               \
-    OS << *LoopInsts##KIND.getValue() << "\n";                                 \
-  else                                                                         \
-    OS << "<invalid>\n";                                                       \
-  for (auto &It : InstructionCosts##KIND) {                                    \
-    OS << It.first << ": " << It.second << "\n";                               \
-  }
-
-  INSTCOST(RecipThroughput)
-  INSTCOST(Latency)
-  INSTCOST(CodeSize)
-#undef INSTCOST
-
-  OS << "Block sizes:\n";
-  for (auto &It : LoopBlocksizes)
-    OS << It.first << ": " << It.second << "\n";
-
-  if (!AccessSizes.empty()) {
-    OS << "Access sizes:\n";
-    for (auto &It : AccessSizes)
-      OS << It.first << ": " << It.second << "\n";
-  }
-
-  if (!AccessAlignments.empty()) {
-    OS << "Access alignments:\n";
-    for (auto &It : AccessAlignments)
-      OS << It.first << ": " << It.second << "\n";
-  }
+#undef INSTCOST_PROP
+#undef MAP_PROP
 
   if (PrintAccessedPointers)
     OS << "Accessed pointers (" << TemporalPtrSCEVs.size() << "):\n";
@@ -687,20 +619,6 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
   OS << "Spacial reuse distance (" << SpacialReuseDistance.size() << "):\n";
   for (auto &It : SpacialReuseDistance)
     OS << "- " << It.first << " : " << It.second << "\n";
-  if (ParametricSpacialReuseDistance || PrintZeroValues)
-    OS << "- <parametric> : " << ParametricSpacialReuseDistance << "\n";
-  if (LoopCarriedSpacialReuseDistance || PrintZeroValues)
-    OS << "- <carried> : " << LoopCarriedSpacialReuseDistance << "\n";
-  if (UnknownSpacialReuseDistance || PrintZeroValues)
-    OS << "- <unknown> : " << UnknownSpacialReuseDistance << "\n";
-
-  OS << "Pointer strides (" << PtrStides.size() << "):\n";
-  for (auto &It : PtrStides)
-    OS << "- " << It.first << " : " << It.second << "\n";
-  if (ComplexPtrStrides || PrintZeroValues)
-    OS << "- <complex> : " << ComplexPtrStrides << "\n";
-  if (UnknownPtrStrides || PrintZeroValues)
-    OS << "- <unknown> : " << UnknownPtrStrides << "\n";
 
   auto RecurKindToString = [](RecurKind RK) {
     switch (RK) {
@@ -729,6 +647,8 @@ void LoopPropertiesInfo::print(raw_ostream &OS) const {
       RK_CASE(IFindLastIV)
       RK_CASE(FFindLastIV);
 #undef RK_CASE
+    default:
+      return "Unknown";
     };
   };
 
@@ -758,9 +678,8 @@ LoopPropertiesAnalysis::run(Loop &L, LoopAnalysisManager &AM,
 PreservedAnalyses
 LoopPropertiesPrinterPass::run(Loop &L, LoopAnalysisManager &AM,
                                LoopStandardAnalysisResults &AR, LPMUpdater &U) {
-  OS << "Printing analysis results for Loop "
-     << "'" << L.getName() << "':"
-     << "\n";
+  OS << "Printing analysis results for Loop " << "'" << L.getName()
+     << "':" << "\n";
   AM.getResult<LoopPropertiesAnalysis>(L, AR).print(OS);
   // AM.getResult<IVUsersAnalysis>(L, AR).print(OS);
   // AM.getResult<LoopAccessAnalysis>(L, AR);

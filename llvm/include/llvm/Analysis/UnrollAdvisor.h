@@ -26,6 +26,11 @@ struct UnrollAdviceInfo {
   ScalarEvolution &SE;
   LoopInfo &LI;
   Loop &L;
+  const TargetTransformInfo *TTI = nullptr;
+  TargetLibraryInfo *TLI = nullptr;
+  AAResults *AA = nullptr;
+  DominatorTree *DT = nullptr;
+  AssumptionCache *AC = nullptr;
 };
 
 class UnrollAdvisor;

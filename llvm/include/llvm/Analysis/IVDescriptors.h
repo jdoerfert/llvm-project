@@ -68,6 +68,7 @@ enum class RecurKind {
   // clang-format on
   // TODO: Any_of and FindLast reduction need not be restricted to integer type
   // only.
+  NumRecurKinds
 };
 
 /// The RecurrenceDescriptor is used to identify recurrences variables in a
