@@ -277,6 +277,7 @@ DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
   }
   ENUM_BINS(RecurranceInfos)
   ENUM_BINS(DependenceInfos)
+#undef ENUM_BINS
 
 #define EXACT_BINS(NAME)                                                       \
   {                                                                            \
@@ -301,8 +302,6 @@ DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
   }
   EXACT_BINS(AccessSizes)
   EXACT_BINS(AccessAlignments)
-  EXACT_BINS(PtrStrides)
-  EXACT_BINS(SpacialReuseDistance)
 #undef EXACT_BINS
 
 #define INTERVAL_BINS(NAME)                                                    \
@@ -322,6 +321,8 @@ DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
   INTERVAL_BINS(InstructionCostsRecipThroughput)
   INTERVAL_BINS(InstructionCostsLatency)
   INTERVAL_BINS(InstructionCostsCodeSize)
+  INTERVAL_BINS(PtrStrides)
+  INTERVAL_BINS(SpacialReuseDistance)
 #undef INTERVAL_BINS
 
   ModelRunner->logInput();
