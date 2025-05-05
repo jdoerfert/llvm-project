@@ -40,11 +40,7 @@ constexpr auto AccessSizesBins = makeArray({
     4,
     8,
     16,
-    24,
     32,
-    40,
-    48,
-    56,
     64,
 });
 constexpr unsigned AccessSizesBinsNum = AccessSizesBins.size() + 2;
@@ -55,21 +51,24 @@ constexpr auto AccessAlignmentsBins = makeArray({
     4,
     8,
     16,
-    24,
-    32,
-    40,
-    48,
-    56,
-    64,
 });
 constexpr unsigned AccessAlignmentsBinsNum = AccessAlignmentsBins.size() + 2;
 
+// TODO
 constexpr auto SpacialReuseDistanceBins = makeArray({
     1,
     2,
+    3,
     4,
+    5,
+    6,
+    7,
     8,
+    9,
+    10,
+    12,
     16,
+    20,
     24,
     32,
     40,
@@ -80,26 +79,49 @@ constexpr auto SpacialReuseDistanceBins = makeArray({
 constexpr unsigned SpacialReuseDistanceBinsNum =
     SpacialReuseDistanceBins.size() + 2;
 
+// TODO
 constexpr auto PtrStridesBins = makeArray({
     1,
     2,
+    3,
     4,
+    5,
+    6,
+    7,
     8,
+    9,
+    10,
+    12,
     16,
+    20,
     24,
     32,
     40,
     48,
     56,
     64,
+//     1,
+//     2,
+//     4,
+//     8,
+//     16,
+//     24,
+//     32,
+//     40,
+//     48,
+//     56,
+//     64,
 });
 constexpr unsigned PtrStridesBinsNum = PtrStridesBins.size() + 2;
 
 // ---------------------- Interval Binning Tensors ---------------------- //
 
 constexpr auto LoopBlocksizesIntervals = makeArray({
+    2,
     4,
+    6,
     8,
+    12,
     16,
     24,
     32,
@@ -118,7 +140,11 @@ constexpr auto InstructionCostsRecipThroughputIntervals = makeArray({
     2,
     3,
     4,
+    5,
+    6,
+    7,
     8,
+    12,
     16,
     32,
 });
@@ -131,7 +157,9 @@ constexpr auto InstructionCostsLatencyIntervals = makeArray({
     2,
     3,
     4,
+    5,
     6,
+    7,
     8,
     12,
     16,
