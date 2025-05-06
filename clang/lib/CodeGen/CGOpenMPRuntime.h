@@ -1355,6 +1355,10 @@ public:
                                           bool IsOffloadEntry,
                                           const RegionCodeGenTy &CodeGen);
 
+  virtual void emitOMPLoopDirective(const OMPLoopDirective &S,
+                                    CodeGenFunction &CGF,
+                                    llvm::omp::Directive D);
+
   /// Emit the target offloading code associated with \a D. The emitted
   /// code attempts offloading the execution to the device, an the event of
   /// a failure it executes the host version outlined in \a OutlinedFn.
@@ -2162,6 +2166,10 @@ public:
                                   llvm::Constant *&OutlinedFnID,
                                   bool IsOffloadEntry,
                                   const RegionCodeGenTy &CodeGen) override;
+
+  void emitOMPLoopDirective(const OMPLoopDirective &S,
+                            CodeGenFunction &CGF,
+                            llvm::omp::Directive D) override;
 
   /// Emit the target offloading code associated with \a D. The emitted
   /// code attempts offloading the execution to the device, an the event of

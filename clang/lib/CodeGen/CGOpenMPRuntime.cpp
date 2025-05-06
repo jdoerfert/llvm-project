@@ -5815,6 +5815,12 @@ void CGOpenMPRuntime::emitTargetOutlinedFunction(
                                    IsOffloadEntry, CodeGen);
 }
 
+void CGOpenMPRuntime::emitOMPLoopDirective(const OMPLoopDirective &S,
+                                           CodeGenFunction &CGF,
+                                           llvm::omp::Directive) {
+  llvm_unreachable("Host distribute codegen is handled in CGStmtOpenMP.");
+}
+
 void CGOpenMPRuntime::emitUsesAllocatorsInit(CodeGenFunction &CGF,
                                              const Expr *Allocator,
                                              const Expr *AllocatorTraits) {
@@ -11924,6 +11930,12 @@ void CGOpenMPSIMDRuntime::emitTargetOutlinedFunction(
     const OMPExecutableDirective &D, StringRef ParentName,
     llvm::Function *&OutlinedFn, llvm::Constant *&OutlinedFnID,
     bool IsOffloadEntry, const RegionCodeGenTy &CodeGen) {
+  llvm_unreachable("Not supported in SIMD-only mode");
+}
+
+void CGOpenMPSIMDRuntime::emitOMPLoopDirective(const OMPLoopDirective &S,
+                                                     CodeGenFunction &CGF,
+                                               llvm::omp::Directive) {
   llvm_unreachable("Not supported in SIMD-only mode");
 }
 

@@ -123,6 +123,10 @@ private:
                                   bool IsOffloadEntry,
                                   const RegionCodeGenTy &CodeGen) override;
 
+  void emitOMPLoopDirective(const OMPLoopDirective &S,
+                            CodeGenFunction &CGF,
+                            llvm::omp::Directive D) override;
+
 protected:
   /// Check if the default location must be constant.
   /// Constant for NVPTX for better optimization.

@@ -28,6 +28,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/Frontend/OpenMP/OMP.h.inc"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Constants.h"
@@ -3385,6 +3386,14 @@ emitInnerParallelForWhenCombined(CodeGenFunction &CGF,
 void CodeGenFunction::EmitOMPDistributeParallelForDirective(
     const OMPDistributeParallelForDirective &S) {
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_parallel_for);
+    }
     CGF.EmitOMPDistributeLoop(S, emitInnerParallelForWhenCombined,
                               S.getDistInc());
   };
@@ -3395,6 +3404,14 @@ void CodeGenFunction::EmitOMPDistributeParallelForDirective(
 void CodeGenFunction::EmitOMPDistributeParallelForSimdDirective(
     const OMPDistributeParallelForSimdDirective &S) {
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_parallel_for_simd);
+    }
     CGF.EmitOMPDistributeLoop(S, emitInnerParallelForWhenCombined,
                               S.getDistInc());
   };
@@ -3405,6 +3422,14 @@ void CodeGenFunction::EmitOMPDistributeParallelForSimdDirective(
 void CodeGenFunction::EmitOMPDistributeSimdDirective(
     const OMPDistributeSimdDirective &S) {
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_simd);
+    }
     CGF.EmitOMPDistributeLoop(S, emitOMPLoopBodyWithStopPoint, S.getInc());
   };
   OMPLexicalScope Scope(*this, S, OMPD_unknown);
@@ -6087,6 +6112,14 @@ static void emitOMPDistributeDirective(const OMPLoopDirective &S,
                                        CodeGenFunction &CGF,
                                        CodeGenModule &CGM) {
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute);
+    }
     CGF.EmitOMPDistributeLoop(S, emitOMPLoopBodyWithStopPoint, S.getInc());
   };
   OMPLexicalScope Scope(CGF, S, OMPD_unknown);
@@ -7084,6 +7117,14 @@ emitTargetTeamsDistributeRegion(CodeGenFunction &CGF, PrePostActionTy &Action,
                                 const OMPTargetTeamsDistributeDirective &S) {
   Action.Enter(CGF);
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute);
+    }
     CGF.EmitOMPDistributeLoop(S, emitOMPLoopBodyWithStopPoint, S.getInc());
   };
 
@@ -7130,6 +7171,14 @@ static void emitTargetTeamsDistributeSimdRegion(
     const OMPTargetTeamsDistributeSimdDirective &S) {
   Action.Enter(CGF);
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_simd);
+    }
     CGF.EmitOMPDistributeLoop(S, emitOMPLoopBodyWithStopPoint, S.getInc());
   };
 
@@ -7175,6 +7224,14 @@ void CodeGenFunction::EmitOMPTeamsDistributeDirective(
     const OMPTeamsDistributeDirective &S) {
 
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute);
+    }
     CGF.EmitOMPDistributeLoop(S, emitOMPLoopBodyWithStopPoint, S.getInc());
   };
 
@@ -7197,6 +7254,14 @@ void CodeGenFunction::EmitOMPTeamsDistributeDirective(
 void CodeGenFunction::EmitOMPTeamsDistributeSimdDirective(
     const OMPTeamsDistributeSimdDirective &S) {
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_simd);
+    }
     CGF.EmitOMPDistributeLoop(S, emitOMPLoopBodyWithStopPoint, S.getInc());
   };
 
@@ -7219,6 +7284,14 @@ void CodeGenFunction::EmitOMPTeamsDistributeSimdDirective(
 void CodeGenFunction::EmitOMPTeamsDistributeParallelForDirective(
     const OMPTeamsDistributeParallelForDirective &S) {
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_parallel_for);
+    }
     CGF.EmitOMPDistributeLoop(S, emitInnerParallelForWhenCombined,
                               S.getDistInc());
   };
@@ -7242,6 +7315,14 @@ void CodeGenFunction::EmitOMPTeamsDistributeParallelForDirective(
 void CodeGenFunction::EmitOMPTeamsDistributeParallelForSimdDirective(
     const OMPTeamsDistributeParallelForSimdDirective &S) {
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_parallel_for_simd);
+    }
     CGF.EmitOMPDistributeLoop(S, emitInnerParallelForWhenCombined,
                               S.getDistInc());
   };
@@ -7338,6 +7419,14 @@ static void emitTargetTeamsDistributeParallelForRegion(
     PrePostActionTy &Action) {
   Action.Enter(CGF);
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_parallel_for);
+    }
     CGF.EmitOMPDistributeLoop(S, emitInnerParallelForWhenCombined,
                               S.getDistInc());
   };
@@ -7390,6 +7479,14 @@ static void emitTargetTeamsDistributeParallelForSimdRegion(
     PrePostActionTy &Action) {
   Action.Enter(CGF);
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_parallel_for_simd);
+    }
     CGF.EmitOMPDistributeLoop(S, emitInnerParallelForWhenCombined,
                               S.getDistInc());
   };
@@ -8261,6 +8358,14 @@ void CodeGenFunction::EmitOMPTeamsGenericLoopDirective(
   // To be consistent with current behavior of 'target teams loop', emit
   // 'teams loop' as if its constituent constructs are 'teams' and 'distribute'.
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_teams_loop);
+    }
     CGF.EmitOMPDistributeLoop(S, emitOMPLoopBodyWithStopPoint, S.getInc());
   };
 
@@ -8306,6 +8411,14 @@ static void emitTargetTeamsGenericLoopRegionAsParallel(
   // Emit 'teams loop' as if its constituent constructs are 'distribute,
   // 'parallel, and 'for'.
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute_parallel_for);
+    }
     CGF.EmitOMPDistributeLoop(S, emitInnerParallelForWhenCombined,
                               S.getDistInc());
   };
@@ -8336,6 +8449,14 @@ static void emitTargetTeamsGenericLoopRegionAsDistribute(
   Action.Enter(CGF);
   // Emit 'teams loop' as if its constituent construct is 'distribute'.
   auto &&CodeGenDistribute = [&S](CodeGenFunction &CGF, PrePostActionTy &) {
+    CGOpenMPRuntime &RT = CGF.CGM.getOpenMPRuntime();
+    if (RT.isGPU()) {
+      CodeGenFunction::OMPLocalDeclMapRAII Scope(CGF);
+      CodeGenFunction::CGCapturedStmtInfo CGSI(CR_OpenMP);
+      CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGSI);
+      OMPLoopScope PreInitScope(CGF, S);
+      return RT.emitOMPLoopDirective(S, CGF, OMPD_distribute);
+    }
     CGF.EmitOMPDistributeLoop(S, emitOMPLoopBodyWithStopPoint, S.getInc());
   };
 

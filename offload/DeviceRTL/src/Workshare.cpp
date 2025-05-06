@@ -729,40 +729,73 @@ template <typename Ty> class StaticLoopChunker {
                                         Ty BlockChunk, Ty NumBlocks, Ty BId,
                                         Ty ThreadChunk, Ty NumThreads, Ty TId,
                                         Ty NumIters,
-                                        bool OneIterationPerThread) {
-    Ty KernelIteration = NumBlocks * BlockChunk;
+                                        bool OneIterationPerThread,
+				        bool OneChunkPerThread = false) {
+    Ty KernelIteration = NumBlocks * BlockChunk * NumThreads * ThreadChunk - BlockChunk * ThreadChunk;
 
     // Start index in the chunked space.
-    Ty IV = BId * BlockChunk + TId;
+    Ty IV = BId * BlockChunk + TId * ThreadChunk;
     ASSERT(IV >= 0, "Bad index");
 
     // Cover the entire iteration space, assumptions in the caller might allow
     // to simplify this loop to a conditional.
     do {
 
-      Ty BlockChunkLeft =
-          BlockChunk >= TId * ThreadChunk ? BlockChunk - TId * ThreadChunk : 0;
-      Ty ThreadChunkLeft =
-          ThreadChunk <= BlockChunkLeft ? ThreadChunk : BlockChunkLeft;
+      Ty BlockChunkLeft = BlockChunk;
 
-      while (ThreadChunkLeft--) {
+      do {
 
-        // Given the blocking it's hard to keep track of what to execute.
-        if (IV >= NumIters)
-          return;
+        Ty ThreadChunkLeft = ThreadChunk;
 
-        // Execute the loop body.
-        LoopBody(IV, Arg);
+	do {
+	  // Given the blocking it's hard to keep track of what to execute.
+	  if (IV >= NumIters)
+	    return;
 
-        if (OneIterationPerThread)
-          return;
+	  // Execute the loop body.
+	  LoopBody(IV, Arg);
 
-        ++IV;
-      }
+	  if (OneIterationPerThread)
+	    return;
+
+	  IV += 1;
+
+	} while (--ThreadChunkLeft);
+
+	IV += NumThreads * ThreadChunk - ThreadChunk;
+
+      } while (--BlockChunkLeft);
+
+      if (OneChunkPerThread)
+	return;
 
       IV += KernelIteration;
 
-    } while (IV < NumIters);
+    } while (true);
+  }
+
+  /// Generic loop nest that handles block and/or thread distribution in the
+  /// presence of user specified chunk sizes (for at least one of them).
+  static void BlockChunked(void (*LoopBody)(Ty, void *), void *Arg,
+                                        Ty BlockChunk, Ty NumBlocks, Ty BId,
+  			   Ty ThisBlockChunk,
+                                        Ty NumIters,
+                                        bool OneIterationPerThread,
+				        bool OneChunkPerThread = false) {
+    // Start index in the chunked space.
+    Ty IV = BId * BlockChunk;
+    Ty IVEnd = IV + ThisBlockChunk;
+    ASSERT(IV >= 0, "Bad index");
+
+    while (IV < IVEnd) {
+      // Execute the loop body.
+      LoopBody(IV, Arg);
+
+      if (OneIterationPerThread)
+	return;
+
+      IV += 1;
+    }
   }
 
 public:
@@ -816,18 +849,25 @@ public:
     ASSERT(NumIters >= 0, "Bad iteration count");
     ASSERT(BlockChunk >= 0, "Bad block count");
 
-    // There are no threads involved here.
-    Ty ThreadChunk = 0;
-    Ty NumThreads = 1;
-    Ty TId = 0;
-
     // All teams need to participate.
     Ty NumBlocks = mapping::getNumberOfBlocksInKernel();
     Ty BId = mapping::getBlockIdInKernel();
+    Ty ThisBlockChunk = BlockChunk;
 
+    bool OneChunkPerThread = false;
     // If the block chunk is not specified we pick a default now.
-    if (BlockChunk == 0)
-      BlockChunk = NumThreads;
+    if (BlockChunk == 0) {
+      ThisBlockChunk = BlockChunk = NumIters / NumBlocks;
+      Ty Remainder = NumIters % NumBlocks;
+      if (BId < Remainder)
+	ThisBlockChunk += 1;
+      OneChunkPerThread = true;
+    }
+
+    // There are no threads involved here.
+    Ty ThreadChunk = 1;
+    Ty NumThreads = 1;
+    Ty TId = 0;
 
     // If we know we have more blocks than iterations we can indicate that to
     // avoid an outer loop.
@@ -837,10 +877,12 @@ public:
       OneIterationPerThread = true;
     }
 
-    if (BlockChunk != NumThreads)
+    if (OneChunkPerThread) 
+      BlockChunked(LoopBody, Arg, BlockChunk, NumBlocks, BId, ThisBlockChunk, NumIters, OneIterationPerThread);
+    else if (BlockChunk != 1)
       NormalizedLoopNestChunked(LoopBody, Arg, BlockChunk, NumBlocks, BId,
                                 ThreadChunk, NumThreads, TId, NumIters,
-                                OneIterationPerThread);
+                                OneIterationPerThread, OneChunkPerThread);
     else
       NormalizedLoopNestNoChunk(LoopBody, Arg, NumBlocks, BId, NumThreads, TId,
                                 NumIters, OneIterationPerThread);

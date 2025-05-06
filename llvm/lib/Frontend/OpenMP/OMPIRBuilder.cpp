@@ -25,6 +25,8 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Frontend/Offloading/Utility.h"
+#include "llvm/Frontend/OpenMP/OMP.h.inc"
+#include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -40,6 +42,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Metadata.h"
@@ -57,6 +60,7 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/CodeExtractor.h"
 #include "llvm/Transforms/Utils/LoopPeel.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/UnrollLoop.h"
 
 #include <cstdint>
@@ -816,8 +820,8 @@ void OpenMPIRBuilder::finalize(Function *Fn) {
               "OMPIRBuilder finalization \n";
   };
 
-  if (!OffloadInfoManager.empty())
-    createOffloadEntriesAndInfoMetadata(ErrorReportFn);
+//  if (!OffloadInfoManager.empty())
+//    createOffloadEntriesAndInfoMetadata(ErrorReportFn);
 
   if (Config.EmitLLVMUsedMetaInfo.value_or(false)) {
     std::vector<WeakTrackingVH> LLVMCompilerUsed = {
@@ -4431,39 +4435,30 @@ OpenMPIRBuilder::applyStaticChunkedWorkshareLoop(DebugLoc DL,
   return InsertPointTy(DispatchAfter, DispatchAfter->getFirstInsertionPt());
 }
 
-// Returns an LLVM function to call for executing an OpenMP static worksharing
-// for loop depending on `type`. Only i32 and i64 are supported by the runtime.
-// Always interpret integers as unsigned similarly to CanonicalLoopInfo.
-static FunctionCallee
-getKmpcForStaticLoopForType(Type *Ty, OpenMPIRBuilder *OMPBuilder,
-                            WorksharingLoopType LoopType) {
+FunctionCallee OpenMPIRBuilder::getKmpcForStaticLoopForType(
+    Type *Ty, WorksharingLoopType LoopType, bool IsSigned) {
   unsigned Bitwidth = Ty->getIntegerBitWidth();
-  Module &M = OMPBuilder->M;
   switch (LoopType) {
-  case WorksharingLoopType::ForStaticLoop:
-    if (Bitwidth == 32)
-      return OMPBuilder->getOrCreateRuntimeFunction(
-          M, omp::RuntimeFunction::OMPRTL___kmpc_for_static_loop_4u);
-    if (Bitwidth == 64)
-      return OMPBuilder->getOrCreateRuntimeFunction(
-          M, omp::RuntimeFunction::OMPRTL___kmpc_for_static_loop_8u);
+#define CASE(NAME, FN)                                                         \
+  case WorksharingLoopType::NAME:                                              \
+    if (Bitwidth == 32) {                                                      \
+      if (IsSigned)                                                            \
+        return getOrCreateRuntimeFunction(                                     \
+            M, omp::RuntimeFunction::OMPRTL___kmpc_##FN##_4);                  \
+      return getOrCreateRuntimeFunction(                                       \
+          M, omp::RuntimeFunction::OMPRTL___kmpc_##FN##_4u);                   \
+    }                                                                          \
+    if (Bitwidth == 64) {                                                      \
+      if (IsSigned)                                                            \
+        return getOrCreateRuntimeFunction(                                     \
+            M, omp::RuntimeFunction::OMPRTL___kmpc_##FN##_8);                  \
+      return getOrCreateRuntimeFunction(                                       \
+          M, omp::RuntimeFunction::OMPRTL___kmpc_##FN##_8u);                   \
+    }                                                                          \
     break;
-  case WorksharingLoopType::DistributeStaticLoop:
-    if (Bitwidth == 32)
-      return OMPBuilder->getOrCreateRuntimeFunction(
-          M, omp::RuntimeFunction::OMPRTL___kmpc_distribute_static_loop_4u);
-    if (Bitwidth == 64)
-      return OMPBuilder->getOrCreateRuntimeFunction(
-          M, omp::RuntimeFunction::OMPRTL___kmpc_distribute_static_loop_8u);
-    break;
-  case WorksharingLoopType::DistributeForStaticLoop:
-    if (Bitwidth == 32)
-      return OMPBuilder->getOrCreateRuntimeFunction(
-          M, omp::RuntimeFunction::OMPRTL___kmpc_distribute_for_static_loop_4u);
-    if (Bitwidth == 64)
-      return OMPBuilder->getOrCreateRuntimeFunction(
-          M, omp::RuntimeFunction::OMPRTL___kmpc_distribute_for_static_loop_8u);
-    break;
+    CASE(ForStaticLoop, for_static_loop)
+    CASE(DistributeStaticLoop, distribute_static_loop)
+    CASE(DistributeForStaticLoop, distribute_for_static_loop)
   }
   if (Bitwidth != 32 && Bitwidth != 64) {
     llvm_unreachable("Unknown OpenMP loop iterator bitwidth");
@@ -4482,7 +4477,7 @@ static void createTargetLoopWorkshareCall(OpenMPIRBuilder *OMPBuilder,
   Module &M = OMPBuilder->M;
   IRBuilder<> &Builder = OMPBuilder->Builder;
   FunctionCallee RTLFn =
-      getKmpcForStaticLoopForType(TripCountTy, OMPBuilder, LoopType);
+      OMPBuilder->getKmpcForStaticLoopForType(TripCountTy, LoopType);
   SmallVector<Value *, 8> RealArgs;
   RealArgs.push_back(Ident);
   RealArgs.push_back(&LoopBodyFn);
@@ -5480,6 +5475,246 @@ void OpenMPIRBuilder::applySimd(CanonicalLoopInfo *CanonicalLoop,
   }
 
   addLoopMetadata(CanonicalLoop, LoopMDList);
+}
+
+OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createLoopDirective(
+    const LocationDescription &Loc, InsertPointTy OuterAllocaIP,
+    BodyGenCallbackTy BodyGenCB, FinalizeCallbackTy FiniCB, Value *LoopCounter,
+    Value *NumIterations) {
+
+  assert(Config.isTargetDevice() && "Target codegen only!");
+
+  if (!updateToLocation(Loc))
+    return Loc.IP;
+
+  uint32_t SrcLocStrSize;
+  Constant *SrcLocStr = getOrCreateSrcLocStr(Loc, SrcLocStrSize);
+  Value *Ident = getOrCreateIdent(SrcLocStr, SrcLocStrSize);
+
+  // If we generate code for the target device, we need to allocate
+  // struct for aggregate params in the device default alloca address space.
+  // OpenMP runtime requires that the params of the extracted functions are
+  // passed as zero address space pointers. This flag ensures that extracted
+  // function arguments are declared in zero address space
+  bool ArgsInZeroAddressSpace = Config.isTargetDevice();
+
+  BasicBlock *InsertBB = Builder.GetInsertBlock();
+  Function *OuterFn = InsertBB->getParent();
+
+  // Save the outer alloca block because the insertion iterator may get
+  // invalidated and we still need this later.
+  BasicBlock *OuterAllocaBlock = OuterAllocaIP.getBlock();
+
+  // Vector to remember instructions we used only during the modeling but which
+  // we want to delete at the end.
+  SmallVector<Instruction *, 4> ToBeDeleted;
+
+  // Change the location to the outer alloca insertion point to create and
+  // initialize the allocas we pass into the parallel region.
+  InsertPointTy NewOuter(OuterAllocaBlock, OuterAllocaBlock->begin());
+  Builder.restoreIP(NewOuter);
+
+  // Create an artificial insertion point that will also ensure the blocks we
+  // are about to split are not degenerated.
+  auto *UI = new UnreachableInst(Builder.getContext(), InsertBB);
+
+  BasicBlock *EntryBB = UI->getParent();
+  BasicBlock *PRegEntryBB = EntryBB->splitBasicBlock(UI, "omp.par.entry");
+  BasicBlock *PRegBodyBB = PRegEntryBB->splitBasicBlock(UI, "omp.par.region");
+  BasicBlock *PRegPreFiniBB =
+      PRegBodyBB->splitBasicBlock(UI, "omp.par.pre_finalize");
+  BasicBlock *PRegExitBB = PRegPreFiniBB->splitBasicBlock(UI, "omp.par.exit");
+
+  auto FiniCBWrapper = [&](InsertPointTy IP) {
+    // Hide "open-ended" blocks from the given FiniCB by setting the right jump
+    // target to the region exit block.
+    if (IP.getBlock()->end() == IP.getPoint()) {
+      IRBuilder<>::InsertPointGuard IPG(Builder);
+      Builder.restoreIP(IP);
+      Instruction *I = Builder.CreateBr(PRegExitBB);
+      IP = InsertPointTy(I->getParent(), I->getIterator());
+    }
+    assert(IP.getBlock()->getTerminator()->getNumSuccessors() == 1 &&
+           IP.getBlock()->getTerminator()->getSuccessor(0) == PRegExitBB &&
+           "Unexpected insertion point for finalization call!");
+    return FiniCB(IP);
+  };
+
+  FinalizationStack.push_back({FiniCBWrapper, OMPD_distribute, false});
+
+  // Generate the privatization allocas in the block that will become the entry
+  // of the outlined function.
+  Builder.SetInsertPoint(PRegEntryBB->getTerminator());
+  InsertPointTy InnerAllocaIP = Builder.saveIP();
+
+  // EntryBB
+  //   |
+  //   V
+  // PRegionEntryBB         <- Privatization allocas are placed here.
+  //   |
+  //   V
+  // PRegionBodyBB          <- BodeGen is invoked here.
+  //   |
+  //   V
+  // PRegPreFiniBB          <- The block we will start finalization from.
+  //   |
+  //   V
+  // PRegionExitBB          <- A common exit to simplify block collection.
+  //
+
+  LLVM_DEBUG(dbgs() << "Before body codegen: " << *OuterFn << "\n");
+
+  // Let the caller create the body.
+  assert(BodyGenCB && "Expected body generation callback!");
+  InsertPointTy CodeGenIP(PRegBodyBB, PRegBodyBB->begin());
+  if (Error Err = BodyGenCB(InnerAllocaIP, CodeGenIP))
+    return Err;
+
+  LLVM_DEBUG(dbgs() << "After  body codegen: " << *OuterFn << "\n");
+
+  OutlineInfo OI;
+  // Generate OpenMP target specific runtime call
+  OI.PostOutlineCB = [=, ToBeDeletedVec =
+                             std::move(ToBeDeleted)](Function &OutlinedFn) {
+    User *OutlinedFnUser = OutlinedFn.getUniqueUndroppableUser();
+    assert(OutlinedFnUser &&
+           "Expected unique undroppable user of outlined function");
+    CallInst *OutlinedFnCallInstruction = dyn_cast<CallInst>(OutlinedFnUser);
+    Value *LoopBodyArg;
+    if (OutlinedFnCallInstruction->arg_size() > 1)
+      LoopBodyArg = OutlinedFnCallInstruction->getArgOperand(1);
+    else
+      LoopBodyArg = Constant::getNullValue(Builder.getPtrTy());
+
+    Builder.SetInsertPoint(OutlinedFnCallInstruction);
+
+    createTargetLoopWorkshareCall(
+        this, WorksharingLoopType::DistributeStaticLoop,
+        OutlinedFnCallInstruction->getParent(), Ident, LoopBodyArg,
+        NumIterations, OutlinedFn);
+
+    OutlinedFnCallInstruction->getFunction()->dump();
+    for (auto &ToBeDeletedItem : ToBeDeleted)
+      ToBeDeletedItem->eraseFromParent();
+    OutlinedFnCallInstruction->eraseFromParent();
+  };
+
+  OI.OuterAllocaBB = OuterAllocaBlock;
+  OI.EntryBB = PRegEntryBB;
+  OI.ExitBB = PRegExitBB;
+
+  assert(LoopCounter);
+  LoopCounter->dump();
+  LoadInst *LoopCounterLoad = nullptr;
+
+  // for (auto *Usr : LoopCounter->users()) {
+  //   auto *LI = dyn_cast<LoadInst>(Usr);
+  //   if (!LI) {
+  //     assert(isa<StoreInst>(Usr) && "Expected load or store of loop
+  //     counter"); continue;
+  //   }
+  //   if (LoopCounterLoad) {
+  //     LI->replaceAllUsesWith(LoopCounterLoad);
+  //     LI->eraseFromParent();
+  //     continue;
+  //   }
+  //   LI->moveBefore(OuterAllocaBlock->getTerminator()->getIterator());
+  //   OI.ExcludeArgsFromAggregate.push_back(LI);
+  //   LoopCounterLoad = LI;
+  // }
+
+  SmallPtrSet<BasicBlock *, 32> ParallelRegionBlockSet;
+  SmallVector<BasicBlock *, 32> Blocks;
+  OI.collectBlocks(ParallelRegionBlockSet, Blocks);
+
+  // Ensure a single exit node for the outlined region by creating one.
+  // We might have multiple incoming edges to the exit now due to finalizations,
+  // e.g., cancel calls that cause the control flow to leave the region.
+  BasicBlock *PRegOutlinedExitBB = PRegExitBB;
+  PRegExitBB = SplitBlock(PRegExitBB, &*PRegExitBB->getFirstInsertionPt());
+  PRegOutlinedExitBB->setName("omp.par.outlined.exit");
+  Blocks.push_back(PRegOutlinedExitBB);
+
+  CodeExtractorAnalysisCache CEAC(*OuterFn);
+  CodeExtractor Extractor(Blocks, /* DominatorTree */ nullptr,
+                          /* AggregateArgs */ true,
+                          /* BlockFrequencyInfo */ nullptr,
+                          /* BranchProbabilityInfo */ nullptr,
+                          /* AssumptionCache */ nullptr,
+                          /* AllowVarArgs */ false,
+                          /* AllowAlloca */ true,
+                          /* AllocationBlock */ OuterAllocaBlock,
+                          /* Suffix */ ".omp_par", ArgsInZeroAddressSpace);
+
+  // Find inputs to, outputs from the code region.
+  BasicBlock *CommonExit = nullptr;
+  SetVector<Value *> Inputs, Outputs, SinkingCands, HoistingCands;
+  Extractor.findAllocas(CEAC, SinkingCands, HoistingCands, CommonExit);
+
+  Extractor.findInputsOutputs(Inputs, Outputs, SinkingCands,
+                              /*CollectGlobalInputs=*/false);
+
+  LLVM_DEBUG(dbgs() << "Before privatization: " << *OuterFn << "\n");
+
+  DominatorTree DT(*OuterFn);
+  OuterFn->dump();
+  for (Value *Input : Inputs) {
+    LLVM_DEBUG(dbgs() << "Captured input: " << *Input << "\n");
+    auto *V = Input;
+    if (auto *ASCI = dyn_cast<AddrSpaceCastInst>(Input))
+      V = ASCI->getPointerOperand();
+    if (!isa<AllocaInst>(V))
+      continue;
+    for (auto *Usr : Input->users()) {
+      auto *LI = dyn_cast<LoadInst>(Usr);
+      if (!LI)
+        continue;
+      if (Input != LoopCounter)
+        continue;
+      if (LoopCounterLoad) {
+        LI->replaceAllUsesWith(LoopCounterLoad);
+        ToBeDeleted.push_back(LI);
+        continue;
+      }
+      LoopCounterLoad = LI;
+      LI->moveBefore(EntryBB->getTerminator()->getIterator());
+        OI.ExcludeArgsFromAggregate.push_back(LI);
+    }
+  }
+  LLVM_DEBUG({
+    for (Value *Output : Outputs)
+      LLVM_DEBUG(dbgs() << "Captured output: " << *Output << "\n");
+  });
+  assert(Outputs.empty() &&
+         "OpenMP outlining should not produce live-out values!");
+
+  LLVM_DEBUG(dbgs() << "After  privatization: " << *OuterFn << "\n");
+  LLVM_DEBUG({
+    for (auto *BB : Blocks)
+      dbgs() << " PBR: " << BB->getName() << "\n";
+  });
+
+  // Adjust the finalization stack, verify the adjustment, and call the
+  // finalize function a last time to finalize values between the pre-fini
+  // block and the exit block if we left the parallel "the normal way".
+  auto FiniInfo = FinalizationStack.pop_back_val();
+  (void)FiniInfo;
+  assert(FiniInfo.DK == OMPD_distribute &&
+         "Unexpected finalization stack state!");
+
+  Instruction *PRegPreFiniTI = PRegPreFiniBB->getTerminator();
+
+  InsertPointTy PreFiniIP(PRegPreFiniBB, PRegPreFiniTI->getIterator());
+  if (Error Err = FiniCB(PreFiniIP))
+    return Err;
+
+  // Register the outlined info.
+  addOutlineInfo(std::move(OI));
+
+  InsertPointTy AfterIP(UI->getParent(), UI->getParent()->end());
+  UI->eraseFromParent();
+
+  return AfterIP;
 }
 
 /// Create the TargetMachine object to query the backend for optimization
@@ -9854,6 +10089,11 @@ void OpenMPIRBuilder::loadOffloadInfoMetadata(StringRef HostFilePath) {
 bool OffloadEntriesInfoManager::empty() const {
   return OffloadEntriesTargetRegion.empty() &&
          OffloadEntriesDeviceGlobalVar.empty();
+}
+
+void OffloadEntriesInfoManager::clear() {
+  OffloadEntriesTargetRegion.clear();
+  OffloadEntriesDeviceGlobalVar.clear();
 }
 
 unsigned OffloadEntriesInfoManager::getTargetRegionEntryInfoCount(

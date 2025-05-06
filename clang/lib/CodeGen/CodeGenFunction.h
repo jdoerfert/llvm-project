@@ -434,7 +434,6 @@ public:
   /// we prefer to insert allocas.
   llvm::AssertingVH<llvm::Instruction> AllocaInsertPt;
 
-private:
   /// PostAllocaInsertPt - This is a place in the prologue where code can be
   /// inserted that will be dominated by all the static allocas. This helps
   /// achieve two things:
@@ -2030,8 +2029,10 @@ public:
     class OutlinedRegionBodyRAII {
 
       llvm::AssertingVH<llvm::Instruction> OldAllocaIP;
+      llvm::AssertingVH<llvm::Instruction> OldPostAllocaIP;
       CodeGenFunction::JumpDest OldReturnBlock;
       CodeGenFunction &CGF;
+      llvm::Instruction *PostAllocaI;
 
     public:
       OutlinedRegionBodyRAII(CodeGenFunction &cgf, InsertPointTy &AllocaIP,
@@ -2040,7 +2041,12 @@ public:
         assert(AllocaIP.isSet() &&
                "Must specify Insertion point for allocas of outlined function");
         OldAllocaIP = CGF.AllocaInsertPt;
-        CGF.AllocaInsertPt = &*AllocaIP.getPoint();
+        OldPostAllocaIP = CGF.PostAllocaInsertPt;
+        PostAllocaI = new llvm::AllocaInst(CGF.Builder.getInt32Ty(),
+                             CGF.CGM.getDataLayout().getAllocaAddrSpace(), "",
+                             AllocaIP.getPoint());
+        CGF.AllocaInsertPt = PostAllocaI;
+        CGF.PostAllocaInsertPt = &*AllocaIP.getPoint();
 
         OldReturnBlock = CGF.ReturnBlock;
         CGF.ReturnBlock = CGF.getJumpDestInCurrentScope(&RetBB);
@@ -2048,7 +2054,9 @@ public:
 
       ~OutlinedRegionBodyRAII() {
         CGF.AllocaInsertPt = OldAllocaIP;
+        CGF.PostAllocaInsertPt = OldPostAllocaIP;
         CGF.ReturnBlock = OldReturnBlock;
+        PostAllocaI->eraseFromParent();
       }
     };
 

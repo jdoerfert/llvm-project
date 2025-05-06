@@ -287,6 +287,7 @@ public:
 
   /// Return true if a there are no entries defined.
   bool empty() const;
+  void clear();
   /// Return number of entries defined so far.
   unsigned size() const { return OffloadingEntriesNum; }
 
@@ -705,6 +706,13 @@ public:
                  FinalizeCallbackTy FiniCB, Value *IfCondition,
                  Value *NumThreads, omp::ProcBindKind ProcBind,
                  bool IsCancellable);
+
+  InsertPointOrErrorTy createLoopDirective(const LocationDescription &Loc,
+                                           InsertPointTy AllocaIP,
+                                           BodyGenCallbackTy BodyGenCB,
+                                           FinalizeCallbackTy FiniCB,
+                                           Value *LoopCounter,
+                                           Value *NumIterations);
 
   /// Generator for the control flow structure of an OpenMP canonical loop.
   ///
@@ -1264,6 +1272,14 @@ public:
   ///
   /// \param Loc The location where the taskyield directive was encountered.
   void createTaskyield(const LocationDescription &Loc);
+
+  // Returns an LLVM function to call for executing an OpenMP static worksharing
+  // for loop depending on `type`. Only i32 and i64 are supported by the
+  // runtime. Default to interpret integers as unsigned similarly to
+  // CanonicalLoopInfo.
+  FunctionCallee getKmpcForStaticLoopForType(Type *Ty,
+                                             omp::WorksharingLoopType LoopType,
+                                             bool IsSigned = false);
 
   /// A struct to pack the relevant information for an OpenMP depend clause.
   struct DependData {
