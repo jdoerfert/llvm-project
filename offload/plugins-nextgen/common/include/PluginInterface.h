@@ -255,7 +255,7 @@ public:
 struct GenericKernelTy {
   /// Construct a kernel with a name and a execution mode.
   GenericKernelTy(const char *Name)
-      : Name(Name), PreferredNumThreads(0), MaxNumThreads(0) {}
+      : Name(Name) {}
 
   virtual ~GenericKernelTy() {}
 
@@ -379,10 +379,13 @@ private:
 
 protected:
   /// The preferred number of threads to run the kernel.
-  uint32_t PreferredNumThreads;
+  uint32_t PreferredNumThreads = 0;
 
   /// The maximum number of threads which the kernel could leverage.
-  uint32_t MaxNumThreads;
+  uint32_t MaxNumThreads = 0;
+
+  /// The maximum number of teams which the kernel could leverage.
+  uint32_t MaxNumTeams = 0;
 
   /// The kernel environment, including execution flags.
   KernelEnvironmentTy KernelEnvironment;
@@ -879,6 +882,7 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   uint32_t getWarpSize() const { return GridValues.GV_Warp_Size; }
   uint32_t getThreadLimit() const { return GridValues.GV_Max_WG_Size; }
   uint32_t getBlockLimit() const { return GridValues.GV_Max_Teams; }
+  uint32_t getTeamLimit() const { return getBlockLimit(); }
   uint32_t getDefaultNumThreads() const {
     return GridValues.GV_Default_WG_Size;
   }

@@ -455,11 +455,14 @@ Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
        Name);
   }
 
-  // Max = Config.Max > 0 ? min(Config.Max, Device.Max) : Device.Max;
-  MaxNumThreads = KernelEnvironment.Configuration.MaxThreads > 0
-                      ? std::min(KernelEnvironment.Configuration.MaxThreads,
-                                 int32_t(GenericDevice.getThreadLimit()))
-                      : GenericDevice.getThreadLimit();
+// Max = Config.Max > 0 ? min(Config.Max, Device.Max) : Device.Max;
+#define SET_MAX(KIND)                                                          \
+  MaxNum##KIND##s = KernelEnvironment.Configuration.Max##KIND##s > 0
+  ? std::min(KernelEnvironment.Configuration.Max##KIND##s,
+             int32_t(GenericDevice.get##KIND##limit()))
+  : GenericDevice.get##KIND##Limit();
+  SET_MAX(Thread)
+  SET_MAX(Team)
 
   // Pref = Config.Pref > 0 ? max(Config.Pref, Device.Pref) : Device.Pref;
   PreferredNumThreads =
@@ -636,9 +639,21 @@ uint32_t GenericKernelTy::getNumThreads(GenericDeviceTy &GenericDevice,
   if (ThreadLimitClause[0] > 0 && isGenericMode())
     ThreadLimitClause[0] += GenericDevice.getWarpSize();
 
-  return std::min(MaxNumThreads, (ThreadLimitClause[0] > 0)
-                                     ? ThreadLimitClause[0]
-                                     : PreferredNumThreads);
+  uint32_t NumThreads =
+      std::min(MaxNumThreads, (ThreadLimitClause[0] > 0) ? ThreadLimitClause[0]
+                                                         : PreferredNumThreads);
+
+  if ((KernelEnvironment.Configuration.MinThreads > 0 &&
+       KernelEnvironment.Configuration.MinThreads > NumThreads) ||
+      (KernelEnvironment.Configuration.MaxThreads > 0 &&
+       KernelEnvironment.Configuration.MaxThreads < NumThreads))
+    return Plugin::error(
+        "Failure to launch kernel, number of threads out-of-range "
+        "(choosen %u, limits: %u-%u)",
+        NumThreads, KernelEnvironment.Configuration.MinThreads,
+        KernelEnvironment.Configuration.MaxThreads);
+
+  return NumThreads;
 }
 
 uint32_t GenericKernelTy::getNumBlocks(GenericDeviceTy &GenericDevice,
@@ -651,83 +666,101 @@ uint32_t GenericKernelTy::getNumBlocks(GenericDeviceTy &GenericDevice,
   assert(NumTeamsClause[1] == 1 && NumTeamsClause[2] == 1 &&
          "Multi dimensional launch not supported yet.");
 
+  uint32_t NumBlocks = -1;
+
   if (NumTeamsClause[0] > 0) {
     // TODO: We need to honor any value and consequently allow more than the
     // block limit. For this we might need to start multiple kernels or let the
     // blocks start again until the requested number has been started.
-    return std::min(NumTeamsClause[0], GenericDevice.getBlockLimit());
-  }
+    NumBlocks = std::min(NumTeamsClause[0], GenericDevice.getBlockLimit());
+  } else {
 
-  uint64_t DefaultNumBlocks = GenericDevice.getDefaultNumBlocks();
-  uint64_t TripCountNumBlocks = std::numeric_limits<uint64_t>::max();
-  if (LoopTripCount > 0) {
-    if (isSPMDMode()) {
-      // We have a combined construct, i.e. `target teams distribute
-      // parallel for [simd]`. We launch so many teams so that each thread
-      // will execute one iteration of the loop; rounded up to the nearest
-      // integer. However, if that results in too few teams, we artificially
-      // reduce the thread count per team to increase the outer parallelism.
-      auto MinThreads = GenericDevice.getMinThreadsForLowTripCountLoop();
-      MinThreads = std::min(MinThreads, NumThreads);
+    uint64_t DefaultNumBlocks = GenericDevice.getDefaultNumBlocks();
+    uint64_t TripCountNumBlocks = std::numeric_limits<uint64_t>::max();
+    if (LoopTripCount > 0) {
+      if (isSPMDMode()) {
+        // We have a combined construct, i.e. `target teams distribute
+        // parallel for [simd]`. We launch so many teams so that each thread
+        // will execute one iteration of the loop; rounded up to the nearest
+        // integer. However, if that results in too few teams, we artificially
+        // reduce the thread count per team to increase the outer parallelism.
+        auto MinThreads = GenericDevice.getMinThreadsForLowTripCountLoop();
+        MinThreads = std::min(MinThreads, NumThreads);
 
-      // Honor the thread_limit clause; only lower the number of threads.
-      [[maybe_unused]] auto OldNumThreads = NumThreads;
-      if (LoopTripCount >= DefaultNumBlocks * NumThreads ||
-          IsNumThreadsFromUser) {
-        // Enough parallelism for teams and threads.
-        TripCountNumBlocks = ((LoopTripCount - 1) / NumThreads) + 1;
-        assert(IsNumThreadsFromUser ||
-               TripCountNumBlocks >= DefaultNumBlocks &&
-                   "Expected sufficient outer parallelism.");
-      } else if (LoopTripCount >= DefaultNumBlocks * MinThreads) {
-        // Enough parallelism for teams, limit threads.
+        // Honor the thread_limit clause; only lower the number of threads.
+        [[maybe_unused]] auto OldNumThreads = NumThreads;
+        if (LoopTripCount >= DefaultNumBlocks * NumThreads ||
+            IsNumThreadsFromUser) {
+          // Enough parallelism for teams and threads.
+          TripCountNumBlocks = ((LoopTripCount - 1) / NumThreads) + 1;
+          assert(IsNumThreadsFromUser ||
+                 TripCountNumBlocks >= DefaultNumBlocks &&
+                     "Expected sufficient outer parallelism.");
+        } else if (LoopTripCount >= DefaultNumBlocks * MinThreads) {
+          // Enough parallelism for teams, limit threads.
 
-        // This case is hard; for now, we force "full warps":
-        // First, compute a thread count assuming DefaultNumBlocks.
-        auto NumThreadsDefaultBlocks =
-            (LoopTripCount + DefaultNumBlocks - 1) / DefaultNumBlocks;
-        // Now get a power of two that is larger or equal.
-        auto NumThreadsDefaultBlocksP2 =
-            llvm::PowerOf2Ceil(NumThreadsDefaultBlocks);
-        // Do not increase a thread limit given be the user.
-        NumThreads = std::min(NumThreads, uint32_t(NumThreadsDefaultBlocksP2));
-        assert(NumThreads >= MinThreads &&
-               "Expected sufficient inner parallelism.");
-        TripCountNumBlocks = ((LoopTripCount - 1) / NumThreads) + 1;
+          // This case is hard; for now, we force "full warps":
+          // First, compute a thread count assuming DefaultNumBlocks.
+          auto NumThreadsDefaultBlocks =
+              (LoopTripCount + DefaultNumBlocks - 1) / DefaultNumBlocks;
+          // Now get a power of two that is larger or equal.
+          auto NumThreadsDefaultBlocksP2 =
+              llvm::PowerOf2Ceil(NumThreadsDefaultBlocks);
+          // Do not increase a thread limit given be the user.
+          NumThreads =
+              std::min(NumThreads, uint32_t(NumThreadsDefaultBlocksP2));
+          assert(NumThreads >= MinThreads &&
+                 "Expected sufficient inner parallelism.");
+          TripCountNumBlocks = ((LoopTripCount - 1) / NumThreads) + 1;
+        } else {
+          // Not enough parallelism for teams and threads, limit both.
+          NumThreads = std::min(NumThreads, MinThreads);
+          TripCountNumBlocks = ((LoopTripCount - 1) / NumThreads) + 1;
+        }
+
+        assert(NumThreads * TripCountNumBlocks >= LoopTripCount &&
+               "Expected sufficient parallelism");
+        assert(OldNumThreads >= NumThreads &&
+               "Number of threads cannot be increased!");
       } else {
-        // Not enough parallelism for teams and threads, limit both.
-        NumThreads = std::min(NumThreads, MinThreads);
-        TripCountNumBlocks = ((LoopTripCount - 1) / NumThreads) + 1;
+        assert((isGenericMode() || isGenericSPMDMode()) &&
+               "Unexpected execution mode!");
+        // If we reach this point, then we have a non-combined construct, i.e.
+        // `teams distribute` with a nested `parallel for` and each team is
+        // assigned one iteration of the `distribute` loop. E.g.:
+        //
+        // #pragma omp target teams distribute
+        // for(...loop_tripcount...) {
+        //   #pragma omp parallel for
+        //   for(...) {}
+        // }
+        //
+        // Threads within a team will execute the iterations of the `parallel`
+        // loop.
+        TripCountNumBlocks = LoopTripCount;
       }
-
-      assert(NumThreads * TripCountNumBlocks >= LoopTripCount &&
-             "Expected sufficient parallelism");
-      assert(OldNumThreads >= NumThreads &&
-             "Number of threads cannot be increased!");
-    } else {
-      assert((isGenericMode() || isGenericSPMDMode()) &&
-             "Unexpected execution mode!");
-      // If we reach this point, then we have a non-combined construct, i.e.
-      // `teams distribute` with a nested `parallel for` and each team is
-      // assigned one iteration of the `distribute` loop. E.g.:
-      //
-      // #pragma omp target teams distribute
-      // for(...loop_tripcount...) {
-      //   #pragma omp parallel for
-      //   for(...) {}
-      // }
-      //
-      // Threads within a team will execute the iterations of the `parallel`
-      // loop.
-      TripCountNumBlocks = LoopTripCount;
     }
+
+    uint32_t PreferredNumBlocks = TripCountNumBlocks;
+    // If the loops are long running we rather reuse blocks than spawn too many.
+    if (GenericDevice.getReuseBlocksForHighTripCount())
+      PreferredNumBlocks = std::min(TripCountNumBlocks, DefaultNumBlocks);
+    NumBlocks = std::min(PreferredNumBlocks, GenericDevice.getBlockLimit());
   }
 
-  uint32_t PreferredNumBlocks = TripCountNumBlocks;
-  // If the loops are long running we rather reuse blocks than spawn too many.
-  if (GenericDevice.getReuseBlocksForHighTripCount())
-    PreferredNumBlocks = std::min(TripCountNumBlocks, DefaultNumBlocks);
-  return std::min(PreferredNumBlocks, GenericDevice.getBlockLimit());
+  NumBlocks = std::min(MaxNumTeams, NumBlocks);
+
+  if ((KernelEnvironment.Configuration.MinTeams > 0 &&
+       KernelEnvironment.Configuration.MinTeams > NumBlocks) ||
+      (KernelEnvironment.Configuration.MaxTeams > 0 &&
+       KernelEnvironment.Configuration.MaxTeams < NumBlocks))
+    return Plugin::error(
+        "Failure to launch kernel, number of teams out-of-range "
+        "(choosen %u, limits: %u-%u)",
+        NumBlocks, KernelEnvironment.Configuration.MinTeams,
+        KernelEnvironment.Configuration.MaxTeams);
+
+  return NumBlocks;
 }
 
 GenericDeviceTy::GenericDeviceTy(GenericPluginTy &Plugin, int32_t DeviceId,
