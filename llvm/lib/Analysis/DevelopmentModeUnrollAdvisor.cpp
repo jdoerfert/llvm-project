@@ -312,7 +312,7 @@ DevelopmentUnrollAdvisor::getAdviceImpl(UnrollAdviceInfo UAI) {
     assert(Tensor[GT] == 0);                                                   \
     for (auto [Key, Val] : LPI.NAME) {                                         \
       unsigned I = 0;                                                          \
-      while (NAME##Intervals[I] < (int)Key && I < NAME##Intervals.size())      \
+      while (I < NAME##Intervals.size() && NAME##Intervals[I] < (int)Key)      \
         I++;                                                                   \
       Tensor[I] += Val;                                                        \
     }                                                                          \
