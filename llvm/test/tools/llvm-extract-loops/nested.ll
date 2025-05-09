@@ -30,9 +30,14 @@
 
 ; CHECKMETADATA: "num_loops":2
 
+; CHECKIR-NOT: call{{.*}}@__llvm_extracted
 ; CHECKIR-NOT: define{{.*}}@foo(
-; CHECKIR-DAG: define{{.*}}@__llvm_extracted_loop.1
-; CHECKIR-DAG: define{{.*}}@__llvm_extracted_loop.0
+; CHECKIR-NOT: call{{.*}}@__llvm_extracted
+; CHECKIR: define{{.*}}@__llvm_extracted_loop.0
+; CHECKIR-NOT: call{{.*}}@__llvm_extracted
+; CHECKIR: define{{.*}}@__llvm_extracted_loop.1
+; CHECKIR-NOT: call{{.*}}@__llvm_extracted
+
 
 define i32 @foo(ptr %array, i32 %length, i32 %n, i32 %l) {
 entry:

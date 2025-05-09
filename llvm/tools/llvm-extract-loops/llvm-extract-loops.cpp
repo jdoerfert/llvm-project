@@ -19,6 +19,7 @@
 #include "llvm/Bitcode/BitcodeWriterPass.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
@@ -235,16 +236,19 @@ int main(int argc, char **argv) {
 
     DominatorTree DT(*F);
     LoopInfo LI(DT);
-    AssumptionCache AC(*F);
-    ScalarEvolution SE(*F, TLI, AC, DT, LI);
 
     DenseMap<Loop *, unsigned> LoopIDs;
     unsigned LoopInFunctionCounter = 0;
     for (Loop *L : LI.getLoopsInPreorder()) {
+
+      llvm::ValueToValueMapTy VMap;
+      Function *NewF = CloneFunction(F, VMap);
+
       LLVM_DEBUG(L->dump());
       SmallVector<BasicBlock *> BBs;
       for (BasicBlock *BB : L->getBlocks())
-        BBs.push_back(BB);
+        BBs.push_back(cast<BasicBlock>(VMap[BB]));
+
       std::string Suffix =
           "__llvm_extracted_loop." + std::to_string(LoopCounter);
       auto CE =
@@ -253,12 +257,15 @@ int main(int argc, char **argv) {
                         /*AllowVarArgs=*/true, /*AllowAlloca=*/true,
                         /*AllocationBlock=*/nullptr,
                         /*Suffix=*/Suffix, /*ArgsInZeroAddressSpace=*/false);
-      CodeExtractorAnalysisCache CEAC(*F);
+      CodeExtractorAnalysisCache CEAC(*NewF);
       Function *OutlinedF = CE.extractCodeRegion(CEAC);
+      NewF->eraseFromParent();
       // Usually the failure reason is because there were varargs
       if (!OutlinedF)
         continue;
 
+      OutlinedF->setVisibility(llvm::GlobalValue::DefaultVisibility);
+      OutlinedF->setLinkage(llvm::GlobalValue::ExternalLinkage);
       OutlinedF->setName(Suffix);
       LoopFunctions.push_back(OutlinedF);
       LoopIDs[L] = LoopInFunctionCounter;
