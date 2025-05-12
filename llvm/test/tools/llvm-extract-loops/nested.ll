@@ -1,10 +1,9 @@
-; COM-R: mkdir -p %t
-; COM-R: rm %t/extracted.* || true
-; COM-R: llvm-extract-loops -S %s --output-prefix %t/extracted. --output-suffix .ll --pretty-print-json
-; COM-R: cat %t/extracted.*.ll | FileCheck %s
-; COM-R: cat %t/extracted.0.ll.json | FileCheck %s --check-prefix=LOOP_0
-; COM-R: cat %t/extracted.1.ll.json | FileCheck %s --check-prefix=LOOP_1
-; RUN: true
+; RUN: mkdir -p %t
+; RUN: rm %t/extracted.* || true
+; RUN: llvm-extract-loops -S %s --output-prefix %t/extracted. --output-suffix .ll --pretty-print-json
+; RUN: cat %t/extracted.*.ll | FileCheck %s
+; RUN: cat %t/extracted.0.ll.json | FileCheck %s --check-prefix=LOOP_0
+; RUN: cat %t/extracted.1.ll.json | FileCheck %s --check-prefix=LOOP_1
 
 ; CHECK: define{{.*}}@__llvm_extracted_loop
 ; CHECK: define{{.*}}@__llvm_extracted_loop
@@ -22,17 +21,6 @@
 ; LOOP_1-DAG:  "num_inner_loops": 0,
 ; LOOP_1-DAG:  "parent_function": "foo",
 ; LOOP_1-DAG:  "parent_loop_id": 0
-
-; RUN: mkdir -p %t
-; RUN: rm %t/metadata.json || true
-; RUN: llvm-extract-loops -S %s -o - --metadata %t/metadata.json | FileCheck --check-prefix=CHECKIR %s
-; RUN: cat %t/metadata.json | FileCheck --check-prefix=CHECKMETADATA %s
-
-; CHECKMETADATA: "num_loops":2
-
-; CHECKIR-NOT: define{{.*}}@foo(
-; CHECKIR-DAG: define{{.*}}@__llvm_extracted_loop.1
-; CHECKIR-DAG: define{{.*}}@__llvm_extracted_loop.0
 
 define i32 @foo(ptr %array, i32 %length, i32 %n, i32 %l) {
 entry:

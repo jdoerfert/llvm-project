@@ -79,57 +79,57 @@ for.inc:                                          ; preds = %for.body4, %if.end
   LLVMContext Context;
   std::unique_ptr<Module> M = makeLLVMModule(Context, ModuleStr);
 
-  // runWithLoopInfo(
-  //     *M, "foo", [&](Function &F, LoopInfo &LI, ScalarEvolution &SE) {
-  //       for (BasicBlock &BB : F) {
-  //         if (BB.getName() == "for.body") {
-  //           Loop *L = LI.getLoopFor(&BB);
-  //           LoopPropertiesInfo LPI = LoopPropertiesInfo::get(L, &LI, &SE);
-  //           EXPECT_FALSE(LPI.IsInnerMostLoop);
-  //           EXPECT_EQ(LPI.LoopDepth, 1);
-  //           EXPECT_TRUE(LPI.HasLoopPreheader);
-  //           EXPECT_EQ(LPI.PreheaderBlocksize, 1);
-  //           EXPECT_TRUE(LPI.IsCountableLoop);
-  //           EXPECT_TRUE(LPI.IsLoopBackEdgeConstant);
-  //           EXPECT_EQ(LPI.LoopBackEdgeCount, 2);
-  //           EXPECT_EQ(LPI.BasicBlockCount, 2);
-  //           EXPECT_EQ(LPI.LoopBlocksizes.count(2), 1);
-  //           EXPECT_EQ(LPI.LoopBlocksizes[2], 1);
-  //           EXPECT_EQ(LPI.LoopBlocksizes.count(3), 1);
-  //           EXPECT_EQ(LPI.LoopBlocksizes[3], 1);
-  //           EXPECT_EQ(LPI.LoopLatchCount, 1);
-  //           EXPECT_EQ(LPI.LoadInstCount, 0);
-  //           EXPECT_EQ(LPI.StoreInstCount, 0);
-  //           EXPECT_EQ(LPI.BinaryInstCount, 1);
-  //           EXPECT_EQ(LPI.LogicalInstCount, 0);
-  //           EXPECT_EQ(LPI.ExpensiveCastInstCount, 0);
-  //         }
-  //         if (BB.getName() == "for.body4") {
-  //           Loop *L = LI.getLoopFor(&BB);
-  //           LoopPropertiesInfo LPI = LoopPropertiesInfo::get(L, &LI, &SE);
-  //           EXPECT_TRUE(LPI.IsInnerMostLoop);
-  //           EXPECT_EQ(LPI.LoopDepth, 2);
-  //           EXPECT_TRUE(LPI.HasLoopPreheader);
-  //           EXPECT_EQ(LPI.PreheaderBlocksize, 2);
-  //           EXPECT_TRUE(LPI.IsCountableLoop);
-  //           EXPECT_TRUE(LPI.IsLoopBackEdgeConstant);
-  //           EXPECT_EQ(LPI.LoopBackEdgeCount, 6);
-  //           EXPECT_EQ(LPI.BasicBlockCount, 3);
-  //           EXPECT_EQ(LPI.LoopBlocksizes.count(1), 1);
-  //           EXPECT_EQ(LPI.LoopBlocksizes[1], 1);
-  //           EXPECT_EQ(LPI.LoopBlocksizes.count(3), 1);
-  //           EXPECT_EQ(LPI.LoopBlocksizes[3], 1);
-  //           EXPECT_EQ(LPI.LoopBlocksizes.count(4), 1);
-  //           EXPECT_EQ(LPI.LoopBlocksizes[4], 1);
-  //           EXPECT_EQ(LPI.LoopLatchCount, 1);
-  //           EXPECT_EQ(LPI.LoadInstCount, 0);
-  //           EXPECT_EQ(LPI.StoreInstCount, 0);
-  //           EXPECT_EQ(LPI.BinaryInstCount, 1);
-  //           EXPECT_EQ(LPI.LogicalInstCount, 1);
-  //           EXPECT_EQ(LPI.ExpensiveCastInstCount, 0);
-  //         }
-  //       }
-  //     });
+  runWithLoopInfo(
+      *M, "foo", [&](Function &F, LoopInfo &LI, ScalarEvolution &SE) {
+        for (BasicBlock &BB : F) {
+          if (BB.getName() == "for.body") {
+            Loop *L = LI.getLoopFor(&BB);
+            LoopPropertiesInfo LPI = LoopPropertiesInfo::get(L, &LI, &SE);
+            EXPECT_FALSE(LPI.IsInnerMostLoop);
+            EXPECT_EQ(LPI.LoopDepth, 1);
+            EXPECT_TRUE(LPI.HasLoopPreheader);
+            EXPECT_EQ(LPI.PreheaderBlocksize, 1);
+            EXPECT_TRUE(LPI.IsCountableLoop);
+            EXPECT_TRUE(LPI.IsLoopBackEdgeConstant);
+            EXPECT_EQ(LPI.LoopBackEdgeCount, 2);
+            EXPECT_EQ(LPI.BasicBlockCount, 2);
+            EXPECT_EQ(LPI.LoopBlocksizes.count(2), 1);
+            EXPECT_EQ(LPI.LoopBlocksizes[2], 1);
+            EXPECT_EQ(LPI.LoopBlocksizes.count(3), 1);
+            EXPECT_EQ(LPI.LoopBlocksizes[3], 1);
+            EXPECT_EQ(LPI.LoopLatchCount, 1);
+            EXPECT_EQ(LPI.LoadInstCount, 0);
+            EXPECT_EQ(LPI.StoreInstCount, 0);
+            EXPECT_EQ(LPI.BinaryInstCount, 1);
+            EXPECT_EQ(LPI.LogicalInstCount, 0);
+            EXPECT_EQ(LPI.ExpensiveCastInstCount, 0);
+          }
+          if (BB.getName() == "for.body4") {
+            Loop *L = LI.getLoopFor(&BB);
+            LoopPropertiesInfo LPI = LoopPropertiesInfo::get(L, &LI, &SE);
+            EXPECT_TRUE(LPI.IsInnerMostLoop);
+            EXPECT_EQ(LPI.LoopDepth, 2);
+            EXPECT_TRUE(LPI.HasLoopPreheader);
+            EXPECT_EQ(LPI.PreheaderBlocksize, 2);
+            EXPECT_TRUE(LPI.IsCountableLoop);
+            EXPECT_TRUE(LPI.IsLoopBackEdgeConstant);
+            EXPECT_EQ(LPI.LoopBackEdgeCount, 6);
+            EXPECT_EQ(LPI.BasicBlockCount, 3);
+            EXPECT_EQ(LPI.LoopBlocksizes.count(1), 1);
+            EXPECT_EQ(LPI.LoopBlocksizes[1], 1);
+            EXPECT_EQ(LPI.LoopBlocksizes.count(3), 1);
+            EXPECT_EQ(LPI.LoopBlocksizes[3], 1);
+            EXPECT_EQ(LPI.LoopBlocksizes.count(4), 1);
+            EXPECT_EQ(LPI.LoopBlocksizes[4], 1);
+            EXPECT_EQ(LPI.LoopLatchCount, 1);
+            EXPECT_EQ(LPI.LoadInstCount, 0);
+            EXPECT_EQ(LPI.StoreInstCount, 0);
+            EXPECT_EQ(LPI.BinaryInstCount, 1);
+            EXPECT_EQ(LPI.LogicalInstCount, 1);
+            EXPECT_EQ(LPI.ExpensiveCastInstCount, 0);
+          }
+        }
+      });
 }
 
 } // end anonymous namespace
