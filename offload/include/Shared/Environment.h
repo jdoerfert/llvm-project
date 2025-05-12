@@ -87,6 +87,7 @@ struct KernelLaunchEnvironmentTy {
   void *DynCGroupMemFbPtr = nullptr;
   uint32_t ReductionCnt = 0;
   uint32_t ReductionIterCnt = 0;
+  uint32_t ReductionBufferElements = 0;
   uint32_t DynCGroupMemSize = 0;
   DynCGroupMemFallbackType DynCGroupMemFb = DynCGroupMemFallbackType::None;
 };

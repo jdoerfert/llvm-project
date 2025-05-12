@@ -22,6 +22,25 @@ using namespace ompx;
 
 namespace {
 
+constexpr uint32_t BufferSize = /* MaxNumWarps */ 32 * /* MaxCopySize */ 8;
+[[clang::loader_uninitialized]] static Local<char> InterWarpBuffer[BufferSize];
+
+template<typename Ty>
+static uint32_t __kmpc_reduction_inter_warp_copy(char *reduce_data, uint32_t ThreadId, uint32_t WarpId, uint32_t Offset) {
+  Ty* Buffer = reinterpret_cast<Ty*>(&InterWarpBuffer[0]);
+  
+  if (ThreadId == 0)
+    Buffer[WarpId] = *reinterpret_cast<Ty*>(&reduce_data[Offset]);
+
+  synchronize::threadsAligned(atomic::acq_rel);
+
+  if (WarpId == 0)
+    *reinterpret_cast<Ty*>(&reduce_data[Offset]) = Buffer[ThreadId];
+
+  return sizeof(Ty);
+}
+
+
 void gpu_regular_warp_reduce(void *reduce_data, ShuffleReductFnTy shflFct) {
   for (uint32_t mask = mapping::getWarpSize() / 2; mask > 0; mask /= 2) {
     shflFct(reduce_data, /*LaneId - not used= */ 0,
@@ -172,6 +191,87 @@ int32_t __kmpc_nvptx_parallel_reduce_nowait_v2(IdentTy *Loc,
                                                ShuffleReductFnTy shflFct,
                                                InterWarpCopyFnTy cpyFct) {
   return nvptx_parallel_reduce_nowait(reduce_data, shflFct, cpyFct);
+}
+
+void __kmpc_reduction_teams_lvl1(IdentTy *Loc, void *GlobalBuffer,
+                                 void *reduce_data, ListGlobalFnTy lgcpyFct) {
+  // Terminate all threads in non-SPMD mode except for the master thread.
+  uint32_t ThreadId = mapping::getThreadIdInBlock();
+  if (mapping::isGenericMode())
+    ThreadId = 0;
+
+  // In non-generic mode all workers participate in the teams reduction.
+  // In generic mode only the team master participates in the teams
+  // reduction because the workers are waiting for parallel work.
+  uint32_t TeamId = omp_get_team_num();
+
+  // Block progress for teams greater than the current upper
+  // limit. We always only allow a number of teams less or equal
+  // to the number of slots in the buffer.
+  bool IsMaster = (ThreadId == 0);
+
+  if (IsMaster)
+    lgcpyFct(GlobalBuffer, TeamId, reduce_data);
+}
+
+void __kmpc_reduction_inter_warp_copy(char *reduce_data, uint32_t Size) {
+  uint32_t WarpId = mapping::getWarpIdInBlock();
+  uint32_t ThreadId = mapping::getThreadIdInWarp();
+  uint32_t Offset = 0;
+  while (Size >= Offset + 8)
+    Offset += __kmpc_reduction_inter_warp_copy<uint64_t>(reduce_data,ThreadId, WarpId, Offset);
+  if (Size >= Offset + 4)
+    Offset += __kmpc_reduction_inter_warp_copy<uint32_t>(reduce_data,ThreadId, WarpId, Offset);
+  if (Size >= Offset + 2)
+    Offset += __kmpc_reduction_inter_warp_copy<uint16_t>(reduce_data,ThreadId, WarpId, Offset);
+  if (Size > Offset)
+    Offset += __kmpc_reduction_inter_warp_copy<uint8_t>(reduce_data,ThreadId, WarpId, Offset);
+}
+
+int32_t __kmpc_reduction_teams_lvl2(KernelLaunchEnvironmentTy *KLE,
+                                 void *reduce_data, ShuffleReductFnTy shflFct,
+                                 InterWarpCopyFnTy cpyFct,
+                                 ListGlobalFnTy glcpyFct,
+                                 ListGlobalFnTy glredFct) {
+  // NOTE: There are no ICVs or other state!
+
+  uint32_t ThreadId = mapping::getThreadIdInBlock();
+  uint32_t NumThreads = mapping::getNumberOfThreadsInBlock();
+
+  void *GlobalBuffer  = KLE->ReductionBuffer;
+  int32_t NumElements = KLE->ReductionBufferElements;
+  ASSERT(ThreadId < NumElements, "Lvl2 kernel started with too many threads");
+
+  // Load from buffer and reduce.
+  glcpyFct(GlobalBuffer, ThreadId, reduce_data);
+  for (uint32_t i = NumThreads + ThreadId; i < NumElements; i += NumThreads)
+    glredFct(GlobalBuffer, i, reduce_data);
+
+  // Reduce across warps to the warp master.
+  if (NumThreads > 1) {
+    if (NumThreads < mapping::getWarpSize())
+      gpu_irregular_warp_reduce(reduce_data, shflFct, NumThreads, ThreadId);
+    else
+      gpu_regular_warp_reduce(reduce_data, shflFct);
+
+    // When we have more than [mapping::getWarpSize()] number of threads
+    // a block reduction is performed here.
+    if (NumThreads > mapping::getWarpSize()) {
+      uint32_t WarpsNeeded =
+          (NumThreads + mapping::getWarpSize() - 1) / mapping::getWarpSize();
+      // Gather all the reduced values from each warp
+      // to the first warp.
+      cpyFct(reduce_data, WarpsNeeded);
+  
+      synchronize::threadsAligned(atomic::acq_rel);
+
+      uint32_t WarpId = mapping::getWarpIdInBlock();
+      if (WarpId == 0)
+        gpu_irregular_warp_reduce(reduce_data, shflFct, WarpsNeeded, ThreadId);
+    }
+  }
+
+  return ThreadId == 0;
 }
 
 int32_t __kmpc_nvptx_teams_reduce_nowait_v2(

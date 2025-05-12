@@ -142,6 +142,8 @@ public:
 
   CallingConv::ID RuntimeCC = llvm::CallingConv::C;
 
+  Function *CurrentKernel = nullptr;
+
   LLVM_ABI OpenMPIRBuilderConfig();
   LLVM_ABI OpenMPIRBuilderConfig(bool IsTargetDevice, bool IsGPU,
                                  bool OpenMPOffloadMandatory,
@@ -1921,6 +1923,11 @@ private:
                             ArrayRef<ReductionInfo> ReductionInfos,
                             AttributeList FuncAttrs, ArrayRef<bool> IsByRef);
 
+  Expected<Function *>
+  emitLvl2InterWarpCopyFunction(const LocationDescription &Loc,
+                            ArrayRef<ReductionInfo> ReductionInfos,
+                            AttributeList FuncAttrs);
+
   /// This function emits a helper that copies all the reduction variables from
   /// the team into the provided global buffer for the reduction variables.
   ///
@@ -2306,6 +2313,10 @@ public:
       ReductionGenCBKind ReductionGenCBKind = ReductionGenCBKind::MLIR,
       std::optional<omp::GV> GridValue = {}, unsigned ReductionBufNum = 1024,
       Value *SrcLocInfo = nullptr);
+
+  BasicBlock* setupSecondaryReductionKernelIfPossible(
+      ArrayRef<OpenMPIRBuilder::ReductionInfo> ReductionInfos,
+      StructType *ReductionsBufferTy, AttributeList FuncAttrs);
 
   // TODO: provide atomic and non-atomic reduction generators for reduction
   // operators defined by the OpenMP specification.

@@ -12,6 +12,14 @@
 // RUN: %clang_cc1 -verify -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=spirv64 -emit-llvm-bc %s -o %t-ppc-host-spirv.bc
 // RUN: %clang_cc1 -verify -fopenmp -x c++ -triple spirv64-unknown-unknown -fopenmp-targets=spirv64 -emit-llvm %s -fopenmp-target-debug -fopenmp-is-target-device -fopenmp-host-ir-file-path %t-ppc-host-spirv.bc -o - | FileCheck %s --check-prefix=CHECK-SPIRV
 
+// UTC_ARGS: --disable
+//.
+// CHECK-AMD: @local_a = internal addrspace(3) global [10 x i32] poison, align 4
+//.
+// CHECK-NVIDIA: @local_a = internal addrspace(3) global [10 x i32] poison, align 4
+//.
+// UTC_ARGS: --enable
+
 // expected-no-diagnostics
 
 #ifndef HEADER

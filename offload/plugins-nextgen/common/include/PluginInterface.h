@@ -404,7 +404,7 @@ struct GenericKernelTy {
   getKernelLaunchEnvironment(GenericDeviceTy &GenericDevice,
                              const KernelArgsTy &KernelArgs,
                              const DynBlockMemConfTy &DynBlockMemConf,
-                             AsyncInfoWrapperTy &AsyncInfoWrapper) const;
+                             AsyncInfoWrapperTy &AsyncInfoWrapper, uint32_t NumBlocks0) const;
 
   /// Indicate whether an execution mode is valid.
   static bool isValidExecutionMode(OMPTgtExecModeFlags ExecutionMode) {
@@ -519,6 +519,12 @@ protected:
 
   /// The prototype kernel launch environment.
   KernelLaunchEnvironmentTy KernelLaunchEnvironment;
+
+  /// If the kernel is a bare kernel.
+  bool IsBareKernel = false;
+
+  /// The lvl2 reduction continuation kernel, if any.
+  GenericKernelTy *ReductionContinuation = nullptr;
 };
 
 /// Information about an allocation, when it has been allocated, and when/if it

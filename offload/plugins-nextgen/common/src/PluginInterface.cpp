@@ -430,6 +430,16 @@ Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
                      int32_t(GenericDevice.getDefaultNumThreads()))
           : GenericDevice.getDefaultNumThreads();
 
+  std::string RedLvl2Name = std::string(Name) + "$red";
+  if (GHandler.isSymbolInImage(GenericDevice, Image, RedLvl2Name)) {
+    auto KernelOrErr = GenericDevice.constructKernel(RedLvl2Name.c_str());
+    if (!KernelOrErr)
+      return KernelOrErr.takeError();
+    ReductionContinuation = &(*KernelOrErr);
+    if (auto Err = ReductionContinuation->init(GenericDevice, Image))
+      return Err;
+  }
+
   return initImpl(GenericDevice, Image);
 }
 
@@ -437,7 +447,7 @@ Expected<KernelLaunchEnvironmentTy *>
 GenericKernelTy::getKernelLaunchEnvironment(
     GenericDeviceTy &GenericDevice, const KernelArgsTy &KernelArgs,
     const DynBlockMemConfTy &DynBlockMemConf,
-    AsyncInfoWrapperTy &AsyncInfoWrapper) const {
+    AsyncInfoWrapperTy &AsyncInfoWrapper, uint32_t NumBlocks0) const {
   // Ctor/Dtor have no arguments, replaying uses the original kernel launch
   // environment. Older versions of the compiler do not generate a kernel
   // launch environment.
@@ -445,9 +455,9 @@ GenericKernelTy::getKernelLaunchEnvironment(
       KernelArgs.Version < OMP_KERNEL_ARG_MIN_VERSION_WITH_DYN_PTR)
     return nullptr;
 
-  if ((!KernelEnvironment.Configuration.ReductionDataSize ||
-       !KernelEnvironment.Configuration.ReductionBufferLength) &&
-      KernelArgs.DynCGroupMem == 0)
+  if (!KernelEnvironment.Configuration.ReductionDataSize &&
+      !KernelEnvironment.Configuration.ReductionBufferLength &&
+      !KernelArgs.DynCGroupMem)
     return reinterpret_cast<KernelLaunchEnvironmentTy *>(~0);
 
   auto AllocOrErr = GenericDevice.dataAlloc(sizeof(KernelLaunchEnvironmentTy),
@@ -469,11 +479,16 @@ GenericKernelTy::getKernelLaunchEnvironment(
   LocalKLE.DynCGroupMemFb = DynBlockMemConf.Fallback;
   LocalKLE.ReductionBuffer = nullptr;
 
-  if (KernelEnvironment.Configuration.ReductionDataSize &&
+  if (KernelEnvironment.Configuration.ReductionDataSize ||
       KernelEnvironment.Configuration.ReductionBufferLength) {
+    uint32_t RedBufferBytes = KernelEnvironment.Configuration.ReductionDataSize;
+    if (KernelEnvironment.Configuration.ReductionBufferLength)
+      RedBufferBytes *= KernelEnvironment.Configuration.ReductionBufferLength;
+    else
+      RedBufferBytes *= NumBlocks0;
+
     auto AllocOrErr = GenericDevice.dataAlloc(
-        KernelEnvironment.Configuration.ReductionDataSize *
-            KernelEnvironment.Configuration.ReductionBufferLength,
+        RedBufferBytes,
         /*HostPtr=*/nullptr, TargetAllocTy::TARGET_ALLOC_DEVICE);
     if (!AllocOrErr)
       return AllocOrErr.takeError();
@@ -590,7 +605,7 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
         DynBlockMemConf.FallbackPtr);
 
   auto KernelLaunchEnvOrErr = getKernelLaunchEnvironment(
-      GenericDevice, KernelArgs, DynBlockMemConf, AsyncInfoWrapper);
+      GenericDevice, KernelArgs, DynBlockMemConf, AsyncInfoWrapper, NumBlocks[0]);
   if (!KernelLaunchEnvOrErr)
     return KernelLaunchEnvOrErr.takeError();
 
@@ -621,9 +636,22 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
           printLaunchInfo(GenericDevice, KernelArgs, NumThreads, NumBlocks))
     return Err;
 
-  return launchImpl(GenericDevice, NumThreads, NumBlocks,
-                    DynBlockMemConf.NativeSize, KernelArgs, LaunchParams,
-                    AsyncInfoWrapper);
+  if (auto Err = launchImpl(GenericDevice, NumThreads, NumBlocks, DynBlockMemConf.NativeSize, KernelArgs,
+                            LaunchParams, AsyncInfoWrapper))
+    return Err;
+
+  if (ReductionContinuation) {
+    NumThreads[0] = std::min(512u, NumBlocks[0] * NumBlocks[1] * NumBlocks[2]);
+    NumThreads[1] = 1;
+    NumThreads[2] = 1;
+    NumBlocks[0] = NumBlocks[1] = NumBlocks[2] = 1;
+    if (auto Err = ReductionContinuation->launchImpl(
+            GenericDevice, NumThreads, NumBlocks, DynBlockMemConf.NativeSize, KernelArgs, LaunchParams,
+            AsyncInfoWrapper))
+      return Err;
+  }
+
+  return Plugin::success();
 }
 
 KernelLaunchParamsTy
