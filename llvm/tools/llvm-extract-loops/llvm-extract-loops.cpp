@@ -139,7 +139,7 @@ static void writeLoopMetadata(LoopInfo &LI, ScalarEvolution &SE, Loop &L,
 
 static void writeExtractedModuleInPlace(Module &M, Function &F,
                                         std::string Filename) {
-  F.setName("__llvm_extracted_loop");
+  F.setName("__llvm_extracted_loop.0");
 
   SetVector<GlobalValue *> GVs;
   GVs.insert(&F);
