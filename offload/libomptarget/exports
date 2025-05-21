@@ -36,6 +36,9 @@ VERS1.0 {
     __kmpc_push_target_tripcount;
     __kmpc_push_target_tripcount_mapper;
     ompx_dump_mapping_tables;
+    ompx_sync_default_stream;
+    ompx_create_default_stream;
+    ompx_remove_default_stream;
     omp_get_mapped_ptr;
     omp_get_num_devices;
     omp_get_device_num;

@@ -79,6 +79,9 @@ struct __tgt_async_info {
   /// ensure it is a valid location while the transfer to the device is
   /// happening.
   KernelLaunchEnvironmentTy KernelLaunchEnvironment;
+
+  /// Flag to indicate the Queue should be persistent.
+  bool PersistentQueue = false;
 };
 
 /// This struct contains all of the arguments to a target kernel region launch.

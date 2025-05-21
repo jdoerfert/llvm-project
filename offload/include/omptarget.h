@@ -136,8 +136,11 @@ public:
   /// Synchronization method to be used.
   SyncTy SyncType;
 
-  AsyncInfoTy(DeviceTy &Device, SyncTy SyncType = SyncTy::BLOCKING)
-      : Device(Device), SyncType(SyncType) {}
+  AsyncInfoTy(DeviceTy &Device, SyncTy SyncType = SyncTy::BLOCKING, bool PersistentQueue = false)
+      : Device(Device), SyncType(SyncType) {
+    AsyncInfo.PersistentQueue = PersistentQueue;
+
+  }
   ~AsyncInfoTy() { synchronize(); }
 
   /// Implicit conversion to the __tgt_async_info which is used in the
@@ -424,6 +427,8 @@ int __tgt_print_device_info(int64_t DeviceId);
 int __tgt_activate_record_replay(int64_t DeviceId, uint64_t MemorySize,
                                  void *VAddr, bool IsRecord, bool SaveOutput,
                                  uint64_t &ReqPtrArgOffset);
+
+extern thread_local AsyncInfoTy* DefaultQueues[8];
 
 #ifdef __cplusplus
 }
