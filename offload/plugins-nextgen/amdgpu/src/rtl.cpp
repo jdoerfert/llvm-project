@@ -2241,8 +2241,11 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
       return Err;
 
     // Once the stream is synchronized, return it to stream pool and reset
-    // AsyncInfo. This is to make sure the synchronization only works for its
-    // own tasks.
+    // AsyncInfo if the queue is not persistent. This is to make sure the
+    // synchronization only works for its own tasks.
+    if (AsyncInfo.PersistentQueue)
+      return Plugin::success();
+
     AsyncInfo.Queue = nullptr;
     return AMDGPUStreamManager.returnResource(Stream);
   }
@@ -2262,8 +2265,11 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
       return Plugin::success();
 
     // Once the stream is completed, return it to stream pool and reset
-    // AsyncInfo. This is to make sure the synchronization only works for its
-    // own tasks.
+    // AsyncInfo if the queue is not persistent. This is to make sure the
+    // synchronization only works for its own tasks.
+    if (AsyncInfo.PersistentQueue)
+      return Plugin::success();
+
     AsyncInfo.Queue = nullptr;
     return AMDGPUStreamManager.returnResource(Stream);
   }
