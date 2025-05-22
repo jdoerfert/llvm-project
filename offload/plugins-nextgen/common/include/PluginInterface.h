@@ -899,7 +899,8 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   /// parallelism.
   /// @see OMPX_MinThreadsForLowTripCount
   virtual uint32_t getMinThreadsForLowTripCountLoop() {
-    return OMPX_MinThreadsForLowTripCount;
+    return OMPX_MinThreadsForLowTripCount ? OMPX_MinThreadsForLowTripCount
+                                          : getWarpSize();
   }
 
   /// Whether or not to reuse blocks for high trip count loops.
@@ -1034,7 +1035,7 @@ private:
   /// low-trip count combined loop. Instead of using more threads we increase
   /// the outer (block/team) parallelism.
   UInt32Envar OMPX_MinThreadsForLowTripCount =
-      UInt32Envar("LIBOMPTARGET_MIN_THREADS_FOR_LOW_TRIP_COUNT", 32);
+      UInt32Envar("LIBOMPTARGET_MIN_THREADS_FOR_LOW_TRIP_COUNT", 0);
 
   BoolEnvar OMPX_ReuseBlocksForHighTripCount =
       BoolEnvar("LIBOMPTARGET_REUSE_BLOCKS_FOR_HIGH_TRIP_COUNT", true);
