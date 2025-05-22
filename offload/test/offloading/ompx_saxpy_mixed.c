@@ -9,7 +9,7 @@
 #include <stdlib.h>
 
 int main(int argc, char **argv) {
-  int N = 1 << 29;
+  int N = 1 << 28;
   if (argc > 1)
     N = atoi(argv[1]);
   float a = 2.f;

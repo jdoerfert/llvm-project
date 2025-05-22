@@ -655,6 +655,12 @@ uint32_t GenericKernelTy::getNumBlocks(GenericDeviceTy &GenericDevice,
     // TODO: We need to honor any value and consequently allow more than the
     // block limit. For this we might need to start multiple kernels or let the
     // blocks start again until the requested number has been started.
+    if (NumTeamsClause[0] > GenericDevice.getBlockLimit()) {
+      fprintf(stderr,
+              "WARNING: Requested number of teams is larger than the device "
+              "limit. Num teams is capped (incorrectly) at %u.\n",
+              GenericDevice.getBlockLimit());
+    }
     return std::min(NumTeamsClause[0], GenericDevice.getBlockLimit());
   }
 
