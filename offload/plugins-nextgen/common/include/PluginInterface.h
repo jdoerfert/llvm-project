@@ -107,6 +107,7 @@ struct AsyncInfoWrapperTy {
 
 private:
   GenericDeviceTy &Device;
+  static thread_local __tgt_async_info *ThreadLocalAsyncInfo;
   __tgt_async_info LocalAsyncInfo;
   __tgt_async_info *AsyncInfoPtr;
 };

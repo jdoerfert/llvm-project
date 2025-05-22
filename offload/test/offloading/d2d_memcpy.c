@@ -32,6 +32,8 @@ int main(int argc, char *argv[]) {
   assert(src_ptr && "src_ptr is NULL");
   assert(dst_ptr && "dst_ptr is NULL");
 
+  printf("%p :: %p\n", src_ptr, &src_ptr[N-1]);
+  fflush(stdout);
 #pragma omp target teams distribute parallel for device(src_device)            \
     is_device_ptr(src_ptr)
   for (int i = 0; i < N; ++i) {

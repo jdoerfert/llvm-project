@@ -416,9 +416,29 @@ setupIndirectCallTable(GenericPluginTy &Plugin, GenericDeviceTy &Device,
 }
 
 AsyncInfoWrapperTy::AsyncInfoWrapperTy(GenericDeviceTy &Device,
-                                       __tgt_async_info *AsyncInfoPtr)
-    : Device(Device),
-      AsyncInfoPtr(AsyncInfoPtr ? AsyncInfoPtr : &LocalAsyncInfo) {}
+                                       __tgt_async_info *UsrAsyncInfoPtr)
+    : Device(Device) {
+  if (UsrAsyncInfoPtr) {
+    AsyncInfoPtr = UsrAsyncInfoPtr;
+    return;
+  }
+
+  if (Device.getDeviceId() >= 8) {
+    AsyncInfoPtr = &LocalAsyncInfo;
+    return;
+  }
+    
+  AsyncInfoPtr = ThreadLocalAsyncInfo;
+  if (!AsyncInfoPtr) {
+    AsyncInfoPtr = new __tgt_async_info[8];
+    for (auto I = 0; I < 8; ++I)
+      AsyncInfoPtr[I].PersistentQueue = true;
+    ThreadLocalAsyncInfo = AsyncInfoPtr;
+  }
+  AsyncInfoPtr = &AsyncInfoPtr[Device.getDeviceId()];
+}
+
+thread_local __tgt_async_info* AsyncInfoWrapperTy::ThreadLocalAsyncInfo = nullptr;
 
 void AsyncInfoWrapperTy::finalize(Error &Err) {
   assert(AsyncInfoPtr && "AsyncInfoWrapperTy already finalized");
@@ -429,6 +449,11 @@ void AsyncInfoWrapperTy::finalize(Error &Err) {
   // the synchronize operation.
   if (AsyncInfoPtr == &LocalAsyncInfo && LocalAsyncInfo.Queue && !Err)
     Err = Device.synchronize(&LocalAsyncInfo);
+  if (Device.getDeviceId() < 8) {
+    auto *ThreadLocalAsyncInfoPtr = &ThreadLocalAsyncInfo[Device.getDeviceId()];
+    if (AsyncInfoPtr == ThreadLocalAsyncInfoPtr && ThreadLocalAsyncInfoPtr->Queue && !Err)
+      Err = Device.synchronize(ThreadLocalAsyncInfoPtr);
+  }
 
   // Invalidate the wrapper object.
   AsyncInfoPtr = nullptr;
