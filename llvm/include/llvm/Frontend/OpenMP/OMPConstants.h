@@ -148,7 +148,7 @@ enum class OMPScheduleType {
   OrderdTrapezoidal = BaseTrapezoidal | ModifierOrdered,                 //  71
 
   OrderedDistributeChunked = BaseDistributeChunked | ModifierOrdered,    //  91
-  OrderedDistribute = BaseDistribute | ModifierOrdered,                  //  92
+  OrderedDistribute = 93,                  //  92
 
   NomergeUnorderedStaticChunked =
       BaseStaticChunked | ModifierUnordered | ModifierNomerge,           // 161

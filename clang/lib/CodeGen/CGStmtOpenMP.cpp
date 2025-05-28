@@ -2166,6 +2166,7 @@ void CodeGenFunction::EmitOMPInnerLoop(
   const Stmt *SS = ICS->getCapturedStmt();
   const AttributedStmt *AS = dyn_cast_or_null<AttributedStmt>(SS);
   OMPLoopNestStack.clear();
+  LoopStack.setMustProgress(true);
   if (AS)
     LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(),
                    AS->getAttrs(), SourceLocToDebugLoc(R.getBegin()),
@@ -2999,6 +3000,7 @@ void CodeGenFunction::EmitOMPOuterLoop(
   EmitBlock(CondBlock);
   const SourceRange R = S.getSourceRange();
   OMPLoopNestStack.clear();
+  LoopStack.setMustProgress(true);
   LoopStack.push(CondBlock, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 

@@ -31,6 +31,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalValue.h"
@@ -2537,7 +2538,7 @@ static void emitForStaticInitCall(
     CodeGenFunction &CGF, llvm::Value *UpdateLocation, llvm::Value *ThreadId,
     llvm::FunctionCallee ForStaticInitFunction, OpenMPSchedType Schedule,
     OpenMPScheduleClauseModifier M1, OpenMPScheduleClauseModifier M2,
-    const CGOpenMPRuntime::StaticRTInput &Values) {
+    const CGOpenMPRuntime::StaticRTInput &Values, llvm::OpenMPIRBuilder &OMPIRB) {
   if (!CGF.HaveInsertPoint())
     return;
 
@@ -2567,17 +2568,35 @@ static void emitForStaticInitCall(
             Schedule == OMP_dist_sch_static_chunked) &&
            "expected static chunked schedule");
   }
+  auto SNo = addMonoNonMonoModifier(CGF.CGM, Schedule, M1,
+                                                  M2);
+  if (false && SNo == 91) {
+    llvm::Value *LBVal = CGF.Builder.CreateLoad(Values.LB);
+    auto *TID= CGF.EmitRuntimeCall(
+      OMPIRB.getOrCreateRuntimeFunction(
+          CGF.CGM.getModule(), OMPRTL___kmpc_get_hardware_thread_id_in_block),
+      "");
+    LBVal = CGF.Builder.CreateNUWAdd(
+        LBVal, TID);
+    CGF.Builder.CreateStore(LBVal, Values.LB);
+    CGF.Builder.CreateStore(LBVal, Values.UB);
+    auto *One = CGF.Builder.getIntN(Values.IVSize, 1);
+    CGF.Builder.CreateStore(One, Values.ST);
+    return;
+  }
+
   llvm::Value *Args[] = {
       UpdateLocation,
       ThreadId,
-      CGF.Builder.getInt32(addMonoNonMonoModifier(CGF.CGM, Schedule, M1,
-                                                  M2)), // Schedule type
+      CGF.Builder.getInt32(SNo), // Schedule type
+      //CGF.Builder.getInt32(SNo == 33 ? 93 : SNo), // Schedule type
       Values.IL.emitRawPointer(CGF),                    // &isLastIter
       Values.LB.emitRawPointer(CGF),                    // &LB
       Values.UB.emitRawPointer(CGF),                    // &UB
       Values.ST.emitRawPointer(CGF),                    // &Stride
       CGF.Builder.getIntN(Values.IVSize, 1),            // Incr
-      Chunk                                             // Chunk
+      Chunk
+      //SNo == 33 ? CGF.Builder.getIntN(Values.IVSize, 1) : Chunk
   };
   CGF.EmitRuntimeCall(ForStaticInitFunction, Args);
 }
@@ -2601,7 +2620,7 @@ void CGOpenMPRuntime::emitForStaticInit(CodeGenFunction &CGF,
                                              false);
   auto DL = ApplyDebugLocation::CreateDefaultArtificial(CGF, Loc);
   emitForStaticInitCall(CGF, UpdatedLocation, ThreadId, StaticInitFunction,
-                        ScheduleNum, ScheduleKind.M1, ScheduleKind.M2, Values);
+                        ScheduleNum, ScheduleKind.M1, ScheduleKind.M2, Values, OMPBuilder);
 }
 
 void CGOpenMPRuntime::emitDistributeStaticInit(
@@ -2621,7 +2640,7 @@ void CGOpenMPRuntime::emitDistributeStaticInit(
 
   emitForStaticInitCall(CGF, UpdatedLocation, ThreadId, StaticInitFunction,
                         ScheduleNum, OMPC_SCHEDULE_MODIFIER_unknown,
-                        OMPC_SCHEDULE_MODIFIER_unknown, Values);
+                        OMPC_SCHEDULE_MODIFIER_unknown, Values, OMPBuilder);
 }
 
 void CGOpenMPRuntime::emitForStaticFinish(CodeGenFunction &CGF,
