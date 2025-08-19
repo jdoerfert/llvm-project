@@ -40,6 +40,20 @@ typedef struct __attribute__((__packed__)) {
   uint64_t DecompressedSize;
 } CudaFatbinTextHeader;
 
+// HIP uses this format:
+// https://clang.llvm.org/docs/ClangOffloadBundler.html#bundled-binary-file-layout
+typedef struct __attribute__((__packed__)) {
+  char Magic[24];
+  uint64_t NumBundles;
+} HipFatbinHeader;
+
+typedef struct __attribute__((__packed__)) {
+  uint64_t BundleOffset;
+  uint64_t BundleSize;
+  uint64_t IdLength;
+  char IdString[];
+} HipFatbinBundleEntry;
+
 static void readTUFatbin(const char *Binary, const FatbinWrapperTy *FW) {
   ol_device_handle_t Device = olKGetDefaultDevice();
 
@@ -104,37 +118,72 @@ static void readTUFatbin(const char *Binary, const FatbinWrapperTy *FW) {
 
 static void readHIPFatbinEntries(const char *Binary, const char *HIPFatbinPtr) {
   ol_device_handle_t Device = olKGetDefaultDevice();
-  const char *DataIt = HIPFatbinPtr;
 
-  std::advance(DataIt, HIP_FATBIN_MAGIC_STR_LEN);
-  uint64_t NumBundles = readAndAdvance<uint64_t>(DataIt);
-  //printf("NB %lu\n", NumBundles);
+  const char *CurrentReadPosition = HIPFatbinPtr;
+
+  const HipFatbinHeader *Header =
+      reinterpret_cast<const HipFatbinHeader *>(CurrentReadPosition);
+  CurrentReadPosition += sizeof(HipFatbinHeader);
+
+  uint64_t NumBundles = Header->NumBundles;
+
+  const void *ProgramData = nullptr;
+  size_t ProgramSize = 0;
+  uint64_t ProgramIdLength = 0;
+  const char *ProgramIdString = nullptr;
+
   for (uint64_t BundleId = 0; BundleId < NumBundles; ++BundleId) {
-    uint64_t BundleOffset = readAndAdvance<uint64_t>(DataIt);
-    uint64_t BundleSize = readAndAdvance<uint64_t>(DataIt);
+    const HipFatbinBundleEntry *BundleEntry =
+        reinterpret_cast<const HipFatbinBundleEntry *>(CurrentReadPosition);
 
-    uint64_t BundleTripleSize = readAndAdvance<uint64_t>(DataIt);
-    //printf("Bundle %lu: %lu @ %lu, %s\n", BundleId, BundleSize, BundleOffset,
-    //       DataIt);
-    // TODO: We should read the triple and use it to verify what devices are
-    // eligible.
-    std::advance(DataIt, BundleTripleSize);
+    uint64_t BundleOffset = BundleEntry->BundleOffset;
+    uint64_t BundleSize = BundleEntry->BundleSize;
+    const char *BundleIdString = BundleEntry->IdString;
+    uint64_t BundleIdLength = BundleEntry->IdLength;
 
-    if (!BundleSize)
+    // Advance by the size of the entry including the ID string
+    CurrentReadPosition += sizeof(HipFatbinBundleEntry) + BundleIdLength;
+
+    if (!BundleSize) {
       continue;
+    }
 
-    ol_program_handle_t Program = nullptr;
-    ol_result_t Result = olCreateProgram(Device, HIPFatbinPtr + BundleOffset,
-                                         BundleSize, &Program);
-    if (Result && Result->Code) {
-      fprintf(stderr, "Failed to register device code (%i): %s\n", Result->Code,
-              Result->Details);
+    bool IsCompatible = false;
+    ol_result_t CompatibilityCheckResult = olElfIsCompatibleWithDevice(
+        Device, HIPFatbinPtr + BundleOffset, BundleSize, &IsCompatible);
+
+    if (CompatibilityCheckResult && CompatibilityCheckResult->Code) {
+      fprintf(stderr, "Failed to check for device compatibility (%i): %s\n",
+              CompatibilityCheckResult->Code,
+              CompatibilityCheckResult->Details);
       abort();
     }
-    //printf("Program :: %p\n", Program);
 
-    olKRegisterProgram(Binary, Program);
+    llvm::StringRef CurrentBundleId(ProgramIdString, ProgramIdLength);
+    llvm::StringRef NewBundleId(BundleIdString, BundleIdLength);
+    if (IsCompatible && NewBundleId.compare(CurrentBundleId) > 0) {
+      ProgramData = HIPFatbinPtr + BundleOffset;
+      ProgramSize = BundleSize;
+      ProgramIdLength = BundleIdLength;
+      ProgramIdString = BundleIdString;
+    }
   }
+
+  if (ProgramData == nullptr) {
+    fprintf(stderr, "Failed to find compatible binary\n");
+    abort();
+  }
+
+  ol_program_handle_t Program = nullptr;
+  ol_result_t Result =
+      olCreateProgram(Device, ProgramData, ProgramSize, &Program);
+  if (Result && Result->Code) {
+    fprintf(stderr, "Failed to register device code (%i): %s\n", Result->Code,
+            Result->Details);
+    abort();
+  }
+
+  olKRegisterProgram(Binary, Program);
 }
 
 /// Hidden, but exported, Registration API
