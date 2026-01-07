@@ -849,11 +849,10 @@ struct KernelInfoState : AbstractState {
 /// array, to a vector in memory.
 struct OffloadArray {
   /// Physical array (in the IR).
-  AllocaInst *Array = nullptr;
+  Value *Array = nullptr;
   /// Mapped values.
   SmallVector<Value *, 8> StoredValues;
-  /// Last stores made in the offload array.
-  SmallVector<StoreInst *, 8> LastAccesses;
+  SmallVector<StoreInst *, 8> Stores;
 
   OffloadArray() = default;
 
@@ -861,12 +860,48 @@ struct OffloadArray {
   /// instruction \p Before is reached. Returns false if the initialization
   /// fails.
   /// This MUST be used immediately after the construction of the object.
-  bool initialize(AllocaInst &Array, Instruction &Before) {
-    if (!Array.getAllocatedType()->isArrayTy())
-      return false;
+  bool initialize(Value &Array, Instruction &Before, int NumObjects) {
+    StoredValues.resize(NumObjects);
+    Stores.resize(NumObjects);
 
-    if (!getValues(Array, Before))
+    if (auto *AI = dyn_cast<AllocaInst>(&Array)) {
+      if (!AI->getAllocatedType()->isArrayTy()) {
+        LLVM_DEBUG(
+            errs() << "OffloadArray::initialize: Array is not an array\n");
+        return false;
+      }
+      if (!getValues(*AI, Before)) {
+        LLVM_DEBUG(
+            errs()
+            << "OffloadArray::initialize: Failed to initialize alloca\n");
+        return false;
+      }
+    } else if (auto *GV = dyn_cast<GlobalVariable>(&Array)) {
+      if (!GV->isConstant()) {
+        LLVM_DEBUG(
+            errs()
+            << "OffloadArray::initialize: Global variable is not constant\n");
+        return false;
+      }
+      auto *Init = cast<ConstantDataArray>(GV->getInitializer());
+      assert(Init->getNumElements() == NumObjects);
+      for (int I = 0, E = Init->getNumElements(); I < E; ++I) {
+        auto *OpV = ConstantInt::get(Type::getInt64Ty(Array.getContext()),
+                                     Init->getElementAsInteger(I));
+        StoredValues[I] = OpV;
+      }
+      if (!isFilled()) {
+        LLVM_DEBUG(
+            errs()
+            << "OffloadArray::initialize: Failed to initialize from global\n");
+        return false;
+      }
+    } else {
+      LLVM_DEBUG(
+          errs()
+          << "OffloadArray::initialize: Array is not an alloca or global\n");
       return false;
+    }
 
     this->Array = &Array;
     return true;
@@ -876,53 +911,55 @@ struct OffloadArray {
   static const unsigned BasePtrsArgNum = 3;
   static const unsigned PtrsArgNum = 4;
   static const unsigned SizesArgNum = 5;
+  static const unsigned MapTypeArgNum = 6;
 
 private:
-  /// Traverses the BasicBlock where \p Array is, collecting the stores made to
-  /// \p Array, leaving StoredValues with the values stored before the
-  /// instruction \p Before is reached.
   bool getValues(AllocaInst &Array, Instruction &Before) {
-    // Initialize container.
-    const uint64_t NumValues = Array.getAllocatedType()->getArrayNumElements();
-    StoredValues.assign(NumValues, nullptr);
-    LastAccesses.assign(NumValues, nullptr);
-
-    // TODO: This assumes the instruction \p Before is in the same
-    //  BasicBlock as Array. Make it general, for any control flow graph.
-    BasicBlock *BB = Array.getParent();
-    if (BB != Before.getParent())
-      return false;
-
-    const DataLayout &DL = Array.getDataLayout();
+    const DataLayout &DL = Array.getParent()->getDataLayout();
     const unsigned int PointerSize = DL.getPointerSize();
 
-    for (Instruction &I : *BB) {
-      if (&I == &Before)
-        break;
+    SmallVector<Instruction *, 8> Worklist;
+    for (auto *U : Array.users())
+      Worklist.push_back(cast<Instruction>(U));
 
-      if (!isa<StoreInst>(&I))
+    while (!Worklist.empty()) {
+      auto *I = Worklist.pop_back_val();
+      if (auto *GEP = dyn_cast<GetElementPtrInst>(I)) {
+        for (auto *U : GEP->users())
+          Worklist.push_back(cast<Instruction>(U));
         continue;
+      }
 
-      auto *S = cast<StoreInst>(&I);
-      int64_t Offset = -1;
+      if (isa<CallInst>(I) &&
+          cast<CallInst>(I)->getCalledFunction()->getName().starts_with(
+              "__tgt"))
+        continue;
+      if (!isa<StoreInst>(I)) {
+        LLVM_DEBUG(dbgs() << "Unexpected array user: " << *I << "\n");
+        return false;
+      }
+
+      auto *S = cast<StoreInst>(I);
+      int64_t Offset = 0;
       auto *Dst =
           GetPointerBaseWithConstantOffset(S->getPointerOperand(), Offset, DL);
       if (Dst == &Array) {
         int64_t Idx = Offset / PointerSize;
-        StoredValues[Idx] = getUnderlyingObject(S->getValueOperand());
-        LastAccesses[Idx] = S;
+        assert(StoredValues[Idx] == nullptr &&
+               "Found two stores into the same index");
+        StoredValues[Idx] = S->getValueOperand();
+        Stores[Idx] = S;
       }
     }
 
     return isFilled();
   }
 
-  /// Returns true if all values in StoredValues and
-  /// LastAccesses are not nullptrs.
+  /// Returns true if all values in StoredValues are not nullptrs.
   bool isFilled() {
     const unsigned NumValues = StoredValues.size();
     for (unsigned I = 0; I < NumValues; ++I) {
-      if (!StoredValues[I] || !LastAccesses[I])
+      if (!StoredValues[I])
         return false;
     }
 
@@ -1545,20 +1582,26 @@ private:
   }
 
   /// Tries to hide the latency of runtime calls that involve host to
-  /// device memory transfers by splitting them into their "issue" and "wait"
-  /// versions. The "issue" is moved upwards as much as possible. The "wait" is
-  /// moved downards as much as possible. The "issue" issues the memory transfer
-  /// asynchronously, returning a handle. The "wait" waits in the returned
-  /// handle for the memory transfer to finish.
+  /// device memory transfers by (1) hoisting them out of loops, and (2)
+  /// splitting them into their "issue" and "wait" versions. The "issue" is
+  /// moved upwards as much as possible. The "wait" is moved downards as much as
+  /// possible. The "issue" issues the memory transfer asynchronously, returning
+  /// a handle. The "wait" waits in the returned handle for the memory transfer
+  /// to finish.
   bool hideMemTransfersLatency() {
-    auto &RFI = OMPInfoCache.RFIs[OMPRTL___tgt_target_data_begin_mapper];
+    auto &BeginRFI = OMPInfoCache.RFIs[OMPRTL___tgt_target_data_begin_mapper];
+    auto &EndRFI = OMPInfoCache.RFIs[OMPRTL___tgt_target_data_end_mapper];
     bool Changed = false;
+
+    Changed |= moveStoredValuesUpwards(BeginRFI, EndRFI);
+    Changed |= hoistMemTransfersOutOfLoops(BeginRFI, EndRFI);
+
     auto SplitMemTransfers = [&](Use &U, Function &Decl) {
-      auto *RTCall = getCallIfRegularCall(U, &RFI);
+      auto *RTCall = getCallIfRegularCall(U, &BeginRFI);
       if (!RTCall)
         return false;
 
-      OffloadArray OffloadArrays[3];
+      OffloadArray OffloadArrays[4];
       if (!getValuesInOffloadArrays(*RTCall, OffloadArrays))
         return false;
 
@@ -1576,8 +1619,206 @@ private:
     if (OMPInfoCache.runtimeFnsAvailable(
             {OMPRTL___tgt_target_data_begin_mapper_issue,
              OMPRTL___tgt_target_data_begin_mapper_wait}))
-      RFI.foreachUse(SCC, SplitMemTransfers);
+      BeginRFI.foreachUse(SCC, SplitMemTransfers);
 
+    return Changed;
+  }
+
+  bool
+  moveStoredValuesUpwards(OMPInformationCache::RuntimeFunctionInfo &BeginRFI,
+                          OMPInformationCache::RuntimeFunctionInfo &EndRFI) {
+    bool Changed = false;
+    auto HoistStores = [&](OMPInformationCache::RuntimeFunctionInfo &RFI) {
+      auto HoistStoresHelper = [&](Use &U, Function &Decl) {
+        auto *RTCall = getCallIfRegularCall(U, &RFI);
+        if (!RTCall)
+          return false;
+
+        auto *LI =
+            OMPInfoCache.getAnalysisResultForFunction<LoopAnalysis>(Decl);
+        if (!LI)
+          return false;
+
+        auto *L = LI->getLoopFor(RTCall->getParent());
+        if (!L)
+          return false;
+
+        auto *DT =
+            OMPInfoCache.getAnalysisResultForFunction<DominatorTreeAnalysis>(
+                Decl);
+        if (!DT)
+          return false;
+
+        OffloadArray OffloadArrays[4];
+        if (!getValuesInOffloadArrays(*RTCall, OffloadArrays))
+          return false;
+        for (auto &OA : OffloadArrays) {
+          for (auto *SI : OA.Stores) {
+            if (!SI)
+              continue;
+            auto *PtrI = cast<Instruction>(SI->getPointerOperand());
+            Instruction *IP = nullptr;
+            if (auto *ValI = dyn_cast<Instruction>(SI->getValueOperand())) {
+              if (DT->dominates(PtrI, ValI))
+                IP = ValI;
+              else if (DT->dominates(ValI, PtrI))
+                IP = PtrI;
+            } else {
+              IP = PtrI;
+            }
+            if (!IP)
+              continue;
+            SI->moveAfter(IP);
+            Changed = true;
+          }
+        }
+        return false;
+      };
+      RFI.foreachUse(SCC, HoistStoresHelper);
+    };
+    HoistStores(BeginRFI);
+    HoistStores(EndRFI);
+    return Changed;
+  }
+
+  bool hoistMemTransfersOutOfLoops(
+      OMPInformationCache::RuntimeFunctionInfo &BeginRFI,
+      OMPInformationCache::RuntimeFunctionInfo &EndRFI) {
+    bool Changed = false;
+    bool Hoisted = false;
+
+    DenseMap<Loop *, SmallVector<CallInst *>> LoopToBeginMap;
+    DenseMap<Loop *, SmallVector<CallInst *>> LoopToEndMap;
+
+    auto MapToLoop = [&](OMPInformationCache::RuntimeFunctionInfo &RFI,
+                         DenseMap<Loop *, SmallVector<CallInst *>> &LoopToMap) {
+      auto MapToLoopHelper = [&](Use &U, Function &Decl) {
+        auto *RTCall = getCallIfRegularCall(U, &RFI);
+        if (!RTCall)
+          return false;
+        auto *LI =
+            OMPInfoCache.getAnalysisResultForFunction<LoopAnalysis>(Decl);
+        if (!LI)
+          return false;
+
+        auto *L = LI->getLoopFor(RTCall->getParent());
+        if (!L)
+          return false;
+
+        if (!L->getExitingBlock() || !L->getUniqueExitBlock()) {
+          LLVM_DEBUG(dbgs()
+                     << "Loop has no exiting block or unique exit block\n");
+          return false;
+        }
+
+        if (!L->getExitBlock()->getUniquePredecessor()) {
+          SplitEdge(L->getExitingBlock(), L->getExitBlock());
+          Changed = true;
+        }
+        if (!L->getLoopPreheader()) {
+          SplitEdge(L->getLoopPredecessor(), L->getHeader());
+          Changed = true;
+        }
+        assert(L->getLoopPreheader());
+
+        LoopToMap[L].push_back(RTCall);
+        return false;
+      };
+
+      RFI.foreachUse(SCC, MapToLoopHelper);
+    };
+
+    MapToLoop(BeginRFI, LoopToBeginMap);
+    MapToLoop(EndRFI, LoopToEndMap);
+
+    for (auto &It : LoopToBeginMap) {
+      auto *L = It.first;
+      auto &Calls = It.second;
+
+      for (auto *CallBegin : Calls) {
+        if (CallBegin->getParent() != L->getHeader()) {
+          LLVM_DEBUG(dbgs() << "Skip begin mapper outside of loop header");
+          continue;
+        }
+        OffloadArray OffloadArraysBegin[4];
+        if (!getValuesInOffloadArrays(*CallBegin, OffloadArraysBegin))
+          continue;
+        if (any_of(OffloadArraysBegin[3].StoredValues, [&](auto *SV) {
+              return cast<ConstantInt>(SV)->getSExtValue() != 1;
+            })) {
+          LLVM_DEBUG(dbgs() << "Expected 'to' map type\n");
+          continue;
+        }
+
+        for (auto *CallEnd : LoopToEndMap[L]) {
+          if (CallEnd->getParent() != L->getExitingBlock()) {
+            LLVM_DEBUG(dbgs()
+                       << "Skip end mapper outside of loop exiting block");
+            continue;
+          }
+          OffloadArray OffloadArraysEnd[4];
+          if (!getValuesInOffloadArrays(*CallEnd, OffloadArraysEnd))
+            continue;
+
+          if (any_of(OffloadArraysEnd[3].StoredValues, [&](auto *SV) {
+                return cast<ConstantInt>(SV)->getSExtValue() != 2;
+              })) {
+            LLVM_DEBUG(dbgs() << "Expected 'from' map type\n");
+            continue;
+          }
+          if (!(OffloadArraysBegin[0].StoredValues ==
+                    OffloadArraysEnd[0].StoredValues &&
+                OffloadArraysBegin[1].StoredValues ==
+                    OffloadArraysEnd[1].StoredValues &&
+                ((OffloadArraysBegin[2].StoredValues.empty() &&
+                  OffloadArraysBegin[2].Array == OffloadArraysEnd[2].Array) ||
+                 (!OffloadArraysBegin[2].StoredValues.empty() &&
+                  OffloadArraysBegin[2].StoredValues ==
+                      OffloadArraysEnd[2].StoredValues)))) {
+            LLVM_DEBUG(dbgs() << "Offload arrays do not match\n");
+            continue;
+          }
+
+          bool Valid = true;
+          auto *IP = CallBegin->getPrevNode();
+          auto *FirstInst = &*CallBegin->getParent()->begin();
+          while (IP != FirstInst) {
+            if (IP->mayHaveSideEffects()) {
+              Valid = false;
+              break;
+            }
+            IP = IP->getPrevNode();
+          }
+
+          if (!Valid) {
+            LLVM_DEBUG(dbgs() << "Cannot move begin call out of loop\n");
+            continue;
+          }
+          IP = CallEnd->getNextNode();
+          auto *LastInst = &*CallEnd->getParent()->getTerminator();
+          while (IP != LastInst) {
+            if (IP->mayHaveSideEffects()) {
+              Valid = false;
+              break;
+            }
+            IP = IP->getNextNode();
+          }
+
+          if (!Valid) {
+            LLVM_DEBUG(dbgs() << "Cannot move end call out of loop\n");
+            continue;
+          }
+
+          CallBegin->moveBefore(
+              L->getLoopPreheader()->getTerminator()->getIterator());
+          CallEnd->moveBefore(L->getUniqueExitBlock()->getFirstInsertionPt());
+          Changed = Hoisted = true;
+        }
+      }
+    }
+
+    if (Hoisted)
+      hoistMemTransfersOutOfLoops(BeginRFI, EndRFI);
     return Changed;
   }
 
@@ -1604,7 +1845,7 @@ private:
   /// \p RuntimeCall into the offload arrays in \p OAs.
   bool getValuesInOffloadArrays(CallInst &RuntimeCall,
                                 MutableArrayRef<OffloadArray> OAs) {
-    assert(OAs.size() == 3 && "Need space for three offload arrays!");
+    assert(OAs.size() == 4 && "Need space for three offload arrays!");
 
     // A runtime call that involves memory offloading looks something like:
     // call void @__tgt_target_data_begin_mapper(arg0, arg1,
@@ -1620,13 +1861,16 @@ private:
     Value *PtrsArg = RuntimeCall.getArgOperand(OffloadArray::PtrsArgNum);
     // i8** %offload_sizes.
     Value *SizesArg = RuntimeCall.getArgOperand(OffloadArray::SizesArgNum);
+    // i32 %offload_map_type.
+    Value *MapTypeArg = RuntimeCall.getArgOperand(OffloadArray::MapTypeArgNum);
 
     // Get values stored in **offload_baseptrs.
     auto *V = getUnderlyingObject(BasePtrsArg);
     if (!isa<AllocaInst>(V))
       return false;
     auto *BasePtrsArray = cast<AllocaInst>(V);
-    if (!OAs[0].initialize(*BasePtrsArray, RuntimeCall))
+    int NumObjects = BasePtrsArray->getAllocatedType()->getArrayNumElements();
+    if (!OAs[0].initialize(*BasePtrsArray, RuntimeCall, NumObjects))
       return false;
 
     // Get values stored in **offload_baseptrs.
@@ -1634,21 +1878,21 @@ private:
     if (!isa<AllocaInst>(V))
       return false;
     auto *PtrsArray = cast<AllocaInst>(V);
-    if (!OAs[1].initialize(*PtrsArray, RuntimeCall))
+    if (!OAs[1].initialize(*PtrsArray, RuntimeCall, NumObjects))
       return false;
 
     // Get values stored in **offload_sizes.
     V = getUnderlyingObject(SizesArg);
-    // If it's a [constant] global array don't analyze it.
-    if (isa<GlobalValue>(V))
-      return isa<Constant>(V);
-    if (!isa<AllocaInst>(V))
+    if (!isa<AllocaInst>(V) && !isa<GlobalValue>(V))
+      return false;
+    if (!OAs[2].initialize(*V, RuntimeCall, NumObjects))
       return false;
 
-    auto *SizesArray = cast<AllocaInst>(V);
-    if (!OAs[2].initialize(*SizesArray, RuntimeCall))
+    V = getUnderlyingObject(MapTypeArg);
+    if (!isa<GlobalValue>(V))
       return false;
-
+    if (!OAs[3].initialize(*V, RuntimeCall, NumObjects))
+      return false;
     return true;
   }
 
@@ -1657,7 +1901,7 @@ private:
   /// is working properly.
   /// TODO: Move this to a unittest when unittests are available for OpenMPOpt.
   void dumpValuesInOffloadArrays(ArrayRef<OffloadArray> OAs) {
-    assert(OAs.size() == 3 && "There are three offload arrays to debug!");
+    assert(OAs.size() == 4 && "There are four offload arrays to debug!");
 
     LLVM_DEBUG(dbgs() << TAG << " Successfully got offload values:\n");
     std::string ValuesStr;
@@ -1683,6 +1927,13 @@ private:
       Printer << Separator;
     }
     LLVM_DEBUG(dbgs() << "\t\toffload_sizes: " << ValuesStr << "\n");
+    ValuesStr.clear();
+
+    for (auto *M : OAs[3].StoredValues) {
+      M->print(Printer);
+      Printer << Separator;
+    }
+    LLVM_DEBUG(dbgs() << "\t\toffload_maptype: " << ValuesStr << "\n");
   }
 
   /// Returns the instruction where the "wait" counterpart \p RuntimeCall can be
@@ -1705,13 +1956,13 @@ private:
         return nullptr;
       }
 
-      // FIXME: For now if we move it over anything without side effect
-      //  is worth it.
-      IsWorthIt = true;
+      // FIXME: Use AA and properly determine worth.
     }
 
     // Return end of BasicBlock.
-    return RuntimeCall.getParent()->getTerminator();
+    if (IsWorthIt)
+      return RuntimeCall.getParent()->getTerminator();
+    return nullptr;
   }
 
   /// Splits \p RuntimeCall into its "issue" and "wait" counterparts.
