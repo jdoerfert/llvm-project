@@ -93,6 +93,8 @@ if (LLVM_BUILD_EXAMPLES)
     flangPrintFunctionNames
     flangOmpReport
     flangFeatureList
+    flang2cpp
+    f2cpp_rt
     )
 endif ()
 

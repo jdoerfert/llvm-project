@@ -1,0 +1,12 @@
+PROGRAM
+  In spec part: 0Entity: 1Entity: 1INTEGER RES;
+  RES = ADD(10, 20);
+  PRINT(*, "10 + 20 =",RES);
+END_PROGRAM
+
+In spec part: 1
+In spec part: 0Entity: 1Entity: 1;
+INTEGER ADD(INTEGER A, INTEGER B) {
+  ADD = A+B;
+}
+} // ADD
