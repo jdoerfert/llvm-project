@@ -23,29 +23,44 @@
 #include "flang/Parser/unparse.h"
 #include "flang/Support/Fortran.h"
 #include "flang/Support/LangOptions.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
+#include <cctype>
 #include <cinttypes>
 #include <cstddef>
+#include <map>
 #include <set>
+#include <utility>
 
 using namespace Fortran::common;
 using namespace Fortran::frontend;
 using namespace Fortran::parser;
 using namespace Fortran;
 
-static llvm::cl::opt<std::string> FunctionDeclarationOutput(
-    "function-declarations",
-    llvm::cl::desc("Output file for function declarations"),
-    llvm::cl::init(""));
+static llvm::cl::opt<std::string> DeclarationOutput("declarations",
+    llvm::cl::desc("Output file for declarations"), llvm::cl::init(""));
+static llvm::cl::opt<std::string> CommonBlockOutput("common-blocks",
+    llvm::cl::desc("Output file for common blocks"), llvm::cl::init(""));
 
 static std::string str_toupper(std::string s) {
   std::transform(s.begin(), s.end(), s.begin(),
       [](unsigned char c) { return std::toupper(c); });
   return s;
 }
+
+struct FunctionInfo {
+  std::string prefix;
+  std::string name;
+  std::set<std::string> args;
+  const Suffix *suffix{nullptr};
+  const LanguageBindingSpec *bind{nullptr};
+  std::string argsPrinted;
+  std::map<std::string, std::string> declMap;
+  std::map<std::string, std::string> commonMap;
+};
 
 class UnparseVisitor {
 public:
@@ -58,6 +73,14 @@ public:
 
   const llvm::SmallVector<std::string> &getFunctionDeclarations() const {
     return functionDeclarations_;
+  }
+
+  const std::set<std::string> &getCommonBlocks() const { return commonBlocks_; }
+
+  const std::map<std::pair<std::string, int>,
+      std::pair<FunctionInfo *, std::string>> &
+  getCommonRenameMap() const {
+    return commonRenameMap_;
   }
 
   // In nearly all cases, this code avoids defining Boolean-valued Pre()
@@ -519,65 +542,48 @@ public:
     // }
     auto *currentFunction =
         currentFunctions_.empty() ? nullptr : currentFunctions_.back();
+    assert(currentFunction && "currentFunction is null");
     const auto &entities{std::get<std::list<EntityDecl>>(x.t)};
-    if (inSpecificationPart_ && currentFunction) {
 
-      auto *sav = out_;
-      out_ = &currentFunction->argPrinter;
+    std::string s;
+    llvm::raw_string_ostream sout{s};
+    auto *sav = out_;
+    out_ = &sout;
 
-      auto numCommas = currentFunction->args.size() - 1;
-      for (const EntityDecl &ed : entities) {
-        if (!currentFunction->args.count(
-                std::get<ObjectName>(ed.t).ToString())) {
-          continue;
-        }
-        Walk(dts);
-        Walk("_", attrs, "_");
-        Put(' ');
-        Walk(ed);
+    auto numCommas = currentFunction->args.size() - 1;
+    for (const EntityDecl &ed : entities) {
+      auto name = str_toupper(std::get<ObjectName>(ed.t).ToString());
+      if (printFunctionArgs_ != !!currentFunction->args.count(name)) {
+        continue;
+      }
+
+      Walk(dts);
+      Walk("_", attrs, "_");
+      Put(' ');
+      Walk(ed);
+
+      if (LS) {
+        common::visit(
+            common::visitors{
+                [&](const TypeParamValue &y) { Put('['), Walk(y), Put(']'); },
+                [&](const CharLength &y) { Put('*'), Walk(y); },
+            },
+            LS->u);
+      }
+
+      if (printFunctionArgs_) {
         if (numCommas-- > 0)
           Word(", ");
+      } else {
+        Put(";");
+        sout.flush();
+        currentFunction->declMap[name] = s;
+        s.clear();
       }
-      if (LS) {
-        common::visit(
-            common::visitors{
-                [&](const TypeParamValue &y) { Put('['), Walk(y), Put(']'); },
-                [&](const CharLength &y) { Put('*'), Walk(y); },
-            },
-            LS->u);
-      }
-      LS = nullptr;
-      out_ = sav;
     }
 
-    if (!inSpecificationPart_) {
-
-      bool first = true;
-      for (const EntityDecl &ed : entities) {
-        if (currentFunction &&
-            currentFunction->args.count(std::get<ObjectName>(ed.t).ToString()))
-          continue;
-        if (first) {
-          Walk(dts);
-          Walk("_", attrs, "_");
-          Put(' ');
-        } else {
-          Word(", ");
-        }
-        Walk(ed);
-        first = false;
-      }
-      if (LS) {
-        common::visit(
-            common::visitors{
-                [&](const TypeParamValue &y) { Put('['), Walk(y), Put(']'); },
-                [&](const CharLength &y) { Put('*'), Walk(y); },
-            },
-            LS->u);
-      }
-      LS = nullptr;
-      Put(';');
-    }
+    LS = nullptr;
+    out_ = sav;
   }
   void Before(const AttrSpec &x) { // R802
     common::visit(common::visitors{
@@ -833,18 +839,33 @@ public:
     }
   }
   void Unparse(const CommonStmt &x) { // R873
-    Word("COMMON ");
-    Walk(x.blocks);
+    if (!printFunctionArgs_) {
+      Walk(x.blocks);
+    }
   }
   void Unparse(const CommonBlockObject &x) { // R874
     Walk(std::get<Name>(x.t));
     Walk("(", std::get<std::optional<ArraySpec>>(x.t), ")");
   }
   void Unparse(const CommonStmt::Block &x) {
-    Word("/"), Walk(std::get<std::optional<Name>>(x.t)), Word("/");
-    Walk(std::get<std::list<CommonBlockObject>>(x.t));
+    auto blockName = std::get<std::optional<Name>>(x.t);
+    std::string blockNameStr =
+        blockName ? str_toupper(blockName->ToString()) : "";
+    auto *currentFunction = currentFunctions_.back();
+    assert(currentFunction);
+    int i = 0;
+    for (auto &CommonBlockObject :
+        std::get<std::list<CommonBlockObject>>(x.t)) {
+      auto name = std::get<Name>(CommonBlockObject.t);
+      std::string nameStr = str_toupper(name.ToString());
+      currentFunction->commonMap[nameStr] = blockNameStr;
+      commonBlocks_.insert(blockNameStr);
+      if (!commonRenameMap_.count({blockNameStr, i})) {
+        commonRenameMap_[{blockNameStr, i}] = {currentFunction, nameStr};
+      }
+      i++;
+    }
   }
-
   void Unparse(const Substring &x) { // R908, R909
     Walk(std::get<DataRef>(x.t));
     Put('('), Walk(std::get<SubstringRange>(x.t)), Put(')');
@@ -1708,30 +1729,49 @@ public:
   }
   void Unparse(const ProgramStmt &) { // R1402
     // Modified
+    currentFunctions_.emplace_back(new FunctionInfo);
     Put("PROGRAM");
-    Indent();
   }
   void Unparse(const EndProgramStmt &x) { // R1403
     // Modified
-    Outdent();
+    // delete currentFunctions_.back();
+    currentFunctions_.pop_back();
+    // Outdent();
     Put("END_PROGRAM");
   }
   void Before(const SpecificationPart &x) {
     if (!currentFunctions_.empty()) {
-      inSpecificationPart_ = true;
+      printFunctionArgs_ = true;
       Walk(std::get<std::list<DeclarationConstruct>>(x.t), "");
-      inSpecificationPart_ = false;
+      printFunctionArgs_ = false;
     }
   }
   void Unparse(const ExecutionPart &x) {
     auto *currentFunction =
         currentFunctions_.empty() ? nullptr : currentFunctions_.back();
     if (currentFunction) {
-      functionDeclarations_.push_back(currentFunction->prefix +
-          currentFunction->name + "(" + currentFunction->argsPrinted + ");");
-      *out_ << currentFunction->prefix << currentFunction->name << "("
-            << currentFunction->argsPrinted << ") {\n";
+      if (!currentFunction->name.empty()) {
+        functionDeclarations_.push_back(currentFunction->prefix +
+            currentFunction->name + "(" + currentFunction->argsPrinted + ")");
+        *out_ << currentFunction->prefix << currentFunction->name << "("
+              << currentFunction->argsPrinted << ") {\n";
+      }
       Indent();
+      for (auto &it : currentFunction->declMap) {
+        if (currentFunction->commonMap.count(it.first)) {
+          continue;
+        }
+        Put(it.second);
+        Put("\n");
+      }
+      int i = 0;
+      for (auto &it : currentFunction->commonMap) {
+        auto localVarName = it.first;
+        auto blockName = it.second;
+        Put("auto &" + localVarName + " = " + blockName + "." +
+            commonRenameMap_[{blockName, i}].second + ";\n");
+        i++;
+      }
     }
     Walk(x.v, "");
     if (currentFunction) {
@@ -1943,6 +1983,9 @@ public:
         str_toupper(std::string(s.data() + prefixSize, nameSize));
     const auto &args{std::get<std::list<Name>>(x.t)};
     for (const Name &n : args) {
+      llvm::errs() << "Function argument: " << n.ToString() << " in function "
+                   << currentFunction.name << " :: " << printFunctionArgs_
+                   << "\n";
       currentFunction.args.insert(n.ToString());
     }
 
@@ -1969,7 +2012,7 @@ public:
       Walk(*x.v);
     }
     Put('\n');
-    delete currentFunctions_.back();
+    // delete currentFunctions_.back();
     currentFunctions_.pop_back();
   }
   void Unparse(const SubroutineStmt &x) { // R1535
@@ -2015,7 +2058,7 @@ public:
       Walk(*x.v);
     }
     Put('\n');
-    delete currentFunctions_.back();
+    // delete currentFunctions_.back();
     currentFunctions_.pop_back();
   }
   void Before(const MpSubprogramStmt &) { // R1539
@@ -3471,27 +3514,20 @@ private:
     structureComponents_.clear();
   }
 
-  struct FunctionInfo {
-    std::string prefix;
-    std::string name;
-    std::set<std::string> args;
-    const Suffix *suffix{nullptr};
-    const LanguageBindingSpec *bind{nullptr};
-    std::string argsPrinted;
-    llvm::raw_string_ostream argPrinter{argsPrinted};
-  };
-
   llvm::SmallVector<FunctionInfo *> currentFunctions_;
   llvm::SmallVector<std::string> functionDeclarations_;
+  std::set<std::string> commonBlocks_;
+  std::map<std::pair<std::string, int>, std::pair<FunctionInfo *, std::string>>
+      commonRenameMap_;
   std::string lastType_;
-  bool inSpecificationPart_{false};
+  bool printFunctionArgs_{false};
 
   llvm::raw_ostream *out_;
   //  const common::LangOptions &langOpts_;
   int indent_{0};
   const int indentationAmount_{1};
   int column_{1};
-  const int maxColumns_{80};
+  const int maxColumns_{80000};
   std::set<CharBlock> structureComponents_;
   Encoding encoding_{Encoding::UTF_8};
   bool capitalizeKeywords_{true};
@@ -3585,16 +3621,58 @@ class F2CPP : public PluginParseTreeAction {
     UnparseVisitor visitor{llvm::outs(), 2, true, true};
     Fortran::parser::Walk(getParsing().parseTree(), visitor);
 
-    if (!FunctionDeclarationOutput.empty()) {
+    if (!DeclarationOutput.empty()) {
       std::error_code EC;
-      llvm::raw_fd_ostream os(
-          FunctionDeclarationOutput, EC, llvm::sys::fs::OF_Text);
+      llvm::raw_fd_ostream os(DeclarationOutput, EC, llvm::sys::fs::OF_Text);
       if (EC) {
         llvm::errs() << "Error opening file: " << EC.message() << "\n";
         return;
       }
+      os << "#include \"f2cpp_rt_types.h\"\n";
       for (const auto &decl : visitor.getFunctionDeclarations()) {
         os << decl << ";\n";
+      }
+      os << "\n";
+
+      auto commonRenameMap = visitor.getCommonRenameMap();
+      for (const auto &blockName : visitor.getCommonBlocks()) {
+        os << "struct __" << blockName << " {\n";
+        int i = 0;
+        do {
+          auto &[fn, name] = commonRenameMap.find({blockName, i})->second;
+          os << "  " << fn->declMap[name] << "\n";
+          i++;
+        } while (commonRenameMap.count({blockName, i}));
+        os << "};\n";
+        os << "extern __" << blockName << " " << blockName << ";\n";
+      }
+    }
+    if (!CommonBlockOutput.empty()) {
+      std::error_code EC;
+      llvm::raw_fd_ostream os(CommonBlockOutput, EC, llvm::sys::fs::OF_Text);
+      if (EC) {
+        llvm::errs() << "Error opening file: " << EC.message() << "\n";
+        return;
+      }
+      std::set<std::string> printedCommonBlocks;
+      os << "#include \"f2cpp_rt_types.h\"\n";
+
+      auto commonRenameMap = visitor.getCommonRenameMap();
+      for (const auto &blockName : visitor.getCommonBlocks()) {
+        if (printedCommonBlocks.count(blockName)) {
+          continue;
+        }
+        printedCommonBlocks.insert(blockName);
+        os << "struct __" << blockName << " {\n";
+        int i = 0;
+        do {
+          auto &[fn, name] = commonRenameMap.find({blockName, i})->second;
+          os << "  " << fn->declMap[name] << "\n";
+          i++;
+        } while (commonRenameMap.count({blockName, i}));
+        os << "};\n";
+        os << "__attribute__((common)) struct __" << blockName << " "
+           << blockName << ";\n";
       }
     }
   }

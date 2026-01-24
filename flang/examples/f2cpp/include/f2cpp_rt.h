@@ -9,6 +9,9 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#ifndef F2CPP_RT_H
+#define F2CPP_RT_H
+
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -16,6 +19,9 @@
 #include <memory>
 #include <string>
 #include <type_traits>
+
+#include "f2cpp_rt_macros.h"
+#include "f2cpp_rt_types.h"
 
 extern "C" {
 void _FortranAProgramStart(int, const char **, const char **, void *);
@@ -233,60 +239,4 @@ void read(
 }
 }; // namespace flc
 
-using INTEGER = int32_t;
-using REAL = float;
-using LOGICAL = bool;
-
-using INTEGER_PARAMETER = const INTEGER;
-#define AUTO_PARAMETER const auto
-
-#define INTEGER_DIMENSION(X) StaticArray<INTEGER, X>
-#define REAL_DIMENSION(X) StaticArray<REAL, X>
-
-#define PRINT(X, ...) flc::print(#X, __FILE__, __LINE__, __VA_ARGS__)
-#define READ(X, ARG) \
-  flc::read(#X, __FILE__, __LINE__, (char *)ARG, flc::arraySize(ARG))
-
-#define DO(VAR, INIT, COND, STEP) for (VAR = INIT; VAR <= COND; VAR += STEP) {
-#define DO_WHILE(COND) while (COND) {
-#define END_DO }
-
-#define IF(COND) if (COND)
-#define THEN {
-#define ELSE \
-  } \
-  else {
-#define ELSE_IF(COND) \
-  } \
-  else if (COND)
-#define END_IF }
-
-#define CALL
-
-#define SELECT_CASE(X) switch (X) {
-#define CASE(COND) case (COND):
-#define CASE_DEFAULT default:
-#define END_SELECT }
-
-#define MODULE(NAME) namespace NAME {
-#define END_MODULE }
-#define USE using namespace
-
-#define WHILE(COND) while (COND) {
-#define END_WHILE }
-
-#define CYCLE continue;
-#define EXIT break;
-
-#define TRUE true
-#define FALSE false
-#define AND &&
-#define OR ||
-#define NOT !
-#define EQV ==
-#define NEQV !=
-
-#define PROGRAM extern "C" void _QQmain() {
-#define END_PROGRAM }
-
-#define USE using namespace
+#endif
