@@ -23,9 +23,21 @@ from typing import Callable, List, Union
 def send(f: io.BufferedWriter, value: Union[int, float], spec: log_reader.TensorSpec):
     """Send the `value` - currently just a scalar - formatted as per `spec`."""
 
-    # just int64 for now
-    assert spec.element_type == ctypes.c_int64
-    to_send = ctypes.c_int64(int(value))
+    if spec.element_type == ctypes.c_int64:
+        convert_el_func = int
+        ctype_func = ctypes.c_int64
+    elif spec.element_type == ctypes.c_float:
+        convert_el_func = float
+        ctype_func = ctypes.c_float
+    else:
+        print(spec.element_type, "not supported")
+        assert False
+
+    if isinstance(value, list):
+        to_send = (ctype_func * len(value))(*[convert_el_func(el) for el in value])
+    else:
+        to_send = ctype_func(convert_el_func(value))
+
     assert f.write(bytes(to_send)) == ctypes.sizeof(spec.element_type) * math.prod(
         spec.shape
     )
@@ -34,8 +46,8 @@ def send(f: io.BufferedWriter, value: Union[int, float], spec: log_reader.Tensor
 
 def run_interactive(
     temp_rootname: str,
-    make_response: Callable[[List[log_reader.TensorValue]], Union[int, float]],
-    process_and_args: List[str],
+    make_response: Callable[[List[log_reader.TensorValue]], Union[int, float, list]],
+    process_and_args: List[str], before_advice = None, after_advice = None
 ):
     """Host the compiler.
     Args:
@@ -61,31 +73,35 @@ def run_interactive(
         compiler_proc = subprocess.Popen(
             process_and_args, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL
         )
-        with io.BufferedWriter(io.FileIO(to_compiler, "wb")) as tc:
-            with io.BufferedReader(io.FileIO(from_compiler, "rb")) as fc:
-                tensor_specs, _, advice_spec = log_reader.read_header(fc)
-                context = None
-                while compiler_proc.poll() is None:
-                    next_event = fc.readline()
-                    if not next_event:
-                        break
-                    (
-                        last_context,
-                        observation_id,
-                        features,
-                        _,
-                    ) = log_reader.read_one_observation(
-                        context, next_event, fc, tensor_specs, None
-                    )
-                    if last_context != context:
-                        print(f"context: {last_context}")
-                    context = last_context
-                    print(f"observation: {observation_id}")
-                    tensor_values = []
-                    for fv in features:
-                        log_reader.pretty_print_tensor_value(fv)
-                        tensor_values.append(fv)
-                    send(tc, make_response(tensor_values), advice_spec)
+        with io.BufferedWriter(io.FileIO(to_compiler, "wb")) as tc, \
+             io.BufferedReader(io.FileIO(from_compiler, "rb")) as fc:
+            tensor_specs, _, advice_spec = log_reader.read_header(fc)
+            context = None
+            while compiler_proc.poll() is None:
+                next_event = fc.readline()
+                if not next_event:
+                    break
+                (
+                    last_context,
+                    observation_id,
+                    features,
+                    _,
+                ) = log_reader.read_one_observation(
+                    context, next_event, fc, tensor_specs, None
+                )
+                if last_context != context:
+                    print(f"context: {last_context}")
+                context = last_context
+                print(f"observation: {observation_id}")
+                tensor_values = []
+                for fv in features:
+                    log_reader.pretty_print_tensor_value(fv)
+                    tensor_values.append(fv)
+                if before_advice is not None:
+                    before_advice(tc, fc)
+                send(tc, make_response(tensor_values), advice_spec)
+                if after_advice is not None:
+                    after_advice(tc, fc)
         _, err = compiler_proc.communicate()
         print(err.decode("utf-8"))
         compiler_proc.wait()

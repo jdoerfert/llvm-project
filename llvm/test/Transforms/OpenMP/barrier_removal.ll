@@ -707,7 +707,7 @@ define internal void @barrier_then_write0(ptr %p) {
 ; MODULE-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@barrier_then_write0
-; CGSCC-SAME: (ptr [[P:%.*]]) {
+; CGSCC-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; CGSCC-NEXT:    call void @aligned_barrier()
 ; CGSCC-NEXT:    store i32 0, ptr [[P]], align 4
 ; CGSCC-NEXT:    ret void
@@ -725,7 +725,7 @@ define internal void @barrier_then_write_then_barrier0(ptr %p) {
 ; MODULE-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@barrier_then_write_then_barrier0
-; CGSCC-SAME: (ptr [[P:%.*]]) {
+; CGSCC-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; CGSCC-NEXT:    call void @aligned_barrier()
 ; CGSCC-NEXT:    store i32 0, ptr [[P]], align 4
 ; CGSCC-NEXT:    call void @aligned_barrier()
@@ -739,22 +739,22 @@ define internal void @barrier_then_write_then_barrier0(ptr %p) {
 define amdgpu_kernel void @multiple_blocks_functions_kernel_effects_0(i1 %c0, i1 %c1, ptr %p) "kernel" {
 ; MODULE-LABEL: define {{[^@]+}}@multiple_blocks_functions_kernel_effects_0
 ; MODULE-SAME: (i1 [[C0:%.*]], i1 [[C1:%.*]], ptr [[P:%.*]]) #[[ATTR4]] {
-; MODULE-NEXT:    call void @barrier_then_write_then_barrier0(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write_then_barrier0(ptr writeonly [[P]])
 ; MODULE-NEXT:    br i1 [[C0]], label [[T03:%.*]], label [[F03:%.*]]
 ; MODULE:       t03:
-; MODULE-NEXT:    call void @barrier_then_write0(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write0(ptr writeonly [[P]])
 ; MODULE-NEXT:    br label [[T0B3:%.*]]
 ; MODULE:       t0b3:
 ; MODULE-NEXT:    br label [[M3:%.*]]
 ; MODULE:       f03:
-; MODULE-NEXT:    call void @barrier_then_write0(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write0(ptr writeonly [[P]])
 ; MODULE-NEXT:    br i1 [[C1]], label [[T13:%.*]], label [[F13:%.*]]
 ; MODULE:       t13:
 ; MODULE-NEXT:    br label [[M3]]
 ; MODULE:       f13:
 ; MODULE-NEXT:    br label [[M3]]
 ; MODULE:       m3:
-; MODULE-NEXT:    call void @write_then_barrier0(ptr [[P]])
+; MODULE-NEXT:    call void @write_then_barrier0(ptr writeonly [[P]])
 ; MODULE-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@multiple_blocks_functions_kernel_effects_0
@@ -807,7 +807,7 @@ m3:
 }
 define internal void @write_then_barrier1(ptr %p) {
 ; CHECK-LABEL: define {{[^@]+}}@write_then_barrier1
-; CHECK-SAME: (ptr [[P:%.*]]) {
+; CHECK-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; CHECK-NEXT:    store i32 0, ptr [[P]], align 4
 ; CHECK-NEXT:    call void @aligned_barrier()
 ; CHECK-NEXT:    ret void
@@ -818,12 +818,12 @@ define internal void @write_then_barrier1(ptr %p) {
 }
 define internal void @barrier_then_write1(ptr %p) {
 ; MODULE-LABEL: define {{[^@]+}}@barrier_then_write1
-; MODULE-SAME: (ptr [[P:%.*]]) {
+; MODULE-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; MODULE-NEXT:    store i32 0, ptr [[P]], align 4
 ; MODULE-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@barrier_then_write1
-; CGSCC-SAME: (ptr [[P:%.*]]) {
+; CGSCC-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; CGSCC-NEXT:    call void @aligned_barrier()
 ; CGSCC-NEXT:    store i32 0, ptr [[P]], align 4
 ; CGSCC-NEXT:    ret void
@@ -834,7 +834,7 @@ define internal void @barrier_then_write1(ptr %p) {
 }
 define internal void @barrier_then_write_then_barrier1(ptr %p) {
 ; CHECK-LABEL: define {{[^@]+}}@barrier_then_write_then_barrier1
-; CHECK-SAME: (ptr [[P:%.*]]) {
+; CHECK-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; CHECK-NEXT:    call void @aligned_barrier()
 ; CHECK-NEXT:    store i32 0, ptr [[P]], align 4
 ; CHECK-NEXT:    call void @aligned_barrier()
@@ -848,16 +848,16 @@ define internal void @barrier_then_write_then_barrier1(ptr %p) {
 define void @multiple_blocks_functions_non_kernel_effects_1(i1 %c0, i1 %c1, ptr %p) {
 ; MODULE-LABEL: define {{[^@]+}}@multiple_blocks_functions_non_kernel_effects_1
 ; MODULE-SAME: (i1 [[C0:%.*]], i1 [[C1:%.*]], ptr [[P:%.*]]) {
-; MODULE-NEXT:    call void @barrier_then_write_then_barrier1(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write_then_barrier1(ptr writeonly [[P]])
 ; MODULE-NEXT:    br i1 [[C0]], label [[T03:%.*]], label [[F03:%.*]]
 ; MODULE:       t03:
-; MODULE-NEXT:    call void @barrier_then_write1(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write1(ptr writeonly [[P]])
 ; MODULE-NEXT:    br label [[T0B3:%.*]]
 ; MODULE:       t0b3:
 ; MODULE-NEXT:    call void @aligned_barrier()
 ; MODULE-NEXT:    br label [[M3:%.*]]
 ; MODULE:       f03:
-; MODULE-NEXT:    call void @barrier_then_write1(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write1(ptr writeonly [[P]])
 ; MODULE-NEXT:    br i1 [[C1]], label [[T13:%.*]], label [[F13:%.*]]
 ; MODULE:       t13:
 ; MODULE-NEXT:    call void @aligned_barrier()
@@ -866,7 +866,7 @@ define void @multiple_blocks_functions_non_kernel_effects_1(i1 %c0, i1 %c1, ptr 
 ; MODULE-NEXT:    call void @aligned_barrier()
 ; MODULE-NEXT:    br label [[M3]]
 ; MODULE:       m3:
-; MODULE-NEXT:    call void @write_then_barrier1(ptr [[P]])
+; MODULE-NEXT:    call void @write_then_barrier1(ptr writeonly [[P]])
 ; MODULE-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@multiple_blocks_functions_non_kernel_effects_1
@@ -920,7 +920,7 @@ m3:
 
 define internal void @write_then_barrier2(ptr %p) {
 ; CHECK-LABEL: define {{[^@]+}}@write_then_barrier2
-; CHECK-SAME: (ptr [[P:%.*]]) {
+; CHECK-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; CHECK-NEXT:    store i32 0, ptr [[P]], align 4
 ; CHECK-NEXT:    call void @aligned_barrier()
 ; CHECK-NEXT:    ret void
@@ -931,7 +931,7 @@ define internal void @write_then_barrier2(ptr %p) {
 }
 define internal void @barrier_then_write2(ptr %p) {
 ; CHECK-LABEL: define {{[^@]+}}@barrier_then_write2
-; CHECK-SAME: (ptr [[P:%.*]]) {
+; CHECK-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; CHECK-NEXT:    call void @aligned_barrier()
 ; CHECK-NEXT:    store i32 0, ptr [[P]], align 4
 ; CHECK-NEXT:    ret void
@@ -942,13 +942,13 @@ define internal void @barrier_then_write2(ptr %p) {
 }
 define internal void @barrier_then_write_then_barrier2(ptr %p) {
 ; MODULE-LABEL: define {{[^@]+}}@barrier_then_write_then_barrier2
-; MODULE-SAME: (ptr [[P:%.*]]) {
+; MODULE-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; MODULE-NEXT:    store i32 0, ptr [[P]], align 4
 ; MODULE-NEXT:    call void @aligned_barrier()
 ; MODULE-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@barrier_then_write_then_barrier2
-; CGSCC-SAME: (ptr [[P:%.*]]) {
+; CGSCC-SAME: (ptr writeonly captures(none) [[P:%.*]]) {
 ; CGSCC-NEXT:    call void @aligned_barrier()
 ; CGSCC-NEXT:    store i32 0, ptr [[P]], align 4
 ; CGSCC-NEXT:    call void @aligned_barrier()
@@ -962,18 +962,18 @@ define internal void @barrier_then_write_then_barrier2(ptr %p) {
 define void @multiple_blocks_functions_non_kernel_effects_2(i1 %c0, i1 %c1, ptr %p) "kernel" {
 ; MODULE-LABEL: define {{[^@]+}}@multiple_blocks_functions_non_kernel_effects_2
 ; MODULE-SAME: (i1 [[C0:%.*]], i1 [[C1:%.*]], ptr [[P:%.*]]) #[[ATTR4]] {
-; MODULE-NEXT:    call void @barrier_then_write_then_barrier2(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write_then_barrier2(ptr writeonly [[P]])
 ; MODULE-NEXT:    store i32 0, ptr [[P]], align 4
 ; MODULE-NEXT:    br i1 [[C0]], label [[T03:%.*]], label [[F03:%.*]]
 ; MODULE:       t03:
-; MODULE-NEXT:    call void @barrier_then_write2(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write2(ptr writeonly [[P]])
 ; MODULE-NEXT:    br label [[T0B3:%.*]]
 ; MODULE:       t0b3:
 ; MODULE-NEXT:    call void @aligned_barrier()
 ; MODULE-NEXT:    br label [[M3:%.*]]
 ; MODULE:       f03:
 ; MODULE-NEXT:    call void @aligned_barrier()
-; MODULE-NEXT:    call void @barrier_then_write2(ptr [[P]])
+; MODULE-NEXT:    call void @barrier_then_write2(ptr writeonly [[P]])
 ; MODULE-NEXT:    br i1 [[C1]], label [[T13:%.*]], label [[F13:%.*]]
 ; MODULE:       t13:
 ; MODULE-NEXT:    call void @aligned_barrier()
@@ -982,13 +982,13 @@ define void @multiple_blocks_functions_non_kernel_effects_2(i1 %c0, i1 %c1, ptr 
 ; MODULE-NEXT:    call void @aligned_barrier()
 ; MODULE-NEXT:    br label [[M3]]
 ; MODULE:       m3:
-; MODULE-NEXT:    call void @write_then_barrier2(ptr [[P]])
+; MODULE-NEXT:    call void @write_then_barrier2(ptr writeonly [[P]])
 ; MODULE-NEXT:    store i32 0, ptr [[P]], align 4
 ; MODULE-NEXT:    ret void
 ;
 ; CGSCC-LABEL: define {{[^@]+}}@multiple_blocks_functions_non_kernel_effects_2
 ; CGSCC-SAME: (i1 [[C0:%.*]], i1 [[C1:%.*]], ptr [[P:%.*]]) #[[ATTR4]] {
-; CGSCC-NEXT:    call void @barrier_then_write_then_barrier2(ptr [[P]])
+; CGSCC-NEXT:    call void @barrier_then_write_then_barrier2(ptr writeonly [[P]])
 ; CGSCC-NEXT:    call void @aligned_barrier()
 ; CGSCC-NEXT:    store i32 0, ptr [[P]], align 4
 ; CGSCC-NEXT:    br i1 [[C0]], label [[T03:%.*]], label [[F03:%.*]]

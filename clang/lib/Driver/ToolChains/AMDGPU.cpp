@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AMDGPU.h"
+#include "clang/Basic/Sanitizers.h"
 #include "clang/Basic/TargetID.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/CommonArgs.h"
@@ -1095,6 +1096,11 @@ bool AMDGPUToolChain::shouldSkipSanitizeOption(
                       : llvm::AMDGPU::getArchAttrR600(ProcKind);
   if (Features & llvm::AMDGPU::FEATURE_XNACK_ALWAYS)
     return false;
+
+  // For simplicity, we only allow -fsanitize=address
+  SanitizerMask K = parseSanitizerValue(A->getValue(), /*AllowGroups=*/false);
+  if (K != SanitizerKind::Address && K != SanitizerKind::Object)
+    return true;
 
   // Look for the xnack feature in TargetID
   llvm::StringMap<bool> FeatureMap;

@@ -71,8 +71,11 @@ set(LLVM_TEST_DEPENDS_COMMON
 set(LLVM_TEST_DEPENDS
   ${LLVM_TEST_DEPENDS_COMMON}
   BugpointPasses
+  FileCheck
   LLVMWindowsDriver
+  UnitTests
   bugpoint
+  count
   llc
   lli
   lli-child-target
@@ -151,6 +154,7 @@ set(LLVM_TEST_DEPENDS
   llvm-undname
   llvm-windres
   llvm-xray
+  not
   obj2yaml
   opt
   sancov

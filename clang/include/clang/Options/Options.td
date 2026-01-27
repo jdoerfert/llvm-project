@@ -4458,6 +4458,14 @@ def fthinlto_distributor_EQ : Joined<["-"], "fthinlto-distributor=">,
            "ThinLTO backend compilations will be distributed by LLD">,
   MetaVarName<"<path>">,
   Visibility<[ClangOption, CLOption]>;
+
+def finstrumentor : Flag<["-"], "finstrumentor">, Group<f_Group>,
+  HelpText<"Enable instrumentation using the Instrumentor">,
+  Visibility<[CC1Option]>;
+def fno_instrumentor : Flag<["-"], "fno-instrumentor">, Group<f_Group>,
+  HelpText<"Disable instrumentation using the Instrumentor">,
+  Visibility<[CC1Option]>;
+
 def ftrigraphs : Flag<["-"], "ftrigraphs">, Group<f_Group>,
   HelpText<"Process trigraph sequences">, Visibility<[ClangOption, CC1Option]>;
 def fno_trigraphs : Flag<["-"], "fno-trigraphs">, Group<f_Group>,

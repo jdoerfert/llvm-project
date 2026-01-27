@@ -80,6 +80,8 @@ option(COMPILER_RT_BUILD_XRAY_NO_PREINIT "Build xray with no preinit patching" O
 mark_as_advanced(COMPILER_RT_BUILD_XRAY_NO_PREINIT)
 option(COMPILER_RT_BUILD_ORC "Build ORC runtime" ON)
 mark_as_advanced(COMPILER_RT_BUILD_ORC)
+option(COMPILER_RT_BUILD_INPUTGEN "Build input-gen runtime" OFF)
+mark_as_advanced(COMPILER_RT_BUILD_INPUTGEN)
 option(COMPILER_RT_BUILD_GWP_ASAN "Build GWP-ASan, and link it into SCUDO" ON)
 mark_as_advanced(COMPILER_RT_BUILD_GWP_ASAN)
 option(COMPILER_RT_ENABLE_CET "Build Compiler RT with CET enabled" OFF)

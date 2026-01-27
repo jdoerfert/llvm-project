@@ -64,6 +64,8 @@
 #include "llvm/Transforms/IPO/IROutliner.h"
 #include "llvm/Transforms/IPO/InferFunctionAttrs.h"
 #include "llvm/Transforms/IPO/Inliner.h"
+#include "llvm/Transforms/IPO/Instrumentor.h"
+#include "llvm/Transforms/IPO/LightSan.h"
 #include "llvm/Transforms/IPO/LowerTypeTests.h"
 #include "llvm/Transforms/IPO/MemProfContextDisambiguation.h"
 #include "llvm/Transforms/IPO/MergeFunctions.h"
@@ -192,9 +194,9 @@ static cl::opt<bool> EnablePostPGOLoopRotation(
     "enable-post-pgo-loop-rotation", cl::init(true), cl::Hidden,
     cl::desc("Run the loop rotation transformation after PGO instrumentation"));
 
-static cl::opt<bool> EnableGlobalAnalyses(
-    "enable-global-analyses", cl::init(true), cl::Hidden,
-    cl::desc("Enable inter-procedural analyses"));
+static cl::opt<bool>
+    EnableGlobalAnalyses("enable-global-analyses", cl::init(true), cl::Hidden,
+                         cl::desc("Enable inter-procedural analyses"));
 
 static cl::opt<bool> RunPartialInlining("enable-partial-inlining",
                                         cl::init(false), cl::Hidden,
@@ -218,6 +220,10 @@ static cl::opt<bool> EnableUnrollAndJam("enable-unroll-and-jam",
 static cl::opt<bool> EnableLoopFlatten("enable-loop-flatten", cl::init(false),
                                        cl::Hidden,
                                        cl::desc("Enable the LoopFlatten Pass"));
+
+static cl::opt<bool>
+    EnableInstrumentor("enable-instrumentor", cl::init(false), cl::Hidden,
+                       cl::desc("Enable the Instrumentor Pass"));
 
 // Experimentally allow loop header duplication. This should allow for better
 // optimization at Oz, since loop-idiom recognition can then recognize things
@@ -1185,11 +1191,10 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   // and prior to optimizing globals.
   // FIXME: This position in the pipeline hasn't been carefully considered in
   // years, it should be re-analyzed.
-  MPM.addPass(IPSCCPPass(
-              IPSCCPOptions(/*AllowFuncSpec=*/
-                            Level != OptimizationLevel::Os &&
-                            Level != OptimizationLevel::Oz &&
-                            !isLTOPreLink(Phase))));
+  MPM.addPass(IPSCCPPass(IPSCCPOptions(/*AllowFuncSpec=*/
+                                       Level != OptimizationLevel::Os &&
+                                       Level != OptimizationLevel::Oz &&
+                                       !isLTOPreLink(Phase))));
 
   // Attach metadata to indirect call sites indicating the set of functions
   // they may target at run-time. This should follow IPSCCP.
@@ -1639,6 +1644,10 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
 
   invokeOptimizerLastEPCallbacks(MPM, Level, LTOPhase);
 
+  // Run the Instrumentor pass late.
+  if (EnableInstrumentor)
+    MPM.addPass(InstrumentorPass());
+
   // Split out cold code. Splitting is done late to avoid hiding context from
   // other optimizations and inadvertently regressing performance. The tradeoff
   // is that this has a higher code size cost than splitting early.
@@ -1904,6 +1913,8 @@ ModulePassManager PassBuilder::buildThinLTODefaultPipeline(
                                    lowertypetests::DropTestKind::Assume));
     MPM.addPass(buildCoroWrapper(ThinOrFullLTOPhase::ThinLTOPostLink));
 
+    MPM.addPass(LightSanPass(ThinOrFullLTOPhase::ThinLTOPostLink));
+
     // AllocToken transforms heap allocation calls; this needs to run late after
     // other allocation call transformations (such as those in InstCombine).
     MPM.addPass(AllocTokenPass());
@@ -1926,6 +1937,8 @@ ModulePassManager PassBuilder::buildThinLTODefaultPipeline(
   // Now add the optimization pipeline.
   MPM.addPass(buildModuleOptimizationPipeline(
       Level, ThinOrFullLTOPhase::ThinLTOPostLink));
+
+  MPM.addPass(LightSanPass(ThinOrFullLTOPhase::ThinLTOPostLink));
 
   // Emit annotation remarks.
   addAnnotationRemarksPass(MPM);
@@ -1968,6 +1981,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
                                    lowertypetests::DropTestKind::Assume));
 
     MPM.addPass(buildCoroWrapper(ThinOrFullLTOPhase::FullLTOPostLink));
+
+    MPM.addPass(LightSanPass(ThinOrFullLTOPhase::FullLTOPostLink));
 
     // AllocToken transforms heap allocation calls; this needs to run late after
     // other allocation call transformations (such as those in InstCombine).
@@ -2059,6 +2074,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
                                    lowertypetests::DropTestKind::Assume));
 
     MPM.addPass(buildCoroWrapper(ThinOrFullLTOPhase::FullLTOPostLink));
+
+    MPM.addPass(LightSanPass(ThinOrFullLTOPhase::FullLTOPostLink));
 
     // AllocToken transforms heap allocation calls; this needs to run late after
     // other allocation call transformations (such as those in InstCombine).
@@ -2297,6 +2314,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
     MPM.addPass(CGProfilePass(/*InLTOPostLink=*/true));
 
   MPM.addPass(CoroCleanupPass());
+
+  MPM.addPass(LightSanPass(ThinOrFullLTOPhase::FullLTOPostLink));
 
   // AllocToken transforms heap allocation calls; this needs to run late after
   // other allocation call transformations (such as those in InstCombine).

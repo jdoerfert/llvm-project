@@ -27,7 +27,9 @@ add_llvm_component_library(LLVMipo
   IROutliner.cpp
   InferFunctionAttrs.cpp
   Inliner.cpp
+  Instrumentor.cpp
   Internalize.cpp
+  LightSan.cpp
   LoopExtractor.cpp
   LowerTypeTests.cpp
   MemProfContextDisambiguation.cpp
@@ -62,6 +64,7 @@ add_llvm_component_library(LLVMipo
   BitReader
   BitWriter
   Core
+  Demangle
   FrontendOpenMP
   InstCombine
   IRReader

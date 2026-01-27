@@ -2891,6 +2891,48 @@ entry:
   ret void
 }
 
+define internal void @.omp_outlined.(i32 %.global_tid., ptr noalias %.part_id., ptr noalias %.privates., ptr noalias %.copy_fn., ptr %.task_t., ptr noalias %__context) #9 {
+; AMDGPU-LABEL: define {{[^@]+}}@.omp_outlined.
+; AMDGPU-SAME: (i32 [[DOTGLOBAL_TID_:%.*]], ptr noalias [[DOTPART_ID_:%.*]], ptr noalias [[DOTPRIVATES_:%.*]], ptr noalias [[DOTCOPY_FN_:%.*]], ptr noalias readnone captures(none) [[DOTTASK_T_:%.*]], ptr noalias [[__CONTEXT:%.*]]) #[[ATTR3:[0-9]+]] {
+; AMDGPU-NEXT:  entry:
+; AMDGPU-NEXT:    call void @spmd_amenable() #[[ATTR7]]
+; AMDGPU-NEXT:    ret void
+;
+; NVPTX-LABEL: define {{[^@]+}}@.omp_outlined.
+; NVPTX-SAME: (i32 [[DOTGLOBAL_TID_:%.*]], ptr noalias [[DOTPART_ID_:%.*]], ptr noalias [[DOTPRIVATES_:%.*]], ptr noalias [[DOTCOPY_FN_:%.*]], ptr noalias readnone captures(none) [[DOTTASK_T_:%.*]], ptr noalias [[__CONTEXT:%.*]]) #[[ATTR3:[0-9]+]] {
+; NVPTX-NEXT:  entry:
+; NVPTX-NEXT:    call void @spmd_amenable() #[[ATTR7]]
+; NVPTX-NEXT:    ret void
+;
+; AMDGPU-DISABLED1-LABEL: define {{[^@]+}}@.omp_outlined.
+; AMDGPU-DISABLED1-SAME: (i32 [[DOTGLOBAL_TID_:%.*]], ptr noalias [[DOTPART_ID_:%.*]], ptr noalias [[DOTPRIVATES_:%.*]], ptr noalias [[DOTCOPY_FN_:%.*]], ptr noalias readnone captures(none) [[DOTTASK_T_:%.*]], ptr noalias [[__CONTEXT:%.*]]) #[[ATTR3:[0-9]+]] {
+; AMDGPU-DISABLED1-NEXT:  entry:
+; AMDGPU-DISABLED1-NEXT:    call void @spmd_amenable() #[[ATTR7]]
+; AMDGPU-DISABLED1-NEXT:    ret void
+;
+; AMDGPU-DISABLED2-LABEL: define {{[^@]+}}@.omp_outlined.
+; AMDGPU-DISABLED2-SAME: (i32 [[DOTGLOBAL_TID_:%.*]], ptr noalias [[DOTPART_ID_:%.*]], ptr noalias [[DOTPRIVATES_:%.*]], ptr noalias [[DOTCOPY_FN_:%.*]], ptr noalias readnone captures(none) [[DOTTASK_T_:%.*]], ptr noalias [[__CONTEXT:%.*]]) #[[ATTR3:[0-9]+]] {
+; AMDGPU-DISABLED2-NEXT:  entry:
+; AMDGPU-DISABLED2-NEXT:    call void @spmd_amenable() #[[ATTR7]]
+; AMDGPU-DISABLED2-NEXT:    ret void
+;
+; NVPTX-DISABLED1-LABEL: define {{[^@]+}}@.omp_outlined.
+; NVPTX-DISABLED1-SAME: (i32 [[DOTGLOBAL_TID_:%.*]], ptr noalias [[DOTPART_ID_:%.*]], ptr noalias [[DOTPRIVATES_:%.*]], ptr noalias [[DOTCOPY_FN_:%.*]], ptr noalias readnone captures(none) [[DOTTASK_T_:%.*]], ptr noalias [[__CONTEXT:%.*]]) #[[ATTR3:[0-9]+]] {
+; NVPTX-DISABLED1-NEXT:  entry:
+; NVPTX-DISABLED1-NEXT:    call void @spmd_amenable() #[[ATTR7]]
+; NVPTX-DISABLED1-NEXT:    ret void
+;
+; NVPTX-DISABLED2-LABEL: define {{[^@]+}}@.omp_outlined.
+; NVPTX-DISABLED2-SAME: (i32 [[DOTGLOBAL_TID_:%.*]], ptr noalias [[DOTPART_ID_:%.*]], ptr noalias [[DOTPRIVATES_:%.*]], ptr noalias [[DOTCOPY_FN_:%.*]], ptr noalias readnone captures(none) [[DOTTASK_T_:%.*]], ptr noalias [[__CONTEXT:%.*]]) #[[ATTR3:[0-9]+]] {
+; NVPTX-DISABLED2-NEXT:  entry:
+; NVPTX-DISABLED2-NEXT:    call void @spmd_amenable() #[[ATTR7]]
+; NVPTX-DISABLED2-NEXT:    ret void
+;
+entry:
+  call void @spmd_amenable() #6
+  ret void
+}
+
 ; Function Attrs: convergent norecurse nounwind
 define internal i32 @"_omp_task_entry$"(i32 %0, ptr noalias %1) #1 {
 entry:

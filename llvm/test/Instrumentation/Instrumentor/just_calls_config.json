@@ -1,0 +1,13 @@
+{
+  "Base": {
+    "RuntimeName": "__just_calls_",
+    "PrintRuntimeSignatures": false
+  },
+  "alloca": {
+    "Enabled": true,
+    "Value": false,
+    "AllocationSize": false,
+    "Alignment": false,
+    "ReplaceValue": false
+  }
+}

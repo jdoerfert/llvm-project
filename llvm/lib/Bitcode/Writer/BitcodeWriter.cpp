@@ -894,6 +894,8 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_SANITIZE_THREAD;
   case Attribute::SanitizeType:
     return bitc::ATTR_KIND_SANITIZE_TYPE;
+  case Attribute::SanitizeObj:
+    return bitc::ATTR_KIND_SANITIZE_OBJECT;
   case Attribute::SanitizeMemory:
     return bitc::ATTR_KIND_SANITIZE_MEMORY;
   case Attribute::SanitizeNumericalStability:

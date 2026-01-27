@@ -1,0 +1,15 @@
+{
+    "configuration": {
+        "runtime_prefix": "__instrumentor_"
+    },
+    "instruction_pre": {
+        "br": {
+            "id": true,
+            "enabled": true,
+            "is_conditional": true,
+            "value": true,
+            "value.replace": true,
+            "num_successors": true
+        }
+    }
+}

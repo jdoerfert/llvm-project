@@ -241,6 +241,7 @@ public:
   void SetInsertPointPastAllocas(Function *F) {
     BB = &F->getEntryBlock();
     InsertPt = BB->getFirstNonPHIOrDbgOrAlloca();
+    SetCurrentDebugLocation(InsertPt->getStableDebugLoc());
   }
 
   /// Set location information used by debugging information.

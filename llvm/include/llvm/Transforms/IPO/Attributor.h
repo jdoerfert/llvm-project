@@ -97,6 +97,7 @@
 #ifndef LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 #define LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/IntervalMap.h"
@@ -121,7 +122,6 @@
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/GlobalValue.h"
-#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
@@ -140,9 +140,12 @@
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <optional>
+#include <string>
 
 namespace llvm {
 
@@ -195,6 +198,9 @@ struct ValueAndContext : public std::pair<Value *, const Instruction *> {
   const Instruction *getCtxI() const { return this->second; }
 };
 
+Value *getPointerOperand(Instruction *I, bool AllowVolatile);
+const Value *getPointerOperand(const Instruction *I, bool AllowVolatile);
+
 /// Return true if \p I is a `nosync` instruction. Use generic reasoning and
 /// potentially the corresponding AANoSync.
 LLVM_ABI bool isNoSyncInst(Attributor &A, const Instruction &I,
@@ -239,103 +245,223 @@ combineOptionalValuesInAAValueLatice(const std::optional<Value *> &A,
 /// Helper to represent an access offset and size, with logic to deal with
 /// uncertainty and check for overlapping accesses.
 struct RangeTy {
-  int64_t Offset = Unassigned;
-  int64_t Size = Unassigned;
+  static constexpr uint64_t BitWidth = 64;
+  RangeTy() {}
+  RangeTy(int64_t Offset) : CR(APInt(BitWidth, Offset)) {}
+  RangeTy(int64_t Offset, int64_t Size)
+      : CR(APInt(BitWidth, Offset), APInt(BitWidth, Offset + Size + 1)) {}
 
-  RangeTy(int64_t Offset, int64_t Size) : Offset(Offset), Size(Size) {}
-  RangeTy() = default;
-  static RangeTy getUnknown() { return RangeTy{Unknown, Unknown}; }
-
-  /// Return true if offset or size are unknown.
-  bool offsetOrSizeAreUnknown() const {
-    return Offset == RangeTy::Unknown || Size == RangeTy::Unknown;
+  static RangeTy getUnknown() {
+    return RangeTy(ConstantRange::getFull(BitWidth));
   }
 
-  /// Return true if offset and size are unknown, thus this is the default
-  /// unknown object.
-  bool offsetAndSizeAreUnknown() const {
-    return Offset == RangeTy::Unknown && Size == RangeTy::Unknown;
+  static int64_t getUnknownSize() {
+    return APInt::getSignedMaxValue(BitWidth).getSExtValue();
   }
+
+  int64_t getSize() const { return getMax() - getOffset(); }
+  int64_t getOffset() const { return CR.getSignedMin().getSExtValue(); }
+  int64_t getMax() const { return CR.getSignedMax().getSExtValue(); }
+
+  RangeTy increaseOffset(int64_t AdditionalOffset) const {
+    return shiftBy(RangeTy(AdditionalOffset));
+  }
+  RangeTy increaseSize(int64_t AdditionalSize) const {
+    return shiftBy(RangeTy(0, AdditionalSize));
+  }
+
+  RangeTy shiftBy(const RangeTy &Other) const {
+    assert(!isUnassigned());
+    if (isUnknown() || Other.isUnknown())
+      return getUnknown();
+    if (!isSizeKnown() || !Other.isSizeKnown())
+      return RangeTy(Other.getOffset(), getUnknownSize());
+    return RangeTy(CR.add(Other.CR));
+  }
+
+  /// Return true if the size is known.
+  bool isSizeKnown() const { return CR.getSignedMax() != getUnknownSize(); }
 
   /// Return true if the offset and size are unassigned.
-  bool isUnassigned() const {
-    assert((Offset == RangeTy::Unassigned) == (Size == RangeTy::Unassigned) &&
-           "Inconsistent state!");
-    return Offset == RangeTy::Unassigned;
-  }
+  bool isUnassigned() const { return CR.isEmptySet(); }
 
-  /// Return true if this offset and size pair might describe an address that
-  /// overlaps with \p Range.
-  bool mayOverlap(const RangeTy &Range) const {
-    // Any unknown value and we are giving up -> overlap.
-    if (offsetOrSizeAreUnknown() || Range.offsetOrSizeAreUnknown())
-      return true;
+  /// Return true if the offset and size are unknown.
+  bool isUnknown() const { return CR.isFullSet(); }
 
-    // Check if one offset point is in the other interval [offset,
-    // offset+size].
-    return Range.Offset + Range.Size > Offset && Range.Offset < Offset + Size;
-  }
+  void merge(const AA::RangeTy &Other) { CR = CR.unionWith(Other.CR); }
 
-  RangeTy &operator&=(const RangeTy &R) {
-    if (R.isUnassigned())
-      return *this;
-    if (isUnassigned())
-      return *this = R;
-    if (Offset == Unknown || R.Offset == Unknown)
-      Offset = Unknown;
-    if (Size == Unknown || R.Size == Unknown)
-      Size = Unknown;
-    if (offsetAndSizeAreUnknown())
-      return *this;
-    if (Offset == Unknown) {
-      Size = std::max(Size, R.Size);
-    } else if (Size == Unknown) {
-      Offset = std::min(Offset, R.Offset);
-    } else {
-      Offset = std::min(Offset, R.Offset);
-      Size = std::max(Offset + Size, R.Offset + R.Size) - Offset;
-    }
-    return *this;
-  }
+private:
+  RangeTy(ConstantRange &&CR) : CR(std::move(CR)) {}
+  ConstantRange CR = ConstantRange::getEmpty(BitWidth);
 
+  friend struct RangeCmpTy;
+};
+
+struct RangeCmpTy {
   /// Comparison for sorting ranges.
   ///
   /// Returns true if the offset of \p L is less than that of \p R. If the two
   /// offsets are same, compare the sizes instead.
-  inline static bool LessThan(const RangeTy &L, const RangeTy &R) {
-    if (L.Offset < R.Offset)
+  bool operator()(const RangeTy &L, const RangeTy &R) const {
+    auto LOffset = L.getOffset();
+    auto ROffset = R.getOffset();
+    if (LOffset < ROffset)
       return true;
-    if (L.Offset == R.Offset)
-      return L.Size < R.Size;
+    if (LOffset == ROffset)
+      return L.getMax() < R.getMax();
     return false;
   }
-
-  /// Constants used to represent special offsets or sizes.
-  /// - We cannot assume that Offsets and Size are non-negative.
-  /// - The constants should not clash with DenseMapInfo, such as EmptyKey
-  ///   (INT64_MAX) and TombstoneKey (INT64_MIN).
-  /// We use values "in the middle" of the 64 bit range to represent these
-  /// special cases.
-  static constexpr int64_t Unassigned = std::numeric_limits<int32_t>::min();
-  static constexpr int64_t Unknown = std::numeric_limits<int32_t>::max();
 };
 
 inline raw_ostream &operator<<(raw_ostream &OS, const RangeTy &R) {
-  OS << "[" << R.Offset << ", " << R.Size << "]";
-  return OS;
+  if (R.isUnknown())
+    return OS << "<unknown>";
+  return OS << "<" << R.getOffset() << ", " << R.getSize() << ">";
 }
-
 inline bool operator==(const RangeTy &A, const RangeTy &B) {
-  return A.Offset == B.Offset && A.Size == B.Size;
+  return A.getOffset() == B.getOffset() && A.getSize() == B.getSize();
+}
+inline bool operator!=(const RangeTy &A, const RangeTy &B) { return !(A == B); }
+inline bool operator<(const RangeTy &A, const RangeTy &B) {
+  return RangeCmpTy()(A, B);
 }
 
-inline bool operator!=(const RangeTy &A, const RangeTy &B) { return !(A == B); }
+struct AccessRangeTy {
+  AA::RangeTy PtrRange;
+  int64_t AccessSize;
+  AccessRangeTy() : PtrRange(), AccessSize(0) {}
+  AccessRangeTy(int64_t Offset, int64_t AccessSize)
+      : PtrRange(Offset), AccessSize(AccessSize) {}
+  AccessRangeTy(const AA::RangeTy &PtrRange, int64_t AccessSize)
+      : PtrRange(PtrRange), AccessSize(AccessSize) {}
+
+  /// Return if the access offset is known exactly.
+  bool isOffsetUnknown() const { return PtrRange.isUnknown(); }
+
+  /// Return if the access extend is known exactly.
+  bool isExtendUnknown() const {
+    return !PtrRange.isSizeKnown() || AccessSize == RangeTy::getUnknownSize();
+  }
+
+  /// Return true iff the entrie access range is exactly known.
+  bool isRangeExact() const {
+    return !(isOffsetUnknown() || isExtendUnknown());
+  }
+
+  /// The access happens in the range `[getOffset(), getOffset() + getExtend())`
+  /// and it is known to happen exactly there if `isRangeExact()` return true.
+  int64_t getOffset() const {
+    assert(!isOffsetUnknown());
+    return PtrRange.getOffset();
+  }
+  int64_t getExtend() const {
+    assert(!isExtendUnknown());
+    return PtrRange.getSize() + AccessSize;
+  }
+  int64_t getOnePastRange() const {
+    assert(!isOffsetUnknown());
+    assert(!isExtendUnknown());
+    return PtrRange.getMax() + AccessSize;
+  }
+
+  /// Return true if this offset and size pair might describe an address that
+  /// overlaps with \p Range.
+  bool mayOverlap(const AccessRangeTy &Range, bool &IsExact) const {
+    IsExact = false;
+    // Any unknown value and we are giving up -> overlap.
+    if (!isRangeExact() || !Range.isRangeExact())
+      return true;
+
+    if (*this == Range)
+      return IsExact = true;
+
+    // Check if one offset point is in the other interval [offset,
+    // offset+size].
+    return Range.getOnePastRange() > getOffset() &&
+           Range.getOffset() < getOnePastRange();
+  }
+
+  bool operator==(const AccessRangeTy &Other) const {
+    return AccessSize == Other.AccessSize && PtrRange == Other.PtrRange;
+  }
+};
+
+struct AccessRangeCmpTy {
+  /// Comparison for sorting access ranges.
+  ///
+  /// Returns true if the access size of \p L is less than that of \p R, false
+  /// if it is the other way around. If they are equal compare the pointer
+  /// ranges with `RangeCmpTy`.
+  bool operator()(const AccessRangeTy &L, const AccessRangeTy &R) const {
+    if (L.AccessSize == R.AccessSize)
+      return RangeCmpTy()(L.PtrRange, R.PtrRange);
+    return L.AccessSize < R.AccessSize;
+  }
+};
+
+struct AccessRangeListTy {
+  AccessRangeListTy() {}
+  AccessRangeListTy(const AccessRangeTy &Range) { addRange(Range); }
+
+  void addRange(const AccessRangeTy &Range) {
+    OnlyExactRanges &= Range.isRangeExact();
+    AccessRanges.insert(Range);
+  }
+
+  /// Return true if any range in the list might describe an address that
+  /// overlaps with \p Range. If any such accesses exist, \p IsExact will
+  /// be true iff they are all exact matches, false otherwise.
+  bool mayOverlap(const AccessRangeListTy &OtherRanges, bool &IsExact) const {
+    if (!OnlyExactRanges || !OtherRanges.OnlyExactRanges) {
+      IsExact = false;
+      return true;
+    }
+    bool Overlap = false;
+    for (auto &LocalAR : AccessRanges) {
+      for (auto &OtherAR : OtherRanges) {
+        bool AccessIsExact = true;
+        if (!LocalAR.mayOverlap(OtherAR, AccessIsExact))
+          continue;
+        Overlap = true;
+        IsExact &= AccessIsExact;
+        if (Overlap && !IsExact)
+          return Overlap;
+      }
+    }
+    return Overlap;
+  }
+
+  /// Return true iff the list contains a single access with an exact range.
+  bool isSingleExactRange() const {
+    return OnlyExactRanges && AccessRanges.size() == 1;
+  }
+
+  /// Return the only access single access with an exact range in the list.
+  const AccessRangeTy *getSingleExactRange() const {
+    if (isSingleExactRange())
+      return &*AccessRanges.begin();
+    return nullptr;
+  }
+
+  /// Return true iff there is no range in the list.
+  bool isEmpty() const { return AccessRanges.empty(); }
+
+private:
+  SmallSet<AccessRangeTy, 4, AA::AccessRangeCmpTy> AccessRanges;
+  bool OnlyExactRanges = true;
+
+public:
+  using const_iterator = decltype(AccessRanges)::const_iterator;
+  const_iterator begin() const { return AccessRanges.begin(); }
+  const_iterator end() const { return AccessRanges.end(); }
+};
 
 /// Return the initial value of \p Obj with type \p Ty if that is a constant.
 LLVM_ABI Constant *
 getInitialValueForObj(Attributor &A, const AbstractAttribute &QueryingAA,
                       Value &Obj, Type &Ty, const TargetLibraryInfo *TLI,
-                      const DataLayout &DL, RangeTy *RangePtr = nullptr);
+                      const DataLayout &DL,
+                      const AccessRangeTy *RangePtr = nullptr);
 
 /// Collect all potential values \p LI could read into \p PotentialValues. That
 /// is, the only values read by \p LI are assumed to be known and all are in
@@ -352,13 +478,15 @@ LLVM_ABI bool getPotentiallyLoadedValues(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialValues,
     SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact = false);
+    bool OnlyExact = false, bool RequireAllPotentialCopies = true);
 
 /// Collect all potential values of the one stored by \p SI into
 /// \p PotentialCopies. That is, the only copies that were made via the
 /// store are assumed to be known and all are in \p PotentialCopies. Dependences
 /// onto \p QueryingAA are properly tracked, \p UsedAssumedInformation will
-/// inform the caller if assumed information was used.
+/// inform the caller if assumed information was used. Only if
+/// \p RequireAllPotentialCopies is false, we allow objects that might have
+/// users not tracked by the analysis.
 ///
 /// \returns True if the assumed potential copies are all in \p PotentialCopies,
 ///          false if something went wrong and the copies could not be
@@ -366,7 +494,7 @@ LLVM_ABI bool getPotentiallyLoadedValues(
 LLVM_ABI bool getPotentialCopiesOfStoredValue(
     Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact = false);
+    bool OnlyExact = false, bool RequireAllPotentialCopies = true);
 
 /// Return true if \p IRP is readonly. This will query respective AAs that
 /// deduce the information and introduce dependences for \p QueryingAA.
@@ -414,6 +542,31 @@ isPotentiallyAffectedByBarrier(Attributor &A, ArrayRef<const Value *> Ptrs,
                                const AbstractAttribute &QueryingAA,
                                const Instruction *CtxI);
 } // namespace AA
+
+/// Helper that allows AccessRangeTy as a key in a DenseMap.
+template <> struct DenseMapInfo<AA::AccessRangeTy> {
+  static inline AA::AccessRangeTy getEmptyKey() {
+    auto EmptyKey = DenseMapInfo<int64_t>::getEmptyKey();
+    return AA::AccessRangeTy{EmptyKey, EmptyKey};
+  }
+
+  static inline AA::AccessRangeTy getTombstoneKey() {
+    auto TombstoneKey = DenseMapInfo<int64_t>::getTombstoneKey();
+    return AA::AccessRangeTy{TombstoneKey, TombstoneKey};
+  }
+
+  static unsigned getHashValue(const AA::AccessRangeTy &Range) {
+    return detail::combineHashValue(
+        DenseMapInfo<int64_t>::getHashValue(Range.AccessSize),
+        detail::combineHashValue(
+            DenseMapInfo<int64_t>::getHashValue(Range.PtrRange.getOffset()),
+            DenseMapInfo<int64_t>::getHashValue(Range.PtrRange.getSize())));
+  }
+
+  static bool isEqual(const AA::AccessRangeTy &A, const AA::AccessRangeTy B) {
+    return A == B;
+  }
+};
 
 template <>
 struct DenseMapInfo<AA::ValueAndContext>
@@ -1484,6 +1637,9 @@ struct AttributorConfig {
 
   /// Maximum number of iterations to run until fixpoint.
   std::optional<unsigned> MaxFixpointIterations;
+
+  ///
+  bool Manifest;
 
   /// A callback function that returns an ORE object from a Function pointer.
   ///{
@@ -5831,6 +5987,8 @@ struct AAPointerInfo : public AbstractAttribute {
   }
 
   enum AccessKind {
+    AK_NONE = 0,
+
     // First two bits to distinguish may and must accesses.
     AK_MUST = 1 << 0,
     AK_MAY = 1 << 1,
@@ -5841,9 +5999,8 @@ struct AAPointerInfo : public AbstractAttribute {
     AK_RW = AK_R | AK_W,
 
     // One special case for assumptions about memory content. These
-    // are neither reads nor writes. They are however always modeled
-    // as read to avoid using them for write removal.
-    AK_ASSUMPTION = (1 << 4) | AK_MUST,
+    // are neither reads nor writes.
+    AK_ASSUMPTION = (1 << 4),
 
     // Helper for easy access.
     AK_MAY_READ = AK_MAY | AK_R,
@@ -5852,15 +6009,25 @@ struct AAPointerInfo : public AbstractAttribute {
     AK_MUST_READ = AK_MUST | AK_R,
     AK_MUST_WRITE = AK_MUST | AK_W,
     AK_MUST_READ_WRITE = AK_MUST | AK_R | AK_W,
+
+    AK_ANY = AK_MUST | AK_MAY | AK_RW | AK_ASSUMPTION,
   };
 
-  /// A helper containing a list of offsets computed for a Use. Ideally this
-  /// list should be strictly ascending, but we ensure that only when we
-  /// actually translate the list of offsets to a RangeList.
+  /// A helper containing a list of offsets computed for a Use.
   struct OffsetInfo {
-    using VecTy = SmallSet<int64_t, 4>;
+    using value_type = AA::RangeTy;
+    using VecTy = SmallSet<AA::RangeTy, 4, AA::RangeCmpTy>;
     using const_iterator = VecTy::const_iterator;
     VecTy Offsets;
+
+    OffsetInfo() {}
+    OffsetInfo(int64_t Offset) { Offsets.insert(AA::RangeTy(Offset, 0)); }
+
+    static OffsetInfo getUnknown() {
+      OffsetInfo OI;
+      OI.setUnknown();
+      return OI;
+    }
 
     const_iterator begin() const { return Offsets.begin(); }
     const_iterator end() const { return Offsets.end(); }
@@ -5871,26 +6038,37 @@ struct AAPointerInfo : public AbstractAttribute {
 
     bool operator!=(const OffsetInfo &RHS) const { return !(*this == RHS); }
 
-    bool insert(int64_t Offset) { return Offsets.insert(Offset).second; }
+    bool insert(int64_t Offset) {
+      return Offsets.insert(AA::RangeTy(Offset, 0)).second;
+    }
     bool isUnassigned() const { return Offsets.size() == 0; }
 
     bool isUnknown() const {
       if (isUnassigned())
         return false;
       if (Offsets.size() == 1)
-        return *Offsets.begin() == AA::RangeTy::Unknown;
+        return *Offsets.begin() == AA::RangeTy::getUnknown();
       return false;
     }
 
     void setUnknown() {
       Offsets.clear();
-      Offsets.insert(AA::RangeTy::Unknown);
+      Offsets.insert(AA::RangeTy::getUnknown());
     }
 
-    void addToAll(int64_t Inc) {
+    OffsetInfo getShiftedBy(const AA::RangeTy &O) const {
+      if (isUnknown() || O.isUnknown())
+        return getUnknown();
       VecTy NewOffsets;
       for (auto &Offset : Offsets)
-        NewOffsets.insert(Offset + Inc);
+        NewOffsets.insert(Offset.shiftBy(O));
+      return OffsetInfo(std::move(NewOffsets));
+    }
+
+    void moveOffsets(int64_t O) {
+      VecTy NewOffsets;
+      for (auto &Offset : Offsets)
+        NewOffsets.insert(Offset.increaseOffset(O));
       Offsets = std::move(NewOffsets);
     }
 
@@ -5899,172 +6077,26 @@ struct AAPointerInfo : public AbstractAttribute {
     /// Ideally all lists should be strictly ascending, but we defer that to the
     /// actual use of the list. So we just blindly append here.
     bool merge(const OffsetInfo &R) { return set_union(Offsets, R.Offsets); }
-  };
 
-  /// A container for a list of ranges.
-  struct RangeList {
-    // The set of ranges rarely contains more than one element, and is unlikely
-    // to contain more than say four elements. So we find the middle-ground with
-    // a sorted vector. This avoids hard-coding a rarely used number like "four"
-    // into every instance of a SmallSet.
-    using RangeTy = AA::RangeTy;
-    using VecTy = SmallVector<RangeTy>;
-    using iterator = VecTy::iterator;
-    using const_iterator = VecTy::const_iterator;
-    VecTy Ranges;
+    unsigned getNumRanges() const { return Offsets.size(); }
 
-    RangeList(const RangeTy &R) { Ranges.push_back(R); }
-    RangeList(ArrayRef<int64_t> Offsets, int64_t Size) {
-      Ranges.reserve(Offsets.size());
-      for (unsigned i = 0, e = Offsets.size(); i != e; ++i) {
-        assert(((i + 1 == e) || Offsets[i] < Offsets[i + 1]) &&
-               "Expected strictly ascending offsets.");
-        Ranges.emplace_back(Offsets[i], Size);
-      }
-    }
-    RangeList() = default;
-
-    iterator begin() { return Ranges.begin(); }
-    iterator end() { return Ranges.end(); }
-    const_iterator begin() const { return Ranges.begin(); }
-    const_iterator end() const { return Ranges.end(); }
-
-    // Helpers required for std::set_difference
-    using value_type = RangeTy;
-    void push_back(const RangeTy &R) {
-      assert((Ranges.empty() || RangeTy::LessThan(Ranges.back(), R)) &&
-             "Ensure the last element is the greatest.");
-      Ranges.push_back(R);
-    }
-
-    /// Copy ranges from \p L that are not in \p R, into \p D.
-    static void set_difference(const RangeList &L, const RangeList &R,
-                               RangeList &D) {
-      std::set_difference(L.begin(), L.end(), R.begin(), R.end(),
-                          std::back_inserter(D), RangeTy::LessThan);
-    }
-
-    unsigned size() const { return Ranges.size(); }
-
-    bool operator==(const RangeList &OI) const { return Ranges == OI.Ranges; }
-
-    /// Merge the ranges in \p RHS into the current ranges.
-    /// - Merging a list of  unknown ranges makes the current list unknown.
-    /// - Ranges with the same offset are merged according to RangeTy::operator&
-    /// \return true if the current RangeList changed.
-    bool merge(const RangeList &RHS) {
-      if (isUnknown())
-        return false;
-      if (RHS.isUnknown()) {
-        setUnknown();
-        return true;
-      }
-
-      if (Ranges.empty()) {
-        Ranges = RHS.Ranges;
-        return true;
-      }
-
-      bool Changed = false;
-      auto LPos = Ranges.begin();
-      for (auto &R : RHS.Ranges) {
-        auto Result = insert(LPos, R);
-        if (isUnknown())
-          return true;
-        LPos = Result.first;
-        Changed |= Result.second;
-      }
-      return Changed;
-    }
-
-    /// Insert \p R at the given iterator \p Pos, and merge if necessary.
-    ///
-    /// This assumes that all ranges before \p Pos are LessThan \p R, and
-    /// then maintains the sorted order for the suffix list.
-    ///
-    /// \return The place of insertion and true iff anything changed.
-    std::pair<iterator, bool> insert(iterator Pos, const RangeTy &R) {
-      if (isUnknown())
-        return std::make_pair(Ranges.begin(), false);
-      if (R.offsetOrSizeAreUnknown()) {
-        return std::make_pair(setUnknown(), true);
-      }
-
-      // Maintain this as a sorted vector of unique entries.
-      auto LB = std::lower_bound(Pos, Ranges.end(), R, RangeTy::LessThan);
-      if (LB == Ranges.end() || LB->Offset != R.Offset)
-        return std::make_pair(Ranges.insert(LB, R), true);
-      bool Changed = *LB != R;
-      *LB &= R;
-      if (LB->offsetOrSizeAreUnknown())
-        return std::make_pair(setUnknown(), true);
-      return std::make_pair(LB, Changed);
-    }
-
-    /// Insert the given range \p R, maintaining sorted order.
-    ///
-    /// \return The place of insertion and true iff anything changed.
-    std::pair<iterator, bool> insert(const RangeTy &R) {
-      return insert(Ranges.begin(), R);
-    }
-
-    /// Add the increment \p Inc to the offset of every range.
-    void addToAllOffsets(int64_t Inc) {
-      assert(!isUnassigned() &&
-             "Cannot increment if the offset is not yet computed!");
-      if (isUnknown())
-        return;
-      for (auto &R : Ranges) {
-        R.Offset += Inc;
-      }
-    }
-
-    /// Return true iff there is exactly one range and it is known.
-    bool isUnique() const {
-      return Ranges.size() == 1 && !Ranges.front().offsetOrSizeAreUnknown();
-    }
-
-    /// Return the unique range, assuming it exists.
-    const RangeTy &getUnique() const {
-      assert(isUnique() && "No unique range to return!");
-      return Ranges.front();
-    }
-
-    /// Return true iff the list contains an unknown range.
-    bool isUnknown() const {
-      if (isUnassigned())
-        return false;
-      if (Ranges.front().offsetOrSizeAreUnknown()) {
-        assert(Ranges.size() == 1 && "Unknown is a singleton range.");
-        return true;
-      }
-      return false;
-    }
-
-    /// Discard all ranges and insert a single unknown range.
-    iterator setUnknown() {
-      Ranges.clear();
-      Ranges.push_back(RangeTy::getUnknown());
-      return Ranges.begin();
-    }
-
-    /// Return true if no ranges have been inserted.
-    bool isUnassigned() const { return Ranges.size() == 0; }
+  private:
+    OffsetInfo(VecTy &&NewOffsets) : Offsets(NewOffsets) {}
   };
 
   /// An access description.
   struct Access {
     Access(Instruction *I, int64_t Offset, int64_t Size,
            std::optional<Value *> Content, AccessKind Kind, Type *Ty)
-        : LocalI(I), RemoteI(I), Content(Content), Ranges(Offset, Size),
-          Kind(Kind), Ty(Ty) {
+        : LocalI(I), RemoteI(I), Content(Content), Ranges(Offset),
+          AccessSize(Size), Kind(Kind), Ty(Ty) {
       verify();
     }
-    Access(Instruction *LocalI, Instruction *RemoteI, const RangeList &Ranges,
-           std::optional<Value *> Content, AccessKind K, Type *Ty)
+    Access(Instruction *LocalI, Instruction *RemoteI, const OffsetInfo &Ranges,
+           int64_t Size, std::optional<Value *> Content, AccessKind K, Type *Ty)
         : LocalI(LocalI), RemoteI(RemoteI), Content(Content), Ranges(Ranges),
-          Kind(K), Ty(Ty) {
-      if (Ranges.size() > 1) {
+          AccessSize(Size), Kind(K), Ty(Ty) {
+      if (Ranges.getNumRanges() > 1) {
         Kind = AccessKind(Kind | AK_MAY);
         Kind = AccessKind(Kind & ~AK_MUST);
       }
@@ -6073,8 +6105,8 @@ struct AAPointerInfo : public AbstractAttribute {
     Access(Instruction *LocalI, Instruction *RemoteI, int64_t Offset,
            int64_t Size, std::optional<Value *> Content, AccessKind Kind,
            Type *Ty)
-        : LocalI(LocalI), RemoteI(RemoteI), Content(Content),
-          Ranges(Offset, Size), Kind(Kind), Ty(Ty) {
+        : LocalI(LocalI), RemoteI(RemoteI), Content(Content), Ranges(Offset),
+          AccessSize(Size), Kind(Kind), Ty(Ty) {
       verify();
     }
     Access(const Access &Other) = default;
@@ -6089,6 +6121,7 @@ struct AAPointerInfo : public AbstractAttribute {
     Access &operator&=(const Access &R) {
       assert(RemoteI == R.RemoteI && "Expected same instruction!");
       assert(LocalI == R.LocalI && "Expected same instruction!");
+      assert(AccessSize == R.AccessSize && "Expected same access size!");
 
       // Note that every Access object corresponds to a unique Value, and only
       // accesses to the same Value are merged. Hence we assume that all ranges
@@ -6102,7 +6135,7 @@ struct AAPointerInfo : public AbstractAttribute {
       // If there is more than one range, then this must be a MAY.
       // If we combine a may and a must access we clear the must bit.
       Kind = AccessKind(Kind | R.Kind);
-      if ((Kind & AK_MAY) || Ranges.size() > 1) {
+      if ((Kind & AK_MAY) || Ranges.getNumRanges() > 1) {
         Kind = AccessKind(Kind | AK_MAY);
         Kind = AccessKind(Kind & ~AK_MUST);
       }
@@ -6115,7 +6148,7 @@ struct AAPointerInfo : public AbstractAttribute {
              "Expect must or may access, not both.");
       assert(isAssumption() + isWrite() <= 1 &&
              "Expect assumption access or write access, never both.");
-      assert((isMayAccess() || Ranges.size() == 1) &&
+      assert((isMayAccess() || Ranges.getNumRanges() == 1) &&
              "Cannot be a must access if there are multiple ranges.");
     }
 
@@ -6135,15 +6168,15 @@ struct AAPointerInfo : public AbstractAttribute {
     bool isAssumption() const { return Kind == AK_ASSUMPTION; }
 
     bool isMustAccess() const {
-      bool MustAccess = Kind & AK_MUST;
-      assert((!MustAccess || Ranges.size() < 2) &&
+      bool MustAccess = Kind & AK_MUST || isAssumption();
+      assert((!MustAccess || Ranges.getNumRanges() < 2) &&
              "Cannot be a must access if there are multiple ranges.");
       return MustAccess;
     }
 
     bool isMayAccess() const {
       bool MayAccess = Kind & AK_MAY;
-      assert((MayAccess || Ranges.size() < 2) &&
+      assert((MayAccess || Ranges.getNumRanges() < 2) &&
              "Cannot be a must access if there are multiple ranges.");
       return MayAccess;
     }
@@ -6180,23 +6213,16 @@ struct AAPointerInfo : public AbstractAttribute {
     /// determined.
     std::optional<Value *> getContent() const { return Content; }
 
-    bool hasUniqueRange() const { return Ranges.isUnique(); }
-    const AA::RangeTy &getUniqueRange() const { return Ranges.getUnique(); }
-
-    /// Add a range accessed by this Access.
-    ///
-    /// If there are multiple ranges, then this is a "may access".
-    void addRange(int64_t Offset, int64_t Size) {
-      Ranges.insert({Offset, Size});
-      if (!hasUniqueRange()) {
-        Kind = AccessKind(Kind | AK_MAY);
-        Kind = AccessKind(Kind & ~AK_MUST);
-      }
+    int64_t getAccessSize() const { return AccessSize; }
+    const OffsetInfo &getRanges() const { return Ranges; }
+    AA::AccessRangeListTy getAccessRanges() const {
+      AA::AccessRangeListTy AR;
+      for (auto &Offset : Ranges)
+        AR.addRange(AA::AccessRangeTy(Offset, AccessSize));
+      return AR;
     }
 
-    const RangeList &getRanges() const { return Ranges; }
-
-    using const_iterator = RangeList::const_iterator;
+    using const_iterator = OffsetInfo::const_iterator;
     const_iterator begin() const { return Ranges.begin(); }
     const_iterator end() const { return Ranges.end(); }
 
@@ -6213,7 +6239,10 @@ struct AAPointerInfo : public AbstractAttribute {
     std::optional<Value *> Content;
 
     /// Set of potential ranges accessed from the base pointer.
-    RangeList Ranges;
+    OffsetInfo Ranges;
+
+    /// The size of the access.
+    int64_t AccessSize;
 
     /// The access kind, e.g., READ, as bitset (could be more than one).
     AccessKind Kind;
@@ -6233,20 +6262,35 @@ struct AAPointerInfo : public AbstractAttribute {
   /// See AbstractAttribute::getIdAddr()
   const char *getIdAddr() const override { return &ID; }
 
-  using OffsetBinsTy = DenseMap<AA::RangeTy, SmallSet<unsigned, 4>>;
-  using const_bin_iterator = OffsetBinsTy::const_iterator;
-  virtual const_bin_iterator begin() const = 0;
-  virtual const_bin_iterator end() const = 0;
-  virtual int64_t numOffsetBins() const = 0;
   virtual bool reachesReturn() const = 0;
   virtual void addReturnedOffsetsTo(OffsetInfo &) const = 0;
 
-  /// Call \p CB on all accesses that might interfere with \p Range and return
-  /// true if all such accesses were known and the callback returned true for
-  /// all of them, false otherwise. An access interferes with an offset-size
-  /// pair if it might read or write that memory region.
-  virtual bool forallInterferingAccesses(
-      AA::RangeTy Range, function_ref<bool(const Access &, bool)> CB) const = 0;
+  /// Return true if the underlying pointer might have non-use aliases.
+  virtual bool hasPotentiallyAliasingPointers() const = 0;
+
+  /// Return true if the underlying pointer outlives the current scope.
+  virtual bool writesOutliveCurrentScope() const = 0;
+
+  /// Return a summary access range that describes how the object is accessed.
+  virtual AA::RangeTy getSummarizedAccessedRange() const = 0;
+
+  /// Check if an object \p Obj is known to have potential (non-use) aliasing
+  /// pointers and/or wirtes outlive the current scope.
+  static std::pair<bool, bool>
+  hasAssumedAliasingPointersOrWritesOutlivesScope(Value &Obj);
+
+  /// Call \p CB on all accesses that might interfere with \p RangeList and
+  /// return true if all such accesses were known and the callback returned true
+  /// for all of them, false otherwise. An access interferes with an offset-size
+  /// pair if it accesses a potentially overlapping region. If \p ExactAK is not
+  /// AK_NONE, accesses that have exactly the same access kind as ExactAK are
+  /// considered. If \p PartialAK is not AK_NONE, accesses that have an access
+  /// kind that match any bit in \p PartialAK are considered.
+  virtual bool
+  forallInterferingAccesses(AA::AccessRangeListTy &RangeList,
+                            function_ref<bool(const Access &, bool)> CB,
+                            AccessKind ExactAK,
+                            AccessKind PartialAK = AK_NONE) const = 0;
 
   /// Call \p CB on all accesses that might interfere with \p I and
   /// return true if all such accesses were known and the callback returned true
@@ -6261,7 +6305,7 @@ struct AAPointerInfo : public AbstractAttribute {
       Attributor &A, const AbstractAttribute &QueryingAA, Instruction &I,
       bool FindInterferingWrites, bool FindInterferingReads,
       function_ref<bool(const Access &, bool)> CB, bool &HasBeenWrittenTo,
-      AA::RangeTy &Range,
+      AA::AccessRangeListTy &RangeList,
       function_ref<bool(const Access &)> SkipCB = nullptr) const = 0;
 
   /// This function should return true if the type of the \p AA is AAPointerInfo

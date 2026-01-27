@@ -505,6 +505,8 @@ CODEGENOPT(AllResourcesBound, 1, 0, Benign)
 ENUM_CODEGENOPT(WinX64EHUnwindV2, WinX64EHUnwindV2Mode,
                 2, WinX64EHUnwindV2Mode::Disabled, Benign)
 
+CODEGENOPT(Instrumentor, 1, 0, Benign) ///< Enable Instrumentor
+
 /// FIXME: Make DebugOptions its own top-level .def file.
 #include "DebugOptions.def"
 

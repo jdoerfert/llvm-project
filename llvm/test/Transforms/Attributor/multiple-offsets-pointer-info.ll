@@ -10,11 +10,14 @@ define i8 @select_offsets_simplifiable_1(i1 %cnd1, i1 %cnd2) {
 ; CHECK-LABEL: define {{[^@]+}}@select_offsets_simplifiable_1
 ; CHECK-SAME: (i1 [[CND1:%.*]], i1 [[CND2:%.*]]) {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[BYTES:%.*]] = call ptr @calloc(i64 noundef 1024, i64 noundef 1)
+; CHECK-NEXT:    [[BYTES:%.*]] = call noalias ptr @calloc(i64 noundef 1024, i64 noundef 1)
 ; CHECK-NEXT:    [[GEP23:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 23
 ; CHECK-NEXT:    store i8 23, ptr [[GEP23]], align 4
 ; CHECK-NEXT:    [[GEP29:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 29
 ; CHECK-NEXT:    store i8 29, ptr [[GEP29]], align 4
+; CHECK-NEXT:    [[GEP9:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 9
+; CHECK-NEXT:    [[GEP6:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 6
+; CHECK-NEXT:    store i16 6, ptr [[GEP6]], align 4
 ; CHECK-NEXT:    [[GEP7:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 7
 ; CHECK-NEXT:    store i8 7, ptr [[GEP7]], align 4
 ; CHECK-NEXT:    [[GEP31:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 31
@@ -31,6 +34,12 @@ entry:
   store i8 23, ptr %gep23, align 4
   %gep29 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 29
   store i8 29, ptr %gep29, align 4
+  ;; This store is redundant, hence removed.
+  %gep9 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 9
+  ;; This store is not redundant.
+  %gep6 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 6
+  store i16 6, ptr %gep6, align 4
+  store i8 9, ptr %gep9, align 4
   %gep7 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 7
   store i8 7, ptr %gep7, align 4
 
@@ -53,6 +62,9 @@ define i8 @select_offsets_simplifiable_2(i1 %cnd1, i1 %cnd2) {
 ; CHECK-NEXT:    [[BYTES:%.*]] = alloca [1024 x i8], align 16
 ; CHECK-NEXT:    [[GEP23:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 23
 ; CHECK-NEXT:    store i8 23, ptr [[GEP23]], align 4
+; CHECK-NEXT:    [[GEP9:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 9
+; CHECK-NEXT:    [[GEP6:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 6
+; CHECK-NEXT:    store i16 6, ptr [[GEP6]], align 4
 ; CHECK-NEXT:    [[GEP29:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 29
 ; CHECK-NEXT:    store i8 29, ptr [[GEP29]], align 4
 ; CHECK-NEXT:    [[GEP7:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 7
@@ -70,6 +82,12 @@ entry:
 
   %gep23 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 23
   store i8 23, ptr %gep23, align 4
+  ;; This store is redundant, hence removed.
+  %gep9 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 9
+  store i8 9, ptr %gep9, align 4
+  ;; This store is not redundant.
+  %gep6 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 6
+  store i16 6, ptr %gep6, align 4
   %gep29 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 29
   store i8 29, ptr %gep29, align 4
   %gep7 = getelementptr inbounds [1024 x i8], ptr %Bytes, i64 0, i64 7
@@ -190,7 +208,7 @@ define i8 @select_offsets_not_simplifiable_3(i1 %cnd1, i1 %cnd2) {
 ; CHECK-LABEL: define {{[^@]+}}@select_offsets_not_simplifiable_3
 ; CHECK-SAME: (i1 [[CND1:%.*]], i1 [[CND2:%.*]]) {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[BYTES:%.*]] = call ptr @calloc(i64 noundef 1024, i64 noundef 1)
+; CHECK-NEXT:    [[BYTES:%.*]] = call noalias ptr @calloc(i64 noundef 1024, i64 noundef 1)
 ; CHECK-NEXT:    [[SEL0:%.*]] = select i1 [[CND1]], i64 23, i64 29
 ; CHECK-NEXT:    [[SEL1:%.*]] = select i1 [[CND2]], i64 [[SEL0]], i64 7
 ; CHECK-NEXT:    [[GEP_SEL:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 [[SEL1]]
@@ -214,7 +232,7 @@ define i8 @select_offsets_not_simplifiable_4(i1 %cnd1, i1 %cnd2) {
 ; CHECK-LABEL: define {{[^@]+}}@select_offsets_not_simplifiable_4
 ; CHECK-SAME: (i1 [[CND1:%.*]], i1 [[CND2:%.*]]) {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[BYTES:%.*]] = call ptr @calloc(i64 noundef 1024, i64 noundef 1)
+; CHECK-NEXT:    [[BYTES:%.*]] = call noalias ptr @calloc(i64 noundef 1024, i64 noundef 1)
 ; CHECK-NEXT:    [[SEL0:%.*]] = select i1 [[CND1]], i64 23, i64 29
 ; CHECK-NEXT:    [[SEL1:%.*]] = select i1 [[CND2]], i64 [[SEL0]], i64 7
 ; CHECK-NEXT:    [[GEP_SEL:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 [[SEL1]]
@@ -483,7 +501,7 @@ define i8 @phi_offsets(i1 %cnd1, i1 %cnd2) {
 ; CHECK-LABEL: define {{[^@]+}}@phi_offsets
 ; CHECK-SAME: (i1 noundef [[CND1:%.*]], i1 [[CND2:%.*]]) #[[ATTR1]] {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[BYTES:%.*]] = alloca [1024 x i8], align 16
+; CHECK-NEXT:    [[BYTES1:%.*]] = alloca i8, i32 12, align 16
 ; CHECK-NEXT:    br i1 [[CND1]], label [[THEN:%.*]], label [[ELSE:%.*]]
 ; CHECK:       then:
 ; CHECK-NEXT:    br label [[JOIN:%.*]]
@@ -491,7 +509,7 @@ define i8 @phi_offsets(i1 %cnd1, i1 %cnd2) {
 ; CHECK-NEXT:    br label [[JOIN]]
 ; CHECK:       join:
 ; CHECK-NEXT:    [[PHI:%.*]] = phi i64 [ 3, [[THEN]] ], [ 11, [[ELSE]] ]
-; CHECK-NEXT:    [[GEP_PHI:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES]], i64 0, i64 [[PHI]]
+; CHECK-NEXT:    [[GEP_PHI:%.*]] = getelementptr inbounds [1024 x i8], ptr [[BYTES1]], i64 0, i64 [[PHI]]
 ; CHECK-NEXT:    ret i8 100
 ;
 entry:

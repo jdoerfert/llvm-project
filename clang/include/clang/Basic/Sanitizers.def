@@ -73,6 +73,9 @@ SANITIZER("fuzzer", Fuzzer)
 // libFuzzer-required instrumentation, no linking.
 SANITIZER("fuzzer-no-link", FuzzerNoLink)
 
+// ObjSanitiizer
+SANITIZER("object", Object)
+
 // TypeSanitizer
 SANITIZER("type", Type)
 

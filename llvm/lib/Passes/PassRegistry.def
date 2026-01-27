@@ -102,6 +102,7 @@ MODULE_PASS("instrprof", InstrProfilingLoweringPass())
 MODULE_PASS("ctx-instr-lower", PGOCtxProfLoweringPass())
 MODULE_PASS("print<ctx-prof-analysis>", CtxProfAnalysisPrinterPass(errs()))
 MODULE_PASS("invalidate<all>", InvalidateAllAnalysesPass())
+MODULE_PASS("instrumentor", InstrumentorPass())
 MODULE_PASS("iroutliner", IROutlinerPass())
 MODULE_PASS("jmc-instrumenter", JMCInstrumenterPass())
 MODULE_PASS("lower-emutls", LowerEmuTLSPass())
@@ -179,6 +180,7 @@ MODULE_PASS("tysan", TypeSanitizerPass())
 MODULE_PASS("verify", VerifierPass())
 MODULE_PASS("view-callgraph", CallGraphViewerPass())
 MODULE_PASS("wholeprogramdevirt", WholeProgramDevirtPass())
+MODULE_PASS("lightsan", LightSanPass(ThinOrFullLTOPhase::None))
 #undef MODULE_PASS
 
 #ifndef MODULE_PASS_WITH_PARAMS

@@ -33,6 +33,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -238,10 +239,14 @@ bool AA::isDynamicallyUnique(Attributor &A, const AbstractAttribute &QueryingAA,
   return InstanceInfoAA && InstanceInfoAA->isAssumedUniqueForAnalysis();
 }
 
-Constant *
-AA::getInitialValueForObj(Attributor &A, const AbstractAttribute &QueryingAA,
-                          Value &Obj, Type &Ty, const TargetLibraryInfo *TLI,
-                          const DataLayout &DL, AA::RangeTy *RangePtr) {
+Constant *AA::getInitialValueForObj(Attributor &A,
+                                    const AbstractAttribute &QueryingAA,
+                                    Value &Obj, Type &Ty,
+                                    const TargetLibraryInfo *TLI,
+                                    const DataLayout &DL,
+                                    const AA::AccessRangeTy *RangePtr) {
+  if (isa<AllocaInst>(Obj))
+    return UndefValue::get(&Ty);
   if (Constant *Init = getInitialValueOfAllocation(&Obj, TLI, &Ty))
     return Init;
   auto *GV = dyn_cast<GlobalVariable>(&Obj);
@@ -271,11 +276,10 @@ AA::getInitialValueForObj(Attributor &A, const AbstractAttribute &QueryingAA,
       Initializer = GV->getInitializer();
   }
 
-  if (RangePtr && !RangePtr->offsetOrSizeAreUnknown()) {
-    int64_t StorageSize = DL.getTypeStoreSize(&Ty);
-    if (StorageSize != RangePtr->Size)
-      return nullptr;
-    APInt Offset = APInt(64, RangePtr->Offset);
+  if (RangePtr && !RangePtr->PtrRange.isUnknown()) {
+    assert(RangePtr->AccessSize &&
+           uint64_t(RangePtr->AccessSize) == DL.getTypeStoreSize(&Ty));
+    APInt Offset = APInt(64, RangePtr->PtrRange.getOffset());
     return ConstantFoldLoadFromConst(Initializer, &Ty, Offset, DL);
   }
 
@@ -370,7 +374,7 @@ static bool getPotentialCopiesOfMemoryValue(
     Attributor &A, Ty &I, SmallSetVector<Value *, 4> &PotentialCopies,
     SmallSetVector<Instruction *, 4> *PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact) {
+    bool OnlyExact, bool RequireAllPotentialCopies) {
   LLVM_DEBUG(dbgs() << "Trying to determine the potential copies of " << I
                     << " (only exact: " << OnlyExact << ")\n";);
 
@@ -381,9 +385,6 @@ static bool getPotentialCopiesOfMemoryValue(
   SmallVector<const AAPointerInfo *> PIs;
   SmallSetVector<Value *, 8> NewCopies;
   SmallSetVector<Instruction *, 8> NewCopyOrigins;
-
-  const auto *TLI =
-      A.getInfoCache().getTargetLibraryInfoForFunction(*I.getFunction());
 
   auto Pred = [&](Value &Obj) {
     LLVM_DEBUG(dbgs() << "Visit underlying object " << Obj << "\n");
@@ -401,33 +402,27 @@ static bool getPotentialCopiesOfMemoryValue(
           dbgs() << "Underlying object is a valid nullptr, giving up.\n";);
       return false;
     }
-    // TODO: Use assumed noalias return.
-    if (!isa<AllocaInst>(&Obj) && !isa<GlobalVariable>(&Obj) &&
-        !(IsLoad ? isAllocationFn(&Obj, TLI) : isNoAliasCall(&Obj))) {
-      LLVM_DEBUG(dbgs() << "Underlying object is not supported yet: " << Obj
-                        << "\n";);
-      return false;
-    }
-    if (auto *GV = dyn_cast<GlobalVariable>(&Obj))
-      if (!GV->hasLocalLinkage() &&
-          !(GV->isConstant() && GV->hasInitializer())) {
-        LLVM_DEBUG(dbgs() << "Underlying object is global with external "
-                             "linkage, not supported yet: "
-                          << Obj << "\n";);
+
+    if (RequireAllPotentialCopies) {
+      auto [Aliases, WritesOutlive] =
+          AAPointerInfo::hasAssumedAliasingPointersOrWritesOutlivesScope(Obj);
+      if (Aliases || (!IsLoad && WritesOutlive)) {
+        LLVM_DEBUG(dbgs() << "Underlying object has potential out-of-scope "
+                             "accesses, giving up.\n";);
         return false;
       }
+    }
 
     bool NullOnly = true;
     bool NullRequired = false;
     auto CheckForNullOnlyAndUndef = [&](std::optional<Value *> V,
                                         bool IsExact) {
+      NullRequired |= !IsExact && OnlyExact;
       if (!V || *V == nullptr)
         NullOnly = false;
       else if (isa<UndefValue>(*V))
         /* No op */;
-      else if (isa<Constant>(*V) && cast<Constant>(*V)->isNullValue())
-        NullRequired = !IsExact;
-      else
+      else if (!isa<Constant>(*V) || !cast<Constant>(*V)->isNullValue())
         NullOnly = false;
     };
 
@@ -443,29 +438,29 @@ static bool getPotentialCopiesOfMemoryValue(
       return AdjV;
     };
 
-    auto SkipCB = [&](const AAPointerInfo::Access &Acc) {
-      if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))
+    auto LoadSkipCB = [&](const AAPointerInfo::Access &Acc) {
+      assert(IsLoad && Acc.isWriteOrAssumption());
+      if (Acc.isWrittenValueYetUndetermined())
         return true;
-      if (IsLoad) {
-        if (Acc.isWrittenValueYetUndetermined())
-          return true;
-        if (PotentialValueOrigins && !isa<AssumeInst>(Acc.getRemoteInst()))
-          return false;
-        if (!Acc.isWrittenValueUnknown())
-          if (Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue()))
-            if (NewCopies.count(V)) {
-              NewCopyOrigins.insert(Acc.getRemoteInst());
-              return true;
-            }
-        if (auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst()))
-          if (Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand()))
-            if (NewCopies.count(V)) {
-              NewCopyOrigins.insert(Acc.getRemoteInst());
-              return true;
-            }
-      }
+      if (PotentialValueOrigins && !isa<AssumeInst>(Acc.getRemoteInst()))
+        return false;
+      if (!Acc.isWrittenValueUnknown())
+        if (Value *V = AdjustWrittenValueType(Acc, *Acc.getWrittenValue()))
+          if (NewCopies.count(V)) {
+            NewCopyOrigins.insert(Acc.getRemoteInst());
+            return true;
+          }
+      if (auto *SI = dyn_cast<StoreInst>(Acc.getRemoteInst()))
+        if (Value *V = AdjustWrittenValueType(Acc, *SI->getValueOperand()))
+          if (NewCopies.count(V)) {
+            NewCopyOrigins.insert(Acc.getRemoteInst());
+            return true;
+          }
       return false;
     };
+    function_ref<bool(const AAPointerInfo::Access &)> SkipCB;
+    if (IsLoad)
+      SkipCB = LoadSkipCB;
 
     auto CheckAccess = [&](const AAPointerInfo::Access &Acc, bool IsExact) {
       if ((IsLoad && !Acc.isWriteOrAssumption()) || (!IsLoad && !Acc.isRead()))
@@ -473,12 +468,6 @@ static bool getPotentialCopiesOfMemoryValue(
       if (IsLoad && Acc.isWrittenValueYetUndetermined())
         return true;
       CheckForNullOnlyAndUndef(Acc.getContent(), IsExact);
-      if (OnlyExact && !IsExact && !NullOnly &&
-          !isa_and_nonnull<UndefValue>(Acc.getWrittenValue())) {
-        LLVM_DEBUG(dbgs() << "Non exact access " << *Acc.getRemoteInst()
-                          << ", abort!\n");
-        return false;
-      }
       if (NullRequired && !NullOnly) {
         LLVM_DEBUG(dbgs() << "Required all `null` accesses due to non exact "
                              "one, however found non-null one: "
@@ -527,25 +516,30 @@ static bool getPotentialCopiesOfMemoryValue(
     // object.
     bool HasBeenWrittenTo = false;
 
-    AA::RangeTy Range;
+    AA::AccessRangeListTy RangeList;
     auto *PI = A.getAAFor<AAPointerInfo>(QueryingAA, IRPosition::value(Obj),
                                          DepClassTy::NONE);
-    if (!PI || !PI->forallInterferingAccesses(
-                   A, QueryingAA, I,
-                   /* FindInterferingWrites */ IsLoad,
-                   /* FindInterferingReads */ !IsLoad, CheckAccess,
-                   HasBeenWrittenTo, Range, SkipCB)) {
-      LLVM_DEBUG(
-          dbgs()
-          << "Failed to verify all interfering accesses for underlying object: "
-          << Obj << "\n");
+    if (!PI || PI->hasPotentiallyAliasingPointers() ||
+        (RequireAllPotentialCopies && !IsLoad &&
+         PI->writesOutliveCurrentScope()) ||
+        !PI->forallInterferingAccesses(A, QueryingAA, I,
+                                       /* FindInterferingWrites */ IsLoad,
+                                       /* FindInterferingReads */ !IsLoad,
+                                       CheckAccess, HasBeenWrittenTo, RangeList,
+                                       SkipCB)) {
+      LLVM_DEBUG(dbgs() << "Failed to verify all interfering accesses for "
+                           "underlying object: "
+                        << Obj << "\n");
       return false;
     }
 
-    if (IsLoad && !HasBeenWrittenTo && !Range.isUnassigned()) {
+    if (IsLoad && !HasBeenWrittenTo && !RangeList.isEmpty()) {
       const DataLayout &DL = A.getDataLayout();
-      Value *InitialValue = AA::getInitialValueForObj(
-          A, QueryingAA, Obj, *I.getType(), TLI, DL, &Range);
+      const auto *TLI =
+          A.getInfoCache().getTargetLibraryInfoForFunction(*I.getFunction());
+      auto *InitialValue =
+          AA::getInitialValueForObj(A, QueryingAA, Obj, *I.getType(), TLI, DL,
+                                    RangeList.getSingleExactRange());
       if (!InitialValue) {
         LLVM_DEBUG(dbgs() << "Could not determine required initial value of "
                              "underlying object, abort!\n");
@@ -595,19 +589,19 @@ bool AA::getPotentiallyLoadedValues(
     Attributor &A, LoadInst &LI, SmallSetVector<Value *, 4> &PotentialValues,
     SmallSetVector<Instruction *, 4> &PotentialValueOrigins,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact) {
+    bool OnlyExact, bool RequireAllPotentialCopies) {
   return getPotentialCopiesOfMemoryValue</* IsLoad */ true>(
       A, LI, PotentialValues, &PotentialValueOrigins, QueryingAA,
-      UsedAssumedInformation, OnlyExact);
+      UsedAssumedInformation, OnlyExact, RequireAllPotentialCopies);
 }
 
 bool AA::getPotentialCopiesOfStoredValue(
     Attributor &A, StoreInst &SI, SmallSetVector<Value *, 4> &PotentialCopies,
     const AbstractAttribute &QueryingAA, bool &UsedAssumedInformation,
-    bool OnlyExact) {
+    bool OnlyExact, bool RequireAllPotentialCopies) {
   return getPotentialCopiesOfMemoryValue</* IsLoad */ false>(
       A, SI, PotentialCopies, nullptr, QueryingAA, UsedAssumedInformation,
-      OnlyExact);
+      OnlyExact, RequireAllPotentialCopies);
 }
 
 static bool isAssumedReadOnlyOrReadNone(Attributor &A, const IRPosition &IRP,
@@ -754,6 +748,12 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
         return true;
     }
 
+    // If we do not go backwards from the FromFn we are done here and so far we
+    // could not find a way to reach ToFn/ToI. Otherwise we check if we can
+    // reach a return.
+    if (GoBackwardsCB && !GoBackwardsCB(*FromFn))
+      continue;
+
     // TODO: Check assumed nounwind.
     const auto *ReachabilityAA = A.getAAFor<AAIntraFnReachability>(
         QueryingAA, IRPosition::function(*FromFn), DepClassTy::OPTIONAL);
@@ -779,11 +779,6 @@ isPotentiallyReachable(Attributor &A, const Instruction &FromI,
                         << " is not checked backwards, abort\n");
       return true;
     }
-
-    // If we do not go backwards from the FromFn we are done here and so far we
-    // could not find a way to reach ToFn/ToI.
-    if (!GoBackwardsCB(*FromFn))
-      continue;
 
     LLVM_DEBUG(dbgs() << "Stepping backwards to the call sites of @"
                       << FromFn->getName() << "\n");
@@ -1845,7 +1840,7 @@ bool Attributor::checkForAllUses(
         SmallSetVector<Value *, 4> PotentialCopies;
         if (AA::getPotentialCopiesOfStoredValue(
                 *this, *SI, PotentialCopies, QueryingAA, UsedAssumedInformation,
-                /* OnlyExact */ true)) {
+                /* OnlyExact */ true, /*RequireAllPotentialCopies=*/true)) {
           DEBUG_WITH_TYPE(VERBOSE_DEBUG_TYPE,
                           dbgs()
                               << "[Attributor] Value is stored, continue with "
@@ -2264,12 +2259,15 @@ void Attributor::registerForUpdate(AbstractAttribute &AA) {
 }
 
 ChangeStatus Attributor::manifestAttributes() {
+  ChangeStatus ManifestChange = ChangeStatus::UNCHANGED;
+  if (!Configuration.Manifest)
+    return ManifestChange;
+
   TimeTraceScope TimeScope("Attributor::manifestAttributes");
   size_t NumFinalAAs = DG.SyntheticRoot.Deps.size();
 
   unsigned NumManifested = 0;
   unsigned NumAtFixpoint = 0;
-  ChangeStatus ManifestChange = ChangeStatus::UNCHANGED;
   for (auto &DepAA : DG.SyntheticRoot.Deps) {
     AbstractAttribute *AA = cast<AbstractAttribute>(DepAA.getPointer());
     AbstractState &State = AA->getState();
@@ -2408,6 +2406,9 @@ void Attributor::identifyDeadInternalFunctions() {
 }
 
 ChangeStatus Attributor::cleanupIR() {
+  if (!Configuration.Manifest)
+    return ChangeStatus::UNCHANGED;
+
   TimeTraceScope TimeScope("Attributor::cleanupIR");
   // Delete stuff at the end to avoid invalid references and a nice order.
   LLVM_DEBUG(dbgs() << "\n[Attributor] Delete/replace at least "

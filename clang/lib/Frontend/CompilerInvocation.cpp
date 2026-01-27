@@ -2304,6 +2304,11 @@ bool CompilerInvocation::ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args,
 
   Opts.StaticClosure = Args.hasArg(options::OPT_static_libclosure);
 
+  if (Args.hasArg(options::OPT_finstrumentor))
+    Opts.Instrumentor = 1;
+  else if (Args.hasArg(options::OPT_fno_instrumentor))
+    Opts.Instrumentor = 0;
+
   return Diags.getNumErrors() == NumErrorsBefore;
 }
 
@@ -5099,7 +5104,8 @@ bool CompilerInvocation::CreateFromArgsImpl(
       !LangOpts.Sanitize.has(SanitizerKind::Address) &&
       !LangOpts.Sanitize.has(SanitizerKind::KernelAddress) &&
       !LangOpts.Sanitize.has(SanitizerKind::Memory) &&
-      !LangOpts.Sanitize.has(SanitizerKind::KernelMemory);
+      !LangOpts.Sanitize.has(SanitizerKind::KernelMemory) &&
+      !LangOpts.Sanitize.has(SanitizerKind::Object);
 
   ParsePreprocessorArgs(Res.getPreprocessorOpts(), Args, Diags,
                         Res.getFrontendOpts().ProgramAction,

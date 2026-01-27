@@ -2337,6 +2337,13 @@ def NoDuplicate : InheritableAttr {
   let SimpleHandler = 1;
 }
 
+def InputGenEntry : InheritableAttr {
+  let Spellings = [Clang<"inputgen_entry">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [Undocumented];
+  let SimpleHandler = 1;
+}
+
 def Convergent : InheritableAttr {
   let Spellings = [Clang<"convergent">];
   let Subjects = SubjectList<[Function]>;

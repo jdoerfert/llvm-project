@@ -74,8 +74,17 @@ enum class RecurKind {
                   ///< are an integer type, one is the current recurrence value,
                   ///< and the other is an arbitrary value.
   // clang-format on
+  FAnyOf,   ///< Any_of reduction with select(fcmp(),x,y) where one of (x,y) is
+            ///< loop invariant, and both x and y are integer type.
+  IFindLastIV, ///< FindLast reduction with select(icmp(),x,y) where one of
+               ///< (x,y) is increasing loop induction, and both x and y are
+               ///< integer type.
+  FFindLastIV, ///< FindLast reduction with select(fcmp(),x,y) where one of
+               ///< (x,y) is increasing loop induction, and both x and y are
+               ///< integer type.
   // TODO: Any_of and FindLast reduction need not be restricted to integer type
   // only.
+  NumRecurKinds
 };
 
 /// The RecurrenceDescriptor is used to identify recurrences variables in a

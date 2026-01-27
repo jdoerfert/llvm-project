@@ -335,8 +335,10 @@ declare void @llvm.lifetime.end.p0(ptr nocapture) #11
 ; CHECK: attributes #[[ATTR2]] = { nounwind }
 ; CHECK: attributes #[[ATTR3:[0-9]+]] = { alwaysinline }
 ; CHECK: attributes #[[ATTR4:[0-9]+]] = { nosync nounwind }
-; CHECK: attributes #[[ATTR5:[0-9]+]] = { convergent nounwind }
-; CHECK: attributes #[[ATTR6:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
+; CHECK: attributes #[[ATTR5:[0-9]+]] = { nosync }
+; CHECK: attributes #[[ATTR6:[0-9]+]] = { convergent nounwind }
+; CHECK: attributes #[[ATTR7:[0-9]+]] = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
+; CHECK: attributes #[[ATTR8]] = { memory(readwrite) }
 ;.
 ; CHECK: [[META0:![0-9]+]] = !{i32 0, i32 66306, i32 776160, !"main", i32 13, i32 0, i32 0}
 ; CHECK: [[META1:![0-9]+]] = !{i32 0, i32 66306, i32 776160, !"main", i32 16, i32 0, i32 1}

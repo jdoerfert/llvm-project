@@ -1,0 +1,33 @@
+{
+  "configuration": {
+    "runtime_prefix": "__instrumentor_"
+  },
+  "instruction_pre": {
+    "load": {
+      "id": true,
+      "enabled": true
+    },
+    "alloca": {
+      "id": false,
+      "enabled": true
+    },
+    "store": {
+      "id": false,
+      "enabled": true
+    }
+  },
+  "instruction_post": {
+    "load": {
+      "id": true,
+      "enabled": true
+    },
+    "alloca": {
+      "id": true,
+      "enabled": true
+    },
+    "store": {
+      "id": false,
+      "enabled": true
+    }
+  }
+}

@@ -34,6 +34,9 @@ elif config.tool_name == "lsan":
 elif config.tool_name == "ubsan":
     tool_cflags = ["-fsanitize=undefined"]
     tool_options = "UBSAN_OPTIONS"
+elif config.tool_name == "objsan":
+    tool_cflags = ["-fsanitize=object"]
+    tool_options = "OBJSAN_OPTIONS"
 else:
     lit_config.fatal("Unknown tool for sanitizer_common tests: %r" % config.tool_name)
 
