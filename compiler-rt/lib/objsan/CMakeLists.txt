@@ -10,12 +10,12 @@ if(LLVM_DEFAULT_TARGET_TRIPLE)
   list(APPEND OBJSAN_CFLAGS --target=${LLVM_DEFAULT_TARGET_TRIPLE})
 endif()
 
-list(APPEND OBJSAN_CFLAGS "SHELL: -mllvm -vectorize-slp=false")
 if("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^amdgcn" OR
    "${CMAKE_CXX_COMPILER_TARGET}" MATCHES "^amdgcn")
   set(target_name "amdgpu")
   list(APPEND OBJSAN_CFLAGS "SHELL:-Xclang -mcode-object-version=none")
   list(APPEND OBJSAN_CFLAGS "-D__OBJSAN_DEVICE__")
+  list(APPEND OBJSAN_CFLAGS "SHELL: -mllvm -vectorize-slp=false")
   list(APPEND OBJSAN_CFLAGS -flto)
   list(APPEND OBJSAN_CFLAGS -nogpulib)
   list(APPEND OBJSAN_CFLAGS -nostdlibinc)
@@ -27,6 +27,7 @@ elseif("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^nvptx" OR
   set(target_name "nvptx")
   list(APPEND OBJSAN_CFLAGS --cuda-feature=+ptx63)
   list(APPEND OBJSAN_CFLAGS "-D__OBJSAN_DEVICE__")
+  list(APPEND OBJSAN_CFLAGS "SHELL: -mllvm -vectorize-slp=false")
   list(APPEND OBJSAN_CFLAGS -flto)
   list(APPEND OBJSAN_CFLAGS -nogpulib)
   list(APPEND OBJSAN_CFLAGS -nostdlibinc)
@@ -51,6 +52,7 @@ set(OBJSAN_LINK_FLAGS
 
 set(OBJSAN_SOURCES
   objsan_rt.cpp
+  objsan_ir_rt.cpp
 )
 set(OBJSAN_HEADERS
   include/common.h
