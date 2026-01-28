@@ -59,6 +59,7 @@ umbrella_lit_testsuite_begin(check-compiler-rt)
 
 function(compiler_rt_test_runtime runtime)
   string(TOUPPER ${runtime} runtime_uppercase)
+  message(TEST_RUNTIME COMPILER_RT_HAS_${runtime_uppercase} AND COMPILER_RT_INCLUDE_TESTS ${runtime})
   if(COMPILER_RT_HAS_${runtime_uppercase} AND COMPILER_RT_INCLUDE_TESTS)
     if (${runtime} STREQUAL cfi AND NOT COMPILER_RT_HAS_UBSAN)
       # CFI tests require diagnostic mode, which is implemented in UBSan.
@@ -112,9 +113,6 @@ if(COMPILER_RT_CAN_EXECUTE_TESTS)
   endif()
   if(COMPILER_RT_BUILD_ORC)
     compiler_rt_test_runtime(orc)
-  endif()
-  if(COMPILER_RT_BUILD_INPUTGEN)
-    compiler_rt_Test_runtime(inputgen)
   endif()
   # ShadowCallStack does not yet provide a runtime with compiler-rt, the tests
   # include their own minimal runtime

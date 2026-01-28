@@ -50,6 +50,8 @@ set(OBJSAN_LINK_FLAGS
   ${COMPILER_RT_COMMON_LINK_FLAGS}
 )
 
+# TODO different builds for objsan_rt and objsan_ir_rt
+
 set(OBJSAN_SOURCES
   objsan_rt.cpp
   objsan_ir_rt.cpp
