@@ -18,11 +18,24 @@
 
 #include <cuda_runtime.h>
 
+#define CUDA_CHECK(Ret)                                                        \
+  do {                                                                         \
+    gpuAssert((Ret), __FILE__, __LINE__);                                      \
+  } while (0)
+namespace {
+void gpuAssert(cudaError_t Ret, const char *File, int Line) {
+  if (Ret != cudaSuccess) {
+    fprintf(stderr, "CUDA error %s at %s:%d\n", cudaGetErrorString(Ret), File,
+            Line);
+    exit(Ret);
+  }
+}
+} // namespace
+
 extern "C" {
 
-__device__ char *
-__objsan_register_object(char *MPtr, uint64_t ObjSize,
-                         bool RequiresTemporalCheck);
+__device__ char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
+                                          bool RequiresTemporalCheck);
 
 __device__ void __objsan_free_object(char *VPtr);
 
@@ -34,12 +47,11 @@ __objsan_register_kernel(void **VPtr, void *MPtr, size_t Size) {
                                    /*RequiresTemporalCheck=*/false);
 }
 
-__attribute__((used)) __global__ void
-__objsan_unregister_kernel(void **MPtr, void *VPtr) {
+__attribute__((used)) __global__ void __objsan_unregister_kernel(void **MPtr,
+                                                                 void *VPtr) {
   *MPtr = __objsan_decode(reinterpret_cast<char *>(VPtr));
   __objsan_free_object(reinterpret_cast<char *>(VPtr));
 }
-
 };
 
 namespace {
@@ -56,7 +68,8 @@ bool freeDeviceMemory(void *DevPtr) {
   return (FPtr(DevPtr) != cudaSuccess);
 }
 
-bool copyDeviceMemory(void *DstPtr, const void *SrcPtr, size_t Size, cudaMemcpyKind Kind) {
+bool copyDeviceMemory(void *DstPtr, const void *SrcPtr, size_t Size,
+                      cudaMemcpyKind Kind) {
   using FuncTy = cudaError_t(void *, const void *, size_t, cudaMemcpyKind);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("cudaMemcpy");
   return (FPtr(DstPtr, SrcPtr, Size, Kind) != cudaSuccess);
@@ -77,9 +90,12 @@ void *launchRegisterKernel(void *MPtr, size_t Size) {
 
   printf("preload: registering %p %zu\n", MPtr, Size);
   __objsan_register_kernel<<<1, 1>>>(DevPtr, MPtr, Size);
+  CUDA_CHECK(cudaPeekAtLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
 
   void *VPtr = nullptr;
-  auto Err = copyDeviceMemory(&VPtr, DevPtr, sizeof(void *), cudaMemcpyDeviceToHost);
+  auto Err =
+      copyDeviceMemory(&VPtr, DevPtr, sizeof(void *), cudaMemcpyDeviceToHost);
   freeDeviceMemory(DevPtr);
 
   return (Err) ? nullptr : VPtr;
@@ -95,9 +111,12 @@ void *launchUnregisterKernel(void *VPtr) {
 
   printf("preload: unregistering %p\n", VPtr);
   __objsan_unregister_kernel<<<1, 1>>>(DevPtr, VPtr);
+  CUDA_CHECK(cudaPeekAtLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
 
   void *MPtr = nullptr;
-  auto Err = copyDeviceMemory(&MPtr, DevPtr, sizeof(void *), cudaMemcpyDeviceToHost);
+  auto Err =
+      copyDeviceMemory(&MPtr, DevPtr, sizeof(void *), cudaMemcpyDeviceToHost);
   freeDeviceMemory(DevPtr);
 
   return (Err) ? nullptr : MPtr;

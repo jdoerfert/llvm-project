@@ -11,12 +11,18 @@ if ("cuda" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
     objsan_preload_cuda.cpp
     objsan_preload_impl_cuda.cpp
   )
+  # TODO the way we specify the -I needs to be fixed - I think the variable can
+  # in theory contain multiple paths
+  # TODO sm_80
   set(OBJSAN_PRELOAD_CUDA_CFLAGS
     -I${CUDA_INCLUDE_DIRS}
     -x cuda
     -fgpu-rdc
     -foffload-lto
+    --offload-link
+    --offload-arch=sm_80
   )
+  # TODO better way to get the library path?
   set(OBJSAN_PRELOAD_CUDA_LINK_FLAGS
     -lcudart -L${CUDA_TOOLKIT_ROOT_DIR}/lib64)
   add_compiler_rt_runtime(clang_rt.objsan_preload_cuda
