@@ -72,6 +72,7 @@
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 
 #include <cassert>
+#include <cctype>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -666,6 +667,14 @@ bool InstrumentorImpl::instrumentFunction(Function &Fn) {
   return Changed;
 }
 
+static std::string sanitizeGlobalName(std::string Name, Triple TT) {
+  if (TT.isNVPTX()) {
+    std::replace_if(
+        Name.begin(), Name.end(), [](char C) { return !std::isalnum(C); }, '_');
+  }
+  return Name;
+}
+
 bool InstrumentorImpl::instrumentModule() {
   SmallVector<GlobalVariable *> Globals;
   Globals.reserve(M.global_size());
@@ -685,8 +694,9 @@ bool InstrumentorImpl::instrumentModule() {
                                         GlobalValue::PrivateLinkage, Name, M);
     auto *GV = new GlobalVariable(
         M, YtorFn->getType(), true, GlobalValue::ExternalLinkage, YtorFn,
-        M.getName() + "." + std::to_string(std::rand()));
-    if (!TT.isAppleMachO() && !TT.isNVPTX())
+        sanitizeGlobalName(
+            (M.getName() + "." + std::to_string(std::rand())).str(), TT));
+    if (!TT.isAppleMachO())
       GV->setSection(Name);
 
     auto *EntryBB = BasicBlock::Create(IIRB.Ctx, "entry", YtorFn);
