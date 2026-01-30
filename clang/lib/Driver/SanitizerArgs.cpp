@@ -1302,14 +1302,9 @@ static bool hasTargetFeatureMTE(const llvm::opt::ArgStringList &CmdArgs) {
 void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
                             llvm::opt::ArgStringList &CmdArgs,
                             types::ID InputType) const {
-  // NVPTX doesn't currently support sanitizers.  Bailing out here means
-  // that e.g. -fsanitize=address applies only to host code, which is what we
-  // want for now.
-  if (TC.getTriple().isNVPTX())
-    return;
   // AMDGPU sanitizer support is experimental and controlled by -fgpu-sanitize.
   bool GPUSanitize = false;
-  if (TC.getTriple().isAMDGPU()) {
+  if (TC.getTriple().isAMDGPU() || TC.getTriple().isNVPTX()) {
     if (!Args.hasFlag(options::OPT_fgpu_sanitize, options::OPT_fno_gpu_sanitize,
                       true))
       return;

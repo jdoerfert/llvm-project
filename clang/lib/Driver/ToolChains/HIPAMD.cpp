@@ -379,7 +379,7 @@ SanitizerMask HIPAMDToolChain::getSupportedSanitizers() const {
   // This behavior is necessary because the host and device toolchains
   // invocations often share the command line, so the device toolchain must
   // tolerate flags meant only for the host toolchain.
-  return HostTC.getSupportedSanitizers();
+  return HostTC.getSupportedSanitizers() | SanitizerKind::Object;
 }
 
 VersionTuple HIPAMDToolChain::computeMSVCVersion(const Driver *D,

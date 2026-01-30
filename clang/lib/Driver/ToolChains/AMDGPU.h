@@ -10,6 +10,7 @@
 #define LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_AMDGPU_H
 
 #include "Gnu.h"
+#include "clang/Basic/Sanitizers.h"
 #include "clang/Basic/TargetID.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/ToolChain.h"
@@ -152,7 +153,7 @@ public:
                           Action::OffloadKind DeviceOffloadingKind) const;
 
   SanitizerMask getSupportedSanitizers() const override {
-    return SanitizerKind::Address;
+    return SanitizerKind::Address | SanitizerKind::Object;
   }
 
   bool diagnoseUnsupportedOption(const llvm::opt::Arg *A,

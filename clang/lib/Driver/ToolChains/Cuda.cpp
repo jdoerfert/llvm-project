@@ -8,6 +8,7 @@
 
 #include "Cuda.h"
 #include "clang/Basic/Cuda.h"
+#include "clang/Basic/Sanitizers.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Compilation.h"
@@ -969,11 +970,25 @@ CudaToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
 
   const OptTable &Opts = getDriver().getOpts();
 
+  bool gpuSanitize = Args.hasFlag(options::OPT_fgpu_sanitize,
+                                  options::OPT_fno_gpu_sanitize, true);
+  auto handleSanitizeOption = [&](Arg *A) {
+    const llvm::opt::Option &Opt = A->getOption();
+    if (!Opt.matches(options::OPT_fsanitize_EQ))
+      return false;
+    if (!gpuSanitize)
+      return true;
+    SanitizerMask K = parseSanitizerValue(A->getValue(), /*AllowGroups=*/false);
+    if (K == SanitizerKind::Object) {
+      DAL->AddJoinedArg(A, A->getOption(), "object");
+    }
+    return true;
+  };
   for (Arg *A : Args) {
     // Make sure flags are not duplicated.
-    if (!llvm::is_contained(*DAL, A)) {
-      DAL->append(A);
-    }
+    if (!llvm::is_contained(*DAL, A))
+      if (!handleSanitizeOption(A))
+        DAL->append(A);
   }
 
   if (!BoundArch.empty()) {
@@ -1041,7 +1056,7 @@ SanitizerMask CudaToolChain::getSupportedSanitizers() const {
   // This behavior is necessary because the host and device toolchains
   // invocations often share the command line, so the device toolchain must
   // tolerate flags meant only for the host toolchain.
-  return HostTC.getSupportedSanitizers();
+  return HostTC.getSupportedSanitizers() | SanitizerKind::Object;
 }
 
 VersionTuple CudaToolChain::computeMSVCVersion(const Driver *D,
