@@ -321,7 +321,9 @@ Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL,
 }
 
 template <typename Ty> Constant *getCI(Type *IT, Ty Val) {
-  return ConstantInt::get(IT, Val);
+  return ConstantInt::get(
+      IT, APInt(IT->getIntegerBitWidth(),
+                SmallVector<uint64_t>{static_cast<uint64_t>(Val)}));
 }
 
 class InstrumentorImpl final {
@@ -684,7 +686,7 @@ bool InstrumentorImpl::instrumentModule() {
     auto *GV = new GlobalVariable(
         M, YtorFn->getType(), true, GlobalValue::ExternalLinkage, YtorFn,
         M.getName() + "." + std::to_string(std::rand()));
-    if (!TT.isAppleMachO())
+    if (!TT.isAppleMachO() && !TT.isNVPTX())
       GV->setSection(Name);
 
     auto *EntryBB = BasicBlock::Create(IIRB.Ctx, "entry", YtorFn);
@@ -1274,13 +1276,13 @@ static int32_t epocheToId(uint32_t Epoche) {
 Value *InstrumentationOpportunity::getIdPre(Value &V, Type &Ty,
                                             InstrumentationConfig &IConf,
                                             InstrumentorIRBuilderTy &IIRB) {
-  return getCI(&Ty, epocheToId(IIRB.Epoche));
+  return getCI<int32_t>(&Ty, epocheToId(IIRB.Epoche));
 }
 
 Value *InstrumentationOpportunity::getIdPost(Value &V, Type &Ty,
                                              InstrumentationConfig &IConf,
                                              InstrumentorIRBuilderTy &IIRB) {
-  return getCI(&Ty, -epocheToId(IIRB.Epoche));
+  return getCI<int32_t>(&Ty, -epocheToId(IIRB.Epoche));
 }
 
 Value *InstrumentationOpportunity::forceCast(Value &V, Type &Ty,

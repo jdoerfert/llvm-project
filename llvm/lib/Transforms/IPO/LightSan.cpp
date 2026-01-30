@@ -82,6 +82,11 @@ static constexpr char AdapterPrefix[] = "__adapter_";
 [[maybe_unused]] static constexpr uint8_t LargeObjectEnc = 2;
 [[maybe_unused]] static constexpr uint64_t SmallObjectSize = (1LL << 12);
 
+static constexpr char ObjsanRuntimeBitcodeFlag[] = "objsan_runtime_bitcode";
+static constexpr char ObjsanGPUOnlyFlag[] = "objsan_gpu_only";
+static constexpr char ObjsanCPUOnlyFlag[] = "objsan_cpu_only";
+static constexpr char ObjsanEnabledFlag[] = "sanitize_obj";
+
 // Also in objsan_ir_rt.cpp
 static uint32_t MaxObjSizeForShadow = 64;
 
@@ -1753,7 +1758,8 @@ LightSanInstrumentationConfig::LightSanInstrumentationConfig(LightSanImpl &Impl,
   ReadConfig = false;
   RuntimePrefix->setString(LightSanRuntimePrefix);
   RuntimeStubsFile->setString("");
-  RuntimeBitcode->setString(ObjsanRuntimeBitcode);
+  RuntimeBitcode->setString(
+      cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))->getString());
   initializeFunctionCallees(M);
 }
 
@@ -3340,23 +3346,34 @@ PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM) {
 
 PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
   bool IsGPU = isGPUTarget(M);
+  bool IsCPU = !IsGPU;
+
+  // clang does not reliably pass -mllvm arguments to the linking processes, so
+  // we embed the options in the module, which will get picked up at link time.
+  M.addModuleFlag(llvm::Module::Override, ObjsanEnabledFlag, 1);
+  M.addModuleFlag(llvm::Module::Override, ObjsanRuntimeBitcodeFlag,
+                  MDString::get(M.getContext(), ObjsanRuntimeBitcode));
+  M.addModuleFlag(llvm::Module::Override, ObjsanGPUOnlyFlag, ObjsanGPUOnly);
+  M.addModuleFlag(llvm::Module::Override, ObjsanCPUOnlyFlag, ObjsanCPUOnly);
+
   if (ObjsanCPUOnly && IsGPU)
     return PreservedAnalyses::all();
-  if (ObjsanGPUOnly && !IsGPU)
+  if (ObjsanGPUOnly && IsCPU)
     return PreservedAnalyses::all();
 
-  static constexpr char ModuleFlag[] = "sanitize_obj";
   switch (Phase) {
   case ThinOrFullLTOPhase::None:
     return ::run(M, MAM);
   case ThinOrFullLTOPhase::ThinLTOPreLink:
   case ThinOrFullLTOPhase::FullLTOPreLink:
-    M.addModuleFlag(llvm::Module::Max, ModuleFlag, 1);
     return PreservedAnalyses::all();
   case ThinOrFullLTOPhase::ThinLTOPostLink:
   case ThinOrFullLTOPhase::FullLTOPostLink:
-    // TODO: Temporary workaround for GPU sanitizer.
-    if (M.getModuleFlag(ModuleFlag) || (ObjsanGPUOnly && IsGPU))
+    if (M.getModuleFlag(ObjsanEnabledFlag) ||
+        (M.getModuleFlag(ObjsanGPUOnlyFlag) && IsGPU))
+      return ::run(M, MAM);
+    if (M.getModuleFlag(ObjsanEnabledFlag) ||
+        (M.getModuleFlag(ObjsanCPUOnlyFlag) && IsCPU))
       return ::run(M, MAM);
     return PreservedAnalyses::all();
   }
