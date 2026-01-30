@@ -332,7 +332,8 @@ private:
 
 struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
-  LightSanInstrumentationConfig(LightSanImpl &LSI, Module &M);
+  LightSanInstrumentationConfig(LightSanImpl &LSI, Module &M,
+                                StringRef RTBitcode);
   virtual ~LightSanInstrumentationConfig() {}
 
   void initializeFunctionCallees(Module &M);
@@ -608,10 +609,10 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
 };
 
 struct LightSanImpl {
-  LightSanImpl(Module &M, ModuleAnalysisManager &MAM)
+  LightSanImpl(Module &M, ModuleAnalysisManager &MAM, StringRef RTBitcode)
       : M(M), MAM(MAM),
         FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()),
-        IConf(*this, M), IIRB(M, FAM) {}
+        IConf(*this, M, RTBitcode), IIRB(M, FAM) {}
 
   bool instrument();
 
@@ -1752,14 +1753,13 @@ bool LightSanImpl::instrument() {
   return Changed;
 }
 
-LightSanInstrumentationConfig::LightSanInstrumentationConfig(LightSanImpl &Impl,
-                                                             Module &M)
+LightSanInstrumentationConfig::LightSanInstrumentationConfig(
+    LightSanImpl &Impl, Module &M, StringRef RTBitcode)
     : InstrumentationConfig(), LSI(Impl) {
   ReadConfig = false;
   RuntimePrefix->setString(LightSanRuntimePrefix);
   RuntimeStubsFile->setString("");
-  RuntimeBitcode->setString(
-      cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))->getString());
+  RuntimeBitcode->setString(RTBitcode);
   initializeFunctionCallees(M);
 }
 
@@ -3303,8 +3303,9 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   PostP2IIO->init(*this, IIRB.Ctx, &PostP2IIOConfig);
 }
 
-PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM) {
-  LightSanImpl Impl(M, MAM);
+PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM,
+                      StringRef RTBitcode) {
+  LightSanImpl Impl(M, MAM, RTBitcode);
   LLVM_DEBUG(dbgs() << "Running objsan\n");
 
   bool Changed = Impl.instrument();
@@ -3348,33 +3349,72 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
   bool IsGPU = isGPUTarget(M);
   bool IsCPU = !IsGPU;
 
-  // clang does not reliably pass -mllvm arguments to the linking processes, so
-  // we embed the options in the module, which will get picked up at link time.
-  M.addModuleFlag(llvm::Module::Override, ObjsanEnabledFlag, 1);
-  M.addModuleFlag(llvm::Module::Override, ObjsanRuntimeBitcodeFlag,
-                  MDString::get(M.getContext(), ObjsanRuntimeBitcode));
-  M.addModuleFlag(llvm::Module::Override, ObjsanGPUOnlyFlag, ObjsanGPUOnly);
-  M.addModuleFlag(llvm::Module::Override, ObjsanCPUOnlyFlag, ObjsanCPUOnly);
-
-  if (ObjsanCPUOnly && IsGPU)
-    return PreservedAnalyses::all();
-  if (ObjsanGPUOnly && IsCPU)
-    return PreservedAnalyses::all();
+  LLVM_DEBUG(llvm::errs() << "Running LightSan in phase " << to_string(Phase)
+                          << " for triple " << M.getTargetTriple().getTriple()
+                          << "\n");
 
   switch (Phase) {
   case ThinOrFullLTOPhase::None:
-    return ::run(M, MAM);
+    if (ObjsanCPUOnly) {
+      if (IsCPU)
+        return ::run(M, MAM, ObjsanRuntimeBitcode);
+      return PreservedAnalyses::all();
+    }
+    if (ObjsanGPUOnly) {
+      if (IsGPU)
+        return ::run(M, MAM, ObjsanRuntimeBitcode);
+      return PreservedAnalyses::all();
+    }
+    return ::run(M, MAM, ObjsanRuntimeBitcode);
+
+  // clang does not reliably pass -mllvm arguments to the linking processes, so
+  // we embed the options in the module, which will get picked up at link time.
   case ThinOrFullLTOPhase::ThinLTOPreLink:
   case ThinOrFullLTOPhase::FullLTOPreLink:
+    // The fact that this pass is running, i.e. it was scheduled by clang in
+    // prelink, means that objsan was enabled.
+    M.addModuleFlag(llvm::Module::Override, ObjsanEnabledFlag, 1);
+    M.addModuleFlag(llvm::Module::Override, ObjsanRuntimeBitcodeFlag,
+                    MDString::get(M.getContext(), ObjsanRuntimeBitcode));
+    M.addModuleFlag(llvm::Module::Override, ObjsanCPUOnlyFlag, ObjsanCPUOnly);
+    M.addModuleFlag(llvm::Module::Override, ObjsanGPUOnlyFlag, ObjsanGPUOnly);
     return PreservedAnalyses::all();
+
   case ThinOrFullLTOPhase::ThinLTOPostLink:
   case ThinOrFullLTOPhase::FullLTOPostLink:
-    if (M.getModuleFlag(ObjsanEnabledFlag) ||
-        (M.getModuleFlag(ObjsanGPUOnlyFlag) && IsGPU))
-      return ::run(M, MAM);
-    if (M.getModuleFlag(ObjsanEnabledFlag) ||
-        (M.getModuleFlag(ObjsanCPUOnlyFlag) && IsCPU))
-      return ::run(M, MAM);
+    // This pass always runs in postlink, we need to check whether it was
+    // enabled using the enabled flag.
+    bool Enabled = !cast<ConstantInt>(cast<ConstantAsMetadata>(
+                                          M.getModuleFlag(ObjsanEnabledFlag))
+                                          ->getValue())
+                        ->isZero();
+    bool CPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
+                                          M.getModuleFlag(ObjsanCPUOnlyFlag))
+                                          ->getValue())
+                        ->isZero();
+    bool GPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
+                                          M.getModuleFlag(ObjsanGPUOnlyFlag))
+                                          ->getValue())
+                        ->isZero();
+    if (Enabled) {
+      if (CPUOnly) {
+        if (IsCPU)
+          return ::run(M, MAM,
+                       cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))
+                           ->getString());
+        return PreservedAnalyses::all();
+      }
+      if (GPUOnly) {
+        if (IsGPU)
+          return ::run(M, MAM,
+                       cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))
+                           ->getString());
+        return PreservedAnalyses::all();
+      }
+      return ::run(M, MAM,
+                   cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))
+                       ->getString());
+    }
     return PreservedAnalyses::all();
   }
   llvm_unreachable("Unknown LTO phase.");
