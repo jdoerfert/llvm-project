@@ -3384,19 +3384,19 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
   case ThinOrFullLTOPhase::FullLTOPostLink:
     // This pass always runs in postlink, we need to check whether it was
     // enabled using the enabled flag.
-    bool Enabled = !cast<ConstantInt>(cast<ConstantAsMetadata>(
-                                          M.getModuleFlag(ObjsanEnabledFlag))
-                                          ->getValue())
-                        ->isZero();
-    bool CPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
-                                          M.getModuleFlag(ObjsanCPUOnlyFlag))
-                                          ->getValue())
-                        ->isZero();
-    bool GPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
-                                          M.getModuleFlag(ObjsanGPUOnlyFlag))
-                                          ->getValue())
-                        ->isZero();
+    bool Enabled = false;
+    if (Metadata *MF = M.getModuleFlag(ObjsanEnabledFlag))
+      Enabled = !cast<ConstantInt>(cast<ConstantAsMetadata>(MF)->getValue())
+                     ->isZero();
     if (Enabled) {
+      bool CPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
+                                            M.getModuleFlag(ObjsanCPUOnlyFlag))
+                                            ->getValue())
+                          ->isZero();
+      bool GPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
+                                            M.getModuleFlag(ObjsanGPUOnlyFlag))
+                                            ->getValue())
+                          ->isZero();
       if (CPUOnly) {
         if (IsCPU)
           return ::run(M, MAM,

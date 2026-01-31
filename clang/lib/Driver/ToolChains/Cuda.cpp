@@ -15,10 +15,12 @@
 #include "clang/Driver/Distro.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/InputInfo.h"
+#include "clang/Driver/ToolChain.h"
 #include "clang/Options/Options.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/llvm-config.h" // for LLVM_HOST_TRIPLE
 #include "llvm/Option/ArgList.h"
+#include "llvm/Option/Option.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
@@ -874,6 +876,13 @@ void CudaToolChain::addClangTargetOptions(
   if (DriverArgs.hasFlag(options::OPT_fcuda_short_ptr,
                          options::OPT_fno_cuda_short_ptr, false))
     CC1Args.append({"-mllvm", "--nvptx-short-ptr"});
+
+  // TODO We should find a way to do this from TranslateArgs, because we only
+  // want to add this if objsan is on. For now this is ok because this arg is
+  // not used when objsan is not on.
+  CC1Args.append({"-mllvm", "-objsan-runtime-bitcode", "-mllvm",
+                  DriverArgs.MakeArgString(
+                      getCompilerRT(DriverArgs, "objsan-ir", FT_Object))});
 
   if (!DriverArgs.hasFlag(options::OPT_offloadlib, options::OPT_no_offloadlib,
                           true))

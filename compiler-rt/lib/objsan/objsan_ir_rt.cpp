@@ -131,6 +131,7 @@ __objsan_pre_global(char *MPtr, int32_t ObjSize, int8_t IsDefinition,
   return VPtr;
 }
 
+[[maybe_unused]]
 static inline void makeRealArgV(char *Ptr) {
   if (UseRealArgv)
     return;
