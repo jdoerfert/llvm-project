@@ -12473,8 +12473,9 @@ struct AAIndirectCallInfoCallSite : public AAIndirectCallInfo {
 
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     Value *FP = CB->getCalledOperand();
-    if (FP->getType()->getPointerAddressSpace())
-      FP = new AddrSpaceCastInst(FP, PointerType::get(FP->getContext(), 0),
+    const DataLayout &DL = A.getDataLayout();
+    if (FP->getType()->getPointerAddressSpace() != DL.getProgramAddressSpace())
+      FP = new AddrSpaceCastInst(FP, PointerType::get(FP->getContext(), DL.getProgramAddressSpace()),
                                  FP->getName() + ".as0", CB->getIterator());
 
     bool CBIsVoid = CB->getType()->isVoidTy();
