@@ -165,13 +165,17 @@ class Function;
 namespace AA {
 using InstExclusionSetTy = SmallPtrSet<Instruction *, 4>;
 
-enum class GPUAddressSpace : unsigned {
+/// The different kinds of GPU memory. Do not use the enum values to compare against the any address space as some GPUs, i.e., Intel via SPIRV, have decided to break with the others on the numbering. Use `isASGPUMemoryKind` instead.
+enum class GPUMemoryKind : unsigned {
   Generic = 0,
   Global = 1,
   Shared = 3,
   Constant = 4,
   Local = 5,
 };
+
+/// Return true if \p AS is a GPU memory kind specified by \p Kind.
+LLVM_ABI bool isASGPUMemoryKind(const Module &M, unsigned AS, GPUMemoryKind Kind);
 
 /// Return true iff \p M target a GPU (and we can use GPU AS reasoning).
 LLVM_ABI bool isGPU(const Module &M);
@@ -1212,7 +1216,7 @@ struct InformationCache {
                    BumpPtrAllocator &Allocator, SetVector<Function *> *CGSCC,
                    bool UseExplorer = true)
       : CGSCC(CGSCC), DL(M.getDataLayout()), Allocator(Allocator), AG(AG),
-        TargetTriple(M.getTargetTriple()) {
+        TargetTriple(M.getTargetTriple()), M(M) {
     if (UseExplorer)
       Explorer = new (Allocator) MustBeExecutedContextExplorer(
           /* ExploreInterBlock */
@@ -1326,6 +1330,9 @@ struct InformationCache {
   /// Return datalayout used in the module.
   const DataLayout &getDL() { return DL; }
 
+  /// Return the current module.
+  const Module &getModule() { return M; }
+
   /// Return the map conaining all the knowledge we have from `llvm.assume`s.
   const RetainedKnowledgeMap &getKnowledgeMap() const { return KnowledgeMap; }
 
@@ -1429,6 +1436,9 @@ private:
 
   /// The triple describing the target machine.
   Triple TargetTriple;
+
+  /// The current module.
+  const Module &M;
 
   /// Give the Attributor access to the members so
   /// Attributor::identifyDefaultAbstractAttributes(...) can initialize them.

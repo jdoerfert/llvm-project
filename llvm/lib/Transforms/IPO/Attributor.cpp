@@ -197,6 +197,38 @@ ChangeStatus &llvm::operator&=(ChangeStatus &L, ChangeStatus R) {
 }
 ///}
 
+static unsigned convertGPUMemoryKindToSPIRV(AA::GPUMemoryKind Kind) {
+  switch (Kind) {
+  case AA::GPUMemoryKind::Generic:
+    return 4;
+  case AA::GPUMemoryKind::Global:
+    return 1;
+  case AA::GPUMemoryKind::Shared:
+    return 3;
+  case AA::GPUMemoryKind::Constant:
+    return 2;
+  case AA::GPUMemoryKind::Local:
+    return 0;
+  default:
+  llvm_unreachable("Unknown GPUMemoryKind");
+  };
+}
+
+bool AA::isASGPUMemoryKind(const Module &M, unsigned AS, AA::GPUMemoryKind Kind) {
+  Triple T(M.getTargetTriple());
+  assert(T.isGPU() && "Expected a GPU target");
+  unsigned KindVal = (unsigned) Kind;
+  switch (T.getArch()) {
+    case Triple::ArchType::spirv:
+    case Triple::ArchType::spirv32:
+    case Triple::ArchType::spirv64:
+      KindVal = convertGPUMemoryKindToSPIRV(Kind);
+    default:
+      break;
+  }
+  return AS == KindVal;
+}
+
 bool AA::isGPU(const Module &M) {
   Triple T(M.getTargetTriple());
   return T.isGPU();
@@ -872,15 +904,17 @@ bool AA::isAssumedThreadLocalObject(Attributor &A, Value &Obj,
     }
   }
 
-  if (A.getInfoCache().targetIsGPU()) {
-    if (Obj.getType()->getPointerAddressSpace() ==
-        (int)AA::GPUAddressSpace::Local) {
+  auto &InfoCache = A.getInfoCache();
+  if (InfoCache.targetIsGPU()) {
+    const Module &M = InfoCache.getModule();
+    if (AA::isASGPUMemoryKind(M, Obj.getType()->getPointerAddressSpace(),
+        AA::GPUMemoryKind::Local)) {
       LLVM_DEBUG(dbgs() << "[AA] Object '" << Obj
                         << "' is thread local; GPU local memory\n");
       return true;
     }
-    if (Obj.getType()->getPointerAddressSpace() ==
-        (int)AA::GPUAddressSpace::Constant) {
+    if (AA::isASGPUMemoryKind(M, Obj.getType()->getPointerAddressSpace(),
+        AA::GPUMemoryKind::Constant)) {
       LLVM_DEBUG(dbgs() << "[AA] Object '" << Obj
                         << "' is thread local; GPU constant memory\n");
       return true;
