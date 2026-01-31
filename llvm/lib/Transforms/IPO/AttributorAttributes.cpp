@@ -8710,7 +8710,7 @@ void AAMemoryLocationImpl::categorizePtrValue(
     if ((isASGPUMemoryKind(M, AccessAS, AA::GPUMemoryKind::Constant) ||
          (isASGPUMemoryKind(M, ObjectAS, AA::GPUMemoryKind::Constant) &&
           isIdentifiedObject(&Obj))) &&
-        AA::isGPU(*I.getModule()))
+        AA::isGPU(M))
       return true;
 
     if (isa<UndefValue>(&Obj))
