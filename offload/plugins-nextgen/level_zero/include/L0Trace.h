@@ -55,10 +55,37 @@ using namespace llvm::offload::debug;
     }                                                                          \
   } while (0)
 
+/// For thread-safe functions.
+/// TODO: This leaks both Log and LogStr.
+#define CALL_ZE_RET_W_LOG(Ret, Fn, Log, ...)                                   \
+  do {                                                                         \
+    ze_result_t rc;                                                            \
+    CALL_ZE(rc, Fn, __VA_ARGS__);                                              \
+    if (rc != ZE_RESULT_SUCCESS) {                                             \
+      size_t LogSize;                                                          \
+      char *LogStr = nullptr;                                                  \
+      CALL_ZE(rc, zeModuleBuildLogGetString, Log, &LogSize, nullptr);          \
+      if (rc == ZE_RESULT_SUCCESS) {                                           \
+        LogStr = (char *)calloc(sizeof(char *), LogSize + 1);                  \
+        CALL_ZE(rc, zeModuleBuildLogGetString, Log, &LogSize, LogStr);         \
+      }                                                                        \
+      ODBG(OLDT_Error) << "Error: " << #Fn << " failed with error code " << rc \
+                       << ", " << getZeErrorName(rc) << " log:\n"              \
+                       << LogStr;                                              \
+      return Ret;                                                              \
+    }                                                                          \
+  } while (0)
+
 #define CALL_ZE_RET_ERROR(Fn, ...)                                             \
   CALL_ZE_RET(Plugin::error(ErrorCode::UNKNOWN, "%s failed with error %d, %s", \
                             #Fn, rc, getZeErrorName(rc)),                      \
               Fn, __VA_ARGS__)
+
+#define CALL_ZE_RET_ERROR_W_LOG(Fn, Log, ...)                                  \
+  CALL_ZE_RET_W_LOG(Plugin::error(ErrorCode::UNKNOWN,                          \
+                                  "%s failed with error %d, %s, log: '%s'",    \
+                                  #Fn, rc, getZeErrorName(rc), LogStr),        \
+                    Fn, Log, __VA_ARGS__)
 
 #define CALL_ZE_EXT_SILENT_RET(Device, Ret, Name, ...)                         \
   do {                                                                         \

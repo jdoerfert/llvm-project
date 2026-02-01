@@ -80,8 +80,9 @@ Error L0ProgramBuilderTy::addModule(size_t Size, const uint8_t *Image,
   ModuleDesc.pInputModule = Image;
   ModuleDesc.pBuildFlags = BuildOptions.c_str();
   ModuleDesc.pConstants = &SpecConstants;
-  CALL_ZE_RET_ERROR(zeModuleCreate, l0Device.getZeContext(),
-                    l0Device.getZeDevice(), &ModuleDesc, &Module, &BuildLog);
+  CALL_ZE_RET_ERROR_W_LOG(zeModuleCreate, BuildLog, l0Device.getZeContext(),
+                          l0Device.getZeDevice(), &ModuleDesc, &Module,
+                          &BuildLog);
 
   // Check if module link is required. We do not need this check for
   // library module.
@@ -90,6 +91,18 @@ Error L0ProgramBuilderTy::addModule(size_t Size, const uint8_t *Image,
                                          nullptr, 0};
     CALL_ZE_RET_ERROR(zeModuleGetProperties, Module, &Properties);
     RequiresModuleLink = Properties.flags & ZE_MODULE_PROPERTY_FLAG_IMPORTS;
+    if (RequiresModuleLink) {
+      ze_linkage_inspection_ext_desc_t desc;
+      desc.pNext = nullptr;
+      desc.flags = ZE_LINKAGE_INSPECTION_EXT_FLAG_UNRESOLVABLE_IMPORTS;
+      ze_module_build_log_handle_t log;
+      zeModuleInspectLinkageExt(&desc, 1, &Module, &log);
+      size_t LogSize;
+      CALL_ZE_RET_ERROR(zeModuleBuildLogGetString, log, &LogSize, nullptr);
+      char *LogStr = (char *)calloc(sizeof(char *), LogSize + 1);
+      CALL_ZE_RET_ERROR(zeModuleBuildLogGetString, log, &LogSize, LogStr);
+      llvm::errs() << "IMPORTS\n" << LogStr << "\n";
+    }
   }
   // For now, assume the first module contains libraries, globals.
   if (Modules.empty())
@@ -106,14 +119,13 @@ Error L0ProgramBuilderTy::linkModules() {
     return Plugin::success();
   }
 
-  if (Modules.empty())
     return Plugin::error(ErrorCode::UNKNOWN,
                          "Invalid number of modules when linking modules");
 
   ze_module_build_log_handle_t LinkLog = nullptr;
-  CALL_ZE_RET_ERROR(zeModuleDynamicLink,
-                    static_cast<uint32_t>(l0Device.getNumGlobalModules()),
-                    l0Device.getGlobalModulesArray(), &LinkLog);
+  CALL_ZE_RET_ERROR_W_LOG(zeModuleDynamicLink, LinkLog,
+                          static_cast<uint32_t>(l0Device.getNumGlobalModules()),
+                          l0Device.getGlobalModulesArray(), &LinkLog);
   return Plugin::success();
 }
 
