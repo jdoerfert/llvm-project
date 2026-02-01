@@ -9,19 +9,18 @@
 // Code for tracing L0.
 //
 //===----------------------------------------------------------------------===//
-// clang-format off
 #ifndef OPENMP_LIBOMPTARGET_PLUGINS_NEXTGEN_LEVEL_ZERO_L0TRACE_H
 #define OPENMP_LIBOMPTARGET_PLUGINS_NEXTGEN_LEVEL_ZERO_L0TRACE_H
 
 #include "Shared/Debug.h"
 #include "omptarget.h"
-#include <string>
 #include <level_zero/ze_api.h>
+#include <string>
 
 using namespace llvm::offload::debug;
 #define CALL_ZE(Rc, Fn, ...)                                                   \
   do {                                                                         \
-      Rc = Fn(__VA_ARGS__);                                                    \
+    Rc = Fn(__VA_ARGS__);                                                      \
   } while (0)
 
 /// For non-thread-safe functions.
@@ -32,16 +31,17 @@ using namespace llvm::offload::debug;
     CALL_ZE(rc, Fn, __VA_ARGS__);                                              \
     Mtx.unlock();                                                              \
     if (rc != ZE_RESULT_SUCCESS) {                                             \
-      ODBG(OLDT_Error) << "Error: " << #Fn << " failed with error code "        \
-                      << rc << ", " << getZeErrorName(rc);                     \
+      ODBG(OLDT_Error) << "Error: " << #Fn << " failed with error code " << rc \
+                       << ", " << getZeErrorName(rc);                          \
       return Ret;                                                              \
     }                                                                          \
   } while (0)
 
-#define CALL_ZE_RET_ERROR_MTX(Fn, Mtx, ...)                                   \
-  CALL_ZE_RET_MTX(                                                            \
-    Plugin::error(ErrorCode::UNKNOWN, "%s failed with error %d, %s",          \
-    #Fn, rc, getZeErrorName(rc)), Fn, Mtx, __VA_ARGS__)
+#define CALL_ZE_RET_ERROR_MTX(Fn, Mtx, ...)                                    \
+  CALL_ZE_RET_MTX(Plugin::error(ErrorCode::UNKNOWN,                            \
+                                "%s failed with error %d, %s", #Fn, rc,        \
+                                getZeErrorName(rc)),                           \
+                  Fn, Mtx, __VA_ARGS__)
 
 /// For thread-safe functions.
 #define CALL_ZE_RET(Ret, Fn, ...)                                              \
@@ -49,16 +49,16 @@ using namespace llvm::offload::debug;
     ze_result_t rc;                                                            \
     CALL_ZE(rc, Fn, __VA_ARGS__);                                              \
     if (rc != ZE_RESULT_SUCCESS) {                                             \
-      ODBG(OLDT_Error) << "Error: " << #Fn << " failed with error code "        \
-                      << rc << ", " << getZeErrorName(rc);                     \
+      ODBG(OLDT_Error) << "Error: " << #Fn << " failed with error code " << rc \
+                       << ", " << getZeErrorName(rc);                          \
       return Ret;                                                              \
     }                                                                          \
   } while (0)
 
 #define CALL_ZE_RET_ERROR(Fn, ...)                                             \
-  CALL_ZE_RET(                                                                 \
-    Plugin::error(ErrorCode::UNKNOWN, "%s failed with error %d, %s",           \
-    #Fn, rc, getZeErrorName(rc)), Fn, __VA_ARGS__)
+  CALL_ZE_RET(Plugin::error(ErrorCode::UNKNOWN, "%s failed with error %d, %s", \
+                            #Fn, rc, getZeErrorName(rc)),                      \
+              Fn, __VA_ARGS__)
 
 #define CALL_ZE_EXT_SILENT_RET(Device, Ret, Name, ...)                         \
   do {                                                                         \
@@ -70,9 +70,12 @@ using namespace llvm::offload::debug;
 
 #define CALL_ZE_EXT_RET_ERROR(Device, Name, ...)                               \
   CALL_ZE_EXT_SILENT_RET(Device,                                               \
-      Plugin::error(ErrorCode::UNKNOWN, "%s failed with code %d, %s",          \
-			 #Name, rc, getZeErrorName(rc)), Name, __VA_ARGS__)
+                         Plugin::error(ErrorCode::UNKNOWN,                     \
+                                       "%s failed with code %d, %s", #Name,    \
+                                       rc, getZeErrorName(rc)),                \
+                         Name, __VA_ARGS__)
 
+// clang-format off
 #define FOREACH_ZE_ERROR_CODE(Fn)                                              \
   Fn(ZE_RESULT_SUCCESS)                                                        \
   Fn(ZE_RESULT_NOT_READY)                                                      \
@@ -115,8 +118,11 @@ using namespace llvm::offload::debug;
   Fn(ZE_RESULT_ERROR_OVERLAPPING_REGIONS)                                      \
   Fn(ZE_RESULT_WARNING_ACTION_REQUIRED)                                        \
   Fn(ZE_RESULT_ERROR_UNKNOWN)
+// clang-format on
 
-#define CASE_TO_STRING(Num) case Num: return #Num;
+#define CASE_TO_STRING(Num)                                                    \
+  case Num:                                                                    \
+    return #Num;
 inline const char *getZeErrorName(int32_t Error) {
   switch (Error) {
     FOREACH_ZE_ERROR_CODE(CASE_TO_STRING)
