@@ -17,7 +17,12 @@
 #include <stdint.h>
 
 template <typename T> using Private = __gpu_private T;
+#ifdef __SPIRV__
+// Workaround
+template <typename T> using Constant = T;
+#else
 template <typename T> using Constant = __gpu_constant T;
+#endif
 template <typename T> using Local = __gpu_local T;
 template <typename T> using Global = __gpu_local T;
 
@@ -131,17 +136,18 @@ struct IdentTy {
 
 using __kmpc_impl_lanemask_t = LaneMaskTy;
 
-#ifdef __SPIRV__
 // Function pointers in SPIRV backend have a special address space 9.
 // Since function pointers are passed as regular void * pointers it is
 // necessary to annotate them with proper address space to avoid casting
 // errors during compilation.
-using FnPtrTy = void [[clang::address_space(9)]] *;
+#ifdef __SPIRV__
+#define FN_PTR_AS [[clang::address_space(9)]]
 #else
-using FnPtrTy = void *;
+#define FN_PTR_AS
 #endif
 
-using ParallelRegionFnTy = FnPtrTy;
+using ParallelRegionFnTy = void FN_PTR_AS (*)();
+using WorkerParallelRegionFnTy = void FN_PTR_AS (*)(uint32_t, uint32_t);
 
 using CriticalNameTy = int32_t[8];
 
@@ -149,10 +155,12 @@ struct omp_lock_t {
   void *Lock;
 };
 
-using InterWarpCopyFnTy = void (*)(void *src, int32_t warp_num);
-using ShuffleReductFnTy = void (*)(void *rhsData, int16_t lane_id,
-                                   int16_t lane_offset, int16_t shortCircuit);
-using ListGlobalFnTy = void (*)(void *buffer, int idx, void *reduce_data);
+using InterWarpCopyFnTy = void FN_PTR_AS (*)(void *src, int32_t warp_num);
+using ShuffleReductFnTy = void FN_PTR_AS (*)(void *rhsData, int16_t lane_id,
+                                             int16_t lane_offset,
+                                             int16_t shortCircuit);
+using ListGlobalFnTy = void FN_PTR_AS (*)(void *buffer, int idx,
+                                          void *reduce_data);
 
 /// Macros for allocating variables in different address spaces.
 ///{

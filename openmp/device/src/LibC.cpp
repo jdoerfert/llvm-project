@@ -33,16 +33,24 @@ extern "C" {
 }
 
 [[gnu::weak]] int printf(const char *Format, ...) {
+#if !defined(__SPIRV__)
   __builtin_va_list vlist;
   __builtin_va_start(vlist, Format);
   return ::vprintf(Format, vlist);
+#else
+  return 0;
+#endif
 }
 }
 
 namespace ompx {
 [[clang::no_builtin("printf")]] int printf(const char *Format, ...) {
+#if !defined(__SPIRV__)
   __builtin_va_list vlist;
   __builtin_va_start(vlist, Format);
   return ::vprintf(Format, vlist);
+#else
+  return 0;
+#endif
 }
 } // namespace ompx

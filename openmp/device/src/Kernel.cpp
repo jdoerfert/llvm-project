@@ -49,7 +49,7 @@ static void genericStateMachine(IdentTy *Ident) {
   uint32_t TId = mapping::getThreadIdInBlock();
 
   do {
-    ParallelRegionFnTy WorkFn = nullptr;
+    WorkerParallelRegionFnTy WorkFn = nullptr;
 
     // Wait for the signal that we have a new work function.
     synchronize::threads(atomic::seq_cst);
@@ -64,7 +64,7 @@ static void genericStateMachine(IdentTy *Ident) {
 
     if (IsActive) {
       ASSERT(!mapping::isSPMDMode(), nullptr);
-      ((void (*)(uint32_t, uint32_t))WorkFn)(0, TId);
+      WorkFn(0, TId);
       __kmpc_kernel_end_parallel();
     }
 
@@ -152,7 +152,7 @@ void __kmpc_target_deinit() {
     // is not there yet. Thus, we assume we never reach it from
     // __kmpc_target_deinit. That allows us to remove the store in there to
     // ParallelRegionFn, which leads to bad results later on.
-    ParallelRegionFnTy WorkFn = nullptr;
+    WorkerParallelRegionFnTy WorkFn = nullptr;
     __kmpc_kernel_parallel(&WorkFn);
     ASSERT(WorkFn == nullptr, nullptr);
   }

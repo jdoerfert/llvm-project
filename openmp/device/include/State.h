@@ -83,7 +83,7 @@ struct TeamStateTy {
 
   uint32_t ParallelTeamSize;
   uint32_t HasThreadState;
-  ParallelRegionFnTy ParallelRegionFnVar;
+  WorkerParallelRegionFnTy WorkerParallelRegionFnVar;
 };
 
 extern Local<TeamStateTy> TeamState;
@@ -134,7 +134,7 @@ enum ValueKind {
   VK_RunSched,
   // ---
   VK_RunSchedChunk,
-  VK_ParallelRegionFn,
+  VK_WorkerParallelRegionFn,
   VK_ParallelTeamSize,
   VK_HasThreadState,
 };
@@ -219,11 +219,11 @@ lookup32(ValueKind Kind, bool IsReadonly, IdentTy *Ident, bool ForceTeamState) {
   __builtin_unreachable();
 }
 
-[[gnu::always_inline, gnu::flatten]] inline FnPtrTy &
+[[gnu::always_inline, gnu::flatten]] inline WorkerParallelRegionFnTy &
 lookupPtr(ValueKind Kind, bool IsReadonly, bool ForceTeamState) {
   switch (Kind) {
-  case state::VK_ParallelRegionFn:
-    return TeamState.ParallelRegionFnVar;
+  case state::VK_WorkerParallelRegionFn:
+    return TeamState.WorkerParallelRegionFnVar;
   default:
     break;
   }
@@ -340,7 +340,8 @@ inline state::Value<uint32_t, state::VK_ParallelTeamSize> ParallelTeamSize;
 inline state::Value<uint32_t, state::VK_HasThreadState> HasThreadState;
 
 /// TODO
-inline state::PtrValue<ParallelRegionFnTy, state::VK_ParallelRegionFn>
+inline state::PtrValue<WorkerParallelRegionFnTy,
+                       state::VK_WorkerParallelRegionFn>
     ParallelRegionFn;
 
 void runAndCheckState(void(Func(void)));

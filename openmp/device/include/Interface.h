@@ -292,10 +292,10 @@ void __kmpc_end_critical(IdentTy *Loc, int32_t TId, CriticalNameTy *Name);
 ///
 ///{
 /// TODO
-void __kmpc_kernel_prepare_parallel(ParallelRegionFnTy WorkFn);
+void __kmpc_kernel_prepare_parallel(WorkerParallelRegionFnTy WorkFn);
 
 /// TODO
-bool __kmpc_kernel_parallel(ParallelRegionFnTy *WorkFn);
+bool __kmpc_kernel_parallel(WorkerParallelRegionFnTy *WorkFn);
 
 /// TODO
 void __kmpc_kernel_end_parallel();

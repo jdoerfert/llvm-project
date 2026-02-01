@@ -188,7 +188,7 @@ void state::TeamStateTy::init(bool IsSPMD) {
   ICVState.RunSchedChunkVar = 1;
   ParallelTeamSize = 1;
   HasThreadState = false;
-  ParallelRegionFnVar = nullptr;
+  WorkerParallelRegionFnVar = nullptr;
 }
 
 bool state::TeamStateTy::operator==(const TeamStateTy &Other) const {

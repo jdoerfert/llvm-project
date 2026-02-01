@@ -181,7 +181,7 @@ void setCriticalLock(omp_lock_t *Lock) { setLock(Lock); }
 ///}
 
 #if defined(__SPIRV__)
-void namedBarrierInit() { __builtin_trap(); } // TODO
+void namedBarrierInit() {}                    // TODO
 void namedBarrier() { __builtin_trap(); }     // TODO
 
 void unsetLock(omp_lock_t *Lock) {

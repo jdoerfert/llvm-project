@@ -68,7 +68,8 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
 
 // Invoke an outlined parallel function unwrapping arguments (up to 32).
 [[clang::always_inline]] void invokeMicrotask(int32_t global_tid,
-                                              int32_t bound_tid, FnPtrTy fn,
+                                              int32_t bound_tid,
+                                              ParallelRegionFnTy fn,
                                               void **args, int64_t nargs) {
   switch (nargs) {
 #include "generated_microtask_cases.gen"
@@ -82,10 +83,9 @@ uint32_t determineNumberOfThreads(int32_t NumThreadsClause) {
 
 extern "C" {
 
-[[clang::always_inline]] void __kmpc_parallel_spmd(IdentTy *ident,
-                                                   int32_t num_threads,
-                                                   FnPtrTy fn, void **args,
-                                                   const int64_t nargs) {
+[[clang::always_inline]] void
+__kmpc_parallel_spmd(IdentTy *ident, int32_t num_threads, ParallelRegionFnTy fn,
+                     void **args, const int64_t nargs) {
   uint32_t TId = mapping::getThreadIdInBlock();
   uint32_t NumThreads = determineNumberOfThreads(num_threads);
   uint32_t PTeamSize =
@@ -142,9 +142,9 @@ extern "C" {
 
 [[clang::always_inline]] void
 __kmpc_parallel_60(IdentTy *ident, int32_t, int32_t if_expr,
-                   int32_t num_threads, int proc_bind, FnPtrTy fn,
-                   FnPtrTy wrapper_fn, void **args, int64_t nargs,
-                   int32_t nt_strict) {
+                   int32_t num_threads, int proc_bind, ParallelRegionFnTy fn,
+                   WorkerParallelRegionFnTy wrapper_fn, void **args,
+                   int64_t nargs, int32_t nt_strict) {
   uint32_t TId = mapping::getThreadIdInBlock();
 
   // Assert the parallelism level is zero if disabled by the user.
@@ -261,7 +261,8 @@ __kmpc_parallel_60(IdentTy *ident, int32_t, int32_t if_expr,
                                           1u, true, ident,
                                           /*ForceTeamState=*/true);
     state::ValueRAII ParallelRegionFnRAII(state::ParallelRegionFn, wrapper_fn,
-                                          (FnPtrTy) nullptr, true, ident,
+                                          (WorkerParallelRegionFnTy) nullptr,
+                                          true, ident,
                                           /*ForceTeamState=*/true);
     state::ValueRAII ActiveLevelRAII(icv::ActiveLevel, 1u, 0u, true, ident,
                                      /*ForceTeamState=*/true);
@@ -278,7 +279,8 @@ __kmpc_parallel_60(IdentTy *ident, int32_t, int32_t if_expr,
     __kmpc_end_sharing_variables();
 }
 
-[[clang::noinline]] bool __kmpc_kernel_parallel(ParallelRegionFnTy *WorkFn) {
+[[clang::noinline]] bool
+__kmpc_kernel_parallel(WorkerParallelRegionFnTy *WorkFn) {
   // Work function and arguments for L1 parallel region.
   *WorkFn = state::ParallelRegionFn;
 
