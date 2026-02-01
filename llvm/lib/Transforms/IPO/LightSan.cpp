@@ -355,7 +355,7 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     if (Size != ~0UL)
       return IIRB.IRB.getInt64(Size);
     Value *Obj = getUnderlyingObjectRecursive(&Ptr);
-    auto EBPI = BasePointerSizeOffsetMap.lookup({Obj, Fn});
+    ExtendedBasePointerInfo EBPI = BasePointerSizeOffsetMap.at({Obj, Fn});
     if (!EBPI.ObjectSize) {
       getBasePointerInfo(*Obj, IIRB);
       EBPI = BasePointerSizeOffsetMap[{Obj, Fn}];
@@ -372,7 +372,7 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
     if (EncodingNo != ~0UL)
       return IIRB.IRB.getInt8(EncodingNo);
     Value *Obj = getUnderlyingObjectRecursive(&Ptr);
-    auto EBPI = BasePointerSizeOffsetMap.lookup({Obj, Fn});
+    ExtendedBasePointerInfo EBPI = BasePointerSizeOffsetMap.at({Obj, Fn});
     if (!EBPI.ObjectSize) {
       getBasePointerInfo(*Obj, IIRB);
       EBPI = BasePointerSizeOffsetMap[{Obj, Fn}];
@@ -2048,7 +2048,8 @@ struct ExtendedBasePointerIO : public BasePointerIO {
     if (!ObjSize)
       ObjSize = IIRB.IRB.CreateLoad(IIRB.Int64Ty, CI->getArgOperand(1));
 
-    auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{VPtr, Fn}];
+    Value *Obj = getUnderlyingObjectRecursive(VPtr);
+    auto &EBPI = LSIConf.BasePointerSizeOffsetMap[{Obj, Fn}];
     EBPI.ObjectSize = ObjSize;
 #if 0
     // TODO: This needs to be enabled only if we do not hand out mptr once we run out of objects

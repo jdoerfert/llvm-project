@@ -465,7 +465,7 @@ protected:
 };
 
 } // end anonymous namespace
-//
+
 Value *instrumentor::getUnderlyingObjectRecursive(Value *Ptr) {
   auto *NewVPtr = const_cast<Value *>(getUnderlyingObjectAggressive(Ptr));
   while (NewVPtr != Ptr) {
