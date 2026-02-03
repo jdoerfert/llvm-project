@@ -27,12 +27,14 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cinttypes>
 #include <cstddef>
 #include <map>
 #include <set>
+#include <string>
 #include <utility>
 
 using namespace Fortran::common;
@@ -42,6 +44,8 @@ using namespace Fortran;
 
 static llvm::cl::opt<std::string> DeclarationOutput("declarations",
     llvm::cl::desc("Output file for declarations"), llvm::cl::init(""));
+static llvm::cl::opt<std::string> LocalDeclarationOutput("local-declarations",
+    llvm::cl::desc("Output file for local declarations"), llvm::cl::init(""));
 static llvm::cl::opt<std::string> CommonBlockOutput("common-blocks",
     llvm::cl::desc("Output file for common blocks"), llvm::cl::init(""));
 
@@ -54,10 +58,13 @@ static std::string str_toupper(std::string s) {
 struct FunctionInfo {
   std::string prefix;
   std::string name;
+  bool recursive{false};
+  std::string returnVar;
   std::set<std::string> args;
   const Suffix *suffix{nullptr};
   const LanguageBindingSpec *bind{nullptr};
   std::string argsPrinted;
+  std::set<std::string> pointerSet;
   std::map<std::string, std::string> declMap;
   std::map<std::string, std::string> commonMap;
 };
@@ -336,8 +343,10 @@ public:
     Walk("_", std::get<std::optional<KindParam>>(x.t));
   }
   void Unparse(const DerivedTypeStmt &x) { // R727
+    if (printFunctionArgs_ || printReturnArg_)
+      return;
     // Modified
-    Put("class ");
+    Put("struct ");
     Walk(std::get<Name>(x.t));
     Put(" {\n");
     assert(std::get<std::list<TypeAttrSpec>>(x.t).empty());
@@ -352,10 +361,15 @@ public:
     Word("EXTENDS("), Walk(x.v), Put(')');
   }
   void Unparse(const EndTypeStmt &x) { // R730
+    if (printFunctionArgs_ || printReturnArg_)
+      return;
     // Modified
-    assert(!x.v);
     Outdent();
     Put("};");
+    if (x.v) {
+      Put(" // ");
+      Walk(x.v);
+    }
   }
   void Unparse(const SequenceStmt &) { // R731
     Word("SEQUENCE");
@@ -504,6 +518,7 @@ public:
     Put(x.v);
   }
   void Unparse(const AcValue::Triplet &x) { // R773
+    printf("FOOBAR\n");
     Walk(std::get<0>(x.t)), Put(':'), Walk(std::get<1>(x.t));
     Walk(":", std::get<std::optional<ScalarIntExpr>>(x.t));
   }
@@ -536,10 +551,11 @@ public:
     // Modified
     const auto &dts{std::get<DeclarationTypeSpec>(x.t)};
     const auto &attrs{std::get<std::list<AttrSpec>>(x.t)};
-    // for (const AttrSpec &y : attrs) {
-    //   if (std::get_if<Parameter>(&y.u))
-    //     Put("const ");
-    // }
+    bool isPointer = false;
+    for (const AttrSpec &y : attrs) {
+      if (std::holds_alternative<Pointer>(y.u))
+        isPointer = true;
+    }
     auto *currentFunction =
         currentFunctions_.empty() ? nullptr : currentFunctions_.back();
     assert(currentFunction && "currentFunction is null");
@@ -550,17 +566,25 @@ public:
     auto *sav = out_;
     out_ = &sout;
 
-    auto numCommas = currentFunction->args.size() - 1;
+    bool firstArg = true;
     for (const EntityDecl &ed : entities) {
       auto name = str_toupper(std::get<ObjectName>(ed.t).ToString());
-      if (printFunctionArgs_ != !!currentFunction->args.count(name)) {
+      if (printReturnArg_ && (currentFunction->returnVar != name))
         continue;
-      }
+      if (printFunctionArgs_ && !currentFunction->args.count(name))
+        continue;
+      if (!printFunctionArgs_ && currentFunction->args.count(name))
+        continue;
+
+      if (printFunctionArgs_ && !firstArg)
+        Word(", ");
+      firstArg = false;
 
       Walk(dts);
-      Walk("_", attrs, "_");
+      Walk(" ", attrs, " ");
       Put(' ');
-      Walk(ed);
+      if (!printReturnArg_)
+        Walk(ed);
 
       if (LS) {
         common::visit(
@@ -571,17 +595,29 @@ public:
             LS->u);
       }
 
-      if (printFunctionArgs_) {
-        if (numCommas-- > 0)
-          Word(", ");
-      } else {
+      if (printReturnArg_) {
+        sout.flush();
+        currentFunction->prefix += s;
+        s.clear();
+        break;
+      }
+      if (!printFunctionArgs_) {
         Put(";");
         sout.flush();
         currentFunction->declMap[name] = s;
         s.clear();
       }
+      if (isPointer)
+        currentFunction->pointerSet.insert(name);
     }
 
+    if (printFunctionArgs_) {
+      sout.flush();
+      if (currentFunction->argsPrinted.empty())
+        currentFunction->argsPrinted += s;
+      else
+        currentFunction->argsPrinted += ", " + s;
+    }
     LS = nullptr;
     out_ = sav;
   }
@@ -641,6 +677,7 @@ public:
     Walk(std::get<std::optional<SpecificationExpr>>(x.t), ":"), Put('*');
   }
   void Unparse(const ExplicitShapeSpec &x) { // R812 - R813 & R816 - R818
+    printf("FOOBAR\n");
     Walk(std::get<std::optional<SpecificationExpr>>(x.t), ":");
     Walk(std::get<SpecificationExpr>(x.t));
   }
@@ -688,7 +725,8 @@ public:
   void Post(const Value &) { Word("VALUE"); }
   void Post(const Volatile &) { Word("VOLATILE"); }
   void Unparse(const IntentSpec &x) { // R826
-    Word("INTENT("), Walk(x.v), Put(")");
+    Word("INTENT_");
+    Walk(x.v);
   }
   void Unparse(const AccessStmt &x) { // R827
     Walk(std::get<AccessSpec>(x.t));
@@ -839,9 +877,9 @@ public:
     }
   }
   void Unparse(const CommonStmt &x) { // R873
-    if (!printFunctionArgs_) {
-      Walk(x.blocks);
-    }
+    if (printFunctionArgs_ || printReturnArg_)
+      return;
+    Walk(x.blocks);
   }
   void Unparse(const CommonBlockObject &x) { // R874
     Walk(std::get<Name>(x.t));
@@ -850,7 +888,7 @@ public:
   void Unparse(const CommonStmt::Block &x) {
     auto blockName = std::get<std::optional<Name>>(x.t);
     std::string blockNameStr =
-        blockName ? str_toupper(blockName->ToString()) : "";
+        blockName ? str_toupper(blockName->ToString()) : "common_";
     auto *currentFunction = currentFunctions_.back();
     assert(currentFunction);
     int i = 0;
@@ -868,18 +906,18 @@ public:
   }
   void Unparse(const Substring &x) { // R908, R909
     Walk(std::get<DataRef>(x.t));
-    Put('('), Walk(std::get<SubstringRange>(x.t)), Put(')');
+    Put(".substr<"), Walk(std::get<SubstringRange>(x.t)), Put(">()");
   }
   void Unparse(const CharLiteralConstantSubstring &x) {
     Walk(std::get<CharLiteralConstant>(x.t));
-    Put('('), Walk(std::get<SubstringRange>(x.t)), Put(')');
+    Put(".substr<"), Walk(std::get<SubstringRange>(x.t)), Put(">()");
   }
   void Unparse(const SubstringInquiry &x) {
     Walk(x.v);
     Put(x.source.end()[-1] == 'n' ? "%LEN" : "%KIND");
   }
   void Unparse(const SubstringRange &x) { // R910
-    Walk(x.t, ":");
+    Walk(x.t, ",");
   }
   void Unparse(const PartRef &x) { // R912
     Walk(x.name);
@@ -1015,11 +1053,16 @@ public:
             auto &dataRef = std::get<DataRef>(designator.value().u);
             if (std::holds_alternative<Name>(dataRef.u)) {
               auto &name = std::get<Name>(dataRef.u);
-              if (str_toupper(name.ToString()) == currentFunction->name) {
+              auto nameStr = str_toupper(name.ToString());
+              if ((nameStr == currentFunction->name) ||
+                  (nameStr == currentFunction->returnVar)) {
                 Put("return ");
                 Walk(std::get<Expr>(x.t));
                 Put(';');
                 return;
+              }
+              if (currentFunction->pointerSet.count(nameStr)) {
+                Put("*");
               }
             }
           }
@@ -1045,13 +1088,16 @@ public:
               [&](const std::list<BoundsSpec> &y) { Walk("(", y, ", ", ")"); },
           },
           std::get<PointerAssignmentStmt::Bounds>(x.t).u);
-      Put(" => "), Walk(std::get<Expr>(x.t));
+      Put(" = &"), Walk(std::get<Expr>(x.t));
     }
+    Put(';');
   }
   void Post(const BoundsSpec &) { // R1035
+    printf("FOOBAR\n");
     Put(':');
   }
   void Unparse(const BoundsRemapping &x) { // R1036
+    printf("FOOBAR\n");
     Walk(x.t, ":");
   }
   void Unparse(const WhereStmt &x) { // R1041, R1045, R1046
@@ -1744,12 +1790,20 @@ public:
       printFunctionArgs_ = true;
       Walk(std::get<std::list<DeclarationConstruct>>(x.t), "");
       printFunctionArgs_ = false;
+      if (currentFunctions_.back()->recursive) {
+        printReturnArg_ = true;
+        Walk(std::get<std::list<DeclarationConstruct>>(x.t), "");
+        printReturnArg_ = false;
+      }
     }
   }
   void Unparse(const ExecutionPart &x) {
     auto *currentFunction =
         currentFunctions_.empty() ? nullptr : currentFunctions_.back();
     if (currentFunction) {
+      if (currentFunction->argsPrinted.empty()) {
+        currentFunction->argsPrinted = "void";
+      }
       if (!currentFunction->name.empty()) {
         functionDeclarations_.push_back(currentFunction->prefix +
             currentFunction->name + "(" + currentFunction->argsPrinted + ")");
@@ -1970,7 +2024,15 @@ public:
     auto *saved_out = out_;
     out_ = &os;
 
-    Walk("", std::get<std::list<PrefixSpec>>(x.t), " ", " ");
+    const auto &prefixes = std::get<std::list<PrefixSpec>>(x.t);
+    for (const auto &prefix : prefixes) {
+      if (std::holds_alternative<PrefixSpec::Recursive>(prefix.u)) {
+        currentFunction.recursive = true;
+        continue;
+      }
+      Walk(prefix);
+      Put(' ');
+    }
     os.flush();
 
     auto prefixSize = s.size();
@@ -1983,17 +2045,19 @@ public:
         str_toupper(std::string(s.data() + prefixSize, nameSize));
     const auto &args{std::get<std::list<Name>>(x.t)};
     for (const Name &n : args) {
-      llvm::errs() << "Function argument: " << n.ToString() << " in function "
-                   << currentFunction.name << " :: " << printFunctionArgs_
-                   << "\n";
-      currentFunction.args.insert(n.ToString());
+      currentFunction.args.insert(str_toupper(n.ToString()));
     }
 
     out_ = saved_out;
 
     const auto &suffix = std::get<std::optional<Suffix>>(x.t);
+    assert(!currentFunction.recursive || (suffix && suffix->resultName));
     if (suffix) {
-      currentFunction.suffix = &suffix.value();
+      if (currentFunction.recursive) {
+        currentFunction.returnVar = str_toupper(suffix->resultName->ToString());
+      } else {
+        currentFunction.suffix = &suffix.value();
+      }
     }
   }
   void Unparse(const Suffix &x) { // R1532
@@ -2040,7 +2104,8 @@ public:
 
     const auto &args{std::get<std::list<DummyArg>>(x.t)};
     for (const DummyArg &arg : args) {
-      currentFunction.args.insert(std::get<Name>(arg.u).ToString());
+      currentFunction.args.insert(
+          str_toupper(std::get<Name>(arg.u).ToString()));
     }
 
     out_ = saved_out;
@@ -3521,6 +3586,7 @@ private:
       commonRenameMap_;
   std::string lastType_;
   bool printFunctionArgs_{false};
+  bool printReturnArg_{false};
 
   llvm::raw_ostream *out_;
   //  const common::LangOptions &langOpts_;
@@ -3623,7 +3689,8 @@ class F2CPP : public PluginParseTreeAction {
 
     if (!DeclarationOutput.empty()) {
       std::error_code EC;
-      llvm::raw_fd_ostream os(DeclarationOutput, EC, llvm::sys::fs::OF_Text);
+      llvm::raw_fd_ostream os(DeclarationOutput, EC,
+          llvm::sys::fs::OF_Text | llvm::sys::fs::OF_Append);
       if (EC) {
         llvm::errs() << "Error opening file: " << EC.message() << "\n";
         return;
@@ -3633,6 +3700,16 @@ class F2CPP : public PluginParseTreeAction {
         os << decl << ";\n";
       }
       os << "\n";
+    }
+    if (!LocalDeclarationOutput.empty()) {
+      std::error_code EC;
+      llvm::raw_fd_ostream os(
+          LocalDeclarationOutput, EC, llvm::sys::fs::OF_Text);
+      if (EC) {
+        llvm::errs() << "Error opening file: " << EC.message() << "\n";
+        return;
+      }
+      os << "#include \"f2cpp_rt_types.h\"\n";
 
       auto commonRenameMap = visitor.getCommonRenameMap();
       for (const auto &blockName : visitor.getCommonBlocks()) {

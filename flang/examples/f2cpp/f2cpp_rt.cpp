@@ -1,6 +1,6 @@
 #include "f2cpp_rt.h"
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 
 int main(int argc, const char **argv, const char **envp) {
   _FortranAProgramStart(argc, argv, envp, nullptr);
@@ -25,6 +25,22 @@ void print_impl(void *Handle, float First) {
 
 void print_impl(void *Handle, double First) {
   _FortranAioOutputReal64(Handle, First);
+}
+
+void print_impl(void *Handle, int32_t *First) {
+  _FortranAioOutputInteger32(Handle, *First);
+}
+
+void print_impl(void *Handle, int64_t *First) {
+  _FortranAioOutputInteger64(Handle, *First);
+}
+
+void print_impl(void *Handle, float *First) {
+  _FortranAioOutputReal32(Handle, *First);
+}
+
+void print_impl(void *Handle, double *First) {
+  _FortranAioOutputReal64(Handle, *First);
 }
 
 void print_impl(void *Handle, char *First) {

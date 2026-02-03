@@ -96,6 +96,23 @@ template <size_t N> struct CHARACTER : public StaticArray<char, N> {
     }
     return *this;
   }
+
+  template <size_t M>
+  CHARACTER<N + M> operator+(const CHARACTER<M> &Other) const {
+    CHARACTER<N + M> R;
+    for (size_t I = 0; I < N; ++I)
+      R.Data[I] = (*this)[I];
+    for (size_t I = 0; I < M; ++I)
+      R.Data[I + N] = Other[I];
+    return R;
+  }
+
+  template <size_t Start, size_t End> CHARACTER<End - Start> substr() const {
+    CHARACTER<End - Start> R;
+    for (size_t I = Start; I < End; ++I)
+      R.Data[I - Start] = (*this)[I];
+    return R;
+  }
 };
 
 ///
@@ -170,6 +187,10 @@ void print_impl(void *Handle, U First, Ts... Args) {
   X(double) \
   X(int32_t) \
   X(int64_t) \
+  X(float *) \
+  X(double *) \
+  X(int32_t *) \
+  X(int64_t *) \
   X(char *) \
   X(const char *) \
   X(std::string &)
@@ -237,6 +258,6 @@ void read(
   read_impl(Handle, Arg, Size);
   _FortranAioEndIoStatement(Handle);
 }
-}; // namespace flc
+} // namespace flc
 
 #endif
