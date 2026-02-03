@@ -76,9 +76,9 @@ Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL,
   auto RequestedSize = DL.getTypeSizeInBits(Ty);
   auto ValueSize = DL.getTypeSizeInBits(VTy);
   bool IsTruncate = RequestedSize < ValueSize;
-  if (IsTruncate && !AllowTruncate)
+  if (VTy->isIntegerTy() && IsTruncate && !AllowTruncate)
     return V;
-  if (IsTruncate && AllowTruncate)
+  if (VTy->isIntegerTy() && IsTruncate && AllowTruncate)
     return tryToCast(IRB,
                      IRB.CreateIntCast(V, IRB.getIntNTy(RequestedSize),
                                        /*IsSigned=*/false),

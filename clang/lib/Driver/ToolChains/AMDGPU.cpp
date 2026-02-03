@@ -1099,7 +1099,9 @@ bool AMDGPUToolChain::shouldSkipSanitizeOption(
 
   // For simplicity, we only allow -fsanitize=address
   SanitizerMask K = parseSanitizerValue(A->getValue(), /*AllowGroups=*/false);
-  if (K != SanitizerKind::Address && K != SanitizerKind::Object)
+  if (K == SanitizerKind::Object)
+    return false;
+  if (K != SanitizerKind::Address)
     return true;
 
   // Look for the xnack feature in TargetID

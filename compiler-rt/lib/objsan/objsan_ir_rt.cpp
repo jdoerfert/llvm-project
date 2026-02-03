@@ -2,6 +2,14 @@
 
 #include "include/obj_encoding.h"
 
+extern "C" {
+
+__attribute__((
+    visibility("default"))) __objsan::SmallObjectsTy __objsan_SmallObjects;
+__attribute__((
+    visibility("default"))) __objsan::LargeObjectsTy __objsan_LargeObjects;
+};
+
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
