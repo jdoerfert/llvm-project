@@ -675,6 +675,10 @@ static std::string sanitizeGlobalName(std::string Name, Triple TT) {
   return Name;
 }
 
+static bool supportsSectionStartEnd(Triple TT) {
+  return !(TT.isNVPTX() || TT.isAppleMachO());
+}
+
 bool InstrumentorImpl::instrumentModule() {
   SmallVector<GlobalVariable *> Globals;
   Globals.reserve(M.global_size());
@@ -696,16 +700,17 @@ bool InstrumentorImpl::instrumentModule() {
         M, YtorFn->getType(), true, GlobalValue::ExternalLinkage, YtorFn,
         sanitizeGlobalName(
             (M.getName() + "." + std::to_string(std::rand())).str(), TT));
-    if (!TT.isAppleMachO())
-      GV->setSection(Name);
 
     auto *EntryBB = BasicBlock::Create(IIRB.Ctx, "entry", YtorFn);
     IIRB.IRB.SetInsertPoint(EntryBB, EntryBB->begin());
     ensureDbgLoc(IIRB.IRB);
     IIRB.IRB.CreateRetVoid();
 
+    if (supportsSectionStartEnd(TT))
+      GV->setSection(Name);
+
     // TODO: this needs to be cleaned up
-    if (TT.isAppleMachO()) {
+    if (!supportsSectionStartEnd(TT)) {
       if (Ctor)
         appendToGlobalCtors(M, YtorFn, 1000);
       else

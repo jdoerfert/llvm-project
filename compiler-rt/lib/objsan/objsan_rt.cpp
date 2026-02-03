@@ -2,9 +2,10 @@
 
 extern "C" {
 
-__attribute__((visibility("default"))) __objsan::SmallObjectsTy __objsan_SmallObjects;
-__attribute__((visibility("default"))) __objsan::LargeObjectsTy __objsan_LargeObjects;
-
+__attribute__((
+    visibility("default"))) __objsan::SmallObjectsTy __objsan_SmallObjects;
+__attribute__((
+    visibility("default"))) __objsan::LargeObjectsTy __objsan_LargeObjects;
 };
 
 namespace __objsan {
@@ -20,19 +21,23 @@ __attribute__((visibility("default"))) StatsTy SLoopR("loopr");
 
 } // namespace __objsan
 
-#if 0
+#ifdef __OBJSAN_USE_START_STOP_SECTION_CTOR__
 extern "C" {
 using CtorFn = void (*)(void);
-extern CtorFn __start___objsan_ctor;
-extern CtorFn __stop___objsan_ctor;
+__attribute__((weak)) extern CtorFn __start___objsan_ctor;
+__attribute__((weak)) extern CtorFn __stop___objsan_ctor;
 
 __attribute__((constructor(1000))) void __objsan_ctor_init() {
   //  fprintf(stderr, "CTOR INIT  %p %p, %lu\n", &__start___objsan_ctor,
   //          &__stop___objsan_ctor,
   //          &__stop___objsan_ctor - &__start___objsan_ctor);
-  for (CtorFn *Ctor = &__start___objsan_ctor, *E = &__stop___objsan_ctor;
-       Ctor != E; ++Ctor)
-    (*Ctor)();
+
+  assert(&__start___objsan_ctor == nullptr && &__stop___objsan_ctor == nullptr);
+  if (&__start___objsan_ctor != nullptr) {
+    for (CtorFn *Ctor = &__start___objsan_ctor, *E = &__stop___objsan_ctor;
+         Ctor != E; ++Ctor)
+      (*Ctor)();
+  }
 }
 }
 #endif
