@@ -65,12 +65,14 @@ hipError_t hipMallocManaged(void **devPtr, size_t size, unsigned int flags) {
 
 hipError_t hipFree(void *devPtr) {
   void *MPtrFromTLB = TLB.pop(devPtr);
-  void *MPtrFromDevice = objsan::unregisterDeviceMemory(devPtr);
-  if (MPtrFromTLB == MPtrFromDevice) {
+  void *MPtrFromDev = objsan::unregisterDeviceMemory(devPtr);
+  if (MPtrFromTLB == MPtrFromDev) {
     devPtr = MPtrFromTLB;
   } else {
-    if (MPtrFromDevice)
-      devPtr = MPtrFromDevice;
+    fprintf(stderr, "%s mismatch for vptr %p, mptr_tlb %p mptr_dev %p\n",
+            WarnPrefix, devPtr, MPtrFromTLB, MPtrFromDev);
+    if (MPtrFromDev)
+      devPtr = MPtrFromDev;
     else if (MPtrFromTLB)
       devPtr = MPtrFromTLB;
   }

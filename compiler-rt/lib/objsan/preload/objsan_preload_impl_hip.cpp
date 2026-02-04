@@ -18,23 +18,31 @@
 
 #include <hip/hip_runtime.h>
 
-extern "C" __device__ char *
+extern "C" {
+
+__device__ char *
 __objsan_register_object(char *MPtr, uint64_t ObjSize,
                          bool RequiresTemporalCheck);
 
-extern "C" __device__ void __objsan_free_object(char *VPtr);
+__device__ void __objsan_free_object(char *VPtr);
 
-namespace {
+__device__ void *__objsan_decode(char *VPtr);
 
-__global__ void registerKernel(void **VPtr, void *MPtr, size_t Size) {
+__attribute__((used)) __global__
+void __objsan_register_kernel(void **VPtr, void *MPtr, size_t Size) {
   *VPtr = __objsan_register_object(reinterpret_cast<char *>(MPtr), Size,
                                    /*RequiresTemporalCheck=*/false);
 }
 
-__global__ void unregisterKernel(void **MPtr, void *VPtr) {
+__attribute__((used)) __global__
+void __objsan_unregister_kernel(void **MPtr, void *VPtr) {
+  *MPtr = __objsan_decode(reinterpret_cast<char *>(VPtr));
   __objsan_free_object(reinterpret_cast<char *>(VPtr));
-  *MPtr = nullptr;
 }
+
+}; // extern "C"
+
+namespace {
 
 bool allocateDeviceMemory(void **DevPtr, size_t Size) {
   using FuncTy = hipError_t(void **, size_t);
@@ -65,17 +73,19 @@ void *launchRegisterKernel(void *MPtr, size_t Size) {
     return nullptr;
 
   void **DevPtr;
-  if (auto Err = allocateDeviceMemory(reinterpret_cast<void **>(&DevPtr),
-                                      sizeof(void *)))
+  if (allocateDeviceMemory(reinterpret_cast<void **>(&DevPtr), sizeof(void *)))
     return nullptr;
 
-  printf("registering %p %zu\n", MPtr, Size);
-  registerKernel<<<1, 1>>>(DevPtr, MPtr, Size);
+  __objsan_register_kernel<<<1, 1>>>(DevPtr, MPtr, Size);
 
   void *VPtr = nullptr;
   auto Err =
       copyDeviceMemory(&VPtr, DevPtr, sizeof(void *), hipMemcpyDeviceToHost);
+  if (Err)
+    fprintf(stderr, "error copying data from a registration\n");
   freeDeviceMemory(DevPtr);
+
+  printf("%s registered mptr %p vptr %p size %zu\n", InfoPrefix, MPtr, VPtr, Size);
 
   return (Err) ? nullptr : VPtr;
 }
@@ -85,17 +95,19 @@ void *launchUnregisterKernel(void *VPtr) {
     return nullptr;
 
   void **DevPtr;
-  if (auto Err = allocateDeviceMemory(reinterpret_cast<void **>(&DevPtr),
-                                      sizeof(void *)))
+  if (allocateDeviceMemory(reinterpret_cast<void **>(&DevPtr), sizeof(void *)))
     return nullptr;
 
-  printf("unregistering %p\n", VPtr);
-  unregisterKernel<<<1, 1>>>(DevPtr, VPtr);
+  __objsan_unregister_kernel<<<1, 1>>>(DevPtr, VPtr);
 
   void *MPtr = nullptr;
   auto Err =
       copyDeviceMemory(&MPtr, DevPtr, sizeof(void *), hipMemcpyDeviceToHost);
+  if (Err)
+    fprintf(stderr, "error copying data from a unregistration\n");
   freeDeviceMemory(DevPtr);
+
+  printf("%s unregistered mptr %p vptr %p\n", InfoPrefix, MPtr, VPtr);
 
   return (Err) ? nullptr : MPtr;
 }

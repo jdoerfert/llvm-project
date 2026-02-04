@@ -41,8 +41,8 @@ __device__ void __objsan_free_object(char *VPtr);
 
 __device__ void *__objsan_decode(char *VPtr);
 
-__attribute__((used)) __global__ void
-__objsan_register_kernel(void **VPtr, void *MPtr, size_t Size) {
+__attribute__((used)) __global__
+void __objsan_register_kernel(void **VPtr, void *MPtr, size_t Size) {
   *VPtr = __objsan_register_object(reinterpret_cast<char *>(MPtr), Size,
                                    /*RequiresTemporalCheck=*/false);
 }
@@ -52,27 +52,58 @@ __attribute__((used)) __global__ void __objsan_unregister_kernel(void **MPtr,
   *MPtr = __objsan_decode(reinterpret_cast<char *>(VPtr));
   __objsan_free_object(reinterpret_cast<char *>(VPtr));
 }
-};
+
+}; // extern "C"
 
 namespace {
 
 bool allocateDeviceMemory(void **DevPtr, size_t Size) {
   using FuncTy = cudaError_t(void **, size_t);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("cudaMalloc");
-  return (FPtr(DevPtr, Size) != cudaSuccess);
+  auto Err = FPtr(DevPtr, Size);
+  if (Err != cudaSuccess) {
+    fprintf(stderr, "%s CUDA error at %s:%d: %s\n",
+            WarnPrefix, __FILE__, __LINE__, cudaGetErrorString(Err));
+    return true;
+  }
+  return false;
 }
 
 bool freeDeviceMemory(void *DevPtr) {
   using FuncTy = cudaError_t(void *);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("cudaFree");
-  return (FPtr(DevPtr) != cudaSuccess);
+  auto Err = FPtr(DevPtr);
+  if (Err != cudaSuccess) {
+    fprintf(stderr, "%s CUDA error at %s:%d: %s\n",
+            WarnPrefix, __FILE__, __LINE__, cudaGetErrorString(Err));
+    return true;
+  }
+  return false;
 }
 
 bool copyDeviceMemory(void *DstPtr, const void *SrcPtr, size_t Size,
                       cudaMemcpyKind Kind) {
   using FuncTy = cudaError_t(void *, const void *, size_t, cudaMemcpyKind);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("cudaMemcpy");
-  return (FPtr(DstPtr, SrcPtr, Size, Kind) != cudaSuccess);
+  auto Err = FPtr(DstPtr, SrcPtr, Size, Kind);
+  if (Err != cudaSuccess) {
+    fprintf(stderr, "%s CUDA error at %s:%d: %s\n",
+            WarnPrefix, __FILE__, __LINE__, cudaGetErrorString(Err));
+    return true;
+  }
+  return false;
+}
+
+bool deviceSynchronize() {
+  using FuncTy = cudaError_t(void);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("cudaDeviceSynchronize");
+  auto Err = FPtr();
+  if (Err != cudaSuccess) {
+    fprintf(stderr, "%s CUDA error at %s:%d: %s\n",
+            WarnPrefix, __FILE__, __LINE__, cudaGetErrorString(Err));
+    return true;
+  }
+  return false;
 }
 
 } // namespace
@@ -88,7 +119,6 @@ void *launchRegisterKernel(void *MPtr, size_t Size) {
   if (allocateDeviceMemory(reinterpret_cast<void **>(&DevPtr), sizeof(void *)))
     return nullptr;
 
-  printf("preload: registering %p %zu\n", MPtr, Size);
   __objsan_register_kernel<<<1, 1>>>(DevPtr, MPtr, Size);
   CUDA_CHECK(cudaPeekAtLastError());
   CUDA_CHECK(cudaDeviceSynchronize());
@@ -96,7 +126,11 @@ void *launchRegisterKernel(void *MPtr, size_t Size) {
   void *VPtr = nullptr;
   auto Err =
       copyDeviceMemory(&VPtr, DevPtr, sizeof(void *), cudaMemcpyDeviceToHost);
+  if (Err)
+    fprintf(stderr, "error copying data from a registration\n");
   freeDeviceMemory(DevPtr);
+
+  printf("%s registered mptr %p vptr %p size %zu\n", InfoPrefix, MPtr, VPtr, Size);
 
   return (Err) ? nullptr : VPtr;
 }
@@ -109,7 +143,6 @@ void *launchUnregisterKernel(void *VPtr) {
   if (allocateDeviceMemory(reinterpret_cast<void **>(&DevPtr), sizeof(void *)))
     return nullptr;
 
-  printf("preload: unregistering %p\n", VPtr);
   __objsan_unregister_kernel<<<1, 1>>>(DevPtr, VPtr);
   CUDA_CHECK(cudaPeekAtLastError());
   CUDA_CHECK(cudaDeviceSynchronize());
@@ -117,7 +150,11 @@ void *launchUnregisterKernel(void *VPtr) {
   void *MPtr = nullptr;
   auto Err =
       copyDeviceMemory(&MPtr, DevPtr, sizeof(void *), cudaMemcpyDeviceToHost);
+  if (Err)
+    fprintf(stderr, "error copying data from a unregistration\n");
   freeDeviceMemory(DevPtr);
+
+  printf("%s unregistered mptr %p vptr %p\n", InfoPrefix, MPtr, VPtr);
 
   return (Err) ? nullptr : MPtr;
 }
