@@ -84,13 +84,39 @@ cudaError_t cudaMemcpy(void *dst, const void *src, size_t count,
                        cudaMemcpyKind kind) {
   void *Dst = TLB.translate(dst);
   const void *Src = TLB.translate(src);
-  if (!Dst)
-    Dst = dst;
-  if (!Src)
-    Src = src;
 
   using FuncTy = cudaError_t(void *, const void *, size_t, cudaMemcpyKind);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
   assert(FPtr && "null cudaMemcpy pointer");
   return FPtr(Dst, Src, count, kind);
 }
+
+cudaError_t cudaMemcpyAsync(void *dst, const void *src, size_t count,
+                       cudaMemcpyKind kind, cudaStream_t stream) {
+  void *Dst = TLB.translate(dst);
+  const void *Src = TLB.translate(src);
+
+  using FuncTy = cudaError_t(void *, const void *, size_t, cudaMemcpyKind, cudaStream_t);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  assert(FPtr && "null cudaMemcpyAsync pointer");
+  return FPtr(Dst, Src, count, kind, stream);
+}
+
+cudaError_t cudaMemset(void *dst, int value, size_t count) {
+  void *Dst = TLB.translate(dst);
+
+  using FuncTy = cudaError_t(void *, int, size_t);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  assert(FPtr && "null cudaMemset pointer");
+  return FPtr(Dst, value, count);
+}
+
+cudaError_t cudaMemsetAsync(void *dst, int value, size_t count, cudaStream_t stream) {
+  void *Dst = TLB.translate(dst);
+
+  using FuncTy = cudaError_t(void *, int, size_t, cudaStream_t);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  assert(FPtr && "null cudaMemsetAsync pointer");
+  return FPtr(Dst, value, count, stream);
+}
+

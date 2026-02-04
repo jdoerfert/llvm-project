@@ -84,13 +84,38 @@ hipError_t hipMemcpy(void *dst, const void *src, size_t count,
                      hipMemcpyKind kind) {
   void *Dst = TLB.translate(dst);
   const void *Src = TLB.translate(src);
-  if (!Dst)
-    Dst = dst;
-  if (!Src)
-    Src = src;
 
   using FuncTy = hipError_t(void *, const void *, size_t, hipMemcpyKind);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
   assert(FPtr && "null hipMemcpy pointer");
   return FPtr(Dst, Src, count, kind);
+}
+
+hipError_t hipMemcpyAsync(void *dst, const void *src, size_t count,
+                       hipMemcpyKind kind, hipStream_t stream) {
+  void *Dst = TLB.translate(dst);
+  const void *Src = TLB.translate(src);
+
+  using FuncTy = hipError_t(void *, const void *, size_t, hipMemcpyKind, hipStream_t);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  assert(FPtr && "null hipMemcpyAsync pointer");
+  return FPtr(Dst, Src, count, kind, stream);
+}
+
+hipError_t hipMemset(void *dst, int value, size_t count) {
+  void *Dst = TLB.translate(dst);
+
+  using FuncTy = hipError_t(void *, int, size_t);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  assert(FPtr && "null hipMemset pointer");
+  return FPtr(Dst, value, count);
+}
+
+hipError_t hipMemsetAsync(void *dst, int value, size_t count, hipStream_t stream) {
+  void *Dst = TLB.translate(dst);
+
+  using FuncTy = hipError_t(void *, int, size_t, hipStream_t);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  assert(FPtr && "null hipMemsetAsync pointer");
+  return FPtr(Dst, value, count, stream);
 }

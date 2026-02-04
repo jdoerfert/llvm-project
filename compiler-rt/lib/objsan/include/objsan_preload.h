@@ -37,6 +37,7 @@ class TLBTy {
   std::mutex Lock;
 
 public:
+  /// Inserts the translation from \p VPtr to \p MPtr.
   bool insert(void *MPtr, void *VPtr) {
     assert(MPtr && "vptr is nullptr");
     assert(VPtr && "mptr is nullptr");
@@ -44,14 +45,18 @@ public:
     return Map.try_emplace(VPtr, MPtr).second;
   }
 
+  /// Returns the translation of \p VPtr to MPtr, or returns \p VPtr if such
+  /// pointer is not registered.
   void *translate(const void *VPtr) {
     if (!VPtr)
       return nullptr;
     std::lock_guard<std::mutex> LG(Lock);
+    /// TODO: This should check partial overlapping.
     auto Itr = Map.find(const_cast<void *>(VPtr));
-    return Itr == Map.end() ? nullptr : Itr->second;
+    return Itr == Map.end() ? const_cast<void *>(VPtr) : Itr->second;
   }
 
+  /// Removes the translation for \p VPtr.
   void *pop(void *VPtr) {
     if (!VPtr)
       return nullptr;
