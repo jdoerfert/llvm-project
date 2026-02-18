@@ -130,7 +130,8 @@ void *launchRegisterKernel(void *MPtr, size_t Size) {
     fprintf(stderr, "error copying data from a registration\n");
   freeDeviceMemory(DevPtr);
 
-  printf("%s registered mptr %p vptr %p size %zu\n", InfoPrefix, MPtr, VPtr, Size);
+  DPRINTF("%s registered mptr %p vptr %p size %zu\n", InfoPrefix, MPtr, VPtr,
+          Size);
 
   return (Err) ? nullptr : VPtr;
 }
@@ -154,9 +155,39 @@ void *launchUnregisterKernel(void *VPtr) {
     fprintf(stderr, "error copying data from a unregistration\n");
   freeDeviceMemory(DevPtr);
 
-  printf("%s unregistered mptr %p vptr %p\n", InfoPrefix, MPtr, VPtr);
+  DPRINTF("%s unregistered mptr %p vptr %p\n", InfoPrefix, MPtr, VPtr);
 
   return (Err) ? nullptr : MPtr;
 }
 } // namespace impl
 } // namespace objsan
+
+extern "C" {
+using CtorFn = void (*)(void);
+__attribute__((weak)) extern CtorFn __start___objsan_cuda_ctor;
+__attribute__((weak)) extern CtorFn __stop___objsan_cuda_ctor;
+}
+
+namespace {
+__attribute__((constructor(1000))) void __objsan_cuda_ctor_init() {
+  assert(&__start___objsan_cuda_ctor == nullptr &&
+         &__stop___objsan_cuda_ctor == nullptr);
+  if (&__start___objsan_cuda_ctor != nullptr) {
+    // TODO Do we need to run the ctors on all devices?
+    DPRINTF("Found cuda ctors at %p to %p\n", &__start___objsan_cuda_ctor,
+            &__stop___objsan_cuda_ctor);
+    for (CtorFn *Ctor = &__start___objsan_cuda_ctor,
+                *E = &__stop___objsan_cuda_ctor;
+         Ctor != E; ++Ctor) {
+      DPRINTF("Calling device ctor at %p\n", Ctor);
+      CUDA_CHECK(cudaLaunchKernel(*Ctor, 1, 1, nullptr));
+#ifdef OBJSAN_DEBUG
+      CUDA_CHECK(cudaDeviceSynchronize());
+#endif
+    }
+#ifndef OBJSAN_DEBUG
+    CUDA_CHECK(cudaDeviceSynchronize());
+#endif
+  }
+}
+} // namespace

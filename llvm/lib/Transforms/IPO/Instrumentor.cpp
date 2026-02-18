@@ -31,6 +31,7 @@
 #include "llvm/Demangle/Demangle.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
+#include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -679,6 +680,8 @@ static bool supportsSectionStartEnd(Triple TT) {
   return !(TT.isNVPTX() || TT.isAppleMachO());
 }
 
+static bool shouldAddToCtorsDtors(Triple TT) { return TT.isAppleMachO(); }
+
 bool InstrumentorImpl::instrumentModule() {
   SmallVector<GlobalVariable *> Globals;
   Globals.reserve(M.global_size());
@@ -710,12 +713,15 @@ bool InstrumentorImpl::instrumentModule() {
       GV->setSection(Name);
 
     // TODO: this needs to be cleaned up
-    if (!supportsSectionStartEnd(TT)) {
+    if (shouldAddToCtorsDtors(TT)) {
       if (Ctor)
         appendToGlobalCtors(M, YtorFn, 1000);
       else
         appendToGlobalDtors(M, YtorFn, 1000);
     }
+
+    if (TT.isNVPTX())
+      YtorFn->setCallingConv(CallingConv::PTX_Kernel);
     return YtorFn;
   };
 

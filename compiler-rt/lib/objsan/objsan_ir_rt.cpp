@@ -16,7 +16,7 @@
 #endif
 
 #ifdef DEBUG
-#define PRINTF(...) gpu_printf(__VA_ARGS__)
+#define PRINTF(...) printf(__VA_ARGS__)
 #else
 #define PRINTF(...)
 #endif

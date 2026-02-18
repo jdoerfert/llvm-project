@@ -31,7 +31,6 @@ __attribute__((constructor(1000))) void __objsan_ctor_init() {
   //  fprintf(stderr, "CTOR INIT  %p %p, %lu\n", &__start___objsan_ctor,
   //          &__stop___objsan_ctor,
   //          &__stop___objsan_ctor - &__start___objsan_ctor);
-
   assert(&__start___objsan_ctor == nullptr && &__stop___objsan_ctor == nullptr);
   if (&__start___objsan_ctor != nullptr) {
     for (CtorFn *Ctor = &__start___objsan_ctor, *E = &__stop___objsan_ctor;

@@ -22,6 +22,9 @@ if ("cuda" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
     --offload-link
     --offload-arch=sm_80
   )
+  if(OBJSAN_ENABLE_DEBUG)
+    list(APPEND OBJSAN_CFLAGS "-DOBJSAN_DEBUG")
+  endif()
   # TODO better way to get the library path?
   set(OBJSAN_PRELOAD_CUDA_LINK_FLAGS
     -lcudart -L${CUDA_TOOLKIT_ROOT_DIR}/lib64)

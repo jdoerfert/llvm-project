@@ -1,4 +1,3 @@
-// XFAIL: *
 // RUN: %clang_objsan_cuda_compile -O2 -DCONF1 -c %s -o %t.o
 // RUN: %clang_objsan_cuda_link %t.o %clang_objsan_cuda_post_link -o %t.a.out
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF1
@@ -27,7 +26,7 @@
 // RUN: %clang_objsan_cuda_compile -O2 -DCONF6 -c %s -o %t.o
 // RUN: %clang_objsan_cuda_link %t.o %clang_objsan_cuda_post_link -o %t.a.out
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF6
-// CONF6 l bad
+// CONF6: l bad
 
 #include "common.h"
 

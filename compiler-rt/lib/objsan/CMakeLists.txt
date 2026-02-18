@@ -1,3 +1,5 @@
+option(OBJSAN_ENABLE_DEBUG "Debug output for objsan" OFF)
+
 set(OBJSAN_CFLAGS
   --std=c++20
   -fno-exceptions
@@ -41,6 +43,10 @@ elseif("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^nvptx" OR
 else()
   list(APPEND OBJSAN_CFLAGS "-D__OBJSAN_USE_START_STOP_SECTION_CTOR__")
   add_subdirectory(preload)
+endif()
+
+if(OBJSAN_ENABLE_DEBUG)
+  list(APPEND OBJSAN_CFLAGS "-DDEBUG")
 endif()
 
 set(OBJSAN_IR_CFLAGS

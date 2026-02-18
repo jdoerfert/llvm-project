@@ -25,9 +25,13 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/ReplaceConstant.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/VirtualFileSystem.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -1202,6 +1206,32 @@ void CGNVCUDARuntime::createOffloadingEntries() {
     Kind = llvm::object::OffloadKind::OFK_OpenMP;
 
   llvm::Module &M = CGM.getModule();
+
+  // Realistically this should be only enabled if objsan is on for cuda device
+  // for the current gpu module. However, even when it is not on generating the
+  // entry does not seem to break anything because the __cudaRegisterFunction
+  // does not bail when the symbol is not found on the gpu side.
+  if (true) {
+    llvm::FunctionType *YTorType = llvm::FunctionType::get(VoidTy, false);
+    constexpr char CtorName[] = "__objsan_ctor";
+    llvm::Function *Ctor =
+        llvm::Function::Create(YTorType, llvm::GlobalValue::PrivateLinkage,
+                               "__objsan_cuda_ctor_kernel_stub_ptr", &M);
+    llvm::BasicBlock *Entry =
+        llvm::BasicBlock::Create(Ctor->getContext(), "", Ctor);
+    llvm::ReturnInst::Create(Ctor->getContext())
+        ->insertInto(Entry, Entry->begin());
+    llvm::GlobalVariable *GV = new llvm::GlobalVariable(
+        M, Ctor->getType(), true, llvm::GlobalValue::InternalLinkage, Ctor,
+        "__objsan_cuda_ctor_kernel_stub_ptr");
+    llvm::appendToUsed(M, {GV});
+    GV->setSection("__objsan_cuda_ctor");
+
+    llvm::offloading::emitOffloadingEntry(M, Kind, Ctor, CtorName, /*Size=*/0,
+                                          /*Flags=*/0,
+                                          llvm::offloading::OffloadGlobalEntry);
+  }
+
   for (KernelInfo &I : EmittedKernels)
     llvm::offloading::emitOffloadingEntry(
         M, Kind, KernelHandles[I.Kernel->getName()],

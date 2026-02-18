@@ -21,6 +21,12 @@
 #include <mutex>
 #include <unordered_map>
 
+#ifdef OBJSAN_DEBUG
+#define DPRINTF(...) fprintf(stderr, __VA_ARGS)
+#else
+#define DPRINTF(...)
+#endif
+
 namespace objsan {
 
 namespace impl {
