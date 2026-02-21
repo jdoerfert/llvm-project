@@ -22,9 +22,11 @@
 #include <unordered_map>
 
 #ifdef OBJSAN_DEBUG
-#define DPRINTF(...) fprintf(stderr, __VA_ARGS)
+#define DPRINTF(...) fprintf(stderr, __VA_ARGS__)
 #else
-#define DPRINTF(...)
+#define DPRINTF(...)                                                           \
+  do {                                                                         \
+  } while (0)
 #endif
 
 namespace objsan {

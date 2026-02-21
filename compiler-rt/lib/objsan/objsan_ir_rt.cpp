@@ -15,7 +15,7 @@
 #include <new>
 #endif
 
-#ifdef DEBUG
+#ifdef OBJSAN_DEBUG
 #define PRINTF(...) printf(__VA_ARGS__)
 #else
 #define PRINTF(...)

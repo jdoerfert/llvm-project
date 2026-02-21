@@ -268,6 +268,31 @@ function(runtime_default_target)
 
   set_enable_per_target_runtime_dir()
 
+  set(default_extra_args)
+  get_cmake_property(variable_names VARIABLES)
+  foreach(variable_name ${variable_names})
+    string(FIND "${variable_name}" "RUNTIMES_default_" out)
+    if("${out}" EQUAL 0)
+      string(REPLACE "RUNTIMES_default_" "" new_name ${variable_name})
+      if(new_name STREQUAL CACHE_FILES)
+        foreach(cache IN LISTS ${variable_name})
+          list(APPEND default_extra_args -C ${cache})
+        endforeach()
+      else()
+        string(REPLACE ";" "|" new_value "${${variable_name}}")
+        list(APPEND default_extra_args "-D${new_name}=${new_value}")
+      endif()
+    endif()
+  endforeach()
+  foreach(variable_name ${default_extra_args})
+    string(FIND "${variable_name}" "-DRUNTIMES_default_" out)
+    if("${out}" EQUAL 0)
+      string(REPLACE "-DRUNTIMES_default_" "" new_name ${variable_name})
+      string(REPLACE ";" "|" new_value "${new_name}")
+      list(APPEND default_extra_args "-D${new_value}")
+    endif()
+  endforeach()
+
   llvm_ExternalProject_Add(runtimes
                            ${CMAKE_CURRENT_SOURCE_DIR}/../../runtimes
                            DEPENDS ${ARG_DEPENDS}
@@ -285,6 +310,7 @@ function(runtime_default_target)
                                       ${COMMON_CMAKE_ARGS}
                                       ${RUNTIMES_CMAKE_ARGS}
                                       ${ARG_CMAKE_ARGS}
+                                      ${default_extra_args}
                            PASSTHROUGH_PREFIXES LLVM_ENABLE_RUNTIMES
                                                 LLVM_USE_LINKER
                                                 CUDA CMAKE_CUDA # For runtimes that may look for the CUDA compiler and/or SDK (libc, offload, flang-rt)
