@@ -780,6 +780,35 @@ bool InstrumentorImpl::instrumentModule() {
     }
   }
 
+  // Guard against multiple calls of c/dtors. This is needed now because in
+  // nvidia compilation, we generate a kernel entry for the ctor in each host
+  // module, and at startup we call all ctor kernel entries (one in each
+  // host module). However, when we use lto for the device code, each of those
+  // host-side kernel entries will refer to the same device-side constructor -
+  // thus we need to only execute it once even if it's called multiple times.
+  if (CtorFn) {
+    auto *Int32Ty = IIRB.IRB.getInt32Ty();
+    GlobalVariable *Counter =
+        new GlobalVariable(M, Int32Ty, false, GlobalValue::InternalLinkage,
+                           ConstantInt::get(Int32Ty, 0), "execution_counter");
+    BasicBlock *NewEntryBB = BasicBlock::Create(IIRB.Ctx, "guard_entry", CtorFn,
+                                                &CtorFn->getEntryBlock());
+    IIRB.IRB.SetInsertPoint(NewEntryBB);
+    AtomicRMWInst *OldVal = IIRB.IRB.CreateAtomicRMW(
+        AtomicRMWInst::Add, Counter, ConstantInt::get(Int32Ty, 1),
+        MaybeAlign(4), AtomicOrdering::SequentiallyConsistent);
+    Value *IsFirstEntry =
+        IIRB.IRB.CreateICmpEQ(OldVal, ConstantInt::get(Int32Ty, 0));
+    BasicBlock *OriginalBodyBB = &*std::next(CtorFn->begin());
+    BasicBlock *ExitBB = BasicBlock::Create(IIRB.Ctx, "early_exit", CtorFn);
+    IIRB.IRB.CreateCondBr(IsFirstEntry, OriginalBodyBB, ExitBB);
+    IIRB.IRB.SetInsertPoint(ExitBB);
+    IIRB.IRB.CreateRetVoid();
+  }
+  if (DtorFn) {
+    llvm_unreachable("Need an atomic decrease check like in the ctor case.");
+  }
+
   return Changed;
 }
 
@@ -2529,7 +2558,7 @@ Value *GlobalIO::setAddress(Value &V, Value &NewV, InstrumentationConfig &IConf,
   GlobalVariable &GV = cast<GlobalVariable>(V);
 
   GlobalVariable *ShadowGV = nullptr;
-  auto ShadowName = IConf.getRTName("shadow.", GV.getName());
+  auto ShadowName = IConf.getRTName("shadow$", GV.getName());
   auto &DL = GV.getDataLayout();
   if (GV.isDeclaration()) {
     ShadowGV = new GlobalVariable(*GV.getParent(), GV.getType(), false,

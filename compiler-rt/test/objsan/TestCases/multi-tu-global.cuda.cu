@@ -1,0 +1,55 @@
+// RUN: %clang_objsan_cuda_compile -O2 -DCONF1 -c %s -o %t.o
+// RUN: %clang_objsan_cuda_compile -O2 -DCONF1 -c %S/multi-tu-global-2.cu -o %t.2.o
+// RUN: %clang_objsan_cuda_link %t.2.o %t.o %clang_objsan_cuda_post_link -o %t.a.out
+// RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF1
+// CONF1: s bad
+
+// RUN: %clang_objsan_cuda_compile -O2 -DCONF2 -c %s -o %t.o
+// RUN: %clang_objsan_cuda_compile -O2 -DCONF2 -c %S/multi-tu-global-2.cu -o %t.2.o
+// RUN: %clang_objsan_cuda_link %t.2.o %t.o %clang_objsan_cuda_post_link -o %t.a.out
+// RUN: %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF2
+// CONF2: Execution completed successfully
+
+#include "common.h"
+
+__device__ int global[10];
+
+static __attribute__((noinline)) __device__ void get(int *array) {
+#ifdef CONF1
+  array[10] = 0;
+#endif
+#ifdef CONF2
+  array[9] = 0;
+#endif
+}
+
+static __global__ void kernel(int *array, int size) {
+  get(global);
+  __syncthreads();
+  array[0] = global[0];
+}
+
+void call_kernel(int *d_array, int size) {
+  kernel<<<1, 1>>>(d_array, size);
+}
+
+void call_kernel2(int *d_array, int size);
+
+int main(int argc, char **argv) {
+  const int size = 10;
+  int *d_array;
+
+  CUDA_CHECK(cudaMalloc((void **)&d_array, size * sizeof(int)));
+
+  call_kernel(d_array, size);
+  CUDA_CHECK(cudaPeekAtLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  call_kernel2(d_array, size);
+  CUDA_CHECK(cudaPeekAtLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  CUDA_CHECK(cudaFree(d_array));
+
+  fprintf(stdout, "%s", "Execution completed successfully\n");
+}
