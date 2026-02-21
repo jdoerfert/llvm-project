@@ -20,6 +20,17 @@ if cuda_gpu_arch:
   config.test_source_root = os.path.dirname(__file__)
   config.suffixes = [".cuda.cu"]
   
+  clang_cuda_compile_args = config.clang + f' -x cuda --cuda-path={config.cuda_path} --offload-arch={cuda_gpu_arch} -fgpu-rdc -foffload-lto'
+  clang_cuda_link_args = config.clang + f' --cuda-path={config.cuda_path} --offload-link'
+  clang_cuda_post_link_args = f'-L{config.cuda_lib_path} -lcudart -lstdc++'
+
+  config.substitutions.append(
+      ('%clang_cuda_compile', clang_cuda_compile_args))
+  config.substitutions.append(
+      ('%clang_cuda_link', clang_cuda_link_args))
+  config.substitutions.append(
+      ('%clang_cuda_post_link', clang_cuda_post_link_args))
+
   clang_objsan_cuda_compile_args = config.clang + f' -x cuda --cuda-path={config.cuda_path} -fsanitize=object -mllvm -objsan-gpu-only=1 --offload-arch={cuda_gpu_arch} -fgpu-rdc -foffload-lto'
   clang_objsan_cuda_link_args = config.clang + f' --cuda-path={config.cuda_path} -fsanitize=object --offload-link -Xoffload-linker {config.cuda_objsan_device_rt}'
   clang_objsan_cuda_post_link_args = f'{config.cuda_preload_path} -L{config.cuda_lib_path} -lcudart -lstdc++'
