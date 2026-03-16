@@ -91,7 +91,9 @@ static constexpr char ObjsanEnabledFlag[] = "sanitize_obj";
 static uint32_t MaxObjSizeForShadow = 64;
 
 // TODO: Make this a cmd line option
-static bool ClosedWorld = false;
+static cl::opt<bool> ClosedWorld("objsan-closed-world",
+                                   cl::desc("Assume closed world"),
+                                   cl::init(false));
 
 static cl::opt<std::string>
     ObjsanRuntimeBitcode("objsan-runtime-bitcode",

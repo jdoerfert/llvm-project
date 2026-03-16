@@ -192,7 +192,8 @@ OMPClauseWithPostUpdate *OMPClauseWithPostUpdate::get(OMPClause *C) {
   return Res ? const_cast<OMPClauseWithPostUpdate *>(Res) : nullptr;
 }
 
-const OMPClauseWithPostUpdate *OMPClauseWithPostUpdate::get(const OMPClause *C) {
+const OMPClauseWithPostUpdate *
+OMPClauseWithPostUpdate::get(const OMPClause *C) {
   switch (C->getClauseKind()) {
   case OMPC_lastprivate:
     return static_cast<const OMPLastprivateClause *>(C);
@@ -632,7 +633,8 @@ OMPLinearClause *OMPLinearClause::CreateEmpty(const ASTContext &C,
                                               unsigned NumVars) {
   // Allocate space for 5 lists (Vars, Inits, Updates, Finals), 2 expressions
   // (Step and CalcStep), list of used expression + step.
-  void *Mem = C.Allocate(totalSizeToAlloc<Expr *>(5 * NumVars + 2 + NumVars  +1));
+  void *Mem =
+      C.Allocate(totalSizeToAlloc<Expr *>(5 * NumVars + 2 + NumVars + 1));
   return new (Mem) OMPLinearClause(NumVars);
 }
 
@@ -1124,7 +1126,7 @@ OMPDependClause::Create(const ASTContext &C, SourceLocation StartLoc,
   Clause->setOmpAllMemoryLoc(Data.OmpAllMemoryLoc);
   Clause->setModifier(DepModifier);
   Clause->setVarRefs(VL);
-  for (unsigned I = 0 ; I < NumLoops; ++I)
+  for (unsigned I = 0; I < NumLoops; ++I)
     Clause->setLoopData(I, nullptr);
   return Clause;
 }
@@ -2399,7 +2401,7 @@ void OMPClausePrinter::VisitOMPNocontextClause(OMPNocontextClause *Node) {
   }
 }
 
-template<typename T>
+template <typename T>
 void OMPClausePrinter::VisitOMPClauseList(T *Node, char StartSym) {
   for (typename T::varlist_iterator I = Node->varlist_begin(),
                                     E = Node->varlist_end();
@@ -2745,8 +2747,9 @@ void OMPClausePrinter::VisitOMPFromClause(OMPFromClause *Node) {
 }
 
 void OMPClausePrinter::VisitOMPDistScheduleClause(OMPDistScheduleClause *Node) {
-  OS << "dist_schedule(" << getOpenMPSimpleClauseTypeName(
-                           OMPC_dist_schedule, Node->getDistScheduleKind());
+  OS << "dist_schedule("
+     << getOpenMPSimpleClauseTypeName(OMPC_dist_schedule,
+                                      Node->getDistScheduleKind());
   if (auto *E = Node->getChunkSize()) {
     OS << ", ";
     E->printPretty(OS, nullptr, Policy);
@@ -2799,7 +2802,8 @@ void OMPClausePrinter::VisitOMPIsDevicePtrClause(OMPIsDevicePtrClause *Node) {
   }
 }
 
-void OMPClausePrinter::VisitOMPHasDeviceAddrClause(OMPHasDeviceAddrClause *Node) {
+void OMPClausePrinter::VisitOMPHasDeviceAddrClause(
+    OMPHasDeviceAddrClause *Node) {
   if (!Node->varlist_empty()) {
     OS << "has_device_addr";
     VisitOMPClauseList(Node, '(');
@@ -2994,8 +2998,7 @@ void OMPTraitInfo::getAsVariantMatchInfo(ASTContext &ASTCtx,
       // TODO: This might not hold once we implement SIMD properly.
       assert(Selector.Properties.size() == 1 &&
              Selector.Properties.front().Kind ==
-                 getOpenMPContextTraitPropertyForSelector(
-                     Selector.Kind) &&
+                 getOpenMPContextTraitPropertyForSelector(Selector.Kind) &&
              "Ill-formed construct selector!");
     }
   }
@@ -3019,8 +3022,8 @@ void OMPTraitInfo::print(llvm::raw_ostream &OS,
 
       bool AllowsTraitScore = false;
       bool RequiresProperty = false;
-      isValidTraitSelectorForTraitSet(
-          Selector.Kind, Set.Kind, AllowsTraitScore, RequiresProperty);
+      isValidTraitSelectorForTraitSet(Selector.Kind, Set.Kind, AllowsTraitScore,
+                                      RequiresProperty);
 
       if (!RequiresProperty)
         continue;
@@ -3063,12 +3066,11 @@ std::string OMPTraitInfo::getMangledName() const {
 
       bool AllowsTraitScore = false;
       bool RequiresProperty = false;
-      isValidTraitSelectorForTraitSet(
-          Selector.Kind, Set.Kind, AllowsTraitScore, RequiresProperty);
+      isValidTraitSelectorForTraitSet(Selector.Kind, Set.Kind, AllowsTraitScore,
+                                      RequiresProperty);
       OS << '$' << 's' << unsigned(Selector.Kind);
 
-      if (!RequiresProperty ||
-          Selector.Kind == TraitSelector::user_condition)
+      if (!RequiresProperty || Selector.Kind == TraitSelector::user_condition)
         continue;
 
       for (const OMPTraitProperty &Property : Selector.Properties)

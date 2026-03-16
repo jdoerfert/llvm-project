@@ -20579,7 +20579,7 @@ static bool actOnOMPReductionKindClause(
           llvm::APInt InitValue =
               (BOK != BO_LT) ? IsSigned ? llvm::APInt::getSignedMinValue(Size)
                                         : llvm::APInt::getMinValue(Size)
-              : IsSigned ? llvm::APInt::getSignedMaxValue(Size)
+              : IsSigned     ? llvm::APInt::getSignedMaxValue(Size)
                              : llvm::APInt::getMaxValue(Size);
           Init = IntegerLiteral::Create(Context, InitValue, IntTy, ELoc);
           if (Type->isPointerType()) {

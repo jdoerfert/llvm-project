@@ -1808,9 +1808,9 @@ void Parser::ParseOMPDeclareTargetClauses(
                       ? diag::err_omp_declare_target_unexpected_clause_52
                       : diag::err_omp_declare_target_unexpected_clause)
             << ClauseName
-            << (getLangOpts().OpenMP >= 51
-                    ? 4
-                    : getLangOpts().OpenMP >= 50 ? 2 : 1);
+            << (getLangOpts().OpenMP >= 51   ? 4
+                : getLangOpts().OpenMP >= 50 ? 2
+                                             : 1);
         break;
       }
 
@@ -1829,8 +1829,7 @@ void Parser::ParseOMPDeclareTargetClauses(
         if (DevTypeData) {
           if (DeviceTypeLoc.isValid()) {
             // We already saw another device_type clause, diagnose it.
-            Diag(DevTypeData->Loc,
-                 diag::warn_omp_more_one_device_type_clause);
+            Diag(DevTypeData->Loc, diag::warn_omp_more_one_device_type_clause);
             break;
           }
           switch (static_cast<OpenMPDeviceType>(DevTypeData->Type)) {
@@ -3792,8 +3791,7 @@ OMPClause *Parser::ParseOpenMPSimpleClause(OpenMPClauseKind Kind,
     return nullptr;
   if (getLangOpts().OpenMP < 51 && Kind == OMPC_default &&
       (static_cast<DefaultKind>(Val->Type) == OMP_DEFAULT_private ||
-       static_cast<DefaultKind>(Val->Type) ==
-           OMP_DEFAULT_firstprivate)) {
+       static_cast<DefaultKind>(Val->Type) == OMP_DEFAULT_firstprivate)) {
     Diag(Val->LOpen, diag::err_omp_invalid_dsa)
         << getOpenMPClauseName(static_cast<DefaultKind>(Val->Type) ==
                                        OMP_DEFAULT_private
