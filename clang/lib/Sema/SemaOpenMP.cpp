@@ -16545,6 +16545,9 @@ OMPClause *SemaOpenMP::ActOnOpenMPSingleExprClause(OpenMPClauseKind Kind,
   case OMPC_message:
     Res = ActOnOpenMPMessageClause(Expr, StartLoc, LParenLoc, EndLoc);
     break;
+  case OMPC_ompx_name:
+    Res = ActOnOpenMPOmpxNameClause(Expr, StartLoc, LParenLoc, EndLoc);
+    break;
   case OMPC_align:
     Res = ActOnOpenMPAlignClause(Expr, StartLoc, LParenLoc, EndLoc);
     break;
@@ -17628,6 +17631,22 @@ OMPClause *SemaOpenMP::ActOnOpenMPMessageClause(Expr *ME,
 
   return new (getASTContext()) OMPMessageClause(
       ME, HelperValStmt, CaptureRegion, StartLoc, LParenLoc, EndLoc);
+}
+
+OMPClause *SemaOpenMP::ActOnOpenMPOmpxNameClause(Expr *Name,
+                                                 SourceLocation StartLoc,
+                                                 SourceLocation LParenLoc,
+                                                 SourceLocation EndLoc) {
+  if (!Name->isTypeDependent() && !Name->isValueDependent()) {
+    if (auto *PE = dyn_cast<PredefinedExpr>(Name->IgnoreParenCasts()))
+      Name = PE->getFunctionName();
+    if (!Name || !isa<StringLiteral>(Name->IgnoreParenCasts())) {
+      Diag(Name->getExprLoc(), diag::err_ompx_name_argument_not_string);
+      return nullptr;
+    }
+  }
+  return new (getASTContext())
+      OMPXNameClause(Name, StartLoc, LParenLoc, EndLoc);
 }
 
 OMPClause *SemaOpenMP::ActOnOpenMPOrderClause(
