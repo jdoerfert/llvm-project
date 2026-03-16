@@ -2087,7 +2087,7 @@ int32_t GenericPluginTy::is_accessible_ptr(int32_t DeviceId, const void *Ptr,
   return *AccessibleOrErr;
 }
 
-int32_t GenericPluginTy::get_global(__tgt_device_binary Binary, uint64_t Size,
+Error GenericPluginTy::get_global(__tgt_device_binary Binary, uint64_t Size,
                                     const char *Name, void **DevicePtr) {
   assert(Binary.handle && "Invalid device binary handle");
   DeviceImageTy &Image = *reinterpret_cast<DeviceImageTy *>(Binary.handle);
@@ -2098,8 +2098,9 @@ int32_t GenericPluginTy::get_global(__tgt_device_binary Binary, uint64_t Size,
   GenericGlobalHandlerTy &GHandler = getGlobalHandler();
   if (auto Err =
           GHandler.getGlobalMetadataFromDevice(Device, Image, DeviceGlobal)) {
-    consumeError(std::move(Err));
-    return OFFLOAD_FAIL;
+    return Plugin::error(ErrorCode::INVALID_BINARY,
+                           "Failure to read global (%s:%" PRIu64 ") from device: ",
+                           Name, Size, toString(std::move(Err));
   }
 
   *DevicePtr = DeviceGlobal.getPtr();
@@ -2110,10 +2111,10 @@ int32_t GenericPluginTy::get_global(__tgt_device_binary Binary, uint64_t Size,
   if (RecordReplay.isRecording())
     RecordReplay.addEntry(Name, Size, *DevicePtr);
 
-  return OFFLOAD_SUCCESS;
+  return Plugin::success();
 }
 
-int32_t GenericPluginTy::get_function(__tgt_device_binary Binary,
+Error GenericPluginTy::get_function(__tgt_device_binary Binary,
                                       const char *Name, void **KernelPtr) {
   assert(Binary.handle && "Invalid device binary handle");
   DeviceImageTy &Image = *reinterpret_cast<DeviceImageTy *>(Binary.handle);
@@ -2122,19 +2123,21 @@ int32_t GenericPluginTy::get_function(__tgt_device_binary Binary,
 
   auto KernelOrErr = Device.constructKernel(Name);
   if (Error Err = KernelOrErr.takeError()) {
-    REPORT() << "Failure to look up kernel: " << toString(std::move(Err));
-    return OFFLOAD_FAIL;
+    return Plugin::error(ErrorCode::INVALID_BINARY,
+                           "Failure to look up kernel (%s): ",
+                           Name, toString(std::move(Err));
   }
 
   GenericKernelTy &Kernel = *KernelOrErr;
   if (auto Err = Kernel.init(Device, Image)) {
-    REPORT() << "Failure to init kernel: " << toString(std::move(Err));
-    return OFFLOAD_FAIL;
+    return Plugin::error(ErrorCode::INVALID_BINARY,
+                           "Failure to initialize kernel (%s): ",
+                           Name, toString(std::move(Err));
   }
 
   // Note that this is not the kernel's device address.
   *KernelPtr = &Kernel;
-  return OFFLOAD_SUCCESS;
+  return Plugin::success();
 }
 
 /// Create OpenMP interop with the given interop context

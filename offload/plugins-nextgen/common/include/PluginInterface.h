@@ -1536,11 +1536,11 @@ public:
   int32_t is_accessible_ptr(int32_t DeviceId, const void *Ptr, size_t Size);
 
   /// Look up a global symbol in the given binary.
-  int32_t get_global(__tgt_device_binary Binary, uint64_t Size,
+  Error get_global(__tgt_device_binary Binary, uint64_t Size,
                      const char *Name, void **DevicePtr);
 
   /// Look up a kernel function in the given binary.
-  int32_t get_function(__tgt_device_binary Binary, const char *Name,
+  Error get_function(__tgt_device_binary Binary, const char *Name,
                        void **KernelPtr);
 
   /// Return the interop specification that the plugin supports

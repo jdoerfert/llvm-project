@@ -442,9 +442,12 @@ static int loadImagesOntoDevice(DeviceTy &Device) {
         llvm::offloading::EntryTy DeviceEntry = Entry;
         if (Entry.Size) {
           if (!(Entry.Flags & OMP_DECLARE_TARGET_INDIRECT_VTABLE))
-            if (Device.RTL->get_global(Binary, Entry.Size, Entry.SymbolName,
-                                       &DeviceEntry.Address) != OFFLOAD_SUCCESS)
-              REPORT() << "Failed to load symbol " << Entry.SymbolName;
+            if (auto Err = Device.RTL->get_global(Binary, Entry.Size, Entry.SymbolName,
+                                       &DeviceEntry.Address)) {
+              REPORT() << llvm::toString(std::move(Err));
+              Rc = OFFLOAD_FAIL;
+              break;
+            }
 
           // If unified memory is active, the corresponding global is a device
           // reference to the host global. We need to initialize the pointer on
@@ -458,9 +461,12 @@ static int loadImagesOntoDevice(DeviceTy &Device) {
                                         Entry.Size) != OFFLOAD_SUCCESS)
               REPORT() << "Failed to write symbol for USM " << Entry.SymbolName;
         } else if (Entry.Address) {
-          if (Device.RTL->get_function(Binary, Entry.SymbolName,
-                                       &DeviceEntry.Address) != OFFLOAD_SUCCESS)
-            REPORT() << "Failed to load kernel " << Entry.SymbolName;
+          if (auto Err = Device.RTL->get_function(Binary, Entry.SymbolName,
+                                       &DeviceEntry.Address)) {
+              REPORT() << llvm::toString(std::move(Err));
+              Rc = OFFLOAD_FAIL;
+              break;
+            }
         }
         ODBG(ODT_Mapping) << "Entry point " << Entry.Address << " maps to"
                           << (Entry.Size ? " global" : "") << " "
