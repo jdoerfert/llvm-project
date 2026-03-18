@@ -5,7 +5,7 @@
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
-#define USE_INV_POINTER
+#undef USE_INV_POINTER
 
 #ifndef __DARWIN_ALIAS
 #define __DARWIN_ALIAS(sym)

@@ -1,7 +1,7 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 
-__device__ void func(int *array, int size) { array[10] = 200; }
+__device__ void func(int *array, int size) { array[0] = 200; }
 
 __global__ void kernel(int *array, int size) {
 	//printf("kernel: array[%d] %d\n", 0, array[0]);

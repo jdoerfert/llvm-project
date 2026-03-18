@@ -180,7 +180,7 @@ __attribute__((constructor(1000))) void __objsan_cuda_ctor_init() {
                 *E = &__stop___objsan_cuda_ctor;
          Ctor != E; ++Ctor) {
       DPRINTF("Calling device ctor at %p\n", Ctor);
-      CUDA_CHECK(cudaLaunchKernel(*Ctor, 1, 1, nullptr));
+      CUDA_CHECK(cudaLaunchKernel((const void *)*Ctor, dim3(1), dim3(1), nullptr, 0, nullptr));
 #ifdef OBJSAN_DEBUG
       CUDA_CHECK(cudaDeviceSynchronize());
 #endif

@@ -20,7 +20,7 @@ if ("cuda" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
     -fgpu-rdc
     -foffload-lto
     --offload-link
-    --offload-arch=sm_80
+    --offload-arch=sm_90
   )
   if(OBJSAN_ENABLE_DEBUG)
     list(APPEND OBJSAN_PRELOAD_CUDA_CFLAGS "-DOBJSAN_DEBUG")
