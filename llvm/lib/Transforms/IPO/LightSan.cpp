@@ -3356,16 +3356,8 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
 
   switch (Phase) {
   case ThinOrFullLTOPhase::None:
-    if (ObjsanCPUOnly) {
-      if (IsCPU)
-        return ::run(M, MAM, ObjsanRuntimeBitcode);
+    if (ObjsanCPUOnly && IsGPU || ObjsanGPUOnly && IsCPU)
       return PreservedAnalyses::all();
-    }
-    if (ObjsanGPUOnly) {
-      if (IsGPU)
-        return ::run(M, MAM, ObjsanRuntimeBitcode);
-      return PreservedAnalyses::all();
-    }
     return ::run(M, MAM, ObjsanRuntimeBitcode);
 
   // clang does not reliably pass -mllvm arguments to the linking processes, so
@@ -3382,41 +3374,29 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
     return PreservedAnalyses::all();
 
   case ThinOrFullLTOPhase::ThinLTOPostLink:
-  case ThinOrFullLTOPhase::FullLTOPostLink:
-    // This pass always runs in postlink, we need to check whether it was
-    // enabled using the enabled flag.
+  case ThinOrFullLTOPhase::FullLTOPostLink: {
     bool Enabled = false;
     if (Metadata *MF = M.getModuleFlag(ObjsanEnabledFlag))
       Enabled = !cast<ConstantInt>(cast<ConstantAsMetadata>(MF)->getValue())
                      ->isZero();
-    if (Enabled) {
-      bool CPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
-                                            M.getModuleFlag(ObjsanCPUOnlyFlag))
-                                            ->getValue())
-                          ->isZero();
-      bool GPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
-                                            M.getModuleFlag(ObjsanGPUOnlyFlag))
-                                            ->getValue())
-                          ->isZero();
-      if (CPUOnly) {
-        if (IsCPU)
-          return ::run(M, MAM,
-                       cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))
-                           ->getString());
-        return PreservedAnalyses::all();
-      }
-      if (GPUOnly) {
-        if (IsGPU)
-          return ::run(M, MAM,
-                       cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))
-                           ->getString());
-        return PreservedAnalyses::all();
-      }
-      return ::run(M, MAM,
-                   cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))
-                       ->getString());
-    }
-    return PreservedAnalyses::all();
+    if (!Enabled)
+      return PreservedAnalyses::all();
+
+    bool CPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
+                                          M.getModuleFlag(ObjsanCPUOnlyFlag))
+                                          ->getValue())
+                        ->isZero();
+    bool GPUOnly = !cast<ConstantInt>(cast<ConstantAsMetadata>(
+                                          M.getModuleFlag(ObjsanGPUOnlyFlag))
+                                          ->getValue())
+                        ->isZero();
+
+    if (ObjsanCPUOnly && IsGPU || ObjsanGPUOnly && IsCPU)
+      return PreservedAnalyses::all();
+    return ::run(
+        M, MAM,
+        cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))->getString());
+  }
   }
   llvm_unreachable("Unknown LTO phase.");
 }
