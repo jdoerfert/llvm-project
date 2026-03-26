@@ -3391,7 +3391,7 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
                                           ->getValue())
                         ->isZero();
 
-    if (ObjsanCPUOnly && IsGPU || ObjsanGPUOnly && IsCPU)
+    if ((CPUOnly && IsGPU) || (GPUOnly && IsCPU))
       return PreservedAnalyses::all();
     return ::run(
         M, MAM,
