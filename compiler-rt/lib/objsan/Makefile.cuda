@@ -32,7 +32,7 @@ objsan_rt.o: objsan_rt.cpp
 libobjsan_preload_cuda.a: $(PL_OBJS) $(RT_OBJS)
 	$(CXX) -I$(CUDA_HOME)/include --emit-static-lib -foffload-lto --offload-arch=$(GPUARCH) $(PL_OBJS) -o $@
 
-example.cuda.o: example.cuda.cpp
+example.cuda.o: examples/example.cuda.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsanitize=object -mllvm -objsan-gpu-only=1 -mllvm -objsan-runtime-bitcode=objsan_ir_rt.bc -x cuda --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto $< -c -o $@
 
 example.cuda: example.cuda.o objsan_ir_rt.bc objsan_rt.o $(PL_LIB)
