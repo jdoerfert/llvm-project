@@ -528,11 +528,13 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
       // MPtr& is potentially dangling and potentially set.
       auto *&MPtr2 = V2M[{Ptr, Fn}];
       if (!MPtr2) {
+        auto *Ptr2 = tryToCast(IIRB.IRB, Ptr, IIRB.PtrTy, IIRB.DL);
         // Fallback to rt call.
-        auto *CI = IIRB.IRB.CreateCall(GetMPtrFC, {Ptr, BaseMPtr, EncNo});
-        IIRB.hoistInstructionsAndAdjustIP(*CI, BestIP, DT,
+        auto *CI = IIRB.IRB.CreateCall(GetMPtrFC, {Ptr2, BaseMPtr, EncNo});
+        auto *Ptr3 = tryToCast(IIRB.IRB, CI, Ptr->getType(), IIRB.DL);
+        IIRB.hoistInstructionsAndAdjustIP(cast<Instruction>(*Ptr3), BestIP, DT,
                                           /*ForceInitial=*/true);
-        MPtr2 = CI;
+        MPtr2 = Ptr3;
       }
     }
 
