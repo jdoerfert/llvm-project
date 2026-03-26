@@ -4,7 +4,6 @@ CPPFLAGS=-I./include
 
 GPUARCH?=sm_90
 
-OBJSAN_IR_PATH=/scr/ivan/src/objsan/compiler-rt/lib/objsan
 OBJSAN_IR_CXXFLAGS=
 
 RT_OBJS=objsan_ir_rt.o objsan_rt.o
@@ -39,7 +38,7 @@ example.cuda.o: example.cuda.cpp
 example.cuda: example.cuda.o objsan_ir_rt.bc objsan_rt.o $(PL_LIB)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsanitize=object --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto --offload-new-driver --offload-link -Xoffload-linker objsan_rt.o $< libobjsan_preload_cuda.a -o $@ -lcudart -L$(CUDA_HOME)/lib64
 
-objsan_ir_rt.bc: $(OBJSAN_IR_PATH)/objsan_ir_rt.cpp
+objsan_ir_rt.bc: objsan_ir_rt.cpp
 	$(CXX) -D__OBJSAN_DEVICE__ $(CXXFLAGS) $(OBJSAN_IR_CXXFLAGS) --target=nvptx64-nvidia-unknown -march=$(GPUARCH) -nogpulib -nostdlibinc -fno-rtti -fno-exceptions -fconvergent-functions -Wno-unknown-cuda-version -c -emit-llvm $< -o $@
 
 clean:
