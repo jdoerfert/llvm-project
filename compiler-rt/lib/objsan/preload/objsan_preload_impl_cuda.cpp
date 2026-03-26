@@ -170,8 +170,6 @@ __attribute__((weak)) extern CtorFn __stop___objsan_cuda_ctor;
 
 namespace {
 __attribute__((constructor(1000))) void __objsan_cuda_ctor_init() {
-  assert(&__start___objsan_cuda_ctor == nullptr &&
-         &__stop___objsan_cuda_ctor == nullptr);
   if (&__start___objsan_cuda_ctor != nullptr) {
     // TODO Do we need to run the ctors on all devices?
     DPRINTF("Found cuda ctors at %p to %p\n", &__start___objsan_cuda_ctor,
