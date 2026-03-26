@@ -1097,10 +1097,14 @@ bool AMDGPUToolChain::shouldSkipSanitizeOption(
   if (Features & llvm::AMDGPU::FEATURE_XNACK_ALWAYS)
     return false;
 
-  // For simplicity, we only allow -fsanitize=address
+  // For simplicity, we only allow -fsanitize=address and -fsanitize=object
   SanitizerMask K = parseSanitizerValue(A->getValue(), /*AllowGroups=*/false);
   if (K != SanitizerKind::Address && K != SanitizerKind::Object)
     return true;
+
+  // No need for xnack feature in -fsanitize=object
+  if (K == SanitizerKind::Object)
+    return false;
 
   // Look for the xnack feature in TargetID
   llvm::StringMap<bool> FeatureMap;
