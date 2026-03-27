@@ -37,3 +37,36 @@ if ("cuda" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
     LINK_FLAGS ${OBJSAN_PRELOAD_CUDA_LINK_FLAGS}
     PARENT_TARGET objsan_preload_cuda)
 endif()
+
+if ("hip" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
+  message("Building objsan hip preload")
+  find_package(HIP REQUIRED)
+  set(OBJSAN_PRELOAD_HIP_SOURCES
+    ${src_files_common}
+    objsan_preload_hip.cpp
+    objsan_preload_impl_hip.cpp
+  )
+  # TODO gfx942
+  set(OBJSAN_PRELOAD_HIP_CFLAGS
+    -I${HIP_INCLUDE_DIRS}
+    -x hip
+    -fgpu-rdc
+    -foffload-lto
+    --offload-link
+    --offload-arch=gfx942
+    --offload-new-driver
+  )
+  if(OBJSAN_ENABLE_DEBUG)
+    list(APPEND OBJSAN_PRELOAD_HIP_CFLAGS "-DOBJSAN_DEBUG")
+  endif()
+  # TODO better way to get the library path?
+  set(OBJSAN_PRELOAD_HIP_LINK_FLAGS
+    -lamdhip64 -L${HIP_LIB_INSTALL_DIR})
+  add_compiler_rt_runtime(clang_rt.objsan_preload_hip
+    STATIC
+    OS ${SANITIZER_COMMON_SUPPORTED_OS}
+    ARCHS ${OBJSAN_SUPPORTED_ARCH}
+    SOURCES ${OBJSAN_PRELOAD_HIP_SOURCES}
+    CFLAGS ${OBJSAN_PRELOAD_HIP_CFLAGS}
+    PARENT_TARGET objsan_preload_hip)
+endif()
