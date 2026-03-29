@@ -1,4 +1,4 @@
-#include "common.h"
+#include "common.cuda.h"
 
 __device__ int global2[20];
 

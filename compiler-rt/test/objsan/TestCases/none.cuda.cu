@@ -5,7 +5,7 @@
 // Checks that we do not break normal cuda compilation
 // CHECK: Execution completed successfully
 
-#include "common.h"
+#include "common.cuda.h"
 
 __device__ void func(int *array) {
   array[9] = 0;

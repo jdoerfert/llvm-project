@@ -10,7 +10,7 @@
 // RUN: %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF2
 // CONF2: Execution completed successfully
 
-#include "common.h"
+#include "common.cuda.h"
 
 __device__ int global[10];
 

@@ -28,7 +28,7 @@
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF6
 // CONF6: l bad
 
-#include "common.h"
+#include "common.cuda.h"
 
 static __device__ int global[10];
 
