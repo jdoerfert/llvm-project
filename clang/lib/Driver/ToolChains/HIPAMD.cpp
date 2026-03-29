@@ -255,6 +255,10 @@ void HIPAMDToolChain::addClangTargetOptions(
   assert(DeviceOffloadingKind == Action::OFK_HIP &&
          "Only HIP offloading kinds are supported for GPUs.");
 
+  CC1Args.append({"-mllvm", "-objsan-runtime-bitcode", "-mllvm",
+                  DriverArgs.MakeArgString(
+                      getCompilerRT(DriverArgs, "objsan-ir", FT_Object))});
+
   CC1Args.append({"-fcuda-is-device", "-fno-threadsafe-statics"});
 
   if (!DriverArgs.hasFlag(options::OPT_fgpu_rdc, options::OPT_fno_gpu_rdc,
