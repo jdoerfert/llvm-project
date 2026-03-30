@@ -6,6 +6,10 @@ config.cuda_path = "@CUDA_TOOLKIT_ROOT_DIR@"
 config.cuda_lib_path = "@CUDA_TOOLKIT_ROOT_DIR@/lib64"
 config.cuda_preload_path = "@OBJSAN_PRELOAD_CUDA_LIB_PATH@"
 config.cuda_objsan_device_rt = "@OBJSAN_RUNTIME_CUDA_LIB_PATH@"
+config.hip_path = "@ROCM_PATH@"
+config.hip_lib_path = "@ROCM_PATH@/lib"
+config.hip_preload_path = "@OBJSAN_PRELOAD_HIP_LIB_PATH@"
+config.hip_objsan_device_rt = "@OBJSAN_RUNTIME_HIP_LIB_PATH@"
 
 # Load common config for all compiler-rt lit tests
 lit_config.load_config(config, "@COMPILER_RT_BINARY_DIR@/test/lit.common.configured")
