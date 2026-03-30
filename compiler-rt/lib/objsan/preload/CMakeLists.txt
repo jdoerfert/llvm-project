@@ -48,7 +48,7 @@ if ("hip" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
   )
   # TODO gfx942
   set(OBJSAN_PRELOAD_HIP_CFLAGS
-    -I${HIP_INCLUDE_DIRS}
+    -I${ROCM_PATH}/include
     -x hip
     -fgpu-rdc
     -foffload-lto
@@ -61,7 +61,7 @@ if ("hip" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
   endif()
   # TODO better way to get the library path?
   set(OBJSAN_PRELOAD_HIP_LINK_FLAGS
-    -lamdhip64 -L${HIP_LIB_INSTALL_DIR})
+    -lamdhip64 -L${ROCM_PATH}/lib)
   add_compiler_rt_runtime(clang_rt.objsan_preload_hip
     STATIC
     OS ${SANITIZER_COMMON_SUPPORTED_OS}
