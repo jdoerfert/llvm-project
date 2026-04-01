@@ -3358,7 +3358,7 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
 
   switch (Phase) {
   case ThinOrFullLTOPhase::None:
-    if (ObjsanCPUOnly && IsGPU || ObjsanGPUOnly && IsCPU)
+    if ((ObjsanCPUOnly && IsGPU) || (ObjsanGPUOnly && IsCPU))
       return PreservedAnalyses::all();
     return ::run(M, MAM, ObjsanRuntimeBitcode);
 
