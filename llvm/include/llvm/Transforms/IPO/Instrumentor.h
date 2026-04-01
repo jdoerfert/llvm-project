@@ -76,6 +76,10 @@ Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL,
   auto RequestedSize = DL.getTypeSizeInBits(Ty);
   auto ValueSize = DL.getTypeSizeInBits(VTy);
   bool IsTruncate = RequestedSize < ValueSize;
+  // Do not truncate in case of pointer types. An address space pointer cast
+  // may truncate it natively (e.g., 64-bit to 32-bit pointer).
+  if (VTy->isPointerTy() && Ty->isPointerTy())
+    return IRB.CreatePointerBitCastOrAddrSpaceCast(V, Ty);
   if (IsTruncate && !AllowTruncate)
     return V;
   if (IsTruncate && AllowTruncate)
@@ -83,8 +87,6 @@ Value *tryToCast(IRBTy &IRB, Value *V, Type *Ty, const DataLayout &DL,
                      IRB.CreateIntCast(V, IRB.getIntNTy(RequestedSize),
                                        /*IsSigned=*/false),
                      Ty, DL, AllowTruncate);
-  if (VTy->isPointerTy() && Ty->isPointerTy())
-    return IRB.CreatePointerBitCastOrAddrSpaceCast(V, Ty);
   if (VTy->isIntegerTy() && Ty->isIntegerTy())
     return IRB.CreateIntCast(V, Ty, /*IsSigned=*/false);
   if (VTy->isFloatingPointTy() && Ty->isIntOrPtrTy()) {
