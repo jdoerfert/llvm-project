@@ -2461,6 +2461,10 @@ struct PostStoreIO : public StoreIO {
       return nullptr;
     auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
     auto *SI = cast<StoreInst>(V);
+
+    IRBuilderBase::InsertPointGuard IPG(IIRB.IRB);
+    IIRB.IRB.SetInsertPoint(SI);
+    ensureDbgLoc(IIRB.IRB);
     if (auto *MPtr = LSIConf.getMPtr(*SI->getValueOperand(), IIRB))
       SI->setOperand(0, MPtr);
     return CI;
