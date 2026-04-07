@@ -15,6 +15,10 @@ endif()
 # clang toolchain arg generation only those types are supported.
 set(OBJSAN_RT_LIB_TYPE STATIC)
 
+# Variables to define the CUDA and HIP architectures.
+set(COMPILER_RT_OBJSAN_CUDA_ARCH "sm_90" CACHE STRING "The CUDA arch to target Objsan")
+set(COMPILER_RT_OBJSAN_HIP_ARCH "gfx942" CACHE STRING "The HIP arch to target Objsan")
+
 if("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^amdgcn" OR
    "${CMAKE_CXX_COMPILER_TARGET}" MATCHES "^amdgcn")
   #list(APPEND OBJSAN_CFLAGS "SHELL:-Xclang -mcode-object-version=none")
@@ -26,6 +30,7 @@ if("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^amdgcn" OR
   list(APPEND OBJSAN_CFLAGS -fno-exceptions)
   list(APPEND OBJSAN_CFLAGS -fconvergent-functions)
   list(APPEND OBJSAN_CFLAGS "-D__OBJSAN_USE_START_STOP_SECTION_CTOR__")
+  list(APPEND OBJSAN_CFLAGS -march=${COMPILER_RT_OBJSAN_HIP_ARCH})
   set(OBJSAN_RT_LIB_TYPE OBJECT)
 elseif("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^nvptx" OR
        "${CMAKE_CXX_COMPILER_TARGET}" MATCHES "^nvptx")
@@ -39,6 +44,7 @@ elseif("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^nvptx" OR
   list(APPEND OBJSAN_CFLAGS -fno-exceptions)
   list(APPEND OBJSAN_CFLAGS -fconvergent-functions)
   list(APPEND OBJSAN_CFLAGS -Wno-unknown-cuda-version)
+  list(APPEND OBJSAN_CFLAGS -march=${COMPILER_RT_OBJSAN_CUDA_ARCH})
   # clang-nvlink-wrapper does not properly link in static libraries (.a files)
   # made up of LLVM IR (-flto), so we opt for OBJECT
   set(OBJSAN_RT_LIB_TYPE OBJECT)

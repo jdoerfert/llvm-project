@@ -13,14 +13,13 @@ if ("cuda" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
   )
   # TODO the way we specify the -I needs to be fixed - I think the variable can
   # in theory contain multiple paths
-  # TODO sm_80
   set(OBJSAN_PRELOAD_CUDA_CFLAGS
     -I${CUDA_INCLUDE_DIRS}
     -x cuda
     -fgpu-rdc
     -foffload-lto
     --offload-link
-    --offload-arch=sm_90
+    --offload-arch=${COMPILER_RT_OBJSAN_CUDA_ARCH}
   )
   if(OBJSAN_ENABLE_DEBUG)
     list(APPEND OBJSAN_PRELOAD_CUDA_CFLAGS "-DOBJSAN_DEBUG")
@@ -46,14 +45,13 @@ if ("hip" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
     objsan_preload_hip.cpp
     objsan_preload_impl_hip.cpp
   )
-  # TODO gfx942
   set(OBJSAN_PRELOAD_HIP_CFLAGS
     -I${ROCM_PATH}/include
     -x hip
     -fgpu-rdc
     -foffload-lto
     --offload-link
-    --offload-arch=gfx942
+    --offload-arch=${COMPILER_RT_OBJSAN_HIP_ARCH}
     --offload-new-driver
   )
   if(OBJSAN_ENABLE_DEBUG)
