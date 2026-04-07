@@ -19,6 +19,7 @@ if("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^amdgcn" OR
    "${CMAKE_CXX_COMPILER_TARGET}" MATCHES "^amdgcn")
   #list(APPEND OBJSAN_CFLAGS "SHELL:-Xclang -mcode-object-version=none")
   list(APPEND OBJSAN_CFLAGS "-D__OBJSAN_DEVICE__")
+  list(APPEND OBJSAN_CFLAGS -flto)
   list(APPEND OBJSAN_CFLAGS -nogpulib)
   list(APPEND OBJSAN_CFLAGS -nostdlibinc)
   list(APPEND OBJSAN_CFLAGS -fno-rtti)
