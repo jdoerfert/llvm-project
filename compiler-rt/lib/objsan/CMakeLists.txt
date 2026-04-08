@@ -34,8 +34,6 @@ if("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^amdgcn" OR
 elseif("${LLVM_DEFAULT_TARGET_TRIPLE}" MATCHES "^nvptx" OR
        "${CMAKE_CXX_COMPILER_TARGET}" MATCHES "^nvptx")
   list(APPEND OBJSAN_CFLAGS "-D__OBJSAN_DEVICE__")
-  # We need LTO because otherwise we need to specify the GPU architecture
-  # (-march=sm_XX) and we want this to be reusable across many archs
   list(APPEND OBJSAN_CFLAGS -flto)
   list(APPEND OBJSAN_CFLAGS -nogpulib)
   list(APPEND OBJSAN_CFLAGS -nostdlibinc)
