@@ -1,37 +1,43 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 
-__device__ void func(int *array, int size) {
-	array[10] = 200; // NOTE: Should trigger an error
-	//array[3999] = 200;
+#define CUDA_CHECK(Call)                                                        \
+    do {                                                                       \
+        cudaError_t Error = (Call);                                             \
+        if (Error != cudaSuccess) {                                             \
+            fprintf(stderr, "CUDA Error at %s:%d: %s (%d)\n",                   \
+                    __FILE__, __LINE__, cudaGetErrorString(Error), Error);      \
+            exit(EXIT_FAILURE);                                                \
+        }                                                                      \
+    } while (0)
+
+extern "C" {
+void objsan_rt_init(void);
+void objsan_rt_deinit(void);
 }
 
-__device__ void func2(int *array, int size, int *val) {
-  *val = array[3999];
+__device__ void func(int *array, int size, int n) {
+  array[n] = 200; // NOTE: Should trigger an error
 }
 
 __global__ void kernel(int *array, int size, int n) {
-  //int tmp[1000];
-	//printf("kernel: array[%d] %d\n", 0, array[0]);
-	func(array, size);
-  //func2(array, size, &tmp[n]);
-	//printf("kernel: array %p size %d\n", array, size);
-	//printf("kernel: array[%d] %d\n", 0, array[0]);
-  //array[0] = tmp[0];
+  func(array, size, n);
 }
 
 int main(int argc, char **argv) {
-	const int size = 10;
-  const int n = (argc == 1) ? 0 : 999;
-	int *d_array;
+  objsan_rt_init();
 
-	cudaError_t Err = cudaMalloc((void**)&d_array, size * sizeof(int));
-	if (Err != cudaSuccess)
-		fprintf(stderr, "error in cudaMalloc: %s\n", cudaGetErrorString(Err));
+  const int size = 10;
+  const int n = (argc == 1) ? 10 : 9;
 
-	kernel<<<1, 1>>>(d_array, size, n);
+  int *d_array;
+  CUDA_CHECK(cudaMalloc((void**)&d_array, size * sizeof(int)));
 
-	Err = cudaFree(d_array);
-	if (Err != cudaSuccess)
-		fprintf(stderr, "error in cudaFree: %s\n", cudaGetErrorString(Err));
+  kernel<<<1, 1>>>(d_array, size, n);
+  CUDA_CHECK(cudaPeekAtLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  CUDA_CHECK(cudaFree(d_array));
+
+  objsan_rt_deinit();
 }

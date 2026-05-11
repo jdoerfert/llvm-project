@@ -1,13 +1,13 @@
 CXX=clang++
 CXXFLAGS=-std=c++20 -O3 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
-CPPFLAGS=-I./include -D__HIP_PLATFORM_AMD__
+CPPFLAGS=-I./include -D__HIP_PLATFORM_AMD__ -D__OBJSAN_DEBUG__
 
-GPUARCH?=gfx942
+GPUARCH?=native
 
 OBJSAN_IR_CXXFLAGS=
 
 RT_OBJS=objsan_ir_rt.o objsan_rt.o
-PL_OBJS=objsan_preload.o objsan_preload_impl_hip.o objsan_preload_hip.o
+PL_OBJS=objsan_preload.o objsan_preload_hip.o
 OBJS=$(RT_OBJS) $(PL_OBJS) example.hip.o
 
 PL_LIB=libobjsan_preload_hip.a
@@ -17,11 +17,8 @@ all: $(PL_LIB) example.hip
 objsan_preload.o: preload/objsan_preload.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fPIC $< -c -o $@
 
-objsan_preload_impl_hip.o: preload/objsan_preload_impl_hip.cpp
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x hip --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto --offload-new-driver $< -c -o $@
-
 objsan_preload_hip.o: preload/objsan_preload_hip.cpp
-	$(CXX) $(CPPFLAGS) -I$(ROCM_PATH)/include $(CXXFLAGS) -fPIC $< -c -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x hip --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto --offload-new-driver $< -c -o $@
 
 objsan_ir_rt.o: objsan_ir_rt.cpp
 	$(CXX) $(CPPFLAGS) -D__OBJSAN_DEVICE__ $(CXXFLAGS) --target=amdgcn-amd-amdhsa -march=$(GPUARCH) -nogpulib -nostdlibinc -fno-rtti -fno-exceptions -fconvergent-functions -Wno-unknown-cuda-version -flto $< -c -o $@

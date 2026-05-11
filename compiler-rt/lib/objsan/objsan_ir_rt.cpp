@@ -1,11 +1,23 @@
-#include "include/common.h"
+//===- objsan/objsan_ir_rt.cpp --------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file is a part of ObjSan.
+//
+//===----------------------------------------------------------------------===//
 
 #include "include/obj_encoding.h"
+#include "include/objsan_common.h"
 
 #define OBJSAN_SMALL_API_ATTRS [[gnu::flatten, clang::always_inline]]
 #define OBJSAN_BIG_API_ATTRS [[clang::always_inline]]
 
-#undef USE_INV_POINTER
+#define USE_INV_POINTER
+#define __OBJSAN_STATUS__
 
 #ifndef __DARWIN_ALIAS
 #define __DARWIN_ALIAS(sym)
@@ -15,7 +27,7 @@
 #include <new>
 #endif
 
-#ifdef OBJSAN_DEBUG
+#ifdef __OBJSAN_DEBUG__
 #define PRINTF(...) printf(__VA_ARGS__)
 #else
 #define PRINTF(...)
@@ -55,7 +67,8 @@ void _ZdaPvmSt11align_val_t(void *, unsigned long, std::align_val_t);
 
 void *malloc(size_t size);
 size_t strlen(const char *str);
-}
+
+} // extern C
 
 using namespace __objsan;
 
@@ -485,6 +498,10 @@ void *__objsan_pre_load(char *VPtr, char *BaseMPtr, char *LVRI,
     FPRINTF("l bad (%p) %p %p %p %" PRIu64 " %" PRIu64 " %i %i [%i]\n", VPtr,
             MPtr, BaseMPtr, LVRI, AccessSize, ObjSize, EncodingNo, WasChecked,
             ID);
+#ifdef __OBJSAN_STATUS__
+    if (__objsan_Status)
+      __objsan_Status->setFailure(AccessKind::Load);
+#endif
 #ifdef USE_INV_POINTER
     return (char *)~0;
 #else
@@ -520,6 +537,10 @@ void *__objsan_pre_store(char *VPtr, char *BaseMPtr, char *LVRI,
     FPRINTF("s bad (%p) %p %p %p %" PRIu64 " %" PRIu64 " %i %i [%i]\n", VPtr,
             MPtr, BaseMPtr, LVRI, AccessSize, ObjSize, EncodingNo, WasChecked,
             ID);
+#ifdef __OBJSAN_STATUS__
+    if (__objsan_Status)
+      __objsan_Status->setFailure(AccessKind::Store);
+#endif
 #ifdef USE_INV_POINTER
     return (char *)~0;
 #else
@@ -547,6 +568,11 @@ OBJSAN_SMALL_API_ATTRS
 void *__objsan_decode(char *VPtr) {
   uint8_t EncodingNo = EncodingCommonTy::getEncodingNo(VPtr);
   ENCODING_NO_SWITCH(decode, EncodingNo, VPtr, VPtr);
+}
+
+OBJSAN_SMALL_API_ATTRS
+void __objsan_setup_status(__objsan::StatusTy *Status) {
+  __objsan_Status = Status;
 }
 
 OBJSAN_SMALL_API_ATTRS
@@ -684,4 +710,4 @@ SPEC_LOAD(1)
 SPEC_LOAD(2)
 SPEC_LOAD(4)
 SPEC_LOAD(8)
-}
+} // extern C

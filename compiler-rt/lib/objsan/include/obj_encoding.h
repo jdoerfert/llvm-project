@@ -1,7 +1,20 @@
-#ifndef OBJSAN_OBJ_ENCODING_H
-#define OBJSAN_OBJ_ENCODING_H
+//===- objsan/include/obj_enconding.h -------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file is a part of ObjSan.
+//
+//===----------------------------------------------------------------------===//
 
-#include "common.h"
+#ifndef OBJSAN_INCLUDE_OBJ_ENCODING_H
+#define OBJSAN_INCLUDE_OBJ_ENCODING_H
+
+#include "objsan_common.h"
+#include "objsan_utils.h"
 
 #if __has_builtin(__builtin_assume)
 #define ASSUME(E) __builtin_assume((E));
@@ -506,7 +519,7 @@ extern StatsTy SLoopR;
 extern "C" {
 extern __objsan::SmallObjectsTy __objsan_SmallObjects;
 extern __objsan::LargeObjectsTy __objsan_LargeObjects;
+extern __objsan::StatusTy *__objsan_Status;
 };
 
-//
-#endif // OBJSAN_OBJ_ENCODING_H
+#endif // OBJSAN_INCLUDE_OBJ_ENCODING_H

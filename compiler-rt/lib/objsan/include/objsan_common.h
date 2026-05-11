@@ -1,4 +1,4 @@
-//===------------------------ common.h --------------------------*- C++ -*-===//
+//===- objsan/include/objsan_common.h -------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef OBJSAN_INCLUDE_COMMON_H
-#define OBJSAN_INCLUDE_COMMON_H
+#ifndef OBJSAN_INCLUDE_OBJSAN_COMMON_H
+#define OBJSAN_INCLUDE_OBJSAN_COMMON_H
 
 // Freestanding headers
 #include <stdarg.h>
@@ -55,18 +55,22 @@ static_assert(sizeof(int16_t) == 2, "int16_t size mismatch");
 static_assert(sizeof(int32_t) == 4, "int32_t size mismatch");
 static_assert(sizeof(int64_t) == 8, "uint64_t size mismatch");
 
+#ifdef __OBJSAN_DEVICE_PRINT__
+#define FPRINTF(...) printf(__VA_ARGS__)
+#define FFLUSH(...)
+#else
+#define FPRINTF(...)
+#define FFLUSH(...)
+#endif
+
 extern "C" {
 int printf(const char *format, ...);
 
 static inline void __assert_fail(const char *expr, const char *file,
                                  unsigned line, const char *function) {
-  printf("%s:%u: %s: Assertion `%s` failed.\n", file, line, function, expr);
-  __builtin_trap();
+  FPRINTF("%s:%u: %s: Assertion `%s` failed.\n", file, line, function, expr);
 }
-}
-
-#define FPRINTF(...) printf(__VA_ARGS__)
-#define FFLUSH(...)
+} // extern C
 
 #ifdef NDEBUG
 #define assert(expr) ((void)(0))
@@ -112,4 +116,4 @@ enum MemScopeTy {
 
 } // namespace __objsan
 
-#endif // OBJSAN_INCLUDE_COMMON_H
+#endif // OBJSAN_INCLUDE_OBJSAN_COMMON_H

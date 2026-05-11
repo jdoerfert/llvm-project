@@ -9,7 +9,6 @@ if ("cuda" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
   set(OBJSAN_PRELOAD_CUDA_SOURCES
     ${src_files_common}
     objsan_preload_cuda.cpp
-    objsan_preload_impl_cuda.cpp
   )
   # TODO the way we specify the -I needs to be fixed - I think the variable can
   # in theory contain multiple paths
@@ -22,9 +21,8 @@ if ("cuda" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
     --offload-arch=${COMPILER_RT_OBJSAN_CUDA_ARCH}
   )
   if(OBJSAN_ENABLE_DEBUG)
-    list(APPEND OBJSAN_PRELOAD_CUDA_CFLAGS "-DOBJSAN_DEBUG")
+    list(APPEND OBJSAN_PRELOAD_CUDA_CFLAGS "-D__OBJSAN_DEBUG__")
   endif()
-  # TODO better way to get the library path?
   set(OBJSAN_PRELOAD_CUDA_LINK_FLAGS
     -lcudart -L${CUDA_TOOLKIT_ROOT_DIR}/lib64)
   add_compiler_rt_runtime(clang_rt.objsan_preload_cuda
@@ -43,7 +41,6 @@ if ("hip" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
   set(OBJSAN_PRELOAD_HIP_SOURCES
     ${src_files_common}
     objsan_preload_hip.cpp
-    objsan_preload_impl_hip.cpp
   )
   set(OBJSAN_PRELOAD_HIP_CFLAGS
     -I${ROCM_PATH}/include
@@ -55,9 +52,8 @@ if ("hip" IN_LIST COMPILER_RT_OBJSAN_PRELOAD_LIBS_TO_BUILD_LOWER)
     --offload-new-driver
   )
   if(OBJSAN_ENABLE_DEBUG)
-    list(APPEND OBJSAN_PRELOAD_HIP_CFLAGS "-DOBJSAN_DEBUG")
+    list(APPEND OBJSAN_PRELOAD_HIP_CFLAGS "-D__OBJSAN_DEBUG__")
   endif()
-  # TODO better way to get the library path?
   set(OBJSAN_PRELOAD_HIP_LINK_FLAGS
     -lamdhip64 -L${ROCM_PATH}/lib)
   add_compiler_rt_runtime(clang_rt.objsan_preload_hip

@@ -1,13 +1,13 @@
 CXX=clang++
 CXXFLAGS=-std=c++20 -O3 -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
-CPPFLAGS=-I./include
+CPPFLAGS=-I./include -D__OBJSAN_DEBUG__
 
 GPUARCH?=sm_90
 
 OBJSAN_IR_CXXFLAGS=
 
 RT_OBJS=objsan_ir_rt.o objsan_rt.o
-PL_OBJS=objsan_preload.o objsan_preload_impl_cuda.o objsan_preload_cuda.o
+PL_OBJS=objsan_preload.o objsan_preload_cuda.o
 OBJS=$(RT_OBJS) $(PL_OBJS) example.cuda.o
 
 PL_LIB=libobjsan_preload_cuda.a
@@ -17,11 +17,8 @@ all: $(PL_LIB) example.cuda
 objsan_preload.o: preload/objsan_preload.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fPIC $< -c -o $@
 
-objsan_preload_impl_cuda.o: preload/objsan_preload_impl_cuda.cpp
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x cuda --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto $< -c -o $@
-
 objsan_preload_cuda.o: preload/objsan_preload_cuda.cpp
-	$(CXX) $(CPPFLAGS) -I$(CUDA_HOME)/include $(CXXFLAGS) -fPIC $< -c -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x cuda --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto $< -c -o $@
 
 objsan_ir_rt.o: objsan_ir_rt.cpp
 	$(CXX) $(CPPFLAGS) -D__OBJSAN_DEVICE__ $(CXXFLAGS) --target=nvptx64-nvidia-unknown -march=$(GPUARCH) -nogpulib -nostdlibinc -fno-rtti -fno-exceptions -fconvergent-functions -Wno-unknown-cuda-version -flto $< -c -o $@

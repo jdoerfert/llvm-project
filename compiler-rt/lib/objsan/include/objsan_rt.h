@@ -1,4 +1,4 @@
-//===-------------------- objsan_preload.cpp --------------------*- C++ -*-===//
+//===- objsan/include/objsan_rt.h -----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,19 +10,22 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "objsan_rt.h"
-#include "objsan_preload.h"
+#ifndef OBJSAN_INCLUDE_OBJSAN_RT_H
+#define OBJSAN_INCLUDE_OBJSAN_RT_H
 
-static __objsan::StatusTy *Status = nullptr;
+#pragma GCC visibility push(default)
 
-__objsan::StatusTy *objsan::getStatus() {
-  return Status;
-}
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-void objsan_rt_init(void) {
-  objsan::impl::initialize(&Status);
-}
+void objsan_rt_init(void);
+void objsan_rt_deinit(void);
 
-void objsan_rt_deinit(void) {
-  objsan::impl::finalize(Status);
-}
+#ifdef __cplusplus
+} // extern C
+#endif
+
+#pragma GCC visibility pop
+
+#endif // OBJSAN_INCLUDE_OBJSAN_RT_H

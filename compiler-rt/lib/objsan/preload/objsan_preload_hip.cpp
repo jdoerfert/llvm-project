@@ -19,20 +19,129 @@
 
 namespace {
 
+hipError_t checkStatus(hipError_t Error);
+
+} // namespace
+
+#define HIP_CHECK(Call)                                                        \
+  do {                                                                         \
+    hipError_t Error = (Call);                                                 \
+    if (Error != hipSuccess) {                                                 \
+      Error = checkStatus(Error);                                              \
+      fprintf(stderr, "HIP Error at %s:%d: %s (%d)\n",                         \
+              __FILE__, __LINE__, hipGetErrorString(Error), Error);            \
+      exit(EXIT_FAILURE);                                                      \
+    }                                                                          \
+  } while (0)
+
+extern "C" {
+
+__device__ char *
+__objsan_register_object(char *MPtr, uint64_t ObjSize,
+                         bool RequiresTemporalCheck);
+__device__ void __objsan_free_object(char *VPtr);
+__device__ void *__objsan_decode(char *VPtr);
+__device__ void __objsan_setup_status(__objsan::StatusTy *Status);
+
+__attribute__((used)) __global__
+void __objsan_register_kernel(void **VPtr, void *MPtr, size_t Size) {
+  *VPtr = __objsan_register_object(reinterpret_cast<char *>(MPtr), Size,
+                                   /*RequiresTemporalCheck=*/false);
+}
+
+__attribute__((used)) __global__
+void __objsan_unregister_kernel(void **MPtr, void *VPtr) {
+  *MPtr = __objsan_decode(reinterpret_cast<char *>(VPtr));
+  __objsan_free_object(reinterpret_cast<char *>(VPtr));
+}
+
+__attribute__((used)) __global__
+void __objsan_setup_status_kernel(__objsan::StatusTy *Status) {
+  __objsan_setup_status(Status);
+}
+
+}; // extern "C"
+
+namespace {
+
 // A TLB that translates from VPtr to MPtr.
 objsan::TLBTy TLB;
+
+hipError_t checkStatus(hipError_t Error) {
+  if (Error == hipSuccess)
+    return Error;
+
+  auto *Status = objsan::getStatus();
+  if (Status && Status->hasFailed())
+    fprintf(stderr, "%s bad\n", Status->isLoad() ? "l" : "s");
+  return Error;
+}
+
+hipError_t allocDeviceMem(void **DevPtr, size_t Size) {
+  using FuncTy = hipError_t(void **, size_t);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("hipMalloc");
+  return FPtr(DevPtr, Size);
+}
+
+hipError_t freeDeviceMem(void *DevPtr) {
+  using FuncTy = hipError_t(void *);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("hipFree");
+  return FPtr(DevPtr);
+}
+
+hipError_t copyDeviceMem(void *DstPtr, const void *SrcPtr, size_t Size,
+                      hipMemcpyKind Kind) {
+  using FuncTy = hipError_t(void *, const void *, size_t, hipMemcpyKind);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>("hipMemcpy");
+  return FPtr(DstPtr, SrcPtr, Size, Kind);
+}
+
+void *launchRegisterKernel(void *MPtr, size_t Size) {
+  if (!MPtr)
+    return nullptr;
+
+  void **DevPtr;
+  HIP_CHECK(allocDeviceMem(reinterpret_cast<void **>(&DevPtr), sizeof(void *)));
+
+  __objsan_register_kernel<<<1, 1>>>(DevPtr, MPtr, Size);
+
+  void *VPtr = nullptr;
+  HIP_CHECK(copyDeviceMem(&VPtr, DevPtr, sizeof(void *), hipMemcpyDeviceToHost));
+  HIP_CHECK(freeDeviceMem(DevPtr));
+
+  DPRINTF("%s registered mptr %p vptr %p size %zu\n", InfoPrefix, MPtr, VPtr, Size);
+
+  return VPtr;
+}
+
+void *launchUnregisterKernel(void *VPtr) {
+  if (!VPtr)
+    return nullptr;
+
+  void **DevPtr;
+  HIP_CHECK(allocDeviceMem(reinterpret_cast<void **>(&DevPtr), sizeof(void *)));
+
+  __objsan_unregister_kernel<<<1, 1>>>(DevPtr, VPtr);
+
+  void *MPtr = nullptr;
+  HIP_CHECK(copyDeviceMem(&MPtr, DevPtr, sizeof(void *), hipMemcpyDeviceToHost));
+  HIP_CHECK(freeDeviceMem(DevPtr));
+
+  DPRINTF("%s unregistered mptr %p vptr %p\n", InfoPrefix, MPtr, VPtr);
+
+  return MPtr;
+}
 
 } // namespace
 
 hipError_t hipMalloc(void **devPtr, size_t size) {
   using FuncTy = hipError_t(void **, size_t);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
-  assert(FPtr && "null hipMalloc pointer");
 
-  hipError_t Err = FPtr(devPtr, size);
+  hipError_t Err = checkStatus(FPtr(devPtr, size));
   if (Err != hipSuccess)
     return Err;
-  void *VPtr = objsan::registerDeviceMemory(*devPtr, size);
+  void *VPtr = launchRegisterKernel(*devPtr, size);
   if (!VPtr) {
     // emit warning but we can't fail here.
     fprintf(stderr, "failed to register device memory\n");
@@ -47,11 +156,11 @@ hipError_t hipMalloc(void **devPtr, size_t size) {
 hipError_t hipMallocManaged(void **devPtr, size_t size, unsigned int flags) {
   using FuncTy = hipError_t(void **, size_t, unsigned int);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
-  assert(FPtr && "null hipMallocManaged pointer");
-  hipError_t Err = FPtr(devPtr, size, flags);
+
+  hipError_t Err = checkStatus(FPtr(devPtr, size, flags));
   if (Err != hipSuccess)
     return Err;
-  void *VPtr = objsan::registerDeviceMemory(*devPtr, size);
+  void *VPtr = launchRegisterKernel(*devPtr, size);
   if (!VPtr) {
     // emit warning but we can't fail here.
     fprintf(stderr, "failed to register device memory\n");
@@ -65,7 +174,7 @@ hipError_t hipMallocManaged(void **devPtr, size_t size, unsigned int flags) {
 
 hipError_t hipFree(void *devPtr) {
   void *MPtrFromTLB = TLB.pop(devPtr);
-  void *MPtrFromDev = objsan::unregisterDeviceMemory(devPtr);
+  void *MPtrFromDev = launchUnregisterKernel(devPtr);
   if (MPtrFromTLB == MPtrFromDev) {
     devPtr = MPtrFromTLB;
   } else {
@@ -78,8 +187,7 @@ hipError_t hipFree(void *devPtr) {
   }
   using FuncTy = hipError_t(void *);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
-  assert(FPtr && "null hipFree pointer");
-  return FPtr(devPtr);
+  return checkStatus(FPtr(devPtr));
 }
 
 hipError_t hipMemcpy(void *dst, const void *src, size_t count,
@@ -89,8 +197,7 @@ hipError_t hipMemcpy(void *dst, const void *src, size_t count,
 
   using FuncTy = hipError_t(void *, const void *, size_t, hipMemcpyKind);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
-  assert(FPtr && "null hipMemcpy pointer");
-  return FPtr(Dst, Src, count, kind);
+  return checkStatus(FPtr(Dst, Src, count, kind));
 }
 
 hipError_t hipMemcpyAsync(void *dst, const void *src, size_t count,
@@ -100,8 +207,7 @@ hipError_t hipMemcpyAsync(void *dst, const void *src, size_t count,
 
   using FuncTy = hipError_t(void *, const void *, size_t, hipMemcpyKind, hipStream_t);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
-  assert(FPtr && "null hipMemcpyAsync pointer");
-  return FPtr(Dst, Src, count, kind, stream);
+  return checkStatus(FPtr(Dst, Src, count, kind, stream));
 }
 
 hipError_t hipMemset(void *dst, int value, size_t count) {
@@ -109,8 +215,7 @@ hipError_t hipMemset(void *dst, int value, size_t count) {
 
   using FuncTy = hipError_t(void *, int, size_t);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
-  assert(FPtr && "null hipMemset pointer");
-  return FPtr(Dst, value, count);
+  return checkStatus(FPtr(Dst, value, count));
 }
 
 hipError_t hipMemsetAsync(void *dst, int value, size_t count, hipStream_t stream) {
@@ -118,6 +223,50 @@ hipError_t hipMemsetAsync(void *dst, int value, size_t count, hipStream_t stream
 
   using FuncTy = hipError_t(void *, int, size_t, hipStream_t);
   static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
-  assert(FPtr && "null hipMemsetAsync pointer");
-  return FPtr(Dst, value, count, stream);
+  return checkStatus(FPtr(Dst, value, count, stream));
 }
+
+hipError_t hipLaunchKernel(const void* function, dim3 nblocks, dim3 nthreads,
+                           void** args, size_t sharedmem,
+                           hipStream_t stream) {
+  using FuncTy = hipError_t(const void *, dim3, dim3, void **, size_t, hipStream_t);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  return checkStatus(FPtr(function, nblocks, nthreads, args, sharedmem, stream));
+}
+
+hipError_t hipDeviceSynchronize(void) {
+  using FuncTy = hipError_t(void);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  return checkStatus(FPtr());
+}
+
+hipError_t hipPeekAtLastError(void) {
+  using FuncTy = hipError_t(void);
+  static FuncTy *FPtr = objsan::getOriginalFunction<FuncTy>(__func__);
+  return checkStatus(FPtr());
+}
+
+namespace objsan {
+namespace impl {
+
+void initialize(__objsan::StatusTy **Status) {
+  if (!Status)
+    return;
+
+  HIP_CHECK(hipHostMalloc((void**)Status, sizeof(__objsan::StatusTy), hipHostMallocMapped));
+  new (*Status) __objsan::StatusTy();
+
+  __objsan::StatusTy *StatusDev = nullptr;
+  HIP_CHECK(hipHostGetDevicePointer((void**)&StatusDev, *Status, 0));
+
+  __objsan_setup_status_kernel<<<1, 1>>>(StatusDev);
+  HIP_CHECK(hipDeviceSynchronize());
+}
+
+void finalize(__objsan::StatusTy *Status) {
+  if (Status)
+    HIP_CHECK(hipHostFree(Status));
+}
+
+} // namespace impl
+} // namespace objsan

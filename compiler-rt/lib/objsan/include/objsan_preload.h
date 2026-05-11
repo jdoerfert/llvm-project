@@ -21,7 +21,9 @@
 #include <mutex>
 #include <unordered_map>
 
-#ifdef OBJSAN_DEBUG
+#include "objsan_utils.h"
+
+#ifdef __OBJSAN_DEBUG__
 #define DPRINTF(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define DPRINTF(...)                                                           \
@@ -30,12 +32,10 @@
 #endif
 
 namespace objsan {
-
 namespace impl {
 
-void *launchRegisterKernel(void *MPtr, size_t Size);
-
-void *launchUnregisterKernel(void *VPtr);
+void initialize(__objsan::StatusTy **Status);
+void finalize(__objsan::StatusTy *Status);
 
 } // namespace impl
 
@@ -78,9 +78,7 @@ public:
   }
 };
 
-void *registerDeviceMemory(void *MPtr, size_t Size);
-
-void *unregisterDeviceMemory(void *Ptr);
+__objsan::StatusTy *getStatus();
 
 template <typename FuncTy>
 FuncTy *getOriginalFunction(const char *Name) {
