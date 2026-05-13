@@ -1,29 +1,29 @@
-// RUN: %clang_objsan_hip_compile -DCONF1 -c %s -o %t.o
+// RUN: %clang_objsan_hip_compile -O2 -DCONF1 -c %s -o %t.o
 // RUN: %clang_objsan_hip_link %t.o %clang_objsan_hip_post_link -o %t.a.out
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF1
 // CONF1: s bad
 
-// RUN: %clang_objsan_hip_compile -DCONF2 -c %s -o %t.o
+// RUN: %clang_objsan_hip_compile -O2 -DCONF2 -c %s -o %t.o
 // RUN: %clang_objsan_hip_link %t.o %clang_objsan_hip_post_link -o %t.a.out
 // RUN: %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF2
 // CONF2: Execution completed successfully
 
-// RUN: %clang_objsan_hip_compile -DCONF3 -c %s -o %t.o
+// RUN: %clang_objsan_hip_compile -O2 -DCONF3 -c %s -o %t.o
 // RUN: %clang_objsan_hip_link %t.o %clang_objsan_hip_post_link -o %t.a.out
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF1
 // CONF3: s bad
 
-// RUN: %clang_objsan_hip_compile -DCONF4 -c %s -o %t.o
+// RUN: %clang_objsan_hip_compile -O2 -DCONF4 -c %s -o %t.o
 // RUN: %clang_objsan_hip_link %t.o %clang_objsan_hip_post_link -o %t.a.out
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF4
 // CONF4: l bad
 
-// RUN: %clang_objsan_hip_compile -DCONF5 -c %s -o %t.o
+// RUN: %clang_objsan_hip_compile -O2 -DCONF5 -c %s -o %t.o
 // RUN: %clang_objsan_hip_link %t.o %clang_objsan_hip_post_link -o %t.a.out
 // RUN: %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF5
 // CONF5: Execution completed successfully
 
-// RUN: %clang_objsan_hip_compile -DCONF6 -c %s -o %t.o
+// RUN: %clang_objsan_hip_compile -O2 -DCONF6 -c %s -o %t.o
 // RUN: %clang_objsan_hip_link %t.o %clang_objsan_hip_post_link -o %t.a.out
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF6
 // CONF6: l bad

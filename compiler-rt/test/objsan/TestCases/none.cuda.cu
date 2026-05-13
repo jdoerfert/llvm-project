@@ -1,4 +1,4 @@
-// RUN: %clang_cuda_compile -c %s -o %t.o
+// RUN: %clang_cuda_compile -O2 -c %s -o %t.o
 // RUN: %clang_cuda_link %t.o %clang_cuda_post_link -o %t.a.out
 // RUN: %t.a.out 2>&1 | FileCheck %s
 

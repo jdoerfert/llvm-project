@@ -1,4 +1,4 @@
-// RUN: %clang_hip_compile -c %s -o %t.o
+// RUN: %clang_hip_compile -O2 -c %s -o %t.o
 // RUN: %clang_hip_link %t.o %clang_hip_post_link -o %t.a.out
 // RUN: %t.a.out 2>&1 | FileCheck %s
 
