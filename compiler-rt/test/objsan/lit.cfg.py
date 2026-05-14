@@ -31,7 +31,7 @@ if cuda_gpu_arch:
   config.substitutions.append(
       ('%clang_cuda_post_link', clang_cuda_post_link_args))
 
-  clang_objsan_cuda_compile_args = config.clang + f' -x cuda --cuda-path={config.cuda_path} -fsanitize=object -mllvm -objsan-gpu-only=1 --offload-arch={cuda_gpu_arch} -fgpu-rdc -foffload-lto'
+  clang_objsan_cuda_compile_args = config.clang + f' -I{config.objsan_rt_inc_path} -x cuda --cuda-path={config.cuda_path} -fsanitize=object -mllvm -objsan-gpu-only=1 --offload-arch={cuda_gpu_arch} -fgpu-rdc -foffload-lto'
   clang_objsan_cuda_link_args = config.clang + f' --cuda-path={config.cuda_path} -fsanitize=object --offload-link -Xoffload-linker {config.cuda_objsan_device_rt}'
   clang_objsan_cuda_post_link_args = f'{config.cuda_preload_path} -L{config.cuda_lib_path} -lcudart -lstdc++'
   
@@ -72,7 +72,7 @@ if amdgpu_gpu_arch:
   config.substitutions.append(
       ('%clang_hip_post_link', clang_hip_post_link_args))
 
-  clang_objsan_hip_compile_args = config.clang + f' -x hip --rocm-path={config.hip_path} -fsanitize=object -mllvm -objsan-gpu-only=1 --offload-arch={amdgpu_gpu_arch} -fgpu-rdc -foffload-lto --offload-new-driver'
+  clang_objsan_hip_compile_args = config.clang + f' -I{config.objsan_rt_inc_path} -x hip --rocm-path={config.hip_path} -fsanitize=object -mllvm -objsan-gpu-only=1 --offload-arch={amdgpu_gpu_arch} -fgpu-rdc -foffload-lto --offload-new-driver'
   clang_objsan_hip_link_args = config.clang + f' --rocm-path={config.hip_path} -fsanitize=object --offload-link -Xoffload-linker {config.hip_objsan_device_rt}'
   clang_objsan_hip_post_link_args = f'{config.hip_preload_path} -L{config.hip_lib_path} -lamdhip64 -lstdc++'
 

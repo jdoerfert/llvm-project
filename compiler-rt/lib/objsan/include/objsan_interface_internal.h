@@ -1,4 +1,4 @@
-//===- objsan/include/objsan_rt.h -----------------------------------------===//
+//===- objsan/include/objsan_interface_internal.h -------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef OBJSAN_INCLUDE_OBJSAN_RT_H
-#define OBJSAN_INCLUDE_OBJSAN_RT_H
+#ifndef OBJSAN_INCLUDE_OBJSAN_INTERFACE_INTERNAL_H
+#define OBJSAN_INCLUDE_OBJSAN_INTERFACE_INTERNAL_H
 
 #pragma GCC visibility push(default)
 
@@ -19,8 +19,8 @@
 extern "C" {
 #endif
 
-void objsan_rt_init(void);
-void objsan_rt_deinit(void);
+void __objsan_rt_init(void);
+void __objsan_rt_deinit(void);
 
 #ifdef __cplusplus
 } // extern C
@@ -28,4 +28,4 @@ void objsan_rt_deinit(void);
 
 #pragma GCC visibility pop
 
-#endif // OBJSAN_INCLUDE_OBJSAN_RT_H
+#endif // OBJSAN_INCLUDE_OBJSAN_INTERFACE_INTERNAL_H

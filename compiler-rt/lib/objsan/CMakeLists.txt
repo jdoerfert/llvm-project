@@ -74,8 +74,8 @@ set(OBJSAN_SOURCES
 set(OBJSAN_HEADERS
   include/obj_encoding.h
   include/objsan_common.h
+  include/objsan_interface_internal.h
   include/objsan_preload.h
-  include/objsan_rt.h
   include/objsan_utils.h
 )
 

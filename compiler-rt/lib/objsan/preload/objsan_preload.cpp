@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "objsan_rt.h"
+#include "objsan_interface_internal.h"
 #include "objsan_preload.h"
 
 static __objsan::StatusTy *Status = nullptr;
@@ -19,10 +19,10 @@ __objsan::StatusTy *objsan::getStatus() {
   return Status;
 }
 
-void objsan_rt_init(void) {
+void __objsan_rt_init(void) {
   objsan::impl::initialize(&Status);
 }
 
-void objsan_rt_deinit(void) {
+void __objsan_rt_deinit(void) {
   objsan::impl::finalize(Status);
 }

@@ -10,6 +10,7 @@ config.hip_path = "@ROCM_PATH@"
 config.hip_lib_path = "@ROCM_PATH@/lib"
 config.hip_preload_path = "@OBJSAN_PRELOAD_HIP_LIB_PATH@"
 config.hip_objsan_device_rt = "@OBJSAN_RUNTIME_HIP_LIB_PATH@"
+config.objsan_rt_inc_path = "@OBJSAN_RUNTIME_INC_PATH@"
 
 # Load common config for all compiler-rt lit tests
 lit_config.load_config(config, "@COMPILER_RT_BINARY_DIR@/test/lit.common.configured")
