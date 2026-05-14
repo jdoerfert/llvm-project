@@ -28,6 +28,7 @@
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF6
 // CONF6: l bad
 
+#include "common.h"
 #include "common.hip.h"
 
 __device__ void func(int *array) {
@@ -53,7 +54,9 @@ __device__ void func(int *array) {
 
 __global__ void kernel(int *array) { func(array); }
 
-int main(int argc, char **argv) {
+OBJSAN_TEST_MAIN(run_test)
+
+int run_test(int argc, char **argv) {
   const int size = 10;
   int *d_array;
 
@@ -66,4 +69,5 @@ int main(int argc, char **argv) {
   HIP_CHECK(hipFree(d_array));
 
   fprintf(stdout, "%s", "Execution completed successfully\n");
+  return 0;
 }

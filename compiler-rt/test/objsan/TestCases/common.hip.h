@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+
 #include <hip/hip_runtime.h>
 
 #define HIP_CHECK(Call)                                                        \

@@ -10,6 +10,7 @@
 // RUN: %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF2
 // CONF2: Execution completed successfully
 
+#include "common.h"
 #include "common.cuda.h"
 
 __device__ int global[10];
@@ -35,7 +36,9 @@ void call_kernel(int *d_array, int size) {
 
 void call_kernel2(int *d_array, int size);
 
-int main(int argc, char **argv) {
+OBJSAN_TEST_MAIN(run_test)
+
+int run_test(int argc, char **argv) {
   const int size = 10;
   int *d_array;
 
@@ -52,4 +55,5 @@ int main(int argc, char **argv) {
   CUDA_CHECK(cudaFree(d_array));
 
   fprintf(stdout, "%s", "Execution completed successfully\n");
+  return 0;
 }

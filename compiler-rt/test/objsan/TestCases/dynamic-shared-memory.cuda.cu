@@ -30,6 +30,7 @@
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF6
 // CONF6 l bad
 
+#include "common.h"
 #include "common.cuda.h"
 
 __attribute__((noinline)) __device__ void get(int *array) {
@@ -60,7 +61,9 @@ __global__ void kernel(int *array, int size) {
   array[0] = shared[0];
 }
 
-int main(int argc, char **argv) {
+OBJSAN_TEST_MAIN(run_test)
+
+int run_test(int argc, char **argv) {
   const int size = 10;
   int *d_array;
 
@@ -73,4 +76,5 @@ int main(int argc, char **argv) {
   CUDA_CHECK(cudaFree(d_array));
 
   fprintf(stdout, "%s", "Execution completed successfully\n");
+  return 0;
 }
