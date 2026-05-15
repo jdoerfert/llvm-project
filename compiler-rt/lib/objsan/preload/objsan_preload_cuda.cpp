@@ -59,6 +59,11 @@ void __objsan_setup_status_kernel(__objsan::StatusTy *Status) {
   __objsan_setup_status(Status);
 }
 
+using CtorFn = void (*)(void);
+
+__attribute__((weak)) extern CtorFn __start___objsan_cuda_ctor;
+__attribute__((weak)) extern CtorFn __stop___objsan_cuda_ctor;
+
 }; // extern "C"
 
 namespace {
@@ -134,6 +139,21 @@ void *launchUnregisterKernel(void *VPtr) {
   DPRINTF("%s unregistered mptr %p vptr %p\n", InfoPrefix, MPtr, VPtr);
 
   return MPtr;
+}
+
+void runDeviceConstructors() {
+  if (&__start___objsan_cuda_ctor != nullptr) {
+    // TODO Do we need to run the ctors on all devices?
+    DPRINTF("Found cuda ctors at %p to %p\n", &__start___objsan_cuda_ctor,
+            &__stop___objsan_cuda_ctor);
+    for (CtorFn *Ctor = &__start___objsan_cuda_ctor,
+                *E = &__stop___objsan_cuda_ctor;
+         Ctor != E; ++Ctor) {
+      DPRINTF("Calling device ctor %p\n", Ctor);
+      CUDA_CHECK(cudaLaunchKernel((const void *)*Ctor, dim3(1), dim3(1), nullptr, 0, nullptr));
+      CUDA_CHECK(cudaDeviceSynchronize());
+    }
+  }
 }
 
 } // namespace
@@ -265,6 +285,8 @@ void initialize(__objsan::StatusTy **Status) {
 
   __objsan_setup_status_kernel<<<1, 1>>>(StatusDev);
   CUDA_CHECK(cudaDeviceSynchronize());
+
+  runDeviceConstructors();
 }
 
 void finalize(__objsan::StatusTy *Status) {
@@ -275,26 +297,5 @@ void finalize(__objsan::StatusTy *Status) {
 } // namespace impl
 } // namespace objsan
 
-#if 0
 namespace {
-__attribute__((constructor(1000))) void __objsan_cuda_ctor_init() {
-  if (&__start___objsan_cuda_ctor != nullptr) {
-    // TODO Do we need to run the ctors on all devices?
-    DPRINTF("Found cuda ctors at %p to %p\n", &__start___objsan_cuda_ctor,
-            &__stop___objsan_cuda_ctor);
-    for (CtorFn *Ctor = &__start___objsan_cuda_ctor,
-                *E = &__stop___objsan_cuda_ctor;
-         Ctor != E; ++Ctor) {
-      DPRINTF("Calling device ctor at %p\n", Ctor);
-      CUDA_CHECK(cudaLaunchKernel((const void *)*Ctor, dim3(1), dim3(1), nullptr, 0, nullptr));
-#ifdef __OBJSAN_DEBUG__
-      CUDA_CHECK(cudaDeviceSynchronize());
-#endif
-    }
-#ifndef __OBJSAN_DEBUG__
-    CUDA_CHECK(cudaDeviceSynchronize());
-#endif
-  }
-}
 } // namespace
-#endif
