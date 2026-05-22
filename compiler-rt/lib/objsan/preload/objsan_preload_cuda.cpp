@@ -41,6 +41,7 @@ __device__ char *__objsan_register_object(char *MPtr, uint64_t ObjSize,
 __device__ void __objsan_free_object(char *VPtr);
 __device__ void *__objsan_decode(char *VPtr);
 __device__ void __objsan_setup_status(__objsan::StatusTy *Status);
+__device__ void __objsan_ctor(void);
 
 __attribute__((used)) __global__
 void __objsan_register_kernel(void **VPtr, void *MPtr, size_t Size) {
@@ -59,10 +60,16 @@ void __objsan_setup_status_kernel(__objsan::StatusTy *Status) {
   __objsan_setup_status(Status);
 }
 
-using CtorFn = void (*)(void);
+__attribute__((used)) __global__
+void __objsan_run_ctor_kernel(void) {
+  __objsan_ctor();
+}
 
+#if 0
+using CtorFn = void (*)(void);
 __attribute__((weak)) extern CtorFn __start___objsan_cuda_ctor;
 __attribute__((weak)) extern CtorFn __stop___objsan_cuda_ctor;
+#endif
 
 }; // extern "C"
 
@@ -141,7 +148,11 @@ void *launchUnregisterKernel(void *VPtr) {
   return MPtr;
 }
 
-void runDeviceConstructors() {
+void runDeviceCtors() {
+  __objsan_run_ctor_kernel<<<1, 1>>>();
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+#if 0
   if (&__start___objsan_cuda_ctor != nullptr) {
     // TODO Do we need to run the ctors on all devices?
     DPRINTF("Found cuda ctors at %p to %p\n", &__start___objsan_cuda_ctor,
@@ -154,6 +165,7 @@ void runDeviceConstructors() {
       CUDA_CHECK(cudaDeviceSynchronize());
     }
   }
+#endif
 }
 
 } // namespace
@@ -286,7 +298,7 @@ void initialize(__objsan::StatusTy **Status) {
   __objsan_setup_status_kernel<<<1, 1>>>(StatusDev);
   CUDA_CHECK(cudaDeviceSynchronize());
 
-  runDeviceConstructors();
+  runDeviceCtors();
 }
 
 void finalize(__objsan::StatusTy *Status) {

@@ -1207,6 +1207,7 @@ void CGNVCUDARuntime::createOffloadingEntries() {
 
   llvm::Module &M = CGM.getModule();
 
+#if 0
   // Realistically this should be only enabled if objsan is on for cuda device
   // for the current gpu module. However, even when it is not on generating the
   // entry does not seem to break anything because the __cudaRegisterFunction
@@ -1231,6 +1232,7 @@ void CGNVCUDARuntime::createOffloadingEntries() {
                                           /*Flags=*/0,
                                           llvm::offloading::OffloadGlobalEntry);
   }
+#endif
 
   for (KernelInfo &I : EmittedKernels)
     llvm::offloading::emitOffloadingEntry(

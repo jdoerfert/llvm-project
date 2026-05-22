@@ -42,6 +42,7 @@ __objsan_register_object(char *MPtr, uint64_t ObjSize,
 __device__ void __objsan_free_object(char *VPtr);
 __device__ void *__objsan_decode(char *VPtr);
 __device__ void __objsan_setup_status(__objsan::StatusTy *Status);
+__device__ void __objsan_ctor(void);
 
 __attribute__((used)) __global__
 void __objsan_register_kernel(void **VPtr, void *MPtr, size_t Size) {
@@ -58,6 +59,11 @@ void __objsan_unregister_kernel(void **MPtr, void *VPtr) {
 __attribute__((used)) __global__
 void __objsan_setup_status_kernel(__objsan::StatusTy *Status) {
   __objsan_setup_status(Status);
+}
+
+__attribute__((used)) __global__
+void __objsan_run_ctor_kernel(void) {
+  __objsan_ctor();
 }
 
 }; // extern "C"
@@ -130,6 +136,11 @@ void *launchUnregisterKernel(void *VPtr) {
   DPRINTF("%s unregistered mptr %p vptr %p\n", InfoPrefix, MPtr, VPtr);
 
   return MPtr;
+}
+
+void runDeviceCtors() {
+  __objsan_run_ctor_kernel<<<1, 1>>>();
+  HIP_CHECK(hipDeviceSynchronize());
 }
 
 } // namespace
@@ -261,6 +272,8 @@ void initialize(__objsan::StatusTy **Status) {
 
   __objsan_setup_status_kernel<<<1, 1>>>(StatusDev);
   HIP_CHECK(hipDeviceSynchronize());
+
+  runDeviceCtors();
 }
 
 void finalize(__objsan::StatusTy *Status) {

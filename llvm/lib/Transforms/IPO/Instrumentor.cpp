@@ -632,7 +632,7 @@ static std::string sanitizeGlobalName(std::string Name, Triple TT) {
 }
 
 static bool supportsSectionStartEnd(Triple TT) {
-  return !(TT.isNVPTX() || TT.isAppleMachO());
+  return !(TT.isNVPTX() || TT.isAMDGPU() || TT.isAppleMachO());
 }
 
 static bool shouldAddToCtorsDtors(Triple TT) { return TT.isAppleMachO(); }
@@ -652,8 +652,19 @@ bool InstrumentorImpl::instrumentModule() {
   Triple TT(M.getTargetTriple());
   auto CreateYtor = [&](bool Ctor) {
     auto Name = IConf.getRTName(Ctor ? "ctor" : "dtor", "");
-    Function *YtorFn = Function::Create(FunctionType::get(IIRB.VoidTy, false),
-                                        GlobalValue::PrivateLinkage, Name, M);
+
+    Function *YtorFn = M.getFunction(Name);
+    if (!YtorFn) {
+      YtorFn = Function::Create(FunctionType::get(IIRB.VoidTy, false),
+                                GlobalValue::PrivateLinkage, Name, M);
+    } else if (YtorFn->isDeclaration()) {
+      // Remove possible debug information added in the declaration.
+      YtorFn->setSubprogram(nullptr);
+    } else {
+      errs() << "ERROR: Ctor/dtor " << Name << " found but not a declaration\n";
+      llvm_unreachable("unsupported case for ctor/dtor");
+    }
+
     auto *GV = new GlobalVariable(
         M, YtorFn->getType(), true, GlobalValue::ExternalLinkage, YtorFn,
         sanitizeGlobalName(
@@ -675,8 +686,13 @@ bool InstrumentorImpl::instrumentModule() {
         appendToGlobalDtors(M, YtorFn, 1000);
     }
 
+#if 0
     if (TT.isNVPTX())
       YtorFn->setCallingConv(CallingConv::PTX_Kernel);
+    if (TT.isAMDGPU())
+      YtorFn->setCallingConv(CallingConv::AMDGPU_KERNEL);
+#endif
+
     return YtorFn;
   };
 
