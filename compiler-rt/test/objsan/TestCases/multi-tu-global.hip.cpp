@@ -1,17 +1,17 @@
-// RUN: %clang_objsan_cuda_compile -O2 -DCONF1 -c %s -o %t.o
-// RUN: %clang_objsan_cuda_compile -O2 -DCONF1 -c %S/multi-tu-global.cuda-aux.cu -o %t.2.o
-// RUN: %clang_objsan_cuda_link %t.2.o %t.o %clang_objsan_cuda_post_link -o %t.a.out
+// RUN: %clang_objsan_hip_compile -O2 -DCONF1 -c %s -o %t.o
+// RUN: %clang_objsan_hip_compile -O2 -DCONF1 -c %S/multi-tu-global.hip-aux.cpp -o %t.2.o
+// RUN: %clang_objsan_hip_link %t.2.o %t.o %clang_objsan_hip_post_link -o %t.a.out
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF1
 // CONF1: s bad
 
-// RUN: %clang_objsan_cuda_compile -O2 -DCONF2 -c %s -o %t.o
-// RUN: %clang_objsan_cuda_compile -O2 -DCONF2 -c %S/multi-tu-global.cuda-aux.cu -o %t.2.o
-// RUN: %clang_objsan_cuda_link %t.2.o %t.o %clang_objsan_cuda_post_link -o %t.a.out
+// RUN: %clang_objsan_hip_compile -O2 -DCONF2 -c %s -o %t.o
+// RUN: %clang_objsan_hip_compile -O2 -DCONF2 -c %S/multi-tu-global.hip-aux.cpp -o %t.2.o
+// RUN: %clang_objsan_hip_link %t.2.o %t.o %clang_objsan_hip_post_link -o %t.a.out
 // RUN: %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF2
 // CONF2: Execution completed successfully
 
 #include "common.h"
-#include "common.cuda.h"
+#include "common.hip.h"
 
 __device__ int global[10];
 
@@ -42,17 +42,17 @@ int run_test(int argc, char **argv) {
   const int size = 10;
   int *d_array;
 
-  CUDA_CHECK(cudaMalloc((void **)&d_array, size * sizeof(int)));
+  HIP_CHECK(hipMalloc((void **)&d_array, size * sizeof(int)));
 
   call_kernel(d_array, size);
-  CUDA_CHECK(cudaPeekAtLastError());
-  CUDA_CHECK(cudaDeviceSynchronize());
+  HIP_CHECK(hipPeekAtLastError());
+  HIP_CHECK(hipDeviceSynchronize());
 
   call_kernel2(d_array, size);
-  CUDA_CHECK(cudaPeekAtLastError());
-  CUDA_CHECK(cudaDeviceSynchronize());
+  HIP_CHECK(hipPeekAtLastError());
+  HIP_CHECK(hipDeviceSynchronize());
 
-  CUDA_CHECK(cudaFree(d_array));
+  HIP_CHECK(hipFree(d_array));
 
   fprintf(stdout, "%s", "Execution completed successfully\n");
   return 0;
