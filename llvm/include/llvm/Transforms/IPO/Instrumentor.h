@@ -1862,7 +1862,7 @@ struct FunctionIO : public InstrumentationOpportunity {
     ConfigTy(bool Enable = true) : BaseConfigTy(Enable) {}
   } Config;
 
-  StringRef getName() const override { return "function"; }
+  virtual StringRef getName() const override { return "function"; }
 
   void init(InstrumentationConfig &IConf, LLVMContext &Ctx,
             ConfigTy *UserConfig = nullptr) {

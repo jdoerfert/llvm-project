@@ -320,6 +320,12 @@ void __objsan_free_alloca(char *__restrict VPtr) {
 }
 
 OBJSAN_SMALL_API_ATTRS
+void __objsan_pre_kernel_function() {}
+
+OBJSAN_SMALL_API_ATTRS
+void __objsan_post_kernel_function() {}
+
+OBJSAN_SMALL_API_ATTRS
 void __objsan_post_function(int32_t NumAllocas,
                             char *__restrict *__restrict Allocas) {
   // PRINTF("%s start\n", __PRETTY_FUNCTION__);

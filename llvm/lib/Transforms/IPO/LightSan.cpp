@@ -2647,6 +2647,44 @@ struct ExtendedFunctionIO : public FunctionIO {
   }
 };
 
+struct KernelFunctionIO : public FunctionIO {
+  KernelFunctionIO(bool IsPRE) : FunctionIO(IsPRE) {}
+  virtual ~KernelFunctionIO() {};
+
+  StringRef getName() const override { return "kernel_function"; }
+
+  void init(InstrumentationConfig &IConf, InstrumentorIRBuilderTy &IIRB) {
+    FunctionIO::ConfigTy FCConfig(/*Enable=*/false);
+    FunctionIO::init(IConf, IIRB.Ctx, &FCConfig);
+  }
+
+  Value *instrument(Value *&V, InstrumentationConfig &IConf,
+                    InstrumentorIRBuilderTy &IIRB,
+                    InstrumentationCaches &ICaches) override {
+    if (isa<UnreachableInst>(V))
+      return nullptr;
+
+    auto *CI = FunctionIO::instrument(V, IConf, IIRB, ICaches);
+    ICaches.DirectArgCache.clear();
+    ICaches.IndirectArgCache.clear();
+    return CI;
+  }
+
+  static void populate(InstrumentationConfig &IConf,
+                       InstrumentorIRBuilderTy &IIRB) {
+    auto &LSIConf = static_cast<LightSanInstrumentationConfig &>(IConf);
+    for (auto IsPRE : {true, false}) {
+      auto *KFIO = IConf.allocate<KernelFunctionIO>(IsPRE);
+      KFIO->CB = [](Value &V) {
+        auto FuncCC = (cast<Function>(V)).getCallingConv();
+        return FuncCC == llvm::CallingConv::AMDGPU_KERNEL ||
+               FuncCC == llvm::CallingConv::PTX_Kernel;
+      };
+      KFIO->init(IConf, IIRB);
+    }
+  }
+};
+
 struct ExtendedICmpIO : public ICmpIO {
   ExtendedICmpIO() : ICmpIO(/*IsPRE*/ false) {}
   virtual ~ExtendedICmpIO() {};
@@ -3256,6 +3294,7 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
   ExtendedLoopValueRangeIO::populate(*this, IIRB);
   ExtendedAllocaIO::populate(*this, IIRB);
   ExtendedFunctionIO::populate(*this, IIRB);
+  KernelFunctionIO::populate(*this, IIRB);
   ExtendedGlobalIO::populate(*this, IIRB);
   ExtendedICmpIO::populate(*this, IIRB);
   ExtendedVAArgIO::populate(*this, IIRB);
