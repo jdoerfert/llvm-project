@@ -28,13 +28,15 @@ int main(int argc, char **argv) {
   const int n = (argc == 1) ? 10 : 9;
 
   int *d_array;
-  CUDA_CHECK(cudaMalloc((void**)&d_array, size * sizeof(int)));
+  CUDA_CHECK(cudaMalloc((void **)&d_array, size * sizeof(int)));
 
   kernel<<<1, 1>>>(d_array, size, n);
   CUDA_CHECK(cudaPeekAtLastError());
   CUDA_CHECK(cudaDeviceSynchronize());
 
   CUDA_CHECK(cudaFree(d_array));
+
+  fprintf(stdout, "Execution completed successfully\n");
 
   __objsan_rt_deinit();
 }

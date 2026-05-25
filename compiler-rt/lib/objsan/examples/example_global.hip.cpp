@@ -13,30 +13,40 @@
         }                                                                      \
     } while (0)
 
+__device__ int array_index;
+
 __device__ void func(int *array, int size, int n) {
   array[n] = 200; // NOTE: Should trigger an error
 }
 
-__global__ void kernel(int *array, int size, int n) {
-  func(array, size, n);
+__global__ void access_kernel(int *array, int size, int n) {
+  func(array, size, array_index);
+}
+
+__global__ void index_kernel(int n) {
+  array_index = n;
 }
 
 int main(int argc, char **argv) {
   __objsan_rt_init();
 
   const int size = 10;
-  const int n = (argc == 1) ? 10 : 9;
+  const int n = (argc > 1) ? std::atoi(argv[1]) : 0;
 
   int *d_array;
   HIP_CHECK(hipMalloc((void **)&d_array, size * sizeof(int)));
 
-  kernel<<<1, 1>>>(d_array, size, n);
+  index_kernel<<<1, 1>>>(n);
+  HIP_CHECK(hipPeekAtLastError());
+  HIP_CHECK(hipDeviceSynchronize());
+
+  access_kernel<<<1, 1>>>(d_array, size, n);
   HIP_CHECK(hipPeekAtLastError());
   HIP_CHECK(hipDeviceSynchronize());
 
   HIP_CHECK(hipFree(d_array));
 
-  fprintf(stdout, "%s", "Execution completed successfully\n");
+  fprintf(stdout, "Execution completed successfully\n");
 
   __objsan_rt_deinit();
 }

@@ -8,11 +8,18 @@ OBJSAN_IR_CXXFLAGS=
 
 RT_OBJS=objsan_ir_rt.o objsan_rt.o
 PL_OBJS=objsan_preload.o objsan_preload_cuda.o
-OBJS=$(RT_OBJS) $(PL_OBJS) example.cuda.o
+
+EXAMPLE_SRCS = $(wildcard examples/example*.cuda.cpp)
+EXAMPLE_BINS = $(patsubst examples/%.cpp,%,$(EXAMPLE_SRCS))
+EXAMPLE_OBJS = $(patsubst %,%.o,$(EXAMPLE_BINS))
+
+.SECONDARY: $(EXAMPLE_OBJS)
+
+OBJS=$(RT_OBJS) $(PL_OBJS) $(EXAMPLE_OBJS)
 
 PL_LIB=libobjsan_preload_cuda.a
 
-all: $(PL_LIB) example.cuda
+all: $(PL_LIB) $(EXAMPLE_BINS)
 
 objsan_preload.o: preload/objsan_preload.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fPIC $< -c -o $@
@@ -29,14 +36,14 @@ objsan_rt.o: objsan_rt.cpp
 libobjsan_preload_cuda.a: $(PL_OBJS) $(RT_OBJS)
 	$(CXX) -I$(CUDA_HOME)/include --emit-static-lib -foffload-lto --offload-arch=$(GPUARCH) $(PL_OBJS) -o $@
 
-example.cuda.o: examples/example.cuda.cpp
+%.cuda.o: examples/%.cuda.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsanitize=object -mllvm -objsan-gpu-only=1 -mllvm -objsan-runtime-bitcode=objsan_ir_rt.bc -x cuda --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto $< -c -o $@
 
-example.cuda: example.cuda.o objsan_ir_rt.bc objsan_rt.o $(PL_LIB)
+%.cuda: %.cuda.o objsan_ir_rt.bc objsan_rt.o $(PL_LIB)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsanitize=object --offload-arch=$(GPUARCH) -fgpu-rdc -foffload-lto --offload-new-driver --offload-link -Xoffload-linker objsan_rt.o $< libobjsan_preload_cuda.a -o $@ -lcudart -L$(CUDA_HOME)/lib64
 
 objsan_ir_rt.bc: objsan_ir_rt.cpp
 	$(CXX) -D__OBJSAN_DEVICE__ $(CXXFLAGS) $(OBJSAN_IR_CXXFLAGS) --target=nvptx64-nvidia-unknown -march=$(GPUARCH) -nogpulib -nostdlibinc -fno-rtti -fno-exceptions -fconvergent-functions -Wno-unknown-cuda-version -c -emit-llvm $< -o $@
 
 clean:
-	rm -f $(OBJS) $(PL_LIB) example.cuda objsan_ir_rt.bc
+	rm -f $(OBJS) $(PL_LIB) $(EXAMPLE_BINS) objsan_ir_rt.bc
