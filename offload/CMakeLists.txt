@@ -301,6 +301,7 @@ add_subdirectory(docs)
 add_subdirectory(libomptarget)
 
 add_subdirectory(liboffload)
+add_subdirectory(languages)
 
 # Add tests.
 if(OFFLOAD_INCLUDE_TESTS)
