@@ -86,12 +86,10 @@ static constexpr char ObjsanRuntimeBitcodeFlag[] = "objsan_runtime_bitcode";
 static constexpr char ObjsanGPUOnlyFlag[] = "objsan_gpu_only";
 static constexpr char ObjsanCPUOnlyFlag[] = "objsan_cpu_only";
 static constexpr char ObjsanEnabledFlag[] = "sanitize_obj";
+static constexpr char ObjsanClosedWorldFlag[] = "objsan_closed_world";
 
 // Also in objsan_ir_rt.cpp
 static uint32_t MaxObjSizeForShadow = 64;
-
-// TODO: Make this a cmd line option
-static bool ClosedWorld = false;
 
 static cl::opt<std::string>
     ObjsanRuntimeBitcode("objsan-runtime-bitcode",
@@ -111,6 +109,9 @@ static cl::opt<bool> ObjsanUseAttributor("objsan-use-attributor",
 static cl::opt<bool> ObjsanSkipSafeObjs("objsan-use-skip-safe-objects",
                                         cl::desc("Use Attributor"),
                                         cl::init(false));
+static cl::opt<bool> ObjsanClosedWorld("objsan-closed-world",
+                                   cl::desc("Sanitize in closed world"),
+                                   cl::init(false));
 
 namespace {
 
@@ -136,7 +137,7 @@ struct LightSanImpl;
 /// Information cache collected from attributor.
 class AttributorInfoCache {
 public:
-  AttributorInfoCache(Attributor &A) : A(A) {}
+  AttributorInfoCache(Attributor &A, bool ClosedWorld) : A(A), ClosedWorld(ClosedWorld) {}
 
   Value *getSafeAccessObj(Instruction *I) const {
     return SafeAccesses.lookup(I);
@@ -328,12 +329,14 @@ private:
   DenseMap<Value *, CallInst *> RegisterCallsMap;
 
   Attributor &A;
+
+  bool ClosedWorld;
 };
 
 struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
   LightSanInstrumentationConfig(LightSanImpl &LSI, Module &M,
-                                StringRef RTBitcode);
+                                StringRef RTBitcode, bool ClosedWorld);
   virtual ~LightSanInstrumentationConfig() {}
 
   void initializeFunctionCallees(Module &M);
@@ -602,6 +605,8 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
 
   LightSanImpl &LSI;
 
+  bool ClosedWorld;
+
   FunctionCallee DecodeFC;
   FunctionCallee GetMPtrFC;
   FunctionCallee LVRFC;
@@ -611,10 +616,10 @@ struct LightSanInstrumentationConfig : public InstrumentationConfig {
 };
 
 struct LightSanImpl {
-  LightSanImpl(Module &M, ModuleAnalysisManager &MAM, StringRef RTBitcode)
+  LightSanImpl(Module &M, ModuleAnalysisManager &MAM, StringRef RTBitcode, bool ClosedWorld)
       : M(M), MAM(MAM),
         FAM(MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager()),
-        IConf(*this, M, RTBitcode), IIRB(M, FAM) {}
+        IConf(*this, M, RTBitcode, ClosedWorld), IIRB(M, FAM) {}
 
   bool instrument();
 
@@ -1133,7 +1138,7 @@ bool LightSanImpl::instrument() {
   }
 
   Attributor A(Functions, InfoCache, AC);
-  AttributorInfoCache Cache(A);
+  AttributorInfoCache Cache(A, IConf.ClosedWorld);
   IConf.AIC = &Cache;
   IConf.InlineRuntimeEagerly->setBool(false);
 
@@ -1756,8 +1761,8 @@ bool LightSanImpl::instrument() {
 }
 
 LightSanInstrumentationConfig::LightSanInstrumentationConfig(
-    LightSanImpl &Impl, Module &M, StringRef RTBitcode)
-    : InstrumentationConfig(), LSI(Impl) {
+    LightSanImpl &Impl, Module &M, StringRef RTBitcode, bool ClosedWorld)
+    : InstrumentationConfig(), LSI(Impl), ClosedWorld(ClosedWorld) {
   ReadConfig = false;
   RuntimePrefix->setString(LightSanRuntimePrefix);
   RuntimeStubsFile->setString("");
@@ -3350,8 +3355,8 @@ void LightSanInstrumentationConfig::populate(InstrumentorIRBuilderTy &IIRB) {
 }
 
 PreservedAnalyses run(Module &M, AnalysisManager<Module> &MAM,
-                      StringRef RTBitcode) {
-  LightSanImpl Impl(M, MAM, RTBitcode);
+                      StringRef RTBitcode, bool ClosedWorld) {
+  LightSanImpl Impl(M, MAM, RTBitcode, ClosedWorld);
   LLVM_DEBUG(dbgs() << "Running objsan\n");
 
   bool Changed = Impl.instrument();
@@ -3403,7 +3408,7 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
   case ThinOrFullLTOPhase::None:
     if ((ObjsanCPUOnly && IsGPU) || (ObjsanGPUOnly && IsCPU))
       return PreservedAnalyses::all();
-    return ::run(M, MAM, ObjsanRuntimeBitcode);
+    return ::run(M, MAM, ObjsanRuntimeBitcode, ObjsanClosedWorld);
 
   // clang does not reliably pass -mllvm arguments to the linking processes, so
   // we embed the options in the module, which will get picked up at link time.
@@ -3416,6 +3421,7 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
                     MDString::get(M.getContext(), ObjsanRuntimeBitcode));
     M.addModuleFlag(llvm::Module::Override, ObjsanCPUOnlyFlag, ObjsanCPUOnly);
     M.addModuleFlag(llvm::Module::Override, ObjsanGPUOnlyFlag, ObjsanGPUOnly);
+    M.addModuleFlag(llvm::Module::Override, ObjsanClosedWorldFlag, ObjsanClosedWorld);
     return PreservedAnalyses::all();
 
   case ThinOrFullLTOPhase::ThinLTOPostLink:
@@ -3435,12 +3441,15 @@ PreservedAnalyses LightSanPass::run(Module &M, AnalysisManager<Module> &MAM) {
                                           M.getModuleFlag(ObjsanGPUOnlyFlag))
                                           ->getValue())
                         ->isZero();
+    bool ClosedWorld = !cast<ConstantInt>(cast<ConstantAsMetadata>(
+                                          M.getModuleFlag(ObjsanClosedWorldFlag))
+                                          ->getValue())
+                        ->isZero();
+    StringRef RuntimeBitcode = cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))->getString();
 
     if ((CPUOnly && IsGPU) || (GPUOnly && IsCPU))
       return PreservedAnalyses::all();
-    return ::run(
-        M, MAM,
-        cast<MDString>(M.getModuleFlag(ObjsanRuntimeBitcodeFlag))->getString());
+    return ::run(M, MAM, RuntimeBitcode, ClosedWorld);
   }
   }
   llvm_unreachable("Unknown LTO phase.");
