@@ -28,10 +28,21 @@
 // RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF6
 // CONF6: l bad
 
+// RUN: %clang_objsan_cuda_compile -O2 -DCONF7 -c %s -o %t.o
+// RUN: %clang_objsan_cuda_link %t.o %clang_objsan_cuda_post_link -o %t.a.out
+// RUN: not %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF7
+// CONF7: s bad
+
+// RUN: %clang_objsan_cuda_compile -O2 -DCONF8 -c %s -o %t.o
+// RUN: %clang_objsan_cuda_link %t.o %clang_objsan_cuda_post_link -o %t.a.out
+// RUN: %t.a.out 2>&1 | FileCheck %s --check-prefix=CONF8
+// CONF8: Execution completed successfully
+
 #include "common.h"
 #include "common.cuda.h"
 
 static __device__ int global[10];
+static __device__ int array_index[2] = { 0, 0 };
 
 __attribute__((noinline)) __device__ void get(int *array) {
 #ifdef CONF1
@@ -52,12 +63,22 @@ __attribute__((noinline)) __device__ void get(int *array) {
 #ifdef CONF6
   array[0] = array[-1];
 #endif
+#ifdef CONF7
+  array[array_index[0]] = array[9];
+#endif
+#ifdef CONF8
+  array[array_index[1]] = array[9];
+#endif
 }
 
-__global__ void kernel(int *array, int size) {
+__global__ void access_kernel(int *array, int size) {
   get(global);
   __syncthreads();
   array[0] = global[0];
+}
+
+__global__ void index_kernel(int index, int value) {
+  array_index[index] = value;
 }
 
 OBJSAN_TEST_MAIN(run_test)
@@ -68,7 +89,10 @@ int run_test(int argc, char **argv) {
 
   CUDA_CHECK(cudaMalloc((void **)&d_array, size * sizeof(int)));
 
-  kernel<<<1, 1>>>(d_array, size);
+  index_kernel<<<1, 1>>>(0, size);
+  index_kernel<<<1, 1>>>(1, size-1);
+
+  access_kernel<<<1, 1>>>(d_array, size);
   CUDA_CHECK(cudaPeekAtLastError());
   CUDA_CHECK(cudaDeviceSynchronize());
 
